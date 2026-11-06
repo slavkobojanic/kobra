@@ -440,6 +440,7 @@ dependencies = [
  "clap",
  "k_corpus",
  "k_diagnostics",
+ "k_sema",
  "k_syntax",
 ]
 
@@ -452,6 +453,7 @@ name = "k_corpus"
 version = "0.1.0"
 dependencies = [
  "k_diagnostics",
+ "k_sema",
  "k_syntax",
  "libtest-mimic",
 ]
@@ -474,6 +476,14 @@ version = "0.1.0"
 [[package]]
 name = "k_sema"
 version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "criterion",
+ "k_diagnostics",
+ "k_syntax",
+ "proptest",
+ "rowan",
+]
 
 [[package]]
 name = "k_server"

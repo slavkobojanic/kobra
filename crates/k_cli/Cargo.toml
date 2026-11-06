@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 k_diagnostics.workspace = true
 k_syntax.workspace = true
+k_sema.workspace = true
 # The golden-file formats (`.diag` rendering for `k debug diag`). Only the
 # library part is used; it has no test-only dependencies.
 k_corpus.workspace = true

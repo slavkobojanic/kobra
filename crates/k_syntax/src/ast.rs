@@ -122,7 +122,8 @@ ast_nodes! {
     PatternField, TuplePattern,
     StyleRule, Selector, CompoundSelector, ClassSelector, NestingSelector, PseudoClass,
     PseudoElement, AttributeSelector, UniversalSelector, TypeSelector, AtRule, AtPrelude,
-    MediaFeature, Declaration, CssValue, CssFunction,
+    MediaFeature, KeyframesRule, KeyframeBlock, KeyframeSelector, Declaration, CssValue,
+    CssFunction,
     ErrorNode,
 }
 
@@ -207,7 +208,7 @@ ast_enum! {
 
 ast_enum! {
     /// An item inside a style block or style rule.
-    CssItem { StyleRule, AtRule, Declaration }
+    CssItem { StyleRule, AtRule, KeyframesRule, Declaration }
 }
 
 ast_enum! {
@@ -981,6 +982,98 @@ impl StyleRule {
     #[must_use]
     pub fn items(&self) -> AstChildren<CssItem> {
         support::children(&self.syntax)
+    }
+}
+
+impl UseDecl {
+    /// Returns the operand before `for` when it is a type (`use FakeApi for
+    /// Api`).
+    #[must_use]
+    pub fn implementation(&self) -> Option<Type> {
+        self.before_for().find_map(Type::cast)
+    }
+
+    /// Returns the operand before `for` when it is an expression: a value
+    /// bound to a config in a test body (`use Config.sample for Config`).
+    #[must_use]
+    pub fn value(&self) -> Option<Expr> {
+        self.before_for().find_map(Expr::cast)
+    }
+
+    /// Returns the type after `for`.
+    #[must_use]
+    pub fn target(&self) -> Option<Type> {
+        self.after_for().find_map(Type::cast)
+    }
+
+    /// Returns the environments after `in` (`.production`, `.test`), in
+    /// source order.
+    #[must_use]
+    pub fn environments(&self) -> Vec<Expr> {
+        self.after_for().filter_map(Expr::cast).collect()
+    }
+
+    /// Returns `true` if the declaration has a `for` keyword.
+    fn has_for(&self) -> bool {
+        support::token(&self.syntax, SyntaxKind::ForKw).is_some()
+    }
+
+    /// The child nodes before the `for` token (all of them without one).
+    fn before_for(&self) -> impl Iterator<Item = SyntaxNode> {
+        self.syntax
+            .children_with_tokens()
+            .take_while(|e| e.kind() != SyntaxKind::ForKw)
+            .filter_map(rowan::NodeOrToken::into_node)
+    }
+
+    /// The child nodes after the `for` token (none without one).
+    fn after_for(&self) -> impl Iterator<Item = SyntaxNode> {
+        let has_for = self.has_for();
+        self.syntax
+            .children_with_tokens()
+            .skip_while(|e| e.kind() != SyntaxKind::ForKw)
+            .skip(usize::from(has_for))
+            .filter_map(rowan::NodeOrToken::into_node)
+            .filter(move |_| has_for)
+    }
+}
+
+impl KeyframesRule {
+    /// Returns the name token (`fade` in `@keyframes fade { ... }`).
+    #[must_use]
+    pub fn name(&self) -> Option<SyntaxToken> {
+        support::tokens(&self.syntax)
+            .filter(|t| t.kind() == SyntaxKind::Ident)
+            .nth(1)
+    }
+
+    /// Returns the keyframe blocks, in source order.
+    #[must_use]
+    pub fn blocks(&self) -> AstChildren<KeyframeBlock> {
+        support::children(&self.syntax)
+    }
+}
+
+impl KeyframeBlock {
+    /// Returns the comma-separated selectors (`from`, `50%`, `to`).
+    #[must_use]
+    pub fn selectors(&self) -> AstChildren<KeyframeSelector> {
+        support::children(&self.syntax)
+    }
+
+    /// Returns the items of the block; valid ones are declarations.
+    #[must_use]
+    pub fn items(&self) -> AstChildren<CssItem> {
+        support::children(&self.syntax)
+    }
+}
+
+impl KeyframeSelector {
+    /// Returns the selector token: an `Ident` (`from`, `to`) or a `UnitLit`
+    /// (`50%`).
+    #[must_use]
+    pub fn token(&self) -> Option<SyntaxToken> {
+        support::tokens(&self.syntax).next()
     }
 }
 

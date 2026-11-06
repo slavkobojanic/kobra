@@ -1,0 +1,6 @@
+// The declared type must be the category's type: `space md: Length` is K3305 with
+// a machine-applicable fix to `Spacing`.
+theme Tokens {
+    space md: Length = 16px
+    radius md: Radius = 8px
+}

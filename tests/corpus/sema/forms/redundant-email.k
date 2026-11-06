@@ -1,0 +1,8 @@
+import k.text.EmailAddress
+import k.validation.Email
+import k.validation.Validatable
+
+struct Contact implements Validatable {
+    @Email var email: EmailAddress
+    @Email var backup: String
+}

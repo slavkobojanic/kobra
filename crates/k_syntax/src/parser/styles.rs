@@ -502,8 +502,13 @@ fn attribute_selector(p: &mut Parser<'_>) {
 
 // --------------------------------------------------------------- at-rules
 
-/// `AtRule ::= '@' IDENT AtPrelude? ( '{' css_item* '}' | ';' )`
+/// `AtRule ::= '@' IDENT AtPrelude? ( '{' css_item* '}' | ';' )`, or a
+/// [`keyframes_rule`] when the name is `keyframes`, directly after the `@`.
 fn at_rule(p: &mut Parser<'_>) {
+    if p.nth_is_word(1, "keyframes") && p.nth_joined(1) {
+        keyframes_rule(p);
+        return;
+    }
     let m = p.start();
     p.bump();
     if p.at(K::Ident) {
@@ -554,4 +559,103 @@ fn media_feature(p: &mut Parser<'_>) {
     }
     close_paren(p, open);
     m.complete(p, K::MediaFeature);
+}
+
+// -------------------------------------------------------------- keyframes
+
+/// Returns `true` if the current token can start a keyframe selector.
+fn at_keyframe_selector(p: &Parser<'_>) -> bool {
+    matches!(p.current(), K::Ident | K::UnitLit)
+}
+
+/// `KeyframesRule ::= '@' 'keyframes' IDENT '{' KeyframeBlock* '}'`, at the
+/// `@`. The lexer makes `from` and `to` selectors inside it (grammar.md
+/// §4.4).
+fn keyframes_rule(p: &mut Parser<'_>) {
+    let m = p.start();
+    p.bump();
+    p.bump();
+    if p.at(K::Ident) {
+        p.bump();
+    } else {
+        p.expected_token("a name for the keyframes");
+    }
+    if p.at(K::LBrace) {
+        let open = p.current_range();
+        p.bump();
+        if p.enter() {
+            keyframe_blocks(p, open);
+            p.leave();
+        }
+    } else {
+        p.expected_token("`{` to open the keyframes");
+    }
+    m.complete(p, K::KeyframesRule);
+}
+
+/// The keyframe blocks of a `@keyframes` rule after its `{`, through the
+/// closing `}`.
+fn keyframe_blocks(p: &mut Parser<'_>, open: TextRange) {
+    loop {
+        if p.eat(K::RBrace) {
+            return;
+        }
+        if p.at_eof() {
+            p.unclosed(open);
+            return;
+        }
+        let before = p.position();
+        match p.current() {
+            K::Semicolon => p.bump(),
+            K::Error => {
+                p.eat_error_tokens();
+            }
+            _ if at_keyframe_selector(p) => keyframe_block(p),
+            _ => {
+                p.expected_token("a keyframe selector: `from`, `to` or a percentage");
+                p.skip_until(|p| at_keyframe_selector(p) || p.at(K::RBrace));
+            }
+        }
+        if p.position() == before {
+            p.skip_until(|_| true);
+        }
+    }
+}
+
+/// `KeyframeBlock ::= KeyframeSelector ( ',' KeyframeSelector )* '{' css_item* '}'`
+/// and `KeyframeSelector ::= IDENT | UNIT_LIT`. Which selectors and items
+/// are valid is checked by semantic analysis.
+fn keyframe_block(p: &mut Parser<'_>) {
+    let m = p.start();
+    loop {
+        if at_keyframe_selector(p) {
+            let selector = p.start();
+            p.bump();
+            selector.complete(p, K::KeyframeSelector);
+        } else {
+            p.expected_token("a keyframe selector: `from`, `to` or a percentage");
+        }
+        if !p.eat(K::Comma) {
+            break;
+        }
+    }
+    if p.at(K::LBrace) {
+        let open = p.current_range();
+        p.bump();
+        if p.enter() {
+            css_items(p, open, false);
+            p.leave();
+        }
+    } else {
+        p.expected_token("`{` to open the keyframe");
+        // Skip to the end of the statement, or to a selector that starts the
+        // next line.
+        let stop = |p: &Parser<'_>| {
+            p.at(K::RBrace) || p.at(K::Semicolon) || (at_keyframe_selector(p) && p.on_new_line())
+        };
+        if !stop(p) && !p.at(EOF) {
+            p.skip_until(stop);
+        }
+    }
+    m.complete(p, K::KeyframeBlock);
 }

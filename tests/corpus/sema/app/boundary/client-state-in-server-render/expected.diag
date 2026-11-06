@@ -1,0 +1,3 @@
+warning[K4013] src/todos/Todos.k:6:18-6:29
+  fix "Add `@Rendering(.client)` to the app" maybe-incorrect
+    edit App.k:3:1-3:1 "@Rendering(.client)\n"

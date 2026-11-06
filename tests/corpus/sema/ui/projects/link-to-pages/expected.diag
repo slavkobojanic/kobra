@@ -1,0 +1,4 @@
+error[K2006] src/home/Home.k:8:19-8:24
+  fix "Replace with `about`" maybe-incorrect
+    edit src/home/Home.k:8:19-8:24 "about"
+error[K2004] src/home/Home.k:9:26-9:29

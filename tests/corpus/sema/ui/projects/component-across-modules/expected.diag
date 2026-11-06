@@ -1,0 +1,6 @@
+error[K3016] src/shop/Cart.k:16:24-16:32
+  fix "Insert `bind `"
+    edit src/shop/Cart.k:16:24-16:24 "bind "
+error[K3103] src/shop/Cart.k:18:14-18:17
+  fix "Replace `stp` with `step`" maybe-incorrect
+    edit src/shop/Cart.k:18:14-18:17 "step"

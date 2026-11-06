@@ -1,0 +1,11 @@
+// `@Email` on an `EmailAddress` field is redundant: the fix removes it, or turns its message into
+// `@Format(message:)`. On a `String` it is the check.
+import k.text.EmailAddress
+import k.validation.Email
+import k.validation.Validatable
+
+struct Contact implements Validatable {
+    @Email var email: EmailAddress
+    @Email(message: "Enter a valid address") var backup: EmailAddress
+    @Email var legacy: String
+}

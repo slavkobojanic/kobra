@@ -1,0 +1,3 @@
+error[K2006] 8:21-8:25
+  fix "Replace with `green`" maybe-incorrect
+    edit 8:21-8:25 "green"

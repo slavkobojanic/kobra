@@ -1,0 +1,4 @@
+error[K3205] 15:34-15:38
+  fix "Replace `fdae` with `fade`" maybe-incorrect
+    edit 15:34-15:38 "fade"
+warning[K3206] 10:20-10:24

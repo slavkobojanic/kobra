@@ -1,0 +1,4 @@
+# Bug: K2008 had no fix. Placeholder text is a proposal.
+error[K2008] 9:19-9:19
+  fix "Insert the missing arguments" maybe-incorrect
+    edit 9:19-9:19 ", y: <#Int#>"

@@ -1,0 +1,2 @@
+error[K2011] 8:5-8:15
+  label 3:5-3:8: declared with `let` here

@@ -1,0 +1,12 @@
+; The skipped `.` is an ErrorNode (punctuation is omitted from dumps). `a` is
+; then a keyframe selector without `{`; recovery stops at `to`, which starts
+; the next line.
+(SourceFile
+  (ComponentDecl component T
+    (MemberList
+      (StyleBlock style
+        (KeyframesRule keyframes fade
+          (ErrorNode)
+          (KeyframeBlock (KeyframeSelector a))
+          (KeyframeBlock (KeyframeSelector to) (Declaration opacity (CssValue (Literal 1)))))
+        (KeyframesRule keyframes x)))))

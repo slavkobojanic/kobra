@@ -1,0 +1,4 @@
+error[K2206] src/shop/Checkout.k:22:9-22:11
+error[K2201] src/shop/Checkout.k:30:16-30:41
+  fix "Insert `try ` before the expression"
+    edit src/shop/Checkout.k:30:16-30:16 "try "

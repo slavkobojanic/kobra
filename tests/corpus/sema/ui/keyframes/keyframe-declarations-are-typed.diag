@@ -1,0 +1,4 @@
+error[K3201] 11:20-11:26
+  fix "Replace `opacty` with `opacity`" maybe-incorrect
+    edit 11:20-11:26 "opacity"
+error[K3202] 12:27-12:30

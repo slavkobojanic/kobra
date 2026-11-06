@@ -889,10 +889,18 @@ fn case_fields(p: &mut Parser<'_>) {
     );
 }
 
-/// `UseDecl ::= 'use' Type 'for' Type ( 'in' Expr ( ',' Expr )* )?`
+/// `UseDecl ::= 'use' ( Type | Expr ) 'for' Type ( 'in' Expr ( ',' Expr )* )?`
+///
+/// The operand is an `Expr` exactly when [`use_operand_is_expr`] says so
+/// (grammar.md §9): a value bound to a config in a test body
+/// (`use Config(secret: s) for Config`, `use Config.sample for Config`).
 fn use_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump();
-    types::ty(p);
+    if use_operand_is_expr(p) {
+        expressions::required_expr(p);
+    } else {
+        types::ty(p);
+    }
     if p.eat(K::ForKw) {
         types::ty(p);
     } else {
@@ -908,6 +916,45 @@ fn use_decl(p: &mut Parser<'_>, m: Marker) {
         }
     }
     m.complete(p, K::UseDecl);
+}
+
+/// Decides whether the operand of a `UseDecl` is an expression rather than a
+/// type (grammar.md §9, "The operand of `use`").
+///
+/// The operand is an expression when it cannot start a type but can start an
+/// expression (`.sample`, a literal), or when it starts with a dotted path of
+/// words `a.b.C.d` that
+///
+/// * is followed on the same line by `(` or `{` (a call: the memberwise
+///   initializer `Config(secret: s)`), or
+/// * has a segment after its first capitalized segment that is not a
+///   capitalized identifier (a member of a type: `Config.sample`).
+///
+/// Otherwise (`Fake`, `fakes.FakeApi`, `Repo<User>`, `(A)`) it is a type.
+/// The scan is bounded by the path it inspects, which the caller then
+/// consumes, so parsing stays linear.
+fn use_operand_is_expr(p: &Parser<'_>) -> bool {
+    match p.peek(0) {
+        K::Ident => {}
+        K::LParen | K::Error | EOF => return false,
+        _ => return expressions::can_start_expr(p),
+    }
+    let mut n = 0;
+    let mut seen_type = false;
+    loop {
+        let capitalized =
+            p.peek(n) == K::Ident && p.nth_text(n).starts_with(|c: char| c.is_ascii_uppercase());
+        if seen_type && !capitalized {
+            return true;
+        }
+        seen_type |= capitalized;
+        if p.peek(n + 1) == K::Dot && is_name_like(p.peek(n + 2)) && !p.nth_on_new_line(n + 1) {
+            n += 2;
+            continue;
+        }
+        let next = p.peek(n + 1);
+        return matches!(next, K::LParen | K::LBrace) && !p.nth_on_new_line(n + 1);
+    }
 }
 
 /// `ThemeToken ::= IDENT IDENT ':' Type '=' Expr`

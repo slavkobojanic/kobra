@@ -1,0 +1,3 @@
+error[K2308] 10:9-10:15
+  fix "Remove `return `"
+    edit 10:9-10:16 ""

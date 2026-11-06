@@ -1,0 +1,3 @@
+warning[K2012] 3:16-3:28
+  fix "Simplify to `done`"
+    edit 3:16-3:28 "done"

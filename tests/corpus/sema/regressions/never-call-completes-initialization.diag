@@ -1,0 +1,2 @@
+# Bug: K2306 at `return x`: the definite-initialization analysis didn't treat a
+# call returning `Never` as leaving the path. Expected: no diagnostics.

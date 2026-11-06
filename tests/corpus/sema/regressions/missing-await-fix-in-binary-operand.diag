@@ -1,0 +1,6 @@
+# Bug: the fix inserted `await ` before `fetch()` inside `first + fetch()`, which is
+# K0114 (`await` must start the expression it covers). It must insert it before the
+# operand expression of `return`.
+error[K2204] 10:20-10:27
+  fix "Insert `await `"
+    edit 10:12-10:12 "await "

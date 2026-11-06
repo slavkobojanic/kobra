@@ -1,0 +1,4 @@
+// `x == true` is a K2012 warning, fixed to `x`.
+func isOpen(done: Bool) -> Bool {
+    return done == true
+}

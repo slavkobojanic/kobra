@@ -27,7 +27,7 @@ public layout Dashboard {
         footer {
             text { "Weather data by " }
 
-            link(url: "https://open-meteo.com") { "Open-Meteo.com" }
+            link(url: Url("https://open-meteo.com")) { "Open-Meteo.com" }
 
             text { ", licensed under CC BY 4.0." }
         }

@@ -1,0 +1,3 @@
+# Bug: only components, layouts and pages counted as code that reaches the browser
+# (`di::reaches_client`), so server-only uses in functions they call were missed.
+error[K4007] 10:13-10:17

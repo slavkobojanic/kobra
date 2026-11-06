@@ -91,7 +91,7 @@ pub struct DebugArgs {
     /// What to print.
     #[arg(value_enum)]
     pub what: DebugWhat,
-    /// The `.k` file to inspect.
+    /// The `.k` file to inspect (for `sema`, also a project directory).
     pub file: PathBuf,
 }
 
@@ -104,4 +104,6 @@ pub enum DebugWhat {
     Ast,
     /// The lexer and parser diagnostics, in `.diag` format.
     Diag,
+    /// Every diagnostic of a `sema` corpus case (a `.k` file or a project directory), in `.diag` format.
+    Sema,
 }

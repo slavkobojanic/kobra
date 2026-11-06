@@ -1,0 +1,6 @@
+# Bug: K2206 had no note and no fix. Wording is a proposal; the contract is that
+# both exist and the fix appends a `catch` clause per missing case.
+error[K2206] 11:5-11:7
+  note: missing: `.notFound`
+  fix "Insert the missing `catch` clauses" maybe-incorrect
+    edit 14:6-14:6 " catch .notFound {\n    }"

@@ -1,0 +1,3 @@
+warning[K2012] 7:35-7:53
+  fix "Simplify to `not task.done`"
+    edit 7:35-7:53 "not task.done"

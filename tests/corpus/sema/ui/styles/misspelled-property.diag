@@ -1,0 +1,3 @@
+error[K3201] 10:17-10:23
+  fix "Replace `paddng` with `padding`" maybe-incorrect
+    edit 10:17-10:23 "padding"

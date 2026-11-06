@@ -1,0 +1,4 @@
+error[K2011] 4:5-4:10
+  label 3:5-3:8: declared with `let` here
+  fix "Change `let` to `var`" maybe-incorrect
+    edit 3:5-3:8 "var"

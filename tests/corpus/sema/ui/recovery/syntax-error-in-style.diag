@@ -1,0 +1,4 @@
+error[K0117] 11:25-11:25
+  help: every declaration except the last in its block ends with `;`
+  fix "Insert `;`"
+    edit 11:25-11:25 ";"

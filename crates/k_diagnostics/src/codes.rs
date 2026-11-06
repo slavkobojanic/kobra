@@ -11,8 +11,8 @@
 //! |---|---|
 //! | `K0001`–`K0099` | Lexer |
 //! | `K0100`–`K0499` | Parser |
-//! | `K1000`–`K1999` | Modules, imports, name resolution, visibility |
-//! | `K2000`–`K2999` | Types, expressions, control flow, errors |
+//! | `K1000`–`K1999` | Modules, imports, name resolution, visibility, doc comments |
+//! | `K2000`–`K2999` | Types, expressions, effects, control flow, errors |
 //! | `K3000`–`K3999` | Components, views, styles, themes, reactivity |
 //! | `K4000`–`K4999` | Services, dependency injection, layering, server/client boundary |
 //! | `K5000`–`K5499` | Pages and routing |
@@ -20,7 +20,7 @@
 //! | `K6000`–`K6999` | Persistence |
 //! | `K7000`–`K7499` | Forms and validation |
 //! | `K7500`–`K7999` | Tests |
-//! | `K8000`–`K8999` | Lockfiles and packages |
+//! | `K8000`–`K8999` | Lockfiles, manifest and packages |
 //! | `K9000`–`K9999` | Driver, I/O and internal errors |
 //!
 //! The registry below is the source of truth; `docs/compiler/diagnostics.md`
@@ -248,6 +248,543 @@ codes! {
     /// Nesting deeper than the parser's limit.
     NESTING_TOO_DEEP = 134, "nesting-too-deep", Error,
         "Blocks, lists, expressions or style rules are nested deeper than the parser supports; the excess is skipped.";
+
+    // ---------------------------------------------------------------- project layout and files
+    /// A `.k` file is outside the places the project layout allows: `App.k`, `src/<module>/` and `migrations/`.
+    STRAY_SOURCE_FILE = 1001, "stray-source-file", Error,
+        "A `.k` file is outside the places the project layout allows: `App.k`, `src/<module>/` and `migrations/`.";
+    /// A file's public declaration must be named like the file.
+    PUBLIC_NAME_MISMATCH = 1002, "public-name-mismatch", Error,
+        "A file's public declaration must be named like the file.";
+    /// A file has at most one public declaration.
+    MULTIPLE_PUBLIC_DECLARATIONS = 1003, "multiple-public-declarations", Error,
+        "A file has at most one public declaration.";
+    /// Two declarations in one module have the same name.
+    DUPLICATE_DECLARATION = 1004, "duplicate-declaration", Error,
+        "Two declarations in one module have the same name.";
+    /// A declaration kind appears where the layout doesn't allow it, such as `app` outside `App.k` or `migration` outside `migrations/`.
+    MISPLACED_DECLARATION = 1005, "misplaced-declaration", Error,
+        "A declaration kind appears where the layout doesn't allow it, such as `app` outside `App.k` or `migration` outside `migrations/`.";
+
+    // ---------------------------------------------------------------- imports and the module graph
+    /// An import names a declaration that doesn't exist.
+    UNRESOLVED_IMPORT = 1101, "unresolved-import", Error,
+        "An import names a declaration that doesn't exist.";
+    /// An import names a declaration that isn't visible outside its module.
+    IMPORT_NOT_VISIBLE = 1102, "import-not-visible", Error,
+        "An import names a declaration that isn't visible outside its module.";
+    /// Modules import each other in a cycle.
+    IMPORT_CYCLE = 1103, "import-cycle", Error,
+        "Modules import each other in a cycle.";
+    /// Only test files and test-only modules may import from a `testing` module or from `k.test`.
+    TEST_ONLY_IMPORT = 1104, "test-only-import", Error,
+        "Only test files and test-only modules may import from a `testing` module or from `k.test`.";
+    /// An import is never used.
+    UNUSED_IMPORT = 1105, "unused-import", Warning,
+        "An import is never used.";
+    /// Two imports bring the same name into one file.
+    DUPLICATE_IMPORT = 1106, "duplicate-import", Error,
+        "Two imports bring the same name into one file.";
+
+    // ---------------------------------------------------------------- name resolution
+    /// A name doesn't refer to any local, parameter, member or declaration in scope.
+    UNRESOLVED_NAME = 1201, "unresolved-name", Error,
+        "A name doesn't refer to any local, parameter, member or declaration in scope.";
+    /// A type name doesn't refer to any visible type.
+    UNRESOLVED_TYPE = 1202, "unresolved-type", Error,
+        "A type name doesn't refer to any visible type.";
+    /// A type has no member with this name.
+    UNKNOWN_MEMBER = 1203, "unknown-member", Error,
+        "A type has no member with this name.";
+
+    // ---------------------------------------------------------------- visibility
+    /// A declaration or member is used where its visibility doesn't reach.
+    NOT_VISIBLE = 1301, "not-visible", Error,
+        "A declaration or member is used where its visibility doesn't reach.";
+    /// Members are visible wherever their type is, so `public` on a member is redundant.
+    REDUNDANT_PUBLIC_MEMBER = 1302, "redundant-public-member", Warning,
+        "Members are visible wherever their type is, so `public` on a member is redundant.";
+    /// `@Inject` fields are always private to their declaration.
+    PUBLIC_INJECT = 1303, "public-inject", Error,
+        "`@Inject` fields are always private to their declaration.";
+    /// An extension is `public` or visible in its module; it can't be `private`.
+    PRIVATE_EXTEND = 1304, "private-extend", Error,
+        "An extension is `public` or visible in its module; it can't be `private`.";
+    /// Two visible extensions add a member with the same name to one type.
+    CONFLICTING_EXTENSION_MEMBER = 1305, "conflicting-extension-member", Error,
+        "Two visible extensions add a member with the same name to one type.";
+
+    // ---------------------------------------------------------------- doc comments
+    /// An intra-doc link names nothing that resolves.
+    UNRESOLVED_DOC_LINK = 1901, "unresolved-doc-link", Warning,
+        "An intra-doc link names nothing that resolves.";
+
+    // ---------------------------------------------------------------- types and expressions
+    /// An expression's type doesn't match the type expected here.
+    TYPE_MISMATCH = 2001, "type-mismatch", Error,
+        "An expression's type doesn't match the type expected here.";
+    /// The type of an expression can't be inferred; write it out.
+    CANNOT_INFER = 2002, "cannot-infer", Error,
+        "The type of an expression can't be inferred; write it out.";
+    /// A call doesn't pass a required argument.
+    MISSING_ARGUMENT = 2003, "missing-argument", Error,
+        "A call doesn't pass a required argument.";
+    /// A call passes an argument label the callee doesn't declare.
+    UNKNOWN_ARGUMENT_LABEL = 2004, "unknown-argument-label", Error,
+        "A call passes an argument label the callee doesn't declare.";
+    /// The expression called is not a function, initializer or element.
+    NOT_CALLABLE = 2005, "not-callable", Error,
+        "The expression called is not a function, initializer or element.";
+    /// An implicit member `.name` doesn't exist on the expected type.
+    UNKNOWN_IMPLICIT_MEMBER = 2006, "unknown-implicit-member", Error,
+        "An implicit member `.name` doesn't exist on the expected type.";
+    /// An implicit member `.name` needs an expected type to resolve against.
+    IMPLICIT_MEMBER_WITHOUT_TYPE = 2007, "implicit-member-without-type", Error,
+        "An implicit member `.name` needs an expected type to resolve against.";
+    /// A memberwise initializer omits a field that has no default value.
+    MISSING_MEMBERWISE_FIELD = 2008, "missing-memberwise-field", Error,
+        "A memberwise initializer omits a field that has no default value.";
+    /// A generic argument doesn't implement the interface its `where` clause requires.
+    UNSATISFIED_CONSTRAINT = 2009, "unsatisfied-constraint", Error,
+        "A generic argument doesn't implement the interface its `where` clause requires.";
+    /// A type that implements an interface doesn't provide a required member.
+    MISSING_INTERFACE_MEMBER = 2010, "missing-interface-member", Error,
+        "A type that implements an interface doesn't provide a required member.";
+    /// A `let` binding or field can't be assigned or mutated.
+    ASSIGNMENT_TO_LET = 2011, "assignment-to-let", Error,
+        "A `let` binding or field can't be assigned or mutated.";
+    /// Comparing a `Bool` with `true` or `false` is redundant.
+    BOOL_LITERAL_COMPARISON = 2012, "bool-literal-comparison", Warning,
+        "Comparing a `Bool` with `true` or `false` is redundant.";
+    /// An operator is not defined for its operand types.
+    INVALID_OPERANDS = 2013, "invalid-operands", Error,
+        "An operator is not defined for its operand types, such as `==` on a type that isn't `Equatable`.";
+    /// `implements` names a type that is not an interface; K has no inheritance.
+    NOT_AN_INTERFACE = 2014, "not-an-interface", Error,
+        "`implements` names a struct, class, enum or built-in type; only interfaces can be implemented.";
+    /// A member meant to satisfy an interface requirement has another signature.
+    INTERFACE_MEMBER_MISMATCH = 2015, "interface-member-mismatch", Error,
+        "A member with a requirement's name has a different type or labels than the requirement.";
+    /// An extension declares a stored field.
+    STORED_FIELD_IN_EXTENSION = 2016, "stored-field-in-extension", Error,
+        "Extensions can add methods, computed properties and static members, but not stored fields.";
+    /// A member of an optional value is used without unwrapping it.
+    UNWRAP_REQUIRED = 2017, "unwrap-required", Error,
+        "A member of an optional value is used without `?.`, `if let`, `guard let` or `??`.";
+    /// `?.` or `??` is applied to a value that is not optional.
+    NEEDLESS_OPTIONAL_OPERATOR = 2018, "needless-optional-operator", Warning,
+        "`?.` or `??` is applied to a value that can't be `nil`.";
+    /// A declaration has two non-function members with the same name.
+    DUPLICATE_MEMBER = 2019, "duplicate-member", Error,
+        "Two fields, computed properties or cases of one declaration share a name (functions may be overloaded).";
+
+    // ---------------------------------------------------------------- units and number extensions
+    /// Arithmetic mixes values of different dimensions, such as a length and a duration.
+    MIXED_UNIT_DIMENSIONS = 2101, "mixed-unit-dimensions", Error,
+        "Arithmetic mixes values of different dimensions, such as a length and a duration.";
+
+    // ---------------------------------------------------------------- effects: async and throws
+    /// A call that can throw must be marked with `try`.
+    MISSING_TRY = 2201, "missing-try", Error,
+        "A call that can throw must be marked with `try`.";
+    /// `try` marks an expression that can't throw.
+    NEEDLESS_TRY = 2202, "needless-try", Warning,
+        "`try` marks an expression that can't throw.";
+    /// An error thrown here is neither caught nor declared by the enclosing function's `throws`.
+    UNHANDLED_ERROR = 2203, "unhandled-error", Error,
+        "An error thrown here is neither caught nor declared by the enclosing function's `throws`.";
+    /// An async call or a query must be awaited.
+    MISSING_AWAIT = 2204, "missing-await", Error,
+        "An async call or a query must be awaited.";
+    /// `await` is used outside an async function or handler.
+    AWAIT_OUTSIDE_ASYNC = 2205, "await-outside-async", Error,
+        "`await` is used outside an async function or handler.";
+    /// The `catch` clauses of a `do` don't handle every case of the thrown error.
+    CATCH_NOT_EXHAUSTIVE = 2206, "catch-not-exhaustive", Error,
+        "The `catch` clauses of a `do` don't handle every case of the thrown error.";
+
+    // ---------------------------------------------------------------- control flow
+    /// A `match` doesn't handle every value of its subject.
+    MATCH_NOT_EXHAUSTIVE = 2301, "match-not-exhaustive", Error,
+        "A `match` doesn't handle every value of its subject.";
+    /// A `match` arm, `catch` clause or `default` can never run.
+    UNREACHABLE_ARM = 2302, "unreachable-arm", Error,
+        "A `match` arm, `catch` clause or `default` can never run.";
+    /// A top-level `case _` arm is written `default`.
+    WILDCARD_CASE_ARM = 2303, "wildcard-case-arm", Error,
+        "A top-level `case _` arm is written `default`.";
+    /// A catch-all `case let x` or `catch let x` whose binding is unused is written `default` or `catch _`.
+    UNUSED_CATCH_ALL_BINDING = 2304, "unused-catch-all-binding", Error,
+        "A catch-all `case let x` or `catch let x` whose binding is unused is written `default` or `catch _`.";
+    /// The `else` block of a `guard` must leave the scope with `return`, `throw`, `break` or `continue`.
+    GUARD_DOES_NOT_EXIT = 2305, "guard-does-not-exit", Error,
+        "The `else` block of a `guard` must leave the scope with `return`, `throw`, `break` or `continue`.";
+    /// A binding is read before it is definitely initialized.
+    USE_BEFORE_INITIALIZATION = 2306, "use-before-initialization", Error,
+        "A binding is read before it is definitely initialized.";
+    /// A function with a return type can end without returning a value.
+    MISSING_RETURN = 2307, "missing-return", Error,
+        "A function with a return type can end without returning a value.";
+    /// A lambda's value is its last expression, so `return` can't be used inside a lambda.
+    RETURN_IN_LAMBDA = 2308, "return-in-lambda", Error,
+        "A lambda's value is its last expression, so `return` can't be used inside a lambda.";
+    /// `break` or `continue` is used outside a loop, or crosses a lambda.
+    MISPLACED_JUMP = 2309, "misplaced-jump", Error,
+        "`break` or `continue` is used outside a loop, or crosses a lambda.";
+    /// A `Stream` is iterated with `for await` inside an async function.
+    FOR_OVER_STREAM = 2310, "for-over-stream", Error,
+        "A `Stream` is iterated with `for await` inside an async function.";
+    /// `for await` iterates only a `Stream`, inside an async function.
+    FOR_AWAIT_NOT_STREAM = 2311, "for-await-not-stream", Error,
+        "`for await` iterates only a `Stream`, inside an async function.";
+
+    // ---------------------------------------------------------------- stdlib-specific rules
+    /// `HttpStatus.other(code)` can't hold a code that has a named case.
+    NAMED_STATUS_AS_OTHER = 2401, "named-status-as-other", Error,
+        "`HttpStatus.other(code)` can't hold a code that has a named case.";
+
+    // ---------------------------------------------------------------- annotations, members and reactivity
+    /// An annotated field must be declared `let` or `var` as its annotation requires.
+    ANNOTATION_MUTABILITY = 3001, "annotation-mutability", Error,
+        "An annotated field must be declared `let` or `var` as its annotation requires.";
+    /// An annotation is used on a declaration or member it doesn't apply to.
+    ANNOTATION_NOT_ALLOWED = 3002, "annotation-not-allowed", Error,
+        "An annotation is used on a declaration or member it doesn't apply to.";
+    /// A component, page or layout needs a `view` block (an endpoint page has none).
+    MISSING_VIEW = 3003, "missing-view", Error,
+        "A component, page or layout needs a `view` block (an endpoint page has none).";
+    /// A declaration has more than one `view`, `style`, `metadata`, `loading` or `failed` block.
+    DUPLICATE_BLOCK = 3004, "duplicate-block", Error,
+        "A declaration has more than one `view`, `style`, `metadata`, `loading` or `failed` block.";
+    /// A `@Slot`, `@Stylable` or `@Emits` field's type doesn't fit its annotation (`View`, `Classes`, `Event<T>`).
+    INVALID_ANNOTATED_TYPE = 3005, "invalid-annotated-type", Error,
+        "A `@Slot`, `@Stylable` or `@Emits` field's type doesn't fit its annotation (`View`, `Classes`, `Event<T>`).";
+    /// A `@Derived` value is computed and can't be assigned.
+    WRITE_TO_DERIVED = 3010, "write-to-derived", Error,
+        "A `@Derived` value is computed and can't be assigned.";
+    /// A `@Derived` initializer can't write state.
+    STATE_WRITE_IN_DERIVED = 3011, "state-write-in-derived", Error,
+        "A `@Derived` initializer can't write state.";
+    /// `@Effect` functions and event handlers handle their own errors, so they can't be `throws`.
+    THROWING_EFFECT_OR_HANDLER = 3012, "throwing-effect-or-handler", Error,
+        "`@Effect` functions and event handlers handle their own errors, so they can't be `throws`.";
+    /// The `TimerHandle` returned by `clock.every` or `clock.after` in an effect is discarded, so the timer outlives the component.
+    DISCARDED_TIMER_HANDLE = 3013, "discarded-timer-handle", Warning,
+        "The `TimerHandle` returned by `clock.every` or `clock.after` in an effect is discarded, so the timer outlives the component.";
+    /// A component writes to its own `@Prop`, a one-way input; make it a `@Binding`.
+    WRITE_TO_PROP = 3014, "write-to-prop", Error,
+        "A component writes to its own `@Prop`, a one-way input; make it a `@Binding`.";
+    /// `bind` needs a `@State`, `@Binding` or `@Form` place, or a field of one.
+    NOT_BINDABLE = 3015, "not-bindable", Error,
+        "`bind` needs a `@State`, `@Binding` or `@Form` place, or a field of one.";
+    /// A value passed to a `@Binding` prop or a `Binding` argument needs `bind`.
+    MISSING_BIND = 3016, "missing-bind", Error,
+        "A value passed to a `@Binding` prop or a `Binding` argument needs `bind`.";
+    /// A function passed to `.on(…)` is `throws`; handlers handle their own errors.
+    THROWING_HANDLER = 3017, "throwing-handler", Error,
+        "A function passed to `.on(…)` is `throws`; handlers handle their own errors.";
+    /// `bind` is passed where no binding is expected.
+    UNEXPECTED_BIND = 3018, "unexpected-bind", Error,
+        "`bind` is passed where no binding is expected.";
+    /// `@Load` initializers depend on each other in a cycle.
+    LOAD_CYCLE = 3020, "load-cycle", Error,
+        "`@Load` initializers depend on each other in a cycle.";
+    /// A `@Load` value must be `Codable`, because server-rendered data is sent to the browser.
+    LOAD_NOT_CODABLE = 3021, "load-not-codable", Error,
+        "A `@Load` value must be `Codable`, because server-rendered data is sent to the browser.";
+    /// A declaration with `@Load` fields needs a `loading` block.
+    MISSING_LOADING_BLOCK = 3022, "missing-loading-block", Error,
+        "A declaration with `@Load` fields needs a `loading` block.";
+    /// A declaration with `@Load` fields has a generated `reload()`, so it can't declare a member named `reload`.
+    RESERVED_RELOAD = 3023, "reserved-reload", Error,
+        "A declaration with `@Load` fields has a generated `reload()`, so it can't declare a member named `reload`.";
+    /// The errors a `@Load` initializer can throw must be `Codable`, because a server-rendered `failed` is hydrated.
+    LOAD_ERROR_NOT_CODABLE = 3024, "load-error-not-codable", Error,
+        "The errors a `@Load` initializer can throw must be `Codable`, because a server-rendered `failed` is hydrated.";
+    /// `status(_:)` is allowed only in a `metadata` block inside `failed`.
+    STATUS_OUTSIDE_FAILED = 3025, "status-outside-failed", Error,
+        "`status(_:)` is allowed only in a `metadata` block inside `failed`.";
+    /// A `@Derived` field depends on itself, directly or through other `@Derived` fields.
+    DERIVED_CYCLE = 3026, "derived-cycle", Error,
+        "A `@Derived` field's initializer reads the field itself, directly or through other `@Derived` fields.";
+
+    // ---------------------------------------------------------------- views
+    /// A lowercase call in a view is not a built-in element; an HTML name gets a hint (`a` is `link`).
+    UNKNOWN_ELEMENT = 3101, "unknown-element", Error,
+        "A lowercase call in a view is not a built-in element; an HTML name gets a hint (`a` is `link`).";
+    /// A built-in element requires a named argument that is missing.
+    MISSING_ELEMENT_ARGUMENT = 3102, "missing-element-argument", Error,
+        "A built-in element requires a named argument that is missing.";
+    /// An element or component doesn't define the chained attribute or prop.
+    UNKNOWN_ATTRIBUTE = 3103, "unknown-attribute", Error,
+        "An element or component doesn't define the chained attribute or prop.";
+    /// A chained attribute or optional prop, `.class()` included, is set twice on one element.
+    DUPLICATE_ATTRIBUTE = 3104, "duplicate-attribute", Error,
+        "A chained attribute or optional prop, `.class()` included, is set twice on one element.";
+    /// `.on(name:)` names an event the element or component doesn't fire.
+    UNKNOWN_EVENT = 3105, "unknown-event", Error,
+        "`.on(name:)` names an event the element or component doesn't fire.";
+    /// A `for` loop in a view needs a `key`.
+    MISSING_FOR_KEY = 3106, "missing-for-key", Error,
+        "A `for` loop in a view needs a `key`.";
+    /// An element's trailing block holds content the element doesn't accept.
+    CONTENT_NOT_ALLOWED = 3107, "content-not-allowed", Error,
+        "An element's trailing block holds content the element doesn't accept.";
+    /// `.on(…)` takes exactly one event; use one call per event.
+    MULTIPLE_EVENTS_IN_ON = 3108, "multiple-events-in-on", Error,
+        "`.on(…)` takes exactly one event; use one call per event.";
+    /// A heading level is an integer literal from 1 to 6.
+    INVALID_HEADING_LEVEL = 3109, "invalid-heading-level", Error,
+        "A heading level is an integer literal from 1 to 6.";
+    /// `.role(…)` names a role a semantic element expresses; use that element.
+    REDUNDANT_ROLE = 3110, "redundant-role", Error,
+        "`.role(…)` names a role a semantic element expresses; use that element.";
+    /// A `key` clause belongs to a `for` in a view.
+    KEY_OUTSIDE_VIEW = 3111, "key-outside-view", Error,
+        "A `key` clause belongs to a `for` in a view.";
+
+    // ---------------------------------------------------------------- styles
+    /// A style declaration names a property that doesn't exist.
+    UNKNOWN_CSS_PROPERTY = 3201, "unknown-css-property", Error,
+        "A style declaration names a property that doesn't exist.";
+    /// A property's value doesn't match the property's value grammar or K types.
+    INVALID_CSS_VALUE = 3202, "invalid-css-value", Error,
+        "A property's value doesn't match the property's value grammar or K types.";
+    /// A class reference names a class the component's style block doesn't declare.
+    UNKNOWN_CLASS = 3203, "unknown-class", Error,
+        "A class reference names a class the component's style block doesn't declare.";
+    /// A class in a style block is never referenced.
+    UNUSED_CLASS = 3204, "unused-class", Warning,
+        "A class in a style block is never referenced.";
+    /// `animationName` names keyframes the style block doesn't declare.
+    UNKNOWN_KEYFRAMES = 3205, "unknown-keyframes", Error,
+        "`animationName` names keyframes the style block doesn't declare.";
+    /// Keyframes in a style block are never referenced.
+    UNUSED_KEYFRAMES = 3206, "unused-keyframes", Warning,
+        "Keyframes in a style block are never referenced.";
+    /// A keyframe selector is `from`, `to` or a percentage from `0%` to `100%`.
+    INVALID_KEYFRAME_SELECTOR = 3207, "invalid-keyframe-selector", Error,
+        "A keyframe selector is `from`, `to` or a percentage from `0%` to `100%`.";
+    /// A keyframe block holds declarations only.
+    KEYFRAME_RULE_CONTENT = 3208, "keyframe-rule-content", Error,
+        "A keyframe block holds declarations only.";
+    /// A `@Stylable` prop is never applied to an element with `.class(…)`.
+    UNAPPLIED_STYLABLE = 3209, "unapplied-stylable", Error,
+        "A `@Stylable` prop is never applied to an element with `.class(…)`.";
+    /// `{ }` in a style value holds only reactive values (props and state).
+    NON_REACTIVE_INTERPOLATION = 3210, "non-reactive-interpolation", Error,
+        "`{ }` in a style value holds only reactive values (props and state).";
+    /// A media query names a feature that doesn't exist.
+    UNKNOWN_MEDIA_FEATURE = 3211, "unknown-media-feature", Error,
+        "A media query names a feature that doesn't exist.";
+    /// A style block uses an at-rule other than `@media`, `@container`, `@layer` and `@keyframes`.
+    UNKNOWN_AT_RULE = 3212, "unknown-at-rule", Error,
+        "A style block uses an at-rule other than `@media`, `@container`, `@layer` and `@keyframes`.";
+    /// A style block declares two keyframes with the same name.
+    DUPLICATE_KEYFRAMES = 3213, "duplicate-keyframes", Error,
+        "A style block declares two keyframes with the same name.";
+
+    // ---------------------------------------------------------------- themes
+    /// An override or variant names a token no theme declares.
+    UNKNOWN_THEME_TOKEN = 3301, "unknown-theme-token", Error,
+        "An override or variant names a token no theme declares.";
+    /// A theme re-declares a token a library already declares; override it with `name = value`.
+    REDECLARED_THEME_TOKEN = 3302, "redeclared-theme-token", Error,
+        "A theme re-declares a token a library already declares; override it with `name = value`.";
+    /// A member of the form `name = value` is a theme override and is allowed only in a `theme`.
+    OVERRIDE_OUTSIDE_THEME = 3303, "override-outside-theme", Error,
+        "A member of the form `name = value` is a theme override and is allowed only in a `theme`.";
+    /// A theme token's first word names no token category.
+    UNKNOWN_TOKEN_CATEGORY = 3304, "unknown-token-category", Error,
+        "A theme token's first word names no token category.";
+    /// A theme token's type is not its category's type.
+    TOKEN_CATEGORY_MISMATCH = 3305, "token-category-mismatch", Error,
+        "A theme token's type is not its category's type.";
+    /// `base` means no variant, so it can't name a theme variant.
+    VARIANT_NAMED_BASE = 3306, "variant-named-base", Error,
+        "`base` means no variant, so it can't name a theme variant.";
+    /// A theme declares a token or variant twice, or a variant overrides a token twice.
+    DUPLICATE_THEME_MEMBER = 3307, "duplicate-theme-member", Error,
+        "A theme declares a token or variant twice, or a variant overrides a token twice.";
+
+    // ---------------------------------------------------------------- services, di, layering and the server/client boundary
+    /// An injected interface has no implementation.
+    MISSING_IMPLEMENTATION = 4001, "missing-implementation", Error,
+        "An injected interface has no implementation.";
+    /// An injected interface has several implementations and no `use` rule picks one.
+    AMBIGUOUS_IMPLEMENTATION = 4002, "ambiguous-implementation", Error,
+        "An injected interface has several implementations and no `use` rule picks one.";
+    /// Injected services depend on each other in a cycle.
+    DEPENDENCY_CYCLE = 4003, "dependency-cycle", Error,
+        "Injected services depend on each other in a cycle.";
+    /// A service injects a service with a shorter scope, or a `.server` service or job reaches request state.
+    SCOPE_VIOLATION = 4004, "scope-violation", Error,
+        "A service injects a service with a shorter scope, or a `.server` service or job reaches request state.";
+    /// A declaration injects something its kind may not inject (components never inject protocols).
+    LAYERING_VIOLATION = 4005, "layering-violation", Error,
+        "A declaration injects something its kind may not inject (components never inject protocols).";
+    /// Only a service's own methods can write its fields.
+    FOREIGN_STATE_WRITE = 4006, "foreign-state-write", Error,
+        "Only a service's own methods can write its fields.";
+    /// A server-only declaration is used by code that reaches the browser.
+    SERVER_ONLY_IN_CLIENT = 4007, "server-only-in-client", Error,
+        "A server-only declaration is used by code that reaches the browser.";
+    /// A service is server-only and client-only at once.
+    SERVICE_ON_BOTH_SIDES = 4008, "service-on-both-sides", Error,
+        "A service is server-only and client-only at once.";
+    /// A job's dependency graph reaches `Session` or `SessionManager`.
+    JOB_REACHES_SESSION = 4009, "job-reaches-session", Error,
+        "A job's dependency graph reaches `Session` or `SessionManager`.";
+    /// In `use X for Y`, `X` must be `Y` or implement it.
+    USE_TARGET_MISMATCH = 4010, "use-target-mismatch", Error,
+        "In `use X for Y`, `X` must be `Y` or implement it.";
+    /// `use <expression> for C` is allowed only in a test body, for a `config` type `C`.
+    USE_EXPRESSION_NOT_ALLOWED = 4011, "use-expression-not-allowed", Error,
+        "`use <expression> for C` is allowed only in a test body, for a `config` type `C`.";
+    /// A client-only interface is called from code that can run during server rendering.
+    CLIENT_ONLY_DURING_SSR = 4012, "client-only-during-ssr", Error,
+        "A client-only interface is called from code that can run during server rendering.";
+    /// A server-rendered page reads a client-only service's state, so the first paint shows its initial state.
+    CLIENT_STATE_IN_SERVER_RENDER = 4013, "client-state-in-server-render", Warning,
+        "A server-rendered page reads a client-only service's state, so the first paint shows its initial state.";
+    /// A `use` rule in a test restates the test default, so it can be removed.
+    USE_RESTATES_DEFAULT = 4014, "use-restates-default", Warning,
+        "A `use` rule in a test restates the test default, so it can be removed.";
+    /// The `use … in` rules for an interface leave an environment without an implementation.
+    ENVIRONMENT_NOT_COVERED = 4015, "environment-not-covered", Error,
+        "The `use … in` rules for an interface leave an environment without an implementation.";
+    /// A service declares at most one `init()`, without parameters and without `throws`.
+    INVALID_SERVICE_INIT = 4016, "invalid-service-init", Error,
+        "A service declares at most one `init()`, without parameters and without `throws`.";
+    /// A config holds only `@Env` fields.
+    CONFIG_MEMBER_NOT_ALLOWED = 4017, "config-member-not-allowed", Error,
+        "A config holds only `@Env` fields.";
+    /// Two config fields read the same environment variable.
+    DUPLICATE_ENV_VARIABLE = 4018, "duplicate-env-variable", Error,
+        "Two config fields read the same environment variable.";
+    /// A config field's type must implement `ConfigValue`.
+    NOT_A_CONFIG_VALUE = 4019, "not-a-config-value", Error,
+        "A config field's type must implement `ConfigValue`.";
+    /// A config can't be constructed outside test code; its values come from the environment.
+    CONFIG_CONSTRUCTION = 4020, "config-construction", Error,
+        "A config can't be constructed outside test code; its values come from the environment.";
+    /// Only test code may implement a service (to fake it); production code uses interfaces.
+    IMPLEMENTS_SERVICE = 4021, "implements-service", Error,
+        "Only test code may implement a service (to fake it); production code uses interfaces.";
+    /// An endpoint page whose dependencies reach `Session` or `SessionManager` must inject `Session` itself.
+    ENDPOINT_SESSION_NOT_INJECTED = 4022, "endpoint-session-not-injected", Error,
+        "An endpoint page whose dependencies reach `Session` or `SessionManager` must inject `Session` itself.";
+
+    // ---------------------------------------------------------------- pages and routing
+    /// Two pages or endpoints have the same URL.
+    URL_CONFLICT = 5001, "url-conflict", Error,
+        "Two pages or endpoints have the same URL.";
+    /// A `@Param` field has a type that can't be read from a URL.
+    UNROUTABLE_PARAM = 5002, "unroutable-param", Error,
+        "A `@Param` field has a type that can't be read from a URL.";
+    /// An `at` template and the page's path `@Param` fields don't match one to one.
+    AT_TEMPLATE_MISMATCH = 5003, "at-template-mismatch", Error,
+        "An `at` template and the page's path `@Param` fields don't match one to one.";
+    /// An endpoint page needs an `at` clause.
+    ENDPOINT_WITHOUT_AT = 5004, "endpoint-without-at", Error,
+        "An endpoint page needs an `at` clause.";
+    /// `requires Authenticated` and `requires Role` don't apply to endpoint pages.
+    GUARD_ON_ENDPOINT = 5005, "guard-on-endpoint", Error,
+        "`requires Authenticated` and `requires Role` don't apply to endpoint pages.";
+    /// A `requires` clause names something that doesn't implement `Guard`.
+    NOT_A_GUARD = 5006, "not-a-guard", Error,
+        "A `requires` clause names something that doesn't implement `Guard`.";
+    /// A page `requires Authenticated`, but the app has no `@SignInPage`.
+    MISSING_SIGN_IN_PAGE = 5007, "missing-sign-in-page", Error,
+        "A page `requires Authenticated`, but the app has no `@SignInPage`.";
+    /// The sign-in page can't itself `requires Authenticated`.
+    SIGN_IN_PAGE_REQUIRES_AUTHENTICATED = 5008, "sign-in-page-requires-authenticated", Error,
+        "The sign-in page can't itself `requires Authenticated`.";
+    /// `@Layout` and `@NoLayout` don't apply to endpoint pages.
+    LAYOUT_ON_ENDPOINT = 5009, "layout-on-endpoint", Error,
+        "`@Layout` and `@NoLayout` don't apply to endpoint pages.";
+    /// An endpoint page has handlers only: no `view`, `metadata`, `loading`, `failed` or `style`.
+    ENDPOINT_MEMBER_NOT_ALLOWED = 5010, "endpoint-member-not-allowed", Error,
+        "An endpoint page has handlers only: no `view`, `metadata`, `loading`, `failed` or `style`.";
+    /// An endpoint page has at most one handler per HTTP method.
+    DUPLICATE_HANDLER_METHOD = 5011, "duplicate-handler-method", Error,
+        "An endpoint page has at most one handler per HTTP method.";
+    /// An endpoint handler is `func name(request: IncomingRequest) async -> HttpResponse`.
+    INVALID_HANDLER_SIGNATURE = 5012, "invalid-handler-signature", Error,
+        "An endpoint handler is `func name(request: IncomingRequest) async -> HttpResponse`.";
+
+    // ---------------------------------------------------------------- protocols and rpc
+    /// Every `rpc` declares `throws`: an error enum with a `rpcFailure(RpcFailure)` case, or `RpcOnlyError`.
+    RPC_WITHOUT_THROWS = 5501, "rpc-without-throws", Error,
+        "Every `rpc` declares `throws`: an error enum with a `rpcFailure(RpcFailure)` case, or `RpcOnlyError`.";
+    /// An rpc's error enum needs exactly one `rpcFailure(RpcFailure)` case.
+    RPC_ERROR_WITHOUT_FAILURE_CASE = 5502, "rpc-error-without-failure-case", Error,
+        "An rpc's error enum needs exactly one `rpcFailure(RpcFailure)` case.";
+    /// Rpc parameters, results and errors must be `Codable`.
+    RPC_PAYLOAD_NOT_CODABLE = 5503, "rpc-payload-not-codable", Error,
+        "Rpc parameters, results and errors must be `Codable`.";
+    /// A protocol is implemented only by a server-side service.
+    RPC_IMPLEMENTATION_NOT_SERVER = 5504, "rpc-implementation-not-server", Error,
+        "A protocol is implemented only by a server-side service.";
+    /// An rpc handler doesn't repeat its rpc's signature.
+    RPC_HANDLER_MISMATCH = 5505, "rpc-handler-mismatch", Error,
+        "An rpc handler doesn't repeat its rpc's signature.";
+    /// A protocol handler throws the `rpcFailure` case, which only the runtime produces.
+    HANDLER_THROWS_RPC_FAILURE = 5506, "handler-throws-rpc-failure", Error,
+        "Only the runtime produces `rpcFailure`: a handler throws its error enum's own cases.";
+
+    // ---------------------------------------------------------------- persistence
+    /// A repository query lambda uses something that can't be translated to SQL.
+    UNTRANSLATABLE_QUERY = 6001, "untranslatable-query", Error,
+        "A repository query lambda uses something that can't be translated to SQL.";
+    /// An entity field has a type that can't be stored in a column.
+    UNSUPPORTED_COLUMN_TYPE = 6002, "unsupported-column-type", Error,
+        "An entity field has a type that can't be stored in a column.";
+    /// An entity's table name starts with `k_`, which is reserved for the stdlib.
+    RESERVED_TABLE_PREFIX = 6003, "reserved-table-prefix", Error,
+        "An entity's table name starts with `k_`, which is reserved for the stdlib.";
+
+    // ---------------------------------------------------------------- forms and validation
+    /// `form.value` is readable only inside the action passed to `form.handle(...)`.
+    FORM_VALUE_OUTSIDE_HANDLE = 7001, "form-value-outside-handle", Error,
+        "`form.value` is readable only inside the action passed to `form.handle(...)`.";
+    /// `.empty` and `.empty(...)` are valid only as a `@Form` initializer.
+    EMPTY_OUTSIDE_FORM = 7002, "empty-outside-form", Error,
+        "`.empty` and `.empty(...)` are valid only as a `@Form` initializer.";
+    /// `@Format(message:)` applies to fields of parsed types, not `String`.
+    FORMAT_ON_STRING = 7003, "format-on-string", Error,
+        "`@Format(message:)` applies to fields of parsed types, not `String`.";
+    /// `@Email` on an `EmailAddress` field is redundant; the type already validates.
+    REDUNDANT_EMAIL = 7004, "redundant-email", Warning,
+        "`@Email` on an `EmailAddress` field is redundant; the type already validates.";
+    /// `@Matches` takes a string literal, so the pattern can be checked at compile time.
+    MATCHES_NOT_LITERAL = 7005, "matches-not-literal", Error,
+        "`@Matches` takes a string literal, so the pattern can be checked at compile time.";
+    /// A `@Matches` pattern is not a valid regular expression.
+    INVALID_REGEX = 7006, "invalid-regex", Error,
+        "A `@Matches` pattern is not a valid regular expression.";
+
+    // ---------------------------------------------------------------- tests
+    /// `expect` takes a `Bool` condition.
+    EXPECT_NOT_BOOL = 7501, "expect-not-bool", Error,
+        "`expect` takes a `Bool` condition.";
+    /// The block of `expect throws E { … }` can't throw `E`.
+    EXPECT_THROWS_CANNOT_THROW = 7502, "expect-throws-cannot-throw", Error,
+        "The block of `expect throws E { … }` can't throw `E`.";
+    /// A test group's dependency graph reaches an app config that no `use` rule binds.
+    UNBOUND_TEST_CONFIG = 7503, "unbound-test-config", Error,
+        "A test group's dependency graph reaches an app config that no `use` rule binds.";
+
+    // ---------------------------------------------------------------- lockfiles, manifest and packages
+    /// A change breaks a lockfile's recorded contract without `@Breaking`.
+    BREAKING_CHANGE = 8001, "breaking-change", Error,
+        "A change breaks a lockfile's recorded contract without `@Breaking`.";
+    /// A lockfile can't be read.
+    INVALID_LOCKFILE = 8002, "invalid-lockfile", Error,
+        "A lockfile can't be read.";
+    /// `k.toml` is malformed or lacks a required key.
+    INVALID_MANIFEST = 8101, "invalid-manifest", Error,
+        "`k.toml` is malformed or lacks a required key.";
 
     // --------------------------------------------------------------- driver
     /// A source file that is not valid UTF-8.

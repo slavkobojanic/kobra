@@ -1,7 +1,7 @@
 import k.rpc.RpcFailure
 
 /// The error for looking up a single product or order.
-public enum LookupError implements Error {
+public enum LookupError implements Error, Codable {
     /// Nothing has the requested slug or id.
     case notFound
 

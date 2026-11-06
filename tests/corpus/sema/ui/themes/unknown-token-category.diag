@@ -1,0 +1,3 @@
+error[K3304] 4:5-4:11
+  fix "Replace `colour` with `color`" maybe-incorrect
+    edit 4:5-4:11 "color"

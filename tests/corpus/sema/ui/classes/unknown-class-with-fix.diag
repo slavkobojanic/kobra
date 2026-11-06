@@ -1,0 +1,4 @@
+error[K3203] 6:21-6:26
+  fix "Replace `titel` with `title`" maybe-incorrect
+    edit 6:21-6:26 "title"
+warning[K3204] 10:10-10:15

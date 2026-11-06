@@ -1,0 +1,3 @@
+error[K1203] 7:16-7:22
+  fix "Replace with `length`" maybe-incorrect
+    edit 7:16-7:22 "length"

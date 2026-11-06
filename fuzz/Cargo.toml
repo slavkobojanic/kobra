@@ -1,4 +1,4 @@
-# Fuzz targets for the K syntax layer, run with cargo-fuzz (libFuzzer) on a
+# Fuzz targets for the K syntax layer and semantic analysis, run with cargo-fuzz (libFuzzer) on a
 # nightly toolchain:
 #
 #     rustup toolchain install nightly --profile minimal
@@ -14,10 +14,21 @@
 #                    tree, token identity, re-lexing, dumps and determinism
 #   structured       bytes drive a K program generator; valid programs must
 #                    parse without diagnostics
+#   check            arbitrary UTF-8 checked as a one-file project: no panic,
+#                    well-formed diagnostics, answering position queries
+#   check_structured bytes drive the grammar generator for a 1-3 file
+#                    project: well-formed, deterministic, order-independent
+#                    diagnostics; incremental re-check equals a fresh check
+#   check_typed      bytes drive the typed generator: zero errors, order
+#                    independence, incremental edits, machine fixes add no
+#                    errors
 #
-# The invariants live in crates/k_syntax/tests/support/oracle.rs and the
-# generator in crates/k_syntax/tests/support/kgen.rs; both are shared with
-# the stable property tests (crates/k_syntax/tests/properties.rs).
+# The syntax invariants live in crates/k_syntax/tests/support/oracle.rs and
+# the grammar generator in crates/k_syntax/tests/support/kgen.rs; the
+# semantic invariants in crates/k_sema/tests/support/soracle.rs and the typed
+# generator in crates/k_sema/tests/support/tgen.rs. All are shared with the
+# stable property tests (crates/k_syntax/tests/properties.rs,
+# crates/k_sema/tests/properties.rs).
 #
 # This crate is excluded from the stable workspace. See
 # docs/compiler/testing.md, "Fuzzing".
@@ -39,6 +50,7 @@ arbitrary = "1.4"
 libfuzzer-sys = "0.4"
 k_diagnostics = { path = "../crates/k_diagnostics" }
 k_syntax = { path = "../crates/k_syntax" }
+k_sema = { path = "../crates/k_sema" }
 
 [[bin]]
 name = "lex"
@@ -64,6 +76,27 @@ bench = false
 [[bin]]
 name = "structured"
 path = "fuzz_targets/structured.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "check"
+path = "fuzz_targets/check.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "check_structured"
+path = "fuzz_targets/check_structured.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "check_typed"
+path = "fuzz_targets/check_typed.rs"
 test = false
 doc = false
 bench = false

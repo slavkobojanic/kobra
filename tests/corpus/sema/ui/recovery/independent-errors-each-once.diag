@@ -1,0 +1,10 @@
+error[K3101] 7:9-7:12
+  fix "Replace `img` with `image`" maybe-incorrect
+    edit 7:9-7:12 "image"
+error[K3103] 9:14-9:20
+error[K3203] 10:21-10:28
+error[K3106] 11:31-11:31
+error[K3201] 17:17-17:21
+  fix "Replace `colr` with `color`" maybe-incorrect
+    edit 17:17-17:21 "color"
+warning[K3204] 17:10-17:14

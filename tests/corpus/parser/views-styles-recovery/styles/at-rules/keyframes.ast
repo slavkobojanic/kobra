@@ -1,0 +1,16 @@
+; `@keyframes` holds keyframe blocks; a property names the keyframes as an
+; implicit member.
+(SourceFile
+  (ComponentDecl component Toast
+    (MemberList
+      (StyleBlock style
+        (KeyframesRule keyframes fade
+          (KeyframeBlock (KeyframeSelector from)
+            (Declaration opacity (CssValue (Literal 0))))
+          (KeyframeBlock (KeyframeSelector 50%)
+            (Declaration opacity (CssValue (Literal 0.5))))
+          (KeyframeBlock (KeyframeSelector to)
+            (Declaration opacity (CssValue (Literal 1)))))
+        (StyleRule (Selector (CompoundSelector (ClassSelector toast)))
+          (Declaration animationName (CssValue (ImplicitMemberExpr fade)))
+          (Declaration animationDuration (CssValue (Literal 200ms))))))))

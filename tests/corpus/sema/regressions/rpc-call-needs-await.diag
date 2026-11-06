@@ -1,0 +1,8 @@
+# Bug: rpc calls through an injected protocol were accepted without `await`, even in
+# a synchronous function.
+error[K2204] 18:20-18:33
+  fix "Insert `await `"
+    edit 18:20-18:20 "await "
+error[K2204] 22:20-22:33
+  fix "Insert `await `" maybe-incorrect
+    edit 22:20-22:20 "await "

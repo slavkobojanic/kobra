@@ -145,3 +145,71 @@ fn debug_prints_golden_formats() {
         Some(2)
     );
 }
+
+fn write(dir: &std::path::Path, relative: &str, text: &str) {
+    let path = dir.join(relative);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, text).unwrap();
+}
+
+const MANIFEST: &str = "[package]\nname = \"demo\"\nk = \"0.1\"\n";
+
+#[test]
+fn check_analyses_a_project_and_names_files_from_the_working_directory() {
+    let dir = TempDir::new("project");
+    write(&dir.0, "app/k.toml", MANIFEST);
+    write(&dir.0, "app/App.k", "app Demo {}\n");
+    write(&dir.0, "app/src/shop/Cart.k", "let a = (\n");
+    write(&dir.0, "app/README.md", "not K\n");
+    let out = k(&["check", "app", "--color", "never"], &dir.0);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("app/src/shop/Cart.k:1:9"), "{stderr}");
+    assert!(stderr.contains("checked 2 files:"), "{stderr}");
+}
+
+#[test]
+fn check_on_a_file_checks_its_whole_project() {
+    let dir = TempDir::new("whole");
+    write(&dir.0, "k.toml", MANIFEST);
+    write(&dir.0, "src/a/A.k", "let a = 1\n");
+    write(&dir.0, "src/b/B.k", "let b = (\n");
+    let out = k(&["check", "a/A.k", "--format", "json"], &dir.0.join("src"));
+    assert_eq!(out.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("\"file\":\"../src/b/B.k\""), "{stdout}");
+}
+
+#[test]
+fn check_finds_nested_projects_in_a_plain_directory() {
+    let dir = TempDir::new("nested");
+    write(&dir.0, "one/k.toml", MANIFEST);
+    write(&dir.0, "one/src/a/A.k", "let a = 1\n");
+    write(&dir.0, "two/k.toml", MANIFEST);
+    write(&dir.0, "two/src/a/A.k", "let a = (\n");
+    write(&dir.0, "Loose.k", "let x = 1\n");
+    let out = k(&["check", "--format", "json"], &dir.0);
+    assert_eq!(out.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("two/src/a/A.k"), "{stdout}");
+    assert!(!stdout.contains("one/"), "{stdout}");
+    let clean = k(&["check", "one", "--color", "never"], &dir.0);
+    assert_eq!(clean.status.code(), Some(0), "{clean:?}");
+    assert!(String::from_utf8_lossy(&clean.stderr).contains("checked 1 file: no problems"));
+}
+
+#[test]
+fn debug_sema_prints_the_sema_suite_format() {
+    let dir = TempDir::new("debug_sema");
+    write(&dir.0, "one.k", "let a = (\n");
+    let single = k(&["debug", "sema", "one.k"], &dir.0);
+    assert!(single.status.success(), "{single:?}");
+    assert!(String::from_utf8_lossy(&single.stdout).starts_with("error[K0101] 1:9-1:10"));
+    write(&dir.0, "p/k.toml", MANIFEST);
+    write(&dir.0, "p/src/a/A.k", "let a = (\n");
+    let project = k(&["debug", "sema", "p"], &dir.0);
+    assert!(project.status.success(), "{project:?}");
+    assert!(
+        String::from_utf8_lossy(&project.stdout).starts_with("error[K0101] src/a/A.k:1:9-1:10")
+    );
+}

@@ -1,0 +1,11 @@
+# Bug: applying either machine-applicable fix gave K1202 (`RpcOnlyError` /
+# `RpcFailure` not in scope): the fixes didn't import the types they name.
+error[K5501] 9:9-9:12
+  fix "Add `throws RpcOnlyError`"
+    edit 4:1-4:1 "import k.rpc.RpcOnlyError\n\n"
+    edit 9:14-9:14 " throws RpcOnlyError"
+error[K5502] 10:25-10:34
+  label 4:6-4:15: declared here
+  fix "Add `case rpcFailure(RpcFailure)`"
+    edit 4:1-4:1 "import k.rpc.RpcFailure\n\n"
+    edit 6:1-6:1 "    case rpcFailure(RpcFailure)\n"

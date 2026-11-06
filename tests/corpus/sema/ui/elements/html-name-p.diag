@@ -1,0 +1,6 @@
+error[K3101] 4:9-4:10
+  fix "Replace `p` with `paragraph`" maybe-incorrect
+    edit 4:9-4:10 "paragraph"
+error[K3101] 6:13-6:17
+  fix "Replace `span` with `text`" maybe-incorrect
+    edit 6:13-6:17 "text"

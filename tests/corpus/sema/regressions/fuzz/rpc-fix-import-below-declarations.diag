@@ -1,0 +1,8 @@
+# The fix's edits are in source order: the `throws` clause, then the import
+# (after the file's last import).
+error[K0111] 9:1-9:19
+warning[K1105] 9:8-9:19
+error[K5501] 6:9-6:12
+  fix "Add `throws RpcOnlyError`"
+    edit 6:14-6:14 " throws RpcOnlyError"
+    edit 10:1-10:1 "import k.rpc.RpcOnlyError\n"

@@ -1,0 +1,6 @@
+error[K3307] 5:11-5:18
+  label 4:11-4:18: first declared here
+error[K3307] 9:9-9:16
+  label 8:9-8:16: first declared here
+error[K3307] 12:13-12:17
+  label 7:13-7:17: first declared here

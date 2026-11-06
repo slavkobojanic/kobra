@@ -1,0 +1,37 @@
+// A function whose only caller is the action passed to `handle` may read `value`.
+
+import k.validation.Length
+import k.validation.Validatable
+import k.validation.ValidationError
+
+struct SignupRequest implements Codable, Validatable {
+    @Length(min: 3) var name: String
+    var age: Int
+    var newsletter: Bool = false
+}
+
+service Accounts {
+    func signup(request: SignupRequest) async throws ValidationError {
+    }
+}
+
+page Signup {
+    @Inject let accounts: Accounts
+    @Form var signup: SignupRequest = .empty
+
+    func send() async throws ValidationError {
+        try await accounts.signup(request: signup.value)
+    }
+
+    func submit() async throws ValidationError {
+        try await send()
+    }
+
+    view {
+        form {
+            button { "Sign up" }
+                .type(.submit)
+        }
+        .on(submit: signup.handle(submit))
+    }
+}

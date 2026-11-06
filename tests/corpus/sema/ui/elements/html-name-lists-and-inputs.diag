@@ -1,0 +1,15 @@
+error[K3101] 6:9-6:11
+  fix "Replace `ul` with `list`" maybe-incorrect
+    edit 6:9-6:11 "list"
+error[K3101] 7:13-7:15
+  fix "Replace `li` with `item`" maybe-incorrect
+    edit 7:13-7:15 "item"
+error[K3101] 9:9-9:14
+  fix "Replace `input` with `textField`" maybe-incorrect
+    edit 9:9-9:14 "textField"
+error[K3101] 10:9-10:17
+  fix "Replace `textarea` with `textArea`" maybe-incorrect
+    edit 10:9-10:17 "textArea"
+error[K3101] 11:9-11:11
+  fix "Replace `br` with `lineBreak`" maybe-incorrect
+    edit 11:9-11:11 "lineBreak"

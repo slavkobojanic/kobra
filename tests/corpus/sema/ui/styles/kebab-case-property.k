@@ -1,0 +1,12 @@
+// A CSS (kebab-case) name is K3201 with a machine-applicable fix to its camel-case
+// form; the value is not checked further.
+component Card {
+    view {
+        box { "x" }
+            .class(.card)
+    }
+
+    style {
+        .card { font-size: 14px; background-color: #FFFFFF; }
+    }
+}

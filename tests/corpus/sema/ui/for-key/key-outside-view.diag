@@ -1,0 +1,3 @@
+error[K3111] 8:29-8:38
+  fix "Remove the `key` clause"
+    edit 8:28-8:38 ""

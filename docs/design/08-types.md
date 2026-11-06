@@ -20,6 +20,7 @@ class LruCache<K, V> { ... }
 - **Nested mutation of `@State` structs is fine-grained.** `user.address.city = "Oslo"` compiles to an update along that path, and only DOM nodes that read `user.address.city` update. This makes `bind user.address.city` work without proxies or spread-everything immutability.
 - **Class instances are not deeply reactive.** In `@State`, only reassignment of the reference is tracked.
 - **Structs opt into derived conformances with `implements`:** `Equatable`, `Hashable`, `Codable` (JSON), `Copyable` (`user.copy(name: "Ana")`).
+- **Every struct has a memberwise initializer** with one named argument per stored field, in declaration order: `User(id: id, name: "Ana", address: home)`. **A field with a default value may be omitted** and takes its default; **omitting a field without one is a compile error**, with a quick fix that adds the missing arguments. Entities are constructed the same way ([19-persistence.md](19-persistence.md#entities-and-tables)).
 - Services are declared with their own keyword. See [10-services.md](10-services.md).
 
 ## Enums with associated data

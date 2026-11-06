@@ -886,7 +886,24 @@ impl Gen<'_, '_> {
     fn use_decl(&mut self) {
         self.tok("use");
         self.sp();
-        self.tok("FakeCartApi");
+        match self.pick(4) {
+            // A config bound to a value (grammar.md §9): an `Expr` operand.
+            0 => {
+                self.tok("StripeConfig");
+                self.tok(".");
+                self.tok("sample");
+            }
+            1 => {
+                self.tok("StripeConfig");
+                self.tok("(");
+                self.tok("secret");
+                self.tok(":");
+                self.sp();
+                self.tok("\"whsec_test\"");
+                self.tok(")");
+            }
+            _ => self.tok("FakeCartApi"),
+        }
         self.sp();
         self.tok("for");
         self.sp();
@@ -1792,11 +1809,54 @@ impl Gen<'_, '_> {
         let n = self.count(3);
         for _ in 0..n {
             self.nl();
-            if self.chance(1, 4) {
-                self.media(false);
-            } else {
-                self.style_rule();
+            match self.pick(8) {
+                0 | 1 => self.media(false),
+                2 => self.keyframes(),
+                _ => self.style_rule(),
             }
+        }
+        self.indent -= 1;
+        self.depth -= 1;
+        self.nl();
+        self.tok("}");
+    }
+
+    /// `@keyframes name { from { ... } 50% { ... } to { ... } }`.
+    fn keyframes(&mut self) {
+        self.tok("@");
+        self.tok("keyframes");
+        self.sp();
+        self.tok("fade");
+        self.sp();
+        self.tok("{");
+        self.indent += 1;
+        self.depth += 1;
+        let n = self.count(3);
+        for i in 0..n {
+            self.nl();
+            let selector = match (i + self.pick(3)) % 3 {
+                0 => "from",
+                1 => "50%",
+                _ => "to",
+            };
+            self.tok(selector);
+            if self.chance(1, 4) {
+                self.tok(",");
+                self.sp();
+                self.tok("75%");
+            }
+            self.sp();
+            self.tok("{");
+            self.indent += 1;
+            self.depth += 1;
+            if self.chance(3, 4) {
+                self.nl();
+                self.declaration();
+            }
+            self.indent -= 1;
+            self.depth -= 1;
+            self.nl();
+            self.tok("}");
         }
         self.indent -= 1;
         self.depth -= 1;

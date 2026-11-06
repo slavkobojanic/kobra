@@ -1,32 +1,79 @@
 //! Semantic analysis of K programs.
 //!
-//! `k_sema` turns syntax trees into a checked, resolved program. It owns:
+//! `k_sema` turns the syntax trees of a project into a checked program: the
+//! module graph, name resolution, the high-level IR (HIR), types, effects,
+//! control flow and the framework rules (components, views, styles,
+//! dependency injection, routing, protocols, forms, persistence, tests).
+//! The design is specified in `docs/compiler/sema.md`; the language in
+//! `docs/design`.
 //!
-//! * the **project model**: modules from directories, files, imports, the
-//!   one-public-declaration-per-file rule and visibility;
-//! * **name resolution**: imports, declarations, members, implicit member
-//!   expressions (`.name` against the expected type), the generated `Page`
-//!   enum and theme tokens;
-//! * the **HIR** (high-level intermediate representation): a desugared,
-//!   arena-allocated, id-based form of each declaration body, independent of
-//!   trivia and syntax, which later stages consume;
-//! * **type checking and inference**: structs, enums, classes, interfaces,
-//!   generics with `where` constraints, optionals, typed throws and
-//!   exhaustive `match`/`catch`, units and number extensions;
-//! * the **language rules** that make K's guarantees hold: reactivity
-//!   (`@State`/`@Derived`/`@Effect` and their annotation/mutability pairing),
-//!   components (props, bindings, slots, chained optional props), styles and
-//!   class references, dependency injection (the compile-time DI graph,
-//!   scopes, cycles), layering (who may inject what), the server/client
-//!   boundary, routing (`requires`, `at`, `@Param`), protocols, persistence
-//!   queries and tests;
-//! * the **incremental query database** shared by the compiler and the
-//!   language server.
+//! # Entry points
 //!
-//! The design is in `docs/compiler/architecture.md`, "Semantic analysis" and
-//! "Incremental queries".
+//! * [`AnalysisHost`] holds a project's inputs (every file, by
+//!   [`ProjectPath`]) and applies [`Change`]s as revisions.
+//! * [`Analysis`] is an immutable snapshot of one revision. It reports
+//!   [`diagnostics`](Analysis::diagnostics) and answers position queries
+//!   for tests and tooling: [`type_at`](Analysis::type_at),
+//!   [`resolve_at`](Analysis::resolve_at) and [`side_of`](Analysis::side_of).
+//! * [`stdlib`] is the standard library as the checker sees it: embedded K
+//!   sources plus the element, CSS and annotation tables.
+//!
+//! ```
+//! use k_sema::{AnalysisHost, Options, ProjectPath};
+//!
+//! let host = AnalysisHost::with_files(
+//!     Options::new(),
+//!     [(
+//!         ProjectPath::new("src/home/Home.k").unwrap(),
+//!         "public page Home {\n    view {\n        text { \"Hello\" }\n    }\n}\n".to_owned(),
+//!     )],
+//! );
+//! let analysis = host.analysis();
+//! assert!(analysis.diagnostics().unwrap().is_empty());
+//! ```
 //!
 //! # Status
 //!
-//! Not implemented yet. This crate exists so the workspace layout matches the
-//! architecture.
+//! The public API is final. The analysis parses every K source file in
+//! parallel and memoizes parses across revisions; the semantic pass runs
+//! once per revision: modules, imports, visibility, names, doc links,
+//! types, inference, effects and control flow (round 1a), and the framework
+//! layer (round 1b: components, views, styles, themes, reactivity, DI,
+//! layering, the server/client boundary, routing, protocols, `@Load`,
+//! forms, configs, persistence and tests). It answers
+//! [`type_at`](Analysis::type_at), [`resolve_at`](Analysis::resolve_at) and
+//! [`side_of`](Analysis::side_of). What each stage checks, and which checks
+//! are v0 and which deferred, is in `docs/compiler/sema.md`.
+//!
+//! # Guarantees
+//!
+//! * **Never panics** on any input: user errors are diagnostics in the
+//!   K1000–K8999 ranges of `docs/compiler/diagnostics.md`.
+//! * **Deterministic:** the same inputs give the same diagnostics, sorted
+//!   by file, span and code, whatever the number of threads.
+//! * **Incremental:** results are memoized per revision and kept for
+//!   unchanged inputs.
+
+mod app;
+mod body;
+mod check;
+mod cx;
+mod di;
+mod doclinks;
+mod framework;
+mod fx;
+mod host;
+mod lookup;
+mod pattern;
+mod program;
+mod project;
+mod regex;
+mod routing;
+mod rpc;
+pub mod stdlib;
+mod ty;
+mod warm;
+
+pub use host::{Analysis, AnalysisHost, Change, FileOrigin, Options};
+pub use lookup::{Cancelled, Resolution, Side};
+pub use project::{FileKind, LockfileKind, ModulePath, PathError, ProjectPath};

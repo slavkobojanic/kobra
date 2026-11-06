@@ -1,0 +1,6 @@
+error[K3001] 3:12-3:15
+  fix "Change `let` to `var`"
+    edit 3:12-3:15 "var"
+error[K3001] 11:12-11:15
+  fix "Change `let` to `var`"
+    edit 11:12-11:15 "var"

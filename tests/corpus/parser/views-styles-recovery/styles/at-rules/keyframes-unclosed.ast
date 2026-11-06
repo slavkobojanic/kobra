@@ -1,0 +1,6 @@
+(SourceFile
+  (ComponentDecl component T
+    (MemberList
+      (StyleBlock style
+        (KeyframesRule keyframes fade
+          (KeyframeBlock (KeyframeSelector from) (Declaration opacity (CssValue (Literal 0)))))))))

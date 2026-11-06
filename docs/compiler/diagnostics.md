@@ -31,8 +31,8 @@ default severities; this document must be kept in sync with it.
 |---|---|
 | K0001–K0099 | Lexer |
 | K0100–K0499 | Parser |
-| K1000–K1999 | Modules, imports, name resolution, visibility |
-| K2000–K2999 | Types, expressions, control flow, errors |
+| K1000–K1999 | Modules, imports, name resolution, visibility, doc comments |
+| K2000–K2999 | Types, expressions, effects, control flow, errors |
 | K3000–K3999 | Components, views, styles, themes, reactivity |
 | K4000–K4999 | Services, dependency injection, layering, server/client boundary |
 | K5000–K5499 | Pages and routing |
@@ -40,8 +40,12 @@ default severities; this document must be kept in sync with it.
 | K6000–K6999 | Persistence |
 | K7000–K7499 | Forms and validation |
 | K7500–K7999 | Tests |
-| K8000–K8999 | Lockfiles and packages |
+| K8000–K8999 | Lockfiles, manifest and packages |
 | K9000–K9999 | Driver, I/O and internal errors |
+
+The semantic ranges are split into sub-ranges per area of [sema.md](sema.md); the headings of
+[Semantic codes](#semantic-codes) name them. A new code goes into its area's sub-range, after the last
+code there.
 
 ## Lexer codes
 
@@ -124,6 +128,323 @@ Suggested parser messages: K0100 ``expected `)`, found `,` `` (the found part is
 before this`; K0103 `semicolons are not used in K; end the statement with a line break`; K0104 ``` `&&` is
 not an operator; write `and` ```; K0112 ``unknown unit `pz` ``; K0134 `nesting exceeds the limit of 400
 levels`.
+
+## Semantic codes
+
+Reported by `k_sema` ([sema.md](sema.md)). These are the **v0** codes: every check that sema.md marks
+v0 reports one of them. Deferred checks get codes when they are implemented. Unless a row says
+otherwise, a diagnostic has no labels, and "as K2003" means the same span convention as that code.
+Fixes are machine-applicable only where the row says so.
+
+The `sema` corpus suite ([testing.md §3.8](testing.md#38-the-sema-suite)) holds cases for these codes;
+cases for checks that don't exist yet are marked pending.
+
+### Project layout and files (K1000–K1099)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K1001 | `stray-source-file` | error | Empty span at offset 0 of the file. | — |
+| K1002 | `public-name-mismatch` | error | The declaration's name token. | Rename the declaration to the file's name (maybe-incorrect). |
+| K1003 | `multiple-public-declarations` | error | The name token of the second and every later public declaration; label: the first. | Remove `public` (maybe-incorrect). |
+| K1004 | `duplicate-declaration` | error | The later declaration's name token (by path, then offset); label: the first. | — |
+| K1005 | `misplaced-declaration` | error | The declaration's keyword token. | — |
+
+### Imports and the module graph (K1100–K1199)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K1101 | `unresolved-import` | error | The import's path, from its first segment to its last. | ``Replace with `closest.Name` `` (maybe-incorrect). |
+| K1102 | `import-not-visible` | error | The last segment of the import's path; label: the declaration. | — |
+| K1103 | `import-cycle` | error | In each module of the cycle, the path of the import that continues it; labels: the other imports of the cycle, in order. | — |
+| K1104 | `test-only-import` | error | The import's path. | — |
+| K1105 | `unused-import` | warning | The import's path. | Remove the import (machine-applicable). |
+| K1106 | `duplicate-import` | error | The later import's path; label: the earlier one, or ``declared in this module here`` at the module's own declaration of the name. | Remove the duplicate when both name the same declaration, including an import of the module's own declaration (machine-applicable). |
+
+### Name resolution (K1200–K1299)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K1201 | `unresolved-name` | error | The name token. | Import the declaration when exactly one visible declaration has the name (machine-applicable); otherwise the closest name (maybe-incorrect). |
+| K1202 | `unresolved-type` | error | The type's path. | As K1201. |
+| K1203 | `unknown-member` | error | The member name token after `.`. | ``Replace with `name` ``, the closest member (maybe-incorrect). |
+
+### Visibility (K1300–K1399)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K1301 | `not-visible` | error | The name token of the use; label: the declaration. | — |
+| K1302 | `redundant-public-member` | warning | The `public` token. | Remove `public` and the space after it (machine-applicable). |
+| K1303 | `public-inject` | error | The `public` token. | Remove `public` (machine-applicable). |
+| K1304 | `private-extend` | error | The `private` token. | Remove `private` (maybe-incorrect). |
+| K1305 | `conflicting-extension-member` | error | The second member's name token; label: the first. | — |
+
+### Doc comments (K1900–K1999)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K1901 | `unresolved-doc-link` | warning | The link's name inside the brackets and backticks. | — |
+
+### Types and expressions (K2000–K2099)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K2001 | `type-mismatch` | error | The expression; label: where the expected type comes from, when it is written in source. | Conversions the design names (`String(n)`, `.formatted()`) (maybe-incorrect). |
+| K2002 | `cannot-infer` | error | The expression (`[]`, `nil`, a lambda). | — |
+| K2003 | `missing-argument` | error | Empty span just before the call's `)`, or after the callee when it has no argument list. | Insert `label: <placeholder>` (maybe-incorrect). |
+| K2004 | `unknown-argument-label` | error | The label token. | The closest label (maybe-incorrect). |
+| K2005 | `not-callable` | error | The callee expression. | — |
+| K2006 | `unknown-implicit-member` | error | The name after `.`. | ``Replace with `name` ``, the closest member of the expected type (maybe-incorrect). |
+| K2007 | `implicit-member-without-type` | error | The whole implicit member expression, from `.` to the name. | — |
+| K2008 | `missing-memberwise-field` | error | As K2003; one diagnostic lists every missing field. | Insert the missing labels with placeholders (maybe-incorrect). |
+| K2009 | `unsatisfied-constraint` | error | The type argument, or the argument expression it was inferred from. | — |
+| K2010 | `missing-interface-member` | error | The interface's name in the `implements` clause. | Insert stubs (maybe-incorrect). |
+| K2011 | `assignment-to-let` | error | The assigned place (left side of `=`, or the receiver of a mutating call); label: the `let`. | Change `let` to `var` when the binding is local (maybe-incorrect). |
+| K2012 | `bool-literal-comparison` | warning | The comparison expression. | `x` or `not x` (machine-applicable). |
+| K2013 | `invalid-operands` | error | The binary or prefix expression. Covers `==`/`!=` without `Equatable` or across types, `<` without `Comparable`, arithmetic on non-numbers, `Int` with `Double` (no implicit conversions), a length times a length, and `-` on a `Bool`. Operands of `and`/`or`/`not` that aren't `Bool` are K2001 at the operand instead; arithmetic across unit dimensions is K2101. | — |
+| K2014 | `not-an-interface` | error | The type in the `implements` clause (or `where` predicate) that names a struct, class, enum or built-in type: K has no inheritance. | — |
+| K2015 | `interface-member-mismatch` | error | The implementing member's name token; label: the requirement's name, `required here`. | — |
+| K2016 | `stored-field-in-extension` | error | The field's name token. | — |
+| K2017 | `unwrap-required` | error | The optional receiver of the `.` member access. | ``Use `?.` ``: replace the `.` with `?.` (maybe-incorrect). |
+| K2018 | `needless-optional-operator` | warning | The `?.` or `??` token whose left operand can't be `nil`. | For `?.`, ``Replace `?.` with `.` `` (machine-applicable); for `??`, ``Remove `?? <default>` `` deleting from the whitespace before `??` to the end of the right operand (machine-applicable). |
+| K2019 | `duplicate-member` | error | The later member's name; label `first declared here` at the first. Members share a name when both are fields, computed properties or cases in the same namespace: instance members, or static members and cases (`.x`). Functions may be overloaded and may share a name with a property. The first member wins for the memberwise initializer, lookups and derivation. | — |
+
+Messages and detail lines for this range that the corpus pins exactly:
+
+- **K2001** message: ``expected `T`, found `U` ``, both types rendered as in [sema.md §2](sema.md#2-public-api)
+  (`String?`, `List<corpus.Item>`); for a `nil` literal where `T` isn't optional, `U` is `nil`
+  (``expected `Int`, found `nil` ``).
+- **K2011** label at the `let` keyword of the binding or field: ``declared with `let` here``. The fix
+  ``Change `let` to `var` `` (maybe-incorrect) replaces that keyword, and is offered only for a local
+  binding (not for fields, top-level `let`s or `static let`s).
+- **K2012** fix ``Simplify to `R` `` (machine-applicable) replaces the whole comparison with `R`: the
+  operand's text for `== true`, `!= false` and `true ==`, or `not ` and the operand's text for `== false`
+  and `!= true` (a parenthesized operand keeps its parentheses: `not (a or b)`). A `Bool?` operand is not
+  linted, and a non-`Bool` operand is K2013.
+
+### Units and number extensions (K2100–K2199)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K2101 | `mixed-unit-dimensions` | error | The binary expression. | — |
+
+### Effects: async and throws (K2200–K2299)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K2201 | `missing-try` | error | The call expression (including `await` when present). | Insert `try ` before the covering expression: the outermost operand or postfix chain the call starts, since `try` must start what it covers (K0114). Machine-applicable when the error then reaches a handler (an enclosing `do`/`catch`, or a `throws` that names it); otherwise maybe-incorrect, because the edit alone turns K2201 into K2203. |
+| K2202 | `needless-try` | warning | The `try` token. | Remove `try ` (machine-applicable). |
+| K2203 | `unhandled-error` | error | The `try` expression or `throw` statement; label: the enclosing signature. | Add or widen `throws` (maybe-incorrect). |
+| K2204 | `missing-await` | error | The call or query expression. | Insert `await ` before the covering expression, as for K2201 (machine-applicable inside an async function). |
+| K2205 | `await-outside-async` | error | The `await` token; label: the enclosing signature. | Add `async` to the function (maybe-incorrect). |
+| K2206 | `catch-not-exhaustive` | error | The `do` keyword; a note lists the missing patterns. | Insert `catch` clauses for the missing cases (maybe-incorrect). |
+
+### Control flow (K2300–K2399)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K2301 | `match-not-exhaustive` | error | The `match` keyword; a note lists the missing patterns. | Insert arms for the missing cases (maybe-incorrect). |
+| K2302 | `unreachable-arm` | error | The arm's pattern, or the `default`/`catch` keyword. | Remove the arm (maybe-incorrect). |
+| K2303 | `wildcard-case-arm` | error | From `case` to `_` inclusive. | Replace with `default` (machine-applicable). |
+| K2304 | `unused-catch-all-binding` | error | The binding pattern (`let x`). | Replace the arm head with `default`, or the pattern with `_` (machine-applicable). |
+| K2305 | `guard-does-not-exit` | error | The `else` keyword. | — |
+| K2306 | `use-before-initialization` | error | The read; label: the declaration. | — |
+| K2307 | `missing-return` | error | The closing `}` of the body. | — |
+| K2308 | `return-in-lambda` | error | The `return` keyword. | Remove `return` when it is the last statement (machine-applicable). |
+| K2309 | `misplaced-jump` | error | The keyword. | — |
+| K2310 | `for-over-stream` | error | The `for` keyword. | Insert `await ` after `for` (machine-applicable inside an async function). |
+| K2311 | `for-await-not-stream` | error | The `await` token. | Remove `await ` when the operand is a collection (machine-applicable). |
+
+### Stdlib-specific rules (K2400–K2499)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K2401 | `named-status-as-other` | error | The integer literal. | Replace with the named case (machine-applicable). |
+
+### Annotations, members and reactivity (K3000–K3099)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K3001 | `annotation-mutability` | error | The `let` or `var` token. | Swap `let` and `var` (machine-applicable; maybe-incorrect when turning a `var` into a `let` that its declaration assigns, since the assignment would then be K3014). |
+| K3002 | `annotation-not-allowed` | error | The annotation, from `@` to the end of its name. | Remove the annotation (maybe-incorrect). |
+| K3003 | `missing-view` | error | The declaration's name token. | — |
+| K3004 | `duplicate-block` | error | The keyword of the second block; label: the first. | — |
+| K3005 | `invalid-annotated-type` | error | The field's type. `@Slot` takes `View`, `View?` or a function returning `View`; `@Stylable` takes `Classes`; `@Emits` takes `Event<T>`. | — |
+| K3010 | `write-to-derived` | error | The assigned place; label: the `@Derived` field. | — |
+| K3011 | `state-write-in-derived` | error | The assignment or mutating call. | — |
+| K3012 | `throwing-effect-or-handler` | error | The `throws` clause, from `throws` to the end of its type. | — |
+| K3013 | `discarded-timer-handle` | warning | The call expression. | Bind it and cancel it in `onCleanup` (maybe-incorrect). |
+| K3014 | `write-to-prop` | error | The assigned place (left side of `=` or a compound assignment, or the receiver of a mutating call); label `declared `@Prop` here` at the field's name. Not reported when the field already has K3001. | Change `@Prop let` to `@Binding var`: two edits, the annotation and the `let` token (maybe-incorrect). |
+| K3015 | `not-bindable` | error | The operand of `bind`. Bindable places are `@State`, `@Binding` and `@Form` fields, paths into them, and loop variables over a bindable list (`bind item.quantity`). | — |
+| K3016 | `missing-bind` | error | The argument expression passed to a `@Binding` prop or a `Binding<T>` element argument. | Insert `bind ` before it (machine-applicable) when the expression is a bindable place; no fix otherwise. |
+| K3017 | `throwing-handler` | error | The handler argument of `.on(…)` that names a `throws` function. | Wrap the function's body in `do`/`catch` (maybe-incorrect). |
+| K3018 | `unexpected-bind` | error | From `bind` to the start of its operand (the keyword and the space after it). | Remove `bind ` (machine-applicable). |
+| K3020 | `load-cycle` | error | The name token of each `@Load` field in the cycle, one diagnostic per field; labels: the reads. | — |
+| K3021 | `load-not-codable` | error | The field's type. | — |
+| K3022 | `missing-loading-block` | error | The declaration's name token. | Insert an empty `loading { }` (maybe-incorrect). |
+| K3023 | `reserved-reload` | error | The name token of the member named `reload` in a declaration with `@Load` fields. | — |
+| K3024 | `load-error-not-codable` | error | The `@Load` field's initializer expression (the error type is declared elsewhere). | — |
+| K3025 | `status-outside-failed` | error | The `status(…)` call expression, in a page-level `metadata` block or directly in `failed`. | — |
+| K3026 | `derived-cycle` | error | The name token of each `@Derived` field in the cycle, one diagnostic per field. The graph has an edge for every read of another `@Derived` field of the same declaration (`b` or `self.b`) in an initializer, `untracked { … }` included. | — |
+
+### Views (K3100–K3199)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K3101 | `unknown-element` | error | The element name token. | Replace an HTML name with its K element (maybe-incorrect). |
+| K3102 | `missing-element-argument` | error | As K2003. | Insert the label (maybe-incorrect). |
+| K3103 | `unknown-attribute` | error | The name after `.`. | The closest attribute (maybe-incorrect). |
+| K3104 | `duplicate-attribute` | error | The second chained name; label: the first. | — |
+| K3105 | `unknown-event` | error | The event label. | — |
+| K3106 | `missing-for-key` | error | Empty span after the loop's operand, where ` key …` goes. | Insert ` key item.id` when the item type has an `id` (maybe-incorrect). |
+| K3107 | `content-not-allowed` | error | The offending child. | — |
+| K3108 | `multiple-events-in-on` | error | The label of the second event in the call. | Split into one `.on(…)` per event (machine-applicable). |
+| K3109 | `invalid-heading-level` | error | The `level:` argument expression (not an integer literal from 1 to 6). | — |
+| K3110 | `redundant-role` | error | The implicit member expression, from `.` to the name; help ``use `nav` `` naming the element. | — |
+| K3111 | `key-outside-view` | error | From `key` to the end of the key expression. | Remove the `key` clause, with the space before it (machine-applicable). |
+
+### Styles (K3200–K3299)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K3201 | `unknown-css-property` | error | The property name token. | The closest property, or the camelCase form of a kebab-case name (machine-applicable for the camelCase form). |
+| K3202 | `invalid-css-value` | error | The first value component that fails to match, or the whole value when it is incomplete. | — |
+| K3203 | `unknown-class` | error | The class name after `.`. | The closest class (maybe-incorrect). |
+| K3204 | `unused-class` | warning | The class selector's name. | — |
+| K3205 | `unknown-keyframes` | error | The name after `.`. | The closest keyframes name (maybe-incorrect). |
+| K3206 | `unused-keyframes` | warning | The keyframes name after `@keyframes`. | — |
+| K3207 | `invalid-keyframe-selector` | error | The selector. | — |
+| K3208 | `keyframe-rule-content` | error | The nested rule or at-rule. | — |
+| K3209 | `unapplied-stylable` | error | The `@Stylable` field's name. | — |
+| K3210 | `non-reactive-interpolation` | error | The expression inside `{ }`. | For a theme token or literal: remove the braces, replacing the interpolation with the expression (machine-applicable). |
+| K3211 | `unknown-media-feature` | error | The feature name. | The closest feature (maybe-incorrect). |
+| K3212 | `unknown-at-rule` | error | The at-rule's name after `@`. | — |
+| K3213 | `duplicate-keyframes` | error | The second keyframes name; label `first declared here` at the first. | — |
+
+### Themes (K3300–K3399)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K3301 | `unknown-theme-token` | error | The token name. | The closest token (maybe-incorrect). |
+| K3302 | `redeclared-theme-token` | error | The token name in the declaration; label: the library's declaration. | Rewrite as an override (machine-applicable). |
+| K3303 | `override-outside-theme` | error | The whole member. | — |
+| K3304 | `unknown-token-category` | error | The category word. | The closest category (maybe-incorrect). |
+| K3305 | `token-category-mismatch` | error | The declared type. | Replace it with the category's type (machine-applicable). |
+| K3306 | `variant-named-base` | error | The variant's name. | — |
+| K3307 | `duplicate-theme-member` | error | The second token, variant or override name; label `first declared here` at the first. | — |
+
+#### Quick-fix and label wording (K3000–K3399)
+
+The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail lines compares them):
+
+| Code | Text |
+|---|---|
+| K3001 | fix ``Change `let` to `var` `` / ``Change `var` to `let` ``, one edit replacing the token |
+| K3002 | fix `Remove the annotation` (maybe-incorrect), one edit removing the annotation and the spaces after it |
+| K3010 | label ``declared `@Derived` here`` at the field's name |
+| K3014 | label ``declared `@Prop` here``; fix ``Change `@Prop let` to `@Binding var` `` |
+| K3016 | fix ``Insert `bind ` `` (edit: empty span at the argument's start, text `bind `) |
+| K3018 | fix ``Remove `bind ` `` |
+| K3104 | label `first set here` at the first name |
+| K3101 | fix ``Replace `a` with `link` `` (maybe-incorrect); for `h1`–`h6` without an argument list the replacement is `heading(level: n)` |
+| K3106 | fix ``Insert ` key item.id` `` (maybe-incorrect), naming the loop variable |
+| K3111 | fix ``Remove the `key` clause`` |
+| K3201 | fix ``Replace `font-size` with `fontSize` `` (machine-applicable for the camel-case form, maybe-incorrect for the closest name) |
+| K3210 | fix `Remove the braces` |
+| K3302 | label `declared here` at the library's token; fix `Rewrite as an override`, one edit replacing the category, name and type with the name and a space |
+| K3110 | help ``use `nav` `` |
+| K3213, K3307 | label `first declared here` |
+| K2004, K3103, K3203, K3205, K3211, K3301, K3304 (closest name) | fix ``Replace `old` with `new` `` (maybe-incorrect); K1101, K1203 and K2006 say ``Replace with `new` `` |
+| K3305 | fix ``Replace `Length` with `Spacing` `` (machine-applicable) |
+
+### Services, DI, layering and the server/client boundary (K4000–K4999)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K4001 | `missing-implementation` | error | The type of the `@Inject` field. | — |
+| K4002 | `ambiguous-implementation` | error | The type of the `@Inject` field; labels: the implementations. | Insert `use X for I` in `App.k` (maybe-incorrect). |
+| K4003 | `dependency-cycle` | error | The type of the `@Inject` field that closes the cycle in each participant; labels: the path. | — |
+| K4004 | `scope-violation` | error | The type of the `@Inject` field; a note names the injection path. | — |
+| K4005 | `layering-violation` | error | The type of the `@Inject` field. | — |
+| K4006 | `foreign-state-write` | error | The assigned place; label: the field. | — |
+| K4007 | `server-only-in-client` | error | The use (an import path, an `@Inject` type or a name); a note names the path to the client. | — |
+| K4008 | `service-on-both-sides` | error | The service's name token; notes name both paths. | — |
+| K4009 | `job-reaches-session` | error | The job's name token; a note names the path. | — |
+| K4010 | `use-target-mismatch` | error | The operand before `for`. | — |
+| K4011 | `use-expression-not-allowed` | error | The operand expression. | — |
+| K4012 | `client-only-during-ssr` | error | The call. | — |
+| K4013 | `client-state-in-server-render` | warning | The read. | Add `@Rendering(.client)` to the app (maybe-incorrect). |
+| K4014 | `use-restates-default` | warning | The whole `use` rule, from `use` to the end of its target type. | Remove the rule and its line, and the imports only the rule used, so no K1105 follows (machine-applicable). |
+| K4015 | `environment-not-covered` | error | The target type (after `for`) of the interface's first `use` rule in `App.k`; a note names each uncovered environment. | — |
+| K4016 | `invalid-service-init` | error | The parameter list of an `init` with parameters; the throws clause (from `throws` to the end of its type) of a throwing one; the `init` keyword of a second `init`. | — |
+| K4017 | `config-member-not-allowed` | error | The name token of a config field without `@Env`, or of a function in a config. | — |
+| K4018 | `duplicate-env-variable` | error | The later `@Env` argument's string literal (by path, then offset), quotes included; label: the earlier one. | — |
+| K4019 | `not-a-config-value` | error | The config field's type. | — |
+| K4020 | `config-construction` | error | The call expression that constructs the config, outside test code (`App.k`'s `use` operands are K4011). | — |
+| K4021 | `implements-service` | error | The service's name in the `implements` clause, outside test files and test-only modules. | — |
+| K4022 | `endpoint-session-not-injected` | error | The endpoint page's name token; a note names the path to `Session`/`SessionManager`. | Insert `@Inject let session: Session` (maybe-incorrect). |
+
+### Pages and routing (K5000–K5499)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K5001 | `url-conflict` | error | The later page's name token or `at` template; label: the first. | — |
+| K5002 | `unroutable-param` | error | The field's type. | — |
+| K5003 | `at-template-mismatch` | error | The template segment, or the field's name token when the template lacks it. | — |
+| K5004 | `endpoint-without-at` | error | The page's name token. | Insert ` at "/<kebab-name>"` (machine-applicable). |
+| K5005 | `guard-on-endpoint` | error | The guard expression in the `requires` clause. | — |
+| K5006 | `not-a-guard` | error | The expression. | — |
+| K5007 | `missing-sign-in-page` | error | The app's name token in `App.k` (only app projects report it). | — |
+| K5008 | `sign-in-page-requires-authenticated` | error | The `Authenticated` guard in the sign-in page's `requires` clause. | — |
+| K5009 | `layout-on-endpoint` | error | The annotation, from `@` to the end of its name. | — |
+| K5010 | `endpoint-member-not-allowed` | error | The keyword of the `view`, `metadata`, `loading`, `failed` or `style` block. | — |
+| K5011 | `duplicate-handler-method` | error | The later handler's method annotation, from `@` to the end of its name; label: the first. | — |
+| K5012 | `invalid-handler-signature` | error | The handler function's name token. | — |
+
+### Protocols and RPC (K5500–K5999)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K5501 | `rpc-without-throws` | error | The rpc's name token. | Insert ` throws RpcOnlyError` before the return type (machine-applicable). |
+| K5502 | `rpc-error-without-failure-case` | error | The error type in the rpc's `throws` clause; label: the enum. | Insert `case rpcFailure(RpcFailure)` into the enum (machine-applicable when the enum is in the project). |
+| K5503 | `rpc-payload-not-codable` | error | The parameter's, return or error type. | — |
+| K5504 | `rpc-implementation-not-server` | error | The protocol's name in the `implements` clause. | — |
+| K5505 | `rpc-handler-mismatch` | error | The handler's name token; label: the protocol's rpc. | — |
+| K5506 | `handler-throws-rpc-failure` | error | The `throw` statement, in the body of a protocol handler, whose value constructs a `rpcFailure` case ([28-rpc-wire-format.md](../design/28-rpc-wire-format.md): only the runtime produces it). Client code rethrowing it is fine. | — |
+
+### Persistence (K6000–K6999)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K6001 | `untranslatable-query` | error | The smallest untranslatable expression. | — |
+| K6002 | `unsupported-column-type` | error | The field's type. | — |
+| K6003 | `reserved-table-prefix` | error | The entity's name token. | — |
+
+### Forms and validation (K7000–K7499)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K7001 | `form-value-outside-handle` | error | The `value` member name. | — |
+| K7002 | `empty-outside-form` | error | The implicit member expression. | — |
+| K7003 | `format-on-string` | error | The annotation, from `@` to the end of its name. | — |
+| K7004 | `redundant-email` | warning | The annotation, from `@` to the end of its name. | Remove it, or rewrite `@Email(message:)` as `@Format(message:)` (machine-applicable). |
+| K7005 | `matches-not-literal` | error | The argument. | — |
+| K7006 | `invalid-regex` | error | The string literal, or the offending part of it when the regex parser reports a position. | — |
+
+### Tests (K7500–K7999)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K7501 | `expect-not-bool` | error | The condition. | — |
+| K7502 | `expect-throws-cannot-throw` | error | The `expect` keyword. | — |
+| K7503 | `unbound-test-config` | error | The test group's name token; a note names the config and the injection path. | — |
+
+### Lockfiles, manifest and packages (K8000–K8999)
+
+| Code | Name | Severity | Primary span | Fix |
+|---|---|---|---|---|
+| K8001 | `breaking-change` | error | The declaration or member that changed; a note names the lockfile entry. | — |
+| K8002 | `invalid-lockfile` | error | The offending line, or offset 0. | — |
+| K8101 | `invalid-manifest` | error | The offending key or line, or offset 0. | — |
 
 ## Driver codes
 

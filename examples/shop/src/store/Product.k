@@ -25,7 +25,7 @@ public entity Product {
     var price: Money
 
     /// The absolute URL of the product photo.
-    var imageUrl: String
+    var imageUrl: Url
 
     /// Units still available to new orders. Placing an order reserves units
     /// immediately; see `ProductRepository.reserve(id:quantity:)`.

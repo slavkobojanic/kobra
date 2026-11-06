@@ -1,0 +1,6 @@
+error[K3201] 10:17-10:26
+  fix "Replace `font-size` with `fontSize`"
+    edit 10:17-10:26 "fontSize"
+error[K3201] 10:34-10:50
+  fix "Replace `background-color` with `backgroundColor`"
+    edit 10:34-10:50 "backgroundColor"

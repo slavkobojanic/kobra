@@ -1,0 +1,21 @@
+// An `init` may throw; constructing the value is a throwing call that needs
+// `try` (K2201 otherwise).
+enum ParseError implements Error {
+    case empty
+}
+
+struct Name {
+    let text: String
+
+    init(raw: String) throws ParseError {
+        guard raw.isNotEmpty else {
+            throw ParseError.empty
+        }
+        text = raw
+    }
+}
+
+func parse(raw: String) throws ParseError -> Name {
+    let first = try Name(raw: raw)
+    return Name(raw: first.text)
+}

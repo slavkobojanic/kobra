@@ -1,0 +1,3 @@
+error[K2304] 18:13-18:22
+  fix "Replace the pattern with `_`"
+    edit 18:13-18:22 "_"

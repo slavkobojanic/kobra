@@ -1,0 +1,3 @@
+error[K2006] 6:20-6:26
+  fix "Replace with `submit`" maybe-incorrect
+    edit 6:20-6:26 "submit"

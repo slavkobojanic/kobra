@@ -67,7 +67,7 @@ test AddToCart {
 
 | Interface | Default in `k test` | What it does |
 |---|---|---|
-| `Clock` (a stdlib service) | `TestClock` | virtual time from a fixed instant, shared by the test's server and browser containers; `advance(by:)` fires due timers ([35-time.md](35-time.md#testing-with-testclock)) |
+| `Clock` (a stdlib service) | `TestClock` | virtual time starting at 2026-01-01T12:00:00Z (UTC) unless the test sets it, shared by the test's server and browser containers; `advance(by:)` fires due timers ([35-time.md](35-time.md#testing-with-testclock)) |
 | `JobQueue` | `RecordingJobQueue` | stores jobs without running them; `payloads(of: OrderConfirmationJob.kind)` ([30-background-jobs.md](30-background-jobs.md)) |
 | `LocalStorage` | `MemoryStorage` | an empty in-memory store that can simulate failures ([36-local-storage.md](36-local-storage.md)) |
 | `EmailProvider` | `RecordingEmailProvider` | keeps sent messages in `sent`; `simulateFailure(error:)` ([31-email.md](31-email.md)) |
@@ -102,7 +102,8 @@ A test is one browser talking to one server, in one process:
 
 | Member | Meaning |
 |---|---|
-| `heading(named:)`, `link(named:)`, `button(named:)`, `text(_)` | accessibility queries, returning an element handle |
+| `heading(named:)`, `link(named:)`, `button(named:)`, `text(_)` | accessibility queries, returning an element handle; exact matches (below) |
+| `text(containing:)` | an element whose text contains the given string |
 | `textField(labeled:)`, `passwordField(labeled:)`, `textArea(labeled:)`, `numberField(labeled:)`, `dropdown(labeled:)`, `checkbox(labeled:)` | form controls, found by their label |
 | `item(containing:)` | a list item whose text contains the given string |
 | `navigation(named:)` | a `nav` landmark, found by its accessible name |
@@ -113,7 +114,8 @@ A test is one browser talking to one server, in one process:
 | `await screen.settle()` | waits until no `@Load`, async effect or event handler is in flight, apart from work waiting on the `TestClock` or on the next element of an open stream |
 | `screen.unmount()` | unmounts the view, running every `onCleanup` |
 
-- **`named:` matches the full accessible name exactly,** after whitespace normalisation (leading and trailing whitespace removed, inner runs collapsed to one space). `button(named: "Add")` doesn't find a button named "Add to cart". The same holds for every `named:` query. `item(containing:)`, by contrast, matches part of an item's text, as its label says.
+- **`named:`, `labeled:` and `text(_)` match the full text exactly,** after whitespace normalisation (leading and trailing whitespace removed, inner runs collapsed to one space). `button(named: "Add")` doesn't find a button named "Add to cart", `textField(labeled: "Email")` doesn't find a field labelled "Email address", and `text("Total")` doesn't find "Total: $9.99". The same holds for every `named:` and `labeled:` query.
+- **Substring matching is spelled out:** `text(containing:)` finds an element whose text contains the given string, and `item(containing:)` a list item, as their labels say.
 - **A singular query returns a handle even when nothing matches.** `exists` and `isVisible` are then `false`. An action on a handle that matches nothing, or more than one element, fails the test with the query and what it found.
 - **Every handle supports the same queries, scoped to its subtree:** `screen.item(containing: "Buy milk").button(named: "Delete")`. This finds one of many identically named controls without test ids.
 - **Element state:** `exists`, `isVisible`, `isChecked`, `isPressed`, `isDisabled`, `value` (a field's current text), `text` (the element's text content), `level` (a heading's level).

@@ -1,0 +1,19 @@
+// An error-generic method from another module: a block that can't throw needs
+// no `try`; a throwing block makes the call throw `SyncError`.
+import data.Retry
+
+func push() async throws SyncError {}
+
+/// Synchronizes data.
+public struct Sync {
+    let retry: Retry
+
+    func count() async -> Int {
+        return await retry.run { 1 }
+    }
+
+    func send() async throws SyncError {
+        try await retry.run { try await push() }
+        await retry.run { try await push() }
+    }
+}

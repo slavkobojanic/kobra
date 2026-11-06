@@ -1,0 +1,3 @@
+error[K3103] 5:14-5:21
+  fix "Replace `disable` with `disabled`" maybe-incorrect
+    edit 5:14-5:21 "disabled"

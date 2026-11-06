@@ -1,0 +1,6 @@
+; `use Config.sample` without `for` reports K0100 at the gap after the operand.
+(SourceFile
+  (TestSuiteDecl test Values
+    (MemberList
+      (UseDecl use (MemberExpr (NameExpr Config) sample))
+      (UseDecl use (PathType Real) for (PathType Api)))))

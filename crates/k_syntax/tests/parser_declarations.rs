@@ -912,3 +912,49 @@ fn long_runs_of_annotations_and_modifiers_parse_losslessly() {
         parse.diagnostics().first()
     );
 }
+
+// ------------------------------------------------------------- use operand
+
+/// Returns the `UseDecl`s of the first member list in `src`.
+fn use_decls(src: &str) -> Vec<ast::UseDecl> {
+    let parse = parse_any(src);
+    parse
+        .syntax()
+        .descendants()
+        .filter_map(ast::UseDecl::cast)
+        .collect()
+}
+
+#[test]
+fn use_decl_accessors_split_operand_target_and_environments() {
+    let decls = use_decls(
+        "app A {\n    use Fake for Api in .development, .test\n}\n\
+         test T {\n    use Config.sample for Config\n    use Config(a: 1) for Config\n    use Missing\n}\n",
+    );
+    assert_eq!(decls.len(), 4);
+
+    let typed = &decls[0];
+    assert_eq!(typed.implementation().unwrap().syntax().text(), "Fake");
+    assert!(typed.value().is_none());
+    assert_eq!(typed.target().unwrap().syntax().text(), "Api");
+    let environments: Vec<String> = typed
+        .environments()
+        .iter()
+        .map(|e| e.syntax().text().to_string())
+        .collect();
+    assert_eq!(environments, [".development", ".test"]);
+
+    for value in &decls[1..3] {
+        assert!(value.implementation().is_none());
+        assert!(value.value().is_some());
+        assert_eq!(value.target().unwrap().syntax().text(), "Config");
+        assert!(value.environments().is_empty());
+    }
+    assert!(matches!(decls[1].value(), Some(ast::Expr::MemberExpr(_))));
+    assert!(matches!(decls[2].value(), Some(ast::Expr::CallExpr(_))));
+
+    let missing = &decls[3];
+    assert_eq!(missing.implementation().unwrap().syntax().text(), "Missing");
+    assert!(missing.target().is_none());
+    assert!(missing.environments().is_empty());
+}

@@ -1,0 +1,10 @@
+// `@Derived` requires `let`: a derived value is computed, never assigned.
+component Total {
+    @State var count: Int = 0
+    @Derived var doubled: Int = count * 2
+    @Derived let tripled: Int = count * 3
+
+    view {
+        text { "{doubled} {tripled}" }
+    }
+}

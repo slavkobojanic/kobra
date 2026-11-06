@@ -8,7 +8,7 @@ import k.http.HttpStatus
 ///
 /// A failed `@Load` sends its error from the server to the browser, so no
 /// case carries Open-Meteo's response body: `.upstream` keeps only the status.
-public enum WeatherError implements Error {
+public enum WeatherError implements Error, Codable {
     /// No place has the requested GeoNames id.
     case placeNotFound(id: Int)
 

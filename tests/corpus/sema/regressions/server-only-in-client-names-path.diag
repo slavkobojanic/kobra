@@ -1,0 +1,4 @@
+# Bug: K4007 had no note. Wording is a proposal: the path from the client code to
+# the server-only declaration that makes `Indirect` server-only.
+error[K4007] 16:27-16:35
+  note: corpus.Card → corpus.Indirect → corpus.Server → corpus.Keys (a config is server-only)

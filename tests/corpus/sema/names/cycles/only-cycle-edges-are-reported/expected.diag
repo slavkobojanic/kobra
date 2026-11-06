@@ -1,0 +1,2 @@
+error[K1103] src/a/A.k:2:8-2:11
+error[K1103] src/b/B.k:2:8-2:11

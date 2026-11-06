@@ -1,0 +1,6 @@
+warning[K7004] 8:5-8:11
+  fix "Remove `@Email`"
+    edit 8:5-8:12 ""
+warning[K7004] 9:5-9:11
+  fix "Replace with `@Format(message:)`"
+    edit 9:6-9:11 "Format"

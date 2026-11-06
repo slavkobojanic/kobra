@@ -1,0 +1,8 @@
+; An operand that cannot start a type but can start an expression is an `Expr`;
+; semantic analysis decides whether it is allowed.
+(SourceFile
+  (TestSuiteDecl test Values
+    (MemberList
+      (UseDecl use (ImplicitMemberExpr sample) for (PathType Config))
+      (UseDecl use (Literal 42) for (PathType Config))
+      (UseDecl use (CallExpr (NameExpr makeConfig) (ArgList)) for (PathType Config)))))

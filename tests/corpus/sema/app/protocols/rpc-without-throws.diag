@@ -1,0 +1,3 @@
+error[K5501] 5:9-5:17
+  fix "Add `throws RpcOnlyError`"
+    edit 5:19-5:19 " throws RpcOnlyError"

@@ -7,9 +7,9 @@
 ```k
 /// Looks up a single place by its GeoNames id.
 ///
-/// - Parameter id: the id from a `Place`, usually taken from the URL.
+/// - Parameter id: the id from a [`Place`], usually taken from the URL.
 /// - Returns: the place, from the cache when it has been seen before.
-/// - Throws: `WeatherError.placeNotFound` when no place has this id.
+/// - Throws: [`WeatherError.placeNotFound`] when no place has this id.
 func place(id: Int) async throws WeatherError -> Place { ... }
 ```
 
@@ -17,9 +17,10 @@ func place(id: Int) async throws WeatherError -> Place { ... }
 
 - **The body is Markdown.** The first sentence is the summary shown in autocomplete and in `k doc` indexes. Further paragraphs follow a blank `///` line.
 - **Structured sections are Markdown list items, as in Swift:** `- Parameter name:`, or `- Parameters:` with nested `- name:` items for several; `- Returns:`; `- Throws:`. Javadoc's `@param` style isn't used, because `@` already means an annotation in K.
-- **Names in backticks that resolve to declarations become links** (`` `WeatherError.placeNotFound` ``, `` `searchPlaces(query:)` ``). The compiler checks them: a reference to a declaration that doesn't exist is a warning, so documentation can't drift after a rename.
-- **What counts as a reference:** a backticked identifier, a dotted path of identifiers (`` `WeatherError.offline` ``), or a function name with its labels (`` `searchPlaces(query:)` ``). Other code spans, keywords included (`` `300ms` ``, `` `"todos"` ``, `` `nil` ``, `` `a + b` ``), are plain code and aren't checked.
-- **A reference resolves against three things only:** the file's imports, the file's own package (an application counts as one package), and fully qualified names (`` `k.http.HttpStatus` ``). A reference that resolves against none of these is a warning, even when some other module declares the name.
+- **Links to declarations are written as intra-doc links, as in rustdoc:** a code span in square brackets, `` [`Name`] `` or `` [`Type.member`] ``. They render as links, and the compiler checks them: a link that doesn't resolve is a warning, so documentation can't drift after a rename.
+- **What a link may name:** an identifier (`` [`Place`] ``), a dotted path of identifiers (`` [`WeatherError.offline`] ``, `` [`k.http.HttpStatus`] ``), or a function name with its labels (`` [`searchPlaces(query:)`] ``).
+- **Plain backticks are code, never links,** and are never checked: `` `300ms` ``, `` `"todos"` ``, `` `nil` ``, `` `a + b` ``, and also names such as `` `App.k` `` or `` `temperature_unit` `` that aren't K declarations. A name is checked only when the author asks for a link.
+- **A link resolves against, in order:** the members and parameters of the declaration the comment documents (`` [`id`] ``, `` [`items`] ``), the file's imports, the file's own package (an application counts as one package, so a declaration in another module of the same app resolves), and fully qualified names (`` [`k.http.HttpStatus`] ``). A link that resolves against none of these is a warning.
 - **Fenced code blocks tagged `k` are type-checked** by `k check` as doc examples, but not run.
 - **Placement:** before the declaration and before its annotations, so `/// …` comes before `@Prop`, `@Param` and the rest. Block doc comments (`/** */`) don't exist.
 

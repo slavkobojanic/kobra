@@ -309,7 +309,14 @@ In every state:
 - `}` is `RBrace`. At depth 0 it closes the style block, pops the style frame and returns to the
   enclosing mode; otherwise it decrements the depth and starts a new statement.
 
-Because a statement that starts with a letter is always a declaration, element selectors such as
+**Keyframes.** A statement that starts with `@` directly followed by the word `keyframes` (not a
+longer word such as `keyframes-x`) marks the block its `{` opens as a *keyframes block*. At a statement
+start directly inside a keyframes block, a letter starts a **selector**, not a declaration, so `from {`
+and `to {` open nested blocks like `50% {` does. Inside those nested blocks statements are declarations
+again. The keyframes block ends at its matching `}`; a `;` or `}` before its `{` (`@keyframes x;`)
+cancels it. Keyframes blocks nested in `@media` work at any depth.
+
+Because a statement that starts with a letter is always a declaration (outside keyframes blocks), element selectors such as
 `button { ... }` are not selectors in K ([RA-8](#ra-8-no-element-selectors)): the lexer treats `button` as
 a property name, and the parser reports K0116. An interpolation that opens in a declaration **before its
 `:`** (only this element-rule shape) also ends the statement when it closes, so the statement after
@@ -503,7 +510,7 @@ InitDecl      ::= prefix 'init' ParamList ThrowsClause? Block
 RpcDecl       ::= prefix 'rpc' IDENT ParamList 'async'? ThrowsClause? ReturnType? RequiresClause? Block?
 EnumCase      ::= prefix 'case' IDENT ( '(' ( CaseField ( ',' CaseField )* ','? )? ')' )?
 CaseField     ::= ( IDENT ':' )? Type
-UseDecl       ::= 'use' Type 'for' Type ( 'in' Expr ( ',' Expr )* )?
+UseDecl       ::= 'use' ( Type | Expr ) 'for' Type ( 'in' Expr ( ',' Expr )* )?   (* see below *)
 ThemeToken    ::= IDENT IDENT ':' Type '=' Expr
 ThemeVariant  ::= 'variant' IDENT ( 'matches' expr_nt )? '{' lines( ThemeOverride ) '}'
 ThemeOverride ::= IDENT '=' Expr
@@ -531,6 +538,18 @@ StyleBlock    ::= 'style' '{' css_item* '}'                (* see §16 *)
   members (`@Env` fields, `func up`) are ordinary fields and functions.
 - `UseDecl` binds an implementation: `use StripePayments for PaymentProvider in .production`. It appears in
   `app` and `test` bodies.
+- **The operand of `use`** (before `for`) is a `Type` or an `Expr`. It is an `Expr` exactly when
+  1. it cannot start a type but can start an expression (`use .sample for C`, `use 42 for C`), or
+  2. it starts with a dotted path of words (`a.b.C.d`) that is followed on the same line by `(` or `{`
+     (a call: `use StripeWebhookConfig(signingSecret: s) for StripeWebhookConfig`), or
+  3. that path has a segment after its first capitalized segment that is not a capitalized identifier
+     (a member of a type: `use StripeWebhookConfig.sample for StripeWebhookConfig`).
+
+  Otherwise it is a `Type`: `Fake`, `fakes.FakeApi`, `k.test.MemoryStorage`, `Outer.Inner`,
+  `Repository<User>`, `(Fake)`. The `UseDecl` then holds the operand node directly, before the `for`
+  token: `(UseDecl use (MemberExpr (NameExpr Config) sample) for (PathType Config))`. Semantic analysis
+  allows an `Expr` operand only in a `test` body whose target is a `config` type
+  ([25-config-and-secrets.md](../design/25-config-and-secrets.md#tests)); see [RA-35](#ra-35-the-operand-of-use).
 
 ---
 
@@ -808,7 +827,7 @@ Style blocks are lexed in style mode ([§4.4](#44-style-mode)).
 
 ```ebnf
 StyleBlock ::= 'style' '{' css_item* '}'
-css_item   ::= StyleRule | AtRule | Declaration
+css_item   ::= StyleRule | KeyframesRule | AtRule | Declaration
 
 StyleRule        ::= Selector ( ',' Selector )* '{' css_item* '}'
 Selector         ::= CompoundSelector ( ( '>' | '+' | '~' )? CompoundSelector )*
@@ -823,7 +842,10 @@ AttributeSelector ::= '[' IDENT ( '=' ( StringLit | IDENT ) )? ']'
 UniversalSelector ::= '*'
 TypeSelector      ::= IDENT                            (* always an error: K0116 *)
 
-AtRule      ::= '@' IDENT AtPrelude? ( '{' css_item* '}' | ';' )
+AtRule      ::= '@' IDENT AtPrelude? ( '{' css_item* '}' | ';' )   (* any name but `keyframes` *)
+KeyframesRule    ::= '@' 'keyframes' IDENT '{' KeyframeBlock* '}'  (* no trivia after '@' *)
+KeyframeBlock    ::= KeyframeSelector ( ',' KeyframeSelector )* '{' css_item* '}'
+KeyframeSelector ::= IDENT | UNIT_LIT                     (* `from`, `to`, `50%` *)
 AtPrelude   ::= ( IDENT | MediaFeature )+
 MediaFeature ::= '(' IDENT ( ':' CssValue )? ')'
 
@@ -850,6 +872,15 @@ css_expr      ::= ImplicitMemberExpr ( ( '.' name ) | ArgList )*  (* a K postfix
 - **Commas** separate the values of a declaration: `fontFamily: "Inter", sans-serif;` has two `CssValue`s.
 - `!important` is K0118. `#id` selectors are K0132. Both are wrapped in an `ErrorNode`.
 - Media feature names are camelCase like properties: `@media (maxWidth: 600px)`.
+- **Keyframes.** `@keyframes fade { from { opacity: 0; } 50% { opacity: 0.5; } to { opacity: 1; } }` is a
+  `KeyframesRule` ([06-styles.md](../design/06-styles.md#animations-keyframes)); `keyframes` stays an
+  `Ident` token (style mode has no keywords) and dumps as an atom. The lexer makes `from` and `to`
+  selectors there (§4.4). The parser accepts any `IDENT` or `UNIT_LIT` as a keyframe selector and any
+  style item inside a keyframe block; semantic analysis requires `from`, `to` or a percentage from `0%`
+  to `100%`, and declarations only. A keyframe selector without `{` is K0100 at the next token, and
+  recovery skips to the end of the statement (`;` or `}`) or to a keyframe selector that starts the
+  next line. Anything else where a keyframe selector is expected is K0100, skipped up to the next
+  keyframe selector or `}`. A missing name is K0100 at the token after `keyframes`.
 
 ---
 
@@ -934,7 +965,9 @@ a hard keyword; it can still be used after `.` and as a label.
 
 Classes are typed and scoped; K element names (`box`) differ from HTML tags anyway. **Decision:** style
 blocks select classes, `&`, pseudo-classes and pseudo-elements, attributes and `*`, never elements or ids.
-A statement starting with a letter is always a declaration, which keeps style lexing context-free.
+A statement starting with a letter is always a declaration (except directly inside a `@keyframes` block,
+[RA-36](#ra-36-keyframes)), which keeps style lexing context-free. Elements are styled through classes:
+`heading(level: 1) { title }.class(.title)`.
 
 ### RA-9. Comments in style blocks
 
@@ -1065,6 +1098,8 @@ without structural changes:
   `prefix KEYWORD IDENT MemberList` shape (`ConfigDecl`, `MigrationDecl`).
 - `for await x in stream` ([29-server-streaming.md](../design/29-server-streaming.md)) is an optional
   `await` in `ForStmt`.
+- `use <expression> for <Config>` in test bodies ([25-config-and-secrets.md](../design/25-config-and-secrets.md#tests))
+  is the `Expr` form of `UseDecl`'s operand ([RA-35](#ra-35-the-operand-of-use)).
 - Theme overrides at the top level of a theme and `variant name matches .condition`
   ([07-themes-and-units.md](../design/07-themes-and-units.md)) are described in [§9](#9-members).
 - `catch let error` and `case let other` ([08-types.md](../design/08-types.md)) are already valid: they
@@ -1088,6 +1123,25 @@ conditions and scrutinees (`if if a { } { }`)) may nest at most 400 levels. Deep
 the rest of that construct, up to its matching closing delimiter, is skipped into an `ErrorNode` without
 recursion. This bounds the parser's stack use on every input (about 2 MiB in debug builds and 1 MiB in
 release builds at the limit). Valid programs never come close.
+
+### RA-35. The operand of `use`
+
+Tests bind a config to a value with `use <expression> for <Config>`
+([25-config-and-secrets.md](../design/25-config-and-secrets.md#tests)), while `App.k` and test groups
+bind implementations with `use <Type> for <Type>`. **Decision:** `UseDecl` takes a `Type` or an `Expr`
+before `for`, decided by a bounded lookahead over the operand's leading dotted path
+([§9](#9-members)): a call (`Config(…)`), a member of a type (`Config.sample`) or anything that cannot
+start a type makes it an `Expr`. The decision uses K's naming convention (types are capitalized,
+modules and members are not), the one place the parser relies on it, because `Config.sample` and
+`shop.Config` have the same token shape. Where the operand is allowed is a semantic rule.
+
+### RA-36. Keyframes
+
+CSS keyframe selectors `from` and `to` start with a letter, which would make them declarations in
+style mode (RA-8). **Decision:** the lexer tracks the block opened by `@keyframes` and lexes a
+letter at a statement start directly inside it as a selector (§4.4). This keeps the lexer independent of
+the parser: the decision depends only on the characters `@keyframes` at a statement start. Keyframes are
+referenced from properties as implicit members (`animationName: .fade`) and scoped like classes.
 
 ---
 
@@ -1310,6 +1364,8 @@ More node shapes, for reference:
 | `case 0..<10` | `(MatchArm case (RangePattern (LiteralPattern 0) ..< (LiteralPattern 10)) (Block ...))` |
 | `failed(let error) { ... }` | `(FailedBlock failed (BindingPattern let error) (Block ...))` |
 | `use Fake for Api in .test` | `(UseDecl use (PathType Fake) for (PathType Api) in (ImplicitMemberExpr test))` |
+| `use Config.sample for Config` | `(UseDecl use (MemberExpr (NameExpr Config) sample) for (PathType Config))` |
+| `@keyframes fade { from { opacity: 0; } 50% { } }` | `(KeyframesRule keyframes fade (KeyframeBlock (KeyframeSelector from) (Declaration opacity (CssValue (Literal 0)))) (KeyframeBlock (KeyframeSelector 50%)))` |
 | `color primary: Color = #3B82F6` | `(ThemeToken color primary (PathType Color) = (Literal #3B82F6))` |
 | `variant dark { surface = #111 }` | `(ThemeVariant variant dark (ThemeOverride surface = (Literal #111)))` |
 | `test "adds" { expect a == 1 }` | `(TestCaseDecl test (StringLit "adds") (Block (ExpectStmt expect (BinaryExpr (NameExpr a) == (Literal 1)))))` |

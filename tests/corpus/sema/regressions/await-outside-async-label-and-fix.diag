@@ -1,0 +1,5 @@
+# Bug: K2205 had neither the label at the enclosing signature nor the fix.
+error[K2205] 6:5-6:10
+  label 5:6-5:9: declared here without `async`
+  fix "Add `async`" maybe-incorrect
+    edit 5:11-5:11 " async"

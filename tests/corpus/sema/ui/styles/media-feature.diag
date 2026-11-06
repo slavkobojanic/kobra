@@ -1,0 +1,3 @@
+error[K3211] 12:21-12:29
+  fix "Replace `maxWidht` with `maxWidth`" maybe-incorrect
+    edit 12:21-12:29 "maxWidth"

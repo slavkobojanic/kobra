@@ -17,8 +17,8 @@ public component Panel {
     /// The heading shown at the top of the panel.
     @Prop let title: String
 
-    /// The heading level of `title`. Use `1` when the panel is the page's
-    /// main content.
+    /// The heading level of `title`: `1` when the panel is the page's main
+    /// content, otherwise `2`.
     @Prop let headingLevel: Int = 2
 
     /// The panel's main content, passed as the trailing block.
@@ -37,8 +37,13 @@ public component Panel {
     view {
         section {
             header {
-                heading(level: headingLevel) { title }
-                    .class(.title)
+                if headingLevel == 1 {
+                    heading(level: 1) { title }
+                        .class(.title)
+                } else {
+                    heading(level: 2) { title }
+                        .class(.title)
+                }
 
                 if let toolbar {
                     toolbar

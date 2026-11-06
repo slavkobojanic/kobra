@@ -1,0 +1,4 @@
+error[K3302] src/theme/AppTheme.k:4:11-4:20
+  label <stdlib>/k/charts/ChartTokens.k:5:11-5:20: declared here
+  fix "Rewrite as an override"
+    edit src/theme/AppTheme.k:4:5-4:28 "chartGrid "

@@ -1,0 +1,6 @@
+warning[K2012] 11:8-11:28
+  fix "Simplify to `user.isAdmin`"
+    edit 11:8-11:28 "user.isAdmin"
+warning[K2012] 12:16-12:40
+  fix "Simplify to `not user.isActive()`"
+    edit 12:16-12:40 "not user.isActive()"

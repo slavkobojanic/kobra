@@ -1,0 +1,6 @@
+error[K2310] 5:5-5:8
+  fix "Insert `await ` after `for`"
+    edit 5:9-5:9 "await "
+error[K2311] 8:9-8:14
+  fix "Remove `await `"
+    edit 8:9-8:15 ""

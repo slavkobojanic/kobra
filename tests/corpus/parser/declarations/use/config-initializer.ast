@@ -1,0 +1,10 @@
+; A config's memberwise initializer is a call, so the operand is an `Expr`.
+(SourceFile
+  (TestSuiteDecl test StripeWebhookVerifier
+    (MemberList
+      (UseDecl use
+        (CallExpr (NameExpr StripeWebhookConfig)
+          (ArgList
+            (Arg signingSecret
+              (CallExpr (NameExpr Secret) (ArgList (Arg (StringLit "whsec_test")))))))
+        for (PathType StripeWebhookConfig)))))

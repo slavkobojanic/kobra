@@ -1,0 +1,7 @@
+// Importing one declaration twice is K1106 at the second import; the fix removes that line.
+import k.time.Clock
+import k.time.Clock
+
+service Stamps {
+    @Inject let clock: Clock
+}

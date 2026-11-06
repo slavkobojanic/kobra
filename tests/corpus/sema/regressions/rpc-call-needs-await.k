@@ -1,0 +1,24 @@
+// An rpc is a remote call: calling it through an injected protocol must be awaited
+// like any async call (11-protocols-and-rpc.md, `try await api.add(...)`). Without
+// `await` it is K2204, in an async function and in a synchronous one.
+import k.rpc.RpcOnlyError
+
+protocol Store {
+    rpc count() throws RpcOnlyError -> Int
+}
+
+service Client {
+    @Inject let store: Store
+
+    func viaAwait() async throws RpcOnlyError -> Int {
+        return try await store.count()
+    }
+
+    func noAwait() async throws RpcOnlyError -> Int {
+        return try store.count()
+    }
+
+    func sync() throws RpcOnlyError -> Int {
+        return try store.count()
+    }
+}

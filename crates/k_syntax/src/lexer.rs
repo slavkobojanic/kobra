@@ -227,8 +227,18 @@ enum Frame {
     /// declaration before its `:` (the element rule `button { ... }` of
     /// RA-8): when it closes, the style statement ends too.
     Interp { depth: u32, ends_statement: bool },
-    /// Inside a style block. `depth` counts nested blocks.
-    Style { depth: u32, state: StyleState },
+    /// Inside a style block. `depth` counts nested blocks. `keyframes` is
+    /// the depth of the items of the `@keyframes` block being lexed (0 when
+    /// none is open; such a block is never at depth 0), where a statement
+    /// that starts with a letter is a keyframe selector (`from`, `to`), not
+    /// a declaration. `pending_keyframes` is set from the `@` of an
+    /// `@keyframes` statement until its `{`, `;` or `}`.
+    Style {
+        depth: u32,
+        state: StyleState,
+        keyframes: u32,
+        pending_keyframes: bool,
+    },
 }
 
 /// The statement state of a style frame (grammar.md §4.4).
@@ -837,6 +847,8 @@ impl<'a> Lexer<'a> {
                     self.frames.push(Frame::Style {
                         depth: 0,
                         state: StyleState::Start,
+                        keyframes: 0,
+                        pending_keyframes: false,
                     });
                 } else if let Some(Frame::Interp { depth, .. }) = self.frames.last_mut() {
                     *depth += 1;
@@ -1204,15 +1216,26 @@ impl<'a> Lexer<'a> {
             return kind;
         }
         let b = self.bytes[self.pos];
-        let Some(Frame::Style { depth, state }) = self.frames.last().copied() else {
+        let Some(Frame::Style {
+            depth,
+            state,
+            keyframes,
+            ..
+        }) = self.frames.last().copied()
+        else {
             return self.error_run(true);
         };
         let state = if state == StyleState::Start {
-            let next = if is_ident_start(b) {
+            // In the items of a `@keyframes` block, `from` and `to` are
+            // selectors (grammar.md §4.4).
+            let next = if is_ident_start(b) && !(keyframes != 0 && depth == keyframes) {
                 StyleState::Property
             } else {
                 StyleState::Selector
             };
+            if b == b'@' && self.at_keyframes_keyword() {
+                self.set_pending_keyframes(true);
+            }
             self.set_style_state(next);
             next
         } else {
@@ -1261,7 +1284,7 @@ impl<'a> Lexer<'a> {
                     });
                     SyntaxKind::InterpStart
                 } else {
-                    self.set_style(depth + 1, StyleState::Start);
+                    self.open_style_block(depth + 1);
                     SyntaxKind::LBrace
                 }
             }
@@ -1270,13 +1293,14 @@ impl<'a> Lexer<'a> {
                 if depth == 0 {
                     self.frames.pop();
                 } else {
-                    self.set_style(depth - 1, StyleState::Start);
+                    self.close_style_block(depth - 1);
                 }
                 SyntaxKind::RBrace
             }
             b';' => {
                 self.pos += 1;
                 self.set_style_state(StyleState::Start);
+                self.set_pending_keyframes(false);
                 SyntaxKind::Semicolon
             }
             _ => {
@@ -1319,11 +1343,65 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn set_style(&mut self, new_depth: u32, new_state: StyleState) {
-        if let Some(Frame::Style { depth, state }) = self.frames.last_mut() {
+    /// Enters a nested style block whose items are at `new_depth`. The
+    /// block of a pending `@keyframes` statement becomes the keyframes
+    /// block.
+    fn open_style_block(&mut self, new_depth: u32) {
+        if let Some(Frame::Style {
+            depth,
+            state,
+            keyframes,
+            pending_keyframes,
+        }) = self.frames.last_mut()
+        {
             *depth = new_depth;
-            *state = new_state;
+            *state = StyleState::Start;
+            if *pending_keyframes {
+                *keyframes = new_depth;
+                *pending_keyframes = false;
+            }
         }
+    }
+
+    /// Leaves a nested style block, returning to `new_depth`. Leaving the
+    /// keyframes block ends it.
+    fn close_style_block(&mut self, new_depth: u32) {
+        if let Some(Frame::Style {
+            depth,
+            state,
+            keyframes,
+            pending_keyframes,
+        }) = self.frames.last_mut()
+        {
+            *depth = new_depth;
+            *state = StyleState::Start;
+            *pending_keyframes = false;
+            if new_depth < *keyframes {
+                *keyframes = 0;
+            }
+        }
+    }
+
+    fn set_pending_keyframes(&mut self, value: bool) {
+        if let Some(Frame::Style {
+            pending_keyframes, ..
+        }) = self.frames.last_mut()
+        {
+            *pending_keyframes = value;
+        }
+    }
+
+    /// Returns `true` if the `@` at the current position is directly
+    /// followed by the word `keyframes` (and not by a longer word such as
+    /// `keyframes-x`).
+    fn at_keyframes_keyword(&self) -> bool {
+        const WORD: &[u8] = b"keyframes";
+        let after = self.pos + 1;
+        self.bytes.get(after..after + WORD.len()) == Some(WORD)
+            && !self
+                .bytes
+                .get(after + WORD.len())
+                .is_some_and(|&b| is_ident_continue(b) || b == b'-')
     }
 }
 

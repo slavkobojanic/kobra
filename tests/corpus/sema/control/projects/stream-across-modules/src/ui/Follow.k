@@ -1,0 +1,19 @@
+// A `Stream` returned by a method from another module is read with `for
+// await`; a plain `for` over it is K2310 in this file.
+import feed.Feed
+
+/// Follows a feed.
+public struct Follow {
+    let feed: Feed
+
+    func sum() async -> Int {
+        var total = 0
+        for await change in feed.changes() {
+            total += change
+        }
+        for change in feed.changes() {
+            total += change
+        }
+        return total
+    }
+}

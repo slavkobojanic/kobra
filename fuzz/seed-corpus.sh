@@ -15,7 +15,7 @@ set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
-targets="lex parse parse_roundtrip structured"
+targets="lex parse parse_roundtrip structured check check_structured check_typed"
 
 for target in $targets; do
     mkdir -p "$here/corpus/$target"

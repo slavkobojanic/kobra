@@ -70,7 +70,8 @@ k_cli ──▶ k_server ──▶ k_runtime
   ├──▶ k_codegen ──▶ k_sema ──▶ k_syntax ──▶ k_diagnostics
   │        │           └─────▶ k_db
   │        └──▶ k_runtime
-  └──▶ k_corpus (golden formats) ──▶ k_syntax
+  ├──▶ k_sema (k check)
+  └──▶ k_corpus (golden formats, sema suite) ──▶ k_sema, k_syntax
 ```
 
 - `k_diagnostics` depends on nothing but `text-size`.
@@ -193,7 +194,9 @@ green tree. Otherwise the file is reparsed (cheap: a 300-line file parses in wel
 
 ## 5. Semantic analysis
 
-`k_sema` turns trees into a checked program. It is organized as layers of queries.
+`k_sema` turns trees into a checked program. It is organized as layers of queries. **The detailed design,
+including which checks are v0 and which are deferred, the stdlib surface and the diagnostic sub-ranges, is
+[sema.md](sema.md)**; this section is the overview.
 
 ### 5.1 Project model and modules
 
@@ -276,8 +279,10 @@ Lockfiles are deterministic, sorted, line-oriented TOML so diffs review well.
 
 ## 6. Incremental queries
 
-The compiler and the (deferred) language server share one engine: a demand-driven, memoized query
-database in the style of [salsa](https://github.com/salsa-rs/salsa).
+The compiler and the (deferred) language server share one engine: a memoized query database in the
+style of [salsa](https://github.com/salsa-rs/salsa). **Decision:** the engine is hand-rolled in `k_sema`
+(layered queries with revisions, early cutoff and per-layer parallel fan-out), not the `salsa` crate;
+the reasons and the layers are in [sema.md §3](sema.md#3-query-architecture).
 
 **Inputs** (set by the driver or the editor): `source_text(FileId)`, `file_set()` (paths to ids),
 `project_config()` (`k.toml`), `lockfile(kind)`, `build_env()`.
@@ -311,7 +316,7 @@ Design rules that keep this possible from day one, even before the query engine 
    parses files on all cores (`std::thread::scope`), and the query engine evaluates independent queries in
    parallel.
 
-Until `k_sema` adopts salsa, the batch driver calls these functions directly in dependency order.
+The batch driver (`k check`) and tests use the same `AnalysisHost`; there is no separate batch path.
 
 ---
 
@@ -594,8 +599,11 @@ past a budget blocks the change.
 | RPC dispatch overhead (excluding the handler) | ≤ 50 µs at p50 |
 | Trivial RPC throughput, 8 cores | ≥ 30,000 requests/s |
 
-The syntax budgets are enforced by `scripts/bench-check.sh`; its method, the measured baselines and the
-profile of the parser are in [performance.md](performance.md).
+The syntax budgets and the `k check` budgets (cold, warm after a body or signature edit, memory) are
+enforced by `scripts/bench-check.sh`; its method, the measured baselines and the profiles of the parser
+and the checker are in [performance.md](performance.md). The warm body-edit budget is **not met yet**
+(about 100 ms; [performance.md §10.4](performance.md#104-budget-status)): it needs the per-declaration
+early cutoff of [sema.md §3.3](sema.md#33-layers).
 
 Practices that keep the compiler within budget: structure-of-arrays token storage, interning of names,
 arena allocation for HIR, no per-token heap allocation, `&str` slices instead of `String`s in hot paths,
@@ -671,7 +679,7 @@ Few, well-known crates. Adding one requires a line here.
 | `criterion` | benchmarks (dev) | in use |
 | `libfuzzer-sys` | fuzz targets (nightly, outside workspace) | in use |
 | `arbitrary` | structure-aware K program generator shared by fuzz targets and property tests (dev) | in use |
-| `salsa` | incremental query engine | planned (k_sema) |
+| `salsa` | incremental query engine | rejected: hand-rolled queries ([sema.md §3.1](sema.md#31-decision-hand-rolled-salsa-style-layered-queries)) |
 | `serde`, `serde_json`, `toml` | lockfiles, `k.toml`, server JSON | planned |
 | `tokio`, `hyper`, `hyper-util`, `http-body-util` | HTTP server | planned (k_server) |
 | `deno_core` and deno web extensions | V8 embedding, web APIs | planned (k_server) |

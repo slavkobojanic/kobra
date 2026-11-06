@@ -1,0 +1,10 @@
+// An endpoint page without `at` gets a fix that inserts its kebab-case name.
+import k.http.HttpResponse
+import k.http.IncomingRequest
+
+page StripeWebhook {
+    @Post
+    func receive(request: IncomingRequest) async -> HttpResponse {
+        return HttpResponse(status: .noContent)
+    }
+}

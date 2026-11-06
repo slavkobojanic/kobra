@@ -23,6 +23,16 @@
 //!   (optionally followed by `maybe-incorrect`) and, below a fix, one or
 //!   more `edit SPAN "replacement"` lines.
 //!
+//! # File paths
+//!
+//! Every `SPAN` above may be prefixed with a file path and a colon,
+//! `src/shop/Cart.k:3:5-3:9` (a [`Place`]). Multi-file cases (the `sema`
+//! suite's projects) write the path on every header. A label or edit
+//! without a path is in the same file as its header; writing the header's
+//! own path there is allowed and means the same. Paths may not contain
+//! spaces. Single-file cases omit paths, except for places in other files
+//! such as the standard library (`<stdlib>/k/core/List.k:4:1-4:5`).
+//!
 //! # Matching
 //!
 //! Expected and actual diagnostics are matched one-to-one; order in the file
@@ -36,9 +46,10 @@
 //! Every actual diagnostic must be matched, so a case without a `.diag` file
 //! asserts that there are no diagnostics.
 
+use std::collections::HashMap;
 use std::fmt::{self, Write as _};
 
-use k_diagnostics::{Applicability, Diagnostic, LineCol, LineIndex, Severity, TextSize};
+use k_diagnostics::{Applicability, Diagnostic, FileId, LineCol, LineIndex, Severity, Span};
 use k_syntax::sexpr::{self, Sexpr};
 
 /// A `line:col-line:col` range.
@@ -56,11 +67,31 @@ impl fmt::Display for LineSpan {
     }
 }
 
+/// A span, optionally in a named file: `3:5-3:9` or
+/// `src/shop/Cart.k:3:5-3:9`.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct Place {
+    /// The file, as written in the `.diag` file; `None` means the default
+    /// file (the header's file for details, the case's file for headers).
+    pub file: Option<String>,
+    /// The span in that file.
+    pub span: LineSpan,
+}
+
+impl fmt::Display for Place {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.file {
+            Some(file) => write!(f, "{file}:{}", self.span),
+            None => write!(f, "{}", self.span),
+        }
+    }
+}
+
 /// One detail line of an expected diagnostic.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Detail {
-    /// `label SPAN[: message]`
-    Label(LineSpan, String),
+    /// `label PLACE[: message]`
+    Label(Place, String),
     /// `note: text`
     Note(String),
     /// `help: text`
@@ -71,8 +102,8 @@ pub enum Detail {
         message: String,
         /// `true` unless marked `maybe-incorrect`.
         machine_applicable: bool,
-        /// The edits: span and replacement text.
-        edits: Vec<(LineSpan, String)>,
+        /// The edits: place and replacement text.
+        edits: Vec<(Place, String)>,
     },
 }
 
@@ -83,6 +114,8 @@ pub struct DiagEntry {
     pub severity: Severity,
     /// The code, for example `K0002`.
     pub code: String,
+    /// The file of the primary span; `None` for the case's own file.
+    pub file: Option<String>,
     /// The primary span.
     pub span: LineSpan,
     /// The message; `None` is a wildcard.
@@ -98,6 +131,7 @@ impl DiagEntry {
     pub fn matches(&self, actual: &DiagEntry) -> bool {
         self.severity == actual.severity
             && self.code == actual.code
+            && self.file == actual.file
             && self.span == actual.span
             && self
                 .message
@@ -112,7 +146,11 @@ impl fmt::Display for DiagEntry {
     /// lines, ending with a newline.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut out = String::new();
-        let _ = write!(out, "{}[{}] {}", self.severity, self.code, self.span);
+        let place = Place {
+            file: self.file.clone(),
+            span: self.span,
+        };
+        let _ = write!(out, "{}[{}] {place}", self.severity, self.code);
         if let Some(message) = &self.message {
             let _ = write!(out, ": {}", one_line(message));
         }
@@ -201,10 +239,11 @@ pub fn parse_diag_file(text: &str) -> Result<Vec<DiagEntry>, DiagFormatError> {
             return Err(error("detail line before the first diagnostic header"));
         };
         if let Some(rest) = trimmed.strip_prefix("label ") {
-            let (span, message) = span_and_message(rest).map_err(|m| error(&m))?;
+            let (place, message) = place_and_message(rest).map_err(|m| error(&m))?;
+            let place = relative_to(place, entry.file.as_deref());
             entry
                 .details
-                .push(Detail::Label(span, message.unwrap_or_default()));
+                .push(Detail::Label(place, message.unwrap_or_default()));
         } else if let Some(rest) = trimmed.strip_prefix("note:") {
             entry.details.push(Detail::Note(rest.trim().to_owned()));
         } else if let Some(rest) = trimmed.strip_prefix("help:") {
@@ -228,18 +267,20 @@ pub fn parse_diag_file(text: &str) -> Result<Vec<DiagEntry>, DiagFormatError> {
                 edits: Vec::new(),
             });
         } else if let Some(rest) = trimmed.strip_prefix("edit ") {
+            let header_file = entry.file.clone();
             let Some(Detail::Fix { edits, .. }) = entry.details.last_mut() else {
                 return Err(error("`edit` must follow a `fix` line"));
             };
             let (span_text, replacement) = rest
                 .split_once(' ')
                 .ok_or_else(|| error("expected `edit SPAN \"text\"`"))?;
-            let span = parse_span(span_text).map_err(|m| error(&m))?;
+            let place = parse_place(span_text).map_err(|m| error(&m))?;
+            let place = relative_to(place, header_file.as_deref());
             let parsed = sexpr::parse(replacement.trim()).map_err(|e| error(&e.message))?;
             let [Sexpr::String(replacement)] = parsed.as_slice() else {
                 return Err(error("expected a quoted replacement after the edit span"));
             };
-            edits.push((span, replacement.clone()));
+            edits.push((place, replacement.clone()));
         } else {
             return Err(error(
                 "unknown detail line; expected `label`, `note:`, `help:`, `fix` or `edit`",
@@ -264,21 +305,66 @@ fn parse_header(line: &str) -> Result<DiagEntry, String> {
     let rest = rest
         .strip_prefix(' ')
         .ok_or("expected a space and a span after the code")?;
-    let (span, message) = span_and_message(rest)?;
+    let (place, message) = place_and_message(rest)?;
     Ok(DiagEntry {
         severity,
         code: code.to_owned(),
-        span,
+        file: place.file,
+        span: place.span,
         message,
         details: Vec::new(),
     })
 }
 
-fn span_and_message(text: &str) -> Result<(LineSpan, Option<String>), String> {
+fn place_and_message(text: &str) -> Result<(Place, Option<String>), String> {
     match text.split_once(": ") {
-        Some((span, message)) => Ok((parse_span(span.trim())?, Some(message.trim().to_owned()))),
-        None => Ok((parse_span(text.trim().trim_end_matches(':'))?, None)),
+        Some((place, message)) => Ok((parse_place(place.trim())?, Some(message.trim().to_owned()))),
+        None => Ok((parse_place(text.trim().trim_end_matches(':'))?, None)),
     }
+}
+
+/// Drops a detail's file when it is the header's file, so both spellings
+/// compare equal.
+fn relative_to(place: Place, header_file: Option<&str>) -> Place {
+    if place.file.is_some() && place.file.as_deref() == header_file {
+        Place {
+            file: None,
+            span: place.span,
+        }
+    } else {
+        place
+    }
+}
+
+/// Parses a [`Place`]: a span (`3:5-3:9`), optionally prefixed with a
+/// file path and `:` (`src/a/A.k:3:5-3:9`).
+///
+/// # Errors
+///
+/// Returns a message if the text is neither form, or the path is empty or
+/// contains a space.
+pub fn parse_place(text: &str) -> Result<Place, String> {
+    let bad = || format!("`{text}` is not a span like `3:5-3:9` or `src/a/A.k:3:5-3:9`");
+    let (before, end) = text.rsplit_once('-').ok_or_else(bad)?;
+    let mut parts = before.rsplitn(3, ':');
+    let (Some(col), Some(line)) = (parts.next(), parts.next()) else {
+        return Err(bad());
+    };
+    let file = parts.next();
+    if file.is_some_and(|f| f.is_empty() || f.contains(' ')) {
+        return Err(bad());
+    }
+    let span = parse_span(&format!("{line}:{col}-{end}")).map_err(|message| {
+        if message.contains("ends before") {
+            format!("span `{text}` ends before it starts")
+        } else {
+            bad()
+        }
+    })?;
+    Ok(Place {
+        file: file.map(str::to_owned),
+        span,
+    })
 }
 
 /// Parses `line:col-line:col`.
@@ -305,49 +391,112 @@ pub fn parse_span(text: &str) -> Result<LineSpan, String> {
     Ok(span)
 }
 
-/// Converts actual diagnostics into `.diag` entries, sorted canonically by
-/// span, then code, then message. `source` is the text of the case file.
+/// Converts diagnostics of a single-file case into entries: every place is
+/// in `source`, and no entry names a file.
 #[must_use]
 pub fn entries_for(diagnostics: &[Diagnostic], source: &str) -> Vec<DiagEntry> {
     let index = LineIndex::new(source);
-    let span = |start: TextSize, end: TextSize| LineSpan {
-        start: index.line_col(source, start),
-        end: index.line_col(source, end),
-    };
-    let mut entries: Vec<DiagEntry> = diagnostics
-        .iter()
-        .map(|d| {
-            let mut details = Vec::new();
-            for label in &d.labels {
-                details.push(Detail::Label(
-                    span(label.span.start(), label.span.end()),
-                    label.message.clone(),
-                ));
-            }
-            details.extend(d.notes.iter().cloned().map(Detail::Note));
-            details.extend(d.helps.iter().cloned().map(Detail::Help));
-            for fix in &d.fixes {
-                details.push(Detail::Fix {
-                    message: fix.message.clone(),
-                    machine_applicable: fix.applicability == Applicability::MachineApplicable,
-                    edits: fix
-                        .edits
-                        .iter()
-                        .map(|e| (span(e.span.start(), e.span.end()), e.replacement.clone()))
-                        .collect(),
-                });
-            }
-            DiagEntry {
-                severity: d.severity,
-                code: d.code.to_string(),
-                span: span(d.span.start(), d.span.end()),
-                message: Some(d.message.clone()),
-                details,
-            }
-        })
-        .collect();
-    entries.sort_by(|a, b| (a.span, &a.code, &a.message).cmp(&(b.span, &b.code, &b.message)));
+    let mut entries = Vec::with_capacity(diagnostics.len());
+    for d in diagnostics {
+        let span = |s: Span| LineSpan {
+            start: index.line_col(source, s.start()),
+            end: index.line_col(source, s.end()),
+        };
+        entries.push(entry(d, None, &|s| (None, span(s))));
+    }
+    sort(&mut entries);
     entries
+}
+
+/// Converts diagnostics that may span several files into entries.
+///
+/// `files` maps a file id to its display path and text (`None` for an
+/// unknown id, shown as `<unknown>` with positions clamped to `1:1`). A
+/// header names its file unless it is `home`; a label or edit names its
+/// file unless it is the header's file. Entries are sorted by file, then
+/// span, code and message.
+#[must_use]
+pub fn entries_for_files<'a>(
+    diagnostics: &[Diagnostic],
+    files: impl Fn(FileId) -> Option<(&'a str, &'a str)>,
+    home: Option<FileId>,
+) -> Vec<DiagEntry> {
+    // One line index per file that any place points into.
+    let mut indexes: HashMap<FileId, (String, &'a str, LineIndex)> = HashMap::new();
+    let mut add = |file: FileId| {
+        indexes.entry(file).or_insert_with(|| {
+            let (name, text) = files(file).unwrap_or(("<unknown>", ""));
+            (name.to_owned(), text, LineIndex::new(text))
+        });
+    };
+    for d in diagnostics {
+        add(d.span.file);
+        d.labels.iter().for_each(|l| add(l.span.file));
+        d.fixes
+            .iter()
+            .flat_map(|f| &f.edits)
+            .for_each(|e| add(e.span.file));
+    }
+    let mut entries = Vec::with_capacity(diagnostics.len());
+    for d in diagnostics {
+        let place = |s: Span| {
+            let (name, text, index) = &indexes[&s.file];
+            let file = (s.file != d.span.file).then(|| name.clone());
+            let span = LineSpan {
+                start: index.line_col(text, s.start()),
+                end: index.line_col(text, s.end()),
+            };
+            (file, span)
+        };
+        let header = (Some(d.span.file) != home).then(|| indexes[&d.span.file].0.clone());
+        entries.push(entry(d, header, &place));
+    }
+    sort(&mut entries);
+    entries
+}
+
+/// Builds one entry; `place` converts a span to its file (`None` for the
+/// header's file) and line span.
+fn entry(
+    d: &Diagnostic,
+    file: Option<String>,
+    place: &dyn Fn(Span) -> (Option<String>, LineSpan),
+) -> DiagEntry {
+    let to_place = |s: Span| {
+        let (file, span) = place(s);
+        Place { file, span }
+    };
+    let mut details = Vec::new();
+    for label in &d.labels {
+        details.push(Detail::Label(to_place(label.span), label.message.clone()));
+    }
+    details.extend(d.notes.iter().cloned().map(Detail::Note));
+    details.extend(d.helps.iter().cloned().map(Detail::Help));
+    for fix in &d.fixes {
+        details.push(Detail::Fix {
+            message: fix.message.clone(),
+            machine_applicable: fix.applicability == Applicability::MachineApplicable,
+            edits: fix
+                .edits
+                .iter()
+                .map(|e| (to_place(e.span), e.replacement.clone()))
+                .collect(),
+        });
+    }
+    DiagEntry {
+        severity: d.severity,
+        code: d.code.to_string(),
+        file,
+        span: place(d.span).1,
+        message: Some(d.message.clone()),
+        details,
+    }
+}
+
+fn sort(entries: &mut [DiagEntry]) {
+    entries.sort_by(|a, b| {
+        (&a.file, a.span, &a.code, &a.message).cmp(&(&b.file, b.span, &b.code, &b.message))
+    });
 }
 
 /// Renders entries as a complete `.diag` file.
@@ -518,5 +667,95 @@ error[K0002] 1:1-1:2:
         let actual = actual_entries();
         let twice = parse_diag_file("error[K0104] 1:6-1:8\nerror[K0104] 1:6-1:8\n").unwrap();
         assert!(compare(&twice, &actual).is_err());
+    }
+
+    const PROJECT_SAMPLE: &str = "\
+error[K1101] src/shop/Cart.k:3:8-3:20: `shop.Missing` doesn't exist
+  label src/shop/Other.k:1:1-1:5: declared here
+  label 3:1-3:7: in this import
+  fix \"Remove the import\"
+    edit src/shop/Cart.k:3:1-4:1 \"\"
+    edit <stdlib>/k/core/List.k:1:1-1:1 \"x\"
+warning[K1002] App.k:1:1-1:4
+";
+
+    #[test]
+    fn places_may_name_a_file() {
+        let entries = parse_diag_file(PROJECT_SAMPLE).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].file.as_deref(), Some("src/shop/Cart.k"));
+        assert_eq!(entries[0].span.to_string(), "3:8-3:20");
+        let Detail::Label(other, _) = &entries[0].details[0] else {
+            panic!("{:?}", entries[0].details);
+        };
+        assert_eq!(other.file.as_deref(), Some("src/shop/Other.k"));
+        let Detail::Label(same, _) = &entries[0].details[1] else {
+            panic!();
+        };
+        assert_eq!(same.file, None, "no path means the header's file");
+        let Detail::Fix { edits, .. } = &entries[0].details[2] else {
+            panic!();
+        };
+        // Naming the header's own file is normalized away.
+        assert_eq!(edits[0].0.file, None);
+        assert_eq!(edits[1].0.file.as_deref(), Some("<stdlib>/k/core/List.k"));
+        assert_eq!(entries[1].file.as_deref(), Some("App.k"));
+        let rendered = render(&entries);
+        assert!(rendered.contains("edit 3:1-4:1"), "{rendered}");
+        assert_eq!(parse_diag_file(&rendered).unwrap(), entries);
+    }
+
+    #[test]
+    fn rejects_malformed_places() {
+        for bad in [
+            "error[K0001] :1:1-1:2",
+            "error[K0001] a.k:1-1:2",
+            "error[K0001] a.k:x:1-1:2",
+            "error[K0001] a.k:1:1-",
+        ] {
+            assert!(parse_diag_file(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn entries_for_files_name_other_files() {
+        let a = FileId::new(4);
+        let b = FileId::new(7);
+        let texts = |file: FileId| match file.raw() {
+            4 => Some(("src/a/A.k", "let x = 1\nlet y = 2\n")),
+            7 => Some(("src/b/B.k", "let z = 3\n")),
+            _ => None,
+        };
+        let d = Diagnostic::new(
+            codes::SYMBOLIC_AND,
+            Span::new(a, TextRange::new(14.into(), 15.into())),
+            "m",
+        )
+        .with_label(Span::new(b, TextRange::new(4.into(), 5.into())), "there")
+        .with_label(Span::new(a, TextRange::new(0.into(), 3.into())), "here");
+        let unknown = Diagnostic::new(
+            codes::SYMBOLIC_AND,
+            Span::new(FileId::new(99), TextRange::new(3.into(), 3.into())),
+            "u",
+        );
+        // In project mode (no home file) every header names its file.
+        let entries = entries_for_files(&[d.clone(), unknown], texts, None);
+        assert_eq!(
+            render(&entries),
+            "error[K0104] <unknown>:1:1-1:1: u\n\
+             error[K0104] src/a/A.k:2:5-2:6: m\n  label src/b/B.k:1:5-1:6: there\n  label 1:1-1:4: here\n"
+        );
+        // With a home file, its headers have no path.
+        let home = entries_for_files(&[d], texts, Some(a));
+        assert_eq!(home[0].file, None);
+        assert_eq!(
+            home[0].to_string().lines().next(),
+            Some("error[K0104] 2:5-2:6: m")
+        );
+        let expected = parse_diag_file(&render(&home)).unwrap();
+        assert!(compare(&expected, &home).is_ok());
+        // The file is part of the match.
+        let elsewhere = parse_diag_file("error[K0104] src/b/B.k:2:5-2:6\n").unwrap();
+        assert!(compare(&elsewhere, &home).is_err());
     }
 }

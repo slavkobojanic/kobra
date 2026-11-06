@@ -1,0 +1,6 @@
+# Bug: the fix inserted `try ` before `load()` inside `a + load()`, which is K0114
+# (`try` must start the expression it covers). It must insert it before the operand
+# expression of `return`.
+error[K2201] 14:16-14:22
+  fix "Insert `try ` before the expression"
+    edit 14:12-14:12 "try "

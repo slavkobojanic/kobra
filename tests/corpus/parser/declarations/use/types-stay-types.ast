@@ -1,0 +1,9 @@
+; Module-qualified names, nested type names and generic types stay `Type`s.
+(SourceFile
+  (TestSuiteDecl test LocalStorageUsers
+    (MemberList
+      (UseDecl use (PathType k test MemoryStorage) for (PathType LocalStorage))
+      (UseDecl use (PathType Outer Inner) for (PathType Api))
+      (UseDecl use (PathType InMemoryRepository (GenericArgList (PathType User))) for
+        (PathType Repository (GenericArgList (PathType User))))
+      (UseDecl use (ParenType (PathType Fake)) for (PathType Api)))))

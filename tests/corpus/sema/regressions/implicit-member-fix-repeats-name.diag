@@ -1,0 +1,7 @@
+# Bug: each K2006 offered the fix "Replace with `count`" / "Replace with `limit`",
+# replacing the name with itself. The closest-name search must skip the written
+# name; with no other candidate there is no fix.
+error[K2006] 15:17-15:22
+  note: `count` is a static member of `corpus.Point`, but it isn't a `corpus.Point`
+error[K2006] 16:17-16:22
+  note: `limit` is a static member of `corpus.Point`, but it isn't a `corpus.Point`

@@ -1,0 +1,9 @@
+(SourceFile
+  (TestSuiteDecl test Values
+    (MemberList
+      (UseDecl use
+        (CallExpr (NameExpr Config)
+          (ArgList
+            (Arg secret (CallExpr (NameExpr Secret) (ArgList (Arg (StringLit "s")))))
+            (Arg tolerance (MemberExpr (Literal 5) minutes))))
+        for (PathType Config)))))

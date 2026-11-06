@@ -1,0 +1,6 @@
+# The arguments of `Missing.make(…)` are checked although `Missing` doesn't
+# resolve, as the arguments of `missing(…)` already are.
+error[K1201] 7:13-7:20
+error[K1201] 7:33-7:38
+error[K1201] 8:13-8:20
+error[K1201] 8:28-8:33

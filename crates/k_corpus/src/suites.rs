@@ -13,8 +13,8 @@ use crate::discover::Case;
 
 /// A corpus suite: a directory under `tests/corpus` and the stage it tests.
 ///
-/// Later stages add suites here (`check`, `codegen`, `fmt`, ...); the plan
-/// is in `docs/compiler/testing.md`.
+/// Later stages add suites here (`codegen`, `fmt`, ...); the plan is in
+/// `docs/compiler/testing.md`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Suite {
     /// `tests/corpus/lexer`: token streams (`.tokens`) and lexer diagnostics.
@@ -22,11 +22,15 @@ pub enum Suite {
     /// `tests/corpus/parser`: syntax tree dumps (`.ast`) and lexer plus
     /// parser diagnostics.
     Parser,
+    /// `tests/corpus/sema`: every diagnostic of a project (syntax and
+    /// semantic) and caret annotations ([`crate::annotations`]); single
+    /// files and multi-file projects. See [`crate::sema_suite`].
+    Sema,
 }
 
 impl Suite {
     /// Every suite.
-    pub const ALL: &'static [Suite] = &[Suite::Lexer, Suite::Parser];
+    pub const ALL: &'static [Suite] = &[Suite::Lexer, Suite::Parser, Suite::Sema];
 
     /// Returns the directory name of the suite.
     #[must_use]
@@ -34,6 +38,7 @@ impl Suite {
         match self {
             Suite::Lexer => "lexer",
             Suite::Parser => "parser",
+            Suite::Sema => "sema",
         }
     }
 
@@ -44,13 +49,22 @@ impl Suite {
     }
 
     /// Returns the expectation file extensions this suite uses (without the
-    /// dot). The first one is required for every case.
+    /// dot). For `lexer` and `parser` the first one is required for every
+    /// case; every `sema` expectation is optional.
     #[must_use]
     pub const fn expectation_extensions(self) -> &'static [&'static str] {
         match self {
             Suite::Lexer => &["tokens", "diag"],
             Suite::Parser => &["ast", "diag"],
+            Suite::Sema => &["diag", "pending"],
         }
+    }
+
+    /// Returns `true` if a directory holding a `k.toml` is one multi-file
+    /// case in this suite.
+    #[must_use]
+    pub const fn has_projects(self) -> bool {
+        matches!(self, Suite::Sema)
     }
 }
 
@@ -61,6 +75,10 @@ impl Suite {
 ///
 /// Returns a failure report: what differs and how to inspect it.
 pub fn run_case(case: &Case, bless: bool) -> Result<(), String> {
+    // A sema case may be a directory, so it is read by its own driver.
+    if case.suite == Suite::Sema {
+        return crate::sema_suite::run(case, bless);
+    }
     let bytes = fs::read(&case.source)
         .map_err(|e| format!("cannot read {}: {e}", case.source.display()))?;
     let source = String::from_utf8(bytes).map_err(|_| {
@@ -96,6 +114,8 @@ pub fn run_case(case: &Case, bless: bool) -> Result<(), String> {
             }
             parse.diagnostics().to_vec()
         }
+        // Handled before the source is read; kept for exhaustiveness.
+        Suite::Sema => return crate::sema_suite::run(case, bless),
     };
 
     if let Err(failure) = check_diagnostics(case, &source, &diagnostics, bless) {
@@ -187,7 +207,7 @@ fn check_diagnostics(
     }
 }
 
-fn read_expectation(path: &Path) -> Result<Option<String>, String> {
+pub(crate) fn read_expectation(path: &Path) -> Result<Option<String>, String> {
     match fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -195,7 +215,7 @@ fn read_expectation(path: &Path) -> Result<Option<String>, String> {
     }
 }
 
-fn missing(path: &Path, actual: &str, bless: bool) -> Result<(), String> {
+pub(crate) fn missing(path: &Path, actual: &str, bless: bool) -> Result<(), String> {
     if bless {
         return write(path, actual);
     }
@@ -206,7 +226,7 @@ fn missing(path: &Path, actual: &str, bless: bool) -> Result<(), String> {
     ))
 }
 
-fn write(path: &Path, text: &str) -> Result<(), String> {
+pub(crate) fn write(path: &Path, text: &str) -> Result<(), String> {
     fs::write(path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
@@ -227,6 +247,7 @@ mod tests {
                 suite,
                 source: path,
                 name: "case.k".into(),
+                project: false,
             },
         )
     }

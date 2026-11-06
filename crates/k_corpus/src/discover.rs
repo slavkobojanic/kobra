@@ -5,24 +5,42 @@ use std::path::{Path, PathBuf};
 
 use crate::suites::Suite;
 
-/// One corpus case: a `.k` source file in a suite.
+/// The name of the file that marks a directory of the `sema` suite as one
+/// multi-file project case.
+pub const PROJECT_MARKER: &str = "k.toml";
+
+/// The stem of a project case's expectation files, which live inside the
+/// project directory: `expected.diag`, `expected.pending`.
+pub const PROJECT_EXPECTATION_STEM: &str = "expected";
+
+/// One corpus case: a `.k` source file in a suite, or (in the `sema`
+/// suite) a project directory containing a [`PROJECT_MARKER`].
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Case {
     /// The suite the case belongs to.
     pub suite: Suite,
-    /// The path of the `.k` file.
+    /// The path of the `.k` file, or of the project directory.
     pub source: PathBuf,
     /// The test name: the path relative to the corpus root, with `/`
-    /// separators, for example `lexer/strings/escapes.k`.
+    /// separators, for example `lexer/strings/escapes.k`. A project's name
+    /// ends with `/` (`sema/modules/cycle/`).
     pub name: String,
+    /// `true` for a multi-file project case.
+    pub project: bool,
 }
 
 impl Case {
     /// Returns the path of the expectation file with extension `extension`
-    /// (without the dot), next to the source file.
+    /// (without the dot): next to a `.k` case with the same stem, or
+    /// `expected.<extension>` inside a project directory.
     #[must_use]
     pub fn expectation(&self, extension: &str) -> PathBuf {
-        self.source.with_extension(extension)
+        if self.project {
+            self.source
+                .join(format!("{PROJECT_EXPECTATION_STEM}.{extension}"))
+        } else {
+            self.source.with_extension(extension)
+        }
     }
 }
 
@@ -47,8 +65,11 @@ pub struct Discovery {
 
 /// Scans `root` (normally [`crate::corpus_root`]).
 ///
-/// Each direct subdirectory of `root` must be a known [`Suite`]. Below a
-/// suite, every file must be one of:
+/// Each direct subdirectory of `root` must be a known [`Suite`]. In the
+/// `sema` suite, a directory that contains a [`PROJECT_MARKER`] is one
+/// project case, and every file inside it belongs to the project (except
+/// its `expected.*` expectation files, which must use the suite's
+/// extensions). Elsewhere below a suite, every file must be one of:
 ///
 /// * a `.k` case;
 /// * an expectation file whose extension the suite uses
@@ -100,8 +121,12 @@ pub fn discover(root: &Path) -> Discovery {
 
 fn scan_suite(root: &Path, dir: &Path, suite: Suite, discovery: &mut Discovery) {
     let mut files = Vec::new();
-    collect_files(dir, &mut files);
+    let mut projects = Vec::new();
+    collect_files(dir, suite.has_projects(), &mut files, &mut projects);
     files.sort();
+    for project in projects {
+        scan_project(root, &project, suite, discovery);
+    }
     for path in files {
         let name = relative_name(root, &path);
         let extension = path
@@ -113,6 +138,7 @@ fn scan_suite(root: &Path, dir: &Path, suite: Suite, discovery: &mut Discovery) 
                 suite,
                 source: path,
                 name,
+                project: false,
             });
         } else if suite.expectation_extensions().contains(&extension) {
             if !path.with_extension("k").is_file() {
@@ -142,14 +168,59 @@ fn scan_suite(root: &Path, dir: &Path, suite: Suite, discovery: &mut Discovery) 
     }
 }
 
-fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
+/// Registers a project case and checks its `expected.*` files.
+fn scan_project(root: &Path, dir: &Path, suite: Suite, discovery: &mut Discovery) {
+    let name = format!("{}/", relative_name(root, dir));
+    if let Ok(entries) = fs::read_dir(dir) {
+        let mut entries: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+        entries.sort();
+        for path in entries {
+            let is_expectation = path
+                .file_stem()
+                .is_some_and(|s| s == PROJECT_EXPECTATION_STEM)
+                && path.is_file();
+            let extension = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or_default();
+            if is_expectation && !suite.expectation_extensions().contains(&extension) {
+                discovery.problems.push(Problem {
+                    name: relative_name(root, &path),
+                    message: format!(
+                        "unexpected expectation file in a project; allowed: {}",
+                        suite
+                            .expectation_extensions()
+                            .iter()
+                            .map(|e| format!("{PROJECT_EXPECTATION_STEM}.{e}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                });
+            }
+        }
+    }
+    discovery.cases.push(Case {
+        suite,
+        source: dir.to_path_buf(),
+        name,
+        project: true,
+    });
+}
+
+/// Collects the files below `dir`. With `projects`, a directory holding a
+/// [`PROJECT_MARKER`] is collected as a project instead of descended into.
+fn collect_files(dir: &Path, projects: bool, out: &mut Vec<PathBuf>, found: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.filter_map(Result::ok) {
         let path = entry.path();
         if path.is_dir() {
-            collect_files(&path, out);
+            if projects && path.join(PROJECT_MARKER).is_file() {
+                found.push(path);
+            } else {
+                collect_files(&path, projects, out, found);
+            }
         } else {
             out.push(path);
         }
@@ -227,6 +298,48 @@ mod tests {
                 "lexer/wrong.ast",
                 "stray.txt"
             ]
+        );
+    }
+
+    #[test]
+    fn sema_projects_are_one_case_each() {
+        let dir = TempDir::new("discover_projects");
+        dir.write("sema/single/rule.k", "");
+        dir.write("sema/single/rule.diag", "");
+        dir.write("sema/single/rule.pending", "not yet");
+        dir.write("sema/modules/cycle/k.toml", "");
+        dir.write("sema/modules/cycle/App.k", "");
+        dir.write("sema/modules/cycle/src/a/A.k", "");
+        dir.write("sema/modules/cycle/src/a/notes.txt", "");
+        dir.write("sema/modules/cycle/expected.diag", "");
+        dir.write("sema/modules/cycle/expected.pending", "later");
+        dir.write("sema/modules/bad/k.toml", "");
+        dir.write("sema/modules/bad/expected.ast", "");
+        // A k.toml outside the sema suite is just an unexpected file.
+        dir.write("parser/x/k.toml", "");
+        let found = discover(&dir.0);
+        let names: Vec<_> = found.cases.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "sema/modules/bad/",
+                "sema/modules/cycle/",
+                "sema/single/rule.k"
+            ]
+        );
+        let cycle = &found.cases[1];
+        assert!(cycle.project);
+        assert!(cycle.expectation("diag").ends_with("cycle/expected.diag"));
+        assert!(!found.cases[2].project);
+        assert!(
+            found.cases[2]
+                .expectation("pending")
+                .ends_with("rule.pending")
+        );
+        let problems: Vec<_> = found.problems.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            problems,
+            ["parser/x/k.toml", "sema/modules/bad/expected.ast"]
         );
     }
 

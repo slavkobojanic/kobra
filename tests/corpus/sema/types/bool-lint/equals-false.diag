@@ -1,0 +1,3 @@
+warning[K2012] 3:12-3:25
+  fix "Simplify to `not done`"
+    edit 3:12-3:25 "not done"

@@ -1,0 +1,2 @@
+# Bug: the message read "`corpus.Loop` and `corpus.Loop` depend on each other".
+error[K4003] 4:21-4:25: `corpus.Loop` injects itself

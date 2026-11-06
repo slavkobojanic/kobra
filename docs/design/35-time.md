@@ -80,6 +80,28 @@ Relative formatting takes the reference instant explicitly, so it reads the cloc
 text { message.sentAt.formatted(as: .relative, from: clock.now) }     // "5 minutes ago"
 ```
 
+**`clock.now` is not reactive.** Reading it in a view or a `@Derived` value doesn't subscribe to time, so "5 minutes ago" is computed when the view renders and doesn't change by itself. To show a live relative time, a component keeps the reference instant in `@State` and updates it with `clock.every`:
+
+```k
+component SentAt {
+    @Prop let sentAt: Date
+    @Inject let clock: Clock
+
+    @State var now: Date = clock.now
+
+    @Effect(on: [])
+    func tick() {
+        let timer = clock.every(1.minute) { now = clock.now }
+
+        onCleanup { timer.cancel() }
+    }
+
+    view {
+        text { sentAt.formatted(as: .relative, from: now) }
+    }
+}
+```
+
 - **`date.formatted(as: .relative, from: reference)`** describes `date` relative to `reference`: "5 minutes ago", "in 3 days". The `from:` argument is required.
 - The other styles (`.date`, `.time`, `.dateTime`) need no reference instant.
 
@@ -105,7 +127,7 @@ test CityWeather {
 ```
 
 - **`TestClock` is the default for `Clock` in every `k test`** ([21-testing.md](21-testing.md#test-doubles-and-defaults)). A test reaches it with `@Inject let clock: TestClock` and never writes a `use` line for it.
-- Virtual time starts at a fixed instant, so `clock.now` is deterministic.
+- **Virtual time starts at 2026-01-01T12:00:00Z, in UTC,** unless the test sets it with `clock.set(now:)` before the code under test reads it, so `clock.now` is deterministic and a test can assert exact relative-time text.
 - `advance(by:)` moves virtual time forward and fires every timer and sleep that falls due, in order. No real time passes.
 - **One virtual time per test.** The test's server container and browser container share it, so a server-side `clock.now` and a browser-side timer agree.
 - `screen.settle()` doesn't wait for work that is waiting on the clock.

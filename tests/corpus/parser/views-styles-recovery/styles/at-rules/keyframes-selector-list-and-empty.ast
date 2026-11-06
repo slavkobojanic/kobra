@@ -1,0 +1,10 @@
+; Several selectors share a block; blocks and the rule itself may be empty.
+(SourceFile
+  (ComponentDecl component T
+    (MemberList
+      (StyleBlock style
+        (KeyframesRule keyframes pulse
+          (KeyframeBlock (KeyframeSelector from) (KeyframeSelector to)
+            (Declaration opacity (CssValue (Literal 1))))
+          (KeyframeBlock (KeyframeSelector 25%) (KeyframeSelector 75%)))
+        (KeyframesRule keyframes nothing)))))

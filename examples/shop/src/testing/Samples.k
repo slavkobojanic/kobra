@@ -25,7 +25,7 @@ public extend Product {
             summary: "A mug for tests.",
             description: "Holds exactly one assertion.",
             price: 24.00.usd,
-            imageUrl: "https://images.test/mug.jpg",
+            imageUrl: Url("https://images.test/mug.jpg"),
             stock: stock
         )
     }
@@ -61,7 +61,7 @@ public extend ProductSummary {
         summary: "A mug for tests.",
         description: "Holds exactly one assertion.",
         price: 24.00.usd,
-        imageUrl: "https://images.test/mug.jpg",
+        imageUrl: Url("https://images.test/mug.jpg"),
         available: 5
     )
 }

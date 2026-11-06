@@ -1,0 +1,7 @@
+# Bug: K2301 had no note and no fix. Note and fix wording are a proposal; the
+# contract is that both exist and the fix inserts an arm for each missing case
+# before the `match`'s closing brace.
+error[K2301] 10:12-10:17
+  note: missing: `.amber`
+  fix "Insert the missing arms" maybe-incorrect
+    edit 13:1-13:1 "        case .amber { }\n"

@@ -1,0 +1,12 @@
+// Two independent problems in one function are both reported, once each: a
+// plain `for` over a stream, and a `for await` over a list.
+func run(values: Stream<Int>, items: List<Int>) async -> Int {
+    var sum = 0
+    for value in values {
+        sum += value
+    }
+    for await item in items {
+        sum += item
+    }
+    return sum
+}

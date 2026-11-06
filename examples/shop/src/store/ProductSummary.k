@@ -26,7 +26,7 @@ public struct ProductSummary implements Codable, Equatable, Copyable {
     let price: Money
 
     /// The absolute URL of the product photo.
-    let imageUrl: String
+    let imageUrl: Url
 
     /// How many units can be ordered right now. `0` means sold out.
     let available: Int

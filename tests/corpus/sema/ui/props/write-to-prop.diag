@@ -1,0 +1,5 @@
+error[K3014] 7:9-7:14
+  label 4:15-4:20: declared `@Prop` here
+  fix "Change `@Prop let` to `@Binding var`" maybe-incorrect
+    edit 4:5-4:10 "@Binding"
+    edit 4:11-4:14 "var"

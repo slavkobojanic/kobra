@@ -1,0 +1,4 @@
+error[K4009] 16:9-16:16
+  note: corpus.MailJob → corpus.Audit → k.auth.Session
+error[K4009] 23:9-23:18
+  note: corpus.DirectJob → k.auth.Session

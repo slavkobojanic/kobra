@@ -34,6 +34,10 @@ A plain `var` is ordinary, non-reactive data.
 
 - Writing to a `@Derived` field is a compile error.
 - Writing to `@State` inside a `@Derived` computation is a compile error.
+- **A `@Derived` field can't depend on itself**, directly (`c = c`) or through other `@Derived` fields
+  (`a = b + 1`, `b = a + 1`): no value could be computed first. It is a compile error at every field of
+  the cycle. Reads inside `untracked { … }` count too: they don't subscribe, but the value is still
+  needed.
 
 ## How effects track dependencies
 

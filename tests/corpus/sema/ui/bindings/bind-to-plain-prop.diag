@@ -1,0 +1,6 @@
+error[K3018] 15:21-15:26
+  fix "Remove `bind `"
+    edit 15:21-15:26 ""
+error[K3018] 16:64-16:69
+  fix "Remove `bind `"
+    edit 16:64-16:69 ""

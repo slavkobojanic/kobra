@@ -1,0 +1,12 @@
+# The fix removes the rule's line and the imports only the rule used, so applying
+# it leaves no unused import (K1105).
+warning[K4014] 11:5-11:28
+  fix "Remove the `use` rule"
+    edit 7:1-8:1 ""
+    edit 8:1-9:1 ""
+    edit 11:1-12:1 ""
+warning[K4014] 12:5-12:39
+  fix "Remove the `use` rule"
+    edit 4:1-5:1 ""
+    edit 6:1-7:1 ""
+    edit 12:1-13:1 ""

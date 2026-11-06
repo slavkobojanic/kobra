@@ -1,0 +1,3 @@
+warning[K2012] 3:18-3:27
+  fix "Simplify to `b`"
+    edit 3:18-3:27 "b"

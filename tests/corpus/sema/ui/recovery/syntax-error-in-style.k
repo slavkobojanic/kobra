@@ -1,0 +1,15 @@
+// A missing `;` in a style block is a parser error with a fix; the declarations
+// still check, so nothing semantic is reported.
+component Card {
+    view {
+        box { "x" }
+            .class(.card)
+    }
+
+    style {
+        .card {
+            padding: 4px
+            margin: 2px;
+        }
+    }
+}

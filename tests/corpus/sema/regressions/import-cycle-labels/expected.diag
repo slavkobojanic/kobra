@@ -1,0 +1,11 @@
+# Bug: K1103 had no labels (diagnostics.md: the other imports of the cycle, in
+# order). Label wording is a proposal.
+error[K1103] src/a/A.k:2:8-2:11
+  label src/b/B.k:2:8-2:11: then `b` imports `c`
+  label src/c/C.k:2:8-2:11: then `c` imports `a`
+error[K1103] src/b/B.k:2:8-2:11
+  label src/c/C.k:2:8-2:11: then `c` imports `a`
+  label src/a/A.k:2:8-2:11: then `a` imports `b`
+error[K1103] src/c/C.k:2:8-2:11
+  label src/a/A.k:2:8-2:11: then `a` imports `b`
+  label src/b/B.k:2:8-2:11: then `b` imports `c`

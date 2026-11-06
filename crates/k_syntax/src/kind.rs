@@ -681,6 +681,12 @@ syntax_kinds! {
         AtPrelude,
         /// `(name: value)` or `(name)` in an at-rule prelude.
         MediaFeature,
+        /// `@keyframes name { blocks }`
+        KeyframesRule,
+        /// `selectors { declarations }` inside `@keyframes`.
+        KeyframeBlock,
+        /// `from`, `to` or a percentage before a keyframe block.
+        KeyframeSelector,
         /// `property: value;`
         Declaration,
         /// One comma-separated group of space-separated style values.

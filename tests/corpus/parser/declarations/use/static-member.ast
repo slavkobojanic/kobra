@@ -1,0 +1,9 @@
+; A lower-case segment after a type name is a member, so the operand is an `Expr`.
+(SourceFile
+  (TestSuiteDecl test StripeWebhook
+    (MemberList
+      (UseDecl use (MemberExpr (NameExpr StripeWebhookConfig) sample) for
+        (PathType StripeWebhookConfig))
+      (UseDecl use (MemberExpr (MemberExpr (NameExpr payments) StripeWebhookConfig) sample) for
+        (PathType StripeWebhookConfig))
+      (UseDecl use (MemberExpr (NameExpr Config) default) for (PathType Config)))))

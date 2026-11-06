@@ -1,0 +1,3 @@
+error[K2004] 13:18-13:21
+  fix "Replace `nme` with `name`" maybe-incorrect
+    edit 13:18-13:21 "name"

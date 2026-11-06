@@ -1,0 +1,5 @@
+# Bug: K2203 had neither the label at the enclosing signature nor the fix.
+error[K2203] 12:12-12:19
+  label 11:6-11:7: declared here without `throws corpus.E`
+  fix "Add `throws E`" maybe-incorrect
+    edit 11:9-11:9 " throws E"

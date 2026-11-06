@@ -1,0 +1,8 @@
+# Bug: `u?.address.city` was accepted although `address` is `Address?`; only
+# `v.address.city` was K2017.
+error[K2017] 13:13-13:23
+  fix "Use `?.`" maybe-incorrect
+    edit 13:23-13:24 "?."
+error[K2017] 14:13-14:22
+  fix "Use `?.`" maybe-incorrect
+    edit 14:22-14:23 "?."

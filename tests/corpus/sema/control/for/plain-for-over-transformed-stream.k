@@ -1,0 +1,12 @@
+// `map` on a `Stream` returns a `Stream`, so iterating it needs `for await`.
+func double(value: Int) -> Int {
+    return value * 2
+}
+
+func consume(values: Stream<Int>) async -> Int {
+    var sum = 0
+    for value in values.map(double) {
+        sum += value
+    }
+    return sum
+}

@@ -1,0 +1,3 @@
+error[K3016] 15:24-15:32
+  fix "Insert `bind `"
+    edit 15:24-15:24 "bind "

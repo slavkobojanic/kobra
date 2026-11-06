@@ -1,0 +1,8 @@
+// The lint applies inside lambdas.
+struct Task {
+    let done: Bool
+}
+
+func open(tasks: List<Task>) -> List<Task> {
+    return tasks.filter { task => task.done == false }
+}

@@ -1,0 +1,3 @@
+error[K1101] 2:8-2:19
+  fix "Replace with `k.time.Clock`" maybe-incorrect
+    edit 2:8-2:19 "k.time.Clock"

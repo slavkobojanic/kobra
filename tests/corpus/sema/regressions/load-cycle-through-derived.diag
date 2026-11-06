@@ -1,0 +1,4 @@
+# Bug: the `@Load` ordering graph only followed direct reads of other `@Load`
+# fields, so a cycle through a `@Derived` field went unreported.
+error[K3020] 9:15-9:16
+error[K3020] 11:15-11:16

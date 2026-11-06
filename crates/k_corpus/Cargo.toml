@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 k_diagnostics.workspace = true
 k_syntax.workspace = true
+k_sema.workspace = true
 
 [dev-dependencies]
 libtest-mimic.workspace = true

@@ -1,0 +1,5 @@
+error[K1201] 8:9-8:15
+error[K1201] 11:9-11:14
+error[K3101] 12:13-12:16
+  fix "Replace `div` with `box`" maybe-incorrect
+    edit 12:13-12:16 "box"

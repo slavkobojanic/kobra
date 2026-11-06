@@ -1,0 +1,3 @@
+# Bug: in `throwingSecond`, the non-throwing first block fixed `Err` to the empty
+# error, so the second block's `try fe()` was K2203 and the outer `try` K2202 (with a
+# machine-applicable fix that would break the code). Expected: no diagnostics.

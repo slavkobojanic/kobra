@@ -10,7 +10,7 @@ import k.validation.Validatable
 /// `placeOrder` request, and is validated again on the server before
 /// `StoreApi` sees it, so the constraints below are enforced even for
 /// requests that never came from the form.
-public struct OrderRequest implements Codable, Validatable {
+public struct OrderRequest implements Codable, Equatable, Validatable {
     /// The product to order, by slug.
     @NotBlank var productSlug: String
 

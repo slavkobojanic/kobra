@@ -3,8 +3,8 @@
 This document records how the performance of the K toolchain is measured, the current baseline numbers, and
 what the profiles say. The budgets themselves are defined in
 [architecture.md §12](architecture.md#12-performance-budgets); the benchmark conventions are in
-[testing.md §9](testing.md#9-benchmarks-and-performance-budgets). Only the syntax layer (lexer, parser,
-tree sink) exists so far, so only it is covered.
+[testing.md §9](testing.md#9-benchmarks-and-performance-budgets). Sections 1–9 cover the syntax layer
+(lexer, parser, tree sink); [§10](#10-semantic-analysis) covers semantic analysis (`k check`).
 
 Contents:
 
@@ -17,6 +17,7 @@ Contents:
 7. [Changes made while setting up the benchmarks](#7-changes-made-while-setting-up-the-benchmarks)
 8. [Known costs and next steps](#8-known-costs-and-next-steps)
 9. [History](#9-history)
+10. [Semantic analysis](#10-semantic-analysis)
 
 ---
 
@@ -30,6 +31,9 @@ cargo bench -p k_syntax -- '^parse/'                  # one group (regex filter 
 cargo bench -p k_syntax -- --save-baseline main       # record a baseline
 cargo bench -p k_syntax -- --baseline main            # compare a change against it
 K_BUDGET_SCALE=0.5 scripts/bench-check.sh             # slower machine: enforce half the throughput
+scripts/bench-check.sh --sema                         # only the semantic budgets (--syntax: only syntax)
+cargo bench -p k_sema                                 # semantic criterion benchmarks
+cargo bench -p k_sema -- '^warm_body/'                # one group
 ```
 
 `scripts/bench-check.sh` runs the `#[ignore]`d tests of `crates/k_syntax/tests/perf_budget.rs` with
@@ -316,3 +320,195 @@ person to work on parser speed can start from data.
 |---|---|---|---|
 | 2026-11-06 | benchmarks and budget check introduced (baseline "before") | 76.61 ms | 204.1 µs |
 | 2026-11-06 | token slots, word-at-a-time hashing, teardown without temporaries | 72.63 ms | 185.6 µs |
+
+---
+
+## 10. Semantic analysis
+
+### 10.1 Running
+
+`scripts/bench-check.sh` (or `--sema`) runs the ignored tests of `crates/k_sema/tests/perf_budget.rs`:
+first every timing check with `--test-threads=1`, then the memory check alone in its own process, so no
+other test's freed memory is counted. `cargo bench -p k_sema` runs `crates/k_sema/benches/sema.rs`.
+Profiling works as in [§1](#1-running), with the `sema-<hash>` bench binary and an id filter such as
+`'^warm_body/realistic/100k$'`.
+
+### 10.2 Inputs
+
+`crates/k_sema/benches/project/mod.rs` generates projects as `(path, text)` lists, a pure function of size
+and seed (SplitMix64, `project::SEED`). `crates/k_sema/tests/project_workload.rs` (normal test suite)
+guarantees that every generated project, every family and every benchmark edit analyses with **zero
+diagnostics**, so no benchmark measures error paths.
+
+**Realistic** (`project::realistic(lines, seed)`): `k.toml`, `App.k`, a theme, a `core` module of
+generic types (`Pair<A, B>`, `Batch<T>`, `Outcome<T>`, an interface with a default method, a generic
+function), then feature modules until the line count is reached exactly (the last module gets
+top-level helpers to make up the rest). A feature module has a `Codable`/`Equatable` record implementing
+two interfaces, a status enum with payload cases and guarded, exhaustive `match`es, an error enum with
+`rpcFailure`, an interface, a protocol with typed-`throws` rpcs, the server service implementing it, a
+client service (`@Inject` of the protocol and of the previous module's service, `@State`, `@Derived`,
+10–24 methods mixing loops, `guard`, lambdas, generic calls, `match` and optionals), a component (props,
+state, a view with `if`/`match`, modifiers, a style block with `@media`), a page (`@Inject`, `@Load`,
+`loading`, `failed`, metadata, a keyed `for`) and a test suite. Each module imports its predecessor
+and `core`. At 100k lines: **1,369 files, 3.12 MB** (31 bytes per line; architecture.md §12 assumes
+about 1,000 files and 3.5 MB), 136 feature modules.
+
+**Edits.** `project::body_edit` changes one literal in the body of a private helper of feature 0's
+service (the same line count, one changed line, a test checks it); `project::signature_edit` adds a public
+method to that service. The warm checks alternate between two versions so every run is a real change.
+
+**Pathological** (`project::Pathological`, default sizes in parentheses):
+
+| Family | Shape |
+|---|---|
+| `deep-generics` (48) | `Wrap<Wrap<…<Int>>>` nested *size* deep in 40 functions: annotated and inferred nested constructor calls, a generic `map` on the result |
+| `huge-match` (2,000) | an enum of *size* cases (every third with a payload), two exhaustive `match self`, eight guarded `match`es with `default` |
+| `import-chain` (1,000) | *size* modules, each importing the previous module's struct and injecting its service |
+| `wide-di` (1,000) | one service injecting *size* services, each injecting a shared leaf; a page injecting the root |
+
+### 10.3 Method
+
+As in [§3](#3-method): best of repeated runs, results dropped outside the timed region. A **cold check**
+is `AnalysisHost::with_files` plus `diagnostics()` (parsing included); the embedded stdlib, parsed once
+per process, is warmed first. A **warm re-check** is `apply_change` of one file plus `diagnostics()` on
+a host that has already answered. **Memory** is the process's resident set (`/proc/self/status` on
+Linux, `ps -o rss=` elsewhere; the crate forbids `unsafe`) with a warm host after four edits and a live
+snapshot. "8 threads" is `Options::with_threads(8)` (or every core if fewer); the semantic pass itself is
+single-threaded today, so only parsing uses them.
+
+| Check | Requirement | Source |
+|---|---|---|
+| cold check, 100k lines, 8 threads | ≤ 1.0 s | architecture.md §12 |
+| cold check, 100k lines, 1 thread | ≤ 4.0 s | architecture.md §12 |
+| warm re-check after a body edit, 100k lines | ≤ 30 ms | architecture.md §12 |
+| warm re-check after a signature edit, 100k lines | ≤ 150 ms | architecture.md §12 |
+| resident memory, warm 100k-line project | ≤ 1.5 GB | architecture.md §12 |
+| realistic 10k → 100k lines | time ratio ≤ 14 | sema.md §15 (no quadratic algorithms) |
+| pathological families, size s → 4s | time ratio ≤ 6 | sema.md §15 |
+| `deep-generics`, depth d → 4d | time ratio ≤ 20 | below |
+
+The `deep-generics` bound is quadratic, not linear, by necessity: the checker records the type of every
+expression (`type_at`), and in a chain nested `d` deep the expression at level `k` has a type of size `k`,
+so materializing them is Θ(d²) whatever the algorithm (quadratic is x16). The bound still catches the
+cubic behaviour it had before [§10.6](#106-changes-made-while-setting-up-the-benchmarks) (x44).
+
+### 10.4 Budget status
+
+Measured with `cargo test --release -p k_sema --test perf_budget -- --ignored --test-threads=1` (what
+`scripts/bench-check.sh` runs) on 2026-11-07, same machine as [§4](#4-budget-status), after round 2's
+warm cache (sema.md §16, round 2 notes; expect ±10%).
+
+| Check | Measured | Budget | Status |
+|---|---|---|---|
+| cold check, 100k lines, 8 threads | **0.112 s** | ≤ 1.0 s | met, 8.9x headroom |
+| cold check, 100k lines, 1 thread | **0.129 s** | ≤ 4.0 s | met, 31x headroom |
+| warm re-check after a body edit | **25.5 ms** | ≤ 30 ms | met, 1.18x headroom |
+| warm re-check after a signature edit | **94.6 ms** | ≤ 150 ms | met, 1.6x headroom |
+| resident memory, warm 100k lines | **124 MB** | ≤ 1.5 GB | met, 12x headroom |
+| realistic 10k → 100k | x9.48 for x10.19 bytes | ≤ x14 | met |
+| `deep-generics` 48 → 192 | x9.71 | ≤ x20 | met (quadratic, see above) |
+| `huge-match` 2,000 → 8,000 cases | x4.22 | ≤ x6 | met |
+| `import-chain` 1,000 → 4,000 modules | x4.01 | ≤ x6 | met |
+| `wide-di` 1,000 → 4,000 services | x4.19 | ≤ x6 | met |
+
+No budget was changed. **Every budget is met.** Before round 2 the warm body edit took 101.6 ms (3.4x
+over): `check::analyze` rebuilt the `Program` and re-checked every declaration on every revision, and
+checking bodies was 73% of a re-check. Round 2 keeps each file's **body facts** (diagnostics, types,
+resolutions and the side facts the project passes read) and replays them for every file whose text is
+unchanged, as long as no signature in the project changed (`crate::warm`; sema.md §3.3 and §16). Every
+signature is resolved eagerly before the bodies (about 6 ms at 100k lines), which makes the signature
+facts independent of which body first needs them. A warm body edit now costs, at 100k lines:
+
+| Phase | ≈ ms |
+|---|---|
+| rebuilding the `Program` | 9 |
+| eager signatures, project checks, imports | 7 |
+| checking the edited file's bodies, replaying the other 1,368 files' facts | 1–2 |
+| routing, RPC, app, DI, client references, unused imports and classes | 7.5 |
+| parsing the edited file, name table, host overhead | 1–2 |
+
+The headroom is small. The next steps, in order of payoff: keep the `Program`'s item tree across
+revisions (it depends only on signatures, so an unchanged signature set could reuse it); make the
+project passes incremental (most read only signatures plus a few body facts); then parallelize the body
+phase, which needs `Send` syntax pointers (§3.5). A signature edit still re-checks everything; per
+declaration dependency tracking (early cutoff below the file level) would cut it.
+
+**Exhaustiveness.** A `match` whose arms share one constructor (`case .c(1)`, `case .c(2)`, …) used to be
+quadratic in the arms (20k arms: 12.7 s); `pattern::Rows` now indexes rows column after column, and
+20k such arms take 0.04 s (sema.md §15).
+
+### 10.5 Baseline: criterion
+
+`cargo bench -p k_sema -- --save-baseline main`, 2026-11-07, after [§10.6](#106-changes-made-while-setting-up-the-benchmarks).
+Means; lines/s for realistic input, MiB/s for pathological input.
+
+| Benchmark | Mean | Throughput |
+|---|---|---|
+| `cold_1t/realistic/1k` | 3.34 ms | 299 K lines/s |
+| `cold_1t/realistic/10k` | 18.2 ms | 550 K lines/s |
+| `cold_1t/realistic/100k` | 160 ms | 624 K lines/s |
+| `cold_mt/realistic/1k` | 4.33 ms | 231 K lines/s |
+| `cold_mt/realistic/10k` | 15.6 ms | 641 K lines/s |
+| `cold_mt/realistic/100k` | 96.0 ms | 1.04 M lines/s |
+| `warm_body/realistic/10k` | 9.54 ms | |
+| `warm_body/realistic/100k` | 98.6 ms | |
+| `warm_signature/realistic/10k` | 9.81 ms | |
+| `warm_signature/realistic/100k` | 100.7 ms | |
+| `pathological/deep-generics` | 12.1 ms | 6.5 MiB/s |
+| `pathological/huge-match` | 37.2 ms | 20.7 MiB/s |
+| `pathological/import-chain` | 19.9 ms | 24.7 MiB/s |
+| `pathological/wide-di` | 13.3 ms | 17.4 MiB/s |
+
+The criterion cold numbers include dropping the host (rowan trees, every memo table), which the budget
+check excludes; that and noise explain `cold_1t/100k` (160 ms) against the budget check's 120 ms. About
+2.5 ms of every check is fixed cost: the stdlib's declarations are re-collected and re-resolved per
+revision (sema.md §15 plans computing them once per process), which dominates the 1k-line project and
+makes `cold_mt/1k` slower than `cold_1t/1k` (thread start-up for 18 files).
+
+### 10.6 Changes made while setting up the benchmarks
+
+Measured with the budget check before → after; all tests (unit, corpus, examples, robustness, property)
+green after each change.
+
+1. **Exhaustiveness linear in the number of cases** (`pattern.rs`). `arity` enumerated every case of the
+   enum (with its signature) to find one constructor's fields, the wildcard rule checked coverage with
+   a linear `contains` per constructor and re-scanned all rows per constructor, and every arm was tested
+   against every earlier row. Now a constructor's fields come from its own signature, the wildcard rule
+   groups rows by head constructor once, and `pattern::Rows` indexes a growing matrix by head
+   constructor (used by `match` and `catch`). `huge-match`: 686 ms → 34 ms; 2,000 → 8,000 cases went
+   from x16.2 (quadratic) to x4.2. Tests: `tests/project_workload.rs`, wide-`match` cases (exhaustive,
+   one case missing at several positions, repeated arms, guards, `default`).
+2. **Shallow resolution in `unify` and `assignable`** (`body.rs`), and a `resolve` that allocates
+   only when a type contains a bound variable. Both resolved both types deeply at every level of the
+   recursion, which is quadratic per call and cubic over a nested constructor chain. `deep-generics`
+   at depth 48: 50.7 ms → 11.9 ms; 48 → 192 went from x44.7 to x10.2.
+3. **Types for `type_at` rendered on demand** (`ty::NameTable`, `check::SemaResult`). Every
+   expression's type was rendered to a `String` (with a `format!` per nominal type) whether or not anyone
+   asked; they are now kept as `Ty` and rendered by `Analysis::type_at` from a per-revision name table.
+4. **Fx hashing** (`fx.rs`) for the `Cx` memo tables, the recorded types and resolutions and the
+   `Program`'s name maps: SipHash was about 10% of a check.
+5. **Lazy identifier scan for unused imports** (`check::unused_imports`): the per-file identifier set
+   is only built when an import isn't used by any checked body (10% of a warm re-check before).
+6. `Program::write_decl_name` appends a qualified name without a temporary `String`.
+
+Effect on the 100k-line project (budget check, best-of): cold on 1 thread 141 → 120 ms, on 8 threads
+125 → 102 ms, warm body edit 125 → 102 ms.
+
+### 10.7 Next steps
+
+1. **Early cutoff** (the warm budget): per-declaration memoization of body results (diagnostics, types,
+   resolutions, and the facts project-wide checks read: used imports, references, DI uses), keyed by
+   the declaration's syntax and the signatures it read, as sema.md §3.3 designs. Needs `Program` and
+   signatures that survive a revision (stable `DeclId`s, sema.md §3.4).
+2. **Parallel checking** of declarations (sema.md §3.5): `Cx` uses `RefCell`/`Rc` and rowan nodes, which
+   are not `Send`; per-declaration results with `Send` syntax pointers come with item 1.
+3. **Stdlib computed once per process**: about 2.5 ms per check.
+4. **Deep types**: hash-consed `Ty`s (sema.md §3.4) would make resolving recorded types linear in the
+   number of distinct types rather than their total size.
+
+### 10.8 History
+
+| Date | Change | cold 1t, 100k | warm body, 100k | `huge-match` | `deep-generics` |
+|---|---|---|---|---|---|
+| 2026-11-07 | benchmarks and budget check introduced | 141 ms | 125 ms | 686 ms | 50.7 ms |
+| 2026-11-07 | §10.6 changes | 120 ms | 102 ms | 34.0 ms | 11.9 ms |

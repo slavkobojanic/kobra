@@ -1,0 +1,4 @@
+# Bug: K2302 had no fix.
+error[K2302] 12:9-12:16
+  fix "Remove the arm" maybe-incorrect
+    edit 12:1-13:1 ""

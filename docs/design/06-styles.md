@@ -42,7 +42,8 @@ component CartSummary {
 ## Rules
 
 - **Property values are type-checked** against each property's CSS grammar. `borderLeft: 4px blue solid potato` is a compile error.
-- **Selectors, pseudo-classes, `@media`, `@container`, `@layer` and nesting are kept from CSS.** Only property names change.
+- **Selectors, pseudo-classes, `@media`, `@container`, `@layer`, `@keyframes` and nesting are kept from CSS.** Only property names change.
+- **There are no element or id selectors** (grammar [RA-8](../compiler/grammar.md#ra-8-no-element-selectors)): `h1 { … }`, `td { … }` and `#main { … }` are compile errors. Elements are styled through classes, which are typed and scoped: `heading(level: 1) { title }.class(.title)` with `.title { … }`. A selector is built from classes, `&`, pseudo-classes and pseudo-elements, attribute selectors and `*`.
 - **Theme tokens and static values use implicit member syntax:** `padding: .md` resolves against the type the property expects. See [07-themes-and-units.md](07-themes-and-units.md).
 - **`{ }` is used only for reactive values** (props and state). `{accent}` compiles to a CSS custom property, updated through the signal system. No inline `style=` strings are needed.
 - **Position decides meaning:** at the rule level, `.summary` is a class selector; after `property:`, `.md` is a value.
@@ -53,6 +54,29 @@ component CartSummary {
 - **Referencing a class that doesn't exist is a compile error. A defined class that is never used is a warning.**
 - **Conditional classes use `when`:** `.class([.panel, .expanded when isExpanded])`.
 - Setting `.class()` twice is a compile error. Use a list.
+
+## Animations: `@keyframes`
+
+A style block may declare keyframes, which are scoped like classes:
+
+```k
+style {
+    @keyframes fade {
+        from { opacity: 0; }
+        50% { opacity: 0.5; }
+        to { opacity: 1; }
+    }
+
+    .toast {
+        animationName: .fade;
+        animationDuration: 200ms;
+    }
+}
+```
+
+- **Each block's selectors are `from`, `to` or percentages** (`0%` to `100%`, several separated by commas), and the block holds declarations only.
+- **Keyframes are referenced from properties as an implicit member,** `animationName: .fade`, like a theme token. Referencing keyframes that don't exist is a compile error; declaring keyframes that nothing references is a warning, as for classes.
+- **The name is hashed like a class name,** so `fade` in one component can't collide with `fade` in another, and a parent can't reference a child's keyframes.
 
 ## Scoping
 

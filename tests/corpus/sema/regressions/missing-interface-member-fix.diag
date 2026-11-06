@@ -1,0 +1,4 @@
+# Bug: K2010 had no fix. Stub text is a proposal.
+error[K2010] 7:26-7:31
+  fix "Insert stubs for the missing members" maybe-incorrect
+    edit 9:1-9:1 "\n    func area() -> Double {\n    }\n"

@@ -1,0 +1,10 @@
+# Bug: K1201 and K1202 offered no closest-name fix (K1203 does: `prise` → `price`).
+error[K1201] 13:13-13:17
+  fix "Replace with `total`" maybe-incorrect
+    edit 13:13-13:17 "total"
+error[K1201] 14:13-14:18
+  fix "Replace with `amount`" maybe-incorrect
+    edit 14:13-14:18 "amount"
+error[K1202] 15:12-15:16
+  fix "Replace with `Item`" maybe-incorrect
+    edit 15:12-15:16 "Item"

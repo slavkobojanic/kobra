@@ -1,0 +1,5 @@
+# Bug: K1106 for an import of the module's own declaration had no label and no fix.
+error[K1106] src/shop/Checkout.k:4:8-4:17
+  label src/shop/Cart.k:2:15-2:19: declared in this module here
+  fix "Remove the duplicate import"
+    edit 4:1-5:1 ""

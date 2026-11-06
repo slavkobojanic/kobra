@@ -1,0 +1,9 @@
+// path: src/shop/Cart.k
+// `public` on a member restates the type's visibility: a K1302 warning whose fix deletes it and the space after it.
+public struct Cart {
+    let size: Int
+
+    public func isEmpty() -> Bool {
+        return size == 0
+    }
+}

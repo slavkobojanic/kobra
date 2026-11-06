@@ -1,0 +1,11 @@
+func count() async -> Int {
+    return 1
+}
+
+page Stats {
+    @Load let total: Int = await count()
+
+    view {
+        text { "{total}" }
+    }
+}

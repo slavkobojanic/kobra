@@ -1,0 +1,22 @@
+# `@keyframes x;` has no block, so the next statement is an ordinary
+# declaration; `@keyframes-y` is a different at-rule name, so `to {` inside its
+# block is a declaration too.
+StyleKw "style"
+LBrace "{"
+At "@"
+Ident "keyframes"
+Ident "x"
+Semicolon ";"
+Ident "from"
+InterpStart "{"
+InterpEnd "}"
+At "@"
+Ident "keyframes-y"
+Ident "z"
+LBrace "{"
+Ident "to"
+InterpStart "{"
+InterpEnd "}"
+RBrace "}"
+RBrace "}"
+Newline "\n"

@@ -1,0 +1,2 @@
+error[K3010] 9:26-9:33
+  label 5:18-5:25: declared `@Derived` here

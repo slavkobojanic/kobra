@@ -604,3 +604,29 @@ fn many_errors_do_not_cascade() {
         .collect();
     assert_eq!(codes(&parse), expected);
 }
+
+#[test]
+fn keyframes_accessors_expose_name_blocks_and_selectors() {
+    use k_syntax::ast::{self, AstNode};
+    let parse = check(
+        "component T {\n    style {\n        @keyframes fade {\n            from, 50% { opacity: 0; }\n            to { opacity: 1; }\n        }\n    }\n}\n",
+    );
+    let rule = parse
+        .syntax()
+        .descendants()
+        .find_map(ast::KeyframesRule::cast)
+        .unwrap();
+    assert_eq!(rule.name().unwrap().text(), "fade");
+    let blocks: Vec<_> = rule.blocks().collect();
+    assert_eq!(blocks.len(), 2);
+    let selectors: Vec<String> = blocks[0]
+        .selectors()
+        .map(|s| s.token().unwrap().text().to_owned())
+        .collect();
+    assert_eq!(selectors, ["from", "50%"]);
+    assert_eq!(blocks[0].items().count(), 1);
+    assert!(matches!(
+        blocks[1].items().next(),
+        Some(ast::CssItem::Declaration(_))
+    ));
+}

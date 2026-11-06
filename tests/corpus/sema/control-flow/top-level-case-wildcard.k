@@ -1,0 +1,27 @@
+enum Light {
+    case red
+    case green
+    case amber
+}
+
+func label(light: Light) -> String {
+    match light {
+        case .red {
+            return "stop"
+        }
+        case _ {
+            return "go"
+        }
+    }
+}
+
+func fine(light: Light) -> String {
+    match light {
+        case .red {
+            return "stop"
+        }
+        default {
+            return "go"
+        }
+    }
+}

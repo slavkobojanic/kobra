@@ -1,0 +1,3 @@
+# Bug: a `@State` write in a method called from a `@Derived` initializer was not
+# reported.
+error[K3011] 5:33-5:39

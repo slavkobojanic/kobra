@@ -1,0 +1,5 @@
+// Enum cases are public with their enum; `public` on one is K1302.
+enum Light {
+    public case red
+    case green
+}

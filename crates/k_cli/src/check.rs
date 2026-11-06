@@ -1,29 +1,55 @@
 //! `k check`.
 //!
-//! Today `k check` lexes and parses every `.k` file and reports syntax
-//! diagnostics. Semantic analysis, the formatting check, tests and lockfile
-//! checks join it as those stages land (see `docs/compiler/architecture.md`).
+//! `k check` finds the projects named by its paths
+//! ([`sources`]), analyses each with [`k_sema`] (every file
+//! is parsed, then checked by the semantic stages of
+//! `docs/compiler/sema.md`) and prints every diagnostic, human-readable on
+//! standard error or as JSON Lines on standard output. It exits with 1 when
+//! anything is reported. The formatting check, tests and lockfile checks
+//! join it as those stages land (`docs/compiler/architecture.md`).
 
 use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
 
-use k_diagnostics::{Diagnostic, render};
+use k_diagnostics::{Diagnostic, SourceMap, Span, TextSize, codes, render};
+use k_sema::{AnalysisHost, Options};
 
 use crate::cli::{CheckArgs, ColorChoice, Format};
-use crate::sources;
+use crate::sources::{self, Group, Problem};
+
+/// The diagnostics of one group, with the map that renders them.
+struct Report {
+    map: SourceMap,
+    diagnostics: Vec<Diagnostic>,
+}
 
 /// Runs `k check`.
 pub fn run(args: &CheckArgs) -> ExitCode {
     let sources = sources::load(&args.paths);
-    let mut diagnostics: Vec<Diagnostic> = sources.diagnostics.clone();
-    for &file in &sources.files {
-        let Some(source) = sources.map.get(file) else {
-            continue;
-        };
-        let parse = k_syntax::parse(file, source.text());
-        diagnostics.extend_from_slice(parse.diagnostics());
+    let mut reports = Vec::new();
+    let mut files = 0;
+    if !sources.missing.is_empty() {
+        let mut map = SourceMap::new();
+        let mut diagnostics = Vec::new();
+        for path in &sources.missing {
+            let file = map.add(path.clone(), "");
+            diagnostics.push(Diagnostic::new(
+                codes::IO_ERROR,
+                Span::empty(file, TextSize::from(0)),
+                format!("`{path}` does not exist"),
+            ));
+        }
+        reports.push(Report { map, diagnostics });
     }
-    diagnostics.sort_by_key(|d| (d.span, d.code));
+    for group in sources.groups {
+        files += group
+            .files
+            .iter()
+            .filter(|(path, _)| path.kind().is_k_source())
+            .count()
+            + group.problems.len();
+        reports.push(check_group(group));
+    }
 
     let color = match args.color {
         ColorChoice::Always => true,
@@ -35,24 +61,32 @@ pub fn run(args: &CheckArgs) -> ExitCode {
     } else {
         render::HumanOptions::plain()
     };
-    let errors = diagnostics.iter().filter(|d| d.is_error()).count();
-    let warnings = diagnostics.len() - errors;
+    let total: usize = reports.iter().map(|r| r.diagnostics.len()).sum();
+    let errors = reports
+        .iter()
+        .flat_map(|r| &r.diagnostics)
+        .filter(|d| d.is_error())
+        .count();
+    let warnings = total - errors;
 
     match args.format {
         Format::Json => {
             let mut out = std::io::stdout().lock();
-            for diagnostic in &diagnostics {
-                let _ = writeln!(out, "{}", render::json(diagnostic, &sources.map));
+            for report in &reports {
+                for diagnostic in &report.diagnostics {
+                    let _ = writeln!(out, "{}", render::json(diagnostic, &report.map));
+                }
             }
         }
         Format::Human => {
             let mut err = std::io::stderr().lock();
-            for diagnostic in &diagnostics {
-                let _ = writeln!(err, "{}", render::human(diagnostic, &sources.map, &options));
+            for report in &reports {
+                for diagnostic in &report.diagnostics {
+                    let _ = writeln!(err, "{}", render::human(diagnostic, &report.map, &options));
+                }
             }
-            let files = sources.files.len();
             let noun = if files == 1 { "file" } else { "files" };
-            if diagnostics.is_empty() {
+            if total == 0 {
                 let _ = writeln!(err, "checked {files} {noun}: no problems");
             } else {
                 let _ = writeln!(
@@ -63,9 +97,54 @@ pub fn run(args: &CheckArgs) -> ExitCode {
         }
     }
 
-    if diagnostics.is_empty() {
+    if total == 0 {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
     }
+}
+
+/// Analyses one group and adds the driver's own diagnostics for files that
+/// could not be loaded.
+fn check_group(group: Group) -> Report {
+    let root = group.root;
+    let host = AnalysisHost::with_files(Options::new(), group.files);
+    let analysis = host.analysis();
+    let mut map = analysis.source_map(|path| sources::display(&root.join(path.as_str())));
+    // The host is never changed while it is queried, so the analysis can't
+    // be cancelled.
+    let mut diagnostics = analysis.diagnostics().unwrap_or_default();
+    for (path, problem) in group.problems {
+        let diagnostic = match problem {
+            Problem::InvalidUtf8 { text, offset } => {
+                let file = map.add(path, text);
+                let offset = TextSize::from(u32::try_from(offset).unwrap_or(u32::MAX));
+                Diagnostic::new(
+                    codes::INVALID_UTF8,
+                    Span::empty(file, offset),
+                    "source file is not valid UTF-8",
+                )
+            }
+            Problem::Unreadable(error) => {
+                let message = format!("cannot read `{path}`: {error}");
+                let file = map.add(path, "");
+                Diagnostic::new(
+                    codes::IO_ERROR,
+                    Span::empty(file, TextSize::from(0)),
+                    message,
+                )
+            }
+            Problem::InvalidPath(message) => {
+                let file = map.add(path, "");
+                Diagnostic::new(
+                    codes::IO_ERROR,
+                    Span::empty(file, TextSize::from(0)),
+                    message,
+                )
+            }
+        };
+        diagnostics.push(diagnostic);
+    }
+    diagnostics.sort_by_key(|d| (d.span, d.code));
+    Report { map, diagnostics }
 }

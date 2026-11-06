@@ -9,6 +9,7 @@
 //! |---|---|---|
 //! | `lexer` | `name.tokens` (required), `name.diag` (optional) | [`k_syntax::lex`] |
 //! | `parser` | `name.ast` (required), `name.diag` (optional) | [`k_syntax::parse`] |
+//! | `sema` | `name.diag`, `name.pending` (both optional); projects: `expected.diag`, `expected.pending` | [`k_sema::Analysis::diagnostics`] and the position queries |
 //!
 //! A missing `.diag` file means "no diagnostics expected". The exact file
 //! formats are specified in `docs/compiler/testing.md`; this crate implements
@@ -16,6 +17,8 @@
 //!
 //! * [`diag_format`] reads and writes `.diag` files and matches them against
 //!   actual diagnostics;
+//! * [`annotations`] reads the caret annotations of `sema` cases;
+//! * [`sema_suite`] runs `sema` cases, single files and projects;
 //! * `.tokens` and `.ast` files are read with [`k_syntax::dump`] and
 //!   [`k_syntax::sexpr`];
 //! * [`discover`] finds cases and reports misplaced files;
@@ -33,9 +36,11 @@
 //! normally written by hand *before* the implementation exists; blessing is
 //! for bulk updates after a deliberate, reviewed change.
 
+pub mod annotations;
 pub mod diag_format;
 pub mod diff;
 pub mod discover;
+pub mod sema_suite;
 pub mod suites;
 
 use std::path::PathBuf;

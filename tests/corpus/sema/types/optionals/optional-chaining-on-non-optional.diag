@@ -1,0 +1,3 @@
+warning[K2018] 7:16-7:18
+  fix "Replace `?.` with `.`"
+    edit 7:16-7:18 "."
