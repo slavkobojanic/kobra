@@ -4,10 +4,10 @@ import k.crypto.Uuid
 /// to pay.
 public struct PlacedOrder implements Codable {
     /// The new order's id.
-    public let orderId: Uuid
+    let orderId: Uuid
 
     /// The payment page to redirect the customer to. It belongs to the
     /// payment provider in production and is the receipt page elsewhere; see
     /// `PaymentGateway`.
-    public let paymentUrl: Url
+    let paymentUrl: Url
 }

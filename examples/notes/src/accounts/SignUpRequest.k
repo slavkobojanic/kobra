@@ -14,17 +14,17 @@ public struct SignUpRequest implements Codable, Validatable {
     /// in the browser, and in full on the server.
     @Email(message: "Enter a valid email address")
     @Check(AuthService.emailAvailable, message: "An account with this email already exists")
-    public var email: String
+    var email: String
 
     /// The new password. At least 8 characters.
     @Length(min: 8, message: "Use at least 8 characters")
-    public var password: String
+    var password: String
 
     /// The password again, to catch typos.
-    public var confirmPassword: String
+    var confirmPassword: String
 
     /// Checks that both password fields match.
-    public func validate(rules: Rules) {
+    func validate(rules: Rules) {
         rules.check(confirmPassword == password, field: .confirmPassword, message: "Passwords must match")
     }
 }

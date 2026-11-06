@@ -1,5 +1,7 @@
 import admin.AdminService
 import admin.SignInRequest
+import k.validation.Form
+import k.validation.ValidationError
 
 /// The staff sign-in page.
 ///
@@ -12,10 +14,15 @@ public page SignIn {
 
     @Inject let admin: AdminService
 
-    @Form var credentials: SignInRequest = SignInRequest(email: "", password: "")
+    /// The sign-in form. The email field starts empty: `@Form` keeps the text
+    /// of an `EmailAddress` field and parses it when the form is validated.
+    @Form var credentials: SignInRequest = SignInRequest(password: "")
     @State var problem: String? = nil
 
-    func submit() async {
+    /// Signs in and returns to the page that asked for it. Validation
+    /// failures reported by the server are rethrown, so the form shows them
+    /// under their fields.
+    func submit() async throws ValidationError {
         problem = nil
 
         do {
@@ -24,7 +31,9 @@ public page SignIn {
             Router.navigate(to: returnTo)
         } catch .invalidCredentials {
             problem = "That email and password don't match."
-        } catch .rejected {
+        } catch .rpcFailure(.invalid(let failure)) {
+            throw failure
+        } catch .rpcFailure(.rejected) {
             problem = "Too many attempts. Wait a minute before trying again."
         }
     }

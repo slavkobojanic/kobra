@@ -22,9 +22,9 @@ public protocol StoreProtocol {
     /// - Returns: the new order's id and the URL to send the customer to.
     /// - Throws: `CheckoutError.productNotFound` or `.outOfStock` when the
     ///   order can't be filled, `.paymentUnavailable` when the payment
-    ///   provider fails, and `.rejected` when the client exceeds 10 orders a
-    ///   minute.
-    rpc placeOrder(request: OrderRequest) requires RateLimit(10.perMinute) throws CheckoutError -> PlacedOrder
+    ///   provider fails, and `.rpcFailure` when the request is invalid or the
+    ///   client exceeds 10 orders a minute.
+    rpc placeOrder(request: OrderRequest) throws CheckoutError -> PlacedOrder requires RateLimit(10.perMinute)
 
     /// Looks up an order for its receipt page.
     ///

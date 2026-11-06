@@ -71,6 +71,8 @@ Rules:
 - Optional attributes are **order-independent**.
 - **Modifiers** (cross-cutting behaviors such as `.tooltip()`, `.animate()`, `.track()`) are chained too, but **apply in the order written**.
 - A prop can't share a name with a registered modifier. That is a compile error at the prop declaration.
+- **A `Bool` prop with a default is chained with its value:** `.dashed(true)`, `.disabled(isSubmitting)`. There are no zero-argument flag methods ([01-principles.md](01-principles.md)).
+- **The attributes of built-in elements are not modifiers.** `.label`, `.placeholder`, `.type`, `.pressed`, `.expanded` and `.role` are generated per element from the element's typed definition, like any optional attribute ([05-views.md](05-views.md)). They don't reserve names, so `@Prop let label: String` is fine. A component that wants an accessible name declares its own `label` prop and applies it to an element inside.
 
 ## Two-way binding
 
@@ -123,6 +125,44 @@ Binding(get: { celsius * 9 / 5 + 32 }, set: { f => celsius = (f - 32) * 5 / 9 })
 ```
 
 `@Emits` remains for events (submitted, closed, deleted) rather than state.
+
+## Events
+
+**A parent listens to a component's event with the same chained `.on(name: handler)` used for element events,** where `name` is the `@Emits` field:
+
+```k
+component Counter {
+    @Emits let changed: Event<Int>
+    @State var count: Int = 0
+
+    func increment() {
+        count += 1
+        changed.emit(count)
+    }
+
+    view {
+        button { "Add" }
+            .on(click: increment)
+    }
+}
+
+Counter()
+    .on(changed: { value => Log.info("count is now {value}") })
+```
+
+- **The handler's type follows the event's payload.** For `Event<T>` it is a function taking a `T`: a lambda with one parameter, or a function passed by name (`.on(changed: record)`). An event without a payload is declared `Event<Void>`, fired with `emit()`, and handled by a lambda without parameters (`.on(closed: { isOpen = false })`).
+- **One event per `.on(…)` call,** for elements and components alike. `.on(click: f, keyDown: g)` is a compile error with a fix that splits it into two calls. Listening to the same event twice on one call site is a compile error, like setting any option twice.
+- **Listening is optional.** An event nobody listens to does nothing, so events are never required arguments.
+- **Unknown event names are compile errors,** with a hint listing the component's `@Emits` fields (or the element's events).
+- `emit` can be called only from inside the declaring component. A parent can't fire a child's event.
+
+### Handlers
+
+- **Handlers may be `async`.** The element or component doesn't wait for them. Leaving the page cancels a handler that is still running, as for effects ([03-reactivity.md](03-reactivity.md)).
+- **A handler can't be declared `throws`.** Nothing waits for it, so nothing could catch its error. It handles every error inside, usually by recording it in state. Passing a throwing function to `.on(…)` is a compile error, with a quick fix that wraps the function's body in `do`/`catch`. `@Effect` follows the same rule.
+- A form's submit handler is usually wrapped by `form.handle(…)`, which may receive an action that throws `ValidationError` ([15-forms-and-validation.md](15-forms-and-validation.md)). The handler `form.handle` returns doesn't throw.
+
+Why one form for both: a reader sees `.on(…)` and knows it is an event, whatever emits it. Events stay distinct from `@Binding`, which is for state the parent shares.
 
 ## Slots
 

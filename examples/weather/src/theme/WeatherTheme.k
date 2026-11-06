@@ -1,8 +1,14 @@
-/// Design tokens for the weather dashboard, with a dark variant.
+/// Design tokens for the weather dashboard, with a dark variant that follows
+/// the operating system's color scheme.
 ///
 /// Every color, space and radius in the app's `style` blocks comes from here.
-/// The `chartGrid` and `chartAxis` tokens are declared by `k.charts`; setting
-/// them here restyles every chart without touching the chart code.
+/// The `chartGrid` and `chartAxis` tokens are declared by `k.charts`, so this
+/// theme overrides them with the assignment form instead of declaring them
+/// again; that restyles every chart without touching the chart code.
+///
+/// The app has no theme switch. `matches .prefersDark` applies the dark
+/// variant through a CSS media query, so even the server-rendered first paint
+/// is in the right scheme.
 public theme WeatherTheme {
     color primary: Color = #2563EB
     color surface: Color = #FFFFFF
@@ -16,8 +22,9 @@ public theme WeatherTheme {
 
     color chartTemperature: Color = #EA580C
     color chartFeelsLike: Color = #2563EB
-    color chartGrid: Color = #E2E8F0
-    color chartAxis: Color = #64748B
+
+    chartGrid = #E2E8F0
+    chartAxis = #64748B
 
     space xs: Spacing = 4px
     space sm: Spacing = 8px
@@ -34,7 +41,7 @@ public theme WeatherTheme {
 
     font body: Font = Font(family: "Inter", size: 16px)
 
-    variant dark {
+    variant dark matches .prefersDark {
         surface = #0F172A
         surfaceRaised = #1E293B
         text = #F1F5F9

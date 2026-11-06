@@ -33,7 +33,7 @@ view {
 - **Built-in elements are type-checked.** Required attributes are named arguments (`image` requires a
   `description`), and invalid values or misspelled attributes are compile errors.
 - **Text is a string literal written directly inside a block.** No wrapper is needed.
-- **Events are chained:** `.on(click: handler)`.
+- **Events are chained, one per call:** `.on(click: handler)`.
 - **Classes are typed references** to the component's `style` block: `.class(.muted)`. See
   [Styles and themes](styles.md).
 
@@ -79,7 +79,7 @@ view {
 
         case .failed(let error) {
             ErrorBanner(message: error.message)
-                .retry(load)
+                .on(retry: load)
         }
     }
 }
@@ -144,7 +144,8 @@ image(source: user.avatarUrl, description: "Profile photo of {user.name}")
 ### Form fields
 
 `input` is split into one element per kind of value, so a field's bound value always has the right type:
-a `textField` binds a `String`, a `numberField` an `Int` or `Double`, a `checkbox` a `Bool`.
+a `textField` binds a `String` (or a type such as `EmailAddress` that parses from text), a `numberField`
+an `Int` or `Double`, a `checkbox` a `Bool`.
 
 ```k
 textField(value: bind profile.name)
@@ -159,22 +160,18 @@ dropdown(selection: bind profile.country) {
     }
 }
 .label("Country")
-```
 
-> **Proposal.** `checkbox(isChecked:)` and the accessibility modifiers below follow
-> `docs/design/proposals/element-accessibility.md`.
-
-```k
 checkbox(isChecked: bind todo.isDone)
     .label("Done")
 ```
 
-`.label("…")` renders a visible `<label>` connected to the field. See
-[Forms and validation](forms.md).
+Every input takes its bound value as its required argument. `checkbox(isChecked:)` binds a `Bool`, named
+after the property it reflects. `.label("…")` renders a visible `<label>` connected to the field, and
+tests find the field by it. See [Forms and validation](forms.md).
 
-## Events and modifiers
+## Events, attributes and modifiers
 
-Events are chained with `.on(…)`. A handler is a function passed by name, or a lambda:
+Events are chained with `.on(…)`, one event per call. A handler is a function passed by name, or a lambda:
 
 ```k
 button { "Save" }
@@ -187,24 +184,24 @@ button { "−" }
     .on(click: { value -= step })
 ```
 
-Async handlers are fine: `.on(click: checkout)` works when `checkout` is `async`.
+Async handlers are fine: `.on(click: checkout)` works when `checkout` is `async`. A handler can't throw;
+see [Components](components.md#handlers).
 
-Other attributes and behaviors are typed chained calls too:
+### Attributes are per element
 
-| Modifier | Effect |
-|---|---|
-| `.class(.name)`, `.class([.a, .b when isB])` | Classes from the component's `style` block |
-| `.type(.submit)`, `.type(.button)`, `.type(.reset)` | A button's type |
-| `.disabled(Bool)` | Disables a control |
-| `.placeholder("…")` | A field's placeholder text |
-| `.label("…")` | A field's visible label; on any other element, its accessible name |
-| `.pressed(Bool)` | `aria-pressed`, on buttons that toggle |
-| `.expanded(Bool)` | `aria-expanded`, on buttons and links that open something |
-| `.role(.alert)`, `.role(.status)` | Live regions that announce changes |
+Optional attributes of built-in elements are typed chained calls, generated per element from the
+element's definition. Using one on an element that doesn't define it is a compile error:
 
-Each modifier takes a typed value, and is only allowed on elements where it makes sense. `.pressed` on a
-`box` is a compile error, because only buttons can be pressed; `section { }.role(.navigation)` is a
-compile error with the hint "use `nav`".
+| Attribute | Compiles to | Defined on |
+|---|---|---|
+| `.class(.name)`, `.class([.a, .b when isB])` | scoped classes | every element |
+| `.disabled(Bool)` | `disabled` | form controls and buttons |
+| `.label("…")` | a visible `<label>` on form controls; `aria-label` elsewhere | form controls; landmarks and groups (`nav`, `section`, `form`, `list`, `numberedList`, `table`); elements given a `.role` |
+| `.placeholder("…")` | `placeholder` | text inputs |
+| `.type(.submit)`, `.type(.button)`, `.type(.reset)` | `type` | `button`. A non-submitting button inside a `form` needs `.type(.button)`. |
+| `.pressed(Bool)` | `aria-pressed` | `button` |
+| `.expanded(Bool)` | `aria-expanded` | `button`, `link` |
+| `.role(.alert)`, `.role(.status)` | `role`; both are live regions | non-interactive elements |
 
 ```k
 nav {
@@ -217,6 +214,37 @@ nav {
 .label("Filter todos")
 ```
 
+- **On a landmark or group, `.label` is its accessible name.** The compiler warns when a second landmark
+  of the same kind, such as a second `nav`, has no name.
+- `.role` accepts only roles the element doesn't already have and that no semantic element expresses:
+  `section { }.role(.navigation)` is a compile error with the hint "use `nav`".
+- `.pressed` on a `box` is a compile error, because only buttons can be pressed.
+
+### Buttons and links are named by their content
+
+**`.label` isn't defined on `button` or `link`.** Their accessible name is their visible content, which
+voice-control users say aloud. To add words for screen readers only, put them in the content with
+`VisuallyHidden` from `k.ui`:
+
+```k
+button {
+    "Delete"
+
+    VisuallyHidden { " {todo.title}" }
+}
+.on(click: delete)
+```
+
+Its accessible name is "Delete Buy milk", and it still starts with the visible text, so a test can find
+it with `button(named: "Delete Buy milk")`. On an element with visible text and a `.role`, a `.label` that
+doesn't contain the visible text is a warning, for the same reason.
+
+### Modifiers
+
+**Modifiers** are cross-cutting behaviors from the standard library, such as `.tooltip(…)`,
+`.animate(…)` and `.track(…)`. Unlike attributes, they apply in the order written, and a component prop
+can't share a modifier's name.
+
 ## Components from the standard library
 
 The standard library's `k.ui` module builds on these elements:
@@ -225,6 +253,7 @@ The standard library's `k.ui` module builds on these elements:
 - **Accessible widgets:** `Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`,
   `DatePicker`, `DataTable`.
 - **Icons:** `Icon`, with a bundled icon set.
+- **`VisuallyHidden`**, for text that only assistive technology reads.
 - **`ErrorBoundary`**, which catches [panics](../language/errors.md#panics) in its subtree and renders a
   fallback.
 
@@ -233,6 +262,35 @@ They're capitalized because they're components, and they're imported like any ot
 ```k
 import k.ui.Dialog
 ```
+
+### Charts
+
+`k.charts` provides chart components built on SVG and themed by tokens. Like `image`, **every chart
+requires a text description**, and it renders an accessible data table next to the graphic:
+
+```k
+import k.charts.LineChart
+import k.charts.LineSeries
+
+LineChart(
+    series: [
+        LineSeries(name: "Temperature", points: temperature)
+            .color(.chartTemperature),
+        LineSeries(name: "Feels like", points: feelsLike)
+            .color(.chartFeelsLike)
+            .dashed(true)
+    ],
+    description: "Temperature and feels-like temperature for the next 24 hours"
+)
+.yAxisTitle("°C")
+.height(240px)
+```
+
+- The series are data, not slots, because a chart has to read the values to compute its scales.
+- `ChartPoint(x:y:)` takes an `Int`, `Double` or `Date` for `x`. `Date` axes get time ticks in the
+  chart's `timeZone`, which defaults to the browser's.
+- Charts are themed through library tokens such as `chartGrid` and `chartAxis`, so they follow dark mode
+  with no chart code. See [Styles and themes](styles.md#library-tokens).
 
 ## Formatting
 
@@ -256,4 +314,4 @@ view {
 }
 ```
 
-> **Planned.** `k fmt`, which applies this layout automatically, is deferred.
+> **Planned.** `k fmt`, which applies this layout automatically, isn't in the first compiler releases.

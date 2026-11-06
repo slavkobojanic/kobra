@@ -1,0 +1,133 @@
+# Local Storage
+
+## Decision
+
+Typed local storage is the **client-only `LocalStorage` interface** in `k.storage`, read and written through **typed keys** whose names and value shapes are recorded in `storage.lock`. Its failures are typed, because browser storage really does fail: it can be full, blocked, or hold data that no longer decodes.
+
+```k
+public service TodoService {
+    @Inject let storage: LocalStorage
+
+    // Users' saved todos live under this key.
+    private let savedTodos: StorageKey<List<Todo>> = StorageKey(name: "todos")
+
+    @State var items: List<Todo> = []
+    @State var problem: StorageProblem? = nil
+
+    init() {
+        restore()
+    }
+
+    func restore() {
+        do {
+            items = try storage.read(key: savedTodos) ?? []
+        } catch .unreadable {
+            problem = .unreadable
+        } catch .unavailable {
+            problem = .unavailable
+        }
+    }
+}
+```
+
+## `LocalStorage`
+
+```k
+public interface LocalStorage {
+    func read<T>(key: StorageKey<T>) throws StorageReadError -> T? where T implements Codable
+
+    func write<T>(key: StorageKey<T>, value: T) throws StorageWriteError where T implements Codable
+
+    func remove<T>(key: StorageKey<T>)
+}
+```
+
+- **Synchronous.** Browser local storage is synchronous, and the values it holds are small. Large or queryable data belongs in the typed IndexedDB collections, which will be async and need their own design.
+- **`read` returns `nil` when nothing is stored under the key.** Absence is normal (a first visit), so it isn't an error.
+- **Values are encoded as JSON through `Codable`** ([08-types.md](08-types.md)).
+- The stdlib ships one production implementation, `BrowserStorage`, built on `window.localStorage`. It is the only one, so `@Inject let storage: LocalStorage` resolves to it with no `use` rule.
+
+### Client-only
+
+- **`LocalStorage` is declared client-only.** It is a platform interface injectable only into services ([10-services.md](10-services.md#layering)), and a service that injects it is client-only too ([10-services.md](10-services.md#serverclient-boundary)).
+- **The server never touches it, by construction.** In a server-rendered app, a client-only service exists during server rendering with its declared initial state, and its `init()` doesn't run; in the browser, `init()` runs after hydration. Calling `LocalStorage` from code that can run during server rendering is a compile error.
+- **A server-rendered page that reads such a service is a warning,** because its first paint would show the initial state and then jump. The quick fix adds `@Rendering(.client)` to the app ([23-app-structure.md](23-app-structure.md#rendering-mode)).
+
+## Keys
+
+```k
+private let savedTodos: StorageKey<List<Todo>> = StorageKey(name: "todos")
+
+let saved = try storage.read(key: savedTodos)          // List<Todo>?
+try storage.write(key: savedTodos, value: items)        // value must be a List<Todo>
+```
+
+- **`StorageKey<T>` pairs a name with the type stored under it,** so a read can't ask for a different type than the write stored. The type is given by the binding, as generic arguments always are ([RA-23 in the grammar](../compiler/grammar.md)).
+- **The name is a string literal,** and each name is declared once in the app. Two keys with the same name are a `k check` error, so two services can't corrupt each other's data.
+- **Keys are namespaced per app,** so two K apps on one origin don't collide. The namespace is derived from `k.toml`'s `name` when first recorded in `storage.lock`, and read from the lock afterwards, so renaming the project doesn't orphan every user's data ([24-projects.md](24-projects.md#name-is-the-projects-identity)).
+
+### `storage.lock`
+
+A key's name and its value's shape are part of the app's stored format, which outlives every deploy. `storage.lock` records the namespace and, for each key, its name and its value type's `Codable` shape, with the rules of `protocol.lock` ([11-protocols-and-rpc.md](11-protocols-and-rpc.md#protocollock)):
+
+- Adding an optional field to the value type is compatible.
+- Removing or renaming a field, changing its type, adding a required field, or renaming the key is a `k check` error unless the key's declaration is marked `@Breaking("reason")`. Users' existing values would then read as `.unreadable`, which the service must handle.
+- Test code isn't recorded, so a test may declare a key with an existing name to inspect what the service stored.
+
+## Errors
+
+Reads and writes fail in different ways, so each declares exactly what it throws ([09-errors.md](09-errors.md)):
+
+```k
+public enum StorageReadError implements Error {
+    case unavailable        // storage is blocked or disabled in this browser
+    case unreadable         // something is stored, but it doesn't decode as T
+}
+
+public enum StorageWriteError implements Error {
+    case unavailable        // storage is blocked or disabled in this browser
+    case quotaExceeded      // the origin's storage quota is used up
+}
+```
+
+- **`.unreadable` doesn't delete the stored value.** The app decides whether to overwrite it, keep it, or tell the user.
+- `remove` never throws: removing from blocked storage, or removing a missing key, has nothing to report.
+
+## Tests: `MemoryStorage`
+
+**`k test` installs `MemoryStorage`** (from `k.test`) for `LocalStorage` by default ([21-testing.md](21-testing.md#test-doubles-and-defaults)), empty for every test. A test reaches it with `@Inject let storage: MemoryStorage`:
+
+| Member | Meaning |
+|---|---|
+| `writeRaw(name:text:)` | stores `text` exactly as given, bypassing encoding, to simulate stale or hand-edited data |
+| `failReads(error: StorageReadError)` | makes every following `read` throw `error` |
+| `failWrites(error: StorageWriteError)` | makes every following `write` throw `error`. The stored data is unchanged. |
+| `stopFailing()` | ends both simulations |
+
+```k
+test TodoService {
+    @Inject let storage: MemoryStorage
+    @Inject let todos: TodoService
+
+    test "unreadable saved data starts an empty list and says so" {
+        storage.writeRaw(name: "todos", text: "{{ this is not JSON")
+
+        todos.restore()
+
+        expect todos.problem == .unreadable
+    }
+}
+```
+
+## Why
+
+- Typed keys plus `Codable` make "typed local storage" mean something: the compiler checks every read and write against one declaration.
+- Recording keys in a lockfile treats users' browsers as the external system they are: renaming a key or a project can't silently lose their data.
+- Declaring the interface client-only moves "this doesn't work on the server" from a runtime error to the compiler.
+- Separate error enums keep `catch` exact. A read never has to handle `.quotaExceeded`, and a write never has to handle `.unreadable`.
+
+## Open questions
+
+- **Cross-tab changes.** The browser fires a `storage` event when another tab writes. A `changes(key:) -> Stream<T?>` member would let a service re-read.
+- **Versioned keys.** A `version` on `StorageKey`, with a migration function from the previous version's type, would turn a `@Breaking` change into an upgrade instead of `.unreadable`.
+- **Session storage and cookies** (also listed for `k.storage`) could share `StorageKey` and the error enums.

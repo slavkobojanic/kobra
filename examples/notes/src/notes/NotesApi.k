@@ -6,9 +6,9 @@ import k.db.Database
 ///
 /// The protocol's `Authenticated` guard runs before every method, so
 /// `session.user` is never `nil` here, and every query is scoped to that
-/// user. Writes that touch several rows run in one transaction, and are
-/// announced on `NoteChanges` only after it commits, so other tabs never see
-/// a change that was rolled back.
+/// user. Writes that touch several rows run in one transaction. Changes are
+/// published on `NoteChanges` inside it, which holds them until the commit,
+/// so other tabs never see a change that was rolled back.
 public service NotesApi implements NotesProtocol {
     @Inject let notes: NoteRepository
     @Inject let tags: TagRepository
@@ -38,50 +38,62 @@ public service NotesApi implements NotesProtocol {
     rpc create(draft: NoteDraft) async throws AccessError -> NoteSummary {
         let note = Note(id: Uuid.random(), ownerId: session.user.id, title: draft.title.trimmed(), body: draft.body)
 
-        let created = await database.transaction {
+        return await database.transaction {
             await notes.insert(note)
             await tags.replace(note: note, labels: draft.tagLabels())
 
-            return await notes.reload(id: note.id)
-        }
+            let created = await notes.reload(id: note.id)
 
-        return announce(note: created)
+            return announce(note: created)
+        }
     }
 
     rpc update(id: Uuid, draft: NoteDraft, revision: Int) async throws SaveError -> NoteSummary {
-        let updated = try await database.transaction {
-            guard let current = await notes.find(id: id, ownerId: session.user.id) else {
-                throw SaveError.notFound
-            }
+        let ownerId = session.user.id
 
-            guard current.revision == revision else {
-                throw SaveError.conflict(latest: summarize(note: current))
+        return try await database.transaction {
+            guard let current = await notes.find(id: id, ownerId: ownerId) else {
+                throw SaveError.notFound
             }
 
             var edited = current
             edited.title = draft.title.trimmed()
             edited.body = draft.body
-            edited.revision += 1
             edited.updatedAt = Date.now
 
-            await notes.update(edited)
+            // The revision the edit started from. `update` writes only if the
+            // stored revision still equals it, and then increments it.
+            edited.revision = revision
+
+            let saved = await notes.update(edited)
+
+            guard saved else {
+                guard let latest = await notes.find(id: id, ownerId: ownerId) else {
+                    throw SaveError.notFound
+                }
+
+                throw SaveError.conflict(latest: summarize(note: latest))
+            }
+
             await tags.replace(note: edited, labels: draft.tagLabels())
 
-            return await notes.reload(id: id)
-        }
+            let updated = await notes.reload(id: id)
 
-        return announce(note: updated)
+            return announce(note: updated)
+        }
     }
 
     rpc setPinned(id: Uuid, isPinned: Bool) async throws LookupError -> NoteSummary {
-        guard let current = await notes.find(id: id, ownerId: session.user.id) else {
+        let ownerId = session.user.id
+
+        guard await notes.setPinned(id: id, ownerId: ownerId, isPinned: isPinned) else {
             throw LookupError.notFound
         }
 
-        var pinned = current
-        pinned.isPinned = isPinned
-
-        await notes.update(pinned)
+        // Deleted in another tab right after pinning: report it as missing.
+        guard let pinned = await notes.find(id: id, ownerId: ownerId) else {
+            throw LookupError.notFound
+        }
 
         return announce(note: pinned)
     }
@@ -93,13 +105,13 @@ public service NotesApi implements NotesProtocol {
 
         await database.transaction {
             await notes.remove(note: note)
-        }
 
-        changes.publish(ownerId: note.ownerId, change: .deleted(id))
+            changes.publish(ownerId: note.ownerId, change: .deleted(id))
+        }
     }
 
-    /// Tells the owner's open streams about a committed note, and returns
-    /// the note in its wire form.
+    /// Tells the owner's open streams about a saved note, and returns the
+    /// note in its wire form.
     private func announce(note: Note) -> NoteSummary {
         let summary = summarize(note: note)
 

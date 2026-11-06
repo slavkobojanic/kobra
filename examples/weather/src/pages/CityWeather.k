@@ -1,11 +1,11 @@
 import components.AirQualityPanel
 import components.CurrentConditionsCard
 import components.TemperatureChart
-import k.http.HttpError
 import weather.AirQuality
 import weather.Forecast
 import weather.Place
 import weather.UnitSystem
+import weather.WeatherError
 import weather.WeatherService
 
 /// The dashboard for one place: current conditions, air quality and the
@@ -19,6 +19,9 @@ import weather.WeatherService
 ///
 /// While the page is open, the data is reloaded every ten minutes. A reload
 /// keeps the current values on screen until the new ones arrive.
+///
+/// An unknown place id renders `failed` with `status(.notFound)`, so a
+/// server-rendered request for it answers 404 instead of a soft 200.
 public page CityWeather {
     /// The GeoNames id of the place. Required, so it is a path segment:
     /// `/city-weather/2950159`.
@@ -45,18 +48,20 @@ public page CityWeather {
         onCleanup { timer.cancel() }
     }
 
-    /// A sentence explaining a transport failure to the person using the app.
-    func explain(error: HttpError) -> String {
+    /// A sentence explaining a failure to the person using the app.
+    private func explain(error: WeatherError) -> String {
         return match error {
+            case .placeNotFound(let id) { "There is no place with id {id}. Try searching for it instead." }
+
             case .offline { "You appear to be offline." }
 
             case .timeout { "Open-Meteo took too long to respond." }
 
-            case .status(let code, _) where code >= 500 { "Open-Meteo is having problems (error {code})." }
+            case .upstream(let status) where status.isServerError { "Open-Meteo is having problems (error {status.code})." }
 
-            case .status(let code, _) { "Open-Meteo could not answer this request (error {code})." }
+            case .upstream(let status) { "Open-Meteo could not answer this request (error {status.code})." }
 
-            case .decoding { "Open-Meteo sent data the app could not read." }
+            case .invalidResponse { "Open-Meteo sent an unexpected response. Please try again later." }
         }
     }
 
@@ -99,27 +104,23 @@ public page CityWeather {
     failed(let error) {
         section {
             match error {
-                case .placeNotFound(let id) {
+                case .placeNotFound {
+                    metadata {
+                        title("Place not found")
+                        status(.notFound)
+                    }
+
                     heading(level: 1) { "Place not found" }
 
-                    paragraph { "There is no place with id {id}. Try searching for it instead." }
+                    paragraph { explain(error: error) }
 
                     link(to: .home) { "Search for a place" }
                 }
 
-                case .network(let cause) {
+                case .offline, .timeout, .upstream, .invalidResponse {
                     heading(level: 1) { "Weather unavailable" }
 
-                    paragraph { explain(error: cause) }
-
-                    button { "Try again" }
-                        .on(click: reload)
-                }
-
-                case .invalidResponse {
-                    heading(level: 1) { "Weather unavailable" }
-
-                    paragraph { "Open-Meteo sent an unexpected response. Please try again later." }
+                    paragraph { explain(error: error) }
 
                     button { "Try again" }
                         .on(click: reload)

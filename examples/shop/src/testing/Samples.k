@@ -1,19 +1,23 @@
-// Sample values shared by tests, as static members added by extensions, so
-// tests can write `.sample` or `Product.mug()` wherever a value is expected
-// (see docs/design/21-testing.md and testing-support.md).
+// Sample values shared by tests, as static members added by public
+// extensions, so tests can write `.sample` or `Product.mug()` wherever a value
+// is expected. This module is test-only, so the extensions are visible to
+// every test file and to no production code (docs/design/21-testing.md).
 
 import admin.AdminConfig
+import admin.StaffId
 import k.crypto.Uuid
+import k.text.EmailAddress
+import payments.StripeApiConfig
 import payments.StripeWebhookConfig
 import store.Order
 import store.Product
 import store.ProductSummary
 
-extend Product {
+public extend Product {
     /// A $24.00 mug with the slug `test-mug`.
     ///
     /// - Parameter stock: the units in stock.
-    public static func mug(stock: Int = 5) -> Product {
+    static func mug(stock: Int = 5) -> Product {
         return Product(
             id: Uuid("11111111-1111-4111-8111-111111111111"),
             slug: "test-mug",
@@ -27,16 +31,16 @@ extend Product {
     }
 }
 
-extend Order {
+public extend Order {
     /// An order for two units of `product` by `ana@example.com`, awaiting
     /// payment. The total is twice the product's price.
     ///
     /// - Parameter product: the product ordered; insert it first.
-    public static func sample(product: Product) -> Order {
+    static func sample(product: Product) -> Order {
         return Order(
             id: Uuid.random(),
             product: product,
-            email: "ana@example.com",
+            email: EmailAddress("ana@example.com"),
             quantity: 2,
             unitPrice: product.price,
             total: product.price * 2
@@ -44,9 +48,9 @@ extend Order {
     }
 }
 
-extend ProductSummary {
+public extend ProductSummary {
     /// The summary of `Product.mug()`, with 5 units available.
-    public static let mug: ProductSummary = ProductSummary(
+    static let mug: ProductSummary = ProductSummary(
         id: Uuid("11111111-1111-4111-8111-111111111111"),
         slug: "test-mug",
         name: "Test Mug",
@@ -58,19 +62,32 @@ extend ProductSummary {
     )
 }
 
-extend AdminConfig {
-    /// `admin@shop.test`, with the password `change-me-admin-password`; the
-    /// same hash as `secrets/admin_password_hash.txt.example`.
-    public static let sample: AdminConfig = AdminConfig(
-        email: "admin@shop.test",
+public extend StaffId {
+    /// The administrator of `AdminConfig.sample`, for tests that sign in
+    /// through `SessionManager` rather than the sign-in rpc.
+    static let sample: StaffId = StaffId(email: EmailAddress("admin@shop.test"))
+}
+
+public extend AdminConfig {
+    /// `admin@shop.test`, with the password `change-me-admin-password`. The
+    /// hash exists only for tests: the committed
+    /// `secrets/admin_password_hash.txt.example` is a placeholder that fails
+    /// validation, and `scripts/e2e.sh` generates its own password and hash.
+    static let sample: AdminConfig = AdminConfig(
+        email: EmailAddress("admin@shop.test"),
         passwordHash: Secret("$argon2id$v=19$m=65536,t=3,p=4$aLYLgjk75OnGzmfOgi+w+g$6DSzMJriTe+IRcfo7YcTibzOSpaPcEMeYxWRXNtBCFY")
     )
 }
 
-extend StripeWebhookConfig {
+public extend StripeApiConfig {
+    /// The test key `sk_test_123`, against the default API URL and timeout.
+    static let sample: StripeApiConfig = StripeApiConfig(apiKey: Secret("sk_test_123"))
+}
+
+public extend StripeWebhookConfig {
     /// Signs with `StripeTestEvent.secret` and allows the default five
     /// minutes of clock difference.
-    public static let sample: StripeWebhookConfig = StripeWebhookConfig(
+    static let sample: StripeWebhookConfig = StripeWebhookConfig(
         signingSecret: Secret(StripeTestEvent.secret),
         tolerance: 5.minutes
     )

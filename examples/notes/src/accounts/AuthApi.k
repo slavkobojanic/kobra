@@ -1,7 +1,6 @@
-import k.auth.Session
+import k.auth.SessionManager
 import k.crypto.Password
 import k.crypto.Uuid
-import k.db.Database
 
 /// The server implementation of `AuthProtocol`: email-and-password accounts
 /// on top of the `k.auth` session.
@@ -10,8 +9,7 @@ import k.db.Database
 /// `ada@example.com` are the same account.
 public service AuthApi implements AuthProtocol {
     @Inject let accounts: AccountRepository
-    @Inject let session: Session
-    @Inject let database: Database
+    @Inject let sessions: SessionManager
 
     rpc isEmailAvailable(email: String) async -> Bool {
         let existing = await accounts.byEmail(email: normalized(email: email))
@@ -20,22 +18,23 @@ public service AuthApi implements AuthProtocol {
     }
 
     rpc signUp(request: SignUpRequest) async throws SignUpError {
-        let email = normalized(email: request.email)
         let passwordHash = await Password.hash(password: request.password)
-        let account = Account(id: Uuid.random(), email: email, passwordHash: passwordHash)
+        let account = Account(
+            id: AccountId(value: Uuid.random()),
+            email: normalized(email: request.email),
+            passwordHash: passwordHash
+        )
 
-        // Validation already checked availability, but another sign-up can
-        // win the race. The unique index is the last line of defence; this
-        // check turns the common case into a typed error.
-        try await database.transaction {
-            guard await accounts.byEmail(email: email) == nil else {
-                throw SignUpError.emailTaken
-            }
-
-            await accounts.insert(account)
+        // The email's `@Check` already ran, but another sign-up can register
+        // the same address before this insert. The unique index decides,
+        // and its typed violation becomes this rpc's error.
+        do {
+            try await accounts.insert(account)
+        } catch .email {
+            throw SignUpError.emailTaken
         }
 
-        await session.signIn(userId: "{account.id}")
+        await sessions.signIn(userId: account.id)
     }
 
     rpc signIn(credentials: Credentials) async throws SignInError {
@@ -46,19 +45,15 @@ public service AuthApi implements AuthProtocol {
         let hash = if let account { account.passwordHash } else { Password.unusableHash }
         let matches = await Password.verify(password: credentials.password, hash: hash)
 
-        guard let account else {
+        guard let account, matches else {
             throw SignInError.invalidCredentials
         }
 
-        guard matches else {
-            throw SignInError.invalidCredentials
-        }
-
-        await session.signIn(userId: "{account.id}")
+        await sessions.signIn(userId: account.id)
     }
 
     rpc signOut() async {
-        await session.signOut()
+        await sessions.signOut()
     }
 }
 

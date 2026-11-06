@@ -119,8 +119,19 @@ let size = match count {
   tuples.
 - `default` is **allowed** on enums, as a deliberate trade-off: new cases will fall into it silently.
 - `default` is a **compile error when unreachable**, meaning every case is already covered.
+- **`default` is the only non-binding catch-all.** A top-level `case _` arm is a compile error with a
+  quick fix to `default`. `_` stays valid inside patterns: `.status(let code, _)`.
 
-`case let other { … }` works like `default` but binds the value.
+`case let other { … }` binds the whole value and matches everything an earlier arm didn't handle. It is
+allowed only when the arm uses `other`; an unused binding is a compile error with a quick fix to
+`default`. Like `default`, it must be the last arm, and it is a compile error when unreachable:
+
+```k
+let message = match error {
+    case .notFound { "We couldn't find that note." }
+    case let other { "Something went wrong: {other}" }
+}
+```
 
 ### Exhaustiveness
 
@@ -183,9 +194,8 @@ the list changes. Outside views, `key` isn't allowed.
 
 ### Streams
 
-> **Proposal.** `for await` follows `docs/design/proposals/server-streaming.md`.
-
-`for await` reads an asynchronous stream, such as the result of a streaming rpc, one element at a time:
+`for await` reads an asynchronous `Stream<T>`, such as the result of a streaming rpc, one element at a
+time:
 
 ```k
 let changes = try await api.watch()
@@ -195,7 +205,12 @@ for await change in changes {
 }
 ```
 
-The loop ends when the stream ends, and `break` closes the stream.
+- The loop ends when the stream ends. A dropped connection ends it the same way; ending isn't an error.
+- `break` closes the stream.
+- `for await` iterates only a `Stream`, and only inside an `async` function. A plain `for` over a stream
+  is a compile error with a quick fix that adds `await`. It takes no `key` clause.
+
+See [Server streaming](../apps/streaming.md).
 
 ## `while`
 

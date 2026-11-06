@@ -19,8 +19,14 @@ import github.com/acme/charts.LineChart
 - **Packages are distributed as K source**, not as compiled JavaScript. The compiler type-checks and
   tree-shakes them, and enforces layering and the server/client boundary on them exactly as on your own
   code. A package can't smuggle a database call into your client bundle.
-- **A package's `public` declarations are its API.** Module-private declarations stay hidden.
+- **A package's `public` declarations, and their non-private members, are its API.** Module-private
+  declarations and `private` members stay hidden.
+- **Package names are module paths.** A package's module path is the `name` in its `k.toml`.
+- **The git tag is the only version.** A package's `k.toml` has no `version` key, so the version can't
+  disagree with the tag.
 - `k remove` takes a dependency out again.
+
+> **Planned.** Packages and `k add` aren't in the first compiler releases.
 
 ## Short imports with aliases
 
@@ -46,10 +52,8 @@ A project without an `App.k` is a library package. Create one with:
 k new --library github.com/acme/charts
 ```
 
-> **Proposal.** `k new --library` follows `docs/design/proposals/project-creation.md`.
-
 Publishing is pushing a git tag such as `v1.2.0`. Document every public declaration with `///` comments:
-in a package, `k check` warns about a public declaration without one, because it is part of your API.
+in a package, `k check` warns about API without one (see [doc comments](../language/basics.md#comments)).
 
 Packages that integrate a vendor, such as a payment provider or an email API, implement the standard
 library's provider interfaces, such as `EmailProvider`. An app then chooses the implementation with a `use`
@@ -57,17 +61,17 @@ rule in `App.k`, and everything else keeps working against the interface.
 
 ## A registry
 
-> **Planned.** A hosted package registry is deferred. When it arrives, it will be another way of resolving
-> module paths, so import syntax won't change.
+A hosted package registry is deferred by the design. If one is added, it will be another way of
+resolving module paths, so import syntax won't change.
 
 ## No npm
-
-> **Planned.** Typed npm interop, with bindings generated from `.d.ts` files, is deferred and may be added
-> later. Any design for it would keep JavaScript calls behind services, as the layering rules already do
-> for protocols.
 
 **K has no npm support and no JavaScript interop in user code.** All application code is K, so the
 compiler's guarantees (types, layering, the server/client boundary, reactivity) hold everywhere, with no
 untyped holes. The standard library wraps the web platform instead: HTTP, storage, WebSockets, canvas,
 clipboard, media, crypto, workers and the rest. Only the standard library can call JavaScript, through an
 internal mechanism that user code can't access.
+
+Typed npm interop, with bindings generated from `.d.ts` files, is deferred by the design and may be added
+later. Any design for it would keep JavaScript calls behind services, as the layering rules already do
+for protocols.

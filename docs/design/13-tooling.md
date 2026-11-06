@@ -12,7 +12,7 @@
 
 **Server code runs on a JavaScript runtime embedded in the `k` binary** (V8, through `deno_core`). No Node, Bun or npm is involved.
 
-- **`k build` produces `dist/app`, a single self-contained server executable,** plus hashed client assets. Deploying means copying one file, or using a minimal container.
+- **`k build` produces `dist/app`, a single self-contained server executable,** plus hashed client assets. Deploying means copying one file, or using a minimal container. An app with no server-only code builds to static files only. See [38-deployment.md](38-deployment.md).
 - **The runtime exposes only web-standard APIs** (fetch, streams, Web Crypto). The stdlib is built on them.
 - **Development and production use the same runtime.**
 - **Later:** `k build --target edge` for Cloudflare Workers and similar platforms. The compiler would reject edge-incompatible features (long-running jobs, direct Postgres sockets) at compile time.
@@ -21,28 +21,37 @@
 
 | Command | Purpose |
 |---|---|
-| `k dev` | Dev server with state-preserving hot module replacement |
-| `k build` | Ahead-of-time build into separate server and client bundles |
-| `k check` | Type checking, formatting check, tests, and lockfile breaking-change detection. Fails in CI on any problem. |
+| `k new <name>`, `k new --library <module path>` | Creates a project from the fixed skeleton ([24-projects.md](24-projects.md)) |
+| `k dev` | Dev server with state-preserving hot module replacement. Runs the background-job worker and loads `.env` ([25-config-and-secrets.md](25-config-and-secrets.md)). |
+| `k build` | Ahead-of-time build of the `.production` environment into separate server and client bundles |
+| `k check` | Type checking, formatting check, tests, doc-comment checks, and lockfile breaking-change detection. Fails in CI on any problem. It has no watch mode. |
 | `k fmt` | Canonical formatter |
-| `k test` | Runs tests, with a watch mode ([21-testing.md](21-testing.md)) |
-| `k routes` | Prints the route table |
+| `k test`, `k test --watch` | Runs tests. `--watch` re-runs the affected tests on every save ([21-testing.md](21-testing.md)). |
+| `k migrate new "description"` | Writes the next migration from the difference between the entities and `schema.lock` ([19-persistence.md](19-persistence.md)) |
+| `k routes` | Prints the route table, endpoint pages included |
 | `k proto export` | Emits `.proto` files from K protocols |
+| `k doc` | Renders documentation from `///` comments ([39-doc-comments.md](39-doc-comments.md)) |
+
+The built executable has its own commands (`serve`, `migrate`, `config`, `probe`, `jobs`), described in [38-deployment.md](38-deployment.md).
 
 ## Formatter
 
 - **One canonical style, with no configuration options,** like `gofmt`. Agents and humans produce identical layouts, and diffs stay clean.
 - One blank line between sibling view nodes (see [05-views.md](05-views.md)).
+- It removes redundant spellings that have a machine-applicable fix, such as `public` on a member ([01-principles.md](01-principles.md#one-obvious-way)).
 - `k check` fails on unformatted code.
 
 ## Lockfiles
 
-Both are committed to the repository and checked on every build:
+All are committed to the repository and checked on every build:
 
-- `protocol.lock`: Protobuf field numbers ([11-protocols-and-rpc.md](11-protocols-and-rpc.md))
+- `protocol.lock`: Protobuf package, service and method names and field numbers ([11-protocols-and-rpc.md](11-protocols-and-rpc.md), [28-rpc-wire-format.md](28-rpc-wire-format.md))
 - `routes.lock`: page URLs and redirects ([12-routing.md](12-routing.md))
-- `schema.lock`: database schema ([19-persistence.md](19-persistence.md))
+- `schema.lock`: database schema, migration order, and table and column names ([19-persistence.md](19-persistence.md))
+- `storage.lock`: the storage namespace, `StorageKey` names and value shapes, and job names and payload shapes ([36-local-storage.md](36-local-storage.md), [30-background-jobs.md](30-background-jobs.md))
 - `k.lock`: package versions and hashes ([18-packages.md](18-packages.md))
+
+When each lockfile is first written, and whether `k build` updates them or only an explicit command does, is still open.
 
 ## Language server
 

@@ -27,7 +27,7 @@
 
         // Contextual keywords: highlighted everywhere, which is right in the
         // overwhelming majority of book examples. `config` and `migration`
-        // come from design proposals.
+        // are declaration keywords adopted by the design (grammar RA-32).
         var CONTEXTUAL_KEYWORDS = [
             'app', 'at', 'component', 'entity', 'failed', 'key', 'layout', 'loading',
             'metadata', 'page', 'proto', 'protocol', 'repository', 'service', 'test',

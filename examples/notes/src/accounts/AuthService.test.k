@@ -47,7 +47,7 @@ test AuthService {
         let after = await auth.emailAvailable(email: " Ada@Example.com")
 
         expect before
-        expect after == false
+        expect not after
     }
 
     test "signing out ends the session, and signing out again does nothing" {

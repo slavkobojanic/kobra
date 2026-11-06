@@ -1,4 +1,5 @@
 import k.crypto.Uuid
+import k.text.EmailAddress
 
 /// A customer's order for one product, stored in the `order` table.
 ///
@@ -9,39 +10,40 @@ import k.crypto.Uuid
 public entity Order {
     /// The primary key. Random UUIDs are unguessable, so the receipt URL can
     /// contain the id without exposing other customers' orders.
-    @Id public let id: Uuid
+    @Id let id: Uuid
 
     /// The product ordered. Load it with `.including { order => order.product }`.
-    @Relation public let product: Product
+    @Relation let product: Product
 
     /// Where the receipt and confirmation email go.
-    public let email: String
+    let email: EmailAddress
 
     /// The number of units ordered.
-    public let quantity: Int
+    let quantity: Int
 
     /// The product's price when the order was placed.
-    public let unitPrice: Money
+    let unitPrice: Money
 
     /// `unitPrice` times `quantity`: the amount the payment must match.
-    public let total: Money
+    let total: Money
 
     /// Where the order is in its lifecycle.
-    public var status: OrderStatus = .awaitingPayment
+    var status: OrderStatus = .awaitingPayment
 
     /// The payment provider's id for the completed checkout, kept for refunds
     /// and support. `nil` until the order is paid.
-    public var paymentReference: String? = nil
+    var paymentReference: String? = nil
 
-    /// When the order was placed.
-    public let placedAt: Date = Date.now
+    /// When the order was placed. Indexed, because the admin dashboard lists
+    /// the newest orders first.
+    @Index let placedAt: Date = Date.now
 
     /// When the payment was confirmed. `nil` until the order is paid.
-    public var paidAt: Date? = nil
+    var paidAt: Date? = nil
 
     /// Converts the order into its wire type. The `product` relation must be
     /// loaded.
-    public func summary() -> OrderSummary {
+    func summary() -> OrderSummary {
         return OrderSummary(
             id: id,
             productName: product.name,

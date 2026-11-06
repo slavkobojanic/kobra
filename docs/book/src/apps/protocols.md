@@ -5,26 +5,29 @@ contract in K. It compiles to **Protobuf** and runs over the **Connect protocol*
 browsers and is wire-compatible with gRPC.
 
 You never write a URL, a `fetch` call, a JSON parser or an API client. You call a function, and the
-compiler checks both sides against the same contract.
+compiler checks both sides against the same contract. RPC is the only way an app's own client talks to
+its server; the one escape hatch to raw HTTP, for external systems, is the
+[endpoint page](endpoints.md).
 
 ## Declaring a protocol
 
 ```k
 // CartProtocol.k: the contract
-public protocol CartProtocol {
-    rpc list() throws CartError -> List<CartItem> requires Authenticated
+public protocol CartProtocol requires Authenticated {
+    rpc list() throws CartError -> List<CartItem>
 
-    rpc add(request: AddItemRequest) throws CartError -> CartItem requires Authenticated, RateLimit(100.perMinute)
+    rpc add(request: AddItemRequest) throws CartError -> CartItem requires RateLimit(100.perMinute)
 
-    rpc watch(cartId: CartId) -> Stream<CartEvent>
+    rpc watch(cartId: CartId) throws CartError -> Stream<CartEvent>
 }
 ```
 
-Parameters and return types are ordinary `Codable` structs, enums, collections and core types.
-
-> The design marks the position of the `requires` clause in an `rpc` signature as provisional. This book
-> follows the compiler grammar, which places it after the complete signature, so the effects keep their
-> fixed order: `async throws E -> T`.
+- **The signature reads in a fixed order:** `rpc name(params) async throws E -> T requires Guards`.
+  `requires` comes after the complete signature, as it does in `page` and `protocol` headers, so the
+  effects `async throws E -> T` stay uninterrupted.
+- Parameters and return types are ordinary `Codable` structs, enums, collections and core types.
+- K's `protocol` means a **wire contract** between processes, not Swift's protocols. In-process
+  abstractions use [`interface`](../language/declarations.md#interfaces).
 
 ## Implementing it on the server
 
@@ -47,7 +50,7 @@ service CartApi implements CartProtocol {
         return await repository.add(product, for: session.user.id)
     }
 
-    rpc watch(cartId: CartId) async -> Stream<CartEvent> { … }
+    rpc watch(cartId: CartId) async throws CartError -> Stream<CartEvent> { … }
 }
 ```
 
@@ -56,6 +59,8 @@ service CartApi implements CartProtocol {
 - The compiler checks that every `rpc` is implemented, with matching types.
 - An implementation may be `async` even though the contract doesn't say so: whether the server suspends
   is an implementation detail.
+- The protocol's `Authenticated` guard has already run inside `CartApi`, so `session.user` is a
+  `SessionUser`, not an optional ([Authentication and sessions](auth.md)).
 
 ## Calling it from the client
 
@@ -76,7 +81,7 @@ service CartService {
 
 **Injection works the same wherever the code runs.** `@Inject let api: CartProtocol` gets a generated
 network client in the browser, and a **direct in-process call** during server rendering, with no HTTP
-round trip.
+round trip. Guards and validation still run on in-process calls.
 
 ## Typed errors cross the wire
 
@@ -90,88 +95,146 @@ do {
     message = "Only {available} left"
 } catch .productNotFound {
     message = "This product is no longer available"
-} catch .rejected {
-    message = "Please sign in again"
+} catch .rpcFailure(.rejected(.unauthenticated)) {
+    Router.navigate(to: .signIn.returnTo(.cart))
+} catch .rpcFailure {
+    message = "Please try again"
 }
 ```
 
 ## Guards and middleware: `requires`
 
-`requires` declares guards on a whole protocol or on individual rpcs, such as `Authenticated`, `Role(…)`
-or `RateLimit(…)`. Guards are part of the contract, so clients can see them too. Cross-cutting
-interceptors that never reject a call, such as logging and tracing, are configured once in `App.k`.
+`requires` declares guards on a whole protocol or on individual rpcs, such as `Authenticated`,
+`Role(.admin)` or `RateLimit(10.perMinute)`. Guards are part of the contract, so clients can see them too.
+Cross-cutting interceptors that never reject a call, such as logging and tracing, are configured once in
+`App.k`.
 
 ```k
-public protocol NotesProtocol requires Authenticated {
-    …
+public protocol AdminProtocol {
+    rpc signIn(request: SignInRequest) throws SignInError requires RateLimit(5.perMinute)
+
+    rpc recentOrders() throws AdminError -> List<OrderSummary> requires Authenticated, Role(.admin)
 }
 ```
 
-> **Proposal.** Guard rejections and `Session` follow `docs/design/proposals/auth-and-sessions.md`.
+## Failures outside the handler
 
-A guard's refusal is a typed error like any other. An rpc with a `requires` clause, its own or its
-protocol's, must declare a `throws` type with a case whose only payload is `GuardRejection`, by convention
-`case rejected(GuardRejection)`:
+An rpc call can fail before its handler runs: a guard refuses it, or a `Validatable` parameter fails
+validation. Those failures are one standard enum in `k.rpc`:
 
 ```k
-public enum CartError implements Error {
+public enum RpcFailure implements Error {
+    case rejected(GuardRejection)       // a guard refused the call
+    case invalid(ValidationError)       // a Validatable parameter failed validation
+}
+```
+
+**An rpc that can fail before its handler runs must declare an error enum with exactly one case
+`rpcFailure(RpcFailure)`.** The name is fixed, so the runtime never has to find the case by its shape:
+
+```k
+public enum CheckoutError implements Error {
     case productNotFound
     case outOfStock(available: Int)
-    case rejected(GuardRejection)
+    case paymentUnavailable
+    case rpcFailure(RpcFailure)
+}
+
+public protocol StoreProtocol {
+    rpc placeOrder(request: OrderRequest) throws CheckoutError -> PlacedOrder requires RateLimit(10.perMinute)
 }
 ```
 
-`GuardRejection` is `.unauthenticated`, `.forbidden` or `.rateLimited(retryAfter:)`. Because the guard has
-already run, `session.user` inside a guarded rpc is a `SessionUser`, not a `SessionUser?`.
+- A guarded or validated rpc without that case is a compile error, with a quick fix that adds it.
+- **An rpc with no other errors declares `throws RpcOnlyError`,** a standard enum whose only case is
+  `rpcFailure(RpcFailure)`.
+- **Only the runtime produces `rpcFailure`.** A handler can't throw it. Client code that wraps errors at
+  a layer boundary passes it on like any other case:
+
+  ```k
+  catch .rpcFailure(let failure) {
+      throw LookupError.rpcFailure(failure)
+  }
+  ```
+
+- `GuardRejection` is `.unauthenticated`, `.forbidden` or `.rateLimited(retryAfter: Duration)`.
+- A `@Form` shows `.invalid` under its fields when the submit action rethrows the `ValidationError`
+  ([Forms and validation](forms.md)).
+
+> **Open question.** What a browser sees when it can't reach the server during an rpc (offline, or the
+> request timed out) isn't decided. The recommended design adds `case offline` and `case timeout` to
+> `RpcFailure`, so every rpc called from the client declares an error enum; the alternative is a panic
+> that an `OfflineBoundary` catches. See `docs/design/28-rpc-wire-format.md`.
 
 ## Streaming
 
-Server streaming, an rpc that returns `Stream<T>`, works in browsers:
+Server streaming, an rpc that returns `Stream<T>`, works in browsers. The handler returns a stream and the
+client reads it with `for await`; see [Server streaming](streaming.md). Client streaming and bidirectional
+streaming are allowed only between servers, because browser `fetch` can't do them. Using them from
+client code is a compile error.
 
-```k
-rpc watch(cartId: CartId) -> Stream<CartEvent>
+## The wire format
+
+Every protocol has **deterministic, locked Protobuf names**, so a non-K client, or `curl` in an
+end-to-end test, can call an rpc without reading generated files:
+
+| K | Protobuf / Connect |
+|---|---|
+| module `store` in project `shop` | package `shop.store` |
+| `protocol StoreProtocol` | service `StoreProtocol` |
+| `rpc placeOrder(request: OrderRequest)` | method `PlaceOrder` |
+| URL | `POST /shop.store.StoreProtocol/PlaceOrder` |
+
+- The project prefix is the Protobuf form of `k.toml`'s `name`: lower case, with `-`, `/` and `.` mapped to
+  `_`. The names are recorded in `protocol.lock` when first derived, so renaming the project, the
+  protocol, an rpc or its module keeps the wire names.
+- **Each rpc has a request message whose fields are its parameters,** named by each parameter's internal
+  name: `func reviews(for product: ProductId)` takes `{"product": …}`. Changing an external label is
+  source-breaking but wire-compatible.
+- **A struct return type is the response message itself;** other return types are wrapped as
+  `{"value": …}`, and an rpc without a return type answers `{}`.
+- Servers accept JSON (`application/json`) and binary Protobuf (`application/proto`), and nothing else.
+  Request bodies are limited to 1 MB, and every rpc response carries `Cache-Control: private, no-store`.
+
+```bash
+curl --header 'Content-Type: application/json' --header 'Connect-Protocol-Version: 1' \
+     --data '{"request":{"productSlug":"k-mug","quantity":2,"email":"ana@example.com"}}' \
+     http://localhost:8080/shop.store.StoreProtocol/PlaceOrder
 ```
 
-Client streaming and bidirectional streaming are allowed only between servers, because browser `fetch`
-can't do them. Using them from client code is a compile error.
+### Status codes
 
-> **Proposal.** Producing and consuming streams (`for await`, `Broadcast<T>`, `@Scope(.server)`) follows
-> `docs/design/proposals/server-streaming.md`.
+| Outcome | Connect code | HTTP status |
+|---|---|---|
+| a declared error case | `failed_precondition`, with the case and its payload in the details | 400 |
+| `rpcFailure(.invalid(…))` | `invalid_argument`, with field paths and messages | 400 |
+| `rpcFailure(.rejected(.unauthenticated))` | `unauthenticated` | 401 |
+| `rpcFailure(.rejected(.forbidden))` | `permission_denied` | 403 |
+| `rpcFailure(.rejected(.rateLimited(retryAfter:)))` | `resource_exhausted`, with `Retry-After` | 429 |
+| a request body over 1 MB | `resource_exhausted` | 413 |
+| a content type other than JSON or Protobuf, or no `Connect-Protocol-Version` | — | 415 |
+| a panic | `internal`, with no details outside development | 500 |
+
+Error types that cross the wire are `Codable`. The compiler warns when an error payload is a server-only
+type or carries a third party's response body, with a hint to wrap the error without it.
+
+> **Planned.** The first compiler releases speak JSON only. The binary Protobuf encoding, `k proto
+> export` (which emits `.proto` files for non-K consumers) and `import proto "billing/v1/invoice.proto"`
+> (which turns existing Protobuf definitions into K types) come later.
 
 ## Field numbers and `protocol.lock`
 
-Protobuf compatibility depends on field numbers never changing. The compiler manages them for you:
+Protobuf compatibility depends on names and field numbers never changing. The compiler manages them for
+you:
 
 - Struct source stays clean. There are no `@Field(1)` annotations.
-- The compiler assigns numbers and commits them to **`protocol.lock`**.
-- **Breaking-change detection runs on every build.** A removed field, a changed type, or a reused number
-  fails `k check`.
+- The compiler assigns numbers and records them, with each protocol's package, service and method names,
+  in **`protocol.lock`**.
+- **Breaking-change detection runs on every build.** A removed field, a changed type, a reused number or
+  a changed wire name fails `k check`.
 - A removed field's number is reserved automatically.
 - A deliberate breaking change requires `@Breaking("reason")` on the protocol, which bumps its version
   (`CartProtocol.v2`).
 
-## The wire format
-
-Messages are JSON in development, so traffic is readable in the browser's developer tools, and binary
-Protobuf in production.
-
-> **Planned.** The binary Protobuf wire format is deferred. Until it lands, protocols run as JSON over
-> HTTP, using Connect-compatible paths and error codes.
-
-> **Proposal.** Generated names, messages and HTTP status codes follow
-> `docs/design/proposals/rpc-wire-format.md`. For example, `rpc placeOrder` of `protocol StoreProtocol`
-> in module `store` of package `shop` is served at `POST /shop.store.StoreProtocol/PlaceOrder`.
-
-## Interop with other languages
-
 Because K servers speak Connect, Go, Java and mobile clients can call them with ordinary gRPC or Connect
 tooling.
-
-> **Planned.** `k proto export`, which emits `.proto` files for non-K consumers, and
-> `import proto "billing/v1/invoice.proto"`, which turns existing Protobuf definitions into K types, are
-> deferred along with the binary wire format.
-
-## Protocols and interfaces
-
-K's `protocol` means a **wire contract** between processes, not Swift's protocols. In-process
-abstractions use [`interface`](../language/declarations.md#interfaces).

@@ -9,7 +9,7 @@ public repository TagRepository for Tag {
     ///   - labels: the new labels, already trimmed, lower-cased and distinct,
     ///     as `NoteDraft.tagLabels()` returns them. An empty list removes
     ///     every tag.
-    public func replace(note: Note, labels: List<String>) async {
+    func replace(note: Note, labels: List<String>) async {
         await tags
             .filter { tag => tag.note.id == note.id }
             .delete()

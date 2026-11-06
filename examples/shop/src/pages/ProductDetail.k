@@ -1,3 +1,5 @@
+import k.validation.Form
+import k.validation.ValidationError
 import store.OrderRequest
 import store.ProductSummary
 import store.StoreService
@@ -17,10 +19,15 @@ public page ProductDetail at "/products/{slug}" {
     /// The product, loaded before the view renders.
     @Load let product: ProductSummary = try await store.product(slug: slug)
 
-    @Form var order: OrderRequest = OrderRequest(productSlug: slug, quantity: 1, email: "")
+    /// The order form. The email field starts empty: `@Form` keeps the text
+    /// of an `EmailAddress` field and parses it when the form is validated.
+    @Form var order: OrderRequest = OrderRequest(productSlug: slug, quantity: 1)
     @State var problem: String? = nil
 
-    func buy() async {
+    /// Places the order and sends the customer to pay. Validation failures
+    /// reported by the server are rethrown, so the form shows them under
+    /// their fields.
+    func buy() async throws ValidationError {
         problem = nil
 
         do {
@@ -37,7 +44,9 @@ public page ProductDetail at "/products/{slug}" {
             problem = "This product is no longer available."
         } catch .paymentUnavailable {
             problem = "Payments are unavailable right now. You haven't been charged; please try again in a minute."
-        } catch .rejected {
+        } catch .rpcFailure(.invalid(let failure)) {
+            throw failure
+        } catch .rpcFailure(.rejected) {
             problem = "Too many orders from your connection. Please wait a minute and try again."
         }
     }
@@ -100,6 +109,10 @@ public page ProductDetail at "/products/{slug}" {
     failed(let error) {
         match error {
             case .notFound {
+                metadata {
+                    status(.notFound)
+                }
+
                 heading(level: 1) { "Product not found" }
 
                 paragraph { "It may have been renamed or retired." }

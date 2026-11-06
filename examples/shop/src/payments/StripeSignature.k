@@ -9,22 +9,22 @@ import k.crypto.Hmac
 /// a secret is being rolled, and any one may match. Other schemes (such as
 /// `v0`, used only in test mode) are ignored.
 ///
-/// This type is pure: it takes the current time and the secret as
-/// arguments, so every edge case can be unit tested without a clock or a
+/// This type has no dependencies: it takes the current time and the secret
+/// as arguments, so every edge case can be unit tested without a clock or a
 /// config.
 public struct StripeSignature {
     /// When Stripe signed the payload, from the `t` entry.
-    public let signedAt: Date
+    let signedAt: Date
 
     /// The decoded `v1` signatures.
-    public let candidates: List<Bytes>
+    let candidates: List<Bytes>
 
     /// Parses a `Stripe-Signature` header.
     ///
     /// - Parameter header: the header's value.
     /// - Returns: the signature, or `nil` when the header has no valid `t`
     ///   entry or no well-formed `v1` entry.
-    public static func parse(header: String) -> StripeSignature? {
+    static func parse(header: String) -> StripeSignature? {
         var timestamp: Int? = nil
         var candidates: List<Bytes> = []
 
@@ -43,7 +43,7 @@ public struct StripeSignature {
                 }
 
                 case "v1" {
-                    if let digest = Bytes(hex: value) {
+                    if let digest = Bytes.parse(hex: value) {
                         candidates.append(digest)
                     }
                 }
@@ -54,11 +54,7 @@ public struct StripeSignature {
             }
         }
 
-        guard let timestamp else {
-            return nil
-        }
-
-        guard candidates.isNotEmpty else {
+        guard let timestamp, candidates.isNotEmpty else {
             return nil
         }
 
@@ -72,28 +68,26 @@ public struct StripeSignature {
     ///   - tolerance: how far `signedAt` may be from `now`, in either
     ///     direction. Allowing a little future skew tolerates clock drift
     ///     between Stripe and this server.
-    public func isFresh(now: Date, tolerance: Duration) -> Bool {
-        guard signedAt >= now - tolerance else {
-            return false
-        }
-
-        return signedAt <= now + tolerance
+    func isFresh(now: Date, tolerance: Duration) -> Bool {
+        return signedAt >= now - tolerance and signedAt <= now + tolerance
     }
 
     /// Whether any `v1` signature is the HMAC-SHA256 of the payload.
     ///
-    /// The comparison takes the same time however many leading bytes match,
-    /// so response timing can't be used to guess a valid signature byte by
-    /// byte.
+    /// The digest is a `Mac`, which can't be compared with `==`. Its
+    /// `matches` takes the same time however many leading bytes match, so
+    /// response timing can't be used to guess a valid signature byte by
+    /// byte. It is `async` because HMAC runs on the platform's Web Crypto.
     ///
     /// - Parameters:
     ///   - payload: the raw request body, exactly as received. Re-encoding
     ///     parsed JSON would change the bytes and break the signature.
-    ///   - secret: the endpoint's signing secret.
-    public func matches(payload: Bytes, secret: String) -> Bool {
+    ///   - secret: the endpoint's signing secret. `Hmac` takes it as a
+    ///     `Secret`, so it is never revealed here.
+    func matches(payload: Bytes, secret: Secret<String>) async -> Bool {
         let signedPayload = "{signedAt.unixSeconds}.".utf8 + payload
-        let expected = Hmac.sha256(key: secret.utf8, message: signedPayload)
+        let expected = await Hmac.sha256(key: secret, message: signedPayload)
 
-        return candidates.contains { candidate => candidate.isEqualInConstantTime(to: expected) }
+        return candidates.contains { candidate => expected.matches(candidate) }
     }
 }

@@ -6,10 +6,16 @@
 # included, whether the run passes or fails.
 #
 # Usage: scripts/e2e.sh
-# Needs: docker (with Compose v2), curl, openssl, jq.
+# Needs: docker (with Compose v2), curl, openssl, jq, argon2.
+#
+# The run never uses secrets/: it generates every secret, including a random
+# admin password and its Argon2id hash, in a temporary directory, and points
+# Compose at them with an override file. The committed secrets/*.example
+# files are placeholders that deliberately fail validation
+# (docs/design/25-config-and-secrets.md#per-environment).
 #
 # RPCs are called with Connect's JSON encoding: POST /<package>.<Protocol>/<Rpc>
-# (see docs/design/proposals/rpc-wire-format.md).
+# (see docs/design/28-rpc-wire-format.md).
 
 set -euo pipefail
 
@@ -19,15 +25,15 @@ readonly base_url="http://localhost:8080"
 readonly mail_api="http://localhost:8025/api/v1"
 readonly project="k-shop-e2e"
 readonly customer="e2e-$(date +%s)@example.com"
-readonly admin_email="admin@shop.example"
-readonly admin_password="change-me-admin-password"   # matches secrets/admin_password_hash.txt.example
+readonly admin_email="admin@shop.example"     # SHOP_ADMIN_EMAIL in docker-compose.yml
 
 work_dir="$(mktemp -d)"
 readonly work_dir
-created_secrets=()
+readonly secrets_dir="$work_dir/secrets"
+readonly compose_override="$work_dir/compose.secrets.yml"
 
 compose() {
-    docker compose --project-name "$project" "$@"
+    docker compose --project-name "$project" --file docker-compose.yml --file "$compose_override" "$@"
 }
 
 step() {
@@ -93,32 +99,53 @@ cleanup() {
 
     compose down --volumes --remove-orphans >/dev/null 2>&1 || true
     rm -rf "$work_dir"
-    if (( ${#created_secrets[@]} > 0 )); then
-        rm -f "${created_secrets[@]}"
-    fi
 
     exit "$status"
 }
 
-for tool in docker curl openssl jq; do
+# Writes one generated secret where the Compose override points: secret <name> <value>.
+secret() {
+    printf '%s\n' "$2" > "$secrets_dir/$1.txt"
+}
+
+for tool in docker curl openssl jq argon2; do
     command -v "$tool" >/dev/null || { echo "e2e: $tool is required" >&2; exit 2; }
 done
 
 trap cleanup EXIT
 
-step "Preparing secrets"
-# Real secret files are used when present. Otherwise the committed examples
-# stand in for this run only; this stack talks to stripe-mock, never to Stripe.
-for example in secrets/*.example; do
-    target="${example%.example}"
-    if [[ ! -f "$target" ]]; then
-        cp "$example" "$target"
-        created_secrets+=("$target")
-    fi
-done
-webhook_secret="$(tr -d '\n' < secrets/stripe_webhook_secret.txt)"
+step "Generating secrets for this run"
+# This stack talks to stripe-mock, never to Stripe, so any sk_test_ key works.
+mkdir -p "$secrets_dir"
+
+admin_password="$(openssl rand -hex 16)"
+readonly admin_password
+webhook_secret="whsec_$(openssl rand -hex 24)"
 readonly webhook_secret
-pass "secrets in place"
+
+secret db_password "$(openssl rand -hex 24)"
+secret stripe_api_key "sk_test_e2e_$(openssl rand -hex 12)"
+secret stripe_webhook_secret "$webhook_secret"
+# Argon2id with 64 MiB of memory (-m 16 is 2^16 KiB), 3 iterations and 4
+# lanes, printed as a PHC string, the format AdminConfig requires.
+secret admin_password_hash "$(printf '%s' "$admin_password" | argon2 "$(openssl rand -hex 16)" -id -t 3 -m 16 -p 4 -e)"
+
+# The containers run as other users, so the files must be readable to them.
+chmod 0755 "$secrets_dir"
+chmod 0644 "$secrets_dir"/*.txt
+
+cat > "$compose_override" <<YAML
+secrets:
+  db_password:
+    file: $secrets_dir/db_password.txt
+  stripe_api_key:
+    file: $secrets_dir/stripe_api_key.txt
+  stripe_webhook_secret:
+    file: $secrets_dir/stripe_webhook_secret.txt
+  admin_password_hash:
+    file: $secrets_dir/admin_password_hash.txt
+YAML
+pass "secrets generated in $secrets_dir"
 
 step "Starting the stack (build, migrate, wait for health checks)"
 compose up --build --detach --wait --wait-timeout 240
@@ -132,6 +159,13 @@ for attempt in $(seq 1 30); do
 done
 pass "app is healthy"
 
+step "Loading the demo catalog"
+# The catalog isn't a migration (see scripts/demo-catalog.sql), so the run
+# inserts it once the app has created the tables.
+compose exec -T db psql --username=shop --dbname=shop --set ON_ERROR_STOP=1 --quiet \
+    < scripts/demo-catalog.sql >/dev/null
+pass "three demo products"
+
 step "Storefront and SEO"
 expect_status "$(get /)" 200 "home page"
 expect_body "K Mug"
@@ -141,6 +175,8 @@ expect_body '<script type="application/ld+json">'
 expect_body '"@type":"Product"'
 expect_status "$(get /products/sticker-pack)" 200 "sold-out product page"
 expect_body "Sold out"
+expect_status "$(get /products/no-such-product)" 404 "an unknown product answers 404"
+expect_body "Product not found"
 
 step "Placing an order"
 status="$(rpc shop.store.StoreProtocol/PlaceOrder \

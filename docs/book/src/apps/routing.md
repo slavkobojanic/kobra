@@ -26,11 +26,11 @@ the compiler decides, as described under [URLs](#urls).
 
 - A parameter without a default is required. One with a default is optional.
 - Parameters are parsed into their types. An invalid value, such as an `id` that isn't a valid
-  `ProductId`, gives a `404`.
+  `ProductId` or `Uuid`, gives a `404`.
 
 ## Navigation
 
-Pages are cases of a **`Page` enum that the compiler generates**, which avoids name clashes between
+View pages are cases of a **`Page` enum that the compiler generates**, which avoids name clashes between
 `page Product` and `struct Product`. You navigate with implicit member syntax, following the
 named-or-chained rule: required parameters are arguments, optional ones are chained.
 
@@ -42,14 +42,30 @@ Router.navigate(to: .product(id: product.id).tab(.reviews))
 
 - Navigating to a page that doesn't exist, or with missing or wrongly typed parameters, is a compile
   error.
-- `link(url: "https://…")` is for external links.
+- **Pages are always referenced as `Page` values:** in `link(to:)`, `Router.navigate(to:)`,
+  `canonical(…)`, `@SignInPage(.signIn)` and `Page`-typed `@Param`s alike.
+- Every `Page` value has `url: Url`, its path and query (`/product/42?tab=reviews`).
+- **Leaving the app:** `link(url: "https://…")` links out, and `Router.navigate(url: Url)` leaves with a
+  full page load, for example to a hosted payment page.
 
-> **Proposal.** `Router.navigate(url:)` for leaving the app, and `absoluteUrl` for URLs handed to other
-> systems, follow `docs/design/proposals/deployment.md`.
+## Absolute URLs: `PublicUrls`
 
-Every `Page` value has a `url`, the path and query, and in server code an `absoluteUrl` that includes
-the app's public origin. Code that gives a URL to another system, such as a payment provider's return URL
-or a link in an email, uses `.absoluteUrl`, so you still never write a URL by hand.
+Code that hands a URL to another system, such as a payment provider's return URL or a link in an email,
+needs it absolute. **`PublicUrls`** is a server-only standard-library service in `k.server` that builds
+absolute URLs from the app's public origin (`K_PUBLIC_ORIGIN`, see [Deployment](deployment.md)):
+
+```k
+service StoreApi implements StoreProtocol {
+    @Inject let urls: PublicUrls
+
+    …
+    let returnUrl = urls.absolute(.receipt(id: order.id))        // https://shop.example/receipt/0b6f…
+    let webhookUrl = urls.absolute(endpoint: .stripeWebhook)    // https://shop.example/webhooks/stripe
+}
+```
+
+`absolute(_ page: Page) -> Url` and `absolute(endpoint: Endpoint) -> Url` take typed pages, so you
+still never write a URL by hand.
 
 ## Layouts
 
@@ -69,17 +85,17 @@ layout Shop {
 }
 ```
 
-A page attaches to a layout with `@Layout`:
+- `@Layout(Shop)` on a page attaches a layout. `@Layout` always takes a layout's type name.
+- `@Layout(Storefront)` on the `app` in `App.k` makes `Storefront` the default for every view page. A
+  page can still choose its own with `@Layout`, or opt out with **`@NoLayout`**, which takes no argument.
 
 ```k
 @Layout(Shop)
 page Pricing { … }
+
+@NoLayout
+page Receipt { … }
 ```
-
-> **Proposal.** The app-wide default layout follows `docs/design/proposals/app-structure.md`.
-
-`@Layout(Shop)` on the `app` in `App.k` makes `Shop` the default for every page. A page can still choose
-its own, or opt out with `@Layout(.none)`.
 
 ## Guards: `requires`
 
@@ -90,14 +106,14 @@ page Admin requires Authenticated, Role(.admin) { … }
 - Guards are the same middleware types used on [protocols](protocols.md), so `Authenticated` is one type
   everywhere.
 - `requires` reads as prose. The word `validation` is reserved for form validation.
+- When `Authenticated` refuses a page, the visitor is redirected with `303 See Other` to the app's
+  sign-in page, named once with `@SignInPage(.signIn)` on the `app`. If the sign-in page declares
+  `@Param let returnTo: Page`, the redirect fills it in, so the visitor comes back after signing in.
+- `Role` refusing a page responds with `403 Forbidden`.
+- Inside a page that `requires Authenticated`, including its `@Load` initializers, `session.user` is
+  known to be present and needs no unwrapping.
 
-> **Proposal.** What a refused page does follows `docs/design/proposals/auth-and-sessions.md`.
-
-When `Authenticated` refuses a page, the visitor is redirected to the app's sign-in page, named once with
-`@SignInPage(SignIn)` on the `app`. If the sign-in page declares `@Param let returnTo: Page`, the redirect
-fills it in, so the visitor comes back after signing in. `Role` refusing a page responds with `403
-Forbidden`. Inside a page that `requires Authenticated`, `session.user` is known to be present and needs
-no unwrapping.
+See [Authentication and sessions](auth.md).
 
 ## URLs
 
@@ -108,15 +124,16 @@ URLs are derived from the page name and its parameters:
 | Declaration | URL |
 |---|---|
 | `page Pricing` | `/pricing` |
+| `page SignIn` | `/sign-in` |
 | `page Product` with required `id` | `/product/42` |
 | …with optional `tab` set to `.reviews` | `/product/42?tab=reviews` |
 | …with `tab` left at its default | `/product/42` |
 
+- **Multi-word page names become kebab case:** `SignIn` is at `/sign-in`, `ProductDetail` at
+  `/product-detail`.
 - **Required parameters become path segments**, in declaration order.
 - **Optional parameters go in the query string**, and are omitted when equal to their default. Optional
   parameters in the path would be ambiguous as soon as there is more than one (`/product/42//newest`).
-- Multi-word page names become kebab case: `page SignIn` is at `/sign-in`. (*Proposal:*
-  `docs/design/proposals/deployment.md`.)
 
 ### Named URLs
 
@@ -131,12 +148,13 @@ page Pricing at "/pricing" { … }
 page ProductDetail at "/product/{id}/{tab}" { … }     // optional parameters in the path, explicitly
 ```
 
-Interpolations in the URL must each name a `@Param` of the page. **Named URLs never change when the page
-is renamed.**
+The URL is an ordinary string whose interpolations must each name a `@Param` of the page. **Named URLs
+never change when the page is renamed.**
 
 ### `routes.lock` and redirects
 
-- The compiler records every page's URL in **`routes.lock`**, which you commit.
+- The compiler records every page's URL in **`routes.lock`**, which you commit. Endpoint pages are
+  included.
 - **Renaming a page without a named URL changes its URL, and an automatic permanent redirect from the old
   URL is added.** URLs always match the current names, and old links keep working.
 - Duplicate or conflicting URLs are compile errors.
@@ -144,28 +162,31 @@ is renamed.**
 
 ## Endpoint pages
 
-> **Proposal.** Endpoint pages follow `docs/design/proposals/server-endpoints.md`.
-
-A page with HTTP handler functions instead of a `view` is an **endpoint page**: a raw HTTP handler for
-webhooks and health checks, answering with a status code instead of HTML.
+A page with HTTP handler functions instead of a `view` is an **endpoint page**: K's one deliberate
+escape hatch to raw HTTP, for external systems that can't speak RPC, such as webhooks, OAuth callbacks and
+health checks. Everything else, including every call from the app's own client, is RPC.
 
 ```k
 public page HealthCheck at "/health" {
     @Inject let readiness: Readiness
 
     @Get
-    func check(request: HttpRequest) async -> HttpResponse {
+    func check(request: IncomingRequest) async -> HttpResponse {
         guard await readiness.isReady() else {
-            return HttpResponse(status: 503, body: "database unavailable")
+            return HttpResponse(status: .serviceUnavailable)
+                .body(.text("database unavailable"))
         }
 
-        return HttpResponse(status: 200, body: "ok")
+        return HttpResponse(status: .ok)
+            .body(.text("ok"))
     }
 }
 ```
 
-- Handlers are annotated with their method (`@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`) and have one
-  fixed signature. They don't throw: every failure becomes a response the handler chose.
-- Endpoint pages are server-only, and still cases of the `Page` enum, with named URLs and guards.
-- `request.rawBody` holds the body exactly as received, for verifying webhook signatures, and header names
-  are lowercased.
+- **An endpoint page must have a named URL**, because an external system depends on it. Without `at`,
+  it is a compile error with a quick fix that inserts one.
+- **Endpoint pages are not `Page` cases.** They are cases of a separate, server-only, generated
+  **`Endpoint`** enum, so `link(to:)`, `Router.navigate(to:)` and `@SignInPage` can't name one, by type.
+  `Endpoint.healthCheck.url` is its path.
+
+[Endpoint pages](endpoints.md) covers handlers, requests, responses and sessions.

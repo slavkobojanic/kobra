@@ -1,5 +1,6 @@
 import k.auth.Authenticated
 import k.crypto.Uuid
+import k.validation.ValidationError
 
 /// Edits one note, and resolves conflicts with edits made in another tab.
 ///
@@ -26,10 +27,11 @@ public page EditNote requires Authenticated {
     @State var isSaved: Bool = false
 
     /// The version the next save is based on.
-    @Derived let current: NoteSummary = if let latest { latest } else { loaded }
+    @Derived let current: NoteSummary = latest ?? loaded
 
-    /// Saves a validated draft on top of `current`.
-    func save(draft: NoteDraft) async {
+    /// Saves a validated draft on top of `current`. A validation failure
+    /// from the server is passed back to the editor's form.
+    func save(draft: NoteDraft) async throws ValidationError {
         isSaved = false
 
         do {
@@ -40,7 +42,9 @@ public page EditNote requires Authenticated {
             conflict = EditConflict(theirs: newer, mine: draft)
         } catch .notFound {
             Router.navigate(to: .notes)
-        } catch .rejected {
+        } catch .rpcFailure(.invalid(let failure)) {
+            throw failure
+        } catch .rpcFailure(.rejected) {
             Router.navigate(to: .signIn.returnTo(.editNote(id: id)))
         }
     }
@@ -53,7 +57,13 @@ public page EditNote requires Authenticated {
 
         latest = pending.theirs
 
-        await save(draft: pending.mine)
+        do {
+            try await save(draft: pending.mine)
+        } catch _ {
+            // Unreachable in practice: the server reported the conflict from
+            // inside the handler, so this draft has already passed its
+            // validation.
+        }
     }
 
     /// Deletes the note and returns to the list.
@@ -62,7 +72,7 @@ public page EditNote requires Authenticated {
             try await notes.delete(note: current)
 
             Router.navigate(to: .notes)
-        } catch .rejected {
+        } catch .rpcFailure {
             Router.navigate(to: .signIn.returnTo(.editNote(id: id)))
         }
     }
@@ -108,12 +118,16 @@ public page EditNote requires Authenticated {
     failed(let error) {
         match error {
             case .notFound {
+                metadata {
+                    status(.notFound)
+                }
+
                 paragraph { "This note doesn't exist, or it was deleted." }
 
                 link(to: .notes) { "Back to notes" }
             }
 
-            case .rejected {
+            case .rpcFailure {
                 paragraph { "Your session has ended." }
 
                 link(to: .signIn.returnTo(.editNote(id: id))) { "Sign in again" }

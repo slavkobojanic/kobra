@@ -9,8 +9,9 @@ let greeting = "Hello, world"
 let farewell = "Ha det bra 👋"
 ```
 
-**Strings are single-line.** A string can't contain a raw line break; use `\n` for one. Multi-line string
-literals aren't part of the language yet.
+**Strings are single-line.** A string can't contain a raw line break; use `\n` for one. An
+interpolation inside a string can't span lines either. Multi-line string literals aren't part of the
+language yet.
 
 ## Interpolation
 
@@ -33,7 +34,11 @@ To write a literal brace, double it: `"{{"` is one `{`. A closing `}` needs no e
 
 ```k
 let template = "Use {{name}} as a placeholder"     // Use {name} as a placeholder
+let broken = "{{ this is not JSON"                 // { this is not JSON
 ```
+
+Because `{` always starts an interpolation, a string such as `"{ this is not JSON"` doesn't mean what it
+seems to: it tries to interpolate an expression. Write `{{` whenever you mean a brace.
 
 ## Escapes
 
@@ -82,8 +87,14 @@ regular expressions, slugs and Markdown rendering live in `k.text`. See the
 
 ## Secrets in strings
 
-> **Proposal.** `Secret<T>` follows `docs/design/proposals/config-and-secrets.md`.
+A value of type `Secret<String>`, such as an API key read from [configuration](../apps/config.md),
+interpolates as `Secret(•••)`, never as its value, so logging a configuration can't leak it:
 
-A configuration value of type `Secret<String>` interpolates as `Secret(•••)`, never as its value, so
-logging a configuration can't leak it. Code that really needs the value calls `.reveal()`, which is easy
-to search for in a review.
+```k
+Log.info("verifying with {config.signingSecret}")      // verifying with Secret(•••)
+```
+
+Most code never needs the value: outgoing HTTP requests and `Hmac` take secrets directly. Code that
+really does calls `.reveal()`, which is easy to search for in a review. The compiler tracks strings built
+from a revealed value, so comparing one with `==` is a compile error with a quick fix to the
+constant-time `secret.matches(candidate)`.

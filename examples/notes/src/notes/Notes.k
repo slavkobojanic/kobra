@@ -18,7 +18,7 @@ public page Notes requires Authenticated at "/" {
     func followChanges() async {
         do {
             try await notes.watch()
-        } catch .rejected {
+        } catch .rpcFailure {
             Router.navigate(to: .signIn.returnTo(.notes))
         }
     }
@@ -29,7 +29,7 @@ public page Notes requires Authenticated at "/" {
             try await notes.togglePin(note: note)
         } catch .notFound {
             // Deleted in another tab. The service has already dropped it.
-        } catch .rejected {
+        } catch .rpcFailure {
             Router.navigate(to: .signIn.returnTo(.notes))
         }
     }

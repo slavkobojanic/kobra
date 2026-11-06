@@ -1,24 +1,23 @@
 import k.test.TestClock
-import k.time.Clock
+import k.text.EmailAddress
 import store.Order
 import store.OrderRepository
 import store.Product
 import store.ProductRepository
 
 // Integration tests: AdminService calls AdminApi in-process through
-// AdminProtocol, so the rpcs' `requires` guards run exactly as they do over
-// the network.
+// AdminProtocol, so the rpcs' `requires` guards and request validation run
+// exactly as they do over the network.
 
 test AdminApi {
     use AdminConfig.sample for AdminConfig
-    use TestClock for Clock
 
     @Inject let admin: AdminService
     @Inject let catalog: ProductRepository
     @Inject let orders: OrderRepository
     @Inject let clock: TestClock
 
-    func signIn(email: String = "admin@shop.test", password: String = "change-me-admin-password") async throws SignInError {
+    func signIn(email: EmailAddress = EmailAddress("admin@shop.test"), password: String = "change-me-admin-password") async throws SignInError {
         try await admin.signIn(request: SignInRequest(email: email, password: password))
     }
 
@@ -31,7 +30,7 @@ test AdminApi {
     }
 
     test "the email is matched without regard to case" {
-        try await signIn(email: "Admin@Shop.TEST")
+        try await signIn(email: EmailAddress("Admin@Shop.TEST"))
 
         expect try await admin.recentOrders().isEmpty
     }
@@ -44,7 +43,13 @@ test AdminApi {
 
     test "an unknown email is refused in exactly the same way" {
         expect throws SignInError.invalidCredentials {
-            try await signIn(email: "intruder@shop.test")
+            try await signIn(email: EmailAddress("intruder@shop.test"))
+        }
+    }
+
+    test "a blank password is refused by validation before the handler runs" {
+        expect throws SignInError.rpcFailure(.invalid) {
+            try await signIn(password: "")
         }
     }
 
@@ -55,7 +60,7 @@ test AdminApi {
             }
         }
 
-        expect throws SignInError.rejected(.rateLimited) {
+        expect throws SignInError.rpcFailure(.rejected(.rateLimited)) {
             try await signIn()
         }
 
@@ -67,7 +72,7 @@ test AdminApi {
     // Guards
 
     test "orders can't be listed without signing in" {
-        expect throws AdminError.rejected(.unauthenticated) {
+        expect throws AdminError.rpcFailure(.rejected(.unauthenticated)) {
             try await admin.recentOrders()
         }
     }
@@ -76,7 +81,7 @@ test AdminApi {
         try await signIn()
         await admin.signOut()
 
-        expect throws AdminError.rejected(.unauthenticated) {
+        expect throws AdminError.rpcFailure(.rejected(.unauthenticated)) {
             try await admin.recentOrders()
         }
     }
@@ -87,7 +92,7 @@ test AdminApi {
         let mug = Product.mug()
         let older = Order.sample(product: mug)
 
-        await catalog.insert(mug)
+        try await catalog.insert(mug)
         await orders.insert(older)
         clock.advance(by: 1.minute)
 

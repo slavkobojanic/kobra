@@ -46,15 +46,14 @@ Even this small snippet shows several of K's rules:
 /// A documentation comment. It documents the declaration that follows it.
 /// The body is Markdown.
 public func total(items: List<CartItem>) -> Money {
-    return items.sum { item => item.price * item.quantity }
+    return items.sum(in: .usd) { item => item.price * item.quantity }
 }
 ```
 
-> **Proposal.** Documentation comments follow `docs/design/proposals/doc-comments.md`.
-
-Documentation comments start with `///` and come before the declaration and its annotations. The first
-sentence is the summary shown in autocomplete. Structured sections use Markdown list items, as in
-Swift:
+Documentation comments start with `///` and come before the declaration **and before its
+annotations**, so `/// …` goes above `@Prop` or `@Param`. The body is Markdown. The first sentence is
+the summary shown in autocomplete and in `k doc`; further paragraphs follow a blank `///` line.
+Structured sections use Markdown list items, as in Swift:
 
 ```k
 /// Looks up a single place by its id.
@@ -65,8 +64,17 @@ Swift:
 public func place(id: Int) async throws WeatherError -> Place { … }
 ```
 
-Names in backticks that resolve to declarations become links, and the compiler checks them: a
-reference to something that doesn't exist is a warning, so documentation can't drift after a rename.
+- Names in backticks that resolve to declarations become links, and the compiler checks them: a
+  reference to something that doesn't exist is a warning, so documentation can't drift after a rename.
+- Fenced code blocks tagged `k` inside a doc comment are type-checked by `k check`, but not run.
+- There are no block doc comments (`/** */`), and no Javadoc-style `@param`, because `@` already means an
+  annotation.
+
+**What must be documented** is what is API: public top-level declarations, their non-private functions,
+computed properties and enum cases, and the annotated inputs of components and pages (`@Prop`,
+`@Binding`, `@Slot`, `@Emits`, `@Stylable`, `@Param`). Stored fields of public structs, entities and
+configs are a lint only, and injected fields never need documentation. In a package, `k check` warns on
+missing documentation; in an application it is a lint.
 
 ## Naming
 

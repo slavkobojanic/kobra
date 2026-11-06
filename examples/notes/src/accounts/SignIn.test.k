@@ -38,6 +38,6 @@ test SignIn {
 
         expect screen.text("Enter a valid email address").isVisible
         expect screen.text("Enter your password").isVisible
-        expect screen.alert().exists == false
+        expect not screen.alert().exists
     }
 }

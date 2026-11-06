@@ -1,25 +1,26 @@
 # Project layout
 
-Every K project has the same layout. There is no setting to move the source directory, no build script
-and no tool configuration, so once you know one K project you know where everything is in all of them.
-
-> **Proposal.** The manifest format and the fixed layout follow `docs/design/proposals/k-toml.md`.
-> Migrations and `.env` follow `docs/design/proposals/migrations.md` and
-> `docs/design/proposals/config-and-secrets.md`.
+Every K project, app or package, has the same layout. There is no setting to move the source directory,
+no build script and no tool configuration, so once you know one K project you know where everything is in
+all of them.
 
 ```text
 k.toml           the manifest
-k.lock           exact versions of packages (generated)
 App.k            the app declaration (apps only)
 src/             source code; every directory is a module
-migrations/      database migrations, if the app has a database
-protocol.lock    Protobuf field numbers (generated)
-routes.lock      page URLs and redirects (generated)
-schema.lock      the database schema (generated)
-.env             local development configuration (git-ignored)
+migrations/      database migrations, NNNN_description.k; not a module
+protocol.lock    Protobuf names and field numbers (generated, committed)
+routes.lock      page URLs and redirects (generated, committed)
+schema.lock      the database schema (generated, committed)
+storage.lock     browser storage keys and job payloads (generated, committed)
+k.lock           exact versions of packages (generated, committed)
+.env             local development configuration (optional, git-ignored)
+.env.example     documents what .env may contain (committed)
 .k/              the toolchain's local state: dev database, caches (git-ignored)
 dist/            build output (git-ignored)
 ```
+
+**A project with an `App.k` is an app; one without is a library package.**
 
 ## `k.toml`
 
@@ -27,10 +28,11 @@ The manifest holds only what can't be expressed in K code:
 
 ```toml
 [package]
-name = "weather"
-version = "0.1.0"
+name = "weather"                           # the app's identity; a package's module path
+title = "Weather"                          # display name (optional)
 description = "A weather dashboard backed by the Open-Meteo APIs."
 k = "0.1"                                  # minimum toolchain version
+version = "0.1.0"                          # apps only, optional
 
 [dependencies]
 "github.com/acme/charts" = "v1.2.0"        # module path = git tag, written by `k add`
@@ -39,21 +41,33 @@ k = "0.1"                                  # minimum toolchain version
 charts = "github.com/acme/charts"          # enables `import charts.LineChart`
 ```
 
+- **`name` and `k` are required.** For an app, `name` is lower-case ASCII letters, digits and hyphens,
+  starting with a letter (`shop`, `my-shop`). For a package, it is the module path
+  (`github.com/acme/charts`).
+- **`name` is the project's identity.** The Protobuf package prefix of every protocol and the namespace
+  of the app's browser storage are derived from it once, and recorded in `protocol.lock` and
+  `storage.lock`. From then on the lockfiles are read, so renaming the project doesn't change your rpc
+  URLs or orphan your users' stored data.
+- **`title`** is what people see, for example the default name in the web manifest. Changing it changes
+  nothing else.
+- **`version`** is for apps only, and `dist/app` reports it in its logs and metrics. A package can't set
+  one: its git tag is its version.
+
 What you won't find in `k.toml` is as important as what you will:
 
-- **No environment variables or secrets.** Configuration comes from the environment at runtime (see
-  [Configuration and deployment](../apps/deployment.md)), so nothing secret is ever committed.
+- **No environment variables or secrets.** Configuration comes from the environment at runtime, through
+  typed `config` declarations (see [Configuration and secrets](../apps/config.md)), so nothing secret is
+  ever committed.
 - **No per-environment settings.** Choosing a different implementation in production is a `use` rule in
   `App.k`, where the compiler checks it.
-- **No tool settings.** The compiler, formatter and test runner have no options.
+- **No build scripts and no tool settings.** The compiler, formatter and test runner have no options.
 
 ## `App.k`
 
-`App.k` holds the one `app` declaration. A project with an `App.k` is an application; one without is a
-library package. `App.k` only contains choices the compiler can't infer: the default layout,
-app-wide metadata and which implementation of an interface to use in which environment. Pages,
-services and the theme are found from their declarations; nothing is registered by hand. See
-[The app declaration](../apps/app.md).
+`App.k` holds the one `app` declaration. It only contains choices the compiler can't infer: the default
+layout, the sign-in page, app-wide metadata and which implementation of an interface to use in which
+environment. Pages, services, configs, jobs and the theme are found from their declarations; nothing is
+registered by hand. See [The app declaration](../apps/app.md).
 
 ## `src/` and modules
 
@@ -101,5 +115,20 @@ time. [Project files and lockfiles](../reference/project-files.md) describes eac
 
 - `dist/`, the build output;
 - `.k/`, the toolchain's local state, such as the SQLite database `k dev` uses;
-- `.env`, your local development configuration. Commit a `.env.example` instead, documenting what
-  `.env` should contain.
+- `.env`, your local development configuration.
+
+Commit a `.env.example` instead, documenting what `.env` may contain. Like every committed example file,
+it holds placeholders, never working values (see
+[Configuration and secrets](../apps/config.md#example-files-hold-placeholders)).
+
+## Creating a project
+
+```bash
+k new hello                                  # an app in ./hello
+k new --library github.com/acme/charts       # a library package in ./charts
+```
+
+`k new` has no templates and no other options. It refuses to write into a directory that isn't empty,
+doesn't initialize version control, and writes no lockfiles; they appear when the toolchain first needs
+them. The library skeleton holds a `k.toml`, a `.gitignore` and one documented public function with a
+test, so `k check` has something to check.

@@ -6,9 +6,11 @@ import layouts.Dashboard
 /// declarations, so this file only holds what is genuinely app-wide: the
 /// default layout and the document entries shared by every page.
 ///
-/// There are no `use … for …` rules. `HttpClient` has exactly one
-/// implementation outside tests, the stdlib's fetch-based client, so it is
-/// injected automatically. Tests replace it per test group.
+/// There are no `use … for …` rules. `HttpClient` has exactly one production
+/// implementation, the stdlib's `FetchHttpClient`, so it is injected with no
+/// rule. Under `k test` the hermetic `TestHttpClient` is the default, so no
+/// test can reach Open-Meteo; `WeatherService.test.k` chooses its own
+/// `FakeHttpClient` instead.
 @Layout(Dashboard)
 public app Weather {
     metadata {

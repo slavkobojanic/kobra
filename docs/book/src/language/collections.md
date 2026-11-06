@@ -83,7 +83,7 @@ The standard library's collection API is extensive and uses full English names. 
 let inStock = products.filter { product => product.stock > 0 }
 let names = products.map { product => product.name }
 let byPrice = products.sortedBy { product => product.price }
-let total = items.sum { item => item.price * item.quantity }
+let total = items.sum(in: .usd) { item => item.price * item.quantity }
 let cheapest = products.minBy { product => product.price }
 let byCategory = products.groupedBy { product => product.category }
 let pages = products.chunked(20)
@@ -93,7 +93,7 @@ let pages = products.chunked(20)
 |---|---|
 | Transforming | `map`, `filter`, `sortedBy`, `sortedByDescending`, `groupedBy`, `partitioned`, `chunked`, `windowed` |
 | Searching | `firstWhere`, `contains`, `minBy`, `maxBy` |
-| Aggregating | `sum`, `count`, `isEmpty`, `isNotEmpty` |
+| Aggregating | `sum`, `count`, `isEmpty`, `isNotEmpty`; a sum of `Money` names its currency with `sum(in:)` |
 | Changing (on a `var`) | `append`, and the other mutating operations |
 
 There are no abbreviated or symbolic aliases. The same API is used for

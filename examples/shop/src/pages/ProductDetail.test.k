@@ -1,7 +1,9 @@
 import k.crypto.Uuid
 import k.http.HttpRequest
+import k.server.PublicUrls
 import k.test.Screen
 import k.test.TestClient
+import k.text.EmailAddress
 import store.CheckoutError
 import store.LookupError
 import store.OrderRequest
@@ -15,6 +17,7 @@ test ProductDetail {
 
     @Inject let store: FakeStoreService
     @Inject let client: TestClient
+    @Inject let urls: PublicUrls
 
     /// Renders the mug's page, waits for it to load and fills in the form.
     func renderAndFill(email: String = "ana@example.com") async -> Screen {
@@ -38,13 +41,13 @@ test ProductDetail {
     }
 
     test "a sold-out product has no order form" {
-        store.setAvailable(available: 0)
+        store.setAvailable(0)
 
         let screen = render(ProductDetail(slug: "test-mug"))
         await screen.settle()
 
         expect screen.text("Sold out").isVisible
-        expect screen.button(named: "Buy now").exists == false
+        expect not screen.button(named: "Buy now").exists
     }
 
     test "an unknown product shows a way back to the shop" {
@@ -63,7 +66,7 @@ test ProductDetail {
         screen.button(named: "Buy now").click()
         await screen.settle()
 
-        expect store.placedOrders == [OrderRequest(productSlug: "test-mug", quantity: 1, email: "ana@example.com")]
+        expect store.placedOrders == [OrderRequest(productSlug: "test-mug", quantity: 1, email: EmailAddress("ana@example.com"))]
     }
 
     test "an invalid email is caught before anything is sent" {
@@ -87,7 +90,7 @@ test ProductDetail {
     }
 
     test "a rate-limited checkout asks the customer to wait" {
-        store.simulateCheckoutFailure(error: .rejected(.rateLimited(retryAfter: 30.seconds)))
+        store.simulateCheckoutFailure(error: .rpcFailure(.rejected(.rateLimited(retryAfter: 30.seconds))))
         let screen = await renderAndFill()
 
         screen.button(named: "Buy now").click()
@@ -99,15 +102,24 @@ test ProductDetail {
     // What crawlers see
 
     test "the server-rendered page has a canonical link and product data" {
-        let url = Page.productDetail(slug: "test-mug").absoluteUrl
+        let url = urls.absolute(.productDetail(slug: "test-mug"))
 
         let response = await client.send(request: HttpRequest(method: .get, url: url))
 
-        expect response.status == 200
+        expect response.status == .ok
         expect response.body.contains("<title>Test Mug · K Shop</title>")
         expect response.body.contains("<link rel=\"canonical\" href=\"{url}\">")
         expect response.body.contains("<script type=\"application/ld+json\">")
         expect response.body.contains("\"@type\":\"Product\"")
+    }
+
+    test "an unknown product answers 404, not a soft 200" {
+        let url = urls.absolute(.productDetail(slug: "no-such-product"))
+
+        let response = await client.send(request: HttpRequest(method: .get, url: url))
+
+        expect response.status == .notFound
+        expect response.body.contains("Product not found")
     }
 }
 
@@ -120,7 +132,7 @@ service FakeStoreService implements StoreService {
     /// Every order request received, oldest first.
     var placedOrders: List<OrderRequest> = []
 
-    func setAvailable(available: Int) {
+    func setAvailable(_ available: Int) {
         mug = ProductSummary.mug.copy(available: available)
     }
 
@@ -128,11 +140,11 @@ service FakeStoreService implements StoreService {
         checkoutFailure = error
     }
 
-    public func products() async -> List<ProductSummary> {
+    func products() async -> List<ProductSummary> {
         return [mug]
     }
 
-    public func product(slug: String) async throws LookupError -> ProductSummary {
+    func product(slug: String) async throws LookupError -> ProductSummary {
         guard slug == mug.slug else {
             throw LookupError.notFound
         }
@@ -140,7 +152,7 @@ service FakeStoreService implements StoreService {
         return mug
     }
 
-    public func placeOrder(request: OrderRequest) async throws CheckoutError -> PlacedOrder {
+    func placeOrder(request: OrderRequest) async throws CheckoutError -> PlacedOrder {
         if let checkoutFailure {
             throw checkoutFailure
         }
@@ -149,10 +161,10 @@ service FakeStoreService implements StoreService {
 
         let orderId = Uuid.random()
 
-        return PlacedOrder(orderId: orderId, paymentUrl: Page.receipt(id: orderId).absoluteUrl)
+        return PlacedOrder(orderId: orderId, paymentUrl: Page.receipt(id: orderId).url)
     }
 
-    public func order(id: Uuid) async throws LookupError -> OrderSummary {
+    func order(id: Uuid) async throws LookupError -> OrderSummary {
         throw LookupError.notFound
     }
 }

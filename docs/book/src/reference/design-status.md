@@ -1,69 +1,64 @@
 # Design status
 
 This book describes K as designed. The language design lives in `docs/design/` in the repository and is
-the source of truth; where the book and the design disagree, the design wins.
+the source of truth; where the book and the design disagree, the design wins and the book should be fixed.
+For syntax, the compiler grammar, `docs/compiler/grammar.md`, is authoritative, and its "Resolved
+ambiguities" section records the syntactic decisions the design leaves open.
 
-## Deferred features
+## Planned for later compiler releases
 
-The design explicitly defers these. The book marks them **Planned**:
+The design includes these, but the first compiler releases don't. The book marks them **Planned**:
 
 | Feature | Where it's described |
 |---|---|
 | State-preserving hot module replacement in `k dev` | [Everyday commands](../getting-started/commands.md#k-dev) |
 | The language server | [Installation](../getting-started/installation.md#editor-support) |
-| The formatter, `k fmt` | [Views](../apps/views.md#formatting) |
-| The binary Protobuf wire format, `k proto export` and `import proto` | [Protocols and RPC](../apps/protocols.md#the-wire-format) |
-| The edge deployment target | [Configuration and deployment](../apps/deployment.md#building) |
-| Typed npm interop | [Packages](../apps/packages.md#no-npm) |
-| A hosted package registry | [Packages](../apps/packages.md#a-registry) |
+| The formatter, `k fmt` | [Everyday commands](../getting-started/commands.md#k-check), [Views](../apps/views.md#formatting) |
+| The binary Protobuf encoding, `k proto export` and `import proto` | [Protocols and RPC](../apps/protocols.md#the-wire-format) |
+| Packages and `k add` | [Packages](../apps/packages.md) |
 
-## Not yet covered by the design
+## Open questions
 
-The design lists these as not yet covered in depth: animation API details, the internationalization
-workflow, security defaults (CSRF, CORS, content security policy), and concurrency (workers). The book
-doesn't describe them beyond the module overview.
+The design records these as undecided. The book marks them **Open question**:
 
-## Proposals used in this book
-
-Where the design is silent, the book follows a written proposal, marked **Proposal** in the text. Every
-proposal is in `docs/design/proposals/` and has the status "proposal": it may change before it is
-accepted.
-
-| Proposal | Covers |
+| Question | Where it's described |
 |---|---|
-| `app-structure.md` | the `app` declaration, `@Layout` and `@SignInPage` on the app, `@Rendering`, environments |
-| `auth-and-sessions.md` | `Session`, guards, guard rejections, passwords |
-| `background-jobs.md` | jobs, retries, schedules |
-| `catch-binding.md` | `catch let error` |
-| `charts.md` | `k.charts` line charts |
-| `component-events.md` | listening to `@Emits` events with `.on(…)` |
-| `config-and-secrets.md` | `config`, `@Env`, `Secret<T>`, `.env` |
-| `crypto.md` | `Bytes`, `Hmac`, `Uuid`, secure random |
-| `deployment.md` | `dist/app` commands, startup, `absoluteUrl`, containers, kebab-case URLs |
-| `doc-comments.md` | `///` documentation comments |
-| `element-accessibility.md` | `checkbox(isChecked:)`, `.label`, `.pressed`, `.expanded`, `.role` |
-| `email.md` | `EmailProvider` and SMTP |
-| `http-client.md` | `HttpClient` and `@JsonKey` |
-| `k-toml.md` | the manifest and the fixed project layout |
-| `load-reload.md` | `reload()` for `@Load` fields |
-| `local-storage.md` | typed local storage |
-| `migrations.md` | migration files, table naming, the `schema.lock` format |
-| `money.md` | `Money` and `Currency` |
-| `project-creation.md` | `k new` and `k test --watch` |
-| `repository-writes.md` | inserts, updates, deletes and transactions |
-| `rpc-wire-format.md` | generated Protobuf names and HTTP status codes |
-| `server-endpoints.md` | endpoint pages and `TestClient` |
-| `server-streaming.md` | `Stream<T>`, `for await`, `Broadcast<T>`, `@Scope(.server)` |
-| `service-init.md` | `init()` in services |
-| `testing-support.md` | fakes, test-only modules, fixtures, screen queries |
-| `theme-variants.md` | `Theme.use`, `Theme.current`, `ThemeVariant` |
-| `timers-and-clock.md` | `Timer`, `Clock`, `TestClock` |
+| Network failures on the client during an rpc: typed `RpcFailure.offline` / `.timeout`, or a panic caught by an `OfflineBoundary` | [Protocols and RPC](../apps/protocols.md#failures-outside-the-handler) |
+| How code reaches the clock: an ambient `Clock`, or strict injection | [Time and timers](../apps/time.md#the-clock) |
+| Reloading configuration without a restart | [Configuration and secrets](../apps/config.md#tests) |
+| Uniqueness keys and rate-limited job queues | [Background jobs](../apps/jobs.md#tests) |
+| Automatic re-subscription to server streams | [Server streaming](../apps/streaming.md#tests) |
+| Cross-tab storage changes and versioned storage keys | [Local storage](../apps/local-storage.md#tests-memorystorage) |
 
-## Provisional syntax
+Each topic file in `docs/design/` lists its smaller open questions at the end.
 
-The design marks one piece of syntax as provisional: the position of `requires` in an `rpc` signature.
-The book follows the compiler grammar, which places it after the full signature:
+## Deferred by the design
 
-```k
-rpc add(request: AddItemRequest) throws CartError -> CartItem requires Authenticated
-```
+These were explicitly deferred and may be revisited:
+
+- Typed npm interop.
+- A hosted package registry.
+- An edge deployment target (`k build --target edge`).
+- A design-system component library.
+- Interceptor syntax in `App.k`, and per-page rendering modes.
+- OAuth providers and passkeys.
+- Typed IndexedDB collections, session storage and cookies in `k.storage`.
+- Development-only seed data, and online migrations for large tables.
+
+Not yet covered in depth: animation API details, the internationalization workflow, security headers
+(content security policy, and CORS beyond RPC, which never grants it), and concurrency (workers). The book
+doesn't describe them beyond the module overview. Request forgery is covered in
+[Authentication and sessions](../apps/auth.md#request-forgery).
+
+## Syntax the grammar decided
+
+A few rules come from the compiler grammar rather than the design text. The book follows them throughout:
+
+- `requires` comes after the complete rpc signature:
+  `rpc add(request: AddItemRequest) throws CartError -> CartItem requires Authenticated`.
+- Logical operators are the words `and`, `or` and `not`; nil coalescing is `??`.
+- Parameters may declare a Swift-style external label, or `_` for a positional argument.
+- `static let`, `static func`, `init(…)` and computed properties (`var name: T { … }`) are declared as in
+  Swift.
+- `{{` is the only brace escape in strings, and strings are single-line.
+- There are no explicit generic arguments in expressions; a binding's annotation gives them.

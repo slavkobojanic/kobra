@@ -66,6 +66,14 @@ match order.status {
   - is **required** when matching types that can't be enumerated (`Int`, `String`, ranges such as `case 0..<10`, tuples);
   - is **allowed** on enums, as a deliberate trade-off: new cases fall into `default` silently;
   - is a **compile error when unreachable**, meaning every case is already covered.
+- **`default` is the only non-binding catch-all.** A top-level `case _` arm is a compile error with a quick fix to `default`. (`_` stays valid inside patterns: `.status(let code, _)`.)
+- **`case let other { … }` binds the whole value** and matches everything not handled by an earlier arm. It is allowed as a top-level arm only when the arm uses `other`; an unused binding is a compile error with a quick fix to `default`. Like `default`, it must be last, and it is a compile error when unreachable.
+- `catch` follows the same rules, with `catch let error` as the binding catch-all and `catch _` as the non-binding one, because `catch` has no `default` ([09-errors.md](09-errors.md)).
+
+## Booleans
+
+- The logical operators are words: `and`, `or`, `not`.
+- **Comparing a `Bool` with a literal is a lint** with a machine-applicable fix: `x == true` becomes `x`, and `x == false` or `x != true` becomes `not x`. `expect not screen.button(named: "Clear completed").exists` is the way to check absence; `expect`'s failure output shows the operand's value either way ([21-testing.md](21-testing.md)).
 
 ## guard
 
@@ -123,6 +131,7 @@ button { "Save" }.on(click: save)            // function reference
 - `=>` is the lambda arrow; `->` is for return types. Typed form: `{ (product: Product) -> Money => product.price }`. Types are normally inferred.
 - **Trailing lambdas** are allowed when the last parameter is a function.
 - **Functions can be passed by name:** `.map(formatPrice)`.
+- **A function parameter's type may carry a generic error,** `() async throws E -> T`. The call then throws whatever the passed function throws ([09-errors.md](09-errors.md#error-generic-functions)).
 
 ## Collections
 

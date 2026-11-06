@@ -1,12 +1,13 @@
-import k.auth.Session
+import accounts.AccountId
+import k.auth.SessionManager
 import k.crypto.Uuid
 
 test EditNote {
     @Inject let notes: NotesService
-    @Inject let session: Session
+    @Inject let sessions: SessionManager
 
     test "saving stores the edit and confirms it" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let note = try await notes.create(draft: draft(title: "Plan", tags: "work"))
         let screen = render(EditNote(id: note.id))
         await screen.settle()
@@ -25,7 +26,7 @@ test EditNote {
     }
 
     test "saving twice from the same tab is not a conflict" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let note = try await notes.create(draft: draft(title: "Plan"))
         let screen = render(EditNote(id: note.id))
         await screen.settle()
@@ -39,13 +40,13 @@ test EditNote {
 
         let stored = try await notes.get(id: note.id)
 
-        expect screen.alert().exists == false
+        expect not screen.alert().exists
         expect stored.title == "Plan C"
         expect stored.revision == 3
     }
 
     test "an edit saved in another tab turns this save into a choice, and nothing is lost" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let note = try await notes.create(draft: draft(title: "Plan"))
         let screen = render(EditNote(id: note.id))
         await screen.settle()
@@ -66,22 +67,22 @@ test EditNote {
 
         let afterChoosing = try await notes.get(id: note.id)
 
-        expect screen.alert().exists == false
+        expect not screen.alert().exists
         expect afterChoosing.title == "Plan from this tab"
     }
 
     test "a note that doesn't exist shows a message instead of the editor" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let screen = render(EditNote(id: Uuid.random()))
         await screen.settle()
 
         expect screen.text("This note doesn't exist, or it was deleted.").isVisible
         expect screen.link(named: "Back to notes").isVisible
-        expect screen.textField(labeled: "Title").exists == false
+        expect not screen.textField(labeled: "Title").exists
     }
 
     test "deleting the note returns to the list" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let note = try await notes.create(draft: draft(title: "Plan"))
         let screen = render(EditNote(id: note.id))
         await screen.settle()

@@ -1,7 +1,7 @@
 import testing.StripeTestEvent
 
 test StripeSignature {
-    let secret = StripeTestEvent.secret
+    let secret = Secret(StripeTestEvent.secret)
     let signedAt = Date(unixSeconds: 1793966400)
 
     // Parsing
@@ -11,6 +11,13 @@ test StripeSignature {
 
         expect signature?.signedAt == signedAt
         expect signature?.candidates.count == 2
+    }
+
+    test "a header as Stripe sends it parses to its digest" {
+        let header = await StripeTestEvent.signature(payload: "payload", signedAt: signedAt)
+        let digest = await StripeTestEvent.digest(payload: "payload", signedAt: signedAt)
+
+        expect StripeSignature.parse(header: header)?.candidates == [digest.bytes]
     }
 
     test "other schemes, unknown entries and whitespace are ignored" {
@@ -39,42 +46,45 @@ test StripeSignature {
     // Matching
 
     test "a signature over the exact payload matches" {
-        let header = StripeTestEvent.signature(payload: "payload", signedAt: signedAt)
-        let signature = StripeSignature.parse(header: header)
+        let digest = await StripeTestEvent.digest(payload: "payload", signedAt: signedAt)
+        let signature = StripeSignature(signedAt: signedAt, candidates: [digest.bytes])
 
-        expect signature?.matches(payload: "payload".utf8, secret: secret) == true
+        expect await signature.matches(payload: "payload".utf8, secret: secret)
     }
 
     test "a payload changed by one character doesn't match" {
-        let header = StripeTestEvent.signature(payload: "payload", signedAt: signedAt)
-        let signature = StripeSignature.parse(header: header)
+        let digest = await StripeTestEvent.digest(payload: "payload", signedAt: signedAt)
+        let signature = StripeSignature(signedAt: signedAt, candidates: [digest.bytes])
 
-        expect signature?.matches(payload: "payloaD".utf8, secret: secret) == false
+        let matched = await signature.matches(payload: "payloaD".utf8, secret: secret)
+
+        expect not matched
     }
 
     test "a signature made with another secret doesn't match" {
-        let header = StripeTestEvent.signature(payload: "payload", secret: "whsec_other", signedAt: signedAt)
-        let signature = StripeSignature.parse(header: header)
+        let digest = await StripeTestEvent.digest(payload: "payload", secret: "whsec_other", signedAt: signedAt)
+        let signature = StripeSignature(signedAt: signedAt, candidates: [digest.bytes])
 
-        expect signature?.matches(payload: "payload".utf8, secret: secret) == false
+        let matched = await signature.matches(payload: "payload".utf8, secret: secret)
+
+        expect not matched
     }
 
     test "the timestamp is part of what is signed" {
-        let header = StripeTestEvent.signature(payload: "payload", signedAt: signedAt)
-        let forged = header.replacing("t=1793966400", with: "t=1793966401")
-        let signature = StripeSignature.parse(header: forged)
+        let digest = await StripeTestEvent.digest(payload: "payload", signedAt: signedAt)
+        let forged = StripeSignature(signedAt: signedAt + 1.second, candidates: [digest.bytes])
 
-        expect signature?.matches(payload: "payload".utf8, secret: secret) == false
+        let matched = await forged.matches(payload: "payload".utf8, secret: secret)
+
+        expect not matched
     }
 
     test "while a secret is rolled, either v1 signature may match" {
-        let old = StripeTestEvent.signature(payload: "payload", secret: "whsec_old", signedAt: signedAt)
-        let current = StripeTestEvent.signature(payload: "payload", signedAt: signedAt)
-        let currentDigest = current.split(separator: "v1=")[1]
-        let signature = StripeSignature.parse(header: "{old},v1={currentDigest}")
+        let old = await StripeTestEvent.digest(payload: "payload", secret: "whsec_old", signedAt: signedAt)
+        let current = await StripeTestEvent.digest(payload: "payload", signedAt: signedAt)
+        let signature = StripeSignature(signedAt: signedAt, candidates: [old.bytes, current.bytes])
 
-        expect signature?.candidates.count == 2
-        expect signature?.matches(payload: "payload".utf8, secret: secret) == true
+        expect await signature.matches(payload: "payload".utf8, secret: secret)
     }
 
     // Freshness
@@ -90,12 +100,12 @@ test StripeSignature {
     test "a signature older than the tolerance is stale" {
         let signature = StripeSignature(signedAt: signedAt, candidates: [])
 
-        expect signature.isFresh(now: signedAt + 5.minutes + 1.second, tolerance: 5.minutes) == false
+        expect not signature.isFresh(now: signedAt + 5.minutes + 1.second, tolerance: 5.minutes)
     }
 
     test "a signature too far in the future is stale" {
         let signature = StripeSignature(signedAt: signedAt, candidates: [])
 
-        expect signature.isFresh(now: signedAt - 5.minutes - 1.second, tolerance: 5.minutes) == false
+        expect not signature.isFresh(now: signedAt - 5.minutes - 1.second, tolerance: 5.minutes)
     }
 }

@@ -45,10 +45,10 @@ test WeatherService {
         expect http.requests.isEmpty
     }
 
-    test "a search that times out is a network error" {
+    test "a search that times out is a timeout error" {
         http.fail(path: "/v1/search", error: .timeout)
 
-        expect throws WeatherError.network(.timeout) {
+        expect throws WeatherError.timeout {
             try await weather.searchPlaces(query: "Berlin")
         }
     }
@@ -56,10 +56,26 @@ test WeatherService {
     // Looking up a place
 
     test "an unknown place id is a typed not-found error" {
-        http.serveText(path: "/v1/get", body: "Invalid id", status: 400)
+        http.serveText(path: "/v1/get", body: "Invalid id", status: .badRequest)
+
+        expect throws WeatherError.placeNotFound(id: 42) {
+            try await weather.place(id: 42)
+        }
+    }
+
+    test "a 404 from the lookup is not found as well" {
+        http.serveText(path: "/v1/get", body: "Not found", status: .notFound)
 
         expect throws WeatherError.placeNotFound {
             try await weather.place(id: 42)
+        }
+    }
+
+    test "a server error during a lookup is not mistaken for a missing place" {
+        http.serveText(path: "/v1/get", body: "Internal error", status: .internalServerError)
+
+        expect throws WeatherError.upstream {
+            try await weather.place(id: 2950159)
         }
     }
 
@@ -151,18 +167,18 @@ test WeatherService {
         }
     }
 
-    test "a server error status is a network error" {
-        http.serveText(path: "/v1/forecast", body: "Service unavailable", status: 503)
+    test "a server error status is an upstream error" {
+        http.serveText(path: "/v1/forecast", body: "Service unavailable", status: .serviceUnavailable)
 
-        expect throws WeatherError.network {
+        expect throws WeatherError.upstream {
             try await weather.forecast(place: .berlin, units: .metric)
         }
     }
 
-    test "being offline is a network error" {
+    test "being offline is an offline error" {
         http.fail(path: "/v1/forecast", error: .offline)
 
-        expect throws WeatherError.network(.offline) {
+        expect throws WeatherError.offline {
             try await weather.forecast(place: .berlin, units: .metric)
         }
     }

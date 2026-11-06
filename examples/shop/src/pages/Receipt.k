@@ -76,6 +76,10 @@ public page Receipt {
     failed(let error) {
         match error {
             case .notFound {
+                metadata {
+                    status(.notFound)
+                }
+
                 heading(level: 1) { "Order not found" }
 
                 paragraph { "Check the link in your confirmation email." }

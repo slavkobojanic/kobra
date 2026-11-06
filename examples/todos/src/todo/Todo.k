@@ -7,12 +7,12 @@
 /// update.
 public struct Todo implements Codable, Equatable {
     /// Identifies the todo. Never changes.
-    public let id: TodoId
+    let id: TodoId
 
     /// What needs doing. Always trimmed, never empty, and at most
     /// `TodoService.maximumTitleLength` characters long.
-    public var title: String
+    var title: String
 
     /// Whether the todo has been done.
-    public var isDone: Bool
+    var isDone: Bool
 }

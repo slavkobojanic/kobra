@@ -1,4 +1,5 @@
 import k.validation.Form
+import k.validation.ValidationError
 
 /// The account creation screen.
 ///
@@ -11,8 +12,10 @@ public page SignUp {
     @Form var request: SignUpRequest = SignUpRequest(email: "", password: "", confirmPassword: "")
     @State var problem: String? = nil
 
-    /// Creates the account, then continues to the empty notes list.
-    func submit() async {
+    /// Creates the account, then continues to the empty notes list. A
+    /// validation failure from the server, such as the email's `@Check`, is
+    /// passed back to the form, which shows it under its field.
+    func submit() async throws ValidationError {
         problem = nil
 
         do {
@@ -21,7 +24,9 @@ public page SignUp {
             Router.navigate(to: .notes)
         } catch .emailTaken {
             problem = "An account with this email was created a moment ago. Sign in instead."
-        } catch .rejected {
+        } catch .rpcFailure(.invalid(let failure)) {
+            throw failure
+        } catch .rpcFailure(.rejected) {
             problem = "Too many attempts. Wait a minute, then try again."
         }
     }

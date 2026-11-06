@@ -8,31 +8,31 @@ import k.crypto.Uuid
 /// added here too.
 public struct ProductSummary implements Codable, Equatable, Copyable {
     /// The product's id.
-    public let id: Uuid
+    let id: Uuid
 
     /// The URL-safe name used in the product page's URL.
-    public let slug: String
+    let slug: String
 
     /// The display name.
-    public let name: String
+    let name: String
 
     /// A one-sentence pitch, used in listings and as the meta description.
-    public let summary: String
+    let summary: String
 
     /// The full description shown on the product page.
-    public let description: String
+    let description: String
 
     /// The unit price, including VAT.
-    public let price: Money
+    let price: Money
 
     /// The absolute URL of the product photo.
-    public let imageUrl: String
+    let imageUrl: String
 
     /// How many units can be ordered right now. `0` means sold out.
-    public let available: Int
+    let available: Int
 
     /// Whether at least one unit can be ordered.
-    public var isInStock: Bool {
+    var isInStock: Bool {
         available > 0
     }
 }

@@ -10,7 +10,7 @@ public enum UnitSystem implements Codable, Equatable {
     case imperial
 
     /// The symbol shown after a temperature: `"°C"` or `"°F"`.
-    public var temperatureSymbol: String {
+    var temperatureSymbol: String {
         match self {
             case .metric { "°C" }
 
@@ -19,7 +19,7 @@ public enum UnitSystem implements Codable, Equatable {
     }
 
     /// The unit shown after a wind speed: `"km/h"` or `"mph"`.
-    public var windSpeedSymbol: String {
+    var windSpeedSymbol: String {
         match self {
             case .metric { "km/h" }
 
@@ -31,7 +31,7 @@ public enum UnitSystem implements Codable, Equatable {
     ///
     /// - Parameter value: the temperature, already expressed in this system's unit.
     /// - Returns: the formatted value with its symbol, for example `"8°C"`.
-    public func temperature(value: Double) -> String {
+    func temperature(value: Double) -> String {
         return "{value.formatted(as: .wholeNumber)}{temperatureSymbol}"
     }
 
@@ -39,7 +39,7 @@ public enum UnitSystem implements Codable, Equatable {
     ///
     /// - Parameter value: the speed, already expressed in this system's unit.
     /// - Returns: the formatted value with its unit, for example `"14 km/h"`.
-    public func windSpeed(value: Double) -> String {
+    func windSpeed(value: Double) -> String {
         return "{value.formatted(as: .wholeNumber)} {windSpeedSymbol}"
     }
 }

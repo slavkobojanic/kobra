@@ -4,9 +4,9 @@ import k.http.HttpRequest
 /// Fetches places, forecasts and air quality from the Open-Meteo APIs.
 ///
 /// `WeatherService` is the only code in the app that talks to the network. It
-/// turns Open-Meteo's wire format into the app's domain types and wraps every
-/// transport failure in a `WeatherError`, so pages and components never see
-/// an `HttpError` directly.
+/// turns Open-Meteo's wire format into the app's domain types and translates
+/// every transport failure into a `WeatherError`, so pages and components
+/// never see an `HttpError` directly.
 ///
 /// Places are cached for the lifetime of the service, because a place's name
 /// and coordinates never change; a place found by `searchPlaces(query:)` is
@@ -21,7 +21,7 @@ public service WeatherService {
 
     /// The shortest query, after trimming whitespace, that `searchPlaces(query:)`
     /// sends to Open-Meteo. Shorter queries match too many places to be useful.
-    public let minimumQueryLength: Int = 2
+    let minimumQueryLength: Int = 2
 
     private let maximumResults: Int = 8
     private let requestTimeout: Duration = 10.seconds
@@ -35,9 +35,10 @@ public service WeatherService {
     /// - Returns: up to 8 places, best match first. The list is empty when
     ///   nothing matches, or when the trimmed query is shorter than
     ///   `minimumQueryLength`, in which case no request is made.
-    /// - Throws: `WeatherError.network` when Open-Meteo can't be reached or
-    ///   fails, and `WeatherError.invalidResponse` when its answer can't be read.
-    public func searchPlaces(query: String) async throws WeatherError -> List<Place> {
+    /// - Throws: `WeatherError.offline`, `.timeout` or `.upstream` when
+    ///   Open-Meteo can't be reached or fails, and `.invalidResponse` when its
+    ///   answer can't be read.
+    func searchPlaces(query: String) async throws WeatherError -> List<Place> {
         let name = query.trimmed()
 
         guard name.count >= minimumQueryLength else {
@@ -67,9 +68,10 @@ public service WeatherService {
     /// - Parameter id: the id from a `Place`, usually taken from the URL.
     /// - Returns: the place, from the cache when it has been seen before.
     /// - Throws: `WeatherError.placeNotFound` when Open-Meteo knows no place
-    ///   with this id, `WeatherError.network` when it can't be reached or
-    ///   fails, and `WeatherError.invalidResponse` when its answer can't be read.
-    public func place(id: Int) async throws WeatherError -> Place {
+    ///   with this id (it answers 400 or 404), `.offline`, `.timeout` or
+    ///   `.upstream` when it can't be reached or fails otherwise, and
+    ///   `.invalidResponse` when its answer can't be read.
+    func place(id: Int) async throws WeatherError -> Place {
         if let cached = places[id] {
             return cached
         }
@@ -81,7 +83,7 @@ public service WeatherService {
             places[id] = place
 
             return place
-        } catch .network(.status(let code, _)) where [400, 404].contains(code) {
+        } catch .upstream(let status) where status == .badRequest or status == .notFound {
             throw WeatherError.placeNotFound(id: id)
         }
     }
@@ -92,10 +94,10 @@ public service WeatherService {
     ///   - place: where to forecast.
     ///   - units: the unit system to request; Open-Meteo converts server-side.
     /// - Returns: a fresh forecast, never a cached one.
-    /// - Throws: `WeatherError.network` when Open-Meteo can't be reached or
-    ///   fails, and `WeatherError.invalidResponse` when its answer can't be
-    ///   read or is inconsistent.
-    public func forecast(place: Place, units: UnitSystem) async throws WeatherError -> Forecast {
+    /// - Throws: `WeatherError.offline`, `.timeout` or `.upstream` when
+    ///   Open-Meteo can't be reached or fails, and `.invalidResponse` when its
+    ///   answer can't be read or is inconsistent.
+    func forecast(place: Place, units: UnitSystem) async throws WeatherError -> Forecast {
         let response: ForecastResponse = try await fetch(
             url: forecastUrl,
             query: [
@@ -119,9 +121,10 @@ public service WeatherService {
     /// - Parameter place: where to measure.
     /// - Returns: the current air quality. Values Open-Meteo doesn't model for
     ///   this place are `nil`; that is not an error.
-    /// - Throws: `WeatherError.network` when Open-Meteo can't be reached or
-    ///   fails, and `WeatherError.invalidResponse` when its answer can't be read.
-    public func airQuality(place: Place) async throws WeatherError -> AirQuality {
+    /// - Throws: `WeatherError.offline`, `.timeout` or `.upstream` when
+    ///   Open-Meteo can't be reached or fails, and `.invalidResponse` when its
+    ///   answer can't be read.
+    func airQuality(place: Place) async throws WeatherError -> AirQuality {
         let response: AirQualityResponse = try await fetch(
             url: airQualityUrl,
             query: [
@@ -134,8 +137,10 @@ public service WeatherService {
         return response.current.toAirQuality()
     }
 
-    /// Sends a GET request and decodes the JSON body, wrapping transport
-    /// errors at this layer boundary.
+    /// Sends a GET request and decodes the JSON body, translating transport
+    /// errors at this layer boundary. Open-Meteo's error body is dropped:
+    /// `WeatherError` reaches the browser through `@Load`, and the status is
+    /// all the dashboard needs.
     private func fetch<T>(url: Url, query: Map<String, String>) async throws WeatherError -> T where T implements Codable {
         let request = HttpRequest(method: .get, url: url)
             .query(query)
@@ -143,10 +148,14 @@ public service WeatherService {
 
         do {
             return try await http.fetchJson(request: request)
+        } catch .offline {
+            throw WeatherError.offline
+        } catch .timeout {
+            throw WeatherError.timeout
+        } catch .status(let status, _) {
+            throw WeatherError.upstream(status)
         } catch .decoding(let message) {
             throw WeatherError.invalidResponse(reason: message)
-        } catch let error {
-            throw WeatherError.network(error)
         }
     }
 }

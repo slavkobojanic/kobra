@@ -26,7 +26,7 @@ public enum OrderStatus implements Codable, Equatable {
     case cancelled
 
     /// A short label for receipts and the admin table.
-    public var label: String {
+    var label: String {
         match self {
             case .awaitingPayment { "Awaiting payment" }
 

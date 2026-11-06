@@ -44,11 +44,18 @@ Each thing has one way to do it. When a language offers several equivalent spell
 picks a different one, and agents produce inconsistent code. K's formatter has no options, imports
 have no wildcards, queries have one form, and the project layout is fixed. Two K codebases look alike.
 
+When a redundant second spelling still parses, the compiler reports it with a machine-applicable fix:
+
+- `public` on a member, which is already public when its type is ([Modules and visibility](language/modules.md));
+- comparing a `Bool` with a literal (`x == false`) instead of writing `not x`;
+- a top-level `case _` arm in `match` instead of `default`;
+- a `use` rule in a test that restates the default test double ([Testing](apps/testing.md)).
+
 ## Keywords declare kinds; annotations modify behavior
 
 - A **keyword** declares a kind of thing with its own compiler semantics: `component`, `page`,
   `layout`, `service`, `protocol`, `entity`, `repository`, `struct`, `enum`, `class`, `interface`,
-  `theme`.
+  `theme`, `app`, `config`, `migration`, `test`.
 - An **annotation** modifies behavior within a kind: `@State`, `@Derived`, `@Effect`, `@Prop`,
   `@Binding`, `@Slot`, `@Stylable`, `@Inject`, `@Scope`, `@Param`.
 - **Declaration clauses read as prose:** `page Admin requires Authenticated at "/admin"`,
@@ -66,8 +73,8 @@ Every declaration says whether it can change: `let` for constants, `var` for var
 annotated fields, and the annotation decides which keyword is allowed:
 
 ```k
-@State var isOpen: Bool = false      // @State, @Binding, @Form → var
-@Prop let label: String              // @Prop, @Derived, @Load, @Inject, @Param, @Slot, @Stylable, @Emits → let
+@State var isOpen: Bool = false      // @State, @Binding, @Form, @Version → var
+@Prop let label: String              // @Prop, @Derived, @Load, @Inject, @Param, @Slot, @Stylable, @Emits, @Env → let
 @Prop var label: String              // compile error: @Prop is read-only; use let
 ```
 
@@ -96,6 +103,10 @@ The rule covers built-in elements, components, pages and types annotated `@Build
 generates the chained methods, so there are no hand-written builders. Plain functions use ordinary
 default parameters instead.
 
+**A boolean option is chained with its value:** `.disabled(isSubmitting)`, `.dashed(true)`,
+`.primaryKey(true)`. There are no zero-argument flag methods, so a flag set from a variable and a flag
+set to a constant read the same way.
+
 ## Compile time over runtime
 
 Whatever can be resolved statically is resolved statically: dependency injection, URLs, class
@@ -103,15 +114,26 @@ references, Protobuf field numbers, reactive dependency hints. A mistake that wo
 another stack is a compile error in K. Linking to a page that doesn't exist, styling with a class that
 isn't defined, or injecting a database into browser code all fail the build.
 
+- **Validated literals are checked at compile time.** `Url("https://…")`, `Uuid("…")` and
+  `EmailAddress("…")` take only a string literal and are never optional. Text known only at runtime goes
+  through `Type.parse(…)`, which returns an optional.
+- **A distinction the type system can make, it makes,** rather than a runtime check: a `Mac` can't be
+  compared with `==`, and an email address can't be invalid once it is an `EmailAddress`.
+
 ## Lockfiles for anything outside systems depend on
 
 Some generated values are depended on by things outside your codebase: URLs are bookmarked, Protobuf
 field numbers are baked into deployed clients, and database columns hold production data. The compiler
 records each of them in a committed lockfile and detects breaking changes:
 
-- `protocol.lock` records Protobuf field numbers.
+- `protocol.lock` records Protobuf names and field numbers.
 - `routes.lock` records page URLs.
-- `schema.lock` records the database schema.
+- `schema.lock` records the database schema, including every table and column name.
+- `storage.lock` records formats stored outside a request: browser storage keys and background job
+  payloads.
+
+A name that something outside depends on is recorded once and then kept: renaming the declaration it
+came from never silently changes it.
 
 See [Project files and lockfiles](reference/project-files.md).
 

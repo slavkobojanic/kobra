@@ -41,11 +41,49 @@ layout Shop {
 - **Metadata is reactive and rendered on the server**, so `@Load` values appear in the initial HTML for
   search engines and link previews.
 - **Layouts provide defaults; pages override them.** For each entry, the innermost declaration wins.
-- **`canonical` takes a typed page**, so canonical URLs come from `routes.lock` and can't drift.
+- **`canonical` takes a typed page**, so canonical URLs come from `routes.lock` and can't drift. It
+  renders the absolute URL, built from the app's public origin.
 - **Stylesheets, scripts and fonts never appear in metadata.** The compiler emits CSS from `style` blocks,
   there is no third-party JavaScript, and theme `font` tokens produce preload tags automatically.
 
 The compiler warns about a page with no `title`, and about a description longer than 160 characters.
+
+## Status codes
+
+`status(_:)` sets the HTTP status of a server-rendered page. It is allowed only in a `metadata` block
+inside `failed`, so a missing product answers `404` instead of a soft `200`:
+
+```k
+failed(let error) {
+    match error {
+        case .notFound {
+            metadata {
+                status(.notFound)
+            }
+
+            NotFound()
+        }
+
+        default {
+            RetryPanel()
+                .on(retry: reload)
+        }
+    }
+}
+```
+
+## Pages only
+
+- **Metadata belongs to view pages.** [Endpoint pages](endpoints.md) have no `metadata`, and app and
+  layout defaults don't apply to them.
+- **Every response whose rendering read `Session` carries `Cache-Control: private, no-store`,** so a
+  shared cache never serves one user's page to another.
+
+## The locale
+
+**The `locale` in effect is the only locale.** Number, date and money formatting use the app's or page's
+`metadata` locale on the server, in the browser and in background jobs alike, never the browser's
+language setting, so server-rendered text and hydrated text agree.
 
 ## App-wide entries
 
@@ -61,5 +99,4 @@ public app Weather {
 }
 ```
 
-> **Proposal.** The `app` declaration follows `docs/design/proposals/app-structure.md`. See
-> [The app declaration](app.md).
+See [The app declaration](app.md). Layout and page metadata override the app's, innermost first.

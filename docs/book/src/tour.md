@@ -67,15 +67,16 @@ entity Entry {
 // src/guestbook/EntryRepository.k
 repository EntryRepository for Entry {
     func latest() async -> List<Entry> {
-        return entries
-            .sortedBy { entry => entry.createdAt }
+        return await entries
+            .sortedByDescending { entry => entry.createdAt }
             .limit(100)
     }
 }
 ```
 
-Inside the repository, `entries` is the table. A query that can't be translated to SQL is a compile
-error, never a silent in-memory scan. `entity` and `repository` are **server-only**: the compiler keeps
+Inside the repository, `entries` is the table. A query is a description until it is awaited, and every
+query is awaited explicitly, even one that is returned. A query that can't be translated to SQL is a
+compile error, never a silent in-memory scan. `entity` and `repository` are **server-only**: the compiler keeps
 them, and anything that touches them, out of the browser bundle.
 
 Generate the migration that creates the table:
@@ -85,7 +86,9 @@ k migrate new "create entries"
 ```
 
 The toolchain compares your entities with `schema.lock` and writes
-`migrations/0001_create_entries.k` for you to review and commit.
+`migrations/0001_create_entries.k` for you to review and commit. The table is named after the entity,
+`entry`, and the columns after the fields, `created_at` for `createdAt`. Those names are recorded in
+`schema.lock`, so renaming the entity or a field later never moves data.
 
 ## The contract
 
@@ -99,9 +102,14 @@ Connect protocol, so you never write a URL, a fetch call or a JSON parser:
 public protocol GuestbookProtocol {
     rpc entries() -> List<GuestbookEntry>
 
-    rpc sign(request: SignRequest) -> GuestbookEntry
+    rpc sign(request: SignRequest) throws RpcOnlyError -> GuestbookEntry
 }
 ```
+
+`sign` takes a `Validatable` request, so it can fail before any code of yours runs: the runtime refuses
+an invalid request. Every failure outside the handler arrives as one typed case, `rpcFailure`, and an
+rpc with no errors of its own declares `throws RpcOnlyError`, the standard error enum that has only that
+case.
 
 ## The server
 
@@ -119,7 +127,7 @@ service GuestbookApi implements GuestbookProtocol {
         return latest.map(summarize)
     }
 
-    rpc sign(request: SignRequest) async -> GuestbookEntry {
+    rpc sign(request: SignRequest) async throws RpcOnlyError -> GuestbookEntry {
         let entry = Entry(id: Uuid.random(), name: request.name, message: request.message, createdAt: Date.now)
 
         await repository.insert(entry)
@@ -134,7 +142,8 @@ service GuestbookApi implements GuestbookProtocol {
 ```
 
 `SignRequest` is `Validatable`, so the runtime validates every request **before** `sign` runs. A
-client that skips the form can't skip the rules.
+client that skips the form can't skip the rules. The handler itself never throws `rpcFailure`; only the
+runtime produces it.
 
 ## The client service
 
@@ -146,15 +155,18 @@ retries and shared state belong. This one is thin for now:
 public service GuestbookService {
     @Inject let api: GuestbookProtocol
 
-    public func entries() async -> List<GuestbookEntry> {
+    func entries() async -> List<GuestbookEntry> {
         return await api.entries()
     }
 
-    public func sign(request: SignRequest) async {
-        await api.sign(request: request)
+    func sign(request: SignRequest) async throws RpcOnlyError {
+        try await api.sign(request: request)
     }
 }
 ```
+
+`GuestbookService` is public, so its functions are public too, with no modifier. Only `private` is ever
+written on a member.
 
 `@Inject let api: GuestbookProtocol` gives the service a generated network client in the browser, and a
 direct in-process call to `GuestbookApi` during server rendering. Injection is resolved at compile
@@ -172,11 +184,18 @@ public page Guestbook at "/" {
     @Load let entries: List<GuestbookEntry> = await guestbook.entries()
 
     @Form var draft: SignRequest = .empty
+    @State var problem: String? = nil
 
-    func sign() async {
-        await guestbook.sign(request: draft.value)
+    func sign() async throws ValidationError {
+        do {
+            try await guestbook.sign(request: draft.value)
 
-        reload()
+            reload()
+        } catch .rpcFailure(.invalid(let failure)) {
+            throw failure
+        } catch .rpcFailure {
+            problem = "We couldn't save your entry. Try again."
+        }
     }
 
     metadata {
@@ -206,6 +225,11 @@ public page Guestbook at "/" {
 
                 textArea(value: bind draft.message)
                     .label("Message")
+
+                if let problem {
+                    paragraph { problem }
+                        .role(.alert)
+                }
 
                 button { "Sign the guestbook" }
                     .type(.submit)
@@ -243,6 +267,9 @@ A lot happens in very little code:
 - **`@Form`** wraps `SignRequest` with per-field state. Binding a field with `bind draft.name` wires up
   its error message and its accessibility attributes automatically. `draft.handle(sign)` validates
   first, sets `isSubmitting`, and prevents double submits.
+- **`catch` is exhaustive.** `sign` rethrows the server's `ValidationError`, which the form shows under
+  the fields it names, and records any other failure in `problem`. The handler `draft.handle` returns
+  doesn't throw, as every event handler must.
 - **`reload()`** re-runs the page's loads. The view keeps showing the old entries until the new ones
   arrive, then swaps them in at once.
 
@@ -278,8 +305,8 @@ scoped: another component's `.card` can't collide with it.
 ## A test
 
 Tests live next to the code. With no fakes declared, a test group gets the **real stack in-process**:
-the real service, the protocol called directly, and a fresh SQLite database that is rolled back after
-each test.
+the real service, the protocol called through the real wire format, and a fresh SQLite database whose
+changes are rolled back after each test.
 
 ```k
 // src/guestbook/GuestbookService.test.k
@@ -287,7 +314,7 @@ test GuestbookService {
     @Inject let guestbook: GuestbookService
 
     test "a signed entry is listed" {
-        await guestbook.sign(request: SignRequest(name: "Ana", message: "Hello!"))
+        try await guestbook.sign(request: SignRequest(name: "Ana", message: "Hello!"))
 
         let entries = await guestbook.entries()
 
@@ -303,7 +330,7 @@ example ``entries.count was 0, expected == 1``.
 
 Point `k dev` at a local database by creating `.env`:
 
-```bash
+```text
 DATABASE_URL=sqlite:.k/guestbook.db
 ```
 

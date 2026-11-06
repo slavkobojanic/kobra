@@ -9,20 +9,21 @@ import k.observe.Log
 /// key. The order id goes in `client_reference_id`, which Stripe sends back
 /// in the `checkout.session.completed` webhook; it is also the idempotency
 /// key, so a retried request never creates a second session for one order.
+///
+/// The key goes into the request as a `Secret`, through `.bearerToken`, so
+/// it is never revealed in this code and is redacted from logs.
 public service StripeCheckout implements PaymentGateway {
     @Inject let config: StripeApiConfig
     @Inject let http: HttpClient
 
-    public func startCheckout(request: CheckoutRequest) async throws PaymentError -> Url {
+    func startCheckout(request: CheckoutRequest) async throws PaymentError -> Url {
         let call = HttpRequest(method: .post, url: config.apiUrl.appending(path: "/v1/checkout/sessions"))
-            .headers([
-                "Authorization": "Bearer {config.apiKey.reveal()}",
-                "Idempotency-Key": "checkout-{request.orderId}"
-            ])
+            .bearerToken(config.apiKey)
+            .headers(["idempotency-key": "checkout-{request.orderId}"])
             .body(.form([
                 "mode": "payment",
                 "client_reference_id": "{request.orderId}",
-                "customer_email": request.customerEmail,
+                "customer_email": request.customerEmail.address,
                 "success_url": "{request.returnUrl}",
                 "cancel_url": "{request.cancelUrl}",
                 "line_items[0][quantity]": "{request.quantity}",
@@ -36,8 +37,8 @@ public service StripeCheckout implements PaymentGateway {
             let session: CreatedCheckoutSession = try await http.fetchJson(request: call)
 
             return session.url
-        } catch .status(let code, let body) where code < 500 {
-            throw PaymentError.rejected(reason: "Stripe answered {code}: {body}")
+        } catch .status(let status, let body) where status.isClientError {
+            throw PaymentError.rejected(reason: "Stripe answered {status.code}: {body}")
         } catch .decoding(let message) {
             throw PaymentError.rejected(reason: "Unreadable checkout session: {message}")
         } catch let error {

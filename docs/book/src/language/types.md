@@ -21,10 +21,32 @@ These are available everywhere without an import:
 | `Length`, `Duration`, `Percent`, `Angle` | units: `16px`, `200ms`, `50%`, `45deg`. See [Units](units.md). |
 | `Date` | a point in time: `Date.now`, `2.hours.ago` |
 | `Color` | `#3B82F6`, `.primary`, `.rgb(59, 130, 246)` |
-| `Money` | an exact amount in a currency: `9.99.usd` |
+| `Money`, `Currency` | an exact amount in a currency: `9.99.usd`. See [Money](units.md#money). |
+| `Bytes` | an immutable byte sequence: `"text".utf8`, `Bytes.parse(hex: text)` |
+| `Url` | an absolute URL: `Url("https://api.stripe.com")` |
+| `Secret<T>` | a value that must not leak, such as a password or an API key |
+| `Stream<T>` | an asynchronous sequence that is read once, such as a streaming rpc's result |
 
-> **Proposal.** The details of `Money` follow `docs/design/proposals/money.md`. `Uuid` and `Bytes`,
-> used throughout this book for ids and binary data, follow `docs/design/proposals/crypto.md`.
+Other common value types live in standard-library modules and are imported: `Uuid` from `k.crypto`,
+`EmailAddress` from `k.text`, `TimeOfDay` from `k.time`.
+
+## Literals and parsing
+
+Types whose values can be written as text follow one convention:
+
+- **`Type("literal")` takes only a string literal**, validated at compile time, and is never optional:
+  `Url("https://api.stripe.com")`, `Uuid("0b6f2c1e-…")`, `EmailAddress("orders@shop.example")`,
+  `TimeOfDay("03:00")`. Passing anything else is a compile error, with a quick fix to `.parse`.
+- **`Type.parse(_ text: String) -> Type?` is the only runtime parse.** When a type has several text
+  forms, the label names the form: `Bytes.parse(hex:)`, `Bytes.parse(base64:)`, `Currency.parse(code:)`.
+
+```k
+let api = Url("https://api.open-meteo.com")             // checked when you compile
+let callback = Url.parse(request.query["next"] ?? "")   // Url?, checked when it runs
+```
+
+There are no failable initializers, so the same spelling never means "checked literal" for one type and
+"may fail" for another.
 
 ## Booleans and logic
 
@@ -37,6 +59,14 @@ let isGuest = not isSignedIn
 ```
 
 `&&`, `||` and `!` are compile errors with a quick fix that replaces them.
+
+**Don't compare a `Bool` with a literal.** `x == true` is just `x`, and `x == false` is `not x`. The
+compiler reports the comparison with a machine-applicable fix:
+
+```k
+let isPinned = not note.isPinned       // not `note.isPinned == false`
+expect not screen.alert().exists       // not `screen.alert().exists == false`
+```
 
 ## Optionals
 

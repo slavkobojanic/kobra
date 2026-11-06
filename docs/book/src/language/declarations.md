@@ -37,6 +37,24 @@ let home = Address(street: "Storgata 1", city: "Oslo")
 let user = User(id: id, name: "Ana", address: home)
 ```
 
+**Members follow their type.** The fields, functions, computed properties, static members and `init` of a
+`public` struct are public, with no modifier; those of a module-private struct are visible within its
+module. `private` is the only member modifier, and it hides a member from everything outside the
+declaration's body:
+
+```k
+public struct Order implements Codable {
+    let id: Uuid
+    let email: EmailAddress
+    var status: OrderStatus
+
+    private let internalNote: String = ""       // only Order's own body can read this
+}
+```
+
+Writing `public` on a member is redundant. It is a warning with a machine-applicable fix, and `k fmt`
+removes it. See [Modules and visibility](modules.md#visibility-of-members).
+
 ### Value semantics
 
 **Structs behave like values.** Assigning or passing a struct behaves like a copy, so changing one copy
@@ -277,7 +295,7 @@ Generic types are extended with their type parameters after `extend`:
 
 ```k
 extend<T> List<T> where T implements Priced {
-    var totalPrice: Money { sum { item => item.price } }
+    var totalPrice: Money { sum(in: .usd) { item => item.price } }
 }
 ```
 

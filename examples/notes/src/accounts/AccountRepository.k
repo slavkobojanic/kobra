@@ -5,7 +5,7 @@ public repository AccountRepository for Account {
     /// - Parameter email: an address already trimmed and lower-cased with
     ///   `normalized(email:)`.
     /// - Returns: the account, or `nil` when no account uses the address.
-    public func byEmail(email: String) async -> Account? {
-        return accounts.first { account => account.email == email }
+    func byEmail(email: String) async -> Account? {
+        return await accounts.first { account => account.email == email }
     }
 }

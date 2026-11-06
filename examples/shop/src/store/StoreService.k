@@ -11,7 +11,7 @@ public service StoreService {
     @Inject let api: StoreProtocol
 
     /// Lists every product, ordered by name.
-    public func products() async -> List<ProductSummary> {
+    func products() async -> List<ProductSummary> {
         return await api.products()
     }
 
@@ -19,7 +19,7 @@ public service StoreService {
     ///
     /// - Parameter slug: the product's slug.
     /// - Throws: `LookupError.notFound` when no product has this slug.
-    public func product(slug: String) async throws LookupError -> ProductSummary {
+    func product(slug: String) async throws LookupError -> ProductSummary {
         return try await api.product(slug: slug)
     }
 
@@ -28,7 +28,7 @@ public service StoreService {
     /// - Parameter request: the order form's value.
     /// - Returns: the order id and the URL to send the customer to.
     /// - Throws: every `CheckoutError`; see `StoreProtocol.placeOrder(request:)`.
-    public func placeOrder(request: OrderRequest) async throws CheckoutError -> PlacedOrder {
+    func placeOrder(request: OrderRequest) async throws CheckoutError -> PlacedOrder {
         return try await api.placeOrder(request: request)
     }
 
@@ -36,7 +36,7 @@ public service StoreService {
     ///
     /// - Parameter id: the order's id.
     /// - Throws: `LookupError.notFound` when there is no order with this id.
-    public func order(id: Uuid) async throws LookupError -> OrderSummary {
+    func order(id: Uuid) async throws LookupError -> OrderSummary {
         return try await api.order(id: id)
     }
 }

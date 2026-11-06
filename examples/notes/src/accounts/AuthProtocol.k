@@ -21,16 +21,17 @@ public protocol AuthProtocol {
     ///
     /// - Parameter request: the sign-up form, validated before this runs.
     /// - Throws: `SignUpError.emailTaken` when the email was registered after
-    ///   validation ran, and `.rejected` after 10 attempts in a minute.
-    rpc signUp(request: SignUpRequest) requires RateLimit(10.perMinute) throws SignUpError
+    ///   validation ran, and `.rpcFailure` when the request is invalid or
+    ///   after 10 attempts in a minute.
+    rpc signUp(request: SignUpRequest) throws SignUpError requires RateLimit(10.perMinute)
 
     /// Signs an existing account in.
     ///
     /// - Parameter credentials: the sign-in form.
     /// - Throws: `SignInError.invalidCredentials` when the email and password
-    ///   don't match an account, and `.rejected` after 10 attempts in a
-    ///   minute.
-    rpc signIn(credentials: Credentials) requires RateLimit(10.perMinute) throws SignInError
+    ///   don't match an account, and `.rpcFailure` when the form is invalid
+    ///   or after 10 attempts in a minute.
+    rpc signIn(credentials: Credentials) throws SignInError requires RateLimit(10.perMinute)
 
     /// Ends the current session. Signing out when not signed in does nothing.
     rpc signOut()

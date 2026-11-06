@@ -70,7 +70,7 @@ struct ForecastResponse implements Codable {
     /// Converts the response, checking what the JSON types cannot express:
     /// that parallel series have equal lengths and that the time zone exists.
     func toForecast(units: UnitSystem) throws WeatherError -> Forecast {
-        guard let timeZone = TimeZone(identifier: timezone) else {
+        guard let timeZone = TimeZone.parse(timezone) else {
             throw WeatherError.invalidResponse(reason: "unknown time zone \"{timezone}\"")
         }
 

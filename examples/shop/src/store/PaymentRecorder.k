@@ -1,17 +1,20 @@
 import k.crypto.Uuid
 import k.db.Database
+import k.server.JobQueue
 
 /// Applies confirmed payments to orders.
 ///
 /// Payment providers deliver webhooks at least once, and sometimes twice at
 /// the same moment, so recording is idempotent: marking the order paid is a
 /// conditional update that succeeds for exactly one delivery, and the
-/// confirmation email is enqueued in the same transaction. The email is sent
-/// once per paid order, however many times the event arrives.
+/// confirmation email is enqueued in the same transaction. The job becomes
+/// visible to the worker only when that transaction commits, so the email is
+/// sent once per paid order, however many times the event arrives, and never
+/// for a payment that was rolled back.
 public service PaymentRecorder {
     @Inject let orders: OrderRepository
     @Inject let database: Database
-    @Inject let confirmations: OrderConfirmationJob
+    @Inject let jobs: JobQueue
 
     /// Records that the checkout for an order was paid.
     ///
@@ -20,8 +23,8 @@ public service PaymentRecorder {
     ///   - amount: the amount the provider collected.
     ///   - reference: the provider's id for the payment.
     /// - Returns: what happened to the order. See `PaymentOutcome`.
-    public func recordPayment(orderId: Uuid, amount: Money, reference: String) async -> PaymentOutcome {
-        guard let order = await orders.byId(id: orderId) else {
+    func recordPayment(orderId: Uuid, amount: Money, reference: String) async -> PaymentOutcome {
+        guard let order = await orders.byId(orderId) else {
             return PaymentOutcome.unknownOrder
         }
 
@@ -39,7 +42,7 @@ public service PaymentRecorder {
             let marked = await orders.markPaid(id: order.id, reference: reference, paidAt: Date.now)
 
             if marked {
-                await confirmations.enqueue(payload: OrderConfirmation(orderId: order.id))
+                await jobs.enqueue(OrderConfirmationJob.kind, payload: OrderConfirmation(orderId: order.id))
             }
 
             return marked

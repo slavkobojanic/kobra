@@ -1,4 +1,5 @@
 import k.validation.Form
+import k.validation.ValidationError
 
 /// The sign-in screen.
 ///
@@ -14,8 +15,9 @@ public page SignIn {
     @Form var credentials: Credentials = Credentials(email: "", password: "")
     @State var problem: String? = nil
 
-    /// Signs in, then continues to `returnTo`.
-    func submit() async {
+    /// Signs in, then continues to `returnTo`. A validation failure from the
+    /// server is passed back to the form, which shows it under its fields.
+    func submit() async throws ValidationError {
         problem = nil
 
         do {
@@ -24,7 +26,9 @@ public page SignIn {
             Router.navigate(to: returnTo)
         } catch .invalidCredentials {
             problem = "That email and password don't match an account."
-        } catch .rejected {
+        } catch .rpcFailure(.invalid(let failure)) {
+            throw failure
+        } catch .rpcFailure(.rejected) {
             problem = "Too many attempts. Wait a minute, then try again."
         }
     }

@@ -37,12 +37,22 @@
 - [Async data loading](apps/async-data.md)
 - [Forms and validation](apps/forms.md)
 - [Protocols and RPC](apps/protocols.md)
+- [Server streaming](apps/streaming.md)
 - [Persistence](apps/persistence.md)
+- [Authentication and sessions](apps/auth.md)
+- [Configuration and secrets](apps/config.md)
+- [Endpoint pages](apps/endpoints.md)
+- [Background jobs](apps/jobs.md)
+- [Email](apps/email.md)
+- [Calling HTTP APIs](apps/http.md)
+- [Bytes and cryptography](apps/crypto.md)
+- [Time and timers](apps/time.md)
+- [Local storage](apps/local-storage.md)
 - [Testing](apps/testing.md)
 - [Packages](apps/packages.md)
 - [Document metadata](apps/metadata.md)
 - [The app declaration](apps/app.md)
-- [Configuration and deployment](apps/deployment.md)
+- [Deployment](apps/deployment.md)
 
 # Reference
 

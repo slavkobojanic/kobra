@@ -1,4 +1,3 @@
-import pages.SignIn
 import pages.Storefront
 import payments.LocalCheckout
 import payments.PaymentGateway
@@ -14,15 +13,16 @@ import payments.StripeCheckout
 ///   Stripe; development and tests never leave the machine. Because
 ///   `StripeCheckout` is the only code that injects `StripeApiConfig`, only a
 ///   production server requires `STRIPE_API_KEY`.
-/// - **The default layout**, which wraps every page in `Storefront`.
+/// - **The default layout**, which wraps every view page in `Storefront`.
 /// - **The sign-in page**, where the `Authenticated` guard sends visitors
 ///   without a session.
 ///
 /// Everything else (`EmailProvider`, `JobQueue`, `HttpClient`, `Database`) has
 /// exactly one implementation outside tests, the stdlib's own, configured
-/// from the environment as described in `README.md`.
+/// from the environment as described in `README.md`. In tests, each of those
+/// with I/O has a hermetic default from `k.test`.
 @Layout(Storefront)
-@SignInPage(SignIn)
+@SignInPage(.signIn)
 public app Shop {
     use StripeCheckout for PaymentGateway in .production
     use LocalCheckout for PaymentGateway in .development, .test

@@ -22,9 +22,16 @@ Agents write most code now, and humans review it. Code is read far more than it 
 
 Each thing should have one way to do it. Agents produce more consistent code when the language offers no equivalent alternatives, and codebases look alike.
 
+When a redundant second spelling is still parseable, the compiler reports it with a machine-applicable fix, and `k fmt` applies the fix where it can:
+
+- `public` on a member, which is public by default ([16-modules.md](16-modules.md));
+- comparing a `Bool` with a literal (`x == false`), instead of `not x` ([08-types.md](08-types.md));
+- a top-level `case _` arm in `match`, instead of `default` ([08-types.md](08-types.md));
+- a `use` rule in a test that restates the default test double ([21-testing.md](21-testing.md)).
+
 ## Keywords declare kinds; annotations modify behavior
 
-- A **keyword** declares a kind of thing with its own compiler semantics: `component`, `page`, `layout`, `service`, `protocol`, `entity`, `repository`, `struct`, `enum`, `class`, `interface`, `theme`.
+- A **keyword** declares a kind of thing with its own compiler semantics: `component`, `page`, `layout`, `service`, `protocol`, `entity`, `repository`, `struct`, `enum`, `class`, `interface`, `theme`, `app`, `config`, `migration`, `test`.
 - An **annotation** modifies behavior within a kind: `@State`, `@Derived`, `@Effect`, `@Prop`, `@Binding`, `@Slot`, `@Stylable`, `@Inject`, `@Scope`, `@Param`.
 - **Declaration clauses** read as prose: `page Admin requires Authenticated at "/admin"`, `service CartApi implements CartProtocol`.
 
@@ -38,8 +45,8 @@ Each thing should have one way to do it. Agents produce more consistent code whe
 Declarations follow Swift: `let` for constants, `var` for variables. Every declaration states its mutability, including annotated fields. The annotation determines which keyword is allowed, and a mismatch is a compile error with a quick fix.
 
 ```k
-@State var isOpen: Bool = false      // @State, @Binding, @Form → var
-@Prop let label: String              // @Prop, @Derived, @Load, @Inject, @Param, @Slot, @Stylable, @Emits → let
+@State var isOpen: Bool = false      // @State, @Binding, @Form, @Version → var
+@Prop let label: String              // @Prop, @Derived, @Load, @Inject, @Param, @Slot, @Stylable, @Emits, @Env → let
 @Prop var label: String              // compile error: @Prop is read-only; use let
 ```
 
@@ -66,17 +73,25 @@ image(source: user.avatarUrl, description: "Profile photo of {user.name}")
 
 This rule covers HTML elements, components, pages and types annotated `@Builder`. Plain functions use ordinary default parameters. See [04-components.md](04-components.md).
 
+**A boolean option is chained with its value:** `.disabled(isSubmitting)`, `.dashed(true)`, `.primaryKey(true)`. There are no zero-argument flag methods such as `.primaryKey()`, so a flag set from a variable and a flag set to a constant read the same way.
+
 ## Compile time over runtime
 
 Whatever can be resolved statically is: dependency injection, URLs, class references, Protobuf field numbers, reactive dependency hints. A mistake that would be a runtime bug elsewhere is a compile error in K.
+
+- **Validated literals are checked at compile time.** `Url("https://…")`, `Uuid("…")` and `EmailAddress("…")` take only a string literal and are never optional. Text known only at runtime goes through `Type.parse(…)`, which returns an optional. See [20-standard-library.md](20-standard-library.md).
+- **A distinction the type system can make, it makes,** rather than a runtime check or a heuristic warning: a `Mac` can't be compared with `==` ([33-crypto.md](33-crypto.md)), and an email address can't be invalid once it is an `EmailAddress` ([31-email.md](31-email.md)).
 
 ## Lockfiles for anything outside systems depend on
 
 When something outside the codebase depends on a generated value, the compiler records it in a committed lockfile and detects breaking changes:
 
-- `protocol.lock` records Protobuf field numbers ([11-protocols-and-rpc.md](11-protocols-and-rpc.md))
+- `protocol.lock` records Protobuf package, service and method names and field numbers ([11-protocols-and-rpc.md](11-protocols-and-rpc.md), [28-rpc-wire-format.md](28-rpc-wire-format.md))
 - `routes.lock` records URLs ([12-routing.md](12-routing.md))
-- `schema.lock` records the database schema ([19-persistence.md](19-persistence.md))
+- `schema.lock` records the database schema, including the table and column name of every entity and field ([19-persistence.md](19-persistence.md))
+- `storage.lock` records formats the app stores outside a request: browser storage keys and background job payloads ([36-local-storage.md](36-local-storage.md), [30-background-jobs.md](30-background-jobs.md))
+
+A name that something outside depends on is recorded once and then kept: renaming the declaration it came from never silently changes it. Changing a recorded value requires `@Breaking("reason")`.
 
 ## Errors for machines and humans
 

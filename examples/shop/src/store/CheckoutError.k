@@ -1,4 +1,4 @@
-import k.auth.GuardRejection
+import k.rpc.RpcFailure
 
 /// Everything that can stop `StoreProtocol.placeOrder(request:)` from
 /// placing an order.
@@ -13,7 +13,7 @@ public enum CheckoutError implements Error {
     /// cancelled and its stock released, so trying again is safe.
     case paymentUnavailable
 
-    /// A `requires` guard on the rpc refused the call; for this rpc, the
-    /// rate limit.
-    case rejected(GuardRejection)
+    /// The call was refused before it ran: the order form failed validation
+    /// on the server, or the client exceeded the rate limit.
+    case rpcFailure(RpcFailure)
 }

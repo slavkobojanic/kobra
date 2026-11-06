@@ -17,6 +17,7 @@ import ui.Panel
 public page Home at "/" {
     @Inject let todos: TodoService
     @Inject let appearance: AppearanceService
+    @Inject let theme: Theme
 
     @State var filter: Filter = .all
 
@@ -43,10 +44,11 @@ public page Home at "/" {
     /// Keeps the theme variant in step with the chosen color scheme.
     ///
     /// The effect reads `appearance.scheme`, so it runs once on mount and
-    /// again whenever the choice changes.
+    /// again whenever the choice changes. `theme.use` swaps one class on the
+    /// document root, so nothing re-renders.
     @Effect
     func applyColorScheme() {
-        Theme.use(if appearance.scheme == .dark { .dark } else { .base })
+        theme.use(if appearance.scheme == .dark { .dark } else { .base })
     }
 
     metadata {

@@ -6,22 +6,22 @@
 /// never caches forecasts.
 public struct Place implements Codable, Equatable {
     /// The GeoNames id of the place, for example `2950159` for Berlin.
-    public let id: Int
+    let id: Int
 
     /// The place's name in English, for example `"Berlin"`.
-    public let name: String
+    let name: String
 
     /// The first-level administrative area (state, province, region), when known.
-    public let region: String?
+    let region: String?
 
     /// The country name in English, when the place lies within a country.
-    public let country: String?
+    let country: String?
 
     /// Latitude in decimal degrees, positive north of the equator.
-    public let latitude: Double
+    let latitude: Double
 
     /// Longitude in decimal degrees, positive east of Greenwich.
-    public let longitude: Double
+    let longitude: Double
 
     /// The name, region and country joined for display, for example
     /// `"Berlin, Land Berlin, Germany"`.
@@ -29,13 +29,11 @@ public struct Place implements Codable, Equatable {
     /// The region is left out when it repeats the name, so Lisbon reads
     /// `"Lisbon, Portugal"` rather than `"Lisbon, Lisbon, Portugal"`. Missing
     /// parts are skipped.
-    public var displayName: String {
+    var displayName: String {
         var parts: List<String> = [name]
 
-        if let region {
-            if region != name {
-                parts.append(region)
-            }
+        if let region, region != name {
+            parts.append(region)
         }
 
         if let country {

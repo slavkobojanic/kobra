@@ -11,7 +11,6 @@
 /// }
 /// .actions {
 ///     button { "Clear" }
-///         .on(click: clear)
 /// }
 /// ```
 public component Panel {

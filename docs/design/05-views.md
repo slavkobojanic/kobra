@@ -32,7 +32,7 @@ view {
 - **Lowercase names are built-in elements. Capitalized names are components,** from the stdlib or your own.
 - **Built-in elements are type-checked.** Required attributes are named arguments (`image` requires `description`), and invalid values or misspelled attributes are compile errors.
 - **Text is a string literal written directly inside a block.** No wrapper is needed.
-- **Events are chained:** `.on(click: handler)`.
+- **Events are chained, one per call:** `.on(click: handler)`. See [04-components.md](04-components.md#events) for handler rules.
 - **Classes are typed references** to the component's `style` block: `.class(.muted)`. See [06-styles.md](06-styles.md).
 
 ## Control flow
@@ -54,7 +54,7 @@ view {
 
         case .failed(let error) {
             ErrorBanner(message: error.message)
-                .retry(load)
+                .on(retry: load)
         }
     }
 }
@@ -86,6 +86,53 @@ HTML's abbreviated names are replaced with **full English names in camel case**.
 These keep their HTML names: `button`, `form`, `label`, `nav`, `main`, `section`, `article`, `aside`, `header`, `footer`, `figure` (with `caption`), `video`, `audio`, `canvas`.
 
 The stdlib provides layout components (`Stack`, `Grid`, `Spacer`) and accessible widgets (`Dialog`, `Tabs`, `Menu`) built on these elements.
+
+## Inputs and accessibility attributes
+
+### Inputs bind their value
+
+Every input takes its bound value as the required argument, with `bind x` or a custom `Binding` ([04-components.md](04-components.md)):
+
+```k
+textField(value: bind signup.email)
+    .label("Email")
+
+checkbox(isChecked: bind todo.isDone)
+    .label("Done")
+```
+
+- `checkbox(isChecked:)` binds a `Bool`, named after the property it reflects, with the `is` prefix the design uses for booleans.
+
+### Attributes are per element
+
+`.label`, `.placeholder`, `.type`, `.pressed`, `.expanded` and `.role` are **attributes of built-in elements**, generated per element from the element's typed definition like any optional attribute. They are not registered modifiers, so they don't reserve names for component props. Using one on an element that doesn't define it is a compile error.
+
+| Attribute | Compiles to | Defined on |
+|---|---|---|
+| `.label("…")` | a visible `<label>` on form controls; `aria-label` elsewhere | form controls; landmarks and groups (`nav`, `section`, `form`, `list`, `numberedList`, `table`); elements given a `.role` |
+| `.placeholder("…")` | `placeholder` | text inputs |
+| `.type(.submit)`, `.type(.button)`, `.type(.reset)` | `type` | `button`. `.type(.button)` is needed on a non-submitting button inside a `form`. |
+| `.pressed(Bool)` | `aria-pressed` | `button` |
+| `.expanded(Bool)` | `aria-expanded` | `button`, `link` |
+| `.role(.alert)`, `.role(.status)` | `role` (both are live regions) | non-interactive elements |
+
+- **On a form control, `.label` is the visible label.** Tests find the control by it: `textField(labeled:)`, `checkbox(labeled:)` ([21-testing.md](21-testing.md)).
+- **On a landmark or group, `.label` is its accessible name** (`nav { … }.label("Filter todos")`). The compiler warns when a second landmark of the same kind, such as a second `nav`, has no name.
+- **`.label` is not defined on `button` or `link`.** Their accessible name is their visible content, which voice-control users say aloud (WCAG 2.5.3, label in name). To add words for screen readers only, put them in the content with `VisuallyHidden` from `k.ui`:
+
+  ```k
+  button {
+      "Delete"
+
+      VisuallyHidden { " {todo.title}" }
+  }
+  .on(click: delete)
+  ```
+
+  Its accessible name is "Delete Buy milk", and it still starts with the visible text.
+- **On an element with visible text and a `.role`, a `.label` that doesn't contain the visible text is a warning,** for the same reason.
+- `.role` accepts only roles the element doesn't already have and that no semantic element expresses. `section { }.role(.navigation)` is a compile error with the hint "use `nav`".
+- `.pressed` on a `box` is a compile error: only buttons can be pressed.
 
 ## Formatting
 

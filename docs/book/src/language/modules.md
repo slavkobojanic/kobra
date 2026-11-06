@@ -21,7 +21,8 @@ The module name is the directory path under `src/`, with dots: `src/shop/cart/` 
 ## One public declaration per file
 
 **A file has at most one `public` declaration, and the file is named after it.** `CartService.k` holds
-`public service CartService`. Any public type can therefore be found from its name alone.
+`public service CartService`. Any public type can therefore be found from its name alone. Extensions
+don't count, because they have no name.
 
 Other declarations in the same file are helpers. They are visible within the module, but not outside it:
 
@@ -30,33 +31,67 @@ Other declarations in the same file are helpers. They are visible within the mod
 import shop.catalog.Product
 import shop.catalog.ProductService
 
-public service CartService {             // visible to every module
-    @Inject let products: ProductService
+public service CartService {               // visible to every module
+    @Inject let products: ProductService    // always private: dependencies are never API
 
-    private var retryCount = 0           // visible only inside CartService
+    @State var items: List<CartItem> = []   // public, because CartService is
+    private var retryCount = 0              // visible only inside CartService
 
-    func add(product: Product) { … }
+    func add(product: Product) { … }        // public, because CartService is
 }
 
-struct CartLine { … }                    // no modifier: visible within shop.cart only
+struct CartLine { … }                      // no modifier: visible within shop.cart only
 ```
 
-## Visibility
+## Visibility of declarations
 
 | Modifier | Visible to |
 |---|---|
 | `public` | every module |
-| *(none)* | the same module, like Java's package-private |
-| `private` | only the enclosing declaration |
+| *(none)* | the same module (directory), like Java's package-private |
+| `private` | only the file that declares it |
 
 The default, module visibility, is the right one for most declarations: everything a module needs
 internally is shared within it, and nothing leaks out. Make a declaration `public` when other modules
 need it, and `private` when even the rest of its module shouldn't touch it.
 
-The same modifiers apply to members. A public struct's fields are visible outside its module only if they
-are `public` too.
-
 There is no `protected`, because there is no inheritance.
+
+## Visibility of members
+
+**A member is visible wherever the declaration that holds it is visible, unless it is marked
+`private`.** The visibility of a type is stated once, on the type:
+
+- Fields, functions, computed properties, static members and `init` of a `public` type are public. Those
+  of a module-private type are visible within its module.
+- **`private` is the only member modifier.** It restricts a member to the body of its enclosing
+  declaration.
+- **`public` on a member is redundant.** It is a warning with a machine-applicable fix, and `k fmt`
+  removes it, so there is one spelling.
+- **`@Inject` fields are always private** to the declaration that injects them. Writing `public` on one
+  is a compile error, and `private` is redundant. A type's dependencies are never part of its API, so
+  other code can't read `verifier.config`, and a fake never has to declare its target's dependencies.
+- **Writes are restricted separately from visibility.** A service's `var` fields, `@State` or not, are
+  writable only by the service's own methods. A struct's `var` fields are writable by whoever holds a
+  `var` copy, because structs are values.
+- Enum cases and the `rpc`s of a protocol can't be `private`.
+
+Members are API unless hidden, which is the common case, and `private` marks the exception a reviewer
+needs to see.
+
+## Extensions
+
+An extension has no name, so it can't be imported. Its members follow the extension's own modifier:
+
+| Extension | Its members are visible |
+|---|---|
+| `public extend Place { … }` | wherever `Place` is visible, with no import |
+| `extend Place { … }` | within the extension's module |
+
+- `private extend` is a compile error.
+- Two visible extensions that add a member with the same name to the same type are a compile error at
+  the second.
+- A file that holds only extensions is named after their purpose, for example `Samples.k`.
 
 ## Imports
 
@@ -72,13 +107,14 @@ import k.collections.LruCache
 - There are no wildcard imports, so the origin of every name is visible at the top of the file.
 - Imports come before any declaration in the file.
 - Declarations in the same module need no import.
-- **Built-in elements and core types** (`String`, `List`, `Map`, `Color`, units and the rest) need no
-  import either. Neither do the generated `Page` enum and theme tokens.
+- **Built-in elements and core types** (`String`, `List`, `Map`, `Color`, `Bytes`, `Url`, `Secret`,
+  units and the rest) need no import either. Neither do the enums the compiler generates for the app
+  (`Page`, `Endpoint`, `ThemeVariant`) or theme tokens.
 - Packages are imported by their module path: `import github.com/acme/charts.LineChart`, or
   `import charts.LineChart` with an alias in `k.toml`. See [Packages](../apps/packages.md).
 
-> **Planned.** The language server, which adds and removes imports automatically as you write code, is
-> deferred.
+> **Planned.** The language server, which adds and removes imports automatically as you write code,
+> isn't in the first compiler releases.
 
 ## No cycles
 
@@ -91,21 +127,25 @@ detection.
 
 ## Test-only modules
 
-> **Proposal.** Test-only modules follow `docs/design/proposals/testing-support.md`.
-
 A directory named `testing`, at any depth, is a **test-only module**. It holds shared fakes and fixtures.
-Only test files and other test-only modules may import from it, and it never becomes part of a build.
+Only test files and other test-only modules may import from it, it may import `k.test`, and it never
+becomes part of a build.
 
 ```text
 src/
   testing/
-    FakeCartApi.k
+    FakeWeatherService.k
     Samples.k
 ```
+
+- **Fixtures are static members added by a `public extend`** in a test-only module. By the extension
+  rule above they are visible to every test file with no import, and to no production code.
+- **Declarations in a `*.test.k` file**, such as helper functions and helper components, are visible
+  only to the test files of the same module.
 
 ## Server-only code
 
 Module visibility answers "who may use this declaration?". A second, independent rule answers "where may
-it run?": **server-only declarations**, such as repositories, configurations and services that implement
-protocols, can never be imported into code that runs in the browser. The compiler checks this boundary
+it run?": **server-only declarations**, such as entities, repositories, configs, endpoint pages and services
+that implement protocols, can never be imported into code that runs in the browser. The compiler checks this boundary
 across modules. See [Services and dependency injection](../apps/services.md#the-serverclient-boundary).

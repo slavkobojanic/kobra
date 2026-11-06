@@ -1,4 +1,4 @@
-import k.auth.GuardRejection
+import k.rpc.RpcFailure
 
 /// Why a call about one existing note failed.
 public enum LookupError implements Error {
@@ -6,6 +6,7 @@ public enum LookupError implements Error {
     /// two look identical on purpose, so ids can't be probed.
     case notFound
 
-    /// The `Authenticated` guard refused the call: nobody is signed in.
-    case rejected(GuardRejection)
+    /// The call failed before `NotesApi` saw it: the `Authenticated` guard
+    /// refused it because nobody is signed in.
+    case rpcFailure(RpcFailure)
 }

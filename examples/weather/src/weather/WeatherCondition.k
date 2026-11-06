@@ -36,7 +36,7 @@ public enum WeatherCondition implements Codable, Equatable {
     case unknown
 
     /// A short English description, for example `"Partly cloudy"`.
-    public var label: String {
+    var label: String {
         match self {
             case .clear { "Clear" }
 
@@ -63,7 +63,7 @@ public enum WeatherCondition implements Codable, Equatable {
     /// - Parameter isDay: whether the sun is up at the place. Clear and partly
     ///   cloudy skies show the moon at night; other conditions look the same.
     /// - Returns: the icon to pass to `Icon(name:)`.
-    public func icon(isDay: Bool) -> IconName {
+    func icon(isDay: Bool) -> IconName {
         return match self {
             case .clear where isDay { .sun }
 

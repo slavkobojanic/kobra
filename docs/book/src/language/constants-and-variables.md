@@ -37,8 +37,8 @@ or `var`**, and you still write the keyword:
 
 ```k
 component Stepper {
-    @Binding var value: Int          // @Binding, @State and @Form are always var
-    @Prop let step: Int = 1          // @Prop, @Derived, @Load, @Inject, @Param, @Slot, @Stylable and @Emits are always let
+    @Binding var value: Int          // @Binding, @State, @Form and @Version are always var
+    @Prop let step: Int = 1          // @Prop, @Derived, @Load, @Inject, @Param, @Slot, @Stylable, @Emits and @Env are always let
     @State var isFocused: Bool = false
 
     private var clicks = 0           // a plain var: ordinary, non-reactive data
@@ -88,8 +88,8 @@ func clamp(value: Int, low: Int, high: Int) -> Int { … }
 
 ## Static members
 
-Types can have static constants and functions, declared with `static`. They're often used with
-[implicit member expressions](types.md#implicit-member-expressions):
+Types can have static constants and functions, declared with `static let` and `static func`. They're
+often used with [implicit member expressions](types.md#implicit-member-expressions):
 
 ```k
 struct Padding {
@@ -101,3 +101,5 @@ struct Padding {
 
 let padding: Padding = .compact
 ```
+
+Like every member, a static member is visible wherever its type is, unless it is marked `private`.

@@ -1,5 +1,5 @@
-import k.http.HttpRequest
 import k.http.HttpResponse
+import k.http.IncomingRequest
 import k.observe.Log
 import payments.StripeWebhookVerifier
 import store.PaymentRecorder
@@ -7,9 +7,11 @@ import store.PaymentRecorder
 /// The endpoint Stripe calls when something happens to a payment.
 ///
 /// It is an endpoint page: it has a handler instead of a `view`, so it
-/// answers raw HTTP and is compiled into the server bundle only. Its URL is
-/// named because it is registered in the Stripe dashboard, and renaming the
-/// page must never move it.
+/// answers raw HTTP and is compiled into the server bundle only. Endpoint
+/// pages exist only for callers that can't speak RPC, and always have a
+/// fixed URL; this one is registered in the Stripe dashboard, so renaming
+/// the page must never move it. It doesn't inject `Session`, so it receives
+/// no cookie and needs no request-forgery check.
 ///
 /// Responses follow Stripe's retry rules. Anything Stripe can't fix by
 /// sending again (a recorded payment, an ignored event, an unknown order)
@@ -21,11 +23,12 @@ public page StripeWebhook at "/webhooks/stripe" {
 
     /// Verifies the delivery, then applies it to its order.
     @Post
-    func receive(request: HttpRequest) async -> HttpResponse {
+    func receive(request: IncomingRequest) async -> HttpResponse {
         let signature = request.headers["stripe-signature"]
 
-        let event = try verifier.verify(payload: request.rawBody, signatureHeader: signature) else {
-            return HttpResponse(status: 400, body: "Webhook signature verification failed.")
+        let event = try await verifier.verify(payload: request.rawBody, signatureHeader: signature) else {
+            return HttpResponse(status: .badRequest)
+                .body(.text("Webhook signature verification failed."))
         }
 
         match event {
@@ -56,6 +59,6 @@ public page StripeWebhook at "/webhooks/stripe" {
             }
         }
 
-        return HttpResponse(status: 204)
+        return HttpResponse(status: .noContent)
     }
 }

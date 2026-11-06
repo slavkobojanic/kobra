@@ -1,11 +1,9 @@
 import k.test.TestClock
-import k.time.Clock
 import testing.FakeWeatherService
 import weather.WeatherService
 
 test CitySearch {
     use FakeWeatherService for WeatherService
-    use TestClock for Clock
 
     @Inject let weather: FakeWeatherService
     @Inject let clock: TestClock
@@ -88,7 +86,7 @@ test CitySearch {
     }
 
     test "a failed search shows an error instead of results" {
-        weather.simulateFailure(error: .network(.offline))
+        weather.simulateFailure(error: .offline)
         let screen = render(CitySearch())
 
         screen.textField(labeled: "City").fill("Berlin")

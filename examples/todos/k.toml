@@ -1,10 +1,11 @@
-# Format: docs/design/proposals/k-toml.md (Status: proposal)
+# Format: docs/design/24-projects.md
 
 [package]
 name = "todos"
-version = "0.1.0"
+title = "Todos"
 description = "A small todo list that keeps everything in the browser."
 k = "0.1"
+version = "0.1.0"
 
 # This example uses only the standard library, so it has no [dependencies]
 # and no [aliases].

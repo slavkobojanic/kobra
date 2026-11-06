@@ -66,7 +66,7 @@ replace them entirely:
 
 ```k
 Timer.every(30.seconds) { refresh() }
-items.sum { item => item.price }
+items.sum(in: .usd) { item => item.price }
 ```
 
 This is the same mechanism that makes views read naturally. `box { … }` is a call to `box` with a

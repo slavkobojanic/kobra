@@ -75,6 +75,12 @@ Stepper(value: bind quantity)
 - **Modifiers**, cross-cutting behaviors such as `.tooltip()`, `.animate()` and `.track()`, are chained
   too, but **apply in the order written**.
 - A prop can't share a name with a registered modifier. That is a compile error at the prop declaration.
+- **A `Bool` prop with a default is chained with its value:** `.dashed(true)`, `.disabled(isSubmitting)`.
+  There are no zero-argument flag methods.
+- **The attributes of built-in elements are not modifiers.** `.label`, `.placeholder`, `.type`,
+  `.pressed`, `.expanded` and `.role` are generated per element, like any optional attribute, so they
+  don't reserve names: `@Prop let label: String` is fine. A component that wants an accessible name
+  declares its own `label` prop and applies it to an element inside.
 
 This is the same rule that built-in elements follow: `image(source:description:)` takes its required
 values as arguments and its options, like `.loading(.lazy)`, as chained calls.
@@ -137,9 +143,7 @@ visible in review.
 `@Emits` declares an event, and `emit` fires it. Use events for things that happened (submitted, closed,
 deleted), and bindings for state the parent shares.
 
-> **Proposal.** Listening to component events follows `docs/design/proposals/component-events.md`.
-
-A parent listens with the same chained `.on(…)` it uses for element events, naming the event:
+A parent listens with the same chained `.on(…)` it uses for element events, naming the `@Emits` field:
 
 ```k
 Counter(label: "Votes")
@@ -147,9 +151,30 @@ Counter(label: "Votes")
 
 NoteCard(note: note)
     .on(pinToggled: togglePin)
+
+Dialog(title: "Delete note?") { … }
+    .on(closed: { isOpen = false })
 ```
 
-Listening is optional, and an event nobody listens to does nothing.
+- **The handler's type follows the event's payload.** For `Event<T>` it is a function taking a `T`: a
+  lambda with one parameter, or a function passed by name. An event without a payload is declared
+  `Event<Void>`, fired with `emit()`, and handled by a lambda without parameters.
+- **One event per `.on(…)` call,** for elements and components alike. `.on(click: f, keyDown: g)` is a
+  compile error with a fix that splits it into two calls.
+- **Listening is optional.** An event nobody listens to does nothing, so events are never required
+  arguments.
+- **Unknown event names are compile errors,** with a hint listing the component's `@Emits` fields.
+- `emit` can be called only from inside the declaring component. A parent can't fire a child's event.
+
+### Handlers
+
+- **Handlers may be `async`.** The element or component doesn't wait for them, and leaving the page
+  cancels a handler that is still running.
+- **A handler can't be declared `throws`.** Nothing waits for it, so nothing could catch its error. It
+  handles every error inside, usually by recording it in state. Passing a throwing function to `.on(…)`
+  is a compile error, with a quick fix that wraps its body in `do`/`catch`.
+- A form's submit handler is usually wrapped by `form.handle(…)`, whose action may throw
+  `ValidationError` ([Forms](forms.md)). The handler `form.handle` returns doesn't throw.
 
 ## Slots
 

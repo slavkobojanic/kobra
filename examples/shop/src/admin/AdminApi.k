@@ -1,4 +1,4 @@
-import k.auth.Session
+import k.auth.SessionManager
 import k.crypto.Password
 import k.observe.Log
 import store.OrderRepository
@@ -10,15 +10,15 @@ import store.OrderSummary
 /// a signed-in admin and contains no permission check of its own.
 public service AdminApi implements AdminProtocol {
     @Inject let config: AdminConfig
-    @Inject let session: Session
+    @Inject let sessions: SessionManager
     @Inject let orders: OrderRepository
 
     rpc signIn(request: SignInRequest) async throws SignInError {
         // Verify the password even when the email is wrong, so the response
         // time doesn't reveal whether an email address has an account.
-        let passwordMatches = await Password.verify(password: request.password, hash: config.passwordHash.reveal())
+        let passwordMatches = await Password.verify(password: request.password, hash: config.passwordHash)
 
-        guard request.email.lowercased() == config.email.lowercased() else {
+        guard request.email.address.lowercased() == config.email.address.lowercased() else {
             throw SignInError.invalidCredentials
         }
 
@@ -28,11 +28,11 @@ public service AdminApi implements AdminProtocol {
             throw SignInError.invalidCredentials
         }
 
-        await session.signIn(userId: config.email, roles: Set([StaffRole.admin]))
+        await sessions.signIn(userId: StaffId(email: config.email), roles: Set([StaffRole.admin]))
     }
 
     rpc signOut() async {
-        await session.signOut()
+        await sessions.signOut()
     }
 
     rpc recentOrders() async throws AdminError -> List<OrderSummary> {

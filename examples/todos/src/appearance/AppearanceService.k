@@ -13,10 +13,10 @@ import k.storage.StorageKey
 public service AppearanceService {
     @Inject let storage: LocalStorage
 
-    private let savedScheme = StorageKey<ColorScheme>(name: "colorScheme")
+    private let savedScheme: StorageKey<ColorScheme> = StorageKey(name: "colorScheme")
 
     /// The color scheme in use. `.light` until the user chooses.
-    @State public var scheme: ColorScheme = .light
+    @State var scheme: ColorScheme = .light
 
     /// Restores the saved choice as soon as the service is created, so the
     /// first render already uses it.
@@ -28,7 +28,7 @@ public service AppearanceService {
     ///
     /// - Parameter scheme: the scheme to use from now on. It is used even
     ///   when it can't be saved.
-    public func choose(scheme: ColorScheme) {
+    func choose(scheme: ColorScheme) {
         self.scheme = scheme
 
         try storage.write(key: savedScheme, value: scheme) else { return }
@@ -36,7 +36,7 @@ public service AppearanceService {
 
     /// Replaces the current scheme with the saved one. Keeps the current
     /// scheme when nothing is saved, or when the saved value can't be read.
-    public func restore() {
+    func restore() {
         let saved = try storage.read(key: savedScheme) else { return }
 
         if let saved {

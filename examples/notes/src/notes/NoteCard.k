@@ -1,3 +1,5 @@
+import k.ui.VisuallyHidden
+
 /// One note in the list: its title, linking to the editor, the start of its
 /// text, its tags, when it was last edited, and a pin toggle.
 public component NoteCard {
@@ -15,9 +17,15 @@ public component NoteCard {
                     link(to: .editNote(id: note.id)) { note.title }
                 }
 
-                button { "Pin" }
-                    .pressed(note.isPinned)
-                    .on(click: { pinToggled.emit(note) })
+                // Every card has a pin toggle, so screen readers also hear
+                // which note it pins: "Pin Groceries".
+                button {
+                    "Pin"
+
+                    VisuallyHidden { " {note.title}" }
+                }
+                .pressed(note.isPinned)
+                .on(click: { pinToggled.emit(note) })
             }
             .class(.heading)
 

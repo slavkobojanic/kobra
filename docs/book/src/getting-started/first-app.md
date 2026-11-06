@@ -3,9 +3,6 @@
 In this chapter you'll create a K app, run it, change it, test it and build it for production. It
 takes about five minutes.
 
-> **Proposal.** `k new` and the skeleton it generates follow the proposal in
-> `docs/design/proposals/project-creation.md`.
-
 ## Creating a project
 
 ```bash
@@ -18,8 +15,8 @@ cd hello
 ```text
 hello/
   k.toml                 the project manifest
-  App.k                  the app declaration
-  .gitignore
+  App.k                  the app declaration: public app Hello { … }
+  .gitignore             ignores dist/, .k/ and .env
   src/
     home/
       Home.k             the start page
@@ -28,8 +25,10 @@ hello/
       AppTheme.k         design tokens: colors, spacing, fonts
 ```
 
-There are no templates to choose from and nothing to configure. Every K project starts from the same
-skeleton, and the [project layout](project-layout.md) is fixed.
+There are no templates to choose from and nothing to configure. Every K app starts from the same
+skeleton, and the [project layout](project-layout.md) is fixed. The `app` is named after the project in
+upper camel case, so `k new my-shop` declares `public app MyShop`. Every generated file is already
+formatted and passes `k check`, including the test.
 
 ## Running it
 
@@ -43,8 +42,8 @@ k dev
 `k dev` keeps running. When you save a file it rebuilds what changed and reports any compile errors in
 the terminal.
 
-> **Planned.** State-preserving hot module replacement (HMR) is designed but deferred. Today `k dev`
-> rebuilds on save and the page reloads. With HMR, edits will apply without a reload, and component
+> **Planned.** State-preserving hot module replacement (HMR) isn't in the first compiler releases.
+> Today `k dev` rebuilds on save and the page reloads. With HMR, edits will apply without a reload, and component
 > state will be preserved, which is possible because K state is always declared explicitly with
 > `@State`.
 

@@ -1,6 +1,7 @@
 import k.crypto.Uuid
 import k.db.Database
 import k.observe.Log
+import k.server.PublicUrls
 import payments.CheckoutRequest
 import payments.PaymentGateway
 
@@ -19,6 +20,7 @@ public service StoreApi implements StoreProtocol {
     @Inject let orders: OrderRepository
     @Inject let database: Database
     @Inject let payments: PaymentGateway
+    @Inject let urls: PublicUrls
 
     rpc products() async -> List<ProductSummary> {
         let all = await catalog.all()
@@ -27,7 +29,7 @@ public service StoreApi implements StoreProtocol {
     }
 
     rpc product(slug: String) async throws LookupError -> ProductSummary {
-        guard let product = await catalog.bySlug(slug: slug) else {
+        guard let product = await catalog.bySlug(slug) else {
             throw LookupError.notFound
         }
 
@@ -35,7 +37,7 @@ public service StoreApi implements StoreProtocol {
     }
 
     rpc placeOrder(request: OrderRequest) async throws CheckoutError -> PlacedOrder {
-        guard let product = await catalog.bySlug(slug: request.productSlug) else {
+        guard let product = await catalog.bySlug(request.productSlug) else {
             throw CheckoutError.productNotFound
         }
 
@@ -62,8 +64,8 @@ public service StoreApi implements StoreProtocol {
             description: product.name,
             unitPrice: order.unitPrice,
             quantity: order.quantity,
-            returnUrl: Page.receipt(id: order.id).absoluteUrl,
-            cancelUrl: Page.productDetail(slug: product.slug).absoluteUrl
+            returnUrl: urls.absolute(.receipt(id: order.id)),
+            cancelUrl: urls.absolute(.productDetail(slug: product.slug))
         )
 
         do {
@@ -84,7 +86,7 @@ public service StoreApi implements StoreProtocol {
     }
 
     rpc order(id: Uuid) async throws LookupError -> OrderSummary {
-        guard let order = await orders.byId(id: id) else {
+        guard let order = await orders.byId(id) else {
             throw LookupError.notFound
         }
 

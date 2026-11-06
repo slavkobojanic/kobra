@@ -11,7 +11,7 @@ public enum TitleError implements Error {
 
     /// A short sentence explaining the problem, written to be shown next to
     /// the field the title was typed into.
-    public var message: String {
+    var message: String {
         return match self {
             case .empty { "Give the todo a title." }
             case .tooLong(let limit) { "Keep the title to {limit} characters or fewer." }

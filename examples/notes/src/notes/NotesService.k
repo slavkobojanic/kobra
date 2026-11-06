@@ -11,17 +11,17 @@ public service NotesService {
     @Inject let api: NotesProtocol
 
     /// Every note of the account: pinned first, then most recently edited.
-    @State public var all: List<NoteSummary> = []
+    @State var all: List<NoteSummary> = []
 
     /// Whether `all` reflects the server: `true` once `watch()` has received
     /// its first snapshot, and `false` again after the stream ends.
-    @State public var isLive: Bool = false
+    @State var isLive: Bool = false
 
     /// Follows the server's change stream until the stream ends or the
     /// caller is cancelled, for example by leaving the page that called it.
     ///
-    /// - Throws: `AccessError.rejected` when nobody is signed in.
-    public func watch() async throws AccessError {
+    /// - Throws: `AccessError.rpcFailure` when nobody is signed in.
+    func watch() async throws AccessError {
         let changes = try await api.watch()
 
         for await change in changes {
@@ -35,15 +35,15 @@ public service NotesService {
     /// order of `all`.
     ///
     /// - Parameter filter: the text as typed. A blank filter returns `all`.
-    public func matching(filter: String) -> List<NoteSummary> {
+    func matching(filter: String) -> List<NoteSummary> {
         return all.filter { note => note.matches(query: filter) }
     }
 
     /// Loads one note from the server.
     ///
     /// - Throws: `LookupError.notFound` when the account has no such note,
-    ///   and `.rejected` when nobody is signed in.
-    public func get(id: Uuid) async throws LookupError -> NoteSummary {
+    ///   and `.rpcFailure` when nobody is signed in.
+    func get(id: Uuid) async throws LookupError -> NoteSummary {
         return try await api.get(id: id)
     }
 
@@ -51,8 +51,8 @@ public service NotesService {
     ///
     /// - Parameter draft: a validated draft.
     /// - Returns: the stored note.
-    /// - Throws: `AccessError.rejected` when nobody is signed in.
-    public func create(draft: NoteDraft) async throws AccessError -> NoteSummary {
+    /// - Throws: `AccessError.rpcFailure` when nobody is signed in.
+    func create(draft: NoteDraft) async throws AccessError -> NoteSummary {
         let created = try await api.create(draft: draft)
 
         apply(change: .saved(created))
@@ -68,9 +68,9 @@ public service NotesService {
     ///   - draft: the edited values.
     /// - Returns: the stored note.
     /// - Throws: `SaveError.conflict` with the newer version when the note
-    ///   changed meanwhile, `.notFound` when it was deleted, and `.rejected`
+    ///   changed meanwhile, `.notFound` when it was deleted, and `.rpcFailure`
     ///   when nobody is signed in.
-    public func update(note: NoteSummary, draft: NoteDraft) async throws SaveError -> NoteSummary {
+    func update(note: NoteSummary, draft: NoteDraft) async throws SaveError -> NoteSummary {
         let updated = try await api.update(id: note.id, draft: draft, revision: note.revision)
 
         apply(change: .saved(updated))
@@ -84,9 +84,9 @@ public service NotesService {
     /// and a note that turns out to be deleted is removed from `all`.
     ///
     /// - Throws: `LookupError.notFound` when the note was deleted elsewhere,
-    ///   and `.rejected` when nobody is signed in.
-    public func togglePin(note: NoteSummary) async throws LookupError {
-        let isPinned = note.isPinned == false
+    ///   and `.rpcFailure` when nobody is signed in.
+    func togglePin(note: NoteSummary) async throws LookupError {
+        let isPinned = not note.isPinned
 
         apply(change: .saved(note.copy(isPinned: isPinned)))
 
@@ -98,17 +98,17 @@ public service NotesService {
             apply(change: .deleted(note.id))
 
             throw LookupError.notFound
-        } catch .rejected(let rejection) {
+        } catch .rpcFailure(let failure) {
             apply(change: .saved(note))
 
-            throw LookupError.rejected(rejection)
+            throw LookupError.rpcFailure(failure)
         }
     }
 
     /// Deletes a note. Deleting a note that is already gone does nothing.
     ///
-    /// - Throws: `AccessError.rejected` when nobody is signed in.
-    public func delete(note: NoteSummary) async throws AccessError {
+    /// - Throws: `AccessError.rpcFailure` when nobody is signed in.
+    func delete(note: NoteSummary) async throws AccessError {
         try await api.delete(id: note.id)
 
         apply(change: .deleted(note.id))
@@ -116,8 +116,8 @@ public service NotesService {
 
     /// Applies one change to `all`, keeping its order.
     ///
-    /// Visible to this module so tests can drive it directly; pages change
-    /// notes only through the public methods.
+    /// `watch()` and the write methods call it. Tests call it directly to
+    /// drive the list without a server; pages have no reason to.
     func apply(change: NoteChange) {
         match change {
             case .snapshot(let notes) {

@@ -11,8 +11,8 @@ public repository OrderRepository for Order {
     ///
     /// - Parameter id: the order's id.
     /// - Returns: the order, or `nil` when there is none with this id.
-    public func byId(id: Uuid) async -> Order? {
-        return orders
+    func byId(_ id: Uuid) async -> Order? {
+        return await orders
             .including { order => order.product }
             .first { order => order.id == id }
     }
@@ -21,8 +21,8 @@ public repository OrderRepository for Order {
     /// products loaded.
     ///
     /// - Parameter limit: the maximum number of orders to return.
-    public func recent(limit: Int) async -> List<Order> {
-        return orders
+    func recent(limit: Int) async -> List<Order> {
+        return await orders
             .including { order => order.product }
             .sortedByDescending { order => order.placedAt }
             .limit(limit)
@@ -37,10 +37,9 @@ public repository OrderRepository for Order {
     /// - Returns: `true` when this call marked the order paid, `false` when it
     ///   was not awaiting payment (for example, because a previous delivery of
     ///   the same webhook already marked it).
-    public func markPaid(id: Uuid, reference: String, paidAt: Date) async -> Bool {
+    func markPaid(id: Uuid, reference: String, paidAt: Date) async -> Bool {
         let updated = await orders
-            .filter { order => order.id == id }
-            .filter { order => order.status == .awaitingPayment }
+            .filter { order => order.id == id and order.status == .awaitingPayment }
             .update { order =>
                 order.status = .paid
                 order.paymentReference = reference
@@ -59,10 +58,9 @@ public repository OrderRepository for Order {
     ///   - to: the new status.
     /// - Returns: `true` when the order changed, `false` when it was not in
     ///   status `from`.
-    public func transition(id: Uuid, from: OrderStatus, to: OrderStatus) async -> Bool {
+    func transition(id: Uuid, from: OrderStatus, to: OrderStatus) async -> Bool {
         let updated = await orders
-            .filter { order => order.id == id }
-            .filter { order => order.status == from }
+            .filter { order => order.id == id and order.status == from }
             .update { order => order.status = to }
 
         return updated == 1

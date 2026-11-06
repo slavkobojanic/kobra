@@ -17,26 +17,27 @@ public service TodoService {
 
     /// The longest title, in characters after trimming, that `add(title:)`
     /// and `rename(id:title:)` accept.
-    public let maximumTitleLength: Int = 200
+    let maximumTitleLength: Int = 200
 
-    // Users' saved todos live under this key. Renaming it would make every
-    // saved list disappear.
-    private let savedTodos = StorageKey<List<Todo>>(name: "todos")
+    // Users' saved todos live under this key. Its name and the shape of
+    // `Todo` are recorded in storage.lock, so `k check` fails if a change
+    // would make every saved list unreadable.
+    private let savedTodos: StorageKey<List<Todo>> = StorageKey(name: "todos")
 
     /// Every todo, oldest first.
-    @State public var items: List<Todo> = []
+    @State var items: List<Todo> = []
 
     /// The latest storage failure, or `nil` while storage is working.
-    @State public var problem: StorageProblem? = nil
+    @State var problem: StorageProblem? = nil
 
     /// How many todos are done.
-    @Derived public let completedCount: Int = items.filter { todo => todo.isDone }.count
+    @Derived let completedCount: Int = items.filter { todo => todo.isDone }.count
 
     /// How many todos are not done yet.
-    @Derived public let remainingCount: Int = items.count - completedCount
+    @Derived let remainingCount: Int = items.count - completedCount
 
     /// Whether `clearCompleted()` would remove anything.
-    @Derived public let hasCompleted: Bool = completedCount > 0
+    @Derived let hasCompleted: Bool = completedCount > 0
 
     /// Restores the saved todos as soon as the service is created, so the
     /// first render already shows them.
@@ -51,7 +52,7 @@ public service TodoService {
     ///
     /// - Parameter filter: which todos to keep.
     /// - Returns: a new list. Changing it doesn't change the service.
-    public func visible(filter: Filter) -> List<Todo> {
+    func visible(filter: Filter) -> List<Todo> {
         return items.filter { todo => filter.includes(todo: todo) }
     }
 
@@ -62,7 +63,7 @@ public service TodoService {
     /// - Throws: `TitleError.empty` when nothing is left after trimming, and
     ///   `TitleError.tooLong` when the trimmed title is longer than
     ///   `maximumTitleLength`. Nothing is added or saved when it throws.
-    public func add(title: String) throws TitleError {
+    func add(title: String) throws TitleError {
         let checkedTitle = try checked(title: title)
 
         items.append(Todo(id: TodoId(value: Uuid.random()), title: checkedTitle, isDone: false))
@@ -79,7 +80,7 @@ public service TodoService {
     ///   - title: the new title, trimmed and checked as in `add(title:)`.
     /// - Throws: `TitleError.empty` or `TitleError.tooLong`, under the same
     ///   rules as `add(title:)`. The old title is kept when it throws.
-    public func rename(id: TodoId, title: String) throws TitleError {
+    func rename(id: TodoId, title: String) throws TitleError {
         let checkedTitle = try checked(title: title)
 
         guard let index = indexOfTodo(id: id) else {
@@ -96,7 +97,7 @@ public service TodoService {
     /// - Parameters:
     ///   - id: the todo to change.
     ///   - isDone: whether the todo is now done.
-    public func setDone(id: TodoId, isDone: Bool) {
+    func setDone(id: TodoId, isDone: Bool) {
         guard let index = indexOfTodo(id: id) else {
             return
         }
@@ -108,7 +109,7 @@ public service TodoService {
     /// Removes a todo, and saves. Does nothing when no todo has `id`.
     ///
     /// - Parameter id: the todo to remove.
-    public func remove(id: TodoId) {
+    func remove(id: TodoId) {
         guard let index = indexOfTodo(id: id) else {
             return
         }
@@ -119,7 +120,7 @@ public service TodoService {
 
     /// Removes every todo that is done, and saves. When no todo is done it
     /// does nothing, and doesn't touch storage.
-    public func clearCompleted() {
+    func clearCompleted() {
         guard hasCompleted else {
             return
         }
@@ -130,7 +131,7 @@ public service TodoService {
 
     /// Hides the current storage problem without fixing it. The next failure
     /// reports a problem again.
-    public func dismissProblem() {
+    func dismissProblem() {
         problem = nil
     }
 
@@ -140,14 +141,9 @@ public service TodoService {
     /// up changes saved by another tab. When nothing has been saved yet, the
     /// list becomes empty. When the saved data can't be read, the list becomes
     /// empty too, and `problem` explains why.
-    public func restore() {
+    func restore() {
         do {
-            if let saved = try storage.read(key: savedTodos) {
-                items = saved
-            } else {
-                items = []
-            }
-
+            items = try storage.read(key: savedTodos) ?? []
             problem = nil
         } catch .unreadable {
             items = []

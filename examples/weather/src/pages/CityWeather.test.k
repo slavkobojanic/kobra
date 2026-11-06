@@ -1,15 +1,18 @@
+import k.http.HttpRequest
+import k.server.PublicUrls
+import k.test.TestClient
 import k.test.TestClock
-import k.time.Clock
 import testing.FakeWeatherService
 import weather.Place
 import weather.WeatherService
 
 test CityWeather {
     use FakeWeatherService for WeatherService
-    use TestClock for Clock
 
     @Inject let weather: FakeWeatherService
     @Inject let clock: TestClock
+    @Inject let client: TestClient
+    @Inject let urls: PublicUrls
 
     // Loading
 
@@ -76,11 +79,41 @@ test CityWeather {
         await screen.settle()
 
         expect screen.heading(named: "Place not found").isVisible
+        expect screen.text("There is no place with id 42. Try searching for it instead.").isVisible
         expect screen.link(named: "Search for a place").isVisible
+        expect not screen.button(named: "Try again").exists
+    }
+
+    test "a server-rendered unknown place answers 404, not a soft 200" {
+        let request = HttpRequest(method: .get, url: urls.absolute(.cityWeather(placeId: 42)))
+
+        let response = await client.send(request: request)
+
+        expect response.status == .notFound
+        expect response.body.contains("<title>Place not found</title>")
+    }
+
+    test "a server-rendered dashboard answers 200 with the place in its title" {
+        let request = HttpRequest(method: .get, url: urls.absolute(.cityWeather(placeId: Place.berlin.id)))
+
+        let response = await client.send(request: request)
+
+        expect response.status == .ok
+        expect response.body.contains("<title>Berlin weather</title>")
+    }
+
+    test "being offline is explained, with a way to retry" {
+        weather.simulateFailure(error: .offline)
+        let screen = render(CityWeather(placeId: Place.berlin.id))
+        await screen.settle()
+
+        expect screen.heading(named: "Weather unavailable").isVisible
+        expect screen.text("You appear to be offline.").isVisible
+        expect screen.button(named: "Try again").isVisible
     }
 
     test "a timeout explains itself and can be retried" {
-        weather.simulateFailure(error: .network(.timeout))
+        weather.simulateFailure(error: .timeout)
         let screen = render(CityWeather(placeId: Place.berlin.id))
         await screen.settle()
 
@@ -94,13 +127,13 @@ test CityWeather {
     }
 
     test "server errors and client errors are explained differently" {
-        weather.simulateFailure(error: .network(.status(code: 503, body: "")))
+        weather.simulateFailure(error: .upstream(.serviceUnavailable))
         let serverError = render(CityWeather(placeId: Place.berlin.id))
         await serverError.settle()
 
         expect serverError.text("Open-Meteo is having problems (error 503).").isVisible
 
-        weather.simulateFailure(error: .network(.status(code: 429, body: "")))
+        weather.simulateFailure(error: .upstream(.tooManyRequests))
         let clientError = render(CityWeather(placeId: Place.berlin.id))
         await clientError.settle()
 
@@ -150,7 +183,7 @@ test CityWeather {
         await screen.settle()
 
         expect screen.text("8°C").isVisible
-        expect screen.text("Loading forecast…").isVisible == false
+        expect not screen.text("Loading forecast…").isVisible
 
         clock.advance(by: 10.seconds)
         await screen.settle()

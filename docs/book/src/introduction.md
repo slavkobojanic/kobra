@@ -68,7 +68,8 @@ are reviewing K code rather than writing it, the [tour](tour.md) and the chapter
 - **The language** covers K as a general-purpose language: values, functions, types, control flow,
   errors and modules.
 - **Building apps** covers the parts that make K a web language: components, views, styles,
-  reactivity, services, routing, data loading, forms, RPC, persistence, testing and deployment.
+  reactivity, services, routing, data loading, forms, RPC, persistence, authentication, configuration,
+  background jobs, email, testing and deployment.
 - **Reference** collects keywords, annotations, operators, commands, project files and the standard
   library in one place.
 
@@ -81,14 +82,14 @@ K is young. The language design is complete enough to write real applications on
 compiler is being built now. This book describes the language as designed. Two small markers tell you
 when something isn't settled:
 
-> **Planned.** The design explicitly defers this feature. It is described so you know where the
-> language is going, but the first compiler releases won't include it.
+> **Planned.** The design includes this feature, but the first compiler releases don't. It is described
+> so you know where the language is going.
 
-> **Proposal.** The design doesn't cover this yet. The book follows a written design proposal,
-> which may still change before it is accepted.
+> **Open question.** The design records this as undecided. The book explains the options and what holds
+> either way.
 
-The [Design status](reference/design-status.md) page lists every deferred feature and every proposal
-this book relies on.
+The [Design status](reference/design-status.md) page lists every planned feature, every open question
+and the topics the design has deferred.
 
 ## Conventions
 

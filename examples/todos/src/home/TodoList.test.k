@@ -1,10 +1,8 @@
-import k.crypto.Uuid
 import todo.Todo
-import todo.TodoId
 
 test TodoList {
     test "the row slot draws each todo, in order" {
-        let todos = [sampleTodo(title: "Buy milk"), sampleTodo(title: "Walk the dog")]
+        let todos: List<Todo> = [.sample(title: "Buy milk"), .sample(title: "Walk the dog")]
 
         let screen = render(
             TodoList(todos: todos) {
@@ -16,7 +14,7 @@ test TodoList {
         )
 
         expect screen.items().map { row => row.text } == ["Row for Buy milk", "Row for Walk the dog"]
-        expect screen.text("Nothing here.").exists == false
+        expect not screen.text("Nothing here.").exists
     }
 
     test "an empty list shows the empty slot instead of a list" {
@@ -30,11 +28,6 @@ test TodoList {
         )
 
         expect screen.text("Nothing here.").isVisible
-        expect screen.list().exists == false
+        expect not screen.list().exists
     }
-}
-
-/// A todo with a fresh id, for building lists to render.
-func sampleTodo(title: String) -> Todo {
-    return Todo(id: TodoId(value: Uuid.random()), title: title, isDone: false)
 }

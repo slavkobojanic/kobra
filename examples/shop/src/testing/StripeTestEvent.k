@@ -1,4 +1,5 @@
 import k.crypto.Hmac
+import k.crypto.Mac
 import k.encoding.Json
 
 /// Builds Stripe webhook deliveries for tests: a JSON body shaped like
@@ -8,11 +9,11 @@ import k.encoding.Json
 /// The body is encoded from Codable structs rather than written as a string
 /// literal, so tests never deal with escaping JSON inside K strings.
 ///
-/// This module is test-only (see `docs/design/proposals/testing-support.md`).
+/// This module is test-only (see docs/design/16-modules.md#test-only-modules).
 public struct StripeTestEvent {
     /// The signing secret used throughout the tests. It matches
     /// `StripeWebhookConfig.sample`.
-    public static let secret: String = "whsec_test_secret"
+    static let secret: String = "whsec_test_secret"
 
     /// The body of a `checkout.session.completed` event.
     ///
@@ -23,7 +24,7 @@ public struct StripeTestEvent {
     ///   - currency: the lowercase ISO currency code.
     ///   - paymentStatus: Stripe's `payment_status`.
     ///   - type: the event type, to build events the shop ignores.
-    public static func checkoutCompleted(
+    static func checkoutCompleted(
         orderId: String?,
         amountTotal: Int = 2400,
         currency: String = "usd",
@@ -47,17 +48,28 @@ public struct StripeTestEvent {
         return Json.encode(event)
     }
 
+    /// The HMAC-SHA256 that Stripe sends as a `v1` signature for a body.
+    ///
+    /// - Parameters:
+    ///   - payload: the exact body that will be sent.
+    ///   - secret: the signing secret; defaults to `secret`.
+    ///   - signedAt: the signature's timestamp; defaults to now on the
+    ///     test clock.
+    static func digest(payload: String, secret: String = StripeTestEvent.secret, signedAt: Date = Date.now) async -> Mac {
+        return await Hmac.sha256(key: secret.utf8, message: "{signedAt.unixSeconds}.{payload}".utf8)
+    }
+
     /// The `Stripe-Signature` header for a body.
     ///
     /// - Parameters:
     ///   - payload: the exact body that will be sent.
     ///   - secret: the signing secret; defaults to `secret`.
     ///   - signedAt: the signature's timestamp; defaults to now on the
-    ///     injected clock.
-    public static func signature(payload: String, secret: String = StripeTestEvent.secret, signedAt: Date = Date.now) -> String {
-        let digest = Hmac.sha256(key: secret.utf8, message: "{signedAt.unixSeconds}.{payload}".utf8)
+    ///     test clock.
+    static func signature(payload: String, secret: String = StripeTestEvent.secret, signedAt: Date = Date.now) async -> String {
+        let mac = await StripeTestEvent.digest(payload: payload, secret: secret, signedAt: signedAt)
 
-        return "t={signedAt.unixSeconds},v1={digest.hex}"
+        return "t={signedAt.unixSeconds},v1={mac.hex}"
     }
 }
 

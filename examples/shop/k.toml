@@ -1,15 +1,16 @@
-# Format: docs/design/proposals/k-toml.md (Status: proposal)
+# Format: docs/design/24-projects.md
 #
 # The manifest holds only what can't be expressed in K. Per-environment
 # choices live in App.k, and configuration and secrets come from the process
-# environment (see docs/design/proposals/config-and-secrets.md), never from
-# this committed file.
+# environment (see docs/design/25-config-and-secrets.md), never from this
+# committed file.
 
 [package]
 name = "shop"
-version = "0.1.0"
+title = "K Shop"
 description = "A small production-style shop: Stripe payments, Postgres, background email, Docker."
 k = "0.1"
+version = "0.1.0"
 
 # Only the standard library is used, so there are no [dependencies] or
 # [aliases]. Stripe is called over HTTP with k.http, not through a vendor SDK.

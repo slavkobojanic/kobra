@@ -1,9 +1,15 @@
+import k.ui.VisuallyHidden
 import todo.TitleError
 import todo.Todo
 import todo.TodoService
 
 /// One todo in the list: a checkbox to mark it done, and buttons to rename or
 /// delete it.
+///
+/// Every row has its own Edit and Delete buttons, so each button's accessible
+/// name ends with the todo's title ("Delete Buy milk"), added for screen
+/// readers with `VisuallyHidden`. The visible text still starts the name, so
+/// voice-control users can say "Delete" as they see it.
 ///
 /// Renaming happens in place. While editing, the row shows a small form whose
 /// draft lives in this component until it is saved, so cancelling leaves the
@@ -76,13 +82,21 @@ component TodoRow {
                 checkbox(isChecked: Binding(get: { todo.isDone }, set: markDone))
                     .label(todo.title)
 
-                button { "Edit" }
-                    .class(.edit)
-                    .on(click: startEditing)
+                button {
+                    "Edit"
 
-                button { "Delete" }
-                    .class(.delete)
-                    .on(click: delete)
+                    VisuallyHidden { " {todo.title}" }
+                }
+                .class(.edit)
+                .on(click: startEditing)
+
+                button {
+                    "Delete"
+
+                    VisuallyHidden { " {todo.title}" }
+                }
+                .class(.delete)
+                .on(click: delete)
             }
         }
         .class([.row, .done when todo.isDone, .editing when isEditing])

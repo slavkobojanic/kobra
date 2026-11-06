@@ -22,6 +22,6 @@ test NoteDraft {
         expect note.matches(query: "PLANS")
         expect note.matches(query: "step")
         expect note.matches(query: "work")
-        expect note.matches(query: "holiday") == false
+        expect not note.matches(query: "holiday")
     }
 }

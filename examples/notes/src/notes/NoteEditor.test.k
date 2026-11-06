@@ -1,3 +1,5 @@
+import k.validation.ValidationError
+
 test NoteEditor {
     test "the form starts with the draft it was given" {
         let screen = render(EditorHost(draft: draft(title: "Plan", body: "Step one", tags: "work")))
@@ -59,7 +61,8 @@ component EditorHost {
 
     @State var saved: NoteDraft? = nil
 
-    func record(draft: NoteDraft) async {
+    /// Matches `NoteEditor.save`. It never fails, so it never throws.
+    func record(draft: NoteDraft) async throws ValidationError {
         saved = draft
     }
 

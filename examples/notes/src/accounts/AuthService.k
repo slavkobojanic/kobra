@@ -12,7 +12,7 @@ public service AuthService {
     @Inject let session: Session
 
     /// The signed-in person, or `nil` for a guest.
-    @Derived public let user: SessionUser? = session.user
+    @Derived let user: SessionUser? = session.user
 
     /// Reports whether an email address is free to register.
     ///
@@ -22,7 +22,7 @@ public service AuthService {
     ///
     /// - Parameter email: the address as typed.
     /// - Returns: `true` when no account uses the address.
-    public func emailAvailable(email: String) async -> Bool {
+    func emailAvailable(email: String) async -> Bool {
         return await api.isEmailAvailable(email: email)
     }
 
@@ -30,7 +30,7 @@ public service AuthService {
     ///
     /// - Parameter request: a validated sign-up request.
     /// - Throws: every `SignUpError`; see `AuthProtocol.signUp(request:)`.
-    public func signUp(request: SignUpRequest) async throws SignUpError {
+    func signUp(request: SignUpRequest) async throws SignUpError {
         try await api.signUp(request: request)
     }
 
@@ -38,12 +38,12 @@ public service AuthService {
     ///
     /// - Parameter credentials: a validated sign-in form.
     /// - Throws: every `SignInError`; see `AuthProtocol.signIn(credentials:)`.
-    public func signIn(credentials: Credentials) async throws SignInError {
+    func signIn(credentials: Credentials) async throws SignInError {
         try await api.signIn(credentials: credentials)
     }
 
     /// Signs out. Does nothing for a guest.
-    public func signOut() async {
+    func signOut() async {
         await api.signOut()
     }
 }

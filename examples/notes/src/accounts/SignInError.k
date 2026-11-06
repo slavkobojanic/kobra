@@ -1,4 +1,4 @@
-import k.auth.GuardRejection
+import k.rpc.RpcFailure
 
 /// Why signing in failed.
 public enum SignInError implements Error {
@@ -6,6 +6,7 @@ public enum SignInError implements Error {
     /// was wrong is deliberately not revealed.
     case invalidCredentials
 
-    /// The rate limit refused the call, which slows down password guessing.
-    case rejected(GuardRejection)
+    /// The call failed before `AuthApi` saw it: the rate limit refused it,
+    /// which slows down password guessing, or the form was invalid.
+    case rpcFailure(RpcFailure)
 }

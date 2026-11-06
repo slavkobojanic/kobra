@@ -1,4 +1,4 @@
-import k.auth.GuardRejection
+import k.rpc.RpcFailure
 
 /// Why saving an edit to a note failed.
 public enum SaveError implements Error {
@@ -11,6 +11,8 @@ public enum SaveError implements Error {
     /// whose changes to keep.
     case conflict(latest: NoteSummary)
 
-    /// The `Authenticated` guard refused the call: nobody is signed in.
-    case rejected(GuardRejection)
+    /// The call failed before `NotesApi` saw it: the `Authenticated` guard
+    /// refused it because nobody is signed in, or the draft failed
+    /// validation on the server.
+    case rpcFailure(RpcFailure)
 }

@@ -14,13 +14,13 @@ K has two kinds of keyword.
 | `and`, `or`, `not` | logical operators |
 | `as`, `is` | reserved for future use |
 | `async` | the function can suspend |
-| `await` | wait for an async call |
+| `await` | wait for an async call; `for await` reads a stream |
 | `bind` | pass state for two-way binding: `Stepper(value: bind quantity)` |
 | `break`, `continue` | leave a loop, or skip to its next iteration |
 | `case` | an enum case declaration, or a pattern in `match` |
-| `catch` | handle errors after `do` |
+| `catch` | handle errors after `do`; `catch let error` binds what remains, `catch _` doesn't |
 | `class` | declare a class |
-| `default` | the catch-all arm of `match` |
+| `default` | the non-binding catch-all arm of `match` |
 | `do` | a block whose errors are handled by `catch` |
 | `else` | the alternative branch of `if`, `guard` or `try` |
 | `enum` | declare an enum |
@@ -38,7 +38,7 @@ K has two kinds of keyword.
 | `interface` | declare an interface |
 | `let` | declare a constant, or bind a name in a pattern |
 | `match` | exhaustive branching |
-| `private`, `public` | visibility modifiers |
+| `private`, `public` | visibility modifiers; members take only `private` |
 | `requires` | guards on a page, layout, protocol or rpc |
 | `return` | return from a function |
 | `rpc` | declare or implement a remote call |
@@ -48,7 +48,7 @@ K has two kinds of keyword.
 | `style` | a component's style block |
 | `throw`, `throws` | raise an error; declare a function's error type |
 | `try` | mark a call that can throw |
-| `use` | choose an implementation: `use StripePayments for PaymentProvider` |
+| `use` | choose an implementation (`use StripePayments for PaymentProvider`), or bind a config to a value in a test |
 | `var` | declare a variable |
 | `when` | a conditional class: `.expanded when isExpanded` |
 | `where` | a generic constraint, or a guard on a `match` or `catch` pattern |
@@ -61,12 +61,14 @@ K has two kinds of keyword.
 | `app` | start of a declaration | the application, in `App.k` |
 | `at` | in a `page` header | a named URL: `page Pricing at "/pricing"` |
 | `component` | start of a declaration | a UI component |
+| `config` | start of a declaration | typed configuration read from the environment |
 | `entity` | start of a declaration | a database table |
 | `failed` | a member followed by `(` or `{` | what to show when loads fail |
 | `key` | after the collection in a `for` | the identity of each element in a view loop |
 | `layout` | start of a declaration | a layout that wraps pages |
 | `loading` | a member followed by `{` | what to show while loads run |
 | `metadata` | a member followed by `{` | document `<head>` entries |
+| `migration` | start of a declaration, in `migrations/` | a database migration |
 | `page` | start of a declaration | a routable page |
 | `proto` | after `import` | import Protobuf definitions (**Planned**) |
 | `protocol` | start of a declaration | an RPC contract |
@@ -74,14 +76,9 @@ K has two kinds of keyword.
 | `service` | start of a declaration | injectable logic and shared state |
 | `test` | start of a declaration | a test group, or a single test |
 | `theme` | start of a declaration | the app's design tokens |
-| `variant` | a member of a `theme` | a set of token overrides |
+| `variant` | a member of a `theme` | a set of token overrides; `variant dark matches .prefersDark` follows the system |
 | `view` | a member followed by `{` | a component's UI |
 
-## Proposed keywords
-
-These follow design proposals and aren't part of the accepted design yet:
-
-| Keyword | Meaning | Proposal |
-|---|---|---|
-| `config` | a configuration declaration read from the environment | `config-and-secrets.md` |
-| `migration` | a database migration | `migrations.md` |
+`config` and `migration` are recent additions to the design. The compiler grammar
+(`docs/compiler/grammar.md`, RA-32) already reserves their shape, `prefix KEYWORD Name { … }`, like the
+other declaration keywords.

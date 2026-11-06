@@ -1,17 +1,26 @@
-import k.http.HttpError
+import k.http.HttpStatus
 
 /// Everything that can go wrong when `WeatherService` asks Open-Meteo for data.
 ///
 /// This is the layer boundary for errors: transport failures arrive as
-/// `HttpError` and are wrapped in `.network`, so pages and components handle
-/// one error type and still see the underlying cause.
+/// `HttpError` and are translated into these cases, so pages and components
+/// handle one error type and still see what went wrong.
+///
+/// A failed `@Load` sends its error from the server to the browser, so no
+/// case carries Open-Meteo's response body: `.upstream` keeps only the status.
 public enum WeatherError implements Error {
     /// No place has the requested GeoNames id.
     case placeNotFound(id: Int)
 
-    /// Open-Meteo could not be reached, did not answer in time, or answered
-    /// with an error status.
-    case network(HttpError)
+    /// Open-Meteo could not be reached: no network, a failed DNS lookup or a
+    /// refused connection.
+    case offline
+
+    /// Open-Meteo did not answer within the request timeout.
+    case timeout
+
+    /// Open-Meteo answered with an error status.
+    case upstream(HttpStatus)
 
     /// Open-Meteo answered successfully, but the body did not have the
     /// expected shape (missing fields, series of different lengths, an

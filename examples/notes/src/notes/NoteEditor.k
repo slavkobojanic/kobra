@@ -1,4 +1,5 @@
 import k.validation.Form
+import k.validation.ValidationError
 
 /// The title, text and tags form, used both to create and to edit a note.
 ///
@@ -10,16 +11,17 @@ public component NoteEditor {
     @Prop let draft: NoteDraft
 
     /// Stores a valid draft. The parent handles failures such as conflicts,
-    /// because only it knows what to do next.
-    @Prop let save: (NoteDraft) async -> Void
+    /// because only it knows what to do next. A `ValidationError` it throws,
+    /// such as one the server reported, is shown under the fields it names.
+    @Prop let save: (NoteDraft) async throws ValidationError -> Void
 
     /// The submit button's text.
     @Prop let submitLabel: String = "Save"
 
     @Form var input: NoteDraft = draft
 
-    func submit() async {
-        await save(input.value)
+    func submit() async throws ValidationError {
+        try await save(input.value)
     }
 
     view {

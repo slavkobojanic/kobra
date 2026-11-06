@@ -27,9 +27,18 @@ page Product {
 
     failed(let error) {
         match error {
-            case .notFound { NotFound() }
+            case .notFound {
+                metadata {
+                    status(.notFound)
+                }
 
-            case .network(let e) { RetryPanel(error: e) }
+                NotFound()
+            }
+
+            case .network(let e) {
+                RetryPanel(error: e)
+                    .on(retry: reload)
+            }
         }
     }
 }
@@ -58,8 +67,19 @@ page Product {
 
 ## Server rendering
 
-**Server rendering awaits the loads and serializes the results to the client**, so the same data is never
-fetched twice during hydration. A `@Load` field's type must therefore be `Codable`.
+- **Server rendering awaits the loads and serializes the results to the client**, so the same data is
+  never fetched twice during hydration. A `@Load` field's type must therefore be `Codable`; any other type
+  is a compile error at the field.
+- **So must the errors the loads can throw.** A load that fails on the server renders `failed`, and
+  hydrating it needs the error in the browser. Load errors follow the rules for rpc errors: they must be
+  `Codable`, and the compiler warns when a payload is a server-only type or carries a third party's
+  response body, such as an `HttpError.status` from an external API. Wrap such errors without the body,
+  for example as `case upstream(HttpStatus)`.
+- **`status(_:)` sets the HTTP status of a server-rendered `failed` page.** It is allowed only in a
+  `metadata { }` block inside `failed`, so a "not found" page answers `404` instead of a soft `200` for
+  crawlers. During client navigation it has no effect.
+- The first client render reads the time from the server's render instant, so relative times such as
+  "5 minutes ago" are the same in the server's HTML and after hydration.
 
 ## Caching belongs to services
 
@@ -93,10 +113,8 @@ component RecentOrders {
 
 ## Reloading
 
-> **Proposal.** `reload()` follows `docs/design/proposals/load-reload.md`.
-
-Every declaration with `@Load` fields gets a generated `reload()` method, which re-runs all of its loads.
-Use it for retry buttons and periodic refreshes:
+Every page, layout or component with `@Load` fields gets a generated `reload()` method, which re-runs all
+of its loads in dependency order. Use it for retry buttons and periodic refreshes:
 
 ```k
 failed(let error) {
@@ -114,6 +132,24 @@ failed(let error) {
 | `reload()` after a successful load | `view` with the previous values, until all new values arrive, then swaps them in at once |
 | `reload()` from `failed` | `loading` |
 | Any load throws | `failed` |
+
+- `reload()` is synchronous. It starts the re-run and returns; any run still in flight is cancelled first.
+- It re-runs every load, not a chosen subset. Loads that are cheap to repeat should be cached in their
+  service.
+- **The swap is atomic:** during a reload, the view keeps every `@Load` value from the previous run until
+  all loads have finished, and then all are replaced at once, so dependent values stay consistent.
+- Declaring your own member named `reload` next to `@Load` fields is a compile error.
+
+To refresh periodically, start a timer in an effect and cancel it on cleanup:
+
+```k
+@Effect(on: [placeId])
+func refreshPeriodically() {
+    let timer = Timer.every(10.minutes) { reload() }
+
+    onCleanup { timer.cancel() }
+}
+```
 
 ## When to use `LoadState` instead
 

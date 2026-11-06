@@ -1,8 +1,9 @@
 // Sample domain values shared by page and component tests.
 //
-// They are static members added by extensions, so tests can write `.berlin`
-// wherever a `Place` is expected, as `Product.sample` is used in
-// docs/design/21-testing.md.
+// They are static members added by public extensions in this test-only
+// module, so every test file sees them without an import and can write
+// `.berlin` wherever a `Place` is expected (docs/design/21-testing.md,
+// docs/design/16-modules.md). No production code can see them.
 
 import k.time.TimeZone
 import weather.AirQuality
@@ -12,9 +13,9 @@ import weather.HourlyReading
 import weather.Place
 import weather.UnitSystem
 
-extend Place {
+public extend Place {
     /// Berlin, Germany. Its region differs from its name.
-    public static let berlin: Place = Place(
+    static let berlin: Place = Place(
         id: 2950159,
         name: "Berlin",
         region: "Land Berlin",
@@ -24,7 +25,7 @@ extend Place {
     )
 
     /// Lisbon, Portugal. Its region repeats its name.
-    public static let lisbon: Place = Place(
+    static let lisbon: Place = Place(
         id: 2267057,
         name: "Lisbon",
         region: "Lisbon",
@@ -34,12 +35,12 @@ extend Place {
     )
 }
 
-extend Forecast {
+public extend Forecast {
     /// A forecast of mild, partly cloudy weather: 8 °C (46 °F) now and 24
     /// hourly readings starting at noon UTC on 6 November 2026.
     ///
     /// - Parameter units: the unit system to express the values in.
-    public static func sample(units: UnitSystem) -> Forecast {
+    static func sample(units: UnitSystem) -> Forecast {
         let start = Date(unixSeconds: 1793966400)
         let temperature = match units {
             case .metric { 8.0 }
@@ -72,7 +73,7 @@ extend Forecast {
     }
 }
 
-extend AirQuality {
+public extend AirQuality {
     /// Fair air: European AQI 32, with both particulate readings present.
-    public static let sample: AirQuality = AirQuality(europeanIndex: 32, pm25: 6.4, pm10: 11.0)
+    static let sample: AirQuality = AirQuality(europeanIndex: 32, pm25: 6.4, pm10: 11.0)
 }

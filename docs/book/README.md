@@ -52,11 +52,13 @@ theme/k.css            small style additions
   highlight.js, plus `k`, are highlighted.
 - Every K sample must follow the design: `let`/`var`, `func`, named required arguments and chained
   options, K element names, typed classes, camelCase style properties, and the layering rules.
-- Mark a feature the design explicitly defers with a `> **Planned.**` note, and a feature that comes from
-  a design proposal with a `> **Proposal.**` note naming the file in `docs/design/proposals/`. Keep
+- Mark a feature that the first compiler releases defer with a `> **Planned.**` note, and a question the
+  design records as still open with a `> **Open question.**` note naming the design file. Keep
   [`src/reference/design-status.md`](src/reference/design-status.md) in step with both.
+- Members of a public type are public by default, so samples never write `public` on a field, function,
+  static member or `init`. Only top-level declarations (and `public extend`) carry `public`.
 - Link between chapters with relative `.md` links; mdBook rewrites them to `.html`. Refer to files outside
-  the book, such as proposals, by their repository path in backticks, because the site doesn't contain
+  the book, such as design topics, by their repository path in backticks, because the site doesn't contain
   them.
 
 ## Syntax highlighting

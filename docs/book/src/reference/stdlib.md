@@ -6,61 +6,88 @@ the standard library defines everything a K program can do with the platform.
 - **It includes** web platform features and common application infrastructure.
 - **It excludes** vendor-specific integrations (a particular payment, messaging or analytics product) and
   a full design-system component library. Vendor integrations are [git packages](../apps/packages.md)
-  built on standard-library provider interfaces, such as `EmailProvider` and `StorageProvider`. Each
-  provider interface has a sensible built-in default.
+  built on standard-library provider interfaces, such as `EmailProvider`. Each provider interface has a
+  sensible built-in default, and a separate hermetic default in tests.
 
 ## Core
 
 Available everywhere, with no import:
 
-`String`, `Int`, `Double`, `Decimal`, `Bool`, `List`, `Map`, `Set`, `Optional`, `Result`, `LoadState`,
-the unit types (`Length`, `Duration`, `Percent`, `Angle`), `Date`, `Color` and `Money`.
+`String`, `Int`, `Double`, `Decimal`, `Bool`, `Bytes`, `List`, `Map`, `Set`, `Optional`, `Result`,
+`LoadState`, `Stream`, the unit types (`Length`, `Duration`, `Percent`, `Angle`), `Date`, `Color`, `Url`,
+`Money`, `Currency` and `Secret`.
+
+The enums the compiler generates for the app need no import either: `Page`, `Endpoint` and
+`ThemeVariant`, and `SessionUser`.
+
+## Conventions
+
+- **Literals and parsing.** `Type("literal")` takes only a string literal, validated at compile time
+  (`Url`, `Uuid`, `EmailAddress`, `TimeOfDay`). `Type.parse(…)` is the only runtime parse and returns an
+  optional. See [Types](../language/types.md#literals-and-parsing).
+- **Platform interfaces.** I/O is reached through interfaces (`HttpClient`, `LocalStorage`,
+  `EmailProvider`, `JobQueue`) that are injectable only into services and are declared client-only,
+  server-only or both. Each has one production implementation and one test default.
+- **Standard configs.** Providers read their settings from ordinary `config` declarations
+  (`ServerConfig`, `DatabaseConfig`, `SmtpConfig`, `JobConfig`, `SessionConfig`). The runtime reads no
+  environment variable that isn't a `config` field.
 
 ## Modules
 
 | Module | Contents |
 |---|---|
-| `k.ui` | built-in elements; layout (`Stack`, `Grid`, `Spacer`); accessible widgets (`Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable`); `Icon` with a bundled icon set |
+| `k.ui` | built-in elements; layout (`Stack`, `Grid`, `Spacer`); accessible widgets (`Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable`); `VisuallyHidden`; `Icon` with a bundled icon set; the `Theme` service |
 | `k.animation` | transitions, springs, enter and exit animations, `.animate()` modifiers |
 | `k.charts` | line, bar, area, pie and scatter charts, built on SVG and themed by tokens |
 | `k.graphics` | Canvas 2D, SVG drawing |
-| `k.http` | `HttpClient` for external APIs, WebSocket, server-sent events |
-| `k.storage` | typed local storage, typed IndexedDB collections, cookies |
-| `k.time` | calendars, time zones, formatting, relative time |
-| `k.text` | formatting, regular expressions, Markdown rendering, slugs |
+| `k.http` | `HttpClient`, `HttpRequest`, `IncomingRequest`, `HttpResponse`, `HttpStatus`; WebSocket, server-sent events |
+| `k.storage` | typed local storage (`LocalStorage`, `StorageKey`), typed IndexedDB collections, cookies |
+| `k.time` | `Timer`, the clock, `TimeOfDay`, calendars, time zones, formatting, relative time |
+| `k.text` | formatting, regular expressions, Markdown rendering, slugs, `EmailAddress` |
 | `k.i18n` | localized strings, plurals, locale-aware number, date and currency formatting |
-| `k.crypto` | hashing, secure random numbers, UUIDs, password hashing (server only) |
-| `k.auth` | sessions, OAuth providers, passkeys, the `Authenticated` and `Role` guards |
+| `k.crypto` | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only) |
+| `k.auth` | `Session`, `SessionManager`, `SessionUser`, the `Authenticated`, `Role` and `RateLimit` guards, `GuardRejection`, `AuthRole`, `AuthUserId`, `SessionConfig` |
 | `k.device` | clipboard, geolocation, notifications, sharing, camera, microphone, file picker |
-| `k.encoding` | JSON, CSV, Base64, URL encoding |
+| `k.encoding` | JSON (`@JsonKey`), CSV, Base64, URL encoding |
 | `k.collections` | `Deque`, `PriorityQueue`, `OrderedMap`, `LruCache` |
-| `k.server` | background jobs, cron schedules, queues, email (SMTP provider), file storage (S3-compatible) |
+| `k.server` | `ServerConfig`, `PublicUrls`; background jobs (`Job`, `JobQueue`, `JobConfig`, schedules); email (`Email`, `EmailProvider`, `SmtpConfig`); file storage (S3-compatible) |
 | `k.observe` | structured logging, metrics, tracing (OpenTelemetry) |
-| `k.db` | entities, repositories, migrations |
-| `k.validation` | constraint annotations and `@Form` |
-| `k.rpc` | protocols and the Connect transport |
-| `k.test` | the test runner, `render`, accessibility queries |
+| `k.db` | entities, repositories, `Database`, `DatabaseConfig`, migrations and `Schema` |
+| `k.validation` | constraint annotations, `@Form` and `ValidationError` |
+| `k.rpc` | protocols and the Connect transport, `RpcFailure`, `RpcOnlyError`, `Broadcast` |
+| `k.test` | the test runner, `render`, accessibility queries, `TestClient`, and the test doubles |
 
-Each declaration is imported individually: `import k.ui.Dialog`, `import k.validation.Email`.
+Each declaration is imported individually: `import k.ui.Dialog`, `import k.rpc.RpcFailure`.
 
-## Detailed APIs
+## Test doubles
 
-The design describes several of these modules only at the level above. Where the examples and this book
-needed a concrete API, it is defined by a design proposal:
+`k.test` provides the hermetic defaults that every test gets with no `use` rule, and that a test reaches
+with `@Inject` by their concrete type:
 
-| API | Module | Proposal |
-|---|---|---|
-| `HttpClient`, `HttpRequest`, `HttpError` | `k.http` | `http-client.md` |
-| `LocalStorage`, `StorageKey<T>` | `k.storage` | `local-storage.md` |
-| `Timer`, `Clock`, `TestClock` | `k.time`, `k.test` | `timers-and-clock.md` |
-| `Session`, guards, `GuardRejection`, `Password` | `k.auth`, `k.crypto` | `auth-and-sessions.md` |
-| `Bytes`, `Hmac`, `Uuid`, `SecureRandom` | `k.crypto` | `crypto.md` |
-| `Money`, `Currency` | core | `money.md` |
-| `Job<Payload>`, `JobQueue` | `k.server` | `background-jobs.md` |
-| `EmailProvider`, `Email` | `k.server` | `email.md` |
-| `LineChart`, `LineSeries`, `ChartPoint` | `k.charts` | `charts.md` |
-| `Theme`, `ThemeVariant` | `k.ui` | `theme-variants.md` |
-| `Stream<T>`, `Broadcast<T>` | core, `k.rpc` | `server-streaming.md` |
-| `Database`, repository writes | `k.db` | `repository-writes.md` |
+| Interface | Test default |
+|---|---|
+| `Clock` | `TestClock` |
+| `JobQueue` | `RecordingJobQueue` (and `InlineJobQueue`, chosen with `use`) |
+| `LocalStorage` | `MemoryStorage` |
+| `EmailProvider` | `RecordingEmailProvider` |
+| `HttpClient` | `TestHttpClient` |
 
-All proposals live in `docs/design/proposals/`.
+## Where each API is described
+
+| API | Chapter |
+|---|---|
+| `Session`, `SessionManager`, guards, `Password` | [Authentication and sessions](../apps/auth.md) |
+| `config`, `Secret<T>`, standard configs | [Configuration and secrets](../apps/config.md) |
+| `IncomingRequest`, `HttpResponse`, `Endpoint` | [Endpoint pages](../apps/endpoints.md) |
+| `RpcFailure`, `RpcOnlyError`, wire names | [Protocols and RPC](../apps/protocols.md) |
+| `Stream<T>`, `Broadcast`, `@Scope(.server)` | [Server streaming](../apps/streaming.md) |
+| `Job`, `JobQueue`, `JobError` | [Background jobs](../apps/jobs.md) |
+| `EmailProvider`, `Email`, `EmailAddress` | [Email](../apps/email.md) |
+| `HttpClient`, `HttpRequest`, `HttpError`, `HttpStatus` | [Calling HTTP APIs](../apps/http.md) |
+| `Bytes`, `Hmac`, `Mac`, `Uuid`, `SecureRandom` | [Bytes and cryptography](../apps/crypto.md) |
+| `Timer`, `TestClock`, `TimeOfDay` | [Time and timers](../apps/time.md) |
+| `LocalStorage`, `StorageKey<T>`, `MemoryStorage` | [Local storage](../apps/local-storage.md) |
+| `Database`, writes, `Schema` | [Persistence](../apps/persistence.md) |
+| `Theme`, `ThemeVariant`, `LineChart` | [Styles and themes](../apps/styles.md), [Views](../apps/views.md#charts) |
+| `PublicUrls` | [Pages and routing](../apps/routing.md#absolute-urls-publicurls) |
+| `Money`, `Currency` | [Units and number extensions](../language/units.md#money) |

@@ -7,5 +7,5 @@ import k.crypto.Uuid
 /// created in two tabs never collide.
 public struct TodoId implements Codable, Equatable, Hashable {
     /// The random UUID behind this id.
-    public let value: Uuid
+    let value: Uuid
 }

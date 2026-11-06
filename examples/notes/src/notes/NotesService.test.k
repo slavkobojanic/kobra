@@ -1,35 +1,34 @@
-import k.auth.Session
+import accounts.AccountId
+import k.auth.SessionManager
 import k.crypto.Uuid
 import k.test.TestClock
-import k.time.Clock
 
 // Integration tests: no fakes, so these run NotesService, NotesProtocol
 // in-process, NotesApi, the repositories and a rolled-back SQLite database.
-// The test acts as one browser tab; calls through `session` switch accounts.
+// The test acts as one browser tab; `sessions.signIn` switches accounts
+// without creating them.
 test NotesService {
-    use TestClock for Clock
-
     @Inject let notes: NotesService
-    @Inject let session: Session
+    @Inject let sessions: SessionManager
     @Inject let clock: TestClock
 
     // Writing
 
     test "a new note gets a trimmed title, parsed tags and revision 1" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
 
         let note = try await notes.create(draft: draft(title: "  Groceries ", tags: "home, Errands, home"))
 
         expect note.title == "Groceries"
         expect note.tags == ["errands", "home"]
-        expect note.isPinned == false
+        expect not note.isPinned
         expect note.revision == 1
         expect note.updatedAt == Date.now
         expect notes.all == [note]
     }
 
     test "an edit bumps the revision and the edit time, and replaces the tags" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let original = try await notes.create(draft: draft(title: "Plan", tags: "work"))
         clock.advance(by: 5.minutes)
 
@@ -41,7 +40,7 @@ test NotesService {
     }
 
     test "saving over a newer version is a conflict, and changes nothing" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let original = try await notes.create(draft: draft(title: "Plan"))
         let otherTab = try await notes.update(note: original, draft: draft(title: "Plan from the other tab"))
 
@@ -55,7 +54,7 @@ test NotesService {
     }
 
     test "pinning isn't an edit, so it never causes a conflict" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let original = try await notes.create(draft: draft(title: "Plan"))
         clock.advance(by: 1.hour)
 
@@ -70,7 +69,7 @@ test NotesService {
     }
 
     test "deleting removes the note, and deleting it again does nothing" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let note = try await notes.create(draft: draft(title: "Groceries", tags: "home"))
 
         try await notes.delete(note: note)
@@ -86,7 +85,7 @@ test NotesService {
     // Ordering
 
     test "pinned notes come first, then the most recently edited" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let groceries = try await notes.create(draft: draft(title: "Groceries"))
         clock.advance(by: 1.minute)
         try await notes.create(draft: draft(title: "Ideas"))
@@ -101,10 +100,10 @@ test NotesService {
     // Isolation and guards
 
     test "another account's note behaves exactly like a missing one" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let adas = try await notes.create(draft: draft(title: "Private"))
 
-        await session.signIn(userId: "ben")
+        await sessions.signIn(userId: AccountId.ben)
 
         expect throws LookupError.notFound {
             try await notes.get(id: adas.id)
@@ -119,18 +118,18 @@ test NotesService {
         }
 
         try await notes.delete(note: adas)
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let stored = try await notes.get(id: adas.id)
 
         expect stored == adas
     }
 
     test "a visitor who isn't signed in is refused" {
-        expect throws AccessError.rejected(.unauthenticated) {
+        expect throws AccessError.rpcFailure(.rejected(.unauthenticated)) {
             try await notes.create(draft: draft(title: "Anonymous"))
         }
 
-        expect throws LookupError.rejected(.unauthenticated) {
+        expect throws LookupError.rpcFailure(.rejected(.unauthenticated)) {
             try await notes.get(id: Uuid.random())
         }
     }

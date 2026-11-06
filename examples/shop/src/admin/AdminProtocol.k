@@ -13,14 +13,16 @@ public protocol AdminProtocol {
     ///
     /// - Parameter request: the sign-in form.
     /// - Throws: `SignInError.invalidCredentials` when the email or password
-    ///   is wrong, and `.rejected` after too many attempts.
-    rpc signIn(request: SignInRequest) requires RateLimit(5.perMinute) throws SignInError
+    ///   is wrong, and `.rpcFailure` when the request is invalid or after
+    ///   too many attempts.
+    rpc signIn(request: SignInRequest) throws SignInError requires RateLimit(5.perMinute)
 
     /// Ends the current session. Signing out when not signed in does nothing.
     rpc signOut()
 
     /// Lists the 50 most recent orders, newest first.
     ///
-    /// - Throws: `AdminError.rejected` unless the caller is a signed-in admin.
-    rpc recentOrders() requires Authenticated, Role(.admin) throws AdminError -> List<OrderSummary>
+    /// - Throws: `AdminError.rpcFailure` unless the caller is a signed-in
+    ///   admin.
+    rpc recentOrders() throws AdminError -> List<OrderSummary> requires Authenticated, Role(.admin)
 }

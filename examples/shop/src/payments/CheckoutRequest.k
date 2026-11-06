@@ -1,4 +1,5 @@
 import k.crypto.Uuid
+import k.text.EmailAddress
 
 /// Everything a `PaymentGateway` needs to start a checkout.
 ///
@@ -8,23 +9,23 @@ import k.crypto.Uuid
 public struct CheckoutRequest {
     /// The order being paid for. Providers echo it back in their webhook,
     /// which is how the payment finds its order again.
-    public let orderId: Uuid
+    let orderId: Uuid
 
     /// Prefilled on the provider's payment page and used for its receipt.
-    public let customerEmail: String
+    let customerEmail: EmailAddress
 
     /// The line item's name, as shown on the payment page.
-    public let description: String
+    let description: String
 
     /// The price of one unit.
-    public let unitPrice: Money
+    let unitPrice: Money
 
     /// The number of units.
-    public let quantity: Int
+    let quantity: Int
 
     /// Where the provider sends the customer after paying.
-    public let returnUrl: Url
+    let returnUrl: Url
 
     /// Where the provider sends the customer if they give up.
-    public let cancelUrl: Url
+    let cancelUrl: Url
 }

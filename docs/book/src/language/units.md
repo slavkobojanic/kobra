@@ -60,25 +60,44 @@ Timer.every(30.seconds) { refresh() }
 - Singular forms are aliases: `1.hour`, `1.day`.
 - Both forms produce the same types: `200ms == 0.2.seconds` is `true`.
 
-`2.hours.ago` and `Date.now` read the app's clock, which tests can control. See
-[Testing](../apps/testing.md).
+`2.hours.ago` and `Date.now` read the app's clock, which tests control with a virtual clock. See
+[Time and timers](../apps/time.md).
 
 ## Money
-
-> **Proposal.** `Money` follows `docs/design/proposals/money.md`.
 
 Money uses the same idea, with one extension per ISO 4217 currency code:
 
 ```k
-let price = 24.00.usd
-let shipping = 4.50.usd
-let total = price * 2 + shipping          // 52.50 USD
+let unitPrice = 24.00.usd
+let total = unitPrice * quantity                                      // Money * Int
+let withTax = total.multiplied(by: 1.0825, rounding: .halfEven)        // an explicit rounding rule
+let cartTotal = items.sum(in: .usd) { item => item.price * item.quantity }
 let yen = 1500.jpy
+
+text { total.formatted(as: .currency) }                               // "$48.00", by the page's locale
 ```
 
-`Money` is an exact decimal amount plus a currency, never a floating-point number. Adding dollars to
-euros is a compile error when the compiler can see both currencies, and a panic otherwise. Amounts with
-more decimal places than the currency has, such as `1.005.usd`, are compile errors.
+`Money` is an exact decimal amount plus a `Currency`, never a floating-point number, and it never silently
+mixes currencies or rounds:
+
+- **An amount always holds exactly its currency's minor-unit digits.** A literal with more decimal places
+  than the currency has, such as `1.005.usd`, is a compile error.
+- **`Money + Money` and `Money - Money` need the same currency.** Mixing currencies is a compile error
+  when the compiler can see both, and a panic otherwise. `48.00.usd == 48.00.eur` is `false`.
+- **`Money * Int` scales by a quantity.** Scaling by a rate goes through
+  `multiplied(by: Decimal, rounding:)`, whose rounding rule (`.halfEven`, `.halfUp`, `.down`, `.up`) is
+  required. There is no `Money * Money` and no `/`; `allocated(into:)` splits an amount without losing a
+  cent.
+- **Sums need a currency.** `sum(in: .usd) { … }` returns `Money.zero(.usd)` for an empty list, so an empty
+  cart still has a total. `sum` over money without a currency is a compile error with a quick fix.
+- **Minor units** are what payment APIs use: `24.00.usd.minorUnits` is `2400`, and
+  `Money(minorUnits: 2400, currency: .usd)` goes back. `Currency.parse(code: "USD")` parses a code.
+- **Formatting** uses the locale of the app's or page's `metadata`, on the server, in the browser and in
+  background jobs alike, never the browser's language setting.
+
+In JSON, money is `{"amount": "48.00", "currency": "USD"}`, with the amount as a string so no JSON parser
+rounds it. In the database a `Money` field is one logical column stored as two, `<name>_amount` and
+`<name>_currency`.
 
 ## Defining your own
 

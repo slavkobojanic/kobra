@@ -1,10 +1,6 @@
-import k.storage.LocalStorage
-import k.test.MemoryStorage
 import todo.TodoService
 
 test NewTodoField {
-    use MemoryStorage for LocalStorage
-
     @Inject let todos: TodoService
 
     test "clicking Add adds the todo and clears the field" {
@@ -55,6 +51,6 @@ test NewTodoField {
         screen.textField(labeled: "New todo").fill("Buy milk")
         screen.button(named: "Add").click()
 
-        expect screen.alert().exists == false
+        expect not screen.alert().exists
     }
 }

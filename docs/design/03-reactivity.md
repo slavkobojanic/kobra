@@ -60,7 +60,11 @@ An effect re-runs when any `@State` or `@Derived` value **it actually read durin
 ```k
 @Effect(on: [userId])                 // explicit dependencies; reads in the body are ignored
 func loadUser() async {
-    user = try await users.load(userId)
+    do {
+        profile = .loaded(try await users.load(userId))
+    } catch let error {
+        profile = .failed(error)
+    }
 }
 
 @Effect
@@ -70,9 +74,21 @@ func track() {
 }
 ```
 
+`@Effect(on: [])` runs once after mount and never re-runs. It is how a page follows a server stream for as long as it is shown ([29-server-streaming.md](29-server-streaming.md)).
+
 ## Async effects
 
-When a dependency changes while an async effect is still running, the previous run is **cancelled automatically**. This removes the race condition that `useEffect` plus `fetch` causes in React.
+When a dependency changes while an async effect is still running, the previous run is **cancelled automatically**. This removes the race condition that `useEffect` plus `fetch` causes in React. Cancellation is not an error: a cancelled `await` (a request, a `Timer.sleep`) never resumes, so there is nothing to catch.
+
+## Where effects run
+
+- **Effects run only in the browser,** after the component has mounted (after hydration, for a server-rendered page). **They never run during server rendering,** and neither do timers started in them. Server-side work on a schedule is a background job ([30-background-jobs.md](30-background-jobs.md)).
+- Leaving a page, or unmounting a component, cancels its running effects and runs their `onCleanup` blocks.
+
+## Effects handle their own errors
+
+- **An `@Effect` function can't be declared `throws`.** Nothing calls an effect, so nothing could catch its error. It handles every error inside, with `do`/`catch` or `try … else`, and usually records it in state, as `loadUser` does above.
+- Declaring `throws` on an effect is a compile error, with a quick fix that wraps the body in `do`/`catch`. Event handlers follow the same rule ([04-components.md](04-components.md)).
 
 ## Nested state
 

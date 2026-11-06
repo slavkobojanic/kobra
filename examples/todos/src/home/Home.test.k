@@ -1,22 +1,20 @@
 import appearance.AppearanceService
-import k.storage.LocalStorage
 import k.test.MemoryStorage
 import k.ui.Theme
 import todo.TodoService
 
 test Home {
-    use MemoryStorage for LocalStorage
-
     @Inject let storage: MemoryStorage
     @Inject let todos: TodoService
     @Inject let appearance: AppearanceService
+    @Inject let theme: Theme
 
     test "a new list invites the first todo" {
         let screen = render(Home())
 
         expect screen.heading(named: "Todos").level == 1
         expect screen.text("Nothing to do yet. Add your first todo above.").isVisible
-        expect screen.list().exists == false
+        expect not screen.list().exists
         expect screen.title == "Todos"
     }
 
@@ -59,13 +57,13 @@ test Home {
         try todos.add(title: "Buy milk")
         let screen = render(Home())
 
-        expect screen.button(named: "Clear completed").exists == false
+        expect not screen.button(named: "Clear completed").exists
 
         screen.checkbox(labeled: "Buy milk").click()
         screen.button(named: "Clear completed").click()
 
-        expect screen.list().exists == false
-        expect screen.button(named: "Clear completed").exists == false
+        expect not screen.list().exists
+        expect not screen.button(named: "Clear completed").exists
     }
 
     test "each row acts on its own todo, and the count follows" {
@@ -74,7 +72,7 @@ test Home {
         try todos.add(title: "Call Ana")
         let screen = render(Home())
 
-        screen.item(containing: "Buy milk").button(named: "Delete").click()
+        screen.button(named: "Delete Buy milk").click()
         screen.checkbox(labeled: "Call Ana").click()
 
         expect screen.items().count == 2
@@ -95,21 +93,21 @@ test Home {
 
         screen.status().button(named: "Dismiss").click()
 
-        expect screen.status().exists == false
+        expect not screen.status().exists
     }
 
     test "the dark mode switch changes the theme variant" {
         let screen = render(Home())
 
-        expect Theme.current == .base
+        expect theme.current == .base
 
         screen.checkbox(labeled: "Dark mode").click()
 
-        expect Theme.current == .dark
+        expect theme.current == .dark
 
         screen.checkbox(labeled: "Dark mode").click()
 
-        expect Theme.current == .base
+        expect theme.current == .base
     }
 
     test "a dark scheme chosen earlier is applied on the first render" {
@@ -117,7 +115,7 @@ test Home {
 
         let screen = render(Home())
 
-        expect Theme.current == .dark
+        expect theme.current == .dark
         expect screen.checkbox(labeled: "Dark mode").isChecked
     }
 }

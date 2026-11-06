@@ -3,13 +3,17 @@
 # applies pending migrations at startup, before it accepts requests.
 #
 #   for f in secrets/*.example; do cp -n "$f" "${f%.example}"; done
+#   # put real values in secrets/*.txt; admin_password_hash.txt needs an
+#   # Argon2id hash (see README.md), or the app refuses to start
 #   docker compose up --build --wait
+#   docker compose exec -T db psql --username=shop --dbname=shop < scripts/demo-catalog.sql
 #
 # Then open http://localhost:8080 (shop) and http://localhost:8025 (mail).
+# scripts/e2e.sh runs this stack with generated secrets instead.
 #
-# For a real deployment, replace the contents of secrets/*.txt, set
-# K_PUBLIC_ORIGIN to the public https:// origin, point SMTP_* at a real mail
-# server, and remove STRIPE_API_URL so the app talks to api.stripe.com.
+# For a real deployment, also set K_PUBLIC_ORIGIN to the public https://
+# origin, point SMTP_* at a real mail server, and remove STRIPE_API_URL so the
+# app talks to api.stripe.com.
 
 name: k-shop
 

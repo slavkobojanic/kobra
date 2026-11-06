@@ -23,7 +23,7 @@ public enum AirQualityCategory implements Codable, Equatable {
     case unavailable
 
     /// A short English description, for example `"Very poor"`.
-    public var label: String {
+    var label: String {
         match self {
             case .good { "Good" }
 

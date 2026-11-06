@@ -1,11 +1,7 @@
-import k.crypto.Uuid
-import k.storage.LocalStorage
 import k.storage.StorageKey
 import k.test.MemoryStorage
 
 test TodoService {
-    use MemoryStorage for LocalStorage
-
     @Inject let storage: MemoryStorage
     @Inject let todos: TodoService
 
@@ -22,7 +18,7 @@ test TodoService {
 
         expect todos.items.count == 1
         expect todos.items[0].title == "Buy milk"
-        expect todos.items[0].isDone == false
+        expect not todos.items[0].isDone
     }
 
     test "todos keep the order they were added in, each with its own id" {
@@ -111,7 +107,7 @@ test TodoService {
         todos.setDone(id: todos.items[0].id, isDone: false)
 
         expect todos.completedCount == 0
-        expect todos.hasCompleted == false
+        expect not todos.hasCompleted
     }
 
     test "removing a todo keeps the others in order" {
@@ -161,13 +157,13 @@ test TodoService {
         todos.setDone(id: todos.items[0].id, isDone: true)
         todos.remove(id: todos.items[1].id)
 
-        let saved = try storage.read(key: savedTodosKey())
+        let saved = try storage.read(key: savedTodosKey)
 
         expect saved == todos.items
     }
 
     test "restoring loads the saved list" {
-        try storage.write(key: savedTodosKey(), value: [sampleTodo(title: "Buy milk", isDone: true)])
+        try storage.write(key: savedTodosKey, value: [Todo.sample(title: "Buy milk", isDone: true)])
 
         todos.restore()
 
@@ -176,7 +172,7 @@ test TodoService {
     }
 
     test "unreadable saved data starts an empty list and says so" {
-        storage.writeRaw(name: "todos", text: "{ this is not JSON")
+        storage.writeRaw(name: "todos", text: "{{ this is not JSON")
 
         todos.restore()
 
@@ -185,11 +181,11 @@ test TodoService {
     }
 
     test "the next successful save replaces unreadable data" {
-        storage.writeRaw(name: "todos", text: "{ this is not JSON")
+        storage.writeRaw(name: "todos", text: "{{ this is not JSON")
         todos.restore()
 
         try todos.add(title: "Buy milk")
-        let saved = try storage.read(key: savedTodosKey())
+        let saved = try storage.read(key: savedTodosKey)
 
         expect todos.problem == nil
         expect saved == todos.items
@@ -209,7 +205,7 @@ test TodoService {
 
         try todos.add(title: "Buy milk")
         storage.stopFailing()
-        let saved = try storage.read(key: savedTodosKey())
+        let saved = try storage.read(key: savedTodosKey)
 
         expect todos.items.count == 1
         expect todos.problem == .full
@@ -222,7 +218,7 @@ test TodoService {
         storage.stopFailing()
 
         try todos.add(title: "Walk the dog")
-        let saved = try storage.read(key: savedTodosKey())
+        let saved = try storage.read(key: savedTodosKey)
 
         expect todos.problem == nil
         expect saved == todos.items
@@ -245,11 +241,6 @@ test TodoService {
 /// The key `TodoService` saves under. The tests spell it out instead of
 /// asking the service, because it is part of the app's stored format: if it
 /// changed, users would lose their saved todos, and these tests should fail.
-func savedTodosKey() -> StorageKey<List<Todo>> {
-    return StorageKey<List<Todo>>(name: "todos")
-}
-
-/// A todo with a fresh id, for seeding storage directly.
-func sampleTodo(title: String, isDone: Bool = false) -> Todo {
-    return Todo(id: TodoId(value: Uuid.random()), title: title, isDone: isDone)
-}
+/// Test code isn't recorded in storage.lock, so it may declare a key with the
+/// same name as the service's.
+let savedTodosKey: StorageKey<List<Todo>> = StorageKey(name: "todos")

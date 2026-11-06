@@ -1,10 +1,14 @@
 import k.crypto.Uuid
+import k.server.PublicUrls
+import k.text.EmailAddress
 import payments.CheckoutRequest
 import payments.PaymentError
 import payments.PaymentGateway
 
 // Integration tests: StoreService calls StoreApi in-process through
 // StoreProtocol, against a real database that is rolled back after each test.
+// Requests go through the real wire format, so validation and the rate limit
+// run as they do over the network.
 
 test StoreApi {
     use SwitchableGateway for PaymentGateway
@@ -13,21 +17,22 @@ test StoreApi {
     @Inject let catalog: ProductRepository
     @Inject let orders: OrderRepository
     @Inject let gateway: SwitchableGateway
+    @Inject let urls: PublicUrls
 
     func orderMugs(quantity: Int) async throws CheckoutError -> PlacedOrder {
-        let request = OrderRequest(productSlug: "test-mug", quantity: quantity, email: "ana@example.com")
+        let request = OrderRequest(productSlug: "test-mug", quantity: quantity, email: EmailAddress("ana@example.com"))
 
         return try await store.placeOrder(request: request)
     }
 
     func mugStock() async -> Int? {
-        return await catalog.bySlug(slug: "test-mug")?.stock
+        return await catalog.bySlug("test-mug")?.stock
     }
 
     // Browsing
 
     test "products are listed with what is available" {
-        await catalog.insert(Product.mug(stock: 3))
+        try await catalog.insert(Product.mug(stock: 3))
 
         let products = await store.products()
 
@@ -43,7 +48,7 @@ test StoreApi {
     // Placing orders
 
     test "an order reserves stock and waits for payment" {
-        await catalog.insert(Product.mug(stock: 5))
+        try await catalog.insert(Product.mug(stock: 5))
 
         let placed = try await orderMugs(quantity: 2)
         let order = try await store.order(id: placed.orderId)
@@ -51,12 +56,13 @@ test StoreApi {
         expect await mugStock() == 3
         expect order.status == .awaitingPayment
         expect order.total == 48.00.usd
-        expect placed.paymentUrl == Page.receipt(id: placed.orderId).absoluteUrl
-        expect gateway.requests[0].cancelUrl == Page.productDetail(slug: "test-mug").absoluteUrl
+        expect order.email == EmailAddress("ana@example.com")
+        expect placed.paymentUrl == urls.absolute(.receipt(id: placed.orderId))
+        expect gateway.requests[0].cancelUrl == urls.absolute(.productDetail(slug: "test-mug"))
     }
 
     test "the last units can be ordered" {
-        await catalog.insert(Product.mug(stock: 2))
+        try await catalog.insert(Product.mug(stock: 2))
 
         try await orderMugs(quantity: 2)
 
@@ -64,7 +70,7 @@ test StoreApi {
     }
 
     test "ordering more than is left fails and changes nothing" {
-        await catalog.insert(Product.mug(stock: 1))
+        try await catalog.insert(Product.mug(stock: 1))
 
         expect throws CheckoutError.outOfStock(available: 1) {
             try await orderMugs(quantity: 2)
@@ -81,10 +87,35 @@ test StoreApi {
         }
     }
 
+    test "an order for zero units is refused by validation before the handler runs" {
+        try await catalog.insert(Product.mug(stock: 5))
+
+        expect throws CheckoutError.rpcFailure(.invalid) {
+            try await orderMugs(quantity: 0)
+        }
+
+        expect await mugStock() == 5
+        expect gateway.requests.isEmpty
+    }
+
+    test "the eleventh order within a minute is rate limited" {
+        try await catalog.insert(Product.mug(stock: 10))
+
+        for _ in 0..<10 {
+            try await orderMugs(quantity: 1)
+        }
+
+        expect throws CheckoutError.rpcFailure(.rejected(.rateLimited)) {
+            try await orderMugs(quantity: 1)
+        }
+
+        expect await mugStock() == 0
+    }
+
     // When the payment provider fails
 
     test "an unreachable provider cancels the order and releases its stock" {
-        await catalog.insert(Product.mug(stock: 5))
+        try await catalog.insert(Product.mug(stock: 5))
         gateway.simulateFailure(error: .unavailable)
 
         expect throws CheckoutError.paymentUnavailable {
@@ -96,7 +127,7 @@ test StoreApi {
     }
 
     test "a refusing provider is reported to the customer the same way" {
-        await catalog.insert(Product.mug(stock: 5))
+        try await catalog.insert(Product.mug(stock: 5))
         gateway.simulateFailure(error: .rejected(reason: "Invalid API Key provided"))
 
         expect throws CheckoutError.paymentUnavailable {

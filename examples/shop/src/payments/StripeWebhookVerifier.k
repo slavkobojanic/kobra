@@ -10,7 +10,8 @@ import k.observe.Log
 /// everything else that is correctly signed becomes `PaymentEvent.ignored`.
 ///
 /// This service is server-only because it injects a config that holds a
-/// secret. The compiler rejects any import of it from browser code.
+/// secret. The compiler rejects any import of it from browser code, and the
+/// secret itself is handed to `Hmac` as a `Secret`, never revealed.
 public service StripeWebhookVerifier {
     @Inject let config: StripeWebhookConfig
 
@@ -24,12 +25,8 @@ public service StripeWebhookVerifier {
     /// - Throws: `WebhookError.missingSignature`, `.staleTimestamp` or
     ///   `.invalidSignature` when the request can't be shown to come from
     ///   Stripe, and `.malformedPayload` when a signed body isn't an event.
-    public func verify(payload: Bytes, signatureHeader: String?) throws WebhookError -> PaymentEvent {
-        guard let signatureHeader else {
-            throw WebhookError.missingSignature
-        }
-
-        guard let signature = StripeSignature.parse(header: signatureHeader) else {
+    func verify(payload: Bytes, signatureHeader: String?) async throws WebhookError -> PaymentEvent {
+        guard let signatureHeader, let signature = StripeSignature.parse(header: signatureHeader) else {
             throw WebhookError.missingSignature
         }
 
@@ -39,7 +36,7 @@ public service StripeWebhookVerifier {
             throw WebhookError.staleTimestamp
         }
 
-        guard signature.matches(payload: payload, secret: config.signingSecret.reveal()) else {
+        guard await signature.matches(payload: payload, secret: config.signingSecret) else {
             Log.warning("Stripe webhook signature does not match")
 
             throw WebhookError.invalidSignature
@@ -103,15 +100,7 @@ struct StripeCheckoutSession implements Codable {
     /// The amount collected, from Stripe's minor units (cents) and lowercase
     /// ISO currency code.
     var amountCollected: Money? {
-        guard let amountTotal else {
-            return nil
-        }
-
-        guard let currency else {
-            return nil
-        }
-
-        guard let code = Currency(code: currency.uppercased()) else {
+        guard let amountTotal, let currency, let code = Currency.parse(code: currency.uppercased()) else {
             return nil
         }
 

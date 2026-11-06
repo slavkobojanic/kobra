@@ -2,7 +2,7 @@
 #
 # Two stages: the K toolchain checks and builds the app, and only the
 # resulting single executable, dist/app, is copied into a minimal runtime
-# image. See docs/design/proposals/deployment.md.
+# image. See docs/design/38-deployment.md.
 
 ARG K_VERSION=0.1.0
 

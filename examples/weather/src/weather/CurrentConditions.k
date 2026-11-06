@@ -3,23 +3,23 @@
 /// All values are in the `UnitSystem` the forecast was requested in.
 public struct CurrentConditions implements Codable, Equatable {
     /// Air temperature two metres above ground.
-    public let temperature: Double
+    let temperature: Double
 
     /// The apparent ("feels like") temperature, combining wind chill and humidity.
-    public let feelsLike: Double
+    let feelsLike: Double
 
     /// Relative humidity, from 0 to 100.
-    public let humidity: Int
+    let humidity: Int
 
     /// Wind speed ten metres above ground.
-    public let windSpeed: Double
+    let windSpeed: Double
 
     /// The direction the wind blows from, in degrees clockwise from north.
-    public let windDirection: Double
+    let windDirection: Double
 
     /// The kind of weather.
-    public let condition: WeatherCondition
+    let condition: WeatherCondition
 
     /// Whether the sun is up at the place.
-    public let isDay: Bool
+    let isDay: Bool
 }

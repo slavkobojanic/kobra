@@ -1,10 +1,6 @@
-import k.storage.LocalStorage
-import k.test.MemoryStorage
 import todo.TodoService
 
 test TodoRow {
-    use MemoryStorage for LocalStorage
-
     @Inject let todos: TodoService
 
     test "checking the box marks the todo done" {
@@ -25,14 +21,23 @@ test TodoRow {
 
         screen.checkbox(labeled: "Buy milk").click()
 
-        expect todos.items[0].isDone == false
+        expect not todos.items[0].isDone
+    }
+
+    test "the Edit and Delete buttons are named after their todo" {
+        try todos.add(title: "Buy milk")
+        let screen = render(TodoRow(todo: todos.items[0]))
+
+        expect screen.buttons().count == 2
+        expect screen.button(named: "Edit Buy milk").isVisible
+        expect screen.button(named: "Delete Buy milk").isVisible
     }
 
     test "an edit starts from the current title, and saving it renames the todo" {
         try todos.add(title: "Buy milk")
         let screen = render(TodoRow(todo: todos.items[0]))
 
-        screen.button(named: "Edit").click()
+        screen.button(named: "Edit Buy milk").click()
 
         expect screen.textField(labeled: "Title").value == "Buy milk"
 
@@ -40,14 +45,14 @@ test TodoRow {
         screen.button(named: "Save").click()
 
         expect todos.items[0].title == "Buy oat milk"
-        expect screen.textField(labeled: "Title").exists == false
+        expect not screen.textField(labeled: "Title").exists
     }
 
     test "cancelling an edit keeps the old title" {
         try todos.add(title: "Buy milk")
         let screen = render(TodoRow(todo: todos.items[0]))
 
-        screen.button(named: "Edit").click()
+        screen.button(named: "Edit Buy milk").click()
         screen.textField(labeled: "Title").fill("Buy oat milk")
         screen.button(named: "Cancel").click()
 
@@ -59,7 +64,7 @@ test TodoRow {
         try todos.add(title: "Buy milk")
         let screen = render(TodoRow(todo: todos.items[0]))
 
-        screen.button(named: "Edit").click()
+        screen.button(named: "Edit Buy milk").click()
         screen.textField(labeled: "Title").fill("   ")
 
         expect screen.button(named: "Save").isDisabled
@@ -69,7 +74,7 @@ test TodoRow {
         try todos.add(title: "Buy milk")
         let screen = render(TodoRow(todo: todos.items[0]))
 
-        screen.button(named: "Edit").click()
+        screen.button(named: "Edit Buy milk").click()
         screen.textField(labeled: "Title").fill("a".repeated(times: todos.maximumTitleLength + 1))
         screen.button(named: "Save").click()
 
@@ -82,7 +87,7 @@ test TodoRow {
         try todos.add(title: "Buy milk")
         let screen = render(TodoRow(todo: todos.items[0]))
 
-        screen.button(named: "Delete").click()
+        screen.button(named: "Delete Buy milk").click()
 
         expect todos.items.isEmpty
     }

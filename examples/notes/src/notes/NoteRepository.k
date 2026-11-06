@@ -1,3 +1,4 @@
+import accounts.AccountId
 import k.crypto.Uuid
 
 /// Queries for `Note`, always scoped to one owner.
@@ -12,9 +13,9 @@ public repository NoteRepository for Note {
     /// Returns an account's notes with their tags: pinned notes first, then
     /// the most recently edited.
     ///
-    /// - Parameter ownerId: the session user id of the account.
-    public func list(ownerId: String) async -> List<Note> {
-        return notes
+    /// - Parameter ownerId: the account whose notes to list.
+    func list(ownerId: AccountId) async -> List<Note> {
+        return await notes
             .filter { note => note.ownerId == ownerId }
             .sortedByDescending { note => note.isPinned }
             .thenByDescending { note => note.updatedAt }
@@ -25,11 +26,11 @@ public repository NoteRepository for Note {
     ///
     /// - Parameters:
     ///   - id: the note's id.
-    ///   - ownerId: the session user id of the account asking.
+    ///   - ownerId: the account asking.
     /// - Returns: the note, or `nil` when there is no such note or it belongs
     ///   to another account.
-    public func find(id: Uuid, ownerId: String) async -> Note? {
-        return notes
+    func find(id: Uuid, ownerId: AccountId) async -> Note? {
+        return await notes
             .filter { note => note.ownerId == ownerId }
             .including { note => note.tags }
             .first { note => note.id == id }
@@ -39,14 +40,34 @@ public repository NoteRepository for Note {
     ///
     /// Panics when the note doesn't exist, because that is a bug in the
     /// caller, not a condition to handle.
-    public func reload(id: Uuid) async -> Note {
-        return notes
+    func reload(id: Uuid) async -> Note {
+        return await notes
             .including { note => note.tags }
             .single { note => note.id == id }
     }
 
+    /// Pins or unpins one of an account's notes.
+    ///
+    /// A bulk update writes only `isPinned`, so it can't overwrite an edit
+    /// saved concurrently from another tab, and it leaves the revision and
+    /// `updatedAt` as they are.
+    ///
+    /// - Parameters:
+    ///   - id: the note's id.
+    ///   - ownerId: the account asking.
+    ///   - isPinned: whether the note should be pinned.
+    /// - Returns: `false` when there is no such note or it belongs to another
+    ///   account.
+    func setPinned(id: Uuid, ownerId: AccountId, isPinned: Bool) async -> Bool {
+        let changed = await notes
+            .filter { note => note.id == id and note.ownerId == ownerId }
+            .update { note => note.isPinned = isPinned }
+
+        return changed == 1
+    }
+
     /// Deletes a note together with its tags. Call it inside a transaction.
-    public func remove(note: Note) async {
+    func remove(note: Note) async {
         await tagRepository.replace(note: note, labels: [])
         await notes.delete(note)
     }

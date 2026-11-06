@@ -65,13 +65,13 @@ func add() async {
   `let`, several patterns in one clause, and `where` guards.
 - **`catch` is exhaustive.** A function must handle every case of the error enum, or declare that it
   throws the same type so the unhandled cases pass through.
+- **A case written without its payload matches any payload:** `catch .rpcFailure` handles every
+  `rpcFailure(…)`, whatever it carries.
 
 ### Catching everything else
 
-> **Proposal.** `catch let` follows `docs/design/proposals/catch-binding.md`.
-
-`catch let error` binds the whole error and matches every case not handled by an earlier clause. It must
-come last:
+`catch let error` binds the whole error and matches every case not handled by an earlier clause. It is
+what wrapping at a layer boundary needs, and it must come last:
 
 ```k
 do {
@@ -83,7 +83,12 @@ do {
 }
 ```
 
-The bound error has the static type of what the `do` block throws, never an untyped `Error`.
+- The bound error has the static type of what the `do` block throws (here `HttpError`), never an untyped
+  `Error`.
+- **Each catch-all has one job.** `catch let error` binds; `catch _` doesn't. A `catch let x` whose
+  binding is never used is a compile error with a quick fix to `catch _`.
+- Like `default` in `match`, a catch-all is a **compile error when unreachable**, meaning every case is
+  already handled. `catch` has no `default`; `catch _` takes its place.
 
 ## Wrapping at layer boundaries
 
@@ -135,6 +140,42 @@ let outcome = Result.of { try cart.add(product: product) }
 
 There is no `try?` and no `!`.
 
+## Functions that pass errors through
+
+A function can take a block and throw whatever the block throws. Its parameter's type names a generic
+error, `E`:
+
+```k
+// in k.db
+func transaction<T, E>(_ block: () async throws E -> T) async throws E -> T
+```
+
+- **A parameter typed `() async throws E -> T` makes the call `throws E`,** with `E` inferred from the
+  block passed.
+- **A block that can't throw makes `E` empty,** so the call can't throw either and needs no `try`:
+  `await database.transaction { … }`.
+- This is the only mechanism for rethrowing. A function that doesn't declare a generic error can't pass
+  one through.
+
+## Effects and event handlers handle their own errors
+
+`@Effect` functions and event handlers can't be declared `throws`, because nothing calls them that could
+catch the error. They handle every error inside, usually by recording it in state:
+
+```k
+@Effect(on: [userId])
+func loadUser() async {
+    do {
+        profile = .loaded(try await users.load(userId))
+    } catch let error {
+        profile = .failed(error)
+    }
+}
+```
+
+Declaring `throws` on an effect, or passing a throwing function to `.on(…)`, is a compile error with a
+quick fix that wraps the body in `do`/`catch`.
+
 ## Panics
 
 Programmer bugs aren't errors. **An index out of range, a failed `assert`, or an impossible state
@@ -143,6 +184,9 @@ panics.** Panics are separate from errors and can't be caught with `catch`:
 - In a view, a panic is caught by the nearest `ErrorBoundary`, which renders a fallback instead of the
   broken subtree.
 - On the server, a panic becomes a `500` response with a trace in the logs.
+- **Infrastructure failures on the server panic too:** a lost database connection, a full disk. They
+  aren't outcomes the calling code could handle, so repository calls don't declare them. Inside a
+  background job, a panic counts as a failed attempt and is retried.
 
 Use errors for things that can legitimately go wrong (the product sold out, the network is down), and
 let panics expose bugs.
@@ -150,12 +194,37 @@ let panics expose bugs.
 ## Errors across the network
 
 Typed errors cross the wire. When a protocol's `rpc` declares `throws CartError`, the client receives
-exactly that error type, so client-side `catch` stays exhaustive over server errors. See
-[Protocols and RPC](../apps/protocols.md).
+exactly that error type, so client-side `catch` stays exhaustive over server errors.
+
+An rpc can also fail before its handler runs, when a guard refuses the call or a request fails
+validation. Those failures arrive in one case with a fixed name, `rpcFailure(RpcFailure)`, which the
+rpc's error enum declares:
+
+```k
+enum CartError implements Error {
+    case productNotFound
+    case outOfStock(available: Int)
+    case rpcFailure(RpcFailure)
+}
+
+do {
+    try await cart.add(product: product)
+} catch .outOfStock(let available) {
+    problem = .outOfStock(available: available)
+} catch .rpcFailure(.rejected(.unauthenticated)) {
+    Router.navigate(to: .signIn.returnTo(.cart))
+} catch let other {
+    problem = other
+}
+```
+
+See [Protocols and RPC](../apps/protocols.md#failures-outside-the-handler).
 
 ## Testing errors
 
-`expect throws` checks that a block throws a specific case:
+`expect throws` checks that a block throws a specific case. It takes a pattern, as `catch` does, so
+nested cases can be checked (`expect throws AccessError.rpcFailure(.rejected(.unauthenticated))`), and a
+case written without its payload matches any payload:
 
 ```k
 test "out of stock surfaces a typed error" {

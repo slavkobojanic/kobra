@@ -15,7 +15,7 @@ test Searchable {
     test "a query must appear within a single piece" {
         let item = SearchableItem(pieces: ["Groceries", "Milk and eggs"])
 
-        expect item.matches(query: "groceries milk") == false
+        expect not item.matches(query: "groceries milk")
     }
 }
 

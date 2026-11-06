@@ -170,10 +170,36 @@ public theme AppTheme {
   don't clash.
 - **Tokens compile to CSS custom properties** on `:root`.
 - **Tokens work in code too:** `canvas.fill(.primary)`.
-- **There is one theme per app, with standard-library defaults.** Libraries declare the tokens they need,
-  and a token that nothing provides is a compile error. An app overrides a library's token by declaring it
-  in its own theme with the same category and type.
+- **There is one theme per app, with standard-library defaults.** A token that nothing declares is a
+  compile error.
 - `font` tokens produce font preload tags automatically.
+
+### Library tokens
+
+A library declares the tokens it needs, with defaults: `k.charts` declares `color chartGrid`, for
+example. The app's theme **overrides an inherited token with the assignment form**, the same form
+variants use:
+
+```k
+public theme WeatherTheme {
+    color primary: Color = #3B82F6      // declares a new token
+    chartGrid = #E2E8F0                 // overrides the token k.charts declares
+    chartAxis = #64748B
+
+    variant dark {
+        primary = #60A5FA
+        chartGrid = #334155
+    }
+}
+```
+
+- **Declaration always creates; assignment always overrides,** at the top level of the theme and in
+  variants alike.
+- The overriding value's category and type come from the library's declaration. Assigning a token that
+  nothing declares is a compile error.
+- Declaring a token with the name of one a library already declares, such as
+  `color chartGrid: Color = …`, is a compile error with a quick fix to the assignment form. So an app
+  token can't silently collide with a token a library adds later.
 
 ### Variants
 
@@ -186,28 +212,61 @@ variant dark {
 }
 ```
 
-**Switching variants is a single class swap on the document root**, with no re-render:
+### Switching variants at runtime
+
+The compiler generates an enum, **`ThemeVariant`**, from the app's theme: `.base` for the tokens as
+declared, and one case per variant (`.dark`, `.highContrast`, …). Like `Page`, it needs no import, and
+`base` can't be used as a variant name.
+
+Variants are switched through **`Theme`**, a client-only standard-library service in `k.ui`. Like any
+service, it is injected:
 
 ```k
 import k.ui.Theme
 
-Theme.use(.dark)
-Theme.use(.base)
-```
+component ThemeToggle {
+    @Inject let theme: Theme
 
-> **Proposal.** `Theme.use`, `Theme.current` and the generated `ThemeVariant` enum follow
-> `docs/design/proposals/theme-variants.md`.
+    view {
+        button { "Dark mode" }
+            .pressed(theme.current == .dark)
+            .on(click: toggle)
+    }
 
-The compiler generates a `ThemeVariant` enum with `.base` for the tokens as declared and one case per
-variant. `Theme.current` is reactive. A good pattern is to keep the user's choice in a service and apply
-it with an effect in a layout that is always mounted:
-
-```k
-@Effect
-func applyColorScheme() {
-    Theme.use(if appearance.scheme == .dark { .dark } else { .base })
+    func toggle() {
+        theme.use(if theme.current == .dark { .base } else { .dark })
+    }
 }
 ```
+
+| Member | Meaning |
+|---|---|
+| `theme.current: ThemeVariant` | the active variant. Reactive, so views and effects that read it update. |
+| `theme.use(_ variant: ThemeVariant)` | makes `variant` active by swapping one class on the document root, and remembers the choice. Nothing re-renders. |
+| `theme.followSystem()` | forgets the explicit choice, so variants that match a system preference apply again |
+
+- **Following the operating system:** `variant dark matches .prefersDark { … }` applies the variant
+  through a CSS media query until `theme.use` is called. Because it is CSS, the first paint is already
+  right, even when server rendered. `.prefersContrast` works the same way.
+- **An explicit choice is remembered in a cookie** (`k_theme`, holding only the variant name). Server
+  rendering reads it, so a server-rendered app shows the chosen scheme from the first paint, with no
+  flash.
+- During server rendering, `theme.current` is the remembered variant, or `.base`, and `use` does nothing.
+- A choice that lives in another service, for example a settings service that syncs it to the account,
+  is applied from an `@Effect` in a page or layout that is always mounted:
+
+  ```k
+  @Inject let theme: Theme
+  @Inject let appearance: AppearanceService
+
+  @Effect
+  func applyColorScheme() {
+      theme.use(if appearance.scheme == .dark { .dark } else { .base })
+  }
+  ```
+
+In tests, every test gets a fresh `Theme` starting at `.base`, with no cookie set. A test reads the active
+variant with `@Inject let theme: Theme` and `theme.current`.
 
 ## Colors
 

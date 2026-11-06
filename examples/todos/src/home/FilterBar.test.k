@@ -5,8 +5,8 @@ test FilterBar {
         let screen = render(FilterBarHost())
 
         expect screen.button(named: "All").isPressed
-        expect screen.button(named: "Active").isPressed == false
-        expect screen.button(named: "Completed").isPressed == false
+        expect not screen.button(named: "Active").isPressed
+        expect not screen.button(named: "Completed").isPressed
     }
 
     test "clicking a filter selects it in the parent and releases the others" {
@@ -16,7 +16,7 @@ test FilterBar {
 
         expect screen.text("Showing active").isVisible
         expect screen.button(named: "Active").isPressed
-        expect screen.button(named: "All").isPressed == false
+        expect not screen.button(named: "All").isPressed
     }
 
     test "the bar writes through any binding, not only bound state" {

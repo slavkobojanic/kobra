@@ -10,15 +10,15 @@ test NoteCard {
     test "a note without tags shows no tag list" {
         let screen = render(NoteCard(note: summary(title: "Groceries")))
 
-        expect screen.list().exists == false
+        expect not screen.list().exists
     }
 
     test "the pin toggle is pressed exactly when the note is pinned" {
         let pinned = render(NoteCard(note: summary(title: "Groceries", isPinned: true)))
         let unpinned = render(NoteCard(note: summary(title: "Ideas")))
 
-        expect pinned.button(named: "Pin").isPressed
-        expect unpinned.button(named: "Pin").isPressed == false
+        expect pinned.button(named: "Pin Groceries").isPressed
+        expect not unpinned.button(named: "Pin Ideas").isPressed
     }
 
     test "pressing the pin toggle reports the note to the parent, once" {
@@ -26,7 +26,7 @@ test NoteCard {
         var toggled: List<NoteSummary> = []
         let screen = render(NoteCard(note: note).on(pinToggled: { pressed => toggled.append(pressed) }))
 
-        screen.button(named: "Pin").click()
+        screen.button(named: "Pin Groceries").click()
 
         expect toggled == [note]
     }

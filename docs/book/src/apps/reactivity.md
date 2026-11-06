@@ -96,10 +96,23 @@ The compiler also runs a static pass, for tooling:
 
 - A warning appears when an effect reads no reactive values, because it would never re-run.
 - A warning appears when state is read after an `await`, because those reads aren't tracked.
-- The language server shows an effect's dependencies on hover (**Planned**: the language server is
-  deferred).
+- The language server shows an effect's dependencies on hover (**Planned**: the language server isn't in
+  the first compiler releases).
 
-Effects don't run during server rendering. They run in the browser, after hydration.
+### Where effects run
+
+- **Effects run only in the browser,** after the component has mounted, or after hydration for a
+  server-rendered page. **They never run during server rendering,** and neither do timers started in
+  them. Server-side work on a schedule is a [background job](jobs.md).
+- Leaving a page, or unmounting a component, cancels its running effects and runs their `onCleanup`
+  blocks.
+
+### Effects handle their own errors
+
+**An `@Effect` function can't be declared `throws`.** Nothing calls an effect, so nothing could catch its
+error. It handles every error inside, with `do`/`catch` or `try … else`, and usually records it in state.
+Declaring `throws` on an effect is a compile error with a quick fix that wraps the body in `do`/`catch`.
+Event handlers follow the same rule.
 
 ### Explicit dependencies
 
@@ -108,12 +121,16 @@ Effects don't run during server rendering. They run in the browser, after hydrat
 ```k
 @Effect(on: [userId])
 func loadUser() async {
-    user = try await users.load(userId)
+    do {
+        profile = .loaded(try await users.load(userId))
+    } catch let error {
+        profile = .failed(error)
+    }
 }
 ```
 
 `@Effect(on: [])` runs once after mount and never re-runs, which is how a page follows a long-lived
-stream for as long as it is shown.
+stream for as long as it is shown ([Server streaming](streaming.md)).
 
 ### Reading without subscribing, and cleaning up
 
@@ -139,13 +156,15 @@ func refreshPeriodically() {
 }
 ```
 
-> **Proposal.** `Timer` and the injectable clock follow `docs/design/proposals/timers-and-clock.md`.
+The compiler warns when a timer handle returned inside an effect is discarded, because the timer would
+outlive the component. See [Time and timers](time.md).
 
 ## Async effects are cancelled, not raced
 
 When a dependency changes while an async effect is still running, **the previous run is cancelled
 automatically**. Whatever it was awaiting is abandoned, and it never resumes. This removes the classic
-race condition where an old, slow response overwrites a newer one.
+race condition where an old, slow response overwrites a newer one. Cancellation isn't an error: a
+cancelled `await` never resumes, so there is nothing to catch.
 
 Cancellation also makes debouncing trivial. This effect waits for typing to pause before searching,
 because each keystroke cancels the run that is still sleeping:
@@ -155,9 +174,13 @@ because each keystroke cancels the run that is still sleeping:
 func search() async {
     let text = query
 
-    await Timer.sleep(300ms)
+    await Timer.sleep(300ms)              // a new keystroke cancels this run
 
-    results = .loaded(try await places.search(text))
+    do {
+        results = .loaded(try await places.search(text))
+    } catch let error {
+        results = .failed(error)
+    }
 }
 ```
 
@@ -171,5 +194,5 @@ shared state: there is no separate store library. A component that reads `cart.i
 
 - A reader can tell from the declaration alone which values can change and what depends on them.
 - The compiler knows exactly which fields are state, which is what makes state-preserving hot module
-  replacement possible (**Planned**).
+  replacement possible (**Planned** for a later compiler release).
 - Ordinary data stays ordinary: nothing pays for reactivity it doesn't need.

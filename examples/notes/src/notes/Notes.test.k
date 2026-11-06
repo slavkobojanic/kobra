@@ -1,17 +1,15 @@
-import k.auth.Session
+import accounts.AccountId
+import k.auth.SessionManager
 import k.test.TestClock
-import k.time.Clock
 
 test Notes {
-    use TestClock for Clock
-
     @Inject let notes: NotesService
     @Inject let api: NotesProtocol
-    @Inject let session: Session
+    @Inject let sessions: SessionManager
     @Inject let clock: TestClock
 
     test "the list shows the account's notes and filters as you type" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         try await notes.create(draft: draft(title: "Groceries", body: "Milk and eggs", tags: "home"))
         try await notes.create(draft: draft(title: "Ideas", tags: "work"))
         let screen = render(Notes())
@@ -23,11 +21,11 @@ test Notes {
         screen.textField(labeled: "Filter").fill("WORK")
 
         expect screen.link(named: "Ideas").isVisible
-        expect screen.link(named: "Groceries").exists == false
+        expect not screen.link(named: "Groceries").exists
     }
 
     test "a filter with no matches says so" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         try await notes.create(draft: draft(title: "Groceries"))
         let screen = render(Notes())
         await screen.settle()
@@ -38,7 +36,7 @@ test Notes {
     }
 
     test "a note saved in another tab appears without a reload" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         let screen = render(Notes())
         await screen.settle()
 
@@ -53,18 +51,18 @@ test Notes {
     }
 
     test "pinning from a card moves the note to the top" {
-        await session.signIn(userId: "ada")
+        await sessions.signIn(userId: AccountId.ada)
         try await notes.create(draft: draft(title: "Groceries"))
         clock.advance(by: 1.minute)
         try await notes.create(draft: draft(title: "Ideas"))
         let screen = render(Notes())
         await screen.settle()
 
-        screen.item(containing: "Groceries").button(named: "Pin").click()
+        screen.button(named: "Pin Groceries").click()
         await screen.settle()
 
         expect screen.headings().map { heading => heading.text } == ["Notes", "Groceries", "Ideas"]
-        expect screen.item(containing: "Groceries").button(named: "Pin").isPressed
+        expect screen.button(named: "Pin Groceries").isPressed
     }
 
     test "a visitor who isn't signed in is sent to sign in, and back afterwards" {

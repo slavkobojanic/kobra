@@ -27,8 +27,8 @@ how to build, test and lint the compiler.
 
 ## Editor support
 
-> **Planned.** The K language server is designed but deferred. It will be built into the same `k`
-> binary and reuse the compiler's own queries, so your editor can never disagree with the compiler. It
+> **Planned.** The K language server isn't in the first compiler releases. It will be built into the
+> same `k` binary and reuse the compiler's own queries, so your editor can never disagree with the compiler. It
 > will show each effect's reactive dependencies on hover, each page's URL inline, autocomplete after
 > `.` that lists only valid members, and quick fixes for compiler errors.
 

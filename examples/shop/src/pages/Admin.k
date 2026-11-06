@@ -59,7 +59,7 @@ public page Admin requires Authenticated, Role(.admin) {
 
                         cell { "{order.quantity} × {order.productName}" }
 
-                        cell { order.email }
+                        cell { "{order.email}" }
 
                         cell { order.total.formatted(as: .currency) }
 
@@ -78,7 +78,7 @@ public page Admin requires Authenticated, Role(.admin) {
 
     failed(let error) {
         match error {
-            case .rejected {
+            case .rpcFailure {
                 paragraph { "Your session has ended. Sign in again to continue." }
 
                 link(to: .signIn.returnTo(.admin)) { "Sign in" }

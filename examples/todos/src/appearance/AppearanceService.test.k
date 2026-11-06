@@ -1,10 +1,7 @@
-import k.storage.LocalStorage
 import k.storage.StorageKey
 import k.test.MemoryStorage
 
 test AppearanceService {
-    use MemoryStorage for LocalStorage
-
     @Inject let storage: MemoryStorage
     @Inject let appearance: AppearanceService
 
@@ -14,14 +11,14 @@ test AppearanceService {
 
     test "choosing a scheme uses it and saves it" {
         appearance.choose(scheme: .dark)
-        let saved = try storage.read(key: savedSchemeKey())
+        let saved = try storage.read(key: savedSchemeKey)
 
         expect appearance.scheme == .dark
         expect saved == .dark
     }
 
     test "restoring picks up the saved scheme" {
-        try storage.write(key: savedSchemeKey(), value: ColorScheme.dark)
+        try storage.write(key: savedSchemeKey, value: ColorScheme.dark)
 
         appearance.restore()
 
@@ -55,6 +52,4 @@ test AppearanceService {
 
 /// The key `AppearanceService` saves under, spelled out because it is part of
 /// the app's stored format.
-func savedSchemeKey() -> StorageKey<ColorScheme> {
-    return StorageKey<ColorScheme>(name: "colorScheme")
-}
+let savedSchemeKey: StorageKey<ColorScheme> = StorageKey(name: "colorScheme")

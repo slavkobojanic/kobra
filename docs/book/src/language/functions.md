@@ -37,7 +37,8 @@ func reviews(for product: ProductId) async -> List<Review> {
 let found = await reviews(for: id)
 ```
 
-Labels may be keywords such as `for`, `in` and `as`, which often make calls read as prose.
+Labels may be keywords such as `for`, `in` and `as`, which often make calls read as prose. With a single
+word, label and name are the same: `func greeting(name: String)` is called as `greeting(name: "Ana")`.
 
 `_` instead of a label makes the argument positional. Use it when the function name already says what
 the argument is:
@@ -95,10 +96,12 @@ func cheapest<T>(items: List<T>) -> T? where T implements Priced {
 }
 ```
 
-Type arguments are always inferred at the call site, or come from the type of the binding:
+Type arguments are always inferred at the call site, or come from the type of the binding. There is no
+`f<Int>(x)` syntax, because `<` would be ambiguous with comparison:
 
 ```k
 let best = cheapest(items: products)       // T is Product
+let tags: Set<String> = Set(["new"])       // the binding gives the type argument
 ```
 
 ## Functions as values
@@ -122,6 +125,19 @@ Function types are written with parameter types in parentheses:
 let transform: (Int) -> Int = { value => value * 2 }
 let fetcher: (ProductId) async throws CatalogError -> Product = load
 ```
+
+A function type's error may be generic. A function that takes a block typed `() async throws E -> T`
+throws whatever the block passed to it throws, and a block that can't throw makes the call non-throwing,
+so it needs no `try`:
+
+```k
+func transaction<T, E>(_ block: () async throws E -> T) async throws E -> T
+
+let saved = await database.transaction { await notes.update(edited) }      // can't throw
+```
+
+This is the only way to pass an error through. See
+[Errors](errors.md#functions-that-pass-errors-through).
 
 ## Methods
 
