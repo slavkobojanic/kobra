@@ -1,0 +1,3 @@
+# An unterminated string in a metadata entry ends at the line end (K0002); the `(` left open is K0101 and the `}` on the next line still closes the block.
+error[K0002] 4:15-4:16
+error[K0101] 4:14-4:15

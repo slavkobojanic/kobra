@@ -1,0 +1,17 @@
+; interpolations hold full expressions: arithmetic, calls with labels, indexes, optional chaining
+(SourceFile
+  (FieldDecl let a =
+    (StringLit "Total: "
+      (Interpolation
+        (BinaryExpr (BinaryExpr (NameExpr price) * (NameExpr quantity)) + (NameExpr tax)))))
+  (FieldDecl let b =
+    (StringLit
+      (Interpolation
+        (CallExpr
+          (NameExpr format)
+          (ArgList (Arg (NameExpr amount)) (Arg currency (StringLit "EUR")))))))
+  (FieldDecl let c =
+    (StringLit "First: " (Interpolation (MemberExpr (IndexExpr (NameExpr xs) (Literal 0)) name))))
+  (FieldDecl let d =
+    (StringLit "Hi "
+      (Interpolation (BinaryExpr (MemberExpr (NameExpr user) ?. name) ?? (StringLit "guest"))))))

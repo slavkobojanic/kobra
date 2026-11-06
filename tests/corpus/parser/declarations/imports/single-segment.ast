@@ -1,0 +1,2 @@
+; An import path may be a single name.
+(SourceFile (Import import (ImportPath Money)))

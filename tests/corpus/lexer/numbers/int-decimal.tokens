@@ -1,0 +1,5 @@
+# Decimal integers.
+IntLit "1"
+IntLit "42"
+IntLit "1234567890"
+Newline "\n"

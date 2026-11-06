@@ -1,0 +1,5 @@
+# A block comment can sit between tokens with no whitespace.
+Ident "a"
+BlockComment "/*x*/"
+Ident "b"
+Newline "\n"

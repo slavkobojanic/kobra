@@ -1,0 +1,9 @@
+; An app-wide `metadata` block.
+(SourceFile
+  (AppDecl app Weather
+    (MemberList
+      (MetadataBlock metadata
+        (Block
+          (CallExpr (NameExpr manifest) (ArgList (Arg name (StringLit "Weather")) (Arg shortName (StringLit "Weather"))))
+          (CallExpr (NameExpr themeColor) (ArgList (Arg (ImplicitMemberExpr primary))))
+          (CallExpr (NameExpr locale) (ArgList (Arg (ImplicitMemberExpr english)))))))))

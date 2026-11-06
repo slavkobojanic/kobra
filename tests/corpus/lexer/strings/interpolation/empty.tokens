@@ -1,0 +1,10 @@
+# Empty interpolations lex as InterpStart InterpEnd; the parser reports K0128.
+StringStart "\""
+InterpStart "{"
+InterpEnd "}"
+StringEnd "\""
+StringStart "\""
+InterpStart "{"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

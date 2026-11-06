@@ -1,0 +1,4 @@
+; a call on a number extension, as in `RateLimit(100.perMinute)` and `Timer.every(30.seconds)`
+(SourceFile
+  (FieldDecl let t =
+    (CallExpr (MemberExpr (NameExpr Timer) every) (ArgList (Arg (MemberExpr (Literal 30) seconds))))))

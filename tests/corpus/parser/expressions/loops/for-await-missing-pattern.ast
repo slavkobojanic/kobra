@@ -1,0 +1,3 @@
+; `for await` with nothing after it reports the missing pattern once.
+(SourceFile
+  (FuncDecl func f (ParamList) (Block (ForStmt for await in (NameExpr changes) (Block)))))

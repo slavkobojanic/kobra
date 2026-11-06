@@ -1,0 +1,2 @@
+; `not`, `and` and `or` in a view condition, with their precedences.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (BinaryExpr (BinaryExpr (PrefixExpr not (MemberExpr (NameExpr items) isEmpty)) and (NameExpr isOpen)) or (NameExpr force)) (Block (CallExpr (NameExpr List) (ArgList)))))))))

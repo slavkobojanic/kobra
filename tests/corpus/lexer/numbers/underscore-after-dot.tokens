@@ -1,0 +1,5 @@
+# `.` continues a number only before a digit, so `._5` is member access.
+IntLit "1"
+Dot "."
+Ident "_5"
+Newline "\n"

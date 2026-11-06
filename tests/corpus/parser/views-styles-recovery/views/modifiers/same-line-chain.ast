@@ -1,0 +1,2 @@
+; Modifiers chained on the same line as the element, with `not` in an argument.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (MemberExpr (CallExpr (NameExpr button) (LambdaExpr (StringLit "Go"))) disabled) (ArgList (Arg (PrefixExpr not (NameExpr ready))))) on) (ArgList (Arg click (NameExpr go)))))))))

@@ -1,0 +1,74 @@
+# Fuzz targets for the K syntax layer, run with cargo-fuzz (libFuzzer) on a
+# nightly toolchain:
+#
+#     rustup toolchain install nightly --profile minimal
+#     cargo install cargo-fuzz
+#     fuzz/seed-corpus.sh                       # seed corpora from tests/corpus
+#     cargo +nightly fuzz run parse_roundtrip -- -dict=fuzz/k.dict
+#
+# Targets:
+#
+#   lex              arbitrary bytes (decoded lossily): lexer invariants
+#   parse            arbitrary UTF-8: no panic, valid spans, bounded errors
+#   parse_roundtrip  arbitrary UTF-8: every invariant, including the lossless
+#                    tree, token identity, re-lexing, dumps and determinism
+#   structured       bytes drive a K program generator; valid programs must
+#                    parse without diagnostics
+#
+# The invariants live in crates/k_syntax/tests/support/oracle.rs and the
+# generator in crates/k_syntax/tests/support/kgen.rs; both are shared with
+# the stable property tests (crates/k_syntax/tests/properties.rs).
+#
+# This crate is excluded from the stable workspace. See
+# docs/compiler/testing.md, "Fuzzing".
+
+[package]
+name = "k_fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+arbitrary = "1.4"
+libfuzzer-sys = "0.4"
+k_diagnostics = { path = "../crates/k_diagnostics" }
+k_syntax = { path = "../crates/k_syntax" }
+
+[[bin]]
+name = "lex"
+path = "fuzz_targets/lex.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse"
+path = "fuzz_targets/parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_roundtrip"
+path = "fuzz_targets/parse_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "structured"
+path = "fuzz_targets/structured.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1
+
+[workspace]

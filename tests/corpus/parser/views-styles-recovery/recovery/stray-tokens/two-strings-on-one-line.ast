@@ -1,0 +1,2 @@
+; Two string children on one line are K0102 at the second string's opening quote.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr paragraph) (LambdaExpr (StringLit "a") (StringLit "b"))))))))

@@ -1,0 +1,4 @@
+# The first comment is complete; the second never closes and swallows the
+# rest of the file.
+BlockComment "/* a */"
+BlockComment "/* b /* c */\nz\n"

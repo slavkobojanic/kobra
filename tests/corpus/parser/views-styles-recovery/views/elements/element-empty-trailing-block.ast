@@ -1,0 +1,2 @@
+; A lowercase element with an empty trailing block is a call with an empty lambda.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr box) (LambdaExpr)))))))

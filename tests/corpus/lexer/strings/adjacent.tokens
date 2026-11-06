@@ -1,0 +1,8 @@
+# Two strings with nothing between them.
+StringStart "\""
+StringText "a"
+StringEnd "\""
+StringStart "\""
+StringText "b"
+StringEnd "\""
+Newline "\n"

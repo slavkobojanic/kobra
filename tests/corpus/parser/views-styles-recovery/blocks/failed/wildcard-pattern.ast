@@ -1,0 +1,2 @@
+; `failed(_)` ignores the error with a wildcard pattern.
+(SourceFile (PageDecl page Product (MemberList (FailedBlock failed (WildcardPattern _) (Block)))))

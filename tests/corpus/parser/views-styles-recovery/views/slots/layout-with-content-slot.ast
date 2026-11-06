@@ -1,0 +1,2 @@
+; A layout declaring a content slot and placing it in its view.
+(SourceFile (LayoutDecl layout Shop (MemberList (FieldDecl (Annotation Slot) let content (PathType View)) (ViewBlock view (Block (CallExpr (NameExpr NavBar) (ArgList)) (CallExpr (NameExpr main) (LambdaExpr (NameExpr content))) (CallExpr (NameExpr Footer) (ArgList)))))))

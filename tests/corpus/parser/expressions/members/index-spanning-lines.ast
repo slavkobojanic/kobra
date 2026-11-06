@@ -1,0 +1,5 @@
+; newlines inside `[ ]` are insignificant
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (LetStmt let a = (IndexExpr (NameExpr xs) (BinaryExpr (NameExpr i) + (Literal 1)))))))

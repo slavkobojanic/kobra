@@ -1,0 +1,2 @@
+; @media nested inside a rule, and another @media nested inside it.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (AtRule media (AtPrelude (MediaFeature maxWidth (CssValue (Literal 600px)))) (Declaration padding (CssValue (ImplicitMemberExpr sm))) (AtRule media (AtPrelude (MediaFeature orientation (CssValue portrait))) (Declaration padding (CssValue (ImplicitMemberExpr xs))))))))))

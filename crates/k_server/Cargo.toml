@@ -1,0 +1,12 @@
+[package]
+name = "k_server"
+description = "The K server runtime: embedded V8 via deno_core, HTTP via hyper, RPC dispatch and server-side rendering."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

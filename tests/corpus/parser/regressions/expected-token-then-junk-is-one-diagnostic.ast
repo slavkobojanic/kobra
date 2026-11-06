@@ -1,0 +1,10 @@
+; Regression: a statement missing its block reported K0100 ("expected `{`") at the next token,
+; and the enclosing block then reported K0122 for the junk run starting at exactly the same
+; span. `for x in = 1` even got two K0122 there. One gap gets one diagnostic (grammar.md §19.4,
+; diagnostics.md): the junk run's K0122 is dropped when it repeats the span just reported.
+(SourceFile
+  (FuncDecl func f (ParamList)
+    (Block
+      (DoStmt do) (ErrorNode =) (Literal 1)
+      (WhileStmt while (NameExpr a)) (ErrorNode =) (Literal 1)
+      (ForStmt for (IdentPattern x) in) (ErrorNode =) (Literal 1))))

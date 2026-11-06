@@ -1,0 +1,9 @@
+; index expressions with literal, string, computed and nested subscripts
+(SourceFile
+  (FieldDecl let a = (IndexExpr (NameExpr xs) (Literal 0)))
+  (FieldDecl let b = (IndexExpr (NameExpr m) (StringLit "key")))
+  (FieldDecl let c = (IndexExpr (NameExpr xs) (BinaryExpr (NameExpr i) + (Literal 1))))
+  (FieldDecl let d = (IndexExpr (IndexExpr (NameExpr grid) (NameExpr r)) (NameExpr c)))
+  (FieldDecl let e = (MemberExpr (IndexExpr (NameExpr xs) (Literal 0)) name))
+  (FieldDecl let g = (IndexExpr (CallExpr (NameExpr f) (ArgList)) (Literal 0)))
+  (FieldDecl let h = (IndexExpr (NameExpr xs) (IndexExpr (NameExpr ys) (Literal 0)))))

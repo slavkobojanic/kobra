@@ -1,0 +1,2 @@
+# a parser error inside an interpolation is reported and the string continues
+error[K0104] 2:13-2:15

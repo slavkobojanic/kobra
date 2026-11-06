@@ -1,0 +1,3 @@
+# A run may mix ASCII and non-ASCII unexpected characters.
+Error "$é€"
+Newline "\n"

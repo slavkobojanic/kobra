@@ -1,0 +1,4 @@
+# A stray `*/` outside a comment is `Star` then `Slash`.
+Star "*"
+Slash "/"
+Newline "\n"

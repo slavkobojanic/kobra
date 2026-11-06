@@ -1,0 +1,2 @@
+; An empty view block is a ViewBlock holding an empty Block.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block)))))

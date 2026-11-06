@@ -1,0 +1,2 @@
+; `static static` is K0127 on the second `static`.
+(SourceFile (StructDecl struct A (MemberList (FieldDecl static static let x = (Literal 1)))))

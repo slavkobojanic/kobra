@@ -1,0 +1,1 @@
+style { .a { width: calc(100%-2px); } }

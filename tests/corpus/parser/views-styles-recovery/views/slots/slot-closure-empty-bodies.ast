@@ -1,0 +1,2 @@
+; Slot closures with empty bodies, with and without parameters.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (MemberExpr (CallExpr (NameExpr List) (ArgList (Arg items (NameExpr items)))) empty) (LambdaExpr)) row) (LambdaExpr (LambdaParamList (LambdaParam item)))))))))

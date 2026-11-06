@@ -1,0 +1,12 @@
+; Signature parts after the parameters may each start a new line.
+(SourceFile
+  (FuncDecl func checkout (ParamList (Param cart (PathType Cart)) (Param user (PathType User))) async
+    (ThrowsClause throws (PathType CheckoutError))
+    (ReturnType (PathType Receipt))
+    (WhereClause where (WherePredicate Cart implements (PathType Priced)))
+    (Block
+      (ReturnStmt return
+        (TryExpr try
+          (AwaitExpr await
+            (CallExpr (MemberExpr (NameExpr payments) charge)
+              (ArgList (Arg (NameExpr user)) (Arg (MemberExpr (NameExpr cart) total))))))))))

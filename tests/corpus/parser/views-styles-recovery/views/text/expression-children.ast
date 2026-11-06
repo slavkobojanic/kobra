@@ -1,0 +1,2 @@
+; Non-string expressions as children: a name and a method chain.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr heading) (ArgList (Arg level (Literal 3))) (LambdaExpr (MemberExpr (NameExpr item) name))) (CallExpr (NameExpr text) (LambdaExpr (CallExpr (MemberExpr (MemberExpr (NameExpr item) price) formatted) (ArgList (Arg as (ImplicitMemberExpr currency)))))))))))

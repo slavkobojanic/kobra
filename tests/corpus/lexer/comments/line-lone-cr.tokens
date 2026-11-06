@@ -1,0 +1,5 @@
+# A lone `\r` ends a line comment.
+LineComment "// x"
+Newline "\r"
+Ident "y"
+Newline "\r"

@@ -1,0 +1,2 @@
+; An empty class list.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr)) class) (ArgList (Arg (ListExpr)))))))))

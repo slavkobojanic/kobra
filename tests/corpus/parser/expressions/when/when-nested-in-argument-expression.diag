@@ -1,0 +1,2 @@
+# `when` inside an argument's sub-expression is K0109
+error[K0109] 2:14-2:18

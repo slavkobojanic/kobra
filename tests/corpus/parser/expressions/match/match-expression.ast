@@ -1,0 +1,11 @@
+; the control-flow example of grammar.md section 19.3
+(SourceFile
+  (FieldDecl let label =
+    (MatchExpr match
+      (NameExpr status)
+      (MatchArm case (EnumCasePattern active) (Block (StringLit "On")))
+      (MatchArm case
+        (EnumCasePattern shipped (BindingPattern let tracking))
+        (MatchGuard where (MemberExpr (NameExpr tracking) isDelayed))
+        (Block (StringLit "Late")))
+      (MatchArm default (Block (StringLit "Off"))))))

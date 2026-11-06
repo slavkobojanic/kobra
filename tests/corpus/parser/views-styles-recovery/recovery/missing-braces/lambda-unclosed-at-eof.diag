@@ -1,0 +1,4 @@
+# End of file inside a slot closure: each open brace reports K0101.
+error[K0101] 2:13-2:14
+error[K0101] 3:10-3:11
+error[K0101] 5:18-5:19

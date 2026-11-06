@@ -1,0 +1,7 @@
+# Six independent errors across members, view, style and metadata: each is reported exactly once and none hides the others.
+error[K0126] 4:5-4:6
+error[K0106] 8:23-8:24
+error[K0102] 11:22-11:26
+error[K0117] 16:23-16:23
+error[K0118] 20:24-20:34
+error[K0103] 24:19-24:20

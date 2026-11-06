@@ -1,0 +1,3 @@
+# An unterminated block comment extends to the end of the file.
+Ident "x"
+BlockComment "/* never closed\n y\n"

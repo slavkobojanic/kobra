@@ -1,0 +1,4 @@
+; `await` after a binary operator is K0114
+(SourceFile
+  (FieldDecl let a =
+    (BinaryExpr (NameExpr x) * (AwaitExpr await (CallExpr (NameExpr y) (ArgList))))))

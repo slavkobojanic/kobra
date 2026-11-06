@@ -1,0 +1,8 @@
+# 3, 4, 6 and 8 hexadecimal digits, any case.
+ColorLit "#fff"
+ColorLit "#FFFF"
+ColorLit "#3B82F6"
+ColorLit "#3b82f6"
+ColorLit "#3B82F680"
+ColorLit "#000"
+Newline "\n"

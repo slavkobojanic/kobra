@@ -1,0 +1,6 @@
+# The `\r\n` that ends an unterminated string is one Newline in code mode.
+StringStart "\""
+StringText "abc"
+Newline "\r\n"
+Ident "x"
+Newline "\r\n"

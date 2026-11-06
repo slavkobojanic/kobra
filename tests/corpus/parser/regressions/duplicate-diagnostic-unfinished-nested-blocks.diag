@@ -1,0 +1,10 @@
+error[K0101] 1:9-1:10: unclosed delimiter `{`
+  help: add the matching `}`
+error[K0101] 1:17-1:18: unclosed delimiter `{`
+  help: add the matching `}`
+error[K0101] 1:20-1:21: unclosed delimiter `(`
+  help: add the matching `)`
+error[K0101] 1:26-1:27: unclosed delimiter `(`
+  help: add the matching `)`
+error[K0122] 1:26-1:27: expected an expression inside the parentheses
+error[K0100] 1:27-1:27: expected `{`, found end of file

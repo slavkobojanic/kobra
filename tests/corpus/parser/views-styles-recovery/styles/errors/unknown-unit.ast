@@ -1,0 +1,2 @@
+; An unknown unit suffix in a style value is K0112 on the whole literal.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration padding (CssValue (Literal 4pz))))))))

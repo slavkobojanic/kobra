@@ -1,0 +1,2 @@
+; A multi-statement handler lambda spanning several lines.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr button) (LambdaExpr (StringLit "Reset"))) on) (ArgList (Arg click (LambdaExpr (AssignStmt (NameExpr count) = (Literal 0)) (CallExpr (MemberExpr (NameExpr changed) emit) (ArgList (Arg (NameExpr count)))))))))))))

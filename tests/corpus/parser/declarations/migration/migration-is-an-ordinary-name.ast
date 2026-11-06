@@ -1,0 +1,7 @@
+(SourceFile
+  (FieldDecl let migration = (Literal 1))
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (CallExpr (MemberExpr (NameExpr migration) run) (ArgList))
+      (LetStmt let next = (NameExpr migration)))))

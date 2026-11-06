@@ -1,0 +1,3 @@
+# `0x` with no digits is an IntLit with K0006.
+IntLit "0x"
+Newline "\n"

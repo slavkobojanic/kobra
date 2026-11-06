@@ -1,0 +1,5 @@
+# Cyrillic `а` (U+0430) looks like `a` but is not ASCII.
+Error "\u{430}"
+Eq "="
+IntLit "1"
+Newline "\n"

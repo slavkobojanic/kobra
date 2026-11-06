@@ -1,0 +1,4 @@
+# Block comments nest: the first `*/` closes only the inner comment.
+BlockComment "/* a /* b */ c */"
+Ident "x"
+Newline "\n"

@@ -1,0 +1,2 @@
+; Arguments spread over several lines, with a trailing comma; newlines inside parentheses are insignificant.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr CartRow) (ArgList (Arg item (NameExpr item)) (Arg quantity (BindExpr bind (MemberExpr (NameExpr item) quantity))))))))))

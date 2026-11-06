@@ -1,0 +1,7 @@
+# Extension properties chain.
+IntLit "2"
+Dot "."
+Ident "hours"
+Dot "."
+Ident "ago"
+Newline "\n"

@@ -1,0 +1,9 @@
+# Block comments in every gap of a statement.
+LetKw "let"
+BlockComment "/* name */"
+Ident "x"
+BlockComment "/* eq */"
+Eq "="
+BlockComment "/* value */"
+IntLit "1"
+Newline "\n"

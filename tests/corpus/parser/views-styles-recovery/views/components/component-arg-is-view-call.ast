@@ -1,0 +1,2 @@
+; A component argument whose value is itself an element call with a trailing block.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr Tooltip) (ArgList (Arg content (CallExpr (NameExpr text) (LambdaExpr (StringLit "Help"))))) (LambdaExpr (CallExpr (NameExpr Icon) (ArgList (Arg name (StringLit "info")))))))))))

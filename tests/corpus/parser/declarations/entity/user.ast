@@ -1,0 +1,9 @@
+; The entity from docs/design/19-persistence.md.
+(SourceFile
+  (EntityDecl entity User
+    (MemberList
+      (FieldDecl (Annotation Id) let id (PathType UserId))
+      (FieldDecl (Annotation Unique) var email (PathType String))
+      (FieldDecl var name (PathType String))
+      (FieldDecl var lastSeen (PathType Date))
+      (FieldDecl (Annotation Relation) var orders (PathType List (GenericArgList (PathType Order)))))))

@@ -1,0 +1,2 @@
+; a lone `.` before `)` is K0100 at the `)`
+(SourceFile (FieldDecl let a = (CallExpr (NameExpr f) (ArgList (Arg (ImplicitMemberExpr))))))

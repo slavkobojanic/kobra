@@ -1,0 +1,8 @@
+; One bad construct does not hide later errors: each declaration reports its own.
+(SourceFile
+  (StructDecl struct (MemberList))
+  (EnumDecl enum E (MemberList (EnumCase case a) (EnumCase b)))
+  (FuncDecl func f (ParamList) (ThrowsClause throws) (Block))
+  (FieldDecl var top = (Literal 1))
+  (ComponentDecl component Ok (MemberList (ErrorNode 42)))
+  (StructDecl struct Fine (MemberList)))

@@ -1,0 +1,11 @@
+; the `key` clause is accepted on every `for`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ForStmt for
+        (IdentPattern item)
+        in
+        (NameExpr items)
+        (KeyClause key (MemberExpr (NameExpr item) id))
+        (Block (CallExpr (NameExpr CartRow) (ArgList (Arg item (NameExpr item)))))))))

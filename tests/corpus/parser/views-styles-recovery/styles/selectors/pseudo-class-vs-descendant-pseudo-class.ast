@@ -1,0 +1,2 @@
+; `.a:hover` is one compound selector; `.a :hover` is two (whitespace is significant inside selectors).
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a) (PseudoClass hover)))) (StyleRule (Selector (CompoundSelector (ClassSelector a)) (CompoundSelector (PseudoClass hover))))))))

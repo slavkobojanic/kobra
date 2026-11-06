@@ -1,0 +1,9 @@
+; the operand of `bind` is a full postfix chain
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (CallExpr
+        (NameExpr Field)
+        (ArgList
+          (Arg value (BindExpr bind (MemberExpr (IndexExpr (NameExpr rows) (NameExpr i)) name))))))))

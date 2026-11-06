@@ -1,0 +1,7 @@
+# A line comment after code on the same line.
+LetKw "let"
+Ident "x"
+Eq "="
+IntLit "1"
+LineComment "// trailing note"
+Newline "\n"

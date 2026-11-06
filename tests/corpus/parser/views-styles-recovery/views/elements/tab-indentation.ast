@@ -1,0 +1,2 @@
+; Tabs as indentation inside a view.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr (CallExpr (NameExpr text) (LambdaExpr (StringLit "tabbed"))))) class) (ArgList (Arg (ImplicitMemberExpr x)))))))))

@@ -1,0 +1,2 @@
+; A view whose only node is a string literal.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (StringLit "Hello, world"))))))

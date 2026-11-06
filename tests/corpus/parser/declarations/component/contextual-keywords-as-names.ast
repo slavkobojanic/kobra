@@ -1,0 +1,10 @@
+; Contextual keywords are ordinary names after the declaration keyword and as field names.
+(SourceFile
+  (ComponentDecl component view
+    (MemberList
+      (FieldDecl (Annotation Prop) let page (PathType Int))
+      (FieldDecl (Annotation Prop) let key (PathType String))
+      (FieldDecl (Annotation Prop) let test (PathType Bool))
+      (FieldDecl (Annotation Prop) let variant (PathType Style))
+      (FieldDecl (Annotation Prop) let at (PathType Int))
+      (FuncDecl func layout (ParamList) (Block)))))

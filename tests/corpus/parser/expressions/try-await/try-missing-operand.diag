@@ -1,0 +1,2 @@
+# `try` with nothing after it is K0122 at the gap
+error[K0122] 3:16-3:16

@@ -1,0 +1,2 @@
+# Only the element selector is reported; the rule after it parses normally.
+error[K0116] 3:9-3:15

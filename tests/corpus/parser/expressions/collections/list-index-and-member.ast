@@ -1,0 +1,7 @@
+; a list literal can be indexed and have members
+(SourceFile
+  (FieldDecl let a =
+    (BinaryExpr
+      (IndexExpr (ListExpr (Literal 1) (Literal 2)) (Literal 0))
+      +
+      (MemberExpr (ListExpr (Literal 3)) count))))

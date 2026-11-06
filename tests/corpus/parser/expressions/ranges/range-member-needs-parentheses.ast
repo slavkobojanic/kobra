@@ -1,0 +1,7 @@
+; postfix binds tighter: `(0..<10).contains(x)` needs parentheses, `0..<10.count` ranges to `10.count`
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (MemberExpr (ParenExpr (BinaryExpr (Literal 0) ..< (Literal 10))) contains)
+      (ArgList (Arg (NameExpr x)))))
+  (FieldDecl let b = (BinaryExpr (Literal 0) ..< (MemberExpr (Literal 10) count))))

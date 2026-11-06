@@ -1,0 +1,9 @@
+; Parameters may have default values of any expression.
+(SourceFile
+  (FuncDecl func page
+    (ParamList
+      (Param size (PathType Int) = (Literal 20))
+      (Param sort (PathType Sort) = (ImplicitMemberExpr newest))
+      (Param tags (PathType List (GenericArgList (PathType String))) = (ListExpr))
+      (Param retry (PathType RetryPolicy) = (MemberExpr (Literal 3) retries)))
+    (Block)))

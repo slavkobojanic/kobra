@@ -1,0 +1,17 @@
+; The theme from docs/design/07-themes-and-units.md.
+(SourceFile
+  (ThemeDecl public theme AppTheme
+    (MemberList
+      (ThemeToken color primary (PathType Color) = (Literal #3B82F6))
+      (ThemeToken color surface (PathType Color) = (Literal #FFFFFF))
+      (ThemeToken color surfaceHover (PathType Color) = (Literal #F3F4F6))
+      (ThemeToken color muted (PathType Color) = (Literal #6B7280))
+      (ThemeToken space sm (PathType Spacing) = (Literal 8px))
+      (ThemeToken space md (PathType Spacing) = (Literal 16px))
+      (ThemeToken radius md (PathType Radius) = (Literal 8px))
+      (ThemeToken radius lg (PathType Radius) = (Literal 16px))
+      (ThemeToken font body (PathType Font) =
+        (CallExpr (NameExpr Font) (ArgList (Arg family (StringLit "Inter")) (Arg size (Literal 16px)))))
+      (ThemeVariant variant dark
+        (ThemeOverride surface = (Literal #111827))
+        (ThemeOverride surfaceHover = (Literal #1F2937))))))

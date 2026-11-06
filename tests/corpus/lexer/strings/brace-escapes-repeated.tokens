@@ -1,0 +1,6 @@
+# `{{{{` is two brace escapes.
+StringStart "\""
+StringEscape "{{"
+StringEscape "{{"
+StringEnd "\""
+Newline "\n"

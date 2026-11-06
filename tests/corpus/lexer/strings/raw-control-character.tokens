@@ -1,0 +1,6 @@
+# Raw control characters other than line terminators are string text (no
+# diagnostic).
+StringStart "\""
+StringText "a\u{1}b\u{7f}"
+StringEnd "\""
+Newline "\n"

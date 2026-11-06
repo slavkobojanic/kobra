@@ -1,0 +1,2 @@
+; Strings may contain any Unicode text, written literally in the dump.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit "héllo wörld 👋 日本語"))))))))

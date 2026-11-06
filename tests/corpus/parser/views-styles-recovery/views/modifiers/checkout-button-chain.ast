@@ -1,0 +1,2 @@
+; Three chained attributes and an event, each on its own line (from the views design).
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (MemberExpr (CallExpr (MemberExpr (CallExpr (NameExpr button) (LambdaExpr (StringLit "Pay " (Interpolation (NameExpr total))))) type) (ArgList (Arg (ImplicitMemberExpr submit)))) disabled) (ArgList (Arg (NameExpr isSubmitting)))) on) (ArgList (Arg click (NameExpr checkout)))))))))

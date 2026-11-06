@@ -1,0 +1,2 @@
+# `bind` outside an argument is K0110; the BindExpr is still built.
+error[K0110] 4:16-4:20

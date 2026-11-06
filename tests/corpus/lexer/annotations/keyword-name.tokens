@@ -1,0 +1,9 @@
+# A keyword after `@` is still a keyword token.
+At "@"
+Ident "Layout"
+LParen "("
+Ident "Dashboard"
+RParen ")"
+At "@"
+DefaultKw "default"
+Newline "\n"

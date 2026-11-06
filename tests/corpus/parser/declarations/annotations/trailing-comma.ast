@@ -1,0 +1,4 @@
+; A trailing comma is allowed in annotation arguments.
+(SourceFile
+  (StructDecl struct A
+    (MemberList (FieldDecl (Annotation Length (ArgList (Arg min (Literal 1)) (Arg max (Literal 2)))) var name (PathType String)))))

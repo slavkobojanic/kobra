@@ -1,0 +1,6 @@
+# `{{}` is an escaped `{` and a literal `}`: no interpolation.
+StringStart "\""
+StringEscape "{{"
+StringText "}"
+StringEnd "\""
+Newline "\n"

@@ -1,0 +1,3 @@
+; a map value is not a list element: `when` there is K0109
+(SourceFile
+  (FieldDecl let m = (MapExpr (MapEntry (NameExpr k) (WhenExpr (NameExpr v) when (NameExpr c))))))

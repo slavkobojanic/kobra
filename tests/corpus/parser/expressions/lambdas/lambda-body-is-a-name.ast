@@ -1,0 +1,2 @@
+; `{ x }` without `=>` is a lambda whose body is the name `x`
+(SourceFile (FieldDecl let a = (LambdaExpr (NameExpr x))))

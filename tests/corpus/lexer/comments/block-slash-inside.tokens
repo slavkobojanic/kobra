@@ -1,0 +1,5 @@
+# `/*/` does not close the comment (the `*` belongs to the opener); the
+# following ` */` does.
+BlockComment "/*/ */"
+Ident "x"
+Newline "\n"

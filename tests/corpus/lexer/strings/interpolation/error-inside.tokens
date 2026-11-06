@@ -1,0 +1,8 @@
+# An unexpected character inside an interpolation is reported and lexing of
+# the string continues.
+StringStart "\""
+InterpStart "{"
+Error "$"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

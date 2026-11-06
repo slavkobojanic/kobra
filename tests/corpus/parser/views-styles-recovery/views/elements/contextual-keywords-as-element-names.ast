@@ -1,0 +1,2 @@
+; Inside a view block, `loading`, `view`, `failed`, `page`, `key` and `metadata` are ordinary names (contextual keywords only act at member start).
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr loading) (LambdaExpr (StringLit "wait"))) (CallExpr (NameExpr view) (LambdaExpr (NameExpr key))) (CallExpr (NameExpr failed) (ArgList (Arg (NameExpr reason)))) (NameExpr page) (CallExpr (NameExpr metadata) (LambdaExpr)))))))

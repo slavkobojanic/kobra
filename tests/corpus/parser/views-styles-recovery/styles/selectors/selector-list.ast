@@ -1,0 +1,2 @@
+; A comma-separated selector list spanning lines.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Selector (CompoundSelector (ClassSelector b))) (Selector (CompoundSelector (ClassSelector c))) (Declaration color (CssValue red)))))))

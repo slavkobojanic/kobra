@@ -1,0 +1,9 @@
+; The number after the bare `.` stays a value component of its own.
+(SourceFile
+  (ComponentDecl component T
+    (MemberList
+      (StyleBlock style
+        (StyleRule
+          (Selector (CompoundSelector (ClassSelector a)))
+          (Declaration margin (CssValue (ImplicitMemberExpr) (Literal 5em)))
+          (Declaration opacity (CssValue (ImplicitMemberExpr) (Literal 25))))))))

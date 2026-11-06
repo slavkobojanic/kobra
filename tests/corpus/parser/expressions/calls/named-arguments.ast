@@ -1,0 +1,6 @@
+; a labeled argument dumps its label before the value; `:` is omitted
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (MemberExpr (NameExpr cart) add)
+      (ArgList (Arg product (NameExpr p)) (Arg quantity (Literal 2))))))

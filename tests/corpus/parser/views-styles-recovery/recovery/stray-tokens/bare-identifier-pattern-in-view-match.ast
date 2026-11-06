@@ -1,0 +1,2 @@
+; A bare identifier as a match pattern in a view is K0115; the parser builds an IdentPattern.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (MatchExpr match (NameExpr state) (MatchArm case (IdentPattern loaded) (Block (CallExpr (NameExpr Done) (ArgList))))))))))

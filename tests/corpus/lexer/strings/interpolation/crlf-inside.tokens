@@ -1,0 +1,7 @@
+# `\r\n` inside an interpolation behaves like `\n`.
+StringStart "\""
+InterpStart "{"
+Ident "a"
+Newline "\r\n"
+Ident "b"
+Newline "\r\n"

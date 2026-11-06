@@ -37,6 +37,7 @@ public page Admin requires Authenticated, Role(.admin) {
     view {
         header {
             heading(level: 1) { "Orders" }
+                .class(.title)
 
             button { "Refresh" }
                 .on(click: reload)
@@ -58,28 +59,37 @@ public page Admin requires Authenticated, Role(.admin) {
             table {
                 row {
                     headerCell { "Placed" }
+                        .class(.cell)
 
                     headerCell { "Item" }
+                        .class(.cell)
 
                     headerCell { "Customer" }
+                        .class(.cell)
 
                     headerCell { "Total" }
+                        .class(.cell)
 
                     headerCell { "Status" }
+                        .class(.cell)
                 }
 
                 for order in orders key order.id {
                     row {
                         cell { order.placedAt.formatted(as: .dateTime) }
+                            .class(.cell)
 
                         cell { "{order.quantity} × {order.productName}" }
+                            .class(.cell)
 
                         cell { "{order.email}" }
+                            .class(.cell)
 
                         cell { order.total.formatted(as: .currency) }
+                            .class(.cell)
 
                         cell { order.status.label }
-                            .class([.status, .attention when order.status == .needsReview])
+                            .class([.cell, .status, .attention when order.status == .needsReview])
                     }
                 }
             }
@@ -114,14 +124,14 @@ public page Admin requires Authenticated, Role(.admin) {
             gap: .sm;
             alignItems: center;
 
-            & h1 { marginRight: auto; }
+            & .title { marginRight: auto; }
         }
 
         .orders {
             width: 100%;
             borderCollapse: collapse;
 
-            & th, & td {
+            & .cell {
                 padding: .sm;
                 borderBottom: 1px solid .border;
                 textAlign: left;

@@ -1,0 +1,8 @@
+# A color in a theme token declaration.
+Ident "color"
+Ident "primary"
+Colon ":"
+Ident "Color"
+Eq "="
+ColorLit "#3B82F6"
+Newline "\n"

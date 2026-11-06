@@ -1,0 +1,2 @@
+# `not try x` is K0114: `try` must start the expression it covers
+error[K0114] 2:13-2:16

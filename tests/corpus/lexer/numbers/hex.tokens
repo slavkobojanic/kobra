@@ -1,0 +1,8 @@
+# Hexadecimal integers, either case, with separators (also right after the
+# prefix).
+IntLit "0xFF"
+IntLit "0xff"
+IntLit "0x0"
+IntLit "0xDEAD_BEEF"
+IntLit "0x_FF"
+Newline "\n"

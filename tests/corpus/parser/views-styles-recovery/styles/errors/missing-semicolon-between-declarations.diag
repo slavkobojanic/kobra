@@ -1,0 +1,2 @@
+# A declaration that is not the last in its block must end with `;` (K0117 at the gap after its value).
+error[K0117] 5:23-5:23

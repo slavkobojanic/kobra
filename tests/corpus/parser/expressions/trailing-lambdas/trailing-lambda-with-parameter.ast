@@ -1,0 +1,6 @@
+; a trailing lambda with a parameter on a member callee
+(SourceFile
+  (FieldDecl let names =
+    (CallExpr
+      (MemberExpr (NameExpr users) map)
+      (LambdaExpr (LambdaParamList (LambdaParam user)) (MemberExpr (NameExpr user) name)))))

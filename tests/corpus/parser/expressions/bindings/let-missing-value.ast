@@ -1,0 +1,2 @@
+; `let a =` with nothing after it is K0122 at the gap after `=`
+(SourceFile (FuncDecl func f (ParamList) (Block (LetStmt let a =))))

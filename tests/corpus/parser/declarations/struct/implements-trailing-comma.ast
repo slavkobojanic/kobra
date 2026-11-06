@@ -1,0 +1,2 @@
+; `implements` does not allow a trailing comma: K0123 at the `{`.
+(SourceFile (StructDecl struct A (ImplementsClause implements (PathType B)) (MemberList)))

@@ -1,0 +1,2 @@
+# `case x` is K0115 (write `let x` or `.x`); the parser builds an IdentPattern
+error[K0115] 4:14-4:15

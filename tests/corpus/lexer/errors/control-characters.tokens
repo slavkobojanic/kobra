@@ -1,0 +1,4 @@
+# Control characters are unexpected; they are quoted as \u{...} here.
+Error "\u{1}\u{2}"
+Error "\u{7f}"
+Newline "\n"

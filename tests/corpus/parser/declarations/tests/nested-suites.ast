@@ -1,0 +1,19 @@
+; Suites nest; each level may hold its own overrides, helpers and cases.
+(SourceFile
+  (TestSuiteDecl test Checkout
+    (MemberList
+      (UseDecl use (PathType FakePayments) for (PathType PaymentProvider))
+      (TestSuiteDecl test WithEmptyCart
+        (MemberList
+          (FieldDecl let cart = (MemberExpr (NameExpr Cart) empty))
+          (FuncDecl func checkout (ParamList) async (ThrowsClause throws (PathType CheckoutError))
+            (ReturnType (PathType Receipt))
+            (Block
+              (ReturnStmt return
+                (TryExpr try
+                  (AwaitExpr await
+                    (CallExpr (MemberExpr (NameExpr service) checkout) (ArgList (Arg cart (NameExpr cart)))))))))
+          (TestCaseDecl test (StringLit "fails")
+            (Block
+              (ExpectThrowsStmt expect throws (EnumCasePattern CheckoutError emptyCart)
+                (Block (TryExpr try (AwaitExpr await (CallExpr (NameExpr checkout) (ArgList)))))))))))))

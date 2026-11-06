@@ -1,0 +1,2 @@
+; Two items on one line are K0102 at the second.
+(SourceFile (StructDecl struct A (MemberList)) (StructDecl struct B (MemberList)))

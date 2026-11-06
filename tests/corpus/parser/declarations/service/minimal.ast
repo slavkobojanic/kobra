@@ -1,0 +1,2 @@
+; The smallest service.
+(SourceFile (ServiceDecl service Clock (MemberList)))

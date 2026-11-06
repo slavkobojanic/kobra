@@ -1,0 +1,2 @@
+# K0130 is reported once, at the first comma after the case name.
+error[K0130] 3:11-3:12

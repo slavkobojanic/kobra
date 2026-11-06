@@ -1,0 +1,10 @@
+; `for _ in 0..<10` iterates a half-open range
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ForStmt for
+        (WildcardPattern _)
+        in
+        (BinaryExpr (Literal 0) ..< (Literal 10))
+        (Block (CallExpr (NameExpr tick) (ArgList)))))))

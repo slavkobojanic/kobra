@@ -1,0 +1,2 @@
+; A class list missing its `]`: K0101 at the `[`; the `)` still closes the argument list.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr)) class) (ArgList (Arg (ListExpr (ImplicitMemberExpr a) (ImplicitMemberExpr b))))))))))

@@ -1,0 +1,3 @@
+# `/*` as the last two characters of the file.
+Ident "a"
+BlockComment "/*"

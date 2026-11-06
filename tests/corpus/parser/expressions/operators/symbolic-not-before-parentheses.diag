@@ -1,0 +1,2 @@
+# `!(a and b)` is a PrefixExpr over a ParenExpr
+error[K0106] 2:10-2:11

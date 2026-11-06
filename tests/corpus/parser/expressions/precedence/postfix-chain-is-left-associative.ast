@@ -1,0 +1,17 @@
+; calls, members and indexes chain to the left in source order
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (MemberExpr
+        (MemberExpr
+          (IndexExpr
+            (MemberExpr
+              (CallExpr
+                (CallExpr (NameExpr f) (ArgList (Arg (Literal 1))))
+                (ArgList (Arg (Literal 2))))
+              g)
+            (Literal 3))
+          h)
+        ?.
+        i)
+      (ArgList (Arg (Literal 4))))))

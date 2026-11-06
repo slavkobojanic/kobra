@@ -1,0 +1,9 @@
+; implicit case names may be keywords (`.default`, `.in`)
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr m)
+        (MatchArm case (EnumCasePattern default) (Block))
+        (MatchArm case (EnumCasePattern in (BindingPattern let x)) (Block))))))

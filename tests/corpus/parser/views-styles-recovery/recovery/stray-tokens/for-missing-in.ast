@@ -1,0 +1,2 @@
+; A `for` without `in`: K0100 at the token where `in` was expected; the rest of the header still parses.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (ForStmt for (IdentPattern item) (NameExpr items) (KeyClause key (MemberExpr (NameExpr item) id)) (Block (CallExpr (NameExpr row) (ArgList (Arg (NameExpr item)))))))))))

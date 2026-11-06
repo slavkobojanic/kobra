@@ -1,0 +1,8 @@
+; `requires` takes a comma-separated list of guards, with or without arguments.
+(SourceFile
+  (PageDecl page Admin
+    (RequiresClause requires
+      (Guard Authenticated)
+      (Guard Role (ArgList (Arg (ImplicitMemberExpr admin))))
+      (Guard RateLimit (ArgList (Arg (MemberExpr (Literal 100) perMinute)) (Arg burst (Literal 10)))))
+    (MemberList)))

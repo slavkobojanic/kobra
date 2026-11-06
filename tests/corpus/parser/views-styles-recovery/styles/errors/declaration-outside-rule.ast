@@ -1,0 +1,2 @@
+; A declaration directly in the style block is K0133; the span covers the whole Declaration including `;`.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (Declaration color (CssValue red)) (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color (CssValue blue)))))))

@@ -1,0 +1,2 @@
+# a function body cut off by the end of file is K0101 at its `{`; its statements are kept
+error[K0101] 2:10-2:11

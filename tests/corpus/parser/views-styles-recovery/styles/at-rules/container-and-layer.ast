@@ -1,0 +1,2 @@
+; @container with a feature, @layer with a block and @layer as a statement ending in `;`.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (AtRule container (AtPrelude (MediaFeature minWidth (CssValue (Literal 400px)))) (StyleRule (Selector (CompoundSelector (ClassSelector card))))) (AtRule layer (AtPrelude base)) (AtRule layer (AtPrelude reset))))))

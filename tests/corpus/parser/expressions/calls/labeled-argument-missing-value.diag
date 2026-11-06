@@ -1,0 +1,2 @@
+# a label with no value is K0122 at the `)`
+error[K0122] 2:14-2:15

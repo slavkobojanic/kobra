@@ -1,0 +1,5 @@
+# A NUL byte is an unexpected character.
+Ident "a"
+Error "\u{0}"
+Ident "b"
+Newline "\n"

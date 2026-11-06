@@ -1,0 +1,2 @@
+# `c ? .a : .b` is a ternary (K0107), not optional chaining: `? .` has a space
+error[K0107] 2:15-2:16

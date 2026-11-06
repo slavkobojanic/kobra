@@ -1,0 +1,2 @@
+# `failed()` with nothing in the parentheses is K0124 at the `)`; the block still parses.
+error[K0124] 3:12-3:13

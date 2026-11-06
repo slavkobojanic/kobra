@@ -1,0 +1,16 @@
+# Calls with labeled arguments and implicit members; `as` is a (reserved)
+# keyword usable as a label.
+StringStart "\""
+InterpStart "{"
+Ident "price"
+Dot "."
+Ident "formatted"
+LParen "("
+AsKw "as"
+Colon ":"
+Dot "."
+Ident "currency"
+RParen ")"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

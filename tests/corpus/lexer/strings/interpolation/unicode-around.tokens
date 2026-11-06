@@ -1,0 +1,9 @@
+# Non-ASCII text right next to an interpolation.
+StringStart "\""
+StringText "→"
+InterpStart "{"
+Ident "x"
+InterpEnd "}"
+StringText "←"
+StringEnd "\""
+Newline "\n"

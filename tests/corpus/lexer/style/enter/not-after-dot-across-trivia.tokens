@@ -1,0 +1,11 @@
+# "Previous non-trivia token" skips comments: it is still the `.`.
+Ident "x"
+Dot "."
+BlockComment "/* c */"
+StyleKw "style"
+LBrace "{"
+Ident "a"
+Minus "-"
+Ident "b"
+RBrace "}"
+Newline "\n"

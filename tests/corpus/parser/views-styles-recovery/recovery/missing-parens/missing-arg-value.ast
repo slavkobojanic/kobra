@@ -1,0 +1,2 @@
+; A named argument without a value: K0122 at the `)`.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr heading) (ArgList (Arg level)) (LambdaExpr (NameExpr title))))))))

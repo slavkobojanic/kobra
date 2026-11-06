@@ -1,0 +1,7 @@
+# A second assignment operator on the same line is one K0100 at that operator, not a junk run.
+error[K0100] 2:11-2:12: assignments cannot be chained
+  help: assign each variable in its own statement
+error[K0100] 3:12-3:14: assignments cannot be chained
+  help: assign each variable in its own statement
+error[K0100] 4:15-4:16: assignments cannot be chained
+  help: assign each variable in its own statement

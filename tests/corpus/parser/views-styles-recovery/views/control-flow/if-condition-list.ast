@@ -1,0 +1,2 @@
+; A condition list mixing `let` bindings and a boolean condition.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (LetCondition let a) (LetCondition let b = (NameExpr other)) (MemberExpr (NameExpr a) isReady) (Block (CallExpr (NameExpr Ready) (ArgList)))))))))

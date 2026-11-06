@@ -1,0 +1,2 @@
+; `!` in a modifier argument is K0106 and is treated as `not`.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr button) (LambdaExpr (StringLit "Go"))) disabled) (ArgList (Arg (PrefixExpr ! (NameExpr ready))))))))))

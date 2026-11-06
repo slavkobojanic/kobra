@@ -1,0 +1,18 @@
+# Regression: as style-block-in-string-interpolation-ends-at-newline, with a nested string in
+# the style block and CRLF line endings. Both strings are unterminated; `\r\n` is one Newline
+# in code mode and `let` is a keyword again.
+LetKw "let"
+Ident "a"
+Eq "="
+StringStart "\""
+InterpStart "{"
+StyleKw "style"
+LBrace "{"
+StringStart "\""
+StringText "x"
+Newline "\r\n"
+LetKw "let"
+Ident "b"
+Eq "="
+IntLit "1"
+Newline "\r\n"

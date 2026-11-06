@@ -1,0 +1,9 @@
+# A statement starting with `:` is a selector.
+StyleKw "style"
+LBrace "{"
+Colon ":"
+Ident "root"
+LBrace "{"
+RBrace "}"
+RBrace "}"
+Newline "\n"

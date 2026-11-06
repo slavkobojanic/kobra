@@ -1,0 +1,2 @@
+# `catch error` is K0115: bindings need `let`
+error[K0115] 3:26-3:31

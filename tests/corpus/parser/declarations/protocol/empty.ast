@@ -1,0 +1,2 @@
+; The smallest protocol.
+(SourceFile (ProtocolDecl protocol Ping (MemberList)))

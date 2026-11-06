@@ -1,0 +1,5 @@
+# `%` directly after a number belongs to the literal, so no `%=` is formed.
+UnitLit "5%"
+Eq "="
+IntLit "3"
+Newline "\n"

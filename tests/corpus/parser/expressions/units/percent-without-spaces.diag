@@ -1,0 +1,2 @@
+# `10%3` lexes as `10%` then `3`: two expressions on one line (K0102), not a remainder (RA-4)
+error[K0102] 3:16-3:17

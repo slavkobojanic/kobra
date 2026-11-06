@@ -1,0 +1,6 @@
+# A block comment spans lines; its line terminators belong to the comment
+# token (no Newline tokens inside it).
+BlockComment "/* line1\n   line2\r\n   line3\r */"
+Newline "\n"
+Ident "x"
+Newline "\n"

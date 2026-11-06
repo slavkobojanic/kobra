@@ -1,0 +1,11 @@
+# Inside an interpolation `{{` is not an escape: it is two LBrace tokens.
+StringStart "\""
+InterpStart "{"
+LBrace "{"
+LBrace "{"
+Ident "a"
+RBrace "}"
+RBrace "}"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

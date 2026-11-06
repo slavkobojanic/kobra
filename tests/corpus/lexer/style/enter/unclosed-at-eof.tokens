@@ -1,0 +1,9 @@
+# An unclosed style block simply ends at end of file; the parser reports the
+# missing braces (K0101), the lexer reports nothing.
+StyleKw "style"
+LBrace "{"
+Newline "\n"
+Dot "."
+Ident "a"
+LBrace "{"
+Newline "\n"

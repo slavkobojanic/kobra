@@ -1,0 +1,11 @@
+# A backslash at the end of the line is an escape of just `\` (K0004), and
+# the string is unterminated (K0002). The next line is code again.
+LetKw "let"
+Ident "s"
+Eq "="
+StringStart "\""
+StringText "abc"
+StringEscape "\\"
+Newline "\n"
+Ident "x"
+Newline "\n"

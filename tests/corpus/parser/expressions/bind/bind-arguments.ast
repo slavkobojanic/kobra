@@ -1,0 +1,9 @@
+; `bind` is allowed directly as a labeled or positional argument value
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (CallExpr
+        (NameExpr TextField)
+        (ArgList (Arg text (BindExpr bind (MemberExpr (NameExpr form) email)))))
+      (CallExpr (NameExpr Toggle) (ArgList (Arg (BindExpr bind (NameExpr isOn))))))))

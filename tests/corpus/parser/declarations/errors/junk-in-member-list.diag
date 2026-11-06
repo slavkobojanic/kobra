@@ -1,0 +1,2 @@
+# A token that cannot start a member is K0126; the next member still parses.
+error[K0126] 3:5-3:7

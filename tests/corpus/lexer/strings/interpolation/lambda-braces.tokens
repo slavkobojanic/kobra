@@ -1,0 +1,17 @@
+# A `{` inside an interpolation is LBrace and raises the brace depth; its `}`
+# is RBrace, and only the `}` at depth 0 is InterpEnd.
+StringStart "\""
+InterpStart "{"
+Ident "items"
+Dot "."
+Ident "map"
+LBrace "{"
+Ident "i"
+FatArrow "=>"
+Ident "i"
+Dot "."
+Ident "name"
+RBrace "}"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

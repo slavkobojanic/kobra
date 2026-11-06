@@ -1,0 +1,2 @@
+; Whitespace and newlines inside the `failed(...)` parentheses.
+(SourceFile (PageDecl page Product (MemberList (FailedBlock failed (BindingPattern let error) (Block)))))

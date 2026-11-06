@@ -1,0 +1,2 @@
+; Elements nest through trailing blocks; each level is a CallExpr with a LambdaExpr.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr section) (LambdaExpr (CallExpr (NameExpr article) (LambdaExpr (CallExpr (NameExpr box) (LambdaExpr (CallExpr (NameExpr text) (LambdaExpr (StringLit "deep"))))))))))))))

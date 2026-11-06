@@ -1,0 +1,4 @@
+# Only one `%` joins the literal; the second is the remainder operator.
+UnitLit "50%"
+Percent "%"
+Newline "\n"

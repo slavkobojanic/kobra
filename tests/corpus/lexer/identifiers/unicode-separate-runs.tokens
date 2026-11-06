@@ -1,0 +1,4 @@
+# Runs separated by whitespace are separate tokens and diagnostics.
+Error "é"
+Error "é"
+Newline "\n"

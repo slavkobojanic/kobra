@@ -1,0 +1,2 @@
+; a `.` with no name before the end of the line is K0100 at the gap after `.`
+(SourceFile (FuncDecl func f (ParamList) (Block (LetStmt let a = (MemberExpr (NameExpr b))))))

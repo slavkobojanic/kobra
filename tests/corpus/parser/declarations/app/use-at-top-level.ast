@@ -1,0 +1,2 @@
+; `use` is a member, not an item: at the top level it is K0125 and the line is skipped.
+(SourceFile (ErrorNode use Fake for Api) (StructDecl struct C (MemberList)))

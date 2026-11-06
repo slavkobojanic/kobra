@@ -1,0 +1,3 @@
+# As view-unclosed-at-eof, but the file does not end with a newline.
+error[K0101] 2:13-2:14
+error[K0101] 3:10-3:11

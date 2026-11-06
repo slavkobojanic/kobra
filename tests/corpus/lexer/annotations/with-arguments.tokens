@@ -1,0 +1,13 @@
+# Annotation arguments use ordinary call syntax (`default` is a keyword label).
+At "@"
+Ident "Prop"
+LParen "("
+DefaultKw "default"
+Colon ":"
+IntLit "1"
+RParen ")"
+LetKw "let"
+Ident "step"
+Colon ":"
+Ident "Int"
+Newline "\n"

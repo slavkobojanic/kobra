@@ -1,0 +1,5 @@
+; an unknown unit suffix is K0112 on the whole literal; the literal stays in the tree
+(SourceFile
+  (FieldDecl let a = (Literal 10pz))
+  (FieldDecl let b = (Literal 3x))
+  (FieldDecl let c = (BinaryExpr (Literal 16pxx) + (Literal 1px))))

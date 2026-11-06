@@ -1,0 +1,6 @@
+(SourceFile
+  (StructDecl struct Point
+    (MemberList
+      (FieldDecl let x (PathType Int))
+      (FieldDecl let y (PathType Int))))
+  (EnumDecl enum E (MemberList (EnumCase case a) (EnumCase case b))))

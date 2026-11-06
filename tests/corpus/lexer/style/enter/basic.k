@@ -1,0 +1,5 @@
+style {
+    .card {
+        padding: .md;
+    }
+}

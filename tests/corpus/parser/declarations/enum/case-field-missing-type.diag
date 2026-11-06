@@ -1,0 +1,2 @@
+# A case field label without a type is K0123 at the `)`.
+error[K0123] 3:15-3:16

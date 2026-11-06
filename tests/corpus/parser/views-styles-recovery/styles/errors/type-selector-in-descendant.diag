@@ -1,0 +1,2 @@
+# An element name inside a selector is a TypeSelector and K0116.
+error[K0116] 4:15-4:19

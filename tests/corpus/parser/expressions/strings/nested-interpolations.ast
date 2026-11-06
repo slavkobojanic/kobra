@@ -1,0 +1,4 @@
+; a string inside an interpolation can interpolate again
+(SourceFile
+  (FieldDecl let a =
+    (StringLit "a" (Interpolation (StringLit "b" (Interpolation (NameExpr c)) "d")) "e")))

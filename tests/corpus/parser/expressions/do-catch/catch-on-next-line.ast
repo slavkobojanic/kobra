@@ -1,0 +1,9 @@
+; `catch` at the start of a line continues the `do` (rule N3)
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (DoStmt do
+        (Block (TryExpr try (CallExpr (NameExpr work) (ArgList))))
+        (CatchClause catch (EnumCasePattern a) (Block))
+        (CatchClause catch (EnumCasePattern b) (Block))))))

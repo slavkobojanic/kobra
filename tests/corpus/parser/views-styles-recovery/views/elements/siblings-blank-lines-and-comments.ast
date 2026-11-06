@@ -1,0 +1,2 @@
+; Sibling view nodes separated by blank lines, line comments and block comments.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr heading) (ArgList (Arg level (Literal 1))) (LambdaExpr (StringLit "Title"))) (CallExpr (NameExpr paragraph) (LambdaExpr (StringLit "Body"))) (CallExpr (NameExpr footer) (LambdaExpr)))))))

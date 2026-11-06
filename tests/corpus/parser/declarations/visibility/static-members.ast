@@ -1,0 +1,9 @@
+; `static` follows the visibility modifier.
+(SourceFile
+  (StructDecl struct Product
+    (MemberList
+      (FieldDecl static let sample = (CallExpr (NameExpr Product) (ArgList (Arg id (Literal 1)))))
+      (FieldDecl public static let empty (PathType Product) = (CallExpr (NameExpr Product) (ArgList (Arg id (Literal 0)))))
+      (FuncDecl private static func make (ParamList) (ReturnType (PathType Product))
+        (Block (ReturnStmt return (ImplicitMemberExpr sample))))
+      (FieldDecl static var counter = (Literal 0)))))

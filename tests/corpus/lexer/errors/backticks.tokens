@@ -1,0 +1,5 @@
+# Each backtick is its own run, because `code` between them is valid.
+Error "`"
+Ident "code"
+Error "`"
+Newline "\n"

@@ -1,0 +1,18 @@
+; every known CSS unit suffix is a plain Literal
+(SourceFile
+  (FieldDecl let a =
+    (ListExpr
+      (Literal 16px)
+      (Literal 1.5em)
+      (Literal 2rem)
+      (Literal 3ch)
+      (Literal 50vw)
+      (Literal 50vh)
+      (Literal 10vmin)
+      (Literal 10vmax)
+      (Literal 100dvh)
+      (Literal 100svh)
+      (Literal 100lvh)
+      (Literal 1fr)))
+  (FieldDecl let b =
+    (ListExpr (Literal 50%) (Literal 45deg) (Literal 200ms) (Literal 2s) (Literal 0.5s))))

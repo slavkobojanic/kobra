@@ -1,0 +1,2 @@
+# Two cases on one line without a comma are K0102 at the second `case`.
+error[K0102] 3:12-3:16

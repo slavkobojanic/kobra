@@ -1,0 +1,16 @@
+# RA-8: a statement starting with a letter is a declaration, so `button`
+# is a property name and its `{` opens an interpolation (code mode: the `;`
+# is a code Semicolon). The parser reports K0116; the lexer reports nothing.
+StyleKw "style"
+LBrace "{"
+Newline "\n"
+Ident "button"
+InterpStart "{"
+Ident "color"
+Colon ":"
+Ident "red"
+Semicolon ";"
+InterpEnd "}"
+Newline "\n"
+RBrace "}"
+Newline "\n"

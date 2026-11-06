@@ -1,0 +1,6 @@
+; A token without `= value` reports K0100 at the gap after its type.
+(SourceFile
+  (ThemeDecl theme T
+    (MemberList
+      (ThemeToken color accent (PathType Color))
+      (ThemeToken space md (PathType Spacing) = (Literal 16px)))))

@@ -1,0 +1,7 @@
+; Regression: the identical K0100 "expected `{`, found end of file" was reported twice at the
+; end of the file, once for the unfinished `match` and once for the enclosing `if`, with K0101
+; diagnostics in between. One gap gets one diagnostic (grammar.md §19.4).
+(SourceFile
+  (LayoutDecl layout y
+    (MemberList
+      (LoadingBlock loading (Block (IfExpr if (ParenExpr (MatchExpr match (ParenExpr)))))))))

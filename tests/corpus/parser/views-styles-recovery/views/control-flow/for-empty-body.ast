@@ -1,0 +1,2 @@
+; A keyed `for` with an empty body.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (ForStmt for (IdentPattern x) in (NameExpr xs) (KeyClause key (NameExpr x)) (Block)))))))

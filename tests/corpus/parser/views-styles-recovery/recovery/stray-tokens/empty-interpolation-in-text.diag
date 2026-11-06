@@ -1,0 +1,2 @@
+# An empty interpolation in a text node is K0128 on the `{}`.
+error[K0128] 4:18-4:20

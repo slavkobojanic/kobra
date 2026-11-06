@@ -1,0 +1,6 @@
+# `/=` is an operator; `//=` starts a comment.
+Ident "a"
+SlashEq "/="
+Ident "b"
+LineComment "//= c"
+Newline "\n"

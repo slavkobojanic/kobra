@@ -1,0 +1,3 @@
+(SourceFile
+  (StructDecl struct Point
+    (MemberList (FieldDecl let x (PathType Int)) (FieldDecl let y (PathType Int)))))

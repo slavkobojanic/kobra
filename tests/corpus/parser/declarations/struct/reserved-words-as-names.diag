@@ -1,0 +1,3 @@
+# The reserved words `as` and `is` used as names are K0108; the parser keeps them as the name.
+error[K0108] 2:8-2:10
+error[K0108] 3:5-3:7

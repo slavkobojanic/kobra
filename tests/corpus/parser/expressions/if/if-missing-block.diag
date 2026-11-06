@@ -1,0 +1,2 @@
+# an `if` without a block is K0100 at the gap after the condition
+error[K0100] 3:13-3:13

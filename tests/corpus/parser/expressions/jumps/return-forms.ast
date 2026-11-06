@@ -1,0 +1,8 @@
+; bare `return`, `return` with a value, and `return` of an if-expression
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ReturnStmt return)
+      (ReturnStmt return (BinaryExpr (NameExpr x) + (Literal 1)))
+      (ReturnStmt return (IfExpr if (NameExpr a) (Block (Literal 1)) else (Block (Literal 2)))))))

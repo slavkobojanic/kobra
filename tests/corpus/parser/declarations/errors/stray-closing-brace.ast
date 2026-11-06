@@ -1,0 +1,2 @@
+; A stray `}` at the top level is K0125; the ErrorNode holds only omitted punctuation.
+(SourceFile (ErrorNode) (StructDecl struct A (MemberList)))

@@ -1,0 +1,7 @@
+# Only the lowercase prefixes `0x`, `0b`, `0o` exist. `0X1F` is the number `0`
+# with the suffix `X1F`, so it is a UnitLit; the parser rejects the unknown
+# unit (K0112), the lexer reports nothing.
+UnitLit "0X1F"
+UnitLit "0B1"
+UnitLit "0O7"
+Newline "\n"

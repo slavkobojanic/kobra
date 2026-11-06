@@ -1,0 +1,6 @@
+# Extra stars are comment text; `/** */` is an ordinary block comment (there
+# are no block doc comments).
+BlockComment "/***/"
+BlockComment "/** doc? */"
+BlockComment "/*****/"
+Newline "\n"

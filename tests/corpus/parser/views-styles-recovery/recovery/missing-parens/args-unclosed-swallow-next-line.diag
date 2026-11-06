@@ -1,0 +1,2 @@
+# Newlines are insignificant inside `(`, so a modifier on the next line becomes part of the unclosed argument.
+error[K0101] 4:15-4:16

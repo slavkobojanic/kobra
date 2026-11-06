@@ -1,0 +1,9 @@
+; `Timer.every(30.seconds) { refresh() }` as a statement
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (CallExpr
+        (MemberExpr (NameExpr Timer) every)
+        (ArgList (Arg (MemberExpr (Literal 30) seconds)))
+        (LambdaExpr (CallExpr (NameExpr refresh) (ArgList)))))))

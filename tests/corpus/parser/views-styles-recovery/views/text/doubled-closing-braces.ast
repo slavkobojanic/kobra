@@ -1,0 +1,2 @@
+; `}}` in a text node is two literal closing braces, and `{{` before an interpolation escapes only the first brace.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit "}} {" (Interpolation (NameExpr name))))))))))

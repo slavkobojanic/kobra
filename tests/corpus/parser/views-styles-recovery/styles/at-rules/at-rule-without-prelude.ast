@@ -1,0 +1,2 @@
+; An at-rule with no prelude.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (AtRule layer (StyleRule (Selector (CompoundSelector (ClassSelector a)))))))))

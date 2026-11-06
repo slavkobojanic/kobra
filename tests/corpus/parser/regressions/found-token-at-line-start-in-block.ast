@@ -1,0 +1,6 @@
+; Regression: a junk run that starts at the beginning of a line was reported as "found end of
+; line" although its span is the token itself (`and`, which does not continue the line above
+; because no operand follows it; grammar.md §5 N3). The message names the token.
+(SourceFile
+  (FuncDecl func f (ParamList)
+    (Block (LetStmt let a = (NameExpr b)) (ErrorNode and))))

@@ -1,0 +1,2 @@
+; End of file inside a rule: every unclosed `{` (rule, style block, component) reports K0101 at its opening brace.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color (CssValue red)))))))

@@ -1,0 +1,4 @@
+; `c ? .a : .b` is a ternary (K0107), not optional chaining: `? .` has a space
+(SourceFile
+  (FieldDecl let tone =
+    (ErrorNode (NameExpr ok) (ImplicitMemberExpr success) (ImplicitMemberExpr danger))))

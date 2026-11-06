@@ -1,0 +1,7 @@
+; `(a)` is a ParenExpr; two or more elements make a TupleExpr, with an optional trailing comma
+(SourceFile
+  (FieldDecl let a = (ParenExpr (NameExpr x)))
+  (FieldDecl let b = (TupleExpr (NameExpr x) (NameExpr y)))
+  (FieldDecl let c = (TupleExpr (Literal 1) (StringLit "a") (Literal true)))
+  (FieldDecl let d =
+    (TupleExpr (TupleExpr (Literal 1) (Literal 2)) (TupleExpr (Literal 3) (Literal 4)))))

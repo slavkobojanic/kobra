@@ -1,0 +1,8 @@
+; in an `if` condition a `{` opens the block, so `items.isEmpty { ... }` is not a call
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (IfExpr if
+        (MemberExpr (NameExpr items) isEmpty)
+        (Block (CallExpr (NameExpr empty) (ArgList)))))))

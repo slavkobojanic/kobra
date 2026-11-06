@@ -1,0 +1,19 @@
+error[K0104] 1:10-1:12
+  fix "Replace `&&` with `and`"
+    edit 1:10-1:12 " and "
+error[K0105] 2:10-2:12
+  fix "Replace `||` with `or`"
+    edit 2:10-2:12 " or "
+error[K0104] 3:11-3:13
+  fix "Replace `&&` with `and`"
+    edit 3:11-3:13 "and "
+error[K0105] 4:10-4:12
+  fix "Replace `||` with `or`"
+    edit 4:10-4:12 " or"
+# `(!n)`: nothing to separate on the left; `not ` already separates on the right.
+error[K0106] 5:10-5:11
+  fix "Replace `!` with `not`"
+    edit 5:10-5:11 "not "
+error[K0106] 7:7-7:8
+  fix "Replace `!` with `not`"
+    edit 7:7-7:8 " not "

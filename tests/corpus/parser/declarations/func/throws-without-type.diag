@@ -1,0 +1,4 @@
+# `throws` must name a type: K0129 on `throws`, before `->` or before the body.
+error[K0129] 2:10-2:16
+error[K0129] 3:10-3:16
+error[K0129] 4:16-4:22

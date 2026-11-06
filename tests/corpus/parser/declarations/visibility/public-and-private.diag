@@ -1,0 +1,2 @@
+# Combining `public` and `private` is K0127 on the second modifier.
+error[K0127] 2:8-2:15

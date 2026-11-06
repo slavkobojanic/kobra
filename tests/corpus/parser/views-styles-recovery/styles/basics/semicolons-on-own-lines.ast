@@ -1,0 +1,2 @@
+; Declarations and their semicolons spread over lines; newlines are trivia in style blocks.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration padding (CssValue (ImplicitMemberExpr md))) (Declaration margin (CssValue (Literal 0))))))))

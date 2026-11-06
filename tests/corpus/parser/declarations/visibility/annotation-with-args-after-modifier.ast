@@ -1,0 +1,2 @@
+; K0121 spans the annotation including its argument list.
+(SourceFile (ServiceDecl public (Annotation Scope (ArgList (Arg (ImplicitMemberExpr request)))) service RequestLog (MemberList)))

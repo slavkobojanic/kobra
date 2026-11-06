@@ -1,0 +1,10 @@
+; block and line comments are trivia anywhere inside an expression
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let a = (BinaryExpr (Literal 1) + (Literal 2)))
+      (LetStmt let b = (CallExpr (NameExpr f) (ArgList)))
+      (LetStmt let c = (NameExpr x))
+      (LetStmt let d = (BinaryExpr (Literal 1) + (Literal 2)))
+      (LetStmt let e = (BinaryExpr (Literal 1) + (Literal 2))))))

@@ -1,0 +1,4 @@
+(SourceFile
+  (FieldDecl let a (OptionalType (PathType Int)))
+  (ErrorNode)
+  (FieldDecl let b (OptionalType (PathType Int)) = (BinaryExpr (NameExpr a) ?? (Literal nil))))

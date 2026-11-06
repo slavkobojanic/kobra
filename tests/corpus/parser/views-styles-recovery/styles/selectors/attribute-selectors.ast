@@ -1,0 +1,2 @@
+; Attribute selectors: presence, string value and identifier value.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a) (AttributeSelector disabled)))) (StyleRule (Selector (CompoundSelector (ClassSelector b) (AttributeSelector type = (StringLit "text"))))) (StyleRule (Selector (CompoundSelector (ClassSelector c) (AttributeSelector dir = rtl))))))))

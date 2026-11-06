@@ -1,0 +1,6 @@
+; A component may declare generic parameters.
+(SourceFile
+  (ComponentDecl component Picker (GenericParamList (GenericParam T))
+    (MemberList
+      (FieldDecl (Annotation Prop) let options (PathType List (GenericArgList (PathType T))))
+      (FieldDecl (Annotation Binding) var selection (OptionalType (PathType T))))))

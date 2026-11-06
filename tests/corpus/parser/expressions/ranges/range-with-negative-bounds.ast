@@ -1,0 +1,3 @@
+; unary minus binds tighter than ranges
+(SourceFile
+  (FieldDecl let r = (BinaryExpr (PrefixExpr - (Literal 5)) ... (PrefixExpr - (Literal 1)))))

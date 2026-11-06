@@ -1,0 +1,2 @@
+; The body's `{` may start the next line, because the header requires a body.
+(SourceFile (ComponentDecl component A (MemberList (FieldDecl (Annotation State) var x (PathType Int) = (Literal 0)))))

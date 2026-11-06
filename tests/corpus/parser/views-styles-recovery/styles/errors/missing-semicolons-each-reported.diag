@@ -1,0 +1,3 @@
+# Every missing `;` is reported, not only the first.
+error[K0117] 5:23-5:23
+error[K0117] 6:22-6:22

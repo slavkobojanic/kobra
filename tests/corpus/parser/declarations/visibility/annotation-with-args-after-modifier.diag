@@ -1,0 +1,2 @@
+# K0121 spans the annotation including its argument list.
+error[K0121] 2:8-2:24

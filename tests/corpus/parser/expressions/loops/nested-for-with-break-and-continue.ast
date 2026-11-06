@@ -1,0 +1,17 @@
+; `break` and `continue` are statements of their own
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ForStmt for
+        (IdentPattern row)
+        in
+        (NameExpr rows)
+        (Block
+          (ForStmt for
+            (IdentPattern cell)
+            in
+            (NameExpr row)
+            (Block
+              (IfExpr if (MemberExpr (NameExpr cell) isEmpty) (Block (ContinueStmt continue)))
+              (IfExpr if (MemberExpr (NameExpr cell) isLast) (Block (BreakStmt break))))))))))

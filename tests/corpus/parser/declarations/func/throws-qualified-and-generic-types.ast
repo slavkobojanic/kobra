@@ -1,0 +1,4 @@
+; `throws` takes any type.
+(SourceFile
+  (FuncDecl func a (ParamList) (ThrowsClause throws (PathType errors Checkout)) (Block))
+  (FuncDecl func b (ParamList) (ThrowsClause throws (PathType Wrapped (GenericArgList (PathType NetworkError)))) (Block)))

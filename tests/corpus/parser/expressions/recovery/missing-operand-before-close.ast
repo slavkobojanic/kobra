@@ -1,0 +1,2 @@
+; a binary operator directly before `)` is K0122 at the `)`
+(SourceFile (FieldDecl let a = (CallExpr (NameExpr f) (ArgList (Arg (BinaryExpr (Literal 1) *))))))

@@ -1,0 +1,7 @@
+; an `if` expression can be an argument value and is then not restricted
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (NameExpr text)
+      (ArgList
+        (Arg (IfExpr if (NameExpr on) (Block (StringLit "On")) else (Block (StringLit "Off"))))))))

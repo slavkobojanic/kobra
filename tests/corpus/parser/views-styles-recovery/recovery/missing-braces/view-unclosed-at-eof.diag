@@ -1,0 +1,3 @@
+# End of file inside a view: K0101 at the view's `{` and at the component's `{`; the parsed content is kept.
+error[K0101] 2:13-2:14
+error[K0101] 3:10-3:11

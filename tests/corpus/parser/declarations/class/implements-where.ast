@@ -1,0 +1,6 @@
+; Classes take the same clauses as structs.
+(SourceFile
+  (ClassDecl public class Pool (GenericParamList (GenericParam T))
+    (ImplementsClause implements (PathType Closeable))
+    (WhereClause where (WherePredicate T implements (PathType Resettable)))
+    (MemberList)))

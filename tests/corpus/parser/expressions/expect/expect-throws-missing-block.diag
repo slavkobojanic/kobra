@@ -1,0 +1,2 @@
+# `expect throws E` without a block is K0100 at the gap after the pattern
+error[K0100] 3:22-3:22

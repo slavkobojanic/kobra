@@ -1,0 +1,7 @@
+# An emoji is one Unicode scalar value, so its span is one column wide.
+LetKw "let"
+Error "😀"
+Ident "x"
+Eq "="
+IntLit "1"
+Newline "\n"

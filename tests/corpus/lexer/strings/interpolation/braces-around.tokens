@@ -1,0 +1,9 @@
+# Renders as `{` + x + `}}`.
+StringStart "\""
+StringEscape "{{"
+InterpStart "{"
+Ident "x"
+InterpEnd "}"
+StringText "}}"
+StringEnd "\""
+Newline "\n"

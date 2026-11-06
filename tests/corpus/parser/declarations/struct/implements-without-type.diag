@@ -1,0 +1,2 @@
+# `implements` without a type is K0123 at the `{`.
+error[K0123] 2:21-2:22

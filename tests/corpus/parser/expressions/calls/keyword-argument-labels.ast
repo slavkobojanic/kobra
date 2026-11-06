@@ -1,0 +1,12 @@
+; labels may be any word, including hard and reserved keywords (RA-5)
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (NameExpr f)
+      (ArgList
+        (Arg in (NameExpr x))
+        (Arg as (NameExpr y))
+        (Arg default (NameExpr z))
+        (Arg class (NameExpr w))
+        (Arg if (NameExpr v))
+        (Arg is (NameExpr u))))))

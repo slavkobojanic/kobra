@@ -1,0 +1,5 @@
+; Layouts may declare guards.
+(SourceFile
+  (LayoutDecl public layout Admin
+    (RequiresClause requires (Guard Authenticated) (Guard Role (ArgList (Arg (ImplicitMemberExpr admin)))))
+    (MemberList (FieldDecl (Annotation Inject) let session (PathType Session)))))

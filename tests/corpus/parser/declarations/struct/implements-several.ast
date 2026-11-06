@@ -1,0 +1,5 @@
+; `implements` is the only conformance syntax.
+(SourceFile
+  (StructDecl struct User
+    (ImplementsClause implements (PathType Codable) (PathType Equatable) (PathType Hashable))
+    (MemberList (FieldDecl let id (PathType UserId)))))

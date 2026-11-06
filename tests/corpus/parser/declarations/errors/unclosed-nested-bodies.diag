@@ -1,0 +1,3 @@
+# Every unclosed `{` reports K0101 at end of file.
+error[K0101] 2:11-2:12
+error[K0101] 3:14-3:15

@@ -1,0 +1,11 @@
+# Several annotations, then modifiers.
+At "@"
+Ident "Inject"
+At "@"
+Ident "Lazy"
+PrivateKw "private"
+LetKw "let"
+Ident "api"
+Colon ":"
+Ident "CartProtocol"
+Newline "\n"

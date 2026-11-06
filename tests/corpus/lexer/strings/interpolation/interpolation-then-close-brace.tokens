@@ -1,0 +1,8 @@
+# After InterpEnd, a `}` is text.
+StringStart "\""
+InterpStart "{"
+Ident "x"
+InterpEnd "}"
+StringText "}"
+StringEnd "\""
+Newline "\n"

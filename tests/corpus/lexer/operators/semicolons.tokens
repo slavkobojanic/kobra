@@ -1,0 +1,12 @@
+# `;` is a token in code mode (the parser reports K0103).
+LetKw "let"
+Ident "a"
+Eq "="
+IntLit "1"
+Semicolon ";"
+LetKw "let"
+Ident "b"
+Eq "="
+IntLit "2"
+Semicolon ";"
+Newline "\n"

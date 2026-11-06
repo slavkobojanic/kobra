@@ -1,0 +1,3 @@
+; `@Breaking("...")` takes a string argument.
+(SourceFile
+  (ProtocolDecl (Annotation Breaking (ArgList (Arg (StringLit "renamed the total field")))) protocol CartProtocol (MemberList)))

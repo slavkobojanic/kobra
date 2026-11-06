@@ -1,0 +1,7 @@
+; Regression: a non-ASCII character inside or before a name produced K0100/K0102/K0125 on top
+; of the lexer's K0001, and the rest of the line became junk. As in grammar.md §19.4
+; (`struct Café {}` dumps as `(StructDecl struct Caf (ErrorNode é) (MemberList))`), the Error
+; token is wrapped where it occurs and parsing continues as if it were not there.
+(SourceFile
+  (FieldDecl let caf (ErrorNode é) = (Literal 1))
+  (FieldDecl let (ErrorNode ​) b = (Literal 2)))

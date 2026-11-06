@@ -1,0 +1,2 @@
+; The smallest layout.
+(SourceFile (LayoutDecl layout Plain (MemberList)))

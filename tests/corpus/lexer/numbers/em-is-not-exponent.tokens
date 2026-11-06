@@ -1,0 +1,6 @@
+# RA-20: `1em` is a length, `1e5` a float.
+UnitLit "1em"
+UnitLit "2.5em"
+FloatLit "1e5"
+UnitLit "1E"
+Newline "\n"

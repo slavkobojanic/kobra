@@ -1,0 +1,2 @@
+; A slot closure whose body starts on the line after the parameter arrow.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr Menu) (ArgList)) item) (LambdaExpr (LambdaParamList (LambdaParam entry)) (CallExpr (NameExpr MenuItem) (ArgList (Arg entry (NameExpr entry)))))))))))

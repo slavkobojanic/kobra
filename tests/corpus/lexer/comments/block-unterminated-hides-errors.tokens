@@ -1,0 +1,2 @@
+# Inside an unterminated comment nothing else is reported: only K0003.
+BlockComment "/* $ \"\n#zz\n"

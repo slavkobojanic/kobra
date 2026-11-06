@@ -1,0 +1,4 @@
+; `at` strings may be the root path or contain Unicode text.
+(SourceFile
+  (PageDecl page Home (AtClause at (StringLit "/")) (MemberList))
+  (PageDecl page Cafe (AtClause at (StringLit "/café/menü/" (Interpolation (NameExpr id)))) (MemberList)))

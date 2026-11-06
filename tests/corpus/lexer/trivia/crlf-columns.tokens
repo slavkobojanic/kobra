@@ -1,0 +1,5 @@
+# After `\r\n` the next line starts at column 1: the `$` is at 2:3.
+Ident "x"
+Newline "\r\n"
+Error "$"
+Newline "\n"

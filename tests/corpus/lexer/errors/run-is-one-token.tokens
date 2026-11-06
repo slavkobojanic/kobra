@@ -1,0 +1,3 @@
+# Consecutive unexpected characters form one Error token and one diagnostic.
+Error "$^`\\"
+Newline "\n"

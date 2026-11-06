@@ -1,0 +1,13 @@
+; further trailing lambdas are chained through members: `list(items) { ... }.row { ... }`
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (MemberExpr
+        (CallExpr
+          (NameExpr table)
+          (ArgList (Arg (NameExpr rows)))
+          (LambdaExpr
+            (LambdaParamList (LambdaParam r))
+            (CallExpr (NameExpr cell) (ArgList (Arg (NameExpr r))))))
+        header)
+      (LambdaExpr (NameExpr title)))))

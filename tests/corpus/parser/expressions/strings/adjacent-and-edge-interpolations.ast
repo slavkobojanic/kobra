@@ -1,0 +1,5 @@
+; interpolations at the start, the end and next to each other
+(SourceFile
+  (FieldDecl let a = (StringLit (Interpolation (NameExpr x))))
+  (FieldDecl let b = (StringLit (Interpolation (NameExpr x)) (Interpolation (NameExpr y))))
+  (FieldDecl let c = (StringLit (Interpolation (NameExpr x)) " and " (Interpolation (NameExpr y)))))

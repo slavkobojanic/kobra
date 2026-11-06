@@ -1,0 +1,2 @@
+; End of file after complete rules but before the style block's `}`.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color (CssValue red)))))))

@@ -1,0 +1,8 @@
+; Parameters may have function types, including async and throwing ones.
+(SourceFile
+  (FuncDecl func each
+    (ParamList
+      (Param action (FuncType (PathType Int) (ReturnType (PathType Void))))
+      (Param load (FuncType async (ThrowsClause throws (PathType LoadError)) (ReturnType (PathType Data))))
+      (Param pick (OptionalType (ParenType (FuncType (PathType Int) (PathType Int) (ReturnType (PathType Int)))))))
+    (Block)))

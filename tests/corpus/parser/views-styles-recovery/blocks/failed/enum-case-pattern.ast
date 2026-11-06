@@ -1,0 +1,2 @@
+; Any pattern is accepted by the parser in `failed(...)`; restricting it is semantic.
+(SourceFile (PageDecl page Product (MemberList (FailedBlock failed (EnumCasePattern notFound) (Block (CallExpr (NameExpr NotFound) (ArgList)))))))

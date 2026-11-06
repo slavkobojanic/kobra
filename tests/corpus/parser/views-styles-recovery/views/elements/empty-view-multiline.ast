@@ -1,0 +1,2 @@
+; An empty view block whose braces are on separate lines, with a comment inside.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block)))))

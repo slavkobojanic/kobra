@@ -1,0 +1,6 @@
+; One member may share the line with the braces.
+(SourceFile
+  (StructDecl struct A (MemberList (FieldDecl let x (PathType Int))))
+  (EnumDecl enum B (MemberList (EnumCase case one)))
+  (ThemeDecl theme T (MemberList (ThemeToken color a (PathType Color) = (Literal #fff))))
+  (AppDecl app X (MemberList (UseDecl use (PathType A) for (PathType B)))))

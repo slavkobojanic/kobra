@@ -1,0 +1,14 @@
+# grammar.md 4.2: a line terminator inside an interpolation ends both the
+# interpolation and the string. The newline is a code-mode Newline; on the
+# next line `}` is RBrace and the `"` starts a new unterminated string.
+LetKw "let"
+Ident "s"
+Eq "="
+StringStart "\""
+InterpStart "{"
+Ident "a"
+Newline "\n"
+Ident "b"
+RBrace "}"
+StringStart "\""
+Newline "\n"

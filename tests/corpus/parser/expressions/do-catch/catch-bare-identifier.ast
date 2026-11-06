@@ -1,0 +1,8 @@
+; `catch error` is K0115: bindings need `let`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (DoStmt do
+        (Block (TryExpr try (CallExpr (NameExpr a) (ArgList))))
+        (CatchClause catch (IdentPattern error) (Block))))))

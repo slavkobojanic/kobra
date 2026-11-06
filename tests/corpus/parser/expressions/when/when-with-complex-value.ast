@@ -1,0 +1,6 @@
+; the value before `when` is a whole expression
+(SourceFile
+  (FieldDecl let xs =
+    (ListExpr
+      (WhenExpr (BinaryExpr (NameExpr a) + (NameExpr b)) when (NameExpr c))
+      (WhenExpr (CallExpr (NameExpr f) (ArgList (Arg (NameExpr x)))) when (NameExpr d)))))

@@ -1,0 +1,2 @@
+# The string is unterminated; nothing else is reported by the lexer.
+error[K0002] 1:9-1:10

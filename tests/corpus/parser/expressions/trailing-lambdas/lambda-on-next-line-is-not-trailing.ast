@@ -1,0 +1,3 @@
+; a `{` on the next line starts a lambda expression statement, not a trailing lambda (rule N4)
+(SourceFile
+  (FuncDecl func f (ParamList) (Block (LetStmt let a = (NameExpr f)) (LambdaExpr (Literal 1)))))

@@ -1,0 +1,2 @@
+# `throws` without a type in an rpc is K0129.
+error[K0129] 3:13-3:19

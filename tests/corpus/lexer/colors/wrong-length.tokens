@@ -1,0 +1,6 @@
+# 2, 5, 7 and 9 digits are invalid lengths.
+ColorLit "#12"
+ColorLit "#12345"
+ColorLit "#1234567"
+ColorLit "#123456789"
+Newline "\n"

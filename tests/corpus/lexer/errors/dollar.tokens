@@ -1,0 +1,5 @@
+# `$` is an unexpected character (K0001 also carries a help suggesting
+# `bind x`; detail lines are not compared here).
+Error "$"
+Ident "x"
+Newline "\n"

@@ -1,0 +1,6 @@
+; a map key may be any expression; the first `:` after it makes the literal a map
+(SourceFile
+  (FieldDecl let m =
+    (MapExpr
+      (MapEntry (BinaryExpr (NameExpr a) + (Literal 1)) (StringLit "x"))
+      (MapEntry (PrefixExpr - (Literal 2)) (StringLit "y")))))

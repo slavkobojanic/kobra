@@ -1,0 +1,5 @@
+# A unit literal ends before `..<`.
+UnitLit "1px"
+DotDotLt "..<"
+UnitLit "2px"
+Newline "\n"

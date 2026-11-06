@@ -1,0 +1,13 @@
+; Regression: in a `guard` condition, `try g() else { ... }` took the guard's `else` as its own
+; (TryExpr's optional else block), so the guard then reported "expected `else`". Like trailing
+; lambdas, a top-level `try ... else` is not part of an `expr_nt` (grammar.md §12): the `else`
+; belongs to the guard. Write `(try g() else { ... })` for a try-else inside a condition.
+(SourceFile
+  (FuncDecl func f (ParamList)
+    (Block
+      (GuardStmt guard
+        (LetCondition let x = (TryExpr try (CallExpr (NameExpr g) (ArgList))))
+        else (Block (ReturnStmt return)))
+      (GuardStmt guard
+        (TryExpr try (CallExpr (NameExpr h) (ArgList)))
+        else (Block (ReturnStmt return))))))

@@ -1,0 +1,5 @@
+; `-x.y`, `-f(1)` and `-xs[0]` negate the whole postfix chain
+(SourceFile
+  (FieldDecl let a = (PrefixExpr - (MemberExpr (NameExpr x) y)))
+  (FieldDecl let b = (PrefixExpr - (CallExpr (NameExpr f) (ArgList (Arg (Literal 1))))))
+  (FieldDecl let c = (PrefixExpr - (IndexExpr (NameExpr xs) (Literal 0)))))

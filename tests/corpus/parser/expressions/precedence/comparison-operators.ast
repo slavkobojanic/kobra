@@ -1,0 +1,8 @@
+; every comparison operator builds a BinaryExpr with its own token
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (NameExpr x) == (NameExpr y)))
+  (FieldDecl let b = (BinaryExpr (NameExpr x) != (NameExpr y)))
+  (FieldDecl let c = (BinaryExpr (NameExpr x) < (NameExpr y)))
+  (FieldDecl let d = (BinaryExpr (NameExpr x) <= (NameExpr y)))
+  (FieldDecl let e = (BinaryExpr (NameExpr x) > (NameExpr y)))
+  (FieldDecl let f = (BinaryExpr (NameExpr x) >= (NameExpr y))))

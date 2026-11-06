@@ -1,0 +1,5 @@
+# Strings may contain any Unicode text.
+StringStart "\""
+StringText "héllo 日本 😀"
+StringEnd "\""
+Newline "\n"

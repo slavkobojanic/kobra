@@ -1,0 +1,3 @@
+# Each bad parameter gets its own diagnostic.
+error[K0123] 2:11-2:12
+error[K0100] 2:14-2:15

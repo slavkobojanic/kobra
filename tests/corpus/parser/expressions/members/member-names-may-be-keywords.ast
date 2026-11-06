@@ -1,0 +1,9 @@
+; any word, including hard keywords, is a member name after `.`
+(SourceFile
+  (FieldDecl let a = (MemberExpr (NameExpr x) class))
+  (FieldDecl let b = (MemberExpr (NameExpr x) default))
+  (FieldDecl let c = (MemberExpr (NameExpr x) for))
+  (FieldDecl let d = (MemberExpr (NameExpr x) in))
+  (FieldDecl let e = (MemberExpr (NameExpr x) match))
+  (FieldDecl let g = (MemberExpr (NameExpr x) self))
+  (FieldDecl let h = (MemberExpr (NameExpr x) true)))

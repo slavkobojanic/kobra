@@ -1,0 +1,5 @@
+; `not a == b` is `not (a == b)`
+(SourceFile
+  (FieldDecl let a = (PrefixExpr not (BinaryExpr (NameExpr x) == (NameExpr y))))
+  (FieldDecl let b =
+    (PrefixExpr not (BinaryExpr (NameExpr x) < (BinaryExpr (NameExpr y) + (Literal 1))))))

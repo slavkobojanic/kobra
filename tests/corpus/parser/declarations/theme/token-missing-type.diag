@@ -1,0 +1,2 @@
+# A token without `: Type` reports K0100 at the `=`; its value still parses.
+error[K0100] 3:19-3:20

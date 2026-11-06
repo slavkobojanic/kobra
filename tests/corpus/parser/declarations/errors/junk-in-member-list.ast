@@ -1,0 +1,2 @@
+; A token that cannot start a member is K0126; the next member still parses.
+(SourceFile (StructDecl struct A (MemberList (ErrorNode 42) (FieldDecl let x (PathType Int)))))

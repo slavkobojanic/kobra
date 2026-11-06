@@ -1,0 +1,2 @@
+; As view-unclosed-at-eof, but the file does not end with a newline.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr box) (LambdaExpr (StringLit "x"))))))))

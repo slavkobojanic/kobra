@@ -1,0 +1,9 @@
+; Regression: an Error token after a complete statement on the same line also got K0102
+; ("expected a line break") with a machine-applicable fix that only moved the bad character to
+; its own line. The parser never adds a diagnostic for a lexer Error token (diagnostics.md);
+; K0001 covers it. The token is wrapped in an ErrorNode where it occurs.
+(SourceFile
+  (FuncDecl func f (ParamList)
+    (Block (NameExpr a) (ErrorNode $) (NameExpr b) (ErrorNode $) (NameExpr c) (ErrorNode " ")))
+  (FieldDecl let d = (Literal 1))
+  (ErrorNode $))

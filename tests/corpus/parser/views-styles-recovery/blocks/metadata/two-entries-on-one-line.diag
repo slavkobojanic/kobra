@@ -1,0 +1,2 @@
+# Two metadata entries on one line are K0102 at the second.
+error[K0102] 4:20-4:31

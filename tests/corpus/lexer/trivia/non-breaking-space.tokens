@@ -1,0 +1,7 @@
+# U+00A0 (no-break space) is not whitespace: unexpected character.
+LetKw "let"
+Error "\u{a0}"
+Ident "x"
+Eq "="
+IntLit "1"
+Newline "\n"

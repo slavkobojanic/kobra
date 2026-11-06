@@ -1,0 +1,2 @@
+; Modifier arguments that are unit literals and member calls on numbers.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr)) animate) (ArgList (Arg (ImplicitMemberExpr fade)) (Arg duration (Literal 200ms)) (Arg delay (MemberExpr (Literal 2) seconds)))))))))

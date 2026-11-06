@@ -1,0 +1,4 @@
+; positional arguments are unlabeled Args
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr (NameExpr max) (ArgList (Arg (Literal 1)) (Arg (Literal 2)) (Arg (Literal 3))))))

@@ -1,0 +1,10 @@
+; Pins grammar.md §13.4: in an `if` condition a `{` ends the expression and opens the block,
+; even when the braces look like a lambda. The `{ x => x.ok }` is the if's block (with `=>` as
+; junk) and `{ }` is a lambda expression statement on the same line (K0102). Parenthesize the
+; call to pass a trailing lambda in a condition.
+(SourceFile
+  (FuncDecl func f (ParamList)
+    (Block
+      (IfExpr if (MemberExpr (NameExpr xs) filter)
+        (Block (NameExpr x) (ErrorNode) (MemberExpr (NameExpr x) ok)))
+      (LambdaExpr))))

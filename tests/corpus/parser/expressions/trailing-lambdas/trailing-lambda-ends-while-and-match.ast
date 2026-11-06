@@ -1,0 +1,9 @@
+; `while` conditions and `match` scrutinees also stop before `{`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (WhileStmt while
+        (MemberExpr (NameExpr queue) hasMore)
+        (Block (CallExpr (MemberExpr (NameExpr queue) pop) (ArgList))))
+      (MatchExpr match (MemberExpr (NameExpr state) current) (MatchArm default (Block))))))

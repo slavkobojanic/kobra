@@ -1,0 +1,27 @@
+; the error-handling example of the design: payload binding and several patterns per catch
+(SourceFile
+  (FuncDecl func add
+    (ParamList)
+    async
+    (Block
+      (DoStmt do
+        (Block
+          (TryExpr try
+            (AwaitExpr await
+              (CallExpr (MemberExpr (NameExpr cart) add) (ArgList (Arg product (NameExpr product)))))))
+        (CatchClause catch
+          (EnumCasePattern outOfStock (BindingPattern let available))
+          (Block
+            (AssignStmt
+              (NameExpr error)
+              =
+              (CallExpr
+                (ImplicitMemberExpr outOfStock)
+                (ArgList (Arg available (NameExpr available)))))))
+        (CatchClause catch
+          (EnumCasePattern productNotFound)
+          (EnumCasePattern unauthorized)
+          (Block
+            (CallExpr
+              (MemberExpr (NameExpr Router) navigate)
+              (ArgList (Arg to (ImplicitMemberExpr home))))))))))

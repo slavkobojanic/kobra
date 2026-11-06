@@ -1,0 +1,7 @@
+; a line starting with `.` always continues the previous expression, even after a literal
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let a = (MemberExpr (Literal 10) minutes))
+      (LetStmt let b = (MemberExpr (NameExpr b) c)))))

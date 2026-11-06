@@ -1,0 +1,6 @@
+; implicit member names may be keywords; they keep their keyword text
+(SourceFile
+  (FieldDecl let a = (ImplicitMemberExpr default))
+  (FieldDecl let b = (ImplicitMemberExpr class))
+  (FieldDecl let c = (ImplicitMemberExpr in))
+  (FieldDecl let d = (ImplicitMemberExpr style)))

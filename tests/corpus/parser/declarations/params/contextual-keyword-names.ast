@@ -1,0 +1,11 @@
+; Contextual keywords may name parameters.
+(SourceFile
+  (FuncDecl func render
+    (ParamList
+      (Param page (PathType Int))
+      (Param key (PathType String))
+      (Param view (PathType View))
+      (Param test (PathType Bool))
+      (Param at (PathType Int))
+      (Param variant (PathType Style)))
+    (Block)))

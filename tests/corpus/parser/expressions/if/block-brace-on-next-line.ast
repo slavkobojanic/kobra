@@ -1,0 +1,5 @@
+; a `{` on the next line opens the required block of an `if` (rule N3)
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (IfExpr if (NameExpr ready) (Block (CallExpr (NameExpr start) (ArgList)))))))

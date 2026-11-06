@@ -1,0 +1,8 @@
+# `10.minutes` is IntLit Dot Ident: `.` before a letter is member access.
+LetKw "let"
+Ident "timeout"
+Eq "="
+IntLit "10"
+Dot "."
+Ident "minutes"
+Newline "\n"

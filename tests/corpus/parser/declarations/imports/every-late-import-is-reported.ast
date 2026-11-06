@@ -1,0 +1,7 @@
+; Each import after a declaration gets its own K0111.
+(SourceFile
+  (FuncDecl func main (ParamList) (Block))
+  (Import import (ImportPath a B))
+  (Import import (ImportPath c D))
+  (FieldDecl let x = (Literal 1))
+  (Import import (ImportPath e F)))

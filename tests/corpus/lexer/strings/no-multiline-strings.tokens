@@ -1,0 +1,12 @@
+# RA-11: strings are single-line. The first line's string is unterminated;
+# on the next line the `"` after `second` starts a new, also unterminated,
+# string.
+LetKw "let"
+Ident "s"
+Eq "="
+StringStart "\""
+StringText "first"
+Newline "\n"
+Ident "second"
+StringStart "\""
+Newline "\n"

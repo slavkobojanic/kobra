@@ -1,0 +1,8 @@
+; A bodiless requirement's signature may wrap; the next member starts on its own line.
+(SourceFile
+  (InterfaceDecl interface PaymentProvider
+    (MemberList
+      (FuncDecl func charge (ParamList (Param amount (PathType Money)) (Param card (PathType CardToken))) async
+        (ThrowsClause throws (PathType PaymentError))
+        (ReturnType (PathType Receipt)))
+      (FuncDecl func cancel (ParamList)))))

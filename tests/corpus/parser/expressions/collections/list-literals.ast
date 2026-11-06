@@ -1,0 +1,8 @@
+; empty, single, several, trailing-comma and nested lists
+(SourceFile
+  (FieldDecl let a = (ListExpr))
+  (FieldDecl let b = (ListExpr (Literal 1)))
+  (FieldDecl let c = (ListExpr (Literal 1) (Literal 2) (Literal 3)))
+  (FieldDecl let d = (ListExpr (Literal 1) (Literal 2)))
+  (FieldDecl let e =
+    (ListExpr (ListExpr (Literal 1)) (ListExpr (Literal 2) (ListExpr (Literal 3))) (ListExpr))))

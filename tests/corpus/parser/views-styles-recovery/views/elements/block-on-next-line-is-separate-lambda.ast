@@ -1,0 +1,2 @@
+; Rule N4: a `{` on the line after a name is not a trailing block; it starts a separate lambda statement.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (NameExpr box) (LambdaExpr (StringLit "x")))))))

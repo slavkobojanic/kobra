@@ -1,0 +1,2 @@
+; Strings in style values may interpolate K expressions and contain Unicode.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector badge) (PseudoElement after))) (Declaration content (CssValue (StringLit (Interpolation (NameExpr count)) " items →")))) (StyleRule (Selector (CompoundSelector (ClassSelector jp))) (Declaration fontFamily (CssValue (StringLit "Noto Sans 日本"))))))))

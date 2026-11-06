@@ -1,0 +1,5 @@
+# A literal tab character is ordinary string text.
+StringStart "\""
+StringText "a\tb"
+StringEnd "\""
+Newline "\n"

@@ -1,0 +1,9 @@
+; Regression: when `!important` was the whole value, the K0118 fix deleted it and left the
+; invalid `color:;`. The fix is offered only after a value; here K0118 has a help instead.
+(SourceFile
+  (ComponentDecl component T
+    (MemberList
+      (StyleBlock style
+        (StyleRule
+          (Selector (CompoundSelector (ClassSelector a)))
+          (Declaration color (ErrorNode ! important)))))))

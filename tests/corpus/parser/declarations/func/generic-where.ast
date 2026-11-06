@@ -1,0 +1,9 @@
+; Generic constraints are written only in `where` clauses, after the return type.
+(SourceFile
+  (FuncDecl func cheapest (GenericParamList (GenericParam T)) (ParamList (Param items (PathType List (GenericArgList (PathType T)))))
+    (ReturnType (OptionalType (PathType T)))
+    (WhereClause where (WherePredicate T implements (PathType Priced)))
+    (Block
+      (ReturnStmt return
+        (CallExpr (MemberExpr (NameExpr items) minBy)
+          (LambdaExpr (LambdaParamList (LambdaParam item)) (MemberExpr (NameExpr item) price)))))))

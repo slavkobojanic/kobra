@@ -1,0 +1,4 @@
+; arithmetic operands of a comparison group first
+(SourceFile
+  (FieldDecl let a =
+    (BinaryExpr (BinaryExpr (NameExpr x) + (Literal 1)) < (BinaryExpr (NameExpr y) * (Literal 2)))))

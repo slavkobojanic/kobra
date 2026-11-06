@@ -1,0 +1,2 @@
+# Stray operators between members are skipped as one ErrorNode with K0126 at the first token.
+error[K0126] 3:5-3:6

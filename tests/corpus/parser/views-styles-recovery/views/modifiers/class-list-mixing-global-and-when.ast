@@ -1,0 +1,2 @@
+; A class list mixing a scoped class, a global class and a conditional stylable prop.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr)) class) (ArgList (Arg (ListExpr (ImplicitMemberExpr row) (CallExpr (NameExpr global) (ArgList (Arg (StringLit "legacy-row")))) (NameExpr container) (WhenExpr (ImplicitMemberExpr active) when (NameExpr isActive)))))))))))

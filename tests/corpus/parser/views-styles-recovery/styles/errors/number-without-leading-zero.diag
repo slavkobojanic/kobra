@@ -1,0 +1,10 @@
+# `.5em` is `Dot UnitLit` (only `-.5em` is one number in style mode, grammar.md 4.4). The
+# missing member name gets a fix that writes the leading zero.
+error[K0100] 3:23-3:26: expected a member name, found `5em`
+  help: a number needs a digit before the `.`: write `0.5em`
+  fix "Write `0.5em`"
+    edit 3:22-3:22 "0"
+error[K0100] 3:38-3:40: expected a member name, found `25`
+  help: a number needs a digit before the `.`: write `0.25`
+  fix "Write `0.25`"
+    edit 3:37-3:37 "0"

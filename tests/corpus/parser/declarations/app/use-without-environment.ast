@@ -1,0 +1,2 @@
+; A `use` rule without `in` applies in every environment.
+(SourceFile (AppDecl app A (MemberList (UseDecl use (PathType PostgresStore) for (PathType Store)))))

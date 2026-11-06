@@ -1,0 +1,3 @@
+# `#header` as a selector is K0132, and also K0005 because it is not a valid color literal; it is wrapped in an ErrorNode.
+error[K0005] 4:9-4:16
+error[K0132] 4:9-4:16

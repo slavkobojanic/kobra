@@ -1,0 +1,2 @@
+; A custom Binding built from get/set lambdas, passed as an argument.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr Slider) (ArgList (Arg value (CallExpr (NameExpr Binding) (ArgList (Arg get (LambdaExpr (BinaryExpr (BinaryExpr (BinaryExpr (NameExpr celsius) * (Literal 9)) / (Literal 5)) + (Literal 32)))) (Arg set (LambdaExpr (LambdaParamList (LambdaParam f)) (AssignStmt (NameExpr celsius) = (BinaryExpr (BinaryExpr (ParenExpr (BinaryExpr (NameExpr f) - (Literal 32))) * (Literal 5)) / (Literal 9)))))))))))))))

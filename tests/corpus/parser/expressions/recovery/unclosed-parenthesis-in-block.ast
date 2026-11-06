@@ -1,0 +1,5 @@
+; an unclosed `(` inside a block; the closing `}` of the block still closes the block
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (LetStmt let a = (ParenExpr (BinaryExpr (Literal 1) + (Literal 2)))))))

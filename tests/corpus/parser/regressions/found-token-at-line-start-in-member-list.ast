@@ -1,0 +1,3 @@
+; Regression: K0126 for a junk run at the start of a line said "found end of line" while its
+; span is `view` (not a view block: no `{` follows; grammar.md §6).
+(SourceFile (ComponentDecl component C (MemberList (ErrorNode view = 1))))

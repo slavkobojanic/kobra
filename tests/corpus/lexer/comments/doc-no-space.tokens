@@ -1,0 +1,3 @@
+# A doc comment needs no space after `///`.
+DocComment "///x"
+Newline "\n"

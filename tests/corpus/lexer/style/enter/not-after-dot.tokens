@@ -1,0 +1,10 @@
+# After `.`, `style` is a member name and never enters style mode.
+Ident "x"
+Dot "."
+StyleKw "style"
+LBrace "{"
+Ident "sans"
+Minus "-"
+Ident "serif"
+RBrace "}"
+Newline "\n"

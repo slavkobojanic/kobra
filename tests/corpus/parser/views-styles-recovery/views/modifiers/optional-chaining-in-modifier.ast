@@ -1,0 +1,2 @@
+; Optional member access and `??` inside a modifier argument.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr button) (LambdaExpr (StringLit "Save"))) disabled) (ArgList (Arg (BinaryExpr (MemberExpr (NameExpr form) ?. isBusy) ?? (Literal false))))))))))

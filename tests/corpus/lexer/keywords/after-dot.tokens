@@ -1,0 +1,14 @@
+# After `.` or `?.` keywords keep their keyword kind; the parser accepts them
+# as member names.
+Ident "x"
+Dot "."
+ClassKw "class"
+Dot "."
+DefaultKw "default"
+Ident "y"
+Dot "."
+SelfKw "self"
+Ident "z"
+QuestionDot "?."
+ForKw "for"
+Newline "\n"

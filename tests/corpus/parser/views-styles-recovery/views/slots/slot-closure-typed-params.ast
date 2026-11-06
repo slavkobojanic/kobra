@@ -1,0 +1,2 @@
+; A slot closure with a parenthesized, typed parameter list.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr List) (ArgList (Arg items (NameExpr items)))) row) (LambdaExpr (LambdaParamList (LambdaParam item (PathType CartItem))) (CallExpr (NameExpr CartRow) (ArgList (Arg item (NameExpr item)))))))))))

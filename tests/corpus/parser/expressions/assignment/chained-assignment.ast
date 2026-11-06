@@ -1,0 +1,8 @@
+; `a = b = c`: the second operator and its value are kept in an ErrorNode inside the
+; statement, so the chain is one statement with one diagnostic.
+(SourceFile
+  (FuncDecl func f (ParamList)
+    (Block
+      (AssignStmt (NameExpr a) = (NameExpr b) (ErrorNode = (NameExpr c)))
+      (AssignStmt (NameExpr x) += (NameExpr y) (ErrorNode -= (Literal 1)))
+      (LetStmt let p = (NameExpr q) (ErrorNode = (NameExpr r))))))

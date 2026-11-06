@@ -1,0 +1,5 @@
+; arithmetic and ranges bind tighter than `??`
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (NameExpr x) ?? (BinaryExpr (NameExpr y) + (Literal 1))))
+  (FieldDecl let b = (BinaryExpr (BinaryExpr (NameExpr x) * (Literal 2)) ?? (NameExpr y)))
+  (FieldDecl let c = (BinaryExpr (NameExpr r) ?? (BinaryExpr (Literal 0) ..< (NameExpr n)))))

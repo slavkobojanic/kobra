@@ -1,0 +1,6 @@
+; Each `@Scope` value from docs/design/10-services.md.
+(SourceFile
+  (ServiceDecl (Annotation Scope (ArgList (Arg (ImplicitMemberExpr app)))) service A (MemberList))
+  (ServiceDecl (Annotation Scope (ArgList (Arg (ImplicitMemberExpr request)))) service B (MemberList))
+  (ServiceDecl (Annotation Scope (ArgList (Arg (ImplicitMemberExpr route)))) service C (MemberList))
+  (ServiceDecl (Annotation Scope (ArgList (Arg (ImplicitMemberExpr component)))) service D (MemberList)))

@@ -1,0 +1,2 @@
+; `case` without a name reports K0100 at the gap after it.
+(SourceFile (EnumDecl enum E (MemberList (EnumCase case) (EnumCase case b))))

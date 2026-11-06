@@ -1,0 +1,6 @@
+# `\u` not followed by `{` is an escape of just `\u`; `41` is text.
+StringStart "\""
+StringEscape "\\u"
+StringText "41"
+StringEnd "\""
+Newline "\n"

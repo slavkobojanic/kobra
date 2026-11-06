@@ -1,0 +1,4 @@
+; Regression: as interpolation-ended-by-newline-closes-delimiters, with CRLF line endings.
+(SourceFile
+  (FieldDecl let a = (StringLit (Interpolation (ParenExpr (NameExpr a)))))
+  (FieldDecl let b = (Literal 1)))

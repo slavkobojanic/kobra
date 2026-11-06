@@ -1,0 +1,4 @@
+# The shortest line comments: `//` before a newline and at end of file.
+LineComment "//"
+Newline "\n"
+LineComment "//"

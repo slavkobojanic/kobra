@@ -1,0 +1,4 @@
+; `f(1)(2)` calls the result of a call
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr (CallExpr (NameExpr f) (ArgList (Arg (Literal 1)))) (ArgList (Arg (Literal 2))))))

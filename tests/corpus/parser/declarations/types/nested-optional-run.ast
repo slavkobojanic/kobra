@@ -1,0 +1,3 @@
+(SourceFile
+  (FieldDecl let a (OptionalType (PathType Int) ??))
+  (FieldDecl let b (OptionalType (PathType Int))))

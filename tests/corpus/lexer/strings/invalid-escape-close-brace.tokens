@@ -1,0 +1,5 @@
+# `}` needs no escape, and `\}` is not one.
+StringStart "\""
+StringEscape "\\}"
+StringEnd "\""
+Newline "\n"

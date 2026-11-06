@@ -1,0 +1,16 @@
+# RA-12: route templates are ordinary interpolated strings; `page` and `at`
+# are contextual keywords, so they are Ident tokens.
+Ident "page"
+Ident "ProductDetail"
+Ident "at"
+StringStart "\""
+StringText "/product/"
+InterpStart "{"
+Ident "id"
+InterpEnd "}"
+StringText "/"
+InterpStart "{"
+Ident "tab"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

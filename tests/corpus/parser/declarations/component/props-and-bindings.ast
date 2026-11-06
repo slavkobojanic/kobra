@@ -1,0 +1,9 @@
+; Required props, defaulted props, optional props and bindings.
+(SourceFile
+  (ComponentDecl component Stepper
+    (MemberList
+      (FieldDecl (Annotation Binding) var value (PathType Int))
+      (FieldDecl (Annotation Prop) let step (PathType Int) = (Literal 1))
+      (FieldDecl (Annotation Prop) let max (OptionalType (PathType Int)) = (Literal nil))
+      (FieldDecl (Annotation Prop) let format (FuncType (PathType Int) (ReturnType (PathType String))) =
+        (LambdaExpr (LambdaParamList (LambdaParam n)) (StringLit (Interpolation (NameExpr n))))))))

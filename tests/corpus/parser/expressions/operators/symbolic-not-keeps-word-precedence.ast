@@ -1,0 +1,2 @@
+; `!a == b` recovers as `not (a == b)`, like `not`
+(SourceFile (FieldDecl let a = (PrefixExpr ! (BinaryExpr (NameExpr x) == (NameExpr y)))))

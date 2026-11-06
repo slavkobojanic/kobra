@@ -1,0 +1,2 @@
+; An @media rule at the top of the style block, containing rules.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (AtRule media (AtPrelude (MediaFeature maxWidth (CssValue (Literal 600px)))) (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration padding (CssValue (ImplicitMemberExpr sm)))))))))

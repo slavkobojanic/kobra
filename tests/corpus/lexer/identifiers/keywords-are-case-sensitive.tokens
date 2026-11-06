@@ -1,0 +1,9 @@
+# Keywords are lowercase; other spellings are identifiers.
+Ident "Let"
+Ident "TRUE"
+Ident "Nil"
+Ident "Self"
+Ident "Style"
+Ident "If"
+Ident "FUNC"
+Newline "\n"

@@ -1,0 +1,7 @@
+# ASCII letters and digits; any case.
+Ident "foo"
+Ident "Bar"
+Ident "baz42"
+Ident "a"
+Ident "Z"
+Newline "\n"

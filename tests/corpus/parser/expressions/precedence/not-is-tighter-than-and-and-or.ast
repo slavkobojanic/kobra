@@ -1,0 +1,5 @@
+; `not a and b` is `(not a) and b`; `not` applies to each operand of `or`
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (PrefixExpr not (NameExpr x)) and (NameExpr y)))
+  (FieldDecl let b = (BinaryExpr (PrefixExpr not (NameExpr x)) or (PrefixExpr not (NameExpr y))))
+  (FieldDecl let c = (BinaryExpr (NameExpr x) and (PrefixExpr not (NameExpr y)))))

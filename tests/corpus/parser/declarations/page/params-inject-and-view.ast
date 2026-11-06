@@ -1,0 +1,11 @@
+; A page with required and optional params, an injection and a view.
+(SourceFile
+  (PageDecl page Product (RequiresClause requires (Guard Authenticated))
+    (MemberList
+      (FieldDecl (Annotation Param) let id (PathType ProductId))
+      (FieldDecl (Annotation Param) let tab (PathType ProductTab) = (ImplicitMemberExpr overview))
+      (FieldDecl (Annotation Inject) let products (PathType ProductService))
+      (ViewBlock view
+        (Block
+          (CallExpr (NameExpr heading) (ArgList (Arg level (Literal 1)))
+            (LambdaExpr (StringLit "Product " (Interpolation (NameExpr id))))))))))

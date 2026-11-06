@@ -1,0 +1,2 @@
+; A keyed list: `for item in items key item.id { ... }`.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (ForStmt for (IdentPattern item) in (NameExpr items) (KeyClause key (MemberExpr (NameExpr item) id)) (Block (CallExpr (NameExpr CartRow) (ArgList (Arg item (NameExpr item)))))))))))

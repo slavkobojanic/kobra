@@ -1,0 +1,2 @@
+; Commas separate a declaration's values into several CssValue nodes.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration transition (CssValue opacity (Literal 200ms) ease) (CssValue transform (Literal 0.2s) ease-out)))))))

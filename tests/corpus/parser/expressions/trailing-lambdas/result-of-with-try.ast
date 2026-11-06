@@ -1,0 +1,7 @@
+; `Result.of { try cart.add(p) }` converts a throwing call to a value
+(SourceFile
+  (FieldDecl let r =
+    (CallExpr
+      (MemberExpr (NameExpr Result) of)
+      (LambdaExpr
+        (TryExpr try (CallExpr (MemberExpr (NameExpr cart) add) (ArgList (Arg (NameExpr p)))))))))

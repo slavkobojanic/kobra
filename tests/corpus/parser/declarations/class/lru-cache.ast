@@ -1,0 +1,12 @@
+; A generic class with private state, an initializer and methods.
+(SourceFile
+  (ClassDecl class LruCache (GenericParamList (GenericParam K) (GenericParam V))
+    (MemberList
+      (FieldDecl private var store (PathType Map (GenericArgList (PathType K) (PathType V))) = (MapExpr))
+      (FieldDecl let capacity (PathType Int))
+      (InitDecl init (ParamList (Param capacity (PathType Int)))
+        (Block (AssignStmt (MemberExpr (NameExpr self) capacity) = (NameExpr capacity))))
+      (FuncDecl func get (ParamList (Param key (PathType K))) (ReturnType (OptionalType (PathType V)))
+        (Block (ReturnStmt return (IndexExpr (NameExpr store) (NameExpr key)))))
+      (FuncDecl func put (ParamList (Param key (PathType K)) (Param value (PathType V)))
+        (Block (AssignStmt (IndexExpr (NameExpr store) (NameExpr key)) = (NameExpr value)))))))

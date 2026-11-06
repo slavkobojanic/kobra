@@ -1,0 +1,2 @@
+; Two view blocks parse; the one-view rule is semantic.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block)) (ViewBlock view (Block)))))

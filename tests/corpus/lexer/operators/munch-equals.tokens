@@ -1,0 +1,12 @@
+# Maximal munch over `=` and `!`.
+EqEq "=="
+Eq "="
+FatArrow "=>"
+Eq "="
+EqEq "=="
+Gt ">"
+BangEq "!="
+Eq "="
+BangEq "!="
+Gt ">"
+Newline "\n"

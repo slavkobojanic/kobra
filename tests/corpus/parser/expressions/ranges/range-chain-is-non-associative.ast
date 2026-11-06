@@ -1,0 +1,3 @@
+; `a..<b..<c` is K0113
+(SourceFile
+  (FieldDecl let r = (BinaryExpr (BinaryExpr (Literal 1) ..< (Literal 2)) ..< (Literal 3))))

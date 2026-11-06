@@ -1,0 +1,6 @@
+; A token without `: Type` reports K0100 at the `=`; its value still parses.
+(SourceFile
+  (ThemeDecl theme T
+    (MemberList
+      (ThemeToken color primary = (Literal #fff))
+      (ThemeToken space md (PathType Spacing) = (Literal 16px)))))

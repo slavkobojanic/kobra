@@ -1,0 +1,2 @@
+# A test case without a block at the end of the file is K0100 at the gap.
+error[K0100] 2:9-2:9

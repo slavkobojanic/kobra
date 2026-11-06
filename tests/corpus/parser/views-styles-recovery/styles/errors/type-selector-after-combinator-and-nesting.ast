@@ -1,0 +1,2 @@
+; Type selectors after a combinator and glued to `&` are each reported.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a)) > (CompoundSelector (TypeSelector button)))) (StyleRule (Selector (CompoundSelector (ClassSelector b))) (StyleRule (Selector (CompoundSelector (NestingSelector &) (TypeSelector span)))))))))

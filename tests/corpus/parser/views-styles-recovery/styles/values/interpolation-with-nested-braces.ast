@@ -1,0 +1,2 @@
+; An interpolation containing an if expression, whose blocks nest braces inside the interpolation.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration opacity (CssValue (Interpolation (IfExpr if (NameExpr isVisible) (Block (Literal 1)) else (Block (Literal 0)))))))))))

@@ -1,0 +1,15 @@
+; Enums may hold methods, static members and computed properties next to cases.
+(SourceFile
+  (EnumDecl enum Currency
+    (MemberList
+      (EnumCase case usd)
+      (EnumCase case eur)
+      (FieldDecl static let fallback (PathType Currency) = (ImplicitMemberExpr usd))
+      (FieldDecl var symbol (PathType String)
+        (Block
+          (MatchExpr match (NameExpr self)
+            (MatchArm case (EnumCasePattern usd) (Block (StringLit "$")))
+            (MatchArm case (EnumCasePattern eur) (Block (StringLit "€"))))))
+      (FuncDecl func format (ParamList (Param amount (PathType Int))) (ReturnType (PathType String))
+        (Block
+          (ReturnStmt return (StringLit (Interpolation (NameExpr symbol)) (Interpolation (NameExpr amount)))))))))

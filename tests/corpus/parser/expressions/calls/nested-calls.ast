@@ -1,0 +1,11 @@
+; calls as arguments of calls
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (NameExpr f)
+      (ArgList
+        (Arg
+          (CallExpr
+            (NameExpr g)
+            (ArgList (Arg (CallExpr (NameExpr h) (ArgList (Arg (NameExpr x))))))))
+        (Arg (CallExpr (NameExpr k) (ArgList (Arg y (CallExpr (NameExpr z) (ArgList))))))))))

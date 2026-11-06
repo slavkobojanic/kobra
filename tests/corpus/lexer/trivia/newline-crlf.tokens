@@ -1,0 +1,5 @@
+# `\r\n` is a single Newline token, not two.
+Ident "a"
+Newline "\r\n"
+Ident "b"
+Newline "\r\n"

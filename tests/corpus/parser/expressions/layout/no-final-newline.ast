@@ -1,0 +1,4 @@
+; an expression may end at the end of file without a newline
+(SourceFile
+  (FieldDecl let a =
+    (BinaryExpr (CallExpr (NameExpr f) (ArgList (Arg (NameExpr x)))) + (Literal 1))))

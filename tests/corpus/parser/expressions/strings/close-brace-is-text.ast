@@ -1,0 +1,2 @@
+; `}` and `}}` need no escape inside a string
+(SourceFile (FieldDecl let a = (StringLit "a } b }} c")))

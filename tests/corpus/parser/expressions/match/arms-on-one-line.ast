@@ -1,0 +1,9 @@
+; two arms on one line are K0102
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr v)
+        (MatchArm case (EnumCasePattern a) (Block))
+        (MatchArm case (EnumCasePattern b) (Block))))))

@@ -1,0 +1,6 @@
+# Exponents make float literals.
+FloatLit "1e9"
+FloatLit "1E9"
+FloatLit "2.5e3"
+FloatLit "1e0"
+Newline "\n"

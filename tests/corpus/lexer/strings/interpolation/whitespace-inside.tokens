@@ -1,0 +1,7 @@
+# Inside an interpolation, spaces and tabs are Whitespace (omitted), not text.
+StringStart "\""
+InterpStart "{"
+Ident "x"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

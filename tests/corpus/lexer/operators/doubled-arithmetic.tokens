@@ -1,0 +1,12 @@
+# There are no increment, decrement or power operators.
+Plus "+"
+Plus "+"
+Minus "-"
+Minus "-"
+Star "*"
+Star "*"
+Percent "%"
+Percent "%"
+Tilde "~"
+Tilde "~"
+Newline "\n"

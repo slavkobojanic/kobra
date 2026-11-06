@@ -1,0 +1,13 @@
+# The lookahead after `style` skips block comments; the comment is lexed
+# normally.
+StyleKw "style"
+BlockComment "/* c */"
+LBrace "{"
+Newline "\n"
+Dot "."
+Ident "a-b"
+LBrace "{"
+RBrace "}"
+Newline "\n"
+RBrace "}"
+Newline "\n"

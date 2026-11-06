@@ -1,0 +1,5 @@
+; A parameter may have an external label before its name.
+(SourceFile
+  (FuncDecl func reviews
+    (ParamList (Param for product (PathType ProductId)) (Param sortedBy order (PathType SortOrder)))
+    (Block)))

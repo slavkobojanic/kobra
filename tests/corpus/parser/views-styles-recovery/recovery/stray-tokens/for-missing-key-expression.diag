@@ -1,0 +1,2 @@
+# `key` with no expression before the block: K0122 at the `{`; the block still parses.
+error[K0122] 4:31-4:32

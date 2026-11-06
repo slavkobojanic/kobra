@@ -1,0 +1,5 @@
+; a parenthesized condition is a ParenExpr
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (IfExpr if (ParenExpr (BinaryExpr (NameExpr a) or (NameExpr b))) (Block)))))

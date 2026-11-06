@@ -1,0 +1,6 @@
+# A number directly followed by `%` is a UnitLit including the `%`.
+UnitLit "50%"
+UnitLit "0%"
+UnitLit "100%"
+UnitLit "12.5%"
+Newline "\n"

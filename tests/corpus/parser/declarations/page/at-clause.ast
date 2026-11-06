@@ -1,0 +1,2 @@
+; `at` names the URL of a page.
+(SourceFile (PageDecl page StripeWebhook (AtClause at (StringLit "/webhooks/stripe")) (MemberList)))

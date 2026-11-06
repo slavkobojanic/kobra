@@ -1,0 +1,5 @@
+# After a comment closes, a second `*/` is ordinary punctuation.
+BlockComment "/* a */"
+Star "*"
+Slash "/"
+Newline "\n"

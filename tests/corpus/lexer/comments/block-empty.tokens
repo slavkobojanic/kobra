@@ -1,0 +1,3 @@
+# The shortest block comment.
+BlockComment "/**/"
+Newline "\n"

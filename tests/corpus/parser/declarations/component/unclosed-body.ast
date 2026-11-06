@@ -1,0 +1,2 @@
+; An unclosed body reports K0101 at its `{`; the members are kept.
+(SourceFile (ComponentDecl component A (MemberList (FieldDecl (Annotation State) var x (PathType Int) = (Literal 0)))))

@@ -1,0 +1,4 @@
+; `use X for` without a type is K0123 at the gap after `for`.
+(SourceFile
+  (AppDecl app A
+    (MemberList (UseDecl use (PathType FakeApi) for) (UseDecl use (PathType Real) for (PathType Api)))))

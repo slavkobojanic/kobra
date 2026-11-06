@@ -1,0 +1,2 @@
+; `throw` needs a value: K0122 at the gap after `throw`
+(SourceFile (FuncDecl func f (ParamList) (Block (ThrowStmt throw))))

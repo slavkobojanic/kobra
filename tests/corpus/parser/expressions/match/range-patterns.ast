@@ -1,0 +1,16 @@
+; half-open and closed ranges of literals, including negative bounds
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr age)
+        (MatchArm case
+          (RangePattern (LiteralPattern 0) ..< (LiteralPattern 13))
+          (Block (ImplicitMemberExpr child)))
+        (MatchArm case
+          (RangePattern (LiteralPattern 13) ... (LiteralPattern 120))
+          (Block (ImplicitMemberExpr person)))
+        (MatchArm case
+          (RangePattern (LiteralPattern - 5) ..< (LiteralPattern 0))
+          (Block (ImplicitMemberExpr invalid)))))))

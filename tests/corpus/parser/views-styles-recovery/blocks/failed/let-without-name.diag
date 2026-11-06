@@ -1,0 +1,2 @@
+# `failed(let)` is missing the binding name: K0100 at the `)`.
+error[K0100] 3:15-3:16

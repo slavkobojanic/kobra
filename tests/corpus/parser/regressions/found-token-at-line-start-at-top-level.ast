@@ -1,0 +1,3 @@
+; Regression: K0125 for a stray `}` at the start of a line said "found end of line" while its
+; span is the `}`.
+(SourceFile (FieldDecl let a = (Literal 1)) (ErrorNode))

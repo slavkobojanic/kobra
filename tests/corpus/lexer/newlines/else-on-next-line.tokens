@@ -1,0 +1,12 @@
+# Newlines around `else` are ordinary Newline tokens.
+IfKw "if"
+Ident "a"
+LBrace "{"
+Newline "\n"
+RBrace "}"
+Newline "\n"
+ElseKw "else"
+LBrace "{"
+Newline "\n"
+RBrace "}"
+Newline "\n"

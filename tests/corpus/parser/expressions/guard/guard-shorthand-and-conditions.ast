@@ -1,0 +1,11 @@
+; `guard let x` shorthand and boolean conditions in one list
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (GuardStmt guard
+        (LetCondition let user)
+        (MemberExpr (NameExpr user) isAdmin)
+        (BinaryExpr (NameExpr count) > (Literal 0))
+        else
+        (Block (ReturnStmt return))))))

@@ -1,0 +1,10 @@
+; Generic parameters follow `extend`; `where` follows the type.
+(SourceFile
+  (ExtendDecl extend (GenericParamList (GenericParam T)) (PathType List (GenericArgList (PathType T)))
+    (WhereClause where (WherePredicate T implements (PathType Priced)))
+    (MemberList
+      (FuncDecl func cheapest (ParamList) (ReturnType (OptionalType (PathType T)))
+        (Block
+          (ReturnStmt return
+            (CallExpr (MemberExpr (NameExpr self) minBy)
+              (LambdaExpr (LambdaParamList (LambdaParam item)) (MemberExpr (NameExpr item) price)))))))))

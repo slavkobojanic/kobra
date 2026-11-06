@@ -1,0 +1,5 @@
+# `////` and longer runs are ordinary line comments, not doc comments.
+LineComment "//// banner"
+Newline "\n"
+LineComment "///// more"
+Newline "\n"

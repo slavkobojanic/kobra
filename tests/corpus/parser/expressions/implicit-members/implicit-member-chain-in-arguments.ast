@@ -1,0 +1,14 @@
+; the routing example from grammar.md section 13.3
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (MemberExpr (NameExpr Router) navigate)
+      (ArgList
+        (Arg to
+          (CallExpr
+            (MemberExpr
+              (CallExpr
+                (ImplicitMemberExpr product)
+                (ArgList (Arg id (MemberExpr (NameExpr product) id))))
+              tab)
+            (ArgList (Arg (ImplicitMemberExpr reviews)))))))))

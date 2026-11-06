@@ -1,0 +1,9 @@
+# Escapes from other languages (`\a`, `\b`, `\x`, `\'`) are not K escapes.
+StringStart "\""
+StringEscape "\\a"
+StringEscape "\\b"
+StringEscape "\\x"
+StringText "41"
+StringEscape "\\'"
+StringEnd "\""
+Newline "\n"

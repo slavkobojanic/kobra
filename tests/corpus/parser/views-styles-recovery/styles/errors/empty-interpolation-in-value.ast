@@ -1,0 +1,2 @@
+; An empty interpolation in a style value is K0128 on the `{}`.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration width (CssValue (Interpolation))))))))

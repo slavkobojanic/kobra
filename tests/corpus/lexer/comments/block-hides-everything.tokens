@@ -1,0 +1,5 @@
+# Inside a block comment, `//`, quotes, braces and invalid characters are
+# just text.
+BlockComment "/* // \" { $ ` */"
+Ident "x"
+Newline "\n"

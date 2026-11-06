@@ -1,0 +1,5 @@
+; The `for` clause takes any type, qualified or generic.
+(SourceFile
+  (RepositoryDecl repository Orders (ForClause for (PathType shop Order)) (MemberList))
+  (RepositoryDecl repository Versions
+    (ForClause for (PathType Versioned (GenericArgList (PathType Document)))) (MemberList)))

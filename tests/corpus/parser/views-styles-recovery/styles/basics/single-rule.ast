@@ -1,0 +1,2 @@
+; One rule with one declaration ending in `;`.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector label))) (Declaration fontSize (CssValue (ImplicitMemberExpr lg))))))))

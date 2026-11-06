@@ -1,0 +1,2 @@
+; An unterminated string in a metadata entry ends at the line end (K0002); the `(` left open is K0101 and the `}` on the next line still closes the block.
+(SourceFile (PageDecl page P (MemberList (MetadataBlock metadata (Block (CallExpr (NameExpr title) (ArgList (Arg (StringLit "Acme")))))))))

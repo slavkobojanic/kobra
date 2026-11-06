@@ -1,0 +1,2 @@
+; Each bad parameter gets its own diagnostic.
+(SourceFile (FuncDecl func f (ParamList (Param a) (Param b) (Param c (PathType Int))) (Block)))

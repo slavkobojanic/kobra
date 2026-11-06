@@ -1,0 +1,12 @@
+; a lambda returning a lambda, and a lambda passed inside a lambda
+(SourceFile
+  (FieldDecl let add =
+    (LambdaExpr
+      (LambdaParamList (LambdaParam a))
+      (LambdaExpr (LambdaParamList (LambdaParam b)) (BinaryExpr (NameExpr a) + (NameExpr b)))))
+  (FieldDecl let m =
+    (LambdaExpr
+      (LambdaParamList (LambdaParam xs))
+      (CallExpr
+        (MemberExpr (NameExpr xs) map)
+        (LambdaExpr (LambdaParamList (LambdaParam x)) (BinaryExpr (NameExpr x) + (Literal 1)))))))

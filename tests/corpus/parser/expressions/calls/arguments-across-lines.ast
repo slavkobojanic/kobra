@@ -1,0 +1,12 @@
+; newlines inside `( )` are insignificant, with or without a trailing comma
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let a =
+        (CallExpr
+          (NameExpr image)
+          (ArgList
+            (Arg source (MemberExpr (NameExpr user) avatarUrl))
+            (Arg description (StringLit "Avatar")))))
+      (LetStmt let b = (CallExpr (NameExpr f) (ArgList (Arg (Literal 1)) (Arg (Literal 2))))))))

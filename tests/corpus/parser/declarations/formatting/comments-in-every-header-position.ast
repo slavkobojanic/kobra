@@ -1,0 +1,4 @@
+; Line and block comments are trivia anywhere in a declaration header and body.
+(SourceFile
+  (StructDecl public struct Point (ImplementsClause implements (PathType Equatable))
+    (MemberList (FieldDecl let x (PathType Int) = (Literal 0)))))

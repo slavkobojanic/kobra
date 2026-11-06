@@ -1,0 +1,10 @@
+; `try await` as an expression statement
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (TryExpr try
+        (AwaitExpr await
+          (CallExpr
+            (MemberExpr (NameExpr cart) add)
+            (ArgList (Arg product (ImplicitMemberExpr sample)))))))))

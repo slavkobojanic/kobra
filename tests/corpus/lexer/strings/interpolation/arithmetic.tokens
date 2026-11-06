@@ -1,0 +1,10 @@
+# Operators inside an interpolation.
+StringStart "\""
+InterpStart "{"
+Ident "count"
+Plus "+"
+IntLit "1"
+InterpEnd "}"
+StringText " items"
+StringEnd "\""
+Newline "\n"

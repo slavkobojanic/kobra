@@ -1,0 +1,2 @@
+; Modifier names after `.` may be keywords; `.style(...)` does not enter style mode because it follows a `.`.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (MemberExpr (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr)) style) (ArgList (Arg (ImplicitMemberExpr compact)))) default) (ArgList (Arg (Literal true)))) in) (ArgList (Arg (NameExpr group)))))))))

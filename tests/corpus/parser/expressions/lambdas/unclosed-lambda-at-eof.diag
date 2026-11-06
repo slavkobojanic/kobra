@@ -1,0 +1,2 @@
+# a lambda cut off by the end of file is K0101 at its `{`
+error[K0101] 2:9-2:10

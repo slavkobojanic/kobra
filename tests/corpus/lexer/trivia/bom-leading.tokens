@@ -1,0 +1,7 @@
+# A byte-order mark at offset 0 is part of the first Whitespace token
+# (omitted here) and is not an error.
+LetKw "let"
+Ident "x"
+Eq "="
+IntLit "1"
+Newline "\n"

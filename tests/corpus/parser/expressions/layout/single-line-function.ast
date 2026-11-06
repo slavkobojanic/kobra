@@ -1,0 +1,3 @@
+; a whole function body on one line
+(SourceFile
+  (FuncDecl func f (ParamList) (Block (ReturnStmt return (BinaryExpr (NameExpr a) + (NameExpr b))))))

@@ -1,0 +1,2 @@
+# A bare identifier as a match pattern in a view is K0115; the parser builds an IdentPattern.
+error[K0115] 5:18-5:24

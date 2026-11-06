@@ -1,0 +1,2 @@
+; Positional and named arguments mixed in one element call.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr Grid) (ArgList (Arg (Literal 3)) (Arg gap (ImplicitMemberExpr md))) (LambdaExpr (CallExpr (NameExpr Cell) (ArgList)))))))))

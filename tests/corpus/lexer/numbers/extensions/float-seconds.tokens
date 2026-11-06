@@ -1,0 +1,5 @@
+# The first `.` is a decimal point (digit follows), the second is member access.
+FloatLit "0.2"
+Dot "."
+Ident "seconds"
+Newline "\n"

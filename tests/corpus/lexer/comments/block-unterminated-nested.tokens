@@ -1,0 +1,2 @@
+# The inner comment closes but the outer one does not.
+BlockComment "/* outer /* inner */ still open\n"

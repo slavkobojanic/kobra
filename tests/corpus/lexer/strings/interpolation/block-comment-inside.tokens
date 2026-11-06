@@ -1,0 +1,8 @@
+# A `}` inside a block comment does not end the interpolation.
+StringStart "\""
+InterpStart "{"
+Ident "a"
+BlockComment "/* } */"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

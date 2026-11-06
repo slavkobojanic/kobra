@@ -1,0 +1,7 @@
+# `\{` does not open an interpolation, so `b}c` is text.
+StringStart "\""
+StringText "a"
+StringEscape "\\{"
+StringText "b}c"
+StringEnd "\""
+Newline "\n"

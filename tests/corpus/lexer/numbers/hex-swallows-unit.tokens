@@ -1,0 +1,4 @@
+# A prefixed literal never takes a unit suffix: the letters are consumed as
+# (invalid) digits.
+IntLit "0x10px"
+Newline "\n"

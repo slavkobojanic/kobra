@@ -1,0 +1,13 @@
+# A string argument.
+At "@"
+Ident "Env"
+LParen "("
+StringStart "\""
+StringText "DATABASE_URL"
+StringEnd "\""
+RParen ")"
+LetKw "let"
+Ident "url"
+Colon ":"
+Ident "String"
+Newline "\n"

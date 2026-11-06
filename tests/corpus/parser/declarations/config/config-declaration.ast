@@ -1,0 +1,12 @@
+; A `config` declaration: prefix, contextual keyword, name, member list.
+(SourceFile
+  (ConfigDecl public config StripeWebhookConfig
+    (MemberList
+      (FieldDecl (Annotation Env (ArgList (Arg (StringLit "STRIPE_WEBHOOK_SECRET"))))
+        let signingSecret (PathType Secret (GenericArgList (PathType String))))
+      (FieldDecl
+        (Annotation Range (ArgList (Arg (BinaryExpr (Literal 1) ... (Literal 65535)))))
+        (Annotation Env (ArgList (Arg (StringLit "PORT"))))
+        let port (PathType Int))
+      (FieldDecl (Annotation Env (ArgList (Arg (StringLit "STRIPE_WEBHOOK_TOLERANCE"))))
+        let tolerance (PathType Duration) = (MemberExpr (Literal 5) minutes)))))

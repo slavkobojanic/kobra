@@ -1,0 +1,6 @@
+; unit literals are ordinary operands: mixed and matching units parse the same way
+(SourceFile
+  (FieldDecl let width = (BinaryExpr (Literal 100px) + (Literal 2rem)))
+  (FieldDecl let gutter = (BinaryExpr (Literal 16px) * (Literal 2)))
+  (FieldDecl let half = (BinaryExpr (Literal 100%) / (Literal 2)))
+  (FieldDecl let bad = (BinaryExpr (Literal 100px) + (Literal 200ms))))

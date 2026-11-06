@@ -1,0 +1,7 @@
+; with CRLF endings, diagnostic lines and columns are counted the same as with LF
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let a = (Literal 1))
+      (LetStmt let b = (BinaryExpr (NameExpr x) && (NameExpr y))))))

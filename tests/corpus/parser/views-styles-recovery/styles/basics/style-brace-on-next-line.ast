@@ -1,0 +1,2 @@
+; The lexer looks past newlines and comments after `style` for the `{` that enters style mode.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color (CssValue red)))))))

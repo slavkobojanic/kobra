@@ -1,0 +1,7 @@
+; A generic interface with a constraint.
+(SourceFile
+  (InterfaceDecl interface Repository (GenericParamList (GenericParam T))
+    (WhereClause where (WherePredicate T implements (PathType Identifiable)))
+    (MemberList
+      (FuncDecl func find (ParamList (Param id (PathType T Id))) async (ReturnType (OptionalType (PathType T))))
+      (FuncDecl func all (ParamList) async (ReturnType (PathType List (GenericArgList (PathType T))))))))

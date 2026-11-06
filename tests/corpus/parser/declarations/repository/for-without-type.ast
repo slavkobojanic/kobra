@@ -1,0 +1,2 @@
+; `for` without a type is K0123 at the `{`.
+(SourceFile (RepositoryDecl repository UserRepository (ForClause for) (MemberList)))

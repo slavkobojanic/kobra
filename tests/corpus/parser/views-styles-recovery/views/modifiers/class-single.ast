@@ -1,0 +1,2 @@
+; `.class(.muted)` on the next line continues the node with a postfix chain.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr paragraph) (LambdaExpr (StringLit "Nothing here yet."))) class) (ArgList (Arg (ImplicitMemberExpr muted)))))))))

@@ -1,0 +1,11 @@
+# An annotation on its own line.
+At "@"
+Ident "Effect"
+Newline "\n"
+FuncKw "func"
+Ident "log"
+LParen "("
+RParen ")"
+LBrace "{"
+RBrace "}"
+Newline "\n"

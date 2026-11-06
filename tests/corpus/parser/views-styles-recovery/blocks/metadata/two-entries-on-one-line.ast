@@ -1,0 +1,2 @@
+; Two metadata entries on one line are K0102 at the second.
+(SourceFile (PageDecl page Product (MemberList (MetadataBlock metadata (Block (CallExpr (NameExpr title) (ArgList (Arg (StringLit "a")))) (CallExpr (NameExpr description) (ArgList (Arg (StringLit "b")))))))))

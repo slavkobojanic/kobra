@@ -1,0 +1,8 @@
+; unary minus on literals, names, parentheses and itself
+(SourceFile
+  (FieldDecl let a = (PrefixExpr - (Literal 1)))
+  (FieldDecl let b = (PrefixExpr - (Literal 1.5)))
+  (FieldDecl let c = (PrefixExpr - (NameExpr x)))
+  (FieldDecl let d = (PrefixExpr - (ParenExpr (BinaryExpr (NameExpr x) + (NameExpr y)))))
+  (FieldDecl let e = (PrefixExpr - (PrefixExpr - (NameExpr x))))
+  (FieldDecl let g = (PrefixExpr - (PrefixExpr - (NameExpr x)))))

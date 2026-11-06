@@ -1,0 +1,8 @@
+; An annotation argument may be any expression, such as a closed range.
+(SourceFile
+  (StructDecl struct Config
+    (MemberList
+      (FieldDecl
+        (Annotation Range (ArgList (Arg (BinaryExpr (Literal 1) ... (Literal 65535)))))
+        (Annotation Env (ArgList (Arg (StringLit "PORT"))))
+        let port (PathType Int)))))

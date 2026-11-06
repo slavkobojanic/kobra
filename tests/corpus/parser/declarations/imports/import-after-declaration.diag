@@ -1,0 +1,2 @@
+# An import after the first declaration is K0111 on the whole import; it is still parsed.
+error[K0111] 4:1-4:14

@@ -1,0 +1,4 @@
+; Generic parameters follow the struct name.
+(SourceFile
+  (StructDecl struct Pair (GenericParamList (GenericParam A) (GenericParam B))
+    (MemberList (FieldDecl let first (PathType A)) (FieldDecl let second (PathType B)))))

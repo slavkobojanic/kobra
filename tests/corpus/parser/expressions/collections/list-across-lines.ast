@@ -1,0 +1,2 @@
+; newlines inside `[ ]` are insignificant, including before the trailing comma
+(SourceFile (FieldDecl let xs = (ListExpr (StringLit "a") (StringLit "b") (StringLit "c"))))

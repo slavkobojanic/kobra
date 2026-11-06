@@ -1,0 +1,10 @@
+; `self` is a NameExpr
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (AssignStmt
+        (MemberExpr (NameExpr self) count)
+        =
+        (BinaryExpr (MemberExpr (NameExpr self) count) + (Literal 1)))
+      (LetStmt let me = (NameExpr self)))))

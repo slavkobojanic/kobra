@@ -1,0 +1,21 @@
+; collection pipelines with one trailing-lambda call per line
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let names =
+        (CallExpr
+          (MemberExpr
+            (CallExpr
+              (MemberExpr
+                (CallExpr
+                  (MemberExpr (NameExpr products) filter)
+                  (LambdaExpr
+                    (LambdaParamList (LambdaParam product))
+                    (BinaryExpr (MemberExpr (NameExpr product) stock) > (Literal 0))))
+                map)
+              (LambdaExpr
+                (LambdaParamList (LambdaParam product))
+                (MemberExpr (NameExpr product) name)))
+            sorted)
+          (ArgList))))))

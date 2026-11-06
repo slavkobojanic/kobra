@@ -1,0 +1,1 @@
+# A file holding only a BOM is a single (omitted) Whitespace token.

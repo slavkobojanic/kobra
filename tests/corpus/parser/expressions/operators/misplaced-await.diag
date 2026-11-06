@@ -1,0 +1,2 @@
+# `await` after a binary operator is K0114
+error[K0114] 2:13-2:18

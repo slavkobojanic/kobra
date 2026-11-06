@@ -1,0 +1,2 @@
+; a label with no value is K0122 at the `)`
+(SourceFile (FieldDecl let a = (CallExpr (NameExpr f) (ArgList (Arg x)))))

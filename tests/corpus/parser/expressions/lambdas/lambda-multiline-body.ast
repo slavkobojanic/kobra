@@ -1,0 +1,7 @@
+; a lambda body holds statements on separate lines
+(SourceFile
+  (FieldDecl let double =
+    (LambdaExpr
+      (LambdaParamList (LambdaParam x))
+      (LetStmt let y = (BinaryExpr (NameExpr x) * (Literal 2)))
+      (ReturnStmt return (NameExpr y)))))

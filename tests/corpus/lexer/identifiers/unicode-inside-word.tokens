@@ -1,0 +1,5 @@
+# A non-ASCII letter splits a word: the ASCII parts stay identifiers.
+Ident "na"
+Error "ï"
+Ident "ve"
+Newline "\n"

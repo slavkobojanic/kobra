@@ -1,0 +1,2 @@
+; A leading `.` after an `if` expression's closing brace continues the IfExpr as a postfix chain (rejecting it is semantic).
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (IfExpr if (NameExpr a) (Block (StringLit "x"))) class) (ArgList (Arg (ImplicitMemberExpr y)))))))))

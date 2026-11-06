@@ -1,0 +1,3 @@
+; `a == b == c` is K0113
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (BinaryExpr (NameExpr x) == (NameExpr y)) == (NameExpr z))))

@@ -1,0 +1,6 @@
+# One bad construct does not hide later errors: each declaration reports its own.
+error[K0100] 2:8-2:9
+error[K0130] 3:16-3:17
+error[K0129] 4:10-4:16
+error[K0131] 5:1-5:4
+error[K0126] 7:5-7:7

@@ -1,0 +1,2 @@
+# `<>` with no parameter is K0100 at the `>`.
+error[K0100] 2:10-2:11

@@ -1,0 +1,3 @@
+# End of file before the closing quote.
+StringStart "\""
+StringText "abc"

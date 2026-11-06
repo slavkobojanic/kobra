@@ -1,0 +1,3 @@
+(SourceFile
+  (ConfigDecl config A (MemberList))
+  (ConfigDecl private config B (MemberList)))

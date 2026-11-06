@@ -1,0 +1,3 @@
+; blank lines and comment-only lines between statements are ignored
+(SourceFile
+  (FuncDecl func f (ParamList) (Block (LetStmt let a = (Literal 1)) (LetStmt let b = (Literal 2)))))

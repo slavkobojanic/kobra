@@ -1,0 +1,2 @@
+# `when` outside an argument or list element is K0109; the WhenExpr is kept
+error[K0109] 2:11-2:15

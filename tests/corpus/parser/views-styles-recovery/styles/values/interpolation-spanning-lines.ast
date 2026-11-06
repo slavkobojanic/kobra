@@ -1,0 +1,2 @@
+; An interpolation in a style value may span lines.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration width (CssValue (Interpolation (BinaryExpr (NameExpr size) * (Literal 2))))))))))

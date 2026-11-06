@@ -1,0 +1,4 @@
+; `when` inside an argument's sub-expression is K0109
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr (NameExpr f) (ArgList (Arg (ParenExpr (WhenExpr (NameExpr x) when (NameExpr c))))))))

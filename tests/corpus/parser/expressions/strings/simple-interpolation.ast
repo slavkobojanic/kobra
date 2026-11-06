@@ -1,0 +1,2 @@
+; an interpolation splits the text atoms
+(SourceFile (FieldDecl let a = (StringLit "Hello, " (Interpolation (NameExpr name)) "!")))

@@ -1,0 +1,5 @@
+# In code mode `-` never joins identifiers (style mode differs).
+Ident "sans"
+Minus "-"
+Ident "serif"
+Newline "\n"

@@ -1,0 +1,11 @@
+; Regression: the machine-applicable fixes for `&&`, `||` and `!` replaced the operator with
+; the bare word, so `b&&c` became the identifier `bandc` and `if!o` became `ifnot o`. The
+; replacement adds a space on each side that touches a word character, so the fixed code
+; means what the recovery parse means.
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (NameExpr b) && (NameExpr c)))
+  (FieldDecl let d = (BinaryExpr (NameExpr e) || (NameExpr f)))
+  (FieldDecl let g = (BinaryExpr (NameExpr h) && (NameExpr i)))
+  (FieldDecl let j = (BinaryExpr (NameExpr k) || (NameExpr l)))
+  (FieldDecl let m = (ParenExpr (PrefixExpr ! (NameExpr n))))
+  (FuncDecl func f (ParamList) (Block (IfExpr if (PrefixExpr ! (NameExpr o)) (Block)))))

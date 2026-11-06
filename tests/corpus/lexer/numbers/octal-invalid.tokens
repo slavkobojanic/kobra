@@ -1,0 +1,4 @@
+# `8` is not an octal digit; `0o` alone has no digits.
+IntLit "0o78"
+IntLit "0o"
+Newline "\n"

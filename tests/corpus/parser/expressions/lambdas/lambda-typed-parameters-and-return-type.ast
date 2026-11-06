@@ -1,0 +1,6 @@
+; the parenthesized form allows parameter types and a return type
+(SourceFile
+  (FieldDecl let price =
+    (LambdaExpr
+      (LambdaParamList (LambdaParam p (PathType Product)) (ReturnType (PathType Money)))
+      (MemberExpr (NameExpr p) price))))

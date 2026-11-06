@@ -1,0 +1,2 @@
+# a map value is not a list element: `when` there is K0109
+error[K0109] 2:15-2:19

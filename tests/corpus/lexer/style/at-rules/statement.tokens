@@ -1,0 +1,13 @@
+# An at-rule ending in `;`; the `;` starts a new statement.
+StyleKw "style"
+LBrace "{"
+At "@"
+Ident "layer"
+Ident "base"
+Semicolon ";"
+Dot "."
+Ident "a"
+LBrace "{"
+RBrace "}"
+RBrace "}"
+Newline "\n"

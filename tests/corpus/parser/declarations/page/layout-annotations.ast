@@ -1,0 +1,5 @@
+; Pages choose a layout with `@Layout`, including `@Layout(.none)`.
+(SourceFile
+  (PageDecl (Annotation Layout (ArgList (Arg (NameExpr Shop)))) page Cart (MemberList))
+  (PageDecl (Annotation Layout (ArgList (Arg (ImplicitMemberExpr none)))) page Landing
+    (AtClause at (StringLit "/welcome")) (MemberList)))

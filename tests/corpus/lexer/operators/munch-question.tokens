@@ -1,0 +1,10 @@
+# Maximal munch over `?`.
+QuestionQuestion "??"
+Question "?"
+QuestionDot "?."
+Dot "."
+QuestionDot "?."
+Question "?"
+QuestionQuestion "??"
+Dot "."
+Newline "\n"

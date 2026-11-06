@@ -1,0 +1,5 @@
+# Digits may follow the first character.
+Ident "a1b2"
+Ident "x9"
+Ident "v2_0"
+Newline "\n"

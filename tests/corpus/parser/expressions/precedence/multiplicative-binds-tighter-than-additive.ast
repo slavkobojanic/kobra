@@ -1,0 +1,4 @@
+; `*` binds tighter than `+` on either side
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (Literal 1) + (BinaryExpr (Literal 2) * (Literal 3))))
+  (FieldDecl let b = (BinaryExpr (BinaryExpr (Literal 1) * (Literal 2)) + (Literal 3))))

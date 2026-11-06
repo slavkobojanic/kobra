@@ -1,0 +1,2 @@
+; `#header` as a selector is K0132, and also K0005 because it is not a valid color literal; it is wrapped in an ErrorNode.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ErrorNode #header))) (Declaration color (CssValue red)))))))

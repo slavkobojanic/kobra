@@ -1,0 +1,2 @@
+; A modifier written after the closing brace of an element with children, at the element's indentation.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr section) (LambdaExpr (CallExpr (NameExpr heading) (ArgList (Arg level (Literal 2))) (LambdaExpr (StringLit "Cart"))))) class) (ArgList (Arg (ImplicitMemberExpr checkout)))))))))

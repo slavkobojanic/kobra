@@ -1,0 +1,10 @@
+# Symbolic logic operators are tokens so the parser can offer fixes.
+Amp "&"
+AmpAmp "&&"
+AmpAmp "&&"
+Amp "&"
+Pipe "|"
+PipePipe "||"
+PipePipe "||"
+Pipe "|"
+Newline "\n"

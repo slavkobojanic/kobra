@@ -1,0 +1,2 @@
+; Literal and range patterns in a view match.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (MatchExpr match (NameExpr count) (MatchArm case (LiteralPattern 0) (Block (StringLit "none"))) (MatchArm case (RangePattern (LiteralPattern 1) ... (LiteralPattern 9)) (Block (StringLit "a few"))) (MatchArm default (Block (StringLit "many")))))))))

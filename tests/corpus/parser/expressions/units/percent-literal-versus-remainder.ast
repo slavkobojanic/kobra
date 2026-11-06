@@ -1,0 +1,5 @@
+; `10 % 3` is a remainder; `50% * 2` multiplies a Percent literal
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (Literal 10) % (Literal 3)))
+  (FieldDecl let b = (BinaryExpr (Literal 50%) * (Literal 2)))
+  (FieldDecl let c = (BinaryExpr (Literal 50%) % (Literal 3))))

@@ -1,0 +1,2 @@
+; `<>` with no parameter is K0100 at the `>`.
+(SourceFile (StructDecl struct A (GenericParamList) (MemberList)))

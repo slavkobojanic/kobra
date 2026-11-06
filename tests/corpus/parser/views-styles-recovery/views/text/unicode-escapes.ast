@@ -1,0 +1,2 @@
+; Unicode escapes decode to the characters they name.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit "😀é"))))))))

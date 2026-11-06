@@ -1,0 +1,20 @@
+; required values as named arguments, optional values chained on following lines
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (CallExpr
+        (MemberExpr
+          (CallExpr
+            (MemberExpr
+              (CallExpr
+                (NameExpr image)
+                (ArgList
+                  (Arg source (MemberExpr (NameExpr user) avatarUrl))
+                  (Arg description
+                    (StringLit "Profile photo of "
+                      (Interpolation (MemberExpr (NameExpr user) name))))))
+              class)
+            (ArgList (Arg (ImplicitMemberExpr avatar))))
+          loading)
+        (ArgList (Arg (ImplicitMemberExpr lazy)))))))

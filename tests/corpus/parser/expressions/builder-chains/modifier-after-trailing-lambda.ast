@@ -1,0 +1,10 @@
+; a chained modifier after an element with children
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (CallExpr
+        (MemberExpr
+          (CallExpr (NameExpr paragraph) (LambdaExpr (StringLit "Nothing here yet.")))
+          class)
+        (ArgList (Arg (ImplicitMemberExpr muted)))))))

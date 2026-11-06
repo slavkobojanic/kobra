@@ -1,0 +1,3 @@
+; Annotation names may be words that are contextual keywords elsewhere.
+(SourceFile
+  (StructDecl struct A (MemberList (FieldDecl (Annotation page) (Annotation view) (Annotation test) let x (PathType Int)))))

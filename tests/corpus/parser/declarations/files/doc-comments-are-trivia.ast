@@ -1,0 +1,10 @@
+; Doc comments before items and members do not change the tree shape.
+(SourceFile
+  (StructDecl public struct Point
+    (MemberList
+      (FieldDecl let x (PathType Int))
+      (FuncDecl func moved (ParamList (Param by delta (PathType Int))) (ReturnType (PathType Point))
+        (Block
+          (ReturnStmt return
+            (CallExpr (NameExpr Point)
+              (ArgList (Arg x (BinaryExpr (NameExpr x) + (NameExpr delta)))))))))))

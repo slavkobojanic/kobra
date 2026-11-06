@@ -1,0 +1,5 @@
+# `\\` is an escaped backslash, so the following `"` closes the string.
+StringStart "\""
+StringEscape "\\\\"
+StringEnd "\""
+Newline "\n"

@@ -1,0 +1,2 @@
+# `static static` is K0127 on the second `static`.
+error[K0127] 3:12-3:18

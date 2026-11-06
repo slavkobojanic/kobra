@@ -1,0 +1,2 @@
+; Stylable class hooks passed with conditional classes (from the styles design).
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (MemberExpr (CallExpr (NameExpr CartRow) (ArgList (Arg item (NameExpr item)))) container) (ArgList (Arg (WhenExpr (ImplicitMemberExpr highlighted) when (BinaryExpr (MemberExpr (NameExpr item) id) == (NameExpr selectedId)))))) title) (ArgList (Arg (WhenExpr (ImplicitMemberExpr strikethrough) when (MemberExpr (NameExpr item) isRemoved))))))))))

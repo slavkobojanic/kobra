@@ -1,0 +1,2 @@
+; A style block containing only line, block and doc comments.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style ))))

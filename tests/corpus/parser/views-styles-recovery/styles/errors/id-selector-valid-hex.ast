@@ -1,0 +1,2 @@
+; `#fade` is a valid color literal, so as a selector only K0132 is reported.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a)) (CompoundSelector (ErrorNode #fade))))))))

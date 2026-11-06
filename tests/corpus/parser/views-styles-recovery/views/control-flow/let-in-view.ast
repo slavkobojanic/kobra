@@ -1,0 +1,2 @@
+; A local constant inside a view.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (LetStmt let total = (MemberExpr (NameExpr items) count)) (CallExpr (NameExpr text) (LambdaExpr (StringLit (Interpolation (NameExpr total)) " items"))))))))

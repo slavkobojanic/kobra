@@ -1,0 +1,2 @@
+; Two view nodes on one line are K0102 at the second; both nodes are kept.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit "a"))) (CallExpr (NameExpr text) (LambdaExpr (StringLit "b"))))))))

@@ -1,0 +1,10 @@
+; `Stepper(value: bind quantity)` followed by a modifier line
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (CallExpr
+        (MemberExpr
+          (CallExpr (NameExpr Stepper) (ArgList (Arg value (BindExpr bind (NameExpr quantity)))))
+          step)
+        (ArgList (Arg (Literal 5)))))))

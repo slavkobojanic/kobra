@@ -1,0 +1,4 @@
+# RA-4: `10%3` is a percent literal followed by an integer.
+UnitLit "10%"
+IntLit "3"
+Newline "\n"

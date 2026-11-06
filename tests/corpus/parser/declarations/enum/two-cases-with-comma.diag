@@ -1,0 +1,2 @@
+# `case a, b` is K0130 at the first comma; each name becomes its own case.
+error[K0130] 3:11-3:12

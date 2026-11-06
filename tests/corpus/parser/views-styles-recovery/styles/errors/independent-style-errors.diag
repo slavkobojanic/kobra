@@ -1,0 +1,6 @@
+# Several different style errors in one block are each reported exactly once.
+error[K0133] 4:9-4:16
+error[K0117] 6:23-6:23
+error[K0118] 7:23-7:33
+error[K0116] 9:12-9:13
+error[K0112] 9:25-9:29

@@ -1,0 +1,8 @@
+; half-open `..<` and closed `...` ranges over literals, names and members
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (Literal 0) ..< (Literal 10)))
+  (FieldDecl let b = (BinaryExpr (Literal 13) ... (Literal 120)))
+  (FieldDecl let c = (BinaryExpr (NameExpr lo) ..< (NameExpr hi)))
+  (FieldDecl let d = (BinaryExpr (Literal 0) ..< (MemberExpr (NameExpr xs) count)))
+  (FieldDecl let e = (BinaryExpr (Literal 0.0) ... (Literal 1.0)))
+  (FieldDecl let g = (BinaryExpr (Literal 0) ..< (Literal 10))))

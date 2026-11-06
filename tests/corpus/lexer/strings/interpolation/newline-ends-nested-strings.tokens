@@ -1,0 +1,11 @@
+# A newline inside nested interpolations ends every open string; each
+# unterminated string reports K0002 on its own opening quote.
+StringStart "\""
+InterpStart "{"
+StringStart "\""
+StringText "a"
+InterpStart "{"
+Ident "b"
+Newline "\n"
+Ident "c"
+Newline "\n"

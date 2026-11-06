@@ -1,0 +1,2 @@
+; each pair of parentheses is its own ParenExpr
+(SourceFile (FieldDecl let a = (ParenExpr (ParenExpr (ParenExpr (ParenExpr (NameExpr x)))))))

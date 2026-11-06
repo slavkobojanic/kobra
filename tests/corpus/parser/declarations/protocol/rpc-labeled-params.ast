@@ -1,0 +1,10 @@
+; Rpc parameters use the same labels as functions.
+(SourceFile
+  (ProtocolDecl protocol Transfers
+    (MemberList
+      (RpcDecl rpc move
+        (ParamList
+          (Param from source (PathType AccountId))
+          (Param to target (PathType AccountId))
+          (Param _ amount (PathType Money)))
+        (ThrowsClause throws (PathType TransferError))))))

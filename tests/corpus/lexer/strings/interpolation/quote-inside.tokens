@@ -1,0 +1,11 @@
+# The `"` after `{` starts a nested string (holding `}`), which closes at the
+# last `"`. The outer string and its interpolation are then unterminated.
+LetKw "let"
+Ident "s"
+Eq "="
+StringStart "\""
+InterpStart "{"
+StringStart "\""
+StringText "}"
+StringEnd "\""
+Newline "\n"

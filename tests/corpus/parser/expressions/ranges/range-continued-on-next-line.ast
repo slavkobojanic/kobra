@@ -1,0 +1,5 @@
+; range operators at the start of a line continue the expression (rule N3)
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (LetStmt let r = (BinaryExpr (NameExpr start) ..< (NameExpr end))))))

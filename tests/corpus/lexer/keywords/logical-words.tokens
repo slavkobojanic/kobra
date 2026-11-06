@@ -1,0 +1,8 @@
+# Logical operators are words (RA-2).
+NotKw "not"
+Ident "a"
+AndKw "and"
+Ident "b"
+OrKw "or"
+Ident "c"
+Newline "\n"

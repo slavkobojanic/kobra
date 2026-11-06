@@ -1,0 +1,4 @@
+; `@` without a name reports K0100 at the next token; the declaration is still parsed.
+(SourceFile
+  (StructDecl struct A
+    (MemberList (FieldDecl (Annotation) let x (PathType Int)) (FieldDecl let y (PathType Int)))))

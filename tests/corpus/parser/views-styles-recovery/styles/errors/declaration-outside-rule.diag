@@ -1,0 +1,2 @@
+# A declaration directly in the style block is K0133; the span covers the whole Declaration including `;`.
+error[K0133] 4:9-4:20

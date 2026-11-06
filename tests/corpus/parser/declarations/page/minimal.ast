@@ -1,0 +1,2 @@
+; The smallest page.
+(SourceFile (PageDecl page Home (MemberList)))

@@ -1,0 +1,2 @@
+; An unclosed argument list in the view does not hide a later style error.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr Spinner) (ArgList)))) (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color (CssValue red) (ErrorNode ! important)))))))

@@ -1,0 +1,2 @@
+; A declaration with nothing after `:` reports K0100 at the `;`; the value is absent from the tree.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color) (Declaration margin (CssValue (Literal 0))))))))

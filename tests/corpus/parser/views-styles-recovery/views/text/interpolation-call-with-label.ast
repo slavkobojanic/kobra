@@ -1,0 +1,2 @@
+; An interpolation holding a method call with a labeled argument and an implicit member.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr button) (LambdaExpr (StringLit "Pay " (Interpolation (CallExpr (MemberExpr (NameExpr total) formatted) (ArgList (Arg as (ImplicitMemberExpr currency)))))))))))))

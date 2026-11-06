@@ -1,0 +1,2 @@
+; A misspelled `else` after an `if` block is a second node on the same line (K0102): `esle { ... }` parses as a call with a trailing block.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (NameExpr a) (Block (StringLit "x"))) (CallExpr (NameExpr esle) (LambdaExpr (StringLit "y"))))))))

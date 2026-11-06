@@ -1,0 +1,13 @@
+# K0005 is reported in style mode as in code.
+StyleKw "style"
+LBrace "{"
+Dot "."
+Ident "a"
+LBrace "{"
+Ident "color"
+Colon ":"
+ColorLit "#zz"
+Semicolon ";"
+RBrace "}"
+RBrace "}"
+Newline "\n"

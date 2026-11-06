@@ -1,0 +1,4 @@
+; Leading, trailing and repeated blank lines are allowed between items and members.
+(SourceFile
+  (StructDecl struct A (MemberList (FieldDecl let x (PathType Int)) (FieldDecl let y (PathType Int))))
+  (StructDecl struct B (MemberList)))

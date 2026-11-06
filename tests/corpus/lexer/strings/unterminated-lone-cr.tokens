@@ -1,0 +1,6 @@
+# A lone `\r` also ends the string.
+StringStart "\""
+StringText "abc"
+Newline "\r"
+Ident "x"
+Newline "\r"

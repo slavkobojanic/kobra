@@ -1,0 +1,2 @@
+# with CRLF endings, diagnostic lines and columns are counted the same as with LF
+error[K0104] 4:15-4:17

@@ -1,0 +1,5 @@
+# `}}` is two literal `}` characters, part of the same StringText.
+StringStart "\""
+StringText "}}"
+StringEnd "\""
+Newline "\n"

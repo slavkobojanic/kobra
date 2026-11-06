@@ -1,0 +1,208 @@
+// An if/else-if chain with 100 conditions.
+component T {
+    view {
+        if c0 {
+            "0"
+        } else if c1 {
+            "1"
+        } else if c2 {
+            "2"
+        } else if c3 {
+            "3"
+        } else if c4 {
+            "4"
+        } else if c5 {
+            "5"
+        } else if c6 {
+            "6"
+        } else if c7 {
+            "7"
+        } else if c8 {
+            "8"
+        } else if c9 {
+            "9"
+        } else if c10 {
+            "10"
+        } else if c11 {
+            "11"
+        } else if c12 {
+            "12"
+        } else if c13 {
+            "13"
+        } else if c14 {
+            "14"
+        } else if c15 {
+            "15"
+        } else if c16 {
+            "16"
+        } else if c17 {
+            "17"
+        } else if c18 {
+            "18"
+        } else if c19 {
+            "19"
+        } else if c20 {
+            "20"
+        } else if c21 {
+            "21"
+        } else if c22 {
+            "22"
+        } else if c23 {
+            "23"
+        } else if c24 {
+            "24"
+        } else if c25 {
+            "25"
+        } else if c26 {
+            "26"
+        } else if c27 {
+            "27"
+        } else if c28 {
+            "28"
+        } else if c29 {
+            "29"
+        } else if c30 {
+            "30"
+        } else if c31 {
+            "31"
+        } else if c32 {
+            "32"
+        } else if c33 {
+            "33"
+        } else if c34 {
+            "34"
+        } else if c35 {
+            "35"
+        } else if c36 {
+            "36"
+        } else if c37 {
+            "37"
+        } else if c38 {
+            "38"
+        } else if c39 {
+            "39"
+        } else if c40 {
+            "40"
+        } else if c41 {
+            "41"
+        } else if c42 {
+            "42"
+        } else if c43 {
+            "43"
+        } else if c44 {
+            "44"
+        } else if c45 {
+            "45"
+        } else if c46 {
+            "46"
+        } else if c47 {
+            "47"
+        } else if c48 {
+            "48"
+        } else if c49 {
+            "49"
+        } else if c50 {
+            "50"
+        } else if c51 {
+            "51"
+        } else if c52 {
+            "52"
+        } else if c53 {
+            "53"
+        } else if c54 {
+            "54"
+        } else if c55 {
+            "55"
+        } else if c56 {
+            "56"
+        } else if c57 {
+            "57"
+        } else if c58 {
+            "58"
+        } else if c59 {
+            "59"
+        } else if c60 {
+            "60"
+        } else if c61 {
+            "61"
+        } else if c62 {
+            "62"
+        } else if c63 {
+            "63"
+        } else if c64 {
+            "64"
+        } else if c65 {
+            "65"
+        } else if c66 {
+            "66"
+        } else if c67 {
+            "67"
+        } else if c68 {
+            "68"
+        } else if c69 {
+            "69"
+        } else if c70 {
+            "70"
+        } else if c71 {
+            "71"
+        } else if c72 {
+            "72"
+        } else if c73 {
+            "73"
+        } else if c74 {
+            "74"
+        } else if c75 {
+            "75"
+        } else if c76 {
+            "76"
+        } else if c77 {
+            "77"
+        } else if c78 {
+            "78"
+        } else if c79 {
+            "79"
+        } else if c80 {
+            "80"
+        } else if c81 {
+            "81"
+        } else if c82 {
+            "82"
+        } else if c83 {
+            "83"
+        } else if c84 {
+            "84"
+        } else if c85 {
+            "85"
+        } else if c86 {
+            "86"
+        } else if c87 {
+            "87"
+        } else if c88 {
+            "88"
+        } else if c89 {
+            "89"
+        } else if c90 {
+            "90"
+        } else if c91 {
+            "91"
+        } else if c92 {
+            "92"
+        } else if c93 {
+            "93"
+        } else if c94 {
+            "94"
+        } else if c95 {
+            "95"
+        } else if c96 {
+            "96"
+        } else if c97 {
+            "97"
+        } else if c98 {
+            "98"
+        } else if c99 {
+            "99"
+        } else {
+            "none"
+        }
+    }
+}

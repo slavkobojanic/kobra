@@ -1,0 +1,2 @@
+; End of file right after `view` (no `{` follows, so it is not a view block): K0126 at `view` and K0101 for the component.
+(SourceFile (ComponentDecl component T (MemberList (ErrorNode view))))

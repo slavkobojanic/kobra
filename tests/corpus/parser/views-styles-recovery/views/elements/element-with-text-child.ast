@@ -1,0 +1,2 @@
+; A string literal written directly inside an element's block is a text child.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr paragraph) (LambdaExpr (StringLit "Hello"))))))))

@@ -1,0 +1,2 @@
+; A misspelled `if` is a name followed by another node on the same line (K0102).
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (NameExpr fi) (CallExpr (NameExpr ready) (LambdaExpr (StringLit "y"))))))))

@@ -1,0 +1,3 @@
+# Block comments may contain any Unicode text.
+BlockComment "/* héllo 😀 */"
+Newline "\n"

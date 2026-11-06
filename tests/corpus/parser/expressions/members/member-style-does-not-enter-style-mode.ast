@@ -1,0 +1,3 @@
+; `foo.style { ... }` after `.` is a member call with a trailing lambda, not a style block
+(SourceFile
+  (FieldDecl let a = (CallExpr (MemberExpr (NameExpr node) style) (LambdaExpr (NameExpr x)))))

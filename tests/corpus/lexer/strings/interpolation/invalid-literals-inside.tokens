@@ -1,0 +1,11 @@
+# Literal diagnostics are reported inside interpolations too.
+StringStart "\""
+InterpStart "{"
+ColorLit "#zz"
+InterpEnd "}"
+StringText " "
+InterpStart "{"
+IntLit "0x"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

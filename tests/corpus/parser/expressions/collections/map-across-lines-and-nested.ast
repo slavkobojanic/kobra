@@ -1,0 +1,11 @@
+; multi-line maps whose values are maps and lists
+(SourceFile
+  (FieldDecl let config =
+    (MapExpr
+      (MapEntry
+        (StringLit "db")
+        (MapExpr
+          (MapEntry (StringLit "host") (StringLit "localhost"))
+          (MapEntry (StringLit "port") (Literal 5432))))
+      (MapEntry (StringLit "tags") (ListExpr))
+      (MapEntry (StringLit "empty") (MapExpr)))))

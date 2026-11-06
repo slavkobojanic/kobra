@@ -1,0 +1,5 @@
+# `\"` is an escape, so it does not close the string.
+StringStart "\""
+StringText "abc"
+StringEscape "\\\""
+Newline "\n"

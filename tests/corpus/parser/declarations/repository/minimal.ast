@@ -1,0 +1,2 @@
+; A repository names its entity with `for`.
+(SourceFile (RepositoryDecl repository UserRepository (ForClause for (PathType User)) (MemberList)))

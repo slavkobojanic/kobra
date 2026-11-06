@@ -1,0 +1,2 @@
+; An inline event handler lambda containing an assignment statement.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr button) (LambdaExpr (StringLit "+"))) on) (ArgList (Arg click (LambdaExpr (AssignStmt (NameExpr value) += (NameExpr step)))))))))))

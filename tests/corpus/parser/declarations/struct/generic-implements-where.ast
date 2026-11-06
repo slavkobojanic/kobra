@@ -1,0 +1,6 @@
+; Clause order: generics, `implements`, `where`, body.
+(SourceFile
+  (StructDecl struct Box (GenericParamList (GenericParam T))
+    (ImplementsClause implements (PathType Equatable))
+    (WhereClause where (WherePredicate T implements (PathType Equatable)))
+    (MemberList (FieldDecl let value (PathType T)))))

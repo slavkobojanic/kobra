@@ -1,0 +1,10 @@
+; Labels may be hard keywords, including the reserved `as`.
+(SourceFile
+  (FuncDecl func convert
+    (ParamList
+      (Param from source (PathType Unit))
+      (Param to target (PathType Unit))
+      (Param in context (PathType Context))
+      (Param as format (PathType Format))
+      (Param default value (PathType Int)))
+    (Block)))

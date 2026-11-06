@@ -1,0 +1,19 @@
+# RA-9: `//` is a comment in style blocks, so an unquoted URL swallows the
+# rest of the line, including the rule's `}`. The `}` on the last line then
+# closes the `.a` rule, leaving the style block open (a parser error).
+StyleKw "style"
+LBrace "{"
+Newline "\n"
+Dot "."
+Ident "a"
+LBrace "{"
+Ident "background"
+Colon ":"
+Ident "url"
+LParen "("
+Ident "https"
+Colon ":"
+LineComment "//x.com/a.png); }"
+Newline "\n"
+RBrace "}"
+Newline "\n"

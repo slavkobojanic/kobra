@@ -1,0 +1,2 @@
+# A missing body reports K0100 at the gap after the name; the next line still parses.
+error[K0100] 2:11-2:11

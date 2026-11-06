@@ -1,0 +1,2 @@
+; An empty string literal has no text atoms.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit))))))))

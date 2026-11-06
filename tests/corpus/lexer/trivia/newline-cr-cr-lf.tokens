@@ -1,0 +1,7 @@
+# `\r\r\n` is a lone `\r` then `\r\n`; `\n\r` is `\n` then a lone `\r`.
+Ident "a"
+Newline "\r"
+Newline "\r\n"
+Ident "b"
+Newline "\n"
+Newline "\r"

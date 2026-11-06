@@ -1,0 +1,2 @@
+; An event handler named by reference.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr button) (LambdaExpr (StringLit "Add"))) on) (ArgList (Arg click (NameExpr increment)))))))))

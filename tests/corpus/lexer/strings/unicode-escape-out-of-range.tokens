@@ -1,0 +1,5 @@
+# Code points above U+10FFFF do not exist.
+StringStart "\""
+StringEscape "\\u{110000}"
+StringEnd "\""
+Newline "\n"

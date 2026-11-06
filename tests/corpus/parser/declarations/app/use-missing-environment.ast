@@ -1,0 +1,4 @@
+; `in` without an environment is K0122 at the gap after `in`.
+(SourceFile
+  (AppDecl app A
+    (MemberList (UseDecl use (PathType Fake) for (PathType Api) in) (UseDecl use (PathType Real) for (PathType Api)))))

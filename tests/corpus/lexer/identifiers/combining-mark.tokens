@@ -1,0 +1,6 @@
+# A decomposed `é` is `e` plus U+0301; the combining mark is an error.
+Ident "e"
+Error "\u{301}"
+Eq "="
+IntLit "1"
+Newline "\n"

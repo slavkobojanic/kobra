@@ -1,0 +1,2 @@
+; A component with only a trailing content block.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr Dialog) (LambdaExpr (StringLit "Are you sure?"))))))))

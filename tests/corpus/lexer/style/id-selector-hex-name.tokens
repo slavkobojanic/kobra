@@ -1,0 +1,11 @@
+# `#abc` is a valid color as far as the lexer is concerned; only the parser
+# rejects it as a selector (K0132).
+StyleKw "style"
+LBrace "{"
+Newline "\n"
+ColorLit "#abc"
+LBrace "{"
+RBrace "}"
+Newline "\n"
+RBrace "}"
+Newline "\n"

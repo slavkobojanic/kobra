@@ -1,0 +1,9 @@
+# Extension property inside annotation arguments.
+At "@"
+Ident "RateLimit"
+LParen "("
+IntLit "100"
+Dot "."
+Ident "perMinute"
+RParen ")"
+Newline "\n"

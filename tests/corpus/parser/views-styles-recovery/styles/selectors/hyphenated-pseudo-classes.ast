@@ -1,0 +1,2 @@
+; Pseudo-class names may contain hyphens in style mode.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a) (PseudoClass focus-visible)))) (StyleRule (Selector (CompoundSelector (ClassSelector b) (PseudoClass first-child) (PseudoClass not-allowed))))))))

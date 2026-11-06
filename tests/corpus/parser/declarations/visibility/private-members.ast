@@ -1,0 +1,9 @@
+; `private` may prefix fields, functions, initializers and rpcs.
+(SourceFile
+  (ServiceDecl service CartService (ImplementsClause implements (PathType CartProtocol))
+    (MemberList
+      (FieldDecl private var retryCount = (Literal 0))
+      (FieldDecl private let limit (PathType Int) = (Literal 3))
+      (FuncDecl private func reset (ParamList) (Block))
+      (InitDecl private init (ParamList) (Block))
+      (RpcDecl private rpc list (ParamList) (ReturnType (PathType List (GenericArgList (PathType Item)))) (Block)))))

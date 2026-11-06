@@ -1,0 +1,6 @@
+; Regression: an Error token where a type belongs also reported K0123 ("expected a type") at
+; the token after it. The Error token stands in for the type; K0001 covers it (patterns and
+; expressions already behave this way: `case $ { }`, `f(x: $)`).
+(SourceFile
+  (FuncDecl func f (ParamList (Param a (ErrorNode $))) (Block))
+  (FieldDecl let b (ErrorNode $) = (Literal 1)))

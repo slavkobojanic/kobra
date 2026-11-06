@@ -1,0 +1,2 @@
+; an empty trailing lambda `f {}`
+(SourceFile (FieldDecl let a = (CallExpr (NameExpr f) (LambdaExpr))))

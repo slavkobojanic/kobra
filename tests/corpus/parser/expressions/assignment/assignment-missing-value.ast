@@ -1,0 +1,2 @@
+; `x +=` with no value is K0122 at the gap
+(SourceFile (FuncDecl func f (ParamList) (Block (AssignStmt (NameExpr x) +=))))

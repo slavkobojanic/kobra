@@ -1,0 +1,6 @@
+; An rpc without a parameter list reports K0100 at the token where `(` was expected.
+(SourceFile
+  (ProtocolDecl protocol P
+    (MemberList
+      (RpcDecl rpc list (ReturnType (PathType Int)))
+      (RpcDecl rpc ok (ParamList)))))

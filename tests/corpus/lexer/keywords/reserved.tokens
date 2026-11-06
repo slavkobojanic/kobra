@@ -1,0 +1,4 @@
+# `as` and `is` are reserved keywords; the parser reports their use (K0108).
+AsKw "as"
+IsKw "is"
+Newline "\n"

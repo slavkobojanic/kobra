@@ -1,0 +1,5 @@
+; a guard without `else` is K0100 at the `{`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (GuardStmt guard (NameExpr ready) (Block (ReturnStmt return))))))

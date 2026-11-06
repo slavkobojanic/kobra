@@ -1,0 +1,11 @@
+# Optional chaining and nil coalescing.
+Ident "a"
+QuestionDot "?."
+Ident "b"
+QuestionQuestion "??"
+Ident "c"
+QuestionDot "?."
+Ident "d"
+QuestionQuestion "??"
+IntLit "0"
+Newline "\n"

@@ -1,0 +1,5 @@
+# Octal integers.
+IntLit "0o17"
+IntLit "0o0"
+IntLit "0o7_7"
+Newline "\n"

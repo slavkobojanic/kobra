@@ -1,0 +1,15 @@
+; A function body with guards and returns, from docs/design/08-types.md.
+(SourceFile
+  (FuncDecl func checkout (ParamList (Param cart (PathType Cart))) async
+    (ThrowsClause throws (PathType CheckoutError))
+    (ReturnType (PathType Receipt))
+    (Block
+      (GuardStmt guard (LetCondition let user = (MemberExpr (NameExpr session) user)) else
+        (Block (ThrowStmt throw (MemberExpr (NameExpr CheckoutError) notLoggedIn))))
+      (GuardStmt guard (MemberExpr (MemberExpr (NameExpr cart) items) isNotEmpty) else
+        (Block (ThrowStmt throw (MemberExpr (NameExpr CheckoutError) emptyCart))))
+      (ReturnStmt return
+        (TryExpr try
+          (AwaitExpr await
+            (CallExpr (MemberExpr (NameExpr payments) charge)
+              (ArgList (Arg (NameExpr user)) (Arg (MemberExpr (NameExpr cart) total))))))))))

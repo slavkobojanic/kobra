@@ -1,0 +1,3 @@
+; a range compared with `==` groups first
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (BinaryExpr (Literal 0) ..< (Literal 3)) == (NameExpr r))))

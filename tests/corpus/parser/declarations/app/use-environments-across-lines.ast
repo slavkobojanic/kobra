@@ -1,0 +1,6 @@
+; The environment list may continue after a comma on the next line.
+(SourceFile
+  (AppDecl app A
+    (MemberList
+      (UseDecl use (PathType Fake) for (PathType Api) in (ImplicitMemberExpr development) (ImplicitMemberExpr test))
+      (UseDecl use (PathType Real) for (PathType Api) in (ImplicitMemberExpr production)))))

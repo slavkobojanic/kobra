@@ -1,0 +1,2 @@
+; `box { ... }` is a call whose only argument is a trailing lambda
+(SourceFile (FieldDecl let a = (CallExpr (NameExpr box) (LambdaExpr (StringLit "Hi")))))

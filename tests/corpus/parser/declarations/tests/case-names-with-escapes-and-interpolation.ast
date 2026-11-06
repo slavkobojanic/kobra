@@ -1,0 +1,2 @@
+; Test names are ordinary strings: escapes decode and interpolations split the text.
+(SourceFile (TestCaseDecl test (StringLit "quote \" tab \t brace { " (Interpolation (NameExpr n))) (Block)))

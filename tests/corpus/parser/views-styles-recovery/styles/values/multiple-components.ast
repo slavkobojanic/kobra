@@ -1,0 +1,2 @@
+; A value made of several space-separated components, including a negative literal.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration margin (CssValue (Literal 0) auto (Literal -2px) (ImplicitMemberExpr md))) (Declaration boxShadow (CssValue (Literal 0) (Literal 1px) (Literal 2px) (Literal #0000001A))))))))

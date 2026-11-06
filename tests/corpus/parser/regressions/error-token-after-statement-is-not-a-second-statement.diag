@@ -1,0 +1,5 @@
+# Only the lexer's K0001 for each bad character; no K0102.
+error[K0001] 2:6-2:7
+error[K0001] 3:7-3:8
+error[K0001] 4:6-4:7
+error[K0001] 6:10-6:11

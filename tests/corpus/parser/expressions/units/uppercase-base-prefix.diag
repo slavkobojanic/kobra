@@ -1,0 +1,14 @@
+# `0X1F` lexes as `0` with the unit suffix `X1F` (grammar.md 3.4: only lower-case `0x`, `0b` and
+# `0o` are prefixes). When the rest is valid for the base, K0112 says so and offers the
+# lower-case prefix instead of listing the units.
+error[K0112] 1:9-1:13: `0X` is not a number prefix; write `0x`
+  fix "Write `0x`"
+    edit 1:10-1:11 "x"
+error[K0112] 2:9-2:14: `0B` is not a number prefix; write `0b`
+  fix "Write `0b`"
+    edit 2:10-2:11 "b"
+error[K0112] 3:9-3:13: `0O` is not a number prefix; write `0o`
+  fix "Write `0o`"
+    edit 3:10-3:11 "o"
+# Not valid hexadecimal: an ordinary unknown unit.
+error[K0112] 4:9-4:13: unknown unit `Xyz`

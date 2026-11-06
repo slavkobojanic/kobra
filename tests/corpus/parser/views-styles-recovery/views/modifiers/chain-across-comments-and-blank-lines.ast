@@ -1,0 +1,2 @@
+; A leading `.` continues the chain even across comment lines and blank lines.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr)) class) (ArgList (Arg (ImplicitMemberExpr a)))) on) (ArgList (Arg click (NameExpr f)))))))))

@@ -1,0 +1,11 @@
+# `\u{...}` with 1 to 6 hex digits naming a Unicode scalar value, any case.
+StringStart "\""
+StringEscape "\\u{41}"
+StringEscape "\\u{1F600}"
+StringEscape "\\u{1f600}"
+StringEscape "\\u{0}"
+StringEscape "\\u{10FFFF}"
+StringEscape "\\u{000041}"
+StringEscape "\\u{a}"
+StringEnd "\""
+Newline "\n"

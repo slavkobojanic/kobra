@@ -1,0 +1,2 @@
+; A rule starting with an attribute selector (the statement starts with `[`, so it is a selector).
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (AttributeSelector hidden))) (Declaration display (CssValue none)))))))

@@ -1,0 +1,11 @@
+# Keyword text in a string is plain text, and `style {` inside a string does
+# not enter style mode: the `{` opens an interpolation, in which the final
+# `"` starts a nested string. Both strings are then unterminated.
+StringStart "\""
+StringText "let"
+StringEnd "\""
+StringStart "\""
+StringText "style "
+InterpStart "{"
+StringStart "\""
+Newline "\n"

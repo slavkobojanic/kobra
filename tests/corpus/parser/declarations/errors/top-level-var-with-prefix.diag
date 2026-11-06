@@ -1,0 +1,2 @@
+# K0131 spans only `var`, after annotations and modifiers.
+error[K0131] 2:15-2:18

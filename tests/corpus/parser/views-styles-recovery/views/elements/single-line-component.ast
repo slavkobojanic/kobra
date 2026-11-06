@@ -1,0 +1,2 @@
+; A whole component with its view written on one line, without a final newline.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr box) (LambdaExpr (StringLit "x"))))))))

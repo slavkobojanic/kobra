@@ -1,0 +1,13 @@
+# Identifiers end at the first non-identifier character.
+Ident "a"
+Dot "."
+Ident "b"
+QuestionDot "?."
+Ident "c"
+LParen "("
+Ident "d"
+RParen ")"
+LBrack "["
+Ident "e"
+RBrack "]"
+Newline "\n"

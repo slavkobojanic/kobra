@@ -1,0 +1,4 @@
+; `??` binds tighter than comparisons on either side
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (BinaryExpr (NameExpr x) ?? (NameExpr y)) == (NameExpr z)))
+  (FieldDecl let b = (BinaryExpr (NameExpr x) == (BinaryExpr (NameExpr y) ?? (NameExpr z)))))

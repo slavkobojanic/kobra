@@ -1,0 +1,4 @@
+# `2` is not a binary digit; `0b` alone has no digits.
+IntLit "0b102"
+IntLit "0b"
+Newline "\n"

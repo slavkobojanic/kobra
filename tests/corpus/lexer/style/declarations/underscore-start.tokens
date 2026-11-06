@@ -1,0 +1,13 @@
+# A statement starting with `_` is a declaration.
+StyleKw "style"
+LBrace "{"
+Dot "."
+Ident "a"
+LBrace "{"
+Ident "_x"
+Colon ":"
+Ident "y"
+Semicolon ";"
+RBrace "}"
+RBrace "}"
+Newline "\n"

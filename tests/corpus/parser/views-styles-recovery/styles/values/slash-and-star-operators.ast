@@ -1,0 +1,2 @@
+; `/` and `*` as value components (shorthands such as `font: 1rem / 1.5`).
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration font (CssValue (ImplicitMemberExpr md) / (Literal 1.5) sans-serif)) (Declaration aspectRatio (CssValue (Literal 16) / (Literal 9))))))))

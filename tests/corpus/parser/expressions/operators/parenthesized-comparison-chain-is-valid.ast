@@ -1,0 +1,4 @@
+; parentheses make a comparison of a comparison valid
+(SourceFile
+  (FieldDecl let a =
+    (BinaryExpr (ParenExpr (BinaryExpr (NameExpr x) < (NameExpr y))) == (NameExpr z))))

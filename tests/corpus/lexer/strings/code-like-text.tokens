@@ -1,0 +1,6 @@
+# Keywords, colors, comment markers and invalid characters are plain text
+# inside a string.
+StringStart "\""
+StringText "let #fff @x // not a comment /* nor this */ $5 ^ ~"
+StringEnd "\""
+Newline "\n"

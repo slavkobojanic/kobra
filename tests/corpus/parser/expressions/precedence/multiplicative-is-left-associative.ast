@@ -1,0 +1,4 @@
+; `*`, `/` and `%` share one level and associate to the left
+(SourceFile
+  (FieldDecl let a =
+    (BinaryExpr (BinaryExpr (BinaryExpr (Literal 8) / (Literal 4)) * (Literal 2)) % (Literal 3))))

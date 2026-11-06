@@ -1,0 +1,2 @@
+(SourceFile
+  (StructDecl struct A (MemberList (FieldDecl let x (PathType Int)) (FieldDecl var y (PathType Int)))))

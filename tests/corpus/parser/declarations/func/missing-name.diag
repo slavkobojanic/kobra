@@ -1,0 +1,2 @@
+# A function without a name reports K0100 at the `(`.
+error[K0100] 2:6-2:7

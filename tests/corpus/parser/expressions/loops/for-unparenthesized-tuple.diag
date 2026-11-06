@@ -1,0 +1,12 @@
+# `for a, b in xs` reports one K0100 at the first comma, with a fix that parenthesizes the
+# names; the rest of the statement parses normally (no junk run at `in`).
+error[K0100] 2:10-2:11: expected `in`, found `,`
+  help: to destructure each element, write a tuple pattern: `for (a, b) in ...`
+  fix "Wrap the names in parentheses" maybe-incorrect
+    edit 2:9-2:9 "("
+    edit 2:13-2:13 ")"
+error[K0100] 3:10-3:11: expected `in`, found `,`
+  help: to destructure each element, write a tuple pattern: `for (a, b) in ...`
+  fix "Wrap the names in parentheses" maybe-incorrect
+    edit 3:9-3:9 "("
+    edit 3:16-3:16 ")"

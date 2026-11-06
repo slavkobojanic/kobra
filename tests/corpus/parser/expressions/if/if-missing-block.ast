@@ -1,0 +1,5 @@
+; an `if` without a block is K0100 at the gap after the condition
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (IfExpr if (NameExpr ready)) (CallExpr (NameExpr start) (ArgList)))))

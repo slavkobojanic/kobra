@@ -1,0 +1,2 @@
+; A class list with a conditional class written with `when`.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr)) class) (ArgList (Arg (ListExpr (ImplicitMemberExpr panel) (WhenExpr (ImplicitMemberExpr expanded) when (NameExpr isExpanded)))))))))))

@@ -1,0 +1,6 @@
+; the parameter list may be followed by a newline before the body
+(SourceFile
+  (FieldDecl let a =
+    (LambdaExpr
+      (LambdaParamList (LambdaParam x) (LambdaParam y))
+      (BinaryExpr (NameExpr x) + (NameExpr y)))))

@@ -1,0 +1,5 @@
+# `\u` directly before the closing quote.
+StringStart "\""
+StringEscape "\\u"
+StringEnd "\""
+Newline "\n"

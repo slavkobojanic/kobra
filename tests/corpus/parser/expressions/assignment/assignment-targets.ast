@@ -1,0 +1,10 @@
+; members, indexes and optional chains are assignment targets for the parser
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (AssignStmt (MemberExpr (NameExpr self) count) = (Literal 0))
+      (AssignStmt (MemberExpr (MemberExpr (NameExpr a) b) c) += (Literal 1))
+      (AssignStmt (IndexExpr (NameExpr xs) (Literal 0)) = (NameExpr y))
+      (AssignStmt (IndexExpr (NameExpr m) (StringLit "k")) = (ListExpr (Literal 1)))
+      (AssignStmt (MemberExpr (NameExpr user) ?. name) = (StringLit "x")))))

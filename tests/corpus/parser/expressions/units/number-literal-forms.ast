@@ -1,0 +1,7 @@
+; decimal, separated, hexadecimal, binary, octal and exponent literals
+(SourceFile
+  (FieldDecl let a = (Literal 1_000_000))
+  (FieldDecl let b = (BinaryExpr (Literal 0xFF) + (BinaryExpr (Literal 0b1010) * (Literal 0o17))))
+  (FieldDecl let c = (Literal 1e9))
+  (FieldDecl let d = (Literal 2.5e-3))
+  (FieldDecl let e = (Literal 1em)))

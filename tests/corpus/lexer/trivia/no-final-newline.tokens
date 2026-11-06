@@ -1,0 +1,5 @@
+# The file does not end with a newline, so there is no final Newline.
+LetKw "let"
+Ident "x"
+Eq "="
+IntLit "1"

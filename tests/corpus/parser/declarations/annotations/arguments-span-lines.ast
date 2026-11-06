@@ -1,0 +1,7 @@
+; Newlines inside the argument list are insignificant.
+(SourceFile
+  (ComponentDecl component A
+    (MemberList
+      (FuncDecl
+        (Annotation Effect (ArgList (Arg on (ListExpr (NameExpr userId) (NameExpr filter)))))
+        func reload (ParamList) (Block)))))

@@ -1,0 +1,3 @@
+# `_` is consumed into the color token and makes it invalid.
+ColorLit "#fff_"
+Newline "\n"

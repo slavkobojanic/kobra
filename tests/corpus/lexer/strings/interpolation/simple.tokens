@@ -1,0 +1,7 @@
+# The smallest interpolation.
+StringStart "\""
+InterpStart "{"
+Ident "x"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

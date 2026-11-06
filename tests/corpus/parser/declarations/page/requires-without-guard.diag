@@ -1,0 +1,2 @@
+# `requires` with no guard reports K0100 at the `{`.
+error[K0100] 2:17-2:18

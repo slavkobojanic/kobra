@@ -1,0 +1,2 @@
+# A declaration with nothing after `:` reports K0100 at the `;`; the value is absent from the tree.
+error[K0100] 4:21-4:22

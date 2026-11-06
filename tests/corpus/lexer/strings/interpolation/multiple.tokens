@@ -1,0 +1,11 @@
+# Several interpolations in one string.
+StringStart "\""
+InterpStart "{"
+Ident "a"
+InterpEnd "}"
+StringText " and "
+InterpStart "{"
+Ident "b"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

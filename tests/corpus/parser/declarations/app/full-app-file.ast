@@ -1,0 +1,17 @@
+; A complete App.k: imports, doc comment, annotations, use rules and metadata.
+(SourceFile
+  (Import import (ImportPath layouts Dashboard))
+  (Import import (ImportPath pages SignIn))
+  (AppDecl
+    (Annotation Layout (ArgList (Arg (NameExpr Dashboard))))
+    (Annotation SignInPage (ArgList (Arg (NameExpr SignIn))))
+    (Annotation Rendering (ArgList (Arg (ImplicitMemberExpr server))))
+    public app Weather
+    (MemberList
+      (UseDecl use (PathType StripePayments) for (PathType PaymentProvider) in (ImplicitMemberExpr production))
+      (UseDecl use (PathType FakePayments) for (PathType PaymentProvider) in
+        (ImplicitMemberExpr development) (ImplicitMemberExpr test))
+      (MetadataBlock metadata
+        (Block
+          (CallExpr (NameExpr manifest)
+            (ArgList (Arg name (StringLit "Weather")) (Arg shortName (StringLit "Weather")))))))))

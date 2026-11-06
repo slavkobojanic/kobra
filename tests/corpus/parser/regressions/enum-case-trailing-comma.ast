@@ -1,0 +1,5 @@
+; Regression: `case a,` followed by a line break (the next line starts with its own `case`)
+; built an empty EnumCase, reported K0100 at the gap and offered a K0130 fix producing
+; `case case b`. A comma with no case name after it is a trailing comma: K0130 at the comma,
+; fixed by deleting it.
+(SourceFile (EnumDecl enum E (MemberList (EnumCase case a) (EnumCase case b))))

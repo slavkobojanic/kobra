@@ -1,0 +1,9 @@
+; `async`, `throws E` and `-> T` in their fixed order, each optional.
+(SourceFile
+  (FuncDecl func a (ParamList) async (Block))
+  (FuncDecl func b (ParamList) (ThrowsClause throws (PathType NetworkError)) (Block))
+  (FuncDecl func c (ParamList) (ReturnType (PathType Int)) (Block))
+  (FuncDecl func d (ParamList) async (ThrowsClause throws (PathType NetworkError)) (Block))
+  (FuncDecl func e (ParamList) async (ReturnType (PathType Int)) (Block))
+  (FuncDecl func f (ParamList) (ThrowsClause throws (PathType NetworkError)) (ReturnType (PathType Int)) (Block))
+  (FuncDecl func g (ParamList) async (ThrowsClause throws (PathType NetworkError)) (ReturnType (PathType Int)) (Block)))

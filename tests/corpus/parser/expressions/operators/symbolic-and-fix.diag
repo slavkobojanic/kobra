@@ -1,0 +1,4 @@
+# `&&` is K0104 with a machine-applicable fix; the tree keeps `&&` as an `and`
+error[K0104] 2:12-2:14
+  fix "Replace `&&` with `and`"
+    edit 2:12-2:14 "and"

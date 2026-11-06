@@ -1,0 +1,8 @@
+# In code mode a leading `-` is never part of a number.
+Minus "-"
+IntLit "1"
+Minus "-"
+UnitLit "4px"
+Minus "-"
+FloatLit "1.5"
+Newline "\n"

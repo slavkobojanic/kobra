@@ -1,0 +1,2 @@
+; The smallest entity.
+(SourceFile (EntityDecl entity Tag (MemberList)))

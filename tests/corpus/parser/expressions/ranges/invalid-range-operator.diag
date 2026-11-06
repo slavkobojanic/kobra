@@ -1,0 +1,2 @@
+# `..` is K0119; the tree keeps it as a range operator
+error[K0119] 2:10-2:12

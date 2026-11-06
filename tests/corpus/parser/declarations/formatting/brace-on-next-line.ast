@@ -1,0 +1,6 @@
+; Declarations that require a body accept `{` on the next line (Allman style).
+(SourceFile
+  (StructDecl struct A (MemberList))
+  (EnumDecl enum E (MemberList (EnumCase case a)))
+  (PageDecl page P (AtClause at (StringLit "/p")) (MemberList))
+  (TestSuiteDecl test Suite (MemberList (TestCaseDecl test (StringLit "case") (Block)))))

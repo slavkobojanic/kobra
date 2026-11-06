@@ -1,0 +1,5 @@
+# The escape covers the backslash and the whole following character.
+StringStart "\""
+StringEscape "\\é"
+StringEnd "\""
+Newline "\n"

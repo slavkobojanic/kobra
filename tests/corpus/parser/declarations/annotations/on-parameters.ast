@@ -1,0 +1,9 @@
+; Parameters may carry annotations.
+(SourceFile
+  (StructDecl struct A
+    (MemberList
+      (InitDecl init
+        (ParamList
+          (Param (Annotation Inject) api (PathType CartProtocol))
+          (Param (Annotation Default (ArgList (Arg (Literal 1)))) count (PathType Int)))
+        (Block)))))

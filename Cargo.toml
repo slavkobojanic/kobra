@@ -1,0 +1,60 @@
+# The K toolchain workspace.
+#
+# Every crate lives under `crates/`. The layout, the responsibilities of each
+# crate and the dependency rules between them are documented in
+# `docs/compiler/architecture.md`, which is the source of truth.
+
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# The fuzz targets need a nightly toolchain and `cargo fuzz`; they are kept
+# out of the stable workspace build. See docs/compiler/testing.md.
+exclude = ["fuzz"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+# Internal crates.
+k_diagnostics = { path = "crates/k_diagnostics" }
+k_syntax = { path = "crates/k_syntax" }
+k_sema = { path = "crates/k_sema" }
+k_codegen = { path = "crates/k_codegen" }
+k_runtime = { path = "crates/k_runtime" }
+k_server = { path = "crates/k_server" }
+k_db = { path = "crates/k_db" }
+k_corpus = { path = "crates/k_corpus" }
+
+# External crates. Keep this list short; every addition needs a reason in
+# docs/compiler/architecture.md ("Dependencies").
+rowan = "0.17"
+text-size = "1.1"
+clap = { version = "4.6", features = ["derive"] }
+libtest-mimic = "0.8"
+criterion = { version = "0.8", default-features = false }
+proptest = "1.12"
+arbitrary = "1.4"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+unwrap_used = "warn"
+panic = "warn"
+print_stderr = "allow"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+
+[profile.bench]
+debug = true

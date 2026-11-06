@@ -1,0 +1,5 @@
+; strings hold any Unicode text; columns after it count scalar values
+(SourceFile
+  (FieldDecl let a = (StringLit "héllo wörld 日本語 🎉"))
+  (FieldDecl let b = (StringLit "Ünïcödé " (Interpolation (NameExpr name)) " ✓"))
+  (FieldDecl let c = (BinaryExpr (StringLit "é") && (NameExpr x))))

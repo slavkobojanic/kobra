@@ -1,0 +1,2 @@
+# `!important` is K0118 on `!important`; the token pair is wrapped in an ErrorNode inside the declaration.
+error[K0118] 4:25-4:35

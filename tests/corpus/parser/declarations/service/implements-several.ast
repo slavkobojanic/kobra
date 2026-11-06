@@ -1,0 +1,8 @@
+; `implements` lists several qualified and generic types.
+(SourceFile
+  (ServiceDecl public service StripePayments
+    (ImplementsClause implements
+      (PathType PaymentProvider)
+      (PathType billing Refunds)
+      (PathType Handler (GenericArgList (PathType Webhook))))
+    (MemberList)))

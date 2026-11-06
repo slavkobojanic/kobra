@@ -1,0 +1,4 @@
+# Several misspelled block keywords in one component are each reported once, and the correct members between them still parse.
+error[K0126] 3:5-3:12
+error[K0126] 9:5-9:10
+error[K0126] 13:5-13:12

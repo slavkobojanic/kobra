@@ -1,0 +1,2 @@
+; Empty `if` and `else` blocks.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (NameExpr a) (Block) else (Block)))))))

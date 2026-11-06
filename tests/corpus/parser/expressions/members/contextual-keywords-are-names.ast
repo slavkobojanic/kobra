@@ -1,0 +1,10 @@
+; contextual keywords are ordinary names in expressions (`page`, `key`, `view`, `test`)
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (MemberExpr (NameExpr Analytics) send)
+      (ArgList (Arg (NameExpr page)) (Arg (NameExpr view)))))
+  (FieldDecl let b =
+    (CallExpr
+      (MemberExpr (NameExpr Cache) set)
+      (ArgList (Arg (NameExpr key)) (Arg (MemberExpr (NameExpr test) layout))))))

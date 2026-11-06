@@ -1,0 +1,4 @@
+# Separators on either side of the decimal point.
+FloatLit "1_000.5"
+FloatLit "1.000_001"
+Newline "\n"

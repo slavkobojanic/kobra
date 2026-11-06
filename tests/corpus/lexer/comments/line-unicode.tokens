@@ -1,0 +1,4 @@
+# Comments may contain any text, including characters that are errors in
+# code; no diagnostics.
+LineComment "// héllo 日本 😀 $ ` \\"
+Newline "\n"

@@ -1,0 +1,5 @@
+# grammar.md 3.4 rule 3: `9.99.usd` is FloatLit Dot Ident.
+FloatLit "9.99"
+Dot "."
+Ident "usd"
+Newline "\n"

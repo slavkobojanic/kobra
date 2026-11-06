@@ -1,0 +1,2 @@
+; Generic parameter lists allow a trailing comma.
+(SourceFile (ComponentDecl component Table (GenericParamList (GenericParam Row) (GenericParam Key)) (MemberList)))

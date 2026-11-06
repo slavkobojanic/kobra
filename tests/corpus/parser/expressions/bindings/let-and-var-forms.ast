@@ -1,0 +1,11 @@
+; `let`/`var` with and without a type and with and without a value
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let a = (Literal 1))
+      (LetStmt let b (PathType Int) = (Literal 2))
+      (LetStmt let c (PathType Int))
+      (LetStmt var d = (Literal 0))
+      (LetStmt var e (PathType String) = (StringLit))
+      (LetStmt var g))))

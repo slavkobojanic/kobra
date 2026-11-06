@@ -1,0 +1,2 @@
+# `a < b < c` is K0113 at the second operator and is built left-associatively
+error[K0113] 2:15-2:16

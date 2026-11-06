@@ -1,0 +1,2 @@
+; single-statement lambdas such as `{ value -= step }` hold an AssignStmt
+(SourceFile (FieldDecl let dec = (LambdaExpr (AssignStmt (NameExpr value) -= (NameExpr step)))))

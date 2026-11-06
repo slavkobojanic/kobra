@@ -1,0 +1,4 @@
+; string literals take members and are arguments like any expression
+(SourceFile
+  (FieldDecl let a =
+    (MemberExpr (CallExpr (MemberExpr (StringLit "abc") uppercased) (ArgList)) count)))

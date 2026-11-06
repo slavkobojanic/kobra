@@ -1,0 +1,2 @@
+; Doc comments before view, loading and style blocks are trivia and do not change the tree.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block)) (LoadingBlock loading (Block)) (StyleBlock style))))

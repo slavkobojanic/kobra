@@ -1,0 +1,4 @@
+; `try` covers the whole binary expression to its right
+(SourceFile
+  (FieldDecl let a = (TryExpr try (BinaryExpr (NameExpr x) + (NameExpr y))))
+  (FieldDecl let b = (TryExpr try (BinaryExpr (NameExpr x) or (NameExpr y)))))

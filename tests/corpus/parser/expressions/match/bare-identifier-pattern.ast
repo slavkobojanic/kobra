@@ -1,0 +1,5 @@
+; `case x` is K0115 (write `let x` or `.x`); the parser builds an IdentPattern
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (MatchExpr match (NameExpr v) (MatchArm case (IdentPattern x) (Block))))))

@@ -1,0 +1,2 @@
+; Stray closing delimiters on their own line in a view are skipped as K0122; the following node parses.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr box) (LambdaExpr (StringLit "x"))) (ErrorNode) (CallExpr (NameExpr text) (LambdaExpr (StringLit "y"))))))))

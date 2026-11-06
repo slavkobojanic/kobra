@@ -1,0 +1,15 @@
+; `else if` nests an IfExpr in the else branch
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let size =
+        (IfExpr if
+          (BinaryExpr (NameExpr n) < (Literal 10))
+          (Block (ImplicitMemberExpr small))
+          else
+          (IfExpr if
+            (BinaryExpr (NameExpr n) < (Literal 100))
+            (Block (ImplicitMemberExpr medium))
+            else
+            (Block (ImplicitMemberExpr large))))))))

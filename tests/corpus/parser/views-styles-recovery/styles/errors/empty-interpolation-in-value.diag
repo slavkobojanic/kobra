@@ -1,0 +1,2 @@
+# An empty interpolation in a style value is K0128 on the `{}`.
+error[K0128] 4:21-4:23

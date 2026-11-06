@@ -1,0 +1,6 @@
+; Imports come first, one per line, then declarations.
+(SourceFile
+  (Import import (ImportPath shop catalog Product))
+  (Import import (ImportPath shop catalog ProductService))
+  (Import import (ImportPath k ui Theme))
+  (ServiceDecl public service CartService (MemberList)))

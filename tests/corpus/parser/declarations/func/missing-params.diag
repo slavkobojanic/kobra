@@ -1,0 +1,2 @@
+# A function without a parameter list reports K0100 at the `{`.
+error[K0100] 2:8-2:9

@@ -1,0 +1,5 @@
+# `..<` after an integer: the `.` is not followed by a digit.
+IntLit "1"
+DotDotLt "..<"
+IntLit "10"
+Newline "\n"

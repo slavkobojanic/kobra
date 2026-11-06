@@ -1,0 +1,10 @@
+# Interpolations with no text between them.
+StringStart "\""
+InterpStart "{"
+Ident "a"
+InterpEnd "}"
+InterpStart "{"
+Ident "b"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

@@ -1,0 +1,2 @@
+# Garbage before a valid component is skipped as one K0125 run; the component parses fully.
+error[K0125] 2:1-2:2

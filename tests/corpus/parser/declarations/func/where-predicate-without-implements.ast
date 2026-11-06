@@ -1,0 +1,2 @@
+; A predicate without `implements` reports K0100 at the `{`.
+(SourceFile (FuncDecl func f (GenericParamList (GenericParam T)) (ParamList) (WhereClause where (WherePredicate T)) (Block)))

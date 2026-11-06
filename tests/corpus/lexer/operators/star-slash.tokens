@@ -1,0 +1,6 @@
+# `*/` outside a comment is Star then Slash.
+Ident "a"
+Star "*"
+Slash "/"
+Ident "b"
+Newline "\n"

@@ -1,0 +1,2 @@
+# A component header at the end of the file reports K0100 at the gap after the name.
+error[K0100] 2:12-2:12

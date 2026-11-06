@@ -1,0 +1,5 @@
+# An empty style block: the `}` at depth 0 closes it.
+StyleKw "style"
+LBrace "{"
+RBrace "}"
+Newline "\n"

@@ -1,0 +1,5 @@
+# Ranges between names.
+Ident "a"
+DotDotLt "..<"
+Ident "b"
+Newline "\n"

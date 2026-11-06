@@ -1,0 +1,5 @@
+# The braces must hold hex digits.
+StringStart "\""
+StringEscape "\\u{zz}"
+StringEnd "\""
+Newline "\n"

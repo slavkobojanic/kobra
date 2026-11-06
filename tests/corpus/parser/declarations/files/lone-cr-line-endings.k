@@ -1,0 +1,1 @@
+// A lone carriage return is a line terminator too.struct Point {    let x: Int    let y: Int}

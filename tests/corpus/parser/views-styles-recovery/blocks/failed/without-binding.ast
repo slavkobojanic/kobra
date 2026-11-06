@@ -1,0 +1,2 @@
+; `failed { ... }` without an error binding.
+(SourceFile (PageDecl page Product (MemberList (FailedBlock failed (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit "Something went wrong"))))))))

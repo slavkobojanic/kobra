@@ -1,0 +1,5 @@
+; a `do` block needs at least one `catch`: K0100 at the gap after the block, and the next statement still parses
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (DoStmt do (Block (CallExpr (NameExpr work) (ArgList)))) (LetStmt let a = (Literal 1)))))

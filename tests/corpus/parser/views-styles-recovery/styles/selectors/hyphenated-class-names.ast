@@ -1,0 +1,2 @@
+; Class names may contain hyphens in style mode.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector nav-bar)) (CompoundSelector (ClassSelector is-open))))))))

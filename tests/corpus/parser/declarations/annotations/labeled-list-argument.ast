@@ -1,0 +1,5 @@
+; `@Effect(on: [x])` takes a labeled list argument.
+(SourceFile
+  (ComponentDecl component Profile
+    (MemberList
+      (FuncDecl (Annotation Effect (ArgList (Arg on (ListExpr (NameExpr userId))))) func reload (ParamList) (Block)))))

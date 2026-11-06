@@ -1,0 +1,3 @@
+# The smallest integer literal.
+IntLit "0"
+Newline "\n"

@@ -1,0 +1,2 @@
+; Optional props set through chained calls on the following lines.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (MemberExpr (CallExpr (NameExpr Stepper) (ArgList (Arg value (BindExpr bind (NameExpr quantity))))) step) (ArgList (Arg (Literal 5)))) max) (ArgList (Arg (Literal 99)))))))))

@@ -1,0 +1,14 @@
+; CRLF line endings terminate statements and allow continuation lines like LF
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let names =
+        (CallExpr
+          (MemberExpr
+            (CallExpr
+              (MemberExpr (NameExpr users) filter)
+              (LambdaExpr (LambdaParamList (LambdaParam u)) (MemberExpr (NameExpr u) active)))
+            map)
+          (LambdaExpr (LambdaParamList (LambdaParam u)) (MemberExpr (NameExpr u) name))))
+      (LetStmt let n = (BinaryExpr (Literal 1) + (Literal 2))))))

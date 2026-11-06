@@ -1,0 +1,6 @@
+# Columns count scalar values: `"日本"` is 4 columns, so `$` is column 6.
+StringStart "\""
+StringText "日本"
+StringEnd "\""
+Error "$"
+Newline "\n"

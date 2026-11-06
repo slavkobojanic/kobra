@@ -1,0 +1,2 @@
+# `{}` in a string is K0128 on the two braces
+error[K0128] 2:11-2:13

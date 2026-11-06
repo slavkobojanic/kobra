@@ -1,0 +1,12 @@
+; Injected services, derived values and effects with and without arguments.
+(SourceFile
+  (ComponentDecl component Profile
+    (MemberList
+      (FieldDecl (Annotation Inject) let users (PathType UserService))
+      (FieldDecl (Annotation Prop) let userId (PathType UserId))
+      (FieldDecl (Annotation Derived) let user (OptionalType (PathType User)) =
+        (CallExpr (MemberExpr (NameExpr users) find) (ArgList (Arg (NameExpr userId)))))
+      (FuncDecl (Annotation Effect (ArgList (Arg on (ListExpr (NameExpr userId))))) func reload (ParamList)
+        (Block (CallExpr (MemberExpr (NameExpr users) load) (ArgList (Arg (NameExpr userId))))))
+      (FuncDecl (Annotation Effect) func applyColorScheme (ParamList)
+        (Block (CallExpr (MemberExpr (NameExpr Theme) use) (ArgList (Arg (ImplicitMemberExpr dark)))))))))

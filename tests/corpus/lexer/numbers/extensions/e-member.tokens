@@ -1,0 +1,5 @@
+# `.` before `e` is member access; `e5` is an identifier, not an exponent.
+IntLit "10"
+Dot "."
+Ident "e5"
+Newline "\n"

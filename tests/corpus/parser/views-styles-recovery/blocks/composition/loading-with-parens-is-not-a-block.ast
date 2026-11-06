@@ -1,0 +1,2 @@
+; `loading` must be followed by `{`; `loading() {}` is not a loading block and is skipped as K0126.
+(SourceFile (ComponentDecl component T (MemberList (ErrorNode loading) (ViewBlock view (Block)))))

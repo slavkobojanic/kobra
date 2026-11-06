@@ -1,0 +1,2 @@
+# Diagnostic columns count Unicode scalar values, so wide and astral characters are one column each.
+error[K0102] 2:16-2:20

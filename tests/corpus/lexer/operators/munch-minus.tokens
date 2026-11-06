@@ -1,0 +1,8 @@
+# Maximal munch over `-`.
+Arrow "->"
+Eq "="
+Minus "-"
+Arrow "->"
+MinusEq "-="
+Gt ">"
+Newline "\n"

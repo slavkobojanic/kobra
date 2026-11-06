@@ -1,0 +1,4 @@
+# Leading zeros are plain decimal digits (no implicit octal).
+IntLit "007"
+IntLit "00"
+Newline "\n"

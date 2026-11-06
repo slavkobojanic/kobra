@@ -1,0 +1,11 @@
+; Case fields may have optional, function, tuple and generic types.
+(SourceFile
+  (EnumDecl enum Handler
+    (MemberList
+      (EnumCase case maybe (CaseField (OptionalType (PathType Int))))
+      (EnumCase case callback (CaseField (FuncType (PathType Int) (ReturnType (PathType Void)))))
+      (EnumCase case pair (CaseField (TupleType (PathType Int) (PathType String))))
+      (EnumCase case asyncWork
+        (CaseField (FuncType async (ThrowsClause throws (PathType NetworkError)) (ReturnType (PathType Data)))))
+      (EnumCase case many
+        (CaseField (PathType List (GenericArgList (PathType Map (GenericArgList (PathType String) (PathType Int))))))))))

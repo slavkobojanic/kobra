@@ -1,0 +1,2 @@
+# `implements` does not allow a trailing comma: K0123 at the `{`.
+error[K0123] 2:24-2:25

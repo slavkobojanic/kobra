@@ -1,0 +1,13 @@
+; `x when cond` is a WhenExpr list element
+(SourceFile
+  (FieldDecl let classes =
+    (ListExpr
+      (ImplicitMemberExpr panel)
+      (WhenExpr (ImplicitMemberExpr expanded) when (NameExpr isExpanded))
+      (WhenExpr
+        (ImplicitMemberExpr dark)
+        when
+        (BinaryExpr
+          (BinaryExpr (NameExpr theme) == (ImplicitMemberExpr dark))
+          and
+          (PrefixExpr not (NameExpr forced)))))))

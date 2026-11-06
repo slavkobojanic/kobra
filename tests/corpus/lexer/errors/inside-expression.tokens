@@ -1,0 +1,8 @@
+# The tokens around an error are lexed normally.
+LetKw "let"
+Ident "total"
+Eq "="
+Ident "price"
+Error "$"
+Ident "tax"
+Newline "\n"

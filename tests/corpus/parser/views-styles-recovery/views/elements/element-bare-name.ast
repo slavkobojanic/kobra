@@ -1,0 +1,2 @@
+; A bare lowercase name is a NameExpr view node (whether it is a valid element is semantic).
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (NameExpr divider))))))

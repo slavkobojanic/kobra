@@ -1,0 +1,2 @@
+; Implicit member names may be keywords (`.default`, `.in`).
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration cursor (CssValue (ImplicitMemberExpr default))) (Declaration transition (CssValue (ImplicitMemberExpr in))))))))

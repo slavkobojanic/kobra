@@ -1,0 +1,5 @@
+# `\n` is one Newline token.
+Ident "a"
+Newline "\n"
+Ident "b"
+Newline "\n"

@@ -1,0 +1,2 @@
+# a binary operator directly before `)` is K0122 at the `)`
+error[K0122] 2:14-2:15

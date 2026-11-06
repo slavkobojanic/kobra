@@ -1,0 +1,5 @@
+# The lexer does not validate unit suffixes (the parser reports K0112).
+UnitLit "3x"
+UnitLit "5potatoes"
+UnitLit "1_000apples"
+Newline "\n"

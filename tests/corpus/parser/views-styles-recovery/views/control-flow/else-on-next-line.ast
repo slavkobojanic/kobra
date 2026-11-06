@@ -1,0 +1,2 @@
+; `else` on the line after `}` continues the `if` (it is a continuation token).
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (NameExpr done) (Block (StringLit "Done")) else (Block (StringLit "Pending"))))))))

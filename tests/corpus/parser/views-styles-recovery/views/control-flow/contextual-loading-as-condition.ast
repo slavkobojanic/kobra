@@ -1,0 +1,2 @@
+; A field named `loading` and its use as an `if` condition inside a view.
+(SourceFile (ComponentDecl component T (MemberList (FieldDecl (Annotation State) var loading (PathType Bool) = (Literal false)) (ViewBlock view (Block (IfExpr if (NameExpr loading) (Block (CallExpr (NameExpr Spinner) (ArgList)))))))))

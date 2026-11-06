@@ -1,0 +1,2 @@
+; A case field label without a type is K0123 at the `)`.
+(SourceFile (EnumDecl enum E (MemberList (EnumCase case a (CaseField x)))))

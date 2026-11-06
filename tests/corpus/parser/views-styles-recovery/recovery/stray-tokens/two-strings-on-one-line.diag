@@ -1,0 +1,2 @@
+# Two string children on one line are K0102 at the second string's opening quote.
+error[K0102] 4:25-4:28

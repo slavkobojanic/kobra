@@ -1,0 +1,2 @@
+# Stray closing delimiters on their own line in a view are skipped as K0122; the following node parses.
+error[K0122] 5:9-5:10

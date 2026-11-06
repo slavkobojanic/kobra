@@ -1,0 +1,2 @@
+; A slot closure with two unparenthesized parameters.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr Table) (ArgList (Arg rows (NameExpr rows)))) cell) (LambdaExpr (LambdaParamList (LambdaParam row) (LambdaParam column)) (CallExpr (NameExpr text) (LambdaExpr (StringLit (Interpolation (NameExpr row)) ":" (Interpolation (NameExpr column))))))))))))

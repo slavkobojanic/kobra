@@ -1,0 +1,2 @@
+; Reactive values interpolated with `{ }`: a name, a member path and an arithmetic expression.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration borderLeft (CssValue (Literal 4px) solid (Interpolation (NameExpr accent)))) (Declaration color (CssValue (Interpolation (MemberExpr (NameExpr theme) accent)))) (Declaration height (CssValue (Interpolation (BinaryExpr (NameExpr rowHeight) * (NameExpr count))))))))))

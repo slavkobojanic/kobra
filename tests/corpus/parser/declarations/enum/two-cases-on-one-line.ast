@@ -1,0 +1,2 @@
+; Two cases on one line without a comma are K0102 at the second `case`.
+(SourceFile (EnumDecl enum E (MemberList (EnumCase case a) (EnumCase case b))))

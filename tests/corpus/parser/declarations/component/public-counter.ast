@@ -1,0 +1,24 @@
+; The full component from docs/design/04-components.md.
+(SourceFile
+  (ComponentDecl public component Counter
+    (MemberList
+      (FieldDecl (Annotation Prop) let label (PathType String))
+      (FieldDecl (Annotation Prop) let start (PathType Int) = (Literal 0))
+      (FieldDecl (Annotation Emits) let changed (PathType Event (GenericArgList (PathType Int))))
+      (FieldDecl (Annotation State) var count (PathType Int) = (NameExpr start))
+      (FuncDecl func increment (ParamList)
+        (Block
+          (AssignStmt (NameExpr count) += (Literal 1))
+          (CallExpr (MemberExpr (NameExpr changed) emit) (ArgList (Arg (NameExpr count))))))
+      (ViewBlock view
+        (Block
+          (CallExpr (NameExpr box)
+            (LambdaExpr
+              (CallExpr (NameExpr text)
+                (LambdaExpr (StringLit (Interpolation (NameExpr label)) ": " (Interpolation (NameExpr count)))))
+              (CallExpr
+                (MemberExpr (CallExpr (NameExpr button) (LambdaExpr (StringLit "Add"))) on)
+                (ArgList (Arg click (NameExpr increment))))))))
+      (StyleBlock style
+        (StyleRule (Selector (CompoundSelector (ClassSelector label)))
+          (Declaration fontSize (CssValue (ImplicitMemberExpr lg))))))))

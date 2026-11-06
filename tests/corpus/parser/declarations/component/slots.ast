@@ -1,0 +1,11 @@
+; Required, optional and scoped slots.
+(SourceFile
+  (ComponentDecl component Card
+    (MemberList
+      (FieldDecl (Annotation Prop) let title (PathType String))
+      (FieldDecl (Annotation Prop) let items (PathType List (GenericArgList (PathType CartItem))))
+      (FieldDecl (Annotation Slot) let content (PathType View))
+      (FieldDecl (Annotation Slot) let footer (OptionalType (PathType View)) = (Literal nil))
+      (FieldDecl (Annotation Slot) let row (FuncType (PathType CartItem) (ReturnType (PathType View))))
+      (FieldDecl (Annotation Slot) let header
+        (OptionalType (ParenType (FuncType (PathType String) (ReturnType (PathType View)))))))))

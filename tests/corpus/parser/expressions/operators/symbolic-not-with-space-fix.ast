@@ -1,0 +1,2 @@
+; the K0106 fix also replaces the whitespace after `!`
+(SourceFile (FieldDecl let ok = (PrefixExpr ! (NameExpr done))))

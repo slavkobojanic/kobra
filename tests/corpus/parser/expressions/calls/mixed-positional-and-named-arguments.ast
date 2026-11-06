@@ -1,0 +1,6 @@
+; positional and labeled arguments mix freely in the parser (RA-5)
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (MemberExpr (NameExpr repo) add)
+      (ArgList (Arg (NameExpr product)) (Arg for (NameExpr id))))))

@@ -1,0 +1,5 @@
+; a plain string is one quoted atom; the empty string has no atom
+(SourceFile
+  (FieldDecl let a = (StringLit "hello"))
+  (FieldDecl let b = (StringLit))
+  (FieldDecl let c = (StringLit "count")))

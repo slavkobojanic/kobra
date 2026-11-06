@@ -1,0 +1,18 @@
+; the value of an assignment is any expression, including `if`, `match`, `try` and lambdas
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (AssignStmt
+        (NameExpr x)
+        =
+        (IfExpr if (NameExpr a) (Block (Literal 1)) else (Block (Literal 2))))
+      (AssignStmt
+        (NameExpr y)
+        =
+        (TryExpr try (CallExpr (NameExpr load) (ArgList)) else (Block (Literal 0))))
+      (AssignStmt (NameExpr z) = (LambdaExpr (LambdaParamList (LambdaParam v)) (NameExpr v)))
+      (AssignStmt
+        (NameExpr w)
+        =
+        (BinaryExpr (NameExpr a) + (BinaryExpr (NameExpr b) * (NameExpr c)))))))

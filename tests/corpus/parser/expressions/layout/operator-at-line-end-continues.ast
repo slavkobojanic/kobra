@@ -1,0 +1,7 @@
+; a newline after a binary operator is insignificant (rule N2), including `-`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let a = (BinaryExpr (NameExpr b) - (NameExpr c)))
+      (LetStmt let d = (BinaryExpr (NameExpr e) and (NameExpr f))))))

@@ -1,0 +1,8 @@
+; `;` is K0103 and recovers as a statement separator, with no K0102
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let a = (Literal 1))
+      (LetStmt let b = (Literal 2))
+      (CallExpr (NameExpr f) (ArgList)))))

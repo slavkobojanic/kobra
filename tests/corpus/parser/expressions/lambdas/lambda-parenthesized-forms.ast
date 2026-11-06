@@ -1,0 +1,17 @@
+; parenthesized parameter lists: empty, untyped, typed, trailing comma, return type only
+(SourceFile
+  (FieldDecl let a = (LambdaExpr (LambdaParamList) (Literal 1)))
+  (FieldDecl let b = (LambdaExpr (LambdaParamList (LambdaParam x) (LambdaParam y)) (NameExpr x)))
+  (FieldDecl let c =
+    (LambdaExpr
+      (LambdaParamList (LambdaParam x (PathType Int)) (LambdaParam y (PathType Int)))
+      (BinaryExpr (NameExpr x) + (NameExpr y))))
+  (FieldDecl let d = (LambdaExpr (LambdaParamList (LambdaParam x) (LambdaParam y)) (NameExpr y)))
+  (FieldDecl let e = (LambdaExpr (LambdaParamList (ReturnType (PathType Int))) (Literal 1)))
+  (FieldDecl let g =
+    (LambdaExpr
+      (LambdaParamList
+        (LambdaParam items (PathType List (GenericArgList (PathType Item))))
+        (LambdaParam f (FuncType (PathType Item) (ReturnType (PathType Bool))))
+        (ReturnType (OptionalType (PathType Item))))
+      (Literal nil))))

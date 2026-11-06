@@ -1,0 +1,6 @@
+; The extension from docs/design/08-types.md.
+(SourceFile
+  (ExtendDecl extend (PathType Int)
+    (MemberList
+      (FieldDecl var retries (PathType RetryPolicy)
+        (Block (CallExpr (NameExpr RetryPolicy) (ArgList (Arg attempts (NameExpr self)))))))))

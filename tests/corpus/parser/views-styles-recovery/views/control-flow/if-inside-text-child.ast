@@ -1,0 +1,2 @@
+; An if expression used as the content of a text element.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (IfExpr if (NameExpr done) (Block (StringLit "Yes")) else (Block (StringLit "No"))))))))))

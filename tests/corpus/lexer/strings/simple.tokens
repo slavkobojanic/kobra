@@ -1,0 +1,5 @@
+# A plain string.
+StringStart "\""
+StringText "hello"
+StringEnd "\""
+Newline "\n"

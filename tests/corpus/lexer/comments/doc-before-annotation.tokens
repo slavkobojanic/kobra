@@ -1,0 +1,12 @@
+# Doc comments may precede annotations.
+DocComment "/// The count."
+Newline "\n"
+At "@"
+Ident "State"
+VarKw "var"
+Ident "count"
+Colon ":"
+Ident "Int"
+Eq "="
+IntLit "0"
+Newline "\n"

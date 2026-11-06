@@ -1,0 +1,8 @@
+; after a ternary the parser recovers, and an error on the next line is still reported
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let a = (ErrorNode (NameExpr c) (Literal 1) (Literal 2)))
+      (LetStmt let b = (BinaryExpr (NameExpr x) && (NameExpr y)))
+      (LetStmt let ok = (Literal 3)))))

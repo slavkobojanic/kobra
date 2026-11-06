@@ -1,0 +1,12 @@
+; comments and blank lines between chained lines do not end the chain
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (CallExpr
+        (MemberExpr
+          (CallExpr
+            (MemberExpr (CallExpr (NameExpr button) (ArgList (Arg (StringLit "Save")))) class)
+            (ArgList (Arg (ImplicitMemberExpr primary))))
+          disabled)
+        (ArgList (Arg (PrefixExpr not (MemberExpr (NameExpr form) isValid))))))))

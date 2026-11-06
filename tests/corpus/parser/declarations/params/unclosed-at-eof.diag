@@ -1,0 +1,2 @@
+# An unclosed parameter list reports K0101 at its `(`.
+error[K0101] 2:7-2:8

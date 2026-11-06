@@ -1,0 +1,3 @@
+# After `0x` all ASCII alphanumerics are consumed; `G` is not a hex digit.
+IntLit "0xG1"
+Newline "\n"

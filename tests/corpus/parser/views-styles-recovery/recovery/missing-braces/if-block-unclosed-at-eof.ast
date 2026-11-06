@@ -1,0 +1,2 @@
+; End of file inside an `if` block in a view.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (NameExpr ready) (Block (CallExpr (NameExpr Done) (ArgList)))))))))

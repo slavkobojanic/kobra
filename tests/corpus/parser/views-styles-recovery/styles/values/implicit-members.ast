@@ -1,0 +1,2 @@
+; Theme tokens and static values written as implicit members.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration padding (CssValue (ImplicitMemberExpr md))) (Declaration color (CssValue (ImplicitMemberExpr muted))) (Declaration display (CssValue (ImplicitMemberExpr flex))))))))

@@ -1,0 +1,5 @@
+# Vertical tab is an unexpected character.
+Ident "a"
+Error "\u{b}"
+Ident "b"
+Newline "\n"

@@ -1,0 +1,10 @@
+; a `for` loop binds an IdentPattern
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ForStmt for
+        (IdentPattern item)
+        in
+        (NameExpr items)
+        (Block (CallExpr (NameExpr show) (ArgList (Arg (NameExpr item)))))))))

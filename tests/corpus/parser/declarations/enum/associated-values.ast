@@ -1,0 +1,7 @@
+; Cases may carry labeled associated values; the enum may implement interfaces.
+(SourceFile
+  (EnumDecl enum CartError (ImplementsClause implements (PathType Error))
+    (MemberList
+      (EnumCase case productNotFound)
+      (EnumCase case outOfStock (CaseField available (PathType Int)))
+      (EnumCase case limitExceeded (CaseField limit (PathType Int)) (CaseField requested (PathType Int))))))

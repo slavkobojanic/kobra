@@ -1,0 +1,3 @@
+# The lexer does not check magnitude; range checks belong to later stages.
+IntLit "123456789012345678901234567890"
+Newline "\n"

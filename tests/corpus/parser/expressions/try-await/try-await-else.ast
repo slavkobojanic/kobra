@@ -1,0 +1,12 @@
+; `try await x else { ... }`: the else belongs to the outer `try`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let user =
+        (TryExpr try
+          (AwaitExpr await (CallExpr (MemberExpr (NameExpr api) me) (ArgList)))
+          else
+          (Block
+            (CallExpr (NameExpr log) (ArgList (Arg (StringLit "anonymous"))))
+            (ReturnStmt return)))))))

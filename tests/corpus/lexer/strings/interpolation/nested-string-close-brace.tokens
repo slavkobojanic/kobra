@@ -1,0 +1,9 @@
+# A `}` inside a nested string is text and does not end the interpolation.
+StringStart "\""
+InterpStart "{"
+StringStart "\""
+StringText "}"
+StringEnd "\""
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

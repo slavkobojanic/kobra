@@ -1,0 +1,3 @@
+; `@Scope(.request)` takes an implicit member expression.
+(SourceFile
+  (ServiceDecl (Annotation Scope (ArgList (Arg (ImplicitMemberExpr request)))) service RequestLog (MemberList)))

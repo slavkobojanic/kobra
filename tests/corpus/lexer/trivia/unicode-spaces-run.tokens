@@ -1,0 +1,5 @@
+# Consecutive non-ASCII space characters form one Error run.
+Ident "a"
+Error "\u{2003}\u{3000}"
+Ident "b"
+Newline "\n"

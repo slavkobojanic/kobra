@@ -1,0 +1,5 @@
+; Path segments may be hard or contextual keywords.
+(SourceFile
+  (Import import (ImportPath app class default View))
+  (Import import (ImportPath shop test Fixtures))
+  (Import import (ImportPath components page layout Header)))

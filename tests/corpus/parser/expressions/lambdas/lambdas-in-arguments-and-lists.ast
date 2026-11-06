@@ -1,0 +1,12 @@
+; lambdas as labeled arguments and list elements
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (NameExpr Button)
+      (ArgList
+        (Arg label (StringLit "Go"))
+        (Arg action (LambdaExpr (CallExpr (NameExpr go) (ArgList)))))))
+  (FieldDecl let b =
+    (ListExpr
+      (LambdaExpr (LambdaParamList (LambdaParam x)) (NameExpr x))
+      (LambdaExpr (LambdaParamList (LambdaParam y)) (BinaryExpr (NameExpr y) * (Literal 2))))))

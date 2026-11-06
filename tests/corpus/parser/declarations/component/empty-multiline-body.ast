@@ -1,0 +1,2 @@
+; An empty body may span lines and hold comments.
+(SourceFile (ComponentDecl component Empty (MemberList)))

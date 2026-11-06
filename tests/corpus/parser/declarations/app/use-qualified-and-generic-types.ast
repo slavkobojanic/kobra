@@ -1,0 +1,7 @@
+; Both sides of `use` are types: qualified, generic or both.
+(SourceFile
+  (AppDecl app A
+    (MemberList
+      (UseDecl use (PathType fakes FakeCartApi) for (PathType shop CartProtocol))
+      (UseDecl use (PathType InMemoryRepository (GenericArgList (PathType User))) for
+        (PathType Repository (GenericArgList (PathType User))) in (ImplicitMemberExpr test)))))

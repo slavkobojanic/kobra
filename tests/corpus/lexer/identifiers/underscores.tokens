@@ -1,0 +1,9 @@
+# Identifiers may start with `_`; `__` and `_1` are identifiers.
+Ident "_name"
+Ident "__"
+Ident "_1"
+Ident "a_b"
+Ident "x_"
+Ident "__init__"
+Ident "_A"
+Newline "\n"

@@ -1,0 +1,5 @@
+# `^` is not an operator in K.
+Ident "a"
+Error "^"
+Ident "b"
+Newline "\n"

@@ -1,0 +1,2 @@
+# two expression statements on one line are K0102 at the second
+error[K0102] 3:9-3:10

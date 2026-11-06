@@ -1,0 +1,2 @@
+; Color literals of 3, 4, 6 and 8 digits as values.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color (CssValue (Literal #fff))) (Declaration borderColor (CssValue (Literal #fff8))) (Declaration backgroundColor (CssValue (Literal #3B82F6))) (Declaration outlineColor (CssValue (Literal #3B82F680))))))))

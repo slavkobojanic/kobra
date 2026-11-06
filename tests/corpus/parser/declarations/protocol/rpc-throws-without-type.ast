@@ -1,0 +1,6 @@
+; `throws` without a type in an rpc is K0129.
+(SourceFile
+  (ProtocolDecl protocol P
+    (MemberList
+      (RpcDecl rpc a (ParamList) (ThrowsClause throws) (ReturnType (PathType Int)))
+      (RpcDecl rpc b (ParamList) (ReturnType (PathType Int))))))

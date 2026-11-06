@@ -1,0 +1,5 @@
+# A keyword after `.` keeps its kind.
+IntLit "5"
+Dot "."
+ClassKw "class"
+Newline "\n"

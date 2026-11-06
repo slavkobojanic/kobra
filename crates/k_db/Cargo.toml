@@ -1,0 +1,12 @@
+[package]
+name = "k_db"
+description = "Persistence for K: entity schemas, query translation to SQL, migrations and the SQLite/Postgres drivers."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+; `.class([.panel, .expanded when isExpanded])` on a following line
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (CallExpr
+        (MemberExpr
+          (CallExpr
+            (MemberExpr (CallExpr (NameExpr box) (LambdaExpr (NameExpr content))) class)
+            (ArgList
+              (Arg
+                (ListExpr
+                  (ImplicitMemberExpr panel)
+                  (WhenExpr (ImplicitMemberExpr expanded) when (NameExpr isExpanded))))))
+          on)
+        (ArgList (Arg click (NameExpr toggle)))))))

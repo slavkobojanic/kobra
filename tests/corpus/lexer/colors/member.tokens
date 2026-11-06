@@ -1,0 +1,8 @@
+# A color literal ends at `.`.
+ColorLit "#3B82F6"
+Dot "."
+Ident "opacity"
+LParen "("
+FloatLit "0.8"
+RParen ")"
+Newline "\n"

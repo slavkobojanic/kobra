@@ -1,0 +1,2 @@
+; `=` without an expression is K0122 at the gap after `=`.
+(SourceFile (StructDecl struct A (MemberList (FieldDecl let x =) (FieldDecl let y = (Literal 2)))))

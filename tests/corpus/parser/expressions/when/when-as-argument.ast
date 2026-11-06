@@ -1,0 +1,10 @@
+; `when` is allowed directly as a positional or labeled argument value
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (MemberExpr
+        (CallExpr
+          (MemberExpr (NameExpr node) class)
+          (ArgList (Arg (WhenExpr (ImplicitMemberExpr active) when (NameExpr isActive)))))
+        attr)
+      (ArgList (Arg hidden (WhenExpr (Literal true) when (NameExpr collapsed)))))))

@@ -1,0 +1,3 @@
+; `a ?? b ?? c` is `a ?? (b ?? c)`
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (NameExpr x) ?? (BinaryExpr (NameExpr y) ?? (NameExpr z)))))

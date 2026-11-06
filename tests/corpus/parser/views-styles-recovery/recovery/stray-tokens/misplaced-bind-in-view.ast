@@ -1,0 +1,2 @@
+; `bind` outside an argument is K0110; the BindExpr is still built.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (BindExpr bind (NameExpr name)))))))))

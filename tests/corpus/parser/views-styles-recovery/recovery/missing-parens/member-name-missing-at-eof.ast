@@ -1,0 +1,2 @@
+; End of file right after a chained `.`: K0100 at the gap after the `.`, and K0101 for the open braces.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (MemberExpr (CallExpr (NameExpr box) (LambdaExpr))))))))

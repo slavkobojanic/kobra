@@ -1,0 +1,5 @@
+; `try await x` nests AwaitExpr inside TryExpr, and the reverse order nests the other way
+(SourceFile
+  (FieldDecl let a = (TryExpr try (AwaitExpr await (NameExpr x))))
+  (FieldDecl let b = (AwaitExpr await (TryExpr try (NameExpr x))))
+  (FieldDecl let c = (TryExpr try (TryExpr try (NameExpr x)))))

@@ -1,0 +1,2 @@
+; The smallest theme.
+(SourceFile (ThemeDecl theme Plain (MemberList)))

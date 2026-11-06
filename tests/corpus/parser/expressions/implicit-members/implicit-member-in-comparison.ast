@@ -1,0 +1,7 @@
+; implicit members as comparison operands
+(SourceFile
+  (FieldDecl let a =
+    (BinaryExpr
+      (BinaryExpr (NameExpr status) == (ImplicitMemberExpr active))
+      or
+      (BinaryExpr (NameExpr status) != (ImplicitMemberExpr archived)))))

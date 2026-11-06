@@ -1,0 +1,4 @@
+; Regression: `enum<` reported K0100 twice at the `<`: "expected a name, found `<`" from the
+; declaration and "expected a generic parameter name" from the generic list that follows. No
+; two diagnostics share a code and a span; the first one reported is kept (diagnostics.md).
+(SourceFile (EnumDecl enum (GenericParamList)))

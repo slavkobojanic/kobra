@@ -1,0 +1,2 @@
+; An empty style block has no children besides its keyword.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style))))

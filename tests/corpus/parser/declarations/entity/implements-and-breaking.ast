@@ -1,0 +1,5 @@
+; Entities may implement interfaces and carry `@Breaking`.
+(SourceFile
+  (EntityDecl (Annotation Breaking (ArgList (Arg (StringLit "dropped the legacy column")))) public entity Order
+    (ImplementsClause implements (PathType Auditable) (PathType Codable))
+    (MemberList (FieldDecl (Annotation Id) let id (PathType OrderId)))))

@@ -1,0 +1,2 @@
+; A capitalized component called with no arguments.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr Spinner) (ArgList)))))))

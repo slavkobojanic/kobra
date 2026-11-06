@@ -1,0 +1,6 @@
+# `\{` is not an escape (RA-10); it has its own code with a
+# machine-applicable fix.
+StringStart "\""
+StringEscape "\\{"
+StringEnd "\""
+Newline "\n"

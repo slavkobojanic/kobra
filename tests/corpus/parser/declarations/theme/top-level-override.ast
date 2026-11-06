@@ -1,0 +1,7 @@
+; The assignment form overrides a token a library declares, at the top level and in variants.
+(SourceFile
+  (ThemeDecl public theme AppTheme
+    (MemberList
+      (ThemeToken color primary (PathType Color) = (Literal #3B82F6))
+      (ThemeOverride chartGrid = (Literal #E2E8F0))
+      (ThemeVariant variant dark (ThemeOverride chartGrid = (Literal #334155))))))

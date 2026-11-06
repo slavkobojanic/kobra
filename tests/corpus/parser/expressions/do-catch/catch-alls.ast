@@ -1,0 +1,13 @@
+; `catch let error` and `catch _` are catch-alls
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (DoStmt do
+        (Block (TryExpr try (CallExpr (NameExpr a) (ArgList))))
+        (CatchClause catch
+          (BindingPattern let error)
+          (Block (CallExpr (NameExpr log) (ArgList (Arg (NameExpr error)))))))
+      (DoStmt do
+        (Block (TryExpr try (CallExpr (NameExpr b) (ArgList))))
+        (CatchClause catch (WildcardPattern _) (Block))))))

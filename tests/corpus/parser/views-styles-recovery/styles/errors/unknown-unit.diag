@@ -1,0 +1,2 @@
+# An unknown unit suffix in a style value is K0112 on the whole literal.
+error[K0112] 4:23-4:26

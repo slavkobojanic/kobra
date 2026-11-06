@@ -1,0 +1,10 @@
+# After `?.`, `style` does not enter style mode either.
+Ident "x"
+QuestionDot "?."
+StyleKw "style"
+LBrace "{"
+Ident "a"
+Minus "-"
+Ident "b"
+RBrace "}"
+Newline "\n"

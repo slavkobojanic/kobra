@@ -1,0 +1,3 @@
+; Each case has its own `case` keyword and line.
+(SourceFile
+  (EnumDecl enum Status (MemberList (EnumCase case active) (EnumCase case paused) (EnumCase case archived))))

@@ -1,0 +1,5 @@
+; Comments inside parameter lists, generics and clauses.
+(SourceFile
+  (FuncDecl func f (GenericParamList (GenericParam T)) (ParamList (Param x (PathType T) = (NameExpr y))) async
+    (ThrowsClause throws (PathType E)) (ReturnType (PathType R))
+    (WhereClause where (WherePredicate T implements (PathType X))) (Block)))

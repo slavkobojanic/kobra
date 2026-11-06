@@ -1,0 +1,2 @@
+; A media prelude with a media type, `and` words and several features.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (AtRule media (AtPrelude screen and (MediaFeature minWidth (CssValue (Literal 768px))) and (MediaFeature maxWidth (CssValue (Literal 1024px)))))))))

@@ -1,0 +1,6 @@
+; Annotations come first, then visibility, then `static`.
+(SourceFile
+  (ServiceDecl service S
+    (MemberList
+      (FieldDecl (Annotation Inject) private let api (PathType CartProtocol))
+      (FieldDecl (Annotation State) private static var hits (PathType Int) = (Literal 0)))))

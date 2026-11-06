@@ -1,0 +1,2 @@
+; A scoped slot is called with the data it receives.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (ForStmt for (IdentPattern item) in (NameExpr items) (KeyClause key (MemberExpr (NameExpr item) id)) (Block (CallExpr (NameExpr row) (ArgList (Arg (NameExpr item)))))))))))

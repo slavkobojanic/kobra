@@ -1,0 +1,2 @@
+; A rule with an empty body.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))))))))

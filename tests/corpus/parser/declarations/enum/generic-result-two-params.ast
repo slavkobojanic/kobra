@@ -1,0 +1,5 @@
+; Two generic parameters and a `where` clause.
+(SourceFile
+  (EnumDecl public enum Result (GenericParamList (GenericParam T) (GenericParam E))
+    (WhereClause where (WherePredicate E implements (PathType Error)))
+    (MemberList (EnumCase case success (CaseField (PathType T))) (EnumCase case failure (CaseField (PathType E))))))

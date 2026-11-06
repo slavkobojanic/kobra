@@ -1,0 +1,14 @@
+; tuple patterns of literals, wildcards, bindings and cases
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (TupleExpr (NameExpr a) (NameExpr b))
+        (MatchArm case (TuplePattern (LiteralPattern 0) (WildcardPattern _)) (Block))
+        (MatchArm case
+          (TuplePattern (BindingPattern let x) (EnumCasePattern some (BindingPattern let y)))
+          (Block))
+        (MatchArm case
+          (TuplePattern (LiteralPattern 1) (LiteralPattern 2) (LiteralPattern 3))
+          (Block))))))

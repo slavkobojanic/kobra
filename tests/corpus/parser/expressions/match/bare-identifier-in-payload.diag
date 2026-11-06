@@ -1,0 +1,2 @@
+# a bare identifier inside a payload is K0115 too
+error[K0115] 4:22-4:26

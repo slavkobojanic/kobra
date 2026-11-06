@@ -1,0 +1,17 @@
+; payloads bind with `let`, match by label, nest, and may be empty
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr r)
+        (MatchArm case
+          (EnumCasePattern outOfStock (PatternField available (BindingPattern let n)))
+          (Block))
+        (MatchArm case
+          (EnumCasePattern loaded
+            (EnumCasePattern some (BindingPattern let p))
+            (PatternField count (LiteralPattern 0)))
+          (Block))
+        (MatchArm case (EnumCasePattern empty) (Block))
+        (MatchArm case (EnumCasePattern pair (BindingPattern let a) (BindingPattern let b)) (Block))))))

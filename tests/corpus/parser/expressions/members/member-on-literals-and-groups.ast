@@ -1,0 +1,6 @@
+; members and calls apply to strings, lists, parentheses and calls
+(SourceFile
+  (FieldDecl let a = (MemberExpr (StringLit "abc") count))
+  (FieldDecl let b = (MemberExpr (ListExpr (Literal 1) (Literal 2)) isEmpty))
+  (FieldDecl let c = (MemberExpr (ParenExpr (BinaryExpr (NameExpr x) + (NameExpr y))) abs))
+  (FieldDecl let d = (MemberExpr (CallExpr (NameExpr f) (ArgList)) g)))

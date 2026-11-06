@@ -1,0 +1,11 @@
+# RA-30: without a space, `>=` is lexed (the lexer does not know about generics).
+LetKw "let"
+Ident "x"
+Colon ":"
+Ident "List"
+Lt "<"
+Ident "Int"
+GtEq ">="
+LBrack "["
+RBrack "]"
+Newline "\n"

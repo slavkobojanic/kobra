@@ -1,0 +1,12 @@
+# The lexer emits Newline tokens even inside parentheses; the parser ignores
+# them there (rule N1).
+Ident "f"
+LParen "("
+Newline "\n"
+Ident "a"
+Comma ","
+Newline "\n"
+Ident "b"
+Newline "\n"
+RParen ")"
+Newline "\n"

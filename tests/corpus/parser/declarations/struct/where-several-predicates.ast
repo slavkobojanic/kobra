@@ -1,0 +1,7 @@
+; A `where` clause lists several predicates, each with its own `implements`.
+(SourceFile
+  (StructDecl struct Index (GenericParamList (GenericParam K) (GenericParam V))
+    (WhereClause where
+      (WherePredicate K implements (PathType Hashable))
+      (WherePredicate V implements (PathType Codable (GenericArgList (PathType K)))))
+    (MemberList)))

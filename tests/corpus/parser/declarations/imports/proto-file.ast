@@ -1,0 +1,2 @@
+; `import proto` takes a string naming a .proto file.
+(SourceFile (Import import proto (StringLit "billing/v1/invoice.proto")))

@@ -1,0 +1,4 @@
+; `@Breaking("reason")` marks a deliberate breaking change.
+(SourceFile
+  (ProtocolDecl (Annotation Breaking (ArgList (Arg (StringLit "total is now a Money")))) public protocol CartProtocol
+    (MemberList (RpcDecl rpc total (ParamList) (ReturnType (PathType Money))))))

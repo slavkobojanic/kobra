@@ -1,0 +1,2 @@
+; A field without a name reports K0100 at the `:`; the next member is unaffected.
+(SourceFile (StructDecl struct A (MemberList (FieldDecl let (PathType Int)) (FieldDecl let y (PathType Int)))))

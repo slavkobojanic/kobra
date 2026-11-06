@@ -1,0 +1,9 @@
+# A declaration directly in the style block (the parser reports K0133).
+StyleKw "style"
+LBrace "{"
+Ident "color"
+Colon ":"
+Ident "red"
+Semicolon ";"
+RBrace "}"
+Newline "\n"

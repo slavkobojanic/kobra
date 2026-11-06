@@ -1,0 +1,2 @@
+; End of file inside a modifier's argument list (no final newline).
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr)) class) (ArgList)))))))

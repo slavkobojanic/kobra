@@ -1,0 +1,6 @@
+error[K0120] 1:12-1:14: optional types cannot be nested
+  fix "Delete the extra `?`"
+    edit 1:12-1:14 ""
+error[K0120] 2:13-2:16: optional types cannot be nested
+  fix "Delete the extra `?`"
+    edit 2:13-2:16 ""

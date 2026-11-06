@@ -1,0 +1,7 @@
+; `use X for Y in .env` rules, with one or several environments.
+(SourceFile
+  (AppDecl public app Shop
+    (MemberList
+      (UseDecl use (PathType StripePayments) for (PathType PaymentProvider) in (ImplicitMemberExpr production))
+      (UseDecl use (PathType FakePayments) for (PathType PaymentProvider) in
+        (ImplicitMemberExpr development) (ImplicitMemberExpr test)))))

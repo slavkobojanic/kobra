@@ -1,0 +1,2 @@
+; `bind` nested inside an argument expression (not directly the argument value) is K0110.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr Stepper) (ArgList (Arg value (ParenExpr (BindExpr bind (NameExpr quantity)))))))))))

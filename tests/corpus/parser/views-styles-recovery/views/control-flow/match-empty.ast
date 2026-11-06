@@ -1,0 +1,2 @@
+; A `match` with no arms parses (exhaustiveness is semantic).
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (MatchExpr match (NameExpr state)))))))

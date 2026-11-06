@@ -1,0 +1,4 @@
+# Digit separators inside unit literals.
+UnitLit "1_000px"
+UnitLit "1_000.5rem"
+Newline "\n"

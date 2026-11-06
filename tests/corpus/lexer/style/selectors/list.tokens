@@ -1,0 +1,12 @@
+# A selector list.
+StyleKw "style"
+LBrace "{"
+Dot "."
+Ident "a"
+Comma ","
+Dot "."
+Ident "b"
+LBrace "{"
+RBrace "}"
+RBrace "}"
+Newline "\n"

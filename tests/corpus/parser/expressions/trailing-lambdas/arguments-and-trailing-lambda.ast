@@ -1,0 +1,4 @@
+; `heading(level: 2) { title }` has an ArgList and a LambdaExpr
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr (NameExpr heading) (ArgList (Arg level (Literal 2))) (LambdaExpr (NameExpr title)))))

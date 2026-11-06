@@ -1,0 +1,7 @@
+# A number with an exponent may carry a unit suffix or `%` (grammar.md 3.4: the suffix follows
+# any decimal INT_LIT or FLOAT_LIT); the exponent is decided first (rule 4), then the suffix.
+UnitLit "1e5px"
+UnitLit "2.5e-3px"
+UnitLit "1e5%"
+UnitLit "1E+2em"
+Newline "\n"

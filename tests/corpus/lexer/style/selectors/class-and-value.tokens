@@ -1,0 +1,17 @@
+# The same `.muted` tokens appear as a selector and as a value; position
+# decides the meaning, not the tokens.
+StyleKw "style"
+LBrace "{"
+Newline "\n"
+Dot "."
+Ident "muted"
+LBrace "{"
+Ident "color"
+Colon ":"
+Dot "."
+Ident "muted"
+Semicolon ";"
+RBrace "}"
+Newline "\n"
+RBrace "}"
+Newline "\n"

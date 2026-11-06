@@ -1,0 +1,9 @@
+# The example from grammar.md 3.6.
+StringStart "\""
+StringText "Pay "
+InterpStart "{"
+Ident "total"
+InterpEnd "}"
+StringText "!"
+StringEnd "\""
+Newline "\n"

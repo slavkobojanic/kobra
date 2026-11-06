@@ -1,0 +1,11 @@
+; an `expect` expression is a full expression, so trailing lambdas are allowed
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ExpectStmt expect
+        (CallExpr
+          (MemberExpr (NameExpr items) all)
+          (LambdaExpr
+            (LambdaParamList (LambdaParam i))
+            (BinaryExpr (MemberExpr (NameExpr i) price) > (Literal 0))))))))

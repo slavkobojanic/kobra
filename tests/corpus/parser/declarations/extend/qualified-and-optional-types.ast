@@ -1,0 +1,6 @@
+; Any type may be extended, including qualified and optional ones.
+(SourceFile
+  (ExtendDecl extend (PathType shop Money) (MemberList))
+  (ExtendDecl extend (OptionalType (PathType String)) (MemberList))
+  (ExtendDecl public extend (PathType Map (GenericArgList (PathType String) (PathType Int)))
+    (MemberList (FieldDecl static let empty (PathType Map (GenericArgList (PathType String) (PathType Int))) = (MapExpr)))))

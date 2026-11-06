@@ -1,0 +1,4 @@
+; `proto` is a keyword only when a string follows; otherwise it is a path segment.
+(SourceFile
+  (Import import (ImportPath proto Messages))
+  (Import import proto (StringLit "a.proto")))

@@ -1,0 +1,5 @@
+; a `{ ... }` in expression position is a lambda; without `=>` it has no parameter list
+(SourceFile
+  (FieldDecl let a = (LambdaExpr (Literal 1)))
+  (FieldDecl let b = (LambdaExpr))
+  (FieldDecl let c = (LambdaExpr (CallExpr (NameExpr refresh) (ArgList)))))

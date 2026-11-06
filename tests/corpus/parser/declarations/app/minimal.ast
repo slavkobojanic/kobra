@@ -1,0 +1,2 @@
+; The smallest app declaration.
+(SourceFile (AppDecl public app Weather (MemberList)))

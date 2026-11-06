@@ -1,0 +1,2 @@
+; Several events in one `.on(...)` call.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr row) (LambdaExpr)) on) (ArgList (Arg click (NameExpr select)) (Arg doubleClick (NameExpr open)))))))))

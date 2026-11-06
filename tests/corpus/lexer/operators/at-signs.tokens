@@ -1,0 +1,7 @@
+# `@` is always a single token.
+At "@"
+At "@"
+At "@"
+At "@"
+IntLit "1"
+Newline "\n"

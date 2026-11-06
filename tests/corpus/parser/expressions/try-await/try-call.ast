@@ -1,0 +1,7 @@
+; `try` before a throwing call
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let item =
+        (TryExpr try (CallExpr (MemberExpr (NameExpr cart) add) (ArgList (Arg (NameExpr p)))))))))

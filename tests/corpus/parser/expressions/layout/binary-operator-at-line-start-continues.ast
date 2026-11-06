@@ -1,0 +1,9 @@
+; lines starting with a binary operator other than `-` continue the expression (rule N3)
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let ok = (BinaryExpr (BinaryExpr (NameExpr a) and (NameExpr b)) or (NameExpr c)))
+      (LetStmt let sum = (BinaryExpr (NameExpr x) + (BinaryExpr (NameExpr y) * (NameExpr z))))
+      (LetStmt let v = (BinaryExpr (NameExpr maybe) ?? (NameExpr fallback)))
+      (LetStmt let eq = (BinaryExpr (NameExpr left) == (NameExpr right))))))

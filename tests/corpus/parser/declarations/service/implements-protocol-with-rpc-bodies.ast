@@ -1,0 +1,23 @@
+; A service implementing a protocol defines rpc bodies.
+(SourceFile
+  (ServiceDecl service CartApi (ImplementsClause implements (PathType CartProtocol))
+    (MemberList
+      (FieldDecl (Annotation Inject) let repo (PathType CartRepository))
+      (FieldDecl (Annotation Inject) let session (PathType Session))
+      (RpcDecl rpc add (ParamList (Param request (PathType AddItemRequest))) async
+        (ThrowsClause throws (PathType CartError))
+        (ReturnType (PathType CartItem))
+        (Block
+          (GuardStmt guard
+            (LetCondition let product =
+              (AwaitExpr await
+                (CallExpr (MemberExpr (NameExpr repo) product)
+                  (ArgList (Arg (MemberExpr (NameExpr request) productId))))))
+            else
+            (Block (ThrowStmt throw (MemberExpr (NameExpr CartError) productNotFound))))
+          (ReturnStmt return
+            (AwaitExpr await
+              (CallExpr (MemberExpr (NameExpr repo) add)
+                (ArgList
+                  (Arg (NameExpr product))
+                  (Arg for (MemberExpr (MemberExpr (NameExpr session) user) id)))))))))))

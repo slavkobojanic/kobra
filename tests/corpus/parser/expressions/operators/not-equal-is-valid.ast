@@ -1,0 +1,2 @@
+; `!=` is the comparison operator and is not reported like `!`
+(SourceFile (FieldDecl let a = (BinaryExpr (NameExpr x) != (NameExpr y))))

@@ -1,0 +1,7 @@
+# Both forms side by side.
+UnitLit "200ms"
+EqEq "=="
+FloatLit "0.2"
+Dot "."
+Ident "seconds"
+Newline "\n"

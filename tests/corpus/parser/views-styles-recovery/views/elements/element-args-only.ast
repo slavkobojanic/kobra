@@ -1,0 +1,2 @@
+; An element with only named arguments and no content block.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr image) (ArgList (Arg source (NameExpr logoUrl)) (Arg description (StringLit "Acme logo")))))))))

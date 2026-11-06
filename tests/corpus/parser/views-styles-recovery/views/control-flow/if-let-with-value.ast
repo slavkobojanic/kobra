@@ -1,0 +1,2 @@
+; `if let` with an explicit value.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (LetCondition let user = (MemberExpr (NameExpr session) user)) (Block (CallExpr (NameExpr text) (LambdaExpr (MemberExpr (NameExpr user) name))))))))))

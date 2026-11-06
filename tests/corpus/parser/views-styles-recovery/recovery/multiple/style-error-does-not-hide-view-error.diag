@@ -1,0 +1,3 @@
+# A style error before the view does not hide the view's error.
+error[K0133] 4:9-4:20
+error[K0102] 8:22-8:26

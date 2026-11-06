@@ -1,0 +1,4 @@
+; An annotation without arguments is `@` and a name.
+(SourceFile
+  (ComponentDecl component Counter
+    (MemberList (FieldDecl (Annotation State) var count (PathType Int) = (Literal 0)))))

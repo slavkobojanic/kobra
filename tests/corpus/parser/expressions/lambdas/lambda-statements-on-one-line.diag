@@ -1,0 +1,2 @@
+# two statements on one line inside a lambda are K0102
+error[K0102] 2:26-2:27

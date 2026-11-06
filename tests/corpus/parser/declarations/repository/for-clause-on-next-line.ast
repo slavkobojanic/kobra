@@ -1,0 +1,2 @@
+; The header needs `for`, so a newline before it is insignificant.
+(SourceFile (RepositoryDecl repository UserRepository (ForClause for (PathType User)) (MemberList)))

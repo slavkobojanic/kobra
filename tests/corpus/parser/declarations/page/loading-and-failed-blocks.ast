@@ -1,0 +1,10 @@
+; `loading`, `failed(pattern)` and `failed` without a binding are members.
+(SourceFile
+  (PageDecl page Orders
+    (MemberList
+      (LoadingBlock loading (Block (CallExpr (NameExpr Spinner) (ArgList))))
+      (FailedBlock failed (BindingPattern let error)
+        (Block (CallExpr (NameExpr ErrorView) (ArgList (Arg error (NameExpr error))))))
+      (ViewBlock view (Block (CallExpr (NameExpr OrderList) (ArgList))))))
+  (PageDecl page Invoices
+    (MemberList (FailedBlock failed (Block (StringLit "Something went wrong"))))))

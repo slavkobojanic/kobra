@@ -1,0 +1,2 @@
+# `throw` needs a value: K0122 at the gap after `throw`
+error[K0122] 3:10-3:10

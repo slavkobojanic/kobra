@@ -1,0 +1,4 @@
+# The empty string: StringStart then StringEnd, no StringText.
+StringStart "\""
+StringEnd "\""
+Newline "\n"

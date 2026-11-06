@@ -1,0 +1,11 @@
+# A string inside an interpolation.
+StringStart "\""
+StringText "a"
+InterpStart "{"
+StringStart "\""
+StringText "b"
+StringEnd "\""
+InterpEnd "}"
+StringText "c"
+StringEnd "\""
+Newline "\n"

@@ -1,0 +1,2 @@
+; A `for` in a view without `key` parses; requiring the key is a semantic rule.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (ForStmt for (IdentPattern item) in (NameExpr items) (Block (CallExpr (NameExpr row) (ArgList (Arg (NameExpr item)))))))))))

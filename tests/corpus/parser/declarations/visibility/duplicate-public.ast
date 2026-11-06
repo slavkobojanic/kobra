@@ -1,0 +1,2 @@
+; Repeating a modifier is K0127 on the second one.
+(SourceFile (StructDecl public public struct A (MemberList)))

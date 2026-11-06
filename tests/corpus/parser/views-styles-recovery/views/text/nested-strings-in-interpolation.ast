@@ -1,0 +1,2 @@
+; An if expression with nested string literals inside an interpolation.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit (Interpolation (IfExpr if (NameExpr done) (Block (StringLit "Done")) else (Block (StringLit "Pending"))))))))))))

@@ -1,0 +1,2 @@
+; Unicode text in line, block and doc comments is trivia.
+(SourceFile (StructDecl struct User (MemberList (FieldDecl let id (PathType Int)))))

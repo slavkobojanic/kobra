@@ -1,0 +1,2 @@
+# `case` without a name reports K0100 at the gap after it.
+error[K0100] 3:9-3:9

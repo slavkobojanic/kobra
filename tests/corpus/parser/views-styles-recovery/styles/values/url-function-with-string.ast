@@ -1,0 +1,2 @@
+; `url(...)` takes a string, because `//` starts a comment in style blocks.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector hero))) (Declaration backgroundImage (CssValue (CssFunction url (CssValue (StringLit "https://cdn.example.com/hero.png"))))))))))

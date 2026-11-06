@@ -1,0 +1,10 @@
+; color literals are Literals; color methods chain on implicit members
+(SourceFile
+  (FieldDecl let a = (Literal #3B82F6))
+  (FieldDecl let b = (Literal #fff))
+  (FieldDecl let c =
+    (CallExpr (MemberExpr (ImplicitMemberExpr primary) opacity) (ArgList (Arg (Literal 0.8)))))
+  (FieldDecl let d =
+    (CallExpr
+      (MemberExpr (ImplicitMemberExpr primary) mix)
+      (ArgList (Arg (ImplicitMemberExpr white)) (Arg (Literal 20%))))))

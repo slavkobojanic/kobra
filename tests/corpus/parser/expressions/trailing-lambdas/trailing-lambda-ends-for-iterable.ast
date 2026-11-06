@@ -1,0 +1,10 @@
+; the `for` iterable stops before `{`, so `for x in xs.all { ... }` iterates `xs.all`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ForStmt for
+        (IdentPattern x)
+        in
+        (MemberExpr (NameExpr xs) all)
+        (Block (CallExpr (NameExpr use) (ArgList (Arg (NameExpr x)))))))))

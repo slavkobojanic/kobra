@@ -1,0 +1,2 @@
+error[K0118] 3:21-3:31: `!important` is not supported
+  help: write the value here; scoped styles make `!important` unnecessary

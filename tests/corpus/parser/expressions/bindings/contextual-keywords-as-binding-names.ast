@@ -1,0 +1,10 @@
+; contextual keywords may name locals
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let view = (Literal 1))
+      (LetStmt let key = (Literal 2))
+      (LetStmt let page = (Literal 3))
+      (LetStmt var test = (Literal 4))
+      (LetStmt let loading = (Literal 5)))))

@@ -1,0 +1,2 @@
+; camelCase property names, including vendor-style capitalized ones.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration WebkitLineClamp (CssValue (Literal 3))) (Declaration borderTopLeftRadius (CssValue (ImplicitMemberExpr sm))) (Declaration gridTemplateAreas (CssValue (StringLit "head") (StringLit "body"))))))))

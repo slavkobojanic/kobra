@@ -1,0 +1,2 @@
+# A file of stray punctuation is one top-level ErrorNode with a single K0125 at its first token.
+error[K0125] 2:1-2:2

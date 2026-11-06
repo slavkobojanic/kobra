@@ -1,0 +1,2 @@
+; A missing `}` for an element shifts brace matching: the later braces close the element and the view, and only the component is unclosed.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr box) (LambdaExpr (CallExpr (NameExpr text) (LambdaExpr (StringLit "x"))))))))))

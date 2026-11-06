@@ -1,0 +1,15 @@
+; commas separate patterns of one arm
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr state)
+        (MatchArm case
+          (EnumCasePattern idle)
+          (EnumCasePattern loading)
+          (Block (CallExpr (NameExpr spinner) (ArgList))))
+        (MatchArm case
+          (EnumCasePattern failed (BindingPattern let e))
+          (EnumCasePattern cancelled (BindingPattern let e))
+          (Block (CallExpr (NameExpr show) (ArgList (Arg (NameExpr e))))))))))

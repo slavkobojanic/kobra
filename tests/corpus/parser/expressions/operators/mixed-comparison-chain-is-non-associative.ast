@@ -1,0 +1,3 @@
+; all comparison operators share one non-associative level
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (BinaryExpr (NameExpr x) <= (NameExpr y)) != (NameExpr z))))

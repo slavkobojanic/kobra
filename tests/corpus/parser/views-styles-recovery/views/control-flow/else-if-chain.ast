@@ -1,0 +1,2 @@
+; An `else if` chain nests IfExpr in the else branch.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (NameExpr a) (Block (StringLit "A")) else (IfExpr if (NameExpr b) (Block (StringLit "B")) else (IfExpr if (NameExpr c) (Block (StringLit "C")) else (Block (StringLit "D"))))))))))

@@ -1,0 +1,3 @@
+# A float ending in `_` reports K0006 on the whole literal.
+FloatLit "1.5_"
+Newline "\n"

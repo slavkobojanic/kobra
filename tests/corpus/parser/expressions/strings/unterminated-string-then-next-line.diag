@@ -1,0 +1,2 @@
+# an unterminated string (K0002) ends at the line end, and the next line parses normally
+error[K0002] 3:13-3:14

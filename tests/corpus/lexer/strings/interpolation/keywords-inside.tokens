@@ -1,0 +1,10 @@
+# Interpolations are code mode, so keywords are keywords.
+StringStart "\""
+InterpStart "{"
+NotKw "not"
+Ident "done"
+AndKw "and"
+Ident "ready"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

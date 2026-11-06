@@ -1,0 +1,8 @@
+; A generic enum with unlabeled associated values.
+(SourceFile
+  (EnumDecl enum LoadState (GenericParamList (GenericParam T))
+    (MemberList
+      (EnumCase case idle)
+      (EnumCase case loading)
+      (EnumCase case loaded (CaseField (PathType T)))
+      (EnumCase case failed (CaseField (PathType Error))))))

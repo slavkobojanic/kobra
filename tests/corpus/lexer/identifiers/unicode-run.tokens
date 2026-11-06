@@ -1,0 +1,6 @@
+# A run of non-ASCII characters is one Error token and one diagnostic; the
+# span counts characters, not bytes.
+Error "日本語"
+Eq "="
+IntLit "1"
+Newline "\n"

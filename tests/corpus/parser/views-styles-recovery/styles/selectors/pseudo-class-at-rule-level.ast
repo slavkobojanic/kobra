@@ -1,0 +1,2 @@
+; A rule starting with a pseudo-class (statement starts with `:`).
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (PseudoClass hover))))))))

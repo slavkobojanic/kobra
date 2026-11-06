@@ -1,0 +1,8 @@
+# Maximal munch over dots: `....` is `...` then `.`.
+DotDotDot "..."
+Dot "."
+DotDotLt "..<"
+Lt "<"
+DotDotDot "..."
+Lt "<"
+Newline "\n"

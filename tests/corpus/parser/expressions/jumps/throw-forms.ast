@@ -1,0 +1,9 @@
+; `throw` with a qualified case, an implicit case and a call
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ThrowStmt throw (MemberExpr (NameExpr CheckoutError) notLoggedIn))
+      (ThrowStmt throw
+        (CallExpr (ImplicitMemberExpr outOfStock) (ArgList (Arg available (Literal 0)))))
+      (ThrowStmt throw (CallExpr (NameExpr makeError) (ArgList))))))

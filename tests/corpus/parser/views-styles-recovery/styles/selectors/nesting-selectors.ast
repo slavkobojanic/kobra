@@ -1,0 +1,2 @@
+; Nested rules using `&` with a pseudo-class, a class, a descendant and a pseudo-element.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (StyleRule (Selector (CompoundSelector (NestingSelector &) (PseudoClass hover)))) (StyleRule (Selector (CompoundSelector (NestingSelector &) (ClassSelector active)))) (StyleRule (Selector (CompoundSelector (NestingSelector &)) (CompoundSelector (ClassSelector child)))) (StyleRule (Selector (CompoundSelector (NestingSelector &) (PseudoElement before)))))))))

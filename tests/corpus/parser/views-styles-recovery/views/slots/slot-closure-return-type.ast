@@ -1,0 +1,2 @@
+; A slot closure with a typed parameter and a return type.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr List) (ArgList (Arg items (NameExpr items)))) row) (LambdaExpr (LambdaParamList (LambdaParam item (PathType CartItem)) (ReturnType (PathType View))) (CallExpr (NameExpr CartRow) (ArgList (Arg item (NameExpr item)))))))))))

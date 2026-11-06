@@ -1,0 +1,17 @@
+; Bodiless rpcs with every combination of effects, return type and guards.
+(SourceFile
+  (ProtocolDecl protocol CartProtocol
+    (MemberList
+      (RpcDecl rpc list (ParamList) (ReturnType (PathType List (GenericArgList (PathType CartItem))))
+        (RequiresClause requires (Guard Authenticated)))
+      (RpcDecl rpc add (ParamList (Param request (PathType AddItemRequest))) async
+        (ThrowsClause throws (PathType CartError))
+        (ReturnType (PathType CartItem))
+        (RequiresClause requires
+          (Guard Authenticated)
+          (Guard RateLimit (ArgList (Arg (MemberExpr (Literal 100) perMinute))))))
+      (RpcDecl rpc watch (ParamList (Param cartId (PathType CartId)))
+        (ReturnType (PathType Stream (GenericArgList (PathType CartEvent)))))
+      (RpcDecl rpc clear (ParamList))
+      (RpcDecl rpc remove (ParamList (Param id (PathType ItemId))) (ThrowsClause throws (PathType CartError)))
+      (RpcDecl rpc count (ParamList) async (ReturnType (PathType Int))))))

@@ -1,0 +1,8 @@
+; The extra names after the first pattern are kept in an ErrorNode.
+(SourceFile
+  (FuncDecl func f (ParamList)
+    (Block
+      (ForStmt for (IdentPattern a) (ErrorNode (IdentPattern b)) in (NameExpr pairs) (Block))
+      (ForStmt for (IdentPattern k) (ErrorNode (IdentPattern v) (IdentPattern w)) in
+        (NameExpr triples)
+        (Block)))))

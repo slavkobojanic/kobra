@@ -1,0 +1,2 @@
+; A wildcard loop variable over a half-open range.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (ForStmt for (WildcardPattern _) in (BinaryExpr (Literal 0) ..< (NameExpr count)) (Block (CallExpr (NameExpr Skeleton) (ArgList)))))))))

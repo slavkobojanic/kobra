@@ -1,0 +1,11 @@
+; `bind` outside an argument value is K0110; the BindExpr is kept
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let a = (BindExpr bind (NameExpr x)))
+      (LetStmt let b = (ListExpr (BindExpr bind (NameExpr y))))
+      (LetStmt let c =
+        (CallExpr
+          (NameExpr f)
+          (ArgList (Arg (BinaryExpr (Literal 1) + (BindExpr bind (NameExpr z))))))))))

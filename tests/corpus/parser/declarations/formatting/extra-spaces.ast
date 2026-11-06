@@ -1,0 +1,4 @@
+; Runs of spaces between every token of a declaration.
+(SourceFile
+  (StructDecl public struct A (ImplementsClause implements (PathType B) (PathType C))
+    (MemberList (FieldDecl let x (PathType Int) = (Literal 1)))))

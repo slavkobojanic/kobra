@@ -1,0 +1,2 @@
+; `if let footer` unwraps an optional slot by name.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (LetCondition let footer) (Block (NameExpr footer))))))))

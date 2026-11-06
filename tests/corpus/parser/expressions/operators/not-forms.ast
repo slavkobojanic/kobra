@@ -1,0 +1,6 @@
+; `not` on names, calls, members and itself
+(SourceFile
+  (FieldDecl let a = (PrefixExpr not (NameExpr done)))
+  (FieldDecl let b = (PrefixExpr not (PrefixExpr not (NameExpr done))))
+  (FieldDecl let c = (PrefixExpr not (CallExpr (NameExpr f) (ArgList (Arg (NameExpr x))))))
+  (FieldDecl let d = (PrefixExpr not (MemberExpr (NameExpr cart) isEmpty))))

@@ -1,0 +1,14 @@
+; `expect` takes any boolean expression
+(SourceFile
+  (TestCaseDecl test
+    (StringLit "cart")
+    (Block
+      (ExpectStmt expect
+        (BinaryExpr (MemberExpr (MemberExpr (NameExpr cart) items) count) == (Literal 1)))
+      (ExpectStmt expect
+        (BinaryExpr (MemberExpr (NameExpr cart) total) == (MemberExpr (Literal 9.99) usd)))
+      (ExpectStmt expect (PrefixExpr not (MemberExpr (NameExpr cart) isEmpty)))
+      (ExpectStmt expect
+        (MemberExpr
+          (CallExpr (MemberExpr (NameExpr screen) text) (ArgList (Arg (StringLit "Total: $9.99"))))
+          isVisible)))))

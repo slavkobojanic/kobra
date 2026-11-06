@@ -1,0 +1,6 @@
+; Clause order is `requires` then `at`.
+(SourceFile
+  (PageDecl page Admin
+    (RequiresClause requires (Guard Authenticated) (Guard Role (ArgList (Arg (ImplicitMemberExpr admin)))))
+    (AtClause at (StringLit "/admin"))
+    (MemberList)))

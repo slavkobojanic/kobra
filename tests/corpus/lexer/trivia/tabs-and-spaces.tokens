@@ -1,0 +1,7 @@
+# Tabs and spaces mix freely; trailing whitespace before a newline is
+# omitted like any other Whitespace token.
+LetKw "let"
+Ident "x"
+Eq "="
+IntLit "1"
+Newline "\n"

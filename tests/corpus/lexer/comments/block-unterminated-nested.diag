@@ -1,0 +1,2 @@
+# The span is the opener of the outermost unterminated comment.
+error[K0003] 1:1-1:3

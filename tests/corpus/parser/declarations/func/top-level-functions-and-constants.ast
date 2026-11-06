@@ -1,0 +1,7 @@
+; Top-level functions and `let` constants are items.
+(SourceFile
+  (FieldDecl let maxItems = (Literal 50))
+  (FieldDecl public let defaultCurrency (PathType Currency) = (ImplicitMemberExpr usd))
+  (FieldDecl private let secret (PathType String) (Block (StringLit "s")))
+  (FuncDecl func clamp (ParamList (Param value (PathType Int))) (ReturnType (PathType Int))
+    (Block (ReturnStmt return (NameExpr value)))))

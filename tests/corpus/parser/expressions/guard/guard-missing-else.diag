@@ -1,0 +1,2 @@
+# a guard without `else` is K0100 at the `{`
+error[K0100] 3:17-3:18

@@ -1,0 +1,11 @@
+; `config` is contextual: only `config Name` at item or member start is a declaration.
+(SourceFile
+  (ServiceDecl service S
+    (MemberList
+      (FieldDecl (Annotation Inject) let config (PathType StripeWebhookConfig))
+      (FuncDecl func check
+        (ParamList)
+        (ReturnType (PathType Bool))
+        (Block
+          (LetStmt let tolerance = (MemberExpr (NameExpr config) tolerance))
+          (ReturnStmt return (CallExpr (NameExpr config) (ArgList (Arg (NameExpr tolerance))))))))))

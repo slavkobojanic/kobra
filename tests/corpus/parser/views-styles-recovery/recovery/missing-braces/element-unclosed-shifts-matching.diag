@@ -1,0 +1,2 @@
+# A missing `}` for an element shifts brace matching: the later braces close the element and the view, and only the component is unclosed.
+error[K0101] 2:13-2:14

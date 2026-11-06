@@ -1,0 +1,2 @@
+; An `if` node without `else`.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (NameExpr isOpen) (Block (CallExpr (NameExpr Dialog) (ArgList)))))))))

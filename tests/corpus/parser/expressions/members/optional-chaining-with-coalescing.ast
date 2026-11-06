@@ -1,0 +1,3 @@
+; `user?.name ?? "Anon"`
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (MemberExpr (NameExpr user) ?. name) ?? (StringLit "Anon"))))

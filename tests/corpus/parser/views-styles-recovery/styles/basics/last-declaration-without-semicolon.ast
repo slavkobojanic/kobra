@@ -1,0 +1,2 @@
+; The last declaration of a block may omit its `;`.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color (CssValue red))) (StyleRule (Selector (CompoundSelector (ClassSelector b))) (Declaration margin (CssValue (Literal 0))) (Declaration padding (CssValue (Literal 0))))))))

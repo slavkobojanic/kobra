@@ -1,0 +1,2 @@
+; A component with named arguments and a trailing content block (its unnamed slot).
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr Card) (ArgList (Arg title (StringLit "Your cart")) (Arg items (NameExpr items))) (LambdaExpr (CallExpr (NameExpr paragraph) (LambdaExpr (StringLit "Review before checkout."))))))))))

@@ -1,0 +1,4 @@
+; After a header error, the body and later items still parse.
+(SourceFile
+  (PageDecl page A (RequiresClause requires) (MemberList (FieldDecl (Annotation Param) let id (PathType Int))))
+  (PageDecl page B (RequiresClause requires (Guard Authenticated)) (MemberList)))

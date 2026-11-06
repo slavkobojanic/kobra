@@ -1,0 +1,2 @@
+; Block comments between value components and line comments after declarations are trivia.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration padding (CssValue (ImplicitMemberExpr md) (ImplicitMemberExpr lg))) (Declaration margin (CssValue (Literal 0))))))))

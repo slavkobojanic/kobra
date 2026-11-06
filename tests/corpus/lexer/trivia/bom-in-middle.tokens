@@ -1,0 +1,7 @@
+# A BOM anywhere but offset 0 is an unexpected character.
+LetKw "let"
+Ident "a"
+Error "\u{feff}"
+Eq "="
+IntLit "1"
+Newline "\n"

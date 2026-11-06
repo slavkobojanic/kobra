@@ -1,0 +1,2 @@
+; Newlines are insignificant inside `(`, so a modifier on the next line becomes part of the unclosed argument.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr button) (ArgList (Arg label (CallExpr (MemberExpr (StringLit "Save") on) (ArgList (Arg click (NameExpr save))))))))))))

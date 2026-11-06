@@ -1,0 +1,5 @@
+# A lone `\r` is a line terminator of its own.
+Ident "a"
+Newline "\r"
+Ident "b"
+Newline "\r"

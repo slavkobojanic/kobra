@@ -1,0 +1,2 @@
+; A parameter without `: Type` reports K0100 at the `)`.
+(SourceFile (FuncDecl func f (ParamList (Param x)) (Block)))

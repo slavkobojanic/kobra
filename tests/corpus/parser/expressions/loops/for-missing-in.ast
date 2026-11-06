@@ -1,0 +1,3 @@
+; `for x items { }` is K0100 at `items`
+(SourceFile
+  (FuncDecl func f (ParamList) (Block (ForStmt for (IdentPattern x) (NameExpr items) (Block)))))

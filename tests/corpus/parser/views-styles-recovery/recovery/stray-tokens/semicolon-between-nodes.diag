@@ -1,0 +1,2 @@
+# A `;` separating two nodes on one line is K0103 and acts as a separator (no K0102).
+error[K0103] 4:21-4:22

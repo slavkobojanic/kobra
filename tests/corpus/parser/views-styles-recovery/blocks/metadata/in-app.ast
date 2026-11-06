@@ -1,0 +1,2 @@
+; An app declaration with a metadata block and a `use` binding.
+(SourceFile (AppDecl public app Shop (MemberList (UseDecl use (PathType StripePayments) for (PathType PaymentProvider) in (ImplicitMemberExpr production)) (MetadataBlock metadata (Block (CallExpr (NameExpr themeColor) (ArgList (Arg (Literal #3B82F6)))) (CallExpr (NameExpr locale) (ArgList (Arg (ImplicitMemberExpr enUS)))))))))

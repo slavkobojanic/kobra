@@ -1,0 +1,2 @@
+# `failed(let e {` is missing `)`: K0101 at the `(`, and the block still parses.
+error[K0101] 3:11-3:12

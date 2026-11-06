@@ -1,0 +1,5 @@
+; A protocol header may declare guards for all its rpcs.
+(SourceFile
+  (ProtocolDecl protocol AdminProtocol
+    (RequiresClause requires (Guard Authenticated) (Guard Role (ArgList (Arg (ImplicitMemberExpr admin)))))
+    (MemberList (RpcDecl rpc stats (ParamList) (ReturnType (PathType Stats))))))

@@ -1,0 +1,3 @@
+style {
+    .muted { color: .muted; }
+}

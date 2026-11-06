@@ -1,0 +1,3 @@
+# A doc comment stops before `\r\n`.
+DocComment "/// x"
+Newline "\r\n"

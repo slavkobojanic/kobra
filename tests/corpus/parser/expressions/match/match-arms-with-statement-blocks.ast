@@ -1,0 +1,13 @@
+; arm blocks hold several statements, and blank lines and comments separate arms
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr event)
+        (MatchArm case
+          (EnumCasePattern key (BindingPattern let k))
+          (Block
+            (CallExpr (NameExpr log) (ArgList (Arg (NameExpr k))))
+            (CallExpr (NameExpr handle) (ArgList (Arg (NameExpr k))))))
+        (MatchArm default (Block (CallExpr (NameExpr ignore) (ArgList))))))))

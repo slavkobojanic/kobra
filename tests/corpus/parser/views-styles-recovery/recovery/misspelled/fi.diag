@@ -1,0 +1,2 @@
+# A misspelled `if` is a name followed by another node on the same line (K0102).
+error[K0102] 4:12-4:17

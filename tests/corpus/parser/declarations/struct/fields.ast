@@ -1,0 +1,10 @@
+; Fields with `let` and `var`, with and without types and initializers.
+(SourceFile
+  (StructDecl struct User
+    (MemberList
+      (FieldDecl let id (PathType UserId))
+      (FieldDecl var name (PathType String))
+      (FieldDecl var nickname (OptionalType (PathType String)) = (Literal nil))
+      (FieldDecl var tags = (ListExpr (StringLit "new")))
+      (FieldDecl let createdAt (PathType Date) = (MemberExpr (NameExpr Date) now))
+      (FieldDecl var anything))))

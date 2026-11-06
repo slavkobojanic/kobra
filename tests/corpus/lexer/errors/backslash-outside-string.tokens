@@ -1,0 +1,5 @@
+# A backslash outside a string is an unexpected character.
+Ident "a"
+Error "\\"
+Ident "b"
+Newline "\n"

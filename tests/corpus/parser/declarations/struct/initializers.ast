@@ -1,0 +1,12 @@
+; `init` declares initializers, with optional `throws` and visibility.
+(SourceFile
+  (StructDecl struct Product
+    (MemberList
+      (FieldDecl let id (PathType Int))
+      (FieldDecl let name (PathType String))
+      (InitDecl init (ParamList (Param name (PathType String)))
+        (Block
+          (AssignStmt (MemberExpr (NameExpr self) id) = (Literal 0))
+          (AssignStmt (MemberExpr (NameExpr self) name) = (NameExpr name))))
+      (InitDecl private init (ParamList) (ThrowsClause throws (PathType ValidationError))
+        (Block (ThrowStmt throw (MemberExpr (NameExpr ValidationError) empty)))))))

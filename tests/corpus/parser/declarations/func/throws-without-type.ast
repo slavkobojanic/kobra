@@ -1,0 +1,5 @@
+; `throws` must name a type: K0129 on `throws`, before `->` or before the body.
+(SourceFile
+  (FuncDecl func a (ParamList) (ThrowsClause throws) (ReturnType (PathType Int)) (Block))
+  (FuncDecl func b (ParamList) (ThrowsClause throws) (Block))
+  (FuncDecl func c (ParamList) async (ThrowsClause throws) (Block)))

@@ -1,0 +1,3 @@
+; `a < b < c` is K0113 at the second operator and is built left-associatively
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (BinaryExpr (NameExpr x) < (NameExpr y)) < (NameExpr z))))

@@ -1,0 +1,3 @@
+; `await` covers the whole binary expression to its right
+(SourceFile
+  (FieldDecl let a = (AwaitExpr await (BinaryExpr (CallExpr (NameExpr f) (ArgList)) + (Literal 1)))))

@@ -1,0 +1,9 @@
+; `guard let x = e else { ... }`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (GuardStmt guard
+        (LetCondition let user = (MemberExpr (NameExpr session) user))
+        else
+        (Block (ThrowStmt throw (MemberExpr (NameExpr CheckoutError) notLoggedIn)))))))

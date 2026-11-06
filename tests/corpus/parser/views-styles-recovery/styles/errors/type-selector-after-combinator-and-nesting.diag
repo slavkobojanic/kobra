@@ -1,0 +1,3 @@
+# Type selectors after a combinator and glued to `&` are each reported.
+error[K0116] 4:14-4:20
+error[K0116] 6:14-6:18

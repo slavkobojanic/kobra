@@ -1,0 +1,7 @@
+; Validation annotations take several labeled arguments.
+(SourceFile
+  (StructDecl struct SignUp
+    (MemberList
+      (FieldDecl (Annotation Email) var email (PathType String))
+      (FieldDecl (Annotation Length (ArgList (Arg min (Literal 8)) (Arg max (Literal 64)))) var password (PathType String))
+      (FieldDecl (Annotation NotBlank) (Annotation Matches (ArgList (Arg (StringLit "^[a-z]+$")))) var handle (PathType String)))))

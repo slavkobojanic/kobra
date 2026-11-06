@@ -1,0 +1,4 @@
+; `&&` and `||` recover with the precedence of `and` and `or`
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (BinaryExpr (NameExpr x) && (NameExpr y)) || (NameExpr z)))
+  (FieldDecl let b = (BinaryExpr (NameExpr x) || (BinaryExpr (NameExpr y) && (NameExpr z)))))

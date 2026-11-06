@@ -1,0 +1,4 @@
+# `5.` is IntLit then Dot.
+IntLit "5"
+Dot "."
+Newline "\n"

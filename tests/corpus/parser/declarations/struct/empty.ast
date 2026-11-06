@@ -1,0 +1,2 @@
+; The smallest struct.
+(SourceFile (StructDecl struct Unit (MemberList)))

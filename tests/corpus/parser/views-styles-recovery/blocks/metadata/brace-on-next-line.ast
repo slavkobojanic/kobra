@@ -1,0 +1,2 @@
+; `metadata` followed by its `{` on the next line.
+(SourceFile (PageDecl page Product (MemberList (MetadataBlock metadata (Block (CallExpr (NameExpr title) (ArgList (Arg (StringLit "x")))))))))

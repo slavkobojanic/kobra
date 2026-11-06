@@ -1,0 +1,5 @@
+# `//` runs to the end of the line; the line terminator is not part of it.
+LineComment "// a comment"
+Newline "\n"
+Ident "x"
+Newline "\n"

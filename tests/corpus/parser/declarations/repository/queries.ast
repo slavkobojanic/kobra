@@ -1,0 +1,26 @@
+; The repository from docs/design/19-persistence.md.
+(SourceFile
+  (RepositoryDecl repository UserRepository (ForClause for (PathType User))
+    (MemberList
+      (FuncDecl func byEmail (ParamList (Param email (PathType String))) async
+        (ReturnType (OptionalType (PathType User)))
+        (Block
+          (ReturnStmt return
+            (CallExpr (MemberExpr (NameExpr users) first)
+              (LambdaExpr (LambdaParamList (LambdaParam user))
+                (BinaryExpr (MemberExpr (NameExpr user) email) == (NameExpr email)))))))
+      (FuncDecl func activeSince (ParamList (Param date (PathType Date))) async
+        (ReturnType (PathType List (GenericArgList (PathType User))))
+        (Block
+          (ReturnStmt return
+            (CallExpr
+              (MemberExpr
+                (CallExpr
+                  (MemberExpr
+                    (CallExpr (MemberExpr (NameExpr users) filter)
+                      (LambdaExpr (LambdaParamList (LambdaParam user))
+                        (BinaryExpr (MemberExpr (NameExpr user) lastSeen) > (NameExpr date))))
+                    sortedBy)
+                  (LambdaExpr (LambdaParamList (LambdaParam user)) (MemberExpr (NameExpr user) name)))
+                limit)
+              (ArgList (Arg (Literal 50))))))))))

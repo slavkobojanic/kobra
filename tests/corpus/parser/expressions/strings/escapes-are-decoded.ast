@@ -1,0 +1,2 @@
+; escapes are decoded into the atom; text and escapes merge into one atom
+(SourceFile (FieldDecl let a = (StringLit "a\nb\t\"q\" \\ 😀 \u{0}\r{x}")))

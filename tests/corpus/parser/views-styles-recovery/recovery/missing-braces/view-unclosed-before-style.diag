@@ -1,0 +1,2 @@
+# A view block left open before a `style` member: `style` cannot start a statement, so the view block ends there (K0101 at its `{`) and the style block parses as a member.
+error[K0101] 3:10-3:11

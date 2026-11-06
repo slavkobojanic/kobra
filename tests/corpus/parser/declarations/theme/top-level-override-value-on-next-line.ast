@@ -1,0 +1,6 @@
+; The value may continue on the next line, since `=` requires one (rule N2).
+(SourceFile
+  (ThemeDecl theme T
+    (MemberList
+      (ThemeOverride chartGrid = (Literal #E2E8F0))
+      (ThemeToken color a (PathType Color) = (Literal #fff)))))

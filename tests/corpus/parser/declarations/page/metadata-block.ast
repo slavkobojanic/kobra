@@ -1,0 +1,9 @@
+; A `metadata` block is a block of calls.
+(SourceFile
+  (PageDecl page Pricing (AtClause at (StringLit "/pricing"))
+    (MemberList
+      (MetadataBlock metadata
+        (Block
+          (CallExpr (NameExpr title) (ArgList (Arg (StringLit "Pricing"))))
+          (CallExpr (NameExpr description) (ArgList (Arg (StringLit "Plans for every team"))))
+          (CallExpr (NameExpr canonical) (ArgList (Arg (ImplicitMemberExpr pricing)))))))))

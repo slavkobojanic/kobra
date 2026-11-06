@@ -1,0 +1,12 @@
+; a `where` guard applies to all patterns of the arm
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr x)
+        (MatchArm case
+          (EnumCasePattern a)
+          (EnumCasePattern b)
+          (MatchGuard where (NameExpr ok))
+          (Block))))))

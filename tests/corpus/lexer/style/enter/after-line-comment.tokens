@@ -1,0 +1,13 @@
+# The lookahead after `style` skips line comments and newlines.
+StyleKw "style"
+LineComment "// styles"
+Newline "\n"
+LBrace "{"
+Newline "\n"
+Dot "."
+Ident "x-y"
+LBrace "{"
+RBrace "}"
+Newline "\n"
+RBrace "}"
+Newline "\n"

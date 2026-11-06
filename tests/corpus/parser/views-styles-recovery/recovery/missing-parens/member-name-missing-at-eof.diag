@@ -1,0 +1,4 @@
+# End of file right after a chained `.`: K0100 at the gap after the `.`, and K0101 for the open braces.
+error[K0100] 5:14-5:14
+error[K0101] 2:13-2:14
+error[K0101] 3:10-3:11

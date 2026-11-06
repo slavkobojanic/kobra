@@ -1,0 +1,2 @@
+; A `;` after a metadata entry is K0103.
+(SourceFile (PageDecl page Product (MemberList (MetadataBlock metadata (Block (CallExpr (NameExpr title) (ArgList (Arg (StringLit "a")))))))))

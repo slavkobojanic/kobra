@@ -1,0 +1,8 @@
+; `10.minutes` and `0.2.seconds` are member accesses on number literals
+(SourceFile
+  (FieldDecl let a = (MemberExpr (Literal 10) minutes))
+  (FieldDecl let b = (MemberExpr (Literal 0.2) seconds))
+  (FieldDecl let c = (MemberExpr (MemberExpr (Literal 2) hours) ago))
+  (FieldDecl let d = (MemberExpr (Literal 9.99) usd))
+  (FieldDecl let e = (MemberExpr (Literal 1) hour))
+  (FieldDecl let g = (MemberExpr (Literal 25) megabytes)))

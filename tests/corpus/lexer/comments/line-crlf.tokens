@@ -1,0 +1,5 @@
+# The `\r` of a CRLF is not part of the comment.
+LineComment "// x"
+Newline "\r\n"
+Ident "y"
+Newline "\r\n"

@@ -1,0 +1,2 @@
+; A view written with CRLF line endings parses exactly like one with LF endings.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr (CallExpr (NameExpr text) (LambdaExpr (StringLit "a"))) (CallExpr (NameExpr text) (LambdaExpr (StringLit "b"))))) class) (ArgList (Arg (ImplicitMemberExpr wide)))))))))

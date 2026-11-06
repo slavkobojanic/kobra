@@ -1,0 +1,2 @@
+# `for x items { }` is K0100 at `items`
+error[K0100] 3:11-3:16

@@ -1,0 +1,2 @@
+; `when` outside an argument or list element is K0109; the WhenExpr is still built.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (WhenExpr (StringLit "x") when (NameExpr visible)))))))))

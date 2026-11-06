@@ -1,0 +1,2 @@
+; An error in one component does not hide an error in the next component of the same file.
+(SourceFile (ComponentDecl component A (MemberList (ErrorNode veiw))) (ComponentDecl component B (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr button) (LambdaExpr (StringLit "x"))) disabled) (ArgList (Arg (PrefixExpr ! (NameExpr ok))))))))))

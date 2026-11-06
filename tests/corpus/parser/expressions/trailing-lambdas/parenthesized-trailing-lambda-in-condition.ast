@@ -1,0 +1,11 @@
+; parentheses lift the restriction: `if (items.contains { i => i.isNew }) { ... }`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (IfExpr if
+        (ParenExpr
+          (CallExpr
+            (MemberExpr (NameExpr items) contains)
+            (LambdaExpr (LambdaParamList (LambdaParam i)) (MemberExpr (NameExpr i) isNew))))
+        (Block (CallExpr (NameExpr badge) (ArgList)))))))

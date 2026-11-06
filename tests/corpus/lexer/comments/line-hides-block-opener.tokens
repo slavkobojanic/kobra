@@ -1,0 +1,5 @@
+# `/*` inside a line comment does not open a block comment.
+LineComment "// /* not a block"
+Newline "\n"
+Ident "x"
+Newline "\n"

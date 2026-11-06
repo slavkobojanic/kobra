@@ -1,0 +1,5 @@
+# Float bounds around a range operator.
+FloatLit "0.5"
+DotDotDot "..."
+FloatLit "1.5"
+Newline "\n"

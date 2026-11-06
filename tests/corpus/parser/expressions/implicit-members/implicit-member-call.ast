@@ -1,0 +1,9 @@
+; `.name(args)` is a CallExpr whose callee is an ImplicitMemberExpr
+(SourceFile
+  (FieldDecl let a = (CallExpr (ImplicitMemberExpr product) (ArgList (Arg id (Literal 1)))))
+  (FieldDecl let b =
+    (CallExpr
+      (ImplicitMemberExpr rgb)
+      (ArgList (Arg (Literal 59)) (Arg (Literal 130)) (Arg (Literal 246)))))
+  (FieldDecl let c =
+    (CallExpr (ImplicitMemberExpr outOfStock) (ArgList (Arg available (NameExpr n))))))

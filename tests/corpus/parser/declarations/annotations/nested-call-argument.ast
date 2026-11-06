@@ -1,0 +1,8 @@
+; Annotation arguments may be calls with their own labeled arguments.
+(SourceFile
+  (StructDecl struct Price
+    (MemberList
+      (FieldDecl
+        (Annotation Default
+          (ArgList (Arg (CallExpr (NameExpr Money) (ArgList (Arg amount (Literal 0)) (Arg currency (ImplicitMemberExpr usd)))))))
+        var value (PathType Money)))))

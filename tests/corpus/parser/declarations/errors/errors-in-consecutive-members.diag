@@ -1,0 +1,4 @@
+# Errors in consecutive members are reported independently.
+error[K0100] 3:10-3:11
+error[K0100] 4:9-4:10
+error[K0129] 5:13-5:19

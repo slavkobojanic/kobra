@@ -1,0 +1,7 @@
+style {
+    .a {
+        width: {
+            size
+        };
+    }
+}

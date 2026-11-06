@@ -1,0 +1,5 @@
+# Only the BOM at offset 0 is whitespace; a second BOM right after it is an
+# unexpected character.
+Error "\u{feff}"
+Ident "x"
+Newline "\n"

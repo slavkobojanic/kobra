@@ -1,0 +1,11 @@
+; Regression: after `button { color: red; }` (K0116, RA-8) the lexer stayed in the declaration
+; state, so `.a { ... }` was lexed with an interpolation and reported K0100, K0133 and another
+; K0100. The element rule now ends its style statement; the next rule parses normally.
+(SourceFile
+  (ComponentDecl component T
+    (MemberList
+      (StyleBlock style
+        (StyleRule (Selector (CompoundSelector (TypeSelector button))) (ErrorNode color red))
+        (StyleRule
+          (Selector (CompoundSelector (ClassSelector a)))
+          (Declaration color (CssValue blue)))))))

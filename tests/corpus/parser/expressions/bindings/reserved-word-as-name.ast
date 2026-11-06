@@ -1,0 +1,5 @@
+; `as` and `is` are reserved (K0108); the parser still uses them as the name
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (LetStmt let as = (Literal 1)) (LetStmt let is = (Literal 2)))))

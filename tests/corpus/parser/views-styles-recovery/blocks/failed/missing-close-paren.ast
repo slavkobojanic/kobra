@@ -1,0 +1,2 @@
+; `failed(let e {` is missing `)`: K0101 at the `(`, and the block still parses.
+(SourceFile (PageDecl page Product (MemberList (FailedBlock failed (BindingPattern let e) (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit "x"))))))))

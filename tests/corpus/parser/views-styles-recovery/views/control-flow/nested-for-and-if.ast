@@ -1,0 +1,2 @@
+; A `for` nested in an element, with an `if` nested in the loop body.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr list) (LambdaExpr (ForStmt for (IdentPattern item) in (NameExpr items) (KeyClause key (MemberExpr (NameExpr item) id)) (Block (IfExpr if (MemberExpr (NameExpr item) isVisible) (Block (CallExpr (NameExpr item) (LambdaExpr (MemberExpr (NameExpr item) name))))))))))))))

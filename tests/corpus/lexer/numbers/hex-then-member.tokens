@@ -1,0 +1,5 @@
+# A prefixed literal stops at `.`.
+IntLit "0xFF"
+Dot "."
+Ident "description"
+Newline "\n"

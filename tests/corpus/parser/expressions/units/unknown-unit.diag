@@ -1,0 +1,4 @@
+# an unknown unit suffix is K0112 on the whole literal; the literal stays in the tree
+error[K0112] 2:9-2:13
+error[K0112] 3:9-3:11
+error[K0112] 4:9-4:14

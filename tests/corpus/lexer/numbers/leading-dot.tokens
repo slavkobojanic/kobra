@@ -1,0 +1,4 @@
+# `.5` is not a number: Dot then IntLit.
+Dot "."
+IntLit "5"
+Newline "\n"

@@ -1,0 +1,2 @@
+; The parser accepts view, loading, failed and metadata blocks in any member list; rejecting them in a struct is semantic.
+(SourceFile (StructDecl struct Point (MemberList (ViewBlock view (Block)) (LoadingBlock loading (Block)) (FailedBlock failed (Block)) (MetadataBlock metadata (Block)))))

@@ -1,0 +1,11 @@
+; `=` and every compound assignment build an AssignStmt
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (AssignStmt (NameExpr x) = (Literal 5))
+      (AssignStmt (NameExpr x) += (Literal 1))
+      (AssignStmt (NameExpr x) -= (Literal 2))
+      (AssignStmt (NameExpr x) *= (Literal 3))
+      (AssignStmt (NameExpr x) /= (Literal 4))
+      (AssignStmt (NameExpr x) %= (Literal 5)))))

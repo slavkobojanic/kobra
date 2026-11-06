@@ -1,0 +1,5 @@
+; Guard names may be qualified with dots.
+(SourceFile
+  (PageDecl page Billing
+    (RequiresClause requires (Guard auth Authenticated) (Guard Roles Admin (ArgList (Arg level (Literal 2)))))
+    (MemberList)))

@@ -1,0 +1,2 @@
+; Blank lines and comments inside a header before the required body are insignificant.
+(SourceFile (StructDecl struct A (MemberList)))

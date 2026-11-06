@@ -1,0 +1,4 @@
+; two statements on one line inside a lambda are K0102
+(SourceFile
+  (FieldDecl let a =
+    (LambdaExpr (LambdaParamList (LambdaParam x)) (LetStmt let y = (NameExpr x)) (NameExpr y))))

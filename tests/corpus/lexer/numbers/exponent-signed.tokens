@@ -1,0 +1,5 @@
+# A sign directly after `e`/`E` belongs to the exponent when a digit follows.
+FloatLit "2.5e-3"
+FloatLit "1e+10"
+FloatLit "6.02E-23"
+Newline "\n"

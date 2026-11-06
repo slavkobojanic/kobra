@@ -1,0 +1,2 @@
+; The global class escape hatch `global("...")` is an ordinary call argument.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr button) (LambdaExpr (StringLit "Buy"))) class) (ArgList (Arg (CallExpr (NameExpr global) (ArgList (Arg (StringLit "btn-primary"))))))))))))

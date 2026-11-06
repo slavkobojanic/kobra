@@ -1,0 +1,9 @@
+; A theme may declare several variants; an empty variant is allowed.
+(SourceFile
+  (ThemeDecl theme T
+    (MemberList
+      (ThemeToken color surface (PathType Color) = (Literal #fff))
+      (ThemeToken color text (PathType Color) = (Literal #000))
+      (ThemeVariant variant dark (ThemeOverride surface = (Literal #111)) (ThemeOverride text = (Literal #eee)))
+      (ThemeVariant variant highContrast (ThemeOverride text = (Literal #000000)))
+      (ThemeVariant variant empty))))

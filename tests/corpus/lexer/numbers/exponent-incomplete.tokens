@@ -1,0 +1,9 @@
+# Without a digit (optionally signed) after `e`, there is no exponent: `e` is
+# a unit suffix, and the sign is an ordinary operator.
+UnitLit "1e"
+UnitLit "2e"
+Plus "+"
+UnitLit "3e"
+Minus "-"
+Ident "x"
+Newline "\n"

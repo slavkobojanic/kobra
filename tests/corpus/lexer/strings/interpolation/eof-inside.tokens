@@ -1,0 +1,4 @@
+# End of file inside an interpolation.
+StringStart "\""
+InterpStart "{"
+Ident "x"

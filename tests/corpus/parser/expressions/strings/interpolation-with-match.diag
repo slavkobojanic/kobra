@@ -1,0 +1,2 @@
+# a match inside an interpolation must fit on one line (RA-11), so its second arm is K0102
+error[K0102] 2:39-2:46

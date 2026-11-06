@@ -1,0 +1,2 @@
+; Several misspelled block keywords in one component are each reported once, and the correct members between them still parse.
+(SourceFile (ComponentDecl component T (MemberList (ErrorNode lodaing Spinner) (ViewBlock view (Block)) (ErrorNode faild let e) (FieldDecl (Annotation State) var x (PathType Int) = (Literal 0)) (ErrorNode metdata title name) (LoadingBlock loading (Block)))))

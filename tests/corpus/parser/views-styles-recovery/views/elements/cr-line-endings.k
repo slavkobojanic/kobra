@@ -1,0 +1,1 @@
+// Lone carriage returns are line terminators too.component T {    view {        text { "a" }        text { "b" }    }}

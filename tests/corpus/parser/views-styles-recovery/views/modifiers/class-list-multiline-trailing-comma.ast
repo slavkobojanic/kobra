@@ -1,0 +1,2 @@
+; A class list spread over lines with a trailing comma and a compound `when` condition.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr)) class) (ArgList (Arg (ListExpr (ImplicitMemberExpr panel) (WhenExpr (ImplicitMemberExpr expanded) when (NameExpr isExpanded)) (WhenExpr (ImplicitMemberExpr dense) when (BinaryExpr (MemberExpr (NameExpr items) count) > (Literal 10))))))))))))

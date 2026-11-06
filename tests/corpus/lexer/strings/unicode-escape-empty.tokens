@@ -1,0 +1,5 @@
+# `\u{}` has no digits.
+StringStart "\""
+StringEscape "\\u{}"
+StringEnd "\""
+Newline "\n"

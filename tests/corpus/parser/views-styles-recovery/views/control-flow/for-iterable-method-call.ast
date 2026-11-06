@@ -1,0 +1,2 @@
+; A method call with arguments as the iterable, and a call as the key.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (ForStmt for (IdentPattern user) in (CallExpr (MemberExpr (NameExpr users) sorted) (ArgList (Arg by (ImplicitMemberExpr name)))) (KeyClause key (MemberExpr (MemberExpr (NameExpr user) id) value)) (Block (CallExpr (NameExpr UserRow) (ArgList (Arg user (NameExpr user)))))))))))

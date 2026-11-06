@@ -1,0 +1,3 @@
+# End of file after complete rules but before the style block's `}`.
+error[K0101] 2:13-2:14
+error[K0101] 3:11-3:12

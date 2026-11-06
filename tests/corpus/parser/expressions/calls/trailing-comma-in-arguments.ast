@@ -1,0 +1,3 @@
+; a trailing comma is allowed in an argument list
+(SourceFile
+  (FieldDecl let a = (CallExpr (NameExpr f) (ArgList (Arg (NameExpr x)) (Arg (NameExpr y))))))

@@ -1,0 +1,6 @@
+; `?.` builds a MemberExpr that keeps the `?.` token
+(SourceFile
+  (FieldDecl let a = (MemberExpr (NameExpr user) ?. name))
+  (FieldDecl let b = (MemberExpr (MemberExpr (NameExpr user) ?. address) ?. city))
+  (FieldDecl let c = (MemberExpr (MemberExpr (NameExpr user) ?. address) city))
+  (FieldDecl let d = (CallExpr (MemberExpr (NameExpr user) ?. greet) (ArgList))))

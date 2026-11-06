@@ -1,0 +1,4 @@
+# A decimal literal ending in `_` is still an IntLit, with K0006.
+IntLit "1_"
+IntLit "10__"
+Newline "\n"

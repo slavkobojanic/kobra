@@ -1,0 +1,2 @@
+; A slot is placed by naming it.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr article) (LambdaExpr (NameExpr content))))))))

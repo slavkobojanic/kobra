@@ -1,0 +1,2 @@
+; An element with a named argument and a trailing content block is one CallExpr holding both.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr heading) (ArgList (Arg level (Literal 2))) (LambdaExpr (StringLit "Your cart"))))))))

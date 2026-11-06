@@ -1,0 +1,3 @@
+# A leading BOM followed by spaces and tabs forms one Whitespace token.
+Ident "x"
+Newline "\n"

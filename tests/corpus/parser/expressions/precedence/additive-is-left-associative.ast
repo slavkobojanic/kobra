@@ -1,0 +1,4 @@
+; `+` and `-` associate to the left
+(SourceFile
+  (FieldDecl let a =
+    (BinaryExpr (BinaryExpr (BinaryExpr (Literal 1) - (Literal 2)) + (Literal 3)) - (Literal 4))))

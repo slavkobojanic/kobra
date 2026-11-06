@@ -1,0 +1,6 @@
+; an if-expression with nested strings inside an interpolation
+(SourceFile
+  (FieldDecl let a =
+    (StringLit
+      (Interpolation
+        (IfExpr if (NameExpr done) (Block (StringLit "Done")) else (Block (StringLit "Pending")))))))

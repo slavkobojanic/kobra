@@ -1,0 +1,11 @@
+; Each part of an rpc signature may start a new line.
+(SourceFile
+  (ProtocolDecl protocol CartProtocol
+    (MemberList
+      (RpcDecl rpc add (ParamList (Param request (PathType AddItemRequest))) async
+        (ThrowsClause throws (PathType CartError))
+        (ReturnType (PathType CartItem))
+        (RequiresClause requires
+          (Guard Authenticated)
+          (Guard RateLimit (ArgList (Arg (MemberExpr (Literal 10) perSecond))))))
+      (RpcDecl rpc next (ParamList)))))

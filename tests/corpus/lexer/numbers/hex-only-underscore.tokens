@@ -1,0 +1,3 @@
+# A prefix followed only by `_` has no digits and ends with `_`.
+IntLit "0x_"
+Newline "\n"

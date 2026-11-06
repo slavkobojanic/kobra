@@ -1,0 +1,5 @@
+; an `if` statement without `else`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (IfExpr if (NameExpr ready) (Block (CallExpr (NameExpr start) (ArgList)))))))

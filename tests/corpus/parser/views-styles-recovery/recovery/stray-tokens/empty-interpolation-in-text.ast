@@ -1,0 +1,2 @@
+; An empty interpolation in a text node is K0128 on the `{}`.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit "a" (Interpolation) "b"))))))))

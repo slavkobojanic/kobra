@@ -1,0 +1,2 @@
+# the missing `{` is reported at the gap after the name
+error[K0100] 1:9-1:9

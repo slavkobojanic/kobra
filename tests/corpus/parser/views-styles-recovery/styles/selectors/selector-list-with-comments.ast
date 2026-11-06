@@ -1,0 +1,2 @@
+; Comments between selectors of a list and before the block.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Selector (CompoundSelector (ClassSelector b))))))))

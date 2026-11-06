@@ -1,0 +1,3 @@
+# A prefixed literal must not end with `_`.
+IntLit "0xFF_"
+Newline "\n"

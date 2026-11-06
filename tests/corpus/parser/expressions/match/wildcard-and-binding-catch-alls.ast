@@ -1,0 +1,12 @@
+; `case _` and `case let other` are patterns; `default` is the keyword catch-all
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr x)
+        (MatchArm case (WildcardPattern _) (Block))
+        (MatchArm case
+          (BindingPattern let other)
+          (Block (CallExpr (NameExpr use) (ArgList (Arg (NameExpr other))))))
+        (MatchArm default (Block))))))

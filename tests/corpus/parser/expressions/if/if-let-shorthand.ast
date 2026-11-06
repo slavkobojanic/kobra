@@ -1,0 +1,5 @@
+; `if let footer` is shorthand for `if let footer = footer`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (IfExpr if (LetCondition let footer) (Block (NameExpr footer))))))

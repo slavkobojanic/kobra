@@ -1,0 +1,2 @@
+; A media feature whose value is a theme breakpoint written as an implicit member.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (AtRule media (AtPrelude (MediaFeature minWidth (CssValue (ImplicitMemberExpr tablet)))))))))

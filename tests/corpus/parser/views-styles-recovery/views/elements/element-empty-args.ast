@@ -1,0 +1,2 @@
+; Elements called with an empty argument list.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr lineBreak) (ArgList)) (CallExpr (NameExpr divider) (ArgList)))))))

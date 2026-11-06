@@ -1,0 +1,5 @@
+; Comments may surround and follow imports.
+(SourceFile
+  (Import import (ImportPath a B))
+  (Import import (ImportPath c D))
+  (StructDecl struct E (MemberList)))

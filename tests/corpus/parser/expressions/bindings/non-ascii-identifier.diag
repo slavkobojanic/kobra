@@ -1,0 +1,2 @@
+# identifiers are ASCII (RA-21): `é` is one K0001 Error token, wrapped in an ErrorNode; the next statement parses
+error[K0001] 3:5-3:6

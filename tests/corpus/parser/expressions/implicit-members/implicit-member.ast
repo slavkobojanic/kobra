@@ -1,0 +1,2 @@
+; `.name` is an ImplicitMemberExpr
+(SourceFile (FieldDecl let a = (ImplicitMemberExpr primary)))

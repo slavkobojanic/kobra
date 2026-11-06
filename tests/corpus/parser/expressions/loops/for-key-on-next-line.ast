@@ -1,0 +1,11 @@
+; `key` at the start of the next line continues the `for` header (rule N3)
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ForStmt for
+        (IdentPattern x)
+        in
+        (NameExpr xs)
+        (KeyClause key (MemberExpr (NameExpr x) id))
+        (Block)))))

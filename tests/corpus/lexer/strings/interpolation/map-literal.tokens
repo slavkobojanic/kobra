@@ -1,0 +1,11 @@
+# Brackets do not affect brace counting.
+StringStart "\""
+InterpStart "{"
+LBrack "["
+Ident "k"
+Colon ":"
+Ident "v"
+RBrack "]"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

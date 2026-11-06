@@ -1,0 +1,2 @@
+; Two compound selectors separated by whitespace form a descendant selector.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector list)) (CompoundSelector (ClassSelector item))))))))

@@ -1,0 +1,5 @@
+; `_` makes a parameter positional.
+(SourceFile
+  (FuncDecl func find
+    (ParamList (Param _ id (PathType ProductId)) (Param _ fallback (OptionalType (PathType Product)) = (Literal nil)))
+    (Block)))

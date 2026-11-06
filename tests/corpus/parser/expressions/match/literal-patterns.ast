@@ -1,0 +1,15 @@
+; integers, negative and float numbers, units, strings, booleans and nil as patterns
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr v)
+        (MatchArm case (LiteralPattern 0) (Block))
+        (MatchArm case (LiteralPattern - 1) (Block))
+        (MatchArm case (LiteralPattern 1.5) (Block))
+        (MatchArm case (LiteralPattern - 2.5) (Block))
+        (MatchArm case (LiteralPattern 16px) (Block))
+        (MatchArm case (LiteralPattern (StringLit "héllo")) (Block))
+        (MatchArm case (LiteralPattern true) (LiteralPattern false) (Block))
+        (MatchArm case (LiteralPattern nil) (Block))))))

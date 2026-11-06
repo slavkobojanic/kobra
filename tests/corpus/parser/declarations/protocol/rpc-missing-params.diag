@@ -1,0 +1,2 @@
+# An rpc without a parameter list reports K0100 at the token where `(` was expected.
+error[K0100] 3:14-3:16

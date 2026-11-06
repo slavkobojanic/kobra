@@ -1,0 +1,4 @@
+# End of file inside a rule: every unclosed `{` (rule, style block, component) reports K0101 at its opening brace.
+error[K0101] 2:13-2:14
+error[K0101] 3:11-3:12
+error[K0101] 4:12-4:13

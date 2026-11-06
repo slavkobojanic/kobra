@@ -1,0 +1,11 @@
+; a match guard is `expr_nt`: `where xs.isEmpty { }` does not take a trailing lambda
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr x)
+        (MatchArm case
+          (EnumCasePattern a)
+          (MatchGuard where (MemberExpr (NameExpr xs) isEmpty))
+          (Block))))))

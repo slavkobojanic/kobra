@@ -1,0 +1,4 @@
+# The `"` after `{` starts a nested string inside the interpolation; the
+# newline ends it and the outer string.
+error[K0002] 1:7-1:8
+error[K0002] 1:15-1:16

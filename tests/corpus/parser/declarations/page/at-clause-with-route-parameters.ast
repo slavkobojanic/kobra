@@ -1,0 +1,7 @@
+; Route templates interpolate parameters.
+(SourceFile
+  (PageDecl page ProductDetail
+    (AtClause at (StringLit "/product/" (Interpolation (NameExpr id)) "/" (Interpolation (NameExpr tab))))
+    (MemberList
+      (FieldDecl (Annotation Param) let id (PathType ProductId))
+      (FieldDecl (Annotation Param) let tab (PathType ProductTab)))))

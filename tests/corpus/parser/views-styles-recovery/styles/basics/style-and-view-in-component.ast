@@ -1,0 +1,2 @@
+; A component with both a view and a style block; `.class(.label)` in the view is code, `.label` in the style is a selector.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr text) (LambdaExpr (StringLit "Hi"))) class) (ArgList (Arg (ImplicitMemberExpr label)))))) (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector label))) (Declaration fontSize (CssValue (ImplicitMemberExpr lg))))))))

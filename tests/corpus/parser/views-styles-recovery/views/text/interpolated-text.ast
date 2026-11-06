@@ -1,0 +1,2 @@
+; Interpolations inside a text node split the string into pieces.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit (Interpolation (NameExpr label)) ": " (Interpolation (NameExpr count))))))))))

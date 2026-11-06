@@ -1,0 +1,2 @@
+; A token that cannot start an item is K0125; parsing resumes at the next item.
+(SourceFile (ErrorNode 42) (StructDecl struct A (MemberList)))

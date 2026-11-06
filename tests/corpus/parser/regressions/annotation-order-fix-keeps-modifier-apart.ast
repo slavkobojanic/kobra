@@ -1,0 +1,4 @@
+; Regression: the K0121 fix deleted the annotation together with the whitespace after it, so
+; `public@Inject let` became `@Inject publiclet`. When no whitespace precedes the annotation,
+; only the annotation itself is deleted.
+(SourceFile (FieldDecl public (Annotation Inject) let a (PathType Int) = (Literal 1)))

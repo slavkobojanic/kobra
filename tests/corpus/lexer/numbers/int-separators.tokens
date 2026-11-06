@@ -1,0 +1,5 @@
+# `_` separators are allowed anywhere after the first digit, even doubled.
+IntLit "1_000"
+IntLit "1_000_000"
+IntLit "1__0"
+Newline "\n"

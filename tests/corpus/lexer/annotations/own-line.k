@@ -1,0 +1,2 @@
+@Effect
+func log() {}

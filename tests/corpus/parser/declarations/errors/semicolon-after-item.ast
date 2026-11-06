@@ -1,0 +1,2 @@
+; A `;` after an item is K0103.
+(SourceFile (StructDecl struct A (MemberList)) (StructDecl struct B (MemberList)))

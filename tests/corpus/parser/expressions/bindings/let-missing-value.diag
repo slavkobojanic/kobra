@@ -1,0 +1,2 @@
+# `let a =` with nothing after it is K0122 at the gap after `=`
+error[K0122] 3:12-3:12

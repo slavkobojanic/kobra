@@ -1,0 +1,2 @@
+; `bind` of a nested field path.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr TextField) (ArgList (Arg value (BindExpr bind (MemberExpr (MemberExpr (NameExpr user) address) city))))))))))

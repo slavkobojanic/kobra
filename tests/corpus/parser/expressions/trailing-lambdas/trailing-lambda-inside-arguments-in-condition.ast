@@ -1,0 +1,14 @@
+; inside an argument list within a condition, trailing lambdas are allowed again
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (IfExpr if
+        (CallExpr
+          (NameExpr any)
+          (ArgList
+            (Arg
+              (CallExpr
+                (MemberExpr (NameExpr xs) map)
+                (LambdaExpr (LambdaParamList (LambdaParam x)) (MemberExpr (NameExpr x) ok))))))
+        (Block (CallExpr (NameExpr go) (ArgList)))))))

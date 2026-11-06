@@ -1,0 +1,3 @@
+; `{ return }` ends at the closing brace
+(SourceFile
+  (FuncDecl func f (ParamList) (Block (IfExpr if (NameExpr done) (Block (ReturnStmt return))))))

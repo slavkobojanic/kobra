@@ -1,0 +1,2 @@
+; `failed(let error)` with an exhaustive match (from the async data design).
+(SourceFile (PageDecl page Product (MemberList (FailedBlock failed (BindingPattern let error) (Block (MatchExpr match (NameExpr error) (MatchArm case (EnumCasePattern notFound) (Block (CallExpr (NameExpr NotFound) (ArgList)))) (MatchArm case (EnumCasePattern network (BindingPattern let e)) (Block (CallExpr (NameExpr RetryPanel) (ArgList (Arg error (NameExpr e))))))))))))

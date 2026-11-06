@@ -1,0 +1,2 @@
+# An unknown unit in a view argument is K0112 on the whole literal.
+error[K0112] 4:22-4:25

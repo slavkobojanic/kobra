@@ -1,0 +1,6 @@
+# Identifiers are ASCII-only (RA-21): `é` is an unexpected character.
+LetKw "let"
+Error "é"
+Eq "="
+IntLit "1"
+Newline "\n"

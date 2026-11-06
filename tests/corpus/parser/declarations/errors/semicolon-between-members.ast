@@ -1,0 +1,2 @@
+; `;` between members is K0103 and acts as a separator, so no K0102 follows.
+(SourceFile (StructDecl struct A (MemberList (FieldDecl let x (PathType Int)) (FieldDecl let y (PathType Int)))))

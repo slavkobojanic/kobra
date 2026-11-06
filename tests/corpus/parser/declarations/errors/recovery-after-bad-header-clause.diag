@@ -1,0 +1,2 @@
+# After a header error, the body and later items still parse.
+error[K0100] 2:17-2:18

@@ -1,0 +1,2 @@
+; Identifiers are ASCII: `é` is one K0001 error token, wrapped in an ErrorNode without a second diagnostic.
+(SourceFile (StructDecl struct Caf (ErrorNode é) (MemberList)))

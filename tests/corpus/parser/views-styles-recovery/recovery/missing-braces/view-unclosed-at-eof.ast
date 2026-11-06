@@ -1,0 +1,2 @@
+; End of file inside a view: K0101 at the view's `{` and at the component's `{`; the parsed content is kept.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr box) (LambdaExpr (StringLit "x"))))))))

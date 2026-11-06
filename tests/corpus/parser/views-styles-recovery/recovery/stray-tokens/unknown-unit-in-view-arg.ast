@@ -1,0 +1,2 @@
+; An unknown unit in a view argument is K0112 on the whole literal.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr Spacer) (ArgList (Arg size (Literal 4pz)))))))))

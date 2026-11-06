@@ -1,0 +1,7 @@
+# Formatting for the K toolchain sources. Only stable options are used so the
+# stable toolchain formats identically everywhere.
+edition = "2024"
+max_width = 100
+use_field_init_shorthand = true
+use_try_shorthand = true
+newline_style = "Unix"

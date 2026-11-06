@@ -1,0 +1,2 @@
+; `key` is contextual: in `for key in keys key key`, only the word after the iterable is the keyword.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (ForStmt for (IdentPattern key) in (NameExpr keys) (KeyClause key (NameExpr key)) (Block (CallExpr (NameExpr text) (LambdaExpr (NameExpr key))))))))))

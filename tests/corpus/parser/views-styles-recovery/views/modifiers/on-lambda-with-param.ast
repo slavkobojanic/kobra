@@ -1,0 +1,2 @@
+; An event handler lambda with a parameter.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr textField) (ArgList (Arg value (NameExpr query)))) on) (ArgList (Arg input (LambdaExpr (LambdaParamList (LambdaParam event)) (AssignStmt (NameExpr query) = (MemberExpr (NameExpr event) value)))))))))))

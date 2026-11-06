@@ -1,0 +1,12 @@
+; each bad construct is reported and none hides the errors after it
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let a = (BinaryExpr (NameExpr b) && (NameExpr c)))
+      (LetStmt let d = (PrefixExpr ! (NameExpr e)))
+      (LetStmt let g = (BinaryExpr (NameExpr h) || (NameExpr i)))
+      (LetStmt let j = (ErrorNode (NameExpr k) (NameExpr l) (NameExpr m)))
+      (LetStmt let n = (BinaryExpr (Literal 0) .. (Literal 10)))
+      (LetStmt let o = (BinaryExpr (BinaryExpr (NameExpr p) < (NameExpr q)) < (NameExpr r)))
+      (LetStmt let ok = (Literal 1)))))

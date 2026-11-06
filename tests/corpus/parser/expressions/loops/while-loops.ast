@@ -1,0 +1,11 @@
+; `while` takes a condition list, including `let` conditions
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (WhileStmt while
+        (BinaryExpr (NameExpr count) > (Literal 0))
+        (Block (AssignStmt (NameExpr count) -= (Literal 1))))
+      (WhileStmt while
+        (LetCondition let next = (CallExpr (MemberExpr (NameExpr it) next) (ArgList)))
+        (Block (CallExpr (NameExpr use) (ArgList (Arg (NameExpr next)))))))))

@@ -1,0 +1,5 @@
+; a function body cut off by the end of file is K0101 at its `{`; its statements are kept
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (LetStmt let a = (Literal 1)) (LetStmt let b = (BinaryExpr (NameExpr a) + (Literal 2))))))

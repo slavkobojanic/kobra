@@ -1,0 +1,2 @@
+let s = "first
+second"

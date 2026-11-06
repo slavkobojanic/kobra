@@ -1,0 +1,12 @@
+# A line comment inside an interpolation runs to the end of the line,
+# swallowing the `}` and `"`; the newline then ends the string (K0002).
+LetKw "let"
+Ident "s"
+Eq "="
+StringStart "\""
+InterpStart "{"
+Ident "a"
+LineComment "// c}\""
+Newline "\n"
+Ident "x"
+Newline "\n"

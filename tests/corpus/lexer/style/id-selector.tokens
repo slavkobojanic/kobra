@@ -1,0 +1,15 @@
+# A `#name` selector lexes as a ColorLit (K0005 here; the parser adds K0132).
+# A statement starting with `#` is a selector, so its `{` is LBrace.
+StyleKw "style"
+LBrace "{"
+Newline "\n"
+ColorLit "#main"
+LBrace "{"
+Ident "color"
+Colon ":"
+Ident "red"
+Semicolon ";"
+RBrace "}"
+Newline "\n"
+RBrace "}"
+Newline "\n"

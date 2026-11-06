@@ -1,0 +1,2 @@
+; Other pseudo-classes take a CSS value; unit suffixes such as `n` are not validated there.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector row) (PseudoClass nth-child (CssValue (Literal 2n) + (Literal 1)))))) (StyleRule (Selector (CompoundSelector (ClassSelector row) (PseudoClass nth-child (CssValue odd))))) (StyleRule (Selector (CompoundSelector (ClassSelector row) (PseudoClass nth-of-type (CssValue - n + (Literal 3))))))))))

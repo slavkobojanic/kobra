@@ -1,0 +1,2 @@
+; A style block with CRLF line endings.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color (CssValue red)) (StyleRule (Selector (CompoundSelector (NestingSelector &) (PseudoClass hover))) (Declaration color (CssValue blue))))))))

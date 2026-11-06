@@ -1,0 +1,8 @@
+# After a name, `%` is always the operator.
+Ident "a"
+Percent "%"
+IntLit "3"
+Ident "a"
+PercentEq "%="
+IntLit "2"
+Newline "\n"

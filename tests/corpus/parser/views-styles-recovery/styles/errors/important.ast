@@ -1,0 +1,2 @@
+; `!important` is K0118 on `!important`; the token pair is wrapped in an ErrorNode inside the declaration.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color (CssValue red) (ErrorNode ! important)))))))

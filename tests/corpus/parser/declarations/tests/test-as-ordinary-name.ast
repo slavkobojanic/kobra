@@ -1,0 +1,5 @@
+; `test` is a keyword only before a name or a string at the start of an item or member.
+(SourceFile
+  (StructDecl struct Fixture
+    (MemberList (FieldDecl let test (PathType Int)) (FuncDecl func test (ParamList) (Block))))
+  (FuncDecl func run (ParamList (Param test (PathType Test))) (Block)))

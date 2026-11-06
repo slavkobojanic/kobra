@@ -1,0 +1,2 @@
+; A loading block holding view nodes.
+(SourceFile (PageDecl page Product (MemberList (LoadingBlock loading (Block (CallExpr (NameExpr ProductSkeleton) (ArgList)) (CallExpr (MemberExpr (CallExpr (NameExpr text) (LambdaExpr (StringLit "Loading…"))) class) (ArgList (Arg (ImplicitMemberExpr muted)))))))))

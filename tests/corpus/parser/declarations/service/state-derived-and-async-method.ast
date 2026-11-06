@@ -1,0 +1,23 @@
+; The service from docs/design/10-services.md.
+(SourceFile
+  (ServiceDecl service CartService
+    (MemberList
+      (FieldDecl (Annotation Inject) let api (PathType CartProtocol))
+      (FieldDecl (Annotation Inject) let auth (PathType AuthService))
+      (FieldDecl (Annotation State) var items (PathType List (GenericArgList (PathType CartItem))) = (ListExpr))
+      (FieldDecl (Annotation Derived) let total (PathType Money) =
+        (CallExpr (MemberExpr (NameExpr items) sum)
+          (LambdaExpr (LambdaParamList (LambdaParam item))
+            (BinaryExpr (MemberExpr (NameExpr item) price) * (MemberExpr (NameExpr item) quantity)))))
+      (FuncDecl func add (ParamList (Param product (PathType Product))) async
+        (ThrowsClause throws (PathType CartError))
+        (Block
+          (LetStmt let item =
+            (TryExpr try
+              (AwaitExpr await
+                (CallExpr (MemberExpr (NameExpr api) add)
+                  (ArgList
+                    (Arg request
+                      (CallExpr (NameExpr AddItemRequest)
+                        (ArgList (Arg productId (MemberExpr (NameExpr product) id))))))))))
+          (CallExpr (MemberExpr (NameExpr items) append) (ArgList (Arg (NameExpr item)))))))))

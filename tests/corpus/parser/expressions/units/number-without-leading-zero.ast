@@ -1,0 +1,9 @@
+; `.5` is `Dot IntLit` (grammar.md 3.4 rule 8): one K0100 at the number with a fix that writes
+; `0.5`. The number is then left over, but it gets no second diagnostic (no K0102 or K0125 at a
+; token that already has one).
+(SourceFile
+  (FieldDecl let a = (ImplicitMemberExpr))
+  (ErrorNode 5)
+  (FuncDecl func f
+    (ParamList)
+    (Block (AssignStmt (NameExpr x) = (ImplicitMemberExpr)) (BinaryExpr (Literal 5) + (Literal 1)))))

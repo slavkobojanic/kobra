@@ -1,0 +1,6 @@
+# A single `/` is division; `//` starts a comment.
+Ident "a"
+Slash "/"
+Ident "b"
+LineComment "//c"
+Newline "\n"

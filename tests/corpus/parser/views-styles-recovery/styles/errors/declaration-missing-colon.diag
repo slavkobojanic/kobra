@@ -1,0 +1,2 @@
+# A declaration without `:` reports K0100 at the token where `:` was expected and still parses the value.
+error[K0100] 4:20-4:23

@@ -1,0 +1,2 @@
+; The child, adjacent-sibling and general-sibling combinators.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a)) > (CompoundSelector (ClassSelector b)) + (CompoundSelector (ClassSelector c)) ~ (CompoundSelector (ClassSelector d))))))))

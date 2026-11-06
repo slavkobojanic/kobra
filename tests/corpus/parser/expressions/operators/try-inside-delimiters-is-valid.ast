@@ -1,0 +1,14 @@
+; `try` and `await` may start an argument, a list element or a parenthesized expression
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr (NameExpr f) (ArgList (Arg (TryExpr try (CallExpr (NameExpr g) (ArgList)))))))
+  (FieldDecl let b =
+    (ListExpr
+      (TryExpr try (CallExpr (NameExpr g) (ArgList)))
+      (AwaitExpr await (CallExpr (NameExpr h) (ArgList)))))
+  (FieldDecl let c =
+    (BinaryExpr (Literal 1) + (ParenExpr (TryExpr try (CallExpr (NameExpr g) (ArgList))))))
+  (FieldDecl let d =
+    (CallExpr
+      (NameExpr f)
+      (ArgList (Arg x (TryExpr try (AwaitExpr await (CallExpr (NameExpr g) (ArgList)))))))))

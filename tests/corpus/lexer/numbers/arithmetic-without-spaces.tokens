@@ -1,0 +1,11 @@
+# Numbers stop at operators.
+IntLit "1"
+Plus "+"
+IntLit "2"
+Star "*"
+IntLit "3"
+Minus "-"
+IntLit "4"
+Slash "/"
+IntLit "5"
+Newline "\n"

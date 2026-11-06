@@ -1,0 +1,4 @@
+# `!x` is K0106; the fix replaces `!` with `not `
+error[K0106] 2:10-2:11
+  fix "Replace `!` with `not`"
+    edit 2:10-2:11 "not "

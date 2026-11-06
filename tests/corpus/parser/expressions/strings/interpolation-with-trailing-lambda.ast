@@ -1,0 +1,11 @@
+; braces of a trailing lambda inside an interpolation are counted, not taken as the end
+(SourceFile
+  (FieldDecl let a =
+    (StringLit
+      (Interpolation
+        (MemberExpr
+          (CallExpr
+            (MemberExpr (NameExpr xs) filter)
+            (LambdaExpr (LambdaParamList (LambdaParam x)) (BinaryExpr (NameExpr x) > (Literal 0))))
+          count))
+      " items")))

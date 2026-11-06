@@ -1,0 +1,5 @@
+# Spaces inside a string are StringText, never Whitespace.
+StringStart "\""
+StringText "  a  b  "
+StringEnd "\""
+Newline "\n"

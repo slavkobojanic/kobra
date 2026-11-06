@@ -1,0 +1,2 @@
+# A token that cannot start an item is K0125; parsing resumes at the next item.
+error[K0125] 2:1-2:3

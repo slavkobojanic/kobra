@@ -1,0 +1,7 @@
+# Escapes split StringText runs; `}}` stays in the text.
+StringStart "\""
+StringText "a"
+StringEscape "{{"
+StringText "b}}c"
+StringEnd "\""
+Newline "\n"

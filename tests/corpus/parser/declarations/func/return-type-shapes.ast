@@ -1,0 +1,10 @@
+; Return types may be optional, generic, tuple, function or qualified types.
+(SourceFile
+  (FuncDecl func a (ParamList) (ReturnType (OptionalType (PathType User))) (Block))
+  (FuncDecl func b (ParamList) (ReturnType (PathType List (GenericArgList (PathType User)))) (Block))
+  (FuncDecl func c (ParamList) (ReturnType (TupleType (PathType Int) (PathType String))) (Block))
+  (FuncDecl func d (ParamList) (ReturnType (FuncType (PathType Int) (ReturnType (PathType Bool)))) (Block))
+  (FuncDecl func e (ParamList)
+    (ReturnType (OptionalType (ParenType (FuncType (PathType Int) (ReturnType (PathType Bool)))))) (Block))
+  (FuncDecl func f (ParamList) (ReturnType (PathType shop Money)) (Block))
+  (FuncDecl func g (ParamList) (ReturnType (FuncType async (ReturnType (PathType Void)))) (Block)))

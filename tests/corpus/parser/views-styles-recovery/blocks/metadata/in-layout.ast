@@ -1,0 +1,2 @@
+; A layout's metadata block with a comment line, providing defaults.
+(SourceFile (LayoutDecl layout Shop (MemberList (MetadataBlock metadata (Block (CallExpr (NameExpr title) (ArgList (Arg (StringLit "Acme Shop")))) (CallExpr (NameExpr icon) (ArgList (Arg (ImplicitMemberExpr appIcon)))))))))

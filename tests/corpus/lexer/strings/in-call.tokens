@@ -1,0 +1,12 @@
+# Strings as arguments.
+Ident "f"
+LParen "("
+StringStart "\""
+StringText "x"
+StringEnd "\""
+Comma ","
+StringStart "\""
+StringText "y"
+StringEnd "\""
+RParen ")"
+Newline "\n"

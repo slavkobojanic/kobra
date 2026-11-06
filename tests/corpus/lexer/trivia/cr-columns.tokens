@@ -1,0 +1,6 @@
+# Two lone `\r` are two lines, so the `$` is on line 3.
+Ident "x"
+Newline "\r"
+Newline "\r"
+Error "$"
+Newline "\n"

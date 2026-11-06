@@ -1,0 +1,2 @@
+; a newline after an assignment operator is insignificant (rule N2)
+(SourceFile (FuncDecl func f (ParamList) (Block (AssignStmt (NameExpr total) += (NameExpr tax)))))

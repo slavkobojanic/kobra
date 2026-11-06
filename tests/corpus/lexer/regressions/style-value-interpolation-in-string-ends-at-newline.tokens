@@ -1,0 +1,18 @@
+# Regression: a style-value interpolation (which may span lines) inside a style block inside
+# a string interpolation kept the style and interpolation frames open past the line end. The
+# line terminator ends the outer string, so all four frames above code mode end there and the
+# `}` on the next line is a code-mode `RBrace`, not an `InterpEnd`.
+LetKw "let"
+Ident "a"
+Eq "="
+StringStart "\""
+InterpStart "{"
+StyleKw "style"
+LBrace "{"
+Ident "x"
+Colon ":"
+InterpStart "{"
+Ident "y"
+Newline "\n"
+RBrace "}"
+Newline "\n"

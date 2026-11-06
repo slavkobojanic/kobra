@@ -1,0 +1,5 @@
+# Non-hex alphanumerics are part of the token, which is then invalid.
+ColorLit "#ggg"
+ColorLit "#zz"
+ColorLit "#3B82FG"
+Newline "\n"

@@ -1,0 +1,5 @@
+; `else` on the next line continues the guard (rule N3)
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (GuardStmt guard (NameExpr ready) else (Block (ReturnStmt return))))))

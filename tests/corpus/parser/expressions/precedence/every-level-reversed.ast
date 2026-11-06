@@ -1,0 +1,27 @@
+; the same operators from highest to lowest precedence, each grouping to the left
+(SourceFile
+  (FieldDecl let r =
+    (BinaryExpr
+      (BinaryExpr
+        (BinaryExpr
+          (BinaryExpr
+            (BinaryExpr
+              (BinaryExpr
+                (BinaryExpr
+                  (IndexExpr
+                    (CallExpr (MemberExpr (NameExpr h) i) (ArgList (Arg (NameExpr j))))
+                    (NameExpr k))
+                  *
+                  (NameExpr g))
+                +
+                (NameExpr f))
+              ..<
+              (NameExpr e))
+            ??
+            (NameExpr d))
+          ==
+          (NameExpr c))
+        and
+        (NameExpr b))
+      or
+      (NameExpr a))))

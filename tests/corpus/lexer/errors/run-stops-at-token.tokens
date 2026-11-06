@@ -1,0 +1,5 @@
+# A valid token ends a run.
+Error "$"
+Ident "a"
+Error "$"
+Newline "\n"

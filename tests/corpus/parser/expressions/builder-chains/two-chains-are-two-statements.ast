@@ -1,0 +1,9 @@
+; a new statement starts when the next line does not begin with a continuation token
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (CallExpr
+        (MemberExpr (CallExpr (NameExpr text) (ArgList (Arg (StringLit "a")))) bold)
+        (ArgList))
+      (CallExpr (NameExpr text) (ArgList (Arg (StringLit "b")))))))

@@ -1,0 +1,11 @@
+; conditions combine with commas: `if let a, let b = c, a.isReady { }`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (IfExpr if
+        (LetCondition let a)
+        (LetCondition let b = (NameExpr c))
+        (MemberExpr (NameExpr a) isReady)
+        (PrefixExpr not (MemberExpr (NameExpr b) isEmpty))
+        (Block)))))

@@ -1,0 +1,10 @@
+# `style {` inside an interpolation enters style mode; the style block's `}`
+# is RBrace, and the next `}` is InterpEnd.
+StringStart "\""
+InterpStart "{"
+StyleKw "style"
+LBrace "{"
+RBrace "}"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

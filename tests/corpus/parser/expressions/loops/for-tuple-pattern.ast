@@ -1,0 +1,10 @@
+; `for (k, v) in pairs` destructures with a TuplePattern of IdentPatterns
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ForStmt for
+        (TuplePattern (IdentPattern name) (IdentPattern price))
+        in
+        (NameExpr prices)
+        (Block)))))

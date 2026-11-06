@@ -1,0 +1,8 @@
+; Header clauses may be wrapped onto following lines.
+(SourceFile
+  (StructDecl public struct Matrix (GenericParamList (GenericParam Element) (GenericParam Size))
+    (ImplementsClause implements (PathType Equatable) (PathType Codable))
+    (WhereClause where
+      (WherePredicate Element implements (PathType Numeric))
+      (WherePredicate Size implements (PathType Dimension)))
+    (MemberList (FieldDecl let rows (PathType Int)))))

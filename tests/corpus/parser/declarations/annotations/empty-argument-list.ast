@@ -1,0 +1,2 @@
+; `@Effect()` has an empty argument list node.
+(SourceFile (ComponentDecl component A (MemberList (FuncDecl (Annotation Effect (ArgList)) func f (ParamList) (Block)))))

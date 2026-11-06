@@ -1,0 +1,5 @@
+; An import after the first declaration is K0111 on the whole import; it is still parsed.
+(SourceFile
+  (Import import (ImportPath a First))
+  (StructDecl struct Middle (MemberList))
+  (Import import (ImportPath b Late)))

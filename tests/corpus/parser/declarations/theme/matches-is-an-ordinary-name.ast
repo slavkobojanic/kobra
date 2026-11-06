@@ -1,0 +1,7 @@
+; `matches` is a keyword only after a variant's name.
+(SourceFile
+  (ThemeDecl theme T (MemberList (ThemeVariant variant matches (ThemeOverride matches = (Literal #000)))))
+  (FuncDecl func f
+    (ParamList)
+    (ReturnType (PathType Bool))
+    (Block (ReturnStmt return (CallExpr (NameExpr matches) (ArgList (Arg (NameExpr x))))))))

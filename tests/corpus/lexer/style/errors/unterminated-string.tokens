@@ -1,0 +1,26 @@
+# An unterminated string ends at the newline (K0002), but the declaration
+# statement continues: a newline does not start a new statement. So on the
+# next line `{` is still a declaration's InterpStart, and the final `}`
+# closes the `.a` rule.
+StyleKw "style"
+LBrace "{"
+Newline "\n"
+Dot "."
+Ident "a"
+LBrace "{"
+Ident "content"
+Colon ":"
+StringStart "\""
+StringText "oops; }"
+Newline "\n"
+Dot "."
+Ident "b"
+InterpStart "{"
+Ident "color"
+Colon ":"
+Ident "red"
+Semicolon ";"
+InterpEnd "}"
+Newline "\n"
+RBrace "}"
+Newline "\n"

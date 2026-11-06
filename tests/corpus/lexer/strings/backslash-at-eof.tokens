@@ -1,0 +1,4 @@
+# A backslash as the last character of the file.
+StringStart "\""
+StringText "abc"
+StringEscape "\\"

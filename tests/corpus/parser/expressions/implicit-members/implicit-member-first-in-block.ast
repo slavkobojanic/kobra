@@ -1,0 +1,4 @@
+; at the start of a block or lambda, `.name` cannot continue anything and is an expression
+(SourceFile
+  (FieldDecl let a = (LambdaExpr (ImplicitMemberExpr red)))
+  (FieldDecl let b = (LambdaExpr (ImplicitMemberExpr blue))))

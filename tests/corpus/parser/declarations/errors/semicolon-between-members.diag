@@ -1,0 +1,2 @@
+# `;` between members is K0103 and acts as a separator, so no K0102 follows.
+error[K0103] 2:22-2:23

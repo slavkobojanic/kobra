@@ -1,0 +1,12 @@
+# Keywords used as argument labels are still keyword tokens.
+Ident "f"
+LParen "("
+ForKw "for"
+Colon ":"
+Ident "id"
+Comma ","
+InKw "in"
+Colon ":"
+Ident "xs"
+RParen ")"
+Newline "\n"

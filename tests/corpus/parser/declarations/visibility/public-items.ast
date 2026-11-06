@@ -1,0 +1,8 @@
+; `public` may prefix every kind of top-level declaration.
+(SourceFile
+  (StructDecl public struct A (MemberList))
+  (EnumDecl public enum B (MemberList))
+  (ComponentDecl public component C (MemberList))
+  (FuncDecl public func d (ParamList) (Block))
+  (FieldDecl public let e = (Literal 1))
+  (InterfaceDecl public interface F (MemberList)))

@@ -1,0 +1,11 @@
+# Keywords end at punctuation without whitespace.
+IfKw "if"
+LParen "("
+Ident "x"
+RParen ")"
+LBrace "{"
+RBrace "}"
+ElseKw "else"
+LBrace "{"
+RBrace "}"
+Newline "\n"

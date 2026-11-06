@@ -1,0 +1,2 @@
+; An annotation after a modifier is K0121 on the whole annotation; it stays in place in the tree.
+(SourceFile (ServiceDecl service S (MemberList (FieldDecl private (Annotation Inject) let api (PathType Api)))))

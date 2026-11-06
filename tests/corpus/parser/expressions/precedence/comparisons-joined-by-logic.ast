@@ -1,0 +1,10 @@
+; comparisons combine with `and` and `or` without parentheses
+(SourceFile
+  (FieldDecl let ok =
+    (BinaryExpr
+      (BinaryExpr
+        (BinaryExpr (NameExpr a) < (NameExpr b))
+        and
+        (BinaryExpr (NameExpr c) >= (NameExpr d)))
+      or
+      (BinaryExpr (NameExpr e) != (NameExpr f)))))

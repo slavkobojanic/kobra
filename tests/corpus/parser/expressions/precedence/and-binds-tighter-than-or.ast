@@ -1,0 +1,6 @@
+; `and` binds tighter than `or`; both associate to the left
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (NameExpr x) or (BinaryExpr (NameExpr y) and (NameExpr z))))
+  (FieldDecl let b = (BinaryExpr (BinaryExpr (NameExpr x) and (NameExpr y)) or (NameExpr z)))
+  (FieldDecl let c = (BinaryExpr (BinaryExpr (NameExpr x) or (NameExpr y)) or (NameExpr z)))
+  (FieldDecl let d = (BinaryExpr (BinaryExpr (NameExpr x) and (NameExpr y)) and (NameExpr z))))

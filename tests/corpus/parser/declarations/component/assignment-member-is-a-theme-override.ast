@@ -1,0 +1,8 @@
+; The parser accepts every member kind in every body (grammar.md §9): an
+; assignment at member level is a `ThemeOverride`, which semantic analysis
+; rejects outside a theme.
+(SourceFile
+  (ComponentDecl component C
+    (MemberList
+      (ThemeOverride count = (Literal 5))
+      (FieldDecl (Annotation State) var total (PathType Int) = (Literal 0)))))

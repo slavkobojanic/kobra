@@ -1,0 +1,2 @@
+; The smallest class.
+(SourceFile (ClassDecl class Handle (MemberList)))

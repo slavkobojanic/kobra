@@ -1,0 +1,4 @@
+# End of file inside a modifier's argument list (no final newline).
+error[K0101] 2:13-2:14
+error[K0101] 3:10-3:11
+error[K0101] 5:19-5:20

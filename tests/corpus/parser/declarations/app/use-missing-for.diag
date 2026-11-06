@@ -1,0 +1,2 @@
+# `use X` without `for` reports K0100 at the gap after the type.
+error[K0100] 3:16-3:16

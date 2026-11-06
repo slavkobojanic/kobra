@@ -1,0 +1,3 @@
+error[K0130] 2:11-2:12
+  fix "Remove the trailing comma"
+    edit 2:11-2:12 ""

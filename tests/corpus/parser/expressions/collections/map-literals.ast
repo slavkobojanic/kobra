@@ -1,0 +1,14 @@
+; `[:]` is an empty map; `[k: v]` entries are MapEntry nodes
+(SourceFile
+  (FieldDecl let a = (MapExpr))
+  (FieldDecl let b = (MapExpr (MapEntry (NameExpr id1) (Literal 9.99))))
+  (FieldDecl let c =
+    (MapExpr
+      (MapEntry (StringLit "en") (StringLit "Hello"))
+      (MapEntry (StringLit "de") (StringLit "Hallo"))))
+  (FieldDecl let d =
+    (MapExpr
+      (MapEntry (ImplicitMemberExpr small) (Literal 8px))
+      (MapEntry
+        (CallExpr (NameExpr f) (ArgList (Arg (NameExpr x))))
+        (ListExpr (Literal 1) (Literal 2))))))

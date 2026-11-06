@@ -1,0 +1,2 @@
+# `bind` nested inside an argument expression (not directly the argument value) is K0110.
+error[K0110] 4:25-4:29

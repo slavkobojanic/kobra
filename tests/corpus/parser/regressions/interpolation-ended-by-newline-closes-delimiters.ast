@@ -1,0 +1,11 @@
+; Regression: when a line terminator ended an interpolation (and its string; grammar.md
+; §4.2), a `(`, `[` or `{` opened inside the interpolation stayed open in the parser, which
+; then swallowed the following declarations into it (newlines are insignificant inside
+; parentheses). The interpolation ends at the line terminator: its open delimiters are
+; unclosed (K0101 at each opener) and the next line parses normally.
+(SourceFile
+  (FieldDecl let a = (StringLit (Interpolation (ParenExpr (NameExpr a)))))
+  (FieldDecl let b = (StringLit (Interpolation (CallExpr (NameExpr f) (ArgList (Arg (NameExpr x)))))))
+  (FieldDecl let c = (StringLit (Interpolation (ListExpr (NameExpr x)))))
+  (FieldDecl let d = (StringLit (Interpolation (LambdaExpr (NameExpr x)))))
+  (FieldDecl let e = (Literal 1)))

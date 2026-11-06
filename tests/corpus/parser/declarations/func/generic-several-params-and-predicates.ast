@@ -1,0 +1,13 @@
+; Several generic parameters with function-typed parameters and several predicates.
+(SourceFile
+  (FuncDecl public static func map (GenericParamList (GenericParam T) (GenericParam U))
+    (ParamList
+      (Param xs (PathType List (GenericArgList (PathType T))))
+      (Param f (FuncType (PathType T) (ReturnType (PathType U)))))
+    async
+    (ThrowsClause throws (PathType MapError))
+    (ReturnType (PathType List (GenericArgList (PathType U))))
+    (WhereClause where
+      (WherePredicate T implements (PathType Codable))
+      (WherePredicate U implements (PathType Codable)))
+    (Block)))

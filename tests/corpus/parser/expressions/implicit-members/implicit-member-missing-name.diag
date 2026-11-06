@@ -1,0 +1,2 @@
+# a lone `.` before `)` is K0100 at the `)`
+error[K0100] 2:12-2:13

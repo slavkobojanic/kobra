@@ -1,0 +1,2 @@
+; Diagnostic columns count Unicode scalar values, so wide and astral characters are one column each.
+(SourceFile (TestCaseDecl test (StringLit "日本語🎉") (Block)) (TestCaseDecl test (StringLit "b") (Block)))

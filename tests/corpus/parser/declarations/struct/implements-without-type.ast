@@ -1,0 +1,2 @@
+; `implements` without a type is K0123 at the `{`.
+(SourceFile (StructDecl struct A (ImplementsClause implements) (MemberList)))

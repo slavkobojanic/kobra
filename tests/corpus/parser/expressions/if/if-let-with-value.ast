@@ -1,0 +1,8 @@
+; `if let x = e` binds the unwrapped optional
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (IfExpr if
+        (LetCondition let user = (MemberExpr (NameExpr session) user))
+        (Block (CallExpr (NameExpr greet) (ArgList (Arg (NameExpr user)))))))))

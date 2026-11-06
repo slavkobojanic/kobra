@@ -1,0 +1,7 @@
+(SourceFile
+  (FuncDecl func f
+    (ParamList
+      (Param a (PathType List (GenericArgList (OptionalType (PathType String) ??))))
+      (Param b (OptionalType (ParenType (FuncType (PathType Int) (ReturnType (PathType Int)))) ??)))
+    (ReturnType (OptionalType (PathType Int) ??))
+    (Block)))

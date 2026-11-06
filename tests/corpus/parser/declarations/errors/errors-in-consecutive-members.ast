@@ -1,0 +1,8 @@
+; Errors in consecutive members are reported independently.
+(SourceFile
+  (ServiceDecl service S
+    (MemberList
+      (FuncDecl func (ParamList) (Block))
+      (FieldDecl let (PathType Int))
+      (RpcDecl rpc r (ParamList) (ThrowsClause throws))
+      (FuncDecl func ok (ParamList) (Block)))))

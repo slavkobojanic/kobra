@@ -1,0 +1,10 @@
+# A lone `_` is the Underscore token, not an identifier.
+Underscore "_"
+Eq "="
+Ident "f"
+LParen "("
+Underscore "_"
+Comma ","
+Underscore "_"
+RParen ")"
+Newline "\n"

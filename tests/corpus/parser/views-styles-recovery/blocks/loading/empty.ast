@@ -1,0 +1,2 @@
+; An empty loading block is the explicit way to render nothing while loading.
+(SourceFile (PageDecl page Product (MemberList (LoadingBlock loading (Block)))))

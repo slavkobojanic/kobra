@@ -1,0 +1,2 @@
+# `!` in a modifier argument is K0106 and is treated as `not`.
+error[K0106] 5:23-5:24

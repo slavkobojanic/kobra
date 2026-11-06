@@ -1,0 +1,2 @@
+; A chained modifier with both arguments and a trailing block.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr Icon) (ArgList (Arg name (StringLit "info")))) tooltip) (ArgList (Arg placement (ImplicitMemberExpr top))) (LambdaExpr (StringLit "More information"))))))))

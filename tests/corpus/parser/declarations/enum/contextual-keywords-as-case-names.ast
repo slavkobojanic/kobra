@@ -1,0 +1,10 @@
+; Contextual keywords are ordinary names after `case`.
+(SourceFile
+  (EnumDecl enum Phase
+    (MemberList
+      (EnumCase case loading)
+      (EnumCase case failed (CaseField (PathType Error)))
+      (EnumCase case view)
+      (EnumCase case page)
+      (EnumCase case test)
+      (EnumCase case variant))))

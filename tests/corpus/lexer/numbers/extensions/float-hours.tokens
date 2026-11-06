@@ -1,0 +1,5 @@
+# Float literal followed by an extension property.
+FloatLit "1.5"
+Dot "."
+Ident "hours"
+Newline "\n"

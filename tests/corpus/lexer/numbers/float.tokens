@@ -1,0 +1,7 @@
+# Decimal floats need digits on both sides of the `.`.
+FloatLit "1.5"
+FloatLit "0.25"
+FloatLit "3.14159"
+FloatLit "0.0"
+FloatLit "10.0"
+Newline "\n"

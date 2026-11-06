@@ -1,0 +1,2 @@
+; A case with empty parentheses has no fields.
+(SourceFile (EnumDecl enum E (MemberList (EnumCase case empty))))

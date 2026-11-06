@@ -1,0 +1,3 @@
+# A style block left open at end of file after a complete view.
+error[K0101] 2:13-2:14
+error[K0101] 7:11-7:12

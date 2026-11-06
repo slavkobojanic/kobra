@@ -1,0 +1,2 @@
+; An unclosed parameter list reports K0101 at its `(`.
+(SourceFile (FuncDecl func f (ParamList (Param x (PathType Int)))))

@@ -1,0 +1,9 @@
+# Escapes inside a nested string.
+StringStart "\""
+InterpStart "{"
+StringStart "\""
+StringEscape "\\n"
+StringEnd "\""
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

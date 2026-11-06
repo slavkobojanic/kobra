@@ -1,0 +1,7 @@
+; list and map literals inside interpolations
+(SourceFile
+  (FieldDecl let a =
+    (StringLit (Interpolation (MemberExpr (ListExpr (Literal 1) (Literal 2)) count))))
+  (FieldDecl let b =
+    (StringLit
+      (Interpolation (IndexExpr (MapExpr (MapEntry (StringLit "k") (Literal 1))) (StringLit "k"))))))

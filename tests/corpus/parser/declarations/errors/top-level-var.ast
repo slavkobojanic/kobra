@@ -1,0 +1,2 @@
+; A top-level `var` is K0131 on `var`; it is still a FieldDecl.
+(SourceFile (FieldDecl var count = (Literal 0)))

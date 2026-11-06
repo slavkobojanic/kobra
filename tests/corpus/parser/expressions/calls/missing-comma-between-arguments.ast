@@ -1,0 +1,3 @@
+; `f(a b)` is K0100 at `b`; both arguments are kept
+(SourceFile
+  (FieldDecl let a = (CallExpr (NameExpr f) (ArgList (Arg (NameExpr x)) (Arg (NameExpr y))))))

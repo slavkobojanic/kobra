@@ -1,0 +1,2 @@
+; An empty metadata block.
+(SourceFile (PageDecl page Product (MemberList (MetadataBlock metadata (Block)))))

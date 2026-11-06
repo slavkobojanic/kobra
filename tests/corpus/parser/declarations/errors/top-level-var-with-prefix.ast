@@ -1,0 +1,2 @@
+; K0131 spans only `var`, after annotations and modifiers.
+(SourceFile (FieldDecl (Annotation State) public var count (PathType Int) = (Literal 0)))

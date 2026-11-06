@@ -1,0 +1,5 @@
+; `-x * y` is `(-x) * y` and `x * -y` negates only `y`
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (PrefixExpr - (NameExpr x)) * (NameExpr y)))
+  (FieldDecl let b = (BinaryExpr (NameExpr x) * (PrefixExpr - (NameExpr y))))
+  (FieldDecl let c = (BinaryExpr (PrefixExpr - (NameExpr x)) + (PrefixExpr - (NameExpr y)))))

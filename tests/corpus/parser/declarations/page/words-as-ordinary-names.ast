@@ -1,0 +1,9 @@
+; `page`, `at`, `loading` and `failed` are names outside their keyword positions.
+(SourceFile
+  (FieldDecl let page = (Literal 1))
+  (FuncDecl func at (ParamList) (Block))
+  (StructDecl struct S
+    (MemberList
+      (FieldDecl let loading (PathType Bool))
+      (FieldDecl var failed (PathType Int) = (Literal 0))
+      (FieldDecl let metadata (PathType Map (GenericArgList (PathType String) (PathType String))) = (MapExpr)))))

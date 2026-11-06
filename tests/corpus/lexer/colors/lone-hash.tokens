@@ -1,0 +1,3 @@
+# A lone `#` is a ColorLit with K0005.
+ColorLit "#"
+Newline "\n"

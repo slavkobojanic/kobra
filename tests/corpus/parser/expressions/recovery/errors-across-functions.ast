@@ -1,0 +1,7 @@
+; an error in one function does not affect the parse of the following functions
+(SourceFile
+  (FuncDecl func a (ParamList) (Block (LetStmt let x = (BinaryExpr (Literal 1) +))))
+  (FuncDecl func b (ParamList) (Block (LetStmt let y = (Literal 2))))
+  (FuncDecl func c
+    (ParamList)
+    (Block (LetStmt let z = (BinaryExpr (BinaryExpr (Literal 1) == (Literal 2)) == (Literal 3))))))

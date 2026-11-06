@@ -1,0 +1,5 @@
+# An unknown escape is one StringEscape token with K0004.
+StringStart "\""
+StringEscape "\\q"
+StringEnd "\""
+Newline "\n"

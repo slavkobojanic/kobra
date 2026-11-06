@@ -1,0 +1,6 @@
+; unparenthesized parameters are separated by commas
+(SourceFile
+  (FieldDecl let add =
+    (LambdaExpr
+      (LambdaParamList (LambdaParam a) (LambdaParam b) (LambdaParam c))
+      (BinaryExpr (BinaryExpr (NameExpr a) + (NameExpr b)) + (NameExpr c)))))

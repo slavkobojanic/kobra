@@ -1,0 +1,7 @@
+; extension properties bind tighter than arithmetic and unary minus
+(SourceFile
+  (FieldDecl let expiresAt =
+    (BinaryExpr (MemberExpr (NameExpr Date) now) + (MemberExpr (Literal 3) days)))
+  (FieldDecl let total =
+    (BinaryExpr (MemberExpr (Literal 2) hours) + (MemberExpr (Literal 30) minutes)))
+  (FieldDecl let back = (PrefixExpr - (MemberExpr (Literal 5) minutes))))

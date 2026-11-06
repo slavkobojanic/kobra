@@ -1,0 +1,2 @@
+; An empty parameter list may contain comments.
+(SourceFile (FuncDecl func f (ParamList) (Block)))

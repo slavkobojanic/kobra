@@ -1,0 +1,11 @@
+# A lambda in code mode: braces are LBrace/RBrace.
+LBrace "{"
+Ident "product"
+FatArrow "=>"
+Ident "product"
+Dot "."
+Ident "stock"
+Gt ">"
+IntLit "0"
+RBrace "}"
+Newline "\n"

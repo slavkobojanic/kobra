@@ -1,0 +1,2 @@
+; A declaration without `:` reports K0100 at the token where `:` was expected and still parses the value.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color (CssValue red)) (Declaration margin (CssValue (Literal 0))))))))

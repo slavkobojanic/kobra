@@ -1,0 +1,2 @@
+# A misspelled `component` at the top level is K0125; the balanced body is skipped and the next declaration parses.
+error[K0125] 2:1-2:9

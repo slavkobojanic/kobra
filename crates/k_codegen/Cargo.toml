@@ -1,0 +1,12 @@
+[package]
+name = "k_codegen"
+description = "JavaScript and CSS code generation for K, with the client/server bundle split."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

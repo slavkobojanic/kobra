@@ -1,0 +1,2 @@
+; escaped braces next to a real interpolation
+(SourceFile (FieldDecl let a = (StringLit "{" (Interpolation (NameExpr x)) "}}")))

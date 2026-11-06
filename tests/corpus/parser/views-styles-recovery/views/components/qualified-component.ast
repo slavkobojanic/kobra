@@ -1,0 +1,2 @@
+; A component reached through a member path.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (NameExpr Icons) Check) (ArgList)))))))

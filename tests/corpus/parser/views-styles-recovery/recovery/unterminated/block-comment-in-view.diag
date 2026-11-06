@@ -1,0 +1,4 @@
+# An unterminated block comment swallows the rest of the file: K0003 at `/*` and K0101 for each open brace.
+error[K0003] 4:16-4:18
+error[K0101] 2:13-2:14
+error[K0101] 3:10-3:11

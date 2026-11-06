@@ -1,0 +1,2 @@
+; Every missing `;` is reported, not only the first.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration color (CssValue red)) (Declaration margin (CssValue (Literal 0))) (Declaration padding (CssValue (ImplicitMemberExpr md))))))))

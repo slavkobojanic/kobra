@@ -1,0 +1,2 @@
+; `&&` is K0104 with a machine-applicable fix; the tree keeps `&&` as an `and`
+(SourceFile (FieldDecl let ok = (BinaryExpr (NameExpr a) && (NameExpr b))))

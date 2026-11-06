@@ -1,0 +1,2 @@
+; A capitalized name without a call is a NameExpr view node.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (NameExpr NavBar))))))

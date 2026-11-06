@@ -1,0 +1,8 @@
+; range bounds may be arithmetic without parentheses
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (Literal 0) ..< (BinaryExpr (NameExpr n) + (Literal 1))))
+  (FieldDecl let b =
+    (BinaryExpr
+      (BinaryExpr (NameExpr lo) - (Literal 1))
+      ...
+      (BinaryExpr (NameExpr hi) * (Literal 2)))))

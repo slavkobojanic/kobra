@@ -1,0 +1,12 @@
+; Regression: after K0100 at a token that cannot follow `.` or `else`, the parser also
+; reported K0102 ("expected a line break before this") at the same token, with a
+; machine-applicable fix that inserted a line break which fixes nothing (`x.` then continues on
+; the next line and still lacks a member name). K0102 is not reported at a token that already
+; has a parser diagnostic.
+(SourceFile
+  (FuncDecl func f (ParamList)
+    (Block
+      (MemberExpr (NameExpr x))
+      (MemberExpr (Literal 5) y)
+      (IfExpr if (NameExpr a) (Block) else)
+      (NameExpr b))))

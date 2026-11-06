@@ -1,0 +1,6 @@
+; A doc comment comes before the annotations of the declaration it documents.
+(SourceFile
+  (AppDecl (Annotation Layout (ArgList (Arg (NameExpr Main)))) public app Shop
+    (MemberList
+      (UseDecl use (PathType Fake) for (PathType Payments) in
+        (ImplicitMemberExpr development) (ImplicitMemberExpr test)))))

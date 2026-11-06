@@ -1,0 +1,2 @@
+; a list cut off by the end of file is K0101 at its `[`
+(SourceFile (FieldDecl let a = (ListExpr (Literal 1) (Literal 2))))

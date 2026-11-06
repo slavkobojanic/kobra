@@ -1,0 +1,10 @@
+# `///` starts a doc comment.
+DocComment "/// Adds two numbers."
+Newline "\n"
+FuncKw "func"
+Ident "add"
+LParen "("
+RParen ")"
+LBrace "{"
+RBrace "}"
+Newline "\n"

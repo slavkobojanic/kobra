@@ -1,0 +1,11 @@
+# Nested generic arguments close with two Gt tokens (no `>>` token).
+Ident "Map"
+Lt "<"
+Ident "K"
+Comma ","
+Ident "List"
+Lt "<"
+Ident "V"
+Gt ">"
+Gt ">"
+Newline "\n"

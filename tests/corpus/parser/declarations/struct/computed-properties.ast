@@ -1,0 +1,11 @@
+; A field with a block is a computed property.
+(SourceFile
+  (StructDecl struct Cart
+    (MemberList
+      (FieldDecl var items (PathType List (GenericArgList (PathType Item))))
+      (FieldDecl var total (PathType Money)
+        (Block
+          (CallExpr (MemberExpr (NameExpr items) sum)
+            (LambdaExpr (LambdaParamList (LambdaParam item)) (MemberExpr (NameExpr item) price)))))
+      (FieldDecl var isEmpty (PathType Bool) (Block (MemberExpr (NameExpr items) isEmpty)))
+      (FieldDecl static var empty (PathType Cart) (Block (CallExpr (NameExpr Cart) (ArgList (Arg items (ListExpr)))))))))

@@ -1,0 +1,7 @@
+# An escape between two text runs.
+StringStart "\""
+StringText "Line"
+StringEscape "\\n"
+StringText "Next"
+StringEnd "\""
+Newline "\n"

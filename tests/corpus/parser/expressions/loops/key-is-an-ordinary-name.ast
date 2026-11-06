@@ -1,0 +1,6 @@
+; `key` is a contextual keyword only after a `for` iterable
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ForStmt for (IdentPattern key) in (NameExpr keys) (Block (LetStmt let k = (NameExpr key)))))))

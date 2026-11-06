@@ -1,0 +1,14 @@
+; catch clauses take `where` guards and qualified case patterns
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (DoStmt do
+        (Block (TryExpr try (CallExpr (NameExpr sync) (ArgList))))
+        (CatchClause catch
+          (EnumCasePattern network (BindingPattern let e))
+          (MatchGuard where (MemberExpr (NameExpr e) isTimeout))
+          (Block (CallExpr (NameExpr retry) (ArgList))))
+        (CatchClause catch
+          (EnumCasePattern SyncError unauthorized)
+          (Block (CallExpr (NameExpr login) (ArgList))))))))

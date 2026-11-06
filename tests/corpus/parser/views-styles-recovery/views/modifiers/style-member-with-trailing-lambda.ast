@@ -1,0 +1,2 @@
+; `.style { ... }` after a `.` is a member with a trailing lambda, not a style block.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (MemberExpr (CallExpr (NameExpr box) (LambdaExpr)) style) (LambdaExpr (NameExpr compact))))))))

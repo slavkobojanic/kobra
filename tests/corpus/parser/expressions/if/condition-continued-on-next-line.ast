@@ -1,0 +1,7 @@
+; a condition may wrap after or before a binary operator
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (IfExpr if (BinaryExpr (NameExpr a) and (NameExpr b)) (Block))
+      (IfExpr if (BinaryExpr (NameExpr c) or (NameExpr d)) (Block)))))

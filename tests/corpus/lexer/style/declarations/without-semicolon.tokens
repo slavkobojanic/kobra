@@ -1,0 +1,12 @@
+# The last declaration of a block needs no `;`: `}` ends it.
+StyleKw "style"
+LBrace "{"
+Dot "."
+Ident "a"
+LBrace "{"
+Ident "color"
+Colon ":"
+Ident "red"
+RBrace "}"
+RBrace "}"
+Newline "\n"

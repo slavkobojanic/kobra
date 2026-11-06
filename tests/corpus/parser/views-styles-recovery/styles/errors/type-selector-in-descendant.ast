@@ -1,0 +1,2 @@
+; An element name inside a selector is a TypeSelector and K0116.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector list)) (CompoundSelector (TypeSelector item))) (Declaration color (CssValue red)))))))

@@ -1,0 +1,8 @@
+; a bare identifier inside a payload is K0115 too
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr v)
+        (MatchArm case (EnumCasePattern loaded (IdentPattern item)) (Block))))))

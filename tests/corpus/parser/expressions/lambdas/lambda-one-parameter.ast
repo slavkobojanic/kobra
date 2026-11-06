@@ -1,0 +1,4 @@
+; `{ x => ... }` has a LambdaParamList with one LambdaParam
+(SourceFile
+  (FieldDecl let a =
+    (LambdaExpr (LambdaParamList (LambdaParam x)) (BinaryExpr (NameExpr x) * (Literal 2)))))

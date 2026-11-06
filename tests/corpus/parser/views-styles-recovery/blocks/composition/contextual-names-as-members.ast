@@ -1,0 +1,2 @@
+; `view`, `failed` and `metadata` used as field and function names are ordinary identifiers.
+(SourceFile (ComponentDecl component T (MemberList (FieldDecl (Annotation Prop) let view (PathType View)) (FieldDecl let metadata (PathType Int) = (Literal 1)) (FuncDecl func failed (ParamList) (Block)) (ViewBlock view (Block (NameExpr view))))))

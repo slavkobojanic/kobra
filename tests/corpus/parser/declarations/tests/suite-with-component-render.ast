@@ -1,0 +1,19 @@
+; A component test suite with accessibility queries.
+(SourceFile
+  (TestSuiteDecl test AddToCart
+    (MemberList
+      (UseDecl use (PathType FakeCartService) for (PathType CartService))
+      (TestCaseDecl test (StringLit "clicking add shows the new total")
+        (Block
+          (LetStmt let screen =
+            (CallExpr (NameExpr render)
+              (ArgList (Arg (CallExpr (NameExpr AddToCart) (ArgList (Arg product (ImplicitMemberExpr sample))))))))
+          (CallExpr
+            (MemberExpr
+              (CallExpr (MemberExpr (NameExpr screen) button) (ArgList (Arg named (StringLit "Add to cart"))))
+              click)
+            (ArgList))
+          (ExpectStmt expect
+            (MemberExpr
+              (CallExpr (MemberExpr (NameExpr screen) text) (ArgList (Arg (StringLit "Total: $9.99"))))
+              isVisible)))))))

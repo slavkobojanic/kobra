@@ -1,0 +1,2 @@
+; A style error before the view does not hide the view's error.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (Declaration color (CssValue red))) (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit "a"))) (CallExpr (NameExpr text) (LambdaExpr (StringLit "b"))))))))

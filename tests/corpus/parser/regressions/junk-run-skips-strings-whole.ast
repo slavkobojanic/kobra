@@ -1,0 +1,7 @@
+; Regression: a junk run stopped at a declaration keyword inside a string interpolation, so
+; `func f() {}` inside the string became a top-level FuncDecl (and `let a = 1` a FieldDecl
+; member) between two ErrorNodes. A string literal is one element: a junk run skips it whole,
+; like a balanced bracket group (grammar.md §19.4).
+(SourceFile
+  (ErrorNode func f)
+  (StructDecl struct S (MemberList (ErrorNode let a = 1))))

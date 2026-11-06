@@ -1,0 +1,13 @@
+[package]
+name = "k_diagnostics"
+description = "Structured diagnostics for the K toolchain: codes, spans, labels, quick fixes and rendering."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+text-size.workspace = true
+
+[lints]
+workspace = true

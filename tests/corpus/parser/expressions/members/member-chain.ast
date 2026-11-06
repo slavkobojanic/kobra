@@ -1,0 +1,3 @@
+; member accesses chain to the left; `.` is omitted from the dump
+(SourceFile
+  (FieldDecl let a = (MemberExpr (MemberExpr (MemberExpr (NameExpr shop) catalog) products) first)))

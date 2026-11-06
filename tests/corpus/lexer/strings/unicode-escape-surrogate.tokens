@@ -1,0 +1,5 @@
+# Surrogate code points are not Unicode scalar values.
+StringStart "\""
+StringEscape "\\u{D800}"
+StringEnd "\""
+Newline "\n"

@@ -1,0 +1,10 @@
+; The layout from docs/design/12-routing.md.
+(SourceFile
+  (LayoutDecl layout Shop
+    (MemberList
+      (FieldDecl (Annotation Slot) let content (PathType View))
+      (ViewBlock view
+        (Block
+          (CallExpr (NameExpr NavBar) (ArgList))
+          (CallExpr (NameExpr main) (LambdaExpr (NameExpr content)))
+          (CallExpr (NameExpr Footer) (ArgList)))))))

@@ -1,0 +1,16 @@
+; iterables can be closed ranges and calls with arguments
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (ForStmt for (IdentPattern age) in (BinaryExpr (Literal 13) ... (Literal 120)) (Block))
+      (ForStmt for
+        (IdentPattern x)
+        in
+        (CallExpr (MemberExpr (NameExpr xs) filter) (ArgList (Arg (NameExpr isNew))))
+        (Block))
+      (ForStmt for
+        (IdentPattern i)
+        in
+        (BinaryExpr (Literal 0) ..< (MemberExpr (NameExpr xs) count))
+        (Block)))))

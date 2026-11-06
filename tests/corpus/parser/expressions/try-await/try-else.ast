@@ -1,0 +1,15 @@
+; `try x else { ... }` attaches the else block to the TryExpr
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let item =
+        (TryExpr try
+          (CallExpr (MemberExpr (NameExpr cart) add) (ArgList (Arg (NameExpr p))))
+          else
+          (Block (ReturnStmt return))))
+      (LetStmt let n =
+        (TryExpr try
+          (CallExpr (NameExpr parse) (ArgList (Arg (NameExpr s))))
+          else
+          (Block (Literal 0)))))))

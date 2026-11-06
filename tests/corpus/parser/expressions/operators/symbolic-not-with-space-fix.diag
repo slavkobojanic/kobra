@@ -1,0 +1,4 @@
+# the K0106 fix also replaces the whitespace after `!`
+error[K0106] 2:10-2:11
+  fix "Replace `!` with `not`"
+    edit 2:10-2:14 "not "

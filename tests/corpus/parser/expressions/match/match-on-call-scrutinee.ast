@@ -1,0 +1,8 @@
+; the scrutinee may be a call with arguments
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (CallExpr (NameExpr load) (ArgList (Arg id (Literal 1))))
+        (MatchArm default (Block))))))

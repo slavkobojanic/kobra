@@ -1,0 +1,6 @@
+; Labeled and unlabeled case fields may be mixed.
+(SourceFile
+  (EnumDecl enum Shape
+    (MemberList
+      (EnumCase case point (CaseField x (PathType Int)) (CaseField (PathType Int)))
+      (EnumCase case named (CaseField (PathType String)) (CaseField size (PathType Size))))))

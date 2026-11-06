@@ -1,0 +1,6 @@
+# Boolean, nil and self keywords.
+TrueKw "true"
+FalseKw "false"
+NilKw "nil"
+SelfKw "self"
+Newline "\n"

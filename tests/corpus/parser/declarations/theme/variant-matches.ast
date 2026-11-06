@@ -1,0 +1,8 @@
+; `variant name matches .condition` follows an operating system preference.
+(SourceFile
+  (ThemeDecl theme T
+    (MemberList
+      (ThemeToken color surface (PathType Color) = (Literal #fff))
+      (ThemeVariant variant dark matches (ImplicitMemberExpr prefersDark)
+        (ThemeOverride surface = (Literal #111)))
+      (ThemeVariant variant contrast matches (ImplicitMemberExpr prefersContrast)))))

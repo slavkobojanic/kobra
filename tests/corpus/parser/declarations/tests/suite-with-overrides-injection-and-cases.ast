@@ -1,0 +1,21 @@
+; The test suite from docs/design/21-testing.md.
+(SourceFile
+  (TestSuiteDecl test CartService
+    (MemberList
+      (UseDecl use (PathType FakeCartApi) for (PathType CartProtocol))
+      (FieldDecl (Annotation Inject) let cart (PathType CartService))
+      (TestCaseDecl test (StringLit "adding a product appends it to the cart")
+        (Block
+          (TryExpr try
+            (AwaitExpr await
+              (CallExpr (MemberExpr (NameExpr cart) add) (ArgList (Arg product (ImplicitMemberExpr sample))))))
+          (ExpectStmt expect (BinaryExpr (MemberExpr (MemberExpr (NameExpr cart) items) count) == (Literal 1)))
+          (ExpectStmt expect (BinaryExpr (MemberExpr (NameExpr cart) total) == (MemberExpr (Literal 9.99) usd)))))
+      (TestCaseDecl test (StringLit "out of stock surfaces a typed error")
+        (Block
+          (ExpectThrowsStmt expect throws (EnumCasePattern CartError outOfStock)
+            (Block
+              (TryExpr try
+                (AwaitExpr await
+                  (CallExpr (MemberExpr (NameExpr cart) add)
+                    (ArgList (Arg product (ImplicitMemberExpr soldOut)))))))))))))

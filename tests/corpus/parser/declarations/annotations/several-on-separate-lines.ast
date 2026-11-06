@@ -1,0 +1,7 @@
+; Annotations on their own lines all belong to the declaration that follows.
+(SourceFile
+  (AppDecl
+    (Annotation Layout (ArgList (Arg (NameExpr Storefront))))
+    (Annotation SignInPage (ArgList (Arg (NameExpr SignIn))))
+    (Annotation Rendering (ArgList (Arg (ImplicitMemberExpr client))))
+    public app Shop (MemberList)))

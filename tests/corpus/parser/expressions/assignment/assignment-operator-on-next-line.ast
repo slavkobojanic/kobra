@@ -1,0 +1,7 @@
+; `=` and compound assignments at the start of a line continue the statement (rule N3)
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (AssignStmt (NameExpr total) = (NameExpr price))
+      (AssignStmt (NameExpr total) += (NameExpr tax)))))

@@ -1,0 +1,23 @@
+# A newline inside a string's interpolation ends that string (K0002) even
+# when the string is itself inside a multi-line style interpolation, which
+# stays open: on the next line `}` closes it.
+StyleKw "style"
+LBrace "{"
+Newline "\n"
+Dot "."
+Ident "a"
+LBrace "{"
+Ident "content"
+Colon ":"
+InterpStart "{"
+StringStart "\""
+StringText "x"
+InterpStart "{"
+Ident "y"
+Newline "\n"
+InterpEnd "}"
+Semicolon ";"
+RBrace "}"
+Newline "\n"
+RBrace "}"
+Newline "\n"

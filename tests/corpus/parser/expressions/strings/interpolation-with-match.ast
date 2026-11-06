@@ -1,0 +1,9 @@
+; a match inside an interpolation must fit on one line (RA-11), so its second arm is K0102
+(SourceFile
+  (FieldDecl let a =
+    (StringLit
+      (Interpolation
+        (MatchExpr match
+          (NameExpr s)
+          (MatchArm case (EnumCasePattern on) (Block (StringLit "on")))
+          (MatchArm default (Block (StringLit "off"))))))))

@@ -1,0 +1,5 @@
+; `{ (a) }` and `{ (a, b) }` have no `=>`, so the parentheses are the body (bounded lookahead)
+(SourceFile
+  (FieldDecl let a = (LambdaExpr (ParenExpr (NameExpr x))))
+  (FieldDecl let b = (LambdaExpr (TupleExpr (NameExpr x) (NameExpr y))))
+  (FieldDecl let c = (LambdaExpr (BinaryExpr (ParenExpr (NameExpr x)) + (Literal 1)))))

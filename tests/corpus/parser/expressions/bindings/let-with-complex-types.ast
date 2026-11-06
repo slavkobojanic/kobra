@@ -1,0 +1,23 @@
+; optional, generic, function and tuple type annotations
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let a (OptionalType (PathType Int)) = (Literal nil))
+      (LetStmt let tags
+        (PathType Set (GenericArgList (PathType String)))
+        =
+        (CallExpr (NameExpr Set) (ArgList (Arg (ListExpr (StringLit "new"))))))
+      (LetStmt let row
+        (FuncType (PathType CartItem) (ReturnType (OptionalType (PathType View))))
+        =
+        (Literal nil))
+      (LetStmt let pair
+        (TupleType (PathType Int) (PathType String))
+        =
+        (TupleExpr (Literal 1) (StringLit "a")))
+      (LetStmt let m
+        (PathType Map
+          (GenericArgList (PathType String) (PathType List (GenericArgList (PathType Int)))))
+        =
+        (MapExpr)))))

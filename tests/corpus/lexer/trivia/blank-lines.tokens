@@ -1,0 +1,9 @@
+# Every line terminator is its own Newline, including on blank and
+# whitespace-only lines.
+Newline "\n"
+Newline "\n"
+Newline "\n"
+Newline "\n"
+Ident "x"
+Newline "\n"
+Newline "\n"

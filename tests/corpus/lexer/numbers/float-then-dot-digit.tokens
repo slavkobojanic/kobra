@@ -1,0 +1,5 @@
+# After a float, `.3` is Dot IntLit (a second fraction is not possible).
+FloatLit "1.2"
+Dot "."
+IntLit "3"
+Newline "\n"

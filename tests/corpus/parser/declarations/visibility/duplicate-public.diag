@@ -1,0 +1,2 @@
+# Repeating a modifier is K0127 on the second one.
+error[K0127] 2:8-2:14

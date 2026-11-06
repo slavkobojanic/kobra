@@ -1,0 +1,4 @@
+; `if` is an expression: there is no ternary
+(SourceFile
+  (FieldDecl let label =
+    (IfExpr if (NameExpr done) (Block (StringLit "Done")) else (Block (StringLit "Pending")))))

@@ -1,0 +1,13 @@
+# Optional type suffixes and a function type.
+Ident "Int"
+Question "?"
+LBrack "["
+Ident "String"
+RBrack "]"
+Question "?"
+LParen "("
+Ident "Int"
+RParen ")"
+Arrow "->"
+Ident "Bool"
+Newline "\n"

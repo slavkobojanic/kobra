@@ -1,0 +1,2 @@
+; `key` with no expression before the block: K0122 at the `{`; the block still parses.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (ForStmt for (IdentPattern item) in (NameExpr items) (KeyClause key) (Block (CallExpr (NameExpr row) (ArgList (Arg (NameExpr item)))))))))))

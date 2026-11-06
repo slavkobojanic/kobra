@@ -1,0 +1,2 @@
+; The universal selector alone and after a child combinator.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (UniversalSelector *))) (Declaration margin (CssValue (Literal 0)))) (StyleRule (Selector (CompoundSelector (ClassSelector a)) > (CompoundSelector (UniversalSelector *))))))))

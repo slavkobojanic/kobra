@@ -1,0 +1,2 @@
+; Two members on one line are K0102 at the second.
+(SourceFile (StructDecl struct Point (MemberList (FieldDecl let x (PathType Int)) (FieldDecl let y (PathType Int)))))

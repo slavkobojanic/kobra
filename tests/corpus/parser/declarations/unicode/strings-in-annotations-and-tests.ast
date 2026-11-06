@@ -1,0 +1,4 @@
+; Strings in annotations, clauses and test names may hold any Unicode text.
+(SourceFile
+  (ProtocolDecl (Annotation Breaking (ArgList (Arg (StringLit "移除了字段 🚀 — ünïcödé")))) protocol P (MemberList))
+  (TestCaseDecl test (StringLit "naïve café ☕ 測試") (Block)))

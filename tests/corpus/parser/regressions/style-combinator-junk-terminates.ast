@@ -1,0 +1,15 @@
+; Regression: a style rule made only of combinators once made the style item loop spin
+; without consuming tokens (the parser's fuel assertion caught it). `:::` becomes a
+; pseudo-element and a pseudo-class without names, `&&&` a compound of three nesting
+; selectors (a descendant of the first compound), `>` a combinator with no selector after
+; it, and the rest of the rule is skipped up to the style block's `}`.
+(SourceFile
+  (ComponentDecl component T
+    (MemberList
+      (StyleBlock style
+        (StyleRule
+          (Selector
+            (CompoundSelector (PseudoElement) (PseudoClass))
+            (CompoundSelector (NestingSelector &) (NestingSelector &) (NestingSelector &))
+            >)
+          (ErrorNode > > + + + ~ ~ ~))))))

@@ -1,0 +1,18 @@
+; `for await x in stream { }` reads a stream.
+(SourceFile
+  (FuncDecl func watch
+    (ParamList)
+    async
+    (ThrowsClause throws (PathType RpcFailure))
+    (Block
+      (LetStmt let changes = (TryExpr try (AwaitExpr await (CallExpr (MemberExpr (NameExpr api) watch) (ArgList)))))
+      (ForStmt for await
+        (IdentPattern change)
+        in
+        (NameExpr changes)
+        (Block (CallExpr (NameExpr apply) (ArgList (Arg change (NameExpr change))))))
+      (ForStmt for await
+        (TuplePattern (IdentPattern id) (IdentPattern value))
+        in
+        (NameExpr pairs)
+        (Block (BreakStmt break))))))

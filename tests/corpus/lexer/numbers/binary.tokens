@@ -1,0 +1,5 @@
+# Binary integers.
+IntLit "0b1010"
+IntLit "0b0"
+IntLit "0b1111_0000"
+Newline "\n"

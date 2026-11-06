@@ -1,0 +1,5 @@
+# `..` is a token (the parser reports K0119 with a fix).
+IntLit "1"
+DotDot ".."
+IntLit "10"
+Newline "\n"

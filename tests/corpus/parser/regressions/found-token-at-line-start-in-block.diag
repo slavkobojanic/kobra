@@ -1,0 +1,2 @@
+# The span is the token, so the message must name it, not "end of line".
+error[K0122] 3:9-3:12: expected a statement or expression, found `and`

@@ -1,0 +1,4 @@
+# Whitespace ends a run.
+Error "$"
+Error "$"
+Newline "\n"

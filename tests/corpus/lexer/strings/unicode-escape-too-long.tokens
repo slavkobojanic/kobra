@@ -1,0 +1,5 @@
+# Seven digits are too many; the escape still runs to the `}`.
+StringStart "\""
+StringEscape "\\u{1234567}"
+StringEnd "\""
+Newline "\n"

@@ -1,0 +1,3 @@
+# End of file right after `view` (no `{` follows, so it is not a view block): K0126 at `view` and K0101 for the component.
+error[K0126] 3:5-3:9
+error[K0101] 2:13-2:14

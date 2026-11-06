@@ -1,0 +1,2 @@
+# `@` without a name reports K0100 at the next token; the declaration is still parsed.
+error[K0100] 3:7-3:10

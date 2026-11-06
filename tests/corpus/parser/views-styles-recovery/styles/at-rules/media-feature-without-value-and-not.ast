@@ -1,0 +1,2 @@
+; A media feature without a value, and `not` in a prelude (an identifier in style mode).
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (AtRule media (AtPrelude (MediaFeature prefersReducedMotion))) (AtRule media (AtPrelude not print))))))

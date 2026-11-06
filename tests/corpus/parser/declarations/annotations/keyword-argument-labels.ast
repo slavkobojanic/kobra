@@ -1,0 +1,7 @@
+; Argument labels inside annotations may be keywords.
+(SourceFile
+  (ComponentDecl component A
+    (MemberList
+      (FuncDecl
+        (Annotation Effect (ArgList (Arg on (ListExpr (NameExpr a))) (Arg in (ImplicitMemberExpr route)) (Arg for (NameExpr b))))
+        func f (ParamList) (Block)))))

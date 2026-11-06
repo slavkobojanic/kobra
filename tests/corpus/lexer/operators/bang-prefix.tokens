@@ -1,0 +1,4 @@
+# `!` is a token (the parser reports K0106 and suggests `not`).
+Bang "!"
+Ident "ready"
+Newline "\n"

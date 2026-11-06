@@ -1,0 +1,2 @@
+; a lambda cut off by the end of file is K0101 at its `{`
+(SourceFile (FieldDecl let f = (LambdaExpr (LambdaParamList (LambdaParam x)) (NameExpr x))))

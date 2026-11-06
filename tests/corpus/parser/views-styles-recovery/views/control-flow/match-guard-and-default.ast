@@ -1,0 +1,2 @@
+; Match arms with a `where` guard and a `default` arm.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (MatchExpr match (NameExpr status) (MatchArm case (EnumCasePattern shipped (BindingPattern let tracking)) (MatchGuard where (MemberExpr (NameExpr tracking) isDelayed)) (Block (CallExpr (NameExpr Badge) (ArgList (Arg text (StringLit "Late")))))) (MatchArm default (Block (StringLit "On time")))))))))

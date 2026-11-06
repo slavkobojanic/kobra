@@ -1,0 +1,2 @@
+# A `;` after a metadata entry is K0103.
+error[K0103] 4:19-4:20

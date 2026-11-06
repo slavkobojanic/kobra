@@ -1,0 +1,5 @@
+; in code a leading `-` is never part of a number: `-4px` is a PrefixExpr
+(SourceFile
+  (FieldDecl let a = (PrefixExpr - (Literal 4px)))
+  (FieldDecl let b = (BinaryExpr (Literal 100%) - (Literal 2px)))
+  (FieldDecl let c = (BinaryExpr (PrefixExpr - (Literal 0.5rem)) * (Literal 2))))

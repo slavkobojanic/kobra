@@ -1,0 +1,2 @@
+; Combining `public` and `private` is K0127 on the second modifier.
+(SourceFile (FuncDecl public private func f (ParamList) (Block)))

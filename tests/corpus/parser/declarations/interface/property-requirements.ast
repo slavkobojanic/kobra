@@ -1,0 +1,7 @@
+; Interfaces may require fields and computed properties.
+(SourceFile
+  (InterfaceDecl interface Named
+    (MemberList
+      (FieldDecl let name (PathType String))
+      (FieldDecl var displayName (PathType String) (Block (NameExpr name)))
+      (FieldDecl static let kind (PathType String)))))

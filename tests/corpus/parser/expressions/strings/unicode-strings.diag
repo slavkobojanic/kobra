@@ -1,0 +1,2 @@
+# strings hold any Unicode text; columns after it count scalar values
+error[K0104] 4:13-4:15

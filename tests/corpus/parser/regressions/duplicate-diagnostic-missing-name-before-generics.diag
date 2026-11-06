@@ -1,0 +1,4 @@
+error[K0100] 1:5-1:6: expected a name, found `<`
+error[K0101] 1:5-1:6: unclosed delimiter `<`
+  help: add the matching `>`
+error[K0100] 1:6-1:6: expected `{`, found end of file

@@ -1,0 +1,6 @@
+; parentheses build a ParenExpr and regroup operands
+(SourceFile
+  (FieldDecl let a = (BinaryExpr (ParenExpr (BinaryExpr (Literal 1) + (Literal 2))) * (Literal 3)))
+  (FieldDecl let b =
+    (BinaryExpr (NameExpr x) and (ParenExpr (BinaryExpr (NameExpr y) or (NameExpr z)))))
+  (FieldDecl let c = (PrefixExpr not (ParenExpr (BinaryExpr (NameExpr a) and (NameExpr b))))))

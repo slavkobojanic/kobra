@@ -1,0 +1,4 @@
+# The lexer does not join `@` and the name; spacing is the parser's concern.
+At "@"
+Ident "State"
+Newline "\n"

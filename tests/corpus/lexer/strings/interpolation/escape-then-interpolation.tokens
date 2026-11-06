@@ -1,0 +1,8 @@
+# `{{{x}`: an escaped `{`, then an interpolation.
+StringStart "\""
+StringEscape "{{"
+InterpStart "{"
+Ident "x"
+InterpEnd "}"
+StringEnd "\""
+Newline "\n"

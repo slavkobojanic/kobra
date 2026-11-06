@@ -1,0 +1,3 @@
+; `if { }` is K0122 at the `{`
+(SourceFile
+  (FuncDecl func f (ParamList) (Block (IfExpr if (Block (CallExpr (NameExpr go) (ArgList)))))))

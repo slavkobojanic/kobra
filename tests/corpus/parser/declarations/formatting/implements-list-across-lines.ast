@@ -1,0 +1,5 @@
+; A comma at the end of a line continues the `implements` list.
+(SourceFile
+  (ServiceDecl service Payments
+    (ImplementsClause implements (PathType PaymentProvider) (PathType Refunds) (PathType Webhooks))
+    (MemberList)))

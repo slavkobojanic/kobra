@@ -1,0 +1,5 @@
+# `...` closed range.
+IntLit "1"
+DotDotDot "..."
+IntLit "10"
+Newline "\n"

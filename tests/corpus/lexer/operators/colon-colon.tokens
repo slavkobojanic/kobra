@@ -1,0 +1,6 @@
+# There is no `::` token.
+Ident "a"
+Colon ":"
+Colon ":"
+Ident "b"
+Newline "\n"

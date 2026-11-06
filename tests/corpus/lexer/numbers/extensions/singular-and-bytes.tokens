@@ -1,0 +1,11 @@
+# Other extension properties.
+IntLit "1"
+Dot "."
+Ident "hour"
+IntLit "25"
+Dot "."
+Ident "megabytes"
+IntLit "3"
+Dot "."
+Ident "days"
+Newline "\n"

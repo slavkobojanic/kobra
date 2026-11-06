@@ -1,0 +1,4 @@
+; a top-level `let` is a FieldDecl, a `let` in a block is a LetStmt
+(SourceFile
+  (FieldDecl let limit = (Literal 10))
+  (FuncDecl func f (ParamList) (Block (LetStmt let local = (NameExpr limit)))))

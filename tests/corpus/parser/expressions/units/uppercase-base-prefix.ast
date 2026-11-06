@@ -1,0 +1,6 @@
+; Upper-case base prefixes are unit literals with an unknown suffix.
+(SourceFile
+  (FieldDecl let a = (Literal 0X1F))
+  (FieldDecl let b = (Literal 0B101))
+  (FieldDecl let c = (Literal 0O17))
+  (FieldDecl let d = (Literal 0Xyz)))

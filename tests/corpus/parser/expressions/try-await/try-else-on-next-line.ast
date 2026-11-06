@@ -1,0 +1,7 @@
+; `else` on the next line continues a `try` (rule N3)
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (LetStmt let v =
+        (TryExpr try (CallExpr (NameExpr load) (ArgList)) else (Block (Literal nil)))))))

@@ -1,0 +1,29 @@
+; one expression that uses every precedence level from `try` down to postfix
+(SourceFile
+  (FieldDecl let r =
+    (TryExpr try
+      (BinaryExpr
+        (NameExpr a)
+        or
+        (BinaryExpr
+          (PrefixExpr not (NameExpr b))
+          and
+          (BinaryExpr
+            (NameExpr c)
+            ==
+            (BinaryExpr
+              (NameExpr d)
+              ??
+              (BinaryExpr
+                (NameExpr e)
+                ..<
+                (BinaryExpr
+                  (NameExpr f)
+                  +
+                  (BinaryExpr
+                    (NameExpr g)
+                    *
+                    (PrefixExpr -
+                      (IndexExpr
+                        (CallExpr (MemberExpr (NameExpr h) i) (ArgList (Arg (NameExpr j))))
+                        (NameExpr k)))))))))))))

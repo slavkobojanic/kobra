@@ -1,0 +1,4 @@
+# `||` is K0105 with a machine-applicable fix; the tree keeps `||` as an `or`
+error[K0105] 2:12-2:14
+  fix "Replace `||` with `or`"
+    edit 2:12-2:14 "or"

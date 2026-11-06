@@ -1,0 +1,2 @@
+; A declaration may end exactly at the end of the file.
+(SourceFile (StructDecl struct A (MemberList (FieldDecl let x (PathType Int)))))

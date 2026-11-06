@@ -1,0 +1,2 @@
+# `expect` with nothing after it is K0122 at the gap
+error[K0122] 3:11-3:11

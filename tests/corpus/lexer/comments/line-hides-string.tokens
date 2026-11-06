@@ -1,0 +1,5 @@
+# A `"` inside a line comment does not start a string.
+LineComment "// \"unterminated"
+Newline "\n"
+Ident "x"
+Newline "\n"

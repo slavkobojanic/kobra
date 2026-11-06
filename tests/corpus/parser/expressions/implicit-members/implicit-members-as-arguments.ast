@@ -1,0 +1,9 @@
+; several implicit members as positional and labeled arguments
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (NameExpr f)
+      (ArgList
+        (Arg (ImplicitMemberExpr a))
+        (Arg (ImplicitMemberExpr b))
+        (Arg mode (ImplicitMemberExpr lazy))))))

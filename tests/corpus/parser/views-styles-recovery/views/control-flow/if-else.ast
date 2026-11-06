@@ -1,0 +1,2 @@
+; `if` / `else` with `else` on the closing-brace line.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (NameExpr done) (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit "Done")))) else (Block (CallExpr (NameExpr Spinner) (ArgList)))))))))

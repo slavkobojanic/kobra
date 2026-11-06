@@ -1,0 +1,8 @@
+# A line terminator before the closing quote ends the string without
+# StringEnd. (The example from testing.md 3.7.)
+LetKw "let"
+Ident "s"
+Eq "="
+StringStart "\""
+StringText "abc"
+Newline "\n"

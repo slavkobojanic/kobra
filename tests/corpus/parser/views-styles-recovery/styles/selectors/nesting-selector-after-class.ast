@@ -1,0 +1,2 @@
+; `&` may appear after another compound selector, and twice in one selector.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (StyleRule (Selector (CompoundSelector (ClassSelector dark)) (CompoundSelector (NestingSelector &)))) (StyleRule (Selector (CompoundSelector (NestingSelector &)) + (CompoundSelector (NestingSelector &)))))))))

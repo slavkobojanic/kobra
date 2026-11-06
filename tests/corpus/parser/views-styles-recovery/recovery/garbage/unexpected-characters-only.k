@@ -1,0 +1,2 @@
+// A file of unexpected characters: one K0001 per maximal run (lexer) and no parser diagnostic; the tokens are kept in an ErrorNode.
+$$$ ^^^ ```

@@ -1,0 +1,6 @@
+// `#fade` is a valid color literal, so as a selector only K0132 is reported.
+component T {
+    style {
+        .a #fade {}
+    }
+}

@@ -1,0 +1,2 @@
+; `expect` with nothing after it is K0122 at the gap
+(SourceFile (FuncDecl func f (ParamList) (Block (ExpectStmt expect))))

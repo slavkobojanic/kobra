@@ -1,0 +1,3 @@
+; a parser error inside an interpolation is reported and the string continues
+(SourceFile
+  (FieldDecl let a = (StringLit (Interpolation (BinaryExpr (NameExpr x) && (NameExpr y))) " done")))

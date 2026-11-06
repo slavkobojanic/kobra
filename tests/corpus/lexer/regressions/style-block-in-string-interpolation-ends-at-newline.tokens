@@ -1,0 +1,17 @@
+# Regression: a `style {` inside a string interpolation pushed a style frame on top of the
+# string's frames, so the line terminator no longer ended the string (grammar.md §4.2) and
+# the rest of the file was lexed in style mode (`let` became an `Ident`). A line terminator
+# inside a string ends every frame from the string's frame upward, style frames included.
+LetKw "let"
+Ident "a"
+Eq "="
+StringStart "\""
+InterpStart "{"
+StyleKw "style"
+LBrace "{"
+Newline "\n"
+LetKw "let"
+Ident "b"
+Eq "="
+IntLit "1"
+Newline "\n"

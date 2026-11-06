@@ -1,0 +1,2 @@
+; `&&` and `||` in a view condition are K0104 and K0105, treated as `and` and `or`.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (IfExpr if (BinaryExpr (BinaryExpr (NameExpr a) && (NameExpr b)) || (NameExpr c)) (Block (CallExpr (NameExpr Ok) (ArgList)))))))))

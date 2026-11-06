@@ -1,0 +1,5 @@
+; `case { }` is K0124 at the `{`
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (MatchExpr match (NameExpr v) (MatchArm case (Block)) (MatchArm default (Block))))))

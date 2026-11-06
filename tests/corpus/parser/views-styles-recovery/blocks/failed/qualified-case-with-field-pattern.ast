@@ -1,0 +1,2 @@
+; A qualified enum case pattern with a labeled field pattern.
+(SourceFile (PageDecl page Product (MemberList (FailedBlock failed (EnumCasePattern LoadError http (PatternField status (BindingPattern let code))) (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit "Error " (Interpolation (NameExpr code))))))))))

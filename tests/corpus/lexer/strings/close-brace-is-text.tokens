@@ -1,0 +1,5 @@
+# `}` needs no escape: it is ordinary text.
+StringStart "\""
+StringText "a}b"
+StringEnd "\""
+Newline "\n"

@@ -1,0 +1,2 @@
+# `let a = 1 let b = 2` is K0102 at the second `let`
+error[K0102] 3:15-3:18

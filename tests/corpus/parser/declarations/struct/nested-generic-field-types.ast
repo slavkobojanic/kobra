@@ -1,0 +1,13 @@
+; `>>` in nested generics is two closing tokens.
+(SourceFile
+  (StructDecl struct Index
+    (MemberList
+      (FieldDecl var byTag
+        (PathType Map
+          (GenericArgList
+            (PathType String)
+            (PathType List
+              (GenericArgList
+                (PathType Map (GenericArgList (PathType Int) (PathType Set (GenericArgList (PathType String)))))))))
+        = (MapExpr))
+      (FieldDecl var pairs (PathType List (GenericArgList (TupleType (PathType Int) (PathType String)))) = (ListExpr)))))

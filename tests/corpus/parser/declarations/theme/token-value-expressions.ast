@@ -1,0 +1,14 @@
+; Token values may be any expression: arithmetic, chains and calls.
+(SourceFile
+  (ThemeDecl theme T
+    (MemberList
+      (ThemeToken space lg (PathType Spacing) = (BinaryExpr (Literal 16px) * (Literal 2)))
+      (ThemeToken color overlay (PathType Color) =
+        (CallExpr (MemberExpr (ImplicitMemberExpr primary) opacity) (ArgList (Arg (Literal 0.8)))))
+      (ThemeToken color mixed (PathType Color) =
+        (CallExpr (MemberExpr (ImplicitMemberExpr primary) mix)
+          (ArgList (Arg (ImplicitMemberExpr white)) (Arg (Literal 20%)))))
+      (ThemeToken duration fast (PathType Duration) = (Literal 150ms))
+      (ThemeToken shadow card (PathType Shadow) =
+        (CallExpr (NameExpr Shadow)
+          (ArgList (Arg y (Literal 1px)) (Arg blur (Literal 3px)) (Arg color (Literal #0000001A))))))))

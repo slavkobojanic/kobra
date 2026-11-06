@@ -1,0 +1,2 @@
+; A dotted import names one declaration in a module.
+(SourceFile (Import import (ImportPath shop catalog Product)))

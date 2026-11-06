@@ -1,0 +1,2 @@
+; Pseudo-elements use two adjacent colons.
+(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector input) (PseudoElement placeholder))) (Declaration color (CssValue (ImplicitMemberExpr muted)))) (StyleRule (Selector (CompoundSelector (ClassSelector a) (PseudoElement after))) (Declaration content (CssValue (StringLit))))))))

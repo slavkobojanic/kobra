@@ -1,0 +1,2 @@
+# A `for` without `in`: K0100 at the token where `in` was expected; the rest of the header still parses.
+error[K0100] 4:18-4:23

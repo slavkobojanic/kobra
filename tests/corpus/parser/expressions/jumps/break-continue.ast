@@ -1,0 +1,5 @@
+; `break` and `continue` take no value
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block (WhileStmt while (Literal true) (Block (BreakStmt break) (ContinueStmt continue))))))

@@ -1,0 +1,9 @@
+; case patterns may name the enum and its namespace
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (MatchExpr match
+        (NameExpr s)
+        (MatchArm case (EnumCasePattern Status active) (Block))
+        (MatchArm case (EnumCasePattern shop Status archived (BindingPattern let at)) (Block))))))

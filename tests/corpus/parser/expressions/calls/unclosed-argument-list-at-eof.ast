@@ -1,0 +1,3 @@
+; an argument list cut off by the end of file is K0101 at its `(`
+(SourceFile
+  (FieldDecl let a = (CallExpr (NameExpr f) (ArgList (Arg (Literal 1)) (Arg (Literal 2))))))

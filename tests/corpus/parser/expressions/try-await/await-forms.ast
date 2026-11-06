@@ -1,0 +1,8 @@
+; `await` before calls, members and chains
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (AwaitExpr await (CallExpr (NameExpr refresh) (ArgList)))
+      (LetStmt let a =
+        (AwaitExpr await (MemberExpr (CallExpr (MemberExpr (NameExpr api) load) (ArgList)) items))))))

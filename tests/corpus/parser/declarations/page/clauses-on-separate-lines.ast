@@ -1,0 +1,6 @@
+; `requires`, `at` and the body's `{` may each start a new line.
+(SourceFile
+  (PageDecl page Admin
+    (RequiresClause requires (Guard Authenticated) (Guard Role (ArgList (Arg (ImplicitMemberExpr admin)))))
+    (AtClause at (StringLit "/admin"))
+    (MemberList (ViewBlock view (Block (StringLit "Admin"))))))

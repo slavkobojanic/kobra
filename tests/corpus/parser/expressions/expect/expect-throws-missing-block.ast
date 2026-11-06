@@ -1,0 +1,3 @@
+; `expect throws E` without a block is K0100 at the gap after the pattern
+(SourceFile
+  (FuncDecl func f (ParamList) (Block (ExpectThrowsStmt expect throws (EnumCasePattern E a)))))

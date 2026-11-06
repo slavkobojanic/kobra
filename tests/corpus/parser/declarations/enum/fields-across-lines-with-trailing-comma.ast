@@ -1,0 +1,6 @@
+; Case fields may span lines and end with a trailing comma.
+(SourceFile
+  (EnumDecl enum Event
+    (MemberList
+      (EnumCase case moved (CaseField from (PathType Point)) (CaseField to (PathType Point)))
+      (EnumCase case resized (CaseField (PathType Size))))))

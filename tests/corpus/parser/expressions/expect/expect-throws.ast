@@ -1,0 +1,17 @@
+; `expect throws Pattern { ... }` with qualified and implicit case patterns
+(SourceFile
+  (TestCaseDecl test
+    (StringLit "errors")
+    (Block
+      (ExpectThrowsStmt expect throws
+        (EnumCasePattern CartError outOfStock)
+        (Block
+          (TryExpr try
+            (AwaitExpr await
+              (CallExpr
+                (MemberExpr (NameExpr cart) add)
+                (ArgList (Arg product (ImplicitMemberExpr soldOut))))))))
+      (ExpectThrowsStmt expect throws
+        (EnumCasePattern outOfStock (BindingPattern let n))
+        (Block (TryExpr try (CallExpr (NameExpr f) (ArgList)))))
+      (ExpectThrowsStmt expect throws (WildcardPattern _) (Block)))))

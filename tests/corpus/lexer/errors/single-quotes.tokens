@@ -1,0 +1,5 @@
+# Single quotes do not delimit strings or characters.
+Error "'"
+Ident "c"
+Error "'"
+Newline "\n"

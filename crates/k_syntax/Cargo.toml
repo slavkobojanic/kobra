@@ -1,0 +1,23 @@
+[package]
+name = "k_syntax"
+description = "Tokens, lexer, parser and the lossless syntax tree of the K language."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+k_diagnostics.workspace = true
+rowan.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true
+arbitrary.workspace = true
+
+[[bench]]
+name = "syntax"
+harness = false
+
+[lints]
+workspace = true

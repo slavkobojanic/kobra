@@ -1,0 +1,17 @@
+# Inside the block `a-b` is one identifier; after the closing `}` the lexer
+# is back in code mode, where `-` is Minus.
+StyleKw "style"
+LBrace "{"
+Dot "."
+Ident "a-b"
+LBrace "{"
+RBrace "}"
+RBrace "}"
+Newline "\n"
+LetKw "let"
+Ident "x"
+Eq "="
+Ident "a"
+Minus "-"
+Ident "b"
+Newline "\n"

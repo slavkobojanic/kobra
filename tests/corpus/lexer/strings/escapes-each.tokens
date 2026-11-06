@@ -1,0 +1,10 @@
+# Every backslash escape, each its own StringEscape token.
+StringStart "\""
+StringEscape "\\n"
+StringEscape "\\r"
+StringEscape "\\t"
+StringEscape "\\0"
+StringEscape "\\\\"
+StringEscape "\\\""
+StringEnd "\""
+Newline "\n"

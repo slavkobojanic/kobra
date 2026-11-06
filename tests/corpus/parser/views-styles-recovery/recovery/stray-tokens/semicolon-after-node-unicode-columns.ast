@@ -1,0 +1,2 @@
+; K0103 for a `;` after a node; the column counts the `é` before it as one character.
+(SourceFile (ComponentDecl component T (MemberList (ViewBlock view (Block (CallExpr (NameExpr text) (LambdaExpr (StringLit "héllo"))))))))
