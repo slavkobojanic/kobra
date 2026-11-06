@@ -4,7 +4,7 @@ import todo.TodoService
 /// Tells the user that their todos could not be loaded, or are not being
 /// saved.
 ///
-/// The notice has the `status` role, so screen readers announce it when it
+/// The notice has the `.status` role, so screen readers announce it when it
 /// appears without interrupting what the user is doing.
 component StorageNotice {
     /// The problem to explain.

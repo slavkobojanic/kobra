@@ -65,6 +65,21 @@ test Notes {
         expect screen.button(named: "Pin Groceries").isPressed
     }
 
+    test "signing out in another tab sends this one to sign in" {
+        await sessions.signIn(userId: AccountId.ada)
+        let screen = render(Notes())
+        await screen.settle()
+
+        expect screen.text("No notes yet. Write your first one.").isVisible
+
+        // Tabs share the session, so signing out anywhere ends it here too,
+        // and with it this tab's stream.
+        await sessions.signOut()
+        await screen.settle()
+
+        expect screen.currentPage == .signIn.returnTo(.notes)
+    }
+
     test "a visitor who isn't signed in is sent to sign in, and back afterwards" {
         let screen = render(Notes())
         await screen.settle()

@@ -2,37 +2,65 @@
 
 ## Decision
 
-`k.time` provides **`Timer`** for delays and repetition, and a **clock** that every reading of the current time goes through, so tests control time with a virtual clock and never wait in real time.
+**The current time, timers and sleeps come only from the injected `Clock` service** in `k.time`. Code that needs the time writes `@Inject let clock: Clock`; there is no ambient way to read it. Tests get a virtual clock by default, so they control time and never wait in real time.
 
 ```k
+@Inject let clock: Clock
+
 @Effect(on: [placeId])
 func refreshPeriodically() {
-    let timer = Timer.every(10.minutes) { reload() }
+    let timer = clock.every(10.minutes) { reload() }
 
     onCleanup { timer.cancel() }
 }
 ```
 
-## Timer
+## `Clock`
+
+`Clock` is a stdlib service, usable on both sides:
+
+| Member | Meaning |
+|---|---|
+| `clock.now: Date` | the current instant |
+| `clock.every(_ interval: Duration, _ action: () -> Void) -> TimerHandle` | runs `action` every `interval`; the first run is after one interval |
+| `clock.after(_ delay: Duration, _ action: () -> Void) -> TimerHandle` | runs `action` once, after `delay` |
+| `clock.sleep(_ duration: Duration) async` | suspends the current async function |
 
 ```k
-let timer = Timer.every(10.minutes) { reload() }     // repeats; first fire after one interval
-let once = Timer.after(2.seconds) { dismiss() }      // fires once
+let timer = clock.every(10.minutes) { reload() }     // repeats; first fire after one interval
+let once = clock.after(2.seconds) { dismiss() }      // fires once
 timer.cancel()                                        // idempotent
 
-await Timer.sleep(300ms)                              // suspends the current async function
+await clock.sleep(300ms)                              // suspends the current async function
 ```
 
-- `Timer.every` and `Timer.after` return a `TimerHandle` with `cancel()`.
+- **It is a service, so layering allows it where services go:** components, pages, layouts, services, endpoint pages and jobs may inject it ([10-services.md](10-services.md#layering)). It holds no request state, so services in every scope may inject it, `.server` included.
+- **Plain functions and structs don't read the time.** They inject nothing, so code that needs the current instant takes it as a parameter, usually named `now`:
+
+  ```k
+  struct StripeSignature {
+      let signedAt: Date
+
+      func isFresh(now: Date, tolerance: Duration) -> Bool {
+          return now - signedAt <= tolerance
+      }
+  }
+
+  // in the service that injects the clock
+  guard signature.isFresh(now: clock.now, tolerance: config.tolerance) else { … }
+  ```
+
+- **There is no `Date.now`, `.ago` or `.fromNow`.** "Ten minutes ago" is `clock.now - 10.minutes`, and "in three days" is `clock.now + 3.days`. Durations themselves need no clock: `10.minutes` is a `Duration` ([07-themes-and-units.md](07-themes-and-units.md#number-extensions)).
+- `every` and `after` return a `TimerHandle` with `cancel()`.
 - **Timers belong to their owner.** A timer started inside an `@Effect` should be cancelled in `onCleanup`. The compiler warns when a `TimerHandle` returned inside an effect is discarded, because the timer would outlive the component.
-- **`Timer.sleep` is cancellable.** When the async effect or `@Load` that is sleeping is cancelled, the sleep ends and the function never resumes. Debouncing is therefore an async effect that sleeps first, and that handles its own errors, as every effect must ([03-reactivity.md](03-reactivity.md#effects-handle-their-own-errors)):
+- **`clock.sleep` is cancellable.** When the async effect or `@Load` that is sleeping is cancelled, the sleep ends and the function never resumes. Debouncing is therefore an async effect that sleeps first, and that handles its own errors, as every effect must ([03-reactivity.md](03-reactivity.md#effects-handle-their-own-errors)):
 
   ```k
   @Effect
   func search() async {
       let text = query
 
-      await Timer.sleep(300ms)              // a new keystroke cancels this run
+      await clock.sleep(300ms)              // a new keystroke cancels this run
 
       do {
           results = .loaded(try await places.search(text))
@@ -44,20 +72,18 @@ await Timer.sleep(300ms)                              // suspends the current as
 
 - **Effects don't run during server rendering,** so neither do timers started in them. Server-side work on a schedule is a background job ([30-background-jobs.md](30-background-jobs.md#schedules)).
 
-## The clock
+## Relative times
 
-`Date.now`, `2.hours.ago`, relative-time formatting and every `Timer` call read the clock. The only production implementation is `SystemClock`.
+Relative formatting takes the reference instant explicitly, so it reads the clock where the clock is injected:
 
-### Open question: an ambient clock or an injected one
+```k
+text { message.sentAt.formatted(as: .relative, from: clock.now) }     // "5 minutes ago"
+```
 
-**Not decided.** The decided docs already read the time from anywhere (`Date.now + 3.days` in [07-themes-and-units.md](07-themes-and-units.md)), including plain functions and structs, which inject nothing ([10-services.md](10-services.md#layering)). So the clock can't be an ordinary injected interface without changing that. The options:
+- **`date.formatted(as: .relative, from: reference)`** describes `date` relative to `reference`: "5 minutes ago", "in 3 days". The `from:` argument is required.
+- The other styles (`.date`, `.time`, `.dateTime`) need no reference instant.
 
-- **An ambient context (recommended).** `Clock` is declared as the stdlib's single ambient context, explicitly not a dependency-injection binding. `Date.now`, `.ago` and `Timer` read it from anywhere. The test runner installs a virtual clock per test, which tests control through `@Inject let clock: TestClock`. `use … for Clock` is not allowed, so `use` keeps one meaning. Existing examples stay as they are.
-- **Strict injection.** Code that needs the time writes `@Inject let clock: Clock` and calls `clock.now` and `clock.every(…)`. `Date.now` and the ambient `Timer` are removed, and `.ago` takes a clock. This is more explicit, and the layering rules hold without an exception, but it is noisier, keeps time out of plain functions and structs, and changes decided examples in [07-themes-and-units.md](07-themes-and-units.md).
-
-Either way, tests reach the virtual clock with `@Inject let clock: TestClock` and never write a `use` line for it ([21-testing.md](21-testing.md#test-doubles-and-defaults)).
-
-### Testing with `TestClock`
+## Testing with `TestClock`
 
 ```k
 test CityWeather {
@@ -78,13 +104,15 @@ test CityWeather {
 }
 ```
 
-- **`TestClock` is the clock in every `k test`.** Virtual time starts at a fixed instant, so `Date.now` is deterministic.
+- **`TestClock` is the default for `Clock` in every `k test`** ([21-testing.md](21-testing.md#test-doubles-and-defaults)). A test reaches it with `@Inject let clock: TestClock` and never writes a `use` line for it.
+- Virtual time starts at a fixed instant, so `clock.now` is deterministic.
 - `advance(by:)` moves virtual time forward and fires every timer and sleep that falls due, in order. No real time passes.
+- **One virtual time per test.** The test's server container and browser container share it, so a server-side `clock.now` and a browser-side timer agree.
 - `screen.settle()` doesn't wait for work that is waiting on the clock.
 
 ## Server rendering
 
-- **The server's render instant is serialized with the page,** and the first client render reads `Date.now` from it. "5 minutes ago" is the same text in the server's HTML and after hydration. Later renders read the clock normally.
+- **The server's render instant is serialized with the page.** Until hydration completes, the browser's `Clock` returns that instant from `now`, so the first client render reads the same time the server did. "5 minutes ago" is the same text in the server's HTML and after hydration. After hydration, `now` reads the system time.
 - **`TimeZone.local` is the browser's time zone.** The browser runtime sends it in a `k_tz` cookie after the first load, so later server renders format dates in the user's zone. On a first visit, server rendering uses UTC, and the browser re-renders those text nodes after hydration as an expected update, not a hydration mismatch.
 - **Formatting uses the metadata locale** (`formatted(as: .dateTime)`), on the server, in the browser and in jobs, never the browser's language setting ([22-metadata.md](22-metadata.md)).
 
@@ -95,6 +123,7 @@ test CityWeather {
 
 ## Why
 
+- **Injection only, with no ambient clock.** Every reading of the time is visible as a dependency, and the layering rules hold with no exception for time ([10-services.md](10-services.md#layering)). An ambient clock would let a plain function read the time unseen. The cost is an `@Inject` line wherever time is read, and a `now: Date` parameter on plain functions, which also makes those functions trivial to test.
 - Returning a handle and cancelling it in `onCleanup` reuses the cleanup mechanism the design already has, with no separate lifecycle hook.
 - Routing all time through one clock makes time-based behavior (debounce, refresh, relative dates) testable without flaky real-time waits.
 - Serializing the render instant and the time zone removes the most common hydration mismatches by construction.

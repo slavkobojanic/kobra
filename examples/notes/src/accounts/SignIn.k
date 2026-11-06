@@ -12,11 +12,16 @@ public page SignIn {
 
     @Inject let auth: AuthService
 
-    @Form var credentials: Credentials = Credentials(email: "", password: "")
+    /// Starts with both fields blank. The form keeps what is typed, and
+    /// parses the email when it validates.
+    @Form var credentials: Credentials = .empty
     @State var problem: String? = nil
 
     /// Signs in, then continues to `returnTo`. A validation failure from the
     /// server is passed back to the form, which shows it under its fields.
+    ///
+    /// `handle` runs this only once the form is valid, so this is the one
+    /// place `credentials.value`, the parsed `Credentials`, can be read.
     func submit() async throws ValidationError {
         problem = nil
 
@@ -30,6 +35,8 @@ public page SignIn {
             throw failure
         } catch .rpcFailure(.rejected) {
             problem = "Too many attempts. Wait a minute, then try again."
+        } catch .rpcFailure(.offline), .rpcFailure(.timeout) {
+            problem = "Couldn't reach K Notes. Check your connection and try again."
         }
     }
 

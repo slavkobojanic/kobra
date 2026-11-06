@@ -13,7 +13,10 @@ import todo.TodoService
 ///
 /// Renaming happens in place. While editing, the row shows a small form whose
 /// draft lives in this component until it is saved, so cancelling leaves the
-/// todo untouched.
+/// todo untouched. Several rows can be edited at once, so the form's field
+/// and buttons are named after the todo too ("New title for Buy milk",
+/// "Save Buy milk"). The label uses the saved title, which doesn't change
+/// while the draft is typed.
 component TodoRow {
     /// The todo to show. Changes go through `TodoService`, never through this
     /// value.
@@ -59,16 +62,24 @@ component TodoRow {
             if isEditing {
                 form {
                     textField(value: bind draft)
-                        .label("Title")
+                        .label("New title for {todo.title}")
                         .class(.field)
 
-                    button { "Save" }
-                        .type(.submit)
-                        .disabled(isDraftBlank)
+                    button {
+                        "Save"
 
-                    button { "Cancel" }
-                        .type(.button)
-                        .on(click: cancelEditing)
+                        VisuallyHidden { " {todo.title}" }
+                    }
+                    .type(.submit)
+                    .disabled(isDraftBlank)
+
+                    button {
+                        "Cancel"
+
+                        VisuallyHidden { " {todo.title}" }
+                    }
+                    .type(.button)
+                    .on(click: cancelEditing)
 
                     if let error {
                         paragraph { error.message }

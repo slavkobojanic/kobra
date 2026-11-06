@@ -1,3 +1,4 @@
+import k.rpc.RpcOnlyError
 import store.OrderSummary
 
 /// The admin pages' entry point to `AdminProtocol`.
@@ -13,15 +14,18 @@ public service AdminService {
     }
 
     /// Ends the current session.
-    func signOut() async {
-        await api.signOut()
+    ///
+    /// - Throws: `RpcOnlyError.rpcFailure` when the browser can't reach the
+    ///   server.
+    func signOut() async throws RpcOnlyError {
+        try await api.signOut()
     }
 
     /// Lists the 50 most recent orders, newest first.
     ///
-    /// - Throws: `AdminError.rpcFailure` unless the caller is a signed-in
-    ///   admin.
-    func recentOrders() async throws AdminError -> List<OrderSummary> {
+    /// - Throws: `RpcOnlyError.rpcFailure` unless the caller is a signed-in
+    ///   admin, or when the browser can't reach the server.
+    func recentOrders() async throws RpcOnlyError -> List<OrderSummary> {
         return try await api.recentOrders()
     }
 }

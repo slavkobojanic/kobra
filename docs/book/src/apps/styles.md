@@ -234,7 +234,7 @@ component ThemeToggle {
     }
 
     func toggle() {
-        theme.use(if theme.current == .dark { .base } else { .dark })
+        theme.apply(if theme.current == .dark { .base } else { .dark })
     }
 }
 ```
@@ -242,16 +242,16 @@ component ThemeToggle {
 | Member | Meaning |
 |---|---|
 | `theme.current: ThemeVariant` | the active variant. Reactive, so views and effects that read it update. |
-| `theme.use(_ variant: ThemeVariant)` | makes `variant` active by swapping one class on the document root, and remembers the choice. Nothing re-renders. |
+| `theme.apply(_ variant: ThemeVariant)` | makes `variant` active by swapping one class on the document root, and remembers the choice. Nothing re-renders. |
 | `theme.followSystem()` | forgets the explicit choice, so variants that match a system preference apply again |
 
 - **Following the operating system:** `variant dark matches .prefersDark { … }` applies the variant
-  through a CSS media query until `theme.use` is called. Because it is CSS, the first paint is already
+  through a CSS media query until `theme.apply` is called. Because it is CSS, the first paint is already
   right, even when server rendered. `.prefersContrast` works the same way.
 - **An explicit choice is remembered in a cookie** (`k_theme`, holding only the variant name). Server
   rendering reads it, so a server-rendered app shows the chosen scheme from the first paint, with no
   flash.
-- During server rendering, `theme.current` is the remembered variant, or `.base`, and `use` does nothing.
+- During server rendering, `theme.current` is the remembered variant, or `.base`, and `apply` does nothing.
 - A choice that lives in another service, for example a settings service that syncs it to the account,
   is applied from an `@Effect` in a page or layout that is always mounted:
 
@@ -261,9 +261,12 @@ component ThemeToggle {
 
   @Effect
   func applyColorScheme() {
-      theme.use(if appearance.scheme == .dark { .dark } else { .base })
+      theme.apply(if appearance.scheme == .dark { .dark } else { .base })
   }
   ```
+
+- The method is `apply`, not `use`, because `use` is a keyword and K has no member names that are
+  keywords.
 
 In tests, every test gets a fresh `Theme` starting at `.base`, with no cookie set. A test reads the active
 variant with `@Inject let theme: Theme` and `theme.current`.

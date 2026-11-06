@@ -51,7 +51,7 @@ service CartService {
 }
 ```
 
-`CartError` has a case `rpcFailure(RpcFailure)`, which every guarded rpc requires ([28-rpc-wire-format.md](28-rpc-wire-format.md#failures-outside-the-handler)). Inside `CartApi`, the protocol's `Authenticated` guard has already run, so `session.user` is a `SessionUser`, not an optional ([26-auth-and-sessions.md](26-auth-and-sessions.md#narrowing-under-authenticated)).
+`CartError` has a case `rpcFailure(RpcFailure)`, which every rpc's error enum requires: it carries guard refusals, invalid requests and, in the browser, network failures ([28-rpc-wire-format.md](28-rpc-wire-format.md#failures-outside-the-handler)). An rpc with no errors of its own declares `throws RpcOnlyError`. Inside `CartApi`, the protocol's `Authenticated` guard has already run, so `session.user` is a `SessionUser`, not an optional ([26-auth-and-sessions.md](26-auth-and-sessions.md#narrowing-under-authenticated)).
 
 ## Rules
 
@@ -59,7 +59,7 @@ service CartService {
 - **Only services inject protocols.** Components consume them through services. See [10-services.md](10-services.md).
 - **Injection works the same regardless of location.** `@Inject let api: CartProtocol` gets a generated network client in the browser and a **direct in-process call during server rendering**, with no HTTP round trip. Guards and validation still run on in-process calls.
 - **A service that implements a protocol is server-only.** The compiler keeps it, and everything it injects, out of the client bundle.
-- **Typed errors cross the wire.** `throws CartError` maps to Connect error details, so client-side `catch` stays exhaustive over server errors. The status codes, the message names and the failure cases are specified in [28-rpc-wire-format.md](28-rpc-wire-format.md).
+- **Typed errors cross the wire.** `throws CartError` maps to Connect error details, so client-side `catch` stays exhaustive over server errors. **Every rpc declares a `throws` clause.** The status codes, the message names and the failure cases are specified in [28-rpc-wire-format.md](28-rpc-wire-format.md).
 - **`requires` declares guards and middleware** on protocols and on individual `rpc`s (for example `Authenticated` or `RateLimit`). They are visible to clients too. Cross-cutting interceptors that never reject a call (logging, tracing) are configured once in `App.k`.
 - **Streaming:**
   - Server streaming (`Stream<T>`) works in browsers. How a handler produces a stream and how a client reads it is in [29-server-streaming.md](29-server-streaming.md).

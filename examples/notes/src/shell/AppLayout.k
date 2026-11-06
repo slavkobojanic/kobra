@@ -10,11 +10,21 @@ public layout AppLayout {
     /// The current page.
     @Slot let content: View
 
-    /// Signs out and returns to the sign-in screen.
-    func signOut() async {
-        await auth.signOut()
+    /// Why the last sign-out failed, for the alert.
+    @State var problem: String? = nil
 
-        Router.navigate(to: .signIn)
+    /// Signs out and returns to the sign-in screen. When the server can't be
+    /// reached, the session is still active, so the page says so instead.
+    func signOut() async {
+        problem = nil
+
+        do {
+            try await auth.signOut()
+
+            Router.navigate(to: .signIn)
+        } catch .rpcFailure {
+            problem = "Couldn't reach K Notes, so you're still signed in. Try again."
+        }
     }
 
     metadata {
@@ -41,6 +51,12 @@ public layout AppLayout {
         }
         .class(.bar)
 
+        if let problem {
+            paragraph { problem }
+                .class(.problem)
+                .role(.alert)
+        }
+
         main { content }
             .class(.content)
     }
@@ -50,5 +66,6 @@ public layout AppLayout {
         .brand   { fontWeight: 600; color: .foreground; textDecoration: none; }
         .account { display: flex; alignItems: center; gap: .md; }
         .content { maxWidth: 48rem; margin: 0 auto; padding: .lg; }
+        .problem { margin: .sm .lg 0; color: .danger; }
     }
 }

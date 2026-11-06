@@ -18,7 +18,9 @@ public component NoteEditor {
     /// The submit button's text.
     @Prop let submitLabel: String = "Save"
 
-    @Form var input: NoteDraft = draft
+    /// Starts with the values of `draft`. Fields keep what is typed until
+    /// the form validates.
+    @Form var input: NoteDraft = .empty(title: draft.title, body: draft.body, tags: draft.tags)
 
     func submit() async throws ValidationError {
         try await save(input.value)

@@ -13,8 +13,8 @@ import shell.AppLayout
 /// - **The document entries** shared by every page.
 ///
 /// There are no `use … for …` rules: every injected interface has exactly
-/// one implementation, and tests get the stdlib's hermetic defaults, such as
-/// `TestClock`. `Database` is the stdlib's own. It connects with
+/// one implementation, and tests get the stdlib's test defaults, such as
+/// `TestClock` for `Clock`. `Database` is the stdlib's own. It connects with
 /// `DatabaseConfig` to `DATABASE_URL` (a SQLite file in development, see
 /// `.env.example`), and to a fresh in-memory database for each `k test` run.
 @Layout(AppLayout)

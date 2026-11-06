@@ -42,7 +42,7 @@ The enums the compiler generates for the app need no import either: `Page`, `End
 | `k.graphics` | Canvas 2D, SVG drawing |
 | `k.http` | `HttpClient`, `HttpRequest`, `IncomingRequest`, `HttpResponse`, `HttpStatus`; WebSocket, server-sent events |
 | `k.storage` | typed local storage (`LocalStorage`, `StorageKey`), typed IndexedDB collections, cookies |
-| `k.time` | `Timer`, the clock, `TimeOfDay`, calendars, time zones, formatting, relative time |
+| `k.time` | the `Clock` service (`now`, `every`, `after`, `sleep`), `TimerHandle`, `TimeOfDay`, calendars, time zones, formatting, relative time |
 | `k.text` | formatting, regular expressions, Markdown rendering, slugs, `EmailAddress` |
 | `k.i18n` | localized strings, plurals, locale-aware number, date and currency formatting |
 | `k.crypto` | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only) |
@@ -55,7 +55,7 @@ The enums the compiler generates for the app need no import either: `Page`, `End
 | `k.db` | entities, repositories, `Database`, `DatabaseConfig`, migrations and `Schema` |
 | `k.validation` | constraint annotations, `@Form` and `ValidationError` |
 | `k.rpc` | protocols and the Connect transport, `RpcFailure`, `RpcOnlyError`, `Broadcast` |
-| `k.test` | the test runner, `render`, accessibility queries, `TestClient`, and the test doubles |
+| `k.test` | the test runner, `render`, accessibility queries, `TestClient`, and the test doubles, `TestClock` included |
 
 Each declaration is imported individually: `import k.ui.Dialog`, `import k.rpc.RpcFailure`.
 
@@ -66,7 +66,7 @@ with `@Inject` by their concrete type:
 
 | Interface | Test default |
 |---|---|
-| `Clock` | `TestClock` |
+| `Clock` (a service) | `TestClock` |
 | `JobQueue` | `RecordingJobQueue` (and `InlineJobQueue`, chosen with `use`) |
 | `LocalStorage` | `MemoryStorage` |
 | `EmailProvider` | `RecordingEmailProvider` |
@@ -85,7 +85,7 @@ with `@Inject` by their concrete type:
 | `EmailProvider`, `Email`, `EmailAddress` | [Email](../apps/email.md) |
 | `HttpClient`, `HttpRequest`, `HttpError`, `HttpStatus` | [Calling HTTP APIs](../apps/http.md) |
 | `Bytes`, `Hmac`, `Mac`, `Uuid`, `SecureRandom` | [Bytes and cryptography](../apps/crypto.md) |
-| `Timer`, `TestClock`, `TimeOfDay` | [Time and timers](../apps/time.md) |
+| `Clock`, `TimerHandle`, `TestClock`, `TimeOfDay` | [Time and timers](../apps/time.md) |
 | `LocalStorage`, `StorageKey<T>`, `MemoryStorage` | [Local storage](../apps/local-storage.md) |
 | `Database`, writes, `Schema` | [Persistence](../apps/persistence.md) |
 | `Theme`, `ThemeVariant`, `LineChart` | [Styles and themes](../apps/styles.md), [Views](../apps/views.md#charts) |

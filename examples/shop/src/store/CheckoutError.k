@@ -13,7 +13,9 @@ public enum CheckoutError implements Error {
     /// cancelled and its stock released, so trying again is safe.
     case paymentUnavailable
 
-    /// The call was refused before it ran: the order form failed validation
-    /// on the server, or the client exceeded the rate limit.
+    /// The call failed outside the handler: the order form failed validation
+    /// on the server, the client exceeded the rate limit, or the browser
+    /// couldn't reach the server. After a timeout the order may have been
+    /// placed, but never paid for: payment starts only on Stripe's page.
     case rpcFailure(RpcFailure)
 }

@@ -119,18 +119,22 @@ public protocol AdminProtocol {
 
 ## Failures outside the handler
 
-An rpc call can fail before its handler runs: a guard refuses it, or a `Validatable` parameter fails
-validation. Those failures are one standard enum in `k.rpc`:
+An rpc call can fail outside its handler: before it runs (a guard refuses it, or a `Validatable`
+parameter fails validation), or on the way between the browser and the server. Those failures are one
+standard enum in `k.rpc`:
 
 ```k
 public enum RpcFailure implements Error {
     case rejected(GuardRejection)       // a guard refused the call
     case invalid(ValidationError)       // a Validatable parameter failed validation
+    case offline                        // the browser couldn't reach the server
+    case timeout                        // the server didn't answer in time
 }
 ```
 
-**An rpc that can fail before its handler runs must declare an error enum with exactly one case
-`rpcFailure(RpcFailure)`.** The name is fixed, so the runtime never has to find the case by its shape:
+**Every rpc declares an error enum with exactly one case `rpcFailure(RpcFailure)`,** because every rpc
+can be called over the network, and the network can fail. The name is fixed, so the runtime never has
+to find the case by its shape:
 
 ```k
 public enum CheckoutError implements Error {
@@ -142,11 +146,14 @@ public enum CheckoutError implements Error {
 
 public protocol StoreProtocol {
     rpc placeOrder(request: OrderRequest) throws CheckoutError -> PlacedOrder requires RateLimit(10.perMinute)
+
+    rpc featured() throws RpcOnlyError -> List<Product>
 }
 ```
 
-- A guarded or validated rpc without that case is a compile error, with a quick fix that adds it.
-- **An rpc with no other errors declares `throws RpcOnlyError`,** a standard enum whose only case is
+- An rpc whose error enum lacks that case, or that declares no `throws` clause, is a compile error, with
+  a quick fix that adds the case.
+- **An rpc with no errors of its own declares `throws RpcOnlyError`,** a standard enum whose only case is
   `rpcFailure(RpcFailure)`.
 - **Only the runtime produces `rpcFailure`.** A handler can't throw it. Client code that wraps errors at
   a layer boundary passes it on like any other case:
@@ -160,11 +167,27 @@ public protocol StoreProtocol {
 - `GuardRejection` is `.unauthenticated`, `.forbidden` or `.rateLimited(retryAfter: Duration)`.
 - A `@Form` shows `.invalid` under its fields when the submit action rethrows the `ValidationError`
   ([Forms and validation](forms.md)).
+- Guards and validation also run on in-process calls during server rendering, so `rejected` and
+  `invalid` can happen there too.
 
-> **Open question.** What a browser sees when it can't reach the server during an rpc (offline, or the
-> request timed out) isn't decided. The recommended design adds `case offline` and `case timeout` to
-> `RpcFailure`, so every rpc called from the client declares an error enum; the alternative is a panic
-> that an `OfflineBoundary` catches. See `docs/design/28-rpc-wire-format.md`.
+### Network failures
+
+- **`offline`:** the browser couldn't send the request or lost the connection before a response arrived
+  (no network, a failed DNS lookup, a refused or dropped connection).
+- **`timeout`:** no response arrived within the client's rpc timeout.
+- **They happen only in the browser.** Calls during server rendering are in-process, and so is every
+  call in `k test` ([Testing](testing.md#which-side-a-test-runs-on)). With no network in between,
+  `offline` and `timeout` never occur there.
+- **A network failure is a value the page handles,** like any other error. A dropped connection while
+  submitting a form or saving a draft doesn't lose the user's input through a panic. External APIs work
+  the same way: `HttpClient` throws `HttpError.offline` and `.timeout` ([HTTP client](http.md#errors)).
+- **The runtime doesn't retry an rpc on its own,** because it can't know whether the server already ran
+  the handler. The caller decides, usually by showing a retry action.
+
+> **Open question.** The client's rpc timeout isn't specified yet: its default, whether a protocol or an
+> rpc can set its own, and whether it covers a streaming rpc beyond the call that opens the stream. Nor
+> is how a test exercises a page's handling of `offline` and `timeout`; today it fakes the client
+> service that wraps the protocol. See `docs/design/28-rpc-wire-format.md`.
 
 ## Streaming
 
@@ -214,6 +237,7 @@ curl --header 'Content-Type: application/json' --header 'Connect-Protocol-Versio
 | a request body over 1 MB | `resource_exhausted` | 413 |
 | a content type other than JSON or Protobuf, or no `Connect-Protocol-Version` | — | 415 |
 | a panic | `internal`, with no details outside development | 500 |
+| `rpcFailure(.offline)`, `rpcFailure(.timeout)` | none: the client produces them, because nothing reached the server or came back | none |
 
 Error types that cross the wire are `Codable`. The compiler warns when an error payload is a server-only
 type or carries a third party's response body, with a hint to wrap the error without it.

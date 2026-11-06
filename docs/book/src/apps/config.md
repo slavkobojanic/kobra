@@ -43,7 +43,13 @@ browser, and arrive the way Docker and Kubernetes deliver them.
   `Duration` (`30s`, `5m`, `2h`, `10.5s`), `Url`, `Uuid`, `EmailAddress`, enums without associated values
   (by case name: `SMTP_SECURITY=startTls`), `List<T>` (comma-separated), and `Secret<T>`. Any other type is
   a compile error at the field.
-- **Constraint annotations apply:** `@Range(1...65535) @Env("PORT") let port: Int`.
+- **Constraint annotations apply:** `@Range(1...65535) @Env("PORT") let port: Int`. A failed constraint
+  is a startup problem like a malformed value.
+- **Constraints on a `Secret<T>` field are allowed** and check the revealed value at startup:
+  `@Matches("^whsec_[A-Za-z0-9]+$") @Env("STRIPE_WEBHOOK_SECRET") let signingSecret: Secret<String>`.
+  The failure message names the variable and the constraint, never the value.
+- **`@Matches` takes a string literal regular expression,** validated at compile time: an invalid
+  pattern is a compile error, not a startup error ([Forms and validation](forms.md#matches)).
 - **A config is data.** It holds only `@Env` fields: no functions, no `@Inject`, no state.
 
 ```k
@@ -129,7 +135,11 @@ error: configuration is invalid (2 problems)
   STRIPE_WEBHOOK_TOLERANCE  "5 minutes" is not a Duration (expected e.g. 300s, 5m)
 ```
 
-Secret values are never printed, even when they are malformed.
+Secret values are never printed, even when they are malformed or fail a constraint:
+
+```text
+  STRIPE_WEBHOOK_SECRET     Secret(•••) doesn't match ^whsec_[A-Za-z0-9]+$
+```
 
 **"Reachable" is computed at compile time from the `use` rules in `App.k`.** In a shop where only
 `StripeCheckout` injects `StripeApiConfig`, and only production uses `StripeCheckout`, `STRIPE_API_KEY`

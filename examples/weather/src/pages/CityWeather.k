@@ -1,6 +1,7 @@
 import components.AirQualityPanel
 import components.CurrentConditionsCard
 import components.TemperatureChart
+import k.time.Clock
 import weather.AirQuality
 import weather.Forecast
 import weather.Place
@@ -21,7 +22,10 @@ import weather.WeatherService
 /// keeps the current values on screen until the new ones arrive.
 ///
 /// An unknown place id renders `failed` with `status(.notFound)`, so a
-/// server-rendered request for it answers 404 instead of a soft 200.
+/// server-rendered request for it answers 404 instead of a soft 200. When
+/// `failed` renders, the page's own `metadata` block isn't evaluated, because
+/// `place` doesn't exist. The not-found case sets its own title, and the other
+/// failures keep the layout's default title.
 public page CityWeather {
     /// The GeoNames id of the place. Required, so it is a path segment:
     /// `/city-weather/2950159`.
@@ -32,6 +36,7 @@ public page CityWeather {
     @Param let units: UnitSystem = .metric
 
     @Inject let weather: WeatherService
+    @Inject let clock: Clock
 
     @Load let place: Place = try await weather.place(id: placeId)
     @Load let forecast: Forecast = try await weather.forecast(place: place, units: units)
@@ -43,7 +48,7 @@ public page CityWeather {
     /// and stops it when the page unmounts.
     @Effect(on: [placeId])
     func refreshPeriodically() {
-        let timer = Timer.every(refreshInterval) { reload() }
+        let timer = clock.every(refreshInterval) { reload() }
 
         onCleanup { timer.cancel() }
     }

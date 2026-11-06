@@ -19,14 +19,20 @@ public page ProductDetail at "/products/{slug}" {
     /// The product, loaded before the view renders.
     @Load let product: ProductSummary = try await store.product(slug: slug)
 
-    /// The order form. The email field starts empty: `@Form` keeps the text
-    /// of an `EmailAddress` field and parses it when the form is validated.
-    @Form var order: OrderRequest = OrderRequest(productSlug: slug, quantity: 1)
+    /// The order form, prefilled with the product and a quantity of one. The
+    /// email field starts blank: `@Form` keeps the text typed into each field
+    /// and parses the address only when the form validates.
+    @Form var order: OrderRequest = .empty(productSlug: slug, quantity: 1)
     @State var problem: String? = nil
 
     /// Places the order and sends the customer to pay. Validation failures
     /// reported by the server are rethrown, so the form shows them under
-    /// their fields.
+    /// their fields. On a network failure the form keeps what was typed, so
+    /// the customer can submit again.
+    ///
+    /// After a timeout the order may already have been placed, and submitting
+    /// again places a second one. Neither is charged until the customer pays
+    /// on Stripe's page.
     func buy() async throws ValidationError {
         problem = nil
 
@@ -48,6 +54,10 @@ public page ProductDetail at "/products/{slug}" {
             throw failure
         } catch .rpcFailure(.rejected) {
             problem = "Too many orders from your connection. Please wait a minute and try again."
+        } catch .rpcFailure(.offline) {
+            problem = "You seem to be offline. Check your connection and try again."
+        } catch .rpcFailure(.timeout) {
+            problem = "The shop didn't answer in time. You haven't been charged; please try again."
         }
     }
 
@@ -110,6 +120,7 @@ public page ProductDetail at "/products/{slug}" {
         match error {
             case .notFound {
                 metadata {
+                    title("Product not found · K Shop")
                     status(.notFound)
                 }
 
@@ -118,6 +129,15 @@ public page ProductDetail at "/products/{slug}" {
                 paragraph { "It may have been renamed or retired." }
 
                 link(to: .home) { "Back to the shop" }
+            }
+
+            case .rpcFailure {
+                heading(level: 1) { "This product couldn't be loaded" }
+
+                paragraph { "Check your connection and try again." }
+
+                button { "Try again" }
+                    .on(click: reload)
             }
         }
     }

@@ -60,10 +60,10 @@ K borrows ideas, not syntax. Where another language does something well, K adapt
 
 ## Decisions still open
 
-These need a decision before the affected text is final. Each is marked "Open question" where it appears:
+No cross-cutting decision is open. The two most recent ones:
 
-- **Network failures on the client during an rpc:** typed `RpcFailure.offline` / `.timeout` (every rpc then declares an error enum), or a panic caught by an `OfflineBoundary`. See [28-rpc-wire-format.md](28-rpc-wire-format.md#open-question-network-failures-on-the-client).
-- **How code reaches the clock:** an explicitly ambient `Clock` that `Date.now` and `Timer` read, or strict injection with `@Inject let clock: Clock`. See [35-time.md](35-time.md#open-question-an-ambient-clock-or-an-injected-one).
+- **Network failures on the client during an rpc are typed:** `RpcFailure` has `.offline` and `.timeout`, so every rpc declares an error enum with the `rpcFailure(RpcFailure)` case, or `throws RpcOnlyError`. See [28-rpc-wire-format.md](28-rpc-wire-format.md#network-failures).
+- **The clock is injected only:** code writes `@Inject let clock: Clock` and calls `clock.now`, `clock.every(…)` and `clock.after(…)`. There is no `Date.now`, `.ago` or ambient `Timer`; plain functions take `now: Date`. See [35-time.md](35-time.md).
 
 Smaller open questions are listed at the end of each topic file.
 

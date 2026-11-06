@@ -1,6 +1,7 @@
 import k.auth.SessionManager
 import k.crypto.Password
 import k.observe.Log
+import k.rpc.RpcOnlyError
 import store.OrderRepository
 import store.OrderSummary
 
@@ -18,6 +19,8 @@ public service AdminApi implements AdminProtocol {
         // time doesn't reveal whether an email address has an account.
         let passwordMatches = await Password.verify(password: request.password, hash: config.passwordHash)
 
+        // `EmailAddress` lowercases only the domain, so `==` would tell
+        // `Admin@shop.test` from `admin@shop.test`. Staff sign-in ignores case.
         guard request.email.address.lowercased() == config.email.address.lowercased() else {
             throw SignInError.invalidCredentials
         }
@@ -31,11 +34,11 @@ public service AdminApi implements AdminProtocol {
         await sessions.signIn(userId: StaffId(email: config.email), roles: Set([StaffRole.admin]))
     }
 
-    rpc signOut() async {
+    rpc signOut() async throws RpcOnlyError {
         await sessions.signOut()
     }
 
-    rpc recentOrders() async throws AdminError -> List<OrderSummary> {
+    rpc recentOrders() async throws RpcOnlyError -> List<OrderSummary> {
         let recent = await orders.recent(limit: 50)
 
         return recent.map { order => order.summary() }

@@ -1,3 +1,4 @@
+import k.time.Clock
 import k.ui.VisuallyHidden
 
 /// One note in the list: its title, linking to the editor, the start of its
@@ -9,6 +10,9 @@ public component NoteCard {
     /// Fires with the note when the person presses the pin toggle. The
     /// parent decides what pinning means.
     @Emits let pinToggled: Event<NoteSummary>
+
+    /// The reference instant for "Edited 5 minutes ago".
+    @Inject let clock: Clock
 
     view {
         article {
@@ -45,7 +49,7 @@ public component NoteCard {
                 .label("Tags")
             }
 
-            text { "Edited {note.updatedAt.formatted(as: .relative)}" }
+            text { "Edited {note.updatedAt.formatted(as: .relative, from: clock.now)}" }
                 .class(.edited)
         }
         .class([.card, .pinned when note.isPinned])

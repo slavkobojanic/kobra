@@ -15,7 +15,7 @@ let currentFields = "temperature_2m,apparent_temperature,relative_humidity_2m,wi
 let hourlyFields = "temperature_2m,apparent_temperature,precipitation_probability"
 
 extend UnitSystem {
-    /// The value of Open-Meteo's `temperature_unit` query parameter.
+    /// The value of Open-Meteo's `"temperature_unit"` query parameter.
     var temperatureParameter: String {
         match self {
             case .metric { "celsius" }
@@ -24,7 +24,7 @@ extend UnitSystem {
         }
     }
 
-    /// The value of Open-Meteo's `wind_speed_unit` query parameter.
+    /// The value of Open-Meteo's `"wind_speed_unit"` query parameter.
     var windSpeedParameter: String {
         match self {
             case .metric { "kmh" }
@@ -111,8 +111,8 @@ struct CurrentResponse implements Codable {
     }
 }
 
-/// Hourly values arrive as parallel arrays: index `i` of every array
-/// describes the hour starting at `time[i]`.
+/// Hourly values arrive as parallel arrays: the entries at one index of every
+/// array describe the hour starting at `time[index]`.
 struct HourlyResponse implements Codable {
     let time: List<Int>
     @JsonKey("temperature_2m") let temperature: List<Double>

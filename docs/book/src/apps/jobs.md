@@ -139,7 +139,8 @@ service PurgeExpiredCarts implements Job<Void> { … }
 ## Stored payloads
 
 Jobs queued during a rolling deploy are run by the next release, so each job's name and payload shape are
-recorded in **`storage.lock`**. Adding an optional field to a payload is compatible. Removing or renaming
+recorded in **`storage.lock`**, in the format described in
+[Local storage](local-storage.md#file-format). Adding an optional field to a payload is compatible. Removing or renaming
 a field, changing its type, or adding a required field is a `k check` error unless the job is marked
 `@Breaking("reason")`.
 

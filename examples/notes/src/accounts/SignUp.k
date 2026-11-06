@@ -9,7 +9,7 @@ import k.validation.ValidationError
 public page SignUp {
     @Inject let auth: AuthService
 
-    @Form var request: SignUpRequest = SignUpRequest(email: "", password: "", confirmPassword: "")
+    @Form var request: SignUpRequest = .empty
     @State var problem: String? = nil
 
     /// Creates the account, then continues to the empty notes list. A
@@ -28,6 +28,8 @@ public page SignUp {
             throw failure
         } catch .rpcFailure(.rejected) {
             problem = "Too many attempts. Wait a minute, then try again."
+        } catch .rpcFailure(.offline), .rpcFailure(.timeout) {
+            problem = "Couldn't reach K Notes. Check your connection and try again."
         }
     }
 

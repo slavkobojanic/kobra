@@ -39,7 +39,7 @@ service NoteChanges {
 ## The handler
 
 - The handler may be `async`, to load initial data before the stream starts. It returns once; the runtime then sends each element as it is produced.
-- **Guards run before the handler, as for any rpc.** A refusal, or any error the handler throws, is thrown by the client's call itself, not later from the stream.
+- **Guards run before the handler, as for any rpc.** A refusal, a network failure before the stream opens (`rpcFailure(.offline)`, `.timeout`), or any error the handler throws, is thrown by the client's call itself, not later from the stream.
 - The stream is closed when it finishes, when the client stops reading, or when the connection drops. Closing it cancels its producer, which releases any subscription.
 - **A stream ends when its session ends.** The runtime closes every stream opened under a session on sign-out, expiry or `endAll` ([26-auth-and-sessions.md](26-auth-and-sessions.md#lifetime-and-revocation)), so a signed-out tab stops receiving data even though guards ran only when it opened.
 

@@ -39,13 +39,13 @@ test TodoRow {
 
         screen.button(named: "Edit Buy milk").click()
 
-        expect screen.textField(labeled: "Title").value == "Buy milk"
+        expect screen.textField(labeled: "New title for Buy milk").value == "Buy milk"
 
-        screen.textField(labeled: "Title").fill("Buy oat milk")
-        screen.button(named: "Save").click()
+        screen.textField(labeled: "New title for Buy milk").fill("Buy oat milk")
+        screen.button(named: "Save Buy milk").click()
 
         expect todos.items[0].title == "Buy oat milk"
-        expect not screen.textField(labeled: "Title").exists
+        expect not screen.textField(labeled: "New title for Buy milk").exists
     }
 
     test "cancelling an edit keeps the old title" {
@@ -53,8 +53,8 @@ test TodoRow {
         let screen = render(TodoRow(todo: todos.items[0]))
 
         screen.button(named: "Edit Buy milk").click()
-        screen.textField(labeled: "Title").fill("Buy oat milk")
-        screen.button(named: "Cancel").click()
+        screen.textField(labeled: "New title for Buy milk").fill("Buy oat milk")
+        screen.button(named: "Cancel Buy milk").click()
 
         expect todos.items[0].title == "Buy milk"
         expect screen.checkbox(labeled: "Buy milk").isVisible
@@ -65,9 +65,9 @@ test TodoRow {
         let screen = render(TodoRow(todo: todos.items[0]))
 
         screen.button(named: "Edit Buy milk").click()
-        screen.textField(labeled: "Title").fill("   ")
+        screen.textField(labeled: "New title for Buy milk").fill("   ")
 
-        expect screen.button(named: "Save").isDisabled
+        expect screen.button(named: "Save Buy milk").isDisabled
     }
 
     test "a title that is too long is explained and editing continues" {
@@ -75,11 +75,11 @@ test TodoRow {
         let screen = render(TodoRow(todo: todos.items[0]))
 
         screen.button(named: "Edit Buy milk").click()
-        screen.textField(labeled: "Title").fill("a".repeated(times: todos.maximumTitleLength + 1))
-        screen.button(named: "Save").click()
+        screen.textField(labeled: "New title for Buy milk").fill("a".repeated(times: todos.maximumTitleLength + 1))
+        screen.button(named: "Save Buy milk").click()
 
         expect screen.alert().text == "Keep the title to 200 characters or fewer."
-        expect screen.textField(labeled: "Title").exists
+        expect screen.textField(labeled: "New title for Buy milk").exists
         expect todos.items[0].title == "Buy milk"
     }
 

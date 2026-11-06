@@ -1,9 +1,10 @@
 /// The shell around every page: a header linking home, the page content, and
 /// the attribution that Open-Meteo's CC BY 4.0 licence requires.
 ///
-/// `App.k` applies this layout to every page, so pages don't repeat
+/// The `Weather` app applies this layout to every page, so pages don't repeat
 /// `@Layout(Dashboard)`. Its `metadata` entries are defaults that each page
-/// overrides.
+/// overrides, and the only title a failed `CityWeather` load has unless the
+/// failure sets its own.
 public layout Dashboard {
     /// The current page.
     @Slot let content: View

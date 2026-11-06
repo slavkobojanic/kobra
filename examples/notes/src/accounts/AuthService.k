@@ -1,5 +1,7 @@
 import k.auth.Session
 import k.auth.SessionUser
+import k.rpc.RpcOnlyError
+import k.text.EmailAddress
 
 /// The browser's entry point for accounts: signing up, in and out, and who
 /// is signed in.
@@ -20,10 +22,17 @@ public service AuthService {
     /// form calls it debounced on blur, and the server calls it again before
     /// `signUp` runs.
     ///
-    /// - Parameter email: the address as typed.
-    /// - Returns: `true` when no account uses the address.
-    func emailAvailable(email: String) async -> Bool {
-        return await api.isEmailAvailable(email: email)
+    /// - Parameter email: the parsed address.
+    /// - Returns: `true` when no account uses the address. Also `true` when
+    ///   the browser can't reach the server, so the field isn't flagged for
+    ///   a reason that has nothing to do with it. The server's own check
+    ///   runs in-process, so it never fails that way.
+    func emailAvailable(email: EmailAddress) async -> Bool {
+        do {
+            return try await api.isEmailAvailable(email: email)
+        } catch .rpcFailure {
+            return true
+        }
     }
 
     /// Creates an account and signs it in.
@@ -43,7 +52,10 @@ public service AuthService {
     }
 
     /// Signs out. Does nothing for a guest.
-    func signOut() async {
-        await api.signOut()
+    ///
+    /// - Throws: `RpcOnlyError.rpcFailure` when the server can't be reached,
+    ///   in which case the person is still signed in.
+    func signOut() async throws RpcOnlyError {
+        try await api.signOut()
     }
 }

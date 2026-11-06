@@ -66,7 +66,7 @@ test WeatherService {
     test "a 404 from the lookup is not found as well" {
         http.serveText(path: "/v1/get", body: "Not found", status: .notFound)
 
-        expect throws WeatherError.placeNotFound {
+        expect throws WeatherError.placeNotFound(id: 42) {
             try await weather.place(id: 42)
         }
     }
@@ -74,7 +74,7 @@ test WeatherService {
     test "a server error during a lookup is not mistaken for a missing place" {
         http.serveText(path: "/v1/get", body: "Internal error", status: .internalServerError)
 
-        expect throws WeatherError.upstream {
+        expect throws WeatherError.upstream(.internalServerError) {
             try await weather.place(id: 2950159)
         }
     }
@@ -170,7 +170,7 @@ test WeatherService {
     test "a server error status is an upstream error" {
         http.serveText(path: "/v1/forecast", body: "Service unavailable", status: .serviceUnavailable)
 
-        expect throws WeatherError.upstream {
+        expect throws WeatherError.upstream(.serviceUnavailable) {
             try await weather.forecast(place: .berlin, units: .metric)
         }
     }

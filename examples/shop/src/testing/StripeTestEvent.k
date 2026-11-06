@@ -53,9 +53,9 @@ public struct StripeTestEvent {
     /// - Parameters:
     ///   - payload: the exact body that will be sent.
     ///   - secret: the signing secret; defaults to `secret`.
-    ///   - signedAt: the signature's timestamp; defaults to now on the
-    ///     test clock.
-    static func digest(payload: String, secret: String = StripeTestEvent.secret, signedAt: Date = Date.now) async -> Mac {
+    ///   - signedAt: the signature's timestamp, usually the current time on
+    ///     the test clock.
+    static func digest(payload: String, secret: String = StripeTestEvent.secret, signedAt: Date) async -> Mac {
         return await Hmac.sha256(key: secret.utf8, message: "{signedAt.unixSeconds}.{payload}".utf8)
     }
 
@@ -64,9 +64,9 @@ public struct StripeTestEvent {
     /// - Parameters:
     ///   - payload: the exact body that will be sent.
     ///   - secret: the signing secret; defaults to `secret`.
-    ///   - signedAt: the signature's timestamp; defaults to now on the
-    ///     test clock.
-    static func signature(payload: String, secret: String = StripeTestEvent.secret, signedAt: Date = Date.now) async -> String {
+    ///   - signedAt: the signature's timestamp, usually the current time on
+    ///     the test clock.
+    static func signature(payload: String, secret: String = StripeTestEvent.secret, signedAt: Date) async -> String {
         let mac = await StripeTestEvent.digest(payload: payload, secret: secret, signedAt: signedAt)
 
         return "t={signedAt.unixSeconds},v1={mac.hex}"

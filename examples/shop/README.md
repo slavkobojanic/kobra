@@ -20,7 +20,7 @@ as one executable, `dist/app`, in a minimal container next to Postgres.
 | Compose with Postgres, health checks, a named volume and Docker secrets | [`docker-compose.yml`](docker-compose.yml), [`secrets/`](secrets) |
 | Type-safe configuration and secrets, injected only into server-only services | [`StripeWebhookConfig.k`](src/payments/StripeWebhookConfig.k), [`StripeApiConfig.k`](src/payments/StripeApiConfig.k), [`AdminConfig.k`](src/admin/AdminConfig.k) |
 | Entities, repositories, conditional updates and transactions on Postgres | [`src/store`](src/store) |
-| A migration and its committed `schema.lock` | [`migrations/`](migrations), [`schema.lock`](schema.lock) |
+| A migration and its committed `schema.lock`, and the job payload recorded in `storage.lock` | [`migrations/`](migrations), [`schema.lock`](schema.lock), [`storage.lock`](storage.lock) |
 | A webhook at a fixed URL, `page StripeWebhook at "/webhooks/stripe"`, verified with HMAC-SHA256 from `k.crypto` (no vendor SDK) | [`StripeWebhook.k`](src/webhooks/StripeWebhook.k), [`StripeSignature.k`](src/payments/StripeSignature.k), [`StripeWebhookVerifier.k`](src/payments/StripeWebhookVerifier.k) |
 | `requires Authenticated, Role(.admin)` on a page and on an rpc, with a typed user id | [`Admin.k`](src/pages/Admin.k), [`AdminProtocol.k`](src/admin/AdminProtocol.k), [`StaffId.k`](src/admin/StaffId.k) |
 | `RateLimit` on rpcs (placing orders, signing in) | [`StoreProtocol.k`](src/store/StoreProtocol.k), [`AdminProtocol.k`](src/admin/AdminProtocol.k) |
@@ -64,6 +64,7 @@ as one executable, `dist/app`, in a minimal container next to Postgres.
 App.k                         the app: per-environment payment gateway, layout, sign-in page
 k.toml                        manifest
 schema.lock                   the schema the migrations produce, checked by `k check`
+storage.lock                  the confirmation job's name and payload shape, checked by `k check`
 migrations/                   0001 creates the tables
 src/
   theme/ShopTheme.k           design tokens
@@ -125,9 +126,11 @@ installs hermetic defaults for `Clock`, `JobQueue`, `EmailProvider` and
 something else, such as `use InlineJobQueue for JobQueue` to run jobs.
 
 `k check` runs the tests too, together with type checking, the formatter
-check, and breaking-change detection on `protocol.lock`, `routes.lock` and
-`schema.lock`. The compiler generates those lockfiles, and they are
-committed.
+check, and breaking-change detection on the committed lockfiles:
+`schema.lock` for the database and `storage.lock` for the queued job's
+payload. The compiler generates them. It also generates `protocol.lock` and
+`routes.lock`, which this example doesn't include, because their file
+formats aren't specified yet.
 
 ### Production build
 
@@ -189,23 +192,24 @@ printf '%s' 'your-admin-password' | argon2 "$(openssl rand -hex 16)" -id -t 3 -m
 | `store/Product.k`, `store/Order.k` | `entity`, `@Id`, `@Unique`, `@Index`, `@Relation`, an `EmailAddress` field, defaults, a method returning a wire struct |
 | `store/ProductRepository.k`, `store/OrderRepository.k` | `repository … for`, awaited lambda queries, `.including`, `.sortedByDescending`, conditional `filter … update` with `and` |
 | `store/OrderStatus.k` | an enum stored as its case names, with a computed property using `match` |
-| `store/OrderRequest.k` | `Validatable` with `@NotBlank`, `@Range`, a self-validating `EmailAddress` field and custom messages |
-| `store/StoreProtocol.k` | `protocol`, `rpc`, typed `throws`, then `requires RateLimit(10.perMinute)` |
+| `store/OrderRequest.k` | `Validatable` with `@NotBlank`, `@Range`, a self-validating `EmailAddress` field, and custom messages, including `@Format` for an address that doesn't parse |
+| `store/StoreProtocol.k` | `protocol`, `rpc`, typed `throws` on every rpc (`RpcOnlyError` when it has no errors of its own), then `requires RateLimit(10.perMinute)` |
 | `store/StoreApi.k` | `service … implements Protocol`, `guard let`, `database.transaction`, `PublicUrls`, exhaustive `catch`, compensation on failure |
-| `store/CheckoutError.k`, `admin/SignInError.k`, `admin/AdminError.k` | rpc error enums with `case rpcFailure(RpcFailure)` |
-| `store/PaymentRecorder.k` | idempotent state changes, `JobQueue.enqueue(OrderConfirmationJob.kind, …)` inside a transaction |
+| `store/CheckoutError.k`, `store/LookupError.k`, `admin/SignInError.k` | rpc error enums with `case rpcFailure(RpcFailure)`, which also carries `.offline` and `.timeout` in the browser |
+| `admin/AdminProtocol.k` | `throws RpcOnlyError` on rpcs with no errors of their own |
+| `store/PaymentRecorder.k` | idempotent state changes, `JobQueue.enqueue(OrderConfirmationJob.kind, …)` inside a transaction whose lambda's last expression is its value, the injected `Clock` |
 | `store/OrderConfirmationJob.k` | `Job<Payload>`, `@Retry`, `@JobName`, `JobError`, `EmailProvider`, `PublicUrls` |
 | `payments/PaymentGateway.k` | an `interface` with two implementations chosen per environment |
 | `payments/StripeCheckout.k` | `HttpClient`, `HttpRequest` builder with `.bearerToken(secret)`, form bodies, `catch … where status.isClientError`, `catch let` |
 | `payments/StripeSignature.k` | a struct with a `static func`, `match` on strings, `Bytes.parse(hex:)`, async `Hmac` keyed by a `Secret`, constant-time `Mac.matches` |
-| `payments/StripeWebhookVerifier.k` | a server-only service injecting a config, `try await … else`, `Currency.parse(code:)`, `@JsonKey` |
-| `*Config.k` | `config`, `@Env`, `Secret<String>`, `EmailAddress`, defaults, a constraint on a config field |
+| `payments/StripeWebhookVerifier.k` | a server-only service injecting a config and the `Clock`, `try await … else`, `Currency.parse(code:)`, `@JsonKey` |
+| `*Config.k` | `config`, `@Env`, `Secret<String>`, `EmailAddress`, defaults, an `@Matches` constraint on a `Secret` field |
 | `admin/AdminApi.k`, `admin/StaffId.k` | `SessionManager.signIn` with a typed `AuthUserId`, `Password.verify` against a `Secret` hash, timing-safe sign-in |
 | `webhooks/StripeWebhook.k`, `ops/HealthCheck.k` | endpoint pages with fixed URLs and `@Post` / `@Get` handlers taking `IncomingRequest`, typed `HttpStatus` responses |
-| `pages/ProductDetail.k` | `@Param`, `@Load`, `@Form`, `bind`, `if` expressions, `loading`, `failed` with `status(.notFound)`, rethrowing `.rpcFailure(.invalid)` to the form, `metadata` with `canonical` and `structuredData` |
-| `pages/Admin.k` | `requires Authenticated, Role(.admin)`, a table, conditional classes with `when`, `reload()` |
-| `pages/Receipt.k` | `match` in a view, `@Effect` with `Timer` and `onCleanup`, `status(.notFound)` |
-| `pages/SignIn.k` | a typed `@Param let returnTo: Page` |
+| `pages/ProductDetail.k` | `@Param`, `@Load`, `@Form` prefilled with `.empty(productSlug:quantity:)`, `bind`, `if` expressions, `loading`, `failed` with its own `metadata` and `status(.notFound)`, rethrowing `.rpcFailure(.invalid)` to the form, handling `.rpcFailure(.offline)` and `.timeout`, `metadata` with `canonical` and `structuredData` |
+| `pages/Admin.k` | `requires Authenticated, Role(.admin)`, a table, conditional classes with `when`, `reload()`, `match` with `default` in `failed` |
+| `pages/Receipt.k` | `match` in a view, `@Effect` with `clock.every` and `onCleanup`, `status(.notFound)` |
+| `pages/SignIn.k` | a typed `@Param let returnTo: Page`, `@Form` starting from `.empty` |
 | `pages/Storefront.k`, `pages/ProductCard.k` | a `layout` with `@Slot`, a `component` with `@Prop`, scoped styles and theme tokens |
 | `testing/*` | a test-only module: fixtures as static members of public extensions, a Stripe event builder |
 | `*.test.k` | `test` groups, `use` overrides (fakes and config values), `expect` and `expect not`, `expect throws` with nested patterns, the `TestClock`, `RecordingEmailProvider` and `RecordingJobQueue` defaults, `InlineJobQueue`, `SessionManager` in tests, `render` with accessibility queries, `TestClient` with `PublicUrls` |
@@ -226,6 +230,8 @@ Besides the core design, this example relies on:
   [bytes and cryptography](../../docs/design/33-crypto.md),
   [money](../../docs/design/34-money.md),
   [timers and the clock](../../docs/design/35-time.md),
+  [local storage](../../docs/design/36-local-storage.md#storagelock) (the
+  `storage.lock` format),
   [deployment](../../docs/design/38-deployment.md),
   [doc comments](../../docs/design/39-doc-comments.md).
 - [Persistence](../../docs/design/19-persistence.md) (migrations, writes,

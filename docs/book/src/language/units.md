@@ -46,12 +46,12 @@ Units that have no CSS suffix are **extension properties on numbers**, in the st
 
 ```k
 let timeout = 10.minutes
-let expiresAt = Date.now + 3.days
-let lastSeen = 2.hours.ago
+let expiresAt = clock.now + 3.days        // clock: an injected Clock
+let lastSeen = clock.now - 2.hours
 let maxUpload = 25.megabytes
 
 Cache.set(key, value, ttl: 1.hour)
-Timer.every(30.seconds) { refresh() }
+clock.every(30.seconds) { refresh() }
 ```
 
 - **CSS units are literal suffixes** (`px`, `rem`, `em`, `%`, `vh`, `vw`, `fr`, `deg`, `ms`, `s`).
@@ -60,8 +60,9 @@ Timer.every(30.seconds) { refresh() }
 - Singular forms are aliases: `1.hour`, `1.day`.
 - Both forms produce the same types: `200ms == 0.2.seconds` is `true`.
 
-`2.hours.ago` and `Date.now` read the app's clock, which tests control with a virtual clock. See
-[Time and timers](../apps/time.md).
+**Durations are plain values; the current time is not.** `3.days` needs no clock, but "now" comes only
+from an injected `Clock` service, which tests replace with a virtual clock. There is no `Date.now`,
+`.ago` or `.fromNow`: "two hours ago" is `clock.now - 2.hours`. See [Time and timers](../apps/time.md).
 
 ## Money
 

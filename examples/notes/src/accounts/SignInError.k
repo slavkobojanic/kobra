@@ -6,7 +6,8 @@ public enum SignInError implements Error {
     /// was wrong is deliberately not revealed.
     case invalidCredentials
 
-    /// The call failed before `AuthApi` saw it: the rate limit refused it,
-    /// which slows down password guessing, or the form was invalid.
+    /// The call failed outside `AuthApi`: the rate limit refused it, which
+    /// slows down password guessing, the form was invalid, or the browser
+    /// couldn't reach the server.
     case rpcFailure(RpcFailure)
 }

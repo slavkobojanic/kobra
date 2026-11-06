@@ -19,12 +19,15 @@ try await mailer.send(email: email)
 | Member | Meaning |
 |---|---|
 | `EmailAddress("orders@shop.example")` | a literal, validated at compile time |
-| `EmailAddress.parse(text) -> EmailAddress?` | parses runtime text; `nil` if it isn't an address, or contains a line break |
+| `EmailAddress.parse(text) -> EmailAddress?` | parses runtime text; `nil` if it isn't an address, or contains a line break. Normalizes as described below. |
 | `address.address`, `address.displayName` | the parts |
 | `"{address}"` | the address in message-header form |
 
-- It implements `Codable` (as a string), `Equatable`, `Hashable` and `ConfigValue`, so it works in rpc messages, entities and configs.
-- **A form field of type `EmailAddress`** binds to a `textField` as text and is validated as an email address, so it needs no `@Email` and the form's value holds the parsed address ([15-forms-and-validation.md](15-forms-and-validation.md)).
+- **`parse` trims surrounding whitespace and lowercases the domain part only.** `"  Ana@Example.COM "` parses to `Ana@example.com`. The local part (before the `@`) keeps its case, because mail servers may treat it as case-sensitive. A literal is normalized the same way at compile time.
+- It implements `Codable` (as a string), `Equatable`, `Hashable` and `ConfigValue`, so it works in rpc messages, entities and configs. Decoding and config values go through `parse`, so they are normalized too, and equality compares normalized addresses.
+- **A form field of type `EmailAddress`** binds to a `textField` as text and is validated as an email address when the form validates, so it needs no `@Email` and the form's value holds the parsed address ([15-forms-and-validation.md](15-forms-and-validation.md#the-forms-initial-value-and-its-value)).
+- **`@Email` on an `EmailAddress` field is redundant:** a warning, with a quick fix that removes it. `@Email` remains for `String` fields.
+- **The message for text that doesn't parse** is set with `@Format(message: "Enter a valid email address")` on the field ([15-forms-and-validation.md](15-forms-and-validation.md#typed-fields-and-format)).
 
 ## `EmailProvider`
 

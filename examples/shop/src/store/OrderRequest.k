@@ -1,5 +1,5 @@
 import k.text.EmailAddress
-import k.validation.Email
+import k.validation.Format
 import k.validation.NotBlank
 import k.validation.Range
 import k.validation.Validatable
@@ -20,7 +20,7 @@ public struct OrderRequest implements Codable, Validatable {
     var quantity: Int
 
     /// Where the receipt and confirmation email go. The type validates the
-    /// address; `@Email` is here only for the custom message.
-    @Email(message: "Enter the email address for your receipt.")
+    /// address; `@Format` sets the message shown when it doesn't parse.
+    @Format(message: "Enter the email address for your receipt.")
     var email: EmailAddress
 }

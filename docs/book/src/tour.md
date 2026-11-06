@@ -42,9 +42,6 @@ same struct backs the form in the browser and the request the server receives:
 public struct SignRequest implements Codable, Validatable {
     @NotBlank @Length(max: 40) var name: String
     @NotBlank @Length(max: 500) var message: String
-
-    /// An empty form.
-    static let empty = SignRequest(name: "", message: "")
 }
 ```
 
@@ -100,16 +97,17 @@ Connect protocol, so you never write a URL, a fetch call or a JSON parser:
 
 /// What the browser can ask the guestbook server.
 public protocol GuestbookProtocol {
-    rpc entries() -> List<GuestbookEntry>
+    rpc entries() throws RpcOnlyError -> List<GuestbookEntry>
 
     rpc sign(request: SignRequest) throws RpcOnlyError -> GuestbookEntry
 }
 ```
 
-`sign` takes a `Validatable` request, so it can fail before any code of yours runs: the runtime refuses
-an invalid request. Every failure outside the handler arrives as one typed case, `rpcFailure`, and an
-rpc with no errors of its own declares `throws RpcOnlyError`, the standard error enum that has only that
-case.
+Every rpc can fail outside its handler. The browser may be offline or the call may time out, and
+`sign` takes a `Validatable` request, so the runtime refuses an invalid one before any code of yours
+runs. Every failure outside the handler arrives as one typed case, `rpcFailure`, so every rpc declares a
+`throws` clause. An rpc with no errors of its own declares `throws RpcOnlyError`, the standard error enum
+that has only that case.
 
 ## The server
 
@@ -120,15 +118,16 @@ because it is server-only:
 // src/guestbook/GuestbookApi.k
 service GuestbookApi implements GuestbookProtocol {
     @Inject let repository: EntryRepository
+    @Inject let clock: Clock
 
-    rpc entries() async -> List<GuestbookEntry> {
+    rpc entries() async throws RpcOnlyError -> List<GuestbookEntry> {
         let latest = await repository.latest()
 
         return latest.map(summarize)
     }
 
     rpc sign(request: SignRequest) async throws RpcOnlyError -> GuestbookEntry {
-        let entry = Entry(id: Uuid.random(), name: request.name, message: request.message, createdAt: Date.now)
+        let entry = Entry(id: Uuid.random(), name: request.name, message: request.message, createdAt: clock.now)
 
         await repository.insert(entry)
 
@@ -143,7 +142,8 @@ service GuestbookApi implements GuestbookProtocol {
 
 `SignRequest` is `Validatable`, so the runtime validates every request **before** `sign` runs. A
 client that skips the form can't skip the rules. The handler itself never throws `rpcFailure`; only the
-runtime produces it.
+runtime produces it. The current time comes from the injected `Clock` service: K has no ambient way to
+read it, so tests control it.
 
 ## The client service
 
@@ -155,8 +155,8 @@ retries and shared state belong. This one is thin for now:
 public service GuestbookService {
     @Inject let api: GuestbookProtocol
 
-    func entries() async -> List<GuestbookEntry> {
-        return await api.entries()
+    func entries() async throws RpcOnlyError -> List<GuestbookEntry> {
+        return try await api.entries()
     }
 
     func sign(request: SignRequest) async throws RpcOnlyError {
@@ -181,7 +181,7 @@ time: a missing implementation or a dependency cycle is a compile error.
 public page Guestbook at "/" {
     @Inject let guestbook: GuestbookService
 
-    @Load let entries: List<GuestbookEntry> = await guestbook.entries()
+    @Load let entries: List<GuestbookEntry> = try await guestbook.entries()
 
     @Form var draft: SignRequest = .empty
     @State var problem: String? = nil
@@ -245,6 +245,13 @@ public page Guestbook at "/" {
             .class(.muted)
     }
 
+    failed {
+        paragraph { "The guestbook couldn't be loaded." }
+
+        button { "Try again" }
+            .on(click: reload)
+    }
+
     style {
         .page {
             maxWidth: 40rem;
@@ -261,12 +268,14 @@ A lot happens in very little code:
 
 - **`@Load`** fetches data before the view renders. Inside `view`, `entries` is a plain, already-loaded
   list: no `isLoading` flags and no `if let`. The `loading` block is required, so a loading state is
-  never forgotten.
+  never forgotten. If the load throws, `failed` renders instead.
 - **Server rendering** awaits the load on the server and sends the result with the HTML, so the
   browser doesn't fetch it again.
-- **`@Form`** wraps `SignRequest` with per-field state. Binding a field with `bind draft.name` wires up
+- **`@Form`** wraps `SignRequest` with per-field state. `.empty`, generated for every `Validatable`
+  struct used with `@Form`, starts every field blank. Binding a field with `bind draft.name` wires up
   its error message and its accessibility attributes automatically. `draft.handle(sign)` validates
-  first, sets `isSubmitting`, and prevents double submits.
+  first, sets `isSubmitting`, and prevents double submits. `draft.value`, the parsed request, can be
+  read only inside the action passed to `handle`, because only there has validation passed.
 - **`catch` is exhaustive.** `sign` rethrows the server's `ValidationError`, which the form shows under
   the fields it names, and records any other failure in `problem`. The handler `draft.handle` returns
   doesn't throw, as every event handler must.
@@ -316,7 +325,7 @@ test GuestbookService {
     test "a signed entry is listed" {
         try await guestbook.sign(request: SignRequest(name: "Ana", message: "Hello!"))
 
-        let entries = await guestbook.entries()
+        let entries = try await guestbook.entries()
 
         expect entries.count == 1
     }

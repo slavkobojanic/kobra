@@ -1,4 +1,3 @@
-import appearance.AppearanceService
 import k.test.MemoryStorage
 import k.ui.Theme
 import todo.TodoService
@@ -6,7 +5,6 @@ import todo.TodoService
 test Home {
     @Inject let storage: MemoryStorage
     @Inject let todos: TodoService
-    @Inject let appearance: AppearanceService
     @Inject let theme: Theme
 
     test "a new list invites the first todo" {
@@ -110,12 +108,25 @@ test Home {
         expect theme.current == .base
     }
 
-    test "a dark scheme chosen earlier is applied on the first render" {
-        appearance.choose(scheme: .dark)
+    test "the switch shows a dark variant applied before the first render" {
+        theme.apply(.dark)
 
         let screen = render(Home())
 
-        expect theme.current == .dark
         expect screen.checkbox(labeled: "Dark mode").isChecked
+    }
+
+    test "two todos can be renamed at once, each in its own field" {
+        try todos.add(title: "Buy milk")
+        try todos.add(title: "Walk the dog")
+        let screen = render(Home())
+
+        screen.button(named: "Edit Buy milk").click()
+        screen.button(named: "Edit Walk the dog").click()
+        screen.textField(labeled: "New title for Walk the dog").fill("Walk the cat")
+        screen.button(named: "Save Walk the dog").click()
+
+        expect screen.checkbox(labeled: "Walk the cat").isVisible
+        expect screen.textField(labeled: "New title for Buy milk").value == "Buy milk"
     }
 }

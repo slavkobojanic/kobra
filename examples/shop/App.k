@@ -14,13 +14,14 @@ import payments.StripeCheckout
 ///   `StripeCheckout` is the only code that injects `StripeApiConfig`, only a
 ///   production server requires `STRIPE_API_KEY`.
 /// - **The default layout**, which wraps every view page in `Storefront`.
-/// - **The sign-in page**, where the `Authenticated` guard sends visitors
-///   without a session.
+/// - **The sign-in page**, where the `k.auth.Authenticated` guard sends
+///   visitors without a session.
 ///
-/// Everything else (`EmailProvider`, `JobQueue`, `HttpClient`, `Database`) has
-/// exactly one implementation outside tests, the stdlib's own, configured
-/// from the environment as described in `README.md`. In tests, each of those
-/// with I/O has a hermetic default from `k.test`.
+/// Everything else (`k.server.EmailProvider`, `k.server.JobQueue`,
+/// `k.http.HttpClient`, `k.db.Database`, `k.time.Clock`) has exactly one
+/// implementation outside tests, the stdlib's own, configured from the
+/// environment as described in `README.md`. In tests, each of those with I/O
+/// or time has a hermetic default from `k.test`.
 @Layout(Storefront)
 @SignInPage(.signIn)
 public app Shop {

@@ -6,7 +6,8 @@ public enum SignInError implements Error {
     /// not revealed.
     case invalidCredentials
 
-    /// The call was refused before it ran: the request failed validation, or
-    /// the rate limit that slows down password guessing was exceeded.
+    /// The call failed outside the handler: the request failed validation,
+    /// the rate limit that slows down password guessing was exceeded, or the
+    /// browser couldn't reach the server.
     case rpcFailure(RpcFailure)
 }

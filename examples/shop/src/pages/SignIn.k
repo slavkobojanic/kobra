@@ -6,17 +6,18 @@ import k.validation.ValidationError
 /// The staff sign-in page.
 ///
 /// `App.k` names this page with `@SignInPage`, so a visitor who opens a page
-/// guarded by `Authenticated` without a session is redirected here, and comes
-/// back to that page after signing in.
+/// guarded by `k.auth.Authenticated` without a session is redirected here,
+/// and comes back to that page after signing in.
 public page SignIn {
     /// The page to return to after signing in.
     @Param let returnTo: Page = .admin
 
     @Inject let admin: AdminService
 
-    /// The sign-in form. The email field starts empty: `@Form` keeps the text
-    /// of an `EmailAddress` field and parses it when the form is validated.
-    @Form var credentials: SignInRequest = SignInRequest(password: "")
+    /// The sign-in form. Both fields start blank: `@Form` keeps the text
+    /// typed into each field and parses the email address only when the form
+    /// validates.
+    @Form var credentials: SignInRequest = .empty
     @State var problem: String? = nil
 
     /// Signs in and returns to the page that asked for it. Validation
@@ -35,6 +36,10 @@ public page SignIn {
             throw failure
         } catch .rpcFailure(.rejected) {
             problem = "Too many attempts. Wait a minute before trying again."
+        } catch .rpcFailure(.offline) {
+            problem = "You seem to be offline. Check your connection and try again."
+        } catch .rpcFailure(.timeout) {
+            problem = "The server didn't answer in time. Try again."
         }
     }
 

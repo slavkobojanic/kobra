@@ -16,8 +16,9 @@ WORKDIR /src
 COPY . .
 
 # `k check` fails the build on a type error, unformatted code, a failing
-# test, or a breaking change against protocol.lock, routes.lock or
-# schema.lock. Tests run against in-memory SQLite, so no database is needed.
+# test, or a breaking change against the committed lockfiles, schema.lock
+# and storage.lock. Tests run against in-memory SQLite, so no database is
+# needed.
 RUN k check
 
 # `k build` compiles the server bundle, client assets and migrations into one

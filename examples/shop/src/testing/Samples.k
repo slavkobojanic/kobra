@@ -35,15 +35,19 @@ public extend Order {
     /// An order for two units of `product` by `ana@example.com`, awaiting
     /// payment. The total is twice the product's price.
     ///
-    /// - Parameter product: the product ordered; insert it first.
-    static func sample(product: Product) -> Order {
+    /// - Parameters:
+    ///   - product: the product ordered; insert it first.
+    ///   - placedAt: when the order was placed, usually the current time on
+    ///     the test clock.
+    static func sample(product: Product, placedAt: Date) -> Order {
         return Order(
             id: Uuid.random(),
             product: product,
             email: EmailAddress("ana@example.com"),
             quantity: 2,
             unitPrice: product.price,
-            total: product.price * 2
+            total: product.price * 2,
+            placedAt: placedAt
         )
     }
 }
@@ -64,7 +68,7 @@ public extend ProductSummary {
 
 public extend StaffId {
     /// The administrator of `AdminConfig.sample`, for tests that sign in
-    /// through `SessionManager` rather than the sign-in rpc.
+    /// through `k.auth.SessionManager` rather than the sign-in rpc.
     static let sample: StaffId = StaffId(email: EmailAddress("admin@shop.test"))
 }
 

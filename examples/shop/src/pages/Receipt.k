@@ -1,4 +1,5 @@
 import k.crypto.Uuid
+import k.time.Clock
 import store.OrderSummary
 import store.StoreService
 
@@ -13,6 +14,7 @@ public page Receipt {
     @Param let id: Uuid
 
     @Inject let store: StoreService
+    @Inject let clock: Clock
 
     /// The order, loaded before the view renders.
     @Load let order: OrderSummary = try await store.order(id: id)
@@ -26,7 +28,7 @@ public page Receipt {
             return
         }
 
-        let timer = Timer.every(3.seconds) { reload() }
+        let timer = clock.every(3.seconds) { reload() }
 
         onCleanup { timer.cancel() }
     }
@@ -77,12 +79,22 @@ public page Receipt {
         match error {
             case .notFound {
                 metadata {
+                    title("Order not found · K Shop")
                     status(.notFound)
                 }
 
                 heading(level: 1) { "Order not found" }
 
                 paragraph { "Check the link in your confirmation email." }
+            }
+
+            case .rpcFailure {
+                heading(level: 1) { "Your order couldn't be loaded" }
+
+                paragraph { "Check your connection and try again." }
+
+                button { "Try again" }
+                    .on(click: reload)
             }
         }
     }

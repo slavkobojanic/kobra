@@ -2,6 +2,7 @@ import k.crypto.Uuid
 import k.server.JobError
 import k.server.PublicUrls
 import k.test.RecordingEmailProvider
+import k.test.TestClock
 import k.text.EmailAddress
 
 // The job is run directly, as the worker would. Email goes to the default
@@ -13,11 +14,12 @@ test OrderConfirmationJob {
     @Inject let catalog: ProductRepository
     @Inject let orders: OrderRepository
     @Inject let urls: PublicUrls
+    @Inject let clock: TestClock
 
     /// Inserts a mug and an order for two of them.
     func placeOrder() async throws Product.UniqueViolation -> Order {
         let mug = Product.mug()
-        let order = Order.sample(product: mug)
+        let order = Order.sample(product: mug, placedAt: clock.now)
 
         try await catalog.insert(mug)
         await orders.insert(order)

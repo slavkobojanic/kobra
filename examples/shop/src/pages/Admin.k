@@ -14,11 +14,20 @@ public page Admin requires Authenticated, Role(.admin) {
 
     /// The 50 most recent orders, newest first.
     @Load let orders: List<OrderSummary> = try await admin.recentOrders()
+    @State var problem: String? = nil
 
+    /// Signs out and leaves the dashboard. If the server can't be reached,
+    /// the session is still open, so the page stays and says so.
     func signOut() async {
-        await admin.signOut()
+        problem = nil
 
-        Router.navigate(to: .home)
+        do {
+            try await admin.signOut()
+
+            Router.navigate(to: .home)
+        } catch _ {
+            problem = "You couldn't be signed out. Check your connection and try again."
+        }
     }
 
     metadata {
@@ -36,6 +45,12 @@ public page Admin requires Authenticated, Role(.admin) {
                 .on(click: signOut)
         }
         .class(.toolbar)
+
+        if let problem {
+            paragraph { problem }
+                .class(.problem)
+                .role(.alert)
+        }
 
         if orders.isEmpty {
             paragraph { "No orders yet." }
@@ -78,10 +93,17 @@ public page Admin requires Authenticated, Role(.admin) {
 
     failed(let error) {
         match error {
-            case .rpcFailure {
+            case .rpcFailure(.rejected) {
                 paragraph { "Your session has ended. Sign in again to continue." }
 
                 link(to: .signIn.returnTo(.admin)) { "Sign in" }
+            }
+
+            default {
+                paragraph { "The orders couldn't be loaded. Check your connection and try again." }
+
+                button { "Try again" }
+                    .on(click: reload)
             }
         }
     }
@@ -108,5 +130,6 @@ public page Admin requires Authenticated, Role(.admin) {
 
         .status    { fontWeight: 600; }
         .attention { color: .danger; }
+        .problem   { color: .danger; }
     }
 }

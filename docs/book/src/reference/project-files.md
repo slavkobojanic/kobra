@@ -82,10 +82,11 @@ columns = [
 
 ### `storage.lock`
 
-Records the app's browser-storage namespace, derived from `k.toml`'s `name` once, and for every
-`StorageKey` and every job its name and the `Codable` shape of its value or payload. Adding an optional
-field is compatible; any other change to a recorded shape needs `@Breaking`. See
-[Local storage](../apps/local-storage.md#storagelock) and [Background jobs](../apps/jobs.md#stored-payloads).
+`storage.lock` is TOML. It records the app's browser-storage namespace, derived from `k.toml`'s `name`
+once, and for every `StorageKey` and every job its name, its declaration and the `Codable` shape of its
+value or payload. Adding an optional field is compatible; any other change to a recorded shape needs
+`@Breaking`. See [Local storage](../apps/local-storage.md#file-format) for the format, and
+[Background jobs](../apps/jobs.md#stored-payloads).
 
 ### `k.lock`
 

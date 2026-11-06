@@ -29,11 +29,11 @@ public entity Note {
     /// a conflict instead of silently overwriting someone's work.
     @Version var revision: Int = 1
 
-    /// When the note was created.
-    let createdAt: Date = Date.now
+    /// When the note was created, from `NotesApi`'s clock.
+    let createdAt: Date
 
     /// When the title, body or tags last changed. Pinning isn't an edit.
-    var updatedAt: Date = Date.now
+    var updatedAt: Date
 
     /// The note's tags. Loaded only by queries that ask for them with
     /// `.including { note => note.tags }`; a new note starts with none.

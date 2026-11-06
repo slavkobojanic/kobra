@@ -6,7 +6,8 @@ public enum LookupError implements Error {
     /// two look identical on purpose, so ids can't be probed.
     case notFound
 
-    /// The call failed before `NotesApi` saw it: the `Authenticated` guard
-    /// refused it because nobody is signed in.
+    /// The call failed outside `NotesApi`: the `Authenticated` guard refused
+    /// it because nobody is signed in, or the browser couldn't reach the
+    /// server.
     case rpcFailure(RpcFailure)
 }

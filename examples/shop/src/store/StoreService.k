@@ -1,4 +1,5 @@
 import k.crypto.Uuid
+import k.rpc.RpcOnlyError
 
 /// The storefront's entry point for pages.
 ///
@@ -11,14 +12,17 @@ public service StoreService {
     @Inject let api: StoreProtocol
 
     /// Lists every product, ordered by name.
-    func products() async -> List<ProductSummary> {
-        return await api.products()
+    ///
+    /// - Throws: `RpcOnlyError.rpcFailure` when the browser can't reach the
+    ///   server.
+    func products() async throws RpcOnlyError -> List<ProductSummary> {
+        return try await api.products()
     }
 
     /// Looks up one product.
     ///
     /// - Parameter slug: the product's slug.
-    /// - Throws: `LookupError.notFound` when no product has this slug.
+    /// - Throws: every `LookupError`; see `StoreProtocol.product(slug:)`.
     func product(slug: String) async throws LookupError -> ProductSummary {
         return try await api.product(slug: slug)
     }
@@ -35,7 +39,7 @@ public service StoreService {
     /// Looks up an order for its receipt.
     ///
     /// - Parameter id: the order's id.
-    /// - Throws: `LookupError.notFound` when there is no order with this id.
+    /// - Throws: every `LookupError`; see `StoreProtocol.order(id:)`.
     func order(id: Uuid) async throws LookupError -> OrderSummary {
         return try await api.order(id: id)
     }

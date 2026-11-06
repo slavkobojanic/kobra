@@ -1,3 +1,4 @@
+import k.rpc.RpcOnlyError
 import k.test.TestClock
 import k.text.EmailAddress
 import store.Order
@@ -72,16 +73,16 @@ test AdminApi {
     // Guards
 
     test "orders can't be listed without signing in" {
-        expect throws AdminError.rpcFailure(.rejected(.unauthenticated)) {
+        expect throws RpcOnlyError.rpcFailure(.rejected(.unauthenticated)) {
             try await admin.recentOrders()
         }
     }
 
     test "signing out ends the session" {
         try await signIn()
-        await admin.signOut()
+        try await admin.signOut()
 
-        expect throws AdminError.rpcFailure(.rejected(.unauthenticated)) {
+        expect throws RpcOnlyError.rpcFailure(.rejected(.unauthenticated)) {
             try await admin.recentOrders()
         }
     }
@@ -90,13 +91,13 @@ test AdminApi {
 
     test "recent orders are listed newest first" {
         let mug = Product.mug()
-        let older = Order.sample(product: mug)
+        let older = Order.sample(product: mug, placedAt: clock.now)
 
         try await catalog.insert(mug)
         await orders.insert(older)
         clock.advance(by: 1.minute)
 
-        let newer = Order.sample(product: mug)
+        let newer = Order.sample(product: mug, placedAt: clock.now)
         await orders.insert(newer)
         try await signIn()
 

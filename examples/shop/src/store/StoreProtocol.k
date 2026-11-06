@@ -1,5 +1,6 @@
 import k.auth.RateLimit
 import k.crypto.Uuid
+import k.rpc.RpcOnlyError
 
 /// The storefront's contract between the browser and the server.
 ///
@@ -8,12 +9,16 @@ import k.crypto.Uuid
 /// away from the payment provider.
 public protocol StoreProtocol {
     /// Lists every product, ordered by name.
-    rpc products() -> List<ProductSummary>
+    ///
+    /// - Throws: `RpcOnlyError.rpcFailure` when the browser can't reach the
+    ///   server.
+    rpc products() throws RpcOnlyError -> List<ProductSummary>
 
     /// Looks up one product.
     ///
     /// - Parameter slug: the product's slug, from the page URL.
-    /// - Throws: `LookupError.notFound` when no product has this slug.
+    /// - Throws: `LookupError.notFound` when no product has this slug, and
+    ///   `.rpcFailure` when the browser can't reach the server.
     rpc product(slug: String) throws LookupError -> ProductSummary
 
     /// Reserves stock, records the order and starts a payment.
@@ -22,8 +27,9 @@ public protocol StoreProtocol {
     /// - Returns: the new order's id and the URL to send the customer to.
     /// - Throws: `CheckoutError.productNotFound` or `.outOfStock` when the
     ///   order can't be filled, `.paymentUnavailable` when the payment
-    ///   provider fails, and `.rpcFailure` when the request is invalid or the
-    ///   client exceeds 10 orders a minute.
+    ///   provider fails, and `.rpcFailure` when the request is invalid, the
+    ///   client exceeds 10 orders a minute, or the browser can't reach the
+    ///   server.
     rpc placeOrder(request: OrderRequest) throws CheckoutError -> PlacedOrder requires RateLimit(10.perMinute)
 
     /// Looks up an order for its receipt page.
@@ -32,6 +38,7 @@ public protocol StoreProtocol {
     /// the receipt, as with a link in an email.
     ///
     /// - Parameter id: the order's id.
-    /// - Throws: `LookupError.notFound` when there is no order with this id.
+    /// - Throws: `LookupError.notFound` when there is no order with this id,
+    ///   and `.rpcFailure` when the browser can't reach the server.
     rpc order(id: Uuid) throws LookupError -> OrderSummary
 }

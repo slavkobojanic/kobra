@@ -61,7 +61,9 @@ component EditorHost {
 
     @State var saved: NoteDraft? = nil
 
-    /// Matches `NoteEditor.save`. It never fails, so it never throws.
+    /// Records the draft. It never fails, but it still declares
+    /// `throws ValidationError`, because it is passed as `NoteEditor.save`
+    /// and has to have that prop's exact type.
     func record(draft: NoteDraft) async throws ValidationError {
         saved = draft
     }

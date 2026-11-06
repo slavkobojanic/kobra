@@ -15,9 +15,11 @@ public config AdminConfig {
     /// (`$argon2id$v=19$…`). Usually provided through
     /// `SHOP_ADMIN_PASSWORD_HASH_FILE`.
     ///
-    /// The committed `secrets/admin_password_hash.txt.example` holds a
-    /// placeholder that fails this check, so the app refuses to start until
-    /// a real hash is in place.
+    /// `@Matches` checks the revealed value at startup, and its failure
+    /// message never includes it. The committed
+    /// `secrets/admin_password_hash.txt.example` holds a placeholder that
+    /// fails this check, so the app refuses to start until a real hash is in
+    /// place.
     @Matches("^\\$argon2id\\$", message: "must be an Argon2id hash in PHC format; see README.md")
     @Env("SHOP_ADMIN_PASSWORD_HASH") let passwordHash: Secret<String>
 }

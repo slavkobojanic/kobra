@@ -34,9 +34,10 @@ public entity Order {
     /// and support. `nil` until the order is paid.
     var paymentReference: String? = nil
 
-    /// When the order was placed. Indexed, because the admin dashboard lists
-    /// the newest orders first.
-    @Index let placedAt: Date = Date.now
+    /// When the order was placed. `StoreApi` sets it from the clock it
+    /// injects, since an entity can't read the time itself. Indexed, because
+    /// the admin dashboard lists the newest orders first.
+    @Index let placedAt: Date
 
     /// When the payment was confirmed. `nil` until the order is paid.
     var paidAt: Date? = nil

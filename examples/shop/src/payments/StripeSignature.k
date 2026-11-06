@@ -74,7 +74,7 @@ public struct StripeSignature {
 
     /// Whether any `v1` signature is the HMAC-SHA256 of the payload.
     ///
-    /// The digest is a `Mac`, which can't be compared with `==`. Its
+    /// The digest is a `k.crypto.Mac`, which can't be compared with `==`. Its
     /// `matches` takes the same time however many leading bytes match, so
     /// response timing can't be used to guess a valid signature byte by
     /// byte. It is `async` because HMAC runs on the platform's Web Crypto.

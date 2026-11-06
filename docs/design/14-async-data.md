@@ -79,7 +79,8 @@ Every page, layout or component that declares `@Load` fields gets a generated me
 - **`@Load` values must be `Codable`,** because they are serialized. Any other type is a compile error at the field.
 - **So must the errors they can throw.** A load that fails on the server renders `failed`, and hydrating it needs the error in the browser. Error types thrown by `@Load` initializers follow the rules for rpc error types ([28-rpc-wire-format.md](28-rpc-wire-format.md)): they must be `Codable`, and the compiler warns when a payload is a server-only type or an upstream response (such as an `HttpError` carrying a third party's response body), with a hint to wrap the error without it.
 - **`status(_:)` sets the HTTP status of a server-rendered `failed` page.** It is allowed only in a `metadata { }` block inside `failed`, so a "not found" page answers `404` instead of a soft `200` for crawlers. During client navigation it has no effect.
-- The first client render reads the time from the server's render instant, so relative times don't differ between the server's HTML and hydration ([35-time.md](35-time.md#server-rendering)).
+- **When `failed` renders, the page's own `metadata` block isn't evaluated,** because it usually reads `@Load` values that don't exist (`product.name`). Only a `metadata` block inside `failed`, and the app's and layouts' defaults, apply ([22-metadata.md](22-metadata.md#metadata-when-a-load-fails)).
+- Until hydration completes, the browser's `Clock` returns the server's render instant, so relative times don't differ between the server's HTML and hydration ([35-time.md](35-time.md#server-rendering)).
 
 ## Open questions
 

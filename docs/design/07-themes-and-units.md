@@ -32,7 +32,7 @@ public theme AppTheme {
   - After `padding: .`, autocomplete lists only spacing tokens.
   - `space.md` and `radius.md` don't clash.
   - Using a `Color` token for `padding` is a compile error.
-- **Tokens compile to CSS custom properties on `:root`.** Switching variants (`theme.use(.dark)`, see [below](#switching-variants-at-runtime)) is a single class swap with no re-render.
+- **Tokens compile to CSS custom properties on `:root`.** Switching variants (`theme.apply(.dark)`, see [below](#switching-variants-at-runtime)) is a single class swap with no re-render.
 - **Tokens work in code too:** `canvas.fill(.primary)`.
 - **A `variant` may only override existing tokens, with the same type.**
 - **There is one `theme` per app, with stdlib defaults.** Libraries declare the tokens they need. A missing token is a compile error.
@@ -79,7 +79,7 @@ component ThemeToggle {
     }
 
     func toggle() {
-        theme.use(if theme.current == .dark { .base } else { .dark })
+        theme.apply(if theme.current == .dark { .base } else { .dark })
     }
 }
 ```
@@ -87,14 +87,15 @@ component ThemeToggle {
 | Member | Meaning |
 |---|---|
 | `theme.current: ThemeVariant` | the active variant. Reactive, so views and effects that read it update when it changes. |
-| `theme.use(_ variant: ThemeVariant)` | makes `variant` active by swapping one class on the document root, and remembers the choice (below). Nothing re-renders. |
+| `theme.apply(_ variant: ThemeVariant)` | makes `variant` active by swapping one class on the document root, and remembers the choice (below). Nothing re-renders. |
 | `theme.followSystem()` | forgets the explicit choice, so variants that `match` a system preference apply again |
 
 - **`Theme` is client-only** ([10-services.md](10-services.md)). Injecting it into server-only code is a compile error.
-- **Following the operating system:** `variant dark matches .prefersDark { … }` applies the variant through a CSS media query (`prefers-color-scheme`) until `theme.use` is called. Because it is CSS, the first paint is already right, even when server rendered. `.prefersContrast` works the same way.
+- **Following the operating system:** `variant dark matches .prefersDark { … }` applies the variant through a CSS media query (`prefers-color-scheme`) until `theme.apply` is called. Because it is CSS, the first paint is already right, even when server rendered. `.prefersContrast` works the same way.
 - **An explicit choice is remembered in a cookie** (`k_theme`, not `HttpOnly`, holding only the variant name). Server rendering reads it and renders that variant, so a server-rendered app shows the chosen scheme from the first paint with no flash and no `@Rendering(.client)`.
-- **During server rendering,** `theme.current` is the remembered variant, or `.base`, and `use` does nothing. Effects don't run on the server anyway ([03-reactivity.md](03-reactivity.md)).
-- A choice that lives in a service (for example a settings service that syncs it to the account) is applied from an `@Effect` in the page or layout that is always mounted: `theme.use(settings.variant)`.
+- **During server rendering,** `theme.current` is the remembered variant, or `.base`, and `apply` does nothing. Effects don't run on the server anyway ([03-reactivity.md](03-reactivity.md)).
+- A choice that lives in a service (for example a settings service that syncs it to the account) is applied from an `@Effect` in the page or layout that is always mounted: `theme.apply(settings.variant)`.
+- The method is `apply`, not `use`, because `use` is a keyword ([10-services.md](10-services.md#injecting-interfaces)) and K has no member names that are keywords.
 
 ### Tests
 
@@ -132,19 +133,19 @@ Units without a CSS suffix are **extension properties on numbers**, as in Rails:
 
 ```k
 let timeout = 10.minutes
-let expiresAt = Date.now + 3.days
-let lastSeen = 2.hours.ago
+let expiresAt = clock.now + 3.days        // clock: an injected Clock
+let lastSeen = clock.now - 2.hours
 let maxUpload = 25.megabytes
 
 Cache.set(key, value, ttl: 1.hour)
-Timer.every(30.seconds) { refresh() }
+clock.every(30.seconds) { refresh() }
 ```
 
 - **CSS units are literal suffixes** (`px`, `rem`, `em`, `%`, `vh`, `vw`, `fr`, `deg`, `ms`, `s`). **Everything else is an extension property** (`.minutes`, `.hours`, `.days`, `.weeks`, `.bytes`, `.kilobytes`, `.megabytes`).
 - Singular forms (`1.hour`) are aliases.
 - Both forms produce the same types: `200ms == 0.2.seconds`.
 - Extensions are a general language feature. Libraries and apps can add their own: `extend Int { var retries: RetryPolicy { ... } }`.
-- `Date.now`, `.ago` and `Timer` read the clock described in [35-time.md](35-time.md). How code reaches the clock (an ambient context or an injected `Clock`) is an open question recorded there.
+- **Durations are plain values; the current time is not.** `3.days` needs no clock, but "now" comes only from an injected `Clock` ([35-time.md](35-time.md)). There is no `Date.now`, `.ago` or `.fromNow`: "two hours ago" is `clock.now - 2.hours`.
 
 ## Open questions
 

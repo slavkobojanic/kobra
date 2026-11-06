@@ -31,6 +31,9 @@ test CartService {
   module-private code.
 - **`test Name { }` groups tests.** A group holds dependency overrides (`use X for Y`, the same syntax as
   in `App.k`), injected fields and helper functions.
+- **A group's name is a free identifier.** By convention it is the declaration under test
+  (`test CartService { }`), but it doesn't have to resolve to anything. A file may contain several
+  groups, for example one per scenario that needs different `use` rules.
 - **`test "description" { }` declares a single test.**
 - **Every `test "…"` gets a fresh container,** so no service, fake, session or theme state leaks between
   tests.
@@ -61,20 +64,21 @@ operand's value either way.
 without its payload matches any payload:
 
 ```k
-expect throws WeatherError.network(.timeout) { … }
+expect throws WeatherError.upstream(.serviceUnavailable) { … }
 expect throws AccessError.rpcFailure(.rejected(.unauthenticated)) { … }
-expect throws WeatherError.network { … }
+expect throws WeatherError.upstream { … }
 ```
 
 ## Test doubles and defaults
 
 **In tests, every standard-library interface that does I/O outside the process has a hermetic default**
 from `k.test`, which records calls and does no I/O. A test that forgets a fake therefore never reaches
-the network, a mail server or real browser storage:
+the network, a mail server or real browser storage. The `Clock` service gets one too, so no test reads
+the real time:
 
 | Interface | Default in `k test` | What it does |
 |---|---|---|
-| `Clock` | `TestClock` | virtual time from a fixed instant; `advance(by:)` fires due timers |
+| `Clock` (a stdlib service) | `TestClock` | virtual time from a fixed instant, shared by the test's server and browser containers; `advance(by:)` fires due timers |
 | `JobQueue` | `RecordingJobQueue` | stores jobs without running them; `payloads(of: OrderConfirmationJob.kind)` |
 | `LocalStorage` | `MemoryStorage` | an empty in-memory store that can simulate failures |
 | `EmailProvider` | `RecordingEmailProvider` | keeps sent messages in `sent`; `simulateFailure(error:)` |
@@ -189,6 +193,10 @@ the view it checks:
 | `await screen.settle()` | waits until no `@Load`, async effect or handler is in flight |
 | `screen.unmount()` | unmounts the view, running every `onCleanup` |
 
+- **`named:` matches the full accessible name exactly,** after whitespace normalisation (leading and
+  trailing whitespace removed, inner runs collapsed to one space). `button(named: "Add")` doesn't find a
+  button named "Add to cart". The same holds for every `named:` query. `item(containing:)`, by contrast,
+  matches part of an item's text, as its label says.
 - **A singular query returns a handle even when nothing matches.** `exists` and `isVisible` are then
   `false`. An action on a handle that matches nothing, or more than one element, fails the test with the
   query and what it found.
@@ -208,8 +216,8 @@ resolve. Guards still apply.
 
 ## Time
 
-`Date.now`, `2.hours.ago` and every `Timer` read the clock, and in tests the clock is always a
-`TestClock`. It starts at a fixed instant and moves only when you say so:
+The current time and every timer come from the injected `Clock` service, and in tests the clock is
+always a `TestClock`. It starts at a fixed instant and moves only when you say so:
 
 ```k
 test CityWeather {
@@ -231,7 +239,8 @@ test CityWeather {
 ```
 
 `advance(by:)` fires every timer and sleep that falls due, in order, and no real time passes, so
-time-based tests are fast and never flaky. See [Time and timers](time.md).
+time-based tests are fast and never flaky. The test's server and browser containers share one virtual
+time. See [Time and timers](time.md#testing-with-testclock).
 
 ## Which side a test runs on
 
@@ -245,7 +254,8 @@ A test is one browser talking to one server, in one process:
   client service instances. Client-only services such as `LocalStorage` and `Theme` exist only there.
 - **Protocol calls from the browser container go to the server implementations in-process, through the
   real wire format.** Requests and responses are encoded and decoded, validation runs, and guard
-  refusals and declared errors arrive as they would over the network.
+  refusals and declared errors arrive as they would over the network. No network is involved, so
+  `rpcFailure(.offline)` and `rpcFailure(.timeout)` never occur.
 - **Every test has one session**, signed out at the start. The test acts as a user through
   `SessionManager`, without creating an account, and the browser's `Session` mirror follows:
 

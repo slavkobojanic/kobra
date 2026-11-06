@@ -144,7 +144,7 @@ across every replica.
 ### What a refused rpc throws
 
 A guard runs before the handler, so its refusal is part of the rpc's contract. It arrives as
-**`rpcFailure(.rejected(GuardRejection))`**, the fixed case every guarded rpc's error enum has:
+**`rpcFailure(.rejected(GuardRejection))`**, the fixed case every rpc's error enum has:
 
 ```k
 public enum GuardRejection implements Error {

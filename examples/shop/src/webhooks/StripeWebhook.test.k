@@ -5,6 +5,7 @@ import k.server.PublicUrls
 import k.test.InlineJobQueue
 import k.test.RecordingEmailProvider
 import k.test.TestClient
+import k.test.TestClock
 import payments.StripeWebhookConfig
 import store.Order
 import store.OrderRepository
@@ -27,11 +28,12 @@ test StripeWebhook {
     @Inject let orders: OrderRepository
     @Inject let mailer: RecordingEmailProvider
     @Inject let urls: PublicUrls
+    @Inject let clock: TestClock
 
     /// Inserts a mug and an order for two of them, for $48.00.
     func placeOrder() async throws Product.UniqueViolation -> Order {
         let mug = Product.mug()
-        let order = Order.sample(product: mug)
+        let order = Order.sample(product: mug, placedAt: clock.now)
 
         try await catalog.insert(mug)
         await orders.insert(order)
@@ -53,7 +55,7 @@ test StripeWebhook {
 
     /// POSTs a correctly signed body to the webhook.
     func deliverSigned(payload: String) async -> HttpResponse {
-        let signature = await StripeTestEvent.signature(payload: payload)
+        let signature = await StripeTestEvent.signature(payload: payload, signedAt: clock.now)
 
         return await deliver(payload: payload, signature: signature)
     }
@@ -108,7 +110,7 @@ test StripeWebhook {
     test "a request signed with another secret is refused" {
         let order = try await placeOrder()
         let payload = StripeTestEvent.checkoutCompleted(orderId: "{order.id}", amountTotal: 4800)
-        let forged = await StripeTestEvent.signature(payload: payload, secret: "whsec_attacker")
+        let forged = await StripeTestEvent.signature(payload: payload, secret: "whsec_attacker", signedAt: clock.now)
 
         let response = await deliver(payload: payload, signature: forged)
 

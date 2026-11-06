@@ -8,8 +8,9 @@ import store.StoreService
 public page Home at "/" {
     @Inject let store: StoreService
 
-    /// Every product, ordered by name.
-    @Load let products: List<ProductSummary> = await store.products()
+    /// Every product, ordered by name. On the server the call is in-process
+    /// and can't fail; after client navigation the browser may be offline.
+    @Load let products: List<ProductSummary> = try await store.products()
 
     metadata {
         title("K Shop · Small-batch goods for people who write K")
@@ -36,6 +37,18 @@ public page Home at "/" {
     loading {
         paragraph { "Loading products…" }
             .class(.empty)
+    }
+
+    failed(let error) {
+        match error {
+            case .rpcFailure {
+                paragraph { "The products couldn't be loaded. Check your connection and try again." }
+                    .class(.empty)
+
+                button { "Try again" }
+                    .on(click: reload)
+            }
+        }
     }
 
     style {

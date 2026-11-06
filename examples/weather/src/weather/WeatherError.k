@@ -3,7 +3,7 @@ import k.http.HttpStatus
 /// Everything that can go wrong when `WeatherService` asks Open-Meteo for data.
 ///
 /// This is the layer boundary for errors: transport failures arrive as
-/// `HttpError` and are translated into these cases, so pages and components
+/// `k.http.HttpError` and are translated into these cases, so pages and components
 /// handle one error type and still see what went wrong.
 ///
 /// A failed `@Load` sends its error from the server to the browser, so no

@@ -1,5 +1,3 @@
-import appearance.AppearanceService
-import k.ui.Theme
 import todo.Filter
 import todo.Todo
 import todo.TodoService
@@ -9,15 +7,14 @@ import ui.Panel
 ///
 /// `Home` holds the one piece of state that belongs to the page rather than
 /// to the app, the selected `filter`, and shares it with `FilterBar` through
-/// `bind`. The todos come from `TodoService` and the color scheme from
-/// `AppearanceService`, so they survive anything that happens to the page.
+/// `bind`. The todos come from `TodoService`, so they survive anything that
+/// happens to the page. The color scheme belongs to the stdlib's
+/// `k.ui.Theme` service, which `ThemeToggle` changes directly.
 ///
 /// It has a named URL because it is the site root, which the URL derived from
 /// the page name (`/home`) can't express.
 public page Home at "/" {
     @Inject let todos: TodoService
-    @Inject let appearance: AppearanceService
-    @Inject let theme: Theme
 
     @State var filter: Filter = .all
 
@@ -39,16 +36,6 @@ public page Home at "/" {
         "Todos"
     } else {
         "Todos ({todos.remainingCount})"
-    }
-
-    /// Keeps the theme variant in step with the chosen color scheme.
-    ///
-    /// The effect reads `appearance.scheme`, so it runs once on mount and
-    /// again whenever the choice changes. `theme.use` swaps one class on the
-    /// document root, so nothing re-renders.
-    @Effect
-    func applyColorScheme() {
-        theme.use(if appearance.scheme == .dark { .dark } else { .base })
     }
 
     metadata {

@@ -66,6 +66,13 @@ public func place(id: Int) async throws WeatherError -> Place { … }
 
 - Names in backticks that resolve to declarations become links, and the compiler checks them: a
   reference to something that doesn't exist is a warning, so documentation can't drift after a rename.
+- **What counts as a reference:** a backticked identifier, a dotted path of identifiers
+  (`` `WeatherError.offline` ``), or a function name with its labels (`` `searchPlaces(query:)` ``).
+  Other code spans, keywords included (`` `300ms` ``, `` `"todos"` ``, `` `nil` ``, `` `a + b` ``), are
+  plain code and aren't checked.
+- **A reference resolves against three things only:** the file's imports, the file's own package (an
+  application counts as one package), and fully qualified names (`` `k.http.HttpStatus` ``). A reference
+  that resolves against none of these is a warning, even when some other module declares the name.
 - Fenced code blocks tagged `k` inside a doc comment are type-checked by `k check`, but not run.
 - There are no block doc comments (`/** */`), and no Javadoc-style `@param`, because `@` already means an
   annotation.

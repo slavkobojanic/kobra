@@ -1,5 +1,6 @@
 import k.crypto.Uuid
 import k.http.HttpRequest
+import k.rpc.RpcOnlyError
 import k.server.PublicUrls
 import k.test.Screen
 import k.test.TestClient
@@ -99,6 +100,17 @@ test ProductDetail {
         expect screen.text("Too many orders from your connection. Please wait a minute and try again.").isVisible
     }
 
+    test "a dropped connection keeps the form filled in" {
+        store.simulateCheckoutFailure(error: .rpcFailure(.offline))
+        let screen = await renderAndFill()
+
+        screen.button(named: "Buy now").click()
+        await screen.settle()
+
+        expect screen.text("You seem to be offline. Check your connection and try again.").isVisible
+        expect screen.textField(labeled: "Email for your receipt").value == "ana@example.com"
+    }
+
     // What crawlers see
 
     test "the server-rendered page has a canonical link and product data" {
@@ -119,7 +131,7 @@ test ProductDetail {
         let response = await client.send(request: HttpRequest(method: .get, url: url))
 
         expect response.status == .notFound
-        expect response.body.contains("Product not found")
+        expect response.body.contains("<title>Product not found · K Shop</title>")
     }
 }
 
@@ -140,7 +152,7 @@ service FakeStoreService implements StoreService {
         checkoutFailure = error
     }
 
-    func products() async -> List<ProductSummary> {
+    func products() async throws RpcOnlyError -> List<ProductSummary> {
         return [mug]
     }
 

@@ -1,6 +1,7 @@
 import k.crypto.Uuid
 import k.encoding.Json
 import k.observe.Log
+import k.time.Clock
 
 /// Turns a raw Stripe webhook request into a trusted `PaymentEvent`.
 ///
@@ -11,9 +12,10 @@ import k.observe.Log
 ///
 /// This service is server-only because it injects a config that holds a
 /// secret. The compiler rejects any import of it from browser code, and the
-/// secret itself is handed to `Hmac` as a `Secret`, never revealed.
+/// secret itself is handed to `k.crypto.Hmac` as a `Secret`, never revealed.
 public service StripeWebhookVerifier {
     @Inject let config: StripeWebhookConfig
+    @Inject let clock: Clock
 
     /// Verifies and decodes one webhook delivery.
     ///
@@ -30,7 +32,7 @@ public service StripeWebhookVerifier {
             throw WebhookError.missingSignature
         }
 
-        guard signature.isFresh(now: Date.now, tolerance: config.tolerance) else {
+        guard signature.isFresh(now: clock.now, tolerance: config.tolerance) else {
             Log.warning("Stripe webhook signed at {signature.signedAt} is outside the tolerance")
 
             throw WebhookError.staleTimestamp

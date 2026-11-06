@@ -1,3 +1,4 @@
+import k.time.Clock
 import k.ui.Icon
 import weather.CurrentConditions
 import weather.UnitSystem
@@ -9,7 +10,13 @@ import weather.UnitSystem
 /// direction, passed to the style block as a reactive value. `Icon` is a
 /// stdlib component with no `@Stylable` hooks, so each icon is wrapped in an
 /// element this component styles.
+///
+/// "Updated 5 minutes ago" is relative to `clock.now`. Until hydration
+/// completes, the browser's `Clock` returns the server's render instant, so the
+/// server's HTML and the hydrated page show the same text.
 public component CurrentConditionsCard {
+    @Inject let clock: Clock
+
     /// The conditions to show.
     @Prop let current: CurrentConditions
 
@@ -60,7 +67,7 @@ public component CurrentConditionsCard {
             }
             .class(.details)
 
-            paragraph { "Updated {updatedAt.formatted(as: .relative)}" }
+            paragraph { "Updated {updatedAt.formatted(as: .relative, from: clock.now)}" }
                 .class(.updated)
         }
         .class(.card)

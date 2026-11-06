@@ -34,7 +34,7 @@ test StoreApi {
     test "products are listed with what is available" {
         try await catalog.insert(Product.mug(stock: 3))
 
-        let products = await store.products()
+        let products = try await store.products()
 
         expect products == [ProductSummary.mug.copy(available: 3)]
     }

@@ -1,6 +1,7 @@
 import accounts.AccountId
 import k.auth.SessionManager
 import k.crypto.Uuid
+import k.rpc.RpcOnlyError
 import k.test.TestClock
 
 // Integration tests: no fakes, so these run NotesService, NotesProtocol
@@ -23,7 +24,7 @@ test NotesService {
         expect note.tags == ["errands", "home"]
         expect not note.isPinned
         expect note.revision == 1
-        expect note.updatedAt == Date.now
+        expect note.updatedAt == clock.now
         expect notes.all == [note]
     }
 
@@ -35,7 +36,7 @@ test NotesService {
         let edited = try await notes.update(note: original, draft: draft(title: "Plan B", tags: "ideas"))
 
         expect edited.revision == 2
-        expect edited.updatedAt == Date.now
+        expect edited.updatedAt == clock.now
         expect edited.tags == ["ideas"]
     }
 
@@ -125,7 +126,7 @@ test NotesService {
     }
 
     test "a visitor who isn't signed in is refused" {
-        expect throws AccessError.rpcFailure(.rejected(.unauthenticated)) {
+        expect throws RpcOnlyError.rpcFailure(.rejected(.unauthenticated)) {
             try await notes.create(draft: draft(title: "Anonymous"))
         }
 
@@ -137,9 +138,9 @@ test NotesService {
     // Applying streamed changes
 
     test "a snapshot replaces the list, sorts it and marks it live" {
-        let older = summary(title: "Older")
+        let older = summary(title: "Older", updatedAt: clock.now)
         clock.advance(by: 1.minute)
-        let newer = summary(title: "Newer")
+        let newer = summary(title: "Newer", updatedAt: clock.now)
 
         notes.apply(change: .snapshot([older, newer]))
 
@@ -148,9 +149,9 @@ test NotesService {
     }
 
     test "a note saved in another tab replaces the old copy and moves into place" {
-        let first = summary(title: "First")
+        let first = summary(title: "First", updatedAt: clock.now)
         clock.advance(by: 1.minute)
-        let second = summary(title: "Second")
+        let second = summary(title: "Second", updatedAt: clock.now)
         notes.apply(change: .snapshot([first, second]))
 
         notes.apply(change: .saved(first.copy(isPinned: true)))
@@ -160,7 +161,7 @@ test NotesService {
     }
 
     test "applying the same change twice is the same as applying it once" {
-        let note = summary(title: "Groceries")
+        let note = summary(title: "Groceries", updatedAt: clock.now)
 
         notes.apply(change: .saved(note))
         notes.apply(change: .saved(note))
@@ -180,10 +181,10 @@ func draft(title: String, body: String = "", tags: String = "") -> NoteDraft {
     return NoteDraft(title: title, body: body, tags: tags)
 }
 
-/// A note as the server would send it, edited now. Shared by this module's
-/// tests.
-func summary(title: String, body: String = "", tags: List<String> = [], isPinned: Bool = false) -> NoteSummary {
-    return NoteSummary(id: Uuid.random(), title: title, body: body, tags: tags, isPinned: isPinned, revision: 1, updatedAt: Date.now)
+/// A note as the server would send it. Shared by this module's tests, which
+/// pass `clock.now` as `updatedAt`: a plain function can't read the clock.
+func summary(title: String, body: String = "", tags: List<String> = [], isPinned: Bool = false, updatedAt: Date) -> NoteSummary {
+    return NoteSummary(id: Uuid.random(), title: title, body: body, tags: tags, isPinned: isPinned, revision: 1, updatedAt: updatedAt)
 }
 
 /// The titles of `notes`, in order.

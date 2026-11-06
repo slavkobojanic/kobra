@@ -26,6 +26,9 @@ public page EditNote requires Authenticated {
     /// Whether the last save succeeded, for the status message.
     @State var isSaved: Bool = false
 
+    /// Why the last save or delete didn't reach the server, for the alert.
+    @State var problem: String? = nil
+
     /// The version the next save is based on.
     @Derived let current: NoteSummary = latest ?? loaded
 
@@ -33,6 +36,7 @@ public page EditNote requires Authenticated {
     /// from the server is passed back to the editor's form.
     func save(draft: NoteDraft) async throws ValidationError {
         isSaved = false
+        problem = nil
 
         do {
             latest = try await notes.update(note: current, draft: draft)
@@ -46,6 +50,8 @@ public page EditNote requires Authenticated {
             throw failure
         } catch .rpcFailure(.rejected) {
             Router.navigate(to: .signIn.returnTo(.editNote(id: id)))
+        } catch .rpcFailure(.offline), .rpcFailure(.timeout) {
+            problem = "Couldn't reach K Notes, so this edit wasn't saved. Your text is still here; try again."
         }
     }
 
@@ -68,15 +74,22 @@ public page EditNote requires Authenticated {
 
     /// Deletes the note and returns to the list.
     func remove() async {
+        problem = nil
+
         do {
             try await notes.delete(note: current)
 
             Router.navigate(to: .notes)
-        } catch .rpcFailure {
+        } catch .rpcFailure(.rejected) {
             Router.navigate(to: .signIn.returnTo(.editNote(id: id)))
+        } catch .rpcFailure {
+            problem = "Couldn't reach K Notes, so the note wasn't deleted. Try again."
         }
     }
 
+    // Not evaluated when `failed` renders, because `current` doesn't exist
+    // then. The `.notFound` arm sets its own title; the others show the
+    // layout's.
     metadata {
         title("{current.title} · K Notes")
     }
@@ -105,6 +118,12 @@ public page EditNote requires Authenticated {
                 .role(.status)
         }
 
+        if let problem {
+            paragraph { problem }
+                .class(.problem)
+                .role(.alert)
+        }
+
         button { "Delete note" }
             .class(.delete)
             .on(click: remove)
@@ -119,6 +138,7 @@ public page EditNote requires Authenticated {
         match error {
             case .notFound {
                 metadata {
+                    title("Note not found · K Notes")
                     status(.notFound)
                 }
 
@@ -127,10 +147,17 @@ public page EditNote requires Authenticated {
                 link(to: .notes) { "Back to notes" }
             }
 
-            case .rpcFailure {
+            case .rpcFailure(.rejected) {
                 paragraph { "Your session has ended." }
 
                 link(to: .signIn.returnTo(.editNote(id: id))) { "Sign in again" }
+            }
+
+            case .rpcFailure {
+                paragraph { "Couldn't reach K Notes to load this note." }
+
+                button { "Try again" }
+                    .on(click: reload)
             }
         }
     }
@@ -145,7 +172,8 @@ public page EditNote requires Authenticated {
             borderRadius: .md;
         }
 
-        .status { color: .muted; }
+        .status  { color: .muted; }
+        .problem { color: .danger; }
         .delete { marginTop: .lg; color: .danger; }
     }
 }

@@ -41,8 +41,9 @@ test AddToCart {
 
 - **Test files sit next to the source as `Name.test.k`,** in the same module, so they can test package-private code.
 - **`test` is a keyword.** `test Name { }` groups tests and holds DI overrides (`use X for Y`, the same syntax as `App.k`). `test "description" { }` declares a single test.
+- **A group's name is a free identifier.** By convention it is the declaration under test (`test CartService { }`), but it doesn't have to resolve to anything. A file may contain several groups, for example one per scenario that needs different `use` rules.
 - **`expect` is a keyword that takes any boolean expression.** There is no matcher library (`toEqual`, `toHaveLength`). On failure, the compiler shows the value of each sub-expression, for example: `cart.items.count` was `0`, expected `== 1`. Absence is checked with `not` (`expect not x.exists`); comparing a `Bool` with `true` or `false` is a lint ([08-types.md](08-types.md#booleans)).
-- **`expect throws` takes a pattern,** as `catch` does: `expect throws WeatherError.network(.timeout) { … }`. A case written without its payload (`WeatherError.network`) matches any payload.
+- **`expect throws` takes a pattern,** as `catch` does: `expect throws WeatherError.upstream(.serviceUnavailable) { … }`. A case written without its payload (`WeatherError.upstream`) matches any payload.
 - **Components are tested through accessibility queries:** `button(named:)`, `textField(labeled:)`, `text(...)`. An element a test can't find by role and name isn't accessible either.
 - **Every `test "…"` gets a fresh container,** so no service, fake, session or theme state leaks between tests.
 - **There are no snapshot tests.** They encourage accepting changes without reviewing them.
@@ -62,11 +63,11 @@ test AddToCart {
 
 ## Test doubles and defaults
 
-**In `.test`, every stdlib interface whose production implementation does I/O outside the process has a hermetic default** from `k.test` that records calls and does no I/O. A test that forgets a fake therefore never reaches the network, a mail server or real browser storage.
+**In `.test`, every stdlib interface whose production implementation does I/O outside the process has a hermetic default** from `k.test` that records calls and does no I/O. A test that forgets a fake therefore never reaches the network, a mail server or real browser storage. The `Clock` service gets one too, so no test reads the real time.
 
 | Interface | Default in `k test` | What it does |
 |---|---|---|
-| `Clock` | `TestClock` | virtual time from a fixed instant; `advance(by:)` fires due timers ([35-time.md](35-time.md)) |
+| `Clock` (a stdlib service) | `TestClock` | virtual time from a fixed instant, shared by the test's server and browser containers; `advance(by:)` fires due timers ([35-time.md](35-time.md#testing-with-testclock)) |
 | `JobQueue` | `RecordingJobQueue` | stores jobs without running them; `payloads(of: OrderConfirmationJob.kind)` ([30-background-jobs.md](30-background-jobs.md)) |
 | `LocalStorage` | `MemoryStorage` | an empty in-memory store that can simulate failures ([36-local-storage.md](36-local-storage.md)) |
 | `EmailProvider` | `RecordingEmailProvider` | keeps sent messages in `sent`; `simulateFailure(error:)` ([31-email.md](31-email.md)) |
@@ -112,6 +113,7 @@ A test is one browser talking to one server, in one process:
 | `await screen.settle()` | waits until no `@Load`, async effect or event handler is in flight, apart from work waiting on the `TestClock` or on the next element of an open stream |
 | `screen.unmount()` | unmounts the view, running every `onCleanup` |
 
+- **`named:` matches the full accessible name exactly,** after whitespace normalisation (leading and trailing whitespace removed, inner runs collapsed to one space). `button(named: "Add")` doesn't find a button named "Add to cart". The same holds for every `named:` query. `item(containing:)`, by contrast, matches part of an item's text, as its label says.
 - **A singular query returns a handle even when nothing matches.** `exists` and `isVisible` are then `false`. An action on a handle that matches nothing, or more than one element, fails the test with the query and what it found.
 - **Every handle supports the same queries, scoped to its subtree:** `screen.item(containing: "Buy milk").button(named: "Delete")`. This finds one of many identically named controls without test ids.
 - **Element state:** `exists`, `isVisible`, `isChecked`, `isPressed`, `isDisabled`, `value` (a field's current text), `text` (the element's text content), `level` (a heading's level).

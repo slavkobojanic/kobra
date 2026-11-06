@@ -30,7 +30,7 @@ let add: (Int, Int) -> Int = { first, second => first + second }
 A lambda without parameters has no arrow at all:
 
 ```k
-Timer.every(30.seconds) { refresh() }
+clock.every(30.seconds) { refresh() }
 
 button { "+" }
     .on(click: { value += step })
@@ -38,7 +38,8 @@ button { "+" }
 
 ## The body's value
 
-The last expression in a lambda's body is its value. There is no `return` in a lambda:
+The last expression in a lambda's body is its value. **`return` inside a lambda is a compile error,** so
+`return` only ever leaves a declared function:
 
 ```k
 let labels = orders.map { order =>
@@ -47,6 +48,23 @@ let labels = orders.map { order =>
     "{order.number}: {count} items"
 }
 ```
+
+This holds for longer lambdas too, such as the block a transaction runs:
+
+```k
+let marked = await database.transaction {
+    let marked = await orders.markPaid(id: orderId, reference: reference)
+
+    if marked {
+        await jobs.enqueue(OrderConfirmationJob.kind, payload: OrderConfirmation(orderId: orderId))
+    }
+
+    marked                                  // the lambda's value; `return marked` is a compile error
+}
+```
+
+Other blocks used as values, such as an `if` or `match` arm used as an expression or a computed
+property, also take their last expression as the value. Functions with a return type use `return`.
 
 ## Types
 
@@ -65,7 +83,7 @@ When the last parameter of a function is a function, the lambda can follow the c
 replace them entirely:
 
 ```k
-Timer.every(30.seconds) { refresh() }
+clock.every(30.seconds) { refresh() }
 items.sum(in: .usd) { item => item.price }
 ```
 

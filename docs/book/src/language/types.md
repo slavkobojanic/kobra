@@ -19,7 +19,7 @@ These are available everywhere without an import:
 | `Result<T, E>` | a success value or an error |
 | `LoadState<T>` | `.idle`, `.loading`, `.loaded(T)` or `.failed(Error)` |
 | `Length`, `Duration`, `Percent`, `Angle` | units: `16px`, `200ms`, `50%`, `45deg`. See [Units](units.md). |
-| `Date` | a point in time: `Date.now`, `2.hours.ago` |
+| `Date` | a point in time: `clock.now`, `clock.now - 2.hours`. See [Time and timers](../apps/time.md). |
 | `Color` | `#3B82F6`, `.primary`, `.rgb(59, 130, 246)` |
 | `Money`, `Currency` | an exact amount in a currency: `9.99.usd`. See [Money](units.md#money). |
 | `Bytes` | an immutable byte sequence: `"text".utf8`, `Bytes.parse(hex: text)` |

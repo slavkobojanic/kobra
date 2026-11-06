@@ -171,6 +171,11 @@ production implementation, so it is injected with no `use` rule, and a hermetic 
 | `EmailProvider` | server-only | `SmtpEmailProvider` | [Email](email.md) |
 | `JobQueue` | server-only | the database queue | [Background jobs](jobs.md) |
 
+**`Clock` is a standard-library service, not a platform interface** ([Time and timers](time.md)).
+Components, pages, layouts and services may inject it like any service, and it holds no request state,
+so services in every scope may inject it. Plain functions and structs take the current time as a
+`now: Date` parameter.
+
 ## The server/client boundary
 
 The compiler splits every app into a server bundle and a client bundle, and **draws the boundary per

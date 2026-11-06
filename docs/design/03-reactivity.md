@@ -78,7 +78,7 @@ func track() {
 
 ## Async effects
 
-When a dependency changes while an async effect is still running, the previous run is **cancelled automatically**. This removes the race condition that `useEffect` plus `fetch` causes in React. Cancellation is not an error: a cancelled `await` (a request, a `Timer.sleep`) never resumes, so there is nothing to catch.
+When a dependency changes while an async effect is still running, the previous run is **cancelled automatically**. This removes the race condition that `useEffect` plus `fetch` causes in React. Cancellation is not an error: a cancelled `await` (a request, a `clock.sleep`) never resumes, so there is nothing to catch.
 
 ## Where effects run
 

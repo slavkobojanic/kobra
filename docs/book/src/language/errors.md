@@ -70,21 +70,27 @@ func add() async {
 
 ### Catching everything else
 
-`catch let error` binds the whole error and matches every case not handled by an earlier clause. It is
-what wrapping at a layer boundary needs, and it must come last:
+`catch let error` binds the whole error and matches every case not handled by an earlier clause. It lets
+a caller handle a few cases on their own and the rest together, and it must come last:
 
 ```k
-do {
-    return try await http.fetchJson(request: request)
-} catch .decoding(let message) {
-    throw WeatherError.invalidResponse(reason: message)
-} catch let error {
-    throw WeatherError.network(error)            // error is an HttpError
+func refresh() async {
+    do {
+        forecast = try await weather.forecast(place: place, units: units)
+    } catch .offline {
+        problem = "You're offline. The forecast will refresh when you reconnect."
+    } catch .upstream(.serviceUnavailable) {
+        problem = "The weather service is down for maintenance."
+    } catch let error {
+        problem = "The forecast couldn't be loaded ({error})."      // error is a WeatherError
+    }
 }
 ```
 
-- The bound error has the static type of what the `do` block throws (here `HttpError`), never an untyped
-  `Error`.
+- The bound error has the static type of what the `do` block throws (here `WeatherError`), never an
+  untyped `Error`.
+- Patterns nest: `.upstream(.serviceUnavailable)` matches one `HttpStatus` inside the case, because
+  `HttpStatus` is an enum too ([Calling HTTP APIs](../apps/http.md#httpstatus)).
 - **Each catch-all has one job.** `catch let error` binds; `catch _` doesn't. A `catch let x` whose
   binding is never used is a compile error with a quick fix to `catch _`.
 - Like `default` in `match`, a catch-all is a **compile error when unreachable**, meaning every case is
@@ -121,6 +127,25 @@ func checkout(card: CardToken) async throws CheckoutError -> Receipt {
 
 Each layer speaks in terms that make sense at its level. A page that checks out deals with
 `CheckoutError`, not with every error of every system behind it.
+
+A boundary can also map each inner case to a case of its own. `WeatherService` does this with the
+`HttpError` its HTTP client throws:
+
+```k
+private func fetch<T>(url: Url, query: Map<String, String>) async throws WeatherError -> T where T implements Codable {
+    do {
+        return try await http.fetchJson(request: HttpRequest(method: .get, url: url).query(query))
+    } catch .offline {
+        throw WeatherError.offline
+    } catch .timeout {
+        throw WeatherError.timeout
+    } catch .status(let status, _) {
+        throw WeatherError.upstream(status)          // the third party's body is dropped
+    } catch .decoding(let message) {
+        throw WeatherError.invalidResponse(reason: message)
+    }
+}
+```
 
 ## Turning errors into values
 
@@ -187,6 +212,10 @@ panics.** Panics are separate from errors and can't be caught with `catch`:
 - **Infrastructure failures on the server panic too:** a lost database connection, a full disk. They
   aren't outcomes the calling code could handle, so repository calls don't declare them. Inside a
   background job, a panic counts as a failed attempt and is retried.
+- **A network failure on the client is not a panic.** An rpc that can't reach the server, or times out,
+  throws `rpcFailure(.offline)` or `rpcFailure(.timeout)`, and an external API call throws
+  `HttpError.offline` or `.timeout`. Losing the connection is a normal condition on the web, so the page
+  handles it.
 
 Use errors for things that can legitimately go wrong (the product sold out, the network is down), and
 let panics expose bugs.
@@ -196,9 +225,10 @@ let panics expose bugs.
 Typed errors cross the wire. When a protocol's `rpc` declares `throws CartError`, the client receives
 exactly that error type, so client-side `catch` stays exhaustive over server errors.
 
-An rpc can also fail before its handler runs, when a guard refuses the call or a request fails
-validation. Those failures arrive in one case with a fixed name, `rpcFailure(RpcFailure)`, which the
-rpc's error enum declares:
+An rpc can also fail outside its handler: a guard refuses the call, a request fails validation, or, in
+the browser, the server can't be reached or doesn't answer in time. Those failures arrive in one case
+with a fixed name, `rpcFailure(RpcFailure)`. Every rpc's error enum declares it, and an rpc with no
+errors of its own declares `throws RpcOnlyError`:
 
 ```k
 enum CartError implements Error {

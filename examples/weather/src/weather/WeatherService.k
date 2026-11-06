@@ -6,7 +6,7 @@ import k.http.HttpRequest
 /// `WeatherService` is the only code in the app that talks to the network. It
 /// turns Open-Meteo's wire format into the app's domain types and translates
 /// every transport failure into a `WeatherError`, so pages and components
-/// never see an `HttpError` directly.
+/// never see a `k.http.HttpError` directly.
 ///
 /// Places are cached for the lifetime of the service, because a place's name
 /// and coordinates never change; a place found by `searchPlaces(query:)` is
@@ -83,7 +83,7 @@ public service WeatherService {
             places[id] = place
 
             return place
-        } catch .upstream(let status) where status == .badRequest or status == .notFound {
+        } catch .upstream(.badRequest), .upstream(.notFound) {
             throw WeatherError.placeNotFound(id: id)
         }
     }

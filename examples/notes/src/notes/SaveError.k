@@ -11,8 +11,8 @@ public enum SaveError implements Error {
     /// whose changes to keep.
     case conflict(latest: NoteSummary)
 
-    /// The call failed before `NotesApi` saw it: the `Authenticated` guard
-    /// refused it because nobody is signed in, or the draft failed
-    /// validation on the server.
+    /// The call failed outside `NotesApi`: the `Authenticated` guard refused
+    /// it because nobody is signed in, the draft failed validation on the
+    /// server, or the browser couldn't reach the server.
     case rpcFailure(RpcFailure)
 }

@@ -9,10 +9,11 @@
 /// page would always show an empty list and then jump to the real one. The
 /// app has no server-only code either, so `k build` emits static files only.
 ///
-/// There are no `use … for …` rules. `LocalStorage` has exactly one
-/// production implementation, the stdlib's `BrowserStorage`, so it is
-/// injected automatically. In tests, `k test` installs `MemoryStorage` from
-/// `k.test` in its place by default, so no test touches real browser storage.
+/// There are no `use … for …` rules. `k.storage.LocalStorage` has exactly
+/// one production implementation, the stdlib's `k.storage.BrowserStorage`,
+/// so it is injected automatically. In tests, `k test` installs
+/// `k.test.MemoryStorage` in its place by default, so no test touches real
+/// browser storage.
 @Rendering(.client)
 public app Todos {
     metadata {

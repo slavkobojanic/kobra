@@ -123,12 +123,27 @@ let inStock = products
     .sortedBy { product => product.price }
     .map { product => ProductCard(product: product) }
 
-Timer.every(30.seconds) { refresh() }       // trailing lambda with no parameters
+clock.every(30.seconds) { refresh() }       // trailing lambda with no parameters
 button { "Save" }.on(click: save)            // function reference
 ```
 
 - **Lambda parameters are always named:** `{ product => product.price }`. There is no implicit `it` or `$0`.
 - `=>` is the lambda arrow; `->` is for return types. Typed form: `{ (product: Product) -> Money => product.price }`. Types are normally inferred.
+- **The last expression of a lambda's body is its value.** `return` inside a lambda is a compile error, so `return` only ever leaves a declared function:
+
+  ```k
+  let marked = await database.transaction {
+      let marked = await orders.markPaid(id: orderId, reference: reference)
+
+      if marked {
+          await jobs.enqueue(OrderConfirmationJob.kind, payload: OrderConfirmation(orderId: orderId))
+      }
+
+      marked                                  // the lambda's value; `return marked` is a compile error
+  }
+  ```
+
+  Other blocks used as values (an `if` or `match` arm used as an expression, a computed property) also take their last expression as the value. Functions with a return type use `return`.
 - **Trailing lambdas** are allowed when the last parameter is a function.
 - **Functions can be passed by name:** `.map(formatPrice)`.
 - **A function parameter's type may carry a generic error,** `() async throws E -> T`. The call then throws whatever the passed function throws ([09-errors.md](09-errors.md#error-generic-functions)).

@@ -117,7 +117,7 @@ The compiler enforces fixed layering rules. **Components never call protocols di
 | `EmailProvider` ([31-email.md](31-email.md)) | server-only | `SmtpEmailProvider` |
 | `JobQueue` ([30-background-jobs.md](30-background-jobs.md)) | server-only | the database queue |
 
-`Clock` is treated separately in [35-time.md](35-time.md).
+**`Clock` is a stdlib service, not a platform interface** ([35-time.md](35-time.md)). Components, pages, layouts and services may inject it like any service, and it holds no request state, so services in every scope may inject it. Plain functions and structs take the current time as a `now: Date` parameter.
 
 ```k
 component AddToCart {

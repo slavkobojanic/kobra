@@ -1,7 +1,9 @@
 import k.crypto.Uuid
 import k.db.Database
 import k.observe.Log
+import k.rpc.RpcOnlyError
 import k.server.PublicUrls
+import k.time.Clock
 import payments.CheckoutRequest
 import payments.PaymentGateway
 
@@ -21,8 +23,9 @@ public service StoreApi implements StoreProtocol {
     @Inject let database: Database
     @Inject let payments: PaymentGateway
     @Inject let urls: PublicUrls
+    @Inject let clock: Clock
 
-    rpc products() async -> List<ProductSummary> {
+    rpc products() async throws RpcOnlyError -> List<ProductSummary> {
         let all = await catalog.all()
 
         return all.map(summarize)
@@ -47,7 +50,8 @@ public service StoreApi implements StoreProtocol {
             email: request.email,
             quantity: request.quantity,
             unitPrice: product.price,
-            total: product.price * request.quantity
+            total: product.price * request.quantity,
+            placedAt: clock.now
         )
 
         try await database.transaction {

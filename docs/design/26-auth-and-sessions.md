@@ -106,7 +106,7 @@ private func ownerOf(user: SessionUser) -> AccountId { … }
 
 ### What a refused rpc throws
 
-A guard runs before the handler, so its refusal is part of the rpc's contract. It arrives as **`rpcFailure(.rejected(GuardRejection))`**, the fixed case every guarded rpc's error enum has ([28-rpc-wire-format.md](28-rpc-wire-format.md#failures-outside-the-handler)):
+A guard runs before the handler, so its refusal is part of the rpc's contract. It arrives as **`rpcFailure(.rejected(GuardRejection))`**, the fixed case every rpc's error enum has ([28-rpc-wire-format.md](28-rpc-wire-format.md#failures-outside-the-handler)):
 
 ```k
 public enum GuardRejection implements Error {

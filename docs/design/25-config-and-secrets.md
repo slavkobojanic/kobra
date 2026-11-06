@@ -36,7 +36,9 @@ The requirements this meets:
 - **Two configs naming the same variable is a compile error**, as are fields without `@Env`.
 - **A field with a default is optional; one without is required.** `T?` fields are optional with `nil`.
 - **Field types implement `ConfigValue`**, which the stdlib provides for `String`, `Int`, `Double`, `Decimal`, `Bool` (`true`/`false`), `Duration` (`30s`, `5m`, `2h`, `10.5s`), `Url`, `Uuid`, `EmailAddress`, enums without associated values (by case name: `SMTP_SECURITY=startTls`), `List<T>` (comma-separated), and `Secret<T>`. Any other type is a compile error at the field.
-- **Constraint annotations from [15-forms-and-validation.md](15-forms-and-validation.md) apply:** `@Range(1...65535) @Env("PORT") let port: Int`.
+- **Constraint annotations from [15-forms-and-validation.md](15-forms-and-validation.md) apply:** `@Range(1...65535) @Env("PORT") let port: Int`. A failed constraint is a startup problem like a malformed value.
+- **Constraints on a `Secret<T>` field are allowed** and check the revealed value at startup: `@Matches("^whsec_[A-Za-z0-9]+$") @Env("STRIPE_WEBHOOK_SECRET") let signingSecret: Secret<String>`. The failure message names the variable and the constraint, never the value.
+- **`@Matches` takes a string literal regular expression,** validated at compile time: an invalid pattern is a compile error, not a startup error.
 - **A config is data.** It holds only `@Env` fields: no functions, no `@Inject`, no state. Static members may be added to a config only by extensions in a test-only module, for shared test values (`StripeWebhookConfig.sample`).
 - **The runtime reads no environment variable that isn't a `config` field,** the stdlib's own included. So `dist/app config` lists everything a deployment can set.
 
@@ -78,7 +80,11 @@ Setting both `NAME` and `NAME_FILE` is a startup error, so it is never ambiguous
     STRIPE_WEBHOOK_TOLERANCE  "5 minutes" is not a Duration (expected e.g. 300s, 5m)
   ```
 
-  Secret values are never printed, even when they are malformed.
+  Secret values are never printed, even when they are malformed or fail a constraint:
+
+  ```
+    STRIPE_WEBHOOK_SECRET     Secret(•••) doesn't match ^whsec_[A-Za-z0-9]+$
+  ```
 - **"Reachable" is computed at compile time from the `use` rules in `App.k`** ([23-app-structure.md](23-app-structure.md#environments)). In a shop where only `StripeCheckout` injects `StripeApiConfig`, and only production uses `StripeCheckout`, `STRIPE_API_KEY` is required by a production build and never by `k dev`. Adding an injection is what makes a variable required; there is no list to keep in sync.
 - **`dist/app config`** prints the table of every variable the build reads: its type, whether it is required, whether it is a secret, its default, and whether it is currently set. It never prints secret values.
 

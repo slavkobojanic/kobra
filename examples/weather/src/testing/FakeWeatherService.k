@@ -1,3 +1,4 @@
+import k.time.Clock
 import weather.AirQuality
 import weather.Forecast
 import weather.Place
@@ -9,11 +10,14 @@ import weather.WeatherService
 ///
 /// It knows two places, `.berlin` and `.lisbon`, answers every forecast with
 /// `Forecast.sample(units:)`, and counts its calls. Tests can make it slow
-/// (on the test's `TestClock`, so no real time passes) or make every call
-/// fail, to reach the `loading` and `failed` states deterministically.
+/// (on the injected `Clock`, which in a test is `k.test.TestClock`, so no
+/// real time passes) or make every call fail, to reach the `loading` and
+/// `failed` states deterministically.
 ///
 /// This module is test-only (see `docs/design/21-testing.md`).
 public service FakeWeatherService implements WeatherService {
+    @Inject let clock: Clock
+
     /// The same minimum as the real service, so components behave identically.
     let minimumQueryLength: Int = 2
 
@@ -33,7 +37,7 @@ public service FakeWeatherService implements WeatherService {
     /// Makes every later call wait before answering.
     ///
     /// - Parameter duration: how long each call waits, in virtual time on the
-    ///   test's `TestClock`.
+    ///   injected `Clock`.
     func simulateLatency(duration: Duration) {
         latency = duration
     }
@@ -97,7 +101,7 @@ public service FakeWeatherService implements WeatherService {
 
     private func simulateNetwork() async throws WeatherError {
         if latency > 0ms {
-            await Timer.sleep(latency)
+            await clock.sleep(latency)
         }
 
         if let failure {

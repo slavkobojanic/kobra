@@ -1,3 +1,4 @@
+import k.time.Clock
 import weather.Place
 import weather.WeatherService
 
@@ -14,6 +15,7 @@ import weather.WeatherService
 /// and the idle state (nothing typed yet) is meaningful to show.
 public component CitySearch {
     @Inject let weather: WeatherService
+    @Inject let clock: Clock
 
     @State var query: String = ""
     @State var results: LoadState<List<Place>> = .idle
@@ -29,7 +31,7 @@ public component CitySearch {
             return
         }
 
-        await Timer.sleep(debounceDelay)
+        await clock.sleep(debounceDelay)
 
         results = .loading
 

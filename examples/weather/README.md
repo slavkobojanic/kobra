@@ -14,14 +14,15 @@ The app has about 880 lines of K, not counting blank lines, comments, tests and 
 | `@Load` fields with `loading` and `failed` blocks | [`pages/CityWeather.k`](src/pages/CityWeather.k) |
 | Loading ordered by dependencies: `place` first, then `forecast` and `airQuality` in parallel | [`pages/CityWeather.k`](src/pages/CityWeather.k), tested in [`CityWeather.test.k`](src/pages/CityWeather.test.k) |
 | `LoadState` with an exhaustive `match` in a view, including a `where` guard | [`components/CitySearch.k`](src/components/CitySearch.k) |
-| An async `@Effect` that is cancelled automatically, used as a debounce | [`components/CitySearch.k`](src/components/CitySearch.k) |
-| Typed errors: `throws WeatherError`, `try`, exhaustive `catch` with patterns and a `where` guard, translating `HttpError` at the service boundary without Open-Meteo's response body | [`weather/WeatherError.k`](src/weather/WeatherError.k), [`weather/WeatherService.k`](src/weather/WeatherService.k) |
-| Typed HTTP statuses: `HttpStatus`, `status.isServerError`, `status == .badRequest or status == .notFound` | [`weather/WeatherService.k`](src/weather/WeatherService.k), [`pages/CityWeather.k`](src/pages/CityWeather.k) |
-| Exhaustive `match` over the error inside `failed`, with `metadata { status(.notFound) }` so a missing place answers 404 | [`pages/CityWeather.k`](src/pages/CityWeather.k) |
+| An async `@Effect` that is cancelled automatically, used as a debounce with `clock.sleep` | [`components/CitySearch.k`](src/components/CitySearch.k) |
+| Typed errors: `throws WeatherError`, `try`, exhaustive `catch` with patterns, translating `HttpError` at the service boundary without Open-Meteo's response body | [`weather/WeatherError.k`](src/weather/WeatherError.k), [`weather/WeatherService.k`](src/weather/WeatherService.k) |
+| Typed HTTP statuses: `HttpStatus` cases as nested patterns (`catch .upstream(.badRequest), .upstream(.notFound)`, `expect throws WeatherError.upstream(.serviceUnavailable)`), and `status.isServerError` in a `where` guard | [`weather/WeatherService.k`](src/weather/WeatherService.k), [`weather/WeatherService.test.k`](src/weather/WeatherService.test.k), [`pages/CityWeather.k`](src/pages/CityWeather.k) |
+| Exhaustive `match` over the error inside `failed`, with `metadata { status(.notFound) }` so a missing place answers 404. The page's own `metadata` isn't evaluated when `failed` renders | [`pages/CityWeather.k`](src/pages/CityWeather.k) |
 | Condition lists in `if let` and `guard let` (`guard let index = europeanIndex, index >= 0 else`) | [`weather/AirQuality.k`](src/weather/AirQuality.k), [`weather/Place.k`](src/weather/Place.k) |
 | `match` on integers and ranges with `default` | [`weather/WeatherCondition.k`](src/weather/WeatherCondition.k), [`weather/AirQuality.k`](src/weather/AirQuality.k) |
 | Unit literals and `Duration`: `10.minutes`, `300ms`, `10.seconds`, `180deg`, `240px` | [`pages/CityWeather.k`](src/pages/CityWeather.k), [`components/CitySearch.k`](src/components/CitySearch.k), [`components/CurrentConditionsCard.k`](src/components/CurrentConditionsCard.k) |
-| A periodic refresh with `Timer.every`, cancelled in `onCleanup` | [`pages/CityWeather.k`](src/pages/CityWeather.k) |
+| The injected `Clock`: a periodic refresh with `clock.every`, cancelled in `onCleanup` | [`pages/CityWeather.k`](src/pages/CityWeather.k) |
+| A relative time against the injected clock: `updatedAt.formatted(as: .relative, from: clock.now)` | [`components/CurrentConditionsCard.k`](src/components/CurrentConditionsCard.k) |
 | A service wrapping an external HTTP API with `k.http`'s `HttpClient` | [`weather/WeatherService.k`](src/weather/WeatherService.k) |
 | Caching in a service (places), and deliberately not caching (forecasts) | [`weather/WeatherService.k`](src/weather/WeatherService.k) |
 | Mapping a wire format to domain types, with `@JsonKey` and validation | [`weather/OpenMeteo.k`](src/weather/OpenMeteo.k) |
@@ -79,7 +80,7 @@ weather/
         └── Samples.k              .berlin, .lisbon, Forecast.sample(units:), AirQuality.sample
 ```
 
-The layering follows [10-services.md](../../docs/design/10-services.md). Pages and components inject only `WeatherService`. Only `WeatherService` injects `HttpClient`. Open-Meteo's JSON never leaves the `weather` module.
+The layering follows [10-services.md](../../docs/design/10-services.md). Pages and components inject `WeatherService`, and the stdlib `Clock` service where they need timers or the current time. Only `WeatherService` injects `HttpClient`. Open-Meteo's JSON never leaves the `weather` module.
 
 ### How a dashboard loads
 
@@ -89,7 +90,7 @@ The layering follows [10-services.md](../../docs/design/10-services.md). Pages a
 @Load let airQuality: AirQuality = try await weather.airQuality(place: place)
 ```
 
-`forecast` and `airQuality` read `place`, so the compiler starts them when `place` resolves, and runs them in parallel with each other. `loading` renders until all three have resolved. `failed` receives a `WeatherError`, and the page matches on it exhaustively: not found (which also sets `status(.notFound)`), or one of offline, timeout, an upstream error status and an invalid response, each explained in its own sentence with a retry button. Every ten minutes `reload()` re-runs the graph. The cached place returns at once, and the dashboard stays on screen until the new forecast arrives.
+`forecast` and `airQuality` read `place`, so the compiler starts them when `place` resolves, and runs them in parallel with each other. `loading` renders until all three have resolved. `failed` receives a `WeatherError`, and the page matches on it exhaustively: not found (which also sets `status(.notFound)`), or one of offline, timeout, an upstream error status and an invalid response, each explained in its own sentence with a retry button. The page's own `metadata` block reads `place`, so it isn't evaluated when `failed` renders: the not-found case sets its own title, and the other failures keep the layout's. Every ten minutes `reload()` re-runs the graph. The cached place returns at once, and the dashboard stays on screen until the new forecast arrives.
 
 A failed load rendered on the server is sent to the browser for hydration, so `WeatherError` never carries Open-Meteo's response body. `WeatherService` keeps only the `HttpStatus` (`case upstream(HttpStatus)`), as [32-http-client.md](../../docs/design/32-http-client.md#errors) recommends.
 
@@ -128,21 +129,21 @@ Besides the core topics (components, views, styles, reactivity, routing), the ex
 
 | Document | Used for |
 |---|---|
-| [`39-doc-comments.md`](../../docs/design/39-doc-comments.md) | `///` doc comments with `- Parameter:`, `- Returns:`, `- Throws:` sections |
+| [`39-doc-comments.md`](../../docs/design/39-doc-comments.md) | `///` doc comments with `- Parameter:`, `- Returns:`, `- Throws:` sections. References resolve against the file's imports, the app and fully qualified names, so a name the file doesn't import is written in full (`k.http.HttpError`) |
 | [`24-projects.md`](../../docs/design/24-projects.md) | [`k.toml`](k.toml) and the fixed project layout |
 | [`23-app-structure.md`](../../docs/design/23-app-structure.md) | [`App.k`](App.k): `public app`, `@Layout` on the app, app-wide `metadata` |
 | [`16-modules.md`](../../docs/design/16-modules.md) | Members that follow their type's visibility, `public extend`, the test-only `testing` module |
-| [`32-http-client.md`](../../docs/design/32-http-client.md) | `HttpClient`, `HttpRequest`, `HttpResponse`, `HttpStatus`, `HttpError`, `fetchJson`, `@JsonKey` |
+| [`32-http-client.md`](../../docs/design/32-http-client.md) | `HttpClient`, `HttpRequest`, `HttpResponse`, `HttpStatus` and its cases as patterns, `HttpError`, `fetchJson`, `@JsonKey` |
 | [`09-errors.md`](../../docs/design/09-errors.md) | Typed throws, exhaustive `catch`, translating errors at a layer boundary |
-| [`14-async-data.md`](../../docs/design/14-async-data.md) | `@Load`, `loading`, `failed`, `reload()`, keeping the view during a refresh, `status(.notFound)` |
+| [`14-async-data.md`](../../docs/design/14-async-data.md) | `@Load`, `loading`, `failed`, `reload()`, keeping the view during a refresh, `status(.notFound)`, the page `metadata` skipped when `failed` renders |
 | [`07-themes-and-units.md`](../../docs/design/07-themes-and-units.md) | The theme, `variant dark matches .prefersDark`, overriding library tokens by assignment |
 | [`37-charts.md`](../../docs/design/37-charts.md) | `LineChart`, `LineSeries`, `ChartPoint`, chart tokens |
-| [`35-time.md`](../../docs/design/35-time.md) | `Timer.every`, `TimerHandle.cancel()`, `Timer.sleep`, `TestClock` |
+| [`35-time.md`](../../docs/design/35-time.md) | The injected `Clock`: `clock.every`, `clock.sleep`, `clock.now` in relative times; `TimerHandle.cancel()`, `TestClock` |
 | [`21-testing.md`](../../docs/design/21-testing.md) | Test groups, `service FakeX implements X`, `@Inject` of a fake, hermetic defaults, `screen.settle()`, `fill`, `unmount`, `TestClient` |
 
 A few smaller stdlib APIs are assumed and not specified anywhere yet:
 
-- `formatted(as: .wholeNumber)` and `formatted(as: .relative)` beside the documented `.currency`
+- `formatted(as: .wholeNumber)` beside the documented `.currency` and `.relative`
 - `Date(unixSeconds:)`, and `TimeZone.parse(_:)` following the `Type.parse` convention in [20-standard-library.md](../../docs/design/20-standard-library.md#literals-and-parsing)
 - `Angle(degrees:)`
 - `String.trimmed()`

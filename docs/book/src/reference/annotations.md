@@ -45,14 +45,15 @@ comments come before annotations.
 
 | Annotation | On | Meaning |
 |---|---|---|
-| `@Form` | `var` field | wraps a `Validatable` struct with per-field form state |
-| `@Email`, `@NotBlank` | field | the value is an email address, or not blank; an `EmailAddress` field needs no `@Email` |
+| `@Form` | `var` field | wraps a `Validatable` struct with per-field form state; starts from the generated `.empty` or `.empty(field: value, …)` |
+| `@Email`, `@NotBlank` | field | the value is an email address, or not blank; `@Email` on an `EmailAddress` field is a warning |
 | `@Length(min:max:)` | field | string length |
 | `@Range(a...b)` | field | numeric range |
-| `@Matches(pattern)` | field | regular expression |
+| `@Matches("^[a-z0-9-]+$")` | field | a regular expression, as a string literal checked at compile time |
+| `@Format(message:)` | field of a parsed type | the message shown when the text doesn't parse; a compile error on a `String` field |
 | `@Check(Service.function)` | field | an async rule run by a service |
 
-All constraints accept `message:`, and they apply to `config` fields too.
+All constraints accept `message:`, and they apply to `config` fields too, `Secret<T>` fields included.
 
 ## Persistence
 

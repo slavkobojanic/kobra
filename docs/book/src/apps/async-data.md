@@ -78,8 +78,12 @@ page Product {
 - **`status(_:)` sets the HTTP status of a server-rendered `failed` page.** It is allowed only in a
   `metadata { }` block inside `failed`, so a "not found" page answers `404` instead of a soft `200` for
   crawlers. During client navigation it has no effect.
-- The first client render reads the time from the server's render instant, so relative times such as
-  "5 minutes ago" are the same in the server's HTML and after hydration.
+- **When `failed` renders, the page's own `metadata` block isn't evaluated,** because it usually reads
+  `@Load` values that don't exist (`product.name`). Only a `metadata` block inside `failed`, and the
+  app's and layouts' defaults, apply ([Document metadata](metadata.md#metadata-when-a-load-fails)).
+- Until hydration completes, the browser's `Clock` returns the server's render instant, so relative times
+  such as "5 minutes ago" are the same in the server's HTML and after hydration
+  ([Time and timers](time.md#server-rendering)).
 
 ## Caching belongs to services
 
@@ -117,7 +121,7 @@ Every page, layout or component with `@Load` fields gets a generated `reload()` 
 of its loads in dependency order. Use it for retry buttons and periodic refreshes:
 
 ```k
-failed(let error) {
+failed {
     paragraph { "Something went wrong." }
 
     button { "Try again" }
@@ -143,9 +147,11 @@ failed(let error) {
 To refresh periodically, start a timer in an effect and cancel it on cleanup:
 
 ```k
+@Inject let clock: Clock
+
 @Effect(on: [placeId])
 func refreshPeriodically() {
-    let timer = Timer.every(10.minutes) { reload() }
+    let timer = clock.every(10.minutes) { reload() }
 
     onCleanup { timer.cancel() }
 }
@@ -161,7 +167,12 @@ search results, keep a `LoadState<T>` in `@State` and set it from an effect or a
 
 func search() async {
     results = .loading
-    results = .loaded(await places.search(query))
+
+    do {
+        results = .loaded(try await places.search(query))
+    } catch let error {
+        results = .failed(error)
+    }
 }
 ```
 

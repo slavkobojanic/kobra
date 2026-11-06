@@ -1,5 +1,6 @@
+import k.text.EmailAddress
 import k.validation.Check
-import k.validation.Email
+import k.validation.Format
 import k.validation.Length
 import k.validation.Rules
 import k.validation.Validatable
@@ -10,11 +11,12 @@ import k.validation.Validatable
 /// rules run in the browser as the person types, and again on the server
 /// before `AuthApi` sees the request.
 public struct SignUpRequest implements Codable, Validatable {
-    /// The new account's email address. The availability check runs on blur
-    /// in the browser, and in full on the server.
-    @Email(message: "Enter a valid email address")
+    /// The new account's email address. Its type validates it, and the
+    /// availability check runs once it parses: on blur in the browser, and
+    /// in full on the server.
+    @Format(message: "Enter a valid email address")
     @Check(AuthService.emailAvailable, message: "An account with this email already exists")
-    var email: String
+    var email: EmailAddress
 
     /// The new password. At least 8 characters.
     @Length(min: 8, message: "Use at least 8 characters")

@@ -1,4 +1,8 @@
+import k.test.TestClock
+
 test NoteDraft {
+    @Inject let clock: TestClock
+
     test "tag labels are trimmed, lower-cased and de-duplicated, in the order written" {
         let labels = draft(title: "Plans", tags: " Work, ideas,,work ").tagLabels()
 
@@ -10,14 +14,14 @@ test NoteDraft {
     }
 
     test "a summary's draft round-trips its values, with tags comma-separated" {
-        let note = summary(title: "Plans", body: "Step one", tags: ["ideas", "work"])
+        let note = summary(title: "Plans", body: "Step one", tags: ["ideas", "work"], updatedAt: clock.now)
 
         expect note.draft() == draft(title: "Plans", body: "Step one", tags: "ideas, work")
         expect note.draft().tagLabels() == note.tags
     }
 
     test "a summary is searchable by title, text and tags" {
-        let note = summary(title: "Plans", body: "Step one", tags: ["work"])
+        let note = summary(title: "Plans", body: "Step one", tags: ["work"], updatedAt: clock.now)
 
         expect note.matches(query: "PLANS")
         expect note.matches(query: "step")

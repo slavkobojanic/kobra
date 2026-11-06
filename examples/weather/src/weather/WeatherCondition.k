@@ -62,7 +62,7 @@ public enum WeatherCondition implements Codable, Equatable {
     ///
     /// - Parameter isDay: whether the sun is up at the place. Clear and partly
     ///   cloudy skies show the moon at night; other conditions look the same.
-    /// - Returns: the icon to pass to `Icon(name:)`.
+    /// - Returns: the name to pass to the `k.ui.Icon` component.
     func icon(isDay: Bool) -> IconName {
         return match self {
             case .clear where isDay { .sun }

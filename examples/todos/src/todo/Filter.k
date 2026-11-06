@@ -13,7 +13,7 @@ public enum Filter implements Equatable, Hashable {
     ///
     /// - Parameter todo: the todo to test.
     /// - Returns: `true` for every todo under `.all`; otherwise `true` when
-    ///   the todo's `isDone` matches the filter.
+    ///   `Todo.isDone` matches the filter.
     func includes(todo: Todo) -> Bool {
         return match self {
             case .all { true }

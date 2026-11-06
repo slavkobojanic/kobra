@@ -1,4 +1,5 @@
 import k.test.Screen
+import k.text.EmailAddress
 
 test SignUp {
     @Inject let auth: AuthService
@@ -37,8 +38,8 @@ test SignUp {
     }
 
     test "an email that already has an account is flagged under the email field" {
-        try await auth.signUp(request: signUpRequest(email: "ada@example.com"))
-        await auth.signOut()
+        try await auth.signUp(request: signUpRequest(email: EmailAddress("ada@example.com")))
+        try await auth.signOut()
         let screen = render(SignUp())
 
         fill(screen: screen, email: "Ada@example.com", password: testPassword, confirmation: testPassword)

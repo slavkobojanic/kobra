@@ -148,9 +148,11 @@ func track() {
 Timers started in an effect should be cancelled in `onCleanup`:
 
 ```k
+@Inject let clock: Clock
+
 @Effect(on: [placeId])
 func refreshPeriodically() {
-    let timer = Timer.every(10.minutes) { reload() }
+    let timer = clock.every(10.minutes) { reload() }
 
     onCleanup { timer.cancel() }
 }
@@ -164,17 +166,18 @@ outlive the component. See [Time and timers](time.md).
 When a dependency changes while an async effect is still running, **the previous run is cancelled
 automatically**. Whatever it was awaiting is abandoned, and it never resumes. This removes the classic
 race condition where an old, slow response overwrites a newer one. Cancellation isn't an error: a
-cancelled `await` never resumes, so there is nothing to catch.
+cancelled `await` (a request, a `clock.sleep`) never resumes, so there is nothing to catch.
 
 Cancellation also makes debouncing trivial. This effect waits for typing to pause before searching,
-because each keystroke cancels the run that is still sleeping:
+because each keystroke cancels the run that is still sleeping. The sleep comes from the injected
+`Clock`, as every timer does:
 
 ```k
 @Effect
 func search() async {
     let text = query
 
-    await Timer.sleep(300ms)              // a new keystroke cancels this run
+    await clock.sleep(300ms)              // a new keystroke cancels this run
 
     do {
         results = .loaded(try await places.search(text))

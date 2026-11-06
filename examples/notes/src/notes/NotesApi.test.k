@@ -1,6 +1,7 @@
 import accounts.AccountId
 import k.auth.SessionManager
 import k.crypto.Uuid
+import k.rpc.RpcOnlyError
 import k.test.TestClock
 
 // The protocol called in-process, as another tab would call it: these tests
@@ -45,8 +46,8 @@ test NotesApi {
 
         await sessions.signIn(userId: AccountId.ada)
         let adasChanges = try await api.watch()
-        let bens = summary(title: "Ben's note")
-        let adas = summary(title: "Ada's note")
+        let bens = summary(title: "Ben's note", updatedAt: clock.now)
+        let adas = summary(title: "Ada's note", updatedAt: clock.now)
 
         // What NotesApi publishes when Ben saves on another device. The test
         // has one session, so signing in as Ben here would end Ada's stream.
@@ -85,7 +86,7 @@ test NotesApi {
     }
 
     test "every rpc requires a signed-in session" {
-        expect throws AccessError.rpcFailure(.rejected(.unauthenticated)) {
+        expect throws RpcOnlyError.rpcFailure(.rejected(.unauthenticated)) {
             try await api.watch()
         }
 
@@ -93,7 +94,7 @@ test NotesApi {
             try await api.update(id: Uuid.random(), draft: draft(title: "Plan"), revision: 1)
         }
 
-        expect throws AccessError.rpcFailure(.rejected(.unauthenticated)) {
+        expect throws RpcOnlyError.rpcFailure(.rejected(.unauthenticated)) {
             try await api.delete(id: Uuid.random())
         }
     }

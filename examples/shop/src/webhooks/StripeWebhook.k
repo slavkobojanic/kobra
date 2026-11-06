@@ -10,8 +10,8 @@ import store.PaymentRecorder
 /// answers raw HTTP and is compiled into the server bundle only. Endpoint
 /// pages exist only for callers that can't speak RPC, and always have a
 /// fixed URL; this one is registered in the Stripe dashboard, so renaming
-/// the page must never move it. It doesn't inject `Session`, so it receives
-/// no cookie and needs no request-forgery check.
+/// the page must never move it. It doesn't inject `k.auth.Session`, so it
+/// receives no cookie and needs no request-forgery check.
 ///
 /// Responses follow Stripe's retry rules. Anything Stripe can't fix by
 /// sending again (a recorded payment, an ignored event, an unknown order)

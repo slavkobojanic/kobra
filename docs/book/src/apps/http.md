@@ -24,7 +24,8 @@ public interface HttpClient {
 - `HttpClient` is usable on both sides. The standard library ships one implementation, `FetchHttpClient`,
   built on the web-standard `fetch` that both the browser and the embedded server runtime provide, so
   `@Inject let http: HttpClient` resolves to it with no `use` rule.
-- **Wrap `HttpError` in your own error enum** rather than exposing it, as every layer boundary does.
+- **Map `HttpError` to cases of your own error enum** rather than exposing it, as every layer boundary
+  does ([below](#wrapping-at-the-service-boundary)).
 
 ## Requests are a `@Builder` struct
 
@@ -79,11 +80,17 @@ let request = HttpRequest(method: .post, url: config.apiUrl.appending(path: "/v1
 
 ### `HttpStatus`
 
-- **Statuses are a typed `HttpStatus`,** not a bare `Int`, with implicit members for the standard codes:
-  `.ok`, `.created`, `.noContent`, `.seeOther`, `.badRequest`, `.unauthorized`, `.forbidden`,
-  `.notFound`, `.tooManyRequests`, `.internalServerError`, `.serviceUnavailable`, and the rest.
-- `HttpStatus(code: 418)` takes an integer literal, validated at compile time to `100...599`.
-  `status.code` is the number, and `status.isSuccess`, `status.isClientError` and `status.isServerError`
+- **Statuses are a typed `HttpStatus`,** not a bare `Int`. **`HttpStatus` is an enum** with a case for
+  each named status, `.ok`, `.created`, `.noContent`, `.seeOther`, `.badRequest`, `.unauthorized`,
+  `.forbidden`, `.notFound`, `.tooManyRequests`, `.internalServerError`, `.serviceUnavailable` and the
+  rest, plus **`.other(Int)`** for any other code.
+- **Because it is an enum, statuses are patterns:** `case .upstream(.serviceUnavailable)` in a `catch` or
+  `match` is valid, and so is `.status(.notFound, _)`.
+- `HttpStatus(code: 418)` takes an integer literal, validated at compile time to `100...599`. A code
+  with a named case gives that case (`HttpStatus(code: 503)` is `.serviceUnavailable`), and any other
+  gives `.other(418)`. The runtime does the same for received statuses, so `.other` never holds a code
+  that has a name. Writing `.other(503)` is a compile error, with a quick fix to `.serviceUnavailable`.
+- `status.code` is the number, and `status.isSuccess`, `status.isClientError` and `status.isServerError`
   classify it.
 
 ## Errors
@@ -103,15 +110,19 @@ public enum HttpError implements Error {
   request is aborted and the awaiting code never resumes.
 - **`.status` carries a third party's response body.** An error that crosses to the browser, such as a
   `@Load` error or an rpc error, shouldn't include it, and the compiler warns when it would. Wrap the
-  status without the body:
+  status without the body, as below.
+
+### Wrapping at the service boundary
+
+A service maps each `HttpError` case to a case of its own error enum, keeping only what its callers need:
 
 ```k
 public enum WeatherError implements Error {
-    case placeNotFound
-    case offline
-    case timeout
-    case upstream(HttpStatus)
-    case invalidResponse(reason: String)
+    case placeNotFound(id: Int)
+    case offline                            // from HttpError.offline
+    case timeout                            // from HttpError.timeout
+    case upstream(HttpStatus)               // from HttpError.status, without the body
+    case invalidResponse(reason: String)    // from HttpError.decoding
 }
 
 private func fetch<T>(url: Url, query: Map<String, String>) async throws WeatherError -> T where T implements Codable {
@@ -129,7 +140,10 @@ private func fetch<T>(url: Url, query: Map<String, String>) async throws Weather
 }
 ```
 
-A page can then match `.upstream(let status) where status.isServerError` in its `failed` block.
+Callers then match on the status they care about, `catch .upstream(.serviceUnavailable)`, and on
+`.offline` and `.timeout`, which are the same situations an rpc reports as `rpcFailure(.offline)` and
+`rpcFailure(.timeout)` ([Protocols and RPC](protocols.md#network-failures)). A page can also match
+`.upstream(let status) where status.isServerError` in its `failed` block.
 
 ## JSON field names
 
@@ -163,7 +177,7 @@ test WeatherService {
     test "an upstream outage is reported without its body" {
         http.respond(path: "/v1/forecast", with: HttpResponse(status: .serviceUnavailable).body(.text("down")))
 
-        expect throws WeatherError.upstream {
+        expect throws WeatherError.upstream(.serviceUnavailable) {
             try await weather.forecast(place: .berlin)
         }
     }

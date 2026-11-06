@@ -4,7 +4,8 @@ import k.validation.Validatable
 
 /// The sign-in form for staff.
 public struct SignInRequest implements Codable, Validatable {
-    /// The email address of the account. Its type validates it.
+    /// The email address of the account. Its type validates it, with the
+    /// stdlib's default message.
     var email: EmailAddress
 
     /// The password, in plain text. It is only ever compared with

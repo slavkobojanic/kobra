@@ -25,7 +25,7 @@ public interface HttpClient {
 
 - **`HttpClient` is a stdlib platform interface usable on both sides** ([10-services.md](10-services.md#layering)). It is injectable only into services, like protocols, so components can't call external APIs directly and retries, caching and error wrapping stay in one place.
 - The stdlib ships one implementation, `FetchHttpClient`, built on the web-standard `fetch` that both the browser and the embedded server runtime provide ([13-tooling.md](13-tooling.md)). It is the only implementation, so `@Inject let http: HttpClient` resolves to it with no `use` rule.
-- Following [09-errors.md](09-errors.md), services wrap `HttpError` in their own error enum (`case network(HttpError)`) rather than exposing it.
+- Following [09-errors.md](09-errors.md), services map `HttpError` to cases of their own error enum rather than exposing it ([below](#wrapping-at-the-service-boundary)).
 
 ## Requests are a `@Builder` struct
 
@@ -75,8 +75,10 @@ let request = HttpRequest(method: .post, url: config.apiUrl.appending(path: "/v1
 
 ### `HttpStatus`
 
-- **Statuses are a typed `HttpStatus`,** not a bare `Int`, with implicit members for the standard codes: `.ok`, `.created`, `.noContent`, `.seeOther`, `.badRequest`, `.unauthorized`, `.forbidden`, `.notFound`, `.tooManyRequests`, `.internalServerError`, `.serviceUnavailable`, and the rest.
-- `HttpStatus(code: 418)` takes an integer literal, validated at compile time to `100...599`. `status.code` is the number, and `status.isSuccess`, `status.isClientError` and `status.isServerError` classify it.
+- **Statuses are a typed `HttpStatus`,** not a bare `Int`. **`HttpStatus` is an enum** with a case for each named status, `.ok`, `.created`, `.noContent`, `.seeOther`, `.badRequest`, `.unauthorized`, `.forbidden`, `.notFound`, `.tooManyRequests`, `.internalServerError`, `.serviceUnavailable` and the rest, plus **`.other(Int)`** for any other code.
+- **Because it is an enum, statuses are patterns:** `case .upstream(.serviceUnavailable)` in a `catch` or `match` is valid, and so is `.status(.notFound, _)`.
+- `HttpStatus(code: 418)` takes an integer literal, validated at compile time to `100...599`. A code with a named case gives that case (`HttpStatus(code: 503)` is `.serviceUnavailable`), and any other gives `.other(418)`. The runtime does the same for received statuses, so `.other` never holds a code that has a name. Writing `.other(503)` is a compile error, with a quick fix to `.serviceUnavailable`.
+- `status.code` is the number, and `status.isSuccess`, `status.isClientError` and `status.isServerError` classify it.
 
 ## Errors
 
@@ -92,6 +94,34 @@ public enum HttpError implements Error {
 - `send` itself never throws `.status`. A non-2xx response is still a response. Only the convenience `fetchJson` turns it into an error.
 - **Cancellation isn't an error.** When the effect or `@Load` that started a request is cancelled ([03-reactivity.md](03-reactivity.md)), the request is aborted and the awaiting code never resumes. There is no `.cancelled` case to handle.
 - **`.status` carries a third party's response body.** An error that crosses to the browser (a `@Load` error, an rpc error) shouldn't include it; the compiler warns when it would ([14-async-data.md](14-async-data.md#server-rendering-and-hydration)). Wrap the status without the body (`case upstream(HttpStatus)`).
+
+### Wrapping at the service boundary
+
+A service maps each `HttpError` case to a case of its own error enum, keeping only what its callers need:
+
+```k
+public enum WeatherError implements Error {
+    case placeNotFound(id: Int)
+    case offline                            // from HttpError.offline
+    case timeout                            // from HttpError.timeout
+    case upstream(HttpStatus)               // from HttpError.status, without the body
+    case invalidResponse(reason: String)    // from HttpError.decoding
+}
+
+do {
+    return try await http.fetchJson(request: request)
+} catch .offline {
+    throw WeatherError.offline
+} catch .timeout {
+    throw WeatherError.timeout
+} catch .status(let status, _) {
+    throw WeatherError.upstream(status)
+} catch .decoding(let message) {
+    throw WeatherError.invalidResponse(reason: message)
+}
+```
+
+Callers then match on the status they care about, `catch .upstream(.serviceUnavailable)`, and on `.offline` and `.timeout`, which are the same situations an rpc reports as `rpcFailure(.offline)` and `rpcFailure(.timeout)` ([28-rpc-wire-format.md](28-rpc-wire-format.md#network-failures)).
 
 ## JSON field names
 

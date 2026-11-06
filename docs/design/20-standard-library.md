@@ -39,7 +39,7 @@ Stdlib providers read their settings from ordinary `config` declarations (`Serve
 | `k.graphics` | Canvas 2D, SVG drawing |
 | `k.http` | `HttpClient`, `HttpRequest`, `IncomingRequest`, `HttpResponse`, `HttpStatus` ([32-http-client.md](32-http-client.md)); WebSocket, server-sent events |
 | `k.storage` | Typed local storage ([36-local-storage.md](36-local-storage.md)), typed IndexedDB collections, cookies |
-| `k.time` | `Timer`, the clock, `TimeOfDay`, calendars, time zones, formatting, relative time ([35-time.md](35-time.md)) |
+| `k.time` | the `Clock` service (`now`, `every`, `after`, `sleep`), `TimerHandle`, `TimeOfDay`, calendars, time zones, formatting, relative time ([35-time.md](35-time.md)) |
 | `k.text` | Formatting, regex, Markdown rendering, slugs, `EmailAddress` ([31-email.md](31-email.md)) |
 | `k.i18n` | Localized strings, plurals, locale-aware number, date and currency formatting |
 | `k.crypto` | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only) ([33-crypto.md](33-crypto.md)) |
@@ -52,4 +52,4 @@ Stdlib providers read their settings from ordinary `config` declarations (`Serve
 | `k.db` | Entities, repositories, `Database`, `DatabaseConfig`, migrations and `Schema` ([19-persistence.md](19-persistence.md)) |
 | `k.validation` | Constraint annotations, `@Form` and `ValidationError` ([15-forms-and-validation.md](15-forms-and-validation.md)) |
 | `k.rpc` | Protocols and Connect transport, `RpcFailure`, `RpcOnlyError` ([28-rpc-wire-format.md](28-rpc-wire-format.md)), `Broadcast` ([29-server-streaming.md](29-server-streaming.md)) |
-| `k.test` | Test runner, `render`, accessibility queries, `TestClient` and the test doubles ([21-testing.md](21-testing.md)) |
+| `k.test` | Test runner, `render`, accessibility queries, `TestClient` and the test doubles, `TestClock` included ([21-testing.md](21-testing.md)) |

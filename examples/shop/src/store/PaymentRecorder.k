@@ -1,6 +1,7 @@
 import k.crypto.Uuid
 import k.db.Database
 import k.server.JobQueue
+import k.time.Clock
 
 /// Applies confirmed payments to orders.
 ///
@@ -15,6 +16,7 @@ public service PaymentRecorder {
     @Inject let orders: OrderRepository
     @Inject let database: Database
     @Inject let jobs: JobQueue
+    @Inject let clock: Clock
 
     /// Records that the checkout for an order was paid.
     ///
@@ -39,13 +41,13 @@ public service PaymentRecorder {
         }
 
         let recorded = await database.transaction {
-            let marked = await orders.markPaid(id: order.id, reference: reference, paidAt: Date.now)
+            let marked = await orders.markPaid(id: order.id, reference: reference, paidAt: clock.now)
 
             if marked {
                 await jobs.enqueue(OrderConfirmationJob.kind, payload: OrderConfirmation(orderId: order.id))
             }
 
-            return marked
+            marked
         }
 
         if recorded {

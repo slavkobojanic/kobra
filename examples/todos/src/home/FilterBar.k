@@ -6,7 +6,7 @@ import todo.Filter
 /// changes. The parent opts in at the call site with
 /// `FilterBar(selection: bind filter)`, so the two-way data flow is visible
 /// where it happens. Each button reports whether it is selected through
-/// `pressed`, so assistive technology announces the current filter.
+/// `.pressed`, so assistive technology announces the current filter.
 component FilterBar {
     /// The selected filter, shared with the parent.
     @Binding var selection: Filter

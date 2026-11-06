@@ -23,8 +23,7 @@ The design records these as undecided. The book marks them **Open question**:
 
 | Question | Where it's described |
 |---|---|
-| Network failures on the client during an rpc: typed `RpcFailure.offline` / `.timeout`, or a panic caught by an `OfflineBoundary` | [Protocols and RPC](../apps/protocols.md#failures-outside-the-handler) |
-| How code reaches the clock: an ambient `Clock`, or strict injection | [Time and timers](../apps/time.md#the-clock) |
+| The client's rpc timeout, and how tests simulate `offline` and `timeout` | [Protocols and RPC](../apps/protocols.md#network-failures) |
 | Reloading configuration without a restart | [Configuration and secrets](../apps/config.md#tests) |
 | Uniqueness keys and rate-limited job queues | [Background jobs](../apps/jobs.md#tests) |
 | Automatic re-subscription to server streams | [Server streaming](../apps/streaming.md#tests) |

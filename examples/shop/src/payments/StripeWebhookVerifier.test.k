@@ -12,7 +12,7 @@ test StripeWebhookVerifier {
 
     /// Verifies `payload`, signed now with the test secret.
     func verifySigned(payload: String) async throws WebhookError -> PaymentEvent {
-        let header = await StripeTestEvent.signature(payload: payload)
+        let header = await StripeTestEvent.signature(payload: payload, signedAt: clock.now)
 
         return try await verifier.verify(payload: payload.utf8, signatureHeader: header)
     }
@@ -75,7 +75,7 @@ test StripeWebhookVerifier {
 
     test "a body changed after signing is refused" {
         let payload = StripeTestEvent.checkoutCompleted(orderId: "{orderId}", amountTotal: 2400)
-        let header = await StripeTestEvent.signature(payload: payload)
+        let header = await StripeTestEvent.signature(payload: payload, signedAt: clock.now)
         let tampered = StripeTestEvent.checkoutCompleted(orderId: "{orderId}", amountTotal: 1)
 
         expect throws WebhookError.invalidSignature {
@@ -85,7 +85,7 @@ test StripeWebhookVerifier {
 
     test "a signature made with another secret is refused" {
         let payload = StripeTestEvent.checkoutCompleted(orderId: "{orderId}")
-        let header = await StripeTestEvent.signature(payload: payload, secret: "whsec_attacker")
+        let header = await StripeTestEvent.signature(payload: payload, secret: "whsec_attacker", signedAt: clock.now)
 
         expect throws WebhookError.invalidSignature {
             try await verifier.verify(payload: payload.utf8, signatureHeader: header)
@@ -94,7 +94,7 @@ test StripeWebhookVerifier {
 
     test "a replay after the tolerance has passed is refused" {
         let payload = StripeTestEvent.checkoutCompleted(orderId: "{orderId}")
-        let header = await StripeTestEvent.signature(payload: payload)
+        let header = await StripeTestEvent.signature(payload: payload, signedAt: clock.now)
 
         clock.advance(by: 5.minutes + 1.second)
 
@@ -104,7 +104,7 @@ test StripeWebhookVerifier {
     }
 
     test "a correctly signed body that isn't an event is refused" {
-        let header = await StripeTestEvent.signature(payload: "not json")
+        let header = await StripeTestEvent.signature(payload: "not json", signedAt: clock.now)
 
         expect throws WebhookError.malformedPayload {
             try await verifier.verify(payload: "not json".utf8, signatureHeader: header)

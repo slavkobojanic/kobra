@@ -8,9 +8,10 @@ import k.http.HttpStatus
 /// records every request it receives, and can fail a request before any
 /// response arrives.
 ///
-/// `k test` already installs `TestHttpClient` for `HttpClient` by default.
-/// This fake is chosen instead because `WeatherService` must also be tested
-/// against dropped connections and timeouts, which only a fake can throw.
+/// `k test` already installs `k.test.TestHttpClient` for `HttpClient` by
+/// default. This fake is chosen instead because `WeatherService` must also be
+/// tested against dropped connections and timeouts, which only a fake can
+/// throw.
 ///
 /// Responses are keyed by URL path (`"/v1/forecast"`), which is enough to tell
 /// the Open-Meteo endpoints apart. A path with no canned response answers

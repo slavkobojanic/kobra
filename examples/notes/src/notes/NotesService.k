@@ -1,4 +1,5 @@
 import k.crypto.Uuid
+import k.rpc.RpcOnlyError
 
 /// Client-side state for the signed-in account's notes.
 ///
@@ -13,22 +14,33 @@ public service NotesService {
     /// Every note of the account: pinned first, then most recently edited.
     @State var all: List<NoteSummary> = []
 
-    /// Whether `all` reflects the server: `true` once `watch()` has received
-    /// its first snapshot, and `false` again after the stream ends.
+    /// Whether `all` reflects the server: `true` once a stream opened by
+    /// `watch()` has delivered its snapshot, and `false` from the moment that
+    /// stream ends until the next snapshot.
     @State var isLive: Bool = false
 
-    /// Follows the server's change stream until the stream ends or the
+    /// Follows the server's change stream until it fails to open or the
     /// caller is cancelled, for example by leaving the page that called it.
     ///
-    /// - Throws: `AccessError.rpcFailure` when nobody is signed in.
-    func watch() async throws AccessError {
-        let changes = try await api.watch()
+    /// A stream ends without an error when its session ends, for example
+    /// when the account signs out in another tab, and when the connection
+    /// drops. This can't tell the two apart, so it opens a new stream. With
+    /// the session gone, that call is refused, and the refusal is thrown;
+    /// otherwise the new stream's snapshot brings `all` up to date.
+    ///
+    /// - Throws: `RpcOnlyError.rpcFailure` with `.rejected` when nobody is
+    ///   signed in, and with `.offline` or `.timeout` when the server can't
+    ///   be reached.
+    func watch() async throws RpcOnlyError {
+        while true {
+            let changes = try await api.watch()
 
-        for await change in changes {
-            apply(change: change)
+            for await change in changes {
+                apply(change: change)
+            }
+
+            isLive = false
         }
-
-        isLive = false
     }
 
     /// The notes whose title, text or a tag contains the filter, in the
@@ -51,8 +63,8 @@ public service NotesService {
     ///
     /// - Parameter draft: a validated draft.
     /// - Returns: the stored note.
-    /// - Throws: `AccessError.rpcFailure` when nobody is signed in.
-    func create(draft: NoteDraft) async throws AccessError -> NoteSummary {
+    /// - Throws: `RpcOnlyError.rpcFailure` when nobody is signed in.
+    func create(draft: NoteDraft) async throws RpcOnlyError -> NoteSummary {
         let created = try await api.create(draft: draft)
 
         apply(change: .saved(created))
@@ -107,8 +119,8 @@ public service NotesService {
 
     /// Deletes a note. Deleting a note that is already gone does nothing.
     ///
-    /// - Throws: `AccessError.rpcFailure` when nobody is signed in.
-    func delete(note: NoteSummary) async throws AccessError {
+    /// - Throws: `RpcOnlyError.rpcFailure` when nobody is signed in.
+    func delete(note: NoteSummary) async throws RpcOnlyError {
         try await api.delete(id: note.id)
 
         apply(change: .deleted(note.id))

@@ -18,6 +18,8 @@ func place(id: Int) async throws WeatherError -> Place { ... }
 - **The body is Markdown.** The first sentence is the summary shown in autocomplete and in `k doc` indexes. Further paragraphs follow a blank `///` line.
 - **Structured sections are Markdown list items, as in Swift:** `- Parameter name:`, or `- Parameters:` with nested `- name:` items for several; `- Returns:`; `- Throws:`. Javadoc's `@param` style isn't used, because `@` already means an annotation in K.
 - **Names in backticks that resolve to declarations become links** (`` `WeatherError.placeNotFound` ``, `` `searchPlaces(query:)` ``). The compiler checks them: a reference to a declaration that doesn't exist is a warning, so documentation can't drift after a rename.
+- **What counts as a reference:** a backticked identifier, a dotted path of identifiers (`` `WeatherError.offline` ``), or a function name with its labels (`` `searchPlaces(query:)` ``). Other code spans, keywords included (`` `300ms` ``, `` `"todos"` ``, `` `nil` ``, `` `a + b` ``), are plain code and aren't checked.
+- **A reference resolves against three things only:** the file's imports, the file's own package (an application counts as one package), and fully qualified names (`` `k.http.HttpStatus` ``). A reference that resolves against none of these is a warning, even when some other module declares the name.
 - **Fenced code blocks tagged `k` are type-checked** by `k check` as doc examples, but not run.
 - **Placement:** before the declaration and before its annotations, so `/// …` comes before `@Prop`, `@Param` and the rest. Block doc comments (`/** */`) don't exist.
 

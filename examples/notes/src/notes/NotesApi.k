@@ -1,6 +1,8 @@
 import k.auth.Session
 import k.crypto.Uuid
 import k.db.Database
+import k.rpc.RpcOnlyError
+import k.time.Clock
 
 /// The server implementation of `NotesProtocol`.
 ///
@@ -15,8 +17,9 @@ public service NotesApi implements NotesProtocol {
     @Inject let changes: NoteChanges
     @Inject let session: Session
     @Inject let database: Database
+    @Inject let clock: Clock
 
-    rpc watch() async throws AccessError -> Stream<NoteChange> {
+    rpc watch() async throws RpcOnlyError -> Stream<NoteChange> {
         let ownerId = session.user.id
 
         // Subscribe before reading, so a change saved in between is delivered
@@ -35,16 +38,25 @@ public service NotesApi implements NotesProtocol {
         return summarize(note: note)
     }
 
-    rpc create(draft: NoteDraft) async throws AccessError -> NoteSummary {
-        let note = Note(id: Uuid.random(), ownerId: session.user.id, title: draft.title.trimmed(), body: draft.body)
+    rpc create(draft: NoteDraft) async throws RpcOnlyError -> NoteSummary {
+        let now = clock.now
+        let note = Note(
+            id: Uuid.random(),
+            ownerId: session.user.id,
+            title: draft.title.trimmed(),
+            body: draft.body,
+            createdAt: now,
+            updatedAt: now
+        )
 
+        // The lambda's last expression is its value, and the transaction's.
         return await database.transaction {
             await notes.insert(note)
             await tags.replace(note: note, labels: draft.tagLabels())
 
             let created = await notes.reload(id: note.id)
 
-            return announce(note: created)
+            announce(note: created)
         }
     }
 
@@ -59,7 +71,7 @@ public service NotesApi implements NotesProtocol {
             var edited = current
             edited.title = draft.title.trimmed()
             edited.body = draft.body
-            edited.updatedAt = Date.now
+            edited.updatedAt = clock.now
 
             // The revision the edit started from. `update` writes only if the
             // stored revision still equals it, and then increments it.
@@ -79,7 +91,7 @@ public service NotesApi implements NotesProtocol {
 
             let updated = await notes.reload(id: id)
 
-            return announce(note: updated)
+            announce(note: updated)
         }
     }
 
@@ -98,7 +110,7 @@ public service NotesApi implements NotesProtocol {
         return announce(note: pinned)
     }
 
-    rpc delete(id: Uuid) async throws AccessError {
+    rpc delete(id: Uuid) async throws RpcOnlyError {
         guard let note = await notes.find(id: id, ownerId: session.user.id) else {
             return
         }

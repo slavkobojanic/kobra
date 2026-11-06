@@ -1,9 +1,9 @@
 /// Design tokens for the todos app, with a dark variant.
 ///
 /// Every color, space, radius and font size in the app's `style` blocks comes
-/// from here. The `dark` variant overrides only colors, so spacing and type
+/// from here. The dark variant overrides only colors, so spacing and type
 /// stay identical in both schemes. Switching variants at runtime, through the
-/// stdlib's Theme service, swaps one class on the document root and
+/// stdlib's `k.ui.Theme` service, swaps one class on the document root and
 /// re-renders nothing.
 public theme TodoTheme {
     color primary: Color = #2563EB

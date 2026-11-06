@@ -7,7 +7,8 @@ public enum SignUpError implements Error {
     /// earlier, under the email field.
     case emailTaken
 
-    /// The call failed before `AuthApi` saw it: the rate limit refused it,
-    /// or the request failed validation on the server.
+    /// The call failed outside `AuthApi`: the rate limit refused it, the
+    /// request failed validation on the server, or the browser couldn't
+    /// reach the server.
     case rpcFailure(RpcFailure)
 }

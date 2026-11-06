@@ -3,6 +3,7 @@ import k.server.JobQueue
 import k.test.InlineJobQueue
 import k.test.RecordingEmailProvider
 import k.test.RecordingJobQueue
+import k.test.TestClock
 import k.text.EmailAddress
 
 // Integration tests against a real, rolled-back database. InlineJobQueue
@@ -16,11 +17,12 @@ test PaymentRecorder {
     @Inject let catalog: ProductRepository
     @Inject let orders: OrderRepository
     @Inject let mailer: RecordingEmailProvider
+    @Inject let clock: TestClock
 
     /// Inserts a mug and an order for two of them, for $48.00.
     func placeOrder() async throws Product.UniqueViolation -> Order {
         let mug = Product.mug()
-        let order = Order.sample(product: mug)
+        let order = Order.sample(product: mug, placedAt: clock.now)
 
         try await catalog.insert(mug)
         await orders.insert(order)
@@ -37,7 +39,7 @@ test PaymentRecorder {
         expect outcome == .recorded
         expect stored?.status == .paid
         expect stored?.paymentReference == "cs_test_1"
-        expect stored?.paidAt == Date.now
+        expect stored?.paidAt == clock.now
         expect mailer.sent.count == 1
         expect mailer.sent[0].to == EmailAddress("ana@example.com")
     }
@@ -98,10 +100,11 @@ test PaymentRecorderQueue {
     @Inject let catalog: ProductRepository
     @Inject let orders: OrderRepository
     @Inject let queue: RecordingJobQueue
+    @Inject let clock: TestClock
 
     test "a recorded payment enqueues one confirmation for its order" {
         let mug = Product.mug()
-        let order = Order.sample(product: mug)
+        let order = Order.sample(product: mug, placedAt: clock.now)
         try await catalog.insert(mug)
         await orders.insert(order)
 
