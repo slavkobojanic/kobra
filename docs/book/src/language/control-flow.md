@@ -1,0 +1,212 @@
+# Control flow
+
+K has four main control-flow constructs: `if`, `match`, `guard` and `for`. All of them work the same in
+ordinary code and in [views](../apps/views.md).
+
+## `if`
+
+```k
+if cart.items.isEmpty {
+    Log.info("nothing to check out")
+} else if cart.total > 1000.usd {
+    requireConfirmation()
+} else {
+    checkout()
+}
+```
+
+Conditions are plain `Bool` expressions with no parentheses around them. Combine them with `and`, `or`
+and `not`.
+
+### `if` is an expression
+
+**K has no ternary operator.** `if` is an expression, so the same construct produces values:
+
+```k
+let label = if done { "Done" } else { "Pending" }
+
+let size: Length = if isCompact { 8px } else { 16px }
+```
+
+When `if` is used as a value, each branch's last expression is its value, and an `else` is required.
+
+### `if let`
+
+`if let` unwraps an optional. Inside the block, the name refers to the unwrapped value:
+
+```k
+if let user = session.user {
+    greet(user: user)
+}
+
+if let footer {                  // short for `if let footer = footer`
+    footer
+}
+```
+
+Several conditions can be combined with commas. All must succeed, in order, and later conditions can use
+names bound by earlier ones:
+
+```k
+if let user = session.user, let address = user.address, address.country == .norway {
+    showNorwegianShipping()
+}
+```
+
+There is no `if var` and no `if case`. To branch on enum cases, use `match`.
+
+## `match`
+
+`match` compares a value against patterns, and is **exhaustive**: every possible value must be handled.
+
+```k
+let label = match status {
+    case .active { "On" }
+    case .paused { "Off" }
+}
+```
+
+Like `if`, `match` is an expression. Each arm's last expression is its value.
+
+### Patterns
+
+```k
+match order.status {
+    case .pending, .paid {                          // several patterns in one arm
+        StatusBadge(status: order.status)
+    }
+
+    case .shipped(let tracking) where tracking.isDelayed {
+        DelayBanner(tracking: tracking)             // a guard with `where`
+    }
+
+    case .shipped(let tracking) {
+        TrackingLink(tracking: tracking)
+    }
+
+    case .cancelled(reason: let reason) {           // a labeled associated value
+        paragraph { reason }
+    }
+}
+```
+
+| Pattern | Matches |
+|---|---|
+| `.name`, `Type.name` | an enum case |
+| `.name(let x)` | an enum case, binding its associated value |
+| `.name(label: let x)` | an enum case, binding a labeled associated value |
+| `42`, `"text"`, `true`, `nil` | a literal |
+| `0..<10`, `1...5` | a value in a range |
+| `(let a, let b)` | a tuple |
+| `let x` | anything, binding it |
+| `_` | anything |
+
+Bindings always use `let`. A bare name in a pattern is a compile error, because it would be unclear
+whether it binds a new name or compares against an existing one: write `let x` to bind or `.x` for an
+enum case.
+
+### `default`
+
+```k
+let size = match count {
+    case 0 { "empty" }
+    case 1..<10 { "small" }
+    default { "large" }
+}
+```
+
+- `default` is **required** when matching values that can't be enumerated: numbers, strings, ranges,
+  tuples.
+- `default` is **allowed** on enums, as a deliberate trade-off: new cases will fall into it silently.
+- `default` is a **compile error when unreachable**, meaning every case is already covered.
+
+`case let other { … }` works like `default` but binds the value.
+
+### Exhaustiveness
+
+When you add a case to an enum, **every `match` that doesn't handle it becomes a compile error**, unless
+it has a `default`. This is the main reason to prefer `match` over chains of `if`: the compiler tells
+you every place that needs updating.
+
+## `guard`
+
+`guard` checks a condition and exits early when it fails:
+
+```k
+func checkout(cart: Cart) async throws CheckoutError -> Receipt {
+    guard let user = session.user else { throw CheckoutError.notLoggedIn }
+    guard cart.items.isNotEmpty else { throw CheckoutError.emptyCart }
+
+    return try await payments.charge(user, cart.total)
+}
+```
+
+- The `else` block **must exit**, with `return`, `throw`, `break` or `continue`. The compiler checks
+  this.
+- **Names bound by `guard let` stay in scope** for the rest of the function. That is the difference from
+  `if let`, and why `guard` keeps the main path of a function unindented.
+
+## `for` loops
+
+`for … in` iterates over a collection or a range:
+
+```k
+for product in products {
+    index(product: product)
+}
+
+for attempt in 1...3 {                   // 1, 2 and 3
+    Log.info("attempt {attempt}")
+}
+
+for row in 0..<rows {                    // 0 up to, but not including, rows
+    drawRow(index: row)
+}
+```
+
+`a...b` is a closed range that includes `b`; `a..<b` is a half-open range that excludes it.
+
+`break` leaves the loop and `continue` skips to the next element.
+
+### Keys in views
+
+In a view, `for` renders a node per element and **requires a `key`**, written as part of the loop:
+
+```k
+for item in items key item.id {
+    CartRow(item: item, quantity: bind item.quantity)
+}
+```
+
+The key identifies each element across updates, so the right DOM nodes move, update or disappear when
+the list changes. Outside views, `key` isn't allowed.
+
+### Streams
+
+> **Proposal.** `for await` follows `docs/design/proposals/server-streaming.md`.
+
+`for await` reads an asynchronous stream, such as the result of a streaming rpc, one element at a time:
+
+```k
+let changes = try await api.watch()
+
+for await change in changes {
+    apply(change: change)
+}
+```
+
+The loop ends when the stream ends, and `break` closes the stream.
+
+## `while`
+
+`while` repeats a block as long as its condition holds:
+
+```k
+var delay = 1.seconds
+
+while delay < 1.minutes {
+    delay = delay * 2
+}
+```
+
+Most loops in K code are `for` loops over collections; `while` is for the rest.

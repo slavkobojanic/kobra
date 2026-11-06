@@ -1,0 +1,11 @@
+# Real secrets never leave this machine. Only the *.example files are
+# committed; copy each one without the suffix and replace its contents.
+secrets/*
+!secrets/*.example
+
+# Local configuration for `k dev` (copy .env.example).
+.env
+
+# Build output and the toolchain's local state (dev database, caches).
+dist/
+.k/

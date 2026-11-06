@@ -1,0 +1,101 @@
+# The shop as it runs in production: the dist/app image, Postgres, an SMTP
+# server and a stand-in for the Stripe API, all on one machine. The app
+# applies pending migrations at startup, before it accepts requests.
+#
+#   for f in secrets/*.example; do cp -n "$f" "${f%.example}"; done
+#   docker compose up --build --wait
+#
+# Then open http://localhost:8080 (shop) and http://localhost:8025 (mail).
+#
+# For a real deployment, replace the contents of secrets/*.txt, set
+# K_PUBLIC_ORIGIN to the public https:// origin, point SMTP_* at a real mail
+# server, and remove STRIPE_API_URL so the app talks to api.stripe.com.
+
+name: k-shop
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: shop
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=shop --dbname=shop"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  mail:
+    image: axllent/mailpit:v1.33
+    ports:
+      - "127.0.0.1:8025:8025"     # web UI and the API scripts/e2e.sh reads
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Stripe's official API mock. It accepts any sk_test_ key and answers with
+  # realistic objects, so StripeCheckout runs its production code path.
+  stripe:
+    image: stripe/stripe-mock:v0.206.0
+
+  app:
+    build: .
+    image: k-shop:local
+    environment:
+      K_PUBLIC_ORIGIN: http://localhost:8080
+      DATABASE_URL: postgres://shop@db:5432/shop
+      DATABASE_PASSWORD_FILE: /run/secrets/db_password
+      SMTP_HOST: mail
+      SMTP_PORT: "1025"
+      SMTP_SECURITY: none
+      MAIL_FROM: K Shop <orders@shop.example>
+      STRIPE_API_URL: http://stripe:12111
+      STRIPE_API_KEY_FILE: /run/secrets/stripe_api_key
+      STRIPE_WEBHOOK_SECRET_FILE: /run/secrets/stripe_webhook_secret
+      SHOP_ADMIN_EMAIL: admin@shop.example
+      SHOP_ADMIN_PASSWORD_HASH_FILE: /run/secrets/admin_password_hash
+    secrets:
+      - db_password
+      - stripe_api_key
+      - stripe_webhook_secret
+      - admin_password_hash
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    depends_on:
+      db:
+        condition: service_healthy
+      mail:
+        condition: service_healthy
+      stripe:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "/app", "probe", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+# Docker secrets from local files, mounted at /run/secrets/<name>. The files
+# are git-ignored; only the *.example versions are committed.
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  stripe_api_key:
+    file: ./secrets/stripe_api_key.txt
+  stripe_webhook_secret:
+    file: ./secrets/stripe_webhook_secret.txt
+  admin_password_hash:
+    file: ./secrets/admin_password_hash.txt
+
+volumes:
+  pgdata:

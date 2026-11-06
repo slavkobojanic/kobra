@@ -1,0 +1,28 @@
+[book]
+title = "The K Programming Language"
+authors = ["The K contributors"]
+description = "A guide to K, a strongly typed language for full-stack web applications that compiles to JavaScript."
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+# Every chapter listed in SUMMARY.md must exist; a missing file fails the build
+# instead of silently creating an empty page.
+create-missing = false
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+smart-punctuation = true
+# Registers the K language with the bundled highlight.js and highlights
+# every ```k block. See theme/k-highlight.js.
+additional-js = ["theme/k-highlight.js"]
+additional-css = ["theme/k.css"]
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.search]
+enable = true
