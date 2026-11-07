@@ -195,3 +195,67 @@ fn smtp_replies_map_to_the_email_error_cases() {
     ));
     assert!(smtp.mail().is_empty());
 }
+
+#[test]
+fn a_replaced_origin_sends_the_request_to_its_stand_in() {
+    use k_server::outbound::replace_origin;
+    let origins = vec![(
+        "https://api.open-meteo.com".to_owned(),
+        "http://127.0.0.1:4100".to_owned(),
+    )];
+    assert_eq!(
+        replace_origin(
+            "https://api.open-meteo.com/v1/forecast?latitude=1",
+            &origins
+        ),
+        "http://127.0.0.1:4100/v1/forecast?latitude=1"
+    );
+    assert_eq!(
+        replace_origin("https://api.open-meteo.com", &origins),
+        "http://127.0.0.1:4100"
+    );
+    assert_eq!(
+        replace_origin("https://api.open-meteo.com?x=1", &origins),
+        "http://127.0.0.1:4100?x=1"
+    );
+    // Only that exact origin: not a longer host, not another scheme.
+    for other in [
+        "https://api.open-meteo.com.evil.example/v1/forecast",
+        "http://api.open-meteo.com/v1/forecast",
+        "https://geocoding-api.open-meteo.com/v1/search",
+    ] {
+        assert_eq!(replace_origin(other, &origins), other);
+    }
+    assert_eq!(
+        replace_origin("https://x.example/a", &[]),
+        "https://x.example/a"
+    );
+}
+
+#[test]
+fn a_server_with_replaced_origins_answers_from_the_stand_in() {
+    // The whole path: `ServerOptions::fetch_origins` reaches `op_k_fetch`.
+    let fake =
+        FakeHttp::start(vec![FakeRoute::text("GET", "/v1/ping", 200, "pong")]).expect("fake");
+    let process =
+        k_server::process::ProcessState::new("http://localhost".into(), Default::default())
+            .with_fetch_origins(vec![("https://third.party.example".into(), fake.origin())]);
+    assert_eq!(
+        k_server::outbound::replace_origin(
+            "https://third.party.example/v1/ping",
+            process.fetch_origins()
+        ),
+        format!("{}/v1/ping", fake.origin())
+    );
+    let request = get(k_server::outbound::replace_origin(
+        "https://third.party.example/v1/ping",
+        process.fetch_origins(),
+    ));
+    match block_on(fetch(request)) {
+        FetchOutcome::Response { status, body, .. } => {
+            assert_eq!(status, 200);
+            assert_eq!(body, b"pong");
+        }
+        other => panic!("{other:?}"),
+    }
+}

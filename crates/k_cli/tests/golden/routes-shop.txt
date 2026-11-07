@@ -1,0 +1,8 @@
+METHOD  URL               PAGE                      PARAMS                    GUARDS
+GET     /                 Home
+GET     /admin            Admin                                               Authenticated, Role(.admin)
+GET     /health           HealthCheck (endpoint)
+GET     /products/{slug}  ProductDetail             slug: String
+GET     /receipt/{id}     Receipt                   id: Uuid
+GET     /sign-in          SignIn                    ?returnTo: Page = .admin
+POST    /webhooks/stripe  StripeWebhook (endpoint)

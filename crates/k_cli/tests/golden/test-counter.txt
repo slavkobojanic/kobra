@@ -1,0 +1,40 @@
+running 9 tests
+PASS  Counter › starts at zero
+PASS  Counter › increments by one
+PASS  Counter › every test gets a fresh counter
+PASS  Counter › stops at the limit
+FAIL  Counter › a wrong expectation shows its values
+FAIL  Counter › an error that isn't thrown fails
+PASS  CounterView › clicking Add shows the new count
+PASS  CounterView › the limit is explained
+FAIL  CounterView › a missing element fails the test with the query
+
+failures:
+
+error[K7510]: expectation failed: counter.value + 1 == counter.limit
+  --> src/counter/Counter.test.k:32:16
+   |
+32 |         expect counter.value + 1 == counter.limit
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `counter.value + 1` was 2
+   = note: `counter.limit` was 3
+   = note: in test `Counter › a wrong expectation shows its values`
+
+error[K7510]: expected an error matching CounterError.atLimit, but nothing was thrown
+  --> src/counter/Counter.test.k:36:23
+   |
+36 |         expect throws CounterError.atLimit {
+   |                       ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: in test `Counter › an error that isn't thrown fails`
+
+error[K7510]: button(named: "Remove") found nothing
+  --> src/counter/CounterView.test.k:25:10
+   |
+25 |     test "a missing element fails the test with the query" {
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: in test `CounterView › a missing element fails the test with the query`
+
+test result: FAILED. 6 passed; 3 failed; 0 filtered out

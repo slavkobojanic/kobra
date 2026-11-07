@@ -1,0 +1,1213 @@
+/**
+ * @module k:testing/kit
+ *
+ * The test kit behind `k test` (docs/design/21-testing.md;
+ * docs/compiler/runtime.md, "The test kit"): what the generated test
+ * bundle calls that the compiler doesn't generate.
+ *
+ * - `render` mounts a view in the test's browser container and returns a
+ *   `Screen`; `Screen` and every element handle answer the accessibility
+ *   queries (`button(named:)`, `textField(labeled:)`, `text(_)`, …) and the
+ *   actions (`click`, `fill`, `press`), each action flushing synchronous
+ *   updates.
+ * - The hermetic defaults of `k.test`: `TestClock` (virtual time),
+ *   `MemoryStorage`, `TestHttpClient`, `RecordingJobQueue` and
+ *   `RecordingEmailProvider`.
+ * - `fail` and `failThrows`: a failed `expect`, as a panic carrying the
+ *   expectation's source range and the values of its sub-expressions.
+ * - `run`: runs the selected tests of the generated groups, each with a
+ *   fresh container and a fresh document, and reports each outcome.
+ *
+ * The generated client code reaches the kit through its runtime import
+ * (`$k.$test`), and `native` answers the `k.test` natives before the
+ * browser's own, so the kit, the runtime and the generated code share one
+ * runtime instance.
+ */
+
+import { flush, root } from "../runtime/signals.js";
+import { KPanic, isPanic } from "../runtime/values.js";
+import { Instant, httpCode } from "../runtime/std.js";
+import { HttpResponse$isSuccess, HttpResponse$json, HttpResponse$text } from "../runtime/http.js";
+import { received } from "../runtime/outbound.js";
+import { hasNative, native as browserNative } from "../runtime/services.js";
+import { sessionMirror } from "../runtime/rpc.js";
+import { RequestState, natives as serverNatives } from "../runtime/app.js";
+import { install as installDom } from "./dom.js";
+
+// ---------------------------------------------------------------- state
+
+/**
+ * The running test: its container, its screens, and the errors thrown by
+ * work it scheduled (effects flushed in a microtask).
+ */
+let current = { container: null, screens: [], errors: [], clock: null, server: null };
+
+/**
+ * Starts a test with `container` (the generated browser container): the
+ * views it renders are mounted with it. `clock` is the test's virtual
+ * clock and `server` its server container, when the run has a server.
+ * @param {object} container
+ * @param {object|null} [clock]
+ * @param {object|null} [server]
+ */
+export function begin(container, clock = null, server = null) {
+  current = { container, screens: [], errors: [], clock, server };
+}
+
+/**
+ * The running test's server container (21-testing.md, "Which side a test
+ * runs on"): where a test group's server-side `@Inject` fields come from.
+ * @returns {object}
+ */
+export function server() {
+  if (current.server === null) throw new KPanic("this test has no server: the project has no server code to inject from");
+  return current.server;
+}
+
+/**
+ * The running test's `TestClock`, shared by its browser and server
+ * containers; a fresh one outside a run.
+ * @returns {object}
+ */
+export function sharedClock() {
+  current.clock ??= testClock();
+  return current.clock;
+}
+
+// ------------------------------------------------- server work in flight
+
+/**
+ * The async server work in flight (database statements, sessions, password
+ * hashing, in-process requests): a test isn't idle, nor hung, while any is
+ * outstanding. Open streams waiting for their next element don't count.
+ * @type {Set<Promise<unknown>>}
+ */
+const inflight = new Set();
+
+/**
+ * Tracks `p` in {@link inflight} until it settles.
+ * @template T
+ * @param {Promise<T>|T} p
+ * @returns {Promise<T>|T}
+ */
+function track(p) {
+  if (!p || typeof p.then !== "function") return p;
+  inflight.add(p);
+  const done = () => inflight.delete(p);
+  p.then(done, done);
+  return p;
+}
+
+/** The async ops of server work that {@link inflight} tracks. */
+const TRACKED_OPS = [
+  "op_k_db_query",
+  "op_k_db_execute",
+  "op_k_db_begin",
+  "op_k_db_finish",
+  "op_k_db_savepoint",
+  "op_k_db_ping",
+  "op_k_session_get",
+  "op_k_session_create",
+  "op_k_session_delete",
+  "op_k_session_end_all",
+  "op_k_session_issue_state",
+  "op_k_session_consume_state",
+  "op_k_rate_limit",
+  "op_k_password_hash",
+  "op_k_password_verify",
+  "op_k_jobs_enqueue",
+  "op_k_fetch",
+  "op_k_smtp_send",
+];
+
+let opsTracked = false;
+
+/** Wraps the {@link TRACKED_OPS} once, so their calls are tracked. */
+function trackOps() {
+  if (opsTracked) return;
+  opsTracked = true;
+  const ops = globalThis.Deno?.core?.ops;
+  if (!ops) return;
+  for (const name of TRACKED_OPS) {
+    const op = ops[name];
+    if (typeof op !== "function") continue;
+    try {
+      ops[name] = (...a) => track(op(...a));
+    } catch {
+      // A read-only op table: the watchdog then relies on idle rounds.
+    }
+  }
+}
+
+/** Waits until no tracked server work is in flight (bounded). */
+async function serverIdle() {
+  for (let i = 0; i < 10000 && inflight.size > 0; i++) {
+    await Promise.race([...inflight].map((p) => p.then(() => null, () => null)));
+    await idle();
+  }
+}
+
+// ------------------------------------------------- the in-process server
+
+const EMPTY = new Uint8Array(0);
+let nextRequest = 1;
+
+/**
+ * A response body that chunks are pushed to, read by `getReader()` like a
+ * `fetch` body stream. `cancel()` (the reader's) makes later pushes
+ * report `false`, which ends a server stream.
+ */
+function pushedBody() {
+  const chunks = [];
+  const waiters = [];
+  let closed = false;
+  const deliver = (r) => {
+    const w = waiters.shift();
+    if (w) w(r);
+    else chunks.push(r);
+  };
+  return {
+    push(bytes) {
+      if (closed) return false;
+      deliver({ done: false, value: bytes });
+      return true;
+    },
+    end() {
+      if (closed) return;
+      closed = true;
+      deliver({ done: true, value: undefined });
+    },
+    reader: {
+      read: () => (chunks.length ? Promise.resolve(chunks.shift()) : new Promise((resolve) => waiters.push(resolve))),
+      async cancel() {
+        if (closed) return;
+        closed = true;
+        deliver({ done: true, value: undefined });
+      },
+    },
+  };
+}
+
+/**
+ * The `fetch` response of an in-process exchange.
+ * @param {number} status
+ * @param {Array<[string, string]>} headers
+ * @param {string|Uint8Array|null} body a unary body, or `null` for a stream
+ * @param {ReturnType<typeof pushedBody>|null} stream
+ */
+function fetchResponse(status, headers, body, stream) {
+  const get = (n) => {
+    const name = String(n).toLowerCase();
+    const vs = headers.filter(([k]) => k.toLowerCase() === name).map(([, v]) => v);
+    return vs.length ? vs.join(", ") : null;
+  };
+  const bytes = body === null ? EMPTY : typeof body === "string" ? new TextEncoder().encode(body) : body;
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get },
+    text: async () => new TextDecoder().decode(bytes),
+    body: { getReader: () => (stream ? stream.reader : { read: async () => ({ done: true, value: undefined }), cancel: async () => {} }) },
+  };
+}
+
+/**
+ * The context of one test with a server: its clock, its per-test instances,
+ * its group's server container factory, its one session (the session
+ * cookie every in-process request carries) and the direct server container
+ * the test injects from.
+ */
+class TestContext {
+  /**
+   * @param {object} server the server entry's `$test`
+   * @param {(st: object) => object} container the group's server container factory
+   */
+  constructor(server, container) {
+    this.app = server.app;
+    this.spec = server.spec;
+    this.container = container;
+    this.clock = testClock();
+    this.memo = new Map();
+    /** @type {string|null} the session id the test's browser holds */
+    this.cookie = null;
+    /** @type {RequestState|null} the state of the test's own server container */
+    this.direct = null;
+  }
+
+  /** The request headers every in-process request of the test carries. */
+  cookies() {
+    return this.cookie === null ? [] : [["cookie", `k_session=${this.cookie}`]];
+  }
+
+  /**
+   * A session change on any of the test's requests (`SessionManager`):
+   * the browser's cookie and `Session` mirror, and the test's own server
+   * state, follow it, so the test acts as one browser tab.
+   * @param {RequestState} st
+   */
+  sessionChanged(st) {
+    this.cookie = st.sessionId;
+    if (this.direct !== null && st !== this.direct) {
+      this.direct.sessionId = st.sessionId;
+      this.direct.loaded = st.loaded;
+    }
+    try {
+      sessionMirror.set(st.mirror());
+    } catch {
+      // A session that isn't loaded yet has no mirror to share.
+    }
+  }
+
+  /** A fresh request of this test for the app's handler. */
+  request(method, path, headers, body, sink) {
+    return { id: nextRequest++, method, path, headers: [...headers, ...this.cookies()], body: body ?? EMPTY, remote: "127.0.0.1", test: this, sink };
+  }
+
+  /**
+   * `TestClient.send`: one exchange through the whole app, answered as
+   * `{status, headers, body}`. A streamed response is read to its end.
+   * @param {{method: string, url: string, headers: Array<[string, string]>, body: Uint8Array|null}} wire
+   */
+  async send(wire) {
+    const path = pathAndQuery(wire.url);
+    const stream = pushedBody();
+    let head = null;
+    const sink = { start: (h) => (head = h), chunk: (b) => stream.push(b), end: () => stream.end() };
+    const r = await track(this.app(this.request(wire.method, path, wire.headers, wire.body, sink)));
+    if (r && r.streamed) {
+      const parts = [];
+      for (;;) {
+        const { done, value } = await stream.reader.read();
+        if (done) break;
+        parts.push(value);
+      }
+      const n = parts.reduce((a, p) => a + p.length, 0);
+      const body = new Uint8Array(n);
+      let at = 0;
+      for (const p of parts) {
+        body.set(p, at);
+        at += p.length;
+      }
+      return { status: head?.status ?? 200, headers: head?.headers ?? [], body };
+    }
+    return { status: r.status, headers: r.headers, body: r.body };
+  }
+
+  /**
+   * The browser's `fetch` in a test: every request goes to the app's
+   * handler in-process, through the real wire format.
+   * @param {string} url
+   * @param {{method?: string, headers?: Record<string, string>, body?: string|Uint8Array, signal?: AbortSignal}} [init]
+   */
+  fetch(url, init = {}) {
+    const headers = Object.entries(init.headers ?? {}).map(([n, v]) => [n.toLowerCase(), String(v)]);
+    const body = init.body === undefined || init.body === null ? EMPTY : typeof init.body === "string" ? new TextEncoder().encode(init.body) : init.body;
+    return new Promise((resolve, reject) => {
+      const stream = pushedBody();
+      init.signal?.addEventListener?.("abort", () => stream.reader.cancel());
+      const sink = {
+        start: (h) => resolve(fetchResponse(h.status, h.headers, null, stream)),
+        chunk: (b) => stream.push(b),
+        end: () => stream.end(),
+      };
+      track(this.app(this.request(String(init.method ?? "GET").toUpperCase(), pathAndQuery(url), headers, body, sink))).then((r) => {
+        if (r && r.streamed) return;
+        resolve(fetchResponse(r.status, r.headers, r.body, null));
+      }, reject);
+    });
+  }
+}
+
+/** The path and query of a URL (absolute or not). */
+function pathAndQuery(url) {
+  const text = String(url ?? "/");
+  const scheme = text.indexOf("://");
+  if (scheme < 0) return text.startsWith("/") ? text : `/${text}`;
+  const slash = text.indexOf("/", scheme + 3);
+  return slash < 0 ? "/" : text.slice(slash);
+}
+
+/**
+ * An error thrown by a microtask (an effect the runtime flushes after a
+ * write) belongs to the running test, which then fails with it, instead of
+ * ending the whole run.
+ */
+const baseMicrotask = globalThis.queueMicrotask ?? ((f) => Promise.resolve().then(f));
+globalThis.queueMicrotask = (f) =>
+  baseMicrotask(() => {
+    try {
+      f();
+    } catch (e) {
+      current.errors.push(e);
+    }
+  });
+
+/**
+ * Installs what a client reads from the browser besides the DOM: a
+ * deterministic `crypto.randomUUID` (each test's ids start again from
+ * `00000000-0000-4000-8000-000000000001`), `location` at `/`, `history`,
+ * `matchMedia` (nothing matches) and an empty `document.title`.
+ */
+export function installBrowser() {
+  let n = 0;
+  const hex = (v, w) => v.toString(16).padStart(w, "0");
+  globalThis.crypto = {
+    randomUUID: () => `00000000-0000-4000-8000-${hex(++n, 12)}`,
+    getRandomValues: (a) => {
+      for (let i = 0; i < a.length; i++) a[i] = (n * 31 + i * 17) & 255;
+      n++;
+      return a;
+    },
+  };
+  const location = { origin: "http://localhost", pathname: "/", search: "", hash: "" };
+  Object.defineProperty(location, "href", {
+    get: () => location.origin + location.pathname + location.search,
+    set: (v) => {
+      const path = String(v).startsWith(location.origin) ? String(v).slice(location.origin.length) : String(v);
+      const q = path.indexOf("?");
+      location.pathname = q < 0 ? path : path.slice(0, q);
+      location.search = q < 0 ? "" : path.slice(q);
+    },
+  });
+  globalThis.location = location;
+  globalThis.history = {
+    pushState: (_s, _t, url) => {
+      location.href = url;
+    },
+    replaceState: (_s, _t, url) => {
+      location.href = url;
+    },
+  };
+  globalThis.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  globalThis.addEventListener ??= () => {};
+  globalThis.document.title = "";
+}
+
+/** Unmounts every view the running test rendered. */
+function end() {
+  for (const s of current.screens.splice(0)) s.unmount();
+}
+
+// ------------------------------------------------------------ failures
+
+/**
+ * A failed test: a panic (so no K `catch` intercepts it) with the details
+ * the runner reports in `kTest`.
+ * @param {string} message
+ * @param {number} start the source range's start offset
+ * @param {number} end its end offset
+ * @param {Array<[string, string]>} values
+ */
+function failure(message, start, end, values) {
+  const e = new KPanic(message);
+  e.kTest = { start, end, message, values };
+  return e;
+}
+
+/** Text of a value for a failure message, never throwing. */
+function shown(f) {
+  try {
+    return String(f());
+  } catch (e) {
+    return `<${e && e.message ? e.message : e}>`;
+  }
+}
+
+/**
+ * A failed `expect`: throws.
+ * @param {{start: number, end: number, source: string, values: Array<[string, () => string]>}} info
+ */
+export function fail(info) {
+  throw failure(
+    `expectation failed: ${info.source}`,
+    info.start,
+    info.end,
+    info.values.map(([text, f]) => [text, shown(f)]),
+  );
+}
+
+/**
+ * A failed `expect throws`: throws. `got` describes what was thrown
+ * instead, or is `null` when nothing was.
+ * @param {{start: number, end: number, pattern: string, got: (() => string)|null}} info
+ */
+export function failThrows(info) {
+  const got = info.got === null ? "nothing was thrown" : `it threw ${shown(info.got)}`;
+  throw failure(`expected an error matching ${info.pattern}, but ${got}`, info.start, info.end, []);
+}
+
+/** Quotes a string value for a failure message. */
+export function quote(s) {
+  return JSON.stringify(String(s));
+}
+
+// ------------------------------------------------------------- queries
+
+/** Whitespace runs collapsed, the ends trimmed. */
+function norm(s) {
+  return String(s ?? "")
+    .split(new RegExp("\\s+"))
+    .filter((p) => p !== "")
+    .join(" ");
+}
+
+/** Every element below `node`, in document order (not `node` itself). */
+function descendants(node) {
+  const out = [];
+  const walk = (n) => {
+    for (let c = n.firstChild; c !== null; c = c.nextSibling) {
+      if (c.nodeType === 1) {
+        out.push(c);
+        walk(c);
+      } else if (c.nodeType === 11) {
+        walk(c);
+      }
+    }
+  };
+  walk(node);
+  return out;
+}
+
+const attr = (el, name) => (typeof el.getAttribute === "function" ? el.getAttribute(name) : null);
+const role = (el) => attr(el, "role");
+const type = (el) => (attr(el, "type") ?? "text").toLowerCase();
+const tag = (el) => el.localName;
+
+/** The element's text, normalised. */
+function textOf(el) {
+  return norm(el.textContent);
+}
+
+/** The root of the tree `el` is in. */
+function treeRoot(el) {
+  let n = el;
+  while (n.parentNode !== null && n.parentNode !== undefined) n = n.parentNode;
+  return n;
+}
+
+/** The accessible name of a form control: its label. */
+function labelOf(el) {
+  const aria = attr(el, "aria-label");
+  if (aria !== null) return norm(aria);
+  const by = attr(el, "aria-labelledby");
+  const top = treeRoot(el);
+  if (by !== null) {
+    const named = descendants(top).filter((e) => by.split(" ").includes(e.id));
+    if (named.length) return norm(named.map((e) => e.textContent).join(" "));
+  }
+  const id = el.id;
+  if (id) {
+    const label = descendants(top).find((e) => tag(e) === "label" && attr(e, "for") === id);
+    if (label) return textOf(label);
+  }
+  for (let p = el.parentNode; p !== null && p !== undefined && p.nodeType === 1; p = p.parentNode) {
+    if (tag(p) === "label") return textOf(p);
+  }
+  return "";
+}
+
+/** The accessible name of a button, link, heading or landmark. */
+function nameOf(el) {
+  const aria = attr(el, "aria-label");
+  if (aria !== null) return norm(aria);
+  if (tag(el) === "input") return norm(el.value ?? attr(el, "value") ?? "");
+  return textOf(el);
+}
+
+const KINDS = {
+  heading: (el) => new RegExp("^h[1-6]$").test(tag(el)) || role(el) === "heading",
+  link: (el) => (tag(el) === "a" && attr(el, "href") !== null) || role(el) === "link",
+  button: (el) =>
+    tag(el) === "button" || role(el) === "button" || (tag(el) === "input" && ["button", "submit", "reset"].includes(type(el))),
+  textField: (el) => (tag(el) === "input" && ["text", "email", "search", "url", "tel"].includes(type(el))) || role(el) === "textbox",
+  passwordField: (el) => tag(el) === "input" && type(el) === "password",
+  textArea: (el) => tag(el) === "textarea",
+  numberField: (el) => tag(el) === "input" && type(el) === "number",
+  dropdown: (el) => tag(el) === "select",
+  checkbox: (el) => (tag(el) === "input" && type(el) === "checkbox") || role(el) === "checkbox",
+  item: (el) => tag(el) === "li",
+  list: (el) => tag(el) === "ul" || tag(el) === "ol",
+  navigation: (el) => tag(el) === "nav" || role(el) === "navigation",
+  alert: (el) => role(el) === "alert",
+  status: (el) => role(el) === "status",
+};
+
+/** Keeps only the deepest of `els`: none that contains another. */
+function deepest(els) {
+  return els.filter((e) => !els.some((o) => o !== e && contains(e, o)));
+}
+
+function contains(a, b) {
+  for (let n = b.parentNode; n !== null && n !== undefined; n = n.parentNode) if (n === a) return true;
+  return false;
+}
+
+/** `true` when `el` and its ancestors are shown. */
+function visible(el) {
+  for (let n = el; n !== null && n !== undefined && n.nodeType === 1; n = n.parentNode) {
+    if (attr(n, "hidden") !== null || attr(n, "aria-hidden") === "true") return false;
+    if (n.style && n.style.getPropertyValue("display") === "none") return false;
+  }
+  return true;
+}
+
+/** The keys of `Key`, by case tag. */
+const KEYS = ["Enter", "Escape", "Tab", " ", "ArrowUp", "ArrowDown"];
+
+/** A bubbling event of `type` with `extra` fields. */
+function event(type, extra) {
+  const e = new globalThis.Event(type, { bubbles: true });
+  return Object.assign(e, extra ?? {});
+}
+
+/** The form `el` belongs to. */
+function formOf(el) {
+  for (let n = el.parentNode; n !== null && n !== undefined && n.nodeType === 1; n = n.parentNode) {
+    if (tag(n) === "form") return n;
+  }
+  return null;
+}
+
+/** `true` for a control that is disabled. */
+function disabled(el) {
+  return el.disabled === true || attr(el, "disabled") !== null || attr(el, "aria-disabled") === "true";
+}
+
+/** Submits `form` as a browser does: a cancelable `submit` event. */
+function submit(form) {
+  form.dispatchEvent(event("submit"));
+}
+
+/**
+ * The queries every handle answers, over the elements below the roots
+ * `scope()` returns.
+ */
+class Queries {
+  /** @returns {Array<object>} the elements to search below */
+  scope() {
+    return [];
+  }
+
+  /** Every element below the scope. */
+  all() {
+    return this.scope().flatMap(descendants);
+  }
+
+  find(describe, pick) {
+    return new Handle(describe, () => pick(this.all()));
+  }
+
+  named(kind, name, how) {
+    const wanted = norm(name);
+    const of = how === "label" ? labelOf : nameOf;
+    const verb = how === "label" ? "labeled" : "named";
+    return this.find(`${kind}(${verb}: ${quote(name)})`, (els) => els.filter((e) => KINDS[kind](e) && of(e) === wanted));
+  }
+
+  only(kind) {
+    return this.find(`${kind}()`, (els) => els.filter(KINDS[kind]));
+  }
+
+  every(kind) {
+    return this.all()
+      .filter(KINDS[kind])
+      .map((e) => new Handle(`${kind}s()`, () => [e]));
+  }
+
+  heading(name) {
+    return this.named("heading", name);
+  }
+  link(name) {
+    return this.named("link", name);
+  }
+  button(name) {
+    return this.named("button", name);
+  }
+  navigation(name) {
+    return this.named("navigation", name);
+  }
+  textField(label) {
+    return this.named("textField", label, "label");
+  }
+  passwordField(label) {
+    return this.named("passwordField", label, "label");
+  }
+  textArea(label) {
+    return this.named("textArea", label, "label");
+  }
+  numberField(label) {
+    return this.named("numberField", label, "label");
+  }
+  dropdown(label) {
+    return this.named("dropdown", label, "label");
+  }
+  checkbox(label) {
+    return this.named("checkbox", label, "label");
+  }
+  text(text) {
+    const wanted = norm(text);
+    return this.find(`text(${quote(text)})`, (els) => deepest(els.filter((e) => textOf(e) === wanted)));
+  }
+  text$containing(text) {
+    const wanted = norm(text);
+    return this.find(`text(containing: ${quote(text)})`, (els) => deepest(els.filter((e) => textOf(e).includes(wanted))));
+  }
+  item$containing(text) {
+    const wanted = norm(text);
+    return this.find(`item(containing: ${quote(text)})`, (els) => els.filter((e) => KINDS.item(e) && textOf(e).includes(wanted)));
+  }
+  list() {
+    return this.only("list");
+  }
+  alert() {
+    return this.only("alert");
+  }
+  status() {
+    return this.only("status");
+  }
+  items() {
+    return this.every("item");
+  }
+  buttons() {
+    return this.every("button");
+  }
+  headings() {
+    return this.every("heading");
+  }
+  links() {
+    return this.every("link");
+  }
+}
+
+/**
+ * A handle to the elements a query matched, evaluated on every use: a
+ * handle keeps answering as the view changes.
+ */
+class Handle extends Queries {
+  constructor(describe, match) {
+    super();
+    this.describe = describe;
+    this.match = match;
+  }
+
+  scope() {
+    const m = this.match();
+    return m.length === 1 ? m : [];
+  }
+
+  /** The one element, or a test failure naming the query. */
+  one() {
+    const m = this.match();
+    if (m.length === 1) return m[0];
+    throw failure(
+      m.length === 0 ? `${this.describe} found nothing` : `${this.describe} found ${m.length} elements`,
+      -1,
+      -1,
+      [],
+    );
+  }
+
+  get exists() {
+    return this.match().length === 1;
+  }
+  get isVisible() {
+    const m = this.match();
+    return m.length === 1 && visible(m[0]);
+  }
+  get isChecked() {
+    const el = this.one();
+    return el.checked === true || attr(el, "aria-checked") === "true";
+  }
+  get isPressed() {
+    return attr(this.one(), "aria-pressed") === "true";
+  }
+  get isDisabled() {
+    return disabled(this.one());
+  }
+  get value() {
+    const el = this.one();
+    return String(el.value ?? attr(el, "value") ?? "");
+  }
+  /** `text`, the element's text content (a method: `text(_)` is a query). */
+  $text() {
+    return textOf(this.one());
+  }
+  get level() {
+    const el = this.one();
+    const aria = attr(el, "aria-level");
+    if (aria !== null) return Number(aria);
+    const m = new RegExp("^h([1-6])$").exec(tag(el));
+    return m ? Number(m[1]) : 0;
+  }
+
+  click() {
+    const el = this.one();
+    if (disabled(el)) return;
+    if (tag(el) === "input" && (type(el) === "checkbox" || type(el) === "radio")) {
+      el.checked = type(el) === "radio" ? true : !el.checked;
+      el.dispatchEvent(event("click"));
+      el.dispatchEvent(event("input"));
+      el.dispatchEvent(event("change"));
+      flush();
+      return;
+    }
+    const e = event("click");
+    el.dispatchEvent(e);
+    const isSubmit = (tag(el) === "button" && (attr(el, "type") ?? "submit") === "submit") || (tag(el) === "input" && type(el) === "submit");
+    const form = isSubmit && !e.defaultPrevented ? formOf(el) : null;
+    if (form !== null) submit(form);
+    flush();
+  }
+
+  fill(text) {
+    const el = this.one();
+    if (disabled(el)) throw failure(`${this.describe} is disabled`, -1, -1, []);
+    el.value = String(text);
+    el.dispatchEvent(event("input"));
+    el.dispatchEvent(event("change"));
+    flush();
+  }
+
+  press(key) {
+    const el = this.one();
+    const name = KEYS[key && key.$] ?? "Enter";
+    const down = event("keydown", { key: name });
+    el.dispatchEvent(down);
+    const form = name === "Enter" && !down.defaultPrevented && tag(el) !== "textarea" ? formOf(el) : null;
+    if (form !== null) submit(form);
+    el.dispatchEvent(event("keyup", { key: name }));
+    flush();
+  }
+}
+
+/** A rendered view: the queries over its container. */
+class Screen extends Queries {
+  constructor(host, dispose) {
+    super();
+    this.host = host;
+    this.dispose = dispose;
+  }
+
+  scope() {
+    return this.host === null ? [] : [this.host];
+  }
+
+  get title() {
+    return String(globalThis.document?.title ?? "");
+  }
+
+  /** The page the router is on: the page of the browser's current URL. */
+  get currentPage() {
+    const loc = globalThis.location;
+    const url = { pathname: loc?.pathname ?? "/", search: loc?.search ?? "" };
+    for (const r of pages) {
+      const params = r.parse(url);
+      if (params !== null) return r.value(params);
+    }
+    throw new KPanic(`Screen.currentPage: no page has the URL ${url.pathname}${url.search}`);
+  }
+
+  async settle() {
+    if (this.pending) await this.pending;
+    await idle();
+    await serverIdle();
+    if (this.pending) await this.pending;
+    flush();
+  }
+
+  unmount() {
+    if (this.host === null) return;
+    this.dispose?.();
+    this.host.remove();
+    this.host = null;
+    flush();
+  }
+}
+
+/**
+ * `render(view)`: mounts `mount(ctx)` (the generated view's renderer) in a
+ * new container in the document's body, with the test's container, and
+ * returns its screen.
+ * @param {(ctx: object) => object} mount
+ * @param {() => string} [href] a rendered page's URL
+ */
+export function render(mount, href) {
+  // A rendered page puts the browser on its URL.
+  if (typeof href === "function" && globalThis.location) globalThis.location.href = href();
+  const doc = globalThis.document;
+  const host = doc.createElement("div");
+  doc.body.appendChild(host);
+  let dispose = null;
+  let pending = null;
+  root((d) => {
+    dispose = d;
+    const node = mount({ c: current.container });
+    if (node && typeof node.then === "function") {
+      // A page with `@Load` fields renders once its chunk is ready.
+      // A page that fails to render fails the test with the reason.
+      pending = node.then(
+        (n) => {
+          if (n && host.parentNode !== null) host.appendChild(n);
+          flush();
+        },
+        (e) => {
+          current.errors.push(e);
+        },
+      );
+    } else if (node) {
+      host.appendChild(node);
+    }
+  });
+  flush();
+  const s = new Screen(host, dispose);
+  s.pending = pending;
+  current.screens.push(s);
+  return s;
+}
+
+/**
+ * The values of a page's props (`{name: () => value}`), by name: the
+ * parameters `Page` values are built from.
+ * @param {Record<string, () => unknown>} props
+ * @returns {Record<string, unknown>}
+ */
+export function propValues(props) {
+  const out = {};
+  for (const k of Object.keys(props)) out[k] = typeof props[k] === "function" ? props[k]() : props[k];
+  return out;
+}
+
+/**
+ * Lets pending work run: many microtask turns, then one turn of the event
+ * loop (`op_k_test_tick`), so ops that completed meanwhile (a stream's
+ * next element from the server) deliver their results.
+ */
+async function idle() {
+  for (let i = 0; i < 2000; i++) await null;
+  const tick = globalThis.Deno?.core?.ops?.op_k_test_tick;
+  if (typeof tick === "function") await tick();
+}
+
+// -------------------------------------------------------------- doubles
+
+/** The start of virtual time: 2026-01-01T12:00:00Z. */
+const EPOCH = Date.UTC(2026, 0, 1, 12, 0, 0);
+
+/** `k.test.TestClock`: virtual time with timers fired by `advance`. */
+export function testClock() {
+  let now = EPOCH;
+  let seq = 0;
+  const timers = [];
+  const add = (due, every, f) => {
+    const t = { due, every, f, seq: seq++, live: true };
+    timers.push(t);
+    return {
+      cancel() {
+        t.live = false;
+      },
+    };
+  };
+  return {
+    get now() {
+      return new Instant(now);
+    },
+    every: (d, f) => add(now + Math.max(1, d), Math.max(1, d), f),
+    after: (d, f) => add(now + Math.max(0, d), 0, f),
+    sleep: (_c, d) => new Promise((resolve) => add(now + Math.max(0, d), 0, resolve)),
+    advance(d) {
+      const target = now + Math.max(0, d);
+      for (;;) {
+        let next = null;
+        for (const t of timers) {
+          if (t.live && t.due <= target && (next === null || t.due < next.due || (t.due === next.due && t.seq < next.seq))) next = t;
+        }
+        if (next === null) break;
+        now = next.due;
+        if (next.every > 0) next.due += next.every;
+        else next.live = false;
+        next.f();
+        flush();
+      }
+      now = target;
+      flush();
+    },
+    set(instant) {
+      now = instant.ms;
+    },
+  };
+}
+
+/** `k.test.MemoryStorage`: `LocalStorage` in memory, able to fail. */
+export function memoryStorage(R, W) {
+  const items = new Map();
+  let readError = null;
+  let writeError = null;
+  return {
+    read(codec, key) {
+      if (readError !== null) throw readError;
+      const text = items.get(key.name);
+      if (text === undefined) return null;
+      try {
+        return codec.decode(JSON.parse(text), "");
+      } catch (e) {
+        if (isPanic(e)) throw e;
+        throw R.unreadable;
+      }
+    },
+    write(codec, key, value) {
+      if (writeError !== null) throw writeError;
+      items.set(key.name, JSON.stringify(codec.encode(value)));
+    },
+    remove(...a) {
+      items.delete(a[a.length - 1].name);
+    },
+    writeRaw(name, text) {
+      items.set(String(name), String(text));
+    },
+    failReads(error) {
+      readError = error;
+    },
+    failWrites(error) {
+      writeError = error;
+    },
+    stopFailing() {
+      readError = null;
+      writeError = null;
+    },
+  };
+}
+
+/** The path of a URL, without its query. */
+function pathOf(url) {
+  const text = String(url ?? "");
+  const scheme = text.indexOf("://");
+  const rest = scheme < 0 ? text : text.slice(text.indexOf("/", scheme + 3) < 0 ? text.length : text.indexOf("/", scheme + 3));
+  const q = rest.search(new RegExp("[?#]"));
+  return (q < 0 ? rest : rest.slice(0, q)) || "/";
+}
+
+/**
+ * `k.test.TestHttpClient`: canned responses by path. A response given with
+ * `respond(path:with:)` is returned as built; `serveJson` and `serveText`
+ * answer like a received response (`received`), so the code under test
+ * reads them as it reads the network's.
+ * @param {object} E the generated `HttpError` enum
+ * @param {object} S the generated `HttpStatus` enum
+ */
+export function testHttpClient(E, S) {
+  const answers = new Map();
+  const requests = [];
+  const ok = S && S.ok !== undefined ? S.ok : { $: 0 };
+  const answer = (status, type, bytes) => ({ response: received(E, status, httpCode(status), [["content-type", type]], bytes) });
+  return {
+    requests,
+    async send(_c, request) {
+      requests.push(request);
+      const a = answers.get(pathOf(request.url));
+      if (a === undefined) throw new KPanic(`TestHttpClient has no response for ${request.url}; give it one with respond(path:with:)`);
+      if (a.error !== undefined) throw a.error;
+      return a.response;
+    },
+    async fetchJson(c, codec, request) {
+      const r = await this.send(c, request);
+      if (!HttpResponse$isSuccess(r)) throw E.status(r.status, HttpResponse$text(r));
+      return HttpResponse$json(r, codec, E);
+    },
+    respond(path, response) {
+      answers.set(String(path), { response });
+    },
+    serveJson(codec, path, value) {
+      answers.set(String(path), answer(ok, "application/json", new TextEncoder().encode(JSON.stringify(codec.encode(value)))));
+    },
+    serveText(path, text, status) {
+      answers.set(String(path), answer(status ?? ok, "text/plain; charset=utf-8", new TextEncoder().encode(String(text))));
+    },
+    fail(path, error) {
+      answers.set(String(path), { error });
+    },
+    E,
+  };
+}
+
+/** `k.test.RecordingJobQueue`: stores jobs without running them. */
+export function recordingJobQueue() {
+  const jobs = [];
+  return {
+    async enqueue(_c, codec, kind, payload, delay) {
+      jobs.push({ name: kind.name, json: JSON.stringify(codec.encode(payload)), delay: delay ?? 0 });
+    },
+    payloads(codec, kind) {
+      return jobs.filter((j) => j.name === kind.name).map((j) => codec.decode(JSON.parse(j.json), ""));
+    },
+  };
+}
+
+/** `k.test.RecordingEmailProvider`: keeps sent messages. */
+export function recordingEmailProvider() {
+  const sent = [];
+  let error = null;
+  return {
+    sent,
+    async send(_c, email) {
+      if (error !== null) throw error;
+      sent.push(email);
+    },
+    simulateFailure(e) {
+      error = e;
+    },
+  };
+}
+
+/**
+ * The browser's `@Native` members, with `k.test`'s first, then the
+ * server's for those the browser doesn't implement.
+ * @param {string} name `module.Owner$member`
+ */
+export function native(name) {
+  if (name === "k.test.render") return render;
+  // Test code runs in the test's one process: a server-only stdlib member
+  // it calls (`Hmac.sha256` to sign a webhook payload) is the server's.
+  if (!hasNative(name) && Object.hasOwn(serverNatives, name)) return serverNatives[name];
+  return browserNative(name);
+}
+
+// --------------------------------------------------------------- runner
+
+/**
+ * The app's pages by URL (the test bundle's `$pages`): `{parse(url),
+ * value(params)}`, most specific first.
+ * @type {Array<{parse: Function, value: Function}>}
+ */
+let pages = [];
+
+/** The watchdogs running: none once a run has returned. */
+let running = 0;
+
+/**
+ * The number of test watchdogs still running (0 between runs).
+ * @returns {number}
+ */
+export function watchdogs() {
+  return running;
+}
+
+/** What a test that ended without finishing reports. */
+const HUNG = {};
+
+/**
+ * Runs the tests named in `selected` (`Group › description`), in order:
+ * each with a fresh document and a fresh container (`group.container()`),
+ * its group class built over that container, then the test's method.
+ * `routes` are the bundle's `$pages`, which `Screen.currentPage` matches
+ * the browser's URL against.
+ * With `server` (the server entry's `$test`), each test also gets a fresh
+ * process and database (`op_k_test_reset`), its group's server container
+ * over the test's one session, and a `fetch` that answers every request
+ * in-process through the app's handler.
+ * Returns one result per test run:
+ * `{group, name, file, outcome: "pass"|"fail", failure?}`, where a failure
+ * is `{message, start, end, values}` with the source range of the failed
+ * expectation, or of the test's name when it panicked, threw or never
+ * finished.
+ * @param {Array<object>} groups the generated `$groups`
+ * @param {string[]} selected
+ */
+export async function run(groups, selected, server = null, routes = []) {
+  pages = routes;
+  const wanted = new Set(selected);
+  const results = [];
+  if (server !== null) trackOps();
+  for (const [gi, g] of groups.entries()) {
+    for (const t of g.tests) {
+      const full = `${g.name} › ${t.name}`;
+      if (!wanted.has(full)) continue;
+      installDom();
+      installBrowser();
+      let outcome = "pass";
+      let fault = null;
+      try {
+        let clock = testClock();
+        let direct = null;
+        if (server !== null) {
+          // A fresh process and database, and the test's one session.
+          globalThis.Deno?.core?.ops?.op_k_test_reset?.();
+          server.reset();
+          sessionMirror.set({ user: null });
+          const T = new TestContext(server, server.groups[gi]);
+          clock = T.clock;
+          const st = new RequestState(server.spec, T.request("GET", "/", [], EMPTY, undefined));
+          await st.load();
+          T.direct = st;
+          direct = T.container(st);
+          globalThis.fetch = (url, init) => T.fetch(url, init);
+        }
+        begin(null, clock, direct);
+        const container = g.container();
+        current.container = container;
+        const instance = new g.group(container);
+        let finished = false;
+        // Finished either way: a failed test's watchdog must stop too.
+        const done = Promise.resolve(instance[t.method](null)).then(
+          () => {
+            finished = true;
+            return null;
+          },
+          (e) => {
+            finished = true;
+            throw e;
+          },
+        );
+        // Many idle rounds without finishing, with no server work in
+        // flight: nothing will finish it.
+        const watchdog = (async () => {
+          running++;
+          try {
+            for (let i = 0; i < 50 && !finished; ) {
+              await idle();
+              if (finished) break;
+              if (inflight.size > 0) await Promise.race([done, ...inflight].map((p) => p.then(() => null, () => null)));
+              else i++;
+            }
+          } finally {
+            running--;
+          }
+          return HUNG;
+        })();
+        const result = await Promise.race([done, watchdog]).finally(() => watchdog);
+        if (result === HUNG) {
+          fault = { message: "the test never finished: it is waiting for something that doesn't happen (an unanswered request, or a timer of the TestClock that isn't advanced)", start: t.start, end: t.end, values: [] };
+        }
+        flush();
+      } catch (e) {
+        fault = describe(e, t);
+      }
+      try {
+        end();
+      } catch (e) {
+        fault ??= describe(e, t);
+      }
+      if (fault === null && current.errors.length > 0) fault = describe(current.errors[0], t);
+      if (fault !== null) outcome = "fail";
+      results.push({ group: g.name, name: t.name, file: g.file, outcome, ...(fault === null ? {} : { failure: fault }) });
+    }
+  }
+  return results;
+}
+
+/** The failure of a test that ended with `e`. */
+function describe(e, t) {
+  if (e && e.kTest) {
+    const f = e.kTest;
+    return { message: f.message, start: f.start < 0 ? t.start : f.start, end: f.start < 0 ? t.end : f.end, values: f.values };
+  }
+  if (isPanic(e)) return { message: `the test panicked: ${e.message}`, start: t.start, end: t.end, values: [] };
+  if (e instanceof Error) return { message: `the test failed with a JavaScript error: ${e.message}`, start: t.start, end: t.end, values: [] };
+  // The error's structure (its case tag `$` and payload), for the report.
+  let shape = "an unprintable value";
+  try {
+    shape = JSON.stringify(e) ?? String(e);
+  } catch {
+    // A cyclic error keeps the placeholder.
+  }
+  return { message: "the test threw an error it didn't catch", start: t.start, end: t.end, values: [["the error", shape.length > 300 ? `${shape.slice(0, 300)}…` : shape]] };
+}

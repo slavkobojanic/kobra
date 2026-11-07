@@ -1,0 +1,7 @@
+# codegen.md §15, server.md §6: a Codable error's payload crosses the wire in its codec's form. The
+# server encodes `debug.fields` with the error's encoder and the client stub decodes the detail with the
+# error's codec; an error that isn't Codable keeps the structural form on both sides.
+server contains fields: (e) => $k.payloadFields(e, ShippingError$codec.encode)
+server contains fields: $k.payloadFields }
+client contains $k.rpcError(o, ShippingError, ShippingError$codec)
+client contains $k.rpcError(o, PlainError)

@@ -4,10 +4,11 @@
 //! analysis, [`coracle`] for code generation and execution, [`horacle`]
 //! for the HTTP server) and the generators ([`kgen`] for the grammar,
 //! [`tgen`] for well-typed projects, [`exprgen`], [`codablegen`] and
-//! [`viewgen`] for the stage 3 differential properties) are not duplicated
-//! here: they are the very files the stable property tests use
-//! (`crates/k_syntax/tests/support/`, `crates/k_sema/tests/support/` and
-//! `crates/k_server/tests/support/`), included by path, so fuzzing and
+//! [`viewgen`] for the stage 3 differential properties, [`lspdriver`] for
+//! the language server) are not duplicated here: they are the very files
+//! the stable property tests use (`crates/k_syntax/tests/support/`,
+//! `crates/k_sema/tests/support/`, `crates/k_server/tests/support/` and
+//! `crates/k_lsp/tests/support/`), included by path, so fuzzing and
 //! `cargo test` check exactly the same properties.
 
 #![allow(missing_docs)]
@@ -22,6 +23,8 @@ pub mod exprgen;
 pub mod horacle;
 #[path = "../../crates/k_syntax/tests/support/kgen.rs"]
 pub mod kgen;
+#[path = "../../crates/k_lsp/tests/support/driver.rs"]
+pub mod lspdriver;
 #[path = "../../crates/k_syntax/tests/support/oracle.rs"]
 pub mod oracle;
 #[path = "../../crates/k_sema/tests/support/soracle.rs"]

@@ -1,0 +1,6 @@
+server contains export const Endpoint = {
+server contains stripeWebhook: $k.unitCase(0),
+server contains export function Endpoint$href(e) {
+server contains return "/hooks/" + encodeURIComponent(e.tenant);
+server contains return Endpoint$href(hook);
+client lacks Endpoint

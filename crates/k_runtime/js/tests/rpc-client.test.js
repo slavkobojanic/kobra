@@ -3,7 +3,7 @@
 // `failed_precondition` with a `k.TypedError` detail whose `debug` names
 // the case and its payload fields, as the server sends it (server.md §6).
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
-import { rpcError, unitCase } from "k:runtime";
+import { payloadFields, rpcError, unitCase } from "k:runtime";
 
 const CheckoutError = {
   productNotFound: unitCase(0),
@@ -28,6 +28,46 @@ test("a payload-free declared case is the enum's singleton", () => {
 test("a declared case with a payload is built from its fields", () => {
   const e = rpcError(typed({ error: "shop.CheckoutError", case: "outOfStock", fields: { available: 3 } }), CheckoutError);
   assertDeepEq(e, { $: 1, available: 3 });
+});
+
+// A Codable error's payload crosses the wire in its codec's form; the
+// client decodes it with the error's codec, so an enum payload is a case
+// value again and a date an `Instant`, not the raw JSON.
+const Reason = { tooLate: unitCase(0), tooEarly: unitCase(1) };
+const ShippingError = {
+  noSlot: (reason, until) => ({ $: 0, reason, until }),
+  closed: unitCase(1),
+  rpcFailure: (_0) => ({ $: 2, _0 }),
+};
+const ShippingError$codec = {
+  encode: () => {
+    throw new Error("the client only decodes");
+  },
+  decode: (j, p) => {
+    const c = typeof j === "string" ? j : j.case;
+    if (c === "closed") return ShippingError.closed;
+    if (c !== "noSlot") throw new Error(`unknown case ${c} at ${p}`);
+    return ShippingError.noSlot(Reason[j.reason], new Date(j.until));
+  },
+};
+
+test("a Codable error's payload is decoded with the error's codec", () => {
+  const o = typed({ error: "shop.ShippingError", case: "noSlot", fields: { reason: "tooEarly", until: "2026-01-02T00:00:00Z" } });
+  const e = rpcError(o, ShippingError, ShippingError$codec);
+  assertEq(e.$, 0);
+  assertEq(e.reason, Reason.tooEarly, "the enum payload is its case value");
+  assert(e.until instanceof Date, "the date payload is decoded");
+  assertEq(e.until.toISOString(), "2026-01-02T00:00:00.000Z");
+});
+
+test("a payload-free case of a Codable error decodes to its singleton", () => {
+  const e = rpcError(typed({ error: "shop.ShippingError", case: "closed", fields: {} }), ShippingError, ShippingError$codec);
+  assertEq(e, ShippingError.closed);
+});
+
+test("fields the error's codec refuses are a panic, not a wrong value", () => {
+  const e = rpcError(typed({ error: "shop.ShippingError", case: "gone", fields: {} }), ShippingError, ShippingError$codec);
+  assert(e instanceof Error, String(e));
 });
 
 // `RpcFailure`'s cases are tagged in declaration order, as generated
@@ -58,4 +98,17 @@ test("a refused guard is rpcFailure(.rejected) with its GuardRejection case", ()
 test("an unknown code is a panic, not a typed error", () => {
   const e = rpcError(connect("internal"), CheckoutError);
   assert(e instanceof Error && e.message === "rpc failed: internal", String(e));
+});
+
+// The server's side of the same contract: a Codable error's fields are
+// its codec's encoding without the `case` key (server.md §6).
+test("payloadFields of a Codable error is its codec's form without the case", () => {
+  const encode = (v) => (v.$ === 1 ? "closed" : { case: "noSlot", reason: ["tooLate", "tooEarly"][v.reason.$], until: v.until.toISOString() });
+  const e = ShippingError.noSlot(Reason.tooLate, new Date("2026-01-02T00:00:00Z"));
+  assertDeepEq(payloadFields(e, encode), { reason: "tooLate", until: "2026-01-02T00:00:00.000Z" });
+  assertDeepEq(payloadFields(ShippingError.closed, encode), {});
+});
+
+test("payloadFields without a codec is the payload's structural JSON", () => {
+  assertDeepEq(payloadFields(CheckoutError.outOfStock(3)), { available: 3 });
 });

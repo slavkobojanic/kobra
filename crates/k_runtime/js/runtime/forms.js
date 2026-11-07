@@ -57,12 +57,24 @@ export function createForm(fields, initial, validate) {
   const validated = signal(false);
   let current = null;
 
+  /**
+   * The form's field a failure path names: the path itself, or, for a
+   * path the server prefixed with the rpc parameter's name
+   * (`request.email`), the rest of it when the form has that field.
+   */
+  const fieldOf = (path) => {
+    const p = String(path);
+    if (state.has(p)) return p;
+    const dot = p.indexOf(".");
+    return dot > 0 && state.has(p.slice(dot + 1)) ? p.slice(dot + 1) : p;
+  };
+
   /** Sets the per-field errors from a list of `{path, message}`. */
   const show = (list) => {
     batch(() => {
       errors.set(list);
       for (const [name, f] of state) {
-        const e = list.find((x) => x.path === name);
+        const e = list.find((x) => fieldOf(x.path) === name);
         f.error.set(e ? e.message : null);
       }
       validated.set(true);

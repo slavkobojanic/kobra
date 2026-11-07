@@ -1,0 +1,3 @@
+client contains if (props.toolbar === undefined) {
+client contains props.toolbar = null;
+client contains props.toolbar !== null

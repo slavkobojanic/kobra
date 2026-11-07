@@ -12,6 +12,10 @@
  *
  * The driver calls {@link boot}, then imports the client entry, then
  * alternates {@link drain} and {@link deliver} until nothing is in flight.
+ * A server-streaming rpc's response is delivered with `stream: true` and
+ * its body then arrives piece by piece through {@link deliverChunks}, as
+ * the server writes it; a stream the client stops reading is reported by
+ * {@link drain} so the driver closes its connection.
  */
 
 import { installDom } from "k:testing";
@@ -31,6 +35,10 @@ const tab = {
   storage: new Map(),
   listeners: new Map(),
   external: null,
+  /** Open streamed responses, by request id: `{push(bytes), end()}`. */
+  streams: new Map(),
+  /** Ids of streamed responses the client stopped reading. */
+  closed: [],
   /** The container's element nodes before the client ran. */
   server: [],
   serverHtml: null,
@@ -127,6 +135,8 @@ export function boot(o) {
     doc.body.innerHTML = o.html.slice(start + 6, end);
     const m = o.html.match(new RegExp('<html lang="[^"]*"(?: class="([^"]*)")?>'));
     if (m && m[1]) doc.documentElement.setAttribute("class", m[1]);
+    const title = o.html.match(new RegExp("<title>([^<]*)</title>"));
+    doc.title = title ? title[1].replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">") : "";
   }
   const app = doc.getElementById("k-app");
   tab.server = elements(app);
@@ -197,10 +207,51 @@ function response(r) {
   };
 }
 
+/**
+ * A streamed response: its body's reader reads the pieces
+ * {@link deliverChunks} hands it; cancelling it, or aborting the request,
+ * reports the stream as closed.
+ */
+function streamedResponse(r, signal) {
+  const res = response(r);
+  const chunks = [];
+  const waiters = [];
+  let ended = false;
+  const settle = (item) => {
+    const w = waiters.shift();
+    if (w) w(item);
+    else chunks.push(item);
+  };
+  const close = () => {
+    if (!tab.streams.delete(r.id)) return;
+    tab.closed.push(r.id);
+    ended = true;
+    settle({ done: true, value: undefined });
+  };
+  tab.streams.set(r.id, {
+    push: (bytes) => settle({ done: false, value: Uint8Array.from(bytes) }),
+    end: () => {
+      tab.streams.delete(r.id);
+      ended = true;
+      settle({ done: true, value: undefined });
+    },
+  });
+  signal?.addEventListener?.("abort", close);
+  res.body = {
+    getReader: () => ({
+      read: () => (chunks.length ? Promise.resolve(chunks.shift()) : ended ? Promise.resolve({ done: true, value: undefined }) : new Promise((resolve) => waiters.push(resolve))),
+      cancel: async () => close(),
+    }),
+  };
+  return res;
+}
+
 function fakeFetch(input, init = {}) {
   const url = typeof input === "string" ? input : String(input?.url ?? input);
   const method = String(init.method ?? "GET").toUpperCase();
-  const body = init.body === undefined || init.body === null ? "" : String(init.body);
+  // A streaming rpc's request is a binary envelope: sent as its bytes.
+  const bytes = init.body instanceof Uint8Array ? Array.from(init.body) : null;
+  const body = bytes ? new TextDecoder().decode(init.body.subarray(5)) : init.body === undefined || init.body === null ? "" : String(init.body);
   tab.fetches.push({ method, url, body });
   const path = url.startsWith(tab.origin + "/") ? url.slice(tab.origin.length) : url;
   if (!path.startsWith("/") || path.startsWith("//")) {
@@ -212,8 +263,8 @@ function fakeFetch(input, init = {}) {
     const headers = headersOf(init.headers);
     const jar = document.cookie;
     if (jar !== "") headers.cookie = jar;
-    tab.outbox.push({ id, method, path, headers, body });
-    tab.waiting.set(id, { resolve, reject });
+    tab.outbox.push({ id, method, path, headers, body, bytes });
+    tab.waiting.set(id, { resolve, reject, signal: init.signal });
     init.signal?.addEventListener?.("abort", () => {
       if (tab.waiting.delete(id)) reject(new Error("aborted"));
     });
@@ -225,21 +276,37 @@ function fakeFetch(input, init = {}) {
  * @returns {string}
  */
 export function drain() {
-  const out = tab.outbox;
+  const out = { requests: tab.outbox, closed: tab.closed };
   tab.outbox = [];
+  tab.closed = [];
   return JSON.stringify(out);
 }
 
 /**
- * Settles queued requests with the server's responses.
- * @param {Array<{id: number, status: number, headers: Record<string,string>, body: string}>} responses
+ * Settles queued requests with the server's responses; one with `stream`
+ * set is a streamed response whose body follows in {@link deliverChunks}.
+ * @param {Array<{id: number, status: number, headers: Record<string,string>, body: string, stream?: boolean}>} responses
  */
 export function deliver(responses) {
   for (const r of responses) {
     const w = tab.waiting.get(r.id);
     if (w === undefined) continue;
     tab.waiting.delete(r.id);
-    w.resolve(response(r));
+    w.resolve(r.stream ? streamedResponse(r, w.signal) : response(r));
+  }
+}
+
+/**
+ * Hands streamed responses the pieces of their bodies the server wrote:
+ * `{id, bytes}` for data, `{id, end: true}` when the body ended.
+ * @param {Array<{id: number, bytes?: number[], end?: boolean}>} chunks
+ */
+export function deliverChunks(chunks) {
+  for (const c of chunks) {
+    const s = tab.streams.get(c.id);
+    if (s === undefined) continue;
+    if (c.end) s.end();
+    else s.push(c.bytes);
   }
 }
 

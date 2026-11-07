@@ -1,0 +1,3 @@
+client contains [() => props.row(entry$()), () => props.row(entry$())]
+client contains const $now
+client lacks $k.child($m4.start, $m4.end, () => props.row(entry$()))

@@ -359,6 +359,170 @@ pub fn send(
     })
 }
 
+/// A piece of a streamed response body ([`StreamingResponse::next_chunk`]).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum StreamChunk {
+    /// Bytes of the body, in order (chunked framing removed).
+    Data(Vec<u8>),
+    /// The body ended: the last chunk, the connection closed, or a read
+    /// failed.
+    End,
+}
+
+/// A response whose body is read as it arrives, for a server-streaming
+/// rpc ([`open_stream`]). Dropping it closes the connection, which ends
+/// the server's stream.
+#[derive(Debug)]
+pub struct StreamingResponse {
+    /// The status code.
+    pub status: u16,
+    /// The headers, names lower case, in order.
+    pub headers: Vec<(String, String)>,
+    chunks: std::sync::mpsc::Receiver<StreamChunk>,
+    socket: TcpStream,
+}
+
+impl StreamingResponse {
+    /// The first header named `name` (lower case).
+    #[must_use]
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// The next piece of the body, waiting at most `wait`; `None` when
+    /// nothing arrived in that time. After [`StreamChunk::End`] every call
+    /// returns `End`.
+    #[must_use]
+    pub fn next_chunk(&self, wait: Duration) -> Option<StreamChunk> {
+        match self.chunks.recv_timeout(wait) {
+            Ok(c) => Some(c),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Some(StreamChunk::End),
+        }
+    }
+}
+
+impl Drop for StreamingResponse {
+    fn drop(&mut self) {
+        let _ = self.socket.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+/// Sends one request and returns once the response head has arrived; the
+/// body is read on a thread of its own and handed out by
+/// [`StreamingResponse::next_chunk`] as the server writes it.
+///
+/// # Errors
+///
+/// Connection and parse failures before the head is complete, as text.
+pub fn open_stream(
+    addr: SocketAddr,
+    method: &str,
+    path: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> Result<StreamingResponse, String> {
+    let mut stream = TcpStream::connect(addr).map_err(|e| format!("connect: {e}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .map_err(|e| e.to_string())?;
+    let mut head = format!("{method} {path} HTTP/1.1\r\nhost: {addr}\r\nconnection: close\r\n");
+    for (n, v) in headers {
+        head.push_str(&format!("{n}: {v}\r\n"));
+    }
+    if !headers.iter().any(|(n, _)| n == "content-length") {
+        head.push_str(&format!("content-length: {}\r\n", body.len()));
+    }
+    head.push_str("\r\n");
+    stream
+        .write_all(head.as_bytes())
+        .map_err(|e| format!("write: {e}"))?;
+    stream.write_all(body).map_err(|e| format!("write: {e}"))?;
+    // The head, byte by byte up to the blank line, so no body byte is
+    // consumed here.
+    let mut raw = Vec::new();
+    let mut byte = [0u8; 1];
+    while !raw.ends_with(b"\r\n\r\n") {
+        let n = stream.read(&mut byte).map_err(|e| format!("read: {e}"))?;
+        if n == 0 {
+            return Err("the connection closed before the response head".to_owned());
+        }
+        raw.push(byte[0]);
+    }
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    let mut lines = text.split("\r\n");
+    let status_line = lines.next().unwrap_or("");
+    let status = status_line
+        .split(' ')
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .ok_or(format!("bad status line `{status_line}`"))?;
+    let headers: Vec<(String, String)> = lines
+        .filter_map(|l| l.split_once(':'))
+        .map(|(n, v)| (n.trim().to_ascii_lowercase(), v.trim().to_owned()))
+        .collect();
+    let chunked = headers
+        .iter()
+        .any(|(n, v)| n == "transfer-encoding" && v.contains("chunked"));
+    let socket = stream.try_clone().map_err(|e| e.to_string())?;
+    stream.set_read_timeout(None).map_err(|e| e.to_string())?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("k-test-stream".into())
+        .spawn(move || read_body(stream, chunked, &tx))
+        .map_err(|e| e.to_string())?;
+    Ok(StreamingResponse {
+        status,
+        headers,
+        chunks: rx,
+        socket,
+    })
+}
+
+/// Reads a body to its end, sending each piece of data as it arrives and
+/// then [`StreamChunk::End`]; chunked framing is removed.
+fn read_body(stream: TcpStream, chunked: bool, tx: &std::sync::mpsc::Sender<StreamChunk>) {
+    let mut reader = std::io::BufReader::new(stream);
+    let send = |c: StreamChunk| tx.send(c).is_ok();
+    loop {
+        if chunked {
+            let mut size = String::new();
+            if std::io::BufRead::read_line(&mut reader, &mut size).unwrap_or(0) == 0 {
+                break;
+            }
+            let Ok(n) = usize::from_str_radix(size.split(';').next().unwrap_or("").trim(), 16)
+            else {
+                break;
+            };
+            if n == 0 {
+                break;
+            }
+            let mut data = vec![0u8; n + 2];
+            if reader.read_exact(&mut data).is_err() {
+                break;
+            }
+            data.truncate(n);
+            if !send(StreamChunk::Data(data)) {
+                return;
+            }
+        } else {
+            let mut buf = [0u8; 4096];
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if !send(StreamChunk::Data(buf[..n].to_vec())) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    let _ = send(StreamChunk::End);
+}
+
 /// Runs every exchange of `script` against the server at `addr`, carrying
 /// cookies from `Set-Cookie` responses into later requests.
 ///

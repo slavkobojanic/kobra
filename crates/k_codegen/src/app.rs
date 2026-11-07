@@ -266,6 +266,77 @@ pub(crate) fn page_enum(b: &mut Body<'_, '_>) -> Vec<Stmt> {
     ]
 }
 
+/// `Endpoint$href(e)`: the path of an `Endpoint` value, the endpoint
+/// page's URL template with its path parameters filled in, each encoded
+/// (12-routing.md, "Endpoint pages"). The cases are in the enum's order.
+pub(crate) fn endpoint_href(b: &mut Body<'_, '_>) -> Stmt {
+    let g = b.g;
+    let pages = endpoints(g);
+    let mut cases = Vec::new();
+    let enum_decl = g.view.lookup("k.core.Endpoint");
+    let names: Vec<String> = enum_decl
+        .map(|e| {
+            g.cases(e)
+                .iter()
+                .map(|&c| g.view.member(c).name.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    for (tag, cname) in names.iter().enumerate() {
+        let Some(&p) = pages
+            .iter()
+            .find(|&&p| case_name(&g.view.decl(p).name) == *cname)
+        else {
+            continue;
+        };
+        let ps = params(g, p);
+        let tpl = template(g, p);
+        let mut pieces: Vec<Expr> = Vec::new();
+        let mut rest = tpl.as_str();
+        while let Some(i) = rest.find('{') {
+            pieces.push(js::str(rest[..i].to_owned()));
+            let end = rest[i..].find('}').map_or(rest.len(), |e| i + e);
+            let pname = &rest[i + 1..end];
+            let t = ps
+                .iter()
+                .find(|(_, n, _, _)| n == pname)
+                .map(|(_, _, t, _)| t.clone())
+                .unwrap_or(Type::Error);
+            let x = b.text_of(member(id("e"), pname.to_owned()), &t);
+            pieces.push(call(id("encodeURIComponent"), vec![x]));
+            rest = if end < rest.len() {
+                &rest[end + 1..]
+            } else {
+                ""
+            };
+        }
+        if !rest.is_empty() || pieces.is_empty() {
+            pieces.push(js::str(rest.to_owned()));
+        }
+        let href = pieces
+            .into_iter()
+            .reduce(|a, c| bin("+", a, c))
+            .unwrap_or_else(|| js::str("/"));
+        cases.push(js::Case {
+            tests: vec![Expr::Num(tag as f64)],
+            body: vec![Stmt::Return(Some(href))],
+        });
+    }
+    cases.push(js::Case {
+        tests: Vec::new(),
+        body: vec![Stmt::Return(Some(js::str("/")))],
+    });
+    Stmt::Function(
+        Function {
+            name: "Endpoint$href".into(),
+            params: vec![Param::new("e")],
+            body: js::Body::Block(vec![Stmt::Switch(member(id("e"), "$"), cases)]),
+            ..Function::default()
+        },
+        true,
+    )
+}
+
 /// The generated `ThemeVariant` enum: one case per theme variant (plus
 /// `base`), each the variant's name.
 pub(crate) fn theme_variant_enum(b: &mut Body<'_, '_>) -> Vec<Stmt> {
@@ -297,37 +368,29 @@ fn route_table(g: &Gen<'_>, b: &mut Body<'_, '_>, target: Target) -> Expr {
         let cname = case_name(&g.view.decl(p).name);
         let load = match target {
             Target::Client => {
-                // The page inside its layouts, outermost first, each with
-                // the `k-data` key the server rendered it under (the page
-                // `"0"`, layout `i` `"L{i}"`), so hydration claims the
-                // whole document and reads each one's loads.
-                let keyed = |key: String| {
-                    Expr::Object(
-                        vec![
-                            Prop::Spread(id("ctx")),
-                            Prop::KeyValue("key".into(), js::str(key)),
-                        ],
-                        false,
-                    )
-                };
-                let mut render = call(
+                // The page with the `k-data` key the server rendered it
+                // under (`"0"`), and its layouts, outermost first, which
+                // the router renders around it (layout `i` under `"L{i}"`)
+                // and keeps mounted while the next page shares them, so
+                // hydration claims the whole document and reads each one's
+                // loads (runtime.md §10).
+                let render = call(
                     member(id("m"), name.clone()),
-                    vec![rt("paramProps", vec![id("params")]), keyed("0".into())],
+                    vec![
+                        rt("paramProps", vec![id("params")]),
+                        Expr::Object(
+                            vec![
+                                Prop::Spread(id("ctx")),
+                                Prop::KeyValue("key".into(), js::str("0")),
+                            ],
+                            false,
+                        ),
+                    ],
                 );
-                let layouts = crate::server::layouts_of(b, p);
-                for (i, l) in layouts.iter().enumerate().rev() {
-                    let f = b.decl_ref(*l);
-                    render = call(
-                        f,
-                        vec![
-                            Expr::Object(
-                                vec![Prop::KeyValue("content".into(), js::arrow(vec![], render))],
-                                false,
-                            ),
-                            keyed(format!("L{i}")),
-                        ],
-                    );
-                }
+                let layouts: Vec<Expr> = crate::server::layouts_of(b, p)
+                    .iter()
+                    .map(|l| b.decl_ref(*l))
+                    .collect();
                 js::arrow(
                     vec![],
                     call(
@@ -338,13 +401,16 @@ fn route_table(g: &Gen<'_>, b: &mut Body<'_, '_>, target: Target) -> Expr {
                         vec![js::arrow(
                             vec![Param::new("m")],
                             Expr::Object(
-                                vec![Prop::KeyValue(
-                                    "render".into(),
-                                    js::arrow(
-                                        vec![Param::new("params"), Param::new("ctx")],
-                                        render,
+                                vec![
+                                    Prop::KeyValue("layouts".into(), Expr::Array(layouts)),
+                                    Prop::KeyValue(
+                                        "render".into(),
+                                        js::arrow(
+                                            vec![Param::new("params"), Param::new("ctx")],
+                                            render,
+                                        ),
                                     ),
-                                )],
+                                ],
                                 false,
                             ),
                         )],
@@ -424,7 +490,7 @@ pub(crate) fn client_entry(
     let mut b = Body::new(g, file, Target::Client);
     let routes = route_table(g, &mut b, Target::Client);
     let mut stmts = vec![Stmt::Const("routes".into(), routes)];
-    let (classes, per_route) = client_containers(&mut b, reach);
+    let (classes, per_route) = client_containers(&mut b, reach, &[]);
     stmts.extend(classes);
     let container = call(
         member(id("document"), "getElementById"),
@@ -482,10 +548,17 @@ pub(crate) fn client_entry(
 /// implementation bound for the server, or one nothing injects, is not in
 /// the browser's containers and so not in any client file (codegen.md §16).
 ///
+/// `extra` are further types something injects directly (a test group's
+/// `@Inject` fields and `use` operands, `crate::suite`). In the `.test`
+/// environment an interface without a binding gets the stdlib's
+/// `@TestDefault` for it, and `Clock` is the shared `TestClock`
+/// (21-testing.md, "Test doubles and defaults").
+///
 /// Returns the classes and whether `$Route` exists.
 pub(crate) fn client_containers(
     b: &mut Body<'_, '_>,
     reach: &BTreeSet<DeclId>,
+    extra: &[DeclId],
 ) -> (Vec<Stmt>, bool) {
     use crate::js::{Class, Function, MethodKind};
     use crate::server::{binding, getter, injected, scope_of, this, use_rules};
@@ -578,6 +651,12 @@ pub(crate) fn client_containers(
             }
         }
     }
+    for &t in extra {
+        if !wanted.contains(&t) {
+            wanted.push(t);
+        }
+    }
+    let testing = g.options.environment == crate::Environment::Test;
     let rules = use_rules(g);
     let mut i = 0;
     while i < wanted.len() {
@@ -593,6 +672,11 @@ pub(crate) fn client_containers(
             // The app's `use` rule or single implementation, else the
             // stdlib's default implementation.
             let imp = binding(g, &rules, t).or_else(|| {
+                if testing {
+                    if let Some(d) = test_default(g, t) {
+                        return Some(d);
+                    }
+                }
                 let default = match qualified.as_str() {
                     "k.storage.LocalStorage" => "k.storage.BrowserStorage",
                     "k.http.HttpClient" => "k.http.FetchHttpClient",
@@ -609,6 +693,14 @@ pub(crate) fn client_containers(
                 }
                 None => rt("native", vec![js::str(qualified)]),
             }
+        } else if testing && qualified == "k.time.Clock" {
+            // One virtual clock per test, whichever name reaches it.
+            if let Some(clock) = g.view.lookup("k.test.TestClock") {
+                if !wanted.contains(&clock) {
+                    wanted.push(clock);
+                }
+            }
+            member(this("$a"), "TestClock")
         } else {
             app_memo(&name, platform_service(b, &qualified))
         };
@@ -649,6 +741,21 @@ pub(crate) fn client_containers(
     (out, per_route)
 }
 
+/// The stdlib service marked `@TestDefault(replaces: iface)`: the
+/// hermetic default of `iface` in `k test` (`MemoryStorage` for
+/// `LocalStorage`, `TestHttpClient` for `HttpClient`, …).
+fn test_default(g: &Gen<'_>, iface: DeclId) -> Option<DeclId> {
+    (0..g.view.decls.len())
+        .map(|i| DeclId(u32::try_from(i).unwrap_or(u32::MAX)))
+        .find(|&d| {
+            let info = g.view.decl(d);
+            info.stdlib
+                && info.named_kind() == Some(DeclarationKind::Service)
+                && info.has_annotation("TestDefault")
+                && g.implements(d, iface)
+        })
+}
+
 /// References to the generated stdlib enums `names` (whose cases a
 /// platform service throws or returns), `null` for one that doesn't exist.
 fn enums(b: &mut Body<'_, '_>, names: &[&str]) -> Vec<Expr> {
@@ -680,6 +787,21 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
                 &["k.storage.StorageReadError", "k.storage.StorageWriteError"],
             ),
         ),
+        // The test's one clock, shared with its server container.
+        "k.test.TestClock" => crate::suite::kit_call("sharedClock", vec![]),
+        "k.test.MemoryStorage" => crate::suite::kit_call(
+            "memoryStorage",
+            enums(
+                b,
+                &["k.storage.StorageReadError", "k.storage.StorageWriteError"],
+            ),
+        ),
+        "k.test.TestHttpClient" => crate::suite::kit_call(
+            "testHttpClient",
+            enums(b, &["k.http.HttpError", "k.http.HttpStatus"]),
+        ),
+        "k.test.RecordingJobQueue" => crate::suite::kit_call("recordingJobQueue", vec![]),
+        "k.test.RecordingEmailProvider" => crate::suite::kit_call("recordingEmailProvider", vec![]),
         _ => rt("native", vec![js::str(qualified)]),
     }
 }
@@ -778,8 +900,17 @@ fn load_deps(b: &Body<'_, '_>, init: &ast::Expr, loads: &[MemberId]) -> Vec<Stri
     out
 }
 
-/// The client load group: `$k.createLoads([{ name, after, run }], serialized)`.
-pub(crate) fn client_loads(b: &mut Body<'_, '_>, _d: DeclId, loads: &[MemberId]) -> Expr {
+/// The client load group: `$k.createLoads([{ name, after, run }],
+/// serialized, failed)`. With a `failed` block (`error`, the type it
+/// receives), a server render that failed serialized the error, which
+/// hydration decodes with the error's codec so the group starts FAILED
+/// and the block claims the server's markup (14-async-data.md).
+pub(crate) fn client_loads(
+    b: &mut Body<'_, '_>,
+    _d: DeclId,
+    loads: &[MemberId],
+    error: Option<&Type>,
+) -> Expr {
     let mut specs = Vec::new();
     for &m in loads {
         let mi = b.g.view.member(m).clone();
@@ -848,7 +979,30 @@ pub(crate) fn client_loads(b: &mut Body<'_, '_>, _d: DeclId, loads: &[MemberId])
         ),
         vec![rt("loadsOf", vec![id("ctx")])],
     );
-    rt("createLoads", vec![Expr::Array(specs), serialized])
+    let Some(error) = error else {
+        return rt("createLoads", vec![Expr::Array(specs), serialized]);
+    };
+    // The server wrote the error with its codec (`ssr_failed`), or as its
+    // structural JSON for an error that isn't Codable.
+    let decoded = match error.decl() {
+        Some(e) if crate::codec::has_codec(b.g, e) => {
+            let c = crate::codec::codec_expr(b, error);
+            call(member(c, "decode"), vec![id("$f"), js::str("failed")])
+        }
+        _ => id("$f"),
+    };
+    let failed = call(
+        js::arrow(
+            vec![Param::new("$f")],
+            Expr::Cond(
+                Box::new(bin("==", id("$f"), Expr::Null)),
+                Box::new(Expr::Undefined),
+                Box::new(decoded),
+            ),
+        ),
+        vec![rt("loadsOf", vec![id("ctx"), js::str("failed")])],
+    );
+    rt("createLoads", vec![Expr::Array(specs), serialized, failed])
 }
 
 /// The server's loads: awaited in order before rendering, and serialized

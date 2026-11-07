@@ -1,0 +1,224 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "K",
+  "scopeName": "source.k",
+  "fileTypes": ["k"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#declarations" },
+    { "include": "#annotations" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#members" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.documentation.k",
+          "begin": "///",
+          "end": "$",
+          "patterns": [
+            {
+              "name": "markup.underline.link.k",
+              "match": "\\[`[^`\\]]+`\\]"
+            },
+            {
+              "name": "markup.inline.raw.k",
+              "match": "`[^`]+`"
+            },
+            {
+              "match": "^\\s*(-)\\s+(Parameters?|Returns|Throws)\\b",
+              "captures": {
+                "1": { "name": "punctuation.definition.list.k" },
+                "2": { "name": "keyword.other.documentation.k" }
+              }
+            }
+          ]
+        },
+        {
+          "name": "comment.line.double-slash.k",
+          "begin": "//",
+          "end": "$"
+        },
+        {
+          "name": "comment.block.k",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "patterns": [{ "include": "#block-comment-nested" }]
+        }
+      ]
+    },
+    "block-comment-nested": {
+      "name": "comment.block.k",
+      "begin": "/\\*",
+      "end": "\\*/",
+      "patterns": [{ "include": "#block-comment-nested" }]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "comment": "A declaration: its keyword and its name.",
+          "match": "\\b(component|page|layout|service|protocol|entity|repository|struct|enum|class|interface|theme|app|config|migration|extend)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.k" },
+            "2": { "name": "entity.name.type.k" }
+          }
+        },
+        {
+          "match": "\\b(func|rpc)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.k" },
+            "2": { "name": "entity.name.function.k" }
+          }
+        },
+        {
+          "match": "\\b(test)\\s+([A-Za-z_][A-Za-z0-9_]*|\")",
+          "captures": {
+            "1": { "name": "storage.type.test.k" },
+            "2": { "name": "entity.name.type.k" }
+          }
+        },
+        {
+          "comment": "A theme token: its category word and its name.",
+          "match": "^\\s*(color|space|spacing|radius|font|fontSize|size|shadow|duration)\\s+([a-z][A-Za-z0-9_]*)\\s*:",
+          "captures": {
+            "1": { "name": "storage.modifier.token.k" },
+            "2": { "name": "variable.other.constant.k" }
+          }
+        },
+        {
+          "comment": "Blocks of a component or page.",
+          "match": "\\b(view|style|metadata|loading|failed|variant)\\s*(\\{|\\()",
+          "captures": {
+            "1": { "name": "keyword.other.block.k" },
+            "2": { "name": "punctuation.section.block.begin.k" }
+          }
+        }
+      ]
+    },
+    "annotations": {
+      "match": "(@)([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "punctuation.definition.annotation.k" },
+        "2": { "name": "storage.type.annotation.k" }
+      }
+    },
+    "strings": {
+      "name": "string.quoted.double.k",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.k",
+          "match": "\\\\(?:[nrt0\\\\\"]|u\\{[0-9A-Fa-f]{1,6}\\})|\\{\\{"
+        },
+        {
+          "name": "meta.interpolation.k",
+          "begin": "\\{",
+          "end": "\\}",
+          "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.k" } },
+          "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.k" } },
+          "patterns": [{ "include": "$self" }]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.other.color.k",
+          "match": "#[0-9A-Fa-f]{3,8}\\b"
+        },
+        {
+          "comment": "A number with a unit: 16px, 1.5rem, 200ms, 50%.",
+          "match": "\\b([0-9][0-9_]*(?:\\.[0-9]+)?)(px|rem|em|vh|vw|vmin|vmax|ch|ex|fr|ms|s|deg|rad|turn|%)",
+          "captures": {
+            "1": { "name": "constant.numeric.k" },
+            "2": { "name": "keyword.other.unit.k" }
+          }
+        },
+        {
+          "name": "constant.numeric.k",
+          "match": "\\b(?:0x[0-9A-Fa-f_]+|0b[01_]+|0o[0-7_]+|[0-9][0-9_]*(?:\\.[0-9][0-9_]*)?(?:[eE][+-]?[0-9]+)?)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "constant.language.k",
+          "match": "\\b(true|false|nil)\\b"
+        },
+        {
+          "name": "variable.language.self.k",
+          "match": "\\bself\\b"
+        },
+        {
+          "name": "keyword.control.k",
+          "match": "\\b(if|else|guard|for|in|while|match|case|default|return|throw|try|catch|do|break|continue|await|when|expect)\\b"
+        },
+        {
+          "name": "keyword.operator.word.k",
+          "match": "\\b(and|or|not|is|as|bind|matches)\\b"
+        },
+        {
+          "name": "storage.modifier.k",
+          "match": "\\b(public|private|static|async|throws|implements|requires|where|at|key|use)\\b"
+        },
+        {
+          "name": "storage.type.k",
+          "match": "\\b(let|var|func|init|rpc|import|struct|enum|class|interface|extend|style|component|page|layout|service|protocol|entity|repository|theme|app|config|migration|test|view|metadata|loading|failed|variant|proto)\\b"
+        }
+      ]
+    },
+    "types": {
+      "comment": "Capitalized names are types and declarations.",
+      "name": "entity.name.type.k",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    },
+    "functions": {
+      "comment": "A call: a name followed by an argument list or a trailing block.",
+      "match": "\\b([a-z_][A-Za-z0-9_]*)(\\s*\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.call.k" },
+        "2": { "name": "punctuation.section.arguments.begin.k" }
+      }
+    },
+    "members": {
+      "comment": "A member after `.` or `?.`, implicit members included.",
+      "match": "(\\??\\.)([a-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "punctuation.accessor.k" },
+        "2": { "name": "variable.other.member.k" }
+      }
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.k",
+          "match": "->|=>"
+        },
+        {
+          "name": "keyword.operator.range.k",
+          "match": "\\.\\.<|\\.\\.\\."
+        },
+        {
+          "name": "keyword.operator.k",
+          "match": "\\?\\?|==|!=|<=|>=|\\+=|-=|\\*=|/=|%=|[-+*/%<>=?&~]"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.separator.comma.k", "match": "," },
+        { "name": "punctuation.separator.colon.k", "match": ":" },
+        { "name": "punctuation.terminator.k", "match": ";" }
+      ]
+    }
+  }
+}

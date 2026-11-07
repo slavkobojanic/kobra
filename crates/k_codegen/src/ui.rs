@@ -162,6 +162,31 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                             None,
                         ));
                     }
+                } else if mi.has_annotation("Slot") && init.is_some() {
+                    // An optional slot the parent doesn't fill takes its
+                    // default (`nil`); slots are functions, not thunks.
+                    let (pre, x) = b.capture(|b| init.as_ref().map_or(Expr::Null, |e| b.expr(e)));
+                    let mut set = pre;
+                    set.push(Stmt::Expr(js::assign(
+                        member(id("props"), mi.name.clone()),
+                        x,
+                    )));
+                    stmts.push(Stmt::If(
+                        bin("===", member(id("props"), mi.name.clone()), Expr::Undefined),
+                        set,
+                        None,
+                    ));
+                } else if mi.has_annotation("Stylable") {
+                    // Optional (06-styles.md): a parent that sets nothing
+                    // gives no class.
+                    stmts.push(Stmt::If(
+                        bin("===", member(id("props"), mi.name.clone()), Expr::Undefined),
+                        vec![Stmt::Expr(js::assign(
+                            member(id("props"), mi.name.clone()),
+                            js::arrow(vec![], js::str("")),
+                        ))],
+                        None,
+                    ));
                 } else if mi.has_annotation("State") {
                     let (pre, x) = b.capture(|b| match &init {
                         Some(e) => {
@@ -275,15 +300,21 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             }
             stmts.append(&mut derived);
         } else {
-            let group = crate::app::client_loads(b, d, &loads);
+            let error = failed.as_ref().map(|f| failed_error_type(b, f));
+            let group = crate::app::client_loads(b, d, &loads, error.as_ref());
             stmts.push(Stmt::Const("$loads".into(), group));
         }
     }
     stmts.append(&mut derived);
-    // The page's or layout's metadata, after its loads (22-metadata.md).
-    if ssr {
-        if let Some(calls) = crate::server::metadata_block_calls(&node) {
+    // The page's or layout's metadata, after its loads (22-metadata.md);
+    // in the browser its title, once the loads it reads have values.
+    if let Some(calls) = crate::server::metadata_block_calls(&node) {
+        if ssr {
             let set = crate::server::meta_calls(b, &calls, &member(id("ctx"), "meta"));
+            stmts.extend(set);
+        } else {
+            let ready = (!loads.is_empty()).then(|| call(member(id("$loads"), "values"), vec![]));
+            let set = crate::server::client_title(b, &calls, ready);
             stmts.extend(set);
         }
     }
@@ -412,6 +443,24 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     out
 }
 
+/// The name a `failed(let error)` block binds its error to.
+fn failed_binding(failed: &SyntaxNode) -> Option<k_syntax::SyntaxToken> {
+    failed
+        .children()
+        .find(|c| c.kind() == k_syntax::SyntaxKind::BindingPattern)
+        .and_then(|p| {
+            p.children_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .find(|t| t.kind() == k_syntax::SyntaxKind::Ident)
+        })
+}
+
+/// The type of the error a `failed` block receives (`Type::Error` when it
+/// binds none).
+pub(crate) fn failed_error_type(b: &Body<'_, '_>, failed: &SyntaxNode) -> Type {
+    failed_binding(failed).map_or(Type::Error, |t| b.g.type_at(b.file, t.text_range()))
+}
+
 /// The server's loads of a declaration with a `failed` block: awaited
 /// inside a `try`; a typed error renders the `failed` view (with its own
 /// metadata, which replaces the page's) and is serialized for hydration,
@@ -446,17 +495,8 @@ fn ssr_failed(
         vec![Stmt::Throw(id(&caught))],
         None,
     )];
-    let binding = failed
-        .children()
-        .find(|c| c.kind() == k_syntax::SyntaxKind::BindingPattern)
-        .and_then(|p| {
-            p.children_with_tokens()
-                .filter_map(rowan::NodeOrToken::into_token)
-                .find(|t| t.kind() == k_syntax::SyntaxKind::Ident)
-        });
-    let error_ty = binding
-        .as_ref()
-        .map_or(Type::Error, |t| g.type_at(b.file, t.text_range()));
+    let binding = failed_binding(failed);
+    let error_ty = failed_error_type(b, failed);
     let error = match &binding {
         Some(t) => {
             let js_name = b.bind(t);
@@ -690,6 +730,8 @@ pub(crate) fn service(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         body: js::Body::Block(ctor),
         ..Function::default()
     }];
+    let defaults = crate::decl::stdlib_defaults(b, d, &methods);
+    methods.extend(defaults);
     all.extend(methods);
     vec![Stmt::Class(
         Class {
@@ -734,21 +776,48 @@ pub(crate) fn protocol(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             }
         }
         let ret = sig.as_ref().map(|s| s.ret.clone()).unwrap_or(Type::Error);
-        let decode = if ret.decl() == g.b.void {
-            Expr::Undefined
-        } else {
-            // A struct result is the message itself; anything else is
-            // `{"value": …}` (server.md §6).
-            let c = crate::codec::codec_expr(b, &ret);
-            let message = if crate::server::is_message_struct(g, &ret) {
-                member(id("o"), "message")
+        // A struct result (or stream element) is the message itself;
+        // anything else is `{"value": …}` (server.md §6).
+        let decode_message = |b: &mut Body<'_, '_>, t: &Type, message: Expr| {
+            let c = crate::codec::codec_expr(b, t);
+            let message = if crate::server::is_message_struct(g, t) {
+                message
             } else {
-                member(member(id("o"), "message"), "value")
+                member(message, "value")
             };
             call(member(c, "decode"), vec![message, js::str("value")])
         };
+        // A server stream (29-server-streaming.md): the runtime decodes
+        // each element with `each` and the call returns the open stream.
+        let element = crate::server::stream_element(g, &ret);
+        let options = element.as_ref().map(|t| {
+            let each = js::arrow(vec![Param::new("m")], decode_message(b, t, id("m")));
+            // `streamed` is the runtime's streams chunk (a stdlib symbol of
+            // `k.core`, bundled from `runtime/streams.js`).
+            let streamed = match g.view.lookup("k.core.Stream") {
+                Some(s) => b.use_decl(s, "streamed".into()),
+                None => id("streamed"),
+            };
+            call(streamed, vec![each])
+        });
+        let decode = if element.is_some() {
+            member(id("o"), "message")
+        } else if ret.decl() == g.b.void {
+            Expr::Undefined
+        } else {
+            decode_message(b, &ret, member(id("o"), "message"))
+        };
+        let mut args = vec![js::str(path), Expr::Object(fields, false), id("$c")];
+        args.extend(options);
         let err = sig.as_ref().and_then(|s| s.throws.clone());
         let fail = match err.as_ref().and_then(Type::decl) {
+            // A Codable error's detail is decoded with its codec
+            // (server.md §6), so its payload has its declared types.
+            Some(e) if crate::codec::has_codec(g, e) => {
+                let f = b.decl_ref(e);
+                let c = crate::codec::codec_expr(b, err.as_ref().unwrap_or(&Type::Error));
+                rt("rpcError", vec![id("o"), f, c])
+            }
             Some(e) => {
                 let f = b.decl_ref(e);
                 rt("rpcError", vec![id("o"), f])
@@ -756,13 +825,7 @@ pub(crate) fn protocol(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             None => rt("rpcError", vec![id("o"), Expr::Null]),
         };
         let body = vec![
-            Stmt::Const(
-                "o".into(),
-                Expr::Await(Box::new(rt(
-                    "rpc",
-                    vec![js::str(path), Expr::Object(fields, false), id("$c")],
-                ))),
-            ),
+            Stmt::Const("o".into(), Expr::Await(Box::new(rt("rpc", args)))),
             Stmt::If(
                 member(id("o"), "ok"),
                 vec![Stmt::Return(Some(decode))],
@@ -846,7 +909,7 @@ pub(crate) fn config(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         };
         props.push(Prop::KeyValue(mi.name.clone(), v));
     }
-    vec![Stmt::Function(
+    let mut out = vec![Stmt::Function(
         Function {
             name: format!("{}$load", g.name(d)),
             params: Vec::new(),
@@ -854,7 +917,15 @@ pub(crate) fn config(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             ..Function::default()
         },
         true,
-    )]
+    )];
+    // Tests bind configs to values they build (`use AdminConfig.sample for
+    // AdminConfig`, 25-config-and-secrets.md), with the memberwise
+    // constructor.
+    if g.options.entry == crate::Entry::Tests {
+        b.owner = Some(d);
+        out.push(crate::decl::memberwise_constructor(b, d));
+    }
+    out
 }
 
 /// A repository: a class whose functions run their queries as SQL

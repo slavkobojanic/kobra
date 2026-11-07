@@ -10,7 +10,7 @@
 
 import { claimMarkers, claimRange, isHydrating } from "./hydrate.js";
 import { place } from "./dom.js";
-import { onCleanup } from "./signals.js";
+import { onCleanup, renderEffect } from "./signals.js";
 
 /**
  * Places the nodes `render()` returns between `start` and `end` (a child
@@ -21,7 +21,61 @@ import { onCleanup } from "./signals.js";
  * @param {() => Node|null} render
  */
 export function child(start, end, render) {
-  place(isHydrating() ? claimRange(start, end, render) : render(), end);
+  const outer = slot;
+  slot = [start, end];
+  try {
+    place(isHydrating() ? claimRange(start, end, render) : render(), end);
+  } finally {
+    slot = outer;
+  }
+}
+
+/** The markers of the `child` range being rendered, innermost. */
+let slot = null;
+
+/**
+ * The `[start, end]` markers of the child range whose content is being
+ * rendered: a layout's slot, read by the router so a later navigation can
+ * replace only what is between them.
+ * @returns {[Comment, Comment]|null}
+ */
+export function slotMarkers() {
+  return slot;
+}
+
+/** The titles of what is mounted, outermost first. */
+const titles = [];
+
+/** Shows the innermost title that has a value. */
+function showTitle() {
+  for (let i = titles.length; i--;) {
+    const v = titles[i].v;
+    if (v !== null && v !== undefined && v !== false) {
+      document.title = String(v);
+      return;
+    }
+  }
+}
+
+/**
+ * A `title(_:)` metadata entry in the browser (22-metadata.md): while the
+ * current owner (a page or layout) is mounted, `document.title` is the
+ * innermost mounted title, kept up to date as `get` changes. `get` may
+ * return `null` or `false` while it has no value yet (a page still
+ * loading the data its title reads), which leaves the title below it.
+ * @param {() => unknown} get
+ */
+export function title(get) {
+  const entry = { v: null };
+  titles.push(entry);
+  renderEffect(() => {
+    entry.v = get();
+    showTitle();
+  });
+  onCleanup(() => {
+    titles.splice(titles.indexOf(entry), 1);
+    showTitle();
+  });
 }
 
 /**
@@ -80,14 +134,16 @@ export function withQuery(path, entries) {
 
 /**
  * The serialized `@Load` values of the instance rendered with `ctx`
- * (hydration), or `null`.
+ * (hydration), or `null`; with `key` `"failed"`, the error its server
+ * render failed with instead (`undefined` when it didn't).
  * @param {{data?: any, key?: string}|null} ctx
- * @returns {Record<string, unknown>|null}
+ * @param {string} [key]
+ * @returns {unknown}
  */
-export function loadsOf(ctx) {
+export function loadsOf(ctx, key = "loads") {
   const c = ctx && ctx.data && ctx.data.c;
   const entry = c ? c[ctx.key ?? "0"] : null;
-  return entry ? entry.loads : null;
+  return entry ? entry[key] : null;
 }
 
 /**

@@ -6,14 +6,17 @@
  * generated route table, intercepts internal link clicks and `popstate`,
  * and renders each page in its own scope, disposed when it is left.
  *
- * A route is `{ name, parse(url) → params | null, load() → Promise<{ render(params, ctx) }> }`;
- * `url` is `{ pathname, search }`. The table is sorted by specificity, so
+ * A route is `{ name, parse(url) → params | null, load() → Promise<{ layouts, render(params, ctx) }> }`;
+ * `url` is `{ pathname, search }`; `layouts` are the page's layout
+ * components, outermost first, each called with `{ content }` and its
+ * context. The table is sorted by specificity, so
  * the first route whose `parse` matches wins.
  */
 
 import { hydrate } from "./hydrate.js";
 import { batch, root } from "./signals.js";
 import { splitTarget } from "./std.js";
+import { slotMarkers } from "./view.js";
 
 /** The running router, if any. */
 let router = null;
@@ -21,7 +24,36 @@ let router = null;
 /** An absolute URL's scheme (`https:`, `mailto:`). */
 const SCHEME = new RegExp("^[a-zA-Z][a-zA-Z0-9+.-]*:");
 
-/** Renders the page for `url` into the router's container. */
+/**
+ * Renders the layouts of `page` from level `i` inward, then the page, each
+ * in a root of its own whose disposal `r.mounted` (layouts) and `r.page`
+ * keep; a layout records the markers of its slot when the slot renders.
+ * Returns the outermost node rendered.
+ */
+function mountRoute(r, page, params, ctx, i) {
+  const layouts = page.layouts ?? [];
+  if (i === layouts.length) {
+    return root((dispose) => {
+      r.page = dispose;
+      return page.render(params, ctx);
+    });
+  }
+  return root((dispose) => {
+    const level = { layout: layouts[i], dispose, slot: null };
+    r.mounted[i] = level;
+    const content = () => {
+      level.slot = slotMarkers();
+      return mountRoute(r, page, params, ctx, i + 1);
+    };
+    return layouts[i]({ content }, { ...ctx, key: `L${i}` });
+  });
+}
+
+/**
+ * Renders the page for `url` into the router's container. The layouts it
+ * shares with the mounted page, outermost first, stay mounted: only what
+ * is inside the innermost shared one's slot is disposed and rendered.
+ */
 async function show(url) {
   const r = router;
   if (r === null) return;
@@ -43,21 +75,31 @@ async function show(url) {
   if (id !== r.navigation) return;
   const data = r.data;
   r.data = null;
+  const layouts = page.layouts ?? [];
   batch(() => {
-    if (r.dispose !== null) r.dispose();
-    r.dispose = null;
+    let kept = 0;
+    while (kept < r.mounted.length && kept < layouts.length && r.mounted[kept].layout === layouts[kept]) kept++;
+    r.page?.();
+    r.page = null;
+    while (r.mounted.length > kept) r.mounted.pop().dispose();
+    // Each mounted page gets its route's container (`.route` services).
+    const ctx = { router: r, c: r.c() };
     const container = r.container;
-    root((dispose) => {
-      r.dispose = dispose;
-      // Each mounted page gets its route's container (`.route` services).
-      const ctx = { router: r, c: r.c() };
-      // The first page of a server-rendered document hydrates: it claims
-      // the server's nodes and reads its loads from `k-data`.
-      if (data) return hydrate(container, (h) => page.render(match.params, { ...h, ...ctx }), data);
-      for (const c of [...container.childNodes]) container.removeChild(c);
-      const node = page.render(match.params, ctx);
-      if (node) container.appendChild(node);
-    });
+    // The first page of a server-rendered document hydrates: it claims
+    // the server's nodes and reads its loads from `k-data`.
+    if (data) {
+      hydrate(container, (h) => mountRoute(r, page, match.params, { ...h, ...ctx }, 0), data);
+      return;
+    }
+    const [start, end] = kept ? r.mounted[kept - 1].slot : [null, null];
+    const parent = kept ? end.parentNode : container;
+    for (let n = kept ? start.nextSibling : container.firstChild; n !== null && n !== end;) {
+      const next = n.nextSibling;
+      parent.removeChild(n);
+      n = next;
+    }
+    const node = mountRoute(r, page, match.params, ctx, kept);
+    if (node) parent.insertBefore(node, end);
   });
 }
 
@@ -81,7 +123,7 @@ function linkOf(target, container) {
  * @returns {Promise<void>} settles once the first page is shown
  */
 export function startRouter(routes, container, options) {
-  router = { routes, container, dispose: null, navigation: 0, notFound: options?.notFound ?? null, data: options?.data ?? null, c: options?.c ?? Object };
+  router = { routes, container, mounted: [], page: null, navigation: 0, notFound: options?.notFound ?? null, data: options?.data ?? null, c: options?.c ?? Object };
   const loc = globalThis.location;
   container.addEventListener("click", (e) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;

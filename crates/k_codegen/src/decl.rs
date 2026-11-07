@@ -63,7 +63,14 @@ pub(crate) fn lower(g: &Gen<'_>, d: DeclId, target: Target) -> Option<Item> {
                 DeclarationKind::Function => function_decl(&mut b, d),
                 DeclarationKind::Constant => constant(&mut b, d),
                 DeclarationKind::Struct | DeclarationKind::Entity => struct_decl(&mut b, d),
-                DeclarationKind::Enum => enum_decl(&mut b, d),
+                DeclarationKind::Enum => {
+                    let mut stmts = enum_decl(&mut b, d);
+                    // The app's endpoint pages: their URLs too.
+                    if g.view.lookup("k.core.Endpoint") == Some(d) {
+                        stmts.push(crate::app::endpoint_href(&mut b));
+                    }
+                    stmts
+                }
                 DeclarationKind::Class => class_decl(&mut b, d),
                 DeclarationKind::Interface => interface_decl(&mut b, d),
                 DeclarationKind::Service => {
@@ -80,6 +87,13 @@ pub(crate) fn lower(g: &Gen<'_>, d: DeclId, target: Target) -> Option<Item> {
                 DeclarationKind::Protocol => crate::ui::protocol(&mut b, d),
                 DeclarationKind::Config => crate::ui::config(&mut b, d),
                 DeclarationKind::Repository => crate::ui::repository(&mut b, d),
+                DeclarationKind::TestSuite
+                    if g.options.entry == crate::Entry::Tests
+                        && target == Target::Client
+                        && !info.name.is_empty() =>
+                {
+                    crate::suite::group(&mut b, d)
+                }
                 DeclarationKind::App | DeclarationKind::Migration | DeclarationKind::TestSuite => {
                     Vec::new()
                 }
@@ -301,15 +315,10 @@ fn member_fns(b: &mut Body<'_, '_>, d: DeclId, self_mode: &SelfMode) -> Vec<Stmt
     out
 }
 
-fn struct_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
-    let info = b.g.view.decl(d).clone();
-    if info.has_annotation("Native") {
-        return Vec::new();
-    }
-    b.owner = Some(d);
+/// The memberwise constructor of struct (or config) `d`: one parameter per
+/// stored field, in order, with the field's default.
+pub(crate) fn memberwise_constructor(b: &mut Body<'_, '_>, d: DeclId) -> Stmt {
     let name = b.g.name(d);
-    let mut out = Vec::new();
-    // The memberwise constructor.
     let fields = b.g.stored_fields(d);
     b.push_fn_scope();
     let mut ps = Vec::new();
@@ -317,14 +326,24 @@ fn struct_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     for &f in &fields {
         let mi = b.g.view.member(f).clone();
         let js = b.bind_name(&mi.name, mi.name_range.start());
-        let default =
-            b.g.member_node(f)
-                .and_then(|n| n.children().find_map(ast::Expr::cast))
-                .map(|e| {
-                    let x = b.expr(&e);
-                    let from = b.ty(e.syntax());
-                    b.coerce(x, &from, mi.ty.as_ref().unwrap_or(&Type::Error))
-                });
+        // A stdlib struct's defaults are read from the stdlib's source,
+        // lowered with that file's types (`LineSeries.dashed = false`).
+        let (file, node) = match b.g.member_node(f) {
+            Some(n) => (b.file, Some(n)),
+            None => {
+                b.g.stdlib_member_node(f)
+                    .map_or((b.file, None), |(file, n)| (file, Some(n)))
+            }
+        };
+        let saved_file = std::mem::replace(&mut b.file, file);
+        let default = node
+            .and_then(|n| n.children().find_map(ast::Expr::cast))
+            .map(|e| {
+                let x = b.expr(&e);
+                let from = b.ty(e.syntax());
+                b.coerce(x, &from, mi.ty.as_ref().unwrap_or(&Type::Error))
+            });
+        b.file = saved_file;
         ps.push(Param {
             name: js.clone(),
             default,
@@ -333,15 +352,25 @@ fn struct_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         props.push(Prop::KeyValue(mi.name.clone(), id(js)));
     }
     b.pop_fn_scope();
-    out.push(Stmt::Function(
+    Stmt::Function(
         Function {
-            name: name.clone(),
+            name,
             params: ps,
             body: js::Body::Block(vec![Stmt::Return(Some(Expr::Object(props, false)))]),
             ..Function::default()
         },
         true,
-    ));
+    )
+}
+
+fn struct_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
+    let info = b.g.view.decl(d).clone();
+    if info.has_annotation("Native") {
+        return Vec::new();
+    }
+    b.owner = Some(d);
+    // The memberwise constructor.
+    let mut out = vec![memberwise_constructor(b, d)];
     // Declared initializers.
     for &m in &info.members {
         let mi = b.g.view.member(m).clone();
@@ -461,8 +490,9 @@ fn text_fn(b: &mut Body<'_, '_>, d: DeclId) -> Stmt {
     )
 }
 
-/// Every user interface `d` implements, parents included.
-fn user_interfaces(g: &Gen<'_>, d: DeclId) -> Vec<DeclId> {
+/// Every user interface `d` implements, parents included; with `stdlib`,
+/// also the non-native stdlib interfaces (for their default methods).
+fn user_interfaces(g: &Gen<'_>, d: DeclId, stdlib: bool) -> Vec<DeclId> {
     let mut out: Vec<DeclId> = Vec::new();
     let mut stack: Vec<Type> = g.view.decl(d).implements.clone();
     if let Some(exts) = g.view.extensions_of.get(&d) {
@@ -473,7 +503,11 @@ fn user_interfaces(g: &Gen<'_>, d: DeclId) -> Vec<DeclId> {
     while let Some(t) = stack.pop() {
         let Some(i) = t.decl() else { continue };
         let info = g.view.decl(i);
-        if info.stdlib || info.named_kind() != Some(DeclarationKind::Interface) || out.contains(&i)
+        // With `stdlib`, also the stdlib interfaces whose default methods
+        // have runtime bodies ([`stdlib_default_method`]).
+        if (info.stdlib && (!stdlib || info.has_annotation("Native")))
+            || info.named_kind() != Some(DeclarationKind::Interface)
+            || out.contains(&i)
         {
             continue;
         }
@@ -547,7 +581,7 @@ fn implementation(g: &Gen<'_>, d: DeclId, m: MemberId) -> Option<MemberId> {
 fn adapters(b: &mut Body<'_, '_>, d: DeclId) -> Vec<(Vec<String>, Vec<Stmt>)> {
     let mut out = Vec::new();
     let name = b.g.name(d);
-    for iface in user_interfaces(b.g, d) {
+    for iface in user_interfaces(b.g, d, false) {
         let iname = b.g.name(iface);
         let mut methods = vec![Function {
             kind: MethodKind::Constructor,
@@ -813,10 +847,19 @@ fn class_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         }
     }
     // Interface default methods the class doesn't define.
-    for iface in user_interfaces(b.g, d) {
+    for iface in user_interfaces(b.g, d, true) {
         for m in interface_methods(b.g, iface) {
             let mi = b.g.view.member(m).clone();
-            if !has_body(b.g, m) || methods.iter().any(|f| f.name == b.g.member_name(m)) {
+            if methods.iter().any(|f| f.name == b.g.member_name(m)) {
+                continue;
+            }
+            if b.g.view.decl(iface).stdlib {
+                if let Some(f) = stdlib_default_method(b, iface, m) {
+                    methods.push(f);
+                }
+                continue;
+            }
+            if !has_body(b.g, m) {
                 continue;
             }
             let f = b.g.fn_name(m);
@@ -857,6 +900,71 @@ fn class_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     )];
     out.extend(statics);
     out
+}
+
+/// The methods a service or class `d` gets for the default methods of the
+/// stdlib interfaces it implements and doesn't define itself
+/// ([`stdlib_default_method`]); `existing` are its own methods.
+pub(crate) fn stdlib_defaults(
+    b: &mut Body<'_, '_>,
+    d: DeclId,
+    existing: &[Function],
+) -> Vec<Function> {
+    let mut out = Vec::new();
+    for iface in user_interfaces(b.g, d, true) {
+        if !b.g.view.decl(iface).stdlib {
+            continue;
+        }
+        for m in interface_methods(b.g, iface) {
+            let name = b.g.member_name(m);
+            if existing
+                .iter()
+                .chain(out.iter())
+                .any(|f: &Function| f.name == name)
+            {
+                continue;
+            }
+            if let Some(f) = stdlib_default_method(b, iface, m) {
+                out.push(f);
+            }
+        }
+    }
+    out
+}
+
+/// The method a user type gets for default method `m` of stdlib interface
+/// `iface` when it doesn't define it: the runtime's body of the default
+/// (`HttpClient.fetchJson` is the native `HttpClient$fetchJson` over the type's own
+/// `send`), or `None` for a member without a default.
+fn stdlib_default_method(b: &mut Body<'_, '_>, iface: DeclId, m: MemberId) -> Option<Function> {
+    let qualified = b.g.view.qualified_name(iface);
+    let name = b.g.view.member(m).name.clone();
+    match (qualified.as_str(), name.as_str()) {
+        ("k.http.HttpClient", "fetchJson") => {
+            let error = match b.g.view.lookup("k.http.HttpError") {
+                Some(e) => b.decl_ref(e),
+                None => Expr::Null,
+            };
+            let body = crate::native::http_native(
+                b,
+                "HttpClient",
+                "fetchJson",
+                vec![Expr::This, error, Expr::Spread(Box::new(id("a")))],
+            );
+            Some(Function {
+                name: b.g.member_name(m),
+                params: vec![Param {
+                    name: "a".into(),
+                    default: None,
+                    rest: true,
+                }],
+                body: js::Body::Block(vec![Stmt::Return(Some(body))]),
+                is_async: true,
+                kind: MethodKind::Plain,
+            })
+        }
+        _ => None,
+    }
 }
 
 fn interface_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {

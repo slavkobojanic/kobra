@@ -66,6 +66,7 @@ for await change in changes {
 - **`for await x in stream { … }`** runs the body for each element, in order, and ends when the stream ends. `break` closes the stream.
 - `for await` iterates only a `Stream<T>`, and only in an `async` function. A plain `for` over a `Stream` is a compile error with a quick fix that adds `await`. It takes no `key` clause.
 - **Ending is not an error.** A dropped connection ends the loop like a finished stream. The caller decides whether to subscribe again; a protocol that starts with a snapshot makes re-subscribing safe.
+- **The rpc timeout covers opening the stream only.** The call that opens it fails with `rpcFailure(.timeout)` when no response arrives in time; once it is open, a stream may stay quiet for as long as nothing happens.
 - **Cancellation closes the stream.** When the async effect or function running the loop is cancelled ([03-reactivity.md](03-reactivity.md)), the loop stops at its current `await`, and the server-side producer is cancelled too.
 
 ### Following a stream for the life of a page

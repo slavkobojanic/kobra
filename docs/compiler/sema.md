@@ -62,10 +62,10 @@ stage or milestone that picks it up. A deferred rule's code is assigned when it 
 | Persistence | entity column types | query lambda lowering to `k_db`'s query IR (stage 3), `schema.lock`, migrations |
 | Forms | `.empty`, `form.value`, `@Format`, `@Email`, `@Matches` | — |
 | Config | `@Env`, `Secret<T>` server-only, constraints on config fields | startup validation (runtime) |
-| Jobs | `Job` services server-only, Codable payloads, no session in the graph | `storage.lock` comparison |
+| Jobs | `Job` services server-only, Codable payloads, no session in the graph, payloads vs `storage.lock` (§12.16) | — |
 | Tests | `expect`, `expect throws`, `use` in tests, test-only visibility | — |
 | Doc comments | intra-doc links | type-checking fenced `k` examples |
-| Lockfiles | — | all lockfile comparisons (stage 3) |
+| Lockfiles | `storage.lock` job payloads (K8002, K8003; §12.16) | `routes.lock`, `protocol.lock`, `schema.lock`, `storage.lock` keys |
 
 ---
 
@@ -83,7 +83,7 @@ The API in `crates/k_sema/src/lib.rs` is final; later stages fill in its impleme
 | `Analysis::type_at(file, range)` | The type of the expression, pattern binding or declaration name whose range is exactly `range`, rendered as K type syntax. |
 | `Analysis::resolve_at(file, range)` | What the name, member, element, attribute, CSS property, class, keyframes or token reference at `range` refers to (`Resolution`). |
 | `Analysis::side_of(file, range)` | The server/client side of the top-level declaration whose name token is `range` (`Side`). |
-| `Analysis::program()` | The read-only **program view** (`k_sema::view::ProgramView`) code generation consumes: every declaration and extension (kind, module, file and syntax range, annotations, resolved `implements`, extended type, function signature, constant type, side), every member (kind, flags, field type, signature with labels, defaults and parameter ranges), every generic parameter with its constraints, and extensions by extended type. Ids (`DeclId`, `MemberId`, `GenId`) index its tables for one revision. `ProgramView::resolve` maps a `Resolution` back to ids (members of extensions through the extended type). Built once per revision at the end of the semantic pass; signatures it resolves that no check needed report nothing. |
+| `Analysis::program()` | The read-only **program view** (`k_sema::view::ProgramView`) code generation consumes: every declaration and extension (kind, module, file and syntax range, annotations, resolved `implements`, extended type, function signature, constant type, side), every member (kind, flags, field type, signature with labels, defaults and parameter ranges), every generic parameter with its constraints, and extensions by extended type. Ids (`DeclId`, `MemberId`, `GenId`) index its tables for one revision. `ProgramView::resolve` maps a `Resolution` back to ids (members of extensions through the extended type; a member of a test group that shares its qualified name with the declaration it tests, `test Checkout { }` beside `service Checkout`, by its labels first, so a group helper is never taken for the service's function of the same name). Built once per revision at the end of the semantic pass; signatures it resolves that no check needed report nothing. |
 | `Analysis::type_info_at(file, range)` | Like `type_at`, but the structured `view::Type` (ids into the program view); unresolved inference variables are `Type::Error`. |
 | `Cancelled` | Returned by every query once the host has moved to a newer revision. |
 | `ProjectPath`, `FileKind`, `ModulePath`, `LockfileKind` | The project model (§4). |
@@ -194,7 +194,7 @@ Implemented in `crates/k_sema/src/project.rs`. The layout is fixed ([24-projects
 | `src/<dirs>/<Name>.k` | `Source { module, is_test }` | the module is the dot-joined directories |
 | `src/<dirs>/<Name>.test.k` | `Source { is_test: true }` | same module; see test files below |
 | `migrations/<name>.k` | `Migration` | not a module; holds one `migration` |
-| `protocol.lock`, `routes.lock`, `schema.lock`, `storage.lock`, `k.lock` | `Lockfile` | inputs to lockfile checks (deferred) |
+| `protocol.lock`, `routes.lock`, `schema.lock`, `storage.lock`, `k.lock` | `Lockfile` | inputs to the lockfile checks (§12.16; `storage.lock` job payloads in v0) |
 | any other `.k` file | `Stray` | parsed, then K1001 **v0** |
 | anything else | `Other` | ignored |
 
@@ -807,7 +807,7 @@ Design [19-persistence.md](../design/19-persistence.md).
 **v0**, design [30-background-jobs.md](../design/30-background-jobs.md). A service implementing `Job` is
 server-only; its payload type is `Codable` (K5503's rule applied to jobs, reported as K2009 on the
 payload); `@JobName`, `@Retry`, `@Schedule` check their arguments; the job's dependency graph can't
-reach `Session`/`SessionManager` (**K4009**). `storage.lock` comparison is deferred.
+reach `Session`/`SessionManager` (**K4009**). The job's payload is compared with `storage.lock` (§12.16).
 
 ### 12.14 Tests
 
@@ -821,6 +821,24 @@ nested (`WeatherError.upstream(.serviceUnavailable)`). Test bodies may `use` fak
 
 `Date.now`, `.ago`, `.fromNow` and `Timer` don't exist (K1203 / K1201 like any unknown name). `Clock`
 is injectable everywhere a service is (§12.6). Plain functions take `now: Date`.
+
+### 12.16 Lockfiles
+
+**v0 for job payloads**, design [30-background-jobs.md](../design/30-background-jobs.md#stored-payloads) and
+[36-local-storage.md](../design/36-local-storage.md#file-format); `locks.rs`. The host passes the project's
+lockfiles to the semantic pass beside the K sources. `storage.lock` must be TOML of the documented structure
+(**K8002** at the offending line). Each recorded `[jobs.<name>]` is matched with the program's job of that
+name (`@JobName`, else the job whose qualified name the entry's `declaration` records), and its recorded
+payload shape (`[types."…"]`) is compared with the payload type **by shape, not by name**: a removed or
+renamed field, a changed field type, a new required field, a removed enum case or an optional made required
+is **K8003** at the payload type argument of `implements Job<…>`, one note per change, unless the job
+service is marked `@Breaking("reason")` (a job service accepts `@Breaking`). An optional field, a new enum
+case and a required field made optional are compatible. New jobs and recorded jobs that no longer exist are
+not reported: when the compiler writes lockfiles is open (13-tooling.md). The `[keys.*]` entries
+(`StorageKey` shapes), `protocol.lock` and `routes.lock` checks are still deferred.
+
+`Analysis::file_dependencies(file)` lists the files whose declarations a file's names, types and members
+resolve to; `k test --watch` uses it to find the tests a change affects.
 
 ---
 
@@ -851,7 +869,7 @@ The registry is `crates/k_diagnostics/src/codes.rs`; every code's primary span a
 | K6000–K6999 | persistence | §12.12 |
 | K7000–K7499 | forms and validation | §12.10 |
 | K7500–K7999 | tests | §12.14 |
-| K8000–K8099 | lockfiles | deferred |
+| K8000–K8099 | lockfiles | §12.16 |
 | K8100–K8199 | manifest and packages | driver |
 
 Codes for **v0** checks are registered now so test-first corpus cases can name them. A **deferred**
@@ -899,7 +917,7 @@ planned here or explicitly deferred:
 | Whether a `@Check` function may throw | deferred to the forms phase; v0 requires `async -> Bool` (K2001) |
 | Whether a complete struct value is a valid `@Form` initializer | v0: no, only `.empty(...)` (K7002 names the fix) |
 | Theme cookie in client-rendered apps; `render(...)` argument reactivity | runtime, not checked |
-| `routes.lock`, `protocol.lock`, `schema.lock`, `storage.lock` formats and checks | deferred (stage 3) |
+| `routes.lock`, `protocol.lock`, `schema.lock` checks, `storage.lock` keys | deferred (`storage.lock` job payloads: §12.16) |
 
 ---
 
@@ -1164,3 +1182,41 @@ Each step lands with its corpus cases turning from pending to regular.
    rounds 1a (doc links), 1b and 2 (the job rules of §12.13: K4009 at the job's name with the path in a
    note; the payload's `Codable` rule is `Job`'s generic constraint, K2009 at the type argument).
 7. Stage 3: persistence lowering, lockfiles, codegen.
+
+## 17. Tooling queries
+
+The language server (`crates/k_lsp`, [lsp.md](lsp.md)) answers every request from the same `Analysis`
+snapshots as `k check`, so the editor never disagrees with the compiler (design 13-tooling.md). Besides
+`type_at`, `type_info_at`, `resolve_at`, `side_of` and `program`, the snapshot answers:
+
+| Query | Answer |
+|---|---|
+| `references(&Resolution)` | every span referring to a symbol, project-wide, sorted, without duplicates |
+| `file_references(FileId)` | every resolved reference of a file, sorted by range (the reference under a cursor, document highlights) |
+| `definition(&Resolution)` | where a declaration, member, local, parameter, theme token, style class or keyframes rule is declared; `None` for built-in elements, attributes, events and CSS properties |
+| `implementations(DeclId)` | the declarations implementing an interface or protocol, transitively through other interfaces |
+| `page_url(DeclId)` | a page's URL template: its `at` template, or `/kebab-name` plus its required `@Param`s |
+
+**What is recorded.** Besides the references bodies and signatures record, two kinds of reference are
+recorded for tooling: the **last segment of a bound import** (`Square` in `import geo.Square`, recorded in
+the live chunk when imports are resolved), and **each segment of a resolved doc link** that names
+something (``[`Shape.area`]`` records `Shape` and `area`; ``[`k.http.HttpStatus`]`` records
+`HttpStatus`; a parameter link records a `Parameter`). Rename and find-references therefore cover imports
+and documentation. Module segments of import paths are not symbols and record nothing.
+
+**The reverse index is incremental.** The resolutions of a revision are chunked: one live chunk and one
+body chunk per file, shared by pointer with the previous revision when the file's body facts were
+replayed (§15, `warm.rs`). `refs.rs` indexes chunk by chunk (by target and by file) and keeps the index
+paired with its chunk, so the next revision reuses the index of every chunk it shares. After a body edit
+only the edited file's chunk and the live chunk are indexed again (`host.rs` tests it). The index is
+built by the first tooling query of a revision, never by the check, so `k check` doesn't pay for it.
+
+**Definitions are spelled like their references.** For every reference whose definition is known, the
+text at the reference equals the text at the definition, with one exception: a page case of `Page` or
+`Endpoint` (`.signIn`) is defined by its page (`SignIn`). `crates/k_sema/tests/tooling.rs` checks this
+over every example app and over well-typed generated projects (a proptest); it is what makes rename a
+plain text replacement at each reference.
+
+**Known limits.** A test suite named like the declaration it tests shares its display name, and
+`ProgramView::resolve` answers the first of the two (the tested declaration). A generated member other
+than a page case (`copy(…)`) has no definition.

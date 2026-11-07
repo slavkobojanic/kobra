@@ -10,7 +10,7 @@
 //! |---|---|
 //! | 0 | Success: no problems found. |
 //! | 1 | The command ran and found problems (diagnostics, failing tests). |
-//! | 2 | Usage error, unimplemented command, or an internal error. |
+//! | 2 | Usage error or an internal error. |
 //!
 //! When the executable carries an appended app (it is a `dist/app` built by
 //! `k build`), it runs that app instead: see `app_mode`.
@@ -21,7 +21,11 @@ mod build;
 mod check;
 mod cli;
 mod debug;
+mod migrate;
+mod project;
+mod routes;
 mod sources;
+mod test;
 
 use std::process::ExitCode;
 
@@ -42,18 +46,14 @@ fn main() -> ExitCode {
         Command::Build(args) => build::build(&args),
         Command::Run(args) => build::run(&args),
         Command::Dev(args) => build::dev(&args),
-        Command::Test => not_implemented("test"),
-        Command::Routes => not_implemented("routes"),
+        // The language server speaks JSON-RPC on stdin/stdout until `exit`.
+        Command::Lsp => ExitCode::from(u8::try_from(k_lsp::run_stdio()).unwrap_or(1)),
+        Command::Test(args) => test::run(&args),
+        Command::Routes(args) => routes::run(&args),
         Command::Migrate { command } => match command {
-            MigrateCommand::New { .. } => not_implemented("migrate new"),
-            MigrateCommand::Apply => not_implemented("migrate apply"),
-            MigrateCommand::Status => not_implemented("migrate status"),
+            MigrateCommand::New(args) => migrate::new(&args),
+            MigrateCommand::Apply(args) => migrate::apply(&args),
+            MigrateCommand::Status(args) => migrate::status(&args),
         },
     }
-}
-
-/// Reports that a subcommand exists but is not implemented yet.
-fn not_implemented(command: &str) -> ExitCode {
-    eprintln!("error: `k {command}` is not implemented yet");
-    ExitCode::from(2)
 }

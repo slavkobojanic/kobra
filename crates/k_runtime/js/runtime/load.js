@@ -33,13 +33,17 @@ export const FAILED = 3;
  * current owner: disposing it cancels every running load.
  * @param {LoadSpec[]} loads in dependency order
  * @param {Record<string, unknown>|null} serialized values from `k-data` during hydration
+ * @param {unknown} [failed] the error a server render failed with (from
+ *   `k-data`, decoded): the group starts FAILED with it, and like a
+ *   hydrated group runs nothing until an input changes or `reload()`
  * @returns {{state: () => number, values: () => Record<string, unknown>|null, error: () => unknown, reload: () => void}}
  */
-export function createLoads(loads, serialized) {
+export function createLoads(loads, serialized, failed) {
   const owner = getOwner();
-  const state = signal(serialized ? READY : LOADING);
+  const hydrated = serialized || failed !== undefined;
+  const state = signal(serialized ? READY : hydrated ? FAILED : LOADING);
   const values = signal(serialized ? { ...serialized } : null);
-  const error = signal(null);
+  const error = signal(serialized ? null : failed ?? null);
   let generation = 0;
   let controllers = [];
   let runScope = null;
@@ -143,7 +147,7 @@ export function createLoads(loads, serialized) {
     generation++;
     cancel();
   });
-  if (serialized) {
+  if (hydrated) {
     // Hydrated: nothing runs until an input changes or `reload()`.
     for (const spec of loads) {
       if (typeof spec.inputs === "function") track(spec.inputs);

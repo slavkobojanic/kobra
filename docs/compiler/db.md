@@ -283,8 +283,9 @@ Reading an unloaded relation panics with the relation's name ("`Note.tags` was n
   serialize up front instead of failing with `SQLITE_BUSY`).
 - **Commit hooks** (jobs enqueued, broadcasts) fire when the outermost transaction commits and are
   discarded on rollback (design 19). *Planned*: v0 publishes broadcasts immediately.
-- **Tests** (`k test`, planned): each test runs inside a transaction that is rolled back; the app's
-  outermost transaction becomes a savepoint inside it.
+- **Tests** (`k test`, testing.md §8.4): each test gets a fresh in-memory SQLite database with every
+  migration applied (`op_k_test_reset`). That has the semantics of the rolled-back transaction design 21
+  describes, which a test can't tell apart, while the app's own commits and commit hooks stay real.
 
 ---
 
@@ -316,9 +317,26 @@ Reading an unloaded relation panics with the relation's name ("`Note.tags` was n
   message }`; `dist/app` reports it and exits 1 before opening its port.
 - **Concurrency** on Postgres: `apply` holds `pg_advisory_lock(ADVISORY_LOCK_KEY)` while migrating, so
   replicas starting together apply each migration once (tested with four).
-- **`k migrate new`** (planned): diff the entities against `schema.lock`, write the next file and update
-  the lock; renames never inferred; dropping requires the column to be retired by an earlier migration
+- **`k migrate new "description"`** (`k_codegen::plan_migration`, `migration.rs`): compares the persistence
+  model (the same one the repositories use, so names follow the lock) with `schema.lock` and writes
+  `migrations/NNNN_<words>.k` (the next number after the lock's list and the existing files) and the
+  updated lock in `SchemaLock::to_toml`'s canonical layout. It writes `createTable` for a new entity
+  (referenced tables first; `references` implies the index), `alterTable { addColumn … }` for a new field
+  with its literal default as `defaultValue` or `.nullable(true)` for an optional one, `createIndex` for a
+  new `@Index`, and records a removed field's column as `retired` (field dropped, name kept) with a comment
+  in the migration. It refuses, writing nothing and explaining each change (exit 1): a required field
+  added to an existing table without a default, a removed field whose column is `NOT NULL` without a
+  default (the next release's inserts would fail), a changed column type or option, an enum case added or
+  removed (the builder's case operations need a table rebuild on SQLite), and a removed entity. Renames are
+  never inferred (a renamed field reads as a removal and an addition). Matching entities print `nothing to
+  migrate`. `--empty` writes a migration with an empty `up` for data changes. Dropping retired columns
+  (`--drop-retired`) and physical renames (`--rename`) are not implemented yet
   ([19-persistence.md](../design/19-persistence.md#rolling-deploys-expand-then-contract)).
+- **`k migrate status` / `k migrate apply`** build the project for development and open the database of
+  `DATABASE_URL` (and `DATABASE_PASSWORD`) from the environment or the project's `.env`, as `k run` would:
+  `status` prints `applied  <name>` or `pending  <name>` for each migration of the build without changing
+  anything; `apply` applies the pending ones (`applied migration <name>`, or `the database is up to date`).
+  No `DATABASE_URL` is exit 1.
 
 ---
 

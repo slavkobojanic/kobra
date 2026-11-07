@@ -32,6 +32,9 @@
 #                    fixed point or 400 invalid_argument, never 500
 #   http_request     bytes are written raw to the fuzz app's server:
 #                    well-formed answers, never 500, still serving
+#   lsp_edits        bytes drive random edits and requests through an
+#                    in-process language server on an example document:
+#                    one well-formed response per request, never a crash
 #
 # The V8 targets link the prebuilt V8 of `deno_core`; point
 # RUSTY_V8_ARCHIVE at the archive the stable build downloaded
@@ -40,7 +43,8 @@
 # The syntax invariants live in crates/k_syntax/tests/support/oracle.rs and
 # the grammar generator in crates/k_syntax/tests/support/kgen.rs; the
 # semantic invariants in crates/k_sema/tests/support/soracle.rs and the typed
-# generator in crates/k_sema/tests/support/tgen.rs; the stage 3 oracles and
+# generator in crates/k_sema/tests/support/tgen.rs; the language-server driver in
+# crates/k_lsp/tests/support/driver.rs; the stage 3 oracles and
 # generators in crates/k_server/tests/support/. All are shared with the
 # stable property tests (crates/k_syntax/tests/properties.rs,
 # crates/k_sema/tests/properties.rs, crates/k_server/tests/differential.rs).
@@ -69,6 +73,8 @@ k_sema = { path = "../crates/k_sema" }
 k_codegen = { path = "../crates/k_codegen" }
 k_server = { path = "../crates/k_server" }
 k_db = { path = "../crates/k_db" }
+k_lsp = { path = "../crates/k_lsp" }
+lsp-types = "0.95.1"
 serde_json = "1.0"
 
 [[bin]]
@@ -144,6 +150,13 @@ bench = false
 [[bin]]
 name = "http_request"
 path = "fuzz_targets/http_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lsp_edits"
+path = "fuzz_targets/lsp_edits.rs"
 test = false
 doc = false
 bench = false

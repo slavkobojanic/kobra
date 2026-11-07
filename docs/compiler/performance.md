@@ -5,7 +5,8 @@ what the profiles say. The budgets themselves are defined in
 [architecture.md §12](architecture.md#12-performance-budgets); the benchmark conventions are in
 [testing.md §9](testing.md#9-benchmarks-and-performance-budgets). Sections 1–9 cover the syntax layer
 (lexer, parser, tree sink); [§10](#10-semantic-analysis) covers semantic analysis (`k check`);
-[§11](#11-stage-3-runtime-and-server) covers the JavaScript runtime and the server.
+[§11](#11-stage-3-runtime-and-server) covers the JavaScript runtime and the server; [§12](#12-language-server)
+the language server.
 
 Contents:
 
@@ -20,6 +21,7 @@ Contents:
 9. [History](#9-history)
 10. [Semantic analysis](#10-semantic-analysis)
 11. [Stage 3: runtime and server](#11-stage-3-runtime-and-server)
+12. [Language server](#12-language-server)
 
 ---
 
@@ -35,6 +37,7 @@ cargo bench -p k_syntax -- --baseline main            # compare a change against
 K_BUDGET_SCALE=0.5 scripts/bench-check.sh             # slower machine: enforce half the throughput
 scripts/bench-check.sh --sema                         # only the semantic budgets (--syntax: only syntax)
 scripts/bench-check.sh --codegen --server --app       # stage 3 areas (also --runtime, --db); see §11.1
+scripts/bench-check.sh --lsp                          # the language server; see §12.1
 cargo bench -p k_sema                                 # semantic criterion benchmarks
 cargo bench -p k_sema -- '^warm_body/'                # one group
 cargo bench -p k_codegen                              # code generation criterion benchmarks
@@ -605,13 +608,16 @@ Measured 2026-11-07, release build, 14-core Apple M-series:
 
 | Budget | Value | Status |
 |---|---|---|
-| Codegen ≥ 200,000 lines/s single-threaded (codegen.md §20) | 500,000 lines/s (100k lines: 200 ms, 4.8 MB of JS/CSS in 280 files); criterion `emit/realistic/100k` 201 ms | met (was 41,000 before §11.4) |
+| Codegen ≥ 200,000 lines/s single-threaded (codegen.md §20) | 438,000 lines/s (100k lines: 228 ms, 5.2 MB of JS/CSS in 280 files); criterion `emit/realistic/100k` 201 ms before this round | met (was 41,000 before §11.4; 500,000 for 4.8 MB before the client titles, layout tables, failed-load decoders and stdlib struct defaults made the output 8% larger) |
 | Codegen linear in project size (10k → 100k ≤ 14×) | 10.7× | met (was 55×) |
-| Cold `k build` of 100k lines ≤ 2.5 s, codegen ≤ 0.6 s of it | 314 ms (check 113 ms + codegen 201 ms) on 8 threads | met |
-| Client runtime ≤ 5 KB core / ≤ 10 KB full (compressed) | core 36.6 KB raw, 16.9 KB compacted, **4,794 B** gzip; full 71.0 KB raw, 35.1 KB compacted, **10,239 B** gzip (budget 10,240); stdlib bodies **10,214 B** (budget 10,240) | met, **1 byte of headroom** on the full runtime and 26 on the stdlib bodies. This round's client changes (`RpcFailure` tagged in declaration order with real `GuardRejection` and `ValidationError` payloads, `Retry-After` read into the rpc outcome) were paid for inside the RPC client: the error outcome dropped its unread `status` and `message` fields and the body is parsed in one expression. `HTTP_CODES`/`httpCode` moved the status table into `std.js`, where `services.js` now imports it instead of keeping a copy. The next client feature needs a size cut first |
-| Browser services ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | `services.js` 9.8 KB raw, 5.5 KB compacted, **2,318 B** gzip | met |
-| Stdlib bodies ≤ 10 KB | 64.4 KB raw, 34.9 KB compacted, 10,214 B gzip | met (26 B headroom; see the client runtime row) |
-| Shipped `runtime.<hash>.js` (full runtime + stdlib + browser services) ≤ 23 KB | 73,209 B raw, **21,188 B** gzip | met. **Budget change, justified:** the chunk's budget was defined as the sum of its parts' budgets (`FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET`, 20 KB) and the chunk has gained a part, the browser's DI support and the client bodies of `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient` and `Session` (`services.js`). Without them every page that injects anything failed in the browser, so they are not optional, and like the stdlib bodies they grow with the stdlib, not the framework; they get their own 3 KB budget, and the chunk's budget stays the sum of its parts (23 KB). No existing part's budget was raised. The 17,683 B measured earlier was stale: before this change the chunk was about 19.2 KB |
+| Cold `k build` of 100k lines ≤ 2.5 s, codegen ≤ 0.6 s of it | 332 ms (codegen 230 ms) on 8 threads | met |
+| Client runtime ≤ 5 KB core / ≤ 10 KB full (compressed) | core 37.3 KB raw, 14.9 KB compacted, **4,550 B** gzip; full 76.2 KB raw, 30.8 KB compacted, **9,863 B** gzip (budget 10,240; was 9,778: `unitCase` interning and a server failure's `request.email` path mapped to the form's `email`) | met, **377 B of headroom** (462 B before this round, 1 B before that). The cut (§11.4, "Runtime size"): the compactor drops the spaces and line breaks that separate no tokens, which saved 520 B on the full runtime and 495 B on the stdlib bodies; the budget now measures the parts as the runtime chunk ships them, without the links between files that the bundler removes (`index.js`'s re-exports and every `import` line, 344 B); and server streams in the browser moved to a chunk of their own (`streams.js`), which only apps with a streaming rpc ship. This round's client features were paid for inside the cut: layouts kept across navigations and `document.title` (`router.js`, `view.js`), hydrating a failed `@Load` (`load.js`), the hydration claim of a native component (`claimRaw`), codec-decoded typed errors (`rpc.js`) |
+| Browser services ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | `services.js` 11.1 KB raw, 5.3 KB compacted, **2,340 B** gzip (was 2,124: the browser's `EmailAddress` natives and `FetchHttpClient`'s `HttpHeaders`) | met |
+| Stdlib bodies ≤ 10 KB | 66.4 KB raw, 31.0 KB compacted, **9,837 B** gzip | met, **403 B of headroom** (was 26 B), after adding `TimeZone`, `PushStream`'s end and `return`, and codec `payloadFields` |
+| `k.charts` ≤ 3 KB (`CHARTS_SIZE_BUDGET`) | `charts.js` 8.9 KB raw, 5.1 KB compacted, **2,306 B** gzip | met. **New budget, justified:** `LineChart` (37-charts.md) is the first stdlib component the runtime draws, on both sides, and only apps that chart anything use it, so it ships as a chunk of its own (`charts.[hash].js`) to those apps only and counts against no existing budget; like the browser services it grows with the stdlib, not with the framework. 3 KB leaves room for the other chart kinds design 37 lists |
+| Server streams in the browser ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | `streams.js` 3.2 KB raw, 1.1 KB compacted, **569 B** gzip | met. **New budget, justified:** reading a server stream (29-server-streaming.md) is needed only by apps with a streaming rpc (notes, of the examples), so it ships as `streams.[hash].js` to those apps only; the budget is about twice what it is today |
+| `HttpResponse` in the browser ≤ 1.5 KB (`HTTP_SIZE_BUDGET`) | `http.js` 7.3 KB raw, 3.0 KB compacted, **1,175 B** gzip | met. **New budget, justified:** building and reading an `HttpResponse` alike on both sides (a test fake of `HttpClient` builds responses that the code under test reads, 32-http-client.md) first put these bodies in the stdlib bodies, which then measured 10,720 B against their 10,240 B budget. Instead of raising that budget they moved to a feature chunk of their own, like `charts` and `streams`: only apps whose client code builds or reads a response ship it (the examples' production builds don't; their test bundles do), so it counts against no other part, and the stdlib bodies are back at 9,837 B. The server has the same bodies in `$s.natives`
+| Shipped `runtime.<hash>.js` (full runtime + stdlib + browser services) ≤ 23 KB | 67,212 B raw, **21,053 B** gzip (was 20,795; the browser's `EmailAddress` natives, `unitCase` interning and the form's mapping of a server failure's path) | met; the feature chunks are separate files (weather's `charts` 2,352 B gzip, notes' `streams` 597 B). **Budget change (stage 3b), justified:** the chunk's budget was defined as the sum of its parts' budgets (`FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET`, 20 KB) and the chunk gained a part, the browser's DI support and the client bodies of `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient` and `Session` (`services.js`). Without them every page that injects anything failed in the browser, so they are not optional, and like the stdlib bodies they grow with the stdlib, not the framework; they get their own 3 KB budget, and the chunk's budget stays the sum of its parts (23 KB). No existing part's budget was raised |
 | Signal write to DOM text update ≤ 1 µs per binding | 86 ns | met |
 | Signal propagation ≤ 1 µs per write (diamond of 3 computeds + effect) | 280 ns (3.6 M writes/s); a write without readers 4 ns | met |
 | Replacing a 1,000-row keyed list ≤ 20 ms | 1.65 ms (create 2.05, update every 10th 0.15, swap 0.05, remove 0.10, append 1,000 3.55, clear 0.50) | met |
@@ -659,11 +665,33 @@ executable, later ones 50–70 ms for the examples.
   that quadratic cost instead of the runtime. Children are now a doubly linked list as in browsers;
   `childNodes` is an array snapshot rebuilt after a mutation. Every runtime JS test passes unchanged.
 
+- **Runtime size** (this round, before → after on the full client runtime / the stdlib bodies, gzip):
+  1. *Compaction* (`k_runtime::compact`): a space now survives only between two characters that would
+     otherwise merge into one token (two word characters, `+ +`, `- -`, `/ /`, `/ *`, `< !`, `- >`, a digit
+     before `.`), and a line break only where automatic semicolon insertion could read it: it is dropped
+     after a character that can't end an expression (`{ ( , ; [ : = ? & | ! ~ * % < > ^`) and before one
+     that can't start a statement (`) ] } , ; : ? = & | * % < > ^`, a `.` not after a digit). Restricted
+     productions (`return\nx`, `i++\nj`) and statements that start with `(`, `[`, `+`, `-`, `!` or a
+     literal keep their line break. 10,239 → 9,719 B and 10,214 → 9,719 B. Every runtime JS test now also
+     runs against the compacted runtime (`… (compacted)`, testing.md §4.1), and the release-build browser
+     tests of the examples run on it.
+  2. *Measuring what ships*: the runtime chunk never contained the `import` lines and `index.js`'s
+     re-exports, which the bundler strips; the budget test counted them. `compacted_sources` strips them
+     the same way (`k_runtime::strip_links`, shared with the bundler): 344 B of the full runtime.
+  3. *Feature chunks*: `streams.js` (569 B) and `charts.js` (2,306 B) are separate chunks shipped only to
+     apps that use them.
+  Repeated `;}` and line breaks after `}` were measured too: removing them would save under 50 B after
+  gzip, not worth the parser they need.
+- **`ServerBroadcast` elements** crossed worker isolates as structural JSON, so an element with a `Date`
+  or a `Uuid` (a `NoteChange`) failed the stream's encoder and ended the stream at its first published
+  element. They now cross in their codec's encoding (codegen.md §15).
+
 ### 11.5 Open costs
 
-- The full client runtime is 1 byte under its gzip budget. Candidates for a cut: the release-build name
-  shortener (deferred in codegen.md §1) and moving rarely used `std.js` bodies into the page chunks that
-  call them.
+- The full client runtime has 462 B of gzip headroom and the stdlib bodies 403 B. The next candidates
+  for a cut: the release-build name shortener (deferred in codegen.md §1), and more feature chunks
+  (`forms.js` is 1.5 KB gzip and only apps with a `@Form` need it; rarely used `std.js` bodies could move
+  into the page chunks that call them).
 - Hydration and keyed lists are measured against the test DOM, not a browser. A browser run through the
   DevTools protocol (architecture.md §13) should re-baseline them when it exists.
 - `dist/app` cold start creates one isolate per core without a V8 snapshot (about 3.4 ms each, in
@@ -678,3 +706,76 @@ executable, later ones 50–70 ms for the examples.
 | 2026-11-07 | codegen, keyed list, hydration, SSR load and `dist/app` benchmarks | 86 ns | 34 ms in process, 44 ms `dist/app` | 45 µs | 124,000 | 41,000 lines/s | 26 ms |
 | 2026-11-07 | §11.4 codegen point queries | 86 ns | 34 ms | 45 µs | 124,000 | 500,000 lines/s | 26 ms |
 | 2026-11-07 | async session load and guards, jobs worker, outgoing HTTP/SMTP | 80 ns | 44 ms `dist/app` (weather and shop) | 45 µs | 121,600 (generated 124,300) | — | 23 ms |
+| 2026-11-07 | runtime size cut, feature chunks, client streams, kept layouts, titles, charts | 86 ns | 47.6 ms `dist/app` weather | 46 µs | 122,700 (generated 115,400) | 438,000 lines/s | — |
+
+---
+
+## 12. Language server
+
+### 12.1 Running
+
+```sh
+scripts/bench-check.sh --lsp
+cargo test --release -p k_lsp --test perf_budget -- --ignored --nocapture --test-threads=1
+```
+
+### 12.2 Method
+
+The input is the realistic 100k-line project of [§10.2](#102-inputs) (1,369 files). The editor-facing
+features are timed at the `ide` layer on a snapshot (`k_lsp::ide`, the code every request runs on a
+worker; the JSON conversion of a result is a few microseconds and is not included), at the start of every
+resolved reference of two files (feature 0's service and page: 246 positions), after the snapshot has
+answered `diagnostics` and one warm-up request has built the revision's reverse index. Each feature's p50
+and p95 over those positions are compared with its budget. A sanity check requires nearly every hover to
+answer and at least half the definitions to have a location (the rest are built-in elements and CSS
+properties).
+
+**Hover after a body edit** applies the warm body edit of §10.2 and times the change plus the first hover
+on the new revision, which includes the warm re-check and re-indexing the edited file's references (best of
+20). **Diagnostics after a keystroke** runs the whole server in process over channel-backed streams with the
+default configuration (30 ms debounce, four workers): the time from writing a `didChange` that alternately
+adds and removes a type error in a function body to reading that file's `publishDiagnostics`, over 20
+edits.
+
+| Check | Budget | Source |
+|---|---|---|
+| hover, warm | p50 ≤ 2 ms, p95 ≤ 10 ms | this section |
+| go to definition, warm | p50 ≤ 2 ms, p95 ≤ 10 ms | this section |
+| find references (project-wide), warm | p50 ≤ 5 ms, p95 ≤ 20 ms | this section |
+| completion, warm | p95 ≤ 50 ms | architecture.md §12 |
+| hover as the first request after a body edit | ≤ 60 ms | this section: two warm body re-checks (30 ms each) |
+| diagnostics after a keystroke, end to end | p95 ≤ 100 ms | architecture.md §12 |
+
+The budgets introduced here are new: "a few milliseconds" warm for point queries, which is what makes
+hover and go-to-definition feel instantaneous, and the first query after an edit bounded by twice the warm
+re-check budget, since it pays for that re-check.
+
+### 12.3 Budget status
+
+Measured 2026-11-07, same machine as [§4](#4-budget-status), release build.
+
+| Check | Measured | Budget | Status |
+|---|---|---|---|
+| hover, warm | p50 **0.004 ms**, p95 **0.005 ms** | p50 ≤ 2 ms, p95 ≤ 10 ms | met |
+| go to definition, warm | p50 **0.004 ms**, p95 **0.004 ms** | p50 ≤ 2 ms, p95 ≤ 10 ms | met |
+| find references, warm | p50 **0.025 ms**, p95 **13.2 ms** | p50 ≤ 5 ms, p95 ≤ 20 ms | met, 1.5x headroom at p95 |
+| completion, warm | p50 **0.33 ms**, p95 **0.38 ms** | p95 ≤ 50 ms | met |
+| hover after a body edit | **20.8 ms** | ≤ 60 ms | met, 2.9x headroom |
+| diagnostics after a keystroke | p50 **54.7 ms**, p95 **56.1 ms** (30 ms of it debounce) | p95 ≤ 100 ms | met, 1.8x headroom |
+
+**Why point queries are microseconds.** `symbol_at` reads the file's references from the reverse index (one
+hash probe per resolution chunk, 1,369 of them, about 4 µs) and binary-searches them; definitions and
+signatures come from the program view, which the check already built. The reverse index itself is built
+once per revision on the first tooling query (sema.md §17) and reuses the index of every file whose body
+facts were replayed, so after a body edit only the edited file and the live chunk are indexed again: that
+is most of the difference between the 16.8 ms warm re-check (§10.4) and the 20.8 ms first hover.
+
+**The p95 of references** is the handful of positions naming symbols used everywhere (prelude types such
+as `Int` and `String`, thousands of references), where collecting and sorting the spans dominates. Results
+that large would be capped or streamed (`partialResult`) if a budget ever needed it.
+
+### 12.4 History
+
+| Date | Change | hover p50 | references p95 | completion p95 | keystroke p95 |
+|---|---|---|---|---|---|
+| 2026-11-07 | language server and budgets introduced | 0.004 ms | 13.2 ms | 0.38 ms | 56.1 ms |

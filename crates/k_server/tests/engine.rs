@@ -177,3 +177,99 @@ fn no_ambient_io_is_exposed() {
         Some("undefined,undefined,undefined,undefined")
     );
 }
+
+/// A test engine (`k test`): `op_k_test_reset` gives every test a fresh
+/// process (sessions, rate limits, shared state) and a fresh in-memory
+/// database with the build's migrations applied.
+#[test]
+fn a_test_reset_gives_a_fresh_database_and_fresh_sessions() {
+    use k_db::manifest::DbManifest;
+    use k_db::migrate::Migration;
+    let manifest = DbManifest {
+        migrations: vec![Migration {
+            name: "0001_notes".into(),
+            sqlite: vec!["CREATE TABLE notes (title TEXT NOT NULL)".into()],
+            postgres: vec!["CREATE TABLE notes (title TEXT NOT NULL)".into()],
+        }],
+        ..DbManifest::default()
+    };
+    let mut e = engine(vec![]);
+    e.set_test_database(Some(manifest));
+    let r = e
+        .run_main(
+            "const ops = Deno.core.ops;\n\
+             ops.op_k_test_reset();\n\
+             const id = await ops.op_k_session_create(\"ada\", []);\n\
+             const before = (await ops.op_k_session_get(id)) !== null;\n\
+             await ops.op_k_db_ping(1000);\n\
+             ops.op_k_test_reset();\n\
+             const after = (await ops.op_k_session_get(id)) !== null;\n\
+             const db = await ops.op_k_db_ping(1000);\n\
+             ops.op_k_set_result(JSON.stringify([before, after, db]));\n",
+        )
+        .expect("runs");
+    assert_eq!(r.as_deref(), Some("[true,false,true]"));
+}
+
+/// Without a test database, a reset still renews the process, and the
+/// app has no database.
+#[test]
+fn a_test_reset_without_a_database_has_none() {
+    let mut e = engine(vec![]);
+    let r = e
+        .run_main(
+            "const ops = Deno.core.ops;\n\
+             ops.op_k_test_reset();\n\
+             ops.op_k_set_result(String(await ops.op_k_db_ping(1000)));\n",
+        )
+        .expect("runs");
+    assert_eq!(r.as_deref(), Some("false"));
+}
+
+/// `op_k_test_tick` lets a completed op deliver its result between runs of
+/// microtasks (the kit's idle rounds), which microtasks alone never do.
+#[test]
+fn a_test_tick_lets_completed_ops_deliver() {
+    let mut e = engine(vec![]);
+    let r = e
+        .run_main(
+            "const ops = Deno.core.ops;\n\
+             let done = false;\n\
+             ops.op_k_password_hash(\"correct horse\").then(() => { done = true; });\n\
+             for (let i = 0; i < 1000; i++) await null;\n\
+             const before = done;\n\
+             for (let i = 0; i < 1000000 && !done; i++) await ops.op_k_test_tick();\n\
+             ops.op_k_set_result(JSON.stringify([before, done]));\n",
+        )
+        .expect("runs");
+    assert_eq!(r.as_deref(), Some("[false,true]"));
+}
+
+/// In a test, the rate limiter counts on the test's virtual clock (the
+/// optional `nowMs`), so advancing the `TestClock` past the window allows
+/// calls again; with and without a database.
+#[test]
+fn rate_limits_follow_the_virtual_clock_in_tests() {
+    for database in [false, true] {
+        let mut e = engine(vec![]);
+        if database {
+            e.set_test_database(Some(k_db::manifest::DbManifest::default()));
+        }
+        let r = e
+            .run_main(
+                "const ops = Deno.core.ops;\n\
+                 ops.op_k_test_reset();\n\
+                 const t0 = Date.UTC(2026, 0, 1, 12, 0, 0);\n\
+                 const out = [];\n\
+                 for (let i = 0; i < 3; i++) out.push(await ops.op_k_rate_limit(\"k\", 2, 60000, t0 + i));\n\
+                 out.push(await ops.op_k_rate_limit(\"k\", 2, 60000, t0 + 120000));\n\
+                 ops.op_k_set_result(JSON.stringify(out.map((w) => w > 0)));\n",
+            )
+            .expect("runs");
+        assert_eq!(
+            r.as_deref(),
+            Some("[false,false,true,false]"),
+            "database: {database}"
+        );
+    }
+}

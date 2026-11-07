@@ -27,14 +27,13 @@ how to build, test and lint the compiler.
 
 ## Editor support
 
-> **Planned.** The K language server isn't in the first compiler releases. It will be built into the
-> same `k` binary and reuse the compiler's own queries, so your editor can never disagree with the compiler. It
-> will show each effect's reactive dependencies on hover, each page's URL inline, autocomplete after
-> `.` that lists only valid members, and quick fixes for compiler errors.
+The language server is built into the same binary: `k lsp`. It reuses the compiler's own analysis, so
+your editor can never disagree with the compiler. It shows each effect's reactive dependencies on hover,
+each page's URL inline, autocomplete after `.` that lists only valid members, and quick fixes for compiler
+errors. [Editor setup](editor-setup.md) explains how to connect VS Code, Neovim, Vim or any other editor.
 
-Until then, `k check` reports every problem from the command line, and `k dev` reports them as you
-save. Every diagnostic is also available as JSON (`k check --format json`), which is how agents and
-editor integrations consume them.
+From the command line, `k check` reports every problem, and `k dev` reports them as you save. Every
+diagnostic is also available as JSON (`k check --format json`), which is how agents consume them.
 
 ## What's in the box
 
@@ -46,7 +45,7 @@ editor integrations consume them.
 | Migration tool | `k migrate`: generates and applies database migrations |
 | Server runtime | A JavaScript runtime (V8) embedded in the binary, used by `k dev` and by every built app |
 | Formatter | `k fmt` (**Planned**) |
-| Language server | (**Planned**) |
+| Language server | `k lsp`: diagnostics, quick fixes, navigation, rename and completion in your editor |
 
 The same runtime runs your server code in development and in production, so "works on my machine"
 means "works in production".

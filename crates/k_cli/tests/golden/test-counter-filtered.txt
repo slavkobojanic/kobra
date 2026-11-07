@@ -1,0 +1,5 @@
+running 2 tests
+PASS  Counter › increments by one
+PASS  CounterView › clicking Add shows the new count
+
+test result: ok. 2 passed; 0 failed; 7 filtered out

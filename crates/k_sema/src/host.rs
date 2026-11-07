@@ -37,13 +37,14 @@ use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use k_diagnostics::{Diagnostic, FileId, SourceMap, TextRange};
+use k_diagnostics::{Diagnostic, FileId, SourceMap, Span, TextRange};
 use k_syntax::Parse;
 
 use crate::check::SemaResult;
 use crate::lookup::{Cancelled, Resolution, Side};
 use crate::program::InputFile;
 use crate::project::{FileKind, ProjectPath};
+use crate::refs::RefIndex;
 use crate::stdlib::Stdlib;
 use crate::warm::BodyCache;
 
@@ -159,6 +160,12 @@ struct State {
     /// The body facts of the latest earlier revision whose semantic pass
     /// ran: unchanged files replay them (`crate::warm`).
     prev_cache: Option<Arc<BodyCache>>,
+    /// The reverse index of the resolutions, built by the first tooling
+    /// query of the revision (`crate::refs`).
+    refs: OnceLock<Arc<RefIndex>>,
+    /// The latest earlier revision's reverse index: the chunks this
+    /// revision shares with it reuse their index.
+    prev_refs: Option<Arc<RefIndex>>,
 }
 
 impl State {
@@ -195,6 +202,8 @@ impl AnalysisHost {
                 stdlib_count,
                 sema: OnceLock::new(),
                 prev_cache: None,
+                refs: OnceLock::new(),
+                prev_refs: None,
             }),
             current: Arc::new(AtomicU64::new(0)),
         }
@@ -265,6 +274,8 @@ impl AnalysisHost {
                 .get()
                 .map(|s| Arc::clone(&s.cache))
                 .or_else(|| old.prev_cache.clone()),
+            refs: OnceLock::new(),
+            prev_refs: old.refs.get().cloned().or_else(|| old.prev_refs.clone()),
         });
         // The replaced revision usually holds the only reference to the
         // previous semantic result; freeing it is left to a background
@@ -431,6 +442,37 @@ impl Analysis {
         Ok(diagnostics)
     }
 
+    /// Returns the other project files that `file`'s code refers to: the
+    /// files declaring the declarations and members its names, types and
+    /// members resolve to, sorted and without duplicates. A change to any
+    /// of them can change what `file` means, so `k test --watch` re-runs
+    /// the tests of a test file when it or one of these (transitively)
+    /// changes. Stdlib files are never listed.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed while the query ran.
+    pub fn file_dependencies(&self, file: FileId) -> Result<Vec<FileId>, Cancelled> {
+        let sema = self.sema()?;
+        let view = &sema.view;
+        let mut out: Vec<FileId> = sema
+            .resolutions
+            .values_in(file)
+            .into_iter()
+            .filter_map(|r| match view.resolve(r)? {
+                crate::view::Resolved::Decl(d) => Some(view.decl(d)),
+                crate::view::Resolved::Member(m) => Some(view.decl(view.member(m).owner)),
+            })
+            .filter(|d| !d.stdlib)
+            .map(|d| d.file)
+            .filter(|&f| f != file)
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        self.check()?;
+        Ok(out)
+    }
+
     /// Returns the diagnostics whose primary span is in `file`, sorted.
     ///
     /// # Errors
@@ -518,6 +560,102 @@ impl Analysis {
             .types
             .get(&(file, range))
             .map(crate::view::Type::from_ty))
+    }
+
+    /// Returns every span in the project that refers to `target`, sorted
+    /// and without duplicates: the project-wide reverse index of
+    /// [`resolve_at`](Analysis::resolve_at), doc links included. The
+    /// definition itself is not a reference; see
+    /// [`definition`](Analysis::definition).
+    ///
+    /// The index is built on the first tooling query of a revision and
+    /// reuses the previous revision's index for every file whose body facts
+    /// were replayed (`crate::refs`), so after a body edit only the edited
+    /// file is indexed again.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
+    pub fn references(&self, target: &Resolution) -> Result<Vec<Span>, Cancelled> {
+        let index = self.ref_index()?;
+        let refs = index.references(target);
+        self.check()?;
+        Ok(refs)
+    }
+
+    /// Returns every resolved reference in `file`, sorted by range start
+    /// then end: what [`resolve_at`](Analysis::resolve_at) answers for each
+    /// range of the file that resolves. Tooling finds the reference under a
+    /// cursor here, and highlights a file's occurrences of a symbol.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
+    pub fn file_references(
+        &self,
+        file: FileId,
+    ) -> Result<Vec<(TextRange, Arc<Resolution>)>, Cancelled> {
+        let index = self.ref_index()?;
+        let refs = index.file_references(file);
+        self.check()?;
+        Ok(refs)
+    }
+
+    /// Returns where `target` is declared: the name token of a declaration
+    /// or member (stdlib ones included, whose files have ids below the
+    /// project's), the binding name of a local or parameter, the token
+    /// name of a theme token, or the selector of a style class or
+    /// keyframes rule. `None` for built-in elements, attributes, events and
+    /// CSS properties, which have no K source, and for names that no
+    /// longer exist.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
+    pub fn definition(&self, target: &Resolution) -> Result<Option<Span>, Cancelled> {
+        let sema = self.sema()?;
+        Ok(crate::tooling::definition(self, &sema.view, target))
+    }
+
+    /// Returns every declaration that implements interface or protocol
+    /// `decl`, directly or through another interface, sorted by id. Empty
+    /// for a declaration nothing implements.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
+    pub fn implementations(
+        &self,
+        decl: crate::view::DeclId,
+    ) -> Result<Vec<crate::view::DeclId>, Cancelled> {
+        let sema = self.sema()?;
+        Ok(crate::tooling::implementations(&sema.view, decl))
+    }
+
+    /// Returns the URL template of page `decl`: its `at` template, or the
+    /// default derived from its name and its required `@Param`s
+    /// (`/sign-in`, `/product/{id}`; `docs/design/12-routing.md`). `None`
+    /// when `decl` is not a page.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
+    pub fn page_url(&self, decl: crate::view::DeclId) -> Result<Option<String>, Cancelled> {
+        let sema = self.sema()?;
+        Ok(crate::tooling::page_url(self, &sema.view, decl))
+    }
+
+    /// The revision's reverse index, built on first use.
+    fn ref_index(&self) -> Result<&RefIndex, Cancelled> {
+        let sema = self.sema()?;
+        let index = self.state.refs.get_or_init(|| {
+            Arc::new(RefIndex::build(
+                &sema.resolutions,
+                self.state.prev_refs.as_deref(),
+            ))
+        });
+        self.check()?;
+        Ok(index)
     }
 
     /// Parses every K source file that has no memoized parse yet, on
@@ -644,7 +782,20 @@ fn run_sema(state: &State, deliver: impl FnOnce(SemaResult)) {
             })
         })
         .collect();
-    crate::check::analyze(inputs, state.prev_cache.as_deref(), deliver);
+    let lockfiles: Vec<crate::locks::Lockfile> = state
+        .files
+        .iter()
+        .flatten()
+        .filter_map(|f| match f.kind {
+            FileKind::Lockfile(kind) => Some(crate::locks::Lockfile {
+                id: state.by_path[&f.path],
+                kind,
+                text: Arc::clone(&f.text),
+            }),
+            _ => None,
+        })
+        .collect();
+    crate::check::analyze(inputs, lockfiles, state.prev_cache.as_deref(), deliver);
 }
 
 /// Drops `value` on a background thread, so freeing a large structure
@@ -678,6 +829,32 @@ mod tests {
 
     fn path(text: &str) -> ProjectPath {
         ProjectPath::new(text).unwrap()
+    }
+
+    #[test]
+    fn file_dependencies_are_the_files_a_file_refers_to() {
+        let host = AnalysisHost::with_files(
+            Options::new(),
+            vec![
+                (path("k.toml"), "[package]\nname = \"p\"\nk = \"0.1\"\n".to_owned()),
+                (path("src/a/Cart.k"), "import b.Price\n\npublic func total(p: Price) -> Int {\n    return p.cents + Tax.rate\n}\n".to_owned()),
+                (path("src/a/Tax.k"), "public enum Tax {\n    case none\n\n    static let rate: Int = 0\n}\n".to_owned()),
+                (path("src/b/Price.k"), "public struct Price {\n    let cents: Int\n}\n".to_owned()),
+                (path("src/b/Unrelated.k"), "public let unrelated = 1\n".to_owned()),
+            ],
+        );
+        let analysis = host.analysis();
+        let id = |p: &str| analysis.file_id(&path(p)).unwrap();
+        let deps = analysis.file_dependencies(id("src/a/Cart.k")).unwrap();
+        let mut expected = vec![id("src/a/Tax.k"), id("src/b/Price.k")];
+        expected.sort_unstable();
+        assert_eq!(deps, expected);
+        assert!(
+            analysis
+                .file_dependencies(id("src/b/Price.k"))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -824,6 +1001,41 @@ mod tests {
         assert!(
             !Arc::ptr_eq(&b1, &b2),
             "a signature edit checks everything again"
+        );
+    }
+
+    #[test]
+    fn the_reverse_index_reuses_the_chunks_of_replayed_files() {
+        let files = (0..8).map(|i| {
+            (
+                path(&format!("src/m{i}/F{i}.k")),
+                format!("public func f{i}() -> Int {{\n    let x = 1\n    return x\n}}\n"),
+            )
+        });
+        let mut host = AnalysisHost::with_files(Options::new(), files);
+        let x = Resolution::Local {
+            name: "x".to_owned(),
+            definition: Span::new(
+                host.analysis().file_id(&path("src/m0/F0.k")).unwrap(),
+                TextRange::new(34.into(), 35.into()),
+            ),
+        };
+        assert_eq!(host.analysis().references(&x).unwrap().len(), 1);
+        let before = Arc::clone(host.state.refs.get().unwrap());
+        let mut body = Change::new();
+        body.set_file(
+            path("src/m3/F3.k"),
+            "public func f3() -> Int {\n    let x = 2\n    return x + x\n}\n",
+        );
+        host.apply_change(body);
+        assert_eq!(host.analysis().references(&x).unwrap().len(), 1);
+        let after = Arc::clone(host.state.refs.get().unwrap());
+        // The edited file's chunk and the live chunk are indexed again; the
+        // seven other files reuse theirs.
+        assert!(
+            after.rebuilt_since(&before) <= 2,
+            "{}",
+            after.rebuilt_since(&before)
         );
     }
 

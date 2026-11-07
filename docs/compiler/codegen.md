@@ -424,9 +424,21 @@ export function Counter(props, ctx) {
   group's `$loads.reload()` anywhere in the declaration, closures and timers included, unless the
   declaration has a `func reload` of its own. The client decodes the hydrated values with their codecs
   (`(($v) => $v && { product: ProductSummary$codec.decode($v.product, "product") })($k.loadsOf(ctx))`),
-  mirroring the server's `encode`.
+  mirroring the server's `encode`. A declaration with a `failed` block passes a third argument, the error
+  its server render failed with: `(($f) => $f == null ? undefined : LookupError$codec.decode($f,
+  "failed"))($k.loadsOf(ctx, "failed"))` (the raw JSON for an error that isn't `Codable`), so hydration
+  starts the group `FAILED` and the `failed` block claims the server's markup
+  ([runtime.md §7](runtime.md#7-load)).
+- **Titles in the browser.** A page's or layout's `metadata` block contributes its `title(_:)` as
+  `$k.title(() => text)`, after the loads (`() => $loads.values() ? text : null` when it has loads, as the
+  text usually reads them); a `metadata` block in a `failed` block contributes its title where the block
+  renders. The other entries are server-only ([runtime.md §10](runtime.md#10-router)).
 - **Service `init()`** (`MemberKind::Init`) becomes the class's `init` method, called at the end of the
   constructor, except for client-only services ([§13](#13-services-and-dependency-injection)).
+- **`k.charts.LineChart`** is the runtime's (`charts.js`): a client chunk that uses it imports `LineChart`
+  from the feature chunk `charts.[hash].js` (§17), and the server's renderer is
+  `$s.natives["k.charts.LineChart$ssr"]` ([runtime.md §12.2](runtime.md#122-charts)). It takes its props as
+  getters like any component.
 - **The stdlib's `@Native` components** have no generated body; the view lowers them in place:
   `Stack` is a flex `div` (`axis` and a `gap` token such as `.md`, read at compile time), `Grid` a grid
   `div` with an integer `columns` literal (default 2), `Spacer` a `flex: 1 1 auto` `div` hidden from
@@ -551,7 +563,10 @@ one lowered view, so they can't drift.
   the element's `style` attribute.
 - **Theme tokens** become custom properties on `:root` in declaration order: `--k-color-primary:
   #3B82F6;`, named `--k-<category>-<token>` with both parts in kebab case (`color`, `space`, `radius`,
-  `font-size`, `font`; `surfaceHover` → `--k-color-surface-hover`).
+  `font-size`, `font`; `surfaceHover` → `--k-color-surface-hover`). A `font` token's
+  `Font(family: "Inter", size: 16px)` prints as the value of the `font` shorthand, size then family:
+  `--k-font-body: 16px "Inter";` (the K string literal is the CSS string), in `:root` and in variants
+  alike, so `font: .body` is valid CSS; every other value prints as written.
 - **Variants** become classes on `<html>`: `:root.k-theme-dark { --k-color-surface: #111827; }`. A variant
   with `matches .prefersDark` also gets `@media (prefers-color-scheme: dark) { :root:not(.k-theme-set) {…}
   }`, so the OS preference applies until `theme.apply` adds `k-theme-set` plus the chosen variant's class.
@@ -751,9 +766,11 @@ implementing `k.server.Job<Payload>`:
 - **The route table** is one array of `{ page, segments, load }` sorted by specificity (static segments
   before parameters, longer before shorter, then by name), shared by the client router and the server, so
   both resolve every URL identically. `load` imports the page's chunk on the client and is a direct
-  reference on the server. On the client its `render(params, ctx)` renders the page inside its layouts,
-  outermost first, as the server does: `Storefront({ content: () => Home(props, { ...ctx, key: "0" }) },
-  { ...ctx, key: "L0" })`, so a server-rendered document hydrates as a whole.
+  reference on the server. On the client it resolves to `{ layouts, render }`: `layouts` the page's
+  layout components, outermost first (`[Storefront]`), and `render(params, ctx)` the page alone
+  (`m.Home($k.paramProps(params), { ...ctx, key: "0" })`). The router renders the layouts around it with
+  the keys the server used (`"L{i}"`), so a server-rendered document hydrates as a whole, and keeps the
+  layouts the next page shares mounted ([runtime.md §10](runtime.md#10-router)).
 - **Redirects** recorded in `routes.lock` for renamed pages become `308 Permanent Redirect` entries on the
   server (implemented: `redirect "/old/{id}" -> page` lines; the old template is parsed with the new
   page's parameters, so the redirect keeps them and the query) and `history.replaceState` on the client
@@ -788,8 +805,10 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
   }
   ```
 
-  `E$fromRpc` maps an outcome to the rpc's error enum: `failed_precondition` with a `k.TypedError` detail
-  → the named case decoded by the error's codec; `invalid_argument` → `rpcFailure(.invalid(…))`;
+  `E$fromRpc` maps an outcome to the rpc's error enum (generated as `$k.rpcError(o, E, E$codec)`, the codec
+  only for a `Codable` error): `failed_precondition` with a `k.TypedError` detail → the named case decoded
+  by the error's codec from `{case, ...fields}` (without a codec, the case called with the field values in
+  order); `invalid_argument` → `rpcFailure(.invalid(…))`;
   `unauthenticated`/`permission_denied`/`resource_exhausted` → `rpcFailure(.rejected(…))`; `offline` and
   `timeout` → the network cases; `internal`, `unimplemented`, an undecodable body → a panic (a server bug,
   not a domain outcome).
@@ -803,7 +822,9 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
   `c.Service.f($c, value)` in the request container), the first failure per field, then `X$validate` with
   a `rules` collecting `{path, message}`, `call(c, $c, a)` the implementation in the
   request container, `encode` the result (a struct is the message; anything else `{value}`; none `{}`),
-  `error` `{ name: "package.module.Error", text: E$text, fields }` for the declared error, `failure`
+  `error` `{ name: "package.module.Error", text: E$text, fields }` for the declared error (`fields` is
+  `(e) => $k.payloadFields(e, E$codec.encode)` for a `Codable` error, the codec's form without `case`,
+  which the client stub decodes with the same codec; else `$k.payloadFields`, the structural JSON), `failure`
   `(f) => E.rpcFailure(f)` (an `RpcFailure` as the rpc's own error, for in-process calls; `null` without
   an error enum). The client stub
   sends parameters under their internal names and reads the result the same way.
@@ -814,7 +835,22 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
   [server.md §6](server.md#6-rpc-dispatch)).
 - `Stream<T>` server streaming: `stream: true` and an element encoder; the runtime sends Connect
   envelopes ([server.md §6](server.md#6-rpc-dispatch)). A `Broadcast` field of a `@Scope(.server)` service is
-  a `$s.ServerBroadcast`, so a publish on any worker reaches every subscriber.
+  a `new $s.ServerBroadcast(name, T$codec)`, so a publish on any worker reaches every subscriber, and the
+  element crosses isolates in its codec's encoding and comes out decoded, with its types (before, it
+  crossed as structural JSON, and an element with a `Date` or a `Uuid` field broke the stream).
+- **The client stub of a streaming rpc** passes the element decoder to the runtime's `streamed` and
+  returns the open stream:
+
+  ```js
+  async watch($c) {
+    const o = await $k.rpc("/notes.NotesProtocol/Watch", {}, $c, streamed((m) => NoteChange$codec.decode(m.value, "value")));
+    if (o.ok) return o.message;
+    throw $k.rpcError(o, RpcOnlyError);
+  }
+  ```
+
+  `streamed` is a symbol of `k.core` that the feature chunk `streams.[hash].js` implements (§17), imported
+  by the chunk that holds the stub ([runtime.md §8](runtime.md#8-rpc-client)).
 
 ---
 
@@ -859,8 +895,16 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
 - **Imports** between chunks use relative URLs with hashed names; the hash of a chunk covers its contents
   *and* the names it imports, so changing a dependency renames its dependents. The entry imports the
   services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
+- **Feature chunks**: `charts.[hash].js` and `streams.[hash].js` (`runtime/charts.js`, `runtime/streams.js`),
+  emitted only when a client chunk uses a symbol they implement (`k.charts.LineChart`; `streamed`), with
+  their imports of other runtime files pointing at the runtime chunk; the chunks that use them import those
+  symbols from them (`import { LineChart } from "../charts.[hash].js";`) instead of binding `$k.native`
+  ([runtime.md §1](runtime.md#1-status-and-scope)).
 - **Stdlib declarations** the client or server code references are emitted like project code when they
-  are non-native enums or structs (`HttpError`, `HttpStatus`, `HttpRequest`); a stdlib symbol that no item
+  are non-native enums or structs (`HttpError`, `HttpStatus`, `HttpRequest`). A stdlib struct's memberwise
+  initializer fills in the defaults its fields declare, lowered from the stdlib's own source
+  (`LineSeries(name:points:)` has `color = null, dashed = false, showsPoints = false`; `HttpRequest`'s
+  empty maps are `HashMap`s, which take any key), as a project struct's does; before, a stdlib struct got only the fields a call passed. A stdlib symbol that no item
   defines (a `@Native` member without a generated body) is bound per chunk: `const StorageKey$init =
   $k.native("k.storage.StorageKey$init")` in the client ([runtime.md §12.1](runtime.md#121-services-in-the-browser)),
   `$s.natives[…] ?? $s.missingNative(…)` on the server.
@@ -869,7 +913,8 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
 - **Printing**: development output is indented with 2 spaces, one statement per line; release output
   omits whitespace and comments (*deferred*: renaming locals), but keeps a space between a binary `-` or
   `+` and a right operand that starts with the same sign (`a- -b`, never the `a--b` that JS reads as a
-  decrement). Numbers print in shortest round-trip form;
+  decrement). The runtime's own files are compacted by `k_runtime::compact` instead
+  ([runtime.md §2](runtime.md#2-modules-api-and-size-budget)). Numbers print in shortest round-trip form;
   strings with `"`.
 
 ---
@@ -939,6 +984,92 @@ records the three per-call file scans that made codegen quadratic before the ben
 ---
 
 ## 21. Testing
+
+### 21.1 The test bundle (`k test`)
+
+`Entry::Tests` (with `Environment::Test`; `suite.rs`) generates the bundle `k test` runs: the project's
+client bundle with test code included, and its server bundle, which the runner loads into the same
+isolate.
+
+- **The server half.** Every declaration is lowered for the server too (test groups excepted), and the
+  server entry `k:/app/$server.js` is the app's with three differences: it exports `$test` instead of
+  calling `serve` (`{spec, app: createApp(spec), groups, reset}`), `$process` is a `let` that `reset`
+  replaces, and `spec.container(st)` uses the test's group container when the request carries a test
+  (`st.test`). Each group gets a server container `$S<N> extends $Request` (`groups[N]` builds it) with
+  the group's rules that a server container can hold, each bound once per test (`$s.perTest`); a test's
+  `k.test` doubles and fakes (`RecordingEmailProvider`, `TestHttpClient`, test-only services) are also one
+  per test, `Clock` and `TestClock` are `$s.clock(this.$r)`, the test's virtual clock, and `TestClient` is
+  `$s.testClient(…)`. A config gets its memberwise constructor, so a test can bind
+  `AdminConfig.sample`.
+- **Which side an injection comes from** (`suite::server_side`): a group's `@Inject` field reads the
+  server container (`$k.$test.server().Name`) for a server-only declaration (repositories, configs,
+  protocol implementations, `.server` services), the server stdlib services (`SessionManager`,
+  `TestClient`, `PublicUrls`, the email and job doubles), and a fake a rule binds where server code uses
+  its target (directly, through `@Inject`, or behind a protocol whose implementation injects it); every
+  other field, protocols included, reads the browser container. A rule whose target is server-side
+  applies only on the server.
+- **Server names in browser code.** Test code is lowered for the browser; a server-only declaration it
+  names (an entity, `Order.sample`) is imported from the server module (`from_server` in
+  `bundle::client_files`), and a server-only stdlib member it calls (`Hmac.sha256`) is answered by the
+  kit's `native` from the server's natives. Payload-free enum cases are one value per tag
+  (`unitCase`), so a case read back from the server is `===` the test's.
+
+- Every test group lowers to a class `$group<N>` (test groups get unique JavaScript names, since a group is
+  usually named after what it tests): its fields lowered like a service's over the test's container
+  (`@Inject` fields read the container, other fields are helpers), and each `test "…"` an async method
+  `$t<i>($c)`.
+- The entry builds the browser containers with every service of the program reachable, the types the
+  groups inject added, the stdlib's `@TestDefault` for an unbound interface (`MemoryStorage` for
+  `LocalStorage`, `TestHttpClient` for `HttpClient`, …) and `Clock` as the container's one `TestClock`;
+  test code is never a single-implementation binding. One `$G<n> extends $App` per group applies its `use`
+  rules (a type operand reads that service from the container, so `@Inject let fake: FakeX` sees the same
+  instance; a value operand is memoized). It exports `$groups`: name, file, container factory, class and
+  tests (name, method, the range of the name), and `$pages`, the pages' typed URL matchers, for
+  `Screen.currentPage`.
+- All pages go into the shared chunk (the entry imports them). The runtime chunk is
+  `export * from "k:runtime"; export * as $test from "k:testing/kit"; export { native } from …`, and a
+  feature chunk re-exports its embedded module, so everything shares one runtime instance
+  ([runtime.md §13](runtime.md#13-testing)).
+- `expect` evaluates the operands of a comparison (or of `not`) once into temporaries, in order (logical
+  operators are not split, so short-circuiting is kept), and calls `$k.$test.fail` with the condition's range,
+  its text and lazy renderings of the operand values (`text_fn`; strings quoted). `expect throws P { … }`
+  matches `P` as a `catch` clause would (panics pass through) and calls `failThrows` with what was thrown
+  instead, if anything. In other entries both keep their plain panics.
+- `render(V(…))` builds `V` exactly as a view would (`Tree::call_node`: props, modifiers, slots) and passes
+  its renderer to `$k.$test.render`; a page (`render(P(id: 1).tab(.x))`) gets its parameters, chained ones
+  included, as props, without its layout, and the page's URL, which the browser is then on. A chained
+  parameter written as an implicit member (`.units(.imperial)`) is the case of the parameter's type. Plain
+  `@Prop`/`@Param` arguments are evaluated once, when the test renders; bindings, slots and handlers stay
+  functions.
+
+Fixed while making the examples' tests pass: an omitted `@Stylable` prop is no class (it was read as a
+function), an omitted optional `@Slot` is `nil`, a form control's computed `.label(…)` becomes its
+`aria-label` (it was dropped, leaving the control unnamed), and a slot called with arguments (`row(item)`)
+re-renders when they change, through `branch` with an index that flips on a new value, so a keyed item
+renamed in place reaches the row (`tests/corpus/codegen/ui/**` cases for each).
+
+Fixed while making the examples' server-side tests pass, each pinned first:
+
+- `await` covers the whole expression to its right: in `await next() == 2`, `await a()?.x` or
+  `await items()[0]` each call is awaited where it is evaluated (it awaited the comparison, a promise's
+  member or element) (`run/async/await-covers-a-comparison`).
+- A qualified case pattern (`expect throws CounterError.atLimit`, `catch` clauses alike) names its last
+  name: it was read as the type's name and matched any error (`k_cli` fixture `throws`).
+- A test group named like the declaration it tests resolves its own members by their labels first: a
+  helper `signIn(email:password:)` was lowered with the service's `signIn(request:)` signature
+  (`sema/app/tests/group-named-like-its-service`, the `regressions` fixture's `Tally`).
+- `Page.signIn` (a case whose parameters are all optional) is the case with its defaults, a value; it was
+  the constructor function (`regressions` fixture's `Overview`).
+- A user type implementing `HttpClient` gets `fetchJson` (`run/interfaces/stdlib-default-method-on-a-user-type`,
+  `codegen/lang/stdlib/service-implementing-http-client-gets-fetch-json`).
+- `HttpResponse` builds and reads alike on both sides through the `k.http` natives of `http.js`, a
+  feature chunk in the browser (`run/http/built-response-reads-like-a-received-one`).
+- `structuredData(…)` in `metadata` reaches the document head as JSON-LD
+  (`codegen/ui/views/structured-data-reaches-the-head`); `Endpoint` values have URLs (`Endpoint$href`) and
+  `PublicUrls.absolute(endpoint:)` builds them (`codegen/ui/routing/endpoint-urls-are-built-on-the-server`);
+  a `StorageKey` is a value on the server (`run/regressions/storage-key-is-a-value-on-the-server`).
+
+### 21.2 Test suites
 
 - **Golden output**: `tests/corpus/codegen/**` ([testing.md §3.9](testing.md#39-the-codegen-suite)): exact
   `client.js`, `server.js`, `css`, or `.expect` assertions (including the split checks of §16).

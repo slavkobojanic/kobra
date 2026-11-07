@@ -263,8 +263,9 @@ fn the_client_entry_builds_the_browser_container() {
     // the stdlib's default; client-only stdlib services are runtime bodies.
     for needle in [
         "class $App {",
-        "get todo$TodoService() {",
-        "return this.$a.$todo$TodoService ??= new todo$TodoService({ LocalStorage: this.$a.LocalStorage });",
+        // `test TodoService { }` beside the service leaves it its simple name.
+        "get TodoService() {",
+        "return this.$a.$TodoService ??= new TodoService({ LocalStorage: this.$a.LocalStorage });",
         "get LocalStorage() {\n    return this.$a.BrowserStorage;",
         "$k.browserStorage(StorageReadError, StorageWriteError)",
         "get Theme() {\n    return this.$a.$Theme ??= $k.theme();",
@@ -439,7 +440,7 @@ fn a_test_build_binds_the_k_test_doubles() {
 fn jobs_get_a_kind_a_spec_entry_and_a_manifest_entry() {
     let (entry, out) = shop_server(k_codegen::Environment::Production);
     assert!(
-        entry.contains(r#""order-confirmation": { run: (c, $c, j) => c.store$OrderConfirmationJob.run($c, OrderConfirmation$codec.decode(j, "payload")) }"#),
+        entry.contains(r#""order-confirmation": { run: (c, $c, j) => c.OrderConfirmationJob.run($c, OrderConfirmation$codec.decode(j, "payload")) }"#),
         "{entry}"
     );
     let store = out
@@ -447,9 +448,11 @@ fn jobs_get_a_kind_a_spec_entry_and_a_manifest_entry() {
         .iter()
         .find(|f| f.path == "k:/app/store.js")
         .expect("store");
-    assert!(store.contents.contains(
-        r#"store$OrderConfirmationJob.kind = Object.freeze({ name: "order-confirmation" });"#
-    ));
+    assert!(
+        store.contents.contains(
+            r#"OrderConfirmationJob.kind = Object.freeze({ name: "order-confirmation" });"#
+        )
+    );
     assert_eq!(
         out.manifest.jobs,
         [k_db::stdlib::JobSpec {

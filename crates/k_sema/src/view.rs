@@ -267,7 +267,8 @@ pub struct MemberInfo {
     pub annotations: Vec<String>,
     /// A theme token's category word (`color`).
     pub category: Option<String>,
-    /// The type of a field or computed property.
+    /// The type of a field or computed property, or the category type of a
+    /// theme token (`Spacing` for `space md`).
     pub ty: Option<Type>,
     /// The signature of a function, initializer, rpc or payload case.
     pub signature: Option<Signature>,
@@ -361,6 +362,7 @@ impl ProgramView {
         match resolution {
             Resolution::Declaration { name } => self.lookup_display(name).map(Resolved::Decl),
             Resolution::Member { owner, name } => {
+                let display = owner;
                 let owner = self.lookup_display(owner)?;
                 let (base, labels) = match name.find('(') {
                     Some(i) => (&name[..i], Some(&name[i..])),
@@ -385,6 +387,29 @@ impl ProgramView {
                                 }
                                 fallback.get_or_insert(m);
                             }
+                        }
+                    }
+                }
+                // A test group may share its qualified name with the
+                // declaration it tests (`test CartService { }` next to
+                // `service CartService`); its members are found here: one
+                // whose labels match exactly wins over the declaration's
+                // member of the same name with other labels.
+                for (i, d) in self.decls.iter().enumerate() {
+                    if d.named_kind() != Some(DeclarationKind::TestSuite) {
+                        continue;
+                    }
+                    let id = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
+                    if self.qualified_name(id) != *display {
+                        continue;
+                    }
+                    for &m in &d.members {
+                        if self.member(m).name != base {
+                            continue;
+                        }
+                        let exact = labels.is_none_or(|l| self.label_text(m) == l);
+                        if exact || fallback.is_none() {
+                            return Some(Resolved::Member(m));
                         }
                     }
                 }
@@ -548,6 +573,15 @@ pub(crate) fn build(cx: &Cx<'_, '_>, sides: &HashMap<(FileId, TextRange), Side>)
                 | program::MemberKind::Init
                 | program::MemberKind::Rpc => (None, Some(sig(&cx.sig(SigKey::Member(id))))),
                 program::MemberKind::Case => (None, Some(sig(&cx.case_sig(id)))),
+                // A theme token's type is its category type (`space md`
+                // is a `Spacing`), for tooling.
+                program::MemberKind::Token => (
+                    m.category
+                        .as_deref()
+                        .and_then(|c| cx.token_category(c))
+                        .map(|d| Type::Named(DeclId(d.0), Vec::new())),
+                    None,
+                ),
                 _ => (None, None),
             }
         };

@@ -438,6 +438,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K7501 | `expect-not-bool` | error | The condition. | — |
 | K7502 | `expect-throws-cannot-throw` | error | The `expect` keyword. | — |
 | K7503 | `unbound-test-config` | error | The test group's name token; a note names the config and the injection path. | — |
+| K7510 | `test-failed` | error | Reported by `k test`, not `k check`: the condition of the failed `expect`, the pattern of the failed `expect throws`, or the test's name when it panicked, threw, never finished or a query action failed; notes give each operand's value and the test's full name. | — |
 
 ### Lockfiles, manifest and packages (K8000–K8999)
 
@@ -445,6 +446,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 |---|---|---|---|---|
 | K8001 | `breaking-change` | error | The declaration or member that changed; a note names the lockfile entry. | — |
 | K8002 | `invalid-lockfile` | error | The offending line, or offset 0. | — |
+| K8003 | `incompatible-job-payload` | error | The payload type argument of the job's `implements Job<…>`; one note per incompatible change, then a note on how to proceed. | — |
 | K8101 | `invalid-manifest` | error | The offending key or line, or offset 0. | — |
 
 ## Driver codes

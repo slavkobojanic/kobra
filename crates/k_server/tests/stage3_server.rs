@@ -2439,3 +2439,66 @@ fn dist_app_reads_secrets_from_name_file() {
         Ok(())
     });
 }
+
+// `k_server::testing::open_stream`, the browser harnesses' way to forward a
+// tab's streaming rpc: the head at once, then each body chunk as the server
+// writes it, without waiting for the response to end; dropping it closes
+// the connection, which ends the server's stream.
+#[test]
+fn the_testing_client_reads_a_stream_as_it_arrives() {
+    passing(|| {
+        let (server, _) = start_project(&project("streaming"), "http://localhost")?;
+        let addr = server.local_addr();
+        let mut body = envelope(r#"{"room": "lobby"}"#);
+        let headers = vec![
+            (
+                "content-type".to_owned(),
+                "application/connect+json".to_owned(),
+            ),
+            ("connect-protocol-version".to_owned(), "1".to_owned()),
+        ];
+        let s = k_server::testing::open_stream(
+            addr,
+            "POST",
+            &format!("{ROOMS}Watch"),
+            &headers,
+            &body,
+        )?;
+        if s.status != 200 || s.header("content-type") != Some("application/connect+json") {
+            return Err(format!("{} {:?}", s.status, s.headers));
+        }
+        let mut got = Vec::new();
+        let read_until = |n: usize, got: &mut Vec<u8>| -> Result<(), String> {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while got.len() < n {
+                match s.next_chunk(Duration::from_millis(50)) {
+                    Some(k_server::testing::StreamChunk::Data(d)) => got.extend(d),
+                    Some(k_server::testing::StreamChunk::End) => return Err("ended".into()),
+                    None if Instant::now() > deadline => {
+                        return Err(format!("only {} of {n} bytes", got.len()));
+                    }
+                    None => {}
+                }
+            }
+            Ok(())
+        };
+        let welcome = envelope(r#"{"room":"lobby","text":"welcome to lobby"}"#);
+        read_until(welcome.len(), &mut got)?;
+        if got != welcome {
+            return Err(format!("{:?}", String::from_utf8_lossy(&got)));
+        }
+        if s.next_chunk(Duration::from_millis(100)).is_some() {
+            return Err("nothing else was published".into());
+        }
+        post(addr, "lobby", "hello", &[])?;
+        got.clear();
+        let hello = envelope(r#"{"room":"lobby","text":"hello"}"#);
+        read_until(hello.len(), &mut got)?;
+        if got != hello {
+            return Err(format!("{:?}", String::from_utf8_lossy(&got)));
+        }
+        drop(s);
+        body.clear();
+        server.shutdown().map_err(|e| e.to_string())
+    });
+}

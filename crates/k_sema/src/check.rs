@@ -45,7 +45,7 @@ pub(crate) struct SemaResult {
     pub(crate) view: crate::view::ProgramView,
 }
 
-/// Runs the semantic pass over `inputs`.
+/// Runs the semantic pass over `inputs` and the project's `lockfiles`.
 ///
 /// `prev` is the previous revision's [`BodyCache`]: the files whose text is
 /// unchanged replay their body facts from it instead of being checked
@@ -57,6 +57,7 @@ pub(crate) struct SemaResult {
 /// thread doesn't wait for them to be freed (`host::Analysis::sema`).
 pub(crate) fn analyze(
     inputs: Vec<InputFile<'_>>,
+    lockfiles: Vec<crate::locks::Lockfile>,
     prev: Option<&BodyCache>,
     deliver: impl FnOnce(SemaResult),
 ) {
@@ -65,6 +66,7 @@ pub(crate) fn analyze(
         .map(|i| (i.id, Arc::clone(i.shared), i.path.as_str().to_owned()))
         .collect();
     let mut program = Program::build(inputs);
+    program.lockfiles = lockfiles;
     generate(&mut program);
     let cx = Cx::new(&program);
     cx.set_hooks(
@@ -148,6 +150,7 @@ pub(crate) fn analyze(
     crate::rpc::check(&cx);
     crate::app::check(&cx);
     crate::di::check(&cx);
+    crate::locks::check(&cx);
     crate::di::client_references(&cx);
     let sides = crate::di::sides(&cx);
     unused_imports(&cx);

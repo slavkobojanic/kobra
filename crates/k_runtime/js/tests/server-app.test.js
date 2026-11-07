@@ -8,6 +8,8 @@ import {
   Metadata,
   Out,
   theme as serverTheme,
+  requestTimeZone,
+  ServerBroadcast,
   clock,
   createApp,
   param,
@@ -22,7 +24,7 @@ import {
   shareState,
   splitTarget,
 } from "k:runtime/server";
-import { DecodeFailure, KPanic, codecs, unitCase } from "k:runtime";
+import { DecodeFailure, Instant, KPanic, Money, codecs, unitCase } from "k:runtime";
 
 const enc = new TextEncoder();
 let nextId = 1;
@@ -379,4 +381,67 @@ test("the server's Theme reads the k_theme cookie", () => {
   const t = serverTheme(st("dark"));
   t.apply("base");
   assertEq(t.current, "dark");
+});
+
+// `TimeZone.local` during server rendering is the zone the browser reported
+// in `k_tz` (35-time.md, "Server rendering").
+test("requestTimeZone reads the k_tz cookie of the rendered request", () => {
+  const ctx = (tz) => ({ c: { $r: { cookies: new Map(tz === undefined ? [] : [["k_tz", tz]]) } } });
+  assertEq(requestTimeZone(ctx("Europe%2FBerlin")), "Europe/Berlin");
+  assertEq(requestTimeZone(ctx("america/new_york")), "America/New_York", "canonical spelling");
+  assertEq(requestTimeZone(ctx(undefined)), "UTC", "a first visit");
+  assertEq(requestTimeZone(ctx("Mars%2FOlympus")), "UTC", "an unknown zone");
+  assertEq(requestTimeZone(ctx("%E0%A4%A")), "UTC", "a malformed cookie");
+  assertEq(requestTimeZone(null), "UTC", "outside a view");
+});
+
+// A `.server` broadcast crosses worker isolates as JSON, so its values are
+// encoded with the element type's codec and decoded on the way out: a
+// subscriber gets the published value back with its types (a `Date` is an
+// `Instant`), which the stream's encoder then reads (29-server-streaming.md).
+test("a ServerBroadcast delivers values decoded with their codec", async () => {
+  const codec = {
+    encode: (v) => ({ at: codecs.date.encode(v.at), n: v.n }),
+    decode: (j, p) => ({ at: codecs.date.decode(j.at, p + ".at"), n: j.n }),
+  };
+  const b = new ServerBroadcast("test.Changes@1", codec);
+  const s = b.subscribe("k");
+  const at = new Instant(1767268800000);
+  b.publish("k", { at, n: 2 });
+  const got = await s.next();
+  assert(got.at instanceof Instant, "the date is an Instant again");
+  assertEq(got.at.ms, at.ms);
+  assertEq(got.n, 2);
+  s.close();
+});
+
+// `structuredData(…)` in `metadata` (22-metadata.md) is a schema.org
+// JSON-LD script in the document's head, escaped like `k-data`.
+test("structured data is a JSON-LD script in the head", async () => {
+  const pages = [
+    {
+      ...spec().pages[0],
+      render: (props, ctx, out) => {
+        ctx.meta.structuredData({ $: 0, name: "Mug </script>", price: new Money(2400n, unitCase(0)) });
+        out.raw("<p>mug</p>");
+      },
+    },
+    {
+      ...spec().pages[0],
+      match: (u) => route(u, ["article"], []),
+      render: (props, ctx, out) => {
+        ctx.meta.structuredData({ $: 1, headline: "News" });
+        out.raw("<p>news</p>");
+      },
+    },
+  ];
+  const app = createApp(spec({ pages }));
+  const r = await app(req("GET", "/product/1"));
+  const head = text(r).split("</head>")[0];
+  assert(head.includes('<script type="application/ld+json">'), head);
+  assert(head.includes('"@type":"Product"'), head);
+  assert(head.includes('"name":"Mug \\u003c/script\\u003e"'), "escaped like k-data");
+  assert(head.includes('"offers":{"@type":"Offer","price":"24.00","priceCurrency":"'), head);
+  const a = await app(req("GET", "/article"));
+  assert(text(a).includes('{"@context":"https://schema.org","@type":"Article","headline":"News"}'), text(a));
 });

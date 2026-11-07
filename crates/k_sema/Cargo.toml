@@ -20,6 +20,8 @@ bench = false
 k_diagnostics.workspace = true
 k_syntax.workspace = true
 rowan.workspace = true
+# `storage.lock` is TOML (the lockfile checks, `locks.rs`).
+toml.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

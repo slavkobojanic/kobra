@@ -295,7 +295,7 @@ fn start(output: &Output, project: &Path, port: u16) -> Result<k_server::Server,
 
 /// How often `k dev` looks for changed sources.
 #[cfg(feature = "server")]
-const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+pub(crate) const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// Runs `k dev`: serves a development build like `k run`, and rebuilds
 /// and restarts the server on the same port whenever a file of the project
@@ -410,7 +410,9 @@ fn watch(_output: &Output, _project: &Path, _port: u16, _options: &Options) -> E
 /// skipping hidden directories and build output like the source loader,
 /// but keeping `.env`. Two equal snapshots mean nothing changed.
 #[cfg(feature = "server")]
-fn fingerprint(project: &Path) -> Vec<(std::path::PathBuf, u64, Option<std::time::SystemTime>)> {
+pub(crate) fn fingerprint(
+    project: &Path,
+) -> Vec<(std::path::PathBuf, u64, Option<std::time::SystemTime>)> {
     fn walk(
         dir: &Path,
         top: bool,

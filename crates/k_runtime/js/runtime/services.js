@@ -12,9 +12,9 @@
 
 import { isHydrating } from "./hydrate.js";
 import { signal } from "./signals.js";
-import { KPanic } from "./values.js";
+import { KPanic, panic } from "./values.js";
 import { sessionMirror } from "./rpc.js";
-import { HTTP_CODES, Instant, parseInstant, parseUuid } from "./std.js";
+import { HTTP_CODES, Instant, parseEmail, parseInstant, parseUuid } from "./std.js";
 
 /**
  * A `ctx` whose container answers `name` with `value` and everything
@@ -224,7 +224,7 @@ export function fetchHttpClient(E, S) {
             isSuccess: res.ok,
             body: text,
             bodyBytes: new TextEncoder().encode(text),
-            headers: { get: (n) => res.headers.get(n), all: (n) => (res.headers.get(n) === null ? [] : [res.headers.get(n)]) },
+            headers: headerView(headerPairs(res.headers)),
             json: (codec) => json(codec, text),
           });
         },
@@ -242,6 +242,34 @@ export function fetchHttpClient(E, S) {
       return res.json(codec);
     },
   };
+}
+
+/**
+ * The `[name, value]` pairs of a `fetch` response's `Headers`; a stand-in
+ * that can only `get` gives its `Content-Type`.
+ * @param {Headers|{get: Function}|undefined} h
+ * @returns {Array<[string, string]>}
+ */
+function headerPairs(h) {
+  if (h && typeof h[Symbol.iterator] === "function") return [...h];
+  const type = h?.get?.("content-type");
+  return typeof type === "string" ? [["content-type", type]] : [];
+}
+
+/**
+ * `HttpHeaders` (`{map, all}`, as `http.js` reads them) of `[name, value]`
+ * pairs: a repeated header reads as its values joined with `, `.
+ * @param {Array<[string, string]>} pairs
+ */
+function headerView(pairs) {
+  const map = new Map();
+  const all = new Map();
+  for (const [n, v] of pairs) {
+    const k = String(n).toLowerCase();
+    all.set(k, [...(all.get(k) ?? []), String(v)]);
+    map.set(k, map.has(k) ? `${map.get(k)}, ${v}` : String(v));
+  }
+  return { map, all };
 }
 
 /**
@@ -269,6 +297,9 @@ const NATIVES = {
   "k.crypto.Uuid$random": () => crypto.randomUUID(),
   "k.crypto.Uuid$init": (t) => parseUuid(String(t)) ?? stub("k.crypto.Uuid$init")(),
   "k.crypto.Uuid$parse": (t) => parseUuid(String(t)),
+  // An `EmailAddress` is its text, as on the server.
+  "k.text.EmailAddress$init": (t) => parseEmail(String(t)) ?? panic(`not an email address: ${JSON.stringify(t)}`),
+  "k.text.EmailAddress$parse": (t) => parseEmail(String(t)),
   "k.storage.StorageKey$init": (name) => ({ name }),
 };
 
@@ -281,6 +312,16 @@ const NATIVES = {
  */
 export function native(name) {
   return NATIVES[name] ?? stub(name);
+}
+
+/**
+ * `true` when the browser implements the `@Native` stdlib member `name`
+ * (as opposed to the panicking stand-in {@link native} gives otherwise).
+ * @param {string} name
+ * @returns {boolean}
+ */
+export function hasNative(name) {
+  return Object.hasOwn(NATIVES, name);
 }
 
 function stub(name) {

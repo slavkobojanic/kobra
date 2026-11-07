@@ -1,0 +1,16 @@
+# 29-server-streaming.md, codegen.md §15: a server-streaming rpc's client stub passes `streamed` the
+# element decoder (a struct element is the message itself, anything else `{"value": …}`) and returns
+# the opened stream; a refusal before it opens is thrown like a unary rpc's error. `streamed` is the
+# runtime's streams chunk, which only apps with a streaming rpc ship.
+client contains $k.rpc("/live.LiveProtocol/Ticks", {}, $c, streamed((m) => Tick$codec.decode(m, "value")))
+client contains $k.rpc("/live.LiveProtocol/Counts", {}, $c, streamed((m) => $k.codecs.int.decode(m.value, "value")))
+client contains return o.message;
+client contains import { streamed } from "./streams.[hash].js";
+client contains // file: streams.[hash].js
+client contains from "./runtime.[hash].js";
+client lacks $k.native("k.core.streamed")
+client lacks Ticker
+server contains stream: true
+# A `.server` broadcast's values cross worker isolates in their codec's encoding.
+server contains , Tick$codec)
+server contains , $k.codecs.int)

@@ -1,0 +1,2 @@
+server contains ctx.meta.structuredData(StructuredData.product("Mug",
+client lacks structuredData

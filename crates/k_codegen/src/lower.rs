@@ -106,6 +106,9 @@ pub(crate) struct Body<'g, 'a> {
     /// binding of the row tracks the item and an item that changes under
     /// the same key re-renders in place (runtime.md §5.3).
     pub(crate) signal_locals: HashSet<String>,
+    /// Expressions already evaluated into a temporary, by range: the
+    /// operands of a test's `expect` (`test_expect`).
+    overrides: HashMap<TextRange, Expr>,
 }
 
 impl<'g, 'a> Body<'g, 'a> {
@@ -134,6 +137,7 @@ impl<'g, 'a> Body<'g, 'a> {
             on_demand: Vec::new(),
             force_sync: false,
             signal_locals: HashSet::new(),
+            overrides: HashMap::new(),
         }
     }
 
@@ -401,6 +405,14 @@ impl<'g, 'a> Body<'g, 'a> {
             ast::Stmt::While(w) => self.while_stmt(w.syntax()),
             ast::Stmt::For(f) => self.for_stmt(f.syntax()),
             ast::Stmt::Do(d) => self.do_stmt(d.syntax()),
+            ast::Stmt::Expect(e) if self.g.options.entry == crate::Entry::Tests => {
+                if let Some(v) = e.syntax().children().find_map(ast::Expr::cast) {
+                    self.test_expect(&v);
+                }
+            }
+            ast::Stmt::ExpectThrows(e) if self.g.options.entry == crate::Entry::Tests => {
+                self.test_expect_throws(e.syntax());
+            }
             ast::Stmt::Expect(e) => {
                 if let Some(v) = e.syntax().children().find_map(ast::Expr::cast) {
                     let c = self.expr(&v);
@@ -439,6 +451,147 @@ impl<'g, 'a> Body<'g, 'a> {
             }
             ast::Stmt::Expr(e) => self.expr_stmt(e),
         }
+    }
+
+    /// Makes `expr` of the node at `range` read as `value` until
+    /// [`Body::clear_overrides`]: an expression evaluated once, earlier.
+    pub(crate) fn set_override(&mut self, range: TextRange, value: Expr) {
+        self.overrides.insert(range, value);
+    }
+
+    /// Ends every [`Body::set_override`].
+    pub(crate) fn clear_overrides(&mut self) {
+        self.overrides.clear();
+    }
+
+    /// `expect cond` in a test bundle: the operands of a comparison (or
+    /// of `not`) are evaluated once into temporaries, in order, so a
+    /// failure can show their values; then `$k.$test.fail` with the
+    /// condition's source range and text when it is false
+    /// (21-testing.md: "the compiler shows the value of each
+    /// sub-expression").
+    fn test_expect(&mut self, cond: &ast::Expr) {
+        let mut operands: Vec<ast::Expr> = Vec::new();
+        match cond {
+            ast::Expr::BinaryExpr(bx)
+                if bx
+                    .op()
+                    .is_some_and(|t| matches!(t.text(), "==" | "!=" | "<" | "<=" | ">" | ">=")) =>
+            {
+                operands.extend(bx.lhs());
+                operands.extend(bx.rhs());
+            }
+            ast::Expr::PrefixExpr(px) if px.op().is_some_and(|t| t.text() == "not") => {
+                operands.extend(px.operand());
+            }
+            _ => {}
+        }
+        let mut values = Vec::new();
+        for o in operands {
+            if matches!(o, ast::Expr::Literal(_) | ast::Expr::StringLit(_)) {
+                continue;
+            }
+            let ty = self.ty(o.syntax());
+            let x = self.expr(&o);
+            let t = self.fresh("e");
+            self.emit(Stmt::Const(t.clone(), x));
+            self.overrides.insert(o.syntax().text_range(), id(&t));
+            let shown = if self.g.is_string(&ty) {
+                crate::suite::kit_call("quote", vec![id(&t)])
+            } else {
+                let f = self.text_fn(&ty);
+                call(f, vec![id(&t)])
+            };
+            values.push(Expr::Array(vec![
+                js::str(squash(&o.syntax().text().to_string())),
+                js::arrow(vec![], shown),
+            ]));
+        }
+        let c = self.expr(cond);
+        self.overrides.clear();
+        let range = cond.syntax().text_range();
+        let info = Expr::Object(
+            vec![
+                Prop::KeyValue(
+                    "start".into(),
+                    Expr::Num(f64::from(u32::from(range.start()))),
+                ),
+                Prop::KeyValue("end".into(), Expr::Num(f64::from(u32::from(range.end())))),
+                Prop::KeyValue(
+                    "source".into(),
+                    js::str(squash(&cond.syntax().text().to_string())),
+                ),
+                Prop::KeyValue("values".into(), Expr::Array(values)),
+            ],
+            false,
+        );
+        self.emit(Stmt::If(
+            un("!", c),
+            vec![Stmt::Expr(crate::suite::kit_call("fail", vec![info]))],
+            None,
+        ));
+    }
+
+    /// `expect throws Pattern { … }` in a test bundle: the block must throw
+    /// an error that matches the pattern, as a `catch` clause would; a
+    /// panic passes through. Otherwise `$k.$test.failThrows` with the
+    /// pattern's range and what was thrown instead, if anything.
+    fn test_expect_throws(&mut self, node: &SyntaxNode) {
+        let block = node.children().find_map(ast::Block::cast);
+        let pattern = node.children().find_map(ast::Pattern::cast);
+        let body = match &block {
+            Some(b) => self.block_stmts(b),
+            None => Vec::new(),
+        };
+        let err_ty = self.thrown_type(&block);
+        let err = self.catch_name();
+        let ok = self.fresh("matched");
+        let got = self.fresh("got");
+        self.emit(Stmt::Let(ok.clone(), Some(Expr::Bool(false))));
+        self.emit(Stmt::Let(got.clone(), Some(Expr::Null)));
+        self.push_scope();
+        let (test, binds) = match &pattern {
+            Some(p) => self.pattern_test(p, &id(&err), &err_ty),
+            None => (None, Vec::new()),
+        };
+        self.pop_scope();
+        let mut handler = vec![rethrow(&err)];
+        handler.extend(binds.into_iter().map(|(n, e)| Stmt::Const(n, e)));
+        let shown = {
+            let f = self.text_fn(&err_ty);
+            js::arrow(vec![], call(f, vec![id(&err)]))
+        };
+        let matched = Stmt::Expr(js::assign(id(&ok), Expr::Bool(true)));
+        let missed = Stmt::Expr(js::assign(id(&got), shown));
+        match test {
+            Some(t) => handler.push(Stmt::If(t, vec![matched], Some(vec![missed]))),
+            None => handler.push(matched),
+        }
+        self.emit(Stmt::Try(body, err, handler));
+        let range = pattern
+            .as_ref()
+            .map_or_else(|| node.text_range(), |p| p.syntax().text_range());
+        let text = pattern
+            .as_ref()
+            .map(|p| squash(&p.syntax().text().to_string()))
+            .unwrap_or_default();
+        let info = Expr::Object(
+            vec![
+                Prop::KeyValue(
+                    "start".into(),
+                    Expr::Num(f64::from(u32::from(range.start()))),
+                ),
+                Prop::KeyValue("end".into(), Expr::Num(f64::from(u32::from(range.end())))),
+                Prop::KeyValue("pattern".into(), js::str(text)),
+                Prop::KeyValue("got".into(), id(&got)),
+            ],
+            false,
+        );
+        self.emit(Stmt::If(
+            un("!", id(&ok)),
+            vec![Stmt::Expr(crate::suite::kit_call("failThrows", vec![info]))],
+            None,
+        ));
     }
 
     fn expr_stmt(&mut self, e: &ast::Expr) {
@@ -1146,10 +1299,14 @@ impl<'g, 'a> Body<'g, 'a> {
         value: &Expr,
         ty: &Type,
     ) -> (Option<Expr>, Vec<(String, Expr)>) {
+        // The case is the last name of the pattern's own tokens: `.atLimit`,
+        // or `CounterError.atLimit` qualified by its type (the payload's
+        // patterns are child nodes).
         let name = node
             .children_with_tokens()
             .filter_map(rowan::NodeOrToken::into_token)
-            .find(|t| t.kind().is_name_like() && t.kind() != SyntaxKind::LetKw);
+            .filter(|t| t.kind().is_name_like() && t.kind() != SyntaxKind::LetKw)
+            .last();
         let Some(name) = name else {
             return (None, Vec::new());
         };
@@ -2043,6 +2200,9 @@ impl<'g, 'a> Body<'g, 'a> {
     /// Lowers an expression.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn expr(&mut self, e: &ast::Expr) -> Expr {
+        if let Some(x) = self.overrides.get(&e.syntax().text_range()) {
+            return x.clone();
+        }
         match e {
             ast::Expr::Literal(l) => {
                 let t = self.ty(l.syntax());
@@ -2116,6 +2276,14 @@ impl<'g, 'a> Body<'g, 'a> {
                         if let Some(q) = crate::db::awaited(self, &i) {
                             return Expr::Await(Box::new(rt("guard", vec![self.c_expr(), q])));
                         }
+                        // `await` covers the whole expression to its right
+                        // (grammar.md §"try and await"): in a compound one,
+                        // each call is awaited where it is evaluated, so
+                        // `await next() == 2` compares the value.
+                        if covers_compound(&i) {
+                            self.await_calls_in(&i);
+                            return self.expr(&i);
+                        }
                         let x = self.expr(&i);
                         if is_guarded_primitive(&x) {
                             Expr::Await(Box::new(x))
@@ -2169,7 +2337,7 @@ impl<'g, 'a> Body<'g, 'a> {
                 let ix = self.expr(&index);
                 if bty.decl().is_some() && bty.decl() == self.g.view.lookup("k.http.HttpHeaders") {
                     // `headers[name]`: the values joined, or `nil`.
-                    call(member(id("$s"), "header"), vec![b, ix])
+                    crate::native::http_native(self, "HttpHeaders", "get", vec![b, ix])
                 } else if self.g.is(&bty, self.g.b.map) {
                     let nested = matches!(bty.args().get(1), Some(Type::Optional(_)));
                     rt(if nested { "mapGetNested" } else { "mapGet" }, vec![b, ix])
@@ -2980,6 +3148,34 @@ impl<'g, 'a> Body<'g, 'a> {
             .is_some_and(|p| self.is_field_name(&p.ty))
     }
 
+    /// Makes each call among the operands of compound expression `e`
+    /// (through nested operators and parentheses) lower as an awaited call,
+    /// in place (an override of its range), so it is awaited where it is
+    /// evaluated and short-circuiting keeps its meaning.
+    fn await_calls_in(&mut self, e: &ast::Expr) {
+        let operands: Vec<ast::Expr> = match e {
+            ast::Expr::BinaryExpr(b) => [b.lhs(), b.rhs()].into_iter().flatten().collect(),
+            ast::Expr::PrefixExpr(p) => p.operand().into_iter().collect(),
+            ast::Expr::ParenExpr(p) => p.syntax().children().filter_map(ast::Expr::cast).collect(),
+            ast::Expr::MemberExpr(m) => m.receiver().into_iter().collect(),
+            ast::Expr::IndexExpr(i) => index_base(i).into_iter().collect(),
+            _ => Vec::new(),
+        };
+        for o in operands {
+            if covers_compound(&o) {
+                self.await_calls_in(&o);
+            } else if matches!(o, ast::Expr::CallExpr(_)) {
+                let x = self.expr(&o);
+                let awaited = if is_guarded_primitive(&x) {
+                    Expr::Await(Box::new(x))
+                } else {
+                    Expr::Await(Box::new(rt("guard", vec![self.c_expr(), x])))
+                };
+                self.overrides.insert(o.syntax().text_range(), awaited);
+            }
+        }
+    }
+
     fn implicit_member(&mut self, node: &SyntaxNode, _args: Option<Vec<Expr>>) -> Expr {
         let Some(name) = node
             .children_with_tokens()
@@ -3307,6 +3503,10 @@ impl<'g, 'a> Body<'g, 'a> {
             if (info.is_static || info.kind == MemberKind::Case)
                 && (matches!(rty, Type::Meta(_)) || self.is_type_name(&recv))
             {
+                // `Page.signIn`: the case with its defaults, a value.
+                if let Some(v) = self.page_case_value(mid) {
+                    return v;
+                }
                 return self.static_ref(mid);
             }
             if let Some(acc) = self.access.get(&mid).cloned() {
@@ -3845,6 +4045,11 @@ impl<'g, 'a> Body<'g, 'a> {
                 }
                 let st = subst.clone();
                 args.extend(self.call_args(c, sig.as_ref(), &move |t| subst_map(t, &st)));
+                if info.stdlib && self.g.view.qualified_name(d) == "k.test.render" {
+                    if let Some(e) = crate::suite::render_call(self, c) {
+                        return e;
+                    }
+                }
                 let f = if info.stdlib {
                     match crate::native::function(self, d) {
                         Some(f) => f,
@@ -4364,6 +4569,29 @@ fn is_self(e: &ast::Expr) -> bool {
     matches!(e, ast::Expr::NameExpr(n) if n.name().is_some_and(|t| t.kind() == SyntaxKind::SelfKw))
 }
 
+/// `true` for an expression covered by `await` whose value isn't itself
+/// the awaited call: an operator expression (`a() == b`, `not a()`), a
+/// parenthesized one, or a member or element of a call (`a()?.x`,
+/// `a()[0]`), whose calls are each awaited in place.
+fn covers_compound(e: &ast::Expr) -> bool {
+    match e {
+        ast::Expr::BinaryExpr(_) | ast::Expr::PrefixExpr(_) | ast::Expr::ParenExpr(_) => true,
+        // `await point()?.x`: the member of an awaited call.
+        ast::Expr::MemberExpr(m) => m
+            .receiver()
+            .is_some_and(|r| matches!(r, ast::Expr::CallExpr(_)) || covers_compound(&r)),
+        // `await items()[0]`: an element of one.
+        ast::Expr::IndexExpr(i) => index_base(i)
+            .is_some_and(|r| matches!(r, ast::Expr::CallExpr(_)) || covers_compound(&r)),
+        _ => false,
+    }
+}
+
+/// The indexed expression of `base[index]`.
+fn index_base(i: &ast::IndexExpr) -> Option<ast::Expr> {
+    i.syntax().children().find_map(ast::Expr::cast)
+}
+
 fn strip_await(e: &ast::Expr) -> ast::Expr {
     match e {
         ast::Expr::AwaitExpr(a) => a
@@ -4386,6 +4614,11 @@ fn is_guarded_primitive(e: &Expr) -> bool {
 }
 
 /// `if ($k.isPanic(e)) throw e;`.
+/// `text` trimmed, with every run of whitespace replaced by one space.
+pub(crate) fn squash(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 pub(crate) fn rethrow_panics() -> Stmt {
     rethrow("e")
 }

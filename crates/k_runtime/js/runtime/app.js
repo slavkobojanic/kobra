@@ -28,9 +28,11 @@
  */
 
 import { KPanic, isPanic, panic } from "./values.js";
-import { DecodeFailure, Instant, NO, Secret, parseEmail, parseQuery, parseUuid, route, routeParam, splitTarget, stringify, toJSON } from "./std.js";
+import { DecodeFailure, Instant, NO, Secret, currencyCode, parseEmail, parseQuery, parseTimeZone, parseUuid, route, routeParam, splitTarget, stringify, toJSON } from "./std.js";
 import { Out, escapeAttribute, escapeText, serializeData } from "./ssr.js";
-import { runJobBody } from "./outbound.js";
+import { httpStatus, received, runJobBody, wireRequest } from "./outbound.js";
+import * as http from "./http.js";
+import { chartKey, chartProps, lineChart } from "./charts.js";
 
 const ops = globalThis.Deno?.core?.ops;
 
@@ -184,6 +186,12 @@ export class RequestState {
     /** @type {string|null} a `Set-Cookie` value to send */
     this.setCookie = null;
     this.clientAddress = request.remote ?? "";
+    /**
+     * The running test of `k test`, or `null` (21-testing.md): its virtual
+     * clock, its per-test instances, its group's server container and its
+     * session hook. Only the in-process requests of a test carry one.
+     */
+    this.test = request.test ?? null;
     this.container = null;
     const controller = typeof AbortController === "function" ? new AbortController() : null;
     /** The request's cancellation signal (`$c`). */
@@ -299,12 +307,16 @@ export function session(st) {
 
 /**
  * The server's `k.time.Clock` (one per request container): `now` is the
- * system time in milliseconds (`op_k_now`). The server runtime has no
+ * system time in milliseconds (`op_k_now`), or, for a request of a test
+ * (`st.test`), the test's virtual `TestClock`. The server runtime has no
  * timers yet, so `sleep`, `every` and `after` panic with their name rather
  * than silently never firing.
+ * @param {RequestState} [st] the request
  * @returns {{now: Instant, sleep: Function, every: Function, after: Function}}
  */
-export function clock() {
+export function clock(st) {
+  // In a test, the test's virtual clock, shared with its browser.
+  if (st?.test?.clock) return st.test.clock;
   return {
     get now() {
       return new Instant(ops?.op_k_now ? ops.op_k_now() : Date.now());
@@ -322,11 +334,14 @@ export function clock() {
  * @param {RequestState} st
  */
 export function sessionManager(st) {
+  // A test follows its session (21-testing.md, "Every test has one session").
+  const changed = () => st.test?.sessionChanged?.(st);
   const signedOut = () => {
     st.sessionId = null;
     st.loaded = null;
     st.setCookie = st.cookie("");
     st.sessionChanged = true;
+    changed();
   };
   return {
     async signIn(_c, userId, roles) {
@@ -340,6 +355,7 @@ export function sessionManager(st) {
       st.loaded = { id: userId, roles: new Set(list) };
       st.setCookie = st.cookie(id);
       st.sessionChanged = true;
+      changed();
     },
     async signOut(_c) {
       if (st.user() === null) return;
@@ -400,7 +416,9 @@ export async function checkGuards(st, guards) {
       case "rate": {
         const live = st.liveSessionId();
         const who = live ? `s:${live}` : `a:${st.clientAddress}`;
-        const wait = await ops.op_k_rate_limit(`${g[1]}|${who}`, g[2], g[3]);
+        // A test's calls count on its virtual clock.
+        const now = st.test?.clock ? st.test.clock.now.ms : -1;
+        const wait = await ops.op_k_rate_limit(`${g[1]}|${who}`, g[2], g[3], now);
         if (wait > 0) return { kind: "rate", retryAfter: wait };
         break;
       }
@@ -592,7 +610,13 @@ function envelope(flags, json) {
  */
 async function pumpStream(st, s) {
   const id = st.request.id;
-  ops.op_k_respond_start(id, {
+  // An in-process request of a test brings its own sink.
+  const sink = st.request.sink ?? {
+    start: (head) => ops.op_k_respond_start(id, head),
+    chunk: (bytes) => ops.op_k_respond_chunk(id, bytes),
+    end: () => ops.op_k_respond_end(id),
+  };
+  sink.start({
     status: 200,
     headers: [["content-type", "application/connect+json"], ["cache-control", PRIVATE], ...(st.setCookie ? [["set-cookie", st.setCookie]] : [])],
   });
@@ -613,7 +637,7 @@ async function pumpStream(st, s) {
       const next = s.stream.next();
       const v = await Promise.race([next, ended]);
       if (v === ENDED || v === null || v === undefined) break;
-      if (!ops.op_k_respond_chunk(id, envelope(0, stringify(s.encode(v))))) break;
+      if (!sink.chunk(envelope(0, stringify(s.encode(v))))) break;
     }
   } catch (e) {
     logPanic(st, "a stream", e);
@@ -621,8 +645,8 @@ async function pumpStream(st, s) {
   }
   closeStream(s.stream);
   if (watch !== null) ops.op_k_broadcast_close(watch);
-  ops.op_k_respond_chunk(id, envelope(2, end));
-  ops.op_k_respond_end(id);
+  sink.chunk(envelope(2, end));
+  sink.end();
 }
 
 /** Closes a stream and the streams it is mapped from (their `source`). */
@@ -668,15 +692,11 @@ function incoming(st) {
   };
 }
 
-/** `request.headers[name]`: the values joined with `, `, or `nil`. */
-export function header(h, name) {
-  return h.map.get(String(name).toLowerCase()) ?? null;
-}
+/** `request.headers[name]`: the values joined with `, `, or `nil` (`http.js`). */
+export const header = http.HttpHeaders$get;
 
-/** `request.headers.all(name)`: every value, in order. */
-export function headerAll(h, name) {
-  return h.all.get(String(name).toLowerCase())?.slice() ?? [];
-}
+/** `request.headers.all(name)`: every value, in order (`http.js`). */
+export const headerAll = http.HttpHeaders$all;
 
 /** `request.text()`: the body as UTF-8, or `nil` if it isn't. */
 export function requestText(r) {
@@ -709,31 +729,17 @@ export function requestJson(r, codec, DecodingError) {
   }
 }
 
-/** A `HttpResponse` value: status code, headers, body. */
-export function response(status) {
-  return { status, headers: [], body: null };
-}
-
 /**
- * `response.headers(map)`: adds headers. Setting `set-cookie` (in any
- * letter case) is a panic: sessions own cookies (27-endpoint-pages.md).
- * @param {object} r
- * @param {Map<string, string>} map
+ * `HttpResponse(status:)` (`http.js`, shared with the browser, where test
+ * fakes of `HttpClient` build responses).
  */
-export function responseHeaders(r, map) {
-  const headers = r.headers.slice();
-  for (const [n, v] of map) {
-    const name = String(n).toLowerCase();
-    if (name === "set-cookie") throw new KPanic("an endpoint may not set set-cookie; use SessionManager");
-    headers.push([name, String(v)]);
-  }
-  return { ...r, headers };
-}
+export const response = http.HttpResponse$init;
 
-/** `response.body(body)`: sets the body (`HttpBody` value). */
-export function responseBody(r, body) {
-  return { ...r, body };
-}
+/** `response.body(body)`: sets the body (`http.js`). */
+export const responseBody = http.HttpResponse$body;
+
+/** `response.headers(map)`: adds headers, never `set-cookie` (`http.js`). */
+export const responseHeaders = http.HttpResponse$headers;
 
 /** `HttpResponse.redirect(to:)` / `(url:)`: 303 See Other. */
 export function redirect(location) {
@@ -891,8 +897,34 @@ function head(m, spec) {
     h += `<meta property="og:title" content="${escapeAttribute(String(m.preview.title))}">`;
     h += `<meta property="og:image" content="${escapeAttribute(String(m.preview.image))}">`;
   }
+  if (m.structuredData !== undefined) h += `<script type="application/ld+json">${serializeData(schemaOrg(m.structuredData))}</script>`;
   for (const href of spec.assets.styles) h += `<link rel="stylesheet" href="${escapeAttribute(href)}">`;
   return h;
+}
+
+/**
+ * The schema.org JSON-LD of a `StructuredData` value (22-metadata.md):
+ * `.product(name:price:)` (case 0) is a `Product` with an `Offer` whose
+ * price is the exact decimal amount, `.article(headline:)` (case 1) an
+ * `Article`.
+ * @param {{$: number, name?: string, price?: object, headline?: string}} d
+ * @returns {Record<string, unknown>}
+ */
+function schemaOrg(d) {
+  const base = { "@context": "https://schema.org" };
+  switch (d?.$) {
+    case 0:
+      return {
+        ...base,
+        "@type": "Product",
+        name: String(d.name),
+        offers: { "@type": "Offer", price: d.price.amount(), priceCurrency: currencyCode(d.price.currency) },
+      };
+    case 1:
+      return { ...base, "@type": "Article", headline: String(d.headline) };
+    default:
+      return base;
+  }
 }
 
 /**
@@ -911,9 +943,10 @@ function documentHtml(spec, st, meta, body, data) {
   return html + "</body></html>";
 }
 
-/** The render instant as RFC 3339 UTC without fractions. */
-function nowText() {
-  const ms = ops?.op_k_now ? ops.op_k_now() : Date.now();
+/** The render instant as RFC 3339 UTC without fractions (`st` the request). */
+function nowText(st) {
+  // A test renders on its virtual clock.
+  const ms = st?.test?.clock ? st.test.clock.now.ms : ops?.op_k_now ? ops.op_k_now() : Date.now();
   return new Date(ms).toISOString().replace(MILLIS, "Z");
 }
 
@@ -938,7 +971,7 @@ async function renderPage(st, r, params) {
   const out = new Out(ids);
   const ctx = { c: st.c, key: "0", meta: pageMeta, status: 200, failed: null };
   await r.render(props(params), ctx, out);
-  const data = { v: 1, now: nowText(), session: null, c: {} };
+  const data = { v: 1, now: nowText(st), session: null, c: {} };
   Object.assign(data.c, out.data);
   let html = out.html();
   const layoutMetas = [];
@@ -1123,13 +1156,17 @@ export function shareState(instance, service, fields) {
 export class ServerBroadcast {
   /**
    * @param {string} name a process-unique name
+   * @param {{encode: Function, decode: Function}} [codec] the element
+   *   type's: values cross isolates in its encoding and come out decoded,
+   *   with their types (without one, as structural JSON)
    */
-  constructor(name) {
+  constructor(name, codec) {
     this.name = name;
+    this.codec = codec ?? null;
   }
   /** Publishes `value` to every subscriber of `key`. */
   publish(key, value) {
-    ops.op_k_broadcast_publish(`${this.name}|${stringify(toJSON(key))}`, JSON.stringify(value));
+    ops.op_k_broadcast_publish(`${this.name}|${stringify(toJSON(key))}`, stringify(this.codec ? this.codec.encode(value) : toJSON(value)));
   }
   /**
    * Subscribes to `key`: a stream of later elements, closed when `session`
@@ -1137,6 +1174,7 @@ export class ServerBroadcast {
    */
   subscribe(key, session = null) {
     const id = ops.op_k_broadcast_subscribe(`${this.name}|${stringify(toJSON(key))}`, session);
+    const codec = this.codec;
     let done = false;
     return {
       async next() {
@@ -1148,7 +1186,7 @@ export class ServerBroadcast {
           done = true;
           return null;
         }
-        return JSON.parse(j);
+        return codec ? codec.decode(JSON.parse(j), "") : JSON.parse(j);
       },
       close() {
         done = true;
@@ -1296,12 +1334,26 @@ function macMatches(mac, other) {
 }
 
 /**
+ * The server's `LineChart` (37-charts.md): the drawing the browser's
+ * component claims, in `div.k-chart` keyed by its hash; `timeZone`
+ * defaults to the request's (`TimeZone.local`, the `k_tz` cookie).
+ * @param {Record<string, () => unknown>} props
+ * @param {object} ctx
+ * @param {Out} out
+ */
+function lineChartSsr(props, ctx, out) {
+  const html = lineChart(chartProps(props), props.timeZone?.() ?? requestTimeZone(ctx));
+  out.raw(`<div class="k-chart" data-k-chart="${chartKey(html)}">${html}</div>`);
+}
+
+/**
  * Server implementations of `@Native` stdlib members that have no
  * generated body, by `module.Owner$member` (the generated bundle falls
  * back to {@link missingNative}). A `Uuid` is its lowercase canonical text,
  * an `EmailAddress` its text.
  */
 export const natives = {
+  "k.charts.LineChart$ssr": lineChartSsr,
   "k.crypto.Password": password,
   "k.crypto.Hmac": { sha256: hmacOf(256), sha512: hmacOf(512) },
   "k.crypto.Mac$matches": macMatches,
@@ -1312,7 +1364,27 @@ export const natives = {
   "k.crypto.Uuid$parse": (text) => parseUuid(String(text)),
   "k.text.EmailAddress$init": (text) => parseEmail(String(text)) ?? panic(`not an email address: ${JSON.stringify(text)}`),
   "k.text.EmailAddress$parse": (text) => parseEmail(String(text)),
+  // A plain value on both sides (`services.js` reads and writes with it).
+  "k.storage.StorageKey$init": (name) => ({ name: String(name) }),
+  // `HttpResponse` and `HttpHeaders`, built and read alike on both sides.
+  ...Object.fromEntries(Object.entries(http).filter(([k]) => k.includes("$")).map(([k, f]) => [`k.http.${k}`, f])),
 };
+
+/**
+ * `TimeZone.local` on the server (35-time.md, "Server rendering"): the zone
+ * the browser reported in the `k_tz` cookie of the request being rendered
+ * with `ctx` (a view's render context, whose container holds the request),
+ * or UTC on a first visit, for a malformed cookie, and outside a view.
+ * @param {{c?: {$r?: RequestState}}|null} ctx
+ * @returns {string}
+ */
+export function requestTimeZone(ctx) {
+  try {
+    return parseTimeZone(decodeURIComponent(ctx?.c?.$r?.cookies?.get("k_tz") ?? "")) ?? "UTC";
+  } catch {
+    return "UTC";
+  }
+}
 
 /**
  * The server's `k.ui.Theme` (07-themes-and-units.md, "During server
@@ -1333,20 +1405,64 @@ export function theme(st) {
 
 /**
  * The server's `k.server.PublicUrls` (12-routing.md, "Absolute URLs"):
- * `absolute(page)` is the public origin (`K_PUBLIC_ORIGIN`, without a
- * trailing slash) followed by the page's path. Endpoint URLs
- * (`absolute(endpoint:)`) are not built in v0 and panic with their name.
+ * `absolute(page)` and `absolute(endpoint:)` are the public origin
+ * (`K_PUBLIC_ORIGIN`, without a trailing slash) followed by the page's or
+ * the endpoint page's path.
  * @param {(page: unknown) => string} href the app's `Page$href`
- * @returns {{absolute: (page: unknown) => string, absolute$endpoint: Function}}
+ * @param {(endpoint: unknown) => string} [endpointHref] the app's `Endpoint$href`
+ * @returns {{absolute: (page: unknown) => string, absolute$endpoint: (endpoint: unknown) => string}}
  */
-export function publicUrls(href) {
+export function publicUrls(href, endpointHref) {
+  const origin = () => {
+    let o = info().publicOrigin;
+    while (o.endsWith("/")) o = o.slice(0, -1);
+    return o;
+  };
   return {
     absolute(page) {
-      let origin = info().publicOrigin;
-      while (origin.endsWith("/")) origin = origin.slice(0, -1);
-      return origin + href(page);
+      return origin() + href(page);
     },
-    absolute$endpoint: missingNative("k.server.PublicUrls.absolute(endpoint:)"),
+    absolute$endpoint: endpointHref ? (endpoint) => origin() + endpointHref(endpoint) : missingNative("k.server.PublicUrls.absolute(endpoint:)"),
+  };
+}
+
+// ------------------------------------------------------------- k test
+
+/**
+ * One instance of `make()` per test of `k test`, shared by every container
+ * of the test (its direct server container and each in-process request's),
+ * so a fake or a recording double the test injects is the one the code
+ * under test used. Outside a test, one per container (`c.$key ??=`).
+ * @param {{$r?: RequestState}} c the container
+ * @param {string} key the bound type's name
+ * @param {() => unknown} make
+ */
+export function perTest(c, key, make) {
+  const t = c.$r?.test;
+  if (!t || !t.memo) return (c[`$${key}`] ??= make());
+  if (!t.memo.has(key)) t.memo.set(key, make());
+  return t.memo.get(key);
+}
+
+/**
+ * `k.test.TestClient` (21-testing.md, "HTTP-level tests"): sends an
+ * outgoing `HttpRequest` through the whole app in-process, with the test's
+ * cookies (`st.test.send`, the kit's exchange), and answers the response
+ * as an `HttpClient` would receive it. It never throws.
+ * @param {{test: {send: Function}}} st the request state of a test
+ * @param {object} E the generated `HttpError` enum
+ * @param {object} S the generated `HttpStatus` enum
+ * @param {Array<number|null>} codes `HttpStatus`'s codes
+ */
+export function testClient(st, E, S, codes) {
+  const statusOf = httpStatus(S, codes);
+  return {
+    async send(_c, request) {
+      if (!st?.test?.send) throw new KPanic("TestClient works only in a test of `k test`");
+      const o = await st.test.send(wireRequest(request));
+      const body = o.body instanceof Uint8Array ? o.body : new TextEncoder().encode(String(o.body ?? ""));
+      return received(E, statusOf(o.status), o.status, o.headers, body);
+    },
   };
 }
 

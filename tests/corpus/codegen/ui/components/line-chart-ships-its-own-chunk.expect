@@ -1,0 +1,7 @@
+client contains // file: charts.[hash].js
+client contains import { LineChart } from "./charts.[hash].js";
+client contains from "./runtime.[hash].js";
+client contains export function LineChart(props, _ctx)
+client lacks $k.native("k.charts.LineChart")
+client lacks from "./hydrate.js"
+server contains $s.natives["k.charts.LineChart$ssr"]

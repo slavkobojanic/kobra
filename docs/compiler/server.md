@@ -104,6 +104,8 @@ compatibility check of `k check` (the compiler already reads job names from the 
 | `process::{ProcessState, SessionView, random_token, base64url}` | The state every worker shares. |
 | `app::{append, read, read_file, probe, AppPayload, ConfigSpec, EmbeddedFile, MAGIC}` | `dist/app`; the payload carries the config table and the session-free endpoint templates. |
 | `testing::{parse_script, run_script, send, Exchange, Expect, HttpResponse}` | HTTP request scripts ([testing.md §8.2](testing.md#82-server-end-to-end-tests)). |
+| `testing::{open_stream, StreamingResponse, StreamChunk}` | A request whose response body is read as it arrives (`next_chunk(wait)`), for a server stream; dropping it closes the connection ([testing.md §4.3](testing.md#43-browser-tests)). |
+| `ServerOptions { fetch_origins }`, `outbound::replace_origin`, `ProcessState::{with_fetch_origins, fetch_origins}` | `(origin, replacement)` pairs: an outgoing `HttpClient` request to that exact origin (or below it) goes to the replacement, for tests that stand a `FakeHttp` in for a third party the app hard-codes. Empty in production: `k run` and `dist/app` never set it. |
 | `ServerOptions { jobs, job_poll }` | The build's job specs (`k_db::stdlib::JobSpec`, from the manifest) and how often the worker polls (250 ms). |
 | `jobs::{JobWorker, JobWorkerOptions, Dispatch, fate, job_id, now_ms}` | The background jobs worker ([§11](#11-background-jobs)). |
 | `outbound::{fetch, send_mail, build_message, FetchRequest, FetchOutcome, SmtpSettings, SmtpSecurity, MailMessage, MailOutcome}` | Outgoing HTTP and SMTP ([§18](#18-outgoing-http-and-email)). |
@@ -149,6 +151,8 @@ Ops are the only way server JavaScript reaches Rust (`Deno.core.ops.*`):
 |---|---|---|
 | `op_k_log` | `(level, message) => void` | implemented: captured, or one JSON line on stdout |
 | `op_k_set_result` | `(text) => void` | implemented (drivers and tests) |
+| `op_k_test_reset` | `() => void` | implemented (`k test`): a fresh process state, and a fresh in-memory database with the build's migrations when the engine has a test database (`Engine::set_test_database`) |
+| `op_k_test_tick` | `() => Promise<void>` | implemented (`k test`): one turn of the event loop, so completed ops deliver between runs of microtasks |
 | `op_k_next_request` | `() => Promise<Request \| null>` | implemented: `null` once the server shuts down |
 | `op_k_respond` | `(id, {status, headers, body}) => void` | implemented: body is a string or `Uint8Array`; a status outside `100..=999` (or not an integer) is a generic `500` |
 | `op_k_respond_start` / `op_k_respond_chunk` / `op_k_respond_end` | `(id, {status, headers})`, `(id, bytes) => open`, `(id)` | implemented: a streamed body (chunked) |
@@ -158,7 +162,7 @@ Ops are the only way server JavaScript reaches Rust (`Deno.core.ops.*`):
 | `op_k_utf8_valid` | `(bytes) => boolean` | implemented: behind the bootstrap's `TextDecoder` with `fatal: true`, which rpc bodies, `request.text()` and `request.json()` use, so a body that isn't UTF-8 is refused, never decoded lossily |
 | `op_k_session_get` / `_create` / `_delete` / `_end_all` | the session store; each returns a promise (a database read or write when the server has one) | implemented ([§9](#9-sessions-auth-and-request-forgery)) |
 | `op_k_session_issue_state` / `_consume_state` | `(id) => Promise<state \| null>`, `(id, state) => Promise<boolean>`: OAuth state bound to the session row | implemented ([§9](#9-sessions-auth-and-request-forgery)) |
-| `op_k_rate_limit` | `(key, limit, windowMs) => Promise<retryAfterSeconds>` (`0` allowed) | implemented: sliding window per key, in `k_rate_limit` with a database |
+| `op_k_rate_limit` | `(key, limit, windowMs, nowMs) => Promise<retryAfterSeconds>` (`0` allowed) | implemented: sliding window per key, in `k_rate_limit` with a database; with `nowMs ≥ 0` (a test's virtual time) counted exactly in memory |
 | `op_k_shared_get` / `op_k_shared_set` | `(key) => json \| null`, `(key, json)` | implemented: `.server` service state |
 | `op_k_broadcast_subscribe` / `_publish` / `_next` / `_close` | keyed broadcasts | implemented: a subscriber with 1,000 undelivered elements, or whose session ends, is closed |
 | `op_k_sleep` | `(ms, signal) => Promise<void>` | v0: cancellable |
@@ -251,7 +255,7 @@ server streaming.
 
   | Outcome | Code | HTTP |
   |---|---|---|
-  | declared error case | `failed_precondition`, detail `{"type": "k.TypedError", "debug": {"error": "shop.cart.CartError", "case": "outOfStock", "fields": {"available": 3}}}` | 400 |
+  | declared error case | `failed_precondition`, detail `{"type": "k.TypedError", "debug": {"error": "shop.cart.CartError", "case": "outOfStock", "fields": {"available": 3}}}`; a `Codable` error's `fields` are its codec's encoding without `case` (an enum payload as its case name, a `Date` as RFC 3339), which the client decodes with the same codec; any other error's are the payload's structural JSON | 400 |
   | invalid request | `invalid_argument`, detail `k.ValidationError` with field paths | 400 |
   | `Authenticated` refused | `unauthenticated` | 401 |
   | `Role` refused | `permission_denied` | 403 |
@@ -602,7 +606,8 @@ another implementation; a test build binds `TestHttpClient`.
   lower-cased, `secretHeaders` and `bearerToken` revealed only here (`Authorization: Bearer …`), the
   body by its `HttpBody` case with its `Content-Type` unless set (`.json` through the value's codec,
   `.form` URL-encoded, `.text` UTF-8, `.bytes` with its content type), and the timeout (default 30 s).
-- **`op_k_fetch`** (`outbound::fetch`) sends it with hyper's client over rustls with the Mozilla root
+- **`op_k_fetch`** first applies `ServerOptions::fetch_origins` (`outbound::replace_origin`, tests only),
+  then (`outbound::fetch`) sends it with hyper's client over rustls with the Mozilla root
   store (`webpki-roots`): `http` and `https` only, HTTP/1.1, one connection pool per worker thread,
   redirects not followed (a `3xx` is a response). The timeout covers connecting through the body's
   last byte (at most 10 minutes). A body over 32 MiB is refused. The outcome is a response (status,

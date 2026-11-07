@@ -130,7 +130,7 @@ impl Col {
     }
 
     /// The `schema.lock` / DDL column type.
-    fn column_type(&self, g: &Gen<'_>) -> ColumnType {
+    pub(crate) fn column_type(&self, g: &Gen<'_>) -> ColumnType {
         match self {
             Col::Uuid => ColumnType::Uuid,
             Col::Text | Col::Email => ColumnType::Text,
@@ -233,7 +233,7 @@ impl EntityModel {
         self.fields.iter().find(|f| f.name == name)
     }
 
-    fn id_field(&self) -> Option<&FieldModel> {
+    pub(crate) fn id_field(&self) -> Option<&FieldModel> {
         self.id.and_then(|i| self.fields.get(i))
     }
 
@@ -259,7 +259,7 @@ pub(crate) fn snake(name: &str) -> String {
 }
 
 /// The text of the project's `schema.lock`, if it has one.
-fn lock(g: &Gen<'_>) -> Option<k_db::lock::SchemaLock> {
+pub(crate) fn lock(g: &Gen<'_>) -> Option<k_db::lock::SchemaLock> {
     let (file, _) = g
         .analysis
         .files()
@@ -320,6 +320,18 @@ fn col_of(g: &Gen<'_>, t: &Type, depth: u32) -> Option<Col> {
 }
 
 impl Model {
+    /// Every entity, sorted by table name.
+    pub(crate) fn entities(&self) -> Vec<&EntityModel> {
+        let mut out: Vec<&EntityModel> = self.entities.values().collect();
+        out.sort_by(|a, b| a.table.cmp(&b.table));
+        out
+    }
+
+    /// The entity `d`, if it is one.
+    pub(crate) fn entity(&self, d: DeclId) -> Option<&EntityModel> {
+        self.entities.get(&d)
+    }
+
     fn build(g: &Gen<'_>) -> Model {
         let lock = lock(g);
         let entities: Vec<DeclId> = g

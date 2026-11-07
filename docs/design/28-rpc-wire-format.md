@@ -104,5 +104,5 @@ curl --header 'Content-Type: application/json' --header 'Connect-Protocol-Versio
 
 ## Open questions
 
-- The client's rpc timeout: its default, whether a protocol or an rpc can set its own, and whether it covers a streaming rpc beyond the call that opens the stream.
+- The client's rpc timeout: its default, and whether a protocol or an rpc can set its own. (For a streaming rpc it covers only opening the stream: [29-server-streaming.md](29-server-streaming.md#reading-a-stream-for-await).)
 - How a test exercises a page's handling of `offline` and `timeout`. Today it fakes the client service that wraps the protocol.

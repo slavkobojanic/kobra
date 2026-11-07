@@ -15,6 +15,7 @@
  */
 
 import { batch } from "./signals.js";
+import { localTimeZone } from "./std.js";
 
 let hydrating = false;
 
@@ -90,7 +91,7 @@ export function hydrate(container, render, data) {
 /** Sets the `k_tz` cookie so later server renders use the browser's zone. */
 function rememberTimeZone(doc) {
   try {
-    doc.cookie = `k_tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")}; path=/; max-age=31536000; samesite=lax`;
+    doc.cookie = `k_tz=${encodeURIComponent(localTimeZone())}; path=/; max-age=31536000; samesite=lax`;
   } catch {
     // No cookies or no Intl: the server keeps UTC.
   }
@@ -278,6 +279,29 @@ function reconcile(t, s) {
     }
   }
   drop(sc, null);
+}
+
+/**
+ * Claims the next server-rendered node as it is, children included, for a
+ * native component that owns its subtree (`LineChart`): the node when it
+ * is a `tag` element, otherwise `null`, with the range's server content
+ * dropped (a mismatch). Always `null` outside a hydration pass.
+ * @param {string} tag
+ * @returns {Element|null}
+ */
+export function claimRaw(tag) {
+  if (!hydrating) return null;
+  const range = currentRange();
+  const node = range ? range.next : null;
+  if (node && node !== range.end && node.localName === tag) {
+    range.next = node.nextSibling;
+    return node;
+  }
+  if (range) {
+    drop(range.next, range.end);
+    range.next = range.end;
+  }
+  return null;
 }
 
 /**

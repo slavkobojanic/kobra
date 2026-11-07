@@ -9,8 +9,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use k_runtime::{
-    CORE_SIZE_BUDGET, FULL_SIZE_BUDGET, Part, SERVICES_SIZE_BUDGET, STDLIB_SIZE_BUDGET, compact,
-    compacted_sources, modules, resolve,
+    CHARTS_SIZE_BUDGET, CORE_SIZE_BUDGET, FULL_SIZE_BUDGET, HTTP_SIZE_BUDGET, Part,
+    SERVICES_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET, compact, compacted_sources,
+    modules, resolve,
 };
 
 fn js_root() -> PathBuf {
@@ -155,7 +156,14 @@ fn testing_and_server_modules_are_not_client_parts() {
         }
         if matches!(
             m.part,
-            Part::Core | Part::Extended | Part::ClientEntry | Part::Stdlib | Part::Services
+            Part::Core
+                | Part::Extended
+                | Part::ClientEntry
+                | Part::Stdlib
+                | Part::Services
+                | Part::Charts
+                | Part::Streams
+                | Part::Http
         ) {
             assert!(
                 !m.source.contains("Deno.core"),
@@ -184,6 +192,37 @@ fn gzip_len(s: &str) -> usize {
     let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
     encoder.write_all(s.as_bytes()).expect("gzip");
     encoder.finish().expect("gzip").len()
+}
+
+/// The budgets measure the parts as the runtime chunk ships them: the
+/// links between runtime files (`import`, `export … from`) are removed
+/// when the files are concatenated into one module, so they never reach a
+/// browser and are not counted.
+#[test]
+fn the_measured_parts_are_what_ships() {
+    let shipped = compacted_sources(&[Part::Core, Part::Extended, Part::ClientEntry, Part::Stdlib])
+        .expect("compacts");
+    for line in shipped.lines() {
+        assert!(
+            !line.starts_with("import ")
+                && !line.starts_with("export * from")
+                && !(line.starts_with("export {") && line.contains(" from ")),
+            "a module link is measured: {line}"
+        );
+    }
+    assert!(
+        shipped.contains("export function signal("),
+        "declarations stay exported"
+    );
+}
+
+#[test]
+fn strip_links_removes_only_links_between_files() {
+    let src = "import { a } from \"./a.js\";\nimport {\n  b,\n  c,\n} from \"./b.js\";\nexport * from \"./c.js\";\nexport { d } from \"./d.js\";\nexport {\n  e,\n} from \"./e.js\";\nexport { f };\nexport function g() {}\nconst imports = 1;\n";
+    assert_eq!(
+        k_runtime::strip_links(src),
+        "export { f };\nexport function g() {}\nconst imports = 1;\n"
+    );
 }
 
 #[test]
@@ -247,6 +286,51 @@ fn the_browser_services_meet_their_size_budget() {
     );
 }
 
+#[test]
+fn the_charts_meet_their_size_budget() {
+    let charts = compacted_sources(&[Part::Charts]).expect("compacts");
+    let size = gzip_len(&charts);
+    eprintln!(
+        "charts: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {CHARTS_SIZE_BUDGET})",
+        raw_len(&[Part::Charts]),
+        charts.len()
+    );
+    assert!(
+        size <= CHARTS_SIZE_BUDGET,
+        "the charts are {size} bytes gzip, over the {CHARTS_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn the_streams_meet_their_size_budget() {
+    let streams = compacted_sources(&[Part::Streams]).expect("compacts");
+    let size = gzip_len(&streams);
+    eprintln!(
+        "streams: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {STREAMS_SIZE_BUDGET})",
+        raw_len(&[Part::Streams]),
+        streams.len()
+    );
+    assert!(
+        size <= STREAMS_SIZE_BUDGET,
+        "the streams are {size} bytes gzip, over the {STREAMS_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn the_http_responses_meet_their_size_budget() {
+    let http = compacted_sources(&[Part::Http]).expect("compacts");
+    let size = gzip_len(&http);
+    eprintln!(
+        "http: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {HTTP_SIZE_BUDGET})",
+        raw_len(&[Part::Http]),
+        http.len()
+    );
+    assert!(
+        size <= HTTP_SIZE_BUDGET,
+        "the http responses are {size} bytes gzip, over the {HTTP_SIZE_BUDGET}-byte budget"
+    );
+}
+
 /// The client runtime ships as one module (the runtime chunk), so the
 /// top-level names of its files must not collide.
 #[test]
@@ -255,7 +339,12 @@ fn client_runtime_files_share_no_top_level_names() {
     for m in modules() {
         if !matches!(
             m.part,
-            Part::Core | Part::Extended | Part::Stdlib | Part::Services
+            Part::Core
+                | Part::Extended
+                | Part::Stdlib
+                | Part::Services
+                | Part::Charts
+                | Part::Streams
         ) {
             continue;
         }

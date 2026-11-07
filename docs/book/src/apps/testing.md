@@ -46,8 +46,14 @@ test CartService {
 `toHaveLength`. When an expectation fails, the test runner shows the value of each sub-expression:
 
 ```text
-expect cart.items.count == 1
-       cart.items.count was 0, expected == 1
+error[K7510]: expectation failed: cart.items.count == 1
+  --> src/store/Cart.test.k:14:16
+   |
+14 |         expect cart.items.count == 1
+   |                ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cart.items.count` was 0
+   = note: in test `Cart › adds a product`
 ```
 
 Absence is checked with `not`, never by comparing with `false`:

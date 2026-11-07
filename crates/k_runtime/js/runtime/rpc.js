@@ -28,15 +28,22 @@ export const sessionMirror = signal({ user: null });
  * kind: "offline"}` when the request fails or the body is unreadable;
  * `{ok: false, kind: "timeout"}` after `timeoutMs`. An aborted `signal`
  * makes the promise never settle. No retries.
+ *
+ * With `options.stream` (a server-streaming rpc's, from `streamed` in
+ * `streams.js`) the request is `stream.body(message)` as
+ * `application/connect+json`, and a 2xx resolves at once to `{ok: true,
+ * message: stream.read(response, controller, signal)}`, the open stream;
+ * the timeout covers only opening it (29-server-streaming.md).
  * @param {string} path `/package.Service/Method`
  * @param {unknown} message the JSON request
  * @param {AbortSignal|null} signal the caller's cancellation context
- * @param {{timeoutMs?: number, fetch?: typeof fetch}} [options]
+ * @param {{timeoutMs?: number, fetch?: typeof fetch, stream?: {body: Function, read: Function}}} [options]
  * @returns {Promise<object>}
  */
 export function rpc(path, message, signal, options) {
   const doFetch = options?.fetch ?? globalThis.fetch;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const stream = options?.stream;
   if (signal && signal.aborted) return new Promise(() => {});
   return new Promise((resolve) => {
     let done = false;
@@ -64,8 +71,8 @@ export function rpc(path, message, signal, options) {
     try {
       request = doFetch(path, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Connect-Protocol-Version": "1" },
-        body: JSON.stringify(message ?? {}),
+        headers: { "Content-Type": stream ? "application/connect+json" : "application/json", "Connect-Protocol-Version": "1" },
+        body: stream ? stream.body(message) : JSON.stringify(message ?? {}),
         signal: controller?.signal,
       });
     } catch {
@@ -74,6 +81,11 @@ export function rpc(path, message, signal, options) {
     }
     Promise.resolve(request).then(
       async (response) => {
+        if (stream && response.ok) {
+          stop();
+          finish({ ok: true, message: stream.read(response, controller, signal) });
+          return;
+        }
         let body;
         try {
           body = JSON.parse((await response.text()) || "{}");
@@ -111,17 +123,20 @@ export function rpc(path, message, signal, options) {
 /**
  * Maps a failed rpc outcome to the rpc's typed error
  * (docs/compiler/codegen.md §15): a `failed_precondition` with a
- * `k.TypedError` detail is the case its `debug.case` names, built from its
- * `debug.fields` in order (`E.case(...payload)`); network
+ * `k.TypedError` detail is the case its `debug.case` names, decoded with
+ * `codec` (a Codable error's) from `{case, ...debug.fields}`, or without
+ * one built from its `debug.fields` in order (`E.case(...payload)`); a
+ * detail the codec refuses is a panic; network
  * outcomes are `rpcFailure(.offline)` / `.timeout`; `invalid_argument` is
  * `rpcFailure(.invalid(ValidationError))` with the detail's failures; a
  * refused guard is `rpcFailure(.rejected(GuardRejection))` (`Retry-After`
  * as the `rateLimited` wait); anything else is a panic.
  * @param {object} o the outcome
  * @param {object|null} E the error enum's constructor object
+ * @param {{decode: Function}} [codec] the error's codec, if it is Codable
  * @returns {unknown}
  */
-export function rpcError(o, E) {
+export function rpcError(o, E, codec) {
   const bad = Error(`rpc failed: ${o.code ?? o.kind}`);
   // `rpcFailure` of `RpcFailure` case `tag`, in declaration order:
   // rejected, invalid, offline, timeout.
@@ -132,7 +147,14 @@ export function rpcError(o, E) {
   const find = (t) => o.details?.find((x) => x?.type === t)?.debug;
   const d = o.code === "failed_precondition" && E && find("k.TypedError");
   const c = d && E[d.case];
-  if (c) return typeof c === "function" ? c(...Object.values(d.fields ?? {})) : c;
+  if (c) {
+    if (!codec) return typeof c === "function" ? c(...Object.values(d.fields ?? {})) : c;
+    try {
+      return codec.decode({ ...d.fields, case: d.case }, "error");
+    } catch {
+      return bad;
+    }
+  }
   if (o.code === "invalid_argument") return failure(1, { failures: find("k.ValidationError")?.failures ?? [] });
   // `GuardRejection`: unauthenticated, forbidden, rateLimited(retryAfter:).
   const r = ["unauthenticated", "permission_denied", "resource_exhausted"].indexOf(o.code);

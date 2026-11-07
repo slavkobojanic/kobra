@@ -55,14 +55,17 @@ crates/
   k_runtime       hand-written client/shared JavaScript runtime, embedded with include_str!
   k_db            schema model, query translation, migrations, SQLite/Postgres drivers
   k_server        deno_core (V8) embedding, hyper HTTP, SSR, RPC dispatch, ops
+  k_lsp           the language server: LSP transport, document sync and the IDE features over k_sema
   k_cli           the `k` binary: subcommands over the crates above
   k_corpus        golden corpus harness and golden file formats (tests/corpus)
 fuzz/             cargo-fuzz targets (nightly, outside the workspace)
 tests/corpus/     golden corpus
+editors/          VS Code, Neovim and Vim integrations of `k lsp` (lsp.md §11)
 ```
 
 Planned crates, added when their stage starts: `k_project` (`k.toml`, package resolution, `k.lock`) may
-be split out of `k_sema`; `k_fmt` (formatter, deferred) and `k_lsp` (language server, deferred).
+be split out of `k_sema`; `k_fmt` (formatter, deferred). The language server, `k_lsp`, is described in
+[lsp.md](lsp.md).
 
 **Dependency rules** (arrows point to dependencies; no cycles; nothing depends on `k_cli`):
 
@@ -73,6 +76,7 @@ k_cli ──▶ k_server ──▶ k_runtime
   │        │           └─────▶ k_db
   │        └──▶ k_runtime
   ├──▶ k_sema (k check)
+  ├──▶ k_db (k migrate status)
   └──▶ k_corpus (golden formats, sema/codegen/run suites) ──▶ k_codegen, k_sema, k_syntax
 ```
 
@@ -285,7 +289,7 @@ Lockfiles are deterministic, sorted, line-oriented TOML so diffs review well.
 
 ## 6. Incremental queries
 
-The compiler and the (deferred) language server share one engine: a memoized query database in the
+The compiler and the language server ([lsp.md](lsp.md)) share one engine: a memoized query database in the
 style of [salsa](https://github.com/salsa-rs/salsa). **Decision:** the engine is hand-rolled in `k_sema`
 (layered queries with revisions, early cutoff and per-layer parallel fan-out), not the `salsa` crate;
 the reasons and the layers are in [sema.md §3](sema.md#3-query-architecture).
@@ -471,8 +475,10 @@ an `AbortSignal` with the effect or load that issued them.
 Signals, DOM renderer and hydration: at most 5 KB minified and brotli-compressed. With router and RPC
 client: at most 10 KB. The browser's service support (`services.js`: component-scope `provide`, `Clock`,
 `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session` mirror) has its own 3 KB, like the stdlib
-bodies. The budget test compacts the runtime and measures gzip at the best level, which is
-an upper bound for brotli ([runtime.md §2](runtime.md#2-modules-api-and-size-budget)).
+bodies. Features only some apps use ship as chunks of their own, only to those apps, each with its own
+budget: `k.charts` 3 KB, server streams in the browser 1 KB. The budget test measures each part as it
+ships (the links between runtime files removed, compacted) with gzip at the best level, which is an upper
+bound for brotli ([runtime.md §2](runtime.md#2-modules-api-and-size-budget)).
 
 ---
 
@@ -620,9 +626,9 @@ past a budget blocks the change.
 | Warm re-check after editing a function body | ≤ 30 ms |
 | Warm re-check after changing a public signature | ≤ 150 ms |
 | Cold `k build`, 100,000-line project | ≤ 2.5 s, excluding a cached V8 snapshot |
-| Language server (deferred): diagnostics after a keystroke / completions | ≤ 100 ms / ≤ 50 ms at p95 |
+| Language server: diagnostics after a keystroke / completions | ≤ 100 ms / ≤ 50 ms at p95; hover and go-to-definition ≤ 2 ms at p50 warm ([performance.md §12](performance.md#12-language-server)) |
 | Compiler memory, 100,000-line project, warm | ≤ 1.5 GB |
-| Client runtime size (min + brotli) | ≤ 5 KB core, ≤ 10 KB with router and RPC; the shipped runtime chunk (with the stdlib bodies, ≤ 10 KB of their own, and the browser services, ≤ 3 KB of their own) ≤ 23 KB, the sum of its parts |
+| Client runtime size (min + brotli) | ≤ 5 KB core, ≤ 10 KB with router and RPC; the shipped runtime chunk (with the stdlib bodies, ≤ 10 KB of their own, and the browser services, ≤ 3 KB of their own) ≤ 23 KB, the sum of its parts; the feature chunks ≤ 3 KB (`k.charts`) and ≤ 1 KB (server streams) |
 | Hydration of a 1,000-node page | ≤ 10 ms |
 | Signal write to DOM text update | ≤ 1 µs per binding |
 | Signal write propagated through computeds to an effect | ≤ 1 µs per write (a diamond of three computeds) |
@@ -635,12 +641,16 @@ past a budget blocks the change.
 | RPC dispatch overhead (excluding the handler) | ≤ 50 µs at p50 |
 | Trivial RPC throughput, 8 cores | ≥ 30,000 requests/s |
 
+The language server's budgets are enforced by `scripts/bench-check.sh --lsp` through
+`crates/k_lsp/tests/perf_budget.rs` ([performance.md §12](performance.md#12-language-server)).
+
 The code generation, runtime, server and `dist/app` budgets are enforced by `scripts/bench-check.sh`
 (`--codegen`, `--runtime`, `--server`, `--db`, `--app`) through `crates/k_codegen/tests/perf_budget.rs`,
 `crates/k_runtime/tests/runtime.rs`, `crates/k_server/tests/perf_budget.rs`, `crates/k_db/tests/perf_budget.rs`
 and `crates/k_cli/tests/perf_budget.rs` (the real `dist/app` of the examples over HTTP); method and baselines
 are in [performance.md §11](performance.md#11-stage-3-runtime-and-server). All are met today; the full client
-runtime has 1 byte of gzip headroom. The SSR-under-load and 10,000-row budgets were added with the stage 3
+runtime has 462 bytes of gzip headroom and the stdlib bodies 403
+([performance.md §11.3](performance.md#113-budget-status)). The SSR-under-load and 10,000-row budgets were added with the stage 3
 benchmarks: the first is the 3 ms single-request budget turned into a per-core rate with margin, the second
 the 1,000-row budget scaled linearly.
 
@@ -699,12 +709,12 @@ my-app/
 | Command | v0 behavior |
 |---|---|
 | `k check [paths]` | parse, check, lockfile comparison, tests in CI mode; `--format human\|json` |
-| `k build [project] [--out dir]` | check, then emit `dist/` ([codegen.md §19](codegen.md#19-output-layout-of-dist)) |
+| `k build [project] [--out dir]` | check, then emit `dist/` ([codegen.md §19](codegen.md#19-output-layout-of-dist)); hashed assets of earlier builds are removed from `public/assets/` |
 | `k run [project] [--port n]` | build for development and serve in-process |
 | `k dev` | build and serve with rebuild on change (HMR deferred) |
-| `k test` | run `test` declarations (unit, component and integration tests) |
-| `k routes` | print the route table from the checked program |
-| `k migrate new\|apply\|status` | migrations ([§10](#10-persistence)) |
+| `k test [project] [--filter text]… [--watch]` | run `test` declarations in one isolate over the fake DOM, ([codegen.md §21.1](codegen.md#211-the-test-bundle-k-test), [runtime.md §13](runtime.md#13-testing)); one browser and one server per test (rpcs in-process through the wire format, a fresh in-memory database, the test's one session); failures are K7510 diagnostics; `--watch` re-runs the tests a change affects (`Analysis::file_dependencies`); `K_TEST_BUNDLE_DIR` writes the bundle ([testing.md §8.4](testing.md#84-k-test-and-the-project-commands)) |
+| `k routes [project]` | print the route table: pages, each endpoint handler, `routes.lock` redirects, with parameters and guards (`k_codegen::route_table`) |
+| `k migrate new "description" [--empty]`, `k migrate apply\|status [project]` | migrations ([§10](#10-persistence), [db.md §10](db.md#10-migrations)) |
 | `k debug tokens\|ast\|diag <file>` | hidden; print golden-file formats |
 
 Exit status: 0 success, 1 problems found, 2 usage or internal error.
@@ -731,8 +741,8 @@ Few, well-known crates. Adding one requires a line here.
 | `libfuzzer-sys` | fuzz targets (nightly, outside workspace) | in use |
 | `arbitrary` | structure-aware K program generator shared by fuzz targets and property tests (dev) | in use |
 | `salsa` | incremental query engine | rejected: hand-rolled queries ([sema.md §3.1](sema.md#31-decision-hand-rolled-salsa-style-layered-queries)) |
-| `serde`, `serde_json` | manifests, ops, RPC JSON, app archive | in use (k_codegen, k_server, k_db, k_corpus) |
-| `toml` (parse only) | `schema.lock`; `fakes.toml` of e2e projects (dev) | in use (k_db; k_server tests) |
+| `serde`, `serde_json` | manifests, ops, RPC JSON, app archive, `k test` results | in use (k_codegen, k_server, k_db, k_corpus, k_cli) |
+| `toml` (parse only) | `schema.lock`; `storage.lock` (the payload check); `fakes.toml` of e2e projects (dev) | in use (k_db, k_sema; k_server tests) |
 | `tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes` | HTTP server, async drivers | in use (k_server, k_db) |
 | `deno_core`, `deno_error` | V8 embedding, ops | in use (k_server) |
 | deno web extensions | web APIs in isolates | rejected: a small bootstrap and K ops instead ([§9.1](#91-process-model)) |
@@ -745,7 +755,13 @@ Few, well-known crates. Adding one requires a line here.
 | `lettre` (`smtp-transport`, `tokio1-rustls-tls`, `builder`) | `SmtpEmailProvider`: SMTP with STARTTLS/TLS/plain, authentication, MIME building and reply classification (`op_k_smtp_send`) | in use (k_server) |
 | `sha2` | SHA-256 of session tokens and OAuth state in `k_session`, and HMAC-SHA-256/512 (`op_k_hmac`, RFC 2104 over `sha2`) | in use (k_server) |
 
-No JavaScript package ecosystem is used, at build time or at runtime.
+| `lsp-types` (with `url`) | the Language Server Protocol's data types in `k_lsp`; the transport is our own ([lsp.md §1](lsp.md#1-dependencies)) | in use (k_lsp, k_cli tests) |
+| `lsp-server`, `tower-lsp` | LSP transport | rejected: the first ends the connection on a malformed body, the second needs an async runtime the synchronous analysis doesn't want ([lsp.md §1](lsp.md#1-dependencies)) |
+| `regex` (dev) | evaluates the TextMate grammar's patterns against the lexer's keyword table (`k_lsp/tests/editors.rs`) | in use (k_lsp tests) |
+
+No JavaScript package ecosystem is used, at build time or at runtime. The VS Code extension in
+`editors/vscode` depends on `vscode-languageclient` through npm; it is not part of the toolchain's build or
+tests.
 
 ---
 
@@ -763,7 +779,7 @@ No JavaScript package ecosystem is used, at build time or at runtime.
 - Entities and repositories on SQLite and Postgres, migrations and `schema.lock`.
 - SSR with hydration; `k check`, `k build`, `k dev` (without HMR), `k test`, `k routes`, `k migrate`.
 
-**Deferred:** hot module replacement, the language server, `k fmt`, the Protobuf binary wire format and
+**Deferred:** hot module replacement, `k fmt`, the Protobuf binary wire format and
 `k proto export`/`import proto` code generation, the edge deployment target, packages (`k add`), client
 and bidirectional streaming.
 

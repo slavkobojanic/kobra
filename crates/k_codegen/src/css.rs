@@ -261,6 +261,37 @@ fn literal_text(n: &SyntaxNode) -> String {
     n.text().to_string().trim().to_owned()
 }
 
+/// Prints the CSS text of a token value of `category`: a `font` token's
+/// `Font(family: "Inter", size: 16px)` is the value of the `font`
+/// shorthand, size then family (`16px "Inter"`), with the family's K
+/// string literal kept as the CSS string (both escape `"` and `\\` with a
+/// backslash); every other value is its literal text.
+fn token_value(category: &str, n: &SyntaxNode) -> String {
+    if category == "font" {
+        if let Some(text) = font_shorthand(n) {
+            return text;
+        }
+    }
+    literal_text(n)
+}
+
+/// `size family` of a `Font(family:size:)` call, or `None` when the value
+/// isn't one with both arguments.
+fn font_shorthand(n: &SyntaxNode) -> Option<String> {
+    let call = ast::CallExpr::cast(n.clone())?;
+    let mut family = None;
+    let mut size = None;
+    for a in call.arg_list()?.args() {
+        let value = a.value().map(|v| literal_text(v.syntax()))?;
+        match a.label()?.text() {
+            "family" => family = Some(value),
+            "size" => size = Some(value),
+            _ => {}
+        }
+    }
+    Some(format!("{} {}", size?, family?))
+}
+
 /// The stylesheet files: `app.[hash].css` with the theme and every
 /// component's rules.
 pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
@@ -269,7 +300,11 @@ pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
     if !all.is_empty() {
         css.push_str(":root {\n");
         for t in &all {
-            let v = t.value.as_ref().map(literal_text).unwrap_or_default();
+            let v = t
+                .value
+                .as_ref()
+                .map(|n| token_value(&t.category, n))
+                .unwrap_or_default();
             css.push_str(&format!(
                 "  {}: {v};\n",
                 token_property(&t.category, &t.name)
@@ -297,15 +332,15 @@ pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
                 .filter(|c| c.kind() == SyntaxKind::ThemeOverride)
             {
                 let Some(tname) = ident(&o) else { continue };
-                let value = o
-                    .children()
-                    .find(|c| ast::Expr::can_cast(c.kind()))
-                    .map(|n| literal_text(&n))
-                    .unwrap_or_default();
                 let cat = all
                     .iter()
                     .find(|x| x.name == tname)
                     .map_or("color", |x| x.category.as_str());
+                let value = o
+                    .children()
+                    .find(|c| ast::Expr::can_cast(c.kind()))
+                    .map(|n| token_value(cat, &n))
+                    .unwrap_or_default();
                 body.push_str(&format!("{}: {value};\n", token_property(cat, &tname)));
             }
             let class = format!("k-theme-{}", kebab(name));

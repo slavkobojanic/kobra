@@ -79,13 +79,21 @@ export function intRem(a, b) {
   return r === 0 ? 0 : r;
 }
 
+/** The payload-free case of each tag (see {@link unitCase}). */
+const UNIT_CASES = [];
+
 /**
- * Creates the frozen singleton of a payload-free enum case.
+ * The frozen singleton of a payload-free enum case: one value per tag,
+ * shared by every enum. Generated code compares such cases with `===`,
+ * and a value is only ever compared with cases of its own type, so
+ * sharing is safe; it makes a case built by one copy of an enum (the
+ * browser's half of a `k test` run) the same value as another copy's (the
+ * server's).
  * @param {number} tag the case's index in declaration order
  * @returns {Readonly<{$: number}>}
  */
 export function unitCase(tag) {
-  return Object.freeze({ $: tag });
+  return (UNIT_CASES[tag] ??= Object.freeze({ $: tag }));
 }
 
 /**

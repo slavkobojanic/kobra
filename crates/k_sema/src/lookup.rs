@@ -18,7 +18,7 @@ use k_diagnostics::{LineCol, Span};
 /// its fully qualified name (`shop.cart.CartItem`, `k.http.HttpStatus`).
 /// Functions carry their argument labels, Swift-style (`add(product:)`,
 /// `find(_:)`, `refresh()`).
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Resolution {
     /// A top-level declaration: `decl shop.cart.CartService`.
     Declaration {

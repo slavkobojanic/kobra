@@ -99,10 +99,11 @@ fn check_skips_hidden_and_build_directories() {
 }
 
 #[test]
-fn unimplemented_commands_exit_with_2() {
+fn project_commands_outside_a_project_exit_with_2() {
     let dir = TempDir::new("stubs");
-    // `k build`, `k run` and `k dev` are wired to the pipeline (see the
-    // `build_*` and `dev_*` tests below).
+    // Every subcommand is implemented; those that work on one project
+    // refuse a directory without `k.toml` (their behavior is covered by
+    // `tests/commands.rs`).
     for args in [
         &["test"][..],
         &["routes"],
@@ -112,10 +113,9 @@ fn unimplemented_commands_exit_with_2() {
     ] {
         let out = k(args, &dir.0);
         assert_eq!(out.status.code(), Some(2), "{args:?}");
-        assert!(
-            String::from_utf8_lossy(&out.stderr).contains("not implemented yet"),
-            "{args:?}"
-        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("no k.toml"), "{args:?}: {stderr}");
+        assert!(!stderr.contains("not implemented"), "{args:?}: {stderr}");
     }
 }
 

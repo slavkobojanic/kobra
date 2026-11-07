@@ -777,6 +777,9 @@ codes! {
     /// A test group's dependency graph reaches an app config that no `use` rule binds.
     UNBOUND_TEST_CONFIG = 7503, "unbound-test-config", Error,
         "A test group's dependency graph reaches an app config that no `use` rule binds.";
+    /// A test failed when `k test` ran it: an `expect` was false, an `expect throws` block didn't throw a matching error, or the test panicked, threw or never finished.
+    TEST_FAILED = 7510, "test-failed", Error,
+        "A test failed when `k test` ran it.";
 
     // ---------------------------------------------------------------- lockfiles, manifest and packages
     /// A change breaks a lockfile's recorded contract without `@Breaking`.
@@ -785,6 +788,9 @@ codes! {
     /// A lockfile can't be read.
     INVALID_LOCKFILE = 8002, "invalid-lockfile", Error,
         "A lockfile can't be read.";
+    /// A job's payload changed incompatibly with the shape `storage.lock` records, without `@Breaking`.
+    INCOMPATIBLE_JOB_PAYLOAD = 8003, "incompatible-job-payload", Error,
+        "A job's payload changed incompatibly with `storage.lock`; queued jobs couldn't be decoded.";
     /// `k.toml` is malformed or lacks a required key.
     INVALID_MANIFEST = 8101, "invalid-manifest", Error,
         "`k.toml` is malformed or lacks a required key.";

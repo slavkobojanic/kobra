@@ -1,0 +1,4 @@
+# `expect throws` checks the case it names (docs/compiler/testing.md §8.4).
+[package]
+name = "throws"
+k = "0.1"

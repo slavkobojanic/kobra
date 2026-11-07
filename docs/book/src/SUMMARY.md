@@ -9,6 +9,7 @@
 - [Your first app](getting-started/first-app.md)
 - [Project layout](getting-started/project-layout.md)
 - [Everyday commands](getting-started/commands.md)
+- [Editor setup](getting-started/editor-setup.md)
 - [A tour of K](tour.md)
 
 # The language

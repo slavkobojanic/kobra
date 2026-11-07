@@ -1,0 +1,74 @@
+{
+  "name": "k-language",
+  "displayName": "K",
+  "description": "K language support: syntax highlighting and the K language server (`k lsp`).",
+  "version": "0.1.0",
+  "publisher": "k-lang",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "workspaceContains:**/k.toml"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "k",
+        "aliases": [
+          "K",
+          "k"
+        ],
+        "extensions": [
+          ".k"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "k",
+        "scopeName": "source.k",
+        "path": "./syntaxes/k.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "K",
+      "properties": {
+        "k.server.path": {
+          "type": "string",
+          "default": "k",
+          "markdownDescription": "The `k` executable that runs the language server (`k lsp`). A bare name is looked up on `PATH`."
+        },
+        "k.server.extraEnv": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Extra environment variables for the language server process."
+        },
+        "k.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the K language server in the output panel."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "k.restartServer",
+        "title": "K: Restart Language Server"
+      }
+    ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

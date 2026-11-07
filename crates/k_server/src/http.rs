@@ -126,6 +126,13 @@ pub struct ServerOptions {
     pub jobs: Vec<k_db::stdlib::JobSpec>,
     /// How often the jobs worker looks for due jobs (250 ms).
     pub job_poll: Duration,
+    /// Replaces origins of outgoing `HttpClient` requests: a request to
+    /// the first origin of a pair (or below it) goes to the second
+    /// instead ([`crate::outbound::replace_origin`]). Tests use it to
+    /// stand a [`crate::fakes::FakeHttp`] in for a third party whose URL
+    /// the app hard-codes; `k run` and `dist/app` never set it, so it is
+    /// empty in production.
+    pub fetch_origins: Vec<(String, String)>,
 }
 
 impl ServerOptions {
@@ -148,6 +155,7 @@ impl ServerOptions {
             database: None,
             jobs: Vec::new(),
             job_poll: Duration::from_millis(250),
+            fetch_origins: Vec::new(),
         }
     }
 }
@@ -206,6 +214,7 @@ fn worker_thread(
         modules: bundle.modules,
         output: log,
         timeout: None,
+        compact_runtime: false,
     }) {
         Ok(e) => e,
         Err(e) => {
@@ -451,7 +460,8 @@ impl Server {
     /// [`ServerError::Worker`] if an isolate can't be created.
     pub fn start(options: ServerOptions) -> Result<Server, ServerError> {
         let workers = options.workers.max(1);
-        let mut process = ProcessState::new(options.public_origin.clone(), options.config.clone());
+        let mut process = ProcessState::new(options.public_origin.clone(), options.config.clone())
+            .with_fetch_origins(options.fetch_origins.clone());
         if let Some(setup) = options.database.clone() {
             // Migrations run before any worker starts or the port opens:
             // a failure leaves the previous release serving elsewhere.

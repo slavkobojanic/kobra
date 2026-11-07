@@ -190,13 +190,18 @@ export async function runMain(invoke, encode, describe) {
 }
 
 /**
- * The payload of an enum value as JSON fields (everything but the tag).
+ * The payload of an enum value as JSON fields (everything but the tag):
+ * with `encode` (a Codable error's encoder) the codec's form without its
+ * `case` key, so the client can decode it with the same codec; without,
+ * the payload's structural JSON.
  * @param {object} e
+ * @param {(v: object) => unknown} [encode]
  * @returns {object}
  */
-export function payloadFields(e) {
+export function payloadFields(e, encode) {
   const out = {};
-  if (e && typeof e === "object") for (const k of Object.keys(e)) if (k !== "$") out[k] = toJSON(e[k]);
+  const j = encode ? encode(e) : e;
+  if (j && typeof j === "object") for (const k of Object.keys(j)) if (k !== "$" && k !== "case") out[k] = encode ? j[k] : toJSON(j[k]);
   return out;
 }
 
@@ -1572,6 +1577,35 @@ export class Instant {
   }
 }
 
+// --------------------------------------------------------------- TimeZone
+
+/**
+ * `TimeZone.parse`: an IANA zone name in its canonical spelling
+ * (`europe/berlin` is `Europe/Berlin`), or `null` for a name the engine's
+ * time zone data doesn't know. A `TimeZone` is its name: equal, hashable
+ * and encoded as that text (35-time.md).
+ * @param {string} name
+ * @returns {string | null}
+ */
+export function parseTimeZone(name) {
+  try {
+    // An unknown name, and the empty one, is a `RangeError`.
+    return new Intl.DateTimeFormat("en", { timeZone: name }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `TimeZone.local` in the browser: the browser's zone, UTC when it reports
+ * none. The server's is the `k_tz` cookie's (`requestTimeZone` of the
+ * server runtime).
+ * @returns {string}
+ */
+export function localTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
 /**
  * `Date(unixSeconds:)`.
  * @param {number} s
@@ -1998,6 +2032,7 @@ export const codecs = {
   url: typedText(parseUrl, "an absolute http(s) URL"),
   uuid: typedText(parseUuid, "a UUID"),
   color: typedText(parseColor, "a color"),
+  timeZone: typedText(parseTimeZone, "an IANA time zone"),
   bool: prim((j) => typeof j === "boolean", "a boolean"),
   duration: prim((j) => typeof j === "number", "a duration in milliseconds"),
   any: { encode: (v) => toJSON(v), decode: (j) => j },
@@ -2149,29 +2184,50 @@ export const Json = {
 // ---------------------------------------------------------------- streams
 
 /**
- * An async stream fed by pushes (`Broadcast` subscriptions): `next()`
- * resolves with the next value, `for await` iterates.
+ * An async stream fed by pushes (`Broadcast` subscriptions, a server
+ * stream read in the browser): `next()` resolves with the next value, and
+ * with `null` once `null` was pushed (the end); `for await` iterates, and
+ * leaving the loop early calls `close`, when the stream has one.
  */
-class PushStream {
+export class PushStream {
   constructor() {
     this.items = [];
     this.waiters = [];
   }
-  /** @param {unknown} v */
+  /** @param {unknown} v a value, or `null` to end the stream */
   push(v) {
+    if (v === null) {
+      for (const w of this.waiters.splice(0)) w(null);
+      this.items.push(null);
+      return;
+    }
     const w = this.waiters.shift();
     if (w) w(v);
     else this.items.push(v);
   }
   /** @returns {Promise<unknown>} */
   next() {
+    if (this.items[0] === null) return Promise.resolve(null);
     if (this.items.length) return Promise.resolve(this.items.shift());
     return new Promise((resolve) => this.waiters.push(resolve));
   }
   /** @returns {AsyncIterator<unknown>} */
   [Symbol.asyncIterator]() {
-    return { next: () => this.next().then((value) => (value === null ? { done: true, value } : { done: false, value })) };
+    return iterate(this);
   }
+}
+
+/**
+ * The `for await` iterator of a stream: `next()` until it yields `null`;
+ * leaving the loop early calls the stream's `close`, when it has one.
+ * @param {{next: () => Promise<unknown>, close?: () => void}} s
+ * @returns {AsyncIterator<unknown>}
+ */
+function iterate(s) {
+  return {
+    next: () => s.next().then((value) => ({ done: value === null, value })),
+    return: async () => (s.close?.(), { done: true }),
+  };
 }
 
 /** A derived stream that transforms another one lazily. */
@@ -2198,7 +2254,7 @@ class MappedStream {
   }
   /** @returns {AsyncIterator<unknown>} */
   [Symbol.asyncIterator]() {
-    return { next: () => this.next().then((value) => (value === null ? { done: true, value } : { done: false, value })) };
+    return iterate(this);
   }
 }
 

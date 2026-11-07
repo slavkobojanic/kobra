@@ -1,0 +1,201 @@
+//! The editor integrations in `editors/` stay in step with the compiler:
+//!
+//! * the VS Code TextMate grammar (`editors/vscode/syntaxes/k.tmLanguage.json`)
+//!   is valid JSON whose every pattern compiles, and it highlights every
+//!   hard and contextual keyword of the lexer's keyword table
+//!   ([`SyntaxKind::ALL`]) with a keyword-like scope;
+//! * the Vim syntax files (`editors/vim/syntax/k.vim`, shared by Neovim as
+//!   `editors/nvim/syntax/k.vim`) are identical and list every keyword;
+//! * the VS Code manifest registers the `k` language, the grammar and the
+//!   language configuration, and starts `k lsp`.
+//!
+//! The grammar's regular expressions are written in the subset that both
+//! Oniguruma (which VS Code uses) and the `regex` crate understand, no
+//! lookaround, so this test can evaluate them.
+
+#![allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use k_syntax::SyntaxKind;
+use regex::Regex;
+use serde_json::Value;
+
+fn editors() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../editors")
+}
+
+/// Every keyword of the lexer's table: hard keywords, then contextual ones.
+fn keywords() -> Vec<&'static str> {
+    SyntaxKind::ALL
+        .iter()
+        .filter(|k| k.is_keyword() || k.is_contextual_keyword())
+        .filter_map(|k| k.fixed_text())
+        .collect()
+}
+
+/// A pattern of the grammar with a `match` regex and the scope it gives.
+struct Rule {
+    regex: Regex,
+    scopes: Vec<String>,
+}
+
+/// Collects every `match` rule (with its name or capture names) and checks
+/// that every `begin`/`end`/`match` compiles.
+fn collect(value: &Value, out: &mut Vec<Rule>) {
+    match value {
+        Value::Object(map) => {
+            for key in ["begin", "end"] {
+                if let Some(Value::String(re)) = map.get(key) {
+                    Regex::new(re).unwrap_or_else(|e| panic!("{key} {re:?} doesn't compile: {e}"));
+                }
+            }
+            if let Some(Value::String(re)) = map.get("match") {
+                let regex =
+                    Regex::new(re).unwrap_or_else(|e| panic!("match {re:?} doesn't compile: {e}"));
+                let mut scopes = Vec::new();
+                if let Some(Value::String(name)) = map.get("name") {
+                    scopes.push(name.clone());
+                }
+                if let Some(Value::Object(captures)) = map.get("captures") {
+                    for capture in captures.values() {
+                        if let Some(Value::String(name)) = capture.get("name") {
+                            scopes.push(name.clone());
+                        }
+                    }
+                }
+                out.push(Rule { regex, scopes });
+            }
+            for v in map.values() {
+                collect(v, out);
+            }
+        }
+        Value::Array(items) => {
+            for v in items {
+                collect(v, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether a scope highlights a keyword.
+fn keyword_scope(scope: &str) -> bool {
+    [
+        "keyword",
+        "storage",
+        "constant.language",
+        "variable.language",
+    ]
+    .iter()
+    .any(|p| scope.starts_with(p))
+}
+
+#[test]
+fn the_textmate_grammar_highlights_every_keyword() {
+    let path = editors().join("vscode/syntaxes/k.tmLanguage.json");
+    let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let grammar: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(grammar["scopeName"], "source.k");
+    assert!(
+        grammar["patterns"]
+            .as_array()
+            .is_some_and(|p| !p.is_empty())
+    );
+    let mut rules = Vec::new();
+    collect(&grammar, &mut rules);
+    let mut missing = Vec::new();
+    for keyword in keywords() {
+        // In context: a keyword followed by a space, as it is written.
+        let sample = format!("{keyword} ");
+        let highlighted = rules.iter().any(|rule| {
+            rule.regex
+                .find(&sample)
+                .is_some_and(|m| m.start() == 0 && m.as_str().trim_end().starts_with(keyword))
+                && rule.scopes.iter().any(|s| keyword_scope(s))
+        });
+        if !highlighted {
+            missing.push(keyword);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "keywords the grammar doesn't highlight: {missing:?}"
+    );
+    // A keyword inside a longer name is not a keyword.
+    let keyword_rules: Vec<&Rule> = rules
+        .iter()
+        .filter(|r| r.scopes.iter().any(|s| s.starts_with("keyword")))
+        .collect();
+    let all = keywords();
+    for name in ["letter", "iffy", "format", "matching", "viewModel"] {
+        for rule in &keyword_rules {
+            if let Some(m) = rule.regex.find(name) {
+                let prefix_keyword =
+                    m.start() == 0 && m.end() < name.len() && all.contains(&m.as_str());
+                assert!(
+                    !prefix_keyword,
+                    "`{name}` is highlighted as the keyword `{}`",
+                    m.as_str()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_vim_syntax_files_list_every_keyword() {
+    let vim = fs::read_to_string(editors().join("vim/syntax/k.vim")).unwrap();
+    let nvim = fs::read_to_string(editors().join("nvim/syntax/k.vim")).unwrap();
+    assert_eq!(
+        vim, nvim,
+        "editors/vim/syntax/k.vim and editors/nvim/syntax/k.vim differ"
+    );
+    let words: Vec<&str> = vim
+        .lines()
+        .filter(|l| l.trim_start().starts_with("syn keyword"))
+        .flat_map(|l| l.split_whitespace().skip(3))
+        .collect();
+    let missing: Vec<&str> = keywords()
+        .into_iter()
+        .filter(|k| !words.contains(k))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "keywords k.vim doesn't list: {missing:?}"
+    );
+}
+
+#[test]
+fn the_vscode_manifest_wires_the_language_and_the_server() {
+    let dir = editors().join("vscode");
+    let manifest: Value =
+        serde_json::from_str(&fs::read_to_string(dir.join("package.json")).unwrap()).unwrap();
+    let language = &manifest["contributes"]["languages"][0];
+    assert_eq!(language["id"], "k");
+    assert!(
+        language["extensions"]
+            .as_array()
+            .unwrap()
+            .contains(&Value::from(".k"))
+    );
+    let configuration = language["configuration"].as_str().unwrap();
+    let config: Value =
+        serde_json::from_str(&fs::read_to_string(dir.join(configuration)).unwrap()).unwrap();
+    assert_eq!(config["comments"]["lineComment"], "//");
+    let grammar = &manifest["contributes"]["grammars"][0];
+    assert_eq!(grammar["scopeName"], "source.k");
+    assert!(dir.join(grammar["path"].as_str().unwrap()).is_file());
+    assert!(manifest["dependencies"]["vscode-languageclient"].is_string());
+    let main = manifest["main"].as_str().unwrap();
+    let extension = fs::read_to_string(dir.join(main)).unwrap();
+    assert!(extension.contains("\"lsp\""), "the extension runs `k lsp`");
+    // No build output or dependencies are committed (a lockfile may be).
+    assert!(
+        !dir.join("node_modules").exists()
+            || fs::read_to_string(dir.join(".gitignore"))
+                .unwrap()
+                .contains("node_modules")
+    );
+}

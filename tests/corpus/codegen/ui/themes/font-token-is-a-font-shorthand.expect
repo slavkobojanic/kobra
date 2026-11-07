@@ -1,0 +1,6 @@
+css contains   --k-font-body: 16px "Inter";
+css contains   --k-font-heading: 1.5rem "Source \"Serif\" 4";
+css contains :root.k-theme-large {
+css contains   --k-font-body: 20px "Inter";
+css contains   font: var(--k-font-body);
+css lacks Font(

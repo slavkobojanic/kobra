@@ -41,10 +41,16 @@ pub mod hash;
 mod jobs;
 mod js;
 mod lower;
+mod migration;
 mod native;
+mod routes;
 mod server;
+mod suite;
 mod ui;
 mod view;
+
+pub use migration::{MigrationDraft, MigrationError, MigrationPlan, plan_migration};
+pub use routes::{Route, RouteKind, RouteParam, route_table};
 
 use serde::{Deserialize, Serialize};
 
@@ -87,6 +93,12 @@ pub enum Entry {
     /// named top-level function (`corpus.main`), encoding its result as JSON.
     /// Used by the execution corpus (`tests/corpus/run`).
     Main(String),
+    /// The project's tests (`k test`): the client bundle, test code
+    /// included, whose entry exports `$groups`, the test groups with their
+    /// containers and tests; and the server bundle, whose entry exports
+    /// `$test` (the app's request handler, each group's server container
+    /// and a per-test reset) instead of serving (`suite`, codegen.md §21).
+    Tests,
 }
 
 /// How to generate.
@@ -279,8 +291,16 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
         .iter()
         .copied()
         .find(|&d| g.view.decl(d).named_kind() == Some(k_sema::stdlib::DeclarationKind::App));
+    let tests = g.options.entry == Entry::Tests;
     for &d in &g.own {
         for target in [Target::Server, Target::Client] {
+            // A test group's class runs in the browser half of a test.
+            if tests
+                && target == Target::Server
+                && g.view.decl(d).named_kind() == Some(k_sema::stdlib::DeclarationKind::TestSuite)
+            {
+                continue;
+            }
             if !bundle::allowed(g, d, target) {
                 continue;
             }
@@ -306,7 +326,11 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
         }
     }
     // The client entry: its uses are roots of the client bundle.
-    let client_entry = app.map(|_| app::client_entry(g, &app::client_reach(g, &client)));
+    let client_entry = if tests {
+        Some(suite::entry(g))
+    } else {
+        app.map(|_| app::client_entry(g, &app::client_reach(g, &client)))
+    };
     let entry_uses: BTreeSet<(k_sema::view::DeclId, String)> = client_entry
         .as_ref()
         .map(|(_, u)| u.clone())
@@ -326,6 +350,13 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
             })?;
             let (body, uses) = main_entry(g, main);
             let spec = "k:/app/$main.js".to_owned();
+            extra.push((spec.clone(), body, uses));
+            output.server_entry = Some(spec);
+        }
+        Entry::Tests => {
+            // The server half of a test: the app driven in-process.
+            let (body, uses) = server::server_entry(g);
+            let spec = "k:/app/$server.js".to_owned();
             extra.push((spec.clone(), body, uses));
             output.server_entry = Some(spec);
         }
@@ -403,11 +434,33 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
         let injects: BTreeMap<k_sema::view::DeclId, Vec<k_sema::view::DeclId>> =
             g.own.iter().map(|&d| (d, server::injected(g, d))).collect();
         bundle::keep_reachable(&mut client, &roots, &injects);
-        (app::pages(g), Some((stmts, uses)))
+        // A test bundle is loaded at once: its pages are in the shared
+        // chunk, which the entry imports.
+        let pages = if tests { Vec::new() } else { app::pages(g) };
+        (pages, Some((stmts, uses)))
     } else {
         (Vec::new(), None)
     };
-    output.client = bundle::client_files(g, &client, &pages, entry);
+    // In a test bundle both halves share one isolate: test code (lowered
+    // for the browser) that names a server-only declaration (an entity, a
+    // repository's row type) imports the server module's.
+    let mut from_server: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    if tests {
+        let entry_uses = entry.iter().flat_map(|(_, u)| u.iter());
+        for (d, sym) in client
+            .values()
+            .flat_map(|i| i.uses.iter())
+            .chain(entry_uses)
+        {
+            if !client.contains_key(d) && server.contains_key(d) && !g.view.decl(*d).stdlib {
+                from_server
+                    .entry(bundle::server_specifier(&bundle::module_path(g, *d)))
+                    .or_default()
+                    .insert(sym.clone());
+            }
+        }
+    }
+    output.client = bundle::client_files(g, &client, &pages, entry, &from_server);
     output.client.extend(css::files(g));
     // The server entry names the hashed client files it links.
     if let Some(entry) = &output.server_entry {
@@ -578,8 +631,11 @@ fn main_entry(
 /// runtime concatenated, with the links between their files removed
 /// (top-level names are unique across the runtime's client files), and
 /// compacted in release builds.
-pub(crate) fn runtime_chunk(profile: Profile) -> String {
+pub(crate) fn runtime_chunk(profile: Profile, entry: &Entry) -> String {
     use k_runtime::Part;
+    if *entry == Entry::Tests {
+        return suite::RUNTIME_CHUNK.to_owned();
+    }
     let mut out = String::new();
     for m in k_runtime::modules() {
         if !matches!(
@@ -588,7 +644,7 @@ pub(crate) fn runtime_chunk(profile: Profile) -> String {
         ) {
             continue;
         }
-        let text = strip_module_links(m.source);
+        let text = k_runtime::strip_links(m.source);
         let text = if profile == Profile::Release {
             k_runtime::compact(&text).unwrap_or(text)
         } else {
@@ -602,30 +658,44 @@ pub(crate) fn runtime_chunk(profile: Profile) -> String {
     out
 }
 
-/// Removes `import … from "…";`, `export * from "…";` and
-/// `export { … } from "…";` statements (possibly spanning lines).
-fn strip_module_links(src: &str) -> String {
-    let mut out = String::with_capacity(src.len());
-    let mut skipping = false;
-    for line in src.lines() {
-        let t = line.trim_start();
-        if skipping {
-            if t.ends_with(';') {
-                skipping = false;
-            }
-            continue;
-        }
-        let link = t.starts_with("import ")
-            || t.starts_with("export * from ")
-            || (t.starts_with("export {") && (t.contains(" from ") || !t.contains('}')));
-        if link {
-            skipping = !t.ends_with(';');
-            continue;
-        }
-        out.push_str(line);
-        out.push('\n');
+/// A feature chunk (`runtime/charts.js`, `runtime/streams.js`): the
+/// runtime file `specifier` with its imports of other runtime files
+/// pointing at the runtime chunk `runtime_name`, which exports every name
+/// they import, compacted in release builds. Only apps whose client uses
+/// the feature ship it (runtime.md §2).
+///
+/// In a test bundle ([`Entry::Tests`]) the chunk re-exports the embedded
+/// module itself, which shares the embedded runtime with everything else.
+pub(crate) fn feature_chunk(
+    specifier: &str,
+    profile: Profile,
+    runtime_name: &str,
+    entry: &Entry,
+) -> String {
+    if *entry == Entry::Tests {
+        return format!("export * from \"{specifier}\";\n");
     }
-    out
+    let source = k_runtime::module(specifier).map_or("", |m| m.source);
+    let mut text = String::with_capacity(source.len());
+    for line in source.lines() {
+        match line
+            .strip_prefix("import ")
+            .and_then(|l| l.split_once(" from \"./"))
+        {
+            Some((names, _)) => {
+                text.push_str(&format!("import {names} from \"./{runtime_name}\";\n"));
+            }
+            None => {
+                text.push_str(line);
+                text.push('\n');
+            }
+        }
+    }
+    if profile == Profile::Release {
+        k_runtime::compact(&text).unwrap_or(text)
+    } else {
+        text
+    }
 }
 
 /// A violation of the client/server split found in generated output.

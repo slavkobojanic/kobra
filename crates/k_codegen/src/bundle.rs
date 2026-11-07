@@ -319,22 +319,47 @@ fn imports(g: &Gen<'_>, path: &str, uses: &BTreeSet<(DeclId, String)>, _client: 
 pub(crate) type ClientEntry = (Vec<Stmt>, BTreeSet<(DeclId, String)>);
 
 /// The client files: `shared` (every non-page item), page chunks, the
-/// `app` entry and the runtime chunk, with hashed names.
+/// `app` entry and the runtime chunk, with hashed names. `from_server`
+/// (a test bundle's) are the server modules' names the shared chunk
+/// imports, by specifier.
 pub(crate) fn client_files(
     g: &Gen<'_>,
     items: &BTreeMap<DeclId, Item>,
     pages: &[DeclId],
     entry: Option<ClientEntry>,
+    from_server: &BTreeMap<String, BTreeSet<String>>,
 ) -> Vec<OutputFile> {
     let profile = g.options.profile;
     let mut out = Vec::new();
-    let runtime = crate::runtime_chunk(profile);
+    let runtime = crate::runtime_chunk(profile, &g.options.entry);
     let runtime_name = hashed("runtime", "js", &runtime, profile);
     out.push(OutputFile {
         path: runtime_name.clone(),
         contents: runtime,
         kind: FileKind::JavaScript,
     });
+    // Feature chunks ship only when the client uses one of their symbols.
+    let mut features: Vec<(usize, String)> = Vec::new();
+    for (i, (stem, specifier, _)) in FEATURE_CHUNKS.iter().enumerate() {
+        let used = items
+            .values()
+            .flat_map(|it| it.uses.iter())
+            .any(|(d, sym)| {
+                g.view.decl(*d).stdlib
+                    && !items.contains_key(d)
+                    && feature_of(&module_path(g, *d), sym) == Some(i)
+            });
+        if used {
+            let text = crate::feature_chunk(specifier, profile, &runtime_name, &g.options.entry);
+            let name = hashed(stem, "js", &text, profile);
+            out.push(OutputFile {
+                path: name.clone(),
+                contents: text,
+                kind: FileKind::JavaScript,
+            });
+            features.push((i, name));
+        }
+    }
     let mut shared_decls: Vec<DeclId> = items
         .keys()
         .copied()
@@ -344,10 +369,19 @@ pub(crate) fn client_files(
     let mut shared_name = None;
     if !shared_decls.is_empty() {
         let mut stmts = vec![Stmt::ImportAll("$k".into(), format!("./{runtime_name}"))];
+        // A test bundle's server-only names (`from_server`, empty otherwise).
+        for (spec, syms) in from_server {
+            stmts.push(Stmt::Import(
+                syms.iter().map(|s| (s.clone(), s.clone())).collect(),
+                spec.clone(),
+            ));
+        }
         stmts.extend(client_natives(
             g,
             items,
             shared_decls.iter().flat_map(|d| items[d].uses.iter()),
+            &features,
+            "./",
         ));
         for d in &shared_decls {
             stmts.extend(items[d].prelude.iter().cloned());
@@ -381,7 +415,7 @@ pub(crate) fn client_files(
                 format!("../{shared}"),
             ));
         }
-        stmts.extend(client_natives(g, items, item.uses.iter()));
+        stmts.extend(client_natives(g, items, item.uses.iter(), &features, "../"));
         stmts.extend(item.prelude.iter().cloned());
         stmts.extend(item.stmts.iter().cloned());
         let text = print(&stmts, profile);
@@ -428,8 +462,28 @@ pub(crate) fn client_files(
     out
 }
 
+/// Runtime files shipped as client chunks of their own, only to clients
+/// that use them: `(chunk stem, runtime specifier, the stdlib module whose
+/// symbols they implement)` (runtime.md §2).
+const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
+    ("charts", "k:/runtime/charts.js", "k/charts"),
+    ("streams", "k:/runtime/streams.js", "k/core"),
+    ("http", "k:/runtime/http.js", "k/http"),
+];
+
+/// The feature chunk (an index of [`FEATURE_CHUNKS`]) that implements
+/// symbol `sym` of stdlib module `module` (`k/charts`), if any.
+fn feature_of(module: &str, sym: &str) -> Option<usize> {
+    FEATURE_CHUNKS.iter().position(|(_, specifier, m)| {
+        *m == module && k_runtime::module(specifier).is_some_and(|f| exports(f.source, sym))
+    })
+}
+
 /// The stdlib symbols `uses` names that no item of the client bundle
-/// defines: `@Native` members without a generated body. Each becomes
+/// defines: `@Native` members without a generated body. One a feature
+/// chunk implements is imported from it (`features`: the chunks this
+/// bundle ships, by index of [`FEATURE_CHUNKS`]; `prefix` the way from the
+/// chunk being written to them, `./` or `../`); every other becomes
 /// `const Sym = $k.native("module.Sym")`, the browser's implementation
 /// (`services.js`) or a stand-in that panics with the name when used, so
 /// a chunk always loads and only the unimplemented path fails.
@@ -437,18 +491,30 @@ fn client_natives<'a>(
     g: &Gen<'_>,
     items: &BTreeMap<DeclId, Item>,
     uses: impl Iterator<Item = &'a (DeclId, String)>,
+    features: &[(usize, String)],
+    prefix: &str,
 ) -> Vec<Stmt> {
     let missing: BTreeSet<(String, String)> = uses
         .filter(|(d, _)| !items.contains_key(d) && g.view.decl(*d).stdlib)
-        .map(|(d, sym)| (sym.clone(), module_path(g, *d).replace('/', ".")))
+        .map(|(d, sym)| (sym.clone(), module_path(g, *d)))
         .collect();
-    missing
+    let mut from: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    let mut out = Vec::new();
+    for (sym, module) in missing {
+        let chunk = feature_of(&module, &sym)
+            .and_then(|i| features.iter().find(|(f, _)| *f == i))
+            .map(|(_, name)| name.clone());
+        if let Some(name) = chunk {
+            from.entry(name).or_default().push((sym.clone(), sym));
+            continue;
+        }
+        let name = format!("{}.{sym}", module.replace('/', "."));
+        out.push(Stmt::Const(sym, js::rt("native", vec![js::str(name)])));
+    }
+    let imports = from
         .into_iter()
-        .map(|(sym, module)| {
-            let name = format!("{module}.{sym}");
-            Stmt::Const(sym, js::rt("native", vec![js::str(name)]))
-        })
-        .collect()
+        .map(|(name, syms)| Stmt::Import(syms, format!("{prefix}{name}")));
+    imports.chain(out).collect()
 }
 
 /// `stem.<hash>.ext`, or `stem.[hash].ext` under the test profile.
@@ -466,7 +532,10 @@ pub(crate) fn allowed(g: &Gen<'_>, d: DeclId, target: Target) -> bool {
     let info = g.view.decl(d);
     // Test code, and test-only modules outside a test build (fakes such as
     // a `testing/FakeHttpClient` never ship).
-    if info.is_test || (info.in_test_module && g.options.environment != crate::Environment::Test) {
+    let tests = g.options.entry == crate::Entry::Tests;
+    if (info.is_test && !tests)
+        || (info.in_test_module && g.options.environment != crate::Environment::Test)
+    {
         return false;
     }
     match (info.side, target) {

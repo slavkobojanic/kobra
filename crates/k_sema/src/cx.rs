@@ -285,6 +285,16 @@ impl<'p, 'a> Cx<'p, 'a> {
         cx.imports = (0..p.files.len())
             .map(|i| cx.resolve_imports(FileIx(u32::try_from(i).unwrap_or(u32::MAX))))
             .collect();
+        // The last segment of a bound import refers to its declaration, for
+        // the reverse index and rename (sema.md §17).
+        for (i, imports) in cx.imports.iter().enumerate() {
+            let file = FileIx(u32::try_from(i).unwrap_or(u32::MAX));
+            for (import, res) in p.file(file).imports.iter().zip(imports) {
+                if let ImportRes::Bound(_, decl) = res {
+                    cx.record_resolution(file, import.last_range, cx.decl_resolution(*decl));
+                }
+            }
+        }
         for (i, member) in p.members.iter().enumerate() {
             if member.kind != MemberKind::Token {
                 continue;

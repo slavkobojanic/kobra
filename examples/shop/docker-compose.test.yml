@@ -1,0 +1,30 @@
+# A throwaway Postgres for the compiler's test suite, which runs the shop on
+# it when DATABASE_URL names it (docs/compiler/testing.md §8.5):
+#
+#   docker compose --file docker-compose.test.yml up --detach --wait
+#   DATABASE_URL=postgres://k_test@127.0.0.1:55432/k_test \
+#     cargo test -p k_cli --test dist_browser -- postgres
+#   docker compose --file docker-compose.test.yml down --volumes
+#
+# Each run creates its own database on this server and drops it afterwards.
+# Only the loopback interface can reach it, and it holds nothing but test
+# data, so it trusts every local connection instead of using a password.
+
+name: k-shop-test
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: k_test
+      POSTGRES_USER: k_test
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=k_test --dbname=k_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

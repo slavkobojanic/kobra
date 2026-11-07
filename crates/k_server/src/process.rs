@@ -131,12 +131,18 @@ pub struct ProcessState {
     pub session_max_age: Duration,
     sessions: Mutex<HashMap<String, SessionRow>>,
     rate: Mutex<HashMap<String, VecDeque<Instant>>>,
+    /// The pairing of a test's virtual time with an instant, set by the
+    /// first rate-limit count on virtual time ([`Self::rate_hit`]).
+    virtual_origin: Mutex<Option<(i64, Instant)>>,
     shared: Mutex<HashMap<String, String>>,
     subscribers: Mutex<HashMap<u64, Subscriber>>,
+    /// The last subscriber id this state handed out.
     next_subscriber: Mutex<u64>,
     /// The app's database, when the build has one and `DATABASE_URL`
     /// opened it ([`crate::db`]).
     database: Option<Arc<ProcessDatabase>>,
+    /// [`crate::ServerOptions::fetch_origins`].
+    fetch_origins: Vec<(String, String)>,
 }
 
 impl Default for ProcessState {
@@ -144,6 +150,10 @@ impl Default for ProcessState {
         ProcessState::new("http://localhost".to_owned(), BTreeMap::new())
     }
 }
+
+/// The next broadcast subscriber id, shared by every [`ProcessState`] of
+/// the program (ids start at 1).
+static NEXT_SUBSCRIBER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -206,10 +216,12 @@ impl ProcessState {
             session_max_age,
             sessions: Mutex::new(HashMap::new()),
             rate: Mutex::new(HashMap::new()),
+            virtual_origin: Mutex::new(None),
             shared: Mutex::new(HashMap::new()),
             subscribers: Mutex::new(HashMap::new()),
             next_subscriber: Mutex::new(0),
             database: None,
+            fetch_origins: Vec::new(),
         }
     }
 
@@ -218,6 +230,21 @@ impl ProcessState {
     pub fn with_database(mut self, database: Arc<ProcessDatabase>) -> ProcessState {
         self.database = Some(database);
         self
+    }
+
+    /// This state with `origins` replacing the origins of outgoing
+    /// requests ([`crate::ServerOptions::fetch_origins`]).
+    #[must_use]
+    pub fn with_fetch_origins(mut self, origins: Vec<(String, String)>) -> ProcessState {
+        self.fetch_origins = origins;
+        self
+    }
+
+    /// The `(origin, replacement)` pairs outgoing requests are sent
+    /// through ([`crate::outbound::replace_origin`]); empty in production.
+    #[must_use]
+    pub fn fetch_origins(&self) -> &[(String, String)] {
+        &self.fetch_origins
     }
 
     /// The process's database, if it has one.
@@ -542,12 +569,26 @@ impl ProcessState {
     /// Counts one call against `key` (`RateLimit`): in `k_rate_limit` when
     /// the process has a database, so every replica counts against the
     /// same window ([`k_db::stdlib::rate_decision`]), else in memory.
+    /// `virtual_now` is a test's virtual time in Unix milliseconds (its
+    /// `TestClock`), counted exactly in memory; `None` for the system time.
     /// Returns `0` if allowed, or the whole seconds until a call would be.
     ///
     /// # Errors
     ///
     /// A database failure.
-    pub async fn rate_hit(&self, key: &str, limit: u32, window: Duration) -> Result<u64, String> {
+    pub async fn rate_hit(
+        &self,
+        key: &str,
+        limit: u32,
+        window: Duration,
+        virtual_now: Option<i64>,
+    ) -> Result<u64, String> {
+        // A test is one process on its virtual clock: its calls are counted
+        // exactly, in memory (the database's two weighted windows exist so
+        // replicas share a limit; a test has none).
+        if let Some(ms) = virtual_now {
+            return Ok(self.rate_limit_at(key, limit, window, self.virtual_instant(ms)));
+        }
         let Some(db) = self.database() else {
             return Ok(self.rate_limit(key, limit, window));
         };
@@ -622,6 +663,20 @@ impl ProcessState {
         wait.as_secs_f64().ceil().max(1.0) as u64
     }
 
+    /// The instant of virtual time `ms` (a test's clock, Unix milliseconds):
+    /// the first virtual time seen is now, later ones are offset from it,
+    /// so durations between virtual times are kept.
+    fn virtual_instant(&self, ms: i64) -> Instant {
+        let mut origin = lock(&self.virtual_origin);
+        let (base_ms, base) = *origin.get_or_insert((ms, Instant::now()));
+        let delta = Duration::from_millis(ms.abs_diff(base_ms));
+        if ms >= base_ms {
+            base + delta
+        } else {
+            base.checked_sub(delta).unwrap_or(base)
+        }
+    }
+
     // ------------------------------------------------- `.server` state
 
     /// The JSON stored under `key`, if any.
@@ -644,11 +699,12 @@ impl ProcessState {
         key: String,
         session: Option<String>,
     ) -> (u64, Arc<tokio::sync::Notify>) {
-        let id = {
-            let mut n = lock(&self.next_subscriber);
-            *n += 1;
-            *n
-        };
+        // Unique across every process state of the program, not only this
+        // one: a stream a test of `k test` left open keeps reading after
+        // the next test's fresh state replaced this one, and must never
+        // read a subscription of that test.
+        let id = NEXT_SUBSCRIBER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        *lock(&self.next_subscriber) = id;
         let notify = Arc::new(tokio::sync::Notify::new());
         lock(&self.subscribers).insert(
             id,
@@ -724,6 +780,21 @@ impl ProcessState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subscriber_ids_differ_across_process_states() {
+        let a = ProcessState::default();
+        let b = ProcessState::default();
+        let (x, _) = a.subscribe("k".into(), None);
+        let (y, _) = b.subscribe("k".into(), None);
+        assert_ne!(x, y, "a fresh state never reuses another state's id");
+        b.publish("k", "1");
+        assert_eq!(
+            a.take(x),
+            None,
+            "the old state's subscriber sees nothing of the new one"
+        );
+    }
 
     #[test]
     fn tokens_are_43_base64url_characters_and_differ() {

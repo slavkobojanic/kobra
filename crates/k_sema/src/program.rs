@@ -270,6 +270,8 @@ pub(crate) struct Program<'a> {
     pub(crate) file_by_id: FxHashMap<FileId, FileIx>,
     /// The page each generated `Page` or `Endpoint` case stands for.
     pub(crate) page_of: FxHashMap<MemberId, DeclId>,
+    /// The project's lockfiles, for the lockfile checks (`crate::locks`).
+    pub(crate) lockfiles: Vec<crate::locks::Lockfile>,
 }
 
 /// The project files given to [`Program::build`]: id, path, text and root.
@@ -303,6 +305,7 @@ impl<'a> Program<'a> {
             extensions: Vec::new(),
             file_by_id: FxHashMap::default(),
             page_of: FxHashMap::default(),
+            lockfiles: Vec::new(),
         };
         let stdlib = Stdlib::get();
         for (index, file) in stdlib.files().iter().enumerate() {

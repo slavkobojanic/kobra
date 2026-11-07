@@ -36,7 +36,9 @@ test Admin {
         let response = await openDashboard()
 
         expect response.status == .ok
-        expect response.body.contains("<h1>Orders</h1>")
+        // The page's heading is styled, so it carries a class.
+        expect response.body.contains("<title>Orders · K Shop admin</title>")
+        expect response.body.contains(">Orders</h1>")
     }
 
     test "a session without the admin role is forbidden" {

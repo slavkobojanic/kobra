@@ -1,0 +1,51 @@
+# K for Visual Studio Code
+
+Syntax highlighting for `.k` files and the K language server. The server is `k lsp`, which ships in the
+`k` binary: it is the compiler's own analysis, so the editor shows exactly what `k check` reports.
+
+What you get:
+
+- diagnostics as you type, with the compiler's notes and related locations, and **quick fixes** for every
+  diagnostic that has a structured fix (`Ctrl+.` / `Cmd+.`);
+- go to definition (into the standard library too), type definition and **implementation** (an interface or
+  protocol to every type that implements it, an interface method to its implementations);
+- find references and highlights, and **rename** across the project (imports, doc links, implementing methods
+  and, for a public declaration, its file);
+- hover with the declaration, its rendered documentation (links resolved), the **reactive dependencies** of a
+  `@Derived` field or `@Effect`, and a page's URL;
+- completion (names in scope, members after `.`, implicit members such as `padding: .md`, annotations after
+  `@`), signature help, outline, workspace symbols and inlay hints with each page's derived URL.
+
+## Install
+
+The extension needs the `k` binary on `PATH` (or set `k.server.path`). Then, from this directory:
+
+```sh
+npm install                 # only vscode-languageclient
+npx @vscode/vsce package    # builds k-language-0.1.0.vsix
+code --install-extension k-language-0.1.0.vsix
+```
+
+For development, open this directory in VS Code and press `F5` to launch an Extension Development Host.
+
+npm is used only here, for the extension. Building and testing the compiler never needs it.
+
+## Settings
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `k.server.path` | `k` | The `k` executable; the server runs as `k lsp` |
+| `k.server.extraEnv` | `{}` | Extra environment variables for the server |
+| `k.trace.server` | `off` | Log the protocol messages in the output panel (`messages`, `verbose`) |
+
+The command **K: Restart Language Server** restarts `k lsp`, for example after installing a new `k`.
+
+## How it fits together
+
+- `syntaxes/k.tmLanguage.json` is the TextMate grammar. `crates/k_lsp/tests/editors.rs` checks that it
+  highlights every keyword of the compiler's lexer, so the two can't drift apart.
+- `language-configuration.json` sets comments, brackets, auto-closing pairs and `///` continuation.
+- `extension.js` starts `k lsp` over standard input and output.
+
+The protocol coverage, the server's architecture and its latency budgets are in
+[`docs/compiler/lsp.md`](../../docs/compiler/lsp.md).

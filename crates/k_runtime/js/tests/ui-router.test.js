@@ -12,7 +12,7 @@
 // inside `container` with an `href` attribute, and renders a route by
 // calling `(await route.load()).render(params, ctx)` inside a fresh scope.
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
-import { navigate, onCleanup, startRouter } from "k:runtime";
+import { child, flush, navigate, onCleanup, root, signal, startRouter, title } from "k:runtime";
 
 const ROUTER = "router (runtime.md §10)";
 const ORIGIN = "https://shop.example";
@@ -319,4 +319,130 @@ test("encoded parameters are decoded", async () => {
   navigate("/product/a%20b?tab=x%26y");
   await tick();
   assertEq(log[log.length - 1], 'render product {"id":"a b","tab":"x&y"}');
+});
+
+// ---------------------------------------------------------------- layouts
+
+/**
+ * A layout as generated code writes one: `<div class="shell"><!--[-->`
+ * slot `<!--]--></div>`, its content placed with `child`, and a log of its
+ * renders and disposals.
+ */
+function layout(name, log) {
+  return (props) => {
+    log.push(`render ${name}`);
+    onCleanup(() => log.push(`leave ${name}`));
+    const doc = globalThis.document;
+    const div = doc.createElement("div");
+    div.setAttribute("class", name);
+    const start = doc.createComment("[");
+    const end = doc.createComment("]");
+    div.appendChild(start);
+    div.appendChild(end);
+    child(start, end, () => props.content());
+    return div;
+  };
+}
+
+/** A route whose page is `<main>` inside `layouts`, outermost first. */
+function laidOut(name, segments, log, layouts, pageTitle) {
+  return {
+    name,
+    parse: parser(segments),
+    load: async () => ({
+      layouts,
+      render(params) {
+        log.push(`render ${name}`);
+        onCleanup(() => log.push(`leave ${name}`));
+        if (pageTitle !== undefined) title(() => pageTitle);
+        const main = globalThis.document.createElement("main");
+        main.appendChild(globalThis.document.createTextNode(name));
+        return main;
+      },
+    }),
+  };
+}
+
+// Layouts two pages share stay mounted across a navigation (12-routing.md):
+// only the content of the innermost shared one is replaced.
+test("a navigation keeps the layouts both pages share", async () => {
+  browser("/");
+  const log = [];
+  const shell = layout("shell", log);
+  const shop = layout("shop", log);
+  const routes = [
+    laidOut("home", [], log, [shell]),
+    laidOut("product", ["product", ":id"], log, [shell, shop]),
+    laidOut("cart", ["cart"], log, [shell, shop]),
+    laidOut("bare", ["bare"], log, []),
+  ];
+  const { container } = app();
+  startRouter(routes, container);
+  await tick();
+  const outer = container.firstChild;
+  assertEq(outer.getAttribute("class"), "shell");
+  assertDeepEq(log, ["render shell", "render home"]);
+  log.length = 0;
+  navigate("/product/7");
+  await tick();
+  assertDeepEq(log, ["leave home", "render shop", "render product"]);
+  assertEq(container.firstChild, outer, "the shared layout's element stays");
+  assertEq(container.textContent, "product");
+  log.length = 0;
+  navigate("/cart");
+  await tick();
+  assertDeepEq(log, ["leave product", "render cart"], "both layouts stay");
+  log.length = 0;
+  navigate("/");
+  await tick();
+  assertDeepEq(log, ["leave cart", "leave shop", "render home"]);
+  assertEq(container.firstChild, outer);
+  log.length = 0;
+  navigate("/bare");
+  await tick();
+  assertDeepEq(log, ["leave home", "leave shell", "render bare"]);
+  assertEq(container.firstChild.localName, "main");
+  assertEq(container.childNodes.length, 1, "nothing of the layout is left");
+});
+
+// ---------------------------------------------------------------- titles
+
+// `document.title` follows the metadata of what is mounted: the innermost
+// title wins, and leaving a page restores its layout's (22-metadata.md).
+test("document.title follows the mounted page and layouts", async () => {
+  browser("/");
+  globalThis.document.title = "server title";
+  const log = [];
+  const titled = (name) => (props) => {
+    title(() => `${name} default`);
+    return layout(name, log)(props);
+  };
+  const shell = titled("shell");
+  const routes = [laidOut("home", [], log, [shell], "Home"), laidOut("about", ["about"], log, [shell])];
+  startRouter(routes, app().container);
+  await tick();
+  assertEq(globalThis.document.title, "Home");
+  navigate("/about");
+  await tick();
+  assertEq(globalThis.document.title, "shell default", "the layout's title once the page has none");
+  navigate("/");
+  await tick();
+  assertEq(globalThis.document.title, "Home");
+});
+
+test("a reactive title updates, and an empty one falls back to the layer below", () => {
+  globalThis.document.title = "";
+  const name = signal("Berlin");
+  const ready = signal(true);
+  root(() => {
+    title(() => "Weather");
+    title(() => ready.get() && `${name.get()} weather`);
+  });
+  assertEq(globalThis.document.title, "Berlin weather");
+  name.set("Bern");
+  flush();
+  assertEq(globalThis.document.title, "Bern weather");
+  ready.set(false);
+  flush();
+  assertEq(globalThis.document.title, "Weather", "a title that isn't ready yet");
 });

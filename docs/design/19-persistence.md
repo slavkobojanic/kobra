@@ -159,6 +159,7 @@ migration AddNotePinning {
 - **There is no `down`.** Rolling back production schemas is rarely safe; a mistake is fixed by a new migration.
 - **Each migration runs in one transaction** (Postgres and SQLite both support transactional DDL).
 - `k migrate new "description"` writes the next file from the difference between the entities and `schema.lock`, and updates the lock. `k migrate new --empty "description"` writes an empty migration for data changes.
+- **`k migrate new` only writes what is safe without review of data:** new tables, new optional or defaulted columns, new indexes, and the retirement of a removed field. It refuses, explaining each change and writing nothing, a required column added to an existing table without a default, a removed field whose column can't be left behind (`NOT NULL` without a default: the next release's inserts would fail), a changed column type or option, an added or removed enum case, and a removed entity. Those are written by hand in a `--empty` migration, with `@Breaking` where the rules above require it.
 
 ### The `Schema` builder
 

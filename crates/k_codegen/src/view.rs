@@ -363,7 +363,7 @@ impl Tree<'_, '_, '_> {
             }
             ast::Expr::CallExpr(c) => {
                 if let Some(calls) = metadata_call(c) {
-                    return (self.b.target == Target::Server).then_some(VNode::Meta(calls));
+                    return Some(VNode::Meta(calls));
                 }
                 if let Some(n) = self.call_node(&e) {
                     return Some(n);
@@ -431,7 +431,7 @@ impl Tree<'_, '_, '_> {
     }
 
     /// Peels chained modifiers off an element or component call.
-    fn call_node(&mut self, e: &ast::Expr) -> Option<VNode> {
+    pub(crate) fn call_node(&mut self, e: &ast::Expr) -> Option<VNode> {
         let mut modifiers: Vec<(String, Option<ast::ArgList>, Option<ast::LambdaExpr>)> =
             Vec::new();
         let mut cur = e.clone();
@@ -675,10 +675,15 @@ impl Tree<'_, '_, '_> {
                     }
                 }
                 "label" => {
-                    if is_form_control(name) {
-                        if let Some(ast::Expr::StringLit(s)) = &value {
-                            el.label = s.plain_value();
-                        }
+                    // A form control's literal label is a visible
+                    // `<label>`; a computed one names it through
+                    // `aria-label`, so the control is never unnamed.
+                    let literal = match &value {
+                        Some(ast::Expr::StringLit(s)) if is_form_control(name) => s.plain_value(),
+                        _ => None,
+                    };
+                    if literal.is_some() {
+                        el.label = literal;
                     } else if let Some(v) = &value {
                         el.attrs
                             .push(("aria-label".into(), self.attr_value(v, AttrKind::Text)));
@@ -1148,6 +1153,13 @@ impl Client<'_, '_, '_> {
     /// Renders one root node.
     fn root(&mut self, n: &VNode) -> Option<Expr> {
         match n {
+            // A `failed` block's metadata: its title, while the block is
+            // mounted (runtime.md §10); no node.
+            VNode::Meta(calls) => {
+                let set = crate::server::client_title(self.b, calls, None);
+                self.b.stmts.extend(set);
+                None
+            }
             VNode::Elem(el) => Some(self.element_root(el)),
             // `textNode` claims the server's text node while hydrating, so
             // it is created in order with the other roots' claims.
@@ -1596,11 +1608,74 @@ impl Client<'_, '_, '_> {
                     .push(Stmt::Expr(rt("child", vec![start.clone(), end.clone(), f])));
             }
             VNode::Slot(e) => {
+                let with_args = matches!(e, ast::Expr::CallExpr(c)
+                    if c.arg_list().is_some_and(|l| l.args().next().is_some()));
                 let x = self.slot_value(e);
-                self.b.stmts.push(Stmt::Expr(rt(
-                    "child",
-                    vec![start.clone(), end.clone(), js::arrow(vec![], x)],
-                )));
+                if with_args {
+                    // `row(item)`: re-render when the arguments change, so
+                    // an item that changes under its key (a rename)
+                    // reaches the slot's view (runtime.md §5.3). The arm
+                    // index flips whenever an argument is a new value.
+                    let args = match &x {
+                        Expr::Call(_, a) => a.clone(),
+                        _ => Vec::new(),
+                    };
+                    let sel = self.b.fresh("sel");
+                    let last = self.b.fresh("last");
+                    let n = self.b.fresh("n");
+                    let now = self.b.fresh("now");
+                    let changed = (0..args.len())
+                        .map(|i| {
+                            bin(
+                                "!==",
+                                Expr::Index(Box::new(id(&now)), Box::new(Expr::Num(i as f64))),
+                                Expr::Index(Box::new(id(&last)), Box::new(Expr::Num(i as f64))),
+                            )
+                        })
+                        .reduce(|a, b| bin("||", a, b))
+                        .unwrap_or(Expr::Bool(false));
+                    self.b.stmts.push(Stmt::Let(last.clone(), Some(Expr::Null)));
+                    self.b
+                        .stmts
+                        .push(Stmt::Let(n.clone(), Some(Expr::Num(1.0))));
+                    self.b.stmts.push(Stmt::Const(
+                        sel.clone(),
+                        js::arrow_block(
+                            vec![],
+                            vec![
+                                Stmt::Const(now.clone(), Expr::Array(args)),
+                                Stmt::If(
+                                    bin("||", bin("===", id(&last), Expr::Null), changed),
+                                    vec![
+                                        Stmt::Expr(js::assign(id(&last), id(&now))),
+                                        Stmt::Expr(js::assign(
+                                            id(&n),
+                                            bin("-", Expr::Num(1.0), id(&n)),
+                                        )),
+                                    ],
+                                    None,
+                                ),
+                                Stmt::Return(Some(id(&n))),
+                            ],
+                            false,
+                        ),
+                    ));
+                    let arm = js::arrow(vec![], x);
+                    self.b.stmts.push(Stmt::Expr(rt(
+                        "branch",
+                        vec![
+                            start.clone(),
+                            end.clone(),
+                            id(sel),
+                            Expr::Array(vec![arm.clone(), arm]),
+                        ],
+                    )));
+                } else {
+                    self.b.stmts.push(Stmt::Expr(rt(
+                        "child",
+                        vec![start.clone(), end.clone(), js::arrow(vec![], x)],
+                    )));
+                }
             }
             VNode::Boundary(content, fallback) => {
                 // A branch between the content (0) and the fallback (1): a

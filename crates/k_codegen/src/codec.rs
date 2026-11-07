@@ -56,6 +56,7 @@ pub(crate) fn codec_expr(b: &mut Body<'_, '_>, t: &Type) -> Expr {
         (g.b.email, "email"),
         (g.b.length, "string"),
         (g.b.color, "color"),
+        (g.b.time_zone, "timeZone"),
         (g.b.void, "any"),
         (g.b.bytes, "bytes"),
     ];

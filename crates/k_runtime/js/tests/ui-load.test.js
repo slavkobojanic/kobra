@@ -365,3 +365,35 @@ test("a hydrated group runs when an input changes", async () => {
   assertEq(product.runs[0].input, 2);
   assertEq(loads.state(), LOADING);
 });
+
+// A load that failed on the server renders `failed`; hydration starts the
+// group FAILED with the server's error, decoded, and runs nothing, so the
+// failed block claims the server's markup (14-async-data.md).
+test("a group hydrated from a failed render starts FAILED with the server's error", async () => {
+  const product = controlled("product");
+  const error = { $: 0, id: 7 };
+  const loads = root(() => createLoads([product.spec], null, error));
+  assertEq(loads.state(), FAILED);
+  assertEq(loads.error(), error);
+  assertEq(loads.values(), null);
+  await tick();
+  assertEq(product.runs.length, 0, "nothing loads again");
+});
+
+test("a group hydrated as FAILED loads again on reload and when an input changes", async () => {
+  const id = signal(1);
+  const product = controlled("product", [], () => id.get());
+  product.spec.inputs = () => id.get();
+  const loads = root(() => createLoads([product.spec], null, { $: 1 }));
+  loads.reload();
+  assertEq(loads.state(), LOADING, "reload from FAILED goes through LOADING");
+  await tick();
+  assertEq(product.runs.length, 1);
+  const again = controlled("product", [], () => id.get());
+  again.spec.inputs = () => id.get();
+  const other = root(() => createLoads([again.spec], null, { $: 1 }));
+  batch(() => id.set(2));
+  await tick();
+  assertEq(again.runs.length, 1, "an input change after hydration starts over");
+  assertEq(other.state(), LOADING);
+});

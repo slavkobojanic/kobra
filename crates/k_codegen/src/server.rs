@@ -103,8 +103,8 @@ fn implicit_name(e: &ast::Expr) -> Option<String> {
 /// Lowers the entry calls of a `metadata { }` block (22-metadata.md) to
 /// calls on `target`, a `$s.Metadata`: `title(text)`, `canonical(href)`
 /// (the page's path, made absolute by the runtime), `status(code)`,
-/// `locale(tag)`, `manifest(name, shortName)`, … Unknown entries are
-/// skipped (the checker allows only these).
+/// `locale(tag)`, `manifest(name, shortName)`, `structuredData(value)`, …
+/// Unknown entries are skipped (the checker allows only these).
 pub(crate) fn meta_calls(b: &mut Body<'_, '_>, calls: &[SyntaxNode], target: &Expr) -> Vec<Stmt> {
     let mut out = Vec::new();
     for node in calls {
@@ -165,12 +165,55 @@ pub(crate) fn meta_calls(b: &mut Body<'_, '_>, calls: &[SyntaxNode], target: &Ex
                 ))],
                 "manifest" => vec![b.expr(&by_label("name")?), b.expr(&by_label("shortName")?)],
                 "socialPreview" => vec![b.expr(&by_label("image")?), b.expr(&by_label("title")?)],
+                // A `StructuredData` value, emitted as JSON-LD by the runtime.
+                "structuredData" => vec![b.expr(&first?)],
                 _ => return None,
             })
         });
         let Some(values) = values else { continue };
         out.extend(pre);
         out.push(Stmt::Expr(call(member(target.clone(), name), values)));
+    }
+    out
+}
+
+/// The browser's share of metadata calls: a `title(_:)` becomes
+/// `$k.title(() => text)`, which keeps `document.title` on the innermost
+/// mounted title (runtime.md §10). With `ready` (a page's or layout's
+/// loads), the title has no value until it is truthy, since the text
+/// usually reads loaded data. The other entries only shape the server's
+/// document `<head>`.
+pub(crate) fn client_title(
+    b: &mut Body<'_, '_>,
+    calls: &[SyntaxNode],
+    ready: Option<Expr>,
+) -> Vec<Stmt> {
+    let mut out = Vec::new();
+    for node in calls {
+        let Some(c) = ast::CallExpr::cast(node.clone()) else {
+            continue;
+        };
+        let is_title = matches!(c.callee(), Some(ast::Expr::NameExpr(n)) if n.name().is_some_and(|t| t.text() == "title"));
+        let Some(text) = c
+            .arg_list()
+            .and_then(|l| l.args().next())
+            .and_then(|a| a.value())
+            .filter(|_| is_title)
+        else {
+            continue;
+        };
+        let (mut pre, x) = b.capture(|b| b.expr(&text));
+        let value = match &ready {
+            Some(r) => Expr::Cond(Box::new(r.clone()), Box::new(x), Box::new(Expr::Null)),
+            None => x,
+        };
+        let get = if pre.is_empty() {
+            js::arrow(vec![], value)
+        } else {
+            pre.push(Stmt::Return(Some(value)));
+            js::arrow_block(vec![], pre, false)
+        };
+        out.push(Stmt::Expr(rt("title", vec![get])));
     }
     out
 }
@@ -421,7 +464,7 @@ pub(crate) fn page_value(b: &mut Body<'_, '_>, page: DeclId) -> Expr {
 }
 
 /// `Page$href(value)`.
-fn href_of(b: &mut Body<'_, '_>, value: Expr) -> Expr {
+pub(crate) fn href_of(b: &mut Body<'_, '_>, value: Expr) -> Expr {
     match b.g.view.lookup("k.core.Page") {
         Some(p) => {
             let f = b.use_decl(p, "Page$href".into());
@@ -515,7 +558,7 @@ pub(crate) fn is_server_scoped(g: &Gen<'_>, d: DeclId) -> bool {
 }
 
 /// The implementing service of protocol `p`.
-fn implementation(g: &Gen<'_>, p: DeclId) -> Option<DeclId> {
+pub(crate) fn implementation(g: &Gen<'_>, p: DeclId) -> Option<DeclId> {
     g.own.iter().copied().find(|&s| {
         g.view.decl(s).named_kind() == Some(DeclarationKind::Service) && g.implements(s, p)
     })
@@ -547,6 +590,17 @@ fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Func
             }
         }
     }
+    // A test build also provides what the test groups' `use` rules name,
+    // for the groups' server containers (`crate::suite::server_groups`).
+    if tests(g) {
+        for grp in crate::suite::groups(g) {
+            for t in crate::suite::rule_types(g, grp) {
+                if !wanted.contains(&t) {
+                    wanted.push(t);
+                }
+            }
+        }
+    }
     let rules = use_rules(g);
     let mut out = Vec::new();
     let mut i = 0;
@@ -567,7 +621,14 @@ fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Func
                 Some(p) => b.use_decl(p, "Page$href".into()),
                 None => js::arrow(vec![Param::new("p")], id("p")),
             };
-            memo(&name, srt("publicUrls", vec![href]))
+            let mut args = vec![href];
+            // With endpoint pages, their absolute URLs too.
+            if !crate::app::endpoints(g).is_empty() {
+                if let Some(e) = g.view.lookup("k.core.Endpoint") {
+                    args.push(b.use_decl(e, "Endpoint$href".into()));
+                }
+            }
+            memo(&name, srt("publicUrls", args))
         } else if g.view.decl(t).named_kind() == Some(DeclarationKind::Interface)
             && let Some(imp) = binding(g, &rules, t).or_else(|| stdlib_default(g, &qualified))
         {
@@ -576,7 +637,14 @@ fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Func
             }
             this(g.name(imp))
         } else if let Some(body) = server_platform_service(b, &qualified) {
-            memo(&name, body)
+            if tests(g) && qualified.starts_with("k.test.") && qualified != "k.test.InlineJobQueue"
+            {
+                // One double per test, whichever request reaches it, so the
+                // test inspects what the code under test used.
+                per_test(&name, body)
+            } else {
+                memo(&name, body)
+            }
         } else {
             memo(&name, srt("missingNative", vec![js::str(qualified)]))
         };
@@ -653,6 +721,14 @@ fn server_platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Option<Expr
             "inlineJobQueue",
             vec![member(this("$r"), "spec"), Expr::This, this("Database")],
         ),
+        // The test's virtual clock, shared with its browser container.
+        "k.test.TestClock" => srt("clock", vec![this("$r")]),
+        "k.test.TestClient" => {
+            let mut args = vec![this("$r")];
+            args.extend(stdlib_enums(b, &["k.http.HttpError", "k.http.HttpStatus"]));
+            args.push(http_status_codes(b.g));
+            srt("testClient", args)
+        }
         _ => return None,
     })
 }
@@ -730,8 +806,13 @@ pub(crate) fn binding(g: &Gen<'_>, rules: &[UseRule], iface: DeclId) -> Option<D
     {
         return r.imp;
     }
+    // Test code (fakes in test files and test-only modules) is bound only
+    // by a `use` rule, never as the single implementation.
     let mut impls = g.own.iter().copied().filter(|&s| {
-        g.view.decl(s).named_kind() == Some(DeclarationKind::Service)
+        let info = g.view.decl(s);
+        !info.is_test
+            && !info.in_test_module
+            && info.named_kind() == Some(DeclarationKind::Service)
             && (crate::bundle::allowed(g, s, Target::Server)
                 || crate::bundle::allowed(g, s, Target::Client))
             && g.implements(s, iface)
@@ -749,6 +830,21 @@ pub(crate) fn getter(name: String, body: Expr) -> Function {
         is_async: false,
         kind: MethodKind::Getter,
     }
+}
+
+/// `true` when generating the test bundle (`k test`).
+fn tests(g: &Gen<'_>) -> bool {
+    g.options.entry == crate::Entry::Tests
+}
+
+/// `$s.perTest(this, "Name", () => value)`: one instance per test of
+/// `k test`, shared by every container of the test (outside a test, one
+/// per container, like [`memo`]).
+pub(crate) fn per_test(name: &str, value: Expr) -> Expr {
+    srt(
+        "perTest",
+        vec![Expr::This, js::str(name), js::arrow(vec![], value)],
+    )
 }
 
 /// `this.$Name ??= value`.
@@ -813,6 +909,10 @@ fn containers(b: &mut Body<'_, '_>) -> Vec<Stmt> {
             // A new instance per injecting component, which provides it
             // to its subtree (`$k.provide`).
             request.push(getter(name.clone(), construct));
+        } else if tests(g) && (g.view.decl(s).is_test || g.view.decl(s).in_test_module) {
+            // A fake is one instance per test: the one the test injects is
+            // the one every request of the test uses.
+            request.push(getter(name.clone(), per_test(&name, construct)));
         } else {
             request.push(getter(name.clone(), memo(&name, construct)));
         }
@@ -927,7 +1027,17 @@ fn containers(b: &mut Body<'_, '_>) -> Vec<Stmt> {
         "Database".into(),
         memo("Database", srt("database", vec![])),
     ));
-    request.push(getter("Clock".into(), memo("Clock", srt("clock", vec![]))));
+    // In a test, the test's virtual clock (`st.test.clock`).
+    let clock_args = if tests(g) {
+        vec![this("$r")]
+    } else {
+        Vec::new()
+    };
+    request.push(getter(
+        "Clock".into(),
+        memo("Clock", srt("clock", clock_args)),
+    ));
+    let new_process = Expr::New(Box::new(id("$Process")), vec![]);
     let mut out = vec![
         Stmt::Class(
             Class {
@@ -937,10 +1047,12 @@ fn containers(b: &mut Body<'_, '_>) -> Vec<Stmt> {
             },
             false,
         ),
-        Stmt::Const(
-            "$process".into(),
-            Expr::New(Box::new(id("$Process")), vec![]),
-        ),
+        // Each test of a test build starts a new process (`$test.reset`).
+        if tests(g) {
+            Stmt::Let("$process".into(), Some(new_process))
+        } else {
+            Stmt::Const("$process".into(), new_process)
+        },
         Stmt::Class(
             Class {
                 name: "$Request".into(),
@@ -996,7 +1108,7 @@ pub(crate) fn result_encoder(b: &mut Body<'_, '_>, t: &Type) -> Expr {
 }
 
 /// The element type of a `Stream<T>`, if `t` is one.
-fn stream_element(g: &Gen<'_>, t: &Type) -> Option<Type> {
+pub(crate) fn stream_element(g: &Gen<'_>, t: &Type) -> Option<Type> {
     let s = g.view.lookup("k.core.Stream")?;
     (t.decl() == Some(s)).then(|| t.args().first().cloned().unwrap_or(Type::Error))
 }
@@ -1347,11 +1459,25 @@ fn rpc_table(b: &mut Body<'_, '_>, helpers: &mut Vec<Stmt>) -> Expr {
                         di.name
                     );
                     let text = b.text_fn(&t);
+                    // A Codable error's fields are its codec's form, which
+                    // the client stub decodes with the same codec.
+                    let fields = if crate::codec::has_codec(g, d) {
+                        let c = crate::codec::codec_expr(b, &t);
+                        js::arrow(
+                            vec![Param::new("e")],
+                            call(
+                                member(id("$k"), "payloadFields"),
+                                vec![id("e"), member(c, "encode")],
+                            ),
+                        )
+                    } else {
+                        member(id("$k"), "payloadFields")
+                    };
                     Expr::Object(
                         vec![
                             Prop::KeyValue("name".into(), js::str(name)),
                             Prop::KeyValue("text".into(), text),
-                            Prop::KeyValue("fields".into(), member(id("$k"), "payloadFields")),
+                            Prop::KeyValue("fields".into(), fields),
                         ],
                         false,
                     )
@@ -1430,7 +1556,7 @@ fn rpc_table(b: &mut Body<'_, '_>, helpers: &mut Vec<Stmt>) -> Expr {
 
 /// The redirects recorded in `routes.lock`: `redirect "/old/{id}" -> page`
 /// lines (the v0 lockfile format, 12-routing.md "Renaming pages").
-fn lock_redirects(g: &Gen<'_>) -> Vec<(String, String)> {
+pub(crate) fn lock_redirects(g: &Gen<'_>) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for (file, path) in g.analysis.files() {
         if path.as_str() != "routes.lock" {
@@ -1457,7 +1583,7 @@ fn lock_redirects(g: &Gen<'_>) -> Vec<(String, String)> {
 }
 
 /// The view pages in route-table order (codegen.md §14).
-fn ordered_pages(g: &Gen<'_>) -> Vec<DeclId> {
+pub(crate) fn ordered_pages(g: &Gen<'_>) -> Vec<DeclId> {
     let mut ordered = crate::app::pages(g);
     ordered.sort_by_key(|&p| {
         let t = crate::app::template(g, p);
@@ -1744,7 +1870,19 @@ pub(crate) fn server_entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)
                 "container".into(),
                 js::arrow(
                     vec![Param::new("st")],
-                    Expr::New(Box::new(id("$Request")), vec![id("st")]),
+                    if tests(g) {
+                        // A test's requests use its group's server container.
+                        Expr::Cond(
+                            Box::new(member(id("st"), "test")),
+                            Box::new(call(
+                                member(member(id("st"), "test"), "container"),
+                                vec![id("st")],
+                            )),
+                            Box::new(Expr::New(Box::new(id("$Request")), vec![id("st")])),
+                        )
+                    } else {
+                        Expr::New(Box::new(id("$Request")), vec![id("st")])
+                    },
                 ),
             ),
             Prop::KeyValue("appMeta".into(), app_meta),
@@ -1768,10 +1906,15 @@ pub(crate) fn server_entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)
     );
     stmts.extend(helpers);
     stmts.push(Stmt::Const("$spec".into(), spec));
-    stmts.push(Stmt::Expr(Expr::Await(Box::new(srt(
-        "serve",
-        vec![srt("createApp", vec![id("$spec")])],
-    )))));
+    if tests(g) {
+        // `k test` drives the app in-process (`k:testing/kit`, `run`).
+        stmts.extend(crate::suite::server_groups(&mut b));
+    } else {
+        stmts.push(Stmt::Expr(Expr::Await(Box::new(srt(
+            "serve",
+            vec![srt("createApp", vec![id("$spec")])],
+        )))));
+    }
     let _ = rt;
     (stmts, b.uses)
 }

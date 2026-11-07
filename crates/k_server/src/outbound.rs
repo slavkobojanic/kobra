@@ -51,6 +51,26 @@ pub const MAX_FETCH_TIMEOUT: Duration = Duration::from_secs(600);
 /// How long [`send_mail`] waits for the SMTP server at each step.
 pub const SMTP_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// `url` with its origin replaced: when `url` is exactly an `origin` of
+/// `origins` or continues it with a path (`/`) or a query (`?`), that
+/// origin is swapped for its replacement; any other URL is returned as is.
+///
+/// This is how a test serves a fixed third-party URL (`https://api.open-meteo.com`)
+/// from a [`crate::fakes::FakeHttp`] on loopback
+/// ([`crate::ServerOptions::fetch_origins`]); production servers have no
+/// replacements. Never panics.
+#[must_use]
+pub fn replace_origin(url: &str, origins: &[(String, String)]) -> String {
+    for (from, to) in origins {
+        if let Some(rest) = url.strip_prefix(from.as_str()) {
+            if rest.is_empty() || rest.starts_with('/') || rest.starts_with('?') {
+                return format!("{to}{rest}");
+            }
+        }
+    }
+    url.to_owned()
+}
+
 /// An outgoing HTTP request, as `FetchHttpClient` builds it in JavaScript.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

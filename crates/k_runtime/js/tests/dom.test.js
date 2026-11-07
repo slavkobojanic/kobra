@@ -173,3 +173,19 @@ test("each reorders keyed rows by moving nodes", () => {
   assertEq(host.textContent, "321");
   assertEq(host.childNodes[3], first, "row 1 was moved, not recreated");
 });
+
+// As in browsers, a `style` attribute is the element's inline style: the
+// server's `style="…"` and a binding's `style.setProperty` are one style,
+// serialized once (the fake DOM used to keep both).
+test("a parsed style attribute and style properties are one inline style", () => {
+  const host = document.createElement("div");
+  host.innerHTML = '<span style="--k-x-0: 1; color: red"></span>';
+  const span = host.firstChild;
+  assertEq(span.style.getPropertyValue("color"), "red");
+  span.style.setProperty("--k-x-0", "2");
+  assertEq(host.innerHTML, '<span style="--k-x-0: 2; color: red;"></span>');
+  assertEq(span.getAttribute("style"), "--k-x-0: 2; color: red;");
+  span.removeAttribute("style");
+  assertEq(host.innerHTML, "<span></span>");
+  assertEq(span.getAttribute("style"), null);
+});

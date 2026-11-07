@@ -31,12 +31,45 @@ it rebuilds what changed and reports compile errors in the terminal.
 
 ```bash
 k test
+k test --filter "Cart"
 k test --watch
 ```
 
-Runs every `test` declaration: unit tests, component tests and integration tests that run the real
-stack in-process against a fresh SQLite database. `--watch` keeps running and re-runs the affected tests
-whenever you save a file.
+Runs every `test` declaration: unit tests, component tests and integration tests. A test is one
+browser talking to one server, in one process: views render in the browser half, protocol calls reach
+the server half through the real wire format, and the server's database is a fresh in-memory SQLite
+database with every migration applied, so each test sees only what it wrote itself.
+
+The report has one line per test, then each failure with its source, like a compile error. A failed
+`expect` shows the value of each part of the expression:
+
+```text
+running 3 tests
+PASS  Cart › starts empty
+PASS  Cart › adds a product
+FAIL  Cart › totals the items
+
+failures:
+
+error[K7510]: expectation failed: cart.total == 48.00.usd
+  --> src/store/Cart.test.k:21:16
+   |
+21 |         expect cart.total == 48.00.usd
+   |                ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `cart.total` was $24.00
+   = note: `48.00.usd` was $48.00
+   = note: in test `Cart › totals the items`
+
+test result: FAILED. 2 passed; 1 failed; 0 filtered out
+```
+
+- **`--filter text`** runs only the tests whose full name (`Group › description`) contains the text.
+  Repeat it to run several sets. A filter that matches nothing is an error, so a typo doesn't pass.
+- **`--watch`** runs the tests, then keeps running: on every save it re-runs the test files that
+  changed or that use, directly or through other files, a file that changed.
+- **Exit status:** `0` when every test passed, `1` when one failed or the project has errors (they are
+  printed and nothing runs), `2` when the directory isn't a project.
 
 Tests never read your environment or your `.env` file, and every test starts from a fresh container,
 so they behave the same on every machine. See [Testing](../apps/testing.md).
@@ -86,14 +119,43 @@ Builds the **`.production` environment** into `dist/`:
 An app that renders entirely in the browser and has no server-only code produces only `dist/public/`,
 which any static host can serve. See [Deployment](../apps/deployment.md).
 
-## `k migrate new`
+## `k routes`
+
+```bash
+k routes
+```
+
+Prints the app's route table: one row per URL and method, for every page, every handler of an endpoint
+page and every redirect recorded in `routes.lock` for a renamed page, with the parameters (query
+parameters with their defaults) and the guards.
+
+```text
+METHOD  URL              PAGE      PARAMS                    GUARDS
+GET     /                Notes                               Authenticated
+GET     /edit-note/{id}  EditNote  id: Uuid                  Authenticated
+GET     /sign-in         SignIn    ?returnTo: Page = .notes
+```
+
+## `k migrate`
 
 ```bash
 k migrate new "add note pinning"
+k migrate new --empty "backfill display names"
+k migrate status
+k migrate apply
 ```
 
-Writes the next migration file from the difference between your entities and `schema.lock`, and updates
-the lock. Review the file and commit both. See [Persistence](../apps/persistence.md#migrations).
+- **`k migrate new "description"`** writes the next migration file from the difference between your
+  entities and `schema.lock`, and updates the lock. It writes new tables, new columns that have a default
+  or an optional type, new indexes and the retirement of a removed field. A change it can't make safely,
+  such as a new required column without a default or a changed type, is refused: nothing is written and
+  each refused change is explained. Review the file and commit both.
+- **`--empty`** writes an empty migration, for data changes you write by hand.
+- **`k migrate status`** lists the migrations the development database (`DATABASE_URL`, from the
+  environment or `.env`) has applied and the ones still pending; **`k migrate apply`** applies the
+  pending ones. Production applies migrations itself at startup.
+
+See [Persistence](../apps/persistence.md#migrations).
 
 ## Exit status
 

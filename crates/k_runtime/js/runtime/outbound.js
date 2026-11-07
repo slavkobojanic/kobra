@@ -19,6 +19,7 @@
 
 import { KPanic, panic } from "./values.js";
 import { DecodeFailure, Secret, stringify, toJSON } from "./std.js";
+import { headerView } from "./http.js";
 
 const ops = globalThis.Deno?.core?.ops;
 
@@ -98,17 +99,7 @@ export function wireRequest(r) {
  * @param {Uint8Array} bytes
  */
 export function received(E, status, code, headers, bytes) {
-  const map = new Map();
-  const all = new Map();
-  for (const [n, v] of headers) {
-    const name = String(n).toLowerCase();
-    if (!all.has(name)) all.set(name, []);
-    all.get(name).push(v);
-    // A repeated header reads as its values joined, except `set-cookie`,
-    // which reads as the first (`all` has every one).
-    if (!map.has(name)) map.set(name, v);
-    else if (name !== "set-cookie") map.set(name, `${map.get(name)}, ${v}`);
-  }
+  const { map, all } = headerView(headers);
   const text = new TextDecoder().decode(bytes);
   return {
     status,

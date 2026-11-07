@@ -1,6 +1,7 @@
 // SSR escaping and the output buffer (docs/compiler/runtime.md, "SSR").
 // Every dynamic value in server HTML goes through these functions.
 import { assertEq, test } from "k:testing";
+import { codecs } from "k:runtime";
 import { CLOSE, OPEN, Out, SEPARATOR, escapeAttribute, escapeText, serializeData } from "k:runtime/server";
 
 test("escapeText escapes &, < and >", () => {
@@ -41,4 +42,13 @@ test("the hydration markers are the documented comments", () => {
   assertEq(OPEN, "<!--[-->");
   assertEq(CLOSE, "<!--]-->");
   assertEq(SEPARATOR, "<!---->");
+});
+
+// `@Load` values are encoded with their codecs, and a `Double`'s encoding
+// is the codec's number wrapper: `k-data` prints it as a number, as rpc
+// bodies do, so hydration can decode it (a latitude, a temperature).
+test("serializeData prints encoded doubles as numbers", () => {
+  const json = serializeData({ latitude: codecs.double.encode(52.52), whole: codecs.double.encode(4), list: [codecs.double.encode(0.5)] });
+  assertEq(json, '{"latitude":52.52,"whole":4.0,"list":[0.5]}');
+  assertEq(codecs.double.decode(JSON.parse(json).latitude, "latitude"), 52.52);
 });

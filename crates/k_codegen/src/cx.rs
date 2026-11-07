@@ -57,6 +57,8 @@ pub(crate) struct Builtins {
     pub spacing: Option<DeclId>,
     pub radius: Option<DeclId>,
     pub font_size: Option<DeclId>,
+    /// `k.time.TimeZone`: its value is its IANA name, with a builtin codec.
+    pub time_zone: Option<DeclId>,
 }
 
 impl Builtins {
@@ -93,6 +95,7 @@ impl Builtins {
             spacing: core("Spacing"),
             radius: core("Radius"),
             font_size: core("FontSize"),
+            time_zone: view.lookup("k.time.TimeZone"),
         }
     }
 }
@@ -251,7 +254,11 @@ impl<'a> Gen<'a> {
                 continue;
             }
             ids.push(id);
-            *count.entry(d.name.clone()).or_default() += 1;
+            // A test group has a name of its own (`$group<N>`, below), so
+            // `test Home { }` leaves `page Home` its simple name.
+            if d.named_kind() != Some(DeclarationKind::TestSuite) {
+                *count.entry(d.name.clone()).or_default() += 1;
+            }
         }
         for id in ids {
             let d = self.view.decl(id);
@@ -268,7 +275,12 @@ impl<'a> Gen<'a> {
                     .view
                     .decls
                     .iter()
-                    .filter(|o| o.name == d.name && !o.stdlib && o.kind != DeclKind::Extension)
+                    .filter(|o| {
+                        o.name == d.name
+                            && !o.stdlib
+                            && o.kind != DeclKind::Extension
+                            && o.named_kind() != Some(DeclarationKind::TestSuite)
+                    })
                     .count();
                 if project_dupes > 1 {
                     format!(
@@ -281,6 +293,14 @@ impl<'a> Gen<'a> {
                 }
             } else {
                 mangle(&d.name)
+            };
+            // A test group is usually named after what it tests
+            // (`test Panel { }` beside `component Panel`): its class and
+            // templates get a name of their own (`crate::suite`).
+            let name = if d.named_kind() == Some(DeclarationKind::TestSuite) {
+                format!("$group{}", id.0)
+            } else {
+                name
             };
             self.names.insert(id, name);
         }
@@ -430,6 +450,31 @@ impl<'a> Gen<'a> {
         let d = self.view.decl(m.owner);
         let root = self.roots.get(&d.file)?;
         node_at(root, m.range?)
+    }
+
+    /// The syntax node of a member of a stdlib declaration, from the
+    /// stdlib's own parse, with the file id the analysis gives that file
+    /// (stdlib files come first, in [`k_sema::stdlib::Stdlib::files`]
+    /// order). `None` for a project member.
+    ///
+    /// [`Gen::member_node`] only knows project files, so generated code
+    /// never lowers stdlib bodies by accident; this is for the few places
+    /// that read a stdlib declaration's source on purpose, such as the
+    /// default values of a stdlib struct's fields.
+    pub(crate) fn stdlib_member_node(&self, id: MemberId) -> Option<(FileId, SyntaxNode)> {
+        let m = self.view.member(id);
+        let d = self.view.decl(m.owner);
+        if !d.stdlib {
+            return None;
+        }
+        let k_sema::FileOrigin::Stdlib(path) = self.analysis.origin(d.file)? else {
+            return None;
+        };
+        let file = k_sema::stdlib::Stdlib::get()
+            .files()
+            .iter()
+            .find(|f| f.path == path)?;
+        node_at(&file.parse.syntax(), m.range?).map(|n| (d.file, n))
     }
 
     // -------------------------------------------------------------- types

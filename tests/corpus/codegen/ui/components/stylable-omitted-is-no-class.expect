@@ -1,0 +1,3 @@
+client contains if (props.container === undefined) {
+client contains props.container = () => "";
+client contains props.container()

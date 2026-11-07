@@ -1,0 +1,7 @@
+# The default method, over the service's own `send`.
+client contains async fetchJson(...a) {
+client contains return HttpClient$fetchJson(this, HttpError, ...a);
+# A built response on the client.
+client contains HttpResponse$body(HttpResponse$init(HttpStatus.ok), HttpBody.text("[]"))
+# from the `http` chunk, shipped because the client uses it.
+client contains import { HttpClient$fetchJson, HttpResponse$body, HttpResponse$init } from "./http.[hash].js";

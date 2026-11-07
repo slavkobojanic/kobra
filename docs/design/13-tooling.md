@@ -31,8 +31,13 @@
 | `k routes` | Prints the route table, endpoint pages included |
 | `k proto export` | Emits `.proto` files from K protocols |
 | `k doc` | Renders documentation from `///` comments ([39-doc-comments.md](39-doc-comments.md)) |
+| `k lsp` | The language server, over standard input and output, for editors ([docs/compiler/lsp.md](../compiler/lsp.md)) |
 
 The built executable has its own commands (`serve`, `migrate`, `config`, `probe`, `jobs`), described in [38-deployment.md](38-deployment.md).
+
+- **`k routes`** prints one row per URL and method: `METHOD`, `URL`, `PAGE` (an endpoint page or a `routes.lock` redirect says so), `PARAMS` (path parameters as `name: Type`, query parameters as `?name: Type = default`) and `GUARDS` (the `requires` clause as written), sorted by URL, then method.
+- **`k migrate status` and `k migrate apply`** act on the development database (`DATABASE_URL` from the environment or `.env`, like `k dev`), so a developer can inspect and migrate it without starting the server.
+- **`k build --out dir` removes the hashed assets of earlier builds** from `dir/public/assets/`; nothing else in `dir` is touched.
 
 ## Formatter
 
@@ -61,6 +66,18 @@ Features the design relies on:
 - Each page's current URL is shown inline.
 - Autocomplete after an implicit member (`.`) lists only valid members of the expected type, for example spacing tokens after `padding: .`.
 - Quick fixes for structured compiler errors, such as changing `@Prop` to `@Binding` or `a` to `link`.
+
+Decisions made with the server:
+
+- **Rename keeps the program valid.** Renaming a public declaration renames its file (a file's public
+  declaration must share its name); renaming an interface method renames the methods implementing it, and
+  the reverse; renaming a page renames its cases (`.signIn` for `SignIn`); renaming a parameter whose name is
+  also its label keeps the label (`a: Int` becomes `a b: Int`). Imports and doc links are references like any
+  other. Standard library declarations can't be renamed.
+- **Doc links are references.** Find references, rename and go-to-definition treat ``[`Name`]`` in a `///`
+  comment like a use of `Name` in code, and hover renders it as a link.
+- **Editors** ship in the repository (`editors/`): VS Code, Neovim and Vim. npm is used only to package the
+  VS Code extension, never by the toolchain.
 
 ## Compiler errors
 

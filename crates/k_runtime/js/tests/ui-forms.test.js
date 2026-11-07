@@ -261,6 +261,18 @@ test("a ValidationError from the action is shown under its fields", async () => 
   assertEq(form.isValid(), false);
 });
 
+// The server names a failure by the rpc parameter's path (`request.email`
+// for `signUp(request:)`, 28-rpc-wire-format.md): the form shows it under
+// its own field, `email`, since both sides share the struct.
+test("a server failure under the rpc parameter's name shows under its field", async () => {
+  const form = signup();
+  fillValid(form);
+  await form.handle(async () => {
+    throw { failures: [{ path: "request.name", message: "That name is taken" }] };
+  })();
+  assertEq(form.field("name").error(), "That name is taken");
+});
+
 // A failure for a path the form doesn't show (`address.city` on a form
 // without it) is still in `errors`, so a summary can show it.
 test("a server failure for an unknown path stays in errors", async () => {

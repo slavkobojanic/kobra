@@ -1,0 +1,6 @@
+METHOD  URL               PAGE             PARAMS                               GUARDS
+GET     /                 Home
+GET     /old-home         Home (redirect)
+GET     /products/{slug}  Product          slug: String, ?tab: String = "info"
+POST    /webhooks/ping    Ping (endpoint)                                       RateLimit(10.perMinute)
+PUT     /webhooks/ping    Ping (endpoint)                                       RateLimit(10.perMinute)

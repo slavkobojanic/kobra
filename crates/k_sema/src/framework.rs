@@ -681,8 +681,12 @@ pub(crate) fn check_declaration(cx: &Cx<'_, '_>, decl: DeclId, owner: &BodyOwner
     let d = p.decl(decl);
     let file = d.file;
     let kind = d.named_kind();
-    // The declaration's own annotations.
-    let targets = decl_targets(kind);
+    // The declaration's own annotations. A job's payload shape is locked
+    // (`storage.lock`), so a job service takes `@Breaking` too.
+    let mut targets = decl_targets(kind);
+    if kind == Some(K::Service) && crate::locks::is_job(cx, decl) {
+        targets.push(Target::Locked);
+    }
     for a in annotations_of(cx, file, &d.node) {
         if a.def.targets.iter().any(|t| targets.contains(t)) {
             check_annotation_args(cx, owner, &a);

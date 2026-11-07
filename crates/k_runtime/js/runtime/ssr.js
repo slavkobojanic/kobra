@@ -10,6 +10,8 @@
  * values. Static template text is escaped by the compiler.
  */
 
+import { stringify } from "./std.js";
+
 /** Opens a dynamic range (a `when`, `branch` or `each` block). */
 export const OPEN = "<!--[-->";
 /** Closes a dynamic range. */
@@ -57,13 +59,14 @@ export function escapeAttribute(value) {
 
 /**
  * Serializes data for the `<script type="application/json" id="k-data">`
- * element: JSON with `<`, `>`, `&`, U+2028 and U+2029 escaped, so no
- * string can close the script element or break a parser.
+ * element: JSON as rpc bodies print it (`stringify`, so a codec's
+ * `Double` is a number), with `<`, `>`, `&`, U+2028 and U+2029 escaped,
+ * so no string can close the script element or break a parser.
  * @param {unknown} data
  * @returns {string}
  */
 export function serializeData(data) {
-  return JSON.stringify(data)
+  return stringify(data)
     .replaceAll("<", "\\u003c")
     .replaceAll(">", "\\u003e")
     .replaceAll("&", "\\u0026")

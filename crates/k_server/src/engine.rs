@@ -69,6 +69,11 @@ pub struct EngineOptions {
     /// infinite loop in a test can't hang the suite. `None` waits forever
     /// (servers).
     pub timeout: Option<Duration>,
+    /// Loads the embedded runtime passed through [`k_runtime::compact`],
+    /// as release builds ship it to browsers. The runtime's JS tests run
+    /// once each way, so a compaction that changes what a program means
+    /// fails them (`docs/compiler/testing.md` §4.1).
+    pub compact_runtime: bool,
 }
 
 /// Why running JavaScript failed.
@@ -100,6 +105,8 @@ impl std::error::Error for EngineError {}
 /// Resolves runtime and application modules from memory.
 struct Loader {
     modules: HashMap<String, String>,
+    /// [`EngineOptions::compact_runtime`].
+    compact_runtime: bool,
 }
 
 impl ModuleLoader for Loader {
@@ -140,7 +147,13 @@ impl ModuleLoader for Loader {
         _options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
         let code = k_runtime::module(specifier.as_str())
-            .map(|m| m.source.to_owned())
+            .map(|m| {
+                if self.compact_runtime {
+                    k_runtime::compact(m.source).unwrap_or_else(|_| m.source.to_owned())
+                } else {
+                    m.source.to_owned()
+                }
+            })
             .or_else(|| self.modules.get(specifier.as_str()).cloned());
         ModuleLoadResponse::Sync(match code {
             Some(code) => Ok(ModuleSource::new(
@@ -248,7 +261,10 @@ impl Engine {
         // in, so it must exist and be entered first.
         let guard = tokio.enter();
         let mut runtime = JsRuntime::try_new(RuntimeOptions {
-            module_loader: Some(Rc::new(Loader { modules })),
+            module_loader: Some(Rc::new(Loader {
+                modules,
+                compact_runtime: options.compact_runtime,
+            })),
             extensions: vec![ops::k_engine::init()],
             ..Default::default()
         })
@@ -337,6 +353,14 @@ impl Engine {
     /// Returns and clears the captured log lines ([`Output::Capture`]).
     pub fn take_output(&mut self) -> Vec<LogLine> {
         std::mem::take(&mut self.state.borrow_mut().output)
+    }
+
+    /// Makes this a test engine (`k test`) for a build whose database half
+    /// is `manifest`: every `op_k_test_reset` then opens a fresh in-memory
+    /// SQLite database with its migrations applied. `None` (the default)
+    /// resets give the app no database.
+    pub fn set_test_database(&mut self, manifest: Option<k_db::manifest::DbManifest>) {
+        self.state.borrow_mut().test_database = manifest;
     }
 
     /// Installs the request queue a server worker reads with

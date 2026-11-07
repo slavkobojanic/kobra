@@ -102,16 +102,22 @@ struct Site {
     requests: Vec<(String, String)>,
     /// The response bodies, by request, in order: `(path, body)`.
     responses: Vec<(String, String)>,
-    /// Paths of server-streaming rpcs: their requests are recorded but
-    /// stay in flight, because the v0 client runtime doesn't read server
-    /// streams yet (runtime.md §1, "Deferred").
-    held: Vec<String>,
 }
 
 impl Site {
     /// Builds and serves `examples/<name>` with the configuration `env`
     /// (in place of a `.env`).
     fn start(name: &str, env: &[(&str, &str)]) -> Site {
+        Site::start_with(name, env, |_| {})
+    }
+
+    /// [`Site::start`], with `configure` adjusting the server's options
+    /// last (a test's `fetch_origins`).
+    fn start_with(
+        name: &str,
+        env: &[(&str, &str)],
+        configure: impl FnOnce(&mut ServerOptions),
+    ) -> Site {
         let generated = build(name);
         let bundle = ServerBundle {
             modules: generated
@@ -182,6 +188,7 @@ impl Site {
             .collect();
         o.database =
             k_server::db::DatabaseSetup::from_config(generated.database.clone(), &o.config);
+        configure(&mut o);
         let server = Server::start(o).unwrap_or_else(|e| panic!("{name} starts: {e}"));
         let addr = server.local_addr();
         let mut entry = String::new();
@@ -208,7 +215,6 @@ impl Site {
             entry,
             requests: Vec::new(),
             responses: Vec::new(),
-            held: Vec::new(),
         }
     }
 
@@ -218,10 +224,40 @@ impl Site {
         &mut self,
         method: &str,
         path: &str,
-        mut headers: Vec<(String, String)>,
+        headers: Vec<(String, String)>,
         body: &str,
     ) -> k_server::testing::HttpResponse {
         self.requests.push((method.to_owned(), path.to_owned()));
+        let headers = self.browser_headers(headers);
+        let r = send(self.addr, method, path, &headers, body.as_bytes())
+            .unwrap_or_else(|e| panic!("{} {method} {path}: {e}", self.name));
+        self.keep_cookies(&r.headers);
+        self.responses.push((
+            path.to_owned(),
+            String::from_utf8_lossy(&r.body).into_owned(),
+        ));
+        r
+    }
+
+    /// Opens a server-streaming rpc as the tab would (its cookies, its
+    /// origin), returning once the response head has arrived.
+    fn open_stream(
+        &mut self,
+        path: &str,
+        headers: Vec<(String, String)>,
+        body: &[u8],
+    ) -> k_server::testing::StreamingResponse {
+        self.requests.push(("POST".to_owned(), path.to_owned()));
+        let headers = self.browser_headers(headers);
+        let r = k_server::testing::open_stream(self.addr, "POST", path, &headers, body)
+            .unwrap_or_else(|e| panic!("{} POST {path}: {e}", self.name));
+        self.keep_cookies(&r.headers);
+        r
+    }
+
+    /// `headers` with the jar's cookies (plus a `cookie` header among
+    /// them) and the tab's origin, as a browser sends them.
+    fn browser_headers(&self, mut headers: Vec<(String, String)>) -> Vec<(String, String)> {
         let mut jar: BTreeMap<String, String> = self.cookies.iter().cloned().collect();
         if let Some(i) = headers.iter().position(|(n, _)| n == "cookie") {
             let (_, own) = headers.remove(i);
@@ -237,9 +273,12 @@ impl Site {
         }
         headers.push(("origin".into(), "http://localhost".into()));
         headers.push(("sec-fetch-site".into(), "same-origin".into()));
-        let r = send(self.addr, method, path, &headers, body.as_bytes())
-            .unwrap_or_else(|e| panic!("{} {method} {path}: {e}", self.name));
-        for (n, v) in &r.headers {
+        headers
+    }
+
+    /// Keeps the cookies a response sets, dropping the ones it expires.
+    fn keep_cookies(&mut self, headers: &[(String, String)]) {
+        for (n, v) in headers {
             if n != "set-cookie" {
                 continue;
             }
@@ -253,11 +292,6 @@ impl Site {
                 self.cookies.push((name, value.trim().to_owned()));
             }
         }
-        self.responses.push((
-            path.to_owned(),
-            String::from_utf8_lossy(&r.body).into_owned(),
-        ));
-        r
     }
 
     /// The JSON body of the last response for `path`.
@@ -311,6 +345,8 @@ impl Drop for Site {
 struct Tab<'a> {
     site: &'a mut Site,
     engine: Engine,
+    /// The tab's open server streams, by its request id.
+    streams: Vec<(serde_json::Value, k_server::testing::StreamingResponse)>,
 }
 
 impl<'a> Tab<'a> {
@@ -318,9 +354,20 @@ impl<'a> Tab<'a> {
     /// `storage` is the tab's local storage. Panics on a status other than
     /// 200.
     fn open(site: &'a mut Site, path: &str, storage: &serde_json::Value) -> Tab<'a> {
+        Tab::open_answered(site, path, storage, 200)
+    }
+
+    /// [`Tab::open`] for a document answered with `status` (a `failed`
+    /// page's 404).
+    fn open_answered(
+        site: &'a mut Site,
+        path: &str,
+        storage: &serde_json::Value,
+        status: u16,
+    ) -> Tab<'a> {
         let page = site.page(path);
         let body = String::from_utf8_lossy(&page.body).into_owned();
-        assert_eq!(page.status, 200, "{} GET {path}: {body}", site.name);
+        assert_eq!(page.status, status, "{} GET {path}: {body}", site.name);
         let mut modules = site.client.clone();
         modules.push(JsModule {
             specifier: "k:/test/sim.js".into(),
@@ -332,7 +379,11 @@ impl<'a> Tab<'a> {
             ..Default::default()
         })
         .expect("engine");
-        let mut tab = Tab { site, engine };
+        let mut tab = Tab {
+            site,
+            engine,
+            streams: Vec::new(),
+        };
         let cookies: BTreeMap<&str, &str> = tab
             .site
             .cookies
@@ -392,7 +443,12 @@ impl<'a> Tab<'a> {
             .join("\n")
     }
 
-    /// Forwards the tab's queued requests until it sends no more.
+    /// Forwards the tab's queued requests, and the body pieces its open
+    /// server streams have received, until nothing more happens. A
+    /// streaming rpc (`application/connect+json`) is opened with
+    /// `open_stream` and stays open; its first piece is awaited, so a
+    /// stream's opening message is in the page when this returns. Streams
+    /// the client stopped reading are closed.
     fn settle(&mut self) {
         for _ in 0..64 {
             let out = self
@@ -402,22 +458,14 @@ impl<'a> Tab<'a> {
                 )
                 .unwrap_or_else(|e| panic!("{}: {e}", self.site.name))
                 .unwrap_or_default();
-            let queued: Vec<serde_json::Value> = serde_json::from_str(&out).expect("json");
-            if queued.is_empty() {
-                return;
+            let drained: serde_json::Value = serde_json::from_str(&out).expect("json");
+            for id in drained["closed"].as_array().into_iter().flatten() {
+                self.streams.retain(|(open, _)| open != id);
             }
             let mut responses = Vec::new();
-            let mut forwarded = 0;
-            for q in queued {
+            let mut opened = Vec::new();
+            for q in drained["requests"].as_array().into_iter().flatten() {
                 let path = q["path"].as_str().unwrap_or("/");
-                if self.site.held.iter().any(|h| h == path) {
-                    self.site.requests.push((
-                        q["method"].as_str().unwrap_or("GET").to_owned(),
-                        path.to_owned(),
-                    ));
-                    continue;
-                }
-                forwarded += 1;
                 let headers: Vec<(String, String)> = q["headers"]
                     .as_object()
                     .map(|m| {
@@ -426,9 +474,43 @@ impl<'a> Tab<'a> {
                             .collect()
                     })
                     .unwrap_or_default();
+                let streaming = headers
+                    .iter()
+                    .any(|(k, v)| k == "content-type" && v == "application/connect+json");
+                if streaming {
+                    let bytes: Vec<u8> = q["bytes"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|b| b.as_u64().and_then(|b| u8::try_from(b).ok()))
+                        .collect();
+                    let s = self.site.open_stream(path, headers, &bytes);
+                    let head: BTreeMap<String, String> = s.headers.iter().cloned().collect();
+                    if s.status == 200 {
+                        responses.push(serde_json::json!({
+                            "id": q["id"], "status": 200, "headers": head, "body": "", "stream": true,
+                        }));
+                        opened.push(q["id"].clone());
+                        self.streams.push((q["id"].clone(), s));
+                    } else {
+                        // Refused before streaming: a unary Connect error.
+                        let mut body = Vec::new();
+                        while let Some(k_server::testing::StreamChunk::Data(d)) =
+                            s.next_chunk(Duration::from_secs(5))
+                        {
+                            body.extend(d);
+                        }
+                        let body = String::from_utf8_lossy(&body).into_owned();
+                        self.site.responses.push((path.to_owned(), body.clone()));
+                        responses.push(serde_json::json!({
+                            "id": q["id"], "status": s.status, "headers": head, "body": body,
+                        }));
+                    }
+                    continue;
+                }
                 let r = self.site.send(
                     q["method"].as_str().unwrap_or("GET"),
-                    q["path"].as_str().unwrap_or("/"),
+                    path,
                     headers,
                     q["body"].as_str().unwrap_or(""),
                 );
@@ -440,17 +522,79 @@ impl<'a> Tab<'a> {
                     "body": String::from_utf8_lossy(&r.body),
                 }));
             }
-            if forwarded == 0 {
+            if !responses.is_empty() {
+                let deliver = serde_json::to_string(&responses).expect("json");
+                self.engine
+                    .run_main(&format!(
+                        "import * as sim from \"k:/test/sim.js\";\nsim.deliver({deliver});"
+                    ))
+                    .unwrap_or_else(|e| panic!("{}: {e}", self.site.name));
+            }
+            let chunks = self.stream_chunks(&opened);
+            if responses.is_empty() && chunks.is_empty() {
                 return;
             }
-            let deliver = serde_json::to_string(&responses).expect("json");
-            self.engine
-                .run_main(&format!(
-                    "import * as sim from \"k:/test/sim.js\";\nsim.deliver({deliver});"
-                ))
-                .unwrap_or_else(|e| panic!("{}: {e}", self.site.name));
+            if !chunks.is_empty() {
+                let deliver = serde_json::to_string(&chunks).expect("json");
+                self.engine
+                    .run_main(&format!(
+                        "import * as sim from \"k:/test/sim.js\";\nsim.deliverChunks({deliver});"
+                    ))
+                    .unwrap_or_else(|e| panic!("{}: {e}", self.site.name));
+            }
         }
         panic!("{}: the tab never stopped sending requests", self.site.name);
+    }
+
+    /// The body pieces the open streams have received, as
+    /// `sim.deliverChunks` takes them; a stream in `opened` (just opened)
+    /// is given up to five seconds for its first piece. Ended streams are
+    /// dropped.
+    fn stream_chunks(&mut self, opened: &[serde_json::Value]) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        let mut ended = Vec::new();
+        for (id, s) in &self.streams {
+            let mut wait = if opened.contains(id) {
+                Duration::from_secs(5)
+            } else {
+                Duration::ZERO
+            };
+            while let Some(c) = s.next_chunk(wait) {
+                wait = Duration::ZERO;
+                match c {
+                    k_server::testing::StreamChunk::Data(d) => {
+                        out.push(serde_json::json!({ "id": id, "bytes": d }));
+                    }
+                    k_server::testing::StreamChunk::End => {
+                        out.push(serde_json::json!({ "id": id, "end": true }));
+                        ended.push(id.clone());
+                        break;
+                    }
+                }
+            }
+        }
+        self.streams.retain(|(id, _)| !ended.contains(id));
+        out
+    }
+
+    /// Settles the tab until `check` accepts its text, for changes that
+    /// reach it from the server on their own (a stream's element); fails
+    /// after five seconds.
+    fn wait_for_text(&mut self, what: &str, check: impl Fn(&str) -> bool) -> String {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let text = self.text();
+            if check(&text) {
+                return text;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{}: {what}: {text}",
+                self.site.name
+            );
+            std::thread::sleep(Duration::from_millis(20));
+            self.settle();
+        }
     }
 
     /// Asserts that hydration kept every server node and the markup.
@@ -826,7 +970,6 @@ fn notes_signs_in_creates_a_note_and_edits_it() {
     let db = TempDb::new("notes");
     let url = db.url();
     let mut site = Site::start("notes", &[("DATABASE_URL", url.as_str())]);
-    site.held.push("/notes.NotesProtocol/Watch".into());
     let signed_up = site.rpc(
         "/notes.accounts.AuthProtocol/SignUp",
         r#"{"request": {"email": "ada@example.com", "password": "correct horse", "confirmPassword": "correct horse"}}"#,
@@ -885,6 +1028,56 @@ fn notes_signs_in_creates_a_note_and_edits_it() {
     let id = created["id"].as_str().expect("an id").to_owned();
     let pushed = tab.run("done(sim.state().pushed);");
     assert_eq!(pushed, serde_json::json!(["/", "/new-note", "/"]));
+    contains(
+        &tab.text(),
+        "Groceries",
+        "the notes page lists the new note",
+    );
+    // The page follows `watch()`: a note created and then deleted on
+    // another device reaches this tab through the open stream.
+    let since = tab.site.requests.len();
+    let laundry = tab.site.rpc(
+        "/notes.NotesProtocol/Create",
+        r#"{"draft": {"title": "Laundry", "body": "Whites first", "tags": ""}}"#,
+    );
+    assert_eq!(
+        laundry.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&laundry.body)
+    );
+    let laundry_id = tab.site.last_json("/notes.NotesProtocol/Create")["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let text = tab.wait_for_text("the stream delivers a note saved elsewhere", |t| {
+        t.contains("Laundry")
+    });
+    contains(&text, "Groceries", "the earlier note stays");
+    assert_eq!(
+        tab.site.count(since, "/notes.NotesProtocol/Watch"),
+        0,
+        "the change arrived on the open stream, not a new one"
+    );
+    let deleted = tab.site.rpc(
+        "/notes.NotesProtocol/Delete",
+        &format!(r#"{{"id": "{laundry_id}"}}"#),
+    );
+    assert_eq!(
+        deleted.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&deleted.body)
+    );
+    tab.wait_for_text("the stream delivers a deletion made elsewhere", |t| {
+        !t.contains("Laundry")
+    });
+    // Leaving the page cancels its effect, which closes the stream.
+    tab.run("sim.click(\"a\", \"New note\");");
+    assert!(
+        tab.streams.is_empty(),
+        "the stream was closed when the page was left"
+    );
     drop(tab);
     // Editing it: the server renders the form with the note, hydration
     // takes the note from `k-data`, and saving updates it.
@@ -995,4 +1188,204 @@ fn weather_finds_nothing_for_an_unknown_city() {
     tab.run(OPEN_METEO);
     tab.run(&format!("{}sim.advance(300);", fill("City", "Zzz")));
     contains(&tab.text(), "No places match “Zzz”.", "no results");
+}
+
+/// Berlin as Open-Meteo answers `GET /v1/get?id=2950159`.
+fn berlin() -> serde_json::Value {
+    serde_json::json!({ "id": 2950159, "name": "Berlin", "latitude": 52.52, "longitude": 13.41, "country": "Germany", "admin1": "Land Berlin" })
+}
+
+/// Four hours of forecast from 2026-01-15T11:00Z (noon in Berlin), in
+/// Berlin's time zone, as `GET /v1/forecast?…&timeformat=unixtime` answers.
+fn berlin_forecast() -> serde_json::Value {
+    let start = 1_768_474_800_i64;
+    serde_json::json!({
+        "timezone": "Europe/Berlin",
+        "current": {
+            "time": start, "temperature_2m": 3.4, "apparent_temperature": 0.6,
+            "relative_humidity_2m": 81, "wind_speed_10m": 14.2, "wind_direction_10m": 250.0,
+            "weather_code": 3, "is_day": 1
+        },
+        "hourly": {
+            "time": [start, start + 3600, start + 7200, start + 10800],
+            "temperature_2m": [3.4, 4.1, 4.6, 4.0],
+            "apparent_temperature": [0.6, 1.2, 1.9, 1.1],
+            "precipitation_probability": [10, 20, 35, 40]
+        }
+    })
+}
+
+fn berlin_air() -> serde_json::Value {
+    serde_json::json!({ "current": { "european_aqi": 32, "pm2_5": 8.4, "pm10": 14.9 } })
+}
+
+/// The weather example with its server's Open-Meteo calls answered by a
+/// fake: `place` found (Berlin) or answered 404 (an unknown id).
+fn weather_with_server_fake(found: bool) -> (Site, k_server::fakes::FakeHttp) {
+    use k_server::fakes::{FakeHttp, FakeRoute};
+    let place = if found {
+        FakeRoute::json("GET", "/v1/get", &berlin())
+    } else {
+        FakeRoute::text("GET", "/v1/get", 404, "{\"error\": true}")
+    };
+    let fake = FakeHttp::start(vec![
+        place,
+        FakeRoute::json("GET", "/v1/forecast", &berlin_forecast()),
+        FakeRoute::json("GET", "/v1/air-quality", &berlin_air()),
+    ])
+    .expect("the fake Open-Meteo");
+    let origin = fake.origin();
+    let site = Site::start_with("weather", &[], |o| {
+        o.fetch_origins = [
+            "https://geocoding-api.open-meteo.com",
+            "https://api.open-meteo.com",
+            "https://air-quality-api.open-meteo.com",
+        ]
+        .iter()
+        .map(|from| ((*from).to_owned(), origin.clone()))
+        .collect();
+    });
+    (site, fake)
+}
+
+/// The same answers for the tab's own requests (a client navigation).
+fn open_meteo_in_the_tab() -> String {
+    format!(
+        "sim.external((url) => {{\n\
+           const path = url.split(\"?\")[0].replace(new RegExp(\"^https://[^/]+\"), \"\");\n\
+           const body = {{ \"/v1/get\": {}, \"/v1/forecast\": {}, \"/v1/air-quality\": {} }}[path];\n\
+           return body ? {{ status: 200, headers: {{ \"content-type\": \"application/json\" }}, body: JSON.stringify(body) }} : {{ status: 404, headers: {{}}, body: \"{{}}\" }};\n\
+         }});",
+        berlin(),
+        berlin_forecast(),
+        berlin_air()
+    )
+}
+
+#[test]
+fn weather_renders_a_city_on_the_server_with_its_chart_in_the_city_time_zone() {
+    let (mut site, _fake) = weather_with_server_fake(true);
+    let page = site.page("/city-weather/2950159");
+    let html = String::from_utf8_lossy(&page.body).into_owned();
+    assert_eq!(page.status, 200, "{html}");
+    contains(&html, "<title>Berlin weather</title>", "the page's title");
+    contains(&html, "Berlin, Land Berlin, Germany", "the heading");
+    // The chart: an SVG image with the required description, and the
+    // hidden data table with every reading.
+    contains(&html, "role=\"img\"", "the chart");
+    contains(
+        &html,
+        "aria-label=\"Temperature and feels-like temperature for the next 24 hours\"",
+        "the chart's description",
+    );
+    contains(&html, "<table", "the chart's data table");
+    contains(
+        &html,
+        "<th scope=\"col\">Feels like</th>",
+        "a series column",
+    );
+    contains(&html, "4.6", "a reading");
+    // Hours are labelled in the forecast's zone: 11:00Z is noon in Berlin.
+    contains(&html, "12:00", "the first hour in Berlin");
+    contains(&html, "15:00", "the last hour in Berlin");
+    lacks(&html, ">11:00<", "UTC hours");
+    // Series colors are theme tokens, the second series is dashed.
+    contains(
+        &html,
+        "var(--k-color-chart-temperature)",
+        "the series color",
+    );
+    contains(&html, "stroke-dasharray", "the dashed series");
+}
+
+#[test]
+fn weather_hydrates_a_server_rendered_city_without_fetching_again() {
+    let (mut site, _fake) = weather_with_server_fake(true);
+    let mut tab = Tab::open(&mut site, "/city-weather/2950159", &serde_json::json!({}));
+    tab.run(OPEN_METEO);
+    tab.assert_hydrated();
+    let fetches = tab.run("done(sim.state().fetches.length);");
+    assert_eq!(fetches, serde_json::json!(0), "hydration fetched nothing");
+    let text = tab.text();
+    contains(&text, "Berlin, Land Berlin, Germany", "the heading");
+    contains(&text, "Feels like", "the chart's legend");
+    let title = tab.run("done(document.title);");
+    assert_eq!(title, serde_json::json!("Berlin weather"));
+}
+
+#[test]
+fn weather_navigates_to_a_city_in_the_browser_keeping_the_layout_and_updating_the_title() {
+    let (mut site, _fake) = weather_with_server_fake(true);
+    let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
+    tab.assert_hydrated();
+    tab.run(&open_meteo_in_the_tab());
+    assert_eq!(
+        tab.run("done(document.title);"),
+        serde_json::json!("Weather")
+    );
+    // Mark the layout's header: a layout both pages share stays mounted.
+    tab.run("sim.find(\"header\").kept = true;");
+    let pushed = tab.run(
+        "sim.click(\"a\", \"Berlin\", { href: \"/city-weather/2950159\" });\n\
+         done(sim.state().pushed);",
+    );
+    assert_eq!(pushed, serde_json::json!(["/city-weather/2950159"]));
+    let html = tab.html();
+    contains(&html, "Berlin, Land Berlin, Germany", "the city page");
+    contains(&html, "role=\"img\"", "the chart, rendered in the browser");
+    contains(&html, "12:00", "the first hour in Berlin");
+    lacks(&html, "Featured cities", "the home page is gone");
+    let kept = tab.run("done(sim.find(\"header\").kept === true);");
+    assert_eq!(
+        kept,
+        serde_json::json!(true),
+        "the layout was rendered again"
+    );
+    assert_eq!(
+        tab.run("done(document.title);"),
+        serde_json::json!("Berlin weather")
+    );
+    let urls = tab.run("done(sim.state().fetches.map((f) => f.url.split(\"?\")[0]));");
+    contains(
+        &urls.to_string(),
+        "/v1/forecast",
+        "the browser loaded the forecast",
+    );
+    // Back home through the layout's link: the page's title goes with it.
+    tab.run("sim.click(\"a\", \"Weather\", { href: \"/\" });");
+    contains(&tab.text(), "Featured cities", "home again");
+    assert_eq!(
+        tab.run("done(document.title);"),
+        serde_json::json!("Weather")
+    );
+    let kept = tab.run("done(sim.find(\"header\").kept === true);");
+    assert_eq!(kept, serde_json::json!(true), "the layout stayed mounted");
+}
+
+#[test]
+fn weather_hydrates_an_unknown_city_into_its_failed_block() {
+    let (mut site, _fake) = weather_with_server_fake(false);
+    let since = site.requests.len();
+    let mut tab = Tab::open_answered(&mut site, "/city-weather/1", &serde_json::json!({}), 404);
+    tab.run(OPEN_METEO);
+    tab.assert_hydrated();
+    let text = tab.text();
+    contains(&text, "Place not found", "the failed block");
+    contains(
+        &text,
+        "There is no place with id 1.",
+        "the error's explanation",
+    );
+    lacks(&text, "Loading forecast", "the failed state, not loading");
+    let fetches = tab.run("done(sim.state().fetches.length);");
+    assert_eq!(
+        fetches,
+        serde_json::json!(0),
+        "hydration loaded nothing again"
+    );
+    assert_eq!(tab.site.count(since, "/city-weather/1"), 1);
+    assert_eq!(
+        tab.run("done(document.title);"),
+        serde_json::json!("Place not found")
+    );
 }

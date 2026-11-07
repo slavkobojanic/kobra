@@ -29,11 +29,13 @@ export {
   natives,
   param,
   parseCookies,
+  perTest,
   parseQuery,
   publicUrls,
   redirect,
   requestJson,
   requestText,
+  requestTimeZone,
   response,
   responseBody,
   responseHeaders,
@@ -42,6 +44,7 @@ export {
   sessionManager,
   shareState,
   splitTarget,
+  testClient,
   theme,
 } from "./app.js";
 

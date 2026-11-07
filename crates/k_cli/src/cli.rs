@@ -24,10 +24,12 @@ pub enum Command {
     Run(RunArgs),
     /// Run the development server: like `run`, rebuilding and restarting on change (no HMR).
     Dev(RunArgs),
-    /// Run the project's tests.
-    Test,
-    /// Print the route table.
-    Routes,
+    /// Run the project's tests; `--watch` re-runs the affected ones on every save.
+    Test(TestArgs),
+    /// Print the route table: pages, endpoint pages and redirects.
+    Routes(ProjectArgs),
+    /// Run the language server on standard input and output (for editors).
+    Lsp,
     /// Manage database migrations.
     Migrate {
         /// The migration subcommand.
@@ -42,15 +44,50 @@ pub enum Command {
 /// `k migrate` subcommands.
 #[derive(Debug, Subcommand)]
 pub enum MigrateCommand {
-    /// Generate a migration from the difference between entities and `schema.lock`.
-    New {
-        /// A short name for the migration, such as `add-user-email`.
-        name: String,
-    },
-    /// Apply pending migrations to the configured database.
-    Apply,
-    /// Show which migrations are applied and which are pending.
-    Status,
+    /// Write the next migration from the difference between the entities and `schema.lock`.
+    New(MigrateNewArgs),
+    /// Apply pending migrations to the development database (`DATABASE_URL`).
+    Apply(ProjectArgs),
+    /// Show which migrations the development database has applied and which are pending.
+    Status(ProjectArgs),
+}
+
+/// Arguments of commands that work on one project.
+#[derive(Debug, Args)]
+pub struct ProjectArgs {
+    /// The project directory (the one with `k.toml`).
+    #[arg(default_value = ".")]
+    pub project: PathBuf,
+}
+
+/// Arguments of `k migrate new`.
+#[derive(Debug, Args)]
+pub struct MigrateNewArgs {
+    /// What the migration does, such as "add note pinning".
+    pub description: String,
+    /// The project directory (the one with `k.toml`).
+    #[arg(long, default_value = ".")]
+    pub project: PathBuf,
+    /// Write an empty migration (for data changes) instead of the schema difference.
+    #[arg(long)]
+    pub empty: bool,
+}
+
+/// Arguments of `k test`.
+#[derive(Debug, Args)]
+pub struct TestArgs {
+    /// The project directory (the one with `k.toml`).
+    #[arg(default_value = ".")]
+    pub project: PathBuf,
+    /// Run only the tests whose full name (`Group › description`) contains this text; repeatable.
+    #[arg(long, short = 'f')]
+    pub filter: Vec<String>,
+    /// Keep running: re-run the affected tests whenever a file of the project changes.
+    #[arg(long)]
+    pub watch: bool,
+    /// When to use colors.
+    #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
+    pub color: ColorChoice,
 }
 
 /// How diagnostics are printed.

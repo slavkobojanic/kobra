@@ -1,0 +1,6 @@
+# Regressions of `k test` itself (docs/compiler/testing.md §8.4): each test
+# here pinned a bug in the test bundle, the kit or the in-process server
+# before it was fixed, and every one must pass.
+[package]
+name = "regressions"
+k = "0.1"

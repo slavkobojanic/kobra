@@ -91,7 +91,9 @@ A test is one browser talking to one server, in one process:
 
 - **Integration tests use the app's real services, repositories and in-process protocols; external I/O is always replaced** by the defaults above.
 - Every `k test` run uses a fresh in-memory SQLite database with every migration applied, data migrations included ([19-persistence.md](19-persistence.md#data-migrations)).
-- **Each test runs inside a transaction the app can't see,** rolled back afterwards. The app's outermost `database.transaction` becomes a savepoint inside it, and its commit releases the savepoint and fires the commit hooks. So `InlineJobQueue` runs jobs, and `Broadcast` publishes, exactly when they would in production ([19-persistence.md](19-persistence.md#database-and-transactions)).
+- **Each test sees only what it wrote itself.** The semantics are those of a transaction the app can't see, rolled back afterwards: the app's own `database.transaction` commits and fires its commit hooks, so `InlineJobQueue` runs jobs, and `Broadcast` publishes, exactly when they would in production ([19-persistence.md](19-persistence.md#database-and-transactions)). The v0 runner gets them by giving every test a fresh in-memory database with the migrations applied (and a fresh process state: sessions, rate-limit counts, `.server` state), which a test can't tell apart from the rollback and which keeps the app's real commits.
+- **A fake bound by a group's `use` rule lives where its target is used.** `use FakeStripeApi for HttpClient` with `@Inject let checkout: StripeCheckout` binds the fake in the server container, because server code (`StripeCheckout`, or a protocol implementation behind a browser service) injects `HttpClient`; the group's `@Inject let stripe: FakeStripeApi` is then that same instance. A rule whose target only the browser uses binds it there, and a rule both sides can hold (a fake `WeatherService` rendered in the browser and on the server through `TestClient`) applies to both, one instance per side. A fake bound on the server is one instance for the whole test, shared by every request the test makes.
+- **Rate limits count on the test's clock.** `RateLimit(5.perMinute)` counts a test's calls exactly, on the `TestClock`, so `clock.advance(by: 1.minute)` lets the next call through; production's counters stay in the database for its replicas.
 
 ## Rendering and querying
 
@@ -150,6 +152,24 @@ test StripeWebhook {
 - **The client keeps cookies across requests in a test,** like one browser, and shares the test's session.
 - `TestClient` renders view pages too, which is how a test checks what crawlers receive (`<title>`, the canonical link, structured data, the status set by `status(.notFound)`), since `render()` doesn't produce document metadata.
 
+## Running tests
+
+- **`k test` prints one `PASS` or `FAIL` line per test** (`Group › description`), then each failure as a
+  `K7510` diagnostic with the source of the failed `expect` and a note per operand value
+  (`` `cart.items.count` was 0 ``), then the counts. A test that fails outside an `expect` (a panic, an
+  uncaught error, a query action that matches nothing, a test that never finishes) is reported at its name.
+- **`--filter text`** (repeatable) runs the tests whose full name contains any of the texts. A filter that
+  matches nothing is an error, so a typo doesn't pass silently.
+- **Exit status:** 0 when every selected test passed; 1 when one failed, the project has errors (they are
+  printed and nothing runs) or a filter matched nothing; 2 for a directory that isn't a project.
+- **`render(View(…))` evaluates the view's props once, when the test renders.** The view under test is the
+  one the test asked for; bindings, slots and handlers stay live. A test that wants a view to follow changing
+  state renders a host component that holds the state.
+- **Ids are deterministic in tests:** `Uuid.random()` in the browser container counts up from
+  `00000000-0000-4000-8000-000000000001` in every test, so failures reproduce.
+- **`--watch` re-runs the tests of every test file that changed, or that refers, directly or through other
+  files, to a file that changed**, from the compiler's record of what each file's names resolve to.
+
 ## Why
 
 - A naming convention for test-only modules reuses "a directory is a module" and enforces the boundary at compile time, like the server/client split.
@@ -157,3 +177,5 @@ test StripeWebhook {
 - Hermetic defaults make the safe test the one that is written by default, following the config precedent: only the app's own choices need binding.
 - Routing in-process calls through the real wire format means a type that can't be encoded, or a validation rule, fails in the test rather than in production.
 - `settle()` with a virtual clock gives deterministic async tests with no arbitrary sleeps.
+- A fresh database per test is the rollback's semantics without its machinery: a test can't observe the difference, and the app's commit hooks run on real commits.
+- Placing a rule's fake where its target is used keeps one instance per test, so what a test configures and inspects is what the code under test used, whichever side that code runs on.

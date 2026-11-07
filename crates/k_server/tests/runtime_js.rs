@@ -9,6 +9,11 @@
 //!
 //! A test registered with `test.pending(name, reason, fn)` passes while it
 //! fails and fails once it passes, like a `.pending` corpus case.
+//!
+//! Every test runs twice: against the runtime as written, and as
+//! `<file>/<name> (compacted)` against the runtime after
+//! `k_runtime::compact`, which is what release builds ship, so a compaction
+//! that changes what the runtime means fails here.
 
 use std::fs;
 use std::path::PathBuf;
@@ -34,20 +39,21 @@ fn tests_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../k_runtime/js/tests")
 }
 
-fn engine(file: &str, source: &str) -> Result<Engine, String> {
+fn engine(file: &str, source: &str, compact_runtime: bool) -> Result<Engine, String> {
     Engine::new(EngineOptions {
         modules: vec![JsModule {
             specifier: format!("k:/tests/{file}"),
             source: source.to_owned(),
         }],
         timeout: Some(Duration::from_secs(10)),
+        compact_runtime,
         ..Default::default()
     })
     .map_err(|e| e.to_string())
 }
 
 fn list(file: &str, source: &str) -> Result<Vec<Listed>, String> {
-    let mut e = engine(file, source)?;
+    let mut e = engine(file, source, false)?;
     let code = format!(
         "import {{ list }} from \"k:testing\";\nimport \"k:/tests/{file}\";\nDeno.core.ops.op_k_set_result(list());\n"
     );
@@ -58,8 +64,8 @@ fn list(file: &str, source: &str) -> Result<Vec<Listed>, String> {
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
-fn run(file: &str, source: &str, test: &Listed) -> Result<(), String> {
-    let mut e = engine(file, source)?;
+fn run(file: &str, source: &str, test: &Listed, compact_runtime: bool) -> Result<(), String> {
+    let mut e = engine(file, source, compact_runtime)?;
     let name = serde_json::to_string(&test.name).map_err(|e| e.to_string())?;
     let code = format!(
         "import {{ run, installDom }} from \"k:testing\";\nimport \"k:/tests/{file}\";\ninstallDom();\nDeno.core.ops.op_k_set_result(await run({name}));\n"
@@ -114,12 +120,22 @@ fn main() {
                         }));
                         continue;
                     }
-                    let (file, source) = (file.clone(), source.clone());
-                    let ignored = t.pending.is_some();
-                    trials.push(
-                        Trial::test(name, move || run(&file, &source, &t).map_err(Failed::from))
-                            .with_kind(if ignored { "pending" } else { "" }),
-                    );
+                    let kind = if t.pending.is_some() { "pending" } else { "" };
+                    let t = std::sync::Arc::new(t);
+                    for compact in [false, true] {
+                        let (file, source, t) = (file.clone(), source.clone(), t.clone());
+                        let name = if compact {
+                            format!("{name} (compacted)")
+                        } else {
+                            name.clone()
+                        };
+                        trials.push(
+                            Trial::test(name, move || {
+                                run(&file, &source, &t, compact).map_err(Failed::from)
+                            })
+                            .with_kind(kind),
+                        );
+                    }
                 }
             }
             Err(e) => trials.push(Trial::test(format!("{file} (load)"), move || {

@@ -8,12 +8,18 @@
 //! package (test-only modules included), the prelude and fully qualified
 //! names. An unresolved link is K1901 (a warning) over the name inside the
 //! backticks. Fenced code blocks and plain backticks are never checked.
+//!
+//! A resolved link records a resolution for each segment that names
+//! something (``[`Shape.area`]``: `Shape` and `area`), so the reverse index,
+//! go-to-definition and rename see doc links like code references
+//! (sema.md §17).
 
 use k_diagnostics::{Diagnostic, TextRange, TextSize, codes};
 use k_syntax::{SyntaxKind, SyntaxNode};
 
 use crate::cx::{Cx, Found, param_list_labels};
-use crate::program::{DeclId, FileIx, MemberKind};
+use crate::lookup::Resolution;
+use crate::program::{DeclId, FileIx, MemberId, MemberKind};
 
 /// Checks every doc-comment link of `file`.
 pub(crate) fn check_file(cx: &Cx<'_, '_>, file: FileIx) {
@@ -29,16 +35,24 @@ pub(crate) fn check_file(cx: &Cx<'_, '_>, file: FileIx) {
         }
         let documented = documented_node(&info.root, end);
         for (start, stop, name) in links.drain(..) {
-            if !resolves(cx, file, documented.as_ref(), &name) {
-                let range = TextRange::new(size(start), size(stop));
-                cx.report(
-                    file,
-                    Diagnostic::new(
-                        codes::UNRESOLVED_DOC_LINK,
-                        cx.p.span(file, range),
-                        format!("the doc link `{name}` doesn't resolve"),
-                    ),
-                );
+            match resolve(cx, file, documented.as_ref(), &name) {
+                Some(segments) => {
+                    for (offset, len, resolution) in segments {
+                        let range = TextRange::at(size(start + offset), size(len));
+                        cx.record_resolution(file, range, resolution);
+                    }
+                }
+                None => {
+                    let range = TextRange::new(size(start), size(stop));
+                    cx.report(
+                        file,
+                        Diagnostic::new(
+                            codes::UNRESOLVED_DOC_LINK,
+                            cx.p.span(file, range),
+                            format!("the doc link `{name}` doesn't resolve"),
+                        ),
+                    );
+                }
             }
         }
     };
@@ -136,28 +150,55 @@ fn split_labels(name: &str) -> (&str, Option<Vec<String>>) {
     }
 }
 
-fn resolves(cx: &Cx<'_, '_>, file: FileIx, documented: Option<&SyntaxNode>, name: &str) -> bool {
+/// What one segment of a link resolves to: its byte offset in the link
+/// text, its length and the resolution recorded for it.
+type Segment = (usize, usize, Resolution);
+
+/// Resolves a link's text: `Some` with what each segment names (a
+/// qualifying prefix segment, a type and a member: ``[`k.http.HttpStatus`]``
+/// records the last segment, ``[`Shape.area`]`` both `Shape` and `area`),
+/// or `None` when the link doesn't resolve.
+fn resolve(
+    cx: &Cx<'_, '_>,
+    file: FileIx,
+    documented: Option<&SyntaxNode>,
+    name: &str,
+) -> Option<Vec<Segment>> {
     let (base, labels) = split_labels(name);
     let segments: Vec<&str> = base.split('.').collect();
     if segments.iter().any(|s| s.is_empty()) {
-        return false;
+        return None;
     }
+    // The byte offset of each segment in `name`.
+    let mut offsets = Vec::with_capacity(segments.len());
+    let mut at = 0usize;
+    for s in &segments {
+        offsets.push(at);
+        at += s.len() + 1;
+    }
+    let last = segments.len() - 1;
+    let seg = |i: usize, resolution: Resolution| (offsets[i], segments[i].len(), resolution);
     // Members and parameters of the documented declaration.
     if segments.len() == 1 {
         if let Some(node) = documented {
             if labels.is_none() {
                 if let Some(list) = node.children().find(|c| c.kind() == SyntaxKind::ParamList) {
-                    let mut idents = list
+                    let ident = list
                         .descendants_with_tokens()
-                        .filter_map(rowan::NodeOrToken::into_token);
-                    if idents.any(|t| t.kind() == SyntaxKind::Ident && t.text() == segments[0]) {
-                        return true;
+                        .filter_map(rowan::NodeOrToken::into_token)
+                        .find(|t| t.kind() == SyntaxKind::Ident && t.text() == segments[0]);
+                    if let Some(ident) = ident {
+                        let resolution = Resolution::Parameter {
+                            name: segments[0].to_owned(),
+                            definition: cx.p.span(file, ident.text_range()),
+                        };
+                        return Some(vec![seg(0, resolution)]);
                     }
                 }
             }
             for decl in context_decls(cx, file, node) {
-                if member_matches(cx, decl, segments[0], labels.as_deref()) {
-                    return true;
+                if let Some(m) = member_matches(cx, decl, segments[0], labels.as_deref()) {
+                    return Some(vec![seg(0, cx.member_resolution(m))]);
                 }
             }
         }
@@ -182,26 +223,44 @@ fn resolves(cx: &Cx<'_, '_>, file: FileIx, documented: Option<&SyntaxNode>, name
     for n in (1..=segments.len()).rev() {
         if let Some(d) = cx.p.lookup_qualified(&segments[..n].join(".")) {
             if n == segments.len() {
-                return labels.is_none() || function_matches(cx, d, labels.as_deref());
+                if labels.is_none() || function_matches(cx, d, labels.as_deref()) {
+                    return Some(vec![seg(last, cx.decl_resolution(d))]);
+                }
+                return None;
             }
-            if rest_resolves(cx, d, &segments[n..], labels.as_deref()) {
-                return true;
+            if let Some(m) = rest_resolves(cx, d, &segments[n..], labels.as_deref()) {
+                return Some(vec![
+                    seg(n - 1, cx.decl_resolution(d)),
+                    seg(last, cx.member_resolution(m)),
+                ]);
             }
         }
     }
-    candidates.iter().any(|&d| {
+    candidates.iter().find_map(|&d| {
         if segments.len() == 1 {
-            labels.is_none() || function_matches(cx, d, labels.as_deref())
+            (labels.is_none() || function_matches(cx, d, labels.as_deref()))
+                .then(|| vec![seg(0, cx.decl_resolution(d))])
         } else {
-            rest_resolves(cx, d, &segments[1..], labels.as_deref())
+            rest_resolves(cx, d, &segments[1..], labels.as_deref()).map(|m| {
+                vec![
+                    seg(0, cx.decl_resolution(d)),
+                    seg(last, cx.member_resolution(m)),
+                ]
+            })
         }
     })
 }
 
-fn rest_resolves(cx: &Cx<'_, '_>, decl: DeclId, rest: &[&str], labels: Option<&[String]>) -> bool {
+/// The member `rest` (one segment) names in `decl`.
+fn rest_resolves(
+    cx: &Cx<'_, '_>,
+    decl: DeclId,
+    rest: &[&str],
+    labels: Option<&[String]>,
+) -> Option<MemberId> {
     match rest {
         [member] => member_matches(cx, decl, member, labels),
-        _ => false,
+        _ => None,
     }
 }
 
@@ -224,17 +283,22 @@ fn context_decls(cx: &Cx<'_, '_>, file: FileIx, node: &SyntaxNode) -> Vec<DeclId
     out
 }
 
-fn member_matches(cx: &Cx<'_, '_>, decl: DeclId, name: &str, labels: Option<&[String]>) -> bool {
+/// The member of `decl` called `name` (with exactly `labels`, when given),
+/// theme tokens included.
+fn member_matches(
+    cx: &Cx<'_, '_>,
+    decl: DeclId,
+    name: &str,
+    labels: Option<&[String]>,
+) -> Option<MemberId> {
     let d = cx.p.decl(decl);
     match labels {
-        None => {
-            d.member_names.contains_key(name)
-                || cx
-                    .tokens
-                    .get(&decl)
-                    .is_some_and(|t| t.iter().any(|m| cx.p.member(*m).name == name))
-        }
-        Some(labels) => d.members.iter().any(|m| {
+        None => d.member_names.get(name).copied().or_else(|| {
+            cx.tokens
+                .get(&decl)
+                .and_then(|t| t.iter().copied().find(|m| cx.p.member(*m).name == name))
+        }),
+        Some(labels) => d.members.iter().copied().find(|m| {
             let member = cx.p.member(*m);
             member.name == name
                 && matches!(
@@ -249,6 +313,8 @@ fn member_matches(cx: &Cx<'_, '_>, decl: DeclId, name: &str, labels: Option<&[St
     }
 }
 
+/// Whether top-level function `decl` has exactly `labels` (always, when no
+/// labels are given).
 fn function_matches(cx: &Cx<'_, '_>, decl: DeclId, labels: Option<&[String]>) -> bool {
     let Some(labels) = labels else { return true };
     let d = cx.p.decl(decl);

@@ -48,6 +48,25 @@ pub(crate) fn static_value(b: &mut Body<'_, '_>, m: MemberId) -> Option<Expr> {
         ("k.core.Color", "white") => js::str("#FFFFFF"),
         ("k.core.Color", "black") => js::str("#000000"),
         ("k.core.Color", "transparent") => js::str("transparent"),
+        // A `TimeZone` is its IANA name (runtime.md §12).
+        ("k.time.TimeZone", "utc") => js::str("UTC"),
+        ("k.time.TimeZone", "local") if b.target == crate::cx::Target::Server => {
+            // The request's zone needs the render context, which only a
+            // view's body has; anywhere else the server uses UTC.
+            let in_view = b.owner.is_some_and(|d| {
+                matches!(
+                    b.g.view.decl(d).named_kind(),
+                    Some(
+                        DeclarationKind::Component
+                            | DeclarationKind::Page
+                            | DeclarationKind::Layout
+                    )
+                )
+            });
+            let ctx = if in_view { id("ctx") } else { Expr::Null };
+            call(member(id("$s"), "requestTimeZone"), vec![ctx])
+        }
+        ("k.time.TimeZone", "local") => rt("localTimeZone", vec![]),
         _ => return None,
     })
 }
@@ -150,6 +169,10 @@ pub(crate) fn property(
             };
             rt(f, vec![recv])
         }
+        ("k.time.TimeZone", "identifier" | "name") => recv,
+        // `Element.text` is a property and `text(_)` a query: in the kit
+        // the property is the method `$text()` (`crate::suite`).
+        ("k.test.Element", "text") => call(member(recv, "$text"), vec![]),
         ("k.core.String", "count") => rt("graphemeCount", vec![recv]),
         ("k.core.String", "isEmpty") => bin("===", len(recv), Expr::Num(0.0)),
         ("k.core.String", "isNotEmpty") => bin("!==", len(recv), Expr::Num(0.0)),
@@ -218,7 +241,24 @@ pub(crate) fn property(
             }
             None => recv,
         },
+        ("k.core.Endpoint", "url") => match b.g.view.lookup("k.core.Endpoint") {
+            Some(e) => {
+                let f = b.use_decl(e, "Endpoint$href".into());
+                call(f, vec![recv])
+            }
+            None => recv,
+        },
         ("k.core.Url", "host") => rt("urlHost", vec![recv]),
+        ("k.http.HttpResponse", "body") => http_native(b, "HttpResponse", "text", vec![recv]),
+        ("k.http.HttpResponse", "bodyBytes") => {
+            http_native(b, "HttpResponse", "bodyBytes", vec![recv])
+        }
+        ("k.http.HttpResponse", "isSuccess") => {
+            http_native(b, "HttpResponse", "isSuccess", vec![recv])
+        }
+        ("k.http.HttpResponse", "headers") => {
+            http_native(b, "HttpResponse", "headerView", vec![recv])
+        }
         ("k.http.HttpStatus", "code") => rt("httpCode", vec![recv]),
         ("k.http.HttpStatus", "isSuccess") => {
             let c = rt("httpCode", vec![recv]);
@@ -245,6 +285,24 @@ pub(crate) fn property(
 
 /// Wraps a function argument so JS callbacks receive only the element
 /// (`map` passes the index and array too).
+/// A call of the `k.http` native `Owner$member` (`k:runtime/http`): an
+/// import like any `@Native` member's, from the browser's `http` chunk or
+/// the server's `$s.natives`.
+pub(crate) fn http_native(
+    b: &mut Body<'_, '_>,
+    owner: &str,
+    member: &str,
+    args: Vec<Expr>,
+) -> Expr {
+    match b.g.view.lookup(&format!("k.http.{owner}")) {
+        Some(d) => {
+            let f = b.use_decl(d, format!("{owner}${member}"));
+            call(f, args)
+        }
+        None => Expr::Null,
+    }
+}
+
 fn unary_fn(f: Expr) -> Expr {
     match f {
         Expr::Arrow(_) => f,
@@ -464,18 +522,22 @@ pub(crate) fn method(
             member(rt("rangeValues", vec![recv]), "map"),
             vec![unary_fn(f0())],
         ),
-        ("k.http.HttpResponse", "body") if b.target == crate::cx::Target::Server => {
-            call(member(id("$s"), "responseBody"), vec![recv, f0()])
+        // A built response and a received one read alike, on both sides
+        // (`std.js`, "HttpResponse").
+        ("k.http.HttpResponse", "body") => http_native(b, "HttpResponse", "body", vec![recv, f0()]),
+        ("k.http.HttpResponse", "headers") => {
+            http_native(b, "HttpResponse", "headers", vec![recv, f0()])
         }
-        ("k.http.HttpResponse", "headers") if b.target == crate::cx::Target::Server => {
-            call(member(id("$s"), "responseHeaders"), vec![recv, f0()])
+        ("k.http.HttpResponse", "json") => {
+            let codec = crate::codec::codec_expr(b, result);
+            let err = match b.g.view.lookup("k.http.HttpError") {
+                Some(e) => b.decl_ref(e),
+                None => Expr::Null,
+            };
+            http_native(b, "HttpResponse", "json", vec![recv, codec, err])
         }
-        ("k.http.HttpHeaders", "get") if b.target == crate::cx::Target::Server => {
-            call(member(id("$s"), "header"), vec![recv, f0()])
-        }
-        ("k.http.HttpHeaders", "all") if b.target == crate::cx::Target::Server => {
-            call(member(id("$s"), "headerAll"), vec![recv, f0()])
-        }
+        ("k.http.HttpHeaders", "get") => http_native(b, "HttpHeaders", "get", vec![recv, f0()]),
+        ("k.http.HttpHeaders", "all") => http_native(b, "HttpHeaders", "all", vec![recv, f0()]),
         ("k.http.IncomingRequest", "text") => call(member(id("$s"), "requestText"), vec![recv]),
         ("k.http.IncomingRequest", "json") => {
             let codec = crate::codec::codec_expr(b, result);
@@ -674,15 +736,17 @@ pub(crate) fn construct(
                 .map(|o| b.g.view.qualified_name(o))
                 .unwrap_or_default();
             let at = u32::from(ast::AstNode::syntax(c).text_range().start());
+            // Values cross worker isolates in their codec's encoding, so a
+            // subscriber gets them back with their types.
+            let element = result.args().get(1).cloned().unwrap_or(Type::Error);
+            let codec = crate::codec::codec_expr(b, &element);
             Expr::New(
                 Box::new(member(id("$s"), "ServerBroadcast")),
-                vec![js::str(format!("{owner}@{at}"))],
+                vec![js::str(format!("{owner}@{at}")), codec],
             )
         }
         "k.rpc.Broadcast" => Expr::New(Box::new(member(id("$k"), "Broadcast")), vec![]),
-        "k.http.HttpResponse" if b.target == crate::cx::Target::Server => {
-            call(member(id("$s"), "response"), vec![a0])
-        }
+        "k.http.HttpResponse" => http_native(b, "HttpResponse", "init", vec![a0]),
         "k.core.Secret" => Expr::New(Box::new(member(id("$k"), "Secret")), vec![a0]),
         _ => return None,
     })
@@ -715,6 +779,7 @@ pub(crate) fn static_call(
         ("k.core.Double", "parse") => rt("doubleParse", vec![a0]),
         ("k.core.Decimal", "parse") => rt("parseDecimal", vec![a0]),
         ("k.core.Date", "parse") => rt("parseInstant", vec![a0]),
+        ("k.time.TimeZone", "parse") => rt("parseTimeZone", vec![a0]),
         ("k.core.Url", "parse") => rt("parseUrl", vec![a0]),
         ("k.crypto.Uuid", "parse") => rt("parseUuid", vec![a0]),
         ("k.text.EmailAddress", "parse") => rt("parseEmail", vec![a0]),
@@ -785,7 +850,7 @@ pub(crate) fn decoding_error(b: &mut Body<'_, '_>) -> Expr {
 }
 
 /// `true` for stdlib declarations whose code the generator emits like
-/// project code (non-native enums).
+/// project code (non-native enums and structs).
 pub(crate) fn emits_stdlib_decl(g: &crate::cx::Gen<'_>, d: DeclId) -> bool {
     let info = g.view.decl(d);
     crate::app::is_generated_enum(g, d)

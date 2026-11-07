@@ -262,20 +262,36 @@ export class Element extends Node {
     return this.attributes.get("id") ?? "";
   }
 
+  /** `style` reads the inline style, as in browsers. */
   getAttribute(name) {
+    if (name === "style") return this.style.properties.size > 0 ? this.style.cssText : null;
     return this.attributes.get(name) ?? null;
   }
 
+  /**
+   * `style` replaces the inline style with the declarations of `value`
+   * (`a: b; c: d`), as in browsers, so a server's `style` attribute and a
+   * binding's `style.setProperty` are one style.
+   */
   setAttribute(name, value) {
+    if (name === "style") {
+      this.style.properties.clear();
+      for (const decl of String(value).split(";")) {
+        const colon = decl.indexOf(":");
+        if (colon > 0) this.style.setProperty(decl.slice(0, colon).trim(), decl.slice(colon + 1).trim());
+      }
+      return;
+    }
     this.attributes.set(name, String(value));
   }
 
   removeAttribute(name) {
+    if (name === "style") this.style.properties.clear();
     this.attributes.delete(name);
   }
 
   hasAttribute(name) {
-    return this.attributes.has(name);
+    return name === "style" ? this.style.properties.size > 0 : this.attributes.has(name);
   }
 
   addEventListener(type, listener) {

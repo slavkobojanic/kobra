@@ -14,6 +14,9 @@
 #   db       crates/k_db/tests/perf_budget.rs       query rendering, driver overhead
 #   app      crates/k_cli/tests/perf_budget.rs      dist/app: cold start, SSR and rpc
 #                                                   over HTTP, shipped asset sizes
+#   lsp      crates/k_lsp/tests/perf_budget.rs      language server: hover, definition,
+#                                                   references, completion, diagnostics
+#                                                   after a keystroke
 #
 # The semantic memory check runs in a process of its own, so no other
 # test's freed memory is counted. Every check runs even when an earlier one
@@ -27,7 +30,7 @@
 #   scripts/bench-check.sh --criterion      # also run the criterion benchmarks
 #   scripts/bench-check.sh --syntax --sema  # only the named areas (any of
 #                                           # --syntax --sema --codegen --runtime
-#                                           # --server --db --app)
+#                                           # --server --db --app --lsp)
 #
 # Environment:
 #   K_BUDGET_SCALE=0.5   enforce half the throughput budget (slower machines);
@@ -45,17 +48,17 @@ criterion=0
 for arg in "$@"; do
     case "$arg" in
         --criterion) criterion=1 ;;
-        --syntax | --sema | --codegen | --runtime | --server | --db | --app)
+        --syntax | --sema | --codegen | --runtime | --server | --db | --app | --lsp)
             areas="$areas ${arg#--}"
             ;;
         *)
-            echo "usage: $0 [--criterion] [--syntax] [--sema] [--codegen] [--runtime] [--server] [--db] [--app]" >&2
+            echo "usage: $0 [--criterion] [--syntax] [--sema] [--codegen] [--runtime] [--server] [--db] [--app] [--lsp]" >&2
             exit 2
             ;;
     esac
 done
 if [ -z "$areas" ]; then
-    areas="syntax sema codegen runtime server db app"
+    areas="syntax sema codegen runtime server db app lsp"
 fi
 
 selected() {
@@ -96,6 +99,9 @@ if selected db; then
 fi
 if selected app; then
     budget k_cli perf_budget || status=1
+fi
+if selected lsp; then
+    budget k_lsp perf_budget || status=1
 fi
 
 if [ "$criterion" = 1 ]; then

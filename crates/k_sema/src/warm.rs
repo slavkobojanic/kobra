@@ -92,6 +92,11 @@ impl<V> Chunked<V> {
         }
     }
 
+    /// The chunks, in the order they were pushed.
+    pub(crate) fn chunks(&self) -> &[Arc<RangeMap<V>>] {
+        &self.chunks
+    }
+
     /// The value at `key`, if any chunk has one.
     pub(crate) fn get(&self, key: &(FileId, TextRange)) -> Option<&V> {
         let index = self.by_file.get_or_init(|| self.index());
@@ -99,6 +104,19 @@ impl<V> Chunked<V> {
             .get(&key.0)?
             .iter()
             .find_map(|&i| self.chunks.get(i as usize)?.get(key))
+    }
+
+    /// Every value whose key is in `file`, in no particular order.
+    pub(crate) fn values_in(&self, file: FileId) -> Vec<&V> {
+        let index = self.by_file.get_or_init(|| self.index());
+        let Some(chunks) = index.get(&file) else {
+            return Vec::new();
+        };
+        chunks
+            .iter()
+            .filter_map(|&i| self.chunks.get(i as usize))
+            .flat_map(|c| c.iter().filter(|((f, _), _)| *f == file).map(|(_, v)| v))
+            .collect()
     }
 
     /// Builds the per-file chunk index.

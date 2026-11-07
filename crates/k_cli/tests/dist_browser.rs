@@ -72,8 +72,6 @@ struct Site {
     requests: Vec<(String, String)>,
     /// The response bodies, by request: `(path, body)`.
     responses: Vec<(String, String)>,
-    /// Server-streaming rpcs, which stay in flight (runtime.md §1).
-    held: Vec<String>,
 }
 
 fn collect_assets(dir: &Path, root: &Path, out: &mut Vec<JsModule>) {
@@ -162,7 +160,6 @@ impl Site {
             entry,
             requests: Vec::new(),
             responses: Vec::new(),
-            held: Vec::new(),
         }
     }
 
@@ -172,10 +169,39 @@ impl Site {
         &mut self,
         method: &str,
         path: &str,
-        mut headers: Vec<(String, String)>,
+        headers: Vec<(String, String)>,
         body: &str,
     ) -> HttpResponse {
         self.requests.push((method.to_owned(), path.to_owned()));
+        let headers = self.browser_headers(headers);
+        let r = send(self.addr, method, path, &headers, body.as_bytes())
+            .unwrap_or_else(|e| panic!("{} {method} {path}: {e}", self.name));
+        self.keep_cookies(&r.headers);
+        self.responses.push((
+            path.to_owned(),
+            String::from_utf8_lossy(&r.body).into_owned(),
+        ));
+        r
+    }
+
+    /// Opens a server-streaming rpc as the tab would, returning once the
+    /// response head has arrived.
+    fn open_stream(
+        &mut self,
+        path: &str,
+        headers: Vec<(String, String)>,
+        body: &[u8],
+    ) -> k_server::testing::StreamingResponse {
+        self.requests.push(("POST".to_owned(), path.to_owned()));
+        let headers = self.browser_headers(headers);
+        let r = k_server::testing::open_stream(self.addr, "POST", path, &headers, body)
+            .unwrap_or_else(|e| panic!("{} POST {path}: {e}", self.name));
+        self.keep_cookies(&r.headers);
+        r
+    }
+
+    /// `headers` with the jar's cookies and the tab's origin.
+    fn browser_headers(&self, mut headers: Vec<(String, String)>) -> Vec<(String, String)> {
         if !self.cookies.is_empty() {
             let text: Vec<String> = self
                 .cookies
@@ -187,9 +213,12 @@ impl Site {
         }
         headers.push(("origin".into(), "http://localhost".into()));
         headers.push(("sec-fetch-site".into(), "same-origin".into()));
-        let r = send(self.addr, method, path, &headers, body.as_bytes())
-            .unwrap_or_else(|e| panic!("{} {method} {path}: {e}", self.name));
-        for (n, v) in &r.headers {
+        headers
+    }
+
+    /// Keeps the cookies a response sets, dropping the ones it expires.
+    fn keep_cookies(&mut self, headers: &[(String, String)]) {
+        for (n, v) in headers {
             if n != "set-cookie" {
                 continue;
             }
@@ -203,11 +232,6 @@ impl Site {
                 self.cookies.push((name, value.trim().to_owned()));
             }
         }
-        self.responses.push((
-            path.to_owned(),
-            String::from_utf8_lossy(&r.body).into_owned(),
-        ));
-        r
     }
 
     fn rpc(&mut self, path: &str, body: &str) -> HttpResponse {
@@ -282,6 +306,8 @@ impl Drop for Site {
 struct Tab<'a> {
     site: &'a mut Site,
     engine: Engine,
+    /// The tab's open server streams, by its request id.
+    streams: Vec<(serde_json::Value, k_server::testing::StreamingResponse)>,
 }
 
 impl<'a> Tab<'a> {
@@ -302,7 +328,11 @@ impl<'a> Tab<'a> {
             ..Default::default()
         })
         .expect("engine");
-        let mut tab = Tab { site, engine };
+        let mut tab = Tab {
+            site,
+            engine,
+            streams: Vec::new(),
+        };
         let cookies: BTreeMap<&str, &str> = tab
             .site
             .cookies
@@ -361,8 +391,12 @@ impl<'a> Tab<'a> {
             .join("\n")
     }
 
-    /// Forwards the tab's same-origin requests to `dist/app` until it
-    /// sends no more.
+    /// Forwards the tab's queued requests, and the body pieces its open
+    /// server streams have received, until nothing more happens. A
+    /// streaming rpc (`application/connect+json`) is opened with
+    /// `open_stream` and stays open; its first piece is awaited, so a
+    /// stream's opening message is in the page when this returns. Streams
+    /// the client stopped reading are closed.
     fn settle(&mut self) {
         for _ in 0..64 {
             let out = self
@@ -372,15 +406,14 @@ impl<'a> Tab<'a> {
                 )
                 .unwrap_or_else(|e| panic!("{}: {e}", self.site.name))
                 .unwrap_or_default();
-            let queued: Vec<serde_json::Value> = serde_json::from_str(&out).expect("json");
+            let drained: serde_json::Value = serde_json::from_str(&out).expect("json");
+            for id in drained["closed"].as_array().into_iter().flatten() {
+                self.streams.retain(|(open, _)| open != id);
+            }
             let mut responses = Vec::new();
-            for q in queued {
-                let method = q["method"].as_str().unwrap_or("GET").to_owned();
-                let path = q["path"].as_str().unwrap_or("/").to_owned();
-                if self.site.held.contains(&path) {
-                    self.site.requests.push((method, path));
-                    continue;
-                }
+            let mut opened = Vec::new();
+            for q in drained["requests"].as_array().into_iter().flatten() {
+                let path = q["path"].as_str().unwrap_or("/");
                 let headers: Vec<(String, String)> = q["headers"]
                     .as_object()
                     .map(|m| {
@@ -389,9 +422,46 @@ impl<'a> Tab<'a> {
                             .collect()
                     })
                     .unwrap_or_default();
-                let r = self
-                    .site
-                    .send(&method, &path, headers, q["body"].as_str().unwrap_or(""));
+                let streaming = headers
+                    .iter()
+                    .any(|(k, v)| k == "content-type" && v == "application/connect+json");
+                if streaming {
+                    let bytes: Vec<u8> = q["bytes"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|b| b.as_u64().and_then(|b| u8::try_from(b).ok()))
+                        .collect();
+                    let s = self.site.open_stream(path, headers, &bytes);
+                    let head: BTreeMap<String, String> = s.headers.iter().cloned().collect();
+                    if s.status == 200 {
+                        responses.push(serde_json::json!({
+                            "id": q["id"], "status": 200, "headers": head, "body": "", "stream": true,
+                        }));
+                        opened.push(q["id"].clone());
+                        self.streams.push((q["id"].clone(), s));
+                    } else {
+                        // Refused before streaming: a unary Connect error.
+                        let mut body = Vec::new();
+                        while let Some(k_server::testing::StreamChunk::Data(d)) =
+                            s.next_chunk(Duration::from_secs(5))
+                        {
+                            body.extend(d);
+                        }
+                        let body = String::from_utf8_lossy(&body).into_owned();
+                        self.site.responses.push((path.to_owned(), body.clone()));
+                        responses.push(serde_json::json!({
+                            "id": q["id"], "status": s.status, "headers": head, "body": body,
+                        }));
+                    }
+                    continue;
+                }
+                let r = self.site.send(
+                    q["method"].as_str().unwrap_or("GET"),
+                    path,
+                    headers,
+                    q["body"].as_str().unwrap_or(""),
+                );
                 let headers: BTreeMap<String, String> = r.headers.iter().cloned().collect();
                 responses.push(serde_json::json!({
                     "id": q["id"],
@@ -400,17 +470,79 @@ impl<'a> Tab<'a> {
                     "body": String::from_utf8_lossy(&r.body),
                 }));
             }
-            if responses.is_empty() {
+            if !responses.is_empty() {
+                let deliver = serde_json::to_string(&responses).expect("json");
+                self.engine
+                    .run_main(&format!(
+                        "import * as sim from \"k:/test/sim.js\";\nsim.deliver({deliver});"
+                    ))
+                    .unwrap_or_else(|e| panic!("{}: {e}", self.site.name));
+            }
+            let chunks = self.stream_chunks(&opened);
+            if responses.is_empty() && chunks.is_empty() {
                 return;
             }
-            let deliver = serde_json::to_string(&responses).expect("json");
-            self.engine
-                .run_main(&format!(
-                    "import * as sim from \"k:/test/sim.js\";\nsim.deliver({deliver});"
-                ))
-                .unwrap_or_else(|e| panic!("{}: {e}", self.site.name));
+            if !chunks.is_empty() {
+                let deliver = serde_json::to_string(&chunks).expect("json");
+                self.engine
+                    .run_main(&format!(
+                        "import * as sim from \"k:/test/sim.js\";\nsim.deliverChunks({deliver});"
+                    ))
+                    .unwrap_or_else(|e| panic!("{}: {e}", self.site.name));
+            }
         }
         panic!("{}: the tab never stopped sending requests", self.site.name);
+    }
+
+    /// The body pieces the open streams have received, as
+    /// `sim.deliverChunks` takes them; a stream in `opened` (just opened)
+    /// is given up to five seconds for its first piece. Ended streams are
+    /// dropped.
+    fn stream_chunks(&mut self, opened: &[serde_json::Value]) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        let mut ended = Vec::new();
+        for (id, s) in &self.streams {
+            let mut wait = if opened.contains(id) {
+                Duration::from_secs(5)
+            } else {
+                Duration::ZERO
+            };
+            while let Some(c) = s.next_chunk(wait) {
+                wait = Duration::ZERO;
+                match c {
+                    k_server::testing::StreamChunk::Data(d) => {
+                        out.push(serde_json::json!({ "id": id, "bytes": d }));
+                    }
+                    k_server::testing::StreamChunk::End => {
+                        out.push(serde_json::json!({ "id": id, "end": true }));
+                        ended.push(id.clone());
+                        break;
+                    }
+                }
+            }
+        }
+        self.streams.retain(|(id, _)| !ended.contains(id));
+        out
+    }
+
+    /// Settles the tab until `check` accepts its text, for changes that
+    /// reach it from the server on their own (a stream's element); fails
+    /// after five seconds.
+    fn wait_for_text(&mut self, what: &str, check: impl Fn(&str) -> bool) -> String {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let text = self.text();
+            if check(&text) {
+                return text;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{}: {what}: {text}",
+                self.site.name
+            );
+            std::thread::sleep(Duration::from_millis(20));
+            self.settle();
+        }
     }
 
     /// Asserts that hydration kept every server node and the markup.
@@ -548,7 +680,6 @@ fn notes_dist_app_signs_in_creates_and_edits_a_note_in_the_browser() {
     let dir = TempDir::new("notes");
     let url = format!("sqlite:{}", dir.0.join("app.db").display());
     let mut site = Site::start("notes", &dir.0, &[("DATABASE_URL", url.as_str())]);
-    site.held.push("/notes.NotesProtocol/Watch".into());
     let signed_up = site.rpc(
         "/notes.accounts.AuthProtocol/SignUp",
         r#"{"request": {"email": "ada@example.com", "password": "correct horse", "confirmPassword": "correct horse"}}"#,
@@ -583,6 +714,22 @@ fn notes_dist_app_signs_in_creates_and_edits_a_note_in_the_browser() {
     ));
     let created = tab.site.last_json("/notes.NotesProtocol/Create");
     let id = created["id"].as_str().expect("an id").to_owned();
+    // Back on the notes page, its `watch()` stream delivers a note saved
+    // on another device.
+    contains(&tab.text(), "Groceries", "the notes page");
+    let laundry = tab.site.rpc(
+        "/notes.NotesProtocol/Create",
+        r#"{"draft": {"title": "Laundry", "body": "Whites first", "tags": ""}}"#,
+    );
+    assert_eq!(
+        laundry.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&laundry.body)
+    );
+    tab.wait_for_text("the stream delivers a note saved elsewhere", |t| {
+        t.contains("Laundry")
+    });
     drop(tab);
     let since = site.requests.len();
     let path = format!("/edit-note/{id}");
@@ -679,5 +826,183 @@ fn shop_dist_app_hydrates_the_storefront_and_validates_the_order_form_in_the_bro
         for name in ["StripeCheckout", "LocalCheckout", "StoreApi", "AdminApi"] {
             lacks(s, name, "a client file or response");
         }
+    }
+}
+
+/// The rows of `sql` on the database at `url`, each a list of values as
+/// JSON.
+fn query(url: &str, sql: &str) -> Vec<Vec<serde_json::Value>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    runtime.block_on(async {
+        let db = k_db::Database::connect(url, &k_db::DatabaseOptions::default())
+            .await
+            .expect("connects");
+        db.query(sql, &[])
+            .await
+            .expect("queries")
+            .into_iter()
+            .map(|r| {
+                r.values
+                    .into_iter()
+                    .map(k_server::db::value_to_json)
+                    .collect()
+            })
+            .collect()
+    })
+}
+
+#[test]
+fn shop_dist_app_places_an_order_against_a_fake_stripe() {
+    let dir = TempDir::new("shop-order");
+    let url = format!("sqlite:{}", dir.0.join("app.db").display());
+    place_an_order_against_a_fake_stripe(&dir, &url);
+}
+
+/// The environment variable that runs the shop on Postgres: a
+/// `postgres://` URL of a server where the test may create a database
+/// (`examples/shop/docker-compose.test.yml` starts one).
+const POSTGRES_ENV: &str = "DATABASE_URL";
+
+#[test]
+fn shop_dist_app_places_an_order_on_postgres_when_a_postgres_url_is_given() {
+    // Skipped unless `DATABASE_URL` names a Postgres server; then the run
+    // asked for Postgres, and an unreachable one fails the test.
+    let Some(server) = std::env::var(POSTGRES_ENV)
+        .ok()
+        .filter(|u| u.starts_with("postgres://") || u.starts_with("postgresql://"))
+    else {
+        eprintln!("skipped: set {POSTGRES_ENV}=postgres://… to run the shop on Postgres");
+        return;
+    };
+    let name = format!(
+        "k_shop_test_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis())
+    );
+    execute(&server, &format!("CREATE DATABASE {name}"));
+    let url = with_database(&server, &name);
+    let dir = TempDir::new("shop-postgres");
+    let outcome = std::panic::catch_unwind(|| place_an_order_against_a_fake_stripe(&dir, &url));
+    execute(
+        &server,
+        &format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"),
+    );
+    if let Err(e) = outcome {
+        std::panic::resume_unwind(e);
+    }
+}
+
+/// `url` (a `postgres://` URL) naming database `name` instead of its own.
+fn with_database(url: &str, name: &str) -> String {
+    let (base, query) = url
+        .split_once('?')
+        .map_or((url, None), |(b, q)| (b, Some(q)));
+    let scheme_end = base.find("://").map_or(0, |i| i + 3);
+    let path = base[scheme_end..]
+        .find('/')
+        .map_or(base.len(), |i| scheme_end + i);
+    let mut out = format!("{}/{name}", &base[..path]);
+    if let Some(q) = query {
+        out.push('?');
+        out.push_str(q);
+    }
+    out
+}
+
+/// Builds and starts the shop on the database at `url`, loads the demo
+/// catalog and places an order through the browser against a fake Stripe at
+/// `STRIPE_API_URL`: the production build's `StripeCheckout` creates the
+/// checkout session there with the secret key, and the browser goes to
+/// Stripe; the order then waits for payment with its stock reserved.
+fn place_an_order_against_a_fake_stripe(dir: &TempDir, url: &str) {
+    let stripe = k_server::fakes::FakeHttp::start(vec![k_server::fakes::FakeRoute::json(
+        "POST",
+        "/v1/checkout/sessions",
+        &serde_json::json!({
+            "id": "cs_test_e2e",
+            "url": "https://checkout.stripe.test/c/pay/cs_test_e2e"
+        }),
+    )])
+    .expect("the fake Stripe starts");
+    let origin = stripe.origin();
+    let mut site = Site::start(
+        "shop",
+        &dir.0,
+        &[
+            ("DATABASE_URL", url),
+            ("SHOP_ADMIN_EMAIL", "admin@example.com"),
+            ("SHOP_ADMIN_PASSWORD_HASH", "placeholder_ADMIN_HASH_SECRET"),
+            ("STRIPE_API_KEY", "sk_test_e2e_STRIPE_SECRET"),
+            ("STRIPE_API_URL", origin.as_str()),
+            ("STRIPE_WEBHOOK_SECRET", "whsec_placeholder_WEBHOOK_SECRET"),
+            ("SMTP_HOST", "localhost"),
+            ("MAIL_FROM", "K Shop <orders@shop.example>"),
+        ],
+    );
+    let catalog = std::fs::read_to_string(repo().join("examples/shop/scripts/demo-catalog.sql"))
+        .expect("the demo catalog");
+    execute(url, &catalog);
+    let stock =
+        |url: &str| query(url, "SELECT stock FROM product WHERE slug = 'k-mug'")[0][0].clone();
+    let before = stock(url);
+    let mut tab = Tab::open(&mut site, "/products/k-mug", &serde_json::json!({}));
+    tab.assert_hydrated();
+    let since = tab.site.requests.len();
+    tab.run(&format!(
+        "{}{}sim.submit(sim.find(\"form\"));",
+        fill("Quantity", "2"),
+        fill("Email for your receipt", "ana@example.com")
+    ));
+    tab.settle();
+    assert_eq!(
+        tab.site
+            .count(since, "/shop.store.StoreProtocol/PlaceOrder"),
+        1,
+        "{:?}",
+        tab.site.requests
+    );
+    // The browser went to the checkout page Stripe answered with.
+    let loads = tab.run("done(sim.state().loads);");
+    assert_eq!(
+        loads,
+        serde_json::json!(["https://checkout.stripe.test/c/pay/cs_test_e2e"]),
+        "{}",
+        tab.log()
+    );
+    drop(tab);
+    // Stripe received one session, authenticated with the secret key, for
+    // two mugs; the key never reached the browser.
+    let sent = stripe.requests();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].method, "POST");
+    assert_eq!(
+        sent[0].headers.get("authorization").map(String::as_str),
+        Some("Bearer sk_test_e2e_STRIPE_SECRET")
+    );
+    assert_eq!(
+        sent[0].form_field("line_items[0][quantity]").as_deref(),
+        Some("2")
+    );
+    assert_eq!(
+        sent[0].form_field("customer_email").as_deref(),
+        Some("ana@example.com")
+    );
+    // The order waits for payment, with its stock reserved.
+    let orders = query(url, "SELECT status, quantity, email FROM \"order\"");
+    assert_eq!(orders.len(), 1, "{orders:?}");
+    assert_eq!(orders[0][1], serde_json::json!(2));
+    assert_eq!(orders[0][2], serde_json::json!("ana@example.com"));
+    assert_eq!(
+        stock(url).as_i64().zip(before.as_i64()).map(|(a, b)| b - a),
+        Some(2),
+        "two mugs are reserved"
+    );
+    for (_, body) in &site.responses {
+        lacks(body, "STRIPE_SECRET", "a served response");
     }
 }

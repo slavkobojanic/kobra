@@ -16,7 +16,7 @@
 //! | `op_k_utf8_valid` | `(bytes: Uint8Array) => boolean` | `TextDecoder` with `fatal: true` (rpc bodies, `request.text()`) |
 //! | `op_k_session_get` / `_create` / `_delete` / `_end_all` | the session store, async (`k_session` with a database) | `Session`, `SessionManager` |
 //! | `op_k_session_issue_state` / `_consume_state` | `(id) => Promise<state \| null>`, `(id, state) => Promise<boolean>` | OAuth state |
-//! | `op_k_rate_limit` | `(key, limit, windowMs) => Promise<retryAfterSeconds>` (0: allowed) | `RateLimit` |
+//! | `op_k_rate_limit` | `(key, limit, windowMs, nowMs) => Promise<retryAfterSeconds>` (0: allowed; `nowMs` a test's virtual time, else negative) | `RateLimit` |
 //! | `op_k_shared_get` / `op_k_shared_set` | `(key) => json \| null`, `(key, json)` | `@Scope(.server)` state |
 //! | `op_k_broadcast_subscribe` / `_publish` / `_next` / `_close` | keyed broadcasts | `Broadcast` |
 //! | `op_k_db_query` | `(statement, params, tx) => Promise<row[]>`, a row a value list in select order | repositories |
@@ -29,6 +29,8 @@
 //! | `op_k_fetch` | `(id, {method, url, headers, timeoutMs}, body, hasBody) => Promise<outcome>` | `FetchHttpClient` |
 //! | `op_k_fetch_abort` | `(id) => void` | a cancelled `FetchHttpClient` call |
 //! | `op_k_smtp_send` | `(settings, message) => Promise<outcome>` | `SmtpEmailProvider` |
+//! | `op_k_test_reset` | `() => void` | `k test`: a fresh process (and database) per test |
+//! | `op_k_test_tick` | `() => Promise<void>` | `k test`: one event-loop turn between idle rounds |
 //!
 //! The process-wide ops read and write the [`ProcessState`] every worker
 //! of a server shares; an engine outside a server (tests, the execution
@@ -173,6 +175,11 @@ pub struct EngineState {
     pub process: Arc<ProcessState>,
     /// The abort handles of `op_k_fetch` requests in flight, by id.
     pub fetches: HashMap<u32, Rc<tokio::sync::Notify>>,
+    /// The database half of a test build (`k test`): `op_k_test_reset`
+    /// opens a fresh in-memory SQLite database with its migrations for
+    /// every test. `None` outside tests, or for a build without
+    /// persistence.
+    pub test_database: Option<k_db::manifest::DbManifest>,
 }
 
 impl EngineState {
@@ -185,6 +192,7 @@ impl EngineState {
             requests: None,
             process: Arc::new(ProcessState::default()),
             fetches: HashMap::new(),
+            test_database: None,
         }
     }
 }
@@ -214,6 +222,43 @@ fn op_k_log(state: &mut OpState, #[string] level: &str, #[string] message: &str)
 #[op2(fast)]
 fn op_k_set_result(state: &mut OpState, #[string] text: &str) {
     shared(state).borrow_mut().result = Some(text.to_owned());
+}
+
+/// Starts a test of `k test` (docs/design/21-testing.md): replaces the
+/// process state with a fresh one (no sessions, rate-limit counts, shared
+/// service state or subscribers) and, for a build with persistence
+/// ([`EngineState::test_database`]), a fresh in-memory SQLite database
+/// with every migration applied. Each test therefore sees only what it
+/// wrote itself, and commits behave exactly as in production.
+///
+/// # Errors
+///
+/// The database couldn't be opened or a migration failed; the message
+/// names the cause (never a URL or password: the database is in memory).
+#[op2(fast)]
+fn op_k_test_reset(state: &mut OpState) -> Result<(), JsErrorBox> {
+    let s = shared(state);
+    let manifest = s.borrow().test_database.clone();
+    let mut process = ProcessState::default();
+    if let Some(manifest) = manifest {
+        let (db, _) = crate::db::ProcessDatabase::open(crate::db::DatabaseSetup {
+            url: "sqlite::memory:".to_owned(),
+            password: None,
+            manifest,
+        })
+        .map_err(|e| JsErrorBox::generic(format!("the test database couldn't be opened: {e}")))?;
+        process = process.with_database(db);
+    }
+    s.borrow_mut().process = Arc::new(process);
+    Ok(())
+}
+
+/// Yields to the event loop once, so the ops that have completed deliver
+/// their results: the test kit's idle rounds use it, since a run of
+/// microtasks alone never lets an op's result in.
+#[op2]
+async fn op_k_test_tick() {
+    tokio::task::yield_now().await;
 }
 
 #[op2]
@@ -499,14 +544,18 @@ async fn op_k_rate_limit(
     #[string] key: String,
     limit: u32,
     window_ms: f64,
+    now_ms: f64,
 ) -> Result<u32, JsErrorBox> {
     let window = if window_ms.is_finite() && window_ms > 0.0 {
         std::time::Duration::from_secs_f64(window_ms / 1000.0)
     } else {
         std::time::Duration::ZERO
     };
+    // A test's virtual time (`TestClock`), else the system time.
+    #[allow(clippy::cast_possible_truncation)]
+    let now = (now_ms.is_finite() && now_ms >= 0.0).then(|| now_ms.min(9e15) as i64);
     let wait = process_of(&state)
-        .rate_hit(&key, limit, window)
+        .rate_hit(&key, limit, window, now)
         .await
         .map_err(|e| JsErrorBox::generic(format!("rate limits: {e}")))?;
     Ok(u32::try_from(wait).unwrap_or(u32::MAX))
@@ -851,6 +900,7 @@ async fn op_k_fetch(
     s.borrow_mut().fetches.insert(id, Rc::clone(&abort));
     let mut request = request;
     request.body = has_body.then_some(body);
+    request.url = crate::outbound::replace_origin(&request.url, s.borrow().process.fetch_origins());
     let outcome = tokio::select! {
         o = crate::outbound::fetch(request) => Some(o),
         () = abort.notified() => None,
@@ -902,6 +952,8 @@ deno_core::extension!(
     ops = [
         op_k_log,
         op_k_set_result,
+        op_k_test_reset,
+        op_k_test_tick,
         op_k_next_request,
         op_k_respond,
         op_k_respond_start,

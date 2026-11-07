@@ -31,6 +31,7 @@
 //! | `k:runtime` | `k:/runtime/index.js` | the client runtime |
 //! | `k:runtime/server` | `k:/runtime/server.js` | SSR helpers and the server request loop |
 //! | `k:testing` | `k:/testing/harness.js` | the JS unit-test harness and fake DOM (tests only) |
+//! | `k:testing/kit` | `k:/testing/kit.js` | the test kit behind `k test`: queries, doubles, the runner (tests only) |
 
 mod compact;
 
@@ -62,6 +63,25 @@ pub const STDLIB_SIZE_BUDGET: usize = 10 * 1024;
 /// (`docs/compiler/performance.md` §11.3).
 pub const SERVICES_SIZE_BUDGET: usize = 3 * 1024;
 
+/// The largest `k.charts` ([`Part::Charts`]) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (3 KB). It ships in its own chunk, only to apps
+/// that draw charts, so it counts against no other budget
+/// (`docs/compiler/performance.md` §11.3).
+pub const CHARTS_SIZE_BUDGET: usize = 3 * 1024;
+
+/// The largest the browser's reading of server streams ([`Part::Streams`])
+/// may be, measured like [`CORE_SIZE_BUDGET`] (1 KB). Like the charts it
+/// ships in its own chunk, only to apps that use it
+/// (`docs/compiler/performance.md` §11.3).
+pub const STREAMS_SIZE_BUDGET: usize = 1024;
+
+/// The largest `HttpResponse` and `HttpHeaders` in the browser
+/// ([`Part::Http`]) may be, measured like [`CORE_SIZE_BUDGET`] (1.5 KB).
+/// Like the charts it ships in its own chunk, only to apps whose client
+/// code builds or reads a response, so it counts against no other budget
+/// (`docs/compiler/performance.md` §11.3).
+pub const HTTP_SIZE_BUDGET: usize = 1536;
+
 /// The part of the runtime a module belongs to, which decides the bundles
 /// it ships in and the size budget it counts against.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -77,6 +97,19 @@ pub enum Part {
     /// on its own (`STDLIB_SIZE_BUDGET`), because its size grows with the
     /// stdlib rather than with the framework.
     Stdlib,
+    /// `k.charts` in the browser and on the server (`LineChart`): shipped
+    /// as its own client chunk, only to apps that use it, and measured on
+    /// its own ([`CHARTS_SIZE_BUDGET`]).
+    Charts,
+    /// Server-streaming rpcs in the browser: shipped as its own client
+    /// chunk, only to apps with a streaming rpc, and measured on its own
+    /// ([`STREAMS_SIZE_BUDGET`]).
+    Streams,
+    /// `HttpResponse` and `HttpHeaders` (built and read alike) in the
+    /// browser: shipped as its own client chunk, only to apps whose client
+    /// code uses them, and measured on its own ([`HTTP_SIZE_BUDGET`]). The
+    /// server has the same bodies in `$s.natives`.
+    Http,
     /// Dependency injection in the browser: `provide` for component-scoped
     /// services and the client bodies of the stdlib's platform services
     /// (`Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session`
@@ -137,6 +170,9 @@ const MODULES: &[Module] = modules![
     Extended "runtime/view.js",
     Stdlib "runtime/std.js",
     Services "runtime/services.js",
+    Charts "runtime/charts.js",
+    Streams "runtime/streams.js",
+    Http "runtime/http.js",
     ClientEntry "runtime/index.js",
     Server "runtime/ssr.js",
     Server "runtime/server.js",
@@ -145,6 +181,7 @@ const MODULES: &[Module] = modules![
     Server "runtime/db.js",
     Testing "testing/dom.js",
     Testing "testing/harness.js",
+    Testing "testing/kit.js",
 ];
 
 /// Returns every embedded runtime file.
@@ -165,7 +202,8 @@ pub fn module(specifier: &str) -> Option<&'static Module> {
 ///
 /// * The public short names resolve to their entry files: `k:runtime` to
 ///   `k:/runtime/index.js`, `k:runtime/server` to `k:/runtime/server.js`,
-///   `k:testing` to `k:/testing/harness.js`.
+///   `k:testing` to `k:/testing/harness.js`, `k:testing/kit` to
+///   `k:/testing/kit.js`.
 /// * A specifier that already names a runtime file resolves to itself.
 /// * A relative import (`./signals.js`, `../runtime/index.js`) resolves
 ///   against `referrer`, which must itself be a runtime specifier.
@@ -178,6 +216,7 @@ pub fn resolve(specifier: &str, referrer: Option<&str>) -> Option<&'static str> 
         "k:runtime" => "k:/runtime/index.js".to_owned(),
         "k:runtime/server" => "k:/runtime/server.js".to_owned(),
         "k:testing" => "k:/testing/harness.js".to_owned(),
+        "k:testing/kit" => "k:/testing/kit.js".to_owned(),
         s if s.starts_with("./") || s.starts_with("../") => {
             let base = referrer?.strip_prefix("k:/")?;
             let mut parts: Vec<&str> = base.split('/').collect();
@@ -199,8 +238,10 @@ pub fn resolve(specifier: &str, referrer: Option<&str>) -> Option<&'static str> 
 }
 
 /// Concatenates the compacted sources of the modules in `parts`, in table
-/// order, separated by newlines. This is what the size budget tests
-/// measure; the codegen's bundler produces the shipped files.
+/// order, separated by newlines, as the runtime chunk ships them: with the
+/// links between files removed ([`strip_links`]). This is what the size
+/// budget tests measure; the codegen's bundler produces the shipped files
+/// the same way.
 ///
 /// # Errors
 ///
@@ -208,9 +249,39 @@ pub fn resolve(specifier: &str, referrer: Option<&str>) -> Option<&'static str> 
 pub fn compacted_sources(parts: &[Part]) -> Result<String, (String, CompactError)> {
     let mut out = String::new();
     for m in MODULES.iter().filter(|m| parts.contains(&m.part)) {
-        let c = compact(m.source).map_err(|e| (m.path.to_owned(), e))?;
+        let c = compact(&strip_links(m.source)).map_err(|e| (m.path.to_owned(), e))?;
         out.push_str(&c);
         out.push('\n');
     }
     Ok(out)
+}
+
+/// Removes the links between runtime files: `import … from "…";`,
+/// `export * from "…";` and `export { … } from "…";` statements (possibly
+/// spanning lines), which the bundler drops when it concatenates the
+/// client files into the runtime chunk (their top-level names are unique,
+/// a test checks). Everything else is kept as written. Never panics.
+#[must_use]
+pub fn strip_links(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut skipping = false;
+    for line in src.lines() {
+        let t = line.trim_start();
+        if skipping {
+            if t.ends_with(';') {
+                skipping = false;
+            }
+            continue;
+        }
+        let link = t.starts_with("import ")
+            || t.starts_with("export * from ")
+            || (t.starts_with("export {") && (t.contains(" from ") || !t.contains('}')));
+        if link {
+            skipping = !t.ends_with(';');
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }

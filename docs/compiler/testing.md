@@ -38,6 +38,7 @@ Contents:
 | Examples | `crates/k_cli/tests/examples.rs` | Each example builds with `k build`, its `dist/app` serves its main page and an rpc (§8.1) |
 | Browser | `crates/k_server/tests/browser.rs` | Each example's main pages, server-rendered, hydrated by the generated client in the fake DOM and driven through DOM events (§4.3) |
 | End-to-end | `crates/k_cli/tests/`, `tests/e2e/`, `crates/k_server/tests/http/` | The `k` binary, built apps, HTTP (§8) |
+| Language server | `crates/k_lsp/src/**` (unit), `crates/k_lsp/tests/{server,properties,editors}.rs`, `crates/k_cli/tests/lsp.rs` | The features on fixtures, the server in process, random edits and requests, the editor grammars, and `k lsp` driven over JSON-RPC against the examples (§8.5) |
 | Benchmark | `crates/<crate>/benches/*.rs` (criterion), `tests/perf_budget.rs` | Throughput and latency against the budgets |
 
 ---
@@ -595,8 +596,10 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
 ```
 
 - **Registering**: `test(name, fn)` (`fn` may be async) and `test.pending(name, reason, fn)`; names are
-  unique per file. Each registered test is one cargo test named `<file>/<name>`, so
-  `cargo test -p k_server --test runtime_js -- signals.test` runs one file.
+  unique per file. Each registered test is two cargo tests: `<file>/<name>` against the runtime as written,
+  and `<file>/<name> (compacted)` against the runtime after `k_runtime::compact`, which is what release
+  builds ship (`EngineOptions::compact_runtime`), so a compaction that changes what the runtime means fails
+  here. `cargo test -p k_server --test runtime_js -- signals.test` runs one file.
 - **Server tests**: `server-app.test.js` drives `k:runtime/app` with hand-written specs; the isolate has
   K's ops, so sessions, rate limits and `.server` state work as in a server (each test's isolate has a
   fresh, private process state). `outbound.test.js` drives the server's I/O services
@@ -656,15 +659,28 @@ async fn duplicates_map_to_the_unique_field() {
 - **Requests**: same-origin `fetch` calls queue in an outbox; the driver forwards them over HTTP with the
   tab's cookies (and `Origin`/`Sec-Fetch-Site`, as a browser sends them), delivers the responses and
   repeats until nothing is in flight, keeping the cookies the server sets. Other origins are answered by
-  a scripted fake (`sim.external`, the Open-Meteo fake of `weather`). Server-streaming rpcs are recorded
-  and held, because the client doesn't read server streams yet (runtime.md §8).
+  a scripted fake (`sim.external`, the Open-Meteo fake of `weather`). A **server-streaming rpc**
+  (`application/connect+json`, its envelope sent as bytes) is opened with `k_server::testing::open_stream`
+  and stays open: the tab gets the response head as a streamed response, and every later `settle` hands
+  it the body pieces the server has written (`sim.deliverChunks`; the first piece of a new stream is
+  awaited, so its opening message is in the page). A stream the client stops reading (its effect was
+  cancelled, a `for await` left) is reported by `sim.drain` and its connection closed;
+  `Tab::wait_for_text` settles until a change that reaches the tab on its own (a stream's element) shows.
+- **The server's third parties**: `ServerOptions::fetch_origins` sends the server's outgoing requests to a
+  fixed third-party origin to a `FakeHttp` instead (`weather`'s Open-Meteo: a place, a forecast in Berlin's
+  zone, air quality; or a 404 for an unknown place), so a page that loads through the server's
+  `HttpClient` renders on the server and hydrates in the tab.
 - **Assertions**: `assert_hydrated` fails when hydration replaced any server node (a mismatch) or changed
   the markup; the driver's request log shows that `@Load` data isn't fetched again on hydration; the
   container's text and markup after each interaction; no `console.error` and no uncaught exception.
 - **Cases**: `todos` (client rendering: add, a refused blank title, toggle, the three filters, delete,
   the theme switch with its root class and cookie, a reload from local storage), `weather` (hydration,
-  a debounced search through `FetchHttpClient` against the fake, results, no results), `notes` (a wrong
-  password, sign in, a new note from the toolbar link, editing the server-rendered note) and `shop`
+  a debounced search through `FetchHttpClient` against the fake, results, no results; a city page rendered
+  on the server with its `LineChart` in the forecast's time zone and hydrated without fetching again; a
+  client navigation to a city that keeps the shared layout mounted and updates `document.title`, and back;
+  an unknown city's 404 hydrated into its `failed` block), `notes` (a wrong password, sign in, a new note
+  from the toolbar link, a note created and then deleted elsewhere reaching the page through its open
+  `watch()` stream, the stream closed when the page is left, editing the server-rendered note) and `shop`
   (storefront hydration, a client navigation to a product with one `Product` rpc, the order form's
   validation without an rpc, placing an order and the receipt's polling).
 - **The shipped build** (`crates/k_cli/tests/dist_browser.rs`): the same tab and driver against what
@@ -673,10 +689,26 @@ async fn duplicates_map_to_the_unique_field() {
   client files of `dist/public/assets`, and the driver forwards its requests to the process over HTTP.
   Cases: `todos` (add a todo, `BrowserStorage`, the `Theme` root class and cookie), `weather` (hydration,
   a search debounced on the injected `Clock` through `FetchHttpClient`), `notes` (sign in, the `Session`
-  mirror in the layout, a new note, editing the server-rendered note without refetching it) and `shop`
+  mirror in the layout, a new note, a note saved elsewhere arriving through the `watch()` stream, editing
+  the server-rendered note without refetching it) and `shop`
   (storefront hydration, a client navigation, the order form's validation in the browser, the sign-in
   page, and no secret value or server-only or production-unbound service name in any client file or
   response). `dist/app` must exit 0 on `SIGTERM` and log no errors.
+- **A shop order against a fake Stripe** (`shop_dist_app_places_an_order_against_a_fake_stripe`): the
+  production build with `STRIPE_API_URL` pointing at a `FakeHttp` that answers
+  `POST /v1/checkout/sessions`. The tab fills the order form and submits it; one `PlaceOrder` rpc creates
+  the checkout session through `StripeCheckout` and `FetchHttpClient`, and the browser goes to the URL
+  the fake answered with. The fake received the secret key as the bearer token and the order's form
+  fields; the order waits for payment with its stock reserved; the key reached no response.
+- **On Postgres** (`shop_dist_app_places_an_order_on_postgres_when_a_postgres_url_is_given`): the same
+  order on Postgres when `DATABASE_URL` is a `postgres://` URL, in a database the test creates and drops
+  (`CREATE DATABASE` rights needed); skipped, with a note on standard error, otherwise.
+  `examples/shop/docker-compose.test.yml` starts a throwaway server on `127.0.0.1:55432`:
+
+  ```text
+  docker compose --file examples/shop/docker-compose.test.yml up --detach --wait
+  DATABASE_URL=postgres://k_test@127.0.0.1:55432/k_test cargo test -p k_cli --test dist_browser -- postgres
+  ```
 - `K_DUMP=<example> K_DUMP_DIR=<dir> cargo test -p k_server --test browser dump` writes the generated
   files of an example, for debugging; `K_E2E_LOG=1` prints the server's log lines.
 
@@ -1031,10 +1063,12 @@ and seeds them anew; merge back what matters with `cargo +nightly fuzz cmin <tar
 | `codegen_run` | first byte picks `tgen::generate_runnable`, `exprgen`, `codablegen` or `viewgen`, the rest drives it | the property of §5.6 for that generator, run in V8 (one isolate at a time) |
 | `rpc_json` | first byte picks an echo rpc of the fuzz app, the rest is the request body | `horacle::check_rpc_body`: a `200` fixed point or `400 invalid_argument`, never a `500` |
 | `http_request` | raw bytes written to a connection of the fuzz app's server | `horacle::check_raw_request`: well-formed HTTP/1.1 answers, never a `500`, still serving afterwards |
+| `lsp_edits` | first byte picks an example document, the rest drives incremental edits and requests (`crates/k_lsp/tests/support/driver.rs`) | one well-formed response per request, only expected error codes, the server keeps serving (one in-process server per process) |
 
 All targets share `crates/k_syntax/tests/support/{oracle,kgen}.rs`,
 `crates/k_sema/tests/support/{soracle,tgen}.rs` and
-`crates/k_server/tests/support/{coracle,exprgen,codablegen,viewgen,horacle}.rs` through `fuzz/src/lib.rs`.
+`crates/k_server/tests/support/{coracle,exprgen,codablegen,viewgen,horacle}.rs` and
+`crates/k_lsp/tests/support/driver.rs` through `fuzz/src/lib.rs`.
 The server targets start the fuzz app (`crates/k_server/tests/projects/fuzz-wire`: a page, two endpoint
 pages, one echo rpc per message shape) once per process with one worker; their seeds are
 `fuzz/seeds/<target>/` (the same requests as `RAW_SEEDS` and `RPC_SEEDS` in `horacle.rs`), copied into the
@@ -1273,8 +1307,74 @@ serves projects like the e2e one. One test there is pending (stream back-pressur
 - **Browser (planned):** with a Chrome or Chromium executable available, tests drive it through the
   DevTools protocol from Rust to check hydration, navigation and reactivity in a real DOM. They skip with
   a message when no browser is found.
-- **Example apps (planned):** each app under `examples/` has its own K tests (`k test`) and is built and
-  smoke-tested by the e2e suite.
+- **Example apps:** each app under `examples/` has its own K tests and is built and smoke-tested by the
+  e2e suite (§8.1). `k test` runs both sides of them (§8.4), and every example's own tests pass:
+  `todos`, `weather`, `notes` and `shop`.
+
+### 8.4 `k test` and the project commands
+
+`crates/k_cli/tests/commands.rs` runs `k routes`, `k migrate`, `k test` and `k build --out` and compares
+their output byte for byte with golden files in `crates/k_cli/tests/golden/` (hand-written first; a
+format change is a reviewed diff):
+
+- **`k routes`** on `examples/shop` (endpoint pages, methods, guards, path parameters) and `examples/notes`
+  (query parameters with defaults), and on a fixture with `routes.lock` redirects and an endpoint with two
+  methods; a project without pages prints only the header; errors exit 1, a non-project 2.
+- **`k migrate new`** on a fixture catalog (the first migration and lock: every column kind, a relation),
+  on `examples/notes` taken back to before pinning (an added column with its default: the generated file
+  must equal the example's intent), an evolution (new columns, a new table, a retired field), the refusals
+  (a required column without a default, a changed type, an enum case) and `--empty`; each generated
+  project must then pass `k check`. **`k migrate status`/`apply`** against a SQLite file named by `.env`.
+- **`k test`** on the fixture project `crates/k_cli/tests/fixtures/counter` (a client service, a
+  component, passing and failing tests: an `expect` with its operand values, an `expect throws` that
+  isn't satisfied, a query that matches nothing): the whole report, `--filter`, a filter matching nothing
+  (exit 1), a project without tests (exit 0), a project with errors (exit 1, the errors printed), every
+  test of `examples/todos`, and `--watch` re-running only the test files a change affects (an edit of
+  `CounterView.k` re-runs `CounterView.test.k` only; of `Counter.k`, both).
+- **Every example's own tests** (`test_runs_the_{todos,weather,notes,shop}_example`): all must pass, the
+  server-side ones included (sessions, guards, repositories on a fresh database, server streams,
+  `TestClient` through endpoint pages and server rendering, `InlineJobQueue` and `RecordingEmailProvider`,
+  server-side `use` rules and configs bound by value).
+- **Regressions of the runner** (`crates/k_cli/tests/fixtures/regressions`, every test must pass; and
+  `fixtures/throws`, whose second test must fail with the case it threw): each bug of the test bundle or
+  the kit that an example exposed, pinned before it was fixed: a chained enum page parameter given as an
+  implicit member, `Page.x` with only optional parameters, a group helper named like the tested
+  service's function, a labelled argument after a default, `expect throws` checking the case.
+- `K_TEST_BUNDLE_DIR=<dir> k test` writes the test bundle's modules there, for debugging the compiler.
+- **`k build --out`** removes the hashed assets of earlier builds and keeps files outside
+  `public/assets/`.
+
+The runner's pieces have their own tests: the kit's JS tests (`js/tests/kit.test.js`, runtime.md §13),
+the `tests/corpus/sema/app/jobs/storage-lock-*` cases for K8002/K8003, `dist::tests` and
+`host::tests::file_dependencies_are_the_files_a_file_refers_to`.
+
+**Server side.** `k test` runs one browser and one server in one isolate (codegen.md §21.1, runtime.md
+§13): rpcs are answered in-process through the wire format, server-only services and repositories
+injected by a test come from its server container, `SessionManager` acts on the test's one session, and
+every test gets a fresh in-memory database with the migrations applied. The pieces have their own tests:
+`server-in-tests.test.js` (the request's test context, the virtual clock, `perTest`, the session hook, a
+streamed rpc's sink, `TestClient`, endpoint URLs), `kit.test.js` (the run with a server, the watchdog of
+a failed test, natives), `http-response.test.js`, and the engine's `op_k_test_reset`, `op_k_test_tick`
+and virtual-time rate limits (`crates/k_server/tests/engine.rs`).
+
+### 8.5 Language server
+
+`crates/k_cli/tests/lsp.rs` spawns `k lsp` and drives it over JSON-RPC on its standard input and output
+against the example apps: the lifecycle and capabilities, malformed input, definition and type definition,
+implementation (shop's `PaymentGateway`, notes' `NotesProtocol`), references and rename (with the file
+rename), hover (reactive dependencies, page URLs, docs), completion after an edit, signature help, symbols,
+diagnostics and quick fixes as a document changes, and inlay hints. Positions are found by searching the
+sources, and edits are made to open documents only, never to the examples on disk.
+
+`crates/k_lsp/tests/server.rs` runs the server in process over channel-backed streams (the driver in
+`tests/support/driver.rs`): exit codes, requests after `shutdown`, malformed frames, synchronization with the
+disk and watched files, loose projects, definition into the stdlib, and go-to-definition at every identifier
+of every example, which must answer a declaration spelled like the identifier.
+`crates/k_lsp/tests/properties.rs` feeds random edits (UTF-16 ranges, sometimes outside the document, K
+fragments, non-ASCII text) and requests (some cancelled) through the server and checks one well-formed
+response per request and that the published diagnostics converge on a fresh check of the edited text; the
+`lsp_edits` fuzz target runs the same driver. `crates/k_lsp/tests/editors.rs` checks the editor grammars
+against the lexer's keyword table ([lsp.md §10](lsp.md#10-testing-and-budgets)).
 
 ---
 
@@ -1316,7 +1416,7 @@ K per second) and a cold build, check included (`build`).
 
 **Budget check.** `scripts/bench-check.sh` runs the ignored `perf_budget` tests of every area in a release
 build, one test at a time, and fails when any budget is missed (`--syntax`, `--sema`, `--codegen`,
-`--runtime`, `--server`, `--db`, `--app` select areas):
+`--runtime`, `--server`, `--db`, `--app`, `--lsp` select areas):
 
 | Area | Test file | Checks |
 |---|---|---|
@@ -1327,6 +1427,7 @@ build, one test at a time, and fails when any budget is missed (`--syntax`, `--s
 | server | `crates/k_server/tests/perf_budget.rs` | in V8: signal propagation, signal-to-DOM, keyed lists of 1k/10k rows, hydration; over HTTP in process: rpc latency and throughput, SSR latency and throughput, SQLite rpcs, cold start |
 | db | `crates/k_db/tests/perf_budget.rs` | query rendering, driver overhead over `rusqlite` |
 | app | `crates/k_cli/tests/perf_budget.rs` | the real `dist/app` of the examples: cold start, SSR and database rpcs over HTTP, shipped asset sizes |
+| lsp | `crates/k_lsp/tests/perf_budget.rs` | hover, definition, references and completion warm on 100k lines; the first hover after an edit; diagnostics after a keystroke end to end |
 
 Methods, baselines and history are in [performance.md](performance.md). New hot paths get a benchmark when
 they are written. A change that makes a benchmark more than 5% slower needs a stated reason.

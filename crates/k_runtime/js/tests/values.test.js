@@ -56,3 +56,16 @@ test("textOf formats strings, numbers, booleans and nil", () => {
   assertEq(textOf(true), "true");
   assertEq(textOf(null), "nil");
 });
+
+// A payload-free case is one value per tag, whichever copy of its enum
+// built it: in a `k test` run the browser's and the server's modules both
+// define the enum, and a case read back from the server (`order.status`)
+// must be `===` the test's `.awaitingPayment`, as generated code compares
+// payload-free cases by identity.
+test("payload-free cases with the same tag are the same value across copies of an enum", () => {
+  const browser = { awaitingPayment: unitCase(0), paid: unitCase(1) };
+  const server = { awaitingPayment: unitCase(0), paid: unitCase(1) };
+  assert(browser.awaitingPayment === server.awaitingPayment);
+  assert(browser.paid !== server.awaitingPayment);
+  assert(Object.isFrozen(server.paid));
+});
