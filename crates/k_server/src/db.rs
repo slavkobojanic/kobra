@@ -92,6 +92,58 @@ pub enum WriteOutcome {
     Unique(String),
 }
 
+/// A job claimed for a run.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ClaimedJob {
+    /// The row's id.
+    pub id: String,
+    /// The job's name.
+    pub name: String,
+    /// The payload JSON.
+    pub payload: String,
+    /// The attempt this run is, from 1.
+    pub attempt: u32,
+}
+
+/// What happens to a claimed job after its run.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum JobFate {
+    /// It ran: the row is deleted.
+    Done,
+    /// It failed and has attempts left: queued again at `run_after`.
+    Retry {
+        /// Epoch ms.
+        run_after: i64,
+        /// The failure, for `jobs list`.
+        error: String,
+    },
+    /// It failed permanently or ran out of attempts.
+    Dead {
+        /// The last failure.
+        error: String,
+    },
+    /// The run didn't finish (shutdown): queued again at once, the attempt
+    /// not counted.
+    Release,
+}
+
+/// A row of `k_job`, for `dist/app jobs list`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct JobRow {
+    /// The id.
+    pub id: String,
+    /// The job's name.
+    pub name: String,
+    /// `queued`, `running` or `dead`.
+    pub status: String,
+    /// Attempts so far.
+    pub attempts: i64,
+    /// When it is due (queued) or died (dead), epoch ms.
+    pub at: i64,
+    /// The last failure, if any.
+    pub last_error: Option<String>,
+}
+
 /// A savepoint operation inside a transaction (db.md §9).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Savepoint {
@@ -144,6 +196,20 @@ impl ProcessDatabase {
     /// ([`DbError::Migration`], rolled back), none of which echo the URL
     /// or the password.
     pub fn open(setup: DatabaseSetup) -> Result<(Arc<ProcessDatabase>, Vec<String>), DbError> {
+        ProcessDatabase::open_with(setup, true)
+    }
+
+    /// [`Self::open`], applying the pending migrations only when
+    /// `migrate` (`dist/app jobs …` reads the queue without migrating). The
+    /// stdlib's tables are always ensured.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::open`].
+    pub fn open_with(
+        setup: DatabaseSetup,
+        migrate: bool,
+    ) -> Result<(Arc<ProcessDatabase>, Vec<String>), DbError> {
         let (handle_tx, handle_rx) = std::sync::mpsc::channel();
         let (stop_tx, stop_rx) = oneshot::channel::<()>();
         std::thread::Builder::new()
@@ -180,7 +246,16 @@ impl ProcessDatabase {
         handle.spawn(async move {
             let result = async {
                 let db = Database::connect(&url, &DatabaseOptions { password }).await?;
-                let applied = k_db::migrate::apply(&db, &migrations).await?;
+                let applied = if migrate {
+                    k_db::migrate::apply(&db, &migrations).await?
+                } else {
+                    Vec::new()
+                };
+                // The stdlib's own tables (jobs, sessions, rate limits),
+                // idempotently and outside `k_migrations` (db.md §12).
+                for statement in k_db::stdlib::tables() {
+                    db.execute(statement, &[]).await?;
+                }
                 Ok::<_, DbError>((db, applied))
             }
             .await;
@@ -417,6 +492,346 @@ impl ProcessDatabase {
             .unwrap_or(false)
     }
 
+    /// Runs one of the stdlib's statements (`k_db::stdlib`, written with
+    /// `$n` placeholders) and returns the rows affected, under the same
+    /// lease and transaction rules as [`Self::execute`].
+    async fn stdlib_execute(
+        &self,
+        text: &str,
+        params: Vec<Value>,
+        tx: u32,
+    ) -> Result<u64, DbError> {
+        self.check_transaction(tx)?;
+        let sql = k_db::stdlib::sql(self.dialect, text);
+        let db = Arc::clone(&self.db);
+        let lease = (tx == 0).then(|| Arc::clone(&self.lease));
+        self.on_db(async move {
+            let _held = match lease {
+                Some(l) => Some(Self::lease(l).await?),
+                None => None,
+            };
+            db.execute(&sql, &params).await
+        })
+        .await
+    }
+
+    /// Runs one of the stdlib's queries and returns its rows.
+    async fn stdlib_query(
+        &self,
+        text: &str,
+        params: Vec<Value>,
+        tx: u32,
+    ) -> Result<Vec<Vec<Value>>, DbError> {
+        self.check_transaction(tx)?;
+        let sql = k_db::stdlib::sql(self.dialect, text);
+        let db = Arc::clone(&self.db);
+        let lease = (tx == 0).then(|| Arc::clone(&self.lease));
+        self.on_db(async move {
+            let _held = match lease {
+                Some(l) => Some(Self::lease(l).await?),
+                None => None,
+            };
+            Ok(db
+                .query(&sql, &params)
+                .await?
+                .into_iter()
+                .map(|r| r.values)
+                .collect())
+        })
+        .await
+    }
+
+    // ------------------------------------------------------------ jobs
+
+    /// Stores a job `name` with `payload` (JSON) to run at `run_after`
+    /// (epoch ms), inside transaction `tx` (0: on its own), and returns
+    /// its id. Inside a transaction the row commits or rolls back with it.
+    ///
+    /// # Errors
+    ///
+    /// A database failure, or `tx` isn't open.
+    pub async fn enqueue_job(
+        &self,
+        id: String,
+        name: &str,
+        payload: String,
+        run_after: i64,
+        now: i64,
+        tx: u32,
+    ) -> Result<String, DbError> {
+        self.stdlib_execute(
+            k_db::stdlib::job_sql::INSERT,
+            vec![
+                Value::Text(id.clone()),
+                Value::Text(name.to_owned()),
+                Value::Text(payload),
+                Value::Int(run_after),
+                Value::Int(now),
+            ],
+            tx,
+        )
+        .await?;
+        Ok(id)
+    }
+
+    /// Claims up to `limit` jobs due at `now`, each until `now + lease_ms`.
+    /// A job is claimed by one caller only: the claim is a conditional
+    /// update, so replicas racing for a row see one of them win.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn claim_jobs(
+        &self,
+        now: i64,
+        limit: usize,
+        lease_ms: i64,
+    ) -> Result<Vec<ClaimedJob>, DbError> {
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let due = self
+            .stdlib_query(
+                k_db::stdlib::job_sql::DUE,
+                vec![Value::Int(now), Value::Int(limit)],
+                0,
+            )
+            .await?;
+        let mut out = Vec::new();
+        for row in due {
+            let Some(Value::Text(id)) = row.into_iter().next() else {
+                continue;
+            };
+            let claimed = self
+                .stdlib_query(
+                    k_db::stdlib::job_sql::CLAIM,
+                    vec![Value::Text(id), Value::Int(now + lease_ms), Value::Int(now)],
+                    0,
+                )
+                .await?;
+            for r in claimed {
+                if let [
+                    Value::Text(id),
+                    Value::Text(name),
+                    Value::Text(payload),
+                    Value::Int(attempt),
+                ] = r.as_slice()
+                {
+                    out.push(ClaimedJob {
+                        id: id.clone(),
+                        name: name.clone(),
+                        payload: payload.clone(),
+                        attempt: u32::try_from(*attempt).unwrap_or(u32::MAX),
+                    });
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Records the outcome of a claimed job's run (see [`JobFate`]).
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn finish_job(&self, id: &str, fate: JobFate, now: i64) -> Result<(), DbError> {
+        let id = Value::Text(id.to_owned());
+        let (sql, params) = match fate {
+            JobFate::Done => (k_db::stdlib::job_sql::DONE, vec![id]),
+            JobFate::Retry { run_after, error } => (
+                k_db::stdlib::job_sql::RETRY,
+                vec![
+                    id,
+                    Value::Int(run_after),
+                    Value::Text(error),
+                    Value::Int(now),
+                ],
+            ),
+            JobFate::Dead { error } => (
+                k_db::stdlib::job_sql::BURY,
+                vec![id, Value::Text(error), Value::Int(now)],
+            ),
+            JobFate::Release => (k_db::stdlib::job_sql::RELEASE, vec![id, Value::Int(now)]),
+        };
+        self.stdlib_execute(sql, params, 0).await.map(|_| ())
+    }
+
+    /// Every job (`all`) or the dead ones, for `dist/app jobs list`.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn list_jobs(&self, dead_only: bool) -> Result<Vec<JobRow>, DbError> {
+        let rows = if dead_only {
+            self.stdlib_query(k_db::stdlib::job_sql::DEAD, vec![], 0)
+                .await?
+        } else {
+            self.stdlib_query(k_db::stdlib::job_sql::ALL, vec![], 0)
+                .await?
+        };
+        let text = |v: &Value| match v {
+            Value::Text(t) => t.clone(),
+            _ => String::new(),
+        };
+        let int = |v: &Value| match v {
+            Value::Int(i) => *i,
+            _ => 0,
+        };
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                if dead_only {
+                    JobRow {
+                        id: r.first().map(text).unwrap_or_default(),
+                        name: r.get(1).map(text).unwrap_or_default(),
+                        status: k_db::stdlib::status::DEAD.to_owned(),
+                        attempts: r.get(2).map_or(0, int),
+                        at: r.get(4).map_or(0, int),
+                        last_error: r.get(3).map(text).filter(|t| !t.is_empty()),
+                    }
+                } else {
+                    JobRow {
+                        id: r.first().map(text).unwrap_or_default(),
+                        name: r.get(1).map(text).unwrap_or_default(),
+                        status: r.get(2).map(text).unwrap_or_default(),
+                        attempts: r.get(3).map_or(0, int),
+                        at: r.get(4).map_or(0, int),
+                        last_error: r.get(5).map(text).filter(|t| !t.is_empty()),
+                    }
+                }
+            })
+            .collect())
+    }
+
+    /// Puts dead job `id` back in the queue with fresh attempts; `false`
+    /// when there is no dead job with that id.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn requeue_job(&self, id: &str, now: i64) -> Result<bool, DbError> {
+        let n = self
+            .stdlib_execute(
+                k_db::stdlib::job_sql::REQUEUE,
+                vec![Value::Text(id.to_owned()), Value::Int(now)],
+                0,
+            )
+            .await?;
+        Ok(n > 0)
+    }
+
+    /// Claims due time `due` of schedule `name`: `true` for exactly one
+    /// caller across every replica, which then enqueues the run.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn claim_schedule(&self, name: &str, due: i64) -> Result<bool, DbError> {
+        self.stdlib_execute(
+            k_db::stdlib::job_sql::SCHEDULE_INIT,
+            vec![Value::Text(name.to_owned())],
+            0,
+        )
+        .await?;
+        let n = self
+            .stdlib_execute(
+                k_db::stdlib::job_sql::SCHEDULE_CLAIM,
+                vec![Value::Text(name.to_owned()), Value::Int(due)],
+                0,
+            )
+            .await?;
+        Ok(n > 0)
+    }
+
+    // -------------------------------------------------------- sessions
+
+    /// Inserts a session row (`k_db::stdlib::session_sql::INSERT`).
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn session_insert(
+        &self,
+        id_hash: &str,
+        user: Option<(String, String)>,
+        roles_json: String,
+        now: i64,
+    ) -> Result<(), DbError> {
+        let (user_json, user_key) = match user {
+            Some((json, key)) => (Value::Text(json), Value::Text(key)),
+            None => (Value::Null, Value::Null),
+        };
+        self.stdlib_execute(
+            k_db::stdlib::session_sql::INSERT,
+            vec![
+                Value::Text(id_hash.to_owned()),
+                user_json,
+                user_key,
+                Value::Text(roles_json),
+                Value::Int(now),
+            ],
+            0,
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// The row of a session: `(user JSON or None for a guest, roles JSON,
+    /// created, last seen)`.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn session_row(
+        &self,
+        id_hash: &str,
+    ) -> Result<Option<(Option<String>, String, i64, i64)>, DbError> {
+        let rows = self
+            .stdlib_query(
+                k_db::stdlib::session_sql::GET,
+                vec![Value::Text(id_hash.to_owned())],
+                0,
+            )
+            .await?;
+        Ok(rows.into_iter().next().and_then(|r| match r.as_slice() {
+            [
+                user,
+                Value::Text(roles),
+                Value::Int(created),
+                Value::Int(seen),
+            ] => Some((
+                match user {
+                    Value::Text(u) => Some(u.clone()),
+                    _ => None,
+                },
+                roles.clone(),
+                *created,
+                *seen,
+            )),
+            _ => None,
+        }))
+    }
+
+    /// Runs a session statement whose parameters are all given.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn session_statement(&self, text: &str, params: Vec<Value>) -> Result<u64, DbError> {
+        self.stdlib_execute(text, params, 0).await
+    }
+
+    /// Runs a session or rate-limit query whose parameters are all given.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn session_query(
+        &self,
+        text: &str,
+        params: Vec<Value>,
+    ) -> Result<Vec<Vec<Value>>, DbError> {
+        self.stdlib_query(text, params, 0).await
+    }
+
     /// The number of open transactions (for tests and diagnostics).
     #[must_use]
     pub fn open_transactions(&self) -> usize {
@@ -650,5 +1065,111 @@ mod tests {
             serde_json::json!([1, 2])
         );
         assert_eq!(value_to_json(Value::Int(-3)), serde_json::json!(-3));
+    }
+
+    #[test]
+    fn jobs_are_claimed_once_retried_buried_and_requeued() {
+        let (db, _) = ProcessDatabase::open(setup()).expect("opens");
+        block_on(async {
+            // A job in a rolled-back transaction never becomes visible.
+            let tx = db.begin().await.expect("begins");
+            db.enqueue_job("gone".into(), "mail", "{}".into(), 0, 0, tx)
+                .await
+                .expect("enqueues");
+            db.finish(tx, false).await.expect("rolls back");
+            db.enqueue_job("a".into(), "mail", r#"{"to":1}"#.into(), 100, 0, 0)
+                .await
+                .expect("enqueues");
+            assert!(
+                db.claim_jobs(99, 10, 1000)
+                    .await
+                    .expect("claims")
+                    .is_empty(),
+                "not due yet"
+            );
+            let claimed = db.claim_jobs(100, 10, 1000).await.expect("claims");
+            assert_eq!(
+                claimed,
+                vec![ClaimedJob {
+                    id: "a".into(),
+                    name: "mail".into(),
+                    payload: r#"{"to":1}"#.into(),
+                    attempt: 1
+                }]
+            );
+            assert!(
+                db.claim_jobs(200, 10, 1000)
+                    .await
+                    .expect("claims")
+                    .is_empty(),
+                "leased"
+            );
+            // An expired lease makes it claimable again (a dead worker).
+            assert_eq!(
+                db.claim_jobs(1101, 10, 1000).await.expect("claims")[0].attempt,
+                2
+            );
+            db.finish_job(
+                "a",
+                JobFate::Retry {
+                    run_after: 5000,
+                    error: "down".into(),
+                },
+                1200,
+            )
+            .await
+            .expect("retries");
+            let rows = db.list_jobs(false).await.expect("lists");
+            assert_eq!(rows[0].status, "queued");
+            assert_eq!(rows[0].last_error.as_deref(), Some("down"));
+            assert_eq!(
+                db.claim_jobs(5000, 10, 1000).await.expect("claims")[0].attempt,
+                3
+            );
+            db.finish_job(
+                "a",
+                JobFate::Dead {
+                    error: "still down".into(),
+                },
+                5100,
+            )
+            .await
+            .expect("buries");
+            assert!(
+                db.claim_jobs(1_000_000, 10, 1000)
+                    .await
+                    .expect("claims")
+                    .is_empty()
+            );
+            let dead = db.list_jobs(true).await.expect("lists");
+            assert_eq!(dead.len(), 1);
+            assert_eq!((dead[0].attempts, dead[0].at), (3, 5100));
+            assert!(!db.requeue_job("nope", 6000).await.expect("requeues"));
+            assert!(db.requeue_job("a", 6000).await.expect("requeues"));
+            let again = db.claim_jobs(6000, 10, 1000).await.expect("claims");
+            assert_eq!(again[0].attempt, 1, "fresh attempts");
+            // A run unfinished at shutdown goes back without counting.
+            db.finish_job("a", JobFate::Release, 6100)
+                .await
+                .expect("releases");
+            assert_eq!(
+                db.claim_jobs(6100, 10, 1000).await.expect("claims")[0].attempt,
+                1
+            );
+            db.finish_job("a", JobFate::Done, 6200).await.expect("done");
+            assert!(db.list_jobs(false).await.expect("lists").is_empty());
+        });
+    }
+
+    #[test]
+    fn a_schedule_due_time_is_claimed_once() {
+        let (db, _) = ProcessDatabase::open(setup()).expect("opens");
+        block_on(async {
+            assert!(db.claim_schedule("tick", 1000).await.expect("claims"));
+            assert!(!db.claim_schedule("tick", 1000).await.expect("claims"));
+            assert!(!db.claim_schedule("tick", 999).await.expect("claims"));
+            assert!(db.claim_schedule("tick", 2000).await.expect("claims"));
+            assert!(db.claim_schedule("other", 1000).await.expect("claims"));
+        });
     }
 }

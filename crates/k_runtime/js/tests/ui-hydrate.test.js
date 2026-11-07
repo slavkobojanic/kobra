@@ -310,3 +310,14 @@ test("hydration sets the k_tz cookie", () => {
   hydrate(container, () => Counter({ count: signal(1) }), { v: 1, now: "2026-11-07T10:00:00Z", session: { user: null }, c: {} });
   assert(String(globalThis.document.cookie ?? "").includes("k_tz="), String(globalThis.document.cookie));
 });
+
+// A textarea's text is its initial value: hydration keeps the server's text
+// although the template has none (the binding sets `value`).
+test("hydration keeps a textarea's server text", () => {
+  const editor = template("<form><textarea></textarea></form>");
+  const container = page("<form><textarea>Milk and eggs</textarea></form>");
+  const server = container.firstChild.firstChild;
+  hydrate(container, () => editor(), null);
+  assertEq(container.firstChild.firstChild, server);
+  assertEq(server.textContent, "Milk and eggs");
+});

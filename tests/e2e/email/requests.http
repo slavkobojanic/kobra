@@ -1,0 +1,57 @@
+# k.server.EmailProvider on the server against the fake SMTP server of
+# fakes.toml (docs/design/31-email.md): delivery, the three EmailError
+# cases, and what the SMTP server received.
+
+### a message reaches the SMTP server
+POST /mail.MailProtocol/Send
+content-type: application/json
+connect-protocol-version: 1
+
+{"to": "ana@example.com", "subject": "Your order", "html": false}
+>>> 200
+json {"value": "sent"}
+
+### an HTML part makes it multipart
+POST /mail.MailProtocol/Send
+content-type: application/json
+connect-protocol-version: 1
+
+{"to": "ben@example.com", "subject": "Your receipt", "html": true}
+>>> 200
+json {"value": "sent"}
+
+### a 5xx reply is rejected, with the server's text
+POST /mail.MailProtocol/Send
+content-type: application/json
+connect-protocol-version: 1
+
+{"to": "reject@example.com", "subject": "Hi", "html": false}
+>>> 200
+json {"value": "rejected 550 5.1.1 No such user"}
+
+### a 4xx reply is unavailable (try again later)
+POST /mail.MailProtocol/Send
+content-type: application/json
+connect-protocol-version: 1
+
+{"to": "defer@example.com", "subject": "Hi", "html": false}
+>>> 200
+json {"value": "unavailable"}
+
+### a line break in the subject is an invalid message, never sent
+POST /mail.MailProtocol/Send
+content-type: application/json
+connect-protocol-version: 1
+
+{"to": "eve@example.com", "subject": "Hi\r\nBcc: everyone@example.com", "html": false}
+>>> 200
+json {"value": "invalid the subject contains a line break"}
+
+### the inbox has exactly the accepted messages, with MAIL_FROM, copies and Reply-To
+POST /mail.MailProtocol/Inbox
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": "orders@shop.example -> ana@example.com,copy@shop.example: Your order html=false replyTo=true | orders@shop.example -> ben@example.com,copy@shop.example: Your receipt html=true replyTo=true"}

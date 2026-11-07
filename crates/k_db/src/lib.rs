@@ -30,6 +30,7 @@ pub mod manifest;
 pub mod migrate;
 pub mod schema;
 pub mod sql;
+pub mod stdlib;
 pub mod testing;
 pub mod value;
 

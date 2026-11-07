@@ -7,12 +7,12 @@
  *
  * The object `createForm` returns mirrors `k.validation.Form`:
  * `field(name)` gives `{ value(), set(raw), error(), isTouched(), touch(),
- * attach(input, message) }`; `isValid()`, `isSubmitting()`, `isTouched()`
+ * attach(input, message?) }`; `isValid()`, `isSubmitting()`, `isTouched()`
  * and `errors()` are reactive reads; `value()` is the parsed struct while
  * the action runs; `handle(action)` returns the submit handler.
  */
 
-import { attr, on, text } from "./dom.js";
+import { attr, on } from "./dom.js";
 import { batch, renderEffect, signal, untrack } from "./signals.js";
 import { graphemeCount } from "./std.js";
 
@@ -115,13 +115,20 @@ export function createForm(fields, initial, validate) {
       isTouched: () => f.touched.get(),
       touch: () => f.touched.set(true),
       attach: (input, message) => {
-        if (!message.id) message.setAttribute("id", `k-form${id}-${name}-error`);
         renderEffect(() => {
           const e = f.error.get();
+          // Without a message element, one is made under the input when
+          // the first error shows, so hydration claims the server's markup.
+          if (e !== null && !message) {
+            message = document.createElement("p");
+            message.setAttribute("role", "alert");
+            input.parentNode.insertBefore(message, input.nextSibling);
+          }
+          if (!message) return;
+          if (!message.id) message.setAttribute("id", `k-form${id}-${name}-error`);
           attr(input, "aria-invalid", e === null ? null : "true");
           attr(input, "aria-describedby", e === null ? null : message.id);
-          if (message.firstChild === null) message.appendChild(message.ownerDocument.createTextNode(""));
-          text(message.firstChild, e ?? "");
+          message.textContent = e ?? "";
         });
         renderEffect(() => {
           const raw = f.raw.get();
@@ -181,7 +188,7 @@ export function createForm(fields, initial, validate) {
  */
 export function fieldParser(kind, message, optional) {
   return (raw) => {
-    const t = raw.trim();
+    const t = String(raw).trim();
     if (optional && t === "") return { ok: true, value: null };
     if (kind === "int") {
       const n = Number(t);

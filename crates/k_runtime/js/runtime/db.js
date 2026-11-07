@@ -256,6 +256,22 @@ export class Database {
     this.tx = 0;
     /** The nesting depth inside it (savepoints). */
     this.depth = 0;
+    /**
+     * Work to do once the open transaction commits (`InlineJobQueue`):
+     * `{depth, run}`, dropped with the savepoint or transaction that
+     * registered it when that rolls back.
+     * @type {Array<{depth: number, run: () => Promise<void>}>}
+     */
+    this.onCommit = [];
+  }
+
+  /**
+   * Runs `run` once the open transaction commits, or now outside one.
+   * @param {() => Promise<void>} run
+   */
+  async afterCommit(run) {
+    if (this.tx === 0) return run();
+    this.onCommit.push({ depth: this.depth, run });
   }
 
   /**
@@ -311,6 +327,7 @@ export class Database {
     } catch (e) {
       this.tx = 0;
       this.depth = 0;
+      this.onCommit = [];
       try {
         await this.ops.op_k_db_finish(tx, false);
       } catch {
@@ -321,11 +338,14 @@ export class Database {
     }
     this.tx = 0;
     this.depth = 0;
+    const committed = this.onCommit;
+    this.onCommit = [];
     try {
       await this.ops.op_k_db_finish(tx, true);
     } catch (e) {
       failed(e);
     }
+    for (const w of committed) await w.run();
     return value;
   }
 
@@ -351,6 +371,7 @@ export class Database {
       value = await block(c);
     } catch (e) {
       this.depth = depth - 1;
+      this.onCommit = this.onCommit.filter((w) => w.depth < depth);
       try {
         await this.ops.op_k_db_savepoint(tx, depth, 2);
       } catch {

@@ -14,8 +14,9 @@
 //! | `op_k_password_hash` | `(password) => Promise<string>` (an Argon2id PHC string) | `Password.hash` |
 //! | `op_k_password_verify` | `(password, hash) => Promise<boolean>` (`false` for a malformed hash) | `Password.verify` |
 //! | `op_k_utf8_valid` | `(bytes: Uint8Array) => boolean` | `TextDecoder` with `fatal: true` (rpc bodies, `request.text()`) |
-//! | `op_k_session_get` / `_create` / `_delete` / `_end_all` | the session store | `Session`, `SessionManager` |
-//! | `op_k_rate_limit` | `(key, limit, windowMs) => retryAfterSeconds` (0: allowed) | `RateLimit` |
+//! | `op_k_session_get` / `_create` / `_delete` / `_end_all` | the session store, async (`k_session` with a database) | `Session`, `SessionManager` |
+//! | `op_k_session_issue_state` / `_consume_state` | `(id) => Promise<state \| null>`, `(id, state) => Promise<boolean>` | OAuth state |
+//! | `op_k_rate_limit` | `(key, limit, windowMs) => Promise<retryAfterSeconds>` (0: allowed) | `RateLimit` |
 //! | `op_k_shared_get` / `op_k_shared_set` | `(key) => json \| null`, `(key, json)` | `@Scope(.server)` state |
 //! | `op_k_broadcast_subscribe` / `_publish` / `_next` / `_close` | keyed broadcasts | `Broadcast` |
 //! | `op_k_db_query` | `(statement, params, tx) => Promise<row[]>`, a row a value list in select order | repositories |
@@ -23,6 +24,11 @@
 //! | `op_k_db_begin` / `op_k_db_finish` | `() => Promise<tx>`, `(tx, commit) => Promise<void>` | `Database.transaction` |
 //! | `op_k_db_savepoint` | `(tx, depth, op: 0 begin, 1 release, 2 roll back) => Promise<void>` | nested transactions |
 //! | `op_k_db_ping` | `(timeoutMs) => Promise<boolean>` | `Database.ping` |
+//! | `op_k_hmac` | `(bits, key, message) => Uint8Array` (bits 256 or 512) | `Hmac.sha256`, `Hmac.sha512` |
+//! | `op_k_jobs_enqueue` | `(name, payloadJson, delayMs, tx) => Promise<id>` | `DatabaseJobQueue` |
+//! | `op_k_fetch` | `(id, {method, url, headers, timeoutMs}, body, hasBody) => Promise<outcome>` | `FetchHttpClient` |
+//! | `op_k_fetch_abort` | `(id) => void` | a cancelled `FetchHttpClient` call |
+//! | `op_k_smtp_send` | `(settings, message) => Promise<outcome>` | `SmtpEmailProvider` |
 //!
 //! The process-wide ops read and write the [`ProcessState`] every worker
 //! of a server shares; an engine outside a server (tests, the execution
@@ -61,6 +67,20 @@ pub struct JsRequest {
     /// The peer's IP address (the socket's; `K_TRUSTED_PROXIES` handling
     /// is the generated handler's).
     pub remote: String,
+    /// For a background job's run (never an HTTP request): which job and
+    /// attempt. The body is then the payload JSON.
+    pub job: Option<JobRun>,
+}
+
+/// A background job's run, delivered to a worker isolate like a request
+/// (`docs/compiler/server.md` §11). Only the jobs worker creates one; no
+/// HTTP request can, so a client can't run a job.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+pub struct JobRun {
+    /// The job's name.
+    pub name: String,
+    /// The attempt, from 1.
+    pub attempt: u32,
 }
 
 /// The body of a response from JavaScript: a string or bytes.
@@ -113,6 +133,8 @@ pub struct PendingRequest {
     pub body: Vec<u8>,
     /// The peer's IP address.
     pub remote: String,
+    /// A job run instead of an HTTP request ([`JobRun`]).
+    pub job: Option<JobRun>,
     /// Where the response goes.
     pub reply: oneshot::Sender<WorkerResponse>,
 }
@@ -149,6 +171,8 @@ pub struct EngineState {
     pub requests: Option<RequestQueue>,
     /// The state every worker of the process shares.
     pub process: Arc<ProcessState>,
+    /// The abort handles of `op_k_fetch` requests in flight, by id.
+    pub fetches: HashMap<u32, Rc<tokio::sync::Notify>>,
 }
 
 impl EngineState {
@@ -160,6 +184,7 @@ impl EngineState {
             result: None,
             requests: None,
             process: Arc::new(ProcessState::default()),
+            fetches: HashMap::new(),
         }
     }
 }
@@ -214,6 +239,7 @@ async fn op_k_next_request(state: Rc<RefCell<OpState>>) -> Result<Option<JsReque
         path: request.path,
         headers: request.headers,
         body: request.body.into(),
+        job: request.job,
         remote: request.remote,
     }))
 }
@@ -379,42 +405,111 @@ async fn op_k_password_verify(#[string] password: String, #[string] hash: String
         .unwrap_or(false)
 }
 
-#[op2]
-#[serde]
-fn op_k_session_get(state: &mut OpState, #[string] id: &str) -> Option<SessionView> {
-    process(state).session(id)
+/// The process state of an async op.
+fn process_of(state: &Rc<RefCell<OpState>>) -> Arc<ProcessState> {
+    let s = shared(&state.borrow());
+    Arc::clone(&s.borrow().process)
 }
 
+/// The session of a cookie token, `null` if there is none (expired,
+/// revoked, never issued). A guest session's `user` is `null`.
+#[op2]
+#[serde]
+async fn op_k_session_get(
+    state: Rc<RefCell<OpState>>,
+    #[string] id: String,
+) -> Result<Option<SessionView>, JsErrorBox> {
+    process_of(&state)
+        .session_load(&id)
+        .await
+        .map_err(|e| JsErrorBox::generic(format!("sessions: {e}")))
+}
+
+/// Starts a session (`user` `null`: a guest's) and returns its token.
 #[op2]
 #[string]
-fn op_k_session_create(
-    state: &mut OpState,
+async fn op_k_session_create(
+    state: Rc<RefCell<OpState>>,
     #[serde] user: serde_json::Value,
     #[serde] roles: Vec<String>,
 ) -> Result<String, JsErrorBox> {
-    process(state)
-        .create_session(user, roles)
-        .map_err(JsErrorBox::generic)
+    process_of(&state)
+        .session_create(user, roles)
+        .await
+        .map_err(|e| JsErrorBox::generic(format!("sessions: {e}")))
 }
 
-#[op2(fast)]
-fn op_k_session_delete(state: &mut OpState, #[string] id: &str) {
-    process(state).delete_session(id);
-}
-
+/// Deletes a session.
 #[op2]
-fn op_k_session_end_all(state: &mut OpState, #[serde] user: serde_json::Value) -> u32 {
-    u32::try_from(process(state).end_all_sessions(&user)).unwrap_or(u32::MAX)
+async fn op_k_session_delete(
+    state: Rc<RefCell<OpState>>,
+    #[string] id: String,
+) -> Result<(), JsErrorBox> {
+    process_of(&state)
+        .session_delete(&id)
+        .await
+        .map_err(|e| JsErrorBox::generic(format!("sessions: {e}")))
 }
 
-#[op2(fast)]
-fn op_k_rate_limit(state: &mut OpState, #[string] key: &str, limit: u32, window_ms: f64) -> u32 {
+/// Deletes every session of a user; returns how many.
+#[op2]
+async fn op_k_session_end_all(
+    state: Rc<RefCell<OpState>>,
+    #[serde] user: serde_json::Value,
+) -> Result<u32, JsErrorBox> {
+    let n = process_of(&state)
+        .session_end_all(&user)
+        .await
+        .map_err(|e| JsErrorBox::generic(format!("sessions: {e}")))?;
+    Ok(u32::try_from(n).unwrap_or(u32::MAX))
+}
+
+/// Binds a fresh OAuth state to a session; `null` without the session.
+#[op2]
+#[serde]
+async fn op_k_session_issue_state(
+    state: Rc<RefCell<OpState>>,
+    #[string] id: String,
+) -> Result<serde_json::Value, JsErrorBox> {
+    Ok(process_of(&state)
+        .session_issue_state(&id)
+        .await
+        .map_err(|e| JsErrorBox::generic(format!("sessions: {e}")))?
+        .map_or(serde_json::Value::Null, serde_json::Value::String))
+}
+
+/// Takes a session's OAuth state: `true` once for the state it holds.
+#[op2]
+async fn op_k_session_consume_state(
+    state: Rc<RefCell<OpState>>,
+    #[string] id: String,
+    #[string] oauth_state: String,
+) -> Result<bool, JsErrorBox> {
+    process_of(&state)
+        .session_consume_state(&id, &oauth_state)
+        .await
+        .map_err(|e| JsErrorBox::generic(format!("sessions: {e}")))
+}
+
+/// Counts one call against a rate-limit key: `0` if allowed, else the
+/// seconds to wait.
+#[op2]
+async fn op_k_rate_limit(
+    state: Rc<RefCell<OpState>>,
+    #[string] key: String,
+    limit: u32,
+    window_ms: f64,
+) -> Result<u32, JsErrorBox> {
     let window = if window_ms.is_finite() && window_ms > 0.0 {
         std::time::Duration::from_secs_f64(window_ms / 1000.0)
     } else {
         std::time::Duration::ZERO
     };
-    u32::try_from(process(state).rate_limit(key, limit, window)).unwrap_or(u32::MAX)
+    let wait = process_of(&state)
+        .rate_hit(&key, limit, window)
+        .await
+        .map_err(|e| JsErrorBox::generic(format!("rate limits: {e}")))?;
+    Ok(u32::try_from(wait).unwrap_or(u32::MAX))
 }
 
 #[op2]
@@ -657,6 +752,151 @@ async fn op_k_db_ping(state: Rc<RefCell<OpState>>, timeout_ms: f64) -> bool {
     db.ping(timeout).await
 }
 
+/// HMAC (RFC 2104) of `message` under `key` with SHA-256 (`bits` 256) or
+/// SHA-512 (512), for `k.crypto.Hmac`.
+#[must_use]
+pub fn hmac(bits: u32, key: &[u8], message: &[u8]) -> Vec<u8> {
+    use sha2::Digest;
+    fn mac<D: Digest>(block: usize, key: &[u8], message: &[u8]) -> Vec<u8> {
+        let mut k = if key.len() > block {
+            D::digest(key).to_vec()
+        } else {
+            key.to_vec()
+        };
+        k.resize(block, 0);
+        let inner_key: Vec<u8> = k.iter().map(|b| b ^ 0x36).collect();
+        let outer_key: Vec<u8> = k.iter().map(|b| b ^ 0x5c).collect();
+        let mut inner = D::new();
+        inner.update(&inner_key);
+        inner.update(message);
+        let mut outer = D::new();
+        outer.update(&outer_key);
+        outer.update(inner.finalize());
+        outer.finalize().to_vec()
+    }
+    if bits == 512 {
+        mac::<sha2::Sha512>(128, key, message)
+    } else {
+        mac::<sha2::Sha256>(64, key, message)
+    }
+}
+
+/// `Hmac.sha256` / `Hmac.sha512`: the MAC bytes.
+#[op2]
+#[buffer]
+fn op_k_hmac(bits: u32, #[buffer] key: &[u8], #[buffer] message: &[u8]) -> Vec<u8> {
+    hmac(bits, key, message)
+}
+
+/// Stores a background job (`DatabaseJobQueue.enqueue`) in transaction
+/// `tx` (0: on its own), due after `delay_ms`; returns its id.
+#[op2]
+#[string]
+async fn op_k_jobs_enqueue(
+    state: Rc<RefCell<OpState>>,
+    #[string] name: String,
+    #[string] payload: String,
+    delay_ms: f64,
+    tx: u32,
+) -> Result<String, JsErrorBox> {
+    let db = database(&state)?;
+    let id = crate::jobs::job_id().map_err(JsErrorBox::generic)?;
+    let now = crate::jobs::now_ms();
+    #[allow(clippy::cast_possible_truncation)]
+    let delay = if delay_ms.is_finite() && delay_ms > 0.0 {
+        delay_ms.min(1e15) as i64
+    } else {
+        0
+    };
+    db.enqueue_job(id, &name, payload, now.saturating_add(delay), now, tx)
+        .await
+        .map_err(|e| db_error(&e))
+}
+
+// ------------------------------------------------------------- outbound
+
+/// An outcome of `op_k_fetch` for JavaScript: the body as a buffer.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum JsFetchOutcome {
+    Response {
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: ToJsBuffer,
+    },
+    Offline {
+        message: String,
+    },
+    Timeout,
+    Invalid {
+        message: String,
+    },
+    /// `op_k_fetch_abort` was called for the request.
+    Aborted,
+}
+
+/// Sends an HTTP request for `FetchHttpClient` (`crate::outbound::fetch`).
+/// `id` names it for `op_k_fetch_abort`; `body` is sent when `has_body`.
+#[op2]
+#[serde]
+async fn op_k_fetch(
+    state: Rc<RefCell<OpState>>,
+    id: u32,
+    #[serde] request: crate::outbound::FetchRequest,
+    #[buffer(copy)] body: Vec<u8>,
+    has_body: bool,
+) -> JsFetchOutcome {
+    let abort = Rc::new(tokio::sync::Notify::new());
+    let s = shared(&state.borrow());
+    s.borrow_mut().fetches.insert(id, Rc::clone(&abort));
+    let mut request = request;
+    request.body = has_body.then_some(body);
+    let outcome = tokio::select! {
+        o = crate::outbound::fetch(request) => Some(o),
+        () = abort.notified() => None,
+    };
+    s.borrow_mut().fetches.remove(&id);
+    match outcome {
+        None => JsFetchOutcome::Aborted,
+        Some(crate::outbound::FetchOutcome::Response {
+            status,
+            headers,
+            body,
+        }) => JsFetchOutcome::Response {
+            status,
+            headers,
+            body: body.into(),
+        },
+        Some(crate::outbound::FetchOutcome::Offline { message }) => {
+            JsFetchOutcome::Offline { message }
+        }
+        Some(crate::outbound::FetchOutcome::Timeout) => JsFetchOutcome::Timeout,
+        Some(crate::outbound::FetchOutcome::Invalid { message }) => {
+            JsFetchOutcome::Invalid { message }
+        }
+    }
+}
+
+/// Aborts request `id` of `op_k_fetch` (its signal was aborted); nothing
+/// for a finished or unknown one.
+#[op2(fast)]
+fn op_k_fetch_abort(state: &mut OpState, id: u32) {
+    if let Some(n) = shared(state).borrow_mut().fetches.remove(&id) {
+        n.notify_one();
+    }
+}
+
+/// Sends an email over SMTP for `SmtpEmailProvider`
+/// (`crate::outbound::send_mail`).
+#[op2]
+#[serde]
+async fn op_k_smtp_send(
+    #[serde] settings: crate::outbound::SmtpSettings,
+    #[serde] message: crate::outbound::MailMessage,
+) -> crate::outbound::MailOutcome {
+    crate::outbound::send_mail(settings, message).await
+}
+
 deno_core::extension!(
     k_engine,
     ops = [
@@ -677,6 +917,8 @@ deno_core::extension!(
         op_k_session_create,
         op_k_session_delete,
         op_k_session_end_all,
+        op_k_session_issue_state,
+        op_k_session_consume_state,
         op_k_rate_limit,
         op_k_shared_get,
         op_k_shared_set,
@@ -690,10 +932,44 @@ deno_core::extension!(
         op_k_db_finish,
         op_k_db_savepoint,
         op_k_db_ping,
+        op_k_jobs_enqueue,
+        op_k_hmac,
+        op_k_fetch,
+        op_k_fetch_abort,
+        op_k_smtp_send,
     ],
 );
 
 /// Puts the shared state into a runtime's `OpState`.
 pub fn install(state: &mut OpState, shared: Shared) {
     state.put(shared);
+}
+
+#[cfg(test)]
+mod tests {
+    fn hex(b: &[u8]) -> String {
+        b.iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    #[test]
+    fn hmac_matches_the_rfc_4231_vectors() {
+        // Test case 2: key "Jefe", "what do ya want for nothing?".
+        assert_eq!(
+            hex(&super::hmac(256, b"Jefe", b"what do ya want for nothing?")),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+        assert_eq!(
+            hex(&super::hmac(512, b"Jefe", b"what do ya want for nothing?")),
+            "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737"
+        );
+        // Test case 6: a key longer than the block is hashed first.
+        assert_eq!(
+            hex(&super::hmac(
+                256,
+                &[0xaa; 131],
+                b"Test Using Larger Than Block-Size Key - Hash Key First"
+            )),
+            "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"
+        );
+    }
 }

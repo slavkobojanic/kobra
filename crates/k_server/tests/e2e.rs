@@ -14,6 +14,26 @@
 //!   `assets/`), which test the HTTP front and the worker loop without the
 //!   code generator.
 //!
+//! A K project may have a `fakes.toml`, which starts fake third parties
+//! for its run (`k_server::fakes`) and substitutes their addresses into
+//! its `.env`: `{fake.http}` (the fake HTTP API's origin) and
+//! `{fake.smtp.port}` (the fake SMTP server's port):
+//!
+//! ```toml
+//! [http]
+//! routes = [
+//!     { method = "GET", path = "/v1/forecast", body = '{"t": 21.5}', content_type = "application/json" },
+//!     { method = "GET", path = "/v1/slow", body = "late", delay_ms = 3000 },
+//! ]
+//!
+//! [smtp]
+//! behavior = "accept"   # or "reject" (550) or "defer" (451)
+//! ```
+//!
+//! The project's K code reads what a fake received through its
+//! `HttpClient` (`GET {fake.http}/_fake/requests` and `/_fake/mail`), so
+//! its script can assert it.
+//!
 //! * **Database corpus cases** in `tests/corpus/db/<name>/`: K projects
 //!   like the e2e ones, whose `.env` sets `DATABASE_URL=sqlite::memory:`;
 //!   the server opens and migrates a fresh database for each run.
@@ -139,7 +159,10 @@ fn collect(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) -> Res
             .map_err(|e| e.to_string())?
             .to_string_lossy()
             .replace('\\', "/");
-        if relative == "requests.http" || relative.starts_with("expected.") {
+        if relative == "requests.http"
+            || relative == "fakes.toml"
+            || relative.starts_with("expected.")
+        {
             continue;
         }
         let project_path = ProjectPath::new(&relative).map_err(|e| format!("{relative}: {e}"))?;
@@ -239,7 +262,8 @@ fn run_project_on(dir: &Path, database_url: Option<String>) -> Result<(), String
     // The development environment `k run` gives the app: `.env` at the
     // project root (and nothing from the test runner's environment), and
     // the endpoint pages that never see cookies.
-    o.config = dev_config(dir, &generated.manifest)?;
+    let fakes = start_fakes(dir)?;
+    o.config = dev_config_with(dir, &generated.manifest, &fakes)?;
     if let Some(url) = database_url {
         o.config.insert(
             "DATABASE_URL".to_owned(),
@@ -256,13 +280,121 @@ fn run_project_on(dir: &Path, database_url: Option<String>) -> Result<(), String
     // `DATABASE_URL` from `.env` (`sqlite::memory:` in the db corpus): a
     // fresh database per case, migrated before the first request.
     o.database = k_server::db::DatabaseSetup::from_config(generated.database.clone(), &o.config);
+    // The jobs worker, polling often so scripts wait little.
+    o.jobs = generated.manifest.jobs.clone();
+    o.job_poll = Duration::from_millis(20);
     serve_and_run(o, &script)
 }
 
-/// Resolves the manifest's configuration from the project's `.env`.
-fn dev_config(
+/// The fakes a project's `fakes.toml` asks for, kept alive for its run.
+#[derive(Default)]
+struct Fakes {
+    _http: Option<k_server::fakes::FakeHttp>,
+    _smtp: Option<k_server::fakes::FakeSmtp>,
+    /// `{fake.http}` and `{fake.smtp.port}` and their values.
+    placeholders: Vec<(String, String)>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FakesFile {
+    http: Option<FakeHttpFile>,
+    smtp: Option<FakeSmtpFile>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FakeHttpFile {
+    #[serde(default)]
+    routes: Vec<FakeRouteFile>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FakeRouteFile {
+    method: String,
+    path: String,
+    #[serde(default = "ok")]
+    status: u16,
+    #[serde(default)]
+    body: String,
+    content_type: Option<String>,
+    #[serde(default)]
+    delay_ms: u64,
+}
+
+fn ok() -> u16 {
+    200
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FakeSmtpFile {
+    #[serde(default)]
+    behavior: Option<String>,
+}
+
+/// Starts the fakes of `dir/fakes.toml`, if there is one.
+fn start_fakes(dir: &Path) -> Result<Fakes, String> {
+    use k_server::fakes::{FakeHttp, FakeRoute, FakeSmtp, SmtpBehavior};
+    let Ok(text) = fs::read_to_string(dir.join("fakes.toml")) else {
+        return Ok(Fakes::default());
+    };
+    let file: FakesFile = toml::from_str(&text).map_err(|e| format!("fakes.toml: {e}"))?;
+    let mut fakes = Fakes::default();
+    let smtp = match file.smtp {
+        Some(s) => {
+            let smtp = FakeSmtp::start().map_err(|e| e.to_string())?;
+            smtp.set_behavior(match s.behavior.as_deref() {
+                None | Some("accept") => SmtpBehavior::Accept,
+                Some("reject") => SmtpBehavior::Reject("5.1.1 Recipient rejected".into()),
+                Some("defer") => SmtpBehavior::Defer("4.3.0 Try again later".into()),
+                Some(other) => return Err(format!("fakes.toml: unknown smtp behavior `{other}`")),
+            });
+            fakes
+                .placeholders
+                .push(("{fake.smtp.port}".into(), smtp.port().to_string()));
+            Some(smtp)
+        }
+        None => None,
+    };
+    if file.http.is_some() || smtp.is_some() {
+        let routes = file
+            .http
+            .map(|h| h.routes)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| FakeRoute {
+                method: r.method.to_uppercase(),
+                path: r.path,
+                status: r.status,
+                headers: r
+                    .content_type
+                    .map(|t| vec![("content-type".to_owned(), t)])
+                    .unwrap_or_default(),
+                body: r.body.into_bytes(),
+                delay: Duration::from_millis(r.delay_ms),
+            })
+            .collect();
+        let mut http = FakeHttp::start(routes).map_err(|e| e.to_string())?;
+        if let Some(s) = &smtp {
+            http = http.with_mail(s);
+        }
+        fakes
+            .placeholders
+            .push(("{fake.http}".into(), http.origin()));
+        fakes._http = Some(http);
+    }
+    fakes._smtp = smtp;
+    Ok(fakes)
+}
+
+/// Resolves the manifest's configuration from the project's `.env`, with
+/// the fakes' addresses substituted into it.
+fn dev_config_with(
     dir: &Path,
     manifest: &k_codegen::Manifest,
+    fakes: &Fakes,
 ) -> Result<std::collections::BTreeMap<String, k_server::config::ConfigValue>, String> {
     let fields: Vec<k_server::config::ConfigField> = manifest
         .config
@@ -280,7 +412,12 @@ fn dev_config(
             )
         })
         .collect();
-    let env = k_server::config::DevEnvironment::load(dir, false);
+    let mut env = k_server::config::DevEnvironment::load(dir, false);
+    for value in env.dotenv.values_mut() {
+        for (placeholder, actual) in &fakes.placeholders {
+            *value = value.replace(placeholder.as_str(), actual);
+        }
+    }
     k_server::config::resolve(&fields, &env).map_err(|p| k_server::config::report(&p))
 }
 

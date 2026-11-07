@@ -40,14 +40,19 @@ the client/server split (§10–§17) are lowered (round 1a), and so are the ser
 containers, the typed route table and redirects, the rpc dispatch table with codecs, validation and
 guards, the endpoint table with request binding, metadata, `failed` blocks on the server, configs read
 from startup values, and the manifest's endpoint and config tables. Every case of `tests/corpus/run`,
-`tests/corpus/codegen` and `tests/e2e` passes. Source maps (§18) are still open.
+`tests/corpus/codegen` and `tests/e2e` passes. The browser's DI containers (§13) are lowered too, and the
+four example apps run in the browser tests ([testing.md §4.3](testing.md#43-browser-tests)): server-
+rendered, hydrated without a mismatch, and driven through their main interactions. The server binds the
+stdlib's platform services to their server bodies (§13.2), background jobs get their kinds, spec table
+and manifest entries (§13.3), and in-process rpc calls run their guards and validation (§15). Source
+maps (§18) are still open.
 
 **Inputs:** lowering reads the checked program through `Analysis::program()` (the program view),
 `type_info_at` and `resolve_at` ([sema.md §2](sema.md#2-public-api)) and walks the syntax trees of
 `Analysis::parse`; it has no second checker. Module layout (`crates/k_codegen/src/`): `js.rs` the JS IR
 and printer, `cx.rs` the context (builtins, names, types), `lower.rs` bodies, `native.rs` stdlib calls,
 `decl.rs` declarations, `codec.rs` codecs, `ui.rs` components and services, `view.rs` views, `css.rs`
-styles, `app.rs` pages, routes, loads, forms and rpc, `db.rs` entities, repositories, queries and
+styles, `app.rs` pages, routes, loads, forms and rpc, `server.rs` the server entry, `jobs.rs` background jobs, `db.rs` entities, repositories, queries and
 migrations ([db.md](db.md)), `bundle.rs` files.
 
 **Decisions taken while implementing** (each reflected in its section): struct and enum values become
@@ -220,7 +225,8 @@ used by RPC, `@Load` serialization, jobs, `Json`, local storage and the executio
 
 ### 6.1 Operators
 
-- Arithmetic as in §5; `String + String` is `+`; `List + List` is `[...a, ...b]`.
+- Arithmetic as in §5; `String + String` is `+`; `List + List` is `[...a, ...b]`; `Bytes + Bytes` is
+  `new Uint8Array([...a, ...b])`.
 - `==`/`!=`: `===` for primitives and payload-free enums; `$k.equals(a, b)` (structural) for everything
   else that is `Equatable`; generated `T$equals` for types with custom equality (`Money`).
 - `<`, `<=`, …: native for numbers and strings (strings compare by UTF-16 code units, matching
@@ -287,6 +293,14 @@ or inlined when the JS equivalent has the same semantics: `filter`, `map`, `cont
 `count`. `sortedBy` is a stable copy sort (`[...xs].sort(byKey)`, stable in ES2019+); `sum()` on
 `List<Int>` folds with `checkInt` in development builds; `sum(in:_:)` uses `Money` arithmetic. Repository
 collections are not arrays: their calls are SQL ([db.md](db.md)).
+
+- **Builder structs** (`@Builder`, such as `HttpRequest`): a chained optional field is a copy with the
+  field set, `HttpRequest(HttpMethod.get, url).query(q)` → `{ ...HttpRequest(HttpMethod.get, url), query: q }`.
+- **Shorthand `if let name`** binds the visible local `name`, else the declaration's member `name`
+  (`if let region` in a method of a struct with a `region` field reads `self.region`).
+- **Values of stdlib interfaces** (`Error`, `Codable`) are passed as they are: only project interfaces
+  have adapter classes ([§9](#9-generics-interfaces-and-witnesses)).
+- **`Router.navigate(url:)`** navigates to the URL's text; `Router.navigate(to:)` to `Page$href(page)`.
 
 ---
 
@@ -400,7 +414,19 @@ export function Counter(props, ctx) {
 - Each component instance runs inside `$k.scope`, so unmounting disposes its effects, loads and handlers
   ([runtime.md §3.5](runtime.md#35-owners-scopes-and-cleanup)).
 - Handlers are wrapped by `$k.on`, which batches; async handlers get a `$c` that is aborted when the
-  component unmounts.
+  component unmounts. An async function of the component used as a value (`form.handle(buy)`, a
+  closure) is `(...a) => buy($life, ...a)`, so it takes the arguments of its K function type alone.
+- **A method value keeps its receiver**: `todos.clearCompleted` used as a handler is
+  `todos.clearCompleted.bind(todos)` (an arrow over a receiver that isn't a plain path).
+- **`@Load` and the members that read it.** On the server, `@Derived` values are computed after the
+  awaited loads (they may read them); on the client, an `@Effect` of a declaration with loads returns
+  while `$loads.values()` is `null` (it reads them, so it runs again once they arrive); `reload()` is the
+  group's `$loads.reload()` anywhere in the declaration, closures and timers included, unless the
+  declaration has a `func reload` of its own. The client decodes the hydrated values with their codecs
+  (`(($v) => $v && { product: ProductSummary$codec.decode($v.product, "product") })($k.loadsOf(ctx))`),
+  mirroring the server's `encode`.
+- **Service `init()`** (`MemberKind::Init`) becomes the class's `init` method, called at the end of the
+  constructor, except for client-only services ([§13](#13-services-and-dependency-injection)).
 - **The stdlib's `@Native` components** have no generated body; the view lowers them in place:
   `Stack` is a flex `div` (`axis` and a `gap` token such as `.md`, read at compile time), `Grid` a grid
   `div` with an integer `columns` literal (default 2), `Spacer` a `flex: 1 1 auto` `div` hidden from
@@ -452,6 +478,16 @@ printed as property chains; a path longer than four steps gets a cached intermed
   chunk concatenates many declarations' preludes.
 - **Keyed rows** read their item through the item signal at each use (`entry$()`), so every binding of a
   row tracks its item and a new item under the same key re-renders the row in place.
+- **Labeled controls** (`.label("Quantity")`): the `<label>` precedes the control. At the root of a view
+  it is its own template created before the control's; nested in a template it is part of it (a `Label`
+  part), and both get one `uid()` (`for` and `id`), in document order like the server's `out.uid()`.
+- **Control values.** `bind place` is two-way through the place (a path store's binding pair for
+  `@State` structs); a `@Form` field (`bind order.quantity`) is wired by the form,
+  `order.field("quantity").attach(input)`, which syncs the value and shows the field's error under the
+  input (runtime.md §9); a `Binding` value (`isChecked: Binding(get:set:)`) is read with `get()` and
+  written with `set(_:)`; a plain `isChecked:` value sets `checked` one way.
+- **`match` guards** (`case .loaded(let places) where places.isEmpty`) are part of the arm's test, with
+  the arm's bindings read straight from the scrutinee.
 
 ### 11.2 SSR emission
 
@@ -473,7 +509,9 @@ export function Counter$ssr(props, ctx, out) {
   goes through `out.text` or `out.attribute`**, which escape ([runtime.md §11](runtime.md#11-ssr)). There
   is no raw-HTML construct in K, so no other path exists.
 - Blocks emit `OPEN` and `CLOSE` markers around their content; adjacent dynamic texts emit `SEPARATOR`;
-  dynamic attributes are emitted inline with the static ones.
+  dynamic attributes are emitted inline with the static ones. A declaration with `@Load` frames the view
+  (or its `failed` block) it rendered with `OPEN`/`CLOSE`, the range of the client's branch over the
+  load group's state.
 - Each component instance has a **hydration key**, its path in the instance tree (`0.2.1`), under which its
   serialized state (load results, form values) is stored in `k-data`.
 - Label ids come from `out.uid()`, a counter per request shared by a page's and its layouts' buffers
@@ -551,44 +589,81 @@ generated code is plain construction.
   `$process`, `Session`/`SessionManager` from the request state, `Database` (`$s.database()`, one per
   request, so its transaction binds the request's repository calls), `Clock` (`$s.clock()`), every
   repository (`new R({ Database: this.Database, …injected })`), and for each protocol with an
-  implementation an in-process client `P$local` whose methods call the implementation in the same
-  container). Pages, layouts and components read `ctx.c.X`; endpoint handlers `$e.c.X`.
+  implementation an in-process client `P$local` whose methods go through the rpc table,
+  `m($c, ...a) { return $s.callLocal(this.c, $spec.rpcs["/pkg.P/M"], $c, a); }`, so the rpc's
+  validation and guards run before the implementation in the same container
+  ([§15](#15-rpc-client-stubs-and-server-dispatch))). Pages, layouts and components read `ctx.c.X`;
+  endpoint handlers `$e.c.X`.
   Every other injected type gets a getter too: an **interface** delegates to its implementation's
   getter, chosen by the app's first `use … for … in` rule that names the selected environment (a rule
   without `in` applies to all), else the single non-test project service implementing it;
+  else the stdlib's implementation ([§13.2](#132-platform-services-on-the-server));
   **`k.server.PublicUrls`** is `$s.publicUrls(Page$href)` (the public origin plus the page's path;
-  `absolute(endpoint:)` panics in v0); anything else, a stdlib service the v0 server doesn't provide
-  (`k.server.JobQueue`, `k.server.EmailProvider`, `k.http.HttpClient`), is `$s.missingNative(name)`, so
-  injecting it works and calling it panics with its name (`tests/e2e/interface-bindings`).
-- **The browser has no container yet (open).** Generated client code reads `ctx.c.X` exactly as on the
-  server, but `startRouter` and `hydrate` pass no `c`, and the client runtime has no `Clock`, `Theme`,
-  `LocalStorage` or `HttpClient` bodies, so a page that injects anything throws a `TypeError` when it
-  renders in the browser (server rendering is unaffected). The design below is what it must implement.
-- **Containers per scope (design).** For each scope the generator emits a container class with one memoized
-  factory per service of that scope, resolving dependencies through the parent chain
-  (`server` ← `app`/`request` ← `route` ← `component`):
+  `absolute(endpoint:)` panics in v0); anything else, a stdlib service the v0 server doesn't provide,
+  is `$s.missingNative(name)`, so injecting it works and calling it panics with its name
+  (`tests/e2e/interface-bindings`).
+- **In the browser (implemented)** the client entry (`app.[hash].js`, `app::client_containers`) emits
+  `$App`, one per app, and, only when the app has `@Scope(.route)` services, `$Route extends $App`, one
+  per mounted page. The router calls `options.c()` for every page it mounts and passes the result as
+  `ctx.c` (hydration included), so generated code reads `ctx.c.X` exactly as on the server:
 
   ```js
-  class $Request {                                  // one per request on the server
-    constructor(parent, request) { this.$p = parent; this.$r = request; }
-    get CartService() { return this.$cart ??= new CartService({ CartProtocol: this.CartProtocol }); }
-    get CartProtocol() { return this.$api ??= $rpc.inProcess.CartProtocol(this); }  // SSR: no HTTP
+  import { CartService, CartProtocol$client, StorageReadError, StorageWriteError } from "./shared.[hash].js";
+  class $App {
+    constructor(d) { this.$a = this; this.$d = d; }            // d: the k-data payload, null when client-rendered
+    get CartService() { return this.$a.$CartService ??= new CartService({ CartProtocol: this.$a.CartProtocol }); }
+    get CartProtocol() { return this.$a.$CartProtocol ??= new CartProtocol$client(); }
+    get LocalStorage() { return this.$a.BrowserStorage; }       // the stdlib default of the interface
+    get BrowserStorage() { return this.$a.$BrowserStorage ??= $k.browserStorage(StorageReadError, StorageWriteError); }
+    get Clock() { return this.$a.$Clock ??= $k.clock(this.$a.$d); }
+    get Draft() { return new Draft({ Serials: this.Serials }); } // @Scope(.component): new on every read
   }
+  class $Route extends $App {                                    // only with @Scope(.route) services
+    constructor(a) { super(a.$d); this.$a = a; }
+    get Visit() { return this.$Visit ??= new Visit({ Serials: this.Serials }); }
+  }
+  const data = $k.readData(document);                            // `null` under @Rendering(.client)
+  const app = new $App(data);
+  $k.startRouter(routes, container, { c: () => new $Route(app), data });  // `c: () => app` without $Route
   ```
 
-  Only services reachable from the requesting declaration are instantiated, lazily, in dependency order;
-  the graph is acyclic, so a dependency's `init()` has finished first.
-- **Server vs client.** On the server, `.app` services live in the request container (one per request, so
-  state can't leak between users), `.server` services in the process container. In the browser, `.app`
-  services live for the app, `.route` services per mounted route, `.component` services per injecting
-  subtree (a child container in `ctx`).
-- **Interfaces** are bound by the `use … for … in` rules of the selected environment; a protocol is bound to
-  the generated RPC client in the browser and to the in-process dispatcher during SSR
-  ([§15](#15-rpc-client-stubs-and-server-dispatch)).
+  - **Scopes.** Every `$App` getter memoizes on `this.$a`, the app container, and resolves its
+    dependencies there, so an app service read through a `$Route` (or a provided container) is still the
+    app's one instance; a route service is memoized on its `$Route` and lives while its page is mounted;
+    a component-scoped getter constructs on every read, and **the component that injects it provides that
+    instance to its subtree**: `const draft = ctx.c.Draft; ctx = $k.provide(ctx, "Draft", draft);`
+    (`provide` wraps the container in a proxy answering that one name). The server's `$Request` does
+    the same for component-scoped services (an unmemoized getter plus `provide` in the SSR renderer).
+    Tested by `the_browser_container_scopes_services_per_app_route_and_component`
+    (`crates/k_server/tests/client_bundle.rs`).
+  - **What is bound.** Only what the client roots reach (`app::client_reach`): starting from the
+    `app`, its pages and layouts, the declarations their client items use, every `@Inject` dependency,
+    and for an injected interface the implementation bound for the selected environment. A service only
+    server code injects (`examples/shop`'s `LocalCheckout`, the development `PaymentGateway`, which
+    only `StoreApi` uses) or one nothing injects has no getter and is in no client file, even though
+    nothing marks it server-only (`codegen/split/client-holds-only-reachable-services`). Within that
+    set: every client service of the project; every protocol to its generated RPC client
+    `P$client` ([§15](#15-rpc-client-stubs-and-server-dispatch)); every interface that client code
+    injects to the app's `use … for … in` rule for the selected environment, else its single project
+    implementation, else the stdlib default (`LocalStorage` → `BrowserStorage`, `HttpClient` →
+    `FetchHttpClient`); the stdlib's services to their browser bodies in `services.js`
+    ([runtime.md §12](runtime.md#121-services-in-the-browser)): `Clock` → `$k.clock(data)`, `Theme` →
+    `$k.theme()`, `Session` → `$k.session(data)`, `BrowserStorage` → `$k.browserStorage(R, W)`,
+    `FetchHttpClient` → `$k.fetchHttpClient(HttpError, HttpStatus)` (the generated stdlib enums whose
+    cases they throw or return are passed in, so `catch .unreadable` compares the same singletons).
+    Anything else is `$k.native(name)`, which panics with its name when used.
+  - **Test-only modules** (`testing` directories, `DeclInfo::in_test_module`) are left out of both bundles
+    and of interface bindings outside `Environment::Test`, so a `testing/FakeHttpClient` never ships and
+    never becomes the "single implementation" of `HttpClient`.
+  - **Client-only `init()`.** A client-only service's constructor runs `init()` through
+    `$k.afterHydration(() => this.init())`: after the hydration pass when one is running (the first
+    paint matches the server's), at once otherwise; the server renderer never calls it. Other services
+    call `this.init()` at the end of the constructor on both sides.
 - **Configs** are values built at startup from the environment ([server.md §8](server.md#8-configuration-and-secrets));
   the process container holds them. They exist only on the server.
 - **Client-only services during SSR** exist with their declared initial state and their `init()` is not
-  called.
+  called. `Theme` is `$s.theme(st)` there: `current` is the variant the `k_theme` cookie remembers, or
+  `base`, and `apply` does nothing.
 - **Tests** (`Environment::Test`) build a fresh container per test with the test group's `use` rules.
 
 ### 13.1 Repositories and entities (implemented)
@@ -607,6 +682,50 @@ generated code is plain construction.
 - **`catch .field`** after a `try` of a repository write tests the `UniqueViolation` case's tag (the
   field's position among the entity's `@Unique` fields), since sema types `Entity.UniqueViolation` as an
   error type.
+
+### 13.2 Platform services on the server
+
+`server::bound_services` and `server::stdlib_default` (implemented; [server.md §18](server.md#18-outgoing-http-and-email)):
+
+| Injected | Production and development | `Environment::Test` |
+|---|---|---|
+| `k.http.HttpClient` (no project binding) | `FetchHttpClient` → `$s.fetchHttpClient(HttpError, HttpStatus, [codes])` | `TestHttpClient` → `$s.testHttpClient(…)` |
+| `k.server.EmailProvider` | `SmtpEmailProvider` → `$s.smtpEmailProvider(EmailError, $s.info().config)` | `RecordingEmailProvider` → `$s.recordingEmailProvider(EmailError)` |
+| `k.server.JobQueue` | `DatabaseJobQueue` → `$s.jobQueue(this.Database)` | `RecordingJobQueue` → `$s.recordingJobQueue()` |
+| `k.test.InlineJobQueue` (a `use` rule) | `$s.inlineJobQueue(this.$r.spec, this, this.Database)` | the same |
+
+- The interface's getter delegates to the implementation's (`get HttpClient() { return
+  this.FetchHttpClient; }`), so an app that also injects the implementation directly gets the same
+  instance; an implementation's getter memoizes per request container.
+- `[codes]` is `HttpStatus`'s codes in declaration order (`null` for `other`), from which the runtime
+  maps received statuses to cases; the same order is `HTTP_CODES` in `std.js` (a codegen test keeps
+  them equal), which `status.code` (`$k.httpCode`) and `isSuccess`/`isClientError`/`isServerError`
+  (inline comparisons of it) read.
+- The stdlib enums these receive (`HttpError`, `HttpStatus`, `EmailError`) are roots of the server
+  bundle's stdlib pass, so they are generated even when no project code names them.
+- **Configuration**: `SmtpConfig` is added to the manifest only when a reachable declaration injects
+  `SmtpEmailProvider`, or `EmailProvider` bound to it; the stdlib's enum-typed config fields carry their
+  cases (`SMTP_SECURITY`: `startTls`, `tls`, `none`).
+- **Property or method**: a read of a member name that is both a property and a method of a type
+  (`HttpResponse.body`, the received text, and `body(_:)`, the builder step) is the property; only a
+  call is the method.
+
+### 13.3 Background jobs
+
+`jobs.rs` (implemented; [server.md §11](server.md#11-background-jobs)). For every non-test service
+implementing `k.server.Job<Payload>`:
+
+- **Name**: `@JobName("…")`; else the `[jobs.<name>]` table of `storage.lock` whose `declaration` is the
+  service's qualified name (so a renamed service keeps its queued rows); else the service name in kebab
+  case.
+- **`kind`**: after the class, `Job.kind = Object.freeze({ name: "…" });` (`JobQueue.enqueue` reads
+  `kind.name`; the payload's codec is passed before it, as for any `Codable` generic).
+- **Spec table**: the server spec's `jobs` maps each name to `{ run: (c, $c, j) =>
+  c.Job.run($c, Payload$codec.decode(j, "payload")) }` (`Void` payloads pass nothing).
+- **Manifest**: `Manifest::jobs`, a `k_db::stdlib::JobSpec` per job: name, declaration, `@Retry(attempts:
+  backoff:)` (default 5 attempts, 10 s; durations such as `30.seconds`, `500.milliseconds`) and
+  `@Schedule` (`.every(1.hour)`, `.daily(at: TimeOfDay("03:00"))`, `.weekly(on: .monday, at: …)`).
+- `JobConfig` (`K_JOB_CONCURRENCY`) is in the manifest when the program has a job.
 
 ---
 
@@ -632,7 +751,9 @@ generated code is plain construction.
 - **The route table** is one array of `{ page, segments, load }` sorted by specificity (static segments
   before parameters, longer before shorter, then by name), shared by the client router and the server, so
   both resolve every URL identically. `load` imports the page's chunk on the client and is a direct
-  reference on the server.
+  reference on the server. On the client its `render(params, ctx)` renders the page inside its layouts,
+  outermost first, as the server does: `Storefront({ content: () => Home(props, { ...ctx, key: "0" }) },
+  { ...ctx, key: "L0" })`, so a server-rendered document hydrates as a whole.
 - **Redirects** recorded in `routes.lock` for renamed pages become `308 Permanent Redirect` entries on the
   server (implemented: `redirect "/old/{id}" -> page` lines; the old template is parsed with the new
   page's parameters, so the redirect keeps them and the query) and `history.replaceState` on the client
@@ -672,7 +793,7 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
   `unauthenticated`/`permission_denied`/`resource_exhausted` → `rpcFailure(.rejected(…))`; `offline` and
   `timeout` → the network cases; `internal`, `unimplemented`, an undecodable body → a panic (a server bug,
   not a domain outcome).
-- **Server dispatch.** One table `{ path → { guards, decode, validate, call, encode, error, stream } }` in
+- **Server dispatch.** One table `{ path → { guards, decode, validate, call, encode, error, failure, stream } }` in
   the server entry: `decode(j)` reads each parameter's internal name with its codec, `async validate(a, c,
   $c)` calls a generated `async X$check(value, path, failures, c, $c)` for every `Validatable` value in a
   parameter (the parameter itself, inside optionals, and each element of a list or set under
@@ -682,14 +803,18 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
   `c.Service.f($c, value)` in the request container), the first failure per field, then `X$validate` with
   a `rules` collecting `{path, message}`, `call(c, $c, a)` the implementation in the
   request container, `encode` the result (a struct is the message; anything else `{value}`; none `{}`),
-  `error` `{ name: "package.module.Error", text: E$text, fields }` for the declared error. The client stub
+  `error` `{ name: "package.module.Error", text: E$text, fields }` for the declared error, `failure`
+  `(f) => E.rpcFailure(f)` (an `RpcFailure` as the rpc's own error, for in-process calls; `null` without
+  an error enum). The client stub
   sends parameters under their internal names and reads the result the same way.
-- **In-process calls during SSR** use the same handler minus HTTP: the generated in-process client runs
-  decoding-free validation and guards, then calls the implementation in the current request container.
+- **In-process calls during SSR** use the same table minus HTTP: the generated `P$local` client calls
+  `$s.callLocal(c, entry, $c, args)`, which runs the entry's validation (no decoding: the arguments are
+  already values) and guards against the current request, then `call` in the same container; a
+  failure is `entry.failure(rpcFailure)` (implemented, `tests/e2e/in-process-rpc`;
+  [server.md §6](server.md#6-rpc-dispatch)).
 - `Stream<T>` server streaming: `stream: true` and an element encoder; the runtime sends Connect
   envelopes ([server.md §6](server.md#6-rpc-dispatch)). A `Broadcast` field of a `@Scope(.server)` service is
   a `$s.ServerBroadcast`, so a publish on any worker reaches every subscriber.
-- **In-process calls during SSR** go through `P$local` (v0: without re-checking the rpc's guards).
 
 ---
 
@@ -732,7 +857,13 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   graph `runtime ← shared ← pages ← app` has no cycle and every hash can cover the names it imports.
   Splitting modules used by one page into that page's chunk is *deferred*.
 - **Imports** between chunks use relative URLs with hashed names; the hash of a chunk covers its contents
-  *and* the names it imports, so changing a dependency renames its dependents.
+  *and* the names it imports, so changing a dependency renames its dependents. The entry imports the
+  services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
+- **Stdlib declarations** the client or server code references are emitted like project code when they
+  are non-native enums or structs (`HttpError`, `HttpStatus`, `HttpRequest`); a stdlib symbol that no item
+  defines (a `@Native` member without a generated body) is bound per chunk: `const StorageKey$init =
+  $k.native("k.storage.StorageKey$init")` in the client ([runtime.md §12.1](runtime.md#121-services-in-the-browser)),
+  `$s.natives[…] ?? $s.missingNative(…)` on the server.
 - **Entry HTML**: the server renders the shell; a static-only app gets a generated `index.html` that loads
   `runtime` and `app`.
 - **Printing**: development output is indented with 2 spaces, one statement per line; release output

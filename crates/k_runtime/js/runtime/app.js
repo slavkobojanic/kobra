@@ -30,6 +30,7 @@
 import { KPanic, isPanic, panic } from "./values.js";
 import { DecodeFailure, Instant, NO, Secret, parseEmail, parseQuery, parseUuid, route, routeParam, splitTarget, stringify, toJSON } from "./std.js";
 import { Out, escapeAttribute, escapeText, serializeData } from "./ssr.js";
+import { runJobBody } from "./outbound.js";
 
 const ops = globalThis.Deno?.core?.ops;
 
@@ -196,24 +197,39 @@ export class RequestState {
   }
 
   /**
-   * The signed-in user (`SessionUser`), or `null` for a guest. A cookie
-   * the server never issued, or one that expired or was revoked, is a
-   * guest.
+   * Loads the session of the request's cookie (`op_k_session_get`, from
+   * the database when the server has one). Called once before the request
+   * is handled; a cookie the server never issued, or one that expired or
+   * was revoked, is no session. A guest session (one created to bind OAuth
+   * state) keeps its id but has no user.
+   */
+  async load() {
+    if (this.loaded !== undefined) return;
+    if (!this.sessionId || !ops?.op_k_session_get) {
+      this.sessionId = null;
+      this.loaded = null;
+      return;
+    }
+    const row = await ops.op_k_session_get(this.sessionId);
+    if (row === null) {
+      this.sessionId = null;
+      this.loaded = null;
+    } else {
+      this.loaded = row.user === null ? null : { id: this.decodeUser(row.user), roles: new Set(row.roles.map((r) => this.decodeRole(r))) };
+    }
+  }
+
+  /**
+   * The signed-in user (`SessionUser`), or `null` for a guest, after
+   * {@link RequestState#load}.
    * @returns {{id: unknown, roles: Set<unknown>}|null}
    */
   user() {
-    if (this.loaded === undefined) {
-      this.loaded = null;
-      if (this.sessionId) {
-        const row = ops?.op_k_session_get?.(this.sessionId) ?? null;
-        if (row !== null) this.loaded = { id: this.decodeUser(row.user), roles: new Set(row.roles.map((r) => this.decodeRole(r))) };
-        else this.sessionId = null;
-      }
-    }
+    if (this.loaded === undefined) throw new KPanic(this.job ? "a background job has no session" : "the session was read before it was loaded");
     return this.loaded;
   }
 
-  /** The session's id when it is a live session, after loading. */
+  /** The session's id when it is a signed-in session, after loading. */
   liveSessionId() {
     return this.user() === null ? null : this.sessionId;
   }
@@ -306,12 +322,20 @@ export function clock() {
  * @param {RequestState} st
  */
 export function sessionManager(st) {
+  const signedOut = () => {
+    st.sessionId = null;
+    st.loaded = null;
+    st.setCookie = st.cookie("");
+    st.sessionChanged = true;
+  };
   return {
     async signIn(_c, userId, roles) {
+      // The current session (a guest's too) ends: a planted id is never
+      // adopted.
       const old = st.sessionId;
-      if (old) ops.op_k_session_delete(old);
+      if (old) await ops.op_k_session_delete(old);
       const list = roles ? [...roles] : [];
-      const id = ops.op_k_session_create(toJSON(userId), list.map((r) => st.encodeRole(r)));
+      const id = await ops.op_k_session_create(toJSON(userId), list.map((r) => st.encodeRole(r)));
       st.sessionId = id;
       st.loaded = { id: userId, roles: new Set(list) };
       st.setCookie = st.cookie(id);
@@ -319,27 +343,33 @@ export function sessionManager(st) {
     },
     async signOut(_c) {
       if (st.user() === null) return;
-      ops.op_k_session_delete(st.sessionId);
-      st.sessionId = null;
-      st.loaded = null;
-      st.setCookie = st.cookie("");
-      st.sessionChanged = true;
+      await ops.op_k_session_delete(st.sessionId);
+      signedOut();
     },
     async endAll(_c, userId) {
       const mine = st.user();
-      ops.op_k_session_end_all(toJSON(userId));
-      if (mine !== null && stringify(toJSON(mine.id)) === stringify(toJSON(userId))) {
-        st.sessionId = null;
-        st.loaded = null;
-        st.setCookie = st.cookie("");
-        st.sessionChanged = true;
-      }
+      await ops.op_k_session_end_all(toJSON(userId));
+      if (mine !== null && stringify(toJSON(mine.id)) === stringify(toJSON(userId))) signedOut();
     },
+    /**
+     * A fresh OAuth state bound to this browser's session; a visitor
+     * without one gets a guest session (and its cookie) to bind it to.
+     */
     async issueState(_c) {
-      return ops.op_k_random_token();
+      st.user();
+      if (!st.sessionId) {
+        st.sessionId = await ops.op_k_session_create(null, []);
+        st.setCookie = st.cookie(st.sessionId);
+      }
+      const state = await ops.op_k_session_issue_state(st.sessionId);
+      if (state === null) throw new KPanic("sessions: the session to bind the OAuth state to is gone");
+      return state;
     },
-    async consumeState(_c, _state) {
-      return false;
+    /** `true` once for the state last issued to this browser's session. */
+    async consumeState(_c, state) {
+      st.user();
+      if (!st.sessionId) return false;
+      return ops.op_k_session_consume_state(st.sessionId, String(state));
     },
   };
 }
@@ -355,7 +385,7 @@ export function sessionManager(st) {
  * @param {Array<Array<unknown>>} guards
  * @returns {{kind: "unauthenticated"|"forbidden"|"rate", retryAfter?: number}|null}
  */
-export function checkGuards(st, guards) {
+export async function checkGuards(st, guards) {
   for (const g of guards ?? []) {
     switch (g[0]) {
       case "auth":
@@ -370,7 +400,7 @@ export function checkGuards(st, guards) {
       case "rate": {
         const live = st.liveSessionId();
         const who = live ? `s:${live}` : `a:${st.clientAddress}`;
-        const wait = ops.op_k_rate_limit(`${g[1]}|${who}`, g[2], g[3]);
+        const wait = await ops.op_k_rate_limit(`${g[1]}|${who}`, g[2], g[3]);
         if (wait > 0) return { kind: "rate", retryAfter: wait };
         break;
       }
@@ -471,7 +501,7 @@ async function handleRpc(st, rpc) {
       ]);
     }
   }
-  const refused = checkGuards(st, rpc.guards);
+  const refused = await checkGuards(st, rpc.guards);
   if (refused !== null) return rpcRefusal(refused);
   let result;
   try {
@@ -486,6 +516,32 @@ async function handleRpc(st, rpc) {
   }
   if (rpc.stream) return { stream: result, encode: rpc.encode };
   return respond(200, JSON_TYPE, stringify(rpc.encode(result)));
+}
+
+/**
+ * An in-process call of an rpc during server rendering (or from any server
+ * code holding the protocol): its validation, then its guards, as over HTTP
+ * (28-rpc-wire-format.md, "Failures outside the handler"), then the
+ * implementation in the same container. A failure is the rpc's own error
+ * `rpcFailure(.invalid(ValidationError))` or `rpcFailure(.rejected(…))`,
+ * tagged like the browser's (rpc.js `rpcError`).
+ * @param {object} c the request container
+ * @param {object} rpc the spec's entry
+ * @param {AbortSignal|null} $c
+ * @param {unknown[]} args the decoded parameters
+ */
+export async function callLocal(c, rpc, $c, args) {
+  const st = c.$r;
+  const fail = (tag, payload) => {
+    throw rpc.failure ? rpc.failure({ $: tag, _0: payload }) : new KPanic("an rpc without an error enum failed outside its handler");
+  };
+  if (rpc.validate) {
+    const failures = await rpc.validate(args, c, $c);
+    if (failures.length) fail(1, { failures });
+  }
+  const refused = await checkGuards(st, rpc.guards);
+  if (refused !== null) fail(0, { $: ["unauthenticated", "forbidden", "rate"].indexOf(refused.kind), retryAfter: (refused.retryAfter ?? 0) * 1000 });
+  return rpc.call(c, $c, args);
 }
 
 /** The Connect error for a refused guard. */
@@ -749,7 +805,7 @@ async function handleEndpoint(st, ep, params) {
     const allow = Object.keys(ep.methods).flatMap((m) => (m === "GET" ? ["GET", "HEAD"] : [m]));
     return respond(405, TEXT, "method not allowed", [["allow", allow.join(", ")]]);
   }
-  const refused = checkGuards(st, ep.guards);
+  const refused = await checkGuards(st, ep.guards);
   if (refused !== null) return plainRefusal(st, refused);
   if (ep.session) st.sessionRead = true;
   const r = await handler({ params, c: st.c }, st.signal, incoming(st));
@@ -919,7 +975,7 @@ function statusPage(spec, status, text) {
  * the `@SignInPage` with `returnTo`), then the render.
  */
 async function handlePage(st, r, params) {
-  const refused = checkGuards(st, r.guards);
+  const refused = await checkGuards(st, r.guards);
   if (refused !== null) {
     if (refused.kind === "unauthenticated" && st.spec.signIn) {
       const location = st.spec.signIn(r.value(params));
@@ -949,8 +1005,10 @@ async function handlePage(st, r, params) {
  */
 export function createApp(spec) {
   return async (request) => {
+    if (request.job) return runJob(spec, request);
     const st = new RequestState(spec, request);
     try {
+      await st.load();
       return await dispatch(st);
     } catch (e) {
       logPanic(st, "a request", e);
@@ -958,6 +1016,38 @@ export function createApp(spec) {
       return finish(st, rpc ? connectError(500, "internal", "internal error") : statusPage(spec, 500, "Something went wrong"), rpc);
     }
   };
+}
+
+/**
+ * Runs a background job the jobs worker handed over (server.md §11): a
+ * fresh container with no session (`st.job`), the payload decoded by the
+ * spec's entry, and the outcome as the response body for the worker,
+ * `{"outcome": "done" | "retryable" | "permanent" | "panic", "reason"}`.
+ * A panic is logged with the job's name.
+ * @param {object} spec
+ * @param {object} request with `job: {name, attempt}` and the payload JSON as its body
+ */
+async function runJob(spec, request) {
+  const job = spec.jobs?.[request.job.name];
+  let outcome;
+  if (!job) {
+    outcome = { outcome: "permanent", reason: `the build has no job named ${request.job.name}` };
+  } else {
+    const st = new RequestState(spec, { ...request, headers: [], path: "/" });
+    st.job = true;
+    let payload;
+    try {
+      payload = JSON.parse(utf8(request.body));
+    } catch (e) {
+      payload = undefined;
+      outcome = { outcome: "permanent", reason: `the payload isn't JSON: ${String(e?.message ?? e)}` };
+    }
+    if (outcome === undefined) {
+      outcome = await runJobBody(job, st.c, st.signal, payload);
+      if (outcome.outcome === "panic") logPanic(st, `job ${request.job.name} (attempt ${request.job.attempt})`, new KPanic(outcome.reason));
+    }
+  }
+  return { status: 200, headers: [["content-type", JSON_TYPE]], body: JSON.stringify(outcome) };
 }
 
 async function dispatch(st) {
@@ -1129,6 +1219,83 @@ const password = {
 };
 
 /**
+ * `Hmac.sha256` / `Hmac.sha512` (33-crypto.md): the key is `Bytes` or a
+ * `Secret<String>` (its UTF-8 bytes, revealed only here); the MAC is
+ * `{bytes, hex}`, compared with {@link macMatches}.
+ * @param {number} bits 256 or 512
+ */
+function hmacOf(bits) {
+  return async (_c, key, message) => {
+    const k = key instanceof Secret ? new TextEncoder().encode(String(key.reveal())) : key instanceof Uint8Array ? key : Uint8Array.from(key ?? []);
+    const m = message instanceof Uint8Array ? message : Uint8Array.from(message ?? []);
+    const bytes = new Uint8Array(ops.op_k_hmac(bits, k, m));
+    return { bytes, hex: [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("") };
+  };
+}
+
+/**
+ * `Bytes.parse(hex:)`: an even number of hexadecimal digits in either
+ * case, else `nil`.
+ * @param {string} text
+ * @returns {Uint8Array|null}
+ */
+function bytesFromHex(text) {
+  const t = String(text);
+  if (t.length % 2 !== 0) return null;
+  const out = new Uint8Array(t.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    const pair = t.slice(2 * i, 2 * i + 2);
+    const n = Number.parseInt(pair, 16);
+    if (!Number.isInteger(n) || !HEX_PAIR.test(pair)) return null;
+    out[i] = n;
+  }
+  return out;
+}
+
+const HEX_PAIR = new RegExp("^[0-9a-fA-F]{2}$");
+
+/**
+ * `Bytes.parse(base64:)`: standard or URL-safe base64, padded or not,
+ * else `nil`.
+ * @param {string} text
+ * @returns {Uint8Array|null}
+ */
+function bytesFromBase64(text) {
+  let t = String(text).replaceAll("-", "+").replaceAll("_", "/");
+  while (t.endsWith("=")) t = t.slice(0, -1);
+  if (!BASE64.test(t) || t.length % 4 === 1) return null;
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const out = [];
+  let bits = 0;
+  let value = 0;
+  for (const ch of t) {
+    value = (value << 6) | alphabet.indexOf(ch);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push((value >> bits) & 0xff);
+    }
+  }
+  return Uint8Array.from(out);
+}
+
+const BASE64 = new RegExp("^[A-Za-z0-9+/]*$");
+
+/**
+ * `mac.matches(other)`: compares in time independent of where the bytes
+ * differ (33-crypto.md, "Comparing MACs").
+ * @param {{bytes: Uint8Array}} mac
+ * @param {Uint8Array} other
+ */
+function macMatches(mac, other) {
+  const a = mac.bytes;
+  if (!(other instanceof Uint8Array) || other.length !== a.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a[i] ^ other[i];
+  return d === 0;
+}
+
+/**
  * Server implementations of `@Native` stdlib members that have no
  * generated body, by `module.Owner$member` (the generated bundle falls
  * back to {@link missingNative}). A `Uuid` is its lowercase canonical text,
@@ -1136,12 +1303,33 @@ const password = {
  */
 export const natives = {
   "k.crypto.Password": password,
+  "k.crypto.Hmac": { sha256: hmacOf(256), sha512: hmacOf(512) },
+  "k.crypto.Mac$matches": macMatches,
+  "k.core.Bytes$parse$hex": bytesFromHex,
+  "k.core.Bytes$parse$base64": bytesFromBase64,
   "k.crypto.Uuid$random": randomUuid,
   "k.crypto.Uuid$init": (text) => parseUuid(String(text)) ?? panic(`not a UUID: ${JSON.stringify(text)}`),
   "k.crypto.Uuid$parse": (text) => parseUuid(String(text)),
   "k.text.EmailAddress$init": (text) => parseEmail(String(text)) ?? panic(`not an email address: ${JSON.stringify(text)}`),
   "k.text.EmailAddress$parse": (text) => parseEmail(String(text)),
 };
+
+/**
+ * The server's `k.ui.Theme` (07-themes-and-units.md, "During server
+ * rendering"): `current` is the variant the `k_theme` cookie remembers, or
+ * `base`; `apply` and `followSystem` do nothing on the server.
+ * @param {RequestState} st
+ * @returns {{current: string, apply: Function, followSystem: Function}}
+ */
+export function theme(st) {
+  let current = "base";
+  try {
+    current = decodeURIComponent(st.cookies.get("k_theme") ?? "base") || "base";
+  } catch {
+    // A malformed cookie is no choice.
+  }
+  return { current, apply() {}, followSystem() {} };
+}
 
 /**
  * The server's `k.server.PublicUrls` (12-routing.md, "Absolute URLs"):

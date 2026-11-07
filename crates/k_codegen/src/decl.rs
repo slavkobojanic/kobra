@@ -66,7 +66,13 @@ pub(crate) fn lower(g: &Gen<'_>, d: DeclId, target: Target) -> Option<Item> {
                 DeclarationKind::Enum => enum_decl(&mut b, d),
                 DeclarationKind::Class => class_decl(&mut b, d),
                 DeclarationKind::Interface => interface_decl(&mut b, d),
-                DeclarationKind::Service => crate::ui::service(&mut b, d),
+                DeclarationKind::Service => {
+                    let mut stmts = crate::ui::service(&mut b, d);
+                    if target == Target::Server {
+                        stmts.extend(crate::jobs::kind_stmt(g, d));
+                    }
+                    stmts
+                }
                 DeclarationKind::Component | DeclarationKind::Page | DeclarationKind::Layout => {
                     crate::ui::component(&mut b, d)
                 }

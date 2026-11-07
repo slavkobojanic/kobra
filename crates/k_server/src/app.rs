@@ -56,6 +56,10 @@ pub struct AppPayload {
     /// unique indexes (`docs/compiler/db.md` §6).
     #[serde(default)]
     pub database: Option<k_db::manifest::DbManifest>,
+    /// The background jobs (the build manifest's `jobs`), which the jobs
+    /// worker of `serve` runs.
+    #[serde(default)]
+    pub jobs: Vec<k_db::stdlib::JobSpec>,
 }
 
 /// One configuration variable as the build manifest describes it
@@ -276,6 +280,7 @@ mod tests {
             config: ConfigSpec::server_defaults(),
             forgery_exempt: vec!["/hooks/{id}".into()],
             database: None,
+            jobs: Vec::new(),
         }
     }
 

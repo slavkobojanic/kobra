@@ -237,6 +237,8 @@ function closing(start) {
  * ranges for the blocks to claim, and replaces children of another shape.
  */
 function reconcile(t, s) {
+  // A textarea's text is its initial value, which its binding owns.
+  if (s.localName === "textarea") return;
   let sc = s.firstChild;
   for (let tc = t.firstChild; tc !== null; tc = tc.nextSibling) {
     if (tc.nodeType === 3) {

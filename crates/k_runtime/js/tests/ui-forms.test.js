@@ -8,7 +8,7 @@
 // K surface of `k.validation.Form`; the implementation must either provide
 // it or update this header and the tests together:
 //
-//   form.field(name)          → { value(), set(raw), error(), isTouched(), touch(), attach(input, message) }
+//   form.field(name)          → { value(), set(raw), error(), isTouched(), touch(), attach(input, message?) }
 //   form.isValid(), form.isSubmitting(), form.isTouched(), form.errors()  (reactive reads)
 //   form.value()              → the parsed struct, only while the action runs
 //   form.handle(action)       → (event?) => Promise<void>; calls action(parsedStruct)
@@ -320,6 +320,31 @@ test("a valid field is not marked invalid", async () => {
   await form.handle(async () => {})();
   assertEq(input.hasAttribute("aria-invalid"), false);
   assertEq(message.textContent, "");
+});
+
+// Without an error element (a server-rendered control, whose markup has
+// none), one is made right under the input when the first error shows, and
+// numbers typed into a number field parse like their text.
+test("an attached field without an error element gets one when it fails", async () => {
+  const form = signup();
+  const doc = globalThis.document;
+  const input = doc.createElement("input");
+  const next = doc.createElement("label");
+  doc.body.appendChild(input);
+  doc.body.appendChild(next);
+  root(() => form.field("name").attach(input));
+  assertEq(input.nextSibling, next, "nothing is added while the field is valid");
+  form.field("name").set("A");
+  await form.handle(async () => {})();
+  const message = input.nextSibling;
+  assertEq(message.localName, "p");
+  assertEq(message.getAttribute("role"), "alert");
+  assertEq(message.textContent, "Use at least 3 characters");
+  assertEq(input.getAttribute("aria-describedby"), message.id);
+  form.field("name").set("Ada");
+  await form.handle(async () => {})();
+  assertEq(message.textContent, "");
+  assertEq(input.hasAttribute("aria-invalid"), false);
 });
 
 // Two forms on one page give their error elements distinct ids.

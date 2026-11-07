@@ -34,6 +34,21 @@ pub mod viewgen;
 use std::net::SocketAddr;
 use std::sync::OnceLock;
 
+/// The longest input the `check` target analyses, in bytes; longer inputs
+/// return at once. Every input is a whole-project analysis (the standard
+/// library included), so its cost grows with the text, and 2 KiB holds
+/// every construct the golden corpus has. Pass the same value as
+/// `-max_len` (docs/compiler/testing.md §6.3).
+pub const CHECK_MAX_INPUT: usize = 2048;
+
+/// The longest input the generator-driven semantic targets
+/// (`check_structured`, `check_typed`) use, in bytes; longer inputs return
+/// at once. The bytes size the generated project, and each input runs
+/// several analyses, so a cap keeps every input well under a second while
+/// 1 KiB still reaches every generator branch. Pass the same value as
+/// `-max_len`.
+pub const GENERATOR_MAX_INPUT: usize = 1024;
+
 /// The address of the fuzz app's server, started on first use and kept for
 /// the life of the process (each fuzz target is one process).
 ///

@@ -7,6 +7,7 @@ import { assert, assertDeepEq, assertEq, test } from "k:testing";
 import {
   Metadata,
   Out,
+  theme as serverTheme,
   clock,
   createApp,
   param,
@@ -367,4 +368,15 @@ test("the server clock reads the system time and refuses timers", () => {
     threw = e;
   }
   assert(threw instanceof KPanic && threw.message.includes("Clock.sleep"), String(threw));
+});
+
+// `Theme` during server rendering (07-themes-and-units.md): the variant the
+// `k_theme` cookie remembers, or `base`; `apply` does nothing.
+test("the server's Theme reads the k_theme cookie", () => {
+  const st = (cookie) => ({ cookies: new Map(cookie === null ? [] : [["k_theme", cookie]]) });
+  assertEq(serverTheme(st(null)).current, "base");
+  assertEq(serverTheme(st("dark")).current, "dark");
+  const t = serverTheme(st("dark"));
+  t.apply("base");
+  assertEq(t.current, "dark");
 });

@@ -1,0 +1,6 @@
+# k.server.EmailProvider on the server (docs/design/31-email.md): the
+# stdlib's SmtpEmailProvider over op_k_smtp_send, against the fake SMTP
+# server the harness starts from fakes.toml.
+[package]
+name = "mail"
+k = "0.1"

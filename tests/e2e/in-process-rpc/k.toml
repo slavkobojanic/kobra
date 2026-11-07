@@ -1,0 +1,8 @@
+# Guards and validation on in-process rpc calls during server rendering
+# (docs/design/28-rpc-wire-format.md, "Failures outside the handler";
+# 11-protocols-and-rpc.md): a page's service calls its protocol in-process,
+# and a refused guard or an invalid parameter is the rpc's
+# rpcFailure(.rejected(…)) or rpcFailure(.invalid(…)), as over HTTP.
+[package]
+name = "inproc"
+k = "0.1"

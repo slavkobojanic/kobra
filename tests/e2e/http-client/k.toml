@@ -1,0 +1,6 @@
+# k.http.HttpClient on the server (docs/design/32-http-client.md): the
+# stdlib's FetchHttpClient over op_k_fetch, against the fake HTTP API the
+# harness starts from fakes.toml.
+[package]
+name = "httpc"
+k = "0.1"

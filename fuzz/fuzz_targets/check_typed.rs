@@ -5,6 +5,8 @@
 //! The remaining bytes then drive edits (the incremental re-check must equal
 //! a fresh check) and fixable mistakes (applying every machine-applicable
 //! fix must not add an error).
+//!
+//! Inputs longer than `GENERATOR_MAX_INPUT` (1 KiB) are skipped.
 #![no_main]
 
 use arbitrary::Unstructured;
@@ -12,6 +14,9 @@ use k_fuzz::{soracle, tgen};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
+    if data.len() > k_fuzz::GENERATOR_MAX_INPUT {
+        return;
+    }
     let mut u = Unstructured::new(data);
     let program = tgen::generate(&mut u);
     let diagnostics = soracle::check(&program.files);

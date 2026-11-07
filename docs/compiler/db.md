@@ -19,8 +19,9 @@ Contents:
 9. [Transactions](#9-transactions)
 10. [Migrations](#10-migrations)
 11. [`schema.lock`](#11-schemalock)
-12. [Testing](#12-testing)
-13. [Performance budgets](#13-performance-budgets)
+12. [The stdlib's tables](#12-the-stdlibs-tables)
+13. [Testing](#13-testing)
+14. [Performance budgets](#14-performance-budgets)
 
 ---
 
@@ -41,7 +42,8 @@ Contents:
 | Column codecs, `Database`, repository helpers | `k_runtime` `runtime/db.js` | **implemented** |
 | Entity/migration consistency | `k_codegen::db` | **implemented** as a build error (§10); the `k check` diagnostic in `k_sema` is planned |
 | Connection pool | `k_server::db` | **planned**: v0 leases its one connection (§9) |
-| Commit hooks (jobs, broadcasts after commit) | runtime | **planned**: broadcasts publish immediately in v0 |
+| The stdlib's tables: `k_job`, `k_job_schedule`, `k_session`, `k_rate_limit` | `k_db::stdlib`, `k_server::db` | **implemented** (§12) |
+| Commit hooks | runtime `Database.afterCommit` | **implemented** for `InlineJobQueue`; broadcasts still publish immediately in v0 |
 | `k migrate new`, enum case operations | `k_sema`/`k_db` | **planned** (§10) |
 
 **Deferred:** Postgres TLS (v0 connects without TLS, for a database on a private network or the same
@@ -345,7 +347,38 @@ nullable, unique, indexed, references, cases, default, retired`, and false or em
 
 ---
 
-## 12. Testing
+## 12. The stdlib's tables
+
+`k_db::stdlib` holds what every server shares about the tables the standard library keeps in the app's
+own database; `k_server::db::ProcessDatabase` runs them under the same lease and transaction rules as
+the app's statements.
+
+| Table | Columns | Used by |
+|---|---|---|
+| `k_job` | `id` (primary key), `name`, `payload` (JSON), `status` (`queued`/`running`/`dead`), `attempts`, `run_after`, `locked_until`, `last_error`, `created_at`, `updated_at`; index on `(status, run_after)` | `DatabaseJobQueue`, the jobs worker, `dist/app jobs` ([server.md §11](server.md#11-background-jobs)) |
+| `k_job_schedule` | `name` (primary key), `last_due` | `@Schedule`: each due time enqueued once across replicas |
+| `k_session` | `id` (the SHA-256 of the cookie token), `user_json` (`NULL` for a guest), `user_key`, `roles` (JSON), `created_at`, `last_seen`, `oauth_state` (a hash), `oauth_state_expires`; index on `user_key` | sessions and OAuth state ([server.md §9](server.md#9-sessions-auth-and-request-forgery)) |
+| `k_rate_limit` | `key`, `window_start`, `hits`; primary key `(key, window_start)` | `RateLimit` guards: two fixed windows per key, weighted (`rate_decision`) |
+
+- **Created idempotently**: `tables()` (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`) runs
+  after the app's pending migrations whenever a process opens the database, and also when `dist/app
+  jobs` opens it without migrating. They are never recorded in `k_migrations` or `schema.lock`, so the
+  app's history stays its own; an incompatible change to one of them will get a new table name.
+- **One text for both dialects**: every statement is written with `$n` placeholders and `sql(dialect,
+  text)` turns them into SQLite's `?n`. Timestamps are epoch milliseconds (`BIGINT`), and every integer
+  column is `BIGINT`, because the driver binds `Int` as a 64-bit value. Upserts use `ON CONFLICT … DO
+  UPDATE`/`DO NOTHING` and claims `UPDATE … RETURNING`, which SQLite (3.35+, bundled) and Postgres share.
+- **Claims are conditional updates**, so two replicas never run the same claim: `job_sql::CLAIM`
+  changes a row only while it is still `queued` and due, or `running` with an expired lease, and
+  `SCHEDULE_CLAIM` only while `last_due` is earlier.
+- **Policies** live here too: `JobSpec` and `Schedule` (the manifest's job entries, serialized in the
+  build manifest and `dist/app`), `Schedule::latest_due` (UTC; the epoch's weekday fixes weekly
+  schedules), `backoff_ms` (doubling from the first backoff, capped at a day, jittered by the caller
+  within ±20%) and `rate_decision`.
+
+---
+
+## 13. Testing
 
 - **SQL golden tests** (`crates/k_db/tests/sql.rs`): the exact text of every construct in both dialects.
 - **Builder tests** (`crates/k_db/tests/builder.rs`): the SQL of every builder operation, every replay
@@ -358,7 +391,10 @@ nullable, unique, indexed, references, cases, default, retired`, and false or em
 - **Lowering tests** (`crates/k_codegen/tests/persistence.rs`): statements in the manifest and none in
   JavaScript, locked names, the inherited writes, shared statements, build errors.
 - **The process database** (`k_server::db` unit tests): statements by number, typed unique violations,
-  transactions and savepoints, the lease.
+  transactions and savepoints, the lease, and the stdlib tables: a job enqueued in a rolled-back
+  transaction never appears, claims and leases, retries, dead jobs and requeueing, schedule claims.
+- **The stdlib's policies** (`k_db::stdlib` unit tests): placeholders, schedules, backoff, the rate
+  window.
 - **The runtime** (`crates/k_runtime/js/tests/db.test.js`): codecs, `dbQuery`, `dbInclude`,
   `dbInsertAll`, unique cases, transactions with fake ops.
 - **The database corpus** (`tests/corpus/db`, [testing.md §3.11](testing.md)): apps served on a fresh
@@ -376,7 +412,7 @@ nullable, unique, indexed, references, cases, default, retired`, and false or em
 
 ---
 
-## 13. Performance budgets
+## 14. Performance budgets
 
 Measured in release on the development machine (`crates/k_db/tests/perf_budget.rs`,
 `crates/k_server/tests/perf_budget.rs`, both `--ignored`):

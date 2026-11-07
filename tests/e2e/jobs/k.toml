@@ -1,0 +1,7 @@
+# Background jobs (docs/design/30-background-jobs.md): enqueued in the
+# enqueuing transaction, run by the jobs worker next to the server, retried
+# with backoff, dead after their last attempt or a permanent failure, and
+# scheduled runs.
+[package]
+name = "jobs"
+k = "0.1"

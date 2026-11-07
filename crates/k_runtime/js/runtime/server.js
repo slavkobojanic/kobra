@@ -15,6 +15,7 @@ export {
   RequestState,
   STREAMED,
   ServerBroadcast,
+  callLocal,
   checkGuards,
   clock,
   config,
@@ -41,7 +42,24 @@ export {
   sessionManager,
   shareState,
   splitTarget,
+  theme,
 } from "./app.js";
+
+export {
+  fetchHttpClient,
+  httpStatus,
+  inlineJobQueue,
+  jobQueue,
+  recordingJobQueue,
+  runJobBody,
+  received,
+  recordingEmailProvider,
+  smtpEmailProvider,
+  smtpSettings,
+  testHttpClient,
+  wireEmail,
+  wireRequest,
+} from "./outbound.js";
 
 export {
   Database,

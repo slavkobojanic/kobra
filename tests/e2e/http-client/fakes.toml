@@ -1,0 +1,11 @@
+[http]
+routes = [
+    { method = "GET", path = "/v1/forecast", body = '{"temperature_2m": 21.5, "unit": "C"}', content_type = "application/json" },
+    { method = "GET", path = "/v1/down", status = 503, body = "Service Unavailable" },
+    { method = "GET", path = "/v1/missing", status = 404, body = "no such place" },
+    { method = "GET", path = "/v1/teapot", status = 418, body = "short and stout" },
+    { method = "GET", path = "/v1/not-json", body = "<html>", content_type = "text/html" },
+    { method = "GET", path = "/v1/wrong-shape", body = '{"temperature_2m": "warm"}', content_type = "application/json" },
+    { method = "GET", path = "/v1/slow", body = "late", delay_ms = 3000 },
+    { method = "POST", path = "/v1/things", status = 201, body = '{"id": "t_1"}', content_type = "application/json" },
+]

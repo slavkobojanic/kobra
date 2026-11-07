@@ -22,6 +22,7 @@ pub use rowan::ast::{AstChildren, AstNode};
 
 use crate::kind::SyntaxKind;
 use crate::syntax::{KLanguage, SyntaxNode, SyntaxToken};
+use rowan::TextRange;
 
 /// Helper functions for writing accessors.
 pub mod support {
@@ -42,19 +43,50 @@ pub mod support {
     /// Returns the first child token of `parent` of the given kind.
     #[must_use]
     pub fn token(parent: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
-        rowan::ast::support::token(parent, kind)
+        token_where(parent, |k| k == kind)
+    }
+
+    /// Returns `true` if `parent` has a direct child token of `kind`.
+    ///
+    /// Same answer as `token(parent, kind).is_some()`, but it reads the
+    /// green tree directly, so it allocates no red nodes or tokens: the
+    /// semantic pass asks this of every declaration and member on every
+    /// revision (`docs/compiler/performance.md` §10.4).
+    #[must_use]
+    pub fn has_token(parent: &SyntaxNode, kind: SyntaxKind) -> bool {
+        token_kind_where(parent, |k| k == kind).is_some()
+    }
+
+    /// Returns the kind of the first direct child token of `parent` that
+    /// satisfies `predicate`, reading the green tree (no allocation; see
+    /// [`has_token`]).
+    #[must_use]
+    pub fn token_kind_where(
+        parent: &SyntaxNode,
+        predicate: impl Fn(SyntaxKind) -> bool,
+    ) -> Option<SyntaxKind> {
+        parent
+            .green()
+            .children()
+            .filter_map(rowan::NodeOrToken::into_token)
+            .map(|t| <KLanguage as rowan::Language>::kind_from_raw(t.kind()))
+            .find(|k| predicate(*k))
     }
 
     /// Returns the first child token of `parent` satisfying `predicate`.
+    ///
+    /// The children are scanned in the green tree, which allocates nothing;
+    /// only the token found is materialized as a red token (rowan allocates
+    /// one red node per child visited through `children_with_tokens`, which
+    /// made these lookups the largest cost of rebuilding the item tree,
+    /// `docs/compiler/performance.md` §10.4).
     #[must_use]
     pub fn token_where(
         parent: &SyntaxNode,
         predicate: impl Fn(SyntaxKind) -> bool,
     ) -> Option<SyntaxToken> {
-        parent
-            .children_with_tokens()
-            .filter_map(rowan::NodeOrToken::into_token)
-            .find(|token| predicate(token.kind()))
+        let (_, range) = token_kinds(parent).find(|(k, _)| predicate(*k))?;
+        token_at(parent, range)
     }
 
     /// Returns all non-trivia child tokens of `parent`.
@@ -63,6 +95,40 @@ pub mod support {
             .children_with_tokens()
             .filter_map(rowan::NodeOrToken::into_token)
             .filter(|token| !token.kind().is_trivia())
+    }
+
+    /// The kinds and ranges of `parent`'s direct child tokens, in order,
+    /// read from the green tree (no allocation per child; see
+    /// [`token_where`]). [`token_at`] materializes one of them.
+    pub fn token_kinds(parent: &SyntaxNode) -> impl Iterator<Item = (SyntaxKind, TextRange)> + '_ {
+        let mut offset = parent.text_range().start();
+        parent.green().children().filter_map(move |child| {
+            let range = TextRange::at(offset, child.text_len());
+            offset = range.end();
+            child.into_token().map(|t| {
+                (
+                    <KLanguage as rowan::Language>::kind_from_raw(t.kind()),
+                    range,
+                )
+            })
+        })
+    }
+
+    /// The direct child token of `parent` at exactly `range` (one of
+    /// [`token_kinds`]), materialized as a red token.
+    #[must_use]
+    pub fn token_at(parent: &SyntaxNode, range: TextRange) -> Option<SyntaxToken> {
+        let found = (!range.is_empty())
+            .then(|| parent.child_or_token_at_range(range))
+            .flatten()
+            .and_then(rowan::NodeOrToken::into_token)
+            .filter(|t| t.text_range() == range);
+        found.or_else(|| {
+            parent
+                .children_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .find(|t| t.text_range() == range)
+        })
     }
 }
 
@@ -527,14 +593,15 @@ impl FieldDecl {
     /// Returns `true` if the field is declared with `var`.
     #[must_use]
     pub fn is_var(&self) -> bool {
-        self.binding_keyword()
-            .is_some_and(|t| t.kind() == SyntaxKind::VarKw)
+        support::token_kind_where(&self.syntax, |k| {
+            matches!(k, SyntaxKind::LetKw | SyntaxKind::VarKw)
+        }) == Some(SyntaxKind::VarKw)
     }
 
     /// Returns `true` if the field is declared `static`.
     #[must_use]
     pub fn is_static(&self) -> bool {
-        support::token(&self.syntax, SyntaxKind::StaticKw).is_some()
+        support::has_token(&self.syntax, SyntaxKind::StaticKw)
     }
 
     /// Returns the declared type, if written.
@@ -560,13 +627,13 @@ impl FuncDecl {
     /// Returns `true` if the function is declared `static`.
     #[must_use]
     pub fn is_static(&self) -> bool {
-        support::token(&self.syntax, SyntaxKind::StaticKw).is_some()
+        support::has_token(&self.syntax, SyntaxKind::StaticKw)
     }
 
     /// Returns `true` if the function is `async`.
     #[must_use]
     pub fn is_async(&self) -> bool {
-        support::token(&self.syntax, SyntaxKind::AsyncKw).is_some()
+        support::has_token(&self.syntax, SyntaxKind::AsyncKw)
     }
 
     /// Returns the generic parameters, if any.
@@ -647,10 +714,14 @@ impl ParamList {
 }
 
 impl Param {
-    fn name_tokens(&self) -> Vec<SyntaxToken> {
-        support::tokens(&self.syntax)
-            .take_while(|t| t.kind() != SyntaxKind::Colon)
-            .filter(|t| t.kind().is_name_like() || t.kind() == SyntaxKind::Underscore)
+    /// The ranges of the name-like tokens before the `:`: the label and
+    /// the name, or the name alone (green scan, no allocation per token).
+    fn name_ranges(&self) -> Vec<TextRange> {
+        support::token_kinds(&self.syntax)
+            .filter(|(k, _)| !k.is_trivia())
+            .take_while(|(k, _)| *k != SyntaxKind::Colon)
+            .filter(|(k, _)| k.is_name_like() || *k == SyntaxKind::Underscore)
+            .map(|(_, r)| r)
             .collect()
     }
 
@@ -658,14 +729,17 @@ impl Param {
     /// (`for` in `for productId: ProductId`, or `_`).
     #[must_use]
     pub fn label(&self) -> Option<SyntaxToken> {
-        let tokens = self.name_tokens();
-        (tokens.len() == 2).then(|| tokens[0].clone())
+        match self.name_ranges().as_slice() {
+            [label, _] => support::token_at(&self.syntax, *label),
+            _ => None,
+        }
     }
 
     /// Returns the parameter name used inside the body.
     #[must_use]
     pub fn name(&self) -> Option<SyntaxToken> {
-        self.name_tokens().pop()
+        let last = *self.name_ranges().last()?;
+        support::token_at(&self.syntax, last)
     }
 
     /// Returns the parameter type.
@@ -927,7 +1001,7 @@ impl MemberExpr {
     /// Returns `true` for optional chaining (`a?.b`).
     #[must_use]
     pub fn is_optional(&self) -> bool {
-        support::token(&self.syntax, SyntaxKind::QuestionDot).is_some()
+        support::has_token(&self.syntax, SyntaxKind::QuestionDot)
     }
 }
 
@@ -1015,7 +1089,7 @@ impl UseDecl {
 
     /// Returns `true` if the declaration has a `for` keyword.
     fn has_for(&self) -> bool {
-        support::token(&self.syntax, SyntaxKind::ForKw).is_some()
+        support::has_token(&self.syntax, SyntaxKind::ForKw)
     }
 
     /// The child nodes before the `for` token (all of them without one).

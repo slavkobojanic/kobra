@@ -3,7 +3,8 @@
 //! file, a test file, `App.k` or a stray file). Checking must not panic,
 //! every diagnostic must be well-formed (`soracle::check_diagnostics`) and
 //! the position queries must answer on every token. Inputs that are not
-//! UTF-8 after the first byte are skipped.
+//! UTF-8 after the first byte are skipped, and so are inputs longer than
+//! `CHECK_MAX_INPUT` (2 KiB).
 #![no_main]
 
 use k_fuzz::soracle;
@@ -12,6 +13,9 @@ use libfuzzer_sys::fuzz_target;
 const PATHS: &[&str] = &["src/fz/Case.k", "src/fz/Case.test.k", "App.k", "notes/Stray.k"];
 
 fuzz_target!(|data: &[u8]| {
+    if data.len() > k_fuzz::CHECK_MAX_INPUT {
+        return;
+    }
     let Some((&first, rest)) = data.split_first() else {
         return;
     };

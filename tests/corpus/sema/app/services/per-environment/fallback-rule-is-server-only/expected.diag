@@ -1,0 +1,3 @@
+error[K4007] src/shop/CheckoutPage.k:5:27-5:42
+  note: shop.CheckoutPage → pay.StripePayments → pay.Ledger (a repository is server-only)
+  note: in `.development` and `.test`, `pay.PaymentProvider` is `pay.StripePayments`

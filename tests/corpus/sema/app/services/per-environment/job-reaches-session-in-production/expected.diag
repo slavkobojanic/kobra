@@ -1,0 +1,3 @@
+error[K4009] src/shop/ChargeJob.k:6:16-6:25
+  note: shop.ChargeJob → pay.StripePayments → k.auth.Session
+  note: in `.production`, `pay.PaymentProvider` is `pay.StripePayments`

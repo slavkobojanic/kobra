@@ -4117,11 +4117,20 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     Ty::Tuple(ts) => ts.to_vec(),
                     _ => vec![Ty::Error; items.len()],
                 };
+                let mut subs = Vec::with_capacity(items.len());
                 for (i, item) in items.iter().enumerate() {
                     let t = tys.get(i).cloned().unwrap_or(Ty::Error);
-                    self.pattern(item, &t, binds)?;
+                    subs.push(self.pattern(item, &t, binds)?);
                 }
-                Some(Pat::Wild)
+                // A tuple is one constructor whose fields are its elements;
+                // against anything but a tuple of that arity (an error
+                // reported elsewhere) the pattern matches like `_`.
+                match &ty {
+                    Ty::Tuple(ts) if ts.len() == subs.len() => {
+                        Some(Pat::Ctor(pattern::Ctor::Tuple(subs.len()), subs))
+                    }
+                    _ => Some(Pat::Wild),
+                }
             }
             ast::Pattern::EnumCasePattern(e) => self.case_pattern(e.syntax(), &ty, binds),
         }
@@ -5800,16 +5809,17 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             {
                 continue;
             }
-            let labels_ok = args
-                .iter()
-                .filter(|a| !a.is_lambda)
-                .all(|a| match &a.label {
-                    Some((l, _)) => sig
-                        .params
-                        .iter()
-                        .any(|p| p.label.as_deref() == Some(l.as_str())),
-                    None => sig.params.iter().any(|p| p.label.is_none()),
-                });
+            // Every label must name a parameter, a lambda's included
+            // (`contains(where: { … })` is not `contains(_:)`); an unlabelled
+            // value needs an unlabelled parameter. An unlabelled lambda is
+            // matched by position (the trailing-lambda test above).
+            let labels_ok = args.iter().all(|a| match &a.label {
+                Some((l, _)) => sig.params.iter().any(|p| {
+                    p.label.as_deref() == Some(l.as_str())
+                        && (!a.is_lambda || matches!(p.ty, Ty::Func(_)))
+                }),
+                None => a.is_lambda || sig.params.iter().any(|p| p.label.is_none()),
+            });
             if !labels_ok {
                 continue;
             }

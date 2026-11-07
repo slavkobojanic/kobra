@@ -20,7 +20,7 @@
 //! | SSR of a realistic page (`examples/weather` `/`, `examples/shop` `/` from SQLite), sequential | p50 ≤ 3 ms | architecture.md §12 |
 //! | the same under load (2 clients per core, 3 s) | ≥ 1,000 pages/s per core, p99 ≤ 25 ms | architecture.md §12 |
 //! | rpc with a database query (`examples/notes`, `examples/shop`), sequential | p50 ≤ 250 µs | db.md §13 |
-//! | the shipped runtime chunk (client runtime + stdlib bodies), gzip | ≤ `FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET` | runtime.md §2 |
+//! | the shipped runtime chunk (client runtime + stdlib bodies + browser services), gzip | ≤ `FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET + SERVICES_SIZE_BUDGET` | runtime.md §2 |
 //!
 //! `K_BUDGET_SCALE` (in `(0, 1]`, default 1) relaxes the time budgets on
 //! slower machines, as in the compiler's budget checks.
@@ -107,6 +107,9 @@ fn env_of(name: &str) -> Vec<(&'static str, &'static str)> {
             ("SHOP_ADMIN_PASSWORD_HASH", "placeholder"),
             ("STRIPE_API_KEY", "sk_test_placeholder"),
             ("STRIPE_WEBHOOK_SECRET", "whsec_placeholder"),
+            // The confirmation job's `SmtpEmailProvider` needs `SmtpConfig`.
+            ("SMTP_HOST", "localhost"),
+            ("MAIL_FROM", "K Shop <orders@shop.example>"),
         ],
         _ => Vec::new(),
     }
@@ -451,7 +454,10 @@ fn gzip_len(bytes: &[u8]) -> usize {
 #[test]
 #[ignore = "performance budget; run in release with --ignored"]
 fn shipped_client_assets() {
-    let budget = k_runtime::FULL_SIZE_BUDGET + k_runtime::STDLIB_SIZE_BUDGET;
+    // The chunk is its parts, so its budget is theirs (performance.md §11.3).
+    let budget = k_runtime::FULL_SIZE_BUDGET
+        + k_runtime::STDLIB_SIZE_BUDGET
+        + k_runtime::SERVICES_SIZE_BUDGET;
     for name in ["todos", "weather", "notes", "shop"] {
         let dir = TempDir::new(name);
         let (dist, _) = build(name, &dir.0);

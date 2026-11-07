@@ -1,5 +1,6 @@
 /target
 /fuzz/target
 /fuzz/corpus
+/fuzz/corpus-old
 /fuzz/artifacts
 /fuzz/Cargo.lock

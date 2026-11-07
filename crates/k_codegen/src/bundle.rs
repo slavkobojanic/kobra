@@ -315,13 +315,16 @@ fn imports(g: &Gen<'_>, path: &str, uses: &BTreeSet<(DeclId, String)>, _client: 
         .collect()
 }
 
+/// The client entry's statements and the symbols it uses.
+pub(crate) type ClientEntry = (Vec<Stmt>, BTreeSet<(DeclId, String)>);
+
 /// The client files: `shared` (every non-page item), page chunks, the
 /// `app` entry and the runtime chunk, with hashed names.
 pub(crate) fn client_files(
     g: &Gen<'_>,
     items: &BTreeMap<DeclId, Item>,
     pages: &[DeclId],
-    entry: Option<Vec<Stmt>>,
+    entry: Option<ClientEntry>,
 ) -> Vec<OutputFile> {
     let profile = g.options.profile;
     let mut out = Vec::new();
@@ -341,6 +344,11 @@ pub(crate) fn client_files(
     let mut shared_name = None;
     if !shared_decls.is_empty() {
         let mut stmts = vec![Stmt::ImportAll("$k".into(), format!("./{runtime_name}"))];
+        stmts.extend(client_natives(
+            g,
+            items,
+            shared_decls.iter().flat_map(|d| items[d].uses.iter()),
+        ));
         for d in &shared_decls {
             stmts.extend(items[d].prelude.iter().cloned());
         }
@@ -373,6 +381,7 @@ pub(crate) fn client_files(
                 format!("../{shared}"),
             ));
         }
+        stmts.extend(client_natives(g, items, item.uses.iter()));
         stmts.extend(item.prelude.iter().cloned());
         stmts.extend(item.stmts.iter().cloned());
         let text = print(&stmts, profile);
@@ -385,9 +394,21 @@ pub(crate) fn client_files(
             kind: FileKind::JavaScript,
         });
     }
-    if let Some(entry) = entry {
+    if let Some((entry, uses)) = entry {
         let mut stmts = vec![Stmt::ImportAll("$k".into(), format!("./{runtime_name}"))];
-        let _ = &shared_name;
+        // The containers construct services and RPC clients of the shared
+        // chunk (`$shared` is replaced by its name below).
+        let syms: BTreeSet<String> = uses
+            .iter()
+            .filter(|(d, _)| items.contains_key(d) && !pages.contains(d))
+            .map(|(_, s)| s.clone())
+            .collect();
+        if shared_name.is_some() && !syms.is_empty() {
+            stmts.push(Stmt::Import(
+                syms.into_iter().map(|s| (s.clone(), s)).collect(),
+                "$shared".into(),
+            ));
+        }
         stmts.extend(entry);
         let mut text = print(&stmts, profile);
         for (p, name) in &page_names {
@@ -407,6 +428,29 @@ pub(crate) fn client_files(
     out
 }
 
+/// The stdlib symbols `uses` names that no item of the client bundle
+/// defines: `@Native` members without a generated body. Each becomes
+/// `const Sym = $k.native("module.Sym")`, the browser's implementation
+/// (`services.js`) or a stand-in that panics with the name when used, so
+/// a chunk always loads and only the unimplemented path fails.
+fn client_natives<'a>(
+    g: &Gen<'_>,
+    items: &BTreeMap<DeclId, Item>,
+    uses: impl Iterator<Item = &'a (DeclId, String)>,
+) -> Vec<Stmt> {
+    let missing: BTreeSet<(String, String)> = uses
+        .filter(|(d, _)| !items.contains_key(d) && g.view.decl(*d).stdlib)
+        .map(|(d, sym)| (sym.clone(), module_path(g, *d).replace('/', ".")))
+        .collect();
+    missing
+        .into_iter()
+        .map(|(sym, module)| {
+            let name = format!("{module}.{sym}");
+            Stmt::Const(sym, js::rt("native", vec![js::str(name)]))
+        })
+        .collect()
+}
+
 /// `stem.<hash>.ext`, or `stem.[hash].ext` under the test profile.
 pub(crate) fn hashed(stem: &str, ext: &str, contents: &str, profile: Profile) -> String {
     if profile == Profile::Test {
@@ -420,7 +464,9 @@ pub(crate) fn hashed(stem: &str, ext: &str, contents: &str, profile: Profile) ->
 pub(crate) fn allowed(g: &Gen<'_>, d: DeclId, target: Target) -> bool {
     use k_sema::Side;
     let info = g.view.decl(d);
-    if info.is_test {
+    // Test code, and test-only modules outside a test build (fakes such as
+    // a `testing/FakeHttpClient` never ship).
+    if info.is_test || (info.in_test_module && g.options.environment != crate::Environment::Test) {
         return false;
     }
     match (info.side, target) {

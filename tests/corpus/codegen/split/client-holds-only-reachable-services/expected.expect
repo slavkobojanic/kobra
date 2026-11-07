@@ -1,0 +1,13 @@
+# docs/compiler/codegen.md §3 step 2, §13, §16: the browser's containers hold only the services the
+# client roots reach. A service only server code injects (the gateway bound for every environment), and
+# a service nothing injects, are not in any client file, even though nothing marks them server-only.
+client contains export class Counter
+client contains get Counter()
+client lacks LocalGateway
+client lacks RealGateway
+client lacks local-gateway-literal
+client lacks real-gateway-literal
+client lacks Unused
+client lacks unused-service-literal
+client lacks get Gateway()
+server contains export class PayApi

@@ -134,6 +134,7 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     }
     // Pass 2: the members in source order.
     let mut effects = Vec::new();
+    let mut derived = Vec::new();
     let mut async_handlers = false;
     for &m in &info.members {
         let mi = g.view.member(m).clone();
@@ -181,8 +182,9 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 } else if mi.has_annotation("Derived") {
                     let (pre, x) = b.capture(|b| init.as_ref().map_or(Expr::Null, |e| b.expr(e)));
                     if ssr {
-                        stmts.extend(pre);
-                        stmts.push(Stmt::Const(n, x));
+                        // After the awaited loads, which it may read.
+                        derived.extend(pre);
+                        derived.push(Stmt::Const(n, x));
                     } else {
                         let f = if pre.is_empty() {
                             js::arrow(vec![], x)
@@ -205,7 +207,21 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 } else if mi.has_annotation("Inject") {
                     let t = mi.ty.clone().unwrap_or(Type::Error);
                     let tn = t.decl().map(|x| g.name(x)).unwrap_or_default();
-                    stmts.push(Stmt::Const(n, member(member(id("ctx"), "c"), tn)));
+                    stmts.push(Stmt::Const(
+                        n.clone(),
+                        member(member(id("ctx"), "c"), tn.clone()),
+                    ));
+                    // A `@Scope(.component)` service: this component's
+                    // instance is the one its subtree injects.
+                    if t.decl().is_some_and(|x| {
+                        g.view.decl(x).named_kind() == Some(DeclarationKind::Service)
+                            && crate::server::scope_of(g, x) == "component"
+                    }) {
+                        stmts.push(Stmt::Expr(js::assign(
+                            id("ctx"),
+                            rt("provide", vec![id("ctx"), js::str(tn), id(n)]),
+                        )));
+                    }
                 } else if mi.has_annotation("Form") {
                     stmts.push(Stmt::Const(n, crate::app::form(b, m, init.as_ref())));
                 } else if mi.has_annotation("Load")
@@ -257,11 +273,13 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 Some(f) => stmts.extend(ssr_failed(b, d, &loads, awaited, f)),
                 None => stmts.extend(awaited),
             }
+            stmts.append(&mut derived);
         } else {
             let group = crate::app::client_loads(b, d, &loads);
             stmts.push(Stmt::Const("$loads".into(), group));
         }
     }
+    stmts.append(&mut derived);
     // The page's or layout's metadata, after its loads (22-metadata.md).
     if ssr {
         if let Some(calls) = crate::server::metadata_block_calls(&node) {
@@ -272,7 +290,7 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     // Effects run after the view is built.
     let mut effect_stmts = Vec::new();
     for (m, f) in effects {
-        effect_stmts.push(effect(b, m, f));
+        effect_stmts.push(effect(b, m, f, !loads.is_empty()));
     }
     // The view.
     let view_nodes = view.as_ref().map_or_else(Vec::new, |v| {
@@ -286,7 +304,13 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         let saved = std::mem::take(&mut s.b.stmts);
         s.nodes(&view_nodes);
         let body = std::mem::replace(&mut s.b.stmts, saved);
-        stmts.extend(body);
+        if loads.is_empty() {
+            stmts.extend(body);
+        } else {
+            stmts.push(ssr_marker("OPEN"));
+            stmts.extend(body);
+            stmts.push(ssr_marker("CLOSE"));
+        }
         out.push(Stmt::Function(
             Function {
                 name: format!("{name}$ssr"),
@@ -463,10 +487,22 @@ fn ssr_failed(
     let saved = std::mem::take(&mut s.b.stmts);
     s.nodes(&nodes);
     let rendered = std::mem::replace(&mut s.b.stmts, saved);
+    // The client's `@Load` branch is a block range: its markers frame
+    // whichever state the server rendered.
+    handler.push(ssr_marker("OPEN"));
     handler.extend(rendered);
+    handler.push(ssr_marker("CLOSE"));
     handler.push(Stmt::Return(None));
     out.push(Stmt::Try(body, caught, handler));
     out
+}
+
+/// `out.raw($s.OPEN)` / `out.raw($s.CLOSE)`.
+fn ssr_marker(which: &str) -> Stmt {
+    Stmt::Expr(call(
+        member(id("out"), "raw"),
+        vec![member(id("$s"), which.to_owned())],
+    ))
 }
 
 fn is_struct(g: &Gen<'_>, t: Option<&Type>) -> bool {
@@ -479,7 +515,10 @@ fn is_struct(g: &Gen<'_>, t: Option<&Type>) -> bool {
 
 /// An `@Effect` function: `$k.effect(…)`, with `$c` when async, and
 /// `untrack` around the body for `@Effect(on: […])`.
-fn effect(b: &mut Body<'_, '_>, m: MemberId, f: Function) -> Stmt {
+/// With `loads`, the effect waits for the declaration's `@Load` values: it
+/// reads them (so it runs again once they arrive) and returns while there
+/// are none, because its body may read them.
+fn effect(b: &mut Body<'_, '_>, m: MemberId, f: Function, loads: bool) -> Stmt {
     let node = b.g.member_node(m);
     // The `on:` dependencies, if any.
     let deps: Option<Vec<ast::Expr>> = node.as_ref().and_then(|n| {
@@ -507,7 +546,7 @@ fn effect(b: &mut Body<'_, '_>, m: MemberId, f: Function) -> Stmt {
     let body = match deps {
         Some(deps) => {
             let mut s: Vec<Stmt> = deps.iter().map(|d| Stmt::Expr(b.expr(d))).collect();
-            let inner = js::arrow_block(Vec::new(), body, false);
+            let inner = js::arrow_block(Vec::new(), body, f.is_async);
             let untracked = rt("untrack", vec![inner]);
             s.push(Stmt::Expr(if f.is_async {
                 Expr::Await(Box::new(untracked))
@@ -517,6 +556,21 @@ fn effect(b: &mut Body<'_, '_>, m: MemberId, f: Function) -> Stmt {
             s
         }
         None => body,
+    };
+    let body = if loads {
+        let mut s = vec![Stmt::If(
+            bin(
+                "===",
+                call(member(id("$loads"), "values"), vec![]),
+                Expr::Null,
+            ),
+            vec![Stmt::Return(None)],
+            None,
+        )];
+        s.extend(body);
+        s
+    } else {
+        body
     };
     Stmt::Expr(rt(
         "effect",
@@ -583,7 +637,7 @@ pub(crate) fn service(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                     v,
                 )));
             }
-            MemberKind::Func | MemberKind::Rpc => {
+            MemberKind::Func | MemberKind::Rpc | MemberKind::Init => {
                 b.self_mode = SelfMode::This;
                 let f = crate::decl::function(
                     b,
@@ -592,14 +646,27 @@ pub(crate) fn service(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                     mi.signature.as_ref(),
                     Vec::new(),
                 );
-                if mi.name == "init" && mi.signature.as_ref().is_some_and(|s| s.params.is_empty()) {
-                    // `init()` runs after the fields, except for client-only
-                    // services during SSR.
+                if (mi.kind == MemberKind::Init || mi.name == "init")
+                    && mi.signature.as_ref().is_none_or(|s| s.params.is_empty())
+                {
+                    // `init()` runs after the fields. A client-only service's
+                    // never runs during server rendering, and in the browser
+                    // only after the hydration pass, so the first paint
+                    // shows its declared initial state on both sides
+                    // (10-services.md, "Initialization").
                     methods.push(Function {
                         name: "init".into(),
                         ..f
                     });
-                    ctor.push(Stmt::Expr(call(member(Expr::This, "init"), vec![])));
+                    let run = call(member(Expr::This, "init"), vec![]);
+                    match (info.side == Some(k_sema::Side::ClientOnly), client) {
+                        (false, _) => ctor.push(Stmt::Expr(run)),
+                        (true, true) => ctor.push(Stmt::Expr(rt(
+                            "afterHydration",
+                            vec![js::arrow(vec![], run)],
+                        ))),
+                        (true, false) => {}
+                    }
                 } else {
                     methods.push(f);
                 }

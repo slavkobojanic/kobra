@@ -663,9 +663,7 @@ impl<'g, 'a> Body<'g, 'a> {
                 let (name, value) = let_condition(&c);
                 let v = match (&value, &name) {
                     (Some(value), _) => self.expr(value),
-                    (None, Some(n)) => id(self
-                        .local_by_name(n.text())
-                        .unwrap_or_else(|| mangle(n.text()))),
+                    (None, Some(n)) => self.shorthand_value(n),
                     (None, None) => continue,
                 };
                 match name {
@@ -1594,9 +1592,7 @@ impl<'g, 'a> Body<'g, 'a> {
                 let (name, value) = let_condition(&c);
                 let v = match (&value, &name) {
                     (Some(value), _) => self.expr(value),
-                    (None, Some(n)) => id(self
-                        .local_by_name(n.text())
-                        .unwrap_or_else(|| mangle(n.text()))),
+                    (None, Some(n)) => self.shorthand_value(n),
                     (None, None) => continue,
                 };
                 let t = self.fresh("o");
@@ -2004,7 +2000,12 @@ impl<'g, 'a> Body<'g, 'a> {
             && self.g.is_value_type(source)
             && !self.g.is_interface(source)
         {
-            if let (Some(s), Some(i)) = (source.decl(), target.decl()) {
+            // Stdlib interfaces (`Error`, `Codable`) have no adapter classes
+            // (`decl::adapters`): their values stay as they are.
+            if let (Some(s), Some(i)) = (
+                source.decl(),
+                target.decl().filter(|&i| !self.g.view.decl(i).stdlib),
+            ) {
                 let adapter = format!("{}$as${}", self.g.name(s), self.g.name(i));
                 let r = self.use_decl(s, adapter);
                 if matches!(from, Type::Optional(_)) {
@@ -2693,10 +2694,49 @@ impl<'g, 'a> Body<'g, 'a> {
         self.decl_ref(d)
     }
 
+    /// The value of the shorthand `if let name` / `guard let name`: the
+    /// visible local `name`, else the owner's member `name` (`if let
+    /// region` in a method of a struct with a `region` field).
+    fn shorthand_value(&mut self, n: &SyntaxToken) -> Expr {
+        if let Some(local) = self.local_by_name(n.text()) {
+            return id(local);
+        }
+        if let Some(m) = self.owner.and_then(|d| self.g.find_member(d, n.text())) {
+            return self.implicit_self_member(m);
+        }
+        id(mangle(n.text()))
+    }
+
     /// A member reached without a receiver: through `self`, or a static
     /// of the owner.
     pub(crate) fn implicit_self_member(&mut self, m: MemberId) -> Expr {
         if let Some(acc) = self.access.get(&m).cloned() {
+            // An async function of a component used as a value (passed to
+            // `form.handle(_:)`, stored in a closure): its cancellation
+            // context is the component's lifetime, so the value takes the
+            // arguments of the K function type alone.
+            let info = self.g.view.member(m);
+            if let MemberAccess::Local(n) = &acc {
+                if info.kind == MemberKind::Func
+                    && self.self_mode == SelfMode::Component
+                    && self.target == Target::Client
+                    && !self.ssr
+                    && info.signature.as_ref().is_some_and(|s| s.is_async)
+                {
+                    let rest = Param {
+                        name: "a".into(),
+                        default: None,
+                        rest: true,
+                    };
+                    return js::arrow(
+                        vec![rest],
+                        call(
+                            id(n.clone()),
+                            vec![id("$life"), Expr::Spread(Box::new(id("a")))],
+                        ),
+                    );
+                }
+            }
             return self.read_access(&acc);
         }
         let info = self.g.view.member(m).clone();
@@ -2778,6 +2818,33 @@ impl<'g, 'a> Body<'g, 'a> {
                     member(recv, info.name.clone())
                 }
             }
+            MemberKind::Func
+                if self.g.view.decl(info.owner).members.iter().any(|&o| {
+                    let other = self.g.view.member(o);
+                    other.name == info.name
+                        && matches!(other.kind, MemberKind::Field | MemberKind::Computed)
+                }) =>
+            {
+                // A read of a name that is both a property and a method
+                // (`HttpResponse.body`, the received text, and
+                // `body(_:)`, the builder step) is the property; only a
+                // call is the method.
+                let field = self
+                    .g
+                    .view
+                    .decl(info.owner)
+                    .members
+                    .iter()
+                    .copied()
+                    .find(|&o| {
+                        let other = self.g.view.member(o);
+                        other.name == info.name
+                            && matches!(other.kind, MemberKind::Field | MemberKind::Computed)
+                    })
+                    .unwrap_or(m);
+                let fi = self.g.view.member(field).clone();
+                self.member_on(recv, field, &fi)
+            }
             MemberKind::Func => {
                 if owner_is_value {
                     let f = self.fn_ref(m);
@@ -2790,8 +2857,32 @@ impl<'g, 'a> Body<'g, 'a> {
                         call(f, vec![recv, Expr::Spread(Box::new(id("a")))]),
                     )
                 } else {
+                    // A method value keeps its receiver: `todos.add` is
+                    // `todos.add.bind(todos)`.
                     let name = self.g.member_name(m);
-                    call(member(member(recv, name), "bind"), vec![Expr::This])
+                    let simple = {
+                        let mut e = &recv;
+                        loop {
+                            match e {
+                                Expr::Ident(_) | Expr::This => break true,
+                                Expr::Member(inner, _) => e = inner,
+                                _ => break false,
+                            }
+                        }
+                    };
+                    if simple {
+                        call(member(member(recv.clone(), name), "bind"), vec![recv])
+                    } else {
+                        let a = Param {
+                            name: "a".into(),
+                            default: None,
+                            rest: true,
+                        };
+                        js::arrow(
+                            vec![a],
+                            call(member(recv, name), vec![Expr::Spread(Box::new(id("a")))]),
+                        )
+                    }
                 }
             }
             _ => member(recv, info.name.clone()),
@@ -3039,6 +3130,16 @@ impl<'g, 'a> Body<'g, 'a> {
         let g = self.g;
         if g.is_list(lt) && op == "+" {
             return Expr::Array(vec![Expr::Spread(Box::new(l)), Expr::Spread(Box::new(r))]);
+        }
+        if g.is(lt, g.b.bytes) && op == "+" {
+            // `Bytes + Bytes`: a new `Uint8Array` with both, in order.
+            return Expr::New(
+                Box::new(id("Uint8Array")),
+                vec![Expr::Array(vec![
+                    Expr::Spread(Box::new(l)),
+                    Expr::Spread(Box::new(r)),
+                ])],
+            );
         }
         if g.is_string(lt) {
             return bin("+", l, r);
@@ -3438,10 +3539,30 @@ impl<'g, 'a> Body<'g, 'a> {
         // Builtin pseudo-functions.
         if let ast::Expr::NameExpr(n) = &callee {
             if let Some(tok) = n.name() {
-                if self.resolution(tok.text_range()).is_none() {
-                    if tok.text() == "reload" && self.self_mode == SelfMode::Component {
-                        return call(member(id("$loads"), "reload"), vec![]);
+                // `reload()` of a declaration's `@Load` group, also from
+                // inside closures (an effect's timer).
+                let generated = match self.resolution(tok.text_range()) {
+                    None => true,
+                    // The generated `reload()`, unless the declaration has
+                    // a function of that name.
+                    Some(Resolution::Member { name, .. }) => {
+                        name == "reload()"
+                            && !self.owner.is_some_and(|d| {
+                                self.g.view.decl(d).members.iter().any(|&m| {
+                                    let mi = self.g.view.member(m);
+                                    mi.name == "reload" && mi.kind == MemberKind::Func
+                                })
+                            })
                     }
+                    Some(_) => false,
+                };
+                if generated
+                    && tok.text() == "reload"
+                    && matches!(self.self_mode, SelfMode::Component)
+                {
+                    return call(member(id("$loads"), "reload"), vec![]);
+                }
+                if self.resolution(tok.text_range()).is_none() {
                     if let Some(e) = crate::native::builtin_call(self, tok.text(), c) {
                         return e;
                     }
@@ -3543,6 +3664,27 @@ impl<'g, 'a> Body<'g, 'a> {
                                 args.extend(self.call_args(c, sig.as_ref(), &|t| t.clone()));
                                 return call(f, args);
                             }
+                        }
+                        // A chained field of a `@Builder` struct
+                        // (`request.query(q)`): a copy with the field set.
+                        if info.kind == MemberKind::Field
+                            && self.g.view.decl(info.owner).has_annotation("Builder")
+                            && !info.ty.as_ref().is_some_and(|t| matches!(t, Type::Func(_)))
+                        {
+                            let r = self.expr(&recv);
+                            let arg = c
+                                .arg_list()
+                                .and_then(|l| l.args().next())
+                                .and_then(|a| a.value())
+                                .map_or(Expr::Null, |v| {
+                                    let x = self.expr(&v);
+                                    let from = self.ty(v.syntax());
+                                    self.coerce(x, &from, info.ty.as_ref().unwrap_or(&Type::Error))
+                                });
+                            return Expr::Object(
+                                vec![Prop::Spread(r), Prop::KeyValue(info.name.clone(), arg)],
+                                false,
+                            );
                         }
                         // Sort chains: `sortedBy(a).thenBy(b)`.
                         if let Some(e) = crate::native::sort_chain(self, c) {

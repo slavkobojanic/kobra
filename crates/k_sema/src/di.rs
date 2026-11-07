@@ -63,8 +63,9 @@ impl Sides {
 pub(crate) enum Injectable {
     /// A service.
     Service(DeclId),
-    /// A user interface and the service chosen for it, if any.
-    Interface(DeclId, Option<DeclId>),
+    /// A user interface. The services bound to it, one per environment,
+    /// are its [`choices`]; none means K4001/K4002.
+    Interface(DeclId),
     /// A protocol (remote calls).
     Protocol(DeclId),
     /// A repository.
@@ -105,6 +106,25 @@ pub(crate) struct DiState {
     rules: std::cell::OnceCell<Vec<UseRule>>,
     /// The implementations of each interface, computed once.
     impls: std::cell::RefCell<HashMap<DeclId, Vec<DeclId>>>,
+    /// The per-environment choices of each interface, computed once.
+    choices: std::cell::RefCell<HashMap<DeclId, Vec<Choice>>>,
+    /// The declarations each declaration's `@Inject` fields name, computed
+    /// once per declaration.
+    injected: std::cell::RefCell<HashMap<DeclId, std::rc::Rc<[DeclId]>>>,
+    /// The declarations from which an app config is reachable, computed
+    /// once.
+    reaches_config: std::cell::OnceCell<HashSet<DeclId>>,
+}
+
+/// One service an interface is bound to, with the environments that bind
+/// it (in [`ENVIRONMENTS`] order).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Choice {
+    /// The implementing service.
+    pub(crate) imp: DeclId,
+    /// The environments whose `use` rule (or single implementation)
+    /// selects it.
+    pub(crate) envs: Vec<&'static str>,
 }
 
 /// The environments of `k.core.Environment`.
@@ -197,6 +217,59 @@ pub(crate) fn inject_fields(cx: &Cx<'_, '_>, d: DeclId) -> Vec<(MemberId, TextRa
             (m, range)
         })
         .collect()
+}
+
+/// The declarations `d`'s `@Inject` fields name, in field order (memoized;
+/// a field whose type doesn't name a declaration is left out).
+pub(crate) fn injected_decls(cx: &Cx<'_, '_>, d: DeclId) -> std::rc::Rc<[DeclId]> {
+    if let Some(found) = cx.di.injected.borrow().get(&d) {
+        return std::rc::Rc::clone(found);
+    }
+    let out: std::rc::Rc<[DeclId]> = inject_fields(cx, d)
+        .iter()
+        .filter_map(|(m, _)| cx.field_ty(*m).decl())
+        .collect();
+    cx.di
+        .injected
+        .borrow_mut()
+        .insert(d, std::rc::Rc::clone(&out));
+    out
+}
+
+/// Returns `true` if a project (non-stdlib) config is `d` or reachable from
+/// it through the `@Inject` fields of services and repositories, the edges
+/// K7503 follows (`app::test_group`). Computed once for the program by a
+/// backward search from the configs, linear in the injections.
+pub(crate) fn reaches_config(cx: &Cx<'_, '_>, d: DeclId) -> bool {
+    cx.di
+        .reaches_config
+        .get_or_init(|| {
+            let p = cx.p;
+            let mut back: HashMap<DeclId, Vec<DeclId>> = HashMap::new();
+            let mut out: HashSet<DeclId> = HashSet::new();
+            let mut stack: Vec<DeclId> = Vec::new();
+            for (i, decl) in p.decls.iter().enumerate() {
+                let x = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
+                match decl.named_kind() {
+                    Some(K::Service | K::Repository) => {
+                        for t in injected_decls(cx, x).iter() {
+                            back.entry(*t).or_default().push(x);
+                        }
+                    }
+                    Some(K::Config) if !p.is_stdlib(x) && out.insert(x) => stack.push(x),
+                    _ => {}
+                }
+            }
+            while let Some(x) = stack.pop() {
+                for y in back.get(&x).map_or(&[][..], Vec::as_slice) {
+                    if out.insert(*y) {
+                        stack.push(*y);
+                    }
+                }
+            }
+            out
+        })
+        .contains(&d)
 }
 
 /// Services in non-test code that implement interface `iface`
@@ -314,22 +387,89 @@ pub(crate) fn classify(cx: &Cx<'_, '_>, ty: &Ty) -> Injectable {
             if cx.p.is_stdlib(d) {
                 return Injectable::Not;
             }
-            let chosen = rules(cx)
-                .iter()
-                .find(|r| r.target == Some(d))
-                .map(|r| r.imp)
-                .unwrap_or_else(|| {
-                    let impls = implementations(cx, d);
-                    if impls.len() == 1 {
-                        impls.first().copied()
-                    } else {
-                        None
-                    }
-                });
-            Injectable::Interface(d, chosen)
+            Injectable::Interface(d)
         }
         _ => Injectable::Not,
     }
+}
+
+/// The services interface `iface` is bound to across every environment
+/// (memoized), the way codegen binds it for each one
+/// (`k_codegen::server::binding`): per environment, the first `use` rule
+/// for `iface` that names the environment or has no `in`, else the single
+/// project implementation. A rule whose implementation doesn't resolve
+/// binds nothing (K1202 is reported at it).
+///
+/// Every check that follows an interface to its implementation (sides,
+/// scopes, cycles, sessions) runs over all of them, so a program is
+/// accepted only when it holds in every environment `k check` can't tell
+/// apart. Distinct services in first-environment order; empty when no
+/// environment binds one.
+pub(crate) fn choices(cx: &Cx<'_, '_>, iface: DeclId) -> Vec<Choice> {
+    if let Some(found) = cx.di.choices.borrow().get(&iface) {
+        return found.clone();
+    }
+    let rules = rules(cx);
+    let mut out: Vec<Choice> = Vec::new();
+    for env in ENVIRONMENTS.iter().copied() {
+        let rule = rules.iter().find(|r| {
+            r.target == Some(iface) && (r.envs.is_empty() || r.envs.iter().any(|e| e == env))
+        });
+        let imp = match rule {
+            Some(r) => r.imp,
+            None => match implementations(cx, iface).as_slice() {
+                [only] => Some(*only),
+                _ => None,
+            },
+        };
+        let Some(imp) = imp else { continue };
+        match out.iter_mut().find(|c| c.imp == imp) {
+            Some(c) => c.envs.push(env),
+            None => out.push(Choice {
+                imp,
+                envs: vec![env],
+            }),
+        }
+    }
+    cx.di.choices.borrow_mut().insert(iface, out.clone());
+    out
+}
+
+/// The services an injection resolves to: a service itself, every
+/// environment's choice for an interface, nothing for anything else.
+fn bound_services(cx: &Cx<'_, '_>, what: &Injectable) -> Vec<DeclId> {
+    match what {
+        Injectable::Service(t) => vec![*t],
+        Injectable::Interface(i) => choices(cx, *i).into_iter().map(|c| c.imp).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The note naming the environments in which interface `iface` is bound
+/// to `imp`, when the environments bind different services:
+/// "in `.production`, `PaymentProvider` is `StripePayments`". `None` when
+/// every environment binds the same one.
+fn environment_note(cx: &Cx<'_, '_>, iface: DeclId, imp: DeclId) -> Option<String> {
+    let all = choices(cx, iface);
+    if all.len() < 2
+        && all
+            .first()
+            .is_none_or(|c| c.envs.len() == ENVIRONMENTS.len())
+    {
+        return None;
+    }
+    let choice = all.iter().find(|c| c.imp == imp)?;
+    let envs: Vec<String> = choice.envs.iter().map(|e| format!("`.{e}`")).collect();
+    let envs = match envs.as_slice() {
+        [] => return None,
+        [one] => one.clone(),
+        [init @ .., last] => format!("{} and {last}", init.join(", ")),
+    };
+    Some(format!(
+        "in {envs}, `{}` is `{}`",
+        cx.p.decl_name(iface),
+        cx.p.decl_name(imp)
+    ))
 }
 
 /// The side of a declaration (memoized).
@@ -402,15 +542,15 @@ fn compute_side(cx: &Cx<'_, '_>, d: DeclId) -> Sides {
 /// The side an injected field's type brings along.
 fn injected_side(cx: &Cx<'_, '_>, ty: &Ty) -> Sides {
     match classify(cx, ty) {
-        Injectable::Service(t)
-        | Injectable::Interface(_, Some(t))
-        | Injectable::Platform(t)
-        | Injectable::Infra(t) => side(cx, t),
+        Injectable::Service(t) | Injectable::Platform(t) | Injectable::Infra(t) => side(cx, t),
+        // The union over every environment's choice: the declaration's side
+        // is one for all of them (10-services.md, "The boundary is drawn
+        // per declaration").
+        Injectable::Interface(i) => choices(cx, i)
+            .iter()
+            .fold(Sides::default(), |s, c| s.union(side(cx, c.imp))),
         Injectable::Repository(_) | Injectable::Config(_) => SERVER,
-        Injectable::Protocol(_)
-        | Injectable::Interface(_, None)
-        | Injectable::Not
-        | Injectable::Unknown => Sides::default(),
+        Injectable::Protocol(_) | Injectable::Not | Injectable::Unknown => Sides::default(),
     }
 }
 
@@ -466,26 +606,27 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
             if !layering(cx, d, kind, &what, decl.file, range) {
                 continue;
             }
-            if let Injectable::Interface(iface, None) = &what {
-                if kind != Some(K::TestSuite) {
+            if let Injectable::Interface(iface) = &what {
+                if kind != Some(K::TestSuite) && choices(cx, *iface).is_empty() {
                     missing_or_ambiguous(cx, decl.file, range, *iface);
                 }
             }
-            let target = match what {
-                Injectable::Service(t) | Injectable::Interface(_, Some(t)) => Some(t),
-                _ => None,
-            };
-            if let Some(t) = target {
-                if kind == Some(K::Service) && !p.is_stdlib(t)
-                    || kind == Some(K::Service) && p.is_stdlib(t)
-                {
+            if kind == Some(K::Service) {
+                let via = match what {
+                    Injectable::Interface(i) => Some(i),
+                    _ => None,
+                };
+                for t in bound_services(cx, &what) {
                     edges.push((d, t, m, range));
-                    scopes(cx, d, t, decl.file, range);
+                    scopes(cx, d, t, via, decl.file, range);
                 }
             }
-            // An imported declaration is reported once, at the import
-            // (`client_references`).
-            let imported = ty.decl().is_some_and(|t| imported_into(cx, decl.file, t));
+            // An imported server-only declaration is reported once, at the
+            // import (`client_references`). An interface is shared itself;
+            // what makes it server-only is a choice, reported here.
+            let imported = ty
+                .decl()
+                .is_some_and(|t| imported_into(cx, decl.file, t) && side(cx, t).server);
             if reaches_client(cx, d) && injected_side(cx, &ty).server && !imported {
                 let mut diag = Diagnostic::new(
                     codes::SERVER_ONLY_IN_CLIENT,
@@ -495,13 +636,13 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
                         ty.render(p)
                     ),
                 );
-                let path = ty
-                    .decl()
-                    .and_then(|t| server_path(cx, t, &mut HashSet::new()));
-                if let Some((path, reason)) = path {
+                if let Some(path) = server_path_of(cx, &what, &mut HashSet::new()) {
                     let mut names = vec![p.decl_name(d)];
-                    names.extend(path.iter().map(|t| p.decl_name(*t)));
-                    diag = diag.with_note(format!("{} ({reason})", names.join(" → ")));
+                    names.extend(path.decls.iter().map(|t| p.decl_name(*t)));
+                    diag = diag.with_note(format!("{} ({})", names.join(" → "), path.reason));
+                    if let Some(note) = path.environment {
+                        diag = diag.with_note(note);
+                    }
                 }
                 cx.report(decl.file, diag);
             }
@@ -595,8 +736,16 @@ fn missing_or_ambiguous(cx: &Cx<'_, '_>, file: FileIx, range: TextRange, iface: 
     cx.report(file, d);
 }
 
-/// K4004: a service injects only services that live at least as long.
-fn scopes(cx: &Cx<'_, '_>, owner: DeclId, target: DeclId, file: FileIx, range: TextRange) {
+/// K4004: a service injects only services that live at least as long;
+/// `via` is the interface `target` was chosen for, if any.
+fn scopes(
+    cx: &Cx<'_, '_>,
+    owner: DeclId,
+    target: DeclId,
+    via: Option<DeclId>,
+    file: FileIx,
+    range: TextRange,
+) {
     let p = cx.p;
     if is_named(cx, target, "k.time.Clock") {
         return;
@@ -606,18 +755,19 @@ fn scopes(cx: &Cx<'_, '_>, owner: DeclId, target: DeclId, file: FileIx, range: T
     if lifetime(&inner) >= lifetime(&outer) {
         return;
     }
-    cx.report(
-        file,
-        Diagnostic::new(
-            codes::SCOPE_VIOLATION,
-            p.span(file, range),
-            format!(
-                "a `.{outer}` service can't inject `{}`, which is `.{inner}` and may end sooner",
-                p.decl_name(target)
-            ),
-        )
-        .with_note(format!("{} → {}", p.decl_name(owner), p.decl_name(target))),
-    );
+    let mut diag = Diagnostic::new(
+        codes::SCOPE_VIOLATION,
+        p.span(file, range),
+        format!(
+            "a `.{outer}` service can't inject `{}`, which is `.{inner}` and may end sooner",
+            p.decl_name(target)
+        ),
+    )
+    .with_note(format!("{} → {}", p.decl_name(owner), p.decl_name(target)));
+    if let Some(note) = via.and_then(|i| environment_note(cx, i, target)) {
+        diag = diag.with_note(note);
+    }
+    cx.report(file, diag);
 }
 
 /// K4008: a service that needs both sides; K5504 for a protocol
@@ -680,7 +830,8 @@ fn job_session(cx: &Cx<'_, '_>, d: DeclId) {
     if !is_job {
         return;
     }
-    let Some(path) = session_path(cx, d, &mut HashSet::new()) else {
+    let mut environment = None;
+    let Some(path) = session_path(cx, d, &mut environment, &mut HashSet::new()) else {
         return;
     };
     let decl = cx.p.decl(d);
@@ -689,39 +840,56 @@ fn job_session(cx: &Cx<'_, '_>, d: DeclId) {
     let last = path
         .last()
         .map_or_else(String::new, |t| cx.p.decl(*t).name.clone());
-    cx.report(
-        decl.file,
-        Diagnostic::new(
-            codes::JOB_REACHES_SESSION,
-            cx.p.span(decl.file, decl.name_range),
-            format!(
-                "the job `{}` reaches `{last}`, but a job runs without a session",
-                decl.name
-            ),
-        )
-        .with_note(names.join(" → ")),
-    );
+    let mut diag = Diagnostic::new(
+        codes::JOB_REACHES_SESSION,
+        cx.p.span(decl.file, decl.name_range),
+        format!(
+            "the job `{}` reaches `{last}`, but a job runs without a session",
+            decl.name
+        ),
+    )
+    .with_note(names.join(" → "));
+    if let Some(note) = environment {
+        diag = diag.with_note(note);
+    }
+    cx.report(decl.file, diag);
 }
 
 /// The injection path from `d` (excluded) to `Session` or `SessionManager`
 /// (included), if `d`'s dependency graph reaches one. A depth-first search
-/// over services and the services chosen for interfaces; `seen` keeps it
-/// linear in the graph.
-fn session_path(cx: &Cx<'_, '_>, d: DeclId, seen: &mut HashSet<DeclId>) -> Option<Vec<DeclId>> {
+/// over services and every environment's choice for interfaces; `seen`
+/// keeps it linear in the graph. `environment` receives the
+/// [`environment_note`] of the first interface on the path whose choice
+/// differs between environments.
+fn session_path(
+    cx: &Cx<'_, '_>,
+    d: DeclId,
+    environment: &mut Option<String>,
+    seen: &mut HashSet<DeclId>,
+) -> Option<Vec<DeclId>> {
     if !seen.insert(d) {
         return None;
     }
     for (m, _) in inject_fields(cx, d) {
-        let next = match classify(cx, &cx.field_ty(m)) {
-            Injectable::Service(t) | Injectable::Interface(_, Some(t)) | Injectable::Infra(t) => t,
-            _ => continue,
+        let what = classify(cx, &cx.field_ty(m));
+        let (via, next) = match what {
+            Injectable::Infra(t) => (None, vec![t]),
+            Injectable::Interface(i) => (Some(i), bound_services(cx, &what)),
+            _ => (None, bound_services(cx, &what)),
         };
-        if is_named(cx, next, "k.auth.Session") || is_named(cx, next, "k.auth.SessionManager") {
-            return Some(vec![next]);
-        }
-        if let Some(mut rest) = session_path(cx, next, seen) {
-            rest.insert(0, next);
-            return Some(rest);
+        for next in next {
+            let note = || via.and_then(|i| environment_note(cx, i, next));
+            if is_named(cx, next, "k.auth.Session") || is_named(cx, next, "k.auth.SessionManager") {
+                *environment = note();
+                return Some(vec![next]);
+            }
+            if let Some(mut rest) = session_path(cx, next, environment, seen) {
+                if environment.is_none() {
+                    *environment = note();
+                }
+                rest.insert(0, next);
+                return Some(rest);
+            }
         }
     }
     None
@@ -1076,12 +1244,12 @@ fn client_code(
         let decl = p.decl(d);
         let mut reached: Vec<DeclId> = Vec::new();
         for (m, _) in inject_fields(cx, d) {
-            match classify(cx, &cx.field_ty(m)) {
-                Injectable::Service(t) | Injectable::Interface(_, Some(t)) if shared_service(t) => {
-                    reached.push(t);
-                }
-                _ => {}
-            }
+            let what = classify(cx, &cx.field_ty(m));
+            reached.extend(
+                bound_services(cx, &what)
+                    .into_iter()
+                    .filter(|t| shared_service(*t)),
+            );
         }
         let file_id = p.file(decl.file).id;
         let range = decl.node.text_range();
@@ -1117,15 +1285,53 @@ fn client_code(
     set
 }
 
-/// The injection path from `d` to the declaration that makes it
-/// server-only, with the reason, for K4007's note: `[Indirect, Server,
-/// Keys]` and "a config is server-only". `None` when `d` isn't server-only
-/// through anything this can name.
-fn server_path(
+/// Why a declaration is server-only, for K4007's notes.
+struct ServerPath {
+    /// The injection path to the declaration that makes it server-only:
+    /// `[Indirect, Server, Keys]`. An interface is stepped over: the path
+    /// names the service chosen for it.
+    decls: Vec<DeclId>,
+    /// Why the last one is server-only: "a config is server-only".
+    reason: String,
+    /// The [`environment_note`] of the first interface on the path whose
+    /// choice differs between environments.
+    environment: Option<String>,
+}
+
+/// The [`ServerPath`] of what an injection resolves to; for an interface,
+/// through the first environment's choice that is server-only.
+fn server_path_of(
     cx: &Cx<'_, '_>,
-    d: DeclId,
+    what: &Injectable,
     seen: &mut HashSet<DeclId>,
-) -> Option<(Vec<DeclId>, String)> {
+) -> Option<ServerPath> {
+    match what {
+        Injectable::Interface(i) => {
+            for c in choices(cx, *i) {
+                if !side(cx, c.imp).server {
+                    continue;
+                }
+                if let Some(mut path) = server_path(cx, c.imp, seen) {
+                    if path.environment.is_none() {
+                        path.environment = environment_note(cx, *i, c.imp);
+                    }
+                    return Some(path);
+                }
+            }
+            None
+        }
+        Injectable::Service(t)
+        | Injectable::Platform(t)
+        | Injectable::Infra(t)
+        | Injectable::Repository(t)
+        | Injectable::Config(t) => server_path(cx, *t, seen),
+        Injectable::Protocol(_) | Injectable::Not | Injectable::Unknown => None,
+    }
+}
+
+/// The [`ServerPath`] from `d`. `None` when `d` isn't server-only through
+/// anything this can name.
+fn server_path(cx: &Cx<'_, '_>, d: DeclId, seen: &mut HashSet<DeclId>) -> Option<ServerPath> {
     if !seen.insert(d) {
         return None;
     }
@@ -1157,25 +1363,20 @@ fn server_path(
         }
     };
     if let Some(reason) = own {
-        return Some((vec![d], reason));
+        return Some(ServerPath {
+            decls: vec![d],
+            reason,
+            environment: None,
+        });
     }
     for (m, _) in inject_fields(cx, d) {
         let ty = cx.field_ty(m);
         if !injected_side(cx, &ty).server {
             continue;
         }
-        let next = match classify(cx, &ty) {
-            Injectable::Service(t)
-            | Injectable::Interface(_, Some(t))
-            | Injectable::Platform(t)
-            | Injectable::Infra(t)
-            | Injectable::Repository(t)
-            | Injectable::Config(t) => t,
-            _ => continue,
-        };
-        if let Some((mut path, reason)) = server_path(cx, next, seen) {
-            path.insert(0, d);
-            return Some((path, reason));
+        if let Some(mut path) = server_path_of(cx, &classify(cx, &ty), seen) {
+            path.decls.insert(0, d);
+            return Some(path);
         }
     }
     None

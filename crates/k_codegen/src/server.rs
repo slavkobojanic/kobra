@@ -36,7 +36,7 @@ fn srt(name: &str, args: Vec<Expr>) -> Expr {
 }
 
 /// `this.name`.
-fn this(name: impl Into<String>) -> Expr {
+pub(crate) fn this(name: impl Into<String>) -> Expr {
     member(Expr::This, name)
 }
 
@@ -458,7 +458,7 @@ fn layout_annotation(b: &Body<'_, '_>, d: DeclId, node: &SyntaxNode) -> Option<D
 
 /// The layouts a page renders inside, outermost first: its own
 /// `@Layout(…)` or the app's, none with `@NoLayout`.
-fn layouts_of(b: &Body<'_, '_>, page: DeclId) -> Vec<DeclId> {
+pub(crate) fn layouts_of(b: &Body<'_, '_>, page: DeclId) -> Vec<DeclId> {
     let g = b.g;
     let info = g.view.decl(page);
     if info.has_annotation("NoLayout") {
@@ -492,13 +492,26 @@ pub(crate) fn injected(g: &Gen<'_>, d: DeclId) -> Vec<DeclId> {
         .collect()
 }
 
+/// The scope of a service, from its `@Scope(.x)` annotation: `"app"` (the
+/// default), `"request"`, `"route"`, `"component"` or `"server"`.
+pub(crate) fn scope_of(g: &Gen<'_>, d: DeclId) -> &'static str {
+    let Some(n) = g.decl_node(d) else {
+        return "app";
+    };
+    for a in n.children().filter_map(ast::Annotation::cast) {
+        let t = a.syntax().text().to_string().replace([' ', '\n'], "");
+        for s in ["request", "route", "component", "server"] {
+            if t == format!("@Scope(.{s})") {
+                return s;
+            }
+        }
+    }
+    "app"
+}
+
 /// `true` for a `@Scope(.server)` service.
 pub(crate) fn is_server_scoped(g: &Gen<'_>, d: DeclId) -> bool {
-    g.decl_node(d).is_some_and(|n| {
-        n.children()
-            .filter_map(ast::Annotation::cast)
-            .any(|a| a.syntax().text().to_string().replace(' ', "") == "@Scope(.server)")
-    })
+    scope_of(g, d) == "server"
 }
 
 /// The implementing service of protocol `p`.
@@ -513,13 +526,16 @@ fn implementation(g: &Gen<'_>, p: DeclId) -> Option<DeclId> {
 /// * an interface resolves to its implementation's getter: the app's `use`
 ///   rule for the selected environment (a rule without `in` applies to
 ///   every environment), else its single implementation among the
-///   project's services (docs/design/10-services.md);
+///   project's services (docs/design/10-services.md), else the stdlib's
+///   default ([`stdlib_default`]: `FetchHttpClient`, `SmtpEmailProvider`,
+///   `DatabaseJobQueue`, or their `k.test` doubles in a test build);
 /// * `k.server.PublicUrls` is `$s.publicUrls(Page$href)`, absolute URLs
 ///   from `K_PUBLIC_ORIGIN` (docs/design/12-routing.md, "Absolute URLs");
-/// * anything else (a stdlib service the v0 server doesn't provide yet,
-///   such as `k.server.JobQueue`) is `$s.missingNative(name)`: injecting it
-///   works, and calling it panics with its name instead of failing with a
-///   `TypeError` on `undefined`.
+/// * a stdlib service with a server body is that body
+///   ([`server_platform_service`]), memoized per container;
+/// * anything else (a stdlib service the v0 server doesn't provide yet) is
+///   `$s.missingNative(name)`: injecting it works, and calling it panics
+///   with its name instead of failing with a `TypeError` on `undefined`.
 fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Function> {
     let g = b.g;
     let mut provided = provided.clone();
@@ -533,23 +549,34 @@ fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Func
     }
     let rules = use_rules(g);
     let mut out = Vec::new();
-    for t in wanted {
+    let mut i = 0;
+    while i < wanted.len() {
+        let t = wanted[i];
+        i += 1;
         let name = g.name(t);
         if provided.contains(&name) {
             continue;
         }
         let qualified = g.view.qualified_name(t);
-        let body = if qualified == "k.server.PublicUrls" {
+        let body = if qualified == "k.ui.Theme" {
+            // Client-only, but it exists during server rendering with the
+            // remembered variant.
+            memo(&name, srt("theme", vec![this("$r")]))
+        } else if qualified == "k.server.PublicUrls" {
             let href = match g.view.lookup("k.core.Page") {
                 Some(p) => b.use_decl(p, "Page$href".into()),
                 None => js::arrow(vec![Param::new("p")], id("p")),
             };
             memo(&name, srt("publicUrls", vec![href]))
         } else if g.view.decl(t).named_kind() == Some(DeclarationKind::Interface)
-            && let Some(imp) = binding(g, &rules, t)
-            && provided.contains(&g.name(imp))
+            && let Some(imp) = binding(g, &rules, t).or_else(|| stdlib_default(g, &qualified))
         {
+            if !provided.contains(&g.name(imp)) && !wanted.contains(&imp) {
+                wanted.push(imp);
+            }
             this(g.name(imp))
+        } else if let Some(body) = server_platform_service(b, &qualified) {
+            memo(&name, body)
         } else {
             memo(&name, srt("missingNative", vec![js::str(qualified)]))
         };
@@ -559,8 +586,79 @@ fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Func
     out
 }
 
+/// The stdlib's implementation of platform interface `qualified` when the
+/// app binds none: the production one, or the `k.test` double a test build
+/// installs by default (docs/design/21-testing.md, "Test doubles and
+/// defaults").
+fn stdlib_default(g: &Gen<'_>, qualified: &str) -> Option<DeclId> {
+    let test = g.options.environment == crate::Environment::Test;
+    let imp = match (qualified, test) {
+        ("k.http.HttpClient", false) => "k.http.FetchHttpClient",
+        ("k.http.HttpClient", true) => "k.test.TestHttpClient",
+        ("k.server.EmailProvider", false) => "k.server.SmtpEmailProvider",
+        ("k.server.EmailProvider", true) => "k.test.RecordingEmailProvider",
+        ("k.server.JobQueue", false) => "k.server.DatabaseJobQueue",
+        ("k.server.JobQueue", true) => "k.test.RecordingJobQueue",
+        _ => return None,
+    };
+    g.view.lookup(imp)
+}
+
+/// The `HttpStatus` codes in declaration order (`null` for `other`), the
+/// table the runtime maps received statuses with.
+pub(crate) fn http_status_codes(g: &Gen<'_>) -> Expr {
+    Expr::Array(
+        case_names(g, "k.http.HttpStatus")
+            .iter()
+            .map(|n| status_code(n).map_or(Expr::Null, |c| Expr::Num(f64::from(c))))
+            .collect(),
+    )
+}
+
+/// References to the generated stdlib enums `names`, `null` for one that
+/// doesn't exist.
+fn stdlib_enums(b: &mut Body<'_, '_>, names: &[&str]) -> Vec<Expr> {
+    names
+        .iter()
+        .map(|n| match b.g.view.lookup(n) {
+            Some(d) => b.decl_ref(d),
+            None => Expr::Null,
+        })
+        .collect()
+}
+
+/// The server body of a stdlib service by qualified name
+/// (`k:runtime/outbound.js`, docs/compiler/server.md §18), or `None`.
+fn server_platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Option<Expr> {
+    let http = |b: &mut Body<'_, '_>, f: &str| {
+        let mut args = stdlib_enums(b, &["k.http.HttpError", "k.http.HttpStatus"]);
+        args.push(http_status_codes(b.g));
+        srt(f, args)
+    };
+    Some(match qualified {
+        "k.http.FetchHttpClient" => http(b, "fetchHttpClient"),
+        "k.test.TestHttpClient" => http(b, "testHttpClient"),
+        "k.server.SmtpEmailProvider" => {
+            let mut args = stdlib_enums(b, &["k.server.EmailError"]);
+            args.push(member(srt("info", vec![]), "config"));
+            srt("smtpEmailProvider", args)
+        }
+        "k.test.RecordingEmailProvider" => srt(
+            "recordingEmailProvider",
+            stdlib_enums(b, &["k.server.EmailError"]),
+        ),
+        "k.server.DatabaseJobQueue" => srt("jobQueue", vec![this("Database")]),
+        "k.test.RecordingJobQueue" => srt("recordingJobQueue", vec![]),
+        "k.test.InlineJobQueue" => srt(
+            "inlineJobQueue",
+            vec![member(this("$r"), "spec"), Expr::This, this("Database")],
+        ),
+        _ => return None,
+    })
+}
+
 /// One `use Impl for Target in .env, …` rule of the app.
-struct UseRule {
+pub(crate) struct UseRule {
     imp: Option<DeclId>,
     target: Option<DeclId>,
     /// The environments' case names; empty for every environment.
@@ -568,7 +666,7 @@ struct UseRule {
 }
 
 /// The `use` rules of the project's `app` declaration, in source order.
-fn use_rules(g: &Gen<'_>) -> Vec<UseRule> {
+pub(crate) fn use_rules(g: &Gen<'_>) -> Vec<UseRule> {
     let Some(app) = g
         .own
         .iter()
@@ -620,7 +718,7 @@ fn use_rules(g: &Gen<'_>) -> Vec<UseRule> {
 /// The implementation interface `iface` is bound to in the selected
 /// environment: the first matching `use` rule, else the single project
 /// service implementing it.
-fn binding(g: &Gen<'_>, rules: &[UseRule], iface: DeclId) -> Option<DeclId> {
+pub(crate) fn binding(g: &Gen<'_>, rules: &[UseRule], iface: DeclId) -> Option<DeclId> {
     let env = match g.options.environment {
         crate::Environment::Production => "production",
         crate::Environment::Development => "development",
@@ -634,7 +732,8 @@ fn binding(g: &Gen<'_>, rules: &[UseRule], iface: DeclId) -> Option<DeclId> {
     }
     let mut impls = g.own.iter().copied().filter(|&s| {
         g.view.decl(s).named_kind() == Some(DeclarationKind::Service)
-            && !g.view.decl(s).is_test
+            && (crate::bundle::allowed(g, s, Target::Server)
+                || crate::bundle::allowed(g, s, Target::Client))
             && g.implements(s, iface)
     });
     let first = impls.next()?;
@@ -642,7 +741,7 @@ fn binding(g: &Gen<'_>, rules: &[UseRule], iface: DeclId) -> Option<DeclId> {
 }
 
 /// `get Name() { return body; }`.
-fn getter(name: String, body: Expr) -> Function {
+pub(crate) fn getter(name: String, body: Expr) -> Function {
     Function {
         name,
         params: Vec::new(),
@@ -653,7 +752,7 @@ fn getter(name: String, body: Expr) -> Function {
 }
 
 /// `this.$Name ??= value`.
-fn memo(name: &str, value: Expr) -> Expr {
+pub(crate) fn memo(name: &str, value: Expr) -> Expr {
     Expr::Assign("??=", Box::new(this(format!("${name}"))), Box::new(value))
 }
 
@@ -710,6 +809,10 @@ fn containers(b: &mut Body<'_, '_>) -> Vec<Stmt> {
             );
             process.push(getter(name.clone(), memo(&name, shared)));
             request.push(getter(name.clone(), member(id("$process"), name)));
+        } else if scope_of(g, s) == "component" {
+            // A new instance per injecting component, which provides it
+            // to its subtree (`$k.provide`).
+            request.push(getter(name.clone(), construct));
         } else {
             request.push(getter(name.clone(), memo(&name, construct)));
         }
@@ -739,16 +842,16 @@ fn containers(b: &mut Body<'_, '_>) -> Vec<Stmt> {
         process.push(getter(name.clone(), memo(&name, call(load, vec![]))));
         request.push(getter(name.clone(), member(id("$process"), name)));
     }
-    // Protocols: the in-process client of the implementation.
+    // Protocols: the in-process client of the implementation, through the
+    // rpc table (`$s.callLocal`), so guards and validation run.
     for &p in &g.own {
         if g.view.decl(p).named_kind() != Some(DeclarationKind::Protocol) {
             continue;
         }
-        let Some(imp) = implementation(g, p) else {
+        if implementation(g, p).is_none() {
             continue;
-        };
+        }
         let pname = g.name(p);
-        let iname = g.name(imp);
         let local = format!("{pname}$local");
         let mut methods = vec![Function {
             kind: MethodKind::Constructor,
@@ -761,16 +864,26 @@ fn containers(b: &mut Body<'_, '_>) -> Vec<Stmt> {
                 continue;
             }
             let mname = g.member_name(m);
+            // Through the rpc's table entry, so its guards and validation
+            // run as over HTTP (28-rpc-wire-format.md).
+            let path = crate::app::rpc_path(g, p, m);
+            let entry = Expr::Index(
+                Box::new(member(id("$spec"), "rpcs")),
+                Box::new(js::str(path)),
+            );
             methods.push(Function {
                 name: mname.clone(),
-                params: vec![Param {
-                    name: "a".into(),
-                    default: None,
-                    rest: true,
-                }],
-                body: js::Body::Block(vec![Stmt::Return(Some(call(
-                    member(member(this("c"), iname.clone()), mname),
-                    vec![Expr::Spread(Box::new(id("a")))],
+                params: vec![
+                    Param::new("$c"),
+                    Param {
+                        name: "a".into(),
+                        default: None,
+                        rest: true,
+                    },
+                ],
+                body: js::Body::Block(vec![Stmt::Return(Some(srt(
+                    "callLocal",
+                    vec![this("c"), entry, id("$c"), id("a")],
                 )))]),
                 is_async: false,
                 kind: MethodKind::Plain,
@@ -1245,6 +1358,22 @@ fn rpc_table(b: &mut Body<'_, '_>, helpers: &mut Vec<Stmt>) -> Expr {
                 }
                 _ => Expr::Null,
             };
+            // `(f) => E.rpcFailure(f)`: an `RpcFailure` as the rpc's own
+            // error, for in-process calls (`$s.callLocal`).
+            let failure = match sig
+                .as_ref()
+                .and_then(|s| s.throws.clone())
+                .and_then(|t| t.decl())
+            {
+                Some(e) if g.view.decl(e).named_kind() == Some(DeclarationKind::Enum) => {
+                    let r = b.decl_ref(e);
+                    js::arrow(
+                        vec![Param::new("f")],
+                        call(member(r, "rpcFailure"), vec![id("f")]),
+                    )
+                }
+                _ => Expr::Null,
+            };
             let mut gs = match &pnode {
                 Some(n) => in_file(b, p, |b| guards(b, n, &format!("protocol:{}", info.name))),
                 None => Vec::new(),
@@ -1286,6 +1415,7 @@ fn rpc_table(b: &mut Body<'_, '_>, helpers: &mut Vec<Stmt>) -> Expr {
                         Prop::KeyValue("call".into(), invoke),
                         Prop::KeyValue("encode".into(), encode),
                         Prop::KeyValue("error".into(), error),
+                        Prop::KeyValue("failure".into(), failure),
                         Prop::KeyValue("stream".into(), Expr::Bool(stream)),
                     ],
                     true,
@@ -1629,6 +1759,7 @@ pub(crate) fn server_entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)
                     false,
                 ),
             ),
+            Prop::KeyValue("jobs".into(), crate::jobs::table(&mut b)),
             Prop::KeyValue("httpStatus".into(), Expr::Array(http_status)),
             Prop::KeyValue("httpBody".into(), Expr::Array(http_body)),
             Prop::KeyValue("assets".into(), id(ASSETS_PLACEHOLDER)),
@@ -1778,6 +1909,24 @@ fn stdlib_configs(g: &Gen<'_>) -> Vec<&'static str> {
         if g.own.iter().any(|&d| g.implements(d, job)) {
             out.push("k/server/JobConfig.k");
         }
+    }
+    // `SmtpConfig` only when the reachable graph sends email through the
+    // stdlib's SMTP provider (31-email.md, "SMTP configuration").
+    let reached = reachable(g);
+    let rules = use_rules(g);
+    let smtp = g.view.lookup("k.server.SmtpEmailProvider");
+    let provider = g.view.lookup("k.server.EmailProvider");
+    let sends_smtp = reached.iter().any(|&d| {
+        injected(g, d).into_iter().any(|t| {
+            Some(t) == smtp
+                || (Some(t) == provider
+                    && binding(g, &rules, t)
+                        .or_else(|| stdlib_default(g, "k.server.EmailProvider"))
+                        == smtp)
+        })
+    });
+    if sends_smtp {
+        out.push("k/server/SmtpConfig.k");
     }
     out
 }
@@ -1949,7 +2098,25 @@ pub(crate) fn config_entries(g: &Gen<'_>) -> Vec<crate::ConfigEntry> {
                     .map(|t| t.text().to_owned())
                     .unwrap_or_default();
                 let at = format!("{}.{name}.{fname}", file.module);
-                if let Some(e) = entry_of(&field, at, Vec::new()) {
+                // An enum field's cases, from the stdlib enum of the
+                // config's module (`SmtpSecurity`).
+                let ty = field
+                    .children()
+                    .find(|c| matches!(c.kind(), SyntaxKind::PathType | SyntaxKind::OptionalType))
+                    .map(|t| t.text().to_string().trim().trim_end_matches('?').to_owned())
+                    .unwrap_or_default();
+                let cases = g
+                    .view
+                    .lookup(&format!("{}.{ty}", file.module))
+                    .filter(|&d| g.view.decl(d).named_kind() == Some(DeclarationKind::Enum))
+                    .map(|d| {
+                        g.cases(d)
+                            .iter()
+                            .map(|&x| g.view.member(x).name.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if let Some(e) = entry_of(&field, at, cases) {
                     push(e);
                 }
             }

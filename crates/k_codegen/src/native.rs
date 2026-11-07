@@ -219,6 +219,26 @@ pub(crate) fn property(
             None => recv,
         },
         ("k.core.Url", "host") => rt("urlHost", vec![recv]),
+        ("k.http.HttpStatus", "code") => rt("httpCode", vec![recv]),
+        ("k.http.HttpStatus", "isSuccess") => {
+            let c = rt("httpCode", vec![recv]);
+            bin(
+                "&&",
+                bin(">=", c.clone(), Expr::Num(200.0)),
+                bin("<", c, Expr::Num(300.0)),
+            )
+        }
+        ("k.http.HttpStatus", "isClientError") => {
+            let c = rt("httpCode", vec![recv]);
+            bin(
+                "&&",
+                bin(">=", c.clone(), Expr::Num(400.0)),
+                bin("<", c, Expr::Num(500.0)),
+            )
+        }
+        ("k.http.HttpStatus", "isServerError") => {
+            bin(">=", rt("httpCode", vec![recv]), Expr::Num(500.0))
+        }
         _ => return None,
     })
 }
@@ -719,7 +739,11 @@ pub(crate) fn static_call(
             call(member(member(id("$k"), "Json"), "decode"), vec![w, a0, err])
         }
         ("k.ui.Router", "navigate") => {
+            // `navigate(url:)` takes the URL as is; `navigate(to:)` a page.
+            let labels = b.g.view.labels(m);
+            let to_url = labels.first().is_some_and(|l| l.as_deref() == Some("url"));
             let href = match b.g.view.lookup("k.core.Page") {
+                _ if to_url => call(id("String"), vec![a0]),
                 Some(p) => {
                     let f = b.use_decl(p, "Page$href".into());
                     call(f, vec![a0])
@@ -767,7 +791,10 @@ pub(crate) fn emits_stdlib_decl(g: &crate::cx::Gen<'_>, d: DeclId) -> bool {
     crate::app::is_generated_enum(g, d)
         || (info.stdlib
             && !info.has_annotation("Native")
-            && matches!(info.named_kind(), Some(DeclarationKind::Enum)))
+            && matches!(
+                info.named_kind(),
+                Some(DeclarationKind::Enum | DeclarationKind::Struct)
+            ))
 }
 
 #[allow(dead_code)]

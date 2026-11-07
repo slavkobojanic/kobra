@@ -714,17 +714,14 @@ pub(crate) fn first_token_range(node: &SyntaxNode) -> TextRange {
 
 /// Returns the written visibility of a declaration or member node.
 pub(crate) fn visibility_of(node: &SyntaxNode) -> Visibility {
-    for token in node
-        .children_with_tokens()
-        .filter_map(rowan::NodeOrToken::into_token)
-    {
-        match token.kind() {
-            SyntaxKind::PublicKw => return Visibility::Public,
-            SyntaxKind::PrivateKw => return Visibility::Private,
-            _ => {}
-        }
+    // Reads the green tree: no red tokens are allocated.
+    match ast::support::token_kind_where(node, |k| {
+        matches!(k, SyntaxKind::PublicKw | SyntaxKind::PrivateKw)
+    }) {
+        Some(SyntaxKind::PublicKw) => Visibility::Public,
+        Some(SyntaxKind::PrivateKw) => Visibility::Private,
+        _ => Visibility::Module,
     }
-    Visibility::Module
 }
 
 /// Returns the `public` or `private` token of a node.
@@ -734,10 +731,22 @@ pub(crate) fn visibility_token(node: &SyntaxNode) -> Option<SyntaxToken> {
         .find(|t| matches!(t.kind(), SyntaxKind::PublicKw | SyntaxKind::PrivateKw))
 }
 
+/// The names of a node's annotations (`State` for `@State`), as
+/// `ast::Annotation::name` spells them, read from the green tree so no red
+/// nodes are allocated (the item tree is rebuilt on every revision).
 fn annotation_names(node: &SyntaxNode) -> Vec<String> {
-    node.children()
-        .filter_map(ast::Annotation::cast)
-        .filter_map(|a| a.name().map(|n| n.text().to_owned()))
+    let raw = |k: SyntaxKind| <k_syntax::KLanguage as rowan::Language>::kind_to_raw(k);
+    let (annotation, ident) = (raw(SyntaxKind::Annotation), raw(SyntaxKind::Ident));
+    node.green()
+        .children()
+        .filter_map(rowan::NodeOrToken::into_node)
+        .filter(|n| n.kind() == annotation)
+        .filter_map(|a| {
+            a.children()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .find(|t| t.kind() == ident)
+                .map(|t| t.text().to_owned())
+        })
         .collect()
 }
 
@@ -840,4 +849,49 @@ fn collect_imports(root: &SyntaxNode) -> Vec<ImportInfo> {
         });
     }
     imports
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The red-tree spelling `annotation_names` replaced.
+    fn red_annotation_names(node: &SyntaxNode) -> Vec<String> {
+        node.children()
+            .filter_map(ast::Annotation::cast)
+            .filter_map(|a| a.name().map(|n| n.text().to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn annotation_names_match_the_red_tree() {
+        let text = "\
+@Rendering(.client) /* c */ @Theme
+public app A {}
+
+service S {
+    @Inject  let a: Int
+    @State @Env(\"X\") var b: Int = 1
+    @ // broken
+    let c: Int
+    func f() {}
+}
+";
+        let parse = k_syntax::parse(FileId::new(0), text);
+        let mut seen = 0;
+        for node in parse.syntax().descendants() {
+            let red = red_annotation_names(&node);
+            seen += red.len();
+            assert_eq!(annotation_names(&node), red, "{node:?}");
+            assert_eq!(
+                visibility_of(&node),
+                match visibility_token(&node).map(|t| t.kind()) {
+                    Some(SyntaxKind::PublicKw) => Visibility::Public,
+                    Some(SyntaxKind::PrivateKw) => Visibility::Private,
+                    _ => Visibility::Module,
+                }
+            );
+        }
+        assert!(seen >= 5, "only {seen} annotations");
+    }
 }

@@ -195,6 +195,10 @@ pub struct DeclInfo {
     pub stdlib: bool,
     /// `true` when the declaring file is a `*.test.k` file.
     pub is_test: bool,
+    /// `true` when the declaring module is a test-only module (a directory
+    /// named `testing`, 16-modules.md): only test code can use it, so
+    /// production bundles and bindings leave it out.
+    pub in_test_module: bool,
     /// `true` for `public` declarations.
     pub is_public: bool,
     /// The item's syntax range.
@@ -493,6 +497,9 @@ pub(crate) fn build(cx: &Cx<'_, '_>, sides: &HashMap<(FileId, TextRange), Side>)
             file: file.id,
             stdlib: file.stdlib,
             is_test: file.is_test,
+            in_test_module: file
+                .module
+                .is_some_and(|m| p.modules[m.0 as usize].test_only),
             is_public: d.visibility == k_syntax::ast::Visibility::Public,
             range: d.node.text_range(),
             name_range: d.name_range,

@@ -49,11 +49,13 @@ async function show(url) {
     const container = r.container;
     root((dispose) => {
       r.dispose = dispose;
+      // Each mounted page gets its route's container (`.route` services).
+      const ctx = { router: r, c: r.c() };
       // The first page of a server-rendered document hydrates: it claims
       // the server's nodes and reads its loads from `k-data`.
-      if (data) return hydrate(container, (ctx) => page.render(match.params, { ...ctx, router: r }), data);
+      if (data) return hydrate(container, (h) => page.render(match.params, { ...h, ...ctx }), data);
       for (const c of [...container.childNodes]) container.removeChild(c);
-      const node = page.render(match.params, { router: r });
+      const node = page.render(match.params, ctx);
       if (node) container.appendChild(node);
     });
   });
@@ -74,11 +76,12 @@ function linkOf(target, container) {
  * @param {Element} container
  * @param {object} [options] `notFound`: the route of the not-found page;
  * `data`: the `k-data` payload of a server-rendered document, whose first
- * page is hydrated instead of rendered
+ * page is hydrated instead of rendered; `c`: makes the dependency
+ * container of a mounted page (codegen.md §13), read as `ctx.c`
  * @returns {Promise<void>} settles once the first page is shown
  */
 export function startRouter(routes, container, options) {
-  router = { routes, container, dispose: null, navigation: 0, notFound: options?.notFound ?? null, data: options?.data ?? null };
+  router = { routes, container, dispose: null, navigation: 0, notFound: options?.notFound ?? null, data: options?.data ?? null, c: options?.c ?? Object };
   const loc = globalThis.location;
   container.addEventListener("click", (e) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;

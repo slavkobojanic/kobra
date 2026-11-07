@@ -36,6 +36,7 @@ Contents:
 | Database | `crates/k_db/tests/*.rs` | Drivers, SQL, the migration builder and migrations on SQLite, and on Postgres when configured (§4.2) |
 | Database corpus | `tests/corpus/db/<app>/` | Apps with entities, repositories and migrations served on a fresh database and driven by `requests.http` (§3.11) |
 | Examples | `crates/k_cli/tests/examples.rs` | Each example builds with `k build`, its `dist/app` serves its main page and an rpc (§8.1) |
+| Browser | `crates/k_server/tests/browser.rs` | Each example's main pages, server-rendered, hydrated by the generated client in the fake DOM and driven through DOM events (§4.3) |
 | End-to-end | `crates/k_cli/tests/`, `tests/e2e/`, `crates/k_server/tests/http/` | The `k` binary, built apps, HTTP (§8) |
 | Benchmark | `crates/<crate>/benches/*.rs` (criterion), `tests/perf_budget.rs` | Throughput and latency against the budgets |
 
@@ -598,7 +599,9 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
   `cargo test -p k_server --test runtime_js -- signals.test` runs one file.
 - **Server tests**: `server-app.test.js` drives `k:runtime/app` with hand-written specs; the isolate has
   K's ops, so sessions, rate limits and `.server` state work as in a server (each test's isolate has a
-  fresh, private process state).
+  fresh, private process state). `outbound.test.js` drives the server's I/O services
+  (`FetchHttpClient`, `SmtpEmailProvider`, the job queues) over stand-ins for their ops, passed as
+  their `transport` arguments; the ops themselves are tested in Rust (`tests/outbound.rs`).
 - **Isolation**: every test runs in a **fresh isolate**, with `installDom()` already called (a fresh fake
   `document` and the DOM classes on `globalThis`), and a 10-second limit.
 - **Assertions** from `k:testing`: `assert(v, msg?)`, `assertEq(actual, expected, msg?)` (`Object.is`),
@@ -615,7 +618,7 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
 ### 4.2 Database tests
 
 `crates/k_db/tests/drivers.rs` runs **every test against every available database**
-([db.md §12](db.md#12-testing)):
+([db.md §13](db.md#13-testing)):
 
 ```rust
 #[tokio::test]
@@ -636,6 +639,46 @@ async fn duplicates_map_to_the_unique_field() {
 - SQL text is tested separately and exactly (`crates/k_db/tests/sql.rs`), without a database, and so is
   the migration builder's DDL (`builder.rs`, which then applies it to each database).
 - The same `K_TEST_POSTGRES_URL` runs the database corpus on Postgres too (§3.11).
+
+### 4.3 Browser tests
+
+`crates/k_server/tests/browser.rs` runs the example apps as a browser would, without a browser:
+
+- **The site**: the example is analysed and compiled for development (`Environment::Development`), and
+  served by an in-process `k_server::Server` with its client assets, its configuration given in place of
+  a `.env`, and a fresh SQLite file migrated at startup (seeded with `scripts/demo-catalog.sql` for
+  `shop`).
+- **The tab** (`tests/browser/sim.js`, an engine of its own): the fake DOM of `k:testing` plus the globals
+  a K client reads (`location`, `history`, `localStorage`, `document.cookie`, `matchMedia`,
+  `crypto.randomUUID`, fake timers that fire only on `sim.advance(ms)`). `Tab::open` fetches the page from
+  the server, puts its `<body>` into the DOM, records the container's element nodes and markup, and
+  imports the generated client entry, which hydrates it.
+- **Requests**: same-origin `fetch` calls queue in an outbox; the driver forwards them over HTTP with the
+  tab's cookies (and `Origin`/`Sec-Fetch-Site`, as a browser sends them), delivers the responses and
+  repeats until nothing is in flight, keeping the cookies the server sets. Other origins are answered by
+  a scripted fake (`sim.external`, the Open-Meteo fake of `weather`). Server-streaming rpcs are recorded
+  and held, because the client doesn't read server streams yet (runtime.md §8).
+- **Assertions**: `assert_hydrated` fails when hydration replaced any server node (a mismatch) or changed
+  the markup; the driver's request log shows that `@Load` data isn't fetched again on hydration; the
+  container's text and markup after each interaction; no `console.error` and no uncaught exception.
+- **Cases**: `todos` (client rendering: add, a refused blank title, toggle, the three filters, delete,
+  the theme switch with its root class and cookie, a reload from local storage), `weather` (hydration,
+  a debounced search through `FetchHttpClient` against the fake, results, no results), `notes` (a wrong
+  password, sign in, a new note from the toolbar link, editing the server-rendered note) and `shop`
+  (storefront hydration, a client navigation to a product with one `Product` rpc, the order form's
+  validation without an rpc, placing an order and the receipt's polling).
+- **The shipped build** (`crates/k_cli/tests/dist_browser.rs`): the same tab and driver against what
+  `k build` ships. Each example is built with the `k` binary, its `dist/app serve` runs as a process on a
+  free port (a fresh SQLite file for `notes` and `shop`, placeholder secrets), the tab loads the release
+  client files of `dist/public/assets`, and the driver forwards its requests to the process over HTTP.
+  Cases: `todos` (add a todo, `BrowserStorage`, the `Theme` root class and cookie), `weather` (hydration,
+  a search debounced on the injected `Clock` through `FetchHttpClient`), `notes` (sign in, the `Session`
+  mirror in the layout, a new note, editing the server-rendered note without refetching it) and `shop`
+  (storefront hydration, a client navigation, the order form's validation in the browser, the sign-in
+  page, and no secret value or server-only or production-unbound service name in any client file or
+  response). `dist/app` must exit 0 on `SIGTERM` and log no errors.
+- `K_DUMP=<example> K_DUMP_DIR=<dir> cargo test -p k_server --test browser dump` writes the generated
+  files of an example, for debugging; `K_E2E_LOG=1` prints the server's log lines.
 
 ---
 
@@ -942,11 +985,36 @@ AddressSanitizer). They need a nightly toolchain, so they live outside the stabl
 ```sh
 rustup toolchain install nightly --profile minimal
 cargo install cargo-fuzz
-fuzz/seed-corpus.sh            # copy every tests/corpus/**/*.k into fuzz/corpus/<target>/
+fuzz/seed-corpus.sh            # seed fuzz/corpus/<target>/ (see below)
+fuzz/seed-corpus.sh --fresh    # the same, after setting the semantic targets' grown corpora aside
 ```
 
-`fuzz/corpus/` and `fuzz/artifacts/` are git-ignored working state. Re-run `seed-corpus.sh` after adding
-corpus cases; it keeps what the fuzzer has already found.
+`fuzz/corpus/`, `fuzz/corpus-old/` and `fuzz/artifacts/` are git-ignored working state. Re-run
+`seed-corpus.sh` after adding corpus cases; it keeps what the fuzzer has already found.
+
+**Seed sets.** libFuzzer runs every corpus input once before it mutates anything, so a target's seed set
+must load in a small part of a short run. The seeds are chosen per target:
+
+| Targets | Seeds | Input cap |
+|---|---|---|
+| `lex`, `parse`, `parse_roundtrip`, `structured` | every `tests/corpus/**/*.k` file | `-max_len=8192` |
+| `check` | about 140 files: the median-sized single-file case of each `sema` directory two levels down, and every `regressions` case of `sema`, `parser` and `lexer`, each at most 2 KiB | 2 KiB (`CHECK_MAX_INPUT`) |
+| `check_structured`, `check_typed` | 16 random inputs of 64 to 1,024 bytes (their bytes drive a generator, so K source is no better a seed than noise) | 1 KiB (`GENERATOR_MAX_INPUT`) |
+| `codegen`, `codegen_run` | 16 random inputs of 256 to 4,096 bytes | `-max_len=4096` |
+| `http_request`, `rpc_json` | `fuzz/seeds/<target>/` | `-max_len=2048` |
+
+The two caps are constants in `fuzz/src/lib.rs`: the targets return at once for a longer input, so a
+corpus entry over the cap costs nothing whatever `-max_len` says; pass the same value as `-max_len` so
+mutations stay under it. Before stage 4 the semantic targets were seeded with the whole golden corpus
+(2,600 files, plus everything they had grown), and loading it took `check`, `check_structured` and
+`check_typed` 165 to 369 seconds before the first mutation. With these seed sets each loads in 1 to 2 seconds
+(measured on the machine of §6.3), so a 30-second run fuzzes for about 28 seconds: `check` runs about 5,600
+inputs and grows its corpus to about 1,100 entries, `check_structured` and `check_typed` about 400 each.
+
+A corpus keeps growing across runs and slows its own loading again. When a semantic target's `INITED`
+line takes more than a few seconds, run `fuzz/seed-corpus.sh --fresh`: it moves the `check`,
+`check_structured` and `check_typed` corpora to `fuzz/corpus-old/<target>.<seconds>` (nothing is deleted)
+and seeds them anew; merge back what matters with `cargo +nightly fuzz cmin <target>`.
 
 ### 6.2 Targets
 
@@ -984,8 +1052,9 @@ cargo +nightly fuzz list
 cargo +nightly fuzz run parse_roundtrip -- -max_total_time=600 -dict=fuzz/k.dict
 cargo +nightly fuzz run structured -- -max_total_time=600 -max_len=8192
 cargo +nightly fuzz run lex -- -jobs=8 -workers=8 -max_total_time=3600 -dict=fuzz/k.dict
-cargo +nightly fuzz run check -- -max_total_time=600 -dict=fuzz/k.dict -timeout=20
-cargo +nightly fuzz run check_typed -- -max_total_time=600 -max_len=8192 -timeout=20
+cargo +nightly fuzz run check -- -max_total_time=600 -max_len=2048 -dict=fuzz/k.dict -timeout=20
+cargo +nightly fuzz run check_structured -- -max_total_time=600 -max_len=1024 -timeout=20
+cargo +nightly fuzz run check_typed -- -max_total_time=600 -max_len=1024 -timeout=20
 export RUSTY_V8_ARCHIVE=$PWD/target/release/gn_out/obj/librusty_v8.a
 cargo +nightly fuzz run codegen -- -max_total_time=600 -max_len=4096 -timeout=30
 cargo +nightly fuzz run codegen_run -- -max_total_time=600 -max_len=4096 -timeout=60 -rss_limit_mb=6144
@@ -1004,10 +1073,10 @@ Every syntax target must run clean for at least 60 seconds before a syntax chang
 longer (10 minutes or more each) after changes to the lexer's modes, recovery or nesting limits. Typical
 throughput on an M-series laptop with sanitizers: `lex` about 4,800 inputs/s, `parse` about 2,600,
 `parse_roundtrip` about 500 and `structured` about 200. The semantic targets are much slower because
-every input is one or more whole-project analyses, standard library included: `check` about 100–150
-inputs/s, `check_structured` and `check_typed` about 10–20 (several analyses per input). Replaying the
-seeded corpus alone takes them about four minutes, so run them with `-fork=N` (or `-jobs`) and for at
-least 10 minutes when their oracle or generator changes.
+every input is one or more whole-project analyses, standard library included: `check` about 180
+inputs/s, `check_structured` and `check_typed` about 11–13 (several analyses per input). Their seed sets
+load in 1–2 seconds (§6.1), so even a 30-second run fuzzes; run them with `-fork=N` (or `-jobs`) and for
+at least 10 minutes when their oracle or generator changes.
 
 The stage 3 targets must each run clean for at least 60 seconds before a change to code generation, the
 runtimes or the server is merged. Measured throughput (M-series laptop, sanitizers on): `codegen` about
@@ -1099,7 +1168,9 @@ Every fixed bug gets a test that fails without the fix:
 directories and asserts exit codes (0 = success, 1 = problems found, 2 = usage or internal error),
 stdout/stderr and output formats (`--format json` emits JSON Lines). It also builds a `dist/app` by hand
 (the `k` binary plus an appended fixture app) and checks `serve`, `probe`, `SIGTERM` (exit 0) and invalid
-configuration (exit 78).
+configuration (exit 78), and builds `tests/e2e/jobs` with `k build` to check `dist/app migrate` (applies
+once, then reports the database up to date), `jobs list [--dead]`, `jobs retry <id>` and their exit
+codes.
 
 `crates/k_cli/tests/examples.rs` builds **each example** with `k build --out <temp>`, starts its
 `dist/app` on a free port (with `DATABASE_URL=sqlite::memory:` and placeholder values for the required
@@ -1146,6 +1217,8 @@ GET /?name=%3Cb%3E
 - `### title` starts an exchange. Then the **request line** `METHOD /path?query`, **headers**
   `name: value`, and optionally a blank line and **body** lines (joined with `\n`, trailing blank lines
   dropped) up to the expectation line.
+- `>>> STATUS within 5s` sends the request again every 50 ms until every expectation holds or the time
+  (at most 60 s) has passed: for effects that follow a response, such as a background job's.
 - `>>> STATUS` starts the **expectations**: `name: value` (the response header equals `value`; names are
   case-insensitive), `!name` (the header is absent), `= text` (the body equals the text; consecutive `=`
   lines join with `\n`; a bare `=` is an empty line), `~ text` (the body contains it), `!~ text` (it
@@ -1153,11 +1226,43 @@ GET /?name=%3Cb%3E
 - Requests are HTTP/1.1 with `Connection: close`; `Host` and `Content-Length` are added. A `Set-Cookie`
   name/value is remembered and sent as `Cookie` on later exchanges of the same script.
 - A failure lists every failed expectation with the exchange's line and title. A K-project case with
-  `expected.pending` passes while it fails and fails once it passes. All nine projects (`hello`, `ssr`,
+  `expected.pending` passes while it fails and fails once it passes. All fifteen projects (`hello`, `ssr`,
   `ssr-client-rendering`, `routing`, `rpc-wire`, `request-scope`, `endpoints`, `config-secrets`,
-  `auth-sessions`) pass for real; none is pending.
+  `auth-sessions`, `interface-bindings`, `passwords`, `http-client`, `email`, `jobs`, `in-process-rpc`)
+  pass for real; none is pending. The server runs the jobs worker for a project with jobs, polling
+  every 20 ms.
 - `K_E2E_LOG=1 cargo test -p k_server --test e2e` prints the workers' log lines (panics with their
   stacks) instead of capturing them.
+
+### 8.3 Fake third parties
+
+`k_server::fakes` provides fakes on ephemeral loopback ports, each on its own thread and recording what
+it receives: `FakeHttp` (canned `FakeRoute`s by method and path, optionally delayed; anything else is
+`404 no fake route`) and `FakeSmtp` (enough ESMTP for a client without TLS; it accepts every message
+except to `reject@…`, answered `550`, and `defer@…`, answered `451`, or follows a fixed `SmtpBehavior`).
+`GET /_fake/requests` on a `FakeHttp` answers its recorded requests as JSON, and `GET /_fake/mail` the
+messages of the `FakeSmtp` attached with `with_mail`, so K code can read them through its `HttpClient`.
+
+An e2e project with a **`fakes.toml`** gets them for its run; their addresses replace `{fake.http}` and
+`{fake.smtp.port}` in its `.env`:
+
+```toml
+[http]
+routes = [
+    { method = "GET", path = "/v1/forecast", body = '{"temperature_2m": 21.5}', content_type = "application/json" },
+    { method = "GET", path = "/v1/slow", body = "late", delay_ms = 3000 },
+    { method = "GET", path = "/v1/down", status = 503, body = "Service Unavailable" },
+]
+
+[smtp]
+behavior = "accept"   # or "reject" or "defer"
+```
+
+`tests/e2e/http-client` and `tests/e2e/email` use them; `crates/k_server/tests/outbound.rs` tests the ops
+against them directly, and `crates/k_server/tests/shop_production.rs` runs the shop built for production
+against a fake Stripe (`FakeHttp`) and a fake mail server (`FakeSmtp`): checkout, Stripe failures, the
+signed webhook, the confirmation job and its email. `crates/k_server/tests/sessions.rs` runs one or two
+servers on a SQLite file for sessions that survive restarts and are shared by replicas.
 
 `crates/k_server/tests/server.rs` covers what a script can't: streamed bodies over the limit, many
 concurrent clients, graceful shutdown with a request in flight, and start-up failures.

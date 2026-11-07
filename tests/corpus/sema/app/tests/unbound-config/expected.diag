@@ -1,1 +1,2 @@
 error[K7503] src/mail/Mailer.test.k:2:6-2:13
+  note: Unbound → Mailer → MailConfig

@@ -36,6 +36,10 @@
 //!   lines are joined with `\n`), `~ text` (the body contains it), `!~ text`
 //!   (it doesn't), and `json VALUE` (the body is JSON equal to `VALUE`).
 //!
+//! * `>>> STATUS within 5s` sends the request again, every 50 ms, until
+//!   every expectation holds or the time (at most 60 s) has passed: for an
+//!   effect that follows the response, such as a background job's.
+//!
 //! Requests are sent with HTTP/1.1, `Connection: close`, `Host` and
 //! `Content-Length` added.
 
@@ -79,6 +83,10 @@ pub struct Exchange {
     pub status: u16,
     /// The other expectations.
     pub expect: Vec<Expect>,
+    /// `>>> STATUS within 5s`: the request is sent again (every 50 ms)
+    /// until every expectation holds or this long has passed, for effects
+    /// that happen after a response (a background job).
+    pub within: Option<Duration>,
 }
 
 /// A parsed response.
@@ -153,6 +161,7 @@ pub fn parse_script(text: &str) -> Result<Vec<Exchange>, String> {
                 body: String::new(),
                 status: 0,
                 expect: Vec::new(),
+                within: None,
             });
             at = At::RequestLine;
             continue;
@@ -171,10 +180,29 @@ pub fn parse_script(text: &str) -> Result<Vec<Exchange>, String> {
             if at == At::RequestLine {
                 return Err(format!("line {n}: missing request line"));
             }
-            ex.status = status
+            let (code, within) = match status.split_once(" within ") {
+                Some((c, w)) => (c, Some(w.trim())),
+                None => (status, None),
+            };
+            ex.status = code
                 .trim()
                 .parse()
                 .map_err(|_| format!("line {n}: `{status}` is not a status code"))?;
+            ex.within = match within {
+                None => None,
+                Some(w) => {
+                    let secs: f64 = w
+                        .strip_suffix('s')
+                        .and_then(|x| x.parse().ok())
+                        .filter(|x: &f64| x.is_finite() && *x > 0.0 && *x <= 60.0)
+                        .ok_or_else(|| {
+                            format!(
+                                "line {n}: `within {w}`: expected seconds such as `5s` (at most 60)"
+                            )
+                        })?;
+                    Some(Duration::from_secs_f64(secs))
+                }
+            };
             at = At::Expect;
             continue;
         }
@@ -348,69 +376,19 @@ pub fn run_script(addr: SocketAddr, script: &str) -> Result<(), String> {
             let jar: Vec<String> = cookies.iter().map(|(n, v)| format!("{n}={v}")).collect();
             headers.push(("cookie".to_owned(), jar.join("; ")));
         }
-        let response = match send(addr, &ex.method, &ex.path, &headers, ex.body.as_bytes()) {
-            Ok(r) => r,
-            Err(e) => {
-                failures.push(format!("line {} ({}): {e}", ex.line, ex.title));
-                continue;
+        let deadline = ex.within.map(|w| std::time::Instant::now() + w);
+        let problems = loop {
+            let problems = match exchange(addr, ex, &headers, &mut cookies) {
+                Ok(p) => p,
+                Err(e) => vec![e],
+            };
+            match deadline {
+                Some(d) if !problems.is_empty() && std::time::Instant::now() < d => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                _ => break problems,
             }
         };
-        for (n, v) in &response.headers {
-            if n == "set-cookie" {
-                if let Some((name, value)) = v.split(';').next().and_then(|p| p.split_once('=')) {
-                    cookies.retain(|(c, _)| c != name.trim());
-                    cookies.push((name.trim().to_owned(), value.trim().to_owned()));
-                }
-            }
-        }
-        let body = String::from_utf8_lossy(&response.body).into_owned();
-        let mut problems = Vec::new();
-        if response.status != ex.status {
-            problems.push(format!(
-                "status {} (expected {})",
-                response.status, ex.status
-            ));
-        }
-        for e in &ex.expect {
-            match e {
-                Expect::Header(n, v) => match response.header(n) {
-                    Some(actual) if actual == v => {}
-                    Some(actual) => {
-                        problems.push(format!("header {n}: `{actual}` (expected `{v}`)"))
-                    }
-                    None => problems.push(format!("header {n} is missing (expected `{v}`)")),
-                },
-                Expect::NoHeader(n) => {
-                    if let Some(actual) = response.header(n) {
-                        problems.push(format!(
-                            "header {n} is present (`{actual}`) but must be absent"
-                        ));
-                    }
-                }
-                Expect::BodyEquals(t) => {
-                    if &body != t {
-                        problems.push(format!(
-                            "body differs:\n  expected: {t:?}\n  actual:   {body:?}"
-                        ));
-                    }
-                }
-                Expect::Contains(t) => {
-                    if !body.contains(t.as_str()) {
-                        problems.push(format!("body lacks {t:?}"));
-                    }
-                }
-                Expect::Lacks(t) => {
-                    if body.contains(t.as_str()) {
-                        problems.push(format!("body contains {t:?}, which must not appear"));
-                    }
-                }
-                Expect::Json(v) => match serde_json::from_str::<serde_json::Value>(&body) {
-                    Ok(actual) if &actual == v => {}
-                    Ok(actual) => problems.push(format!("JSON body {actual} (expected {v})")),
-                    Err(_) => problems.push(format!("body is not JSON: {body:?}")),
-                },
-            }
-        }
         if !problems.is_empty() {
             failures.push(format!(
                 "line {} ({}):\n    {}",
@@ -425,6 +403,73 @@ pub fn run_script(addr: SocketAddr, script: &str) -> Result<(), String> {
     } else {
         Err(failures.join("\n"))
     }
+}
+
+/// Sends one exchange's request and returns its failed expectations
+/// (empty when the response is as expected), taking cookies the response
+/// sets into `cookies`.
+fn exchange(
+    addr: SocketAddr,
+    ex: &Exchange,
+    headers: &[(String, String)],
+    cookies: &mut Vec<(String, String)>,
+) -> Result<Vec<String>, String> {
+    let response = send(addr, &ex.method, &ex.path, headers, ex.body.as_bytes())?;
+    for (n, v) in &response.headers {
+        if n == "set-cookie" {
+            if let Some((name, value)) = v.split(';').next().and_then(|p| p.split_once('=')) {
+                cookies.retain(|(c, _)| c != name.trim());
+                cookies.push((name.trim().to_owned(), value.trim().to_owned()));
+            }
+        }
+    }
+    let body = String::from_utf8_lossy(&response.body).into_owned();
+    let mut problems = Vec::new();
+    if response.status != ex.status {
+        problems.push(format!(
+            "status {} (expected {})",
+            response.status, ex.status
+        ));
+    }
+    for e in &ex.expect {
+        match e {
+            Expect::Header(n, v) => match response.header(n) {
+                Some(actual) if actual == v => {}
+                Some(actual) => problems.push(format!("header {n}: `{actual}` (expected `{v}`)")),
+                None => problems.push(format!("header {n} is missing (expected `{v}`)")),
+            },
+            Expect::NoHeader(n) => {
+                if let Some(actual) = response.header(n) {
+                    problems.push(format!(
+                        "header {n} is present (`{actual}`) but must be absent"
+                    ));
+                }
+            }
+            Expect::BodyEquals(t) => {
+                if &body != t {
+                    problems.push(format!(
+                        "body differs:\n  expected: {t:?}\n  actual:   {body:?}"
+                    ));
+                }
+            }
+            Expect::Contains(t) => {
+                if !body.contains(t.as_str()) {
+                    problems.push(format!("body lacks {t:?}"));
+                }
+            }
+            Expect::Lacks(t) => {
+                if body.contains(t.as_str()) {
+                    problems.push(format!("body contains {t:?}, which must not appear"));
+                }
+            }
+            Expect::Json(v) => match serde_json::from_str::<serde_json::Value>(&body) {
+                Ok(actual) if &actual == v => {}
+                Ok(actual) => problems.push(format!("JSON body {actual} (expected {v})")),
+                Err(_) => problems.push(format!("body is not JSON: {body:?}")),
+            },
+        }
+    }
+    Ok(problems)
 }
 
 #[cfg(test)]
@@ -473,5 +518,18 @@ mod tests {
         );
         assert!(decode_chunked(b"5\r\nab").is_err());
         assert!(decode_chunked(b"zz\r\n").is_err());
+    }
+
+    #[test]
+    fn within_polls_for_up_to_its_seconds() {
+        let ex = parse_script("### a\nGET /\n>>> 200 within 2.5s\n~ done\n").expect("parses");
+        assert_eq!(ex[0].status, 200);
+        assert_eq!(ex[0].within, Some(Duration::from_millis(2500)));
+        assert_eq!(
+            parse_script("### a\nGET /\n>>> 200\n").expect("parses")[0].within,
+            None
+        );
+        assert!(parse_script("### a\nGET /\n>>> 200 within soon\n").is_err());
+        assert!(parse_script("### a\nGET /\n>>> 200 within 600s\n").is_err());
     }
 }

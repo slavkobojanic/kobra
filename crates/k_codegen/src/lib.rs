@@ -38,6 +38,7 @@ mod db;
 mod decl;
 pub mod dist;
 pub mod hash;
+mod jobs;
 mod js;
 mod lower;
 mod native;
@@ -183,6 +184,11 @@ pub struct Manifest {
     /// `true` when the app renders on the client and has no server-only
     /// code: `k build` then emits only `dist/public`.
     pub static_only: bool,
+    /// The background jobs (`docs/design/30-background-jobs.md`): each
+    /// job's name, `@Retry` policy and `@Schedule`, sorted by name. The
+    /// server's jobs worker runs them.
+    #[serde(default)]
+    pub jobs: Vec<k_db::stdlib::JobSpec>,
 }
 
 /// The result of [`generate`].
@@ -299,26 +305,12 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
             }
         }
     }
-    // Stdlib declarations the program references (non-native enums).
-    for (items, target) in [(&mut server, Target::Server), (&mut client, Target::Client)] {
-        let mut seen: BTreeSet<k_sema::view::DeclId> = items.keys().copied().collect();
-        loop {
-            let wanted: Vec<k_sema::view::DeclId> = items
-                .values()
-                .flat_map(|i| i.uses.iter().map(|(d, _)| *d))
-                .filter(|d| !seen.contains(d) && native::emits_stdlib_decl(g, *d))
-                .collect();
-            if wanted.is_empty() {
-                break;
-            }
-            for d in wanted {
-                seen.insert(d);
-                if let Some(item) = decl::lower(g, d, target) {
-                    items.insert(d, item);
-                }
-            }
-        }
-    }
+    // The client entry: its uses are roots of the client bundle.
+    let client_entry = app.map(|_| app::client_entry(g, &app::client_reach(g, &client)));
+    let entry_uses: BTreeSet<(k_sema::view::DeclId, String)> = client_entry
+        .as_ref()
+        .map(|(_, u)| u.clone())
+        .unwrap_or_default();
     let mut output = Output {
         manifest: Manifest {
             name: g.project_name(),
@@ -346,6 +338,43 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
             }
         }
     }
+    let server_entry_uses: BTreeSet<(k_sema::view::DeclId, String)> = extra
+        .iter()
+        .flat_map(|(_, _, u): &bundle::EntryModule| u.iter().cloned())
+        .collect();
+    // Stdlib declarations the program references (non-native enums).
+    for (items, target) in [(&mut server, Target::Server), (&mut client, Target::Client)] {
+        let mut seen: BTreeSet<k_sema::view::DeclId> = items.keys().copied().collect();
+        let mut first = true;
+        loop {
+            // The entries' uses are roots too: the client entry's for the
+            // client, the server entry's (the request container's stdlib
+            // enums, `HttpError` and `EmailError`) for the server.
+            let from_entry: Vec<k_sema::view::DeclId> = match (first, target) {
+                (true, Target::Client) => entry_uses.iter().map(|(d, _)| *d).collect(),
+                (true, Target::Server) => server_entry_uses.iter().map(|(d, _)| *d).collect(),
+                _ => Vec::new(),
+            };
+            first = false;
+            let wanted: Vec<k_sema::view::DeclId> = items
+                .values()
+                .flat_map(|i| i.uses.iter().map(|(d, _)| *d))
+                .chain(from_entry)
+                .filter(|d| !seen.contains(d) && native::emits_stdlib_decl(g, *d))
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            if wanted.is_empty() {
+                break;
+            }
+            for d in wanted {
+                seen.insert(d);
+                if let Some(item) = decl::lower(g, d, target) {
+                    items.insert(d, item);
+                }
+            }
+        }
+    }
     let mut roots = BTreeSet::new();
     for (_, _, uses) in &extra {
         roots.extend(uses.iter().cloned());
@@ -353,8 +382,7 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
     bundle::settle_on_demand(&mut server, &roots);
     bundle::settle_on_demand(&mut client, &BTreeSet::new());
     output.server = bundle::server_files(g, &server, extra);
-    let (pages, entry) = if app.is_some() {
-        let (stmts, uses) = app::client_entry(g);
+    let (pages, entry) = if let Some((stmts, uses)) = client_entry {
         // The entry's uses are roots of the client too.
         bundle::settle_on_demand(&mut client, &uses);
         // Step 2 of the pipeline (codegen.md §3, §16): an app's client
@@ -375,7 +403,7 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
         let injects: BTreeMap<k_sema::view::DeclId, Vec<k_sema::view::DeclId>> =
             g.own.iter().map(|&d| (d, server::injected(g, d))).collect();
         bundle::keep_reachable(&mut client, &roots, &injects);
-        (app::pages(g), Some(stmts))
+        (app::pages(g), Some((stmts, uses)))
     } else {
         (Vec::new(), None)
     };
@@ -416,6 +444,7 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
         .sort_by(|a, b| a.template.cmp(&b.template));
     if app.is_some() {
         output.manifest.config = server::config_entries(g);
+        output.manifest.jobs = jobs::specs(g);
     }
     output.manifest.routes = app::pages(g)
         .into_iter()
@@ -553,7 +582,10 @@ pub(crate) fn runtime_chunk(profile: Profile) -> String {
     use k_runtime::Part;
     let mut out = String::new();
     for m in k_runtime::modules() {
-        if !matches!(m.part, Part::Core | Part::Extended | Part::Stdlib) {
+        if !matches!(
+            m.part,
+            Part::Core | Part::Extended | Part::Stdlib | Part::Services
+        ) {
             continue;
         }
         let text = strip_module_links(m.source);

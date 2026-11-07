@@ -1,0 +1,6 @@
+error[K4007] src/shop/CheckoutPage.k:5:27-5:42
+  note: shop.CheckoutPage → pay.StripePayments → pay.Ledger (a repository is server-only)
+  note: in `.production`, `pay.PaymentProvider` is `pay.StripePayments`
+error[K4007] src/shop/CartPage.k:3:23-3:27
+  note: shop.CartPage → shop.Cart → pay.StripePayments → pay.Ledger (a repository is server-only)
+  note: in `.production`, `pay.PaymentProvider` is `pay.StripePayments`

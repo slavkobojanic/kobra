@@ -1,8 +1,10 @@
 //! Exhaustiveness and reachability of `match` arms and `catch` clauses
 //! (sema.md §11.1): Maranget's usefulness algorithm over a pattern matrix.
 //!
-//! Constructors are enum cases (with their payloads), `true`/`false`, and an
-//! optional's `nil` and some value. Literal and range patterns have no
+//! Constructors are enum cases (with their payloads), `true`/`false`, an
+//! optional's `nil` and some value, and a tuple (the single constructor of
+//! its type, whose fields are the elements, so `(0, true)` covers only the
+//! values it names). Literal and range patterns have no
 //! finite constructor set: they never make a match exhaustive. A pattern
 //! vector is *useful* with respect to a matrix when some value matches it
 //! and no row of the matrix; an arm is unreachable when its pattern isn't
@@ -44,6 +46,8 @@ pub(crate) enum Ctor {
     Nil,
     /// An optional's value.
     Some,
+    /// A tuple of this many elements: its type's only constructor.
+    Tuple(usize),
 }
 
 /// A checked pattern.
@@ -65,6 +69,7 @@ fn ctors(checker: &Checker<'_, '_, '_>, ty: &Ty) -> Option<Vec<(Ctor, Vec<Ty>)>>
     let cx = checker.cx_ref();
     let ty = checker.resolve(ty);
     match &ty {
+        Ty::Tuple(ts) => Some(vec![(Ctor::Tuple(ts.len()), ts.to_vec())]),
         Ty::Optional(inner) => Some(vec![
             (Ctor::Nil, Vec::new()),
             (Ctor::Some, vec![(**inner).clone()]),
@@ -107,6 +112,7 @@ fn arity(checker: &Checker<'_, '_, '_>, ctor: &Ctor, ty: &Ty) -> Vec<Ty> {
     let cx = checker.cx_ref();
     match (ctor, checker.resolve(ty)) {
         (Ctor::Some, Ty::Optional(inner)) => vec![(*inner).clone()],
+        (Ctor::Tuple(n), Ty::Tuple(ts)) if ts.len() == *n => ts.to_vec(),
         (Ctor::Case(m), Ty::Named(d, args)) => {
             if !cx.is_enum(d) || cx.p.member(*m).owner != d {
                 return Vec::new();
@@ -211,7 +217,11 @@ impl Rows {
         if !self.useful(checker, &[Pat::Wild], std::slice::from_ref(ty)) {
             return Vec::new();
         }
-        let Some(all) = ctors(checker, ty).filter(|all| !all.is_empty()) else {
+        // A tuple's only constructor is spelled like a wildcard of its
+        // elements: what is missing is nested, and `_` covers it.
+        let Some(all) = ctors(checker, ty)
+            .filter(|all| !all.is_empty() && !matches!(all[..], [(Ctor::Tuple(_), _)]))
+        else {
             return vec!["_".to_owned()];
         };
         let cx = checker.cx_ref();
@@ -229,6 +239,7 @@ impl Rows {
                 Ctor::False => "false".to_owned(),
                 Ctor::Nil => "nil".to_owned(),
                 Ctor::Some => "let value".to_owned(),
+                Ctor::Tuple(_) => format!("({wilds})"),
             });
         }
         if out.is_empty() {

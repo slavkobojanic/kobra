@@ -13,8 +13,12 @@
 //!   (sessions, rate limits, `.server` state, broadcasts, the database).
 //! * [`db`]: the process's database: migrations at startup, statements by
 //!   id, request-bound transactions.
+//! * [`jobs`]: the background jobs worker (claims, runs, retries, schedules).
 //! * [`app`]: the `dist/app` archive (server bundle, assets, migrations)
 //!   appended to the runtime executable.
+//! * [`outbound`]: outgoing HTTP (`HttpClient`) and SMTP (`EmailProvider`)
+//!   on behalf of K code.
+//! * [`fakes`]: fake third parties for tests (an HTTP API, an SMTP server).
 //! * [`testing`]: the HTTP request scripts of the server end-to-end tests.
 //!
 //! The design is `docs/compiler/server.md`; what is v0 and what is deferred
@@ -24,9 +28,12 @@ pub mod app;
 pub mod config;
 pub mod db;
 pub mod engine;
+pub mod fakes;
 pub mod front;
 pub mod http;
+pub mod jobs;
 pub mod ops;
+pub mod outbound;
 pub mod process;
 pub mod testing;
 

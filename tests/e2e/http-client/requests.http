@@ -1,0 +1,102 @@
+# k.http.HttpClient on the server against the fake API of fakes.toml
+# (docs/design/32-http-client.md): responses whatever their status, the
+# four HttpError cases, typed statuses, and what reaches the third party.
+
+### fetchJson decodes a 2xx JSON body, with @JsonKey
+POST /httpc.upstream.UpstreamProtocol/Describe
+content-type: application/json
+connect-protocol-version: 1
+
+{"path": "/v1/forecast", "timeoutMs": 5000}
+>>> 200
+json {"value": "forecast 21.5 C"}
+
+### a 5xx is .status with the third party's body
+POST /httpc.upstream.UpstreamProtocol/Describe
+content-type: application/json
+connect-protocol-version: 1
+
+{"path": "/v1/down", "timeoutMs": 5000}
+>>> 200
+json {"value": "status 503 Service Unavailable"}
+
+### a 4xx is .status too
+POST /httpc.upstream.UpstreamProtocol/Describe
+content-type: application/json
+connect-protocol-version: 1
+
+{"path": "/v1/missing", "timeoutMs": 5000}
+>>> 200
+json {"value": "status 404 no such place"}
+
+### a body that isn't JSON is .decoding
+POST /httpc.upstream.UpstreamProtocol/Describe
+content-type: application/json
+connect-protocol-version: 1
+
+{"path": "/v1/not-json", "timeoutMs": 5000}
+>>> 200
+json {"value": "decoding"}
+
+### JSON of the wrong shape is .decoding
+POST /httpc.upstream.UpstreamProtocol/Describe
+content-type: application/json
+connect-protocol-version: 1
+
+{"path": "/v1/wrong-shape", "timeoutMs": 5000}
+>>> 200
+json {"value": "decoding"}
+
+### a slow answer is .timeout
+POST /httpc.upstream.UpstreamProtocol/Describe
+content-type: application/json
+connect-protocol-version: 1
+
+{"path": "/v1/slow", "timeoutMs": 200}
+>>> 200
+json {"value": "timeout"}
+
+### send returns a non-2xx response as a response, with a named status
+POST /httpc.upstream.UpstreamProtocol/Raw
+content-type: application/json
+connect-protocol-version: 1
+
+{"path": "/v1/down"}
+>>> 200
+json {"value": "503 success=false named=true Service Unavailable"}
+
+### a code without a name is .other
+POST /httpc.upstream.UpstreamProtocol/Raw
+content-type: application/json
+connect-protocol-version: 1
+
+{"path": "/v1/teapot"}
+>>> 200
+json {"value": "418 success=false named=false short and stout"}
+
+### an unmatched path is the fake's 404
+POST /httpc.upstream.UpstreamProtocol/Raw
+content-type: application/json
+connect-protocol-version: 1
+
+{"path": "/v1/nothing"}
+>>> 200
+json {"value": "404 success=false named=false no fake route"}
+
+### a refused connection is .offline
+POST /httpc.upstream.UpstreamProtocol/Unreachable
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": "offline"}
+
+### the method, query, headers, bearer token and form body reach the API
+POST /httpc.upstream.UpstreamProtocol/Create
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": "t_1 POST /v1/things?expand=all auth=Bearer sk_test_123 key=thing-1 type=application/x-www-form-urlencoded body=name=K%20Mug&quantity=2"}

@@ -51,7 +51,15 @@ pub(crate) struct SemaResult {
 /// unchanged replay their body facts from it instead of being checked
 /// again, when the project's file list and signatures are the same
 /// ([`crate::warm`]). The result is the same as without `prev`.
-pub(crate) fn analyze(inputs: Vec<InputFile<'_>>, prev: Option<&BodyCache>) -> SemaResult {
+///
+/// The result goes to `deliver` as soon as it is complete; the item tree
+/// and the checker's caches are dropped afterwards, so a caller on another
+/// thread doesn't wait for them to be freed (`host::Analysis::sema`).
+pub(crate) fn analyze(
+    inputs: Vec<InputFile<'_>>,
+    prev: Option<&BodyCache>,
+    deliver: impl FnOnce(SemaResult),
+) {
     let shared: Vec<(FileId, Arc<str>, String)> = inputs
         .iter()
         .map(|i| (i.id, Arc::clone(i.shared), i.path.as_str().to_owned()))
@@ -160,7 +168,7 @@ pub(crate) fn analyze(inputs: Vec<InputFile<'_>>, prev: Option<&BodyCache>) -> S
     for chunk in cx.body_resolutions.borrow().iter() {
         resolutions.push(Arc::clone(chunk));
     }
-    SemaResult {
+    deliver(SemaResult {
         diagnostics,
         names: crate::ty::NameTable::new(&program),
         types,
@@ -171,7 +179,8 @@ pub(crate) fn analyze(inputs: Vec<InputFile<'_>>, prev: Option<&BodyCache>) -> S
             files: facts_by_file,
         }),
         view,
-    }
+    });
+    // `cx` and `program` are dropped here, after the result is delivered.
 }
 
 /// Resolves every project signature before any body is checked: field

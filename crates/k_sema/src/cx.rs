@@ -1832,9 +1832,7 @@ pub(crate) fn apply(ty: &Ty, subst: &[(GenId, Ty)]) -> Ty {
 
 /// Returns `true` if `node` has a direct child token of `kind`.
 pub(crate) fn has_token(node: &SyntaxNode, kind: SyntaxKind) -> bool {
-    node.children_with_tokens()
-        .filter_map(rowan::NodeOrToken::into_token)
-        .any(|t| t.kind() == kind)
+    ast::support::has_token(node, kind)
 }
 
 /// Returns the direct child token of `kind`.

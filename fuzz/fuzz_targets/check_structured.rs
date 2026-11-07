@@ -4,6 +4,8 @@
 //! and a single-threaded analysis agree) and independent of the order the
 //! files are added; after edits read from the remaining bytes, the
 //! incremental re-check must equal a fresh check.
+//!
+//! Inputs longer than `GENERATOR_MAX_INPUT` (1 KiB) are skipped.
 #![no_main]
 
 use arbitrary::Unstructured;
@@ -11,6 +13,9 @@ use k_fuzz::{kgen, soracle};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
+    if data.len() > k_fuzz::GENERATOR_MAX_INPUT {
+        return;
+    }
     let mut u = Unstructured::new(data);
     let n = 1 + u.choose_index(3).unwrap_or(0);
     let mut files = vec![("k.toml".to_owned(), soracle::MANIFEST.to_owned())];

@@ -38,16 +38,18 @@ No npm, no bundler, no transpiler: the files are shipped as written (compacted i
 | Hydration, label ids (`uid`), claiming root texts, separators and marker pairs (`textNode`, `separator`, `claimMarkers`) | `runtime/hydrate.js` | **implemented** (core) |
 | View helpers (`child`, `markers`, `lifetime`, `paramProps`, `withQuery`, `loadsOf`, `joinClasses`) | `runtime/view.js` | **implemented** (extended) |
 | Path stores for `@State` structs | `runtime/store.js` | **implemented** (extended) |
+| Services in the browser: `provide` (component scope), `afterHydration` (client-only `init()`), `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session` mirror, browser `@Native` members (`native`) | `runtime/services.js` | **implemented** (part `Services`, [§12.1](#121-services-in-the-browser)) |
 | Router, RPC client, forms, `@Load` | `router.js`, `rpc.js`, `forms.js`, `load.js` | **implemented** (extended) |
 | Native stdlib bodies: collections, strings, numbers, `Decimal`, `Money`, `Currency`, `Instant`, `HashMap`/`HashSet`, typed text parsers (`Url`, `EmailAddress`, `Uuid`, `Color`), JSON codecs, route matching shared with the server (`route`, `routeParam`, `splitTarget`, `parseQuery`), streams, `Broadcast`, `Secret`, `$k.guard`, `runMain` | `runtime/std.js` | **implemented** (part `Stdlib`) |
 | SSR escaping and output buffer | `runtime/ssr.js` | **implemented** |
 | Server request loop, `env` | `runtime/server.js` | **implemented** (`serve` turns a broken handler into a `500` and keeps the loop) |
 | Persistence: column codecs `dbc`, the request's `Database` (transactions, savepoints, `ping`), `dbQuery`/`dbCount`/`dbWrite`/`dbInsertAll`, `dbInclude`, unloaded-relation stand-ins | `runtime/db.js` | **implemented** (part `Server`; [db.md §4–§9](db.md#4-the-query-ir-and-lowering)) |
-| The server app: routing with typed parameters, RPC dispatch (unary and streaming), endpoint pages, sessions, guards, metadata and the document, config values, `.server` state, broadcasts, native stdlib bodies the server provides | `runtime/app.js` | **implemented** (part `Server`; [server.md §5–§10](server.md#5-request-lifecycle)) |
+| The server app: routing with typed parameters, RPC dispatch (unary and streaming), in-process rpc calls with guards and validation (`callLocal`), endpoint pages, sessions (loaded once per request, `RequestState.load`; OAuth state), guards, metadata and the document, config values, `.server` state, broadcasts, background job runs, native stdlib bodies the server provides (`Password`, `Hmac`, `Mac.matches`, `Uuid`, `EmailAddress`, `Bytes.parse(hex:)`/`(base64:)`) | `runtime/app.js` | **implemented** (part `Server`; [server.md §5–§11](server.md#5-request-lifecycle)) |
+| The server's I/O platform services: `FetchHttpClient` over `op_k_fetch`, `TestHttpClient`, `SmtpEmailProvider` over `op_k_smtp_send`, `RecordingEmailProvider`, `DatabaseJobQueue`, `RecordingJobQueue`, `InlineJobQueue`, job outcomes (`runJobBody`) | `runtime/outbound.js` | **implemented** (part `Server`; [server.md §18](server.md#18-outgoing-http-and-email)) |
 | Test harness and fake DOM | `testing/harness.js`, `testing/dom.js` | **implemented** (tests only) |
 
 **The runtime chunk.** Generated client code imports the runtime as one module, `runtime.[hash].js`:
-`k_codegen` concatenates the client files (parts `Core`, `Extended`, `Stdlib`) with the import and
+`k_codegen` concatenates the client files (parts `Core`, `Extended`, `Stdlib`, `Services`) with the import and
 re-export lines between them removed (compacted in release builds). Top-level names are therefore unique
 across those files; `crates/k_runtime/tests/runtime.rs` checks it. *Deferred*: HMR state transfer,
 streaming SSR of loading boundaries (v0 renders the whole page, then sends it), server streams in the
@@ -75,7 +77,8 @@ parts never mention `Deno.core` or `k:testing` (tested).
 `textNode`, `separator`;
 `KPanic`, `panic`, `isPanic`, `checkInt`, `intDiv`, `intRem`, `equals`, `unitCase`, `textOf`; `startRouter`,
 `navigate`; `rpc`, `DEFAULT_TIMEOUT_MS`; `createForm`; `createLoads`, `LOADING`, `READY`, `RELOADING`,
-`FAILED`; and from `std.js` (among the stdlib bodies) `route`, `routeParam`, `NO`, `splitTarget`,
+`FAILED`; from `services.js` `provide`, `afterHydration`, `clock`, `theme`, `browserStorage`,
+`fetchHttpClient`, `session`, `native`; and from `std.js` (among the stdlib bodies) `route`, `routeParam`, `NO`, `splitTarget`,
 `parseQuery`, `parseUrl`, `urlHost`, `urlPath`, `parseEmail`, `parseUuid`, `parseColor`, `colorHex`. **`k:runtime/server` exports**: `serve`, `Out`, `escapeText`, `escapeAttribute`,
 `serializeData`, `OPEN`, `CLOSE`, `SEPARATOR`, `KPanic`, `isPanic`, and from `app.js`: `createApp` (the
 request handler of a generated spec), `route` and `param` (typed route matching), `splitTarget`,
@@ -83,7 +86,10 @@ request handler of a generated spec), `route` and `param` (typed route matching)
 `config`, `configSecret`, `configEnum`, `info`, `response`, `responseHeaders`, `responseBody`, `redirect`,
 `header`, `headerAll`, `requestText`, `requestJson`, `shareState`, `ServerBroadcast`, `STREAMED`,
 `natives` and `missingNative` (`@Native` members the server implements, and the stand-in that panics,
-naming the member, for one it doesn't yet), `clock`; and from `db.js`: `Database`, `database`, `dbc`,
+naming the member, for one it doesn't yet), `clock`, `theme`, `callLocal`; from `outbound.js`:
+`fetchHttpClient`, `testHttpClient`, `httpStatus`, `received`, `wireRequest`, `smtpEmailProvider`,
+`smtpSettings`, `wireEmail`, `recordingEmailProvider`, `jobQueue`, `recordingJobQueue`,
+`inlineJobQueue`, `runJobBody`; and from `db.js`: `Database`, `database`, `dbc`,
 `dbParams`, `dbInList`, `likePattern`, `dbSelect`, `dbFirst`, `dbSingle`, `dbCount`, `dbQuery`,
 `dbWrite`, `dbInsertAll`, `dbInclude`, `unloaded`, `unloadedMany`.
 
@@ -94,12 +100,16 @@ brotli budget:
 
 | Bundle | Parts | Budget | Today |
 |---|---|---|---|
-| core | signals, values, hydration, DOM bindings and `when`/`branch` | ≤ 5 KB (`CORE_SIZE_BUDGET`) | 4,782 B |
-| full client | core + keyed lists, view helpers, path stores, router, RPC client, forms, `@Load` + entry | ≤ 10 KB (`FULL_SIZE_BUDGET`) | 10,192 B (48 B headroom) |
-| stdlib bodies | `std.js` (part `Stdlib`), measured on its own because it grows with the stdlib | ≤ 10 KB (`STDLIB_SIZE_BUDGET`) | 10,116 B (124 B headroom) |
-| shipped `runtime.<hash>.js` | full client + stdlib bodies, as `k build` writes it | ≤ 20 KB (the sum; `crates/k_cli/tests/perf_budget.rs`) | 17,683 B gzip, 15,869 B brotli |
+| core | signals, values, hydration, DOM bindings and `when`/`branch` | ≤ 5 KB (`CORE_SIZE_BUDGET`) | 4,794 B |
+| full client | core + keyed lists, view helpers, path stores, router, RPC client, forms, `@Load` + entry | ≤ 10 KB (`FULL_SIZE_BUDGET`) | 10,239 B (1 B headroom) |
+| stdlib bodies | `std.js` (part `Stdlib`), measured on its own because it grows with the stdlib | ≤ 10 KB (`STDLIB_SIZE_BUDGET`) | 10,214 B (26 B headroom) |
+| browser services | `services.js` (part `Services`): the client DI helpers and the browser bodies of the stdlib's platform services | ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | 2,318 B |
+| shipped `runtime.<hash>.js` | full client + stdlib bodies + browser services, as `k build` writes it | ≤ 23 KB (the sum of the three; `crates/k_cli/tests/perf_budget.rs`) | 21,188 B gzip |
 
-The test fails the build when a budget is exceeded. **Decision:** keyed lists live outside the core so
+The test fails the build when a budget is exceeded. **Decision:** the browser's service support is its own part with its own budget, like the stdlib
+bodies: it grows with the stdlib's platform services, not with the framework, and the shipped chunk's
+budget is the sum of its parts' ([performance.md §11.3](performance.md#113-budget-status)).
+**Decision:** keyed lists live outside the core so
 the core stays within 5 KB with hydration; every v0 client ships the full runtime chunk anyway.
 **Decision:** route matching (typed parameter parsers, `route`, the query parser) is one implementation
 in `std.js`, used by the server's `app.js` and the client router alike, so the two can't disagree; it
@@ -265,10 +275,18 @@ A server-rendered page contains the HTML from the `$ssr` renderers and one data 
   the active range as well: `textNode` takes a text node, `separator` a `<!---->`, and `markers()` (via
   `claimMarkers`) a whole `<!--[-->…<!--]-->` range, so a block at the top of a view or a branch is
   marked once. Effects are created as usual; user effects run in the flush after the pass.
-- **Pages hydrate through the router**: the app entry calls `startRouter(routes, container, { data:
+- **Pages hydrate through the router**: the app entry calls `startRouter(routes, container, { c, data:
   readData(document) })`; once the first page's chunk has loaded, the router runs `hydrate` with that
-  page's render instead of rendering it, so the server's nodes are claimed and its `@Load`s start from
-  `k-data`. Later navigations render.
+  page's render (the page inside its layouts, each with the key the server rendered it under: the page
+  `"0"`, layout `i` `"L{i}"`) instead of rendering it, so the server's nodes are claimed and its
+  `@Load`s start from `k-data`, decoded with their codecs (a `Money` is a `Money` again). Later
+  navigations render.
+- **A `@Load` branch is a block range on both sides**: the server frames the view (or the `failed` block)
+  it rendered with `<!--[-->…<!--]-->`, which the client's `branch` over the group's state claims.
+- **Labeled controls**: a control's `<label>` precedes it in the document and in the template, so it is
+  claimed first; both get one `uid()`, in the order the server allocated them.
+- **A `<textarea>`'s text** is its initial value, owned by its binding: claiming keeps the server's text
+  although the template has none.
 - **Mismatch**: if the expected node isn't there (the server rendered something else), development builds
   log a precise error (component, path, expected vs found) and **client-render that range**: the nodes
   between its markers are replaced. Production builds do the same without the log.
@@ -318,7 +336,8 @@ outside `READY`/`RELOADING`.
 - `POST path` with `Content-Type: application/json`, `Connect-Protocol-Version: 1`, the JSON body, and the
   caller's `AbortSignal` (`$c`).
 - It **never rejects** for network problems. It resolves to an outcome: `{ok: true, message}` on 2xx;
-  `{ok: false, kind: "connect", status, code, message, details}` for a Connect error body;
+  `{ok: false, kind: "connect", code, details, retryAfter}` for a Connect error body (`retryAfter` the
+  `Retry-After` seconds, 0 without one);
   `{ok: false, kind: "offline"}` when `fetch` rejects (no network, DNS failure, refused or dropped
   connection, an unreadable body); `{ok: false, kind: "timeout"}` when no response arrives within
   `options.timeoutMs` (default `DEFAULT_TIMEOUT_MS`, 30 s; the default is an open question of design 28).
@@ -329,6 +348,20 @@ outside `READY`/`RELOADING`.
 - No automatic retries: the runtime can't know whether the handler ran.
 - Responses that change the session (`x-k-session` header with the new mirror) update the `Session`
   mirror before the outcome is returned.
+- `rpcError(o, E)` maps a failed outcome to the rpc's error enum `E`: a `failed_precondition` with a
+  detail `{"type": "k.TypedError", "debug": {"error", "case", "fields"}}` (as the server sends it,
+  [server.md §6](server.md#6-rpc-dispatch)) is `E[case]`, called with the `fields` values in order when
+  it has a payload; `offline`/`timeout` are `rpcFailure(.offline)`/`rpcFailure(.timeout)`;
+  `invalid_argument` is `rpcFailure(.invalid(ValidationError))` with the `k.ValidationError` detail's
+  failures; `unauthenticated`, `permission_denied` and `resource_exhausted` are
+  `rpcFailure(.rejected(GuardRejection))`, the `.unauthenticated`, `.forbidden` and
+  `.rateLimited(retryAfter:)` cases (the wait from `Retry-After`); anything else is an `Error` (a
+  panic). `RpcFailure` is tagged in declaration order (rejected 0, invalid 1, offline 2, timeout 3), as
+  generated `match`es and the server's in-process calls ([server.md §6](server.md#6-rpc-dispatch)) use
+  it; earlier rounds tagged `offline` 0, so `catch .rpcFailure(.offline)` didn't match, and passed the
+  raw details as `.invalid`'s payload, so a `@Form` couldn't show them.
+- *Deferred*: server streams (`rpc watch() -> Stream<T>`) in the client. A streaming rpc's response
+  never ends, so a page that awaits one stays in its loading state.
 - `options.fetch` replaces `globalThis.fetch` (tests).
 
 ---
@@ -346,11 +379,15 @@ outside `READY`/`RELOADING`.
 - `handle(action)` returns the event handler: it validates, refuses while submitting (no double submit),
   sets `isSubmitting`, calls the action with the parsed struct, and shows a `ValidationError` the action
   throws under the fields it names; it never throws.
-- Field bindings wire `aria-invalid` and `aria-describedby` to the error element.
+- Field bindings wire `aria-invalid` and `aria-describedby` to the error element. `attach(input,
+  message?)` keeps the input and the field's raw text in sync (`input`, `blur`); without a `message`
+  element (the generated views pass none, so the server's markup has none to claim) it creates a
+  `<p role="alert">` right under the input when the field first shows an error.
+- Raw values are text; a number field's `Number(…)` is accepted and parsed as its text.
 - `@Check` async rules run debounced on blur, through the service function codegen passes (*not yet
   written*).
 - The returned object: `field(name)` → `{ value(), set(raw), error(), isTouched(), touch(),
-  attach(input, message) }`; `isValid()`, `isSubmitting()`, `isTouched()`, `errors()` (reactive);
+  attach(input, message?) }`; `isValid()`, `isSubmitting()`, `isTouched()`, `errors()` (reactive);
   `value()` while the action runs; `handle(action)`. `fieldParser`, `lengthRule`, `rangeRule` and
   `requiredRule` build the specs codegen emits.
 
@@ -358,7 +395,7 @@ outside `READY`/`RELOADING`.
 
 ## 10. Router
 
-`startRouter(routes, container)` with the generated route table
+`startRouter(routes, container, options)` with the generated route table
 ([codegen.md §14](codegen.md#14-routing-tables)):
 
 - Intercepts clicks on internal links (same origin, no modifier keys, no `target`), and `popstate`.
@@ -380,6 +417,11 @@ outside `READY`/`RELOADING`.
   parameters (`routeParam.page`).
 - `options.data` (the `k-data` payload) makes the first page hydrate ([§6](#6-hydration-protocol));
   `startRouter` returns the promise of the first page being shown.
+- `options.c()` makes the dependency container of each page it mounts, passed as `ctx.c` (the app's
+  container, or a `$Route` over it; [codegen.md §13](codegen.md#13-services-and-dependency-injection)).
+  Without it a page gets an empty container.
+- Layouts are rendered around every page (the route's generated `render`); keeping the layouts two pages
+  share mounted across a navigation is *not yet written*, so a navigation renders them again.
 
 ---
 
@@ -411,9 +453,11 @@ Declarations marked `@Native` in `crates/k_sema/stdlib` get their bodies from th
 | `List`, `Map`, `Set`, `String`, `Int`, `Double` methods | inlined JS or `values.js` helpers ([codegen.md §6.6](codegen.md#66-collections-and-the-stdlib)) |
 | `Decimal`, `Money`, `Date`, `Duration` formatting | `values.js` (v0); formatting uses `Intl` with the metadata locale |
 | `Log` | `console.*` in the browser; `op_k_log` (JSON lines) on the server |
-| `Clock` | `Date.now()`/timers in the browser (render instant until hydrated); on the server `clock()` in `app.js`: `now` from `op_k_now`; `sleep`, `every` and `after` panic with their name until the server has timers |
-| `HttpClient` (`FetchHttpClient`) | `fetch` in the browser; the server's fetch op (v0) |
-| `LocalStorage` (`BrowserStorage`) | `localStorage` with typed keys ([36-local-storage.md](../design/36-local-storage.md)) |
+| `Clock` | `clock(data)` in `services.js` in the browser ([§12.1](#121-services-in-the-browser)); on the server `clock()` in `app.js`: `now` from `op_k_now`; `sleep`, `every` and `after` panic with their name until the server has timers |
+| `HttpClient` (`FetchHttpClient`) | `fetchHttpClient` over `fetch` in the browser; not provided on the server yet (`missingNative`) |
+| `LocalStorage` (`BrowserStorage`) | `browserStorage` over `localStorage` with typed keys ([36-local-storage.md](../design/36-local-storage.md)) |
+| `Theme` | `theme()` in the browser; `theme(st)` in `app.js` during server rendering |
+| `TimeZone` | not implemented on either side yet (`TimeZone.parse` panics with its name) |
 | `Json`, `Uuid.random`, `SecureRandom`, `Hash`, `Hmac` | `JSON`, `crypto.getRandomValues`/`crypto.subtle` in the browser; Rust ops on the server |
 | `Database`, repositories | `runtime/db.js` over the database ops ([db.md §6](db.md#6-drivers-the-manifest-and-ops)) |
 | `EmailAddress` | its text; `.address` is the value itself (`displayName` is `nil` in v0); `parse` trims and lower-cases the domain, refusing spaces, brackets, quotes and separators |
@@ -422,6 +466,22 @@ Declarations marked `@Native` in `crates/k_sema/stdlib` get their bodies from th
 | `Money.formatted(as:)` | `Intl.NumberFormat` given the exact decimal text (never a double), in the requested `NumberStyle` (`.currency` by default) |
 | `String.count`, `@Length` | grapheme clusters through `Intl.Segmenter` (the server's V8 has ICU; a JS test guards it); code points where it is missing |
 | `Password`, `SessionManager`, `JobQueue`, `EmailProvider` | server-only Rust ops ([server.md §4](server.md#4-ops)); `Password` is not implemented yet (it panics with its name) |
+
+### 12.1 Services in the browser
+
+`services.js` (part `Services`) holds what the browser's containers hold that the compiler doesn't
+generate ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
+
+| Export | Contract |
+|---|---|
+| `provide(ctx, name, value)` | a copy of `ctx` whose container answers `name` with `value` and delegates every other name to `ctx.c` (getters run on the original container, so its memoized instances stay shared): how a component shares its `@Scope(.component)` service with its subtree |
+| `afterHydration(f)` | runs `f` in a microtask when a hydration pass is running, else now: a client-only service's `init()` runs after hydration, so the first paint matches the server's |
+| `clock(data)` | `k.time.Clock`: `now` is the server's render instant (`data.now`) while the page hydrates, the system time otherwise; `every`/`after` return a `TimerHandle` over `setInterval`/`setTimeout`; `sleep(c, d)` resolves after `d` ms and stops waiting when `c` aborts |
+| `theme()` | `k.ui.Theme`: `current` is reactive and starts as the `k_theme` cookie's variant or `base`; `apply(v)` replaces the `k-theme-*` classes on `<html>` with `k-theme-set` and `k-theme-<v in kebab case>` (none for `base`) and sets the cookie for a year; `followSystem()` removes them and the cookie |
+| `browserStorage(R, W)` | `k.storage.BrowserStorage` over `localStorage`: values JSON-encoded with their codec under `key.name`; throws `R.unavailable` (no storage), `R.unreadable` (bad JSON or a value its codec refuses), `W.quotaExceeded` (a `QuotaExceededError`), `W.unavailable`; `remove` never throws |
+| `fetchHttpClient(E, S)` | `k.http.FetchHttpClient` over `fetch`: the request's `query` appended form-encoded, `headers`, revealed `secretHeaders` and `bearerToken`, the body by its case (JSON, text, form, bytes); `send` resolves to an `HttpResponse` (`status` as an `HttpStatus` case, `isSuccess`, `body`, `bodyBytes`, `headers.get/all`, `json(codec)`) whatever the status and rejects with `E.offline` or, after the request's `timeout` (30 s by default), `E.timeout`; `fetchJson(c, codec, r)` also requires a 2xx (`E.status(status, body)`) and decodes the body (`E.decoding(message)`) |
+| `session(data)` | `k.auth.Session`: `user` reads the `Session` mirror, started from `data.session` and updated by rpc responses (`x-k-session`) |
+| `native(name)` | the browser's implementation of the `@Native` stdlib member `module.Owner$member` (`k.crypto.Uuid$random`, `Uuid$init`, `Uuid$parse`, `k.storage.StorageKey$init`), else a stand-in that loads and panics with the name when called, constructed or read from; client chunks bind every stdlib symbol they use that no item defines with it (`const Uuid$random = $k.native("k.crypto.Uuid$random")`) |
 
 ---
 
@@ -435,7 +495,10 @@ Declarations marked `@Native` in `crates/k_sema/stdlib` get their bodies from th
   bug shows), bubbling events with `stopPropagation`, `getElementById` and serialization.
 - **The table and budget tests** in `crates/k_runtime/tests/runtime.rs` check the module table against the
   files, JSDoc on every export, resolution, the client/server/testing separation and the size budgets.
-- Browser end-to-end tests over the DevTools protocol are planned ([testing.md §8](testing.md#8-end-to-end-tests)).
+- **Browser tests** of the examples (`crates/k_server/tests/browser.rs`) serve each example from a real
+  server, load its server-rendered pages into the fake DOM, hydrate them with the generated client and
+  drive the main interactions ([testing.md §4.3](testing.md#43-browser-tests)). Browser end-to-end tests
+  over the DevTools protocol are planned ([testing.md §8](testing.md#8-end-to-end-tests)).
 
 ---
 
@@ -443,7 +506,7 @@ Declarations marked `@Native` in `crates/k_sema/stdlib` get their bodies from th
 
 | Area | Budget | Measured (release, Apple M-series) |
 |---|---|---|
-| Client runtime size, compacted + compressed | ≤ 5 KB core, ≤ 10 KB full | 4,782 B / 10,192 B gzip |
+| Client runtime size, compacted + compressed | ≤ 5 KB core, ≤ 10 KB full, ≤ 3 KB browser services | 4,794 B / 10,239 B / 2,318 B gzip |
 | Signal write to DOM text update | ≤ 1 µs per binding | 86 ns (1,000 bindings, test DOM in V8) |
 | Signal write through a diamond of three computeds to an effect | ≤ 1 µs | 280 ns |
 | Hydration of a 1,000-node page | ≤ 10 ms | 0.10 ms (1,008 nodes, test DOM) |

@@ -28,6 +28,8 @@ k_server.workspace = true
 serde_json.workspace = true
 flate2.workspace = true
 k_runtime.workspace = true
+k_db.workspace = true
+tokio.workspace = true
 
 [features]
 # The server runtime (V8). On by default; `--no-default-features` builds a

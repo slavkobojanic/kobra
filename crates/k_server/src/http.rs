@@ -120,6 +120,12 @@ pub struct ServerOptions {
     /// The app's database (`DATABASE_URL` and the build's statements and
     /// migrations), opened and migrated before any worker starts.
     pub database: Option<DatabaseSetup>,
+    /// The build's background jobs (the manifest's `jobs`). With a
+    /// database, the jobs worker ([`crate::jobs`]) runs next to the
+    /// listener, `K_JOB_CONCURRENCY` jobs at a time.
+    pub jobs: Vec<k_db::stdlib::JobSpec>,
+    /// How often the jobs worker looks for due jobs (250 ms).
+    pub job_poll: Duration,
 }
 
 impl ServerOptions {
@@ -140,6 +146,8 @@ impl ServerOptions {
             config: std::collections::BTreeMap::new(),
             forgery_exempt: Vec::new(),
             database: None,
+            jobs: Vec::new(),
+            job_poll: Duration::from_millis(250),
         }
     }
 }
@@ -391,6 +399,7 @@ async fn handle(
                     headers,
                     body,
                     remote: remote.ip().to_string(),
+                    job: None,
                     reply,
                 })
                 .is_ok()
@@ -498,6 +507,41 @@ impl Server {
             workers: std::sync::RwLock::new(senders),
             next: AtomicUsize::new(0),
         });
+        // The jobs worker: with jobs and a database, after every isolate
+        // started (it hands runs to them like requests).
+        let job_worker = match (options.jobs.is_empty(), process.database()) {
+            (false, Some(db)) => {
+                let mut o = crate::jobs::JobWorkerOptions::new(options.jobs.clone());
+                if let Some(ConfigValue::Int(n)) = options.config.get("K_JOB_CONCURRENCY") {
+                    o.concurrency = usize::try_from(*n).unwrap_or(4);
+                }
+                o.poll = options.job_poll;
+                o.grace = options.shutdown_grace;
+                o.log = options.log;
+                let to = Arc::clone(&shared);
+                let dispatch: crate::jobs::Dispatch =
+                    Arc::new(move |request| match to.workers.read() {
+                        Ok(workers) if !workers.is_empty() => {
+                            let n = to.next.fetch_add(1, Ordering::Relaxed) % workers.len();
+                            workers[n].send(request).is_ok()
+                        }
+                        _ => false,
+                    });
+                Some(
+                    crate::jobs::JobWorker::start(db, o, dispatch)
+                        .map_err(|e| ServerError::Internal(e.to_string()))?,
+                )
+            }
+            (false, None) => {
+                log_line(
+                    options.log,
+                    "warning",
+                    "the app has background jobs but no database (DATABASE_URL): no jobs worker runs",
+                );
+                None
+            }
+            _ => None,
+        };
         let std_listener = std::net::TcpListener::bind(options.addr)
             .map_err(|e| ServerError::Bind(e.to_string()))?;
         std_listener
@@ -521,6 +565,11 @@ impl Server {
                     stop_rx,
                     grace,
                 ))?;
+                // The jobs worker stops claiming and finishes (or gives
+                // back) its runs while the isolates still answer them.
+                if let Some(w) = job_worker {
+                    w.stop();
+                }
                 // Closing the queues ends every worker's `serve()` once the
                 // requests already queued are answered.
                 if let Ok(mut w) = shared.workers.write() {

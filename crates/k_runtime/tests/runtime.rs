@@ -9,8 +9,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use k_runtime::{
-    CORE_SIZE_BUDGET, FULL_SIZE_BUDGET, Part, STDLIB_SIZE_BUDGET, compact, compacted_sources,
-    modules, resolve,
+    CORE_SIZE_BUDGET, FULL_SIZE_BUDGET, Part, SERVICES_SIZE_BUDGET, STDLIB_SIZE_BUDGET, compact,
+    compacted_sources, modules, resolve,
 };
 
 fn js_root() -> PathBuf {
@@ -155,7 +155,7 @@ fn testing_and_server_modules_are_not_client_parts() {
         }
         if matches!(
             m.part,
-            Part::Core | Part::Extended | Part::ClientEntry | Part::Stdlib
+            Part::Core | Part::Extended | Part::ClientEntry | Part::Stdlib | Part::Services
         ) {
             assert!(
                 !m.source.contains("Deno.core"),
@@ -232,13 +232,31 @@ fn the_stdlib_bodies_meet_their_size_budget() {
     );
 }
 
+#[test]
+fn the_browser_services_meet_their_size_budget() {
+    let services = compacted_sources(&[Part::Services]).expect("compacts");
+    let size = gzip_len(&services);
+    eprintln!(
+        "browser services: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {SERVICES_SIZE_BUDGET})",
+        raw_len(&[Part::Services]),
+        services.len()
+    );
+    assert!(
+        size <= SERVICES_SIZE_BUDGET,
+        "the browser services are {size} bytes gzip, over the {SERVICES_SIZE_BUDGET}-byte budget"
+    );
+}
+
 /// The client runtime ships as one module (the runtime chunk), so the
 /// top-level names of its files must not collide.
 #[test]
 fn client_runtime_files_share_no_top_level_names() {
     let mut seen: std::collections::BTreeMap<String, &str> = std::collections::BTreeMap::new();
     for m in modules() {
-        if !matches!(m.part, Part::Core | Part::Extended | Part::Stdlib) {
+        if !matches!(
+            m.part,
+            Part::Core | Part::Extended | Part::Stdlib | Part::Services
+        ) {
             continue;
         }
         for line in m.source.lines() {

@@ -1641,6 +1641,22 @@ export function urlHost(url) {
 }
 
 /**
+ * The codes of `HttpStatus`'s named cases, in declaration order (`other`
+ * comes last and holds its own code). A codegen test keeps it equal to the
+ * stdlib's enum.
+ */
+export const HTTP_CODES = [200, 201, 202, 204, 301, 303, 304, 400, 401, 403, 404, 405, 409, 410, 413, 415, 422, 429, 500, 502, 503, 504];
+
+/**
+ * `status.code` of an `HttpStatus` value.
+ * @param {{$: number, _0?: number}} s
+ * @returns {number}
+ */
+export function httpCode(s) {
+  return HTTP_CODES[s.$] ?? s._0;
+}
+
+/**
  * The path of a URL (`/` when it has none), without query or fragment.
  * @param {string} url
  * @returns {string}

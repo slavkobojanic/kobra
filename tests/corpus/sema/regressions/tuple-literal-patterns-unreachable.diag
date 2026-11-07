@@ -1,0 +1,7 @@
+error[K2302] 8:14-8:23
+error[K2302] 11:14-11:24
+error[K2302] 19:14-19:23
+error[K2301] 24:12-24:17
+  note: missing: `_`
+  fix "Insert the missing arms" maybe-incorrect
+    edit 27:1-27:1 "        default { }\n"

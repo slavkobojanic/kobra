@@ -185,6 +185,32 @@ pub(crate) struct Control {
     pub place: ast::Expr,
     /// `true` for numeric fields: the text is parsed back.
     pub number: bool,
+    /// How `place` is read and written.
+    pub mode: ControlMode,
+}
+
+/// How a [`Control`]'s `place` is read and written.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum ControlMode {
+    /// `bind place`: the place is read and assigned.
+    #[default]
+    Place,
+    /// A `Binding` value (`Binding(get:set:)`, a `@Binding` field): read
+    /// with `get()`, written with `set(_:)`.
+    Binding,
+    /// A plain value (`isChecked: todo.isDone`): read only, never written.
+    OneWay,
+}
+
+/// The current value of a control's place: the place itself, or a
+/// `Binding`'s `get()`.
+fn control_value(b: &mut Body<'_, '_>, place: &ast::Expr, mode: ControlMode) -> Expr {
+    let x = b.expr(place);
+    if mode == ControlMode::Binding {
+        call(member(x, "get"), vec![])
+    } else {
+        x
+    }
 }
 
 /// An element of a view.
@@ -546,8 +572,33 @@ impl Tree<'_, '_, '_> {
                     "value" | "text" | "selection" | "isChecked"
                         if !matches!(v, ast::Expr::BindExpr(_)) =>
                     {
-                        el.attrs
-                            .push(("value".into(), self.attr_value(&v, AttrKind::Text)));
+                        // A `Binding` value is two-way through its `get` and
+                        // `set`; a checkbox's plain value sets `checked`.
+                        let t = self.b.ty(v.syntax());
+                        let is_binding = t
+                            .decl()
+                            .is_some_and(|d| self.b.g.view.qualified_name(d) == "k.core.Binding");
+                        let checkbox = label.text() == "isChecked";
+                        if is_binding || checkbox {
+                            el.control = Some(Control {
+                                prop: if checkbox { "checked" } else { "value" },
+                                event: if checkbox || label.text() == "selection" {
+                                    "change"
+                                } else {
+                                    "input"
+                                },
+                                place: v.clone(),
+                                number: name == "numberField",
+                                mode: if is_binding {
+                                    ControlMode::Binding
+                                } else {
+                                    ControlMode::OneWay
+                                },
+                            });
+                        } else {
+                            el.attrs
+                                .push(("value".into(), self.attr_value(&v, AttrKind::Text)));
+                        }
                     }
                     "value" | "text" | "selection" | "isChecked" => {
                         if let ast::Expr::BindExpr(be) = &v {
@@ -562,6 +613,7 @@ impl Tree<'_, '_, '_> {
                                     },
                                     place,
                                     number: name == "numberField",
+                                    mode: ControlMode::Place,
                                 });
                             }
                         }
@@ -1027,6 +1079,9 @@ enum Part {
     Mixed(Vec<Piece>),
     Elem(Box<Elem>),
     Block(VNode),
+    /// The `<label>` of the labeled control that follows it in the
+    /// template: both get one fresh `uid()` (`for` and `id`).
+    Label,
 }
 
 impl Client<'_, '_, '_> {
@@ -1137,6 +1192,16 @@ impl Client<'_, '_, '_> {
         let label = el.label.clone();
         build(el, &mut html, &mut Vec::new(), &mut parts, true);
         let t = self.template_const(html);
+        // A visible label precedes its control in the document, so its
+        // template is claimed first during hydration.
+        let label_node = label.as_ref().map(|text| {
+            let lt = self.template_const(format!("<label>{}</label>", escape_text(text)));
+            let l = self.b.fresh("label");
+            self.b
+                .stmts
+                .push(Stmt::Const(l.clone(), call(id(lt), vec![])));
+            l
+        });
         let root = self.b.fresh("root");
         self.b
             .stmts
@@ -1151,11 +1216,33 @@ impl Client<'_, '_, '_> {
             refs.push((node, part));
         }
         let mut block_ends: Vec<String> = Vec::new();
+        let mut label_id: Option<String> = None;
         for (node, part) in refs {
             match part {
                 Part::Text(e) => self.text_binding(&id(&node), &e),
                 Part::Mixed(p) => self.pieces_binding(&id(&node), &p),
-                Part::Elem(el) => self.element_bindings(&id(&node), &el),
+                Part::Label => {
+                    let uid = self.b.fresh("id");
+                    self.b
+                        .stmts
+                        .push(Stmt::Const(uid.clone(), rt("uid", vec![])));
+                    self.b.stmts.push(Stmt::Expr(rt(
+                        "attr",
+                        vec![id(&node), js::str("for"), id(&uid)],
+                    )));
+                    label_id = Some(uid);
+                }
+                Part::Elem(el) => {
+                    if el.label.is_some() {
+                        if let Some(uid) = label_id.take() {
+                            self.b.stmts.push(Stmt::Expr(rt(
+                                "attr",
+                                vec![id(&node), js::str("id"), id(uid)],
+                            )));
+                        }
+                    }
+                    self.element_bindings(&id(&node), &el);
+                }
                 Part::Block(b) => {
                     let end = self.b.fresh("end");
                     self.b
@@ -1166,13 +1253,8 @@ impl Client<'_, '_, '_> {
                 }
             }
         }
-        if let Some(text) = label {
+        if let Some(l) = label_node {
             // A visible label linked to the control.
-            let lt = self.template_const(format!("<label>{}</label>", escape_text(&text)));
-            let l = self.b.fresh("label");
-            self.b
-                .stmts
-                .push(Stmt::Const(l.clone(), call(id(lt), vec![])));
             let uid = self.b.fresh("id");
             self.b
                 .stmts
@@ -1330,7 +1412,12 @@ impl Client<'_, '_, '_> {
             });
         }
         if let Some(c) = &el.control {
-            if let Some((st, path)) = self.b.store_path(&c.place) {
+            let path = if c.mode == ControlMode::Place {
+                self.b.store_path(&c.place)
+            } else {
+                None
+            };
+            if let Some((st, path)) = path {
                 // A path-store field: the binding pair of that path.
                 let pair = self.b.fresh("b");
                 self.b.stmts.push(Stmt::Const(
@@ -1360,12 +1447,32 @@ impl Client<'_, '_, '_> {
                 )));
                 return self.element_events(node, el);
             }
+            // A `@Form` field: the form wires the control (value, input,
+            // blur) and its error message (15-forms-and-validation.md).
+            if c.mode == ControlMode::Place && c.prop == "value" {
+                let (pre, probe) = self.b.capture(|b| b.expr(&c.place));
+                if let (true, Expr::Call(f, args)) = (pre.is_empty(), &probe) {
+                    if let (Expr::Member(field, m), true) = (&**f, args.is_empty()) {
+                        if m == "value"
+                            && matches!(&**field, Expr::Call(g, _)
+                                if matches!(&**g, Expr::Member(_, n) if n == "field"))
+                        {
+                            self.b.stmts.push(Stmt::Expr(call(
+                                member((**field).clone(), "attach"),
+                                vec![node.clone()],
+                            )));
+                            return self.element_events(node, el);
+                        }
+                    }
+                }
+            }
             let place = c.place.clone();
             let n2 = node.clone();
             let prop = c.prop;
             let number = c.number;
+            let mode = c.mode;
             self.effect_of(move |b| {
-                let x = b.expr(&place);
+                let x = control_value(b, &place, mode);
                 let x = if number {
                     call(id("String"), vec![x])
                 } else {
@@ -1379,7 +1486,18 @@ impl Client<'_, '_, '_> {
             } else {
                 read
             };
-            let (stmts, ()) = self.b.capture(|b| b.store(&c.place, read));
+            if c.mode == ControlMode::OneWay {
+                return self.element_events(node, el);
+            }
+            let (stmts, ()) = if c.mode == ControlMode::Binding {
+                let binding = self.b.expr(&c.place);
+                (
+                    vec![Stmt::Expr(call(member(binding, "set"), vec![read]))],
+                    (),
+                )
+            } else {
+                self.b.capture(|b| b.store(&c.place, read))
+            };
             let handler = match stmts.as_slice() {
                 [Stmt::Expr(e)] => js::arrow(vec![], e.clone()),
                 _ => js::arrow_block(vec![], stmts, false),
@@ -1782,14 +1900,30 @@ impl Client<'_, '_, '_> {
                     }
                 }
             }
-            chain.push((
-                if always {
-                    None
-                } else {
-                    tests.into_iter().reduce(|a, b| bin("||", a, b))
-                },
-                i,
-            ));
+            let mut test = if always {
+                None
+            } else {
+                tests.into_iter().reduce(|a, b| bin("||", a, b))
+            };
+            // `case .loaded(let places) where places.isEmpty`: the guard
+            // reads the arm's bindings straight from the scrutinee.
+            if let Some(guard) = arm
+                .children()
+                .find(|c| c.kind() == SyntaxKind::MatchGuard)
+                .and_then(|g| g.children().find_map(ast::Expr::cast))
+            {
+                let (_, mut g) = self.b.capture(|b| b.expr(&guard));
+                for st in &prefix {
+                    if let Stmt::Const(n, e) = st {
+                        g = replace_ident(&g, n, e);
+                    }
+                }
+                test = Some(match test {
+                    Some(t) => bin("&&", t, g),
+                    None => g,
+                });
+            }
+            chain.push((test, i));
             let block = arm.children().find(|c| c.kind() == SyntaxKind::Block);
             let nodes = block.map(|b| self.block_nodes(&b)).unwrap_or_default();
             rendered.push(self.render_fn(&nodes, Vec::new(), prefix));
@@ -2233,7 +2367,7 @@ impl Ssr<'_, '_, '_> {
         // A textarea's value is its content.
         if el.tag == "textarea" {
             if let Some(c) = &el.control {
-                let x = self.b.expr(&c.place);
+                let x = control_value(self.b, &c.place, c.mode);
                 self.b
                     .stmts
                     .push(Stmt::Expr(call(member(id("out"), "text"), vec![x])));
@@ -2343,7 +2477,7 @@ impl Ssr<'_, '_, '_> {
         }
         if let Some(c) = &el.control {
             if el.tag != "textarea" && el.tag != "select" {
-                let x = self.b.expr(&c.place);
+                let x = control_value(self.b, &c.place, c.mode);
                 let (name, x) = if c.prop == "checked" {
                     ("checked", x)
                 } else if c.number {
@@ -2600,7 +2734,8 @@ fn build(
             .any(|c| !matches!(c, ClassPart::Static(_)))
         || !el.styles.is_empty()
         || !el.events.is_empty()
-        || el.control.is_some();
+        || el.control.is_some()
+        || (!root && el.label.is_some());
     if needs_bindings {
         let mut bare = el.clone();
         bare.children = Vec::new();
@@ -2617,7 +2752,16 @@ fn build(
         }
         step(path, &mut first);
         match c {
-            VNode::Elem(child) => build(child, html, path, parts, false),
+            VNode::Elem(child) => {
+                if let Some(text) = &child.label {
+                    // A nested labeled control: its `<label>` comes first,
+                    // as the server renders it.
+                    html.push_str(&format!("<label>{}</label>", escape_text(text)));
+                    parts.push((path.clone(), Part::Label));
+                    path.push(Step::Next);
+                }
+                build(child, html, path, parts, false);
+            }
             VNode::Text(t) => html.push_str(&escape_text(t)),
             VNode::Dyn(e) => {
                 html.push(' ');

@@ -487,3 +487,112 @@ fn dev_rebuilds_on_change_and_keeps_the_last_good_build_on_errors() {
     assert_eq!(status.code(), Some(0), "SIGTERM shuts k dev down cleanly");
     let _ = status;
 }
+
+/// Runs `app` with `args` and `DATABASE_URL=db`.
+fn app_command(app: &std::path::Path, db: &str, args: &[&str]) -> Output {
+    Command::new(app)
+        .args(args)
+        .env("DATABASE_URL", db)
+        .output()
+        .unwrap()
+}
+
+fn sqlite(url: &str, sql: &str) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let db = k_db::Database::connect(url, &k_db::DatabaseOptions::default())
+            .await
+            .unwrap();
+        db.execute(sql, &[]).await.unwrap();
+    });
+}
+
+#[test]
+fn an_appended_app_migrates_and_manages_dead_jobs() {
+    let dir = TempDir::new("dist_jobs");
+    let project = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/e2e/jobs");
+    let out = dir.0.join("dist");
+    let built = k(
+        &[
+            "build",
+            project.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ],
+        &dir.0,
+    );
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let app = out.join("app");
+    let db = format!("sqlite:{}", dir.0.join("jobs.db").display());
+
+    // `migrate` applies the pending migrations once, then has nothing to do.
+    let first = app_command(&app, &db, &["migrate"]);
+    assert_eq!(
+        first.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&first.stdout),
+        "applied migration 0001_create_entries\n"
+    );
+    let again = app_command(&app, &db, &["migrate"]);
+    assert_eq!(again.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&again.stdout),
+        "the database is up to date\n"
+    );
+
+    // A dead job, as the worker leaves one.
+    sqlite(
+        &db,
+        "INSERT INTO k_job (id, name, payload, status, attempts, run_after, locked_until, last_error, created_at, updated_at) \
+         VALUES ('j1', 'doomed', '{}', 'dead', 2, 0, NULL, 'the upstream is down (after 2 attempts)', 0, 1794062400000)",
+    );
+    let listed = app_command(&app, &db, &["jobs", "list", "--dead"]);
+    assert_eq!(listed.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&listed.stdout),
+        "id\tname\tstatus\tattempts\tat\tlast error\n\
+         j1\tdoomed\tdead\t2\t2026-11-07T14:40:00Z\tthe upstream is down (after 2 attempts)\n"
+    );
+    let retried = app_command(&app, &db, &["jobs", "retry", "j1"]);
+    assert_eq!(retried.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&retried.stdout), "queued j1\n");
+    let none = app_command(&app, &db, &["jobs", "list", "--dead"]);
+    assert_eq!(
+        String::from_utf8_lossy(&none.stdout),
+        "id\tname\tstatus\tattempts\tat\tlast error\n"
+    );
+    let all = app_command(&app, &db, &["jobs", "list"]);
+    assert!(String::from_utf8_lossy(&all.stdout).contains("j1\tdoomed\tqueued\t0\t"));
+    // A second retry finds no dead job.
+    assert_eq!(
+        app_command(&app, &db, &["jobs", "retry", "j1"])
+            .status
+            .code(),
+        Some(1)
+    );
+    // Usage and configuration errors.
+    assert_eq!(app_command(&app, &db, &["jobs"]).status.code(), Some(2));
+    assert_eq!(
+        app_command(&app, &db, &["jobs", "list", "--all"])
+            .status
+            .code(),
+        Some(2)
+    );
+    let unset = Command::new(&app)
+        .arg("migrate")
+        .env_remove("DATABASE_URL")
+        .output()
+        .unwrap();
+    assert_eq!(unset.status.code(), Some(78), "DATABASE_URL is required");
+}

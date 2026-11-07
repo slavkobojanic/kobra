@@ -546,7 +546,8 @@ and set elements must be `Hashable` (K2009).
 ### 11.1 Exhaustiveness
 
 `match` and `catch` use one **pattern-matrix** algorithm (Maranget's usefulness): constructors are enum
-cases, `Bool` values, `Optional`'s `nil`/some, literal sets (never exhaustive except `Bool`), and
+cases, `Bool` values, `Optional`'s `nil`/some, a tuple (its type's single constructor, the elements its
+fields: `case (0, true)` covers only that pair), literal sets (never exhaustive except `Bool`), and
 ranges. `where` guards never count toward exhaustiveness.
 
 - A non-exhaustive `match` → **K2301** at `match`, with a note listing missing patterns and a fix
@@ -679,6 +680,14 @@ Accessibility lints beyond required accessible names are **deferred**.
   automatically; with several, `use X for I [in .env, …]` rules in `App.k` choose (**K4002** when
   ambiguous, **K4001** when none). `use X for Y` requires `X` to be or implement `Y` (**K4010**). Cycles
   → **K4003**.
+- **Every environment is checked.** For each of `.development`, `.test` and `.production` an interface
+  is bound the way codegen binds it for that build (`k_codegen::server::binding`): the first `use` rule
+  naming the environment or without `in`, else the single implementation. Sides, scopes (K4004),
+  cycles (K4003), the job/session check (K4009) and K4007/K4008/K5504 follow **every** environment's
+  choice, and a declaration's side is the union over them (the boundary is drawn per declaration). A
+  program that breaks a rule in one environment only is an error; the diagnostic adds a note naming
+  where, for example "in `.production`, `PaymentProvider` is `StripePayments`". Corpus:
+  `tests/corpus/sema/app/services/per-environment/`.
 - **Scopes** `.app` (default), `.request`, `.route`, `.component`, `.server` with the compatibility
   table: a service may inject only services that live at least as long (**K4004**, with the injection
   path). Stateless injectables (repositories, `Database`, configs, platform interfaces, `Clock`) work in
@@ -972,7 +981,9 @@ an open item for a later round):
     setters (`HttpRequest(method: .get, url: u).query(q)`).
   - Functions of one type may be overloaded by labels and parameter types (`Hmac.sha256(key:)` with
     `Bytes` or `Secret<String>`); a call picks the first overload whose labels and argument types fit,
-    preferring one whose last parameter is a function when a trailing lambda is given.
+    preferring one whose last parameter is a function when a trailing lambda is given. Every label
+    counts, a lambda argument's too, and a labelled lambda needs a function parameter:
+    `contains(where: { … })` is `contains(where:)`, never `contains(_:)`.
   - A property and a method may share a name (`HttpResponse.body` and `body(_:)`): a call prefers the
     method, any other use the property.
   - The stdlib's mutating methods are `append`, `insert`, `remove`, `removeAll`, `removeWhere` and

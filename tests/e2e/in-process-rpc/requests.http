@@ -1,0 +1,52 @@
+# Guards and validation run on in-process rpc calls during server rendering
+# (docs/design/28-rpc-wire-format.md): the Report page's @Load calls its
+# protocol in-process, as a guest, then as a user, then as an admin. The
+# script is one browser; its session cookie follows it.
+
+### a guest's in-process calls are refused by the guards, and validated
+GET /report
+>>> 200
+~ report: secret: rejected unauthenticated; admin: rejected unauthenticated; blank: invalid credentials.name: Enter your name; named: checked ada
+
+### sign in without a role
+POST /inproc.vault.VaultProtocol/SignIn
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{"name": "ada", "admin": false}
+>>> 200
+
+### Authenticated passes; Role(.admin) is forbidden
+GET /report
+>>> 200
+~ report: secret: the vault; admin: rejected forbidden; blank: invalid credentials.name: Enter your name; named: checked ada
+
+### sign in as an admin
+POST /inproc.vault.VaultProtocol/SignIn
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{"name": "root", "admin": true}
+>>> 200
+
+### every guard passes
+GET /report
+>>> 200
+~ report: secret: the vault; admin: the admin vault; blank: invalid credentials.name: Enter your name; named: checked ada
+
+### a rate limit counts in-process calls: two are allowed
+GET /limited
+>>> 200
+~ limited: allowed
+
+### the second
+GET /limited
+>>> 200
+~ limited: allowed
+
+### and the third is refused
+GET /limited
+>>> 200
+~ limited: rejected rate limited true

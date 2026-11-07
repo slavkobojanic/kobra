@@ -266,7 +266,10 @@ impl AnalysisHost {
                 .map(|s| Arc::clone(&s.cache))
                 .or_else(|| old.prev_cache.clone()),
         });
-        self.state = new;
+        // The replaced revision usually holds the only reference to the
+        // previous semantic result; freeing it is left to a background
+        // thread.
+        dispose(std::mem::replace(&mut self.state, new));
         self.current.store(revision, Ordering::Release);
     }
 
@@ -591,44 +594,81 @@ impl Analysis {
         self.parse_all()?;
         let result = self.state.sema.get_or_init(|| {
             // The checker recurses over expressions; give it a stack well
-            // beyond its depth limit, as the parser's workers have.
-            std::thread::scope(|scope| {
-                std::thread::Builder::new()
-                    .stack_size(SEMA_STACK)
-                    .spawn_scoped(scope, || self.run_sema())
-                    .ok()
-                    .and_then(|handle| handle.join().ok())
-            })
-            .unwrap_or_else(|| self.run_sema())
+            // beyond its depth limit, as the parser's workers have. The
+            // thread owns a handle on the state, so it hands the result over
+            // as soon as it exists and frees the pass's working state (the
+            // item tree, the checker's caches: about a sixth of a warm
+            // re-check, `docs/compiler/performance.md` §10.4) after the
+            // caller has moved on. If the thread can't start or panics
+            // before delivering, the pass runs here, as before.
+            let state = Arc::clone(&self.state);
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            let spawned = std::thread::Builder::new()
+                .stack_size(SEMA_STACK)
+                .spawn(move || {
+                    run_sema(&state, |result| {
+                        let _ = tx.send(Arc::new(result));
+                    });
+                });
+            spawned
+                .ok()
+                .and_then(|_| rx.recv().ok())
+                .unwrap_or_else(|| {
+                    let mut out = None;
+                    run_sema(&self.state, |result| out = Some(Arc::new(result)));
+                    out.unwrap_or_else(|| Arc::new(SemaResult::default()))
+                })
         });
         self.check()?;
         Ok(result)
     }
+}
 
-    fn run_sema(&self) -> Arc<SemaResult> {
-        {
-            let inputs: Vec<InputFile<'_>> = self
-                .state
-                .files
-                .iter()
-                .flatten()
-                .filter(|f| f.kind.is_k_source())
-                .filter_map(|f| {
-                    let parse = f.parse.get()?;
-                    Some(InputFile {
-                        id: self.state.by_path[&f.path],
-                        path: &f.path,
-                        text: &f.text,
-                        shared: &f.text,
-                        root: parse.syntax(),
-                    })
-                })
-                .collect();
-            Arc::new(crate::check::analyze(
-                inputs,
-                self.state.prev_cache.as_deref(),
-            ))
-        }
+/// Runs the semantic pass over `state`'s parsed sources and passes the
+/// result to `deliver` before the pass's working state is dropped
+/// (`check::analyze`).
+fn run_sema(state: &State, deliver: impl FnOnce(SemaResult)) {
+    let inputs: Vec<InputFile<'_>> = state
+        .files
+        .iter()
+        .flatten()
+        .filter(|f| f.kind.is_k_source())
+        .filter_map(|f| {
+            let parse = f.parse.get()?;
+            Some(InputFile {
+                id: state.by_path[&f.path],
+                path: &f.path,
+                text: &f.text,
+                shared: &f.text,
+                root: parse.syntax(),
+            })
+        })
+        .collect();
+    crate::check::analyze(inputs, state.prev_cache.as_deref(), deliver);
+}
+
+/// Drops `value` on a background thread, so freeing a large structure
+/// (a replaced revision and its semantic result) isn't paid by the caller.
+/// Drops it in place if the thread can't be started.
+fn dispose<T: Send + 'static>(value: T) {
+    type Garbage = Box<dyn Send>;
+    static DISPOSER: OnceLock<Option<std::sync::mpsc::Sender<Garbage>>> = OnceLock::new();
+    let sender = DISPOSER.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Garbage>();
+        std::thread::Builder::new()
+            .name("k-sema-dispose".to_owned())
+            .spawn(move || {
+                for garbage in rx {
+                    drop(garbage);
+                }
+            })
+            .ok()
+            .map(|_| tx)
+    });
+    let garbage: Garbage = Box::new(value);
+    if let Some(Err(std::sync::mpsc::SendError(garbage))) = sender.as_ref().map(|s| s.send(garbage))
+    {
+        drop(garbage);
     }
 }
 

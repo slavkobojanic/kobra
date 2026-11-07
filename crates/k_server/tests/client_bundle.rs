@@ -149,3 +149,177 @@ Deno.core.ops.op_k_set_result(out.html());
         "<div><span>&lt;b&gt;: 0</span><button>Add</button><ul><!--[--><li>a</li><!--]--></ul><!--[--><!--]--></div>"
     );
 }
+
+// ---------------------------------------------------------- the container
+
+/// An app whose services cover the browser's scopes (codegen.md §13):
+/// `Serials` is app-scoped, `Visit` lives while its page is mounted, and
+/// each `Draft` belongs to the component that injects it and its subtree.
+const SCOPES: &[(&str, &str)] = &[
+    ("App.k", "@Rendering(.client)\npublic app Demo {\n}\n"),
+    (
+        "src/demo/Serials.k",
+        r#"public service Serials {
+    var last: Int = 0
+
+    func take() -> Int {
+        last += 1
+        return last
+    }
+}
+
+@Scope(.route)
+service Visit {
+    @Inject let serials: Serials
+    var id: Int = 0
+
+    init() {
+        id = serials.take()
+    }
+}
+
+@Scope(.component)
+service Draft {
+    @Inject let serials: Serials
+    var id: Int = 0
+
+    init() {
+        id = serials.take()
+    }
+}
+"#,
+    ),
+    (
+        "src/demo/Editor.k",
+        r#"component Field {
+    @Inject let draft: Draft
+
+    view {
+        paragraph { "field {draft.id}" }
+    }
+}
+
+public component Editor {
+    @Inject let draft: Draft
+    @Inject let visit: Visit
+
+    view {
+        box {
+            paragraph { "editor {draft.id} in visit {visit.id}" }
+            Field()
+        }
+    }
+}
+
+"#,
+    ),
+    (
+        "src/demo/Home.k",
+        r#"public page Home at "/" {
+    @Inject let visit: Visit
+
+    view {
+        paragraph { "home visit {visit.id}" }
+        Editor()
+        Editor()
+        link(to: .other) { "other" }
+    }
+}
+
+"#,
+    ),
+    (
+        "src/demo/Other.k",
+        r#"public page Other {
+    @Inject let visit: Visit
+
+    view {
+        paragraph { "other visit {visit.id}" }
+        link(to: .home) { "home" }
+    }
+}
+"#,
+    ),
+];
+
+#[test]
+fn the_browser_container_scopes_services_per_app_route_and_component() {
+    let mut files = vec![(ProjectPath::new("k.toml").expect("path"), TOML.to_owned())];
+    for (p, t) in SCOPES {
+        files.push((ProjectPath::new(p).expect("path"), (*t).to_owned()));
+    }
+    let host = AnalysisHost::with_files(SemaOptions::new(), files);
+    let analysis = host.analysis();
+    let diagnostics = analysis.diagnostics().expect("not cancelled");
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    let output = generate(
+        &analysis,
+        &Options {
+            profile: Profile::Development,
+            entry: k_codegen::Entry::App,
+            ..Options::default()
+        },
+    )
+    .expect("generates");
+    let (modules, _) = client_modules(&output);
+    let entry = output
+        .client
+        .iter()
+        .find(|f| f.path.starts_with("app.") && f.path.ends_with(".js"))
+        .map(|f| format!("k:/client/{}", f.path))
+        .expect("a client entry");
+    // Each step is its own module, so the router's page chunks load (an
+    // event-loop turn) between them.
+    let boot = format!(
+        r#"import {{ installDom }} from "k:testing";
+installDom();
+document.body.innerHTML = '<div id="k-app"></div>';
+const loc = {{ origin: "http://localhost", pathname: "/", search: "" }};
+globalThis.location = loc;
+globalThis.history = {{ pushState(_s, _t, p) {{ loc.pathname = p; }} }};
+globalThis.seen = [];
+globalThis.click = (label) => {{
+  const visit = (n) => {{
+    if (n.nodeType === 1 && n.localName === "a" && n.textContent === label) return n;
+    for (const c of n.childNodes) {{ const f = visit(c); if (f) return f; }}
+    return null;
+  }};
+  const e = new Event("click", {{ bubbles: true }});
+  e.button = 0;
+  visit(document.body).dispatchEvent(e);
+}};
+await import({entry:?});
+"#
+    );
+    let mut engine = Engine::new(EngineOptions {
+        modules,
+        timeout: Some(std::time::Duration::from_secs(10)),
+        ..Default::default()
+    })
+    .expect("engine");
+    let read = "seen.push(document.getElementById(\"k-app\").textContent);";
+    for step in [
+        boot.as_str(),
+        read,
+        "click(\"other\");",
+        read,
+        "click(\"home\");",
+        read,
+    ] {
+        engine.run_main(step).expect("runs");
+    }
+    let result = engine
+        .run_main("Deno.core.ops.op_k_set_result(JSON.stringify(seen));")
+        .expect("runs")
+        .expect("a result");
+    let seen: Vec<String> = serde_json::from_str(&result).expect("json");
+    assert_eq!(
+        seen,
+        [
+            "home visit 1editor 2 in visit 1field 2editor 3 in visit 1field 3other",
+            "other visit 4home",
+            "home visit 5editor 6 in visit 5field 6editor 7 in visit 5field 7other",
+        ]
+    );
+}

@@ -3,7 +3,7 @@
 //! state, RPC paths, repositories as SQL, endpoint pages and the entry
 //! modules of both sides (`docs/compiler/codegen.md` §10, §13–§15, §17).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k_sema::stdlib::DeclarationKind;
 use k_sema::view::{DeclId, MemberId, MemberKind, Resolved, Type};
@@ -11,6 +11,7 @@ use k_syntax::SyntaxKind;
 use k_syntax::ast::{self, AstNode};
 
 use crate::cx::{Gen, Target, mangle};
+use crate::decl::Item;
 use crate::js::{self, Expr, Function, Param, Prop, Stmt, bin, call, id, member, rt};
 use crate::lower::{Body, MemberAccess};
 use crate::view::VNode;
@@ -295,31 +296,61 @@ fn route_table(g: &Gen<'_>, b: &mut Body<'_, '_>, target: Target) -> Expr {
         let name = g.name(p);
         let cname = case_name(&g.view.decl(p).name);
         let load = match target {
-            Target::Client => js::arrow(
-                vec![],
-                call(
-                    member(
-                        Expr::Import(Box::new(js::str(format!("$page:{}", p.0)))),
-                        "then",
-                    ),
-                    vec![js::arrow(
-                        vec![Param::new("m")],
-                        Expr::Object(
-                            vec![Prop::KeyValue(
-                                "render".into(),
-                                js::arrow(
-                                    vec![Param::new("params"), Param::new("ctx")],
-                                    call(
-                                        member(id("m"), name.clone()),
-                                        vec![rt("paramProps", vec![id("params")]), id("ctx")],
-                                    ),
-                                ),
-                            )],
-                            false,
+            Target::Client => {
+                // The page inside its layouts, outermost first, each with
+                // the `k-data` key the server rendered it under (the page
+                // `"0"`, layout `i` `"L{i}"`), so hydration claims the
+                // whole document and reads each one's loads.
+                let keyed = |key: String| {
+                    Expr::Object(
+                        vec![
+                            Prop::Spread(id("ctx")),
+                            Prop::KeyValue("key".into(), js::str(key)),
+                        ],
+                        false,
+                    )
+                };
+                let mut render = call(
+                    member(id("m"), name.clone()),
+                    vec![rt("paramProps", vec![id("params")]), keyed("0".into())],
+                );
+                let layouts = crate::server::layouts_of(b, p);
+                for (i, l) in layouts.iter().enumerate().rev() {
+                    let f = b.decl_ref(*l);
+                    render = call(
+                        f,
+                        vec![
+                            Expr::Object(
+                                vec![Prop::KeyValue("content".into(), js::arrow(vec![], render))],
+                                false,
+                            ),
+                            keyed(format!("L{i}")),
+                        ],
+                    );
+                }
+                js::arrow(
+                    vec![],
+                    call(
+                        member(
+                            Expr::Import(Box::new(js::str(format!("$page:{}", p.0)))),
+                            "then",
                         ),
-                    )],
-                ),
-            ),
+                        vec![js::arrow(
+                            vec![Param::new("m")],
+                            Expr::Object(
+                                vec![Prop::KeyValue(
+                                    "render".into(),
+                                    js::arrow(
+                                        vec![Param::new("params"), Param::new("ctx")],
+                                        render,
+                                    ),
+                                )],
+                                false,
+                            ),
+                        )],
+                    ),
+                )
+            }
             Target::Server => b.use_decl(p, format!("{name}$ssr")),
         };
         // The same typed matcher as the server's (`route` in `std.js`),
@@ -344,9 +375,48 @@ fn route_table(g: &Gen<'_>, b: &mut Body<'_, '_>, target: Target) -> Expr {
     Expr::Array(routes)
 }
 
-/// The client entry (`app.[hash].js`): hydrate the server's HTML, or render
-/// for `@Rendering(.client)`, and start the router.
-pub(crate) fn client_entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)>) {
+/// The declarations the client roots of an app reach (codegen.md §3, step
+/// 2): its pages, layouts and the `app` itself, then everything their
+/// lowered client items use, every `@Inject` dependency, and for an
+/// injected interface the implementation bound for the build's
+/// environment. The browser's containers are generated from this set.
+pub(crate) fn client_reach(g: &Gen<'_>, items: &BTreeMap<DeclId, Item>) -> BTreeSet<DeclId> {
+    let rules = crate::server::use_rules(g);
+    let mut reached: BTreeSet<DeclId> = BTreeSet::new();
+    let mut work: Vec<DeclId> = g
+        .own
+        .iter()
+        .copied()
+        .filter(|&d| {
+            matches!(
+                g.view.decl(d).named_kind(),
+                Some(DeclarationKind::Page | DeclarationKind::Layout | DeclarationKind::App)
+            )
+        })
+        .collect();
+    while let Some(d) = work.pop() {
+        if !reached.insert(d) {
+            continue;
+        }
+        let mut next: Vec<DeclId> = crate::server::injected(g, d);
+        if let Some(item) = items.get(&d) {
+            next.extend(item.uses.iter().map(|(u, _)| *u));
+        }
+        if g.view.decl(d).named_kind() == Some(DeclarationKind::Interface) {
+            next.extend(crate::server::binding(g, &rules, d));
+        }
+        work.extend(next.into_iter().filter(|u| !reached.contains(u)));
+    }
+    reached
+}
+
+/// The client entry (`app.[hash].js`): the dependency containers, then
+/// hydrate the server's HTML, or render for `@Rendering(.client)`, and
+/// start the router.
+pub(crate) fn client_entry(
+    g: &Gen<'_>,
+    reach: &BTreeSet<DeclId>,
+) -> (Vec<Stmt>, BTreeSet<(DeclId, String)>) {
     let file = g
         .own
         .first()
@@ -354,36 +424,264 @@ pub(crate) fn client_entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)
     let mut b = Body::new(g, file, Target::Client);
     let routes = route_table(g, &mut b, Target::Client);
     let mut stmts = vec![Stmt::Const("routes".into(), routes)];
+    let (classes, per_route) = client_containers(&mut b, reach);
+    stmts.extend(classes);
     let container = call(
         member(id("document"), "getElementById"),
         vec![js::str("k-app")],
     );
     stmts.push(Stmt::Const("container".into(), container));
-    if g.client_rendered() {
-        stmts.push(Stmt::Expr(rt(
-            "startRouter",
-            vec![id("routes"), id("container")],
-        )));
+    // The `k-data` payload of a server-rendered document: the first page
+    // hydrates from it, and `Clock` and `Session` start from it.
+    let data = if g.client_rendered() {
+        Expr::Null
     } else {
+        rt("readData", vec![id("document")])
+    };
+    stmts.push(Stmt::Const("data".into(), data));
+    stmts.push(Stmt::Const(
+        "app".into(),
+        Expr::New(Box::new(id("$App")), vec![id("data")]),
+    ));
+    // Each mounted page gets the app's container, or a `$Route` container
+    // over it when the app has `@Scope(.route)` services.
+    let make = if per_route {
+        js::arrow(vec![], Expr::New(Box::new(id("$Route")), vec![id("app")]))
+    } else {
+        js::arrow(vec![], id("app"))
+    };
+    let mut options = vec![Prop::KeyValue("c".into(), make)];
+    if !g.client_rendered() {
         // The router hydrates the first page once its chunk has loaded:
         // its templates claim the server's nodes and its loads start from
         // `k-data` (runtime.md §6, §10).
-        stmts.push(Stmt::Expr(rt(
-            "startRouter",
-            vec![
-                id("routes"),
-                id("container"),
-                Expr::Object(
-                    vec![Prop::KeyValue(
-                        "data".into(),
-                        rt("readData", vec![id("document")]),
-                    )],
-                    false,
-                ),
-            ],
-        )));
+        options.push(Prop::KeyValue("data".into(), id("data")));
     }
+    stmts.push(Stmt::Expr(rt(
+        "startRouter",
+        vec![id("routes"), id("container"), Expr::Object(options, false)],
+    )));
     (stmts, b.uses)
+}
+
+/// The browser's dependency containers (codegen.md §13): `$App` holds the
+/// `@Scope(.app)` services, the protocols' RPC clients, the bound
+/// interfaces and the stdlib's platform services, one instance each per
+/// app; `$Route`, generated only when the app has `@Scope(.route)`
+/// services, extends it with one instance of each per mounted page. A
+/// `@Scope(.component)` getter makes a new instance on every read; the
+/// component that injects it provides that instance to its subtree
+/// (`$k.provide`).
+///
+/// Every getter of `$App` memoizes on `this.$a`, the app container, and
+/// resolves dependencies there, so reading an app service through a
+/// `$Route` (or a provided container) still yields the app's instance.
+///
+/// Only the services in `reach` ([`client_reach`]) get a getter: a
+/// service that only server code injects, such as an interface's
+/// implementation bound for the server, or one nothing injects, is not in
+/// the browser's containers and so not in any client file (codegen.md §16).
+///
+/// Returns the classes and whether `$Route` exists.
+pub(crate) fn client_containers(
+    b: &mut Body<'_, '_>,
+    reach: &BTreeSet<DeclId>,
+) -> (Vec<Stmt>, bool) {
+    use crate::js::{Class, Function, MethodKind};
+    use crate::server::{binding, getter, injected, scope_of, this, use_rules};
+    let g = b.g;
+    let services: Vec<DeclId> = g
+        .own
+        .iter()
+        .copied()
+        .filter(|&d| {
+            g.view.decl(d).named_kind() == Some(DeclarationKind::Service)
+                && reach.contains(&d)
+                && crate::bundle::allowed(g, d, Target::Client)
+        })
+        .collect();
+    let app_memo = |name: &str, value: Expr| -> Expr {
+        Expr::Assign(
+            "??=",
+            Box::new(member(this("$a"), format!("${name}"))),
+            Box::new(value),
+        )
+    };
+    let deps_of = |b: &mut Body<'_, '_>, s: DeclId, from: &dyn Fn(String) -> Expr| -> Expr {
+        let _ = b;
+        Expr::Object(
+            injected(g, s)
+                .into_iter()
+                .map(|t| {
+                    let n = g.name(t);
+                    Prop::KeyValue(n.clone(), from(n))
+                })
+                .collect(),
+            false,
+        )
+    };
+    let mut app: Vec<Function> = vec![Function {
+        kind: MethodKind::Constructor,
+        params: vec![Param::new("d")],
+        body: js::Body::Block(vec![
+            Stmt::Expr(js::assign(this("$a"), Expr::This)),
+            Stmt::Expr(js::assign(this("$d"), id("d"))),
+        ]),
+        ..Function::default()
+    }];
+    let mut route: Vec<Function> = Vec::new();
+    let mut provided: BTreeSet<String> = BTreeSet::new();
+    for &s in &services {
+        let name = g.name(s);
+        let class = b.decl_ref(s);
+        match scope_of(g, s) {
+            "route" => {
+                let deps = deps_of(b, s, &|n| this(n));
+                let construct = Expr::New(Box::new(class), vec![deps]);
+                route.push(getter(name.clone(), crate::server::memo(&name, construct)));
+            }
+            "component" => {
+                let deps = deps_of(b, s, &|n| this(n));
+                app.push(getter(name.clone(), Expr::New(Box::new(class), vec![deps])));
+            }
+            _ => {
+                let deps = deps_of(b, s, &|n| member(this("$a"), n));
+                let construct = Expr::New(Box::new(class), vec![deps]);
+                app.push(getter(name.clone(), app_memo(&name, construct)));
+            }
+        }
+        provided.insert(name);
+    }
+    // Protocols: the generated RPC client.
+    for &p in &g.own {
+        if g.view.decl(p).named_kind() != Some(DeclarationKind::Protocol) {
+            continue;
+        }
+        let name = g.name(p);
+        let client = b.use_decl(p, format!("{name}$client"));
+        app.push(getter(
+            name.clone(),
+            app_memo(&name, Expr::New(Box::new(client), vec![])),
+        ));
+        provided.insert(name);
+    }
+    // Everything else that client code injects: bound interfaces and the
+    // stdlib's services.
+    let mut wanted: Vec<DeclId> = Vec::new();
+    for &d in &g.own {
+        if !reach.contains(&d) || !crate::bundle::allowed(g, d, Target::Client) {
+            continue;
+        }
+        for t in injected(g, d) {
+            if !wanted.contains(&t) {
+                wanted.push(t);
+            }
+        }
+    }
+    let rules = use_rules(g);
+    let mut i = 0;
+    while i < wanted.len() {
+        let t = wanted[i];
+        i += 1;
+        let name = g.name(t);
+        if provided.contains(&name) {
+            continue;
+        }
+        provided.insert(name.clone());
+        let qualified = g.view.qualified_name(t);
+        let body = if g.view.decl(t).named_kind() == Some(DeclarationKind::Interface) {
+            // The app's `use` rule or single implementation, else the
+            // stdlib's default implementation.
+            let imp = binding(g, &rules, t).or_else(|| {
+                let default = match qualified.as_str() {
+                    "k.storage.LocalStorage" => "k.storage.BrowserStorage",
+                    "k.http.HttpClient" => "k.http.FetchHttpClient",
+                    _ => return None,
+                };
+                g.view.lookup(default)
+            });
+            match imp {
+                Some(imp) => {
+                    if !wanted.contains(&imp) {
+                        wanted.push(imp);
+                    }
+                    member(this("$a"), g.name(imp))
+                }
+                None => rt("native", vec![js::str(qualified)]),
+            }
+        } else {
+            app_memo(&name, platform_service(b, &qualified))
+        };
+        app.push(getter(name, body));
+    }
+    let mut out = vec![Stmt::Class(
+        Class {
+            name: "$App".into(),
+            extends: None,
+            methods: app,
+        },
+        false,
+    )];
+    let per_route = !route.is_empty();
+    if per_route {
+        let mut methods = vec![Function {
+            kind: MethodKind::Constructor,
+            params: vec![Param::new("a")],
+            body: js::Body::Block(vec![
+                Stmt::Expr(call(
+                    Expr::Ident("super".into()),
+                    vec![member(id("a"), "$d")],
+                )),
+                Stmt::Expr(js::assign(this("$a"), id("a"))),
+            ]),
+            ..Function::default()
+        }];
+        methods.extend(route);
+        out.push(Stmt::Class(
+            Class {
+                name: "$Route".into(),
+                extends: Some(id("$App")),
+                methods,
+            },
+            false,
+        ));
+    }
+    (out, per_route)
+}
+
+/// References to the generated stdlib enums `names` (whose cases a
+/// platform service throws or returns), `null` for one that doesn't exist.
+fn enums(b: &mut Body<'_, '_>, names: &[&str]) -> Vec<Expr> {
+    names
+        .iter()
+        .map(|n| match b.g.view.lookup(n) {
+            Some(d) => b.decl_ref(d),
+            None => Expr::Null,
+        })
+        .collect()
+}
+
+/// The browser body of a stdlib service by qualified name (`services.js`),
+/// or `$k.native(name)`, which panics with the name when used.
+fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
+    let data = member(crate::server::this("$a"), "$d");
+    match qualified {
+        "k.time.Clock" => rt("clock", vec![data]),
+        "k.ui.Theme" => rt("theme", vec![]),
+        "k.auth.Session" => rt("session", vec![data]),
+        "k.http.FetchHttpClient" => rt(
+            "fetchHttpClient",
+            enums(b, &["k.http.HttpError", "k.http.HttpStatus"]),
+        ),
+        "k.storage.BrowserStorage" => rt(
+            "browserStorage",
+            enums(
+                b,
+                &["k.storage.StorageReadError", "k.storage.StorageWriteError"],
+            ),
+        ),
+        _ => rt("native", vec![js::str(qualified)]),
+    }
 }
 
 /// An endpoint page's handlers and its table entry (server only).
@@ -528,10 +826,29 @@ pub(crate) fn client_loads(b: &mut Body<'_, '_>, _d: DeclId, loads: &[MemberId])
             false,
         ));
     }
-    rt(
-        "createLoads",
-        vec![Expr::Array(specs), rt("loadsOf", vec![id("ctx")])],
-    )
+    // The server serialized the values with their codecs (`ssr_loads`);
+    // hydration decodes them back, so a `Money` is a `Money` again.
+    let mut decoded = Vec::new();
+    for &m in loads {
+        let mi = b.g.view.member(m).clone();
+        let t = mi.ty.clone().unwrap_or(Type::Error);
+        let c = crate::codec::codec_expr(b, &t);
+        decoded.push(Prop::KeyValue(
+            mi.name.clone(),
+            call(
+                member(c, "decode"),
+                vec![member(id("$v"), mi.name.clone()), js::str(mi.name.clone())],
+            ),
+        ));
+    }
+    let serialized = call(
+        js::arrow(
+            vec![Param::new("$v")],
+            bin("&&", id("$v"), Expr::Object(decoded, false)),
+        ),
+        vec![rt("loadsOf", vec![id("ctx")])],
+    );
+    rt("createLoads", vec![Expr::Array(specs), serialized])
 }
 
 /// The server's loads: awaited in order before rendering, and serialized

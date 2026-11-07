@@ -339,6 +339,10 @@ fn shop_renders_the_storefront_and_lists_products_from_the_database() {
             ("SHOP_ADMIN_PASSWORD_HASH", "placeholder"),
             ("STRIPE_API_KEY", "sk_test_placeholder_SECRET"),
             ("STRIPE_WEBHOOK_SECRET", "whsec_placeholder_SECRET"),
+            // The order confirmation job sends email over SMTP, so a
+            // production server requires `SmtpConfig` (31-email.md).
+            ("SMTP_HOST", "localhost"),
+            ("MAIL_FROM", "K Shop <orders@shop.example>"),
         ],
     );
     let home = app.get("/");

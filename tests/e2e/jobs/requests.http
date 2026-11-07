@@ -1,0 +1,138 @@
+# Background jobs end to end (docs/design/30-background-jobs.md): the
+# jobs worker runs next to the server, so each effect is awaited with
+# `within`. Entries come back sorted.
+
+### a scheduled job runs on its own
+POST /jobs.work.WorkProtocol/Entries
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200 within 5s
+json {"value": ["tick"]}
+
+### enqueueing returns at once
+POST /jobs.work.WorkProtocol/Record
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "hello", "delayMs": 0}
+>>> 200
+json {"value": true}
+
+### the worker runs it
+POST /jobs.work.WorkProtocol/Entries
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200 within 5s
+json {"value": ["hello", "tick"]}
+
+### a job enqueued in a transaction runs once it commits
+POST /jobs.work.WorkProtocol/RecordInTransaction
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "committed"}
+>>> 200
+json {"value": true}
+
+### its write and the job's are both there
+POST /jobs.work.WorkProtocol/Entries
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200 within 5s
+json {"value": ["committed", "hello", "tick", "written with committed"]}
+
+### a rolled-back transaction discards its job
+POST /jobs.work.WorkProtocol/RecordThenRollBack
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "never"}
+>>> 200
+json {"value": false}
+
+### a retryable failure is retried after its backoff
+POST /jobs.work.WorkProtocol/Flaky
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "x"}
+>>> 200
+json {"value": true}
+
+### the second attempt succeeds
+POST /jobs.work.WorkProtocol/Entries
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200 within 5s
+json {"value": ["committed", "flaky done x", "flaky try 1", "flaky try 2", "hello", "tick", "written with committed"]}
+
+### a job that keeps failing
+POST /jobs.work.WorkProtocol/Doomed
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "x"}
+>>> 200
+json {"value": true}
+
+### runs its two attempts and no more
+POST /jobs.work.WorkProtocol/Entries
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200 within 5s
+json {"value": ["committed", "doomed try 1", "doomed try 2", "flaky done x", "flaky try 1", "flaky try 2", "hello", "tick", "written with committed"]}
+
+### a permanent failure
+POST /jobs.work.WorkProtocol/Refused
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "x"}
+>>> 200
+json {"value": true}
+
+### runs once
+POST /jobs.work.WorkProtocol/Entries
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200 within 5s
+json {"value": ["committed", "doomed try 1", "doomed try 2", "flaky done x", "flaky try 1", "flaky try 2", "hello", "refused try", "tick", "written with committed"]}
+
+### a delayed job
+POST /jobs.work.WorkProtocol/Record
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "later", "delayMs": 300}
+>>> 200
+json {"value": true}
+
+### waits for its delay
+POST /jobs.work.WorkProtocol/Entries
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": ["committed", "doomed try 1", "doomed try 2", "flaky done x", "flaky try 1", "flaky try 2", "hello", "refused try", "tick", "written with committed"]}
+
+### then runs, and nothing else ran meanwhile (no retry of the dead jobs, the rolled-back job never)
+POST /jobs.work.WorkProtocol/Entries
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200 within 5s
+json {"value": ["committed", "doomed try 1", "doomed try 2", "flaky done x", "flaky try 1", "flaky try 2", "hello", "later", "refused try", "tick", "written with committed"]}

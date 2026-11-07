@@ -469,7 +469,9 @@ an `AbortSignal` with the effect or load that issued them.
 ### 8.7 Size budget
 
 Signals, DOM renderer and hydration: at most 5 KB minified and brotli-compressed. With router and RPC
-client: at most 10 KB. The budget test compacts the runtime and measures gzip at the best level, which is
+client: at most 10 KB. The browser's service support (`services.js`: component-scope `provide`, `Clock`,
+`Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session` mirror) has its own 3 KB, like the stdlib
+bodies. The budget test compacts the runtime and measures gzip at the best level, which is
 an upper bound for brotli ([runtime.md §2](runtime.md#2-modules-api-and-size-budget)).
 
 ---
@@ -504,7 +506,12 @@ hyper request
 
 - Every request gets a fresh request scope: `@Scope(.request)` services and the server-side instances of
   client services, so no state leaks between users (design 10). State every worker must share (sessions,
-  rate limits, `@Scope(.server)` state, broadcasts) lives in Rust behind ops.
+  rate limits, `@Scope(.server)` state, broadcasts) lives in Rust behind ops; sessions and rate-limit
+  windows are rows of the app's database when it has one, so replicas share them
+  ([server.md §9](server.md#9-sessions-auth-and-request-forgery)).
+- Background jobs run in the same process: a jobs worker claims due rows of `k_job` and hands each run
+  to a worker isolate like a request ([server.md §11](server.md#11-background-jobs)). Outgoing HTTP and
+  SMTP go through ops (`op_k_fetch`, `op_k_smtp_send`; [server.md §18](server.md#18-outgoing-http-and-email)).
 - **Decision (round 1b):** after the Rust front's checks, a request is handled by the hand-written
   `k:runtime/app` over a table the generated server entry describes (routes, rpcs, endpoints,
   containers); see [server.md §1](server.md#1-status-and-scope).
@@ -615,7 +622,7 @@ past a budget blocks the change.
 | Cold `k build`, 100,000-line project | ≤ 2.5 s, excluding a cached V8 snapshot |
 | Language server (deferred): diagnostics after a keystroke / completions | ≤ 100 ms / ≤ 50 ms at p95 |
 | Compiler memory, 100,000-line project, warm | ≤ 1.5 GB |
-| Client runtime size (min + brotli) | ≤ 5 KB core, ≤ 10 KB with router and RPC; the shipped runtime chunk (with the stdlib bodies, ≤ 10 KB of their own) ≤ 20 KB |
+| Client runtime size (min + brotli) | ≤ 5 KB core, ≤ 10 KB with router and RPC; the shipped runtime chunk (with the stdlib bodies, ≤ 10 KB of their own, and the browser services, ≤ 3 KB of their own) ≤ 23 KB, the sum of its parts |
 | Hydration of a 1,000-node page | ≤ 10 ms |
 | Signal write to DOM text update | ≤ 1 µs per binding |
 | Signal write propagated through computeds to an effect | ≤ 1 µs per write (a diamond of three computeds) |
@@ -624,7 +631,7 @@ past a budget blocks the change.
 | Code generation (lowering + printing), single-threaded | ≥ 200,000 lines/s ([codegen.md §20](codegen.md#20-performance-budgets)) |
 | SSR of a 1,000-node page (data loaded) | ≤ 3 ms |
 | SSR under load (2 clients per core), the 1,000-node page and the example apps' pages | ≥ 1,000 pages/s per core, p99 ≤ 25 ms |
-| RPC with one SQLite query ([db.md §13](db.md#13-performance-budgets)) | ≤ 250 µs at p50, whole round trip |
+| RPC with one SQLite query ([db.md §14](db.md#14-performance-budgets)) | ≤ 250 µs at p50, whole round trip |
 | RPC dispatch overhead (excluding the handler) | ≤ 50 µs at p50 |
 | Trivial RPC throughput, 8 cores | ≥ 30,000 requests/s |
 
@@ -633,7 +640,7 @@ The code generation, runtime, server and `dist/app` budgets are enforced by `scr
 `crates/k_runtime/tests/runtime.rs`, `crates/k_server/tests/perf_budget.rs`, `crates/k_db/tests/perf_budget.rs`
 and `crates/k_cli/tests/perf_budget.rs` (the real `dist/app` of the examples over HTTP); method and baselines
 are in [performance.md §11](performance.md#11-stage-3-runtime-and-server). All are met today; the full client
-runtime has 62 bytes of gzip headroom. The SSR-under-load and 10,000-row budgets were added with the stage 3
+runtime has 1 byte of gzip headroom. The SSR-under-load and 10,000-row budgets were added with the stage 3
 benchmarks: the first is the 3 ms single-request budget turned into a per-core rate with margin, the second
 the 1,000-row budget scaled linearly.
 
@@ -725,7 +732,7 @@ Few, well-known crates. Adding one requires a line here.
 | `arbitrary` | structure-aware K program generator shared by fuzz targets and property tests (dev) | in use |
 | `salsa` | incremental query engine | rejected: hand-rolled queries ([sema.md §3.1](sema.md#31-decision-hand-rolled-salsa-style-layered-queries)) |
 | `serde`, `serde_json` | manifests, ops, RPC JSON, app archive | in use (k_codegen, k_server, k_db, k_corpus) |
-| `toml` (parse only) | `schema.lock` | in use (k_db) |
+| `toml` (parse only) | `schema.lock`; `fakes.toml` of e2e projects (dev) | in use (k_db; k_server tests) |
 | `tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes` | HTTP server, async drivers | in use (k_server, k_db) |
 | `deno_core`, `deno_error` | V8 embedding, ops | in use (k_server) |
 | deno web extensions | web APIs in isolates | rejected: a small bootstrap and K ops instead ([§9.1](#91-process-model)) |
@@ -733,6 +740,10 @@ Few, well-known crates. Adding one requires a line here.
 | `flate2` | gzip for the runtime size-budget test (dev) | in use (k_runtime) |
 | `getrandom` | the OS CSPRNG for session ids and OAuth state (already in the tree through deno_core) | in use (k_server) |
 | `argon2` | Argon2id password hashing (`k.crypto.Password`, PHC strings; RustCrypto, pure Rust) | in use (k_server) |
+| `hyper` (`client`), `hyper-util` (`client-legacy`) | outgoing HTTP for `FetchHttpClient` (`op_k_fetch`), the same HTTP stack as the server | in use (k_server) |
+| `hyper-rustls`, `rustls` (`ring` provider, `webpki-roots`) | TLS for outgoing HTTPS and SMTP, pure Rust, no system certificates or OpenSSL needed in the container | in use (k_server) |
+| `lettre` (`smtp-transport`, `tokio1-rustls-tls`, `builder`) | `SmtpEmailProvider`: SMTP with STARTTLS/TLS/plain, authentication, MIME building and reply classification (`op_k_smtp_send`) | in use (k_server) |
+| `sha2` | SHA-256 of session tokens and OAuth state in `k_session`, and HMAC-SHA-256/512 (`op_k_hmac`, RFC 2104 over `sha2`) | in use (k_server) |
 
 No JavaScript package ecosystem is used, at build time or at runtime.
 

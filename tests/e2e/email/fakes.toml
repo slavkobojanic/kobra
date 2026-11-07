@@ -1,0 +1,4 @@
+# The fake SMTP server accepts every message except to reject@… (550) and
+# defer@… (451); the fake HTTP API serves what it received at /_fake/mail.
+[smtp]
+behavior = "accept"

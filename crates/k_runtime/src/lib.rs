@@ -54,6 +54,14 @@ pub const FULL_SIZE_BUDGET: usize = 10 * 1024;
 /// measured like [`CORE_SIZE_BUDGET`] (10 KB).
 pub const STDLIB_SIZE_BUDGET: usize = 10 * 1024;
 
+/// The largest the browser's service support ([`Part::Services`]: the
+/// client container helpers and the client bodies of the stdlib's platform
+/// services) may be, measured like [`CORE_SIZE_BUDGET`] (3 KB). It ships in
+/// the runtime chunk, whose budget is the sum of its parts' budgets:
+/// [`FULL_SIZE_BUDGET`] + [`STDLIB_SIZE_BUDGET`] + this one
+/// (`docs/compiler/performance.md` §11.3).
+pub const SERVICES_SIZE_BUDGET: usize = 3 * 1024;
+
 /// The part of the runtime a module belongs to, which decides the bundles
 /// it ships in and the size budget it counts against.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -69,6 +77,12 @@ pub enum Part {
     /// on its own (`STDLIB_SIZE_BUDGET`), because its size grows with the
     /// stdlib rather than with the framework.
     Stdlib,
+    /// Dependency injection in the browser: `provide` for component-scoped
+    /// services and the client bodies of the stdlib's platform services
+    /// (`Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session`
+    /// mirror, browser `@Native` members). Shipped with every client in
+    /// the runtime chunk, measured on its own (`SERVICES_SIZE_BUDGET`).
+    Services,
     /// The public client entry point that re-exports both, `k:runtime`.
     /// Generated client code imports it; the bundler keeps only what is
     /// used.
@@ -122,10 +136,12 @@ const MODULES: &[Module] = modules![
     Extended "runtime/list.js",
     Extended "runtime/view.js",
     Stdlib "runtime/std.js",
+    Services "runtime/services.js",
     ClientEntry "runtime/index.js",
     Server "runtime/ssr.js",
     Server "runtime/server.js",
     Server "runtime/app.js",
+    Server "runtime/outbound.js",
     Server "runtime/db.js",
     Testing "testing/dom.js",
     Testing "testing/harness.js",

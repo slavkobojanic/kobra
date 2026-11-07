@@ -20,6 +20,10 @@ serde.workspace = true
 serde_json.workspace = true
 getrandom.workspace = true
 argon2.workspace = true
+hyper-rustls.workspace = true
+lettre.workspace = true
+sha2.workspace = true
+rustls.workspace = true
 
 [lints]
 workspace = true
@@ -32,6 +36,7 @@ k_sema.workspace = true
 k_codegen.workspace = true
 proptest.workspace = true
 arbitrary.workspace = true
+toml.workspace = true
 
 [[test]]
 name = "runtime_js"
@@ -67,3 +72,19 @@ path = "tests/differential.rs"
 [[test]]
 name = "perf_budget"
 path = "tests/perf_budget.rs"
+
+[[test]]
+name = "browser"
+path = "tests/browser.rs"
+
+[[test]]
+name = "outbound"
+path = "tests/outbound.rs"
+
+[[test]]
+name = "sessions"
+path = "tests/sessions.rs"
+
+[[test]]
+name = "shop_production"
+path = "tests/shop_production.rs"

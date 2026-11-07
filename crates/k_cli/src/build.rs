@@ -128,6 +128,7 @@ fn write(output: &Output, out: &Path) -> std::io::Result<()> {
             .collect(),
         forgery_exempt: forgery_exempt(output),
         database: output.database.clone(),
+        jobs: output.manifest.jobs.clone(),
     };
     let bytes = append(&exe, &payload).map_err(std::io::Error::other)?;
     let app = out.join("app");
@@ -267,6 +268,9 @@ fn start(output: &Output, project: &Path, port: u16) -> Result<k_server::Server,
     options.forgery_exempt = forgery_exempt(output);
     options.database =
         k_server::db::DatabaseSetup::from_config(output.database.clone(), &options.config);
+    // `k run` and `k dev` run the jobs worker too, against the development
+    // database (30-background-jobs.md).
+    options.jobs = output.manifest.jobs.clone();
     options.assets = output
         .client
         .iter()

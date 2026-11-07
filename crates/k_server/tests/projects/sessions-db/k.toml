@@ -1,0 +1,6 @@
+# Sessions, rate limits and OAuth state stored in the app's database
+# (docs/design/26-auth-and-sessions.md): survive restarts, shared between
+# replicas. Driven by crates/k_server/tests/sessions.rs.
+[package]
+name = "sdb"
+k = "0.1"

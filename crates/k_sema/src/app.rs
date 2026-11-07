@@ -235,19 +235,40 @@ fn test_group(cx: &Cx<'_, '_>, d: DeclId) {
     }
     checker.finish();
     // K7503: the group's dependencies reach an app config it doesn't bind.
-    let mut stack: Vec<(DeclId, String)> = crate::di::inject_fields(cx, d)
+    // A depth-first walk with a parent map; the path is spelled only for
+    // the report (spelling it at every step made the walk quadratic in the
+    // path length, 13% of a warm re-check at 100k lines). Without `use`
+    // replacements, a declaration from which no config is reachable
+    // (`di::reaches_config`) can't lead to a report, nor can anything
+    // reachable from it, so it isn't visited: the walk finds the same
+    // config along the same path, and a group over a long service chain
+    // no longer walks the whole chain.
+    let prune = replaced.is_empty();
+    // Reached declaration (after replacement) → the declaration it was
+    // reached from and the injected type as written (before replacement),
+    // which is what the path names.
+    let mut parent: HashMap<DeclId, (Option<DeclId>, DeclId)> = HashMap::new();
+    let mut stack: Vec<(DeclId, Option<DeclId>)> = crate::di::injected_decls(cx, d)
         .iter()
-        .filter_map(|(m, _)| cx.field_ty(*m).decl())
-        .map(|t| (t, p.decl(t).name.clone()))
+        .filter(|t| !prune || crate::di::reaches_config(cx, **t))
+        .map(|t| (*t, None))
         .collect();
-    let mut seen = HashSet::new();
-    while let Some((t, path)) = stack.pop() {
-        let t = replaced.get(&t).copied().unwrap_or(t);
-        if !seen.insert(t) {
+    while let Some((written, from)) = stack.pop() {
+        let t = replaced.get(&written).copied().unwrap_or(written);
+        if parent.contains_key(&t) {
             continue;
         }
+        parent.insert(t, (from, written));
         match p.decl(t).named_kind() {
             Some(K::Config) if !p.is_stdlib(t) && !bound.contains(&t) => {
+                let mut names = vec![p.decl(written).name.as_str()];
+                let mut at = from;
+                while let Some((up, name)) = at.and_then(|x| parent.get(&x)) {
+                    names.push(p.decl(*name).name.as_str());
+                    at = *up;
+                }
+                names.push(decl.name.as_str());
+                names.reverse();
                 cx.report(
                     file,
                     Diagnostic::new(
@@ -259,16 +280,17 @@ fn test_group(cx: &Cx<'_, '_>, d: DeclId) {
                             p.decl(t).name
                         ),
                     )
-                    .with_note(format!("{} → {path}", decl.name)),
+                    .with_note(names.join(" → ")),
                 );
                 return;
             }
             Some(K::Service | K::Repository) => {
-                for (m, _) in crate::di::inject_fields(cx, t) {
-                    if let Some(x) = cx.field_ty(m).decl() {
-                        stack.push((x, format!("{path} → {}", p.decl(x).name)));
-                    }
-                }
+                stack.extend(
+                    crate::di::injected_decls(cx, t)
+                        .iter()
+                        .filter(|x| !prune || crate::di::reaches_config(cx, **x))
+                        .map(|x| (*x, Some(t))),
+                );
             }
             _ => {}
         }

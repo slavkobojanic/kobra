@@ -13,17 +13,19 @@
 //! | `@State` of `@Scope(.server)` services, as JSON | `op_k_shared_get` / `op_k_shared_set` | 10-services.md |
 //! | keyed broadcasts (`Broadcast<K, V>`) | `op_k_broadcast_*` | 29-server-streaming.md |
 //!
-//! **v0:** sessions live in memory, so they last as long as the process and
-//! are not shared between replicas; the `k_session` table of server.md §9
-//! replaces this store once the database ops are wired into startup. The
-//! store's contract (fresh ids, sliding idle timeout, absolute lifetime,
-//! immediate revocation) is the same either way.
+//! **Sessions and rate-limit windows** live in the app's database when the
+//! process has one (the stdlib's `k_session` and `k_rate_limit` tables,
+//! `k_db::stdlib`), so they survive restarts and are shared by replicas;
+//! without a database they live here, in memory. The store's contract
+//! (fresh ids, sliding idle timeout, absolute lifetime, immediate
+//! revocation, single-use OAuth state bound to the session) is the same
+//! either way; the `session_*` and `rate_hit` methods choose.
 //!
 //! Every lock is held only for a map operation, never across an `await`,
 //! and a poisoned lock is recovered (the maps stay consistent because each
 //! operation is a single insert, remove or lookup).
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -36,17 +38,52 @@ pub const DEFAULT_SESSION_IDLE: Duration = Duration::from_secs(7 * 24 * 3600);
 /// How long a session lasts at most after `signIn` (`K_SESSION_MAX_AGE`).
 pub const DEFAULT_SESSION_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
 
+/// How long an OAuth state issued by `SessionManager.issueState` stays
+/// valid: ten minutes.
+pub const OAUTH_STATE_LIFETIME: Duration = Duration::from_secs(600);
+
+/// A stored session is marked seen at most this often (ms), so reads
+/// don't each write.
+pub const SESSION_TOUCH_MS: i64 = 60_000;
+
+/// The hex SHA-256 of a cookie token or an OAuth state: what the store
+/// keeps, so the `k_session` table alone never holds a usable session.
+#[must_use]
+pub fn token_hash(token: &str) -> String {
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(token.as_bytes());
+    let mut out = String::with_capacity(64);
+    for b in digest {
+        out.push_str(&format!("{b:02x}"));
+    }
+    out
+}
+
+/// Compares two byte strings in time independent of where they differ.
+#[must_use]
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 /// How many undelivered elements a broadcast subscriber may fall behind
 /// before it is closed (29-server-streaming.md, "Back-pressure").
 pub const BROADCAST_BACKLOG: usize = 1000;
 
-/// One signed-in session.
+/// One session: signed in, or a guest's (created only to bind OAuth
+/// state, design 26).
 #[derive(Clone, Debug)]
 struct SessionRow {
-    /// The user id, as the JSON the app's `AuthUserId` type encodes to.
+    /// The user id, as the JSON the app's `AuthUserId` type encodes to;
+    /// `null` for a guest.
     user: serde_json::Value,
-    /// A stable text form of `user`, for `endAll`.
-    user_key: String,
+    /// A stable text form of `user`, for `endAll`; `None` for a guest.
+    user_key: Option<String>,
+    /// The hash of the OAuth state bound to the session and when it
+    /// expires.
+    oauth: Option<(String, Instant)>,
     /// The role case names.
     roles: Vec<String>,
     /// When `signIn` created the session.
@@ -58,7 +95,7 @@ struct SessionRow {
 /// A session as JavaScript receives it.
 #[derive(Clone, PartialEq, Debug, serde::Serialize)]
 pub struct SessionView {
-    /// The user id as JSON.
+    /// The user id as JSON; `null` for a guest session.
     pub user: serde_json::Value,
     /// The role case names.
     pub roles: Vec<String>,
@@ -228,7 +265,7 @@ impl ProcessState {
         user: serde_json::Value,
         roles: Vec<String>,
     ) -> Result<String, String> {
-        let user_key = user.to_string();
+        let user_key = (!user.is_null()).then(|| user.to_string());
         let now = Instant::now();
         let mut sessions = lock(&self.sessions);
         loop {
@@ -241,6 +278,7 @@ impl ProcessState {
                 SessionRow {
                     user,
                     user_key,
+                    oauth: None,
                     roles,
                     created: now,
                     last_seen: now,
@@ -265,7 +303,7 @@ impl ProcessState {
             let mut sessions = lock(&self.sessions);
             let ids: Vec<String> = sessions
                 .iter()
-                .filter(|(_, r)| r.user_key == key)
+                .filter(|(_, r)| r.user_key.as_deref() == Some(key.as_str()))
                 .map(|(id, _)| id.clone())
                 .collect();
             for id in &ids {
@@ -277,6 +315,284 @@ impl ProcessState {
             self.close_session_streams(id);
         }
         ended.len()
+    }
+
+    /// Binds a fresh OAuth state to session `id` (memory store) and
+    /// returns it, or `None` when there is no such session.
+    ///
+    /// # Errors
+    ///
+    /// No randomness was available.
+    fn issue_state_memory(&self, id: &str) -> Result<Option<String>, String> {
+        let state = random_token()?;
+        let mut sessions = lock(&self.sessions);
+        let Some(row) = sessions.get_mut(id) else {
+            return Ok(None);
+        };
+        row.oauth = Some((token_hash(&state), Instant::now() + OAUTH_STATE_LIFETIME));
+        Ok(Some(state))
+    }
+
+    /// Takes the OAuth state of session `id` (memory store): `true` once
+    /// for the state last issued to it, within its lifetime.
+    fn consume_state_memory(&self, id: &str, state: &str) -> bool {
+        let mut sessions = lock(&self.sessions);
+        let Some(row) = sessions.get_mut(id) else {
+            return false;
+        };
+        let Some((hash, expires)) = row.oauth.take() else {
+            return false;
+        };
+        constant_time_eq(hash.as_bytes(), token_hash(state).as_bytes()) && Instant::now() <= expires
+    }
+
+    // ------------------------------------------------------- the store
+
+    /// The session of cookie token `token`: from the `k_session` table when
+    /// the process has a database (shared by replicas and kept across
+    /// restarts), else from memory. Expired sessions are deleted; a live
+    /// one is marked seen (in the table at most once a minute).
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn session_load(&self, token: &str) -> Result<Option<SessionView>, String> {
+        let Some(db) = self.database() else {
+            return Ok(self.session(token));
+        };
+        let id = token_hash(token);
+        let Some((user, roles, created, seen)) =
+            db.session_row(&id).await.map_err(|e| e.to_string())?
+        else {
+            return Ok(None);
+        };
+        let now = crate::jobs::now_ms();
+        let idle = i64::try_from(self.session_idle.as_millis()).unwrap_or(i64::MAX);
+        let max_age = i64::try_from(self.session_max_age.as_millis()).unwrap_or(i64::MAX);
+        if now.saturating_sub(seen) > idle || now.saturating_sub(created) > max_age {
+            db.session_statement(
+                k_db::stdlib::session_sql::DELETE,
+                vec![k_db::Value::Text(id)],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            self.close_session_streams(token);
+            return Ok(None);
+        }
+        if now.saturating_sub(seen) >= SESSION_TOUCH_MS {
+            db.session_statement(
+                k_db::stdlib::session_sql::TOUCH,
+                vec![k_db::Value::Text(id), k_db::Value::Int(now)],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+        let user = match user {
+            Some(text) => serde_json::from_str(&text).unwrap_or(serde_json::Value::Null),
+            None => serde_json::Value::Null,
+        };
+        let roles = serde_json::from_str(&roles).unwrap_or_default();
+        Ok(Some(SessionView { user, roles }))
+    }
+
+    /// Starts a session for `user` (`null`: a guest session) and returns
+    /// its new cookie token. Never reuses a token.
+    ///
+    /// # Errors
+    ///
+    /// No randomness, or a database failure.
+    pub async fn session_create(
+        &self,
+        user: serde_json::Value,
+        roles: Vec<String>,
+    ) -> Result<String, String> {
+        let Some(db) = self.database() else {
+            return self.create_session(user, roles);
+        };
+        let token = random_token()?;
+        let who = (!user.is_null()).then(|| (user.to_string(), user.to_string()));
+        let roles = serde_json::to_string(&roles).map_err(|e| e.to_string())?;
+        db.session_insert(&token_hash(&token), who, roles, crate::jobs::now_ms())
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(token)
+    }
+
+    /// Deletes the session of `token` and closes the streams opened under
+    /// it.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn session_delete(&self, token: &str) -> Result<(), String> {
+        if let Some(db) = self.database() {
+            db.session_statement(
+                k_db::stdlib::session_sql::DELETE,
+                vec![k_db::Value::Text(token_hash(token))],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+        self.delete_session(token);
+        Ok(())
+    }
+
+    /// Deletes every session of the user whose id encodes to `user`, on
+    /// every replica, and closes their streams here. Returns how many.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn session_end_all(&self, user: &serde_json::Value) -> Result<usize, String> {
+        let Some(db) = self.database() else {
+            return Ok(self.end_all_sessions(user));
+        };
+        let key = k_db::Value::Text(user.to_string());
+        let ids: BTreeSet<String> = db
+            .session_query(k_db::stdlib::session_sql::OF_USER, vec![key.clone()])
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter_map(|r| match r.into_iter().next() {
+                Some(k_db::Value::Text(t)) => Some(t),
+                _ => None,
+            })
+            .collect();
+        db.session_statement(k_db::stdlib::session_sql::DELETE_USER, vec![key])
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut subscribers = lock(&self.subscribers);
+        for s in subscribers.values_mut().filter(|s| {
+            s.session
+                .as_deref()
+                .is_some_and(|t| ids.contains(&token_hash(t)))
+        }) {
+            s.closed = true;
+            s.queue.clear();
+            s.notify.notify_one();
+        }
+        Ok(ids.len())
+    }
+
+    /// Binds a fresh OAuth state to the session of `token` and returns it
+    /// (`SessionManager.issueState`), or `None` without such a session.
+    /// It is single-use and expires after [`OAUTH_STATE_LIFETIME`].
+    ///
+    /// # Errors
+    ///
+    /// No randomness, or a database failure.
+    pub async fn session_issue_state(&self, token: &str) -> Result<Option<String>, String> {
+        let Some(db) = self.database() else {
+            return self.issue_state_memory(token);
+        };
+        let state = random_token()?;
+        let expires = crate::jobs::now_ms()
+            + i64::try_from(OAUTH_STATE_LIFETIME.as_millis()).unwrap_or(i64::MAX);
+        let n = db
+            .session_statement(
+                k_db::stdlib::session_sql::SET_STATE,
+                vec![
+                    k_db::Value::Text(token_hash(token)),
+                    k_db::Value::Text(token_hash(&state)),
+                    k_db::Value::Int(expires),
+                ],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok((n > 0).then_some(state))
+    }
+
+    /// `SessionManager.consumeState`: `true` exactly once for the state
+    /// last issued to the session of `token`, before it expires; it is
+    /// cleared either way.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn session_consume_state(&self, token: &str, state: &str) -> Result<bool, String> {
+        let Some(db) = self.database() else {
+            return Ok(self.consume_state_memory(token, state));
+        };
+        let id = token_hash(token);
+        let rows = db
+            .session_query(
+                k_db::stdlib::session_sql::GET_STATE,
+                vec![k_db::Value::Text(id.clone())],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        let Some((stored, expires)) = rows.into_iter().next().and_then(|r| match r.as_slice() {
+            [k_db::Value::Text(h), k_db::Value::Int(e)] => Some((h.clone(), *e)),
+            _ => None,
+        }) else {
+            return Ok(false);
+        };
+        let taken = db
+            .session_statement(
+                k_db::stdlib::session_sql::TAKE_STATE,
+                vec![k_db::Value::Text(id), k_db::Value::Text(stored.clone())],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(taken > 0
+            && constant_time_eq(stored.as_bytes(), token_hash(state).as_bytes())
+            && crate::jobs::now_ms() <= expires)
+    }
+
+    /// Counts one call against `key` (`RateLimit`): in `k_rate_limit` when
+    /// the process has a database, so every replica counts against the
+    /// same window ([`k_db::stdlib::rate_decision`]), else in memory.
+    /// Returns `0` if allowed, or the whole seconds until a call would be.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn rate_hit(&self, key: &str, limit: u32, window: Duration) -> Result<u64, String> {
+        let Some(db) = self.database() else {
+            return Ok(self.rate_limit(key, limit, window));
+        };
+        let w = i64::try_from(window.as_millis()).unwrap_or(i64::MAX).max(1);
+        let now = crate::jobs::now_ms();
+        let current = now.div_euclid(w) * w;
+        let previous = current - w;
+        let key_v = k_db::Value::Text(key.to_owned());
+        let rows = db
+            .session_query(
+                k_db::stdlib::rate_sql::WINDOWS,
+                vec![
+                    key_v.clone(),
+                    k_db::Value::Int(previous),
+                    k_db::Value::Int(current),
+                ],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        let (mut prev_hits, mut cur_hits) = (0, 0);
+        for r in rows {
+            if let [k_db::Value::Int(start), k_db::Value::Int(hits)] = r.as_slice() {
+                if *start == current {
+                    cur_hits = *hits;
+                } else {
+                    prev_hits = *hits;
+                }
+            }
+        }
+        let wait = k_db::stdlib::rate_decision(limit, w, now - current, prev_hits, cur_hits);
+        if wait == 0 {
+            db.session_statement(
+                k_db::stdlib::rate_sql::HIT,
+                vec![key_v.clone(), k_db::Value::Int(current)],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            db.session_statement(
+                k_db::stdlib::rate_sql::PRUNE,
+                vec![key_v, k_db::Value::Int(previous)],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+        Ok(wait)
     }
 
     // --------------------------------------------------------- rate limits
@@ -520,5 +836,48 @@ mod tests {
         assert_eq!(p.shared_get("a"), None);
         p.shared_set("a", "1".into());
         assert_eq!(p.shared_get("a").as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn oauth_state_in_memory_is_bound_and_single_use() {
+        let p = ProcessState::default();
+        let guest = p
+            .create_session(serde_json::Value::Null, vec![])
+            .expect("guest");
+        assert_eq!(
+            p.session(&guest).map(|s| s.user),
+            Some(serde_json::Value::Null)
+        );
+        let state = p
+            .issue_state_memory(&guest)
+            .expect("random")
+            .expect("a session");
+        assert!(!p.consume_state_memory("other", &state));
+        assert!(p.consume_state_memory(&guest, &state));
+        assert!(!p.consume_state_memory(&guest, &state), "single use");
+        let state = p
+            .issue_state_memory(&guest)
+            .expect("random")
+            .expect("a session");
+        assert!(!p.consume_state_memory(&guest, "forged"));
+        assert!(
+            !p.consume_state_memory(&guest, &state),
+            "a wrong guess clears it"
+        );
+        assert_eq!(p.issue_state_memory("gone").expect("random"), None);
+        // A guest session is nobody's: `endAll` never ends it.
+        assert_eq!(p.end_all_sessions(&serde_json::Value::Null), 0);
+        assert!(p.session(&guest).is_some());
+    }
+
+    #[test]
+    fn token_hashes_are_hex_sha256_and_comparisons_constant_time() {
+        assert_eq!(
+            token_hash("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert!(constant_time_eq(b"same", b"same"));
+        assert!(!constant_time_eq(b"same", b"sama"));
+        assert!(!constant_time_eq(b"short", b"longer"));
     }
 }

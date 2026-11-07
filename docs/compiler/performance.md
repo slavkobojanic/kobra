@@ -399,39 +399,59 @@ cubic behaviour it had before [§10.6](#106-changes-made-while-setting-up-the-be
 ### 10.4 Budget status
 
 Measured with `cargo test --release -p k_sema --test perf_budget -- --ignored --test-threads=1` (what
-`scripts/bench-check.sh` runs) on 2026-11-07, same machine as [§4](#4-budget-status), after round 2's
-warm cache (sema.md §16, round 2 notes; expect ±10%).
+`scripts/bench-check.sh` runs) on 2026-11-07, same machine as [§4](#4-budget-status), after the stage 4
+changes below (expect ±10%; memory measured alone, as `bench-check.sh` runs it).
 
 | Check | Measured | Budget | Status |
 |---|---|---|---|
-| cold check, 100k lines, 8 threads | **0.112 s** | ≤ 1.0 s | met, 8.9x headroom |
-| cold check, 100k lines, 1 thread | **0.129 s** | ≤ 4.0 s | met, 31x headroom |
-| warm re-check after a body edit | **25.5 ms** | ≤ 30 ms | met, 1.18x headroom |
-| warm re-check after a signature edit | **94.6 ms** | ≤ 150 ms | met, 1.6x headroom |
-| resident memory, warm 100k lines | **124 MB** | ≤ 1.5 GB | met, 12x headroom |
-| realistic 10k → 100k | x9.48 for x10.19 bytes | ≤ x14 | met |
-| `deep-generics` 48 → 192 | x9.71 | ≤ x20 | met (quadratic, see above) |
-| `huge-match` 2,000 → 8,000 cases | x4.22 | ≤ x6 | met |
-| `import-chain` 1,000 → 4,000 modules | x4.01 | ≤ x6 | met |
-| `wide-di` 1,000 → 4,000 services | x4.19 | ≤ x6 | met |
+| cold check, 100k lines, 8 threads | **0.102 s** | ≤ 1.0 s | met, 9.8x headroom |
+| cold check, 100k lines, 1 thread | **0.117 s** | ≤ 4.0 s | met, 34x headroom |
+| warm re-check after a body edit | **16.8 ms** | ≤ 30 ms | met, 1.8x headroom |
+| warm re-check after a signature edit | **79.9 ms** | ≤ 150 ms | met, 1.9x headroom |
+| resident memory, warm 100k lines | **125 MB** | ≤ 1.5 GB | met, 12x headroom |
+| realistic 10k → 100k | x9.38 for x10.19 bytes | ≤ x14 | met |
+| `deep-generics` 48 → 192 | x9.55 | ≤ x20 | met (quadratic, see above) |
+| `huge-match` 2,000 → 8,000 cases | x4.25 | ≤ x6 | met |
+| `import-chain` 1,000 → 4,000 modules | x4.09 | ≤ x6 | met |
+| `wide-di` 1,000 → 4,000 services | x4.27 | ≤ x6 | met |
 
-No budget was changed. **Every budget is met.** Before round 2 the warm body edit took 101.6 ms (3.4x
+No budget was changed. **Every budget is met.**
+
+**Stage 4: the warm body edit, 27.1 → 16.8 ms.** At the end of stage 3 the warm body edit measured
+27.1 ms (0.9 of its budget). Profiled with macOS `sample` over a loop of warm re-checks (the same edit
+as the budget test), the time went to: rebuilding the item tree (`Program::add_file`, 31%), eager
+signatures (`Cx::sig`, 19%), the K7503 walk of the test groups (`app::test_group`, 13%), freeing the
+previous revision and the pass's own working state (about 16%), and client references (6%). Four changes,
+each checked by the full test suite (the incremental properties and the `check_typed` fuzz target
+compare every warm re-check with a fresh one):
+
+| Change | Warm body edit |
+|---|---|
+| K7503 walks with a parent map (the path is spelled only when reported), over memoized injection targets (`di::injected_decls`), skipping declarations from which no config is reachable when the group replaces nothing (`di::reaches_config`, computed once by a backward search) | 27.1 → 24.9 ms |
+| `ast::support::{token, token_where, has_token, token_kind_where, token_kinds, token_at}` scan the **green** tree and materialize only the token they return: rowan allocates a red node for every child visited through `children_with_tokens`, which was most of rebuilding the item tree and resolving signatures (`visibility_of`, `is_static`, `is_var`, `Param::name`/`label`, every `HasName::name`); annotation names are read from the green tree too. Pinned by `crates/k_syntax/tests/green_support.rs` against the red walk on every corpus node | 24.9 → 18.3 ms |
+| the semantic pass hands its result to the caller before freeing its item tree and caches (`check::analyze` takes a `deliver` callback; the pass's thread owns an `Arc` of the state instead of borrowing it), and a replaced revision is freed on a background thread (`host::dispose`) | 18.3 → 16.8 ms |
+
+The profile of the result (shares of a 16.8 ms warm body edit at 100k lines, from `sample`):
+
+| Phase | ≈ share |
+|---|---|
+| rebuilding the `Program` | 15% |
+| eager signatures | 15% |
+| client references (K4007) | 5% |
+| field types, styles, RPC, routing, DI and the other project passes | 15% |
+| checking the edited file's bodies, replaying the other 1,368 files' facts | 10% |
+| parsing the edited file, name table, host overhead, allocation spread over the phases | the rest |
+
+The freeing moved off the caller's path still runs; on a machine with one core it competes with the next
+re-check. Before round 2 the warm body edit took 101.6 ms (3.4x
 over): `check::analyze` rebuilt the `Program` and re-checked every declaration on every revision, and
 checking bodies was 73% of a re-check. Round 2 keeps each file's **body facts** (diagnostics, types,
 resolutions and the side facts the project passes read) and replays them for every file whose text is
 unchanged, as long as no signature in the project changed (`crate::warm`; sema.md §3.3 and §16). Every
 signature is resolved eagerly before the bodies (about 6 ms at 100k lines), which makes the signature
-facts independent of which body first needs them. A warm body edit now costs, at 100k lines:
+facts independent of which body first needs them.
 
-| Phase | ≈ ms |
-|---|---|
-| rebuilding the `Program` | 9 |
-| eager signatures, project checks, imports | 7 |
-| checking the edited file's bodies, replaying the other 1,368 files' facts | 1–2 |
-| routing, RPC, app, DI, client references, unused imports and classes | 7.5 |
-| parsing the edited file, name table, host overhead | 1–2 |
-
-The headroom is small. The next steps, in order of payoff: keep the `Program`'s item tree across
+The next steps, in order of payoff: keep the `Program`'s item tree across
 revisions (it depends only on signatures, so an unchanged signature set could reuse it); make the
 project passes incremental (most read only signatures plus a few body facts); then parallelize the body
 phase, which needs `Send` syntax pointers (§3.5). A signature edit still re-checks everything; per
@@ -516,6 +536,7 @@ Effect on the 100k-line project (budget check, best-of): cold on 1 thread 141 �
 |---|---|---|---|---|---|
 | 2026-11-07 | benchmarks and budget check introduced | 141 ms | 125 ms | 686 ms | 50.7 ms |
 | 2026-11-07 | §10.6 changes | 120 ms | 102 ms | 34.0 ms | 11.9 ms |
+| 2026-11-07 | stage 4: green-tree token scans, K7503 walk, deferred frees (§10.4) | 117 ms | 16.8 ms | — | — |
 
 ---
 
@@ -575,7 +596,8 @@ divides; the best of three to five blocks is kept.
 | `k_cli` `cold_start_of_dist_app` | `k build examples/{weather,shop}`, then 10 × spawn `dist/app serve` (shop: in-memory SQLite, so migrations run) and poll `GET /` every 0.5 ms on fresh connections until a complete 200; median and best, spawn to last byte; the executable is paged in once first, as a deployed binary would be |
 | `k_cli` `ssr_of_realistic_pages` | the real `dist/app` of `examples/weather` (`/`, server-rendered) and `examples/shop` (`/`, storefront from SQLite): 3,000 sequential keep-alive `GET`s (p50, p99), then 2 × cores clients for 3 s (pages/s, p50, p99) |
 | `k_cli` `database_rpcs_of_the_examples` | `notes` `IsEmailAvailable` and `shop` `Products` (both SQLite queries) on the real `dist/app`: 10,000 sequential rpcs (p50, p99), then 2 s under load |
-| `k_cli` `shipped_client_assets` | every file under `dist/public` of the four examples, raw and gzip; the `runtime.<hash>.js` chunk (client runtime + stdlib bodies) against `FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET` |
+| `k_cli` `shipped_client_assets` | every file under `dist/public` of the four examples, raw and gzip; the `runtime.<hash>.js` chunk (client runtime + stdlib bodies + browser services) against `FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET + SERVICES_SIZE_BUDGET` |
+| `the_browser_services_meet_their_size_budget` (`k_runtime`) | `services.js` (part `Services`) after `compact`, gzip level 9, against `SERVICES_SIZE_BUDGET` |
 
 ### 11.3 Budget status
 
@@ -586,23 +608,24 @@ Measured 2026-11-07, release build, 14-core Apple M-series:
 | Codegen ≥ 200,000 lines/s single-threaded (codegen.md §20) | 500,000 lines/s (100k lines: 200 ms, 4.8 MB of JS/CSS in 280 files); criterion `emit/realistic/100k` 201 ms | met (was 41,000 before §11.4) |
 | Codegen linear in project size (10k → 100k ≤ 14×) | 10.7× | met (was 55×) |
 | Cold `k build` of 100k lines ≤ 2.5 s, codegen ≤ 0.6 s of it | 314 ms (check 113 ms + codegen 201 ms) on 8 threads | met |
-| Client runtime ≤ 5 KB core / ≤ 10 KB full (compressed) | core 36.5 KB raw, 16.8 KB compacted, **4,782 B** gzip; full 70.3 KB raw, 35.4 KB compacted, **10,192 B** gzip (budget 10,240); stdlib bodies **10,116 B** (budget 10,240) | met, **48 bytes of headroom** on the full runtime and 124 on the stdlib bodies after round 2 (typed client routing moved into the shared `std.js` matcher, hydration claims for root texts and markers, `ErrorBoundary`; the grapheme fallback was dropped to pay for it): the next feature needs a size cut first |
-| Stdlib bodies ≤ 10 KB | 53.8 KB raw, 29.9 KB compacted, 8,569 B gzip | met |
-| Shipped `runtime.<hash>.js` (full runtime + stdlib) ≤ 20 KB | 63,038 B raw, 17,683 B gzip, 15,869 B brotli -q 11; per example 23.8–29.2 KB gzip of client assets in total | met |
+| Client runtime ≤ 5 KB core / ≤ 10 KB full (compressed) | core 36.6 KB raw, 16.9 KB compacted, **4,794 B** gzip; full 71.0 KB raw, 35.1 KB compacted, **10,239 B** gzip (budget 10,240); stdlib bodies **10,214 B** (budget 10,240) | met, **1 byte of headroom** on the full runtime and 26 on the stdlib bodies. This round's client changes (`RpcFailure` tagged in declaration order with real `GuardRejection` and `ValidationError` payloads, `Retry-After` read into the rpc outcome) were paid for inside the RPC client: the error outcome dropped its unread `status` and `message` fields and the body is parsed in one expression. `HTTP_CODES`/`httpCode` moved the status table into `std.js`, where `services.js` now imports it instead of keeping a copy. The next client feature needs a size cut first |
+| Browser services ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | `services.js` 9.8 KB raw, 5.5 KB compacted, **2,318 B** gzip | met |
+| Stdlib bodies ≤ 10 KB | 64.4 KB raw, 34.9 KB compacted, 10,214 B gzip | met (26 B headroom; see the client runtime row) |
+| Shipped `runtime.<hash>.js` (full runtime + stdlib + browser services) ≤ 23 KB | 73,209 B raw, **21,188 B** gzip | met. **Budget change, justified:** the chunk's budget was defined as the sum of its parts' budgets (`FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET`, 20 KB) and the chunk has gained a part, the browser's DI support and the client bodies of `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient` and `Session` (`services.js`). Without them every page that injects anything failed in the browser, so they are not optional, and like the stdlib bodies they grow with the stdlib, not the framework; they get their own 3 KB budget, and the chunk's budget stays the sum of its parts (23 KB). No existing part's budget was raised. The 17,683 B measured earlier was stale: before this change the chunk was about 19.2 KB |
 | Signal write to DOM text update ≤ 1 µs per binding | 86 ns | met |
 | Signal propagation ≤ 1 µs per write (diamond of 3 computeds + effect) | 280 ns (3.6 M writes/s); a write without readers 4 ns | met |
 | Replacing a 1,000-row keyed list ≤ 20 ms | 1.65 ms (create 2.05, update every 10th 0.15, swap 0.05, remove 0.10, append 1,000 3.55, clear 0.50) | met |
 | Replacing a 10,000-row keyed list ≤ 200 ms (the 1k budget × 10) | 26 ms (create 21.7, update 2.3, swap 1.7, remove 1.7, append 10,000 33.3, clear 5.0) | met; swap and remove stay below a tenth of a replace |
 | Hydration of a 1,000-node page ≤ 10 ms | 0.10 ms (1,008 nodes) | met |
 | `dist/app` cold start ≤ 150 ms | in process, 1 worker: 34 ms; the real `dist/app` with 14 workers, spawn to the first complete `/`: weather 44 ms, shop (SQLite migrations) 46 ms median | met, without a V8 snapshot |
-| RPC dispatch overhead ≤ 50 µs p50 | 45 µs p50 / 60 µs p99 for the full loopback round trip | met (the overhead alone is smaller) |
+| RPC dispatch overhead ≤ 50 µs p50 | 45 µs p50 / 59 µs p99 for the full loopback round trip | met (the overhead alone is smaller). The session is now loaded by an async op before dispatch and guards are awaited (database-backed sessions and rate limits); the generated rpc stays at 47.5 µs p50 |
 | Trivial RPC throughput ≥ 30,000 req/s on 8 cores | 124,000 req/s on 14 cores (scaled budget 52,500) | met |
 | Generated rpc | 47 µs p50 / 58 µs p99 round trip, 125,000 req/s on 14 cores | met: dispatch through `k:runtime/app` adds about 2 µs |
 | SSR of a 1,000-node page ≤ 3 ms | 0.17 ms p50 / 0.22 ms p99 for the whole round trip | met |
 | SSR throughput ≥ 1,000 pages/s per core, p99 under load ≤ 25 ms | 1,000-node page: 56,000 pages/s on 14 workers, p99 2.0 ms; `dist/app` weather `/`: 128,000 pages/s, p99 0.53 ms; shop `/` (SQLite): 40,600 pages/s, p99 0.82 ms | met; shop is bound by its one SQLite connection |
 | Database rpc on SQLite ≤ 250 µs p50 | in process: 76 µs p50 / 95 µs p99 (primary key), 86 µs / 102 µs (indexed 10-row page); `dist/app`: notes 84 µs / 133 µs, shop 77 µs / 276 µs | met: the database adds about 30 µs to a generated rpc |
 | Database rpc throughput ≥ 10,000 req/s | 40,400 req/s on 14 workers, one SQLite connection; `dist/app` 41,000–42,000 req/s | met |
-| `render` ≤ 2 µs; driver overhead ≤ 10 µs ([db.md §13](db.md#13-performance-budgets)) | 0.96 µs; 5.7 µs over a 0.7 µs `rusqlite` call | met |
+| `render` ≤ 2 µs; driver overhead ≤ 10 µs ([db.md §14](db.md#14-performance-budgets)) | 0.96 µs; 5.7 µs over a 0.7 µs `rusqlite` call | met |
 
 Criterion baselines (`cargo bench -p k_codegen`): `emit/realistic/1k` 1.95 ms (512 K lines/s),
 `emit/realistic/10k` 19.1 ms (522 K lines/s), `emit/realistic/100k` 201 ms (498 K lines/s),
@@ -638,7 +661,7 @@ executable, later ones 50–70 ms for the examples.
 
 ### 11.5 Open costs
 
-- The full client runtime is 62 bytes under its gzip budget. Candidates for a cut: the release-build name
+- The full client runtime is 1 byte under its gzip budget. Candidates for a cut: the release-build name
   shortener (deferred in codegen.md §1) and moving rarely used `std.js` bodies into the page chunks that
   call them.
 - Hydration and keyed lists are measured against the test DOM, not a browser. A browser run through the
@@ -654,3 +677,4 @@ executable, later ones 50–70 ms for the examples.
 | 2026-11-07 | §11.4 flush rounds | 88 ns | 25 ms | 44 µs | 122,000 | — | — |
 | 2026-11-07 | codegen, keyed list, hydration, SSR load and `dist/app` benchmarks | 86 ns | 34 ms in process, 44 ms `dist/app` | 45 µs | 124,000 | 41,000 lines/s | 26 ms |
 | 2026-11-07 | §11.4 codegen point queries | 86 ns | 34 ms | 45 µs | 124,000 | 500,000 lines/s | 26 ms |
+| 2026-11-07 | async session load and guards, jobs worker, outgoing HTTP/SMTP | 80 ns | 44 ms `dist/app` (weather and shop) | 45 µs | 121,600 (generated 124,300) | — | 23 ms |
