@@ -1,12 +1,12 @@
-/// How `Money.multiplied(by:rounding:)` rounds back to the currency's
+/// How [`Money.multiplied(by:rounding:)`] rounds back to the currency's
 /// digits.
 public enum RoundingRule {
-    /// To the nearest; ties to the even digit (banker's rounding).
+    /// Rounds to the nearest; ties to the even digit (banker's rounding).
     case halfEven
-    /// To the nearest; ties away from zero.
+    /// Rounds to the nearest; ties away from zero.
     case halfUp
-    /// Toward zero.
+    /// Rounds toward zero.
     case down
-    /// Away from zero.
+    /// Rounds away from zero.
     case up
 }

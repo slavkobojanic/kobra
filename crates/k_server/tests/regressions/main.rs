@@ -367,7 +367,7 @@ connect-protocol-version: 1
 /// an array (`null`) makes the map codec read `e[0]` of `null`, a
 /// `TypeError` that isn't a `DecodeFailure`, so the request becomes a
 /// logged panic and a `500 internal` instead of `400 invalid_argument`
-/// (server.md §6: "a field that doesn't decode → invalid_argument").
+/// (server.md §6: "a field that doesn't decode → `invalid_argument`").
 #[test]
 fn a_malformed_map_entry_is_invalid_argument_not_a_panic() {
     passing(|| {
@@ -909,7 +909,7 @@ GET /open?data=%7B%22url%22%3A%22https%3A%2F%2Fexample.com%2F%3Fa%3D1%26b%3D%5C%
 /// `Url.parse`, `url.host` and every other `Url` native are built on the
 /// WHATWG `URL` class (`parseUrl`, `urlHost` in `std.js`), which the
 /// server's V8 isolate doesn't have (`typeof URL === "undefined"` in
-/// deno_core without the web extensions). The `ReferenceError` is caught,
+/// `deno_core` without the web extensions). The `ReferenceError` is caught,
 /// so on the server `Url.parse` is always `nil` and `host` always `""`,
 /// silently: the server renders "No link" where the browser renders the
 /// link (a hydration mismatch), and server code can't parse any URL.

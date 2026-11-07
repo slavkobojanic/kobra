@@ -28,6 +28,22 @@ use crate::span::Span;
 /// columns counted in Unicode scalar values, and `endColumn` is exclusive.
 /// When the file is unknown to `sources`, `file` is `null` and the
 /// line/column fields are omitted. `name` is omitted for unregistered codes.
+///
+/// # Example
+///
+/// ```
+/// use k_diagnostics::{codes, render, Diagnostic, SourceMap, Span, TextRange};
+///
+/// let mut sources = SourceMap::new();
+/// let file = sources.add("src/A.k", "let a = \"abc\n");
+/// let span = Span::new(file, TextRange::new(8.into(), 9.into()));
+/// let diagnostic = Diagnostic::new(codes::UNTERMINATED_STRING, span, "unterminated string literal");
+///
+/// let line = render::json(&diagnostic, &sources);
+/// assert!(line.starts_with(r#"{"code":"K0002","#));
+/// assert!(line.contains(r#""startLine":1,"startColumn":9"#));
+/// assert!(!line.contains('\n'));
+/// ```
 #[must_use]
 pub fn json(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
     let mut out = String::with_capacity(256);

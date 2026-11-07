@@ -419,7 +419,33 @@ impl Workspace {
     ///
     /// When the root `k.toml` declares no workspace, the whole tree is one
     /// member with an empty directory. Files below no member are kept in
-    /// [`Workspace::loose`] and analysed by nobody.
+    /// [`Workspace::loose`] and analysed by nobody. Problems in the
+    /// manifests are collected in [`Workspace::problems`], never raised.
+    ///
+    /// ```
+    /// use k_sema::Workspace;
+    ///
+    /// let manifest = |name: &str, deps: &str| {
+    ///     format!("[package]\nname = \"{name}\"\nk = \"0.1\"\n{deps}")
+    /// };
+    /// let ws = Workspace::from_files([
+    ///     ("k.toml".to_owned(), "[workspace]\nmembers = [\"lib\", \"app\"]\n".to_owned()),
+    ///     ("lib/k.toml".to_owned(), manifest("lib", "")),
+    ///     (
+    ///         "app/k.toml".to_owned(),
+    ///         manifest("app", "[dependencies]\nlib = { workspace = true }\n"),
+    ///     ),
+    ///     ("app/App.k".to_owned(), "public app Shop {}\n".to_owned()),
+    /// ]);
+    /// assert!(ws.is_workspace);
+    /// assert!(ws.problems.is_empty(), "{:?}", ws.problems);
+    /// let app = ws.member("app").unwrap();
+    /// let lib = ws.member("lib").unwrap();
+    /// assert!(ws.members[app].is_app);
+    /// // Libraries come before the members that depend on them.
+    /// assert_eq!(ws.order(), vec![lib, app]);
+    /// assert_eq!(ws.owner_of("app/App.k"), Some(app));
+    /// ```
     #[must_use]
     pub fn from_files(files: impl IntoIterator<Item = (String, String)>) -> Workspace {
         let mut files: Vec<(String, String)> = files.into_iter().collect();

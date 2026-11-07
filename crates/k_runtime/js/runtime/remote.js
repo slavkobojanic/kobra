@@ -25,6 +25,7 @@
 import { KPanic } from "./values.js";
 import { Secret } from "./std.js";
 
+/** The ops the Rust server exposes to this isolate; `undefined` outside it. */
 const ops = globalThis.Deno?.core?.ops;
 
 /** The header that carries the service token. */
@@ -36,6 +37,7 @@ export const TOKEN_LIFETIME_MS = 60_000;
 /** The default time a remote call waits for its answer, in milliseconds. */
 export const DEFAULT_REMOTE_TIMEOUT_MS = 10_000;
 
+/** The UTF-8 encoder of request bodies. */
 const encoder = new TextEncoder();
 
 /** An expiry: 1 to 16 decimal digits. */
@@ -163,6 +165,7 @@ export function testRemote(caller) {
   return { caller: String(caller), url: "", token: null, timeoutMs: DEFAULT_REMOTE_TIMEOUT_MS, offline: true };
 }
 
+/** The id of the next remote call, which cancellation names. */
 let nextCall = 1;
 
 /** The value of header `name` among `[name, value]` pairs. */

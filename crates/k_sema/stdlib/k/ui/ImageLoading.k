@@ -1,7 +1,7 @@
 /// The `.loading(...)` attribute of `image`.
 public enum ImageLoading {
-    /// Load at once.
+    /// Loads the image at once.
     case eager
-    /// Load when the image approaches the viewport.
+    /// Loads the image when it approaches the viewport.
     case lazy
 }

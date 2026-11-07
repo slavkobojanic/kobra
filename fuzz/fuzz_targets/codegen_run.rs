@@ -18,6 +18,8 @@ use arbitrary::Unstructured;
 use k_fuzz::{codablegen, coracle, exprgen, tgen, viewgen};
 use libfuzzer_sys::fuzz_target;
 
+/// The time limit for running one generated program in V8; reaching it
+/// fails the input.
 const LIMIT: Duration = Duration::from_secs(10);
 
 fuzz_target!(|data: &[u8]| {

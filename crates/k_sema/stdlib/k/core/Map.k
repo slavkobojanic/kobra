@@ -11,12 +11,14 @@ public struct Map<K, V> implements Codable where K implements Hashable {
     /// The values, in insertion order.
     var values: List<V>
 
-    /// The value for `key`, or `nil`.
+    /// Returns the value for `key`, or `nil` if the map has none; the same
+    /// as `map[key]`.
     func get(_ key: K) -> V?
-    /// Sets the value for `key`. Requires a `var` map.
+    /// Sets the value for `key`, replacing any previous one; a new key goes
+    /// last in insertion order. Requires a `var` map.
     func set(_ key: K, _ value: V)
-    /// Removes the entry for `key`. Requires a `var` map.
+    /// Removes the entry for `key`, if any. Requires a `var` map.
     func remove(_ key: K)
-    /// `true` if the map has an entry for `key`.
+    /// Returns `true` if the map has an entry for `key`.
     func containsKey(_ key: K) -> Bool
 }

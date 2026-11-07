@@ -98,7 +98,7 @@ enum Event {
     },
     /// A project's diagnostics, from a worker.
     Diagnostics {
-        /// The project.
+        /// The project's index in the workspace.
         project: usize,
         /// The project's generation they were computed for.
         generation: u64,
@@ -124,6 +124,7 @@ impl From<Cancelled> for Outcome {
 
 /// A fixed pool of worker threads.
 struct Pool {
+    /// The queue the workers take jobs from; dropping it stops them.
     jobs: mpsc::Sender<Job>,
 }
 
@@ -164,6 +165,44 @@ impl Pool {
 
 /// Runs a server reading `input` and writing `output` until `exit` or the
 /// end of the input; returns the exit code (0 after `shutdown`, else 1).
+///
+/// Input is read on a thread of its own and requests are answered by
+/// [`Config::workers`] worker threads, so `input` must be `Send`; `output`
+/// is only written from the calling thread.
+///
+/// # Examples
+///
+/// A whole session over in-memory streams:
+///
+/// ```
+/// use std::io::Cursor;
+/// use k_lsp::transport::{notification, request, write_message};
+/// use serde_json::json;
+///
+/// let mut input = Vec::new();
+/// let initialize = json!({ "processId": null, "rootUri": null, "capabilities": {} });
+/// write_message(&mut input, &request(&json!(1), "initialize", initialize))?;
+/// write_message(&mut input, &notification("initialized", json!({})))?;
+/// write_message(&mut input, &request(&json!(2), "shutdown", json!(null)))?;
+/// write_message(&mut input, &notification("exit", json!(null)))?;
+///
+/// let mut output = Vec::new();
+/// let code = k_lsp::serve(Cursor::new(input), &mut output, k_lsp::Config::default());
+/// assert_eq!(code, 0);
+///
+/// // Split the output into its messages and find the `initialize` response.
+/// let text = String::from_utf8(output).expect("UTF-8");
+/// let mut messages = Vec::new();
+/// let mut rest = text.as_str();
+/// while let Some((header, body)) = rest.split_once("\r\n\r\n") {
+///     let length: usize = header["Content-Length: ".len()..].parse().expect("length");
+///     messages.push(serde_json::from_str::<serde_json::Value>(&body[..length])?);
+///     rest = &body[length..];
+/// }
+/// let initialized = messages.iter().find(|m| m["id"] == json!(1)).expect("a response");
+/// assert!(initialized["result"]["capabilities"]["hoverProvider"].is_boolean());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn serve<R, W>(input: R, mut output: W, config: Config) -> i32
 where
     R: BufRead + Send + 'static,
@@ -246,13 +285,17 @@ enum Step {
 
 /// The main loop's state.
 struct Server {
+    /// The server's configuration.
     config: Config,
+    /// The workers answering requests on snapshots.
     pool: Pool,
     /// For handing results back to the loop.
     tx: mpsc::Sender<Event>,
     /// `None` until `initialize`.
     workspace: Option<Workspace>,
+    /// What the client said it supports at `initialize`.
     caps: ClientCaps,
+    /// Whether `shutdown` was received; `exit` then exits 0 instead of 1.
     shutdown: bool,
     /// Requests in flight, by id key.
     pending: HashSet<String>,

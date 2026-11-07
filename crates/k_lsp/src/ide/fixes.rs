@@ -7,9 +7,10 @@ use k_sema::{Analysis, Cancelled};
 /// One quick fix: the diagnostic it fixes and the fix.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuickFix {
-    /// The diagnostic.
+    /// The diagnostic the fix resolves (sent back as the code action's
+    /// `diagnostics`).
     pub diagnostic: Diagnostic,
-    /// The fix.
+    /// The diagnostic's structured fix: its title and edits.
     pub fix: Fix,
     /// `true` when the fix is the diagnostic's only machine-applicable one,
     /// so an editor may apply it on "fix all" or offer it first.

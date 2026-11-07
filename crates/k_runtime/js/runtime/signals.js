@@ -22,8 +22,11 @@
  * docs/compiler/runtime.md, "Signals".
  */
 
+/** Node state: the value is current. */
 const CLEAN = 0;
+/** Node state: a source further upstream changed, so the value may be stale. */
 const CHECK = 1;
+/** Node state: a direct source changed; the node must run again. */
 const DIRTY = 2;
 
 /** The node whose run is collecting dependencies, or `null`. */
@@ -40,8 +43,9 @@ let flushScheduled = false;
 let flushing = false;
 /** Monotonic id; creation order of effects. */
 let nextId = 0;
-/** Effects waiting to re-run, by kind. */
+/** Render effects (DOM bindings) waiting to re-run; flushed first. */
 const renderQueue = [];
+/** User effects (`@Effect`) waiting to re-run; flushed after `renderQueue`. */
 const userQueue = [];
 
 /**
@@ -51,6 +55,11 @@ const userQueue = [];
  * @private
  */
 class Owner {
+  /**
+   * Creates an owner attached to `parent`, unless `parent` is `null` or
+   * already disposed (then the owner is detached).
+   * @param {Owner|null} parent the enclosing owner
+   */
   constructor(parent) {
     /** @type {Owner|null} */
     this.parent = parent;
@@ -100,6 +109,15 @@ class Owner {
  * @private
  */
 class Node extends Owner {
+  /**
+   * Creates a node. A signal (`fn === null`) is detached from the owner tree
+   * and starts CLEAN; a computed value or effect is owned by `parent` and
+   * starts DIRTY, so its first read or flush runs it.
+   * @param {Owner|null} parent the owner, for computed values and effects
+   * @param {Function|null} fn the computation, or `null` for a signal
+   * @param {unknown} value the initial value
+   * @param {number} kind 0 signal, 1 computed, 2 render effect, 3 user effect
+   */
   constructor(parent, fn, value, kind) {
     super(fn === null ? null : parent);
     this.id = nextId++;
@@ -117,6 +135,11 @@ class Node extends Owner {
     this.queued = false;
   }
 
+  /**
+   * Disposes the node: its subtree and cleanups (`Owner#dispose`), the
+   * abort signal of a running async effect, and its links to sources and
+   * observers. Idempotent.
+   */
   dispose() {
     if (this.disposed) return;
     super.dispose();
@@ -130,6 +153,13 @@ class Node extends Owner {
   }
 }
 
+/**
+ * Reports `error` to the nearest owner of `from` (itself included) that
+ * has an error boundary (`onError`); without one, rethrows it from a
+ * microtask so the current flush continues.
+ * @param {Owner} from where the error happened
+ * @param {unknown} error what was thrown
+ */
 function handleError(from, error) {
   for (let o = from; o !== null; o = o.parent) {
     if (o.onError !== null) {
@@ -144,12 +174,24 @@ function handleError(from, error) {
   });
 }
 
+/**
+ * Records `node` as a source of the running computation, once per run; a
+ * no-op outside a tracked computation.
+ * @param {Node} node the node being read
+ */
 function track(node) {
   if (observer !== null && newSources !== null && !newSources.includes(node)) {
     newSources.push(node);
   }
 }
 
+/**
+ * Raises `node` to `state` (CHECK or DIRTY) and everything downstream to
+ * at least CHECK, scheduling each effect that leaves CLEAN. A node already
+ * at `state` or above stops the walk.
+ * @param {Node} node the node whose source changed
+ * @param {number} state CHECK or DIRTY
+ */
 function markStale(node, state) {
   if (node.state >= state) return;
   if (node.state === CLEAN && node.kind >= 2) schedule(node);
@@ -157,6 +199,11 @@ function markStale(node, state) {
   for (const o of node.observers) markStale(o, CHECK);
 }
 
+/**
+ * Queues `effect` to re-run (once, until it runs), and schedules a
+ * microtask flush unless a batch or a flush is already going to run it.
+ * @param {Node} effect a render or user effect
+ */
 function schedule(effect) {
   if (effect.queued || effect.disposed) return;
   effect.queued = true;
@@ -167,11 +214,18 @@ function schedule(effect) {
   }
 }
 
+/** The scheduled microtask: clears the pending flag and flushes. */
 function flushFromMicrotask() {
   flushScheduled = false;
   flush();
 }
 
+/**
+ * Brings `node` up to date before it is read: a CHECK node first refreshes
+ * its computed sources and runs only if one of them changed value (which
+ * marks it DIRTY); a DIRTY node runs. The node is CLEAN afterwards.
+ * @param {Node} node a computed value or an effect
+ */
 function refresh(node) {
   if (node.state === CHECK) {
     for (const source of node.sources) {
@@ -183,6 +237,16 @@ function refresh(node) {
   node.state = CLEAN;
 }
 
+/**
+ * Runs the computation of `node` as the current observer and owner,
+ * re-collecting its sources. Its previous children and cleanups are
+ * disposed first, and the abort signal of a previous async run is
+ * aborted. A computed value that throws rethrows to its reader; an effect
+ * reports to its error boundary, as does an async effect whose promise
+ * rejects (unless it was cancelled). A computed value whose result
+ * differs (`Object.is`) marks its observers DIRTY.
+ * @param {Node} node the node to run; a disposed node is skipped
+ */
 function run(node) {
   if (node.disposed) return;
   node.reset();
@@ -232,6 +296,12 @@ function run(node) {
   }
 }
 
+/**
+ * Replaces the sources of `node` with `sources`, unsubscribing it from the
+ * ones it no longer reads and subscribing it to the new ones.
+ * @param {Node} node the node that ran
+ * @param {Array<Node>} sources what it read in this run
+ */
 function relink(node, sources) {
   for (const old of node.sources) {
     if (!sources.includes(old)) old.observers.delete(node);
@@ -282,7 +352,11 @@ export function flush() {
  * @template T
  */
 export class Signal {
-  /** @param {Node} node @private */
+  /**
+   * Wraps a signal node; created by `signal()`.
+   * @param {Node} node
+   * @private
+   */
   constructor(node) {
     /** @private */
     this.node = node;
@@ -332,7 +406,11 @@ export function signal(value) {
  * @template T
  */
 export class Computed {
-  /** @param {Node} node @private */
+  /**
+   * Wraps a computed node; created by `computed()`.
+   * @param {Node} node
+   * @private
+   */
   constructor(node) {
     /** @private */
     this.node = node;
@@ -411,6 +489,10 @@ export function batch(fn) {
   }
 }
 
+/**
+ * Leaves one level of `batch`; leaving the outermost one flushes the
+ * queued effects synchronously.
+ */
 function endBatch() {
   batchDepth--;
   if (batchDepth === 0 && !flushing && (renderQueue.length > 0 || userQueue.length > 0)) {

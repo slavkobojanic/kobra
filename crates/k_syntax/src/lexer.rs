@@ -49,11 +49,14 @@ use crate::kind::SyntaxKind;
 /// [`Lexed::range`]`(i)` of the source.
 #[derive(Clone, Debug)]
 pub struct Lexed<'a> {
+    /// The source text; every token text is a slice of it.
     text: &'a str,
+    /// The kind of every token, in source order.
     kinds: Vec<SyntaxKind>,
     /// Start offset of every token, followed by one sentinel entry equal to
     /// the length of the text, so `starts.len() == kinds.len() + 1`.
     starts: Vec<u32>,
+    /// Lexer diagnostics, sorted by `(start, end, code)`.
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -140,7 +143,10 @@ impl<'a> Lexed<'a> {
 /// hand-made token streams; the lexer itself writes its arrays directly.
 #[derive(Debug)]
 pub struct LexedBuilder<'a> {
+    /// The stream under construction; its `starts` lacks the sentinel until
+    /// [`LexedBuilder::finish`].
     lexed: Lexed<'a>,
+    /// The end offset of the last pushed token, where the next token starts.
     offset: u32,
 }
 
@@ -171,6 +177,9 @@ impl<'a> LexedBuilder<'a> {
     }
 
     /// Records a diagnostic.
+    ///
+    /// Diagnostics are kept in the order they are recorded; [`Lexed::diagnostics`]
+    /// is in position order only if they are recorded in that order.
     pub fn diagnostic(&mut self, diagnostic: Diagnostic) {
         self.lexed.diagnostics.push(diagnostic);
     }
@@ -218,7 +227,11 @@ pub fn lex(file: FileId, text: &str) -> Lexed<'_> {
 #[derive(Clone, Copy, Debug)]
 enum Frame {
     /// Inside a string literal whose opening `"` is at `open`.
-    String { open: u32 },
+    String {
+        /// Byte offset of the opening `"`, the span of K0002 if the string
+        /// is unterminated.
+        open: u32,
+    },
     /// Inside an interpolation, in a string or in a style value. `depth`
     /// counts unmatched `{` opened inside it. An interpolation in a string
     /// ends at a line terminator together with its string
@@ -226,7 +239,14 @@ enum Frame {
     /// lines. `ends_statement` is set for an interpolation opened in a style
     /// declaration before its `:` (the element rule `button { ... }` of
     /// RA-8): when it closes, the style statement ends too.
-    Interp { depth: u32, ends_statement: bool },
+    Interp {
+        /// Unmatched `{` opened inside the interpolation; its `}` closes the
+        /// interpolation only at depth 0.
+        depth: u32,
+        /// Whether closing the interpolation also ends the enclosing style
+        /// statement.
+        ends_statement: bool,
+    },
     /// Inside a style block. `depth` counts nested blocks. `keyframes` is
     /// the depth of the items of the `@keyframes` block being lexed (0 when
     /// none is open; such a block is never at depth 0), where a statement
@@ -234,9 +254,14 @@ enum Frame {
     /// a declaration. `pending_keyframes` is set from the `@` of an
     /// `@keyframes` statement until its `{`, `;` or `}`.
     Style {
+        /// Nesting depth of the current block; 0 is the `style { ... }`
+        /// block itself.
         depth: u32,
+        /// Where the lexer is within the current style statement.
         state: StyleState,
+        /// Depth of the items of the open `@keyframes` block, or 0.
         keyframes: u32,
+        /// Whether an `@keyframes` statement is waiting for its `{`.
         pending_keyframes: bool,
     },
 }
@@ -256,14 +281,27 @@ enum StyleState {
     Selector,
 }
 
+/// The state of one lexing pass; created by [`lex`] and consumed by
+/// [`Lexer::run`].
+///
+/// Invariant: `starts.len() == kinds.len()` until `run` appends the
+/// sentinel, and `pos` only moves forward.
 struct Lexer<'a> {
+    /// The source text.
     text: &'a str,
+    /// `text` as bytes; the lexer classifies by byte.
     bytes: &'a [u8],
+    /// The current byte offset; always a char boundary between tokens.
     pos: usize,
+    /// The file that diagnostic spans point into.
     file: FileId,
+    /// Kinds of the tokens lexed so far.
     kinds: Vec<SyntaxKind>,
+    /// Start offsets of the tokens lexed so far, parallel to `kinds`.
     starts: Vec<u32>,
+    /// Diagnostics in push order; sorted at the end if `unsorted` is set.
     diagnostics: Vec<Diagnostic>,
+    /// The mode stack; empty means top-level code mode.
     frames: Vec<Frame>,
     /// The number of [`Frame::String`] entries in `frames`. While it is
     /// non-zero, a line terminator in any mode ends the strings.
@@ -289,10 +327,12 @@ fn off(pos: usize) -> u32 {
     u32::try_from(pos).unwrap_or(u32::MAX)
 }
 
+/// Returns `true` if `b` can start an identifier (`[A-Za-z_]`).
 fn is_ident_start(b: u8) -> bool {
     b.is_ascii_alphabetic() || b == b'_'
 }
 
+/// Returns `true` if `b` can continue an identifier (`[A-Za-z0-9_]`).
 fn is_ident_continue(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
@@ -522,6 +562,8 @@ fn display_text(text: &str, out: &mut String) {
 }
 
 impl<'a> Lexer<'a> {
+    /// Creates a lexer at the start of `text`, in code mode, with token
+    /// arrays pre-sized for about one token per four bytes.
     fn new(file: FileId, text: &'a str) -> Lexer<'a> {
         // A typical K file averages about four bytes per token.
         let estimate = text.len() / 4 + 16;
@@ -543,6 +585,13 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Lexes the whole text and returns the finished stream.
+    ///
+    /// Each iteration dispatches on the innermost frame (code, string or style
+    /// mode) and pushes exactly one token, except that a line terminator
+    /// inside an open string first closes the strings without consuming
+    /// anything. At the end of input every open frame is closed and each open
+    /// string reports K0002. Runs in time linear in the length of the text.
     fn run(mut self) -> Lexed<'a> {
         let len = self.bytes.len();
         while self.pos < len {
@@ -590,6 +639,9 @@ impl<'a> Lexer<'a> {
 
     // ------------------------------------------------------------ helpers
 
+    /// Records a token of `kind` starting at `start` (its end is the next
+    /// token's start) and updates the style-keyword state for significant
+    /// tokens.
     fn push(&mut self, kind: SyntaxKind, start: usize) {
         self.kinds.push(kind);
         self.starts.push(off(start));
@@ -601,10 +653,14 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Returns the byte `n` positions ahead of the current one, or `0` past
+    /// the end of the text.
     fn peek(&self, n: usize) -> u8 {
         self.bytes.get(self.pos + n).copied().unwrap_or(0)
     }
 
+    /// Returns the span `start..end` in the lexed file, with offsets saturated
+    /// to `u32`.
     fn span(&self, start: usize, end: usize) -> Span {
         Span::new(
             self.file,
@@ -612,6 +668,8 @@ impl<'a> Lexer<'a> {
         )
     }
 
+    /// Records `diagnostic`, noting when it is out of position order so that
+    /// [`Lexer::run`] sorts the list only when needed.
     fn diagnostic(&mut self, diagnostic: Diagnostic) {
         if let Some(last) = self.diagnostics.last()
             && (last.span.start(), last.span.end())
@@ -622,6 +680,7 @@ impl<'a> Lexer<'a> {
         self.diagnostics.push(diagnostic);
     }
 
+    /// Reports K0002 for the string whose opening `"` is at `open`.
     fn unterminated_string(&mut self, open: u32) {
         let open = open as usize;
         let span = self.span(open, open + 1);
@@ -710,6 +769,8 @@ impl<'a> Lexer<'a> {
         SyntaxKind::Error
     }
 
+    /// Advances past every byte that satisfies `predicate`, stopping at the end
+    /// of the text.
     fn eat_while(&mut self, predicate: impl Fn(u8) -> bool) {
         let len = self.bytes.len();
         while self.pos < len && predicate(self.bytes[self.pos]) {
@@ -749,6 +810,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Lexes a `//` comment up to (not including) the line terminator.
+    ///
+    /// Returns [`SyntaxKind::DocComment`] for `///` comments, except `////` and
+    /// longer, which are ordinary [`SyntaxKind::LineComment`]s.
     fn line_comment(&mut self) -> SyntaxKind {
         let doc = self.peek(2) == b'/' && self.peek(3) != b'/';
         self.pos += 2;
@@ -760,6 +825,12 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Lexes a nesting `/* ... */` comment.
+    ///
+    /// An unterminated comment runs to the end of the text and reports
+    /// [`codes::UNTERMINATED_BLOCK_COMMENT`]
+    /// on its opening `/*`; the token is a [`SyntaxKind::BlockComment`] either
+    /// way.
     fn block_comment(&mut self) -> SyntaxKind {
         let start = self.pos;
         self.pos += 2;
@@ -831,6 +902,8 @@ impl<'a> Lexer<'a> {
 
     // ---------------------------------------------------------- code mode
 
+    /// Lexes one token in code mode (top level or inside an interpolation),
+    /// dispatching on its first byte.
     fn code_token(&mut self) -> SyntaxKind {
         if let Some(kind) = self.trivia() {
             return kind;
@@ -958,6 +1031,11 @@ impl<'a> Lexer<'a> {
         Some(kind)
     }
 
+    /// Lexes an identifier, `_` or a keyword.
+    ///
+    /// A `style` keyword that is not a member name (not after `.` or `?.`) and
+    /// is followed by `{` arms `pending_style`, so the next `{` opens a style
+    /// block.
     fn identifier(&mut self) -> SyntaxKind {
         let start = self.pos;
         self.pos += 1;
@@ -1038,6 +1116,8 @@ impl<'a> Lexer<'a> {
         kind
     }
 
+    /// Reports [`codes::INVALID_NUMBER_LITERAL`] for the number literal from `start` to the current
+    /// position.
     fn invalid_number(&mut self, start: usize) {
         let span = self.span(start, self.pos);
         self.diagnostic(
@@ -1048,6 +1128,9 @@ impl<'a> Lexer<'a> {
         );
     }
 
+    /// Lexes a `#` color literal, reporting [`codes::INVALID_COLOR_LITERAL`]
+    /// unless it has exactly 3, 4,
+    /// 6 or 8 hexadecimal digits. The token is a color literal either way.
     fn color(&mut self) -> SyntaxKind {
         let start = self.pos;
         self.pos += 1;
@@ -1069,6 +1152,7 @@ impl<'a> Lexer<'a> {
 
     // -------------------------------------------------------- string mode
 
+    /// Lexes the opening `"` of a string and pushes a [`Frame::String`].
     fn string_start(&mut self) -> SyntaxKind {
         if self.open_strings == 0 {
             self.lowest_string = self.frames.len();
@@ -1117,6 +1201,13 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Lexes a `\` escape in a string.
+    ///
+    /// Unknown escapes report [`codes::INVALID_ESCAPE`] (`\{` reports
+    /// [`codes::BRACE_ESCAPE`] with a machine-applicable fix to `{{`); `\u` escapes are delegated to [`Lexer::unicode_escape`].
+    /// A `\` at the end of the line or text consumes only the backslash, so
+    /// the line terminator still ends the string. Always returns
+    /// [`SyntaxKind::StringEscape`].
     fn escape(&mut self) -> SyntaxKind {
         let start = self.pos;
         let next = self.peek(1);
@@ -1168,6 +1259,14 @@ impl<'a> Lexer<'a> {
         SyntaxKind::StringEscape
     }
 
+    /// Lexes a `\u{...}` escape whose `\` is at `start`, reporting
+    /// [`codes::INVALID_UNICODE_ESCAPE`]
+    /// unless the braces hold 1 to 6 hexadecimal digits naming a Unicode
+    /// scalar value.
+    ///
+    /// The scan for the closing `}` stops at a quote or line end, and a failed
+    /// scan is remembered in `unicode_scan_fail_until`, so repeated escapes
+    /// stay linear overall.
     fn unicode_escape(&mut self, start: usize) {
         // At `\u`. The escape extends through the next `}` on this line
         // before any `"`, if `{` follows; otherwise it is just `\u`.
@@ -1211,6 +1310,8 @@ impl<'a> Lexer<'a> {
 
     // --------------------------------------------------------- style mode
 
+    /// Lexes one token in style mode, using and updating the statement state
+    /// of the innermost [`Frame::Style`].
     fn style_token(&mut self) -> SyntaxKind {
         if let Some(kind) = self.trivia() {
             return kind;
@@ -1337,6 +1438,8 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Sets the statement state of the innermost frame, if it is a style
+    /// frame.
     fn set_style_state(&mut self, new_state: StyleState) {
         if let Some(Frame::Style { state, .. }) = self.frames.last_mut() {
             *state = new_state;
@@ -1382,6 +1485,8 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Sets `pending_keyframes` of the innermost frame, if it is a style
+    /// frame.
     fn set_pending_keyframes(&mut self, value: bool) {
         if let Some(Frame::Style {
             pending_keyframes, ..

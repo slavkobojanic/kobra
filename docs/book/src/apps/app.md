@@ -4,7 +4,63 @@ Every K application has an `App.k` at the project root, next to `k.toml`. It hol
 declaration, introduced by the **`app`** keyword, and it contains only the choices the compiler can't
 infer.
 
+<!-- The declarations the sample below uses; checked, not rendered.
+
 ```k
+// src/layouts/Storefront.k
+/// The storefront's layout.
+public layout Storefront {
+    /// The page.
+    @Slot let content: View
+
+    view {
+        main { content }
+    }
+}
+```
+
+```k
+// src/payments/PaymentGateway.k
+/// Starts checkouts.
+public interface PaymentGateway {
+    /// Returns where to send the customer to pay.
+    func startCheckout(amount: Money) async -> Url
+}
+```
+
+```k
+// src/payments/StripeCheckout.k
+/// Checkout through Stripe.
+public service StripeCheckout implements PaymentGateway {
+    func startCheckout(amount: Money) async -> Url {
+        return Url("https://checkout.stripe.com")
+    }
+}
+```
+
+```k
+// src/payments/LocalCheckout.k
+/// A checkout that pays at once.
+public service LocalCheckout implements PaymentGateway {
+    func startCheckout(amount: Money) async -> Url {
+        return Url("http://localhost:8080/receipt")
+    }
+}
+```
+
+```k
+// src/accounts/SignIn.k
+/// The sign-in page.
+public page SignIn {
+    view {
+        text { "Sign in" }
+    }
+}
+```
+-->
+
+```k
+// App.k
 import layouts.Storefront
 import payments.LocalCheckout
 import payments.PaymentGateway
@@ -87,7 +143,7 @@ There are three environments, and each command builds one of them:
 By default, pages render on the server and hydrate in the browser. An app whose pages render from data
 only the browser has, such as [local storage](local-storage.md), turns server rendering off:
 
-```k
+```k,standalone
 /// A to-do list that keeps everything in the browser.
 @Rendering(.client)
 public app Todos {

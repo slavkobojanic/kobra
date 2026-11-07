@@ -3,8 +3,115 @@
 Testing is part of the language. `test` and `expect` are keywords, tests sit next to the code they test,
 and the same dependency-injection rules that build your app let tests replace any part of it.
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
 ```k
-// CartService.test.k: lives next to CartService.k, in the same module
+// src/store/Product.k
+import k.crypto.Uuid
+
+/// A product.
+public struct Product implements Codable {
+    /// Its id.
+    let id: Uuid
+    /// Its name.
+    let name: String
+    /// Its price.
+    let price: Money
+    /// How many are in stock.
+    let stock: Int = 10
+}
+```
+
+```k
+// src/store/Context.k
+import k.crypto.Uuid
+import k.rpc.RpcFailure
+
+enum CartError implements Error {
+    case outOfStock(available: Int)
+    case rpcFailure(RpcFailure)
+}
+
+struct AddItemRequest implements Codable {
+    let productId: Uuid
+}
+
+struct CartItem implements Codable {
+    let price: Money
+}
+
+protocol CartProtocol {
+    rpc add(request: AddItemRequest) throws CartError -> CartItem
+}
+
+service CartApi implements CartProtocol {
+    rpc add(request: AddItemRequest) async throws CartError -> CartItem {
+        return CartItem(price: 9.99.usd)
+    }
+}
+
+service CartService {
+    @Inject let api: CartProtocol
+
+    @State var items: List<CartItem> = []
+
+    var total: Money { items.sum(in: .usd) { item => item.price } }
+
+    func add(product: Product) async throws CartError {
+        guard product.stock > 0 else {
+            throw CartError.outOfStock(available: 0)
+        }
+        items.append(try await api.add(request: AddItemRequest(productId: product.id)))
+    }
+}
+
+component AddToCart {
+    @Prop let product: Product
+    @Inject let cart: CartService
+
+    func add() async {
+        do {
+            try await cart.add(product: product)
+        } catch _ {
+        }
+    }
+
+    view {
+        button { "Add to cart" }
+            .on(click: add)
+        text { "Total: {cart.total.formatted(as: .currency)}" }
+    }
+}
+```
+
+```k
+// src/store/FakeCartApi.test.k
+import k.crypto.Uuid
+
+service FakeCartApi implements CartProtocol {
+    rpc add(request: AddItemRequest) async throws CartError -> CartItem {
+        return CartItem(price: 9.99.usd)
+    }
+}
+
+service FakeCartService implements CartService {
+    @State var items: List<CartItem> = []
+
+    var total: Money { items.sum(in: .usd) { item => item.price } }
+
+    func add(product: Product) async throws CartError {
+        items.append(CartItem(price: product.price))
+    }
+}
+
+extend Product {
+    static let soldOut = Product(id: Uuid("1b6f2c1e-4d1a-4f8e-9a3b-2c5d6e7f8a9b"), name: "Lamp", price: 20.00.usd, stock: 0)
+}
+```
+-->
+
+```k
+// src/store/CartService.test.k: lives next to CartService.k, in the same module
 test CartService {
     use FakeCartApi for CartProtocol
 
@@ -37,8 +144,8 @@ test CartService {
 - **`test "description" { }` declares a single test.**
 - **Every `test "…"` gets a fresh container,** so no service, fake, session or theme state leaks between
   tests.
-- `k test` runs them, `k test --watch` re-runs the affected ones on every save, and `k check` runs them
-  all in CI.
+- `k test` runs them, and `k test --watch` re-runs the affected ones on every save. Run `k test` in CI
+  next to `k check` (folding the tests into `k check` is **Planned**).
 
 ## `expect`
 
@@ -59,8 +166,26 @@ error[K7510]: expectation failed: cart.items.count == 1
 Absence is checked with `not`, never by comparing with `false`:
 
 ```k
+~import k.test.render
+~
+~component Todos {
+~    view {
+~        text { "Nothing to do" }
+~    }
+~}
+~
+~struct Todo {
+~    let isDone: Bool
+~}
+~
+~test Todos {
+~    test "an empty list" {
+~        let screen = render(Todos())
+~        let todo = Todo(isDone: true)
 expect not screen.button(named: "Clear completed").exists
 expect todo.isDone
+~    }
+~}
 ```
 
 `x == true` and `x == false` are reported with a fix to `x` and `not x`; the failure output shows the
@@ -69,7 +194,7 @@ operand's value either way.
 **`expect throws` takes a pattern**, as `catch` does, so nested cases can be checked, and a case written
 without its payload matches any payload:
 
-```k
+```k,ignore
 expect throws WeatherError.upstream(.serviceUnavailable) { … }
 expect throws AccessError.rpcFailure(.rejected(.unauthenticated)) { … }
 expect throws WeatherError.upstream { … }
@@ -100,15 +225,25 @@ the real time:
   defaults.
 
 ```k
+~import k.text.EmailAddress
+~import k.test.RecordingEmailProvider
+// examples/shop/shop/src/store/OrderConfirmationJob.test.k
 test OrderConfirmationJob {
     @Inject let job: OrderConfirmationJob
     @Inject let mailer: RecordingEmailProvider
+    // ...
+    test "the email names the item, the total and the receipt link" {
+        let order = try await placeOrder()
 
-    test "a paid order gets a confirmation" {
-        try await job.run(payload: OrderConfirmation(orderId: Order.paid.id))
+        try await job.run(payload: OrderConfirmation(orderId: order.id))
 
-        expect mailer.sent.count == 1
+        let email = mailer.sent[0]
+
+        expect email.to == EmailAddress("ana@example.com")
+        expect email.subject == "Your K Shop order is confirmed"
+        // ...
     }
+// ...
 }
 ```
 
@@ -119,10 +254,12 @@ in-memory SQLite database, the origin `http://localhost`). **The app's own confi
 group whose graph reaches them**, with a value:
 
 ```k
+// examples/shop/shop/src/payments/StripeWebhookVerifier.test.k
 test StripeWebhookVerifier {
     use StripeWebhookConfig.sample for StripeWebhookConfig
 
     @Inject let verifier: StripeWebhookVerifier
+    // ...
 }
 ```
 
@@ -141,6 +278,8 @@ compile error, with a quick fix that adds the `use` line. See
 
   ```k
   // src/testing/Samples.k
+  ~import k.crypto.Uuid
+  ~import store.Product
   public extend Product {
       static let sample = Product(id: Uuid("0b6f2c1e-4d1a-4f8e-9a3b-2c5d6e7f8a9b"), name: "Mug", price: 9.99.usd)
   }
@@ -168,6 +307,7 @@ compile error, with a quick fix that adds the `use` line. See
 things:
 
 ```k
+~import k.test.render
 test AddToCart {
     use FakeCartService for CartService
 
@@ -226,21 +366,33 @@ The current time and every timer come from the injected `Clock` service, and in 
 always a `TestClock`. It starts at a fixed instant and moves only when you say so:
 
 ```k
+~import k.test.TestClock
+~import k.test.render
+// examples/weather/src/pages/CityWeather.test.k
 test CityWeather {
     use FakeWeatherService for WeatherService
 
     @Inject let weather: FakeWeatherService
     @Inject let clock: TestClock
-
+    // ...
     test "the forecast refreshes every ten minutes" {
         let screen = render(CityWeather(placeId: Place.berlin.id))
         await screen.settle()
 
-        clock.advance(by: 10.minutes)
+        expect weather.forecastCalls == 1
+
+        clock.advance(by: 9.minutes)
+        await screen.settle()
+
+        expect weather.forecastCalls == 1
+
+        clock.advance(by: 1.minute)
         await screen.settle()
 
         expect weather.forecastCalls == 2
+        // ...
     }
+// ...
 }
 ```
 
@@ -266,23 +418,23 @@ A test is one browser talking to one server, in one process:
   `SessionManager`, without creating an account, and the browser's `Session` mirror follows:
 
 ```k
-test NotesApi {
-    @Inject let sessions: SessionManager
-    @Inject let notes: NotesProtocol
+// examples/notes/src/notes/Notes.test.k
+~import k.auth.SessionManager
+~import k.test.TestClock
+~import k.test.render
+@Inject let sessions: SessionManager
+@Inject let clock: TestClock
 
-    test "a guest can't list notes" {
-        expect throws AccessError.rpcFailure(.rejected(.unauthenticated)) {
-            try await notes.list()
-        }
-    }
+test "the list shows the account's notes and filters as you type" {
+    await sessions.signIn(userId: AccountId.ada)
+    try await notes.create(draft: draft(title: "Groceries", body: "Milk and eggs", tags: "home"))
+    try await notes.create(draft: draft(title: "Ideas", tags: "work"))
+    let screen = render(Notes())
+    await screen.settle()
 
-    test "a signed-in user sees their notes" {
-        await sessions.signIn(userId: AccountId.ada)
-
-        let listed = try await notes.list()
-
-        expect listed.isEmpty
-    }
+    expect screen.link(named: "Groceries").isVisible
+    expect screen.link(named: "Ideas").isVisible
+    // ...
 }
 ```
 
@@ -302,20 +454,43 @@ every migration applied, data migrations included.
 guards, server rendering and endpoint pages, with no socket.
 
 ```k
+// examples/shop/shop/src/webhooks/StripeWebhook.test.k
+~import k.http.HttpRequest
+~import k.http.HttpResponse
+~import k.test.InlineJobQueue
+~import k.server.JobQueue
+~import k.server.PublicUrls
+~import k.test.TestClient
 test StripeWebhook {
+    use StripeWebhookVerifier for StripeEvents
     use StripeWebhookConfig.sample for StripeWebhookConfig
+    use InlineJobQueue for JobQueue
 
     @Inject let client: TestClient
+    // ...
     @Inject let urls: PublicUrls
+    // ...
+    func deliver(payload: String, signature: String?) async -> HttpResponse {
+        let headers: Map<String, String> = if let signature { ["stripe-signature": signature] } else { [:] }
 
-    test "an unsigned request is refused" {
         let request = HttpRequest(method: .post, url: urls.absolute(endpoint: .stripeWebhook))
-            .body(.text("{{}"))
+            .headers(headers)
+            .body(.text(payload))
 
-        let response = await client.send(request: request)
+        return await client.send(request: request)
+    }
+    // ...
+    test "an unsigned request is refused and changes nothing" {
+        let order = try await placeOrder()
+        let payload = StripeTestEvent.checkoutCompleted(orderId: "{order.id}", amountTotal: 4800)
+
+        let response = await deliver(payload: payload, signature: nil)
 
         expect response.status == .badRequest
+        expect await orders.byId(order.id)?.status == .awaitingPayment
+        expect mailer.sent.isEmpty
     }
+    // ...
 }
 ```
 

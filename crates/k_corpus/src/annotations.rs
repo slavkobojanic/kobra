@@ -58,6 +58,8 @@ impl Query {
         }
     }
 
+    /// Returns the query whose [`Query::keyword`] is `text`, or `None` for an
+    /// unknown keyword.
     fn from_keyword(text: &str) -> Option<Query> {
         [Query::Type, Query::Resolves, Query::Side]
             .into_iter()
@@ -185,6 +187,14 @@ pub fn parse(source: &str) -> Result<Vec<Annotation>, AnnotationError> {
     Ok(annotations)
 }
 
+/// Parses the `keyword: value` part of an annotation, such as `type: Int`.
+///
+/// Returns the query and the expected value, where `none` becomes `None`.
+///
+/// # Errors
+///
+/// Returns a message if there is no `:`, the keyword is not `type`,
+/// `resolves` or `side`, or the value is empty.
 fn query_and_value(text: &str) -> Result<(Query, Option<String>), String> {
     let text = text.trim();
     let (keyword, value) = text.split_once(':').ok_or_else(|| {

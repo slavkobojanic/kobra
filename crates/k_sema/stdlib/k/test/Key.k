@@ -1,20 +1,20 @@
-/// A key for `Element.press`.
+/// A key for [`Element.press`].
 public enum Key {
-    /// Enter.
+    /// The Enter key.
     case enter
-    /// Escape.
+    /// The Escape key.
     case escape
-    /// Tab.
+    /// The Tab key.
     case tab
-    /// Space.
+    /// The space bar.
     case space
-    /// Arrow up.
+    /// The up arrow key.
     case arrowUp
-    /// Arrow down.
+    /// The down arrow key.
     case arrowDown
-    /// Arrow left.
+    /// The left arrow key.
     case arrowLeft
-    /// Arrow right.
+    /// The right arrow key.
     case arrowRight
     /// The key that types `text` ("n", "?"), for keyboard shortcuts.
     case character(String)

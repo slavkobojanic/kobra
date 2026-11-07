@@ -14,6 +14,9 @@ use k_syntax::ast;
 use crate::js::{self, Expr, Param, Stmt, bin, call, id, member, rt, un};
 use crate::lower::{Body, MemberAccess, fmt_num};
 
+/// The qualified name of the declaration that owns member `m` (the
+/// extended type, for a member of an extension) and the member's name:
+/// the key native members are dispatched on (`("k.core.List", "map")`).
 fn owner_name(b: &Body<'_, '_>, m: MemberId) -> (String, String) {
     let info = b.g.view.member(m);
     let mut owner = info.owner;
@@ -91,6 +94,8 @@ pub(crate) fn token_value(b: &mut Body<'_, '_>, t: &Type, name: &str) -> Expr {
     js::str(format!("var(--k-{category}-{})", crate::css::kebab(name)))
 }
 
+/// The `Duration` number extensions and their length in milliseconds,
+/// which a literal receiver folds into at build time (`10.minutes`).
 const DURATIONS: &[(&str, f64)] = &[
     ("milliseconds", 1.0),
     ("millisecond", 1.0),
@@ -106,6 +111,7 @@ const DURATIONS: &[(&str, f64)] = &[
     ("week", 604_800_000.0),
 ];
 
+/// The currency number extensions (`0.50.usd`) that build `Money`.
 const CURRENCIES: &[&str] = &["usd", "eur", "gbp", "jpy", "chf"];
 
 /// Folds a number extension on a literal: `10.minutes` → `600000`,
@@ -310,6 +316,9 @@ pub(crate) fn http_native(
     }
 }
 
+/// `f` as a one-argument arrow: an arrow is kept, anything else is wrapped
+/// as `(x) => f(x)`, so array methods such as `map` never pass their extra
+/// index and array arguments to a K function.
 fn unary_fn(f: Expr) -> Expr {
     match f {
         Expr::Arrow(_) => f,
@@ -317,6 +326,9 @@ fn unary_fn(f: Expr) -> Expr {
     }
 }
 
+/// The lowered arguments of the call `c` of native member `m`, coerced to
+/// the parameter types with the owner's generics substituted by the type
+/// arguments of the receiver type `base`.
 fn args_of(b: &mut Body<'_, '_>, c: &ast::CallExpr, m: MemberId, base: &Type) -> Vec<Expr> {
     let sig = b.g.view.member(m).signature.clone();
     let owner_generics = b.g.view.decl(b.g.view.member(m).owner).generics.clone();
@@ -933,6 +945,8 @@ pub(crate) fn emits_stdlib_decl(g: &crate::cx::Gen<'_>, d: DeclId) -> bool {
             ))
 }
 
+/// [`fmt_num`] under a local name; nothing calls it (hence `dead_code` is
+/// allowed).
 #[allow(dead_code)]
 fn fmt(n: f64) -> String {
     fmt_num(n)

@@ -759,10 +759,14 @@ fn server_platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Option<Expr
 
 /// One `use Impl for Target in .env, …` rule of the app.
 pub(crate) struct UseRule {
+    /// The implementation named before `for`, `None` for a remote rule or one
+    /// that doesn't resolve.
     imp: Option<DeclId>,
-    /// For `use remote(Config) for Protocol`: the config, `None` when it
-    /// doesn't resolve.
+    /// For `use remote(Config) for Protocol`: `Some` of the config, itself
+    /// `None` when it doesn't resolve; `None` for a rule that isn't remote.
     pub(crate) remote: Option<Option<DeclId>>,
+    /// The declaration named after `for` (an interface or protocol), `None`
+    /// when it doesn't resolve.
     pub(crate) target: Option<DeclId>,
     /// The environments' case names; empty for every environment.
     envs: Vec<String>,
@@ -1738,6 +1742,10 @@ pub(crate) fn ordered_pages(g: &Gen<'_>) -> Vec<DeclId> {
     ordered
 }
 
+/// The server's page table: one `{ name, match, value, render, layouts,
+/// guards }` object per view page, in route-table order
+/// ([`ordered_pages`]), with the page's SSR renderer and those of its
+/// layouts.
 fn page_table(b: &mut Body<'_, '_>) -> Expr {
     let g = b.g;
     let mut routes = Vec::new();
@@ -1776,6 +1784,9 @@ fn page_table(b: &mut Body<'_, '_>) -> Expr {
     Expr::Array(routes)
 }
 
+/// The server's redirect table: one `{ match, to }` object per redirect
+/// recorded in `routes.lock` whose target page still exists, where `to`
+/// builds the current URL from the matched parameters.
 fn redirect_table(b: &mut Body<'_, '_>) -> Expr {
     let g = b.g;
     let mut out = Vec::new();
@@ -1806,6 +1817,9 @@ pub(crate) fn uses_session(g: &Gen<'_>, d: DeclId) -> bool {
     session.is_some() && injected(g, d).contains(&session.unwrap_or(d))
 }
 
+/// The server's endpoint table: one `{ match, methods, guards, session }`
+/// object per endpoint page, with a handler per `@Get`, `@Post`, `@Put`,
+/// `@Patch` and `@Delete` function, keyed by the upper-case method.
 fn endpoint_table(b: &mut Body<'_, '_>) -> Expr {
     let g = b.g;
     let mut out = Vec::new();

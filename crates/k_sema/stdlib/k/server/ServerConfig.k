@@ -7,6 +7,7 @@ public config ServerConfig {
     @Env("K_PUBLIC_ORIGIN") let publicOrigin: Url
     /// How long shutdown waits for in-flight work.
     @Env("K_SHUTDOWN_GRACE") let shutdownGrace: Duration = 25.seconds
-    /// The CIDR ranges of trusted proxies.
+    /// The CIDR ranges of trusted proxies, whose forwarded headers give
+    /// the client address.
     @Env("K_TRUSTED_PROXIES") let trustedProxies: List<String> = []
 }

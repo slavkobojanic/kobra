@@ -64,7 +64,7 @@ pub struct JsRequest {
     pub path: String,
     /// The headers, names lower case, in order.
     pub headers: Vec<(String, String)>,
-    /// The body.
+    /// The request body bytes (a `Uint8Array` in JavaScript).
     pub body: ToJsBuffer,
     /// The peer's IP address (the socket's; `K_TRUSTED_PROXIES` handling
     /// is the generated handler's).
@@ -102,9 +102,9 @@ pub struct JsResponse {
     /// integer in `100..=999` becomes a `500` with a generic body
     /// ([`WorkerResponse::from_js`]).
     pub status: f64,
-    /// The headers.
+    /// The response headers, in order (repeats allowed).
     pub headers: Vec<(String, String)>,
-    /// The body.
+    /// The response body, text or bytes.
     pub body: JsBody,
 }
 
@@ -113,7 +113,7 @@ pub struct JsResponse {
 pub struct WorkerResponse {
     /// The status code.
     pub status: u16,
-    /// The headers.
+    /// The response headers, in order (repeats allowed).
     pub headers: Vec<(String, String)>,
     /// The body bytes.
     pub body: Vec<u8>,
@@ -129,9 +129,9 @@ pub struct PendingRequest {
     pub method: String,
     /// The path and query.
     pub path: String,
-    /// The headers.
+    /// The request headers, names lower case, in order.
     pub headers: Vec<(String, String)>,
-    /// The body.
+    /// The request body bytes, read whole by the HTTP front.
     pub body: Vec<u8>,
     /// The peer's IP address.
     pub remote: String,
@@ -143,9 +143,13 @@ pub struct PendingRequest {
 
 /// The receiving end of a worker's request queue.
 pub struct RequestQueue {
+    /// The worker's end of the HTTP front's queue.
     receiver: Rc<tokio::sync::Mutex<mpsc::UnboundedReceiver<PendingRequest>>>,
+    /// Requests handed to JavaScript and not answered yet, by request id.
     waiting: HashMap<u32, oneshot::Sender<WorkerResponse>>,
+    /// Streamed responses in progress, by request id: the body's chunk sender.
     streaming: HashMap<u32, mpsc::UnboundedSender<Vec<u8>>>,
+    /// The id of the next request handed to JavaScript (wraps around).
     next_id: u32,
 }
 
@@ -197,12 +201,23 @@ impl EngineState {
     }
 }
 
+/// How the ops reach the [`EngineState`]: stored in each isolate's
+/// [`OpState`].
 type Shared = Rc<RefCell<EngineState>>;
 
+/// The [`EngineState`] of the isolate an op runs in.
+///
+/// # Panics
+///
+/// If the engine didn't put the state into `state`; [`crate::Engine::new`]
+/// always does.
 fn shared(state: &OpState) -> Shared {
     Rc::clone(state.borrow::<Shared>())
 }
 
+/// `console.*` and `Log.*`: records a log line at `level`, captured in
+/// [`EngineState::output`] or printed as a JSON line on standard output,
+/// per [`EngineState::mode`].
 #[op2(fast)]
 fn op_k_log(state: &mut OpState, #[string] level: &str, #[string] message: &str) {
     let s = shared(state);
@@ -219,6 +234,8 @@ fn op_k_log(state: &mut OpState, #[string] level: &str, #[string] message: &str)
     }
 }
 
+/// Stores `text` as the result of the current [`crate::Engine::run_main`]
+/// (the test and corpus drivers report through it).
 #[op2(fast)]
 fn op_k_set_result(state: &mut OpState, #[string] text: &str) {
     shared(state).borrow_mut().result = Some(text.to_owned());
@@ -261,6 +278,14 @@ async fn op_k_test_tick() {
     tokio::task::yield_now().await;
 }
 
+/// `serve()`'s loop: waits for the worker's next request and hands it to
+/// JavaScript under a fresh id, keeping its reply channel until
+/// `op_k_respond` (or `op_k_respond_start`) answers it. Resolves to `null`
+/// once the queue is closed (shutdown) or outside a server worker.
+///
+/// # Errors
+///
+/// Never in practice; the signature is the op's.
 #[op2]
 #[serde]
 async fn op_k_next_request(state: Rc<RefCell<OpState>>) -> Result<Option<JsRequest>, JsErrorBox> {
@@ -289,6 +314,12 @@ async fn op_k_next_request(state: Rc<RefCell<OpState>>) -> Result<Option<JsReque
     }))
 }
 
+/// Answers request `id` with a complete response. A client that went away
+/// is not an error.
+///
+/// # Errors
+///
+/// No request `id` is waiting (already answered, or never handed out).
 #[op2]
 fn op_k_respond(
     state: &mut OpState,
@@ -347,6 +378,7 @@ impl WorkerResponse {
     }
 }
 
+/// The [`ProcessState`] of the isolate an op runs in.
 fn process(state: &OpState) -> Arc<ProcessState> {
     Arc::clone(&shared(state).borrow().process)
 }
@@ -355,10 +387,14 @@ fn process(state: &OpState) -> Arc<ProcessState> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ServerInfo {
+    /// [`ProcessState::public_origin`].
     public_origin: String,
+    /// The validated configuration as JSON ([`crate::config::ConfigValue::to_json`]).
     config: serde_json::Map<String, serde_json::Value>,
 }
 
+/// The public origin and the validated configuration, read once by the
+/// generated app at startup.
 #[op2]
 #[serde]
 fn op_k_server_info(state: &mut OpState) -> ServerInfo {
@@ -373,6 +409,7 @@ fn op_k_server_info(state: &mut OpState) -> ServerInfo {
     }
 }
 
+/// The wall clock in whole epoch milliseconds (0 before 1970).
 #[op2(fast)]
 fn op_k_now() -> f64 {
     std::time::SystemTime::now()
@@ -389,6 +426,11 @@ fn op_k_utf8_valid(#[buffer] bytes: &[u8]) -> bool {
     std::str::from_utf8(bytes).is_ok()
 }
 
+/// A fresh session id or OAuth state ([`crate::process::random_token`]).
+///
+/// # Errors
+///
+/// The operating system refused randomness.
 #[op2]
 #[string]
 fn op_k_random_token() -> Result<String, JsErrorBox> {
@@ -402,6 +444,10 @@ fn argon2id() -> argon2::Argon2<'static> {
 }
 
 /// Hashes `password` with a fresh 16-byte salt from the OS generator.
+///
+/// # Errors
+///
+/// The random generator failed, or Argon2 refused the input.
 fn password_hash(password: &str) -> Result<String, String> {
     use argon2::password_hash::{PasswordHasher, SaltString};
     let mut salt = [0u8; 16];
@@ -434,6 +480,12 @@ async fn off_thread<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -
     }
 }
 
+/// `Password.hash`: the Argon2id PHC string of `password`, computed off the
+/// worker's thread ([`password_hash`]).
+///
+/// # Errors
+///
+/// Randomness or hashing failed (or the hashing task panicked).
 #[op2]
 #[string]
 async fn op_k_password_hash(#[string] password: String) -> Result<String, JsErrorBox> {
@@ -443,6 +495,8 @@ async fn op_k_password_hash(#[string] password: String) -> Result<String, JsErro
         .map_err(JsErrorBox::generic)
 }
 
+/// `Password.verify`: whether `password` matches `hash`, computed off the
+/// worker's thread; `false` for a malformed hash or if the task panicked.
 #[op2]
 async fn op_k_password_verify(#[string] password: String, #[string] hash: String) -> bool {
     off_thread(move || password_verify(&password, &hash))
@@ -458,6 +512,10 @@ fn process_of(state: &Rc<RefCell<OpState>>) -> Arc<ProcessState> {
 
 /// The session of a cookie token, `null` if there is none (expired,
 /// revoked, never issued). A guest session's `user` is `null`.
+///
+/// # Errors
+///
+/// The session store (the database, when the app has one) failed.
 #[op2]
 #[serde]
 async fn op_k_session_get(
@@ -471,6 +529,10 @@ async fn op_k_session_get(
 }
 
 /// Starts a session (`user` `null`: a guest's) and returns its token.
+///
+/// # Errors
+///
+/// The session store failed, or the OS refused randomness for the token.
 #[op2]
 #[string]
 async fn op_k_session_create(
@@ -485,6 +547,10 @@ async fn op_k_session_create(
 }
 
 /// Deletes a session.
+///
+/// # Errors
+///
+/// The session store failed.
 #[op2]
 async fn op_k_session_delete(
     state: Rc<RefCell<OpState>>,
@@ -497,6 +563,10 @@ async fn op_k_session_delete(
 }
 
 /// Deletes every session of a user; returns how many.
+///
+/// # Errors
+///
+/// The session store failed.
 #[op2]
 async fn op_k_session_end_all(
     state: Rc<RefCell<OpState>>,
@@ -510,6 +580,10 @@ async fn op_k_session_end_all(
 }
 
 /// Binds a fresh OAuth state to a session; `null` without the session.
+///
+/// # Errors
+///
+/// The session store failed.
 #[op2]
 #[serde]
 async fn op_k_session_issue_state(
@@ -524,6 +598,10 @@ async fn op_k_session_issue_state(
 }
 
 /// Takes a session's OAuth state: `true` once for the state it holds.
+///
+/// # Errors
+///
+/// The session store failed.
 #[op2]
 async fn op_k_session_consume_state(
     state: Rc<RefCell<OpState>>,
@@ -538,6 +616,10 @@ async fn op_k_session_consume_state(
 
 /// Counts one call against a rate-limit key: `0` if allowed, else the
 /// seconds to wait.
+///
+/// # Errors
+///
+/// The rate-limit store (the database, when the app has one) failed.
 #[op2]
 async fn op_k_rate_limit(
     state: Rc<RefCell<OpState>>,
@@ -561,6 +643,7 @@ async fn op_k_rate_limit(
     Ok(u32::try_from(wait).unwrap_or(u32::MAX))
 }
 
+/// The `.server` state stored under `key` as JSON text, or `null`.
 #[op2]
 #[serde]
 fn op_k_shared_get(state: &mut OpState, #[string] key: &str) -> serde_json::Value {
@@ -569,11 +652,14 @@ fn op_k_shared_get(state: &mut OpState, #[string] key: &str) -> serde_json::Valu
         .map_or(serde_json::Value::Null, serde_json::Value::String)
 }
 
+/// Stores `json` as the `.server` state under `key`, for every worker.
 #[op2(fast)]
 fn op_k_shared_set(state: &mut OpState, #[string] key: &str, #[string] json: &str) {
     process(state).shared_set(key, json.to_owned());
 }
 
+/// Subscribes to broadcast `key`, closed when session `session` (a string,
+/// or `null` for none) ends; returns the subscriber id.
 #[op2]
 fn op_k_broadcast_subscribe(
     state: &mut OpState,
@@ -585,11 +671,14 @@ fn op_k_broadcast_subscribe(
     process(state).subscribe(key, session).0 as f64
 }
 
+/// Publishes `json` to every subscriber of `key` in the process.
 #[op2(fast)]
 fn op_k_broadcast_publish(state: &mut OpState, #[string] key: &str, #[string] json: &str) {
     process(state).publish(key, json);
 }
 
+/// Waits for subscriber `id`'s next element and resolves to its JSON text,
+/// or to `null` once the subscription is closed or unknown.
 #[op2]
 #[serde]
 async fn op_k_broadcast_next(state: Rc<RefCell<OpState>>, id: f64) -> serde_json::Value {
@@ -607,6 +696,7 @@ async fn op_k_broadcast_next(state: Rc<RefCell<OpState>>, id: f64) -> serde_json
     }
 }
 
+/// Removes subscriber `id` (its stream was dropped).
 #[op2(fast)]
 fn op_k_broadcast_close(state: &mut OpState, id: f64) {
     process(state).unsubscribe(id as u64);
@@ -617,10 +707,16 @@ fn op_k_broadcast_close(state: &mut OpState, id: f64) {
 pub struct JsStreamHead {
     /// The status code.
     pub status: f64,
-    /// The headers.
+    /// The response headers, in order (repeats allowed).
     pub headers: Vec<(String, String)>,
 }
 
+/// Starts a streamed response to request `id`: sends the head now; the
+/// body follows with `op_k_respond_chunk` and ends with `op_k_respond_end`.
+///
+/// # Errors
+///
+/// Not a server worker, or no request `id` is waiting.
 #[op2]
 fn op_k_respond_start(
     state: &mut OpState,
@@ -668,6 +764,8 @@ fn op_k_respond_chunk(state: &mut OpState, id: u32, #[buffer] chunk: &[u8]) -> b
     open
 }
 
+/// Ends the streamed response to request `id`; a no-op if it already ended
+/// or the client is gone.
 #[op2(fast)]
 fn op_k_respond_end(state: &mut OpState, id: u32) {
     let s = shared(state);
@@ -678,6 +776,10 @@ fn op_k_respond_end(state: &mut OpState, id: u32) {
 }
 
 /// The process's database, or the op error for an app without one.
+///
+/// # Errors
+///
+/// The app has no database configured.
 fn database(state: &Rc<RefCell<OpState>>) -> Result<Arc<crate::db::ProcessDatabase>, JsErrorBox> {
     process(&state.borrow())
         .database()
@@ -691,6 +793,11 @@ fn db_error(e: &k_db::DbError) -> JsErrorBox {
 }
 
 /// Converts the parameters of a statement, naming the first bad one.
+///
+/// # Errors
+///
+/// A parameter that isn't `null`, a boolean, a number or a string, named
+/// by its 1-based position.
 fn db_params(params: Vec<serde_json::Value>) -> Result<Vec<k_db::Value>, JsErrorBox> {
     params
         .into_iter()
@@ -703,6 +810,10 @@ fn db_params(params: Vec<serde_json::Value>) -> Result<Vec<k_db::Value>, JsError
 }
 
 /// Runs a read statement and returns its rows as value lists.
+///
+/// # Errors
+///
+/// No database, a bad parameter, or a database failure ([`db_error`]).
 #[op2]
 #[serde]
 async fn op_k_db_query(
@@ -727,6 +838,11 @@ async fn op_k_db_query(
 
 /// Runs a write statement: `{count}`, or `{unique: field}` when a
 /// `@Unique` field's index refused it.
+///
+/// # Errors
+///
+/// No database, a bad parameter, or a database failure other than a unique
+/// violation ([`db_error`]).
 #[op2]
 #[serde]
 async fn op_k_db_execute(
@@ -749,12 +865,20 @@ async fn op_k_db_execute(
 }
 
 /// Begins a transaction bound to the calling request.
+///
+/// # Errors
+///
+/// No database, or a database failure (including a lease timeout).
 #[op2]
 async fn op_k_db_begin(state: Rc<RefCell<OpState>>) -> Result<u32, JsErrorBox> {
     database(&state)?.begin().await.map_err(|e| db_error(&e))
 }
 
 /// Commits or rolls back a transaction.
+///
+/// # Errors
+///
+/// No database, a transaction that isn't open, or a database failure.
 #[op2]
 async fn op_k_db_finish(
     state: Rc<RefCell<OpState>>,
@@ -768,6 +892,11 @@ async fn op_k_db_finish(
 }
 
 /// A savepoint of a nested transaction: 0 begins, 1 releases, 2 rolls back.
+///
+/// # Errors
+///
+/// An unknown `op`, no database, a transaction that isn't open, or a
+/// database failure.
 #[op2]
 async fn op_k_db_savepoint(
     state: Rc<RefCell<OpState>>,
@@ -839,6 +968,10 @@ fn op_k_hmac(bits: u32, #[buffer] key: &[u8], #[buffer] message: &[u8]) -> Vec<u
 
 /// Stores a background job (`DatabaseJobQueue.enqueue`) in transaction
 /// `tx` (0: on its own), due after `delay_ms`; returns its id.
+///
+/// # Errors
+///
+/// No database, the OS refused randomness for the id, or the insert failed.
 #[op2]
 #[string]
 async fn op_k_jobs_enqueue(
@@ -868,16 +1001,25 @@ async fn op_k_jobs_enqueue(
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 enum JsFetchOutcome {
+    /// A response arrived ([`crate::outbound::FetchOutcome::Response`]).
     Response {
+        /// The status code.
         status: u16,
+        /// The headers, names lower case, in order.
         headers: Vec<(String, String)>,
+        /// The body, as a `Uint8Array` on the JavaScript side.
         body: ToJsBuffer,
     },
+    /// The request couldn't be sent or answered.
     Offline {
+        /// Why, for the server log.
         message: String,
     },
+    /// The request's timeout elapsed.
     Timeout,
+    /// The request itself is malformed.
     Invalid {
+        /// What is wrong.
         message: String,
     },
     /// `op_k_fetch_abort` was called for the request.

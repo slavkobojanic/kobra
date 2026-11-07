@@ -30,6 +30,7 @@
 import { KPanic } from "./values.js";
 import { currencyCode, currencyParse, money, parseDecimal, parseInstant, stringify } from "./std.js";
 
+/** The ops the Rust server exposes to this isolate; empty outside it. */
 const ops = globalThis.Deno?.core?.ops ?? {};
 
 /**
@@ -40,7 +41,11 @@ const ops = globalThis.Deno?.core?.ops ?? {};
  * @property {(row: unknown[], i: number) => any} dec reads the value stored from column `i`
  */
 
-/** @param {unknown} v @returns {string} */
+/**
+ * `v` when it is a string; panics otherwise.
+ * @param {unknown} v
+ * @returns {string}
+ */
 function textOf(v) {
   if (typeof v !== "string") throw new KPanic(`database: expected text, got ${typeof v}`);
   return v;
@@ -155,7 +160,10 @@ export const dbc = Object.freeze({
   ref: (id, owner) => ({ w: id.w, enc: (v, out) => id.enc(v.id, out), dec: (r, i) => unloaded(owner, id.dec(r, i)) }),
 });
 
-/** @returns {never} */
+/**
+ * Panics: a column held `v` where `what` was expected.
+ * @returns {never}
+ */
 function panicValue(what, v) {
   throw new KPanic(`database: expected ${what}, found ${JSON.stringify(v)}`);
 }
@@ -211,6 +219,11 @@ export function likePattern(kind, text) {
  */
 export function unloaded(owner, id) {
   return new Proxy(Object.freeze({ id }), {
+    /**
+     * Answers `id`; `undefined` for symbols, `then` and `toJSON` (so the
+     * proxy is not mistaken for a promise or serialized); panics on anything
+     * else.
+     */
     get(t, key) {
       if (key === "id") return t.id;
       if (typeof key === "symbol" || key === "then" || key === "toJSON") return undefined;
@@ -226,6 +239,10 @@ export function unloaded(owner, id) {
  */
 export function unloadedMany(owner) {
   return new Proxy(Object.freeze([]), {
+    /**
+     * Answers `undefined` for symbols other than the iterator, `then` and
+     * `toJSON`; panics on anything else, iteration included.
+     */
     get(_t, key) {
       if (typeof key === "symbol" && key !== Symbol.iterator) return undefined;
       if (key === "then" || key === "toJSON") return undefined;
@@ -234,7 +251,11 @@ export function unloadedMany(owner) {
   });
 }
 
-/** @param {unknown} e @returns {never} */
+/**
+ * Rethrows a panic, and turns any other driver failure into one.
+ * @param {unknown} e
+ * @returns {never}
+ */
 function failed(e) {
   if (e instanceof KPanic) throw e;
   throw new KPanic(e instanceof Error ? e.message : String(e));
@@ -412,7 +433,11 @@ export function database() {
   return new Database();
 }
 
-/** @param {Database | undefined} db @returns {Database} */
+/**
+ * `db`, or a panic when the app has no database.
+ * @param {Database | undefined} db
+ * @returns {Database}
+ */
 function need(db) {
   if (!db) throw new KPanic("database: the app has no database (is DATABASE_URL set?)");
   return db;

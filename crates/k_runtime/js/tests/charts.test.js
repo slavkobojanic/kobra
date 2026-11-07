@@ -1,16 +1,22 @@
-// `k.charts.LineChart` (docs/design/37-charts.md; docs/compiler/runtime.md
-// §12.2): one HTML rendering shared by the server and the browser, an SVG
-// with the required description plus a hidden data table, `Date` axes
-// labelled in the chart's time zone, and series colors that are theme
-// tokens. In the browser the component claims the server's chart when it
-// is the same chart, and renders it again when its data changes.
+/**
+ * @module k:/tests/charts.test.js
+ *
+ * `k.charts.LineChart` (docs/design/37-charts.md; docs/compiler/runtime.md
+ * §12.2): one HTML rendering shared by the server and the browser, an SVG
+ * with the required description plus a hidden data table, `Date` axes
+ * labelled in the chart's time zone, and series colors that are theme
+ * tokens. In the browser the component claims the server's chart when it
+ * is the same chart, and renders it again when its data changes.
+ */
 import { assert, assertEq, test } from "k:testing";
 import { LineChart, chartKey, lineChart } from "k:/runtime/charts.js";
 import { hydrate, signal, flush, instantFromSeconds, closedRange } from "k:runtime";
 
+/** The instant `h` hours after 2026-01-15T11:00:00Z, the series' first point. */
 const hour = (h) => instantFromSeconds(1768474800 + h * 3600);
 const temperature = { name: "Temperature", points: [0, 1, 2, 3].map((h) => ({ x: hour(h), y: [3.4, 4.1, 4.6, 4][h] })), color: "var(--k-color-chart-temperature)", dashed: false, showsPoints: false };
 const feelsLike = { name: "Feels like", points: [0, 1, 2, 3].map((h) => ({ x: hour(h), y: [0.6, 1.2, 1.9, 1.1][h] })), color: null, dashed: true, showsPoints: true };
+/** The props of a `lineChart` with both series, overridden by `over`. */
 const chart = (over = {}) => ({ series: [temperature, feelsLike], description: "Temperatures & more", ...over });
 
 test("the chart is an SVG image described by its description", () => {
@@ -72,6 +78,7 @@ test("the same chart has the same key; another chart another key", () => {
   assert(chartKey(lineChart(chart(), "UTC")) !== chartKey(lineChart(chart(), "Europe/Berlin")));
 });
 
+/** The browser props of a `LineChart` over the signal `series`, overridden by `over`. */
 const props = (series, over = {}) => ({ series: () => series.get(), description: () => "d", timeZone: () => "UTC", ...over });
 
 test("in the browser the chart renders and follows its data", () => {

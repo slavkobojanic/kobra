@@ -3,6 +3,13 @@
 K has three core collections: `List`, `Map` and `Set`. They need no import.
 
 ```k
+~struct ProductId implements Equatable, Hashable {
+~    let value: Int
+~}
+~
+~let id1 = ProductId(value: 1)
+~let id2 = ProductId(value: 2)
+~
 let names: List<String> = ["Ana", "Ben"]
 let prices: Map<ProductId, Money> = [id1: 9.99.usd, id2: 14.50.usd]
 let tags: Set<String> = Set(["new", "sale"])
@@ -13,7 +20,8 @@ let tags: Set<String> = Set(["new", "sale"])
 Collections behave like [structs](declarations.md#structs): **assigning or passing one behaves like a
 copy.** A collection declared with `let` can't change; one declared with `var` can:
 
-```k
+```k,fails=K2011
+~func example() {
 let fixed = [1, 2, 3]
 fixed.append(4)            // compile error: fixed is a let
 
@@ -22,6 +30,7 @@ growing.append(4)          // [1, 2, 3, 4]
 
 var copy = growing
 copy.append(5)             // growing is still [1, 2, 3, 4]
+~}
 ```
 
 The compiler uses copy-on-write, so the JavaScript it emits doesn't actually clone a collection unless
@@ -31,11 +40,21 @@ This matters most for reactive state. Mutating a `@State` list is tracked like a
 the parts of the view that read it update:
 
 ```k
+~struct CartItem {
+~    let name: String
+~}
+~
+~component Cart {
 @State var items: List<CartItem> = []
 
 func add(item: CartItem) {
     items.append(item)
 }
+~
+~    view {
+~        text { "{items.count} items" }
+~    }
+~}
 ```
 
 ## Literals
@@ -61,6 +80,8 @@ let palette: List<Color> = [
 ## Reading elements
 
 ```k
+~let names = ["Ana", "Ben"]
+~
 let first = names[0]                       // "Ana"
 let count = names.count                    // 2
 let isEmpty = names.isEmpty                // false
@@ -71,6 +92,12 @@ Reading a list index that is out of range is a programmer error, so it **panics*
 Prefer the collection API, which returns optionals where an element might be missing:
 
 ```k
+~struct User {
+~    let isAdmin: Bool
+~}
+~
+~let users: List<User> = []
+~
 let firstAdmin = users.firstWhere { user => user.isAdmin }      // User?
 ```
 
@@ -80,6 +107,21 @@ The standard library's collection API is extensive and uses full English names. 
 [lambda](lambdas.md):
 
 ```k
+~struct Product {
+~    let name: String
+~    let stock: Int
+~    let price: Money
+~    let category: String
+~}
+~
+~struct CartItem {
+~    let price: Money
+~    let quantity: Int
+~}
+~
+~let products: List<Product> = []
+~let items: List<CartItem> = []
+~
 let inStock = products.filter { product => product.stock > 0 }
 let names = products.map { product => product.name }
 let byPrice = products.sortedBy { product => product.price }
@@ -104,27 +146,47 @@ There are no abbreviated or symbolic aliases. The same API is used for
 `for … in` visits each element in order:
 
 ```k
+~import k.observe.Log
+~
+~func greet(names: List<String>) {
 for name in names {
     Log.info("hello, {name}")
 }
+~}
 ```
 
 In a view, a `for` loop renders one node per element and requires a `key`, which identifies each element
 across updates:
 
 ```k
+~struct CartItem {
+~    let id: Int
+~}
+~
+~component CartRow {
+~    @Prop let item: CartItem
+~
+~    view {
+~        text { "{item.id}" }
+~    }
+~}
+~
+~component CartList {
+~    @Prop let items: List<CartItem>
+~
+~    view {
 for item in items key item.id {
     CartRow(item: item)
 }
+~    }
+~}
 ```
 
 See [Control flow](control-flow.md#for-loops).
 
 ## More collections
 
-The `k.collections` module adds specialized types: `Deque`, `PriorityQueue`, `OrderedMap` and
-`LruCache`. They are imported like any other declaration:
-
-```k
-import k.collections.LruCache
-```
+> **Planned.** The design adds a `k.collections` module with specialized types: `Deque`,
+> `PriorityQueue`, `OrderedMap` and `LruCache`, imported like any other declaration
+> (`import k.collections.LruCache`). It isn't built yet; `List`, `Map` and `Set` are the collections
+> available today.

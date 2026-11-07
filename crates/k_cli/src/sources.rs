@@ -244,6 +244,11 @@ pub fn load_tree(root: &Path) -> Group {
     )
 }
 
+/// Reads the files `plan` names below `root` into a [`Group`]: for a
+/// project, the files a project path classifies as manifest, lockfile or
+/// source; for a workspace, every manifest, lockfile and `.k` file (its
+/// members classify them later). Unreadable files, files that aren't
+/// UTF-8 and invalid project paths become [`Group::problems`].
 fn load_group(root: PathBuf, plan: Plan) -> Group {
     let mut paths: BTreeSet<PathBuf> = plan.files;
     if plan.whole {
@@ -304,6 +309,7 @@ fn load_group(root: PathBuf, plan: Plan) -> Group {
     group
 }
 
+/// The directory holding `path`, `.` for a bare file name.
 fn parent(path: &Path) -> PathBuf {
     match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),

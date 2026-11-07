@@ -94,6 +94,7 @@ page Product {
 }
 "#;
 
+/// Parses `text` as file 0, without checking invariants.
 fn parse_text(text: &str) -> Parse {
     parse(FileId::new(0), text)
 }
@@ -128,6 +129,7 @@ fn check(text: &str) -> Parse {
     parse
 }
 
+/// Counts the diagnostics of `parse` by code number.
 fn codes(parse: &Parse) -> BTreeMap<u16, usize> {
     let mut map = BTreeMap::new();
     for diagnostic in parse.diagnostics() {
@@ -136,10 +138,13 @@ fn codes(parse: &Parse) -> BTreeMap<u16, usize> {
     map
 }
 
+/// Returns `true` if any node below (or at) `root` has `kind`.
 fn has_node(root: &SyntaxNode, kind: SyntaxKind) -> bool {
     root.descendants().any(|node| node.kind() == kind)
 }
 
+/// Returns the kinds of the tokens under `root` whose text is `text`, in
+/// source order.
 fn token_kinds_with_text(root: &SyntaxNode, text: &str) -> Vec<SyntaxKind> {
     root.descendants_with_tokens()
         .filter_map(|element| element.into_token())
@@ -153,6 +158,7 @@ fn token_kinds_with_text(root: &SyntaxNode, text: &str) -> Vec<SyntaxKind> {
 struct Rng(u64);
 
 impl Rng {
+    /// Advances the xorshift state and returns it.
     fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -160,11 +166,14 @@ impl Rng {
         self.0
     }
 
+    /// Returns a value in `0..n`; `n` must not be zero.
     fn below(&mut self, n: usize) -> usize {
         usize::try_from(self.next() % (n as u64)).unwrap_or(0)
     }
 }
 
+/// Fragments of view, style and declaration syntax, concatenated at random
+/// by the recovery fuzz test.
 const FRAGMENTS: &[&str] = &[
     "view",
     "style",
@@ -400,6 +409,8 @@ fn parser_diagnostics_follow_the_message_rules() {
     }
 }
 
+/// Asserts that `diagnostic` has a registered code, follows the message
+/// conventions, and that every fix has a message and at least one edit.
 fn check_diagnostic_style(diagnostic: &Diagnostic) {
     assert!(
         diagnostic.code.info().is_some(),

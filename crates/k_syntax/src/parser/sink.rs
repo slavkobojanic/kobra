@@ -38,6 +38,7 @@ use super::engine::{Event, is_tombstone};
 use crate::kind::SyntaxKind;
 use crate::lexer::Lexed;
 
+/// A child of a green node under construction.
 type GreenElement = NodeOrToken<GreenNode, GreenToken>;
 
 /// Tokens longer than this are not interned (they rarely repeat).
@@ -167,6 +168,7 @@ struct TokenCache<'a> {
 }
 
 impl<'a> TokenCache<'a> {
+    /// Creates an empty cache with a slot for every kind.
     fn new() -> TokenCache<'a> {
         TokenCache {
             fixed: vec![None; KIND_COUNT],
@@ -215,12 +217,20 @@ impl<'a> TokenCache<'a> {
     }
 }
 
+/// The state of one tree build: a stack of open nodes over a shared child
+/// buffer, and a cursor into the full lexer token stream.
+///
+/// Invariant: every lexer token before `raw` has been pushed into
+/// `children` exactly once, in order, which is what makes the tree
+/// lossless.
 struct Sink<'a> {
+    /// The full token stream, trivia included.
     lexed: &'a Lexed<'a>,
     /// Open nodes: kind and the index in `children` where its children start.
     open: Vec<(SyntaxKind, usize)>,
     /// Children of all open nodes, innermost last.
     children: Vec<GreenElement>,
+    /// The token interner.
     tokens: TokenCache<'a>,
     /// Index of the next lexer token to emit.
     raw: usize,
@@ -231,6 +241,7 @@ struct Sink<'a> {
 }
 
 impl<'a> Sink<'a> {
+    /// Creates a sink at the start of `lexed` with no open nodes.
     fn new(lexed: &'a Lexed<'a>) -> Sink<'a> {
         Sink {
             lexed,
@@ -243,6 +254,7 @@ impl<'a> Sink<'a> {
         }
     }
 
+    /// Returns the number of open nodes.
     fn depth(&self) -> usize {
         self.open.len()
     }
@@ -295,6 +307,11 @@ impl<'a> Sink<'a> {
         split
     }
 
+    /// Opens a node of `kind`.
+    ///
+    /// The trivia before the node's first token is emitted into the parent
+    /// first, except for the doc comments that a declaration-like `kind`
+    /// owns ([`takes_doc_comments`]). Ignored once the root is finished.
     fn start_node(&mut self, kind: SyntaxKind) {
         if self.root.is_some() {
             return;
@@ -311,6 +328,8 @@ impl<'a> Sink<'a> {
         self.max_depth = self.max_depth.max(self.depth());
     }
 
+    /// Emits the pending trivia and then the next significant lexer token as
+    /// `kind`. Ignored once the root is finished or past the last token.
     fn token(&mut self, kind: SyntaxKind) {
         if self.root.is_some() {
             return;
@@ -323,6 +342,11 @@ impl<'a> Sink<'a> {
         }
     }
 
+    /// Closes the innermost open node.
+    ///
+    /// Closing the root first emits every remaining token into it (see
+    /// [`Sink::emit_rest`]), so trailing trivia and unconsumed tokens stay in
+    /// the tree. A `Finish` with no open node is ignored.
     fn finish_node(&mut self) {
         if self.depth() == 1 {
             self.emit_rest();

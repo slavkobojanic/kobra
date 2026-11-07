@@ -1,12 +1,16 @@
-// The `@Load` state machine (docs/compiler/runtime.md §7,
-// docs/design/14-async-data.md): LOADING → READY | FAILED, dependency-ordered
-// and parallel loads, cancellation when an input changes, `reload()` with an
-// atomic swap through RELOADING, and serialized values from hydration that
-// are never fetched again.
-//
-// Assumptions beyond runtime.md §7 (to be pinned there): `values()` is `null`
-// outside READY and RELOADING; `state()`, `values()` and `error()` are
-// reactive reads; the group belongs to the owner it is created in.
+/**
+ * @module k:/tests/ui-load.test.js
+ *
+ * The `@Load` state machine (docs/compiler/runtime.md §7,
+ * docs/design/14-async-data.md): LOADING → READY | FAILED, dependency-ordered
+ * and parallel loads, cancellation when an input changes, `reload()` with an
+ * atomic swap through RELOADING, and serialized values from hydration that
+ * are never fetched again.
+ *
+ * Assumptions beyond runtime.md §7 (to be pinned there): `values()` is `null`
+ * outside READY and RELOADING; `state()`, `values()` and `error()` are
+ * reactive reads; the group belongs to the owner it is created in.
+ */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import { FAILED, LOADING, READY, RELOADING, batch, createLoads, renderEffect, root, signal } from "k:runtime";
 

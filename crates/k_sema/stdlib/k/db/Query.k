@@ -7,40 +7,59 @@
 @ServerOnly
 @Native
 public class Query<T> {
-    /// Rows for which `predicate` holds.
+    /// Narrows the query to the rows for which `predicate` holds (SQL
+    /// `WHERE`).
     func filter(_ predicate: (T) -> Bool) -> Query<T>
-    /// Rows ordered by `key`, ascending.
+    /// Orders the rows by `key`, ascending.
     func sortedBy<K>(_ key: (T) -> K) -> Query<T> where K implements Comparable
-    /// Rows ordered by `key`, descending.
+    /// Orders the rows by `key`, descending.
     func sortedByDescending<K>(_ key: (T) -> K) -> Query<T> where K implements Comparable
-    /// A secondary ascending order.
+    /// Orders rows that compare equal by the previous order by `key`,
+    /// ascending; follows [`sortedBy`] or [`sortedByDescending`].
     func thenBy<K>(_ key: (T) -> K) -> Query<T> where K implements Comparable
-    /// A secondary descending order.
+    /// Orders rows that compare equal by the previous order by `key`,
+    /// descending.
     func thenByDescending<K>(_ key: (T) -> K) -> Query<T> where K implements Comparable
-    /// At most `count` rows.
+    /// Keeps at most `count` rows (SQL `LIMIT`).
     func limit(_ count: Int) -> Query<T>
-    /// Rows after the first `count`.
+    /// Skips the first `count` rows (SQL `OFFSET`).
     func offset(_ count: Int) -> Query<T>
     /// Loads a relation for every row, with one extra query per relation.
+    ///
+    /// - Parameter relation: the [`k.db.Relation`] field to load, such as
+    ///   `{ n => n.author }`.
     func including<R>(_ relation: (T) -> R) -> Query<T>
 
-    /// The rows. Awaiting the query runs it.
+    /// Runs the query; awaiting the query itself does the same.
+    ///
+    /// - Returns: the matching rows, in the query's order.
     func list() async -> List<T>
-    /// The first row for which `predicate` holds, `LIMIT 1`.
+    /// Runs the query for the first row for which `predicate` holds
+    /// (`LIMIT 1`).
+    ///
+    /// - Returns: the row, or `nil` if none matches.
     func first(_ predicate: (T) -> Bool) async -> T?
-    /// Exactly one row; panics on zero or several.
+    /// Runs the query for exactly one row; panics on zero or several.
+    ///
+    /// - Returns: the one row for which `predicate` holds.
     func single(_ predicate: (T) -> Bool) async -> T
-    /// The number of rows.
+    /// Counts the matching rows (`SELECT count(*)`).
     func count() async -> Int
-    /// Updates the matching rows with assignments only; returns the count.
+    /// Updates the matching rows.
+    ///
+    /// - Parameter assignments: a lambda made of assignments to the row's
+    ///   fields only (`{ n => n.archived = true }`).
+    /// - Returns: the number of rows updated.
     func update(_ assignments: (T) -> Void) async -> Int
-    /// Deletes the matching rows; returns the count.
+    /// Deletes the matching rows.
+    ///
+    /// - Returns: the number of rows deleted.
     func delete() async -> Int
 
     /// Inserts one row (`docs/design/19-persistence.md`, "Writes").
     func insert(_ entity: T) async
     /// Inserts many rows in one statement.
     func insert(all entities: List<T>) async
-    /// Deletes the row with the entity's id.
+    /// Deletes the row with `entity`'s [`k.db.Id`].
     func delete(_ entity: T) async
 }

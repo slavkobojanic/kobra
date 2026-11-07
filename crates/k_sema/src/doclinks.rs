@@ -76,6 +76,7 @@ pub(crate) fn check_file(cx: &Cx<'_, '_>, file: FileIx) {
     flush(&mut links, block_end);
 }
 
+/// Converts a byte offset to a [`TextSize`], saturating at `u32::MAX`.
 fn size(n: usize) -> TextSize {
     TextSize::from(u32::try_from(n).unwrap_or(u32::MAX))
 }
@@ -321,6 +322,8 @@ fn function_matches(cx: &Cx<'_, '_>, decl: DeclId, labels: Option<&[String]>) ->
     labels_equal(&param_list_labels(&d.node), labels)
 }
 
+/// Returns `true` if a parameter list's labels (`None` for `_`) are exactly
+/// the labels written in a doc link (`_` for an unlabelled parameter).
 fn labels_equal(actual: &[Option<String>], wanted: &[String]) -> bool {
     actual.len() == wanted.len()
         && actual

@@ -57,10 +57,12 @@ use k_server::testing::run_script;
 use k_server::{JsModule, Output, Server, ServerBundle, ServerOptions};
 use libtest_mimic::{Arguments, Failed, Trial};
 
+/// The repository root.
 fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// The `content-type` of a fixture asset, by extension.
 fn content_type(path: &str) -> &'static str {
     match path.rsplit('.').next() {
         Some("js") => "text/javascript; charset=utf-8",
@@ -71,11 +73,16 @@ fn content_type(path: &str) -> &'static str {
     }
 }
 
+/// Whether a file name has an 8-hex-digit content hash segment
+/// (`app.3f9a1c2e.js`), which makes it cacheable forever.
 fn is_hashed(name: &str) -> bool {
     name.split('.')
         .any(|part| part.len() == 8 && part.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
+/// Server options for a test run: an ephemeral loopback port, two workers,
+/// a five-second shutdown grace, and the workers' log captured unless
+/// `K_E2E_LOG` is set.
 fn options(bundle: ServerBundle, assets: Vec<StaticAsset>, origin: String) -> ServerOptions {
     let mut o = ServerOptions::new("127.0.0.1:0".parse().expect("address"), bundle);
     o.workers = 2;
@@ -91,6 +98,12 @@ fn options(bundle: ServerBundle, assets: Vec<StaticAsset>, origin: String) -> Se
     o
 }
 
+/// Starts a server, runs the request script against it and shuts it down.
+///
+/// # Errors
+///
+/// The server can't start, the script fails (its message first), or the
+/// shutdown fails.
 fn serve_and_run(o: ServerOptions, script: &str) -> Result<(), String> {
     let server = Server::start(o).map_err(|e| e.to_string())?;
     let outcome = run_script(server.local_addr(), script);
@@ -101,6 +114,13 @@ fn serve_and_run(o: ServerOptions, script: &str) -> Result<(), String> {
     stopped
 }
 
+/// Runs a bundle fixture of `tests/http/`: `server.js` as the only module,
+/// `manifest.json`'s `rpcPaths` and `publicOrigin`, and the files of
+/// `assets/` served under `/assets/`.
+///
+/// # Errors
+///
+/// A fixture file can't be read or parsed, or the run fails.
 fn run_fixture(dir: &Path) -> Result<(), String> {
     let source = fs::read_to_string(dir.join("server.js")).map_err(|e| e.to_string())?;
     let script = fs::read_to_string(dir.join("requests.http")).map_err(|e| e.to_string())?;
@@ -144,6 +164,13 @@ fn run_fixture(dir: &Path) -> Result<(), String> {
     serve_and_run(options(bundle, assets, origin), &script)
 }
 
+/// Collects the project files below `dir` with their paths relative to
+/// `root`, skipping the test's own files (`requests.http`, `fakes.toml`,
+/// `expected.*`).
+///
+/// # Errors
+///
+/// A directory or file can't be read, or a path isn't a valid project path.
 fn collect(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) -> Result<(), String> {
     for e in fs::read_dir(dir)
         .map_err(|e| e.to_string())?
@@ -205,6 +232,11 @@ fn with_postgres_schema(
     result
 }
 
+/// Runs the K project at `dir` with the database of its `.env`.
+///
+/// # Errors
+///
+/// As [`run_project_on`].
 fn run_project(dir: &Path) -> Result<(), String> {
     run_project_on(dir, None)
 }
@@ -289,47 +321,64 @@ fn run_project_on(dir: &Path, database_url: Option<String>) -> Result<(), String
 /// The fakes a project's `fakes.toml` asks for, kept alive for its run.
 #[derive(Default)]
 struct Fakes {
+    /// The fake HTTP API, when `fakes.toml` has `[http]`.
     _http: Option<k_server::fakes::FakeHttp>,
+    /// The fake SMTP server, when `fakes.toml` has `[smtp]`.
     _smtp: Option<k_server::fakes::FakeSmtp>,
     /// `{fake.http}` and `{fake.smtp.port}` and their values.
     placeholders: Vec<(String, String)>,
 }
 
+/// The layout of `fakes.toml`.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FakesFile {
+    /// `[http]`: start a fake HTTP API.
     http: Option<FakeHttpFile>,
+    /// `[smtp]`: start a fake SMTP server.
     smtp: Option<FakeSmtpFile>,
 }
 
+/// The `[http]` table of `fakes.toml`.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FakeHttpFile {
+    /// The canned answers.
     #[serde(default)]
     routes: Vec<FakeRouteFile>,
 }
 
+/// One route of `[http]`, converted to a [`k_server::fakes::FakeRoute`].
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FakeRouteFile {
+    /// The method it answers.
     method: String,
+    /// The path it answers, without the query.
     path: String,
+    /// The status to send (default 200).
     #[serde(default = "ok")]
     status: u16,
+    /// The body to send (default empty).
     #[serde(default)]
     body: String,
+    /// The `content-type` header to send, if any.
     content_type: Option<String>,
+    /// How long to wait before answering, in milliseconds (default 0).
     #[serde(default)]
     delay_ms: u64,
 }
 
+/// The default status of a [`FakeRouteFile`].
 fn ok() -> u16 {
     200
 }
 
+/// The `[smtp]` table of `fakes.toml`.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FakeSmtpFile {
+    /// `accept` (the default), `reject` (550) or `defer` (451).
     #[serde(default)]
     behavior: Option<String>,
 }
@@ -421,6 +470,14 @@ fn dev_config_with(
     k_server::config::resolve(&fields, &env).map_err(|p| k_server::config::report(&p))
 }
 
+/// Applies `dir/expected.pending`: without it, `result` as is; with it, a
+/// failure passes and a success fails (the case should no longer be
+/// pending).
+///
+/// # Errors
+///
+/// The case's own failure when it isn't pending; a pending case that
+/// passes; an empty `expected.pending`.
 fn pending_wrapper(dir: &Path, result: Result<(), String>) -> Result<(), String> {
     match fs::read_to_string(dir.join("expected.pending")) {
         Err(_) => result,
@@ -437,6 +494,7 @@ fn pending_wrapper(dir: &Path, result: Result<(), String>) -> Result<(), String>
     }
 }
 
+/// The subdirectories of `path`, sorted; none if it can't be read.
 fn dirs(path: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = fs::read_dir(path)
         .map(|r| {

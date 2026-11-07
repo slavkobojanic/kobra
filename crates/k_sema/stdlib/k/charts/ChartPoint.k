@@ -1,7 +1,7 @@
-/// One point of a series.
+/// One point of a series ([`LineSeries.points`]).
 public struct ChartPoint<X> implements Equatable where X implements ChartScalable {
-    /// The x value.
+    /// The position on the x axis.
     let x: X
-    /// The y value.
+    /// The value on the y axis.
     let y: Double
 }

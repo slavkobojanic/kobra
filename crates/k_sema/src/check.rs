@@ -416,6 +416,9 @@ fn generate(program: &mut Program<'_>) {
     }
 }
 
+/// Returns where the bodies of `decl` are checked: its file and generics,
+/// and, for types, extensions and named test suites, the declaration that
+/// owns `self` (an extension's target type) and the type of `self`.
 fn owner_of(cx: &Cx<'_, '_>, decl: DeclId) -> BodyOwner {
     let d = cx.p.decl(decl);
     let typed = d.is_type()
@@ -433,6 +436,9 @@ fn owner_of(cx: &Cx<'_, '_>, decl: DeclId) -> BodyOwner {
     }
 }
 
+/// Returns [`owner_of`] for member bodies: inside an extension the private
+/// members visible are the extension's own (sema.md §6), not the extended
+/// type's.
 fn owner_with_ext(cx: &Cx<'_, '_>, decl: DeclId) -> BodyOwner {
     let mut owner = owner_of(cx, decl);
     // Inside an extension, private members of the extended type are not
@@ -443,6 +449,11 @@ fn owner_with_ext(cx: &Cx<'_, '_>, decl: DeclId) -> BodyOwner {
     owner
 }
 
+/// Infers the type of an unannotated field from its initializer, silently
+/// (the body pass reports later); `{error}` without an initializer.
+///
+/// Installed as the context's field hook, so field types can be inferred
+/// on demand in any order.
 fn infer_field(cx: &Cx<'_, '_>, member: MemberId) -> Ty {
     let m = cx.p.member(member);
     let Some(field) = m
@@ -459,6 +470,9 @@ fn infer_field(cx: &Cx<'_, '_>, member: MemberId) -> Ty {
     checker.check_initializer(&init, None)
 }
 
+/// Infers the type of an unannotated top-level constant from its
+/// initializer, silently; `{error}` without an initializer. Installed as
+/// the context's constant hook, like [`infer_field`].
 fn infer_constant(cx: &Cx<'_, '_>, decl: DeclId) -> Ty {
     let d = cx.p.decl(decl);
     let Some(field) = ast::FieldDecl::cast(d.node.clone()) else {
@@ -473,6 +487,10 @@ fn infer_constant(cx: &Cx<'_, '_>, decl: DeclId) -> Ty {
 
 // ------------------------------------------------------------ project checks
 
+/// Runs the project-wide declaration checks: stray files (K1001), the
+/// file rules (K1002, K1003, K1005), duplicate declarations per module
+/// (K1004) and members (K2019), import cycles (K1103) and the extension
+/// rules.
 fn project_checks(cx: &Cx<'_, '_>) {
     let p = cx.p;
     for (ix, file) in p.files.iter().enumerate() {
@@ -683,6 +701,14 @@ fn misplaced(cx: &Cx<'_, '_>, file: FileIx) {
     }
 }
 
+/// Returns the offset of the first character at or after `offset` that is
+/// neither a space nor a tab; fixes that remove a keyword also remove the
+/// space after it.
+///
+/// # Panics
+///
+/// Panics if `offset` is past the end of `text` or not on a character
+/// boundary.
 fn next_non_space(text: &str, offset: TextSize) -> TextSize {
     let start = usize::from(offset);
     let rest = &text[start..];
@@ -690,6 +716,9 @@ fn next_non_space(text: &str, offset: TextSize) -> TextSize {
     offset + TextSize::from(u32::try_from(n).unwrap_or(0))
 }
 
+/// Checks the one-public-declaration rule of a source file (sema.md §4):
+/// at most one public declaration (K1003), named after the file (K1002,
+/// with a fix when only the case differs); a test file has none.
 fn file_rule(cx: &Cx<'_, '_>, file: FileIx) {
     let p = cx.p;
     let info = p.file(file);
@@ -798,6 +827,12 @@ fn duplicate_members(cx: &Cx<'_, '_>) {
     }
 }
 
+/// Reports K1103 on every import between two project modules of the same
+/// strongly connected component (test files' imports excluded), labelled
+/// with the imports that lead back along the shortest path.
+///
+/// Tarjan's algorithm over the module graph: linear in modules and
+/// imports, plus one breadth-first search per distinct cyclic edge.
 fn import_cycles(cx: &Cx<'_, '_>) {
     let p = cx.p;
     // Edges between project modules from non-test files' imports.
@@ -1020,6 +1055,8 @@ pub(crate) fn tarjan(edges: &[Vec<usize>]) -> Vec<usize> {
     comp
 }
 
+/// Reports K1105 for bound imports that no checked body used and that
+/// neither a doc comment nor an identifier elsewhere in the file mentions, with a fix removing the import.
 fn unused_imports(cx: &Cx<'_, '_>) {
     let p = cx.p;
     let used = cx.used_imports.borrow();
@@ -1092,6 +1129,10 @@ fn mentioned_in_docs(text: &str, path: &str) -> bool {
 
 // ------------------------------------------------------------ declarations
 
+/// Checks one top-level declaration: a function's or constant's body, the
+/// `app`/`migration` blocks, a top-level test case, then every member and
+/// the nested blocks (view, style, metadata, `@Load` states, test suites),
+/// and the member modifiers.
 fn check_decl(cx: &Cx<'_, '_>, decl: DeclId) {
     let p = cx.p;
     let d = p.decl(decl);
@@ -1201,6 +1242,8 @@ fn check_decl(cx: &Cx<'_, '_>, decl: DeclId) {
     }
 }
 
+/// Returns the signature a test case body is checked with: no
+/// parameters, `async`, not throwing, returning `Void`.
 fn test_sig(cx: &Cx<'_, '_>) -> crate::cx::Sig {
     crate::cx::Sig {
         generics: Vec::new(),
@@ -1211,6 +1254,8 @@ fn test_sig(cx: &Cx<'_, '_>) -> crate::cx::Sig {
     }
 }
 
+/// Checks the body of a `test "…" { … }` case of `decl` (a suite or the
+/// file) with [`test_sig`].
 fn check_test_case(cx: &Cx<'_, '_>, decl: DeclId, node: &SyntaxNode) {
     let Some(block) = node.children().find_map(ast::Block::cast) else {
         return;
@@ -1222,6 +1267,8 @@ fn check_test_case(cx: &Cx<'_, '_>, decl: DeclId, node: &SyntaxNode) {
     checker.finish();
 }
 
+/// Checks one member of `decl`: a field's or computed property's type and
+/// initializer, a function's or initializer's body, a case's payload.
 fn check_member(cx: &Cx<'_, '_>, decl: DeclId, m: MemberId) {
     let p = cx.p;
     let member = p.member(m);
@@ -1300,6 +1347,9 @@ fn check_member(cx: &Cx<'_, '_>, decl: DeclId, m: MemberId) {
     }
 }
 
+/// Checks the visibility modifiers on `decl`'s members: `public` on an
+/// `@Inject` field is K1303 and elsewhere redundant (K1302), both with a
+/// fix; `private` on an enum case or rpc is K1301.
 fn member_modifiers(cx: &Cx<'_, '_>, decl: DeclId) {
     let p = cx.p;
     let d = p.decl(decl);

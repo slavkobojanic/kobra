@@ -43,6 +43,8 @@ pub(crate) fn kebab(name: &str) -> String {
     out
 }
 
+/// `true` when scoped names are readable (`Card__panel`) rather than
+/// hashed: under [`Profile::Test`], so golden files stay stable.
 fn readable(g: &Gen<'_>) -> bool {
     g.options.profile == Profile::Test
 }
@@ -126,6 +128,9 @@ pub(crate) fn reactive_values(
     out
 }
 
+/// The text of the first name-like token directly inside `n` (a class
+/// selector's name, an at-rule's keyword, a declaration's property), or
+/// `None` when it has none.
 fn ident(n: &SyntaxNode) -> Option<String> {
     n.children_with_tokens()
         .filter_map(rowan::NodeOrToken::into_token)
@@ -142,13 +147,18 @@ fn themes(g: &Gen<'_>) -> Vec<DeclId> {
         .collect()
 }
 
-/// A token: category word, name, value node.
+/// One token of a project theme, `color primary = #2563EB`.
 struct Token {
+    /// The category word, `color` or `space`, as written in the theme.
     category: String,
+    /// The token's name, `primary`.
     name: String,
+    /// The value expression, or `None` when the token declares none.
     value: Option<SyntaxNode>,
 }
 
+/// Every token of every theme of the project, in declaration order; a
+/// token without both a category and a name is skipped.
 fn tokens(g: &Gen<'_>) -> Vec<Token> {
     let mut out = Vec::new();
     for t in themes(g) {
@@ -216,7 +226,8 @@ pub(crate) fn variants(g: &Gen<'_>) -> Vec<String> {
     out
 }
 
-/// `--k-<category>-<token>`.
+/// The custom property of a theme token, `--k-<category>-<token>`, with
+/// `spacing` and `size` normalized to `space` and `font-size`.
 fn token_property(category: &str, name: &str) -> String {
     let c = match category {
         "space" | "spacing" => "space".to_owned(),
@@ -226,6 +237,8 @@ fn token_property(category: &str, name: &str) -> String {
     format!("--k-{c}-{}", kebab(name))
 }
 
+/// The theme category whose tokens can fill a CSS property of the K type
+/// `t` (`Spacing` → `space`); empty for a type with no token category.
 fn type_category(t: &str) -> &'static str {
     match t {
         "Spacing" => "space",
@@ -423,11 +436,23 @@ fn minify(css: &str) -> String {
     css.lines().map(str::trim).collect::<Vec<_>>().join("")
 }
 
+/// Prints the style block of one component as scoped CSS.
+///
+/// Nested rules are flattened against their parents' selectors, at-rules
+/// wrap the rules inside them, and interpolations become custom properties
+/// numbered in source order.
 struct Printer<'p, 'g> {
+    /// The generator context.
     g: &'p Gen<'g>,
+    /// The component whose style block is printed, which scopes its class and
+    /// keyframes names.
     owner: DeclId,
+    /// The project's theme tokens, for `.name` references.
     tokens: &'p [Token],
+    /// The CSS printed so far.
     out: String,
+    /// The number of interpolations printed so far: the index of the next
+    /// one's custom property, matching [`reactive_values`].
     interpolation: usize,
 }
 
@@ -520,6 +545,8 @@ impl Printer<'_, '_> {
         }
     }
 
+    /// Appends one rule, `selector { decls }`, nested inside each at-rule
+    /// prelude of `wrappers` (outermost first).
     fn emit(&mut self, selector: &str, decls: &[String], wrappers: &[String]) {
         let mut indent = String::new();
         for w in wrappers {
@@ -601,6 +628,8 @@ impl Printer<'_, '_> {
             .collect()
     }
 
+    /// The CSS text of an at-rule prelude: keywords as written and each media
+    /// feature as `(kebab-name: value)`.
     fn prelude(&self, p: &SyntaxNode) -> String {
         let mut out = Vec::new();
         for c in p.children_with_tokens() {
@@ -623,6 +652,8 @@ impl Printer<'_, '_> {
         out.join(" ")
     }
 
+    /// The CSS text of one declaration, `css-property: value;`, with the K
+    /// property name mapped to its CSS name.
     fn declaration(&mut self, d: &SyntaxNode) -> String {
         let prop = d
             .children_with_tokens()
@@ -640,6 +671,9 @@ impl Printer<'_, '_> {
         format!("{css_prop}: {v};")
     }
 
+    /// The CSS text of the value of property `prop`, turning each
+    /// interpolation into `var(--k-…)` and advancing
+    /// [`Printer::interpolation`].
     fn value_mut(&mut self, prop: &str, v: &SyntaxNode) -> String {
         let mut parts = Vec::new();
         for el in v.children_with_tokens() {
@@ -669,6 +703,8 @@ impl Printer<'_, '_> {
         parts.join(" ")
     }
 
+    /// The CSS text of a value that can't hold interpolations (a media
+    /// feature's value).
     fn value_text(&self, prop: &str, v: &SyntaxNode) -> String {
         let mut parts = Vec::new();
         for el in v.children_with_tokens() {
@@ -683,6 +719,9 @@ impl Printer<'_, '_> {
         parts.join(" ")
     }
 
+    /// The CSS text of one value expression of property `prop`: a theme token
+    /// reference, a scoped keyframes name (`animation`, `animationName`),
+    /// `.token.opacity(x)` as `color-mix(…)`, or a literal.
     fn expr_text(&self, prop: &str, n: &SyntaxNode) -> String {
         match n.kind() {
             SyntaxKind::ImplicitMemberExpr => {

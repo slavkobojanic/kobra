@@ -3,7 +3,133 @@
 A component's `view { }` block describes its UI. It isn't HTML or XML: it's K code, written with the same
 calls, trailing blocks and chained methods as everything else, and checked by the same type checker.
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
 ```k
+// src/shop/Context.k
+import k.auth.Session
+
+struct CartItem {
+    let id: Int
+    var quantity: Int
+}
+
+component CartRow {
+    @Prop let item: CartItem
+    @Binding var quantity: Int
+
+    view {
+        text { "{quantity}" }
+    }
+}
+
+struct Product {
+    let id: Int
+    let name: String
+}
+
+component ProductCard {
+    @Prop let product: Product
+
+    view {
+        text { product.name }
+    }
+}
+
+struct Profile implements Codable {
+    var name: String
+    var age: Int
+    var country: Country
+}
+
+enum Country implements Codable {
+    case norway
+    case sweden
+
+    var name: String {
+        match self {
+            case .norway { "Norway" }
+            case .sweden { "Sweden" }
+        }
+    }
+}
+
+enum ProfileError implements Error, Codable {
+    case unavailable
+
+    var message: String { "The profile couldn't be loaded." }
+}
+
+component Spinner {
+    view {
+        text { "Loading…" }
+    }
+}
+
+component ProfileCard {
+    @Prop let profile: Profile
+
+    view {
+        text { profile.name }
+    }
+}
+
+component ErrorBanner {
+    @Prop let message: String
+    @Emits let retry: Event<Void>
+
+    view {
+        text { message }
+    }
+}
+
+struct User {
+    let name: String
+    let avatarUrl: Url
+}
+
+struct Todo {
+    let title: String
+    var isDone: Bool
+}
+
+enum TodoFilter {
+    case all
+    case open
+    case done
+
+    var title: String {
+        match self {
+            case .all { "All" }
+            case .open { "Open" }
+            case .done { "Done" }
+        }
+    }
+}
+
+page SignIn at "/sign-in" {
+    view {
+        text { "Sign in" }
+    }
+}
+
+page ProductPage at "/product/{id}" {
+    @Param let id: Int
+
+    view {
+        text { "Product {id}" }
+    }
+}
+```
+-->
+
+```k
+~component Checkout {
+~    @State var items: List<CartItem> = []
+~    @State var isSubmitting: Bool = false
+~    let total: Money = 0.usd
+~
+~    func checkout() {}
 view {
     section {
         heading(level: 2) { "Your cart" }
@@ -24,6 +150,11 @@ view {
     }
     .class(.checkout)
 }
+~    style {
+~        .checkout { padding: .md; }
+~        .muted { color: .muted; }
+~    }
+~}
 ```
 
 ## The rules
@@ -57,6 +188,14 @@ Views use the ordinary [control flow](../language/control-flow.md) constructs. T
 and no special template directives.
 
 ```k
+~import k.auth.Session
+~
+~component Dashboard {
+~    @Inject let session: Session
+~    @Prop let products: List<Product>
+~    @State var state: LoadState<Profile> = .idle
+~
+~    func load() {}
 view {
     if let user = session.user {
         paragraph { "Signed in as {user.id}" }
@@ -78,11 +217,12 @@ view {
         }
 
         case .failed(let error) {
-            ErrorBanner(message: error.message)
+            ErrorBanner(message: "Couldn't load the profile: {error}")
                 .on(retry: load)
         }
     }
 }
+~}
 ```
 
 A `for` in a view **requires a `key`**, which identifies each element across updates so that exactly the
@@ -96,7 +236,7 @@ correct semantic HTML element. Writing an HTML name is a compile error with a hi
 
 | HTML | K | Notes |
 |---|---|---|
-| `a` | `link(to: .page)` / `link(url: "https://…")` | Internal links are typed pages |
+| `a` | `link(to: .page)` / `link(url: Url("https://…"))` | Internal links are typed pages |
 | `img` | `image(source:, description:)` | `alt` → `description`, required |
 | `div` | `box` | |
 | `span` | `text` | |
@@ -124,9 +264,15 @@ a case for every page, so a link to a page that doesn't exist, or with missing p
 error:
 
 ```k
-link(to: .product(id: product.id)) { product.name }
+~component ProductLinks {
+~    @Prop let product: Product
+~
+~    view {
+link(to: .productPage(id: product.id)) { product.name }
 
-link(url: "https://example.com/terms") { "Terms of service" }
+link(url: Url("https://example.com/terms")) { "Terms of service" }
+~    }
+~}
 ```
 
 See [Pages and routing](routing.md).
@@ -136,9 +282,19 @@ See [Pages and routing](routing.md).
 `image` requires a text description, because an image without one is inaccessible:
 
 ```k
+~component Avatar {
+~    @Prop let user: User
+~
+~    view {
 image(source: user.avatarUrl, description: "Profile photo of {user.name}")
     .class(.avatar)
     .loading(.lazy)
+~    }
+~
+~    style {
+~        .avatar { borderRadius: .lg; }
+~    }
+~}
 ```
 
 ### Form fields
@@ -148,6 +304,12 @@ a `textField` binds a `String` (or a type such as `EmailAddress` that parses fro
 an `Int` or `Double`, a `checkbox` a `Bool`.
 
 ```k
+~component ProfileForm {
+~    @State var profile: Profile = Profile(name: "", age: 0, country: .norway)
+~    @State var todo: Todo = Todo(title: "", isDone: false)
+~    let countries: List<Country> = [.norway, .sweden]
+~
+~    view {
 textField(value: bind profile.name)
     .label("Name")
 
@@ -163,6 +325,8 @@ dropdown(selection: bind profile.country) {
 
 checkbox(isChecked: bind todo.isDone)
     .label("Done")
+~    }
+~}
 ```
 
 Every input takes its bound value as its required argument. `checkbox(isChecked:)` binds a `Bool`, named
@@ -174,14 +338,25 @@ tests find the field by it. See [Forms and validation](forms.md).
 Events are chained with `.on(…)`, one event per call. A handler is a function passed by name, or a lambda:
 
 ```k
+~component Buttons {
+~    @Binding var value: Int
+~    @Prop let step: Int = 1
+~
+~    func save() {}
+~
+~    view {
 button { "Save" }
     .on(click: save)
 
-form { … }
-    .on(submit: signup.handle(submit))
+form {
+    // …
+}
+    .on(submit: save)
 
 button { "−" }
     .on(click: { value -= step })
+~    }
+~}
 ```
 
 Async handlers are fine: `.on(click: checkout)` works when `checkout` is `async`. A handler can't throw;
@@ -204,6 +379,11 @@ element's definition. Using one on an element that doesn't define it is a compil
 | `.role(.alert)`, `.role(.status)` | `role`; both are live regions | non-interactive elements |
 
 ```k
+~component FilterBar {
+~    @Binding var selection: TodoFilter
+~    let filters: List<TodoFilter> = [.all, .open, .done]
+~
+~    view {
 nav {
     for filter in filters key filter {
         button { filter.title }
@@ -212,6 +392,8 @@ nav {
     }
 }
 .label("Filter todos")
+~    }
+~}
 ```
 
 - **On a landmark or group, `.label` is its accessible name.** The compiler warns when a second landmark
@@ -227,12 +409,22 @@ voice-control users say aloud. To add words for screen readers only, put them in
 `VisuallyHidden` from `k.ui`:
 
 ```k
+~import k.ui.VisuallyHidden
+~
+~component DeleteButton {
+~    @Prop let todo: Todo
+~
+~    func delete() {}
+~
+~    view {
 button {
     "Delete"
 
     VisuallyHidden { " {todo.title}" }
 }
 .on(click: delete)
+~    }
+~}
 ```
 
 Its accessible name is "Delete Buy milk", and it still starts with the visible text, so a test can find
@@ -250,8 +442,8 @@ can't share a modifier's name.
 The standard library's `k.ui` module builds on these elements:
 
 - **Layout:** `Stack`, `Grid`, `Spacer`.
-- **Accessible widgets:** `Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`,
-  `DatePicker`, `DataTable`.
+- **Accessible widgets** (**Planned**): the design adds `Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`,
+  `Toast`, `Combobox`, `DatePicker` and `DataTable`. None of them is built yet.
 - **Icons:** `Icon`, with a bundled icon set.
 - **`VisuallyHidden`**, for text that only assistive technology reads.
 - **`ErrorBoundary`**, which catches [panics](../language/errors.md#panics) in its subtree and renders a
@@ -260,7 +452,7 @@ The standard library's `k.ui` module builds on these elements:
 They're capitalized because they're components, and they're imported like any other declaration:
 
 ```k
-import k.ui.Dialog
+import k.ui.VisuallyHidden
 ```
 
 ### Charts
@@ -269,9 +461,7 @@ import k.ui.Dialog
 requires a text description**, and it renders an accessible data table next to the graphic:
 
 ```k
-import k.charts.LineChart
-import k.charts.LineSeries
-
+// examples/weather/src/components/TemperatureChart.k
 LineChart(
     series: [
         LineSeries(name: "Temperature", points: temperature)
@@ -282,9 +472,13 @@ LineChart(
     ],
     description: "Temperature and feels-like temperature for the next 24 hours"
 )
-.yAxisTitle("°C")
+.yAxisTitle(units.temperatureSymbol)
+.timeZone(timeZone)
 .height(240px)
 ```
+
+The weather example's `TemperatureChart` imports `k.charts.LineChart` and `k.charts.LineSeries`, and
+builds `temperature` and `feelsLike` as lists of `ChartPoint`s. [Charts](charts.md) covers them.
 
 - The series are data, not slots, because a chart has to read the values to compute its scales.
 - `ChartPoint(x:y:)` takes an `Int`, `Double` or `Date` for `x`. `Date` axes get time ticks in the
@@ -301,6 +495,11 @@ There is one canonical layout for views:
   calls, each goes on its own line.
 
 ```k
+~component Card {
+~    @Prop let title: String
+~    @Prop let items: List<CartItem>
+~    @Slot let content: View
+~    @Slot let row: (CartItem) -> View
 view {
     article {
         heading(level: 2) { title }
@@ -312,6 +511,7 @@ view {
         }
     }
 }
+~}
 ```
 
 > **Planned.** `k fmt`, which applies this layout automatically, isn't in the first compiler releases.

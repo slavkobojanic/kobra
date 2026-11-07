@@ -3,7 +3,79 @@
 `service` is a declaration keyword. **A service is both the unit of dependency injection and the
 container for shared state.** There is no separate store concept: no Pinia, no Redux, no Zustand.
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
 ```k
+// src/cart/Context.k
+import k.rpc.RpcFailure
+
+struct Product implements Codable {
+    let id: Int
+    let price: Money
+}
+
+struct CartItem implements Codable {
+    let price: Money
+    let quantity: Int
+}
+
+struct AddItemRequest implements Codable {
+    let productId: Int
+}
+
+enum CartError implements Error {
+    case soldOut
+    case rpcFailure(RpcFailure)
+}
+
+protocol CartProtocol {
+    rpc add(request: AddItemRequest) throws CartError -> CartItem
+}
+
+service CartApi implements CartProtocol {
+    rpc add(request: AddItemRequest) async throws CartError -> CartItem {
+        throw .soldOut
+    }
+}
+
+struct Receipt {
+    let total: Money
+}
+
+```
+
+```k
+// src/payments/PaymentProvider.k
+/// Takes payments.
+public interface PaymentProvider {
+    /// Charges `amount`.
+    func charge(amount: Money) async -> Money
+}
+```
+
+```k
+// src/payments/StripePayments.k
+/// Payments through Stripe.
+public service StripePayments implements PaymentProvider {
+    func charge(amount: Money) async -> Money {
+        return amount
+    }
+}
+```
+
+```k
+// src/payments/FakePayments.k
+/// Payments that always succeed.
+public service FakePayments implements PaymentProvider {
+    func charge(amount: Money) async -> Money {
+        return amount
+    }
+}
+```
+-->
+
+```k
+~import k.auth.Session
 service CartService {
     @Inject let api: CartProtocol
     @Inject let session: Session
@@ -57,18 +129,18 @@ field is resolved and every field initializer has run, and before the instance i
 that injects it. It is the place to restore saved state:
 
 ```k
+// examples/todos/src/todo/TodoService.k
 public service TodoService {
     @Inject let storage: LocalStorage
-
+    // ...
     @State var items: List<Todo> = []
+    // ...
     @State var problem: StorageProblem? = nil
-
-    /// Restores the saved todos as soon as the service is created.
+    // ...
     init() {
         restore()
     }
-
-    func restore() { … }
+    // ...
 }
 ```
 
@@ -144,10 +216,17 @@ through services.**
 | `config` | nothing; a config is data |
 | functions, `struct`, `enum` | nothing; importable anywhere |
 
-```k
+```k,fails=K4005
+~service CartService {
+~}
+~
 component AddToCart {
     @Inject let cart: CartService       // allowed
     @Inject let api: CartProtocol       // compile error: components can't inject protocols
+~
+~    view {
+~        text { "Add" }
+~    }
 }
 ```
 
@@ -212,7 +291,11 @@ its declared initial state, so pages can render. Its `init()` doesn't run.
 You can inject an [interface](../language/declarations.md#interfaces) instead of a concrete service:
 
 ```k
+~import payments.PaymentProvider
+~
+~service Checkout {
 @Inject let payments: PaymentProvider
+~}
 ```
 
 - **An interface with exactly one implementation is injected automatically.** Standard-library
@@ -221,8 +304,15 @@ You can inject an [interface](../language/declarations.md#interfaces) instead of
   environment:
 
   ```k
+  // App.k
+  ~import payments.FakePayments
+  ~import payments.PaymentProvider
+  ~import payments.StripePayments
+  ~
+  ~app Shop {
   use StripePayments for PaymentProvider in .production
   use FakePayments for PaymentProvider in .development, .test
+  ~}
   ```
 
 - An ambiguous or missing implementation is a compile error.

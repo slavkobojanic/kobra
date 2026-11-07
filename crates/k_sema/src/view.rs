@@ -96,6 +96,8 @@ impl Type {
         }
     }
 
+    /// Converts a checker type to its public form; an inference variable
+    /// (only unbound ones survive resolution) becomes [`Type::Error`].
     pub(crate) fn from_ty(ty: &Ty) -> Type {
         match ty {
             Ty::Error | Ty::Var(_) => Type::Error,
@@ -302,18 +304,49 @@ pub struct ProgramView {
     pub generics: Vec<GenericInfo>,
     /// Extensions by the declaration they extend.
     pub extensions_of: HashMap<DeclId, Vec<DeclId>>,
+    /// Named declarations by qualified name (`k.core.Int`; bare for
+    /// `App.k`), the first of a name winning, for [`ProgramView::lookup`].
     qualified: HashMap<String, DeclId>,
+    /// Declarations by the name a resolution displays (bare for the
+    /// prelude, qualified otherwise), for [`ProgramView::lookup_display`].
     display: HashMap<String, DeclId>,
 }
 
 impl ProgramView {
     /// The declaration `id`.
+    ///
+    /// ```
+    /// use k_sema::{AnalysisHost, Options, ProjectPath};
+    ///
+    /// let host = AnalysisHost::with_files(
+    ///     Options::new(),
+    ///     [(
+    ///         ProjectPath::new("src/geo/Point.k").unwrap(),
+    ///         "/// A point.\npublic struct Point {\n    /// The x.\n    let x: Int\n}\n".to_owned(),
+    ///     )],
+    /// );
+    /// let analysis = host.analysis();
+    /// let program = analysis.program().unwrap();
+    /// let point = program.lookup("geo.Point").unwrap();
+    /// let decl = program.decl(point);
+    /// assert_eq!(decl.name, "Point");
+    /// let x = program.member(decl.members[0]);
+    /// assert_eq!(x.name, "x");
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is not an id of this view (one from another revision).
     #[must_use]
     pub fn decl(&self, id: DeclId) -> &DeclInfo {
         &self.decls[id.0 as usize]
     }
 
     /// The member `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is not an id of this view.
     #[must_use]
     pub fn member(&self, id: MemberId) -> &MemberInfo {
         &self.members[id.0 as usize]
@@ -419,6 +452,8 @@ impl ProgramView {
         }
     }
 
+    /// Renders the argument labels of `m` as a doc link writes them:
+    /// `(label:_:)`, with `_` for an unlabelled parameter.
     fn label_text(&self, m: MemberId) -> String {
         let mut s = String::from("(");
         for l in self.labels(m) {
@@ -439,6 +474,7 @@ pub enum Resolved {
     Member(MemberId),
 }
 
+/// Converts a checker signature to its public [`Signature`] form.
 fn sig(s: &crate::cx::Sig) -> Signature {
     Signature {
         generics: s.generics.iter().map(|g| GenId(g.0)).collect(),

@@ -21,6 +21,7 @@ import { KPanic, panic } from "./values.js";
 import { DecodeFailure, Secret, stringify, toJSON } from "./std.js";
 import { headerView } from "./http.js";
 
+/** The ops the Rust server exposes to this isolate; `undefined` outside it. */
 const ops = globalThis.Deno?.core?.ops;
 
 /** `HttpMethod`'s cases, by index. */
@@ -107,6 +108,13 @@ export function received(E, status, code, headers, bytes) {
     headers: { map, all },
     bodyBytes: bytes,
     body: text,
+    /**
+     * Decodes the body as JSON with `codec`.
+     * @param {object} codec the codec of the expected type
+     * @returns {unknown} the decoded value
+     * @throws {object} `HttpError.decoding` when the body is not JSON or does
+     *   not decode; a panic inside the codec propagates unchanged
+     */
     json(codec) {
       let j;
       try {
@@ -135,6 +143,7 @@ function withFetchJson(E, client) {
   return client;
 }
 
+/** The id of the next outgoing fetch, which `op_k_fetch_abort` names. */
 let nextFetch = 1;
 
 /**
@@ -155,6 +164,15 @@ export function fetchHttpClient(E, S, codes, transport, abort) {
   const send = transport ?? ((id, w) => ops.op_k_fetch(id, { method: w.method, url: w.url, headers: w.headers, timeoutMs: w.timeoutMs }, w.body ?? new Uint8Array(0), w.body !== null));
   const cancel = abort ?? ((id) => ops.op_k_fetch_abort(id));
   return withFetchJson(E, {
+    /**
+     * Sends `r` through the fetch op. Resolves with the response for any HTTP
+     * status; rejects with `HttpError.timeout` or `HttpError.offline`, or a
+     * panic for a request the op refuses. A cancelled call never settles, so
+     * the awaiting code never resumes.
+     * @param {AbortSignal|null} c the call's cancellation signal
+     * @param {object} r an `HttpRequest`
+     * @returns {Promise<object>} a received `HttpResponse`
+     */
     send(c, r) {
       const wire = wireRequest(r);
       const id = nextFetch++;
@@ -191,6 +209,11 @@ function redactUrl(url) {
   return q < 0 ? url : url.slice(0, q) + "?…";
 }
 
+/**
+ * Logs `message` at warning level through `op_k_log`, when the server
+ * runtime provides it.
+ * @param {string} message
+ */
 function logWarning(message) {
   if (ops?.op_k_log) ops.op_k_log("warning", message);
 }
@@ -236,9 +259,16 @@ export function testHttpClient(E, S, codes) {
   const canned = new Map();
   const requests = [];
   return withFetchJson(E, {
+    /** A copy of every request sent so far, oldest first. */
     get requests() {
       return requests.slice();
     },
+    /**
+     * Records `r` and answers the canned response for its path, or throws the
+     * canned error; panics when nothing is canned for the path.
+     * @param {unknown} _c the cancellation context (unused)
+     * @param {object} r an `HttpRequest`
+     */
     async send(_c, r) {
       requests.push(r);
       const answer = canned.get(pathOf(r.url));
@@ -249,6 +279,12 @@ export function testHttpClient(E, S, codes) {
       if (answer.error !== undefined) throw answer.error;
       return answer.response;
     },
+    /**
+     * Cans `response` (an `HttpResponse` being built) for requests to `path`,
+     * adding the body's content type unless the response sets one.
+     * @param {string} path a URL path, without the query
+     * @param {object} response
+     */
     respond(path, response) {
       const [bytes, type] = bodyBytes(response.body);
       const headers = [...(response.headers ?? [])];
@@ -256,15 +292,33 @@ export function testHttpClient(E, S, codes) {
       const code = codeOf(response.status);
       canned.set(String(path), { response: received(E, statusOf(code), code, headers, bytes) });
     },
+    /**
+     * Cans a 200 JSON response holding `value` for requests to `path`.
+     * @param {object} codec the codec of `value`'s type
+     * @param {string} path
+     * @param {unknown} value
+     */
     serveJson(codec, path, value) {
       const bytes = new TextEncoder().encode(stringify(codec.encode(value)));
       canned.set(String(path), { response: received(E, statusOf(200), 200, [["content-type", "application/json"]], bytes) });
     },
+    /**
+     * Cans a plain-text response for requests to `path`, 200 unless `status`
+     * is given.
+     * @param {string} path
+     * @param {string} text
+     * @param {object|number} [status] an `HttpStatus` or a code
+     */
     serveText(path, text, status) {
       const code = status === undefined ? 200 : codeOf(status);
       const bytes = new TextEncoder().encode(String(text));
       canned.set(String(path), { response: received(E, statusOf(code), code, [["content-type", "text/plain; charset=utf-8"]], bytes) });
     },
+    /**
+     * Makes requests to `path` throw `error`.
+     * @param {string} path
+     * @param {unknown} error an `HttpError`
+     */
     fail(path, error) {
       canned.set(String(path), { error });
     },
@@ -331,6 +385,13 @@ export function smtpEmailProvider(EmailError, config, transport) {
   const sendMail = transport ?? ((settings, message) => ops.op_k_smtp_send(settings, message));
   let resolved = null;
   return {
+    /**
+     * Sends `email` over SMTP, resolving once the server accepts it.
+     * @param {unknown} _c the cancellation context (unused)
+     * @param {object} email an `Email`
+     * @throws {object} `EmailError.invalidMessage`, `EmailError.rejected` or
+     *   `EmailError.unavailable`
+     */
     async send(_c, email) {
       resolved ??= smtpSettings(config);
       const w = wireEmail(email, resolved.from);
@@ -362,14 +423,25 @@ export function recordingEmailProvider(EmailError) {
   const sent = [];
   let failure;
   return {
+    /** A copy of every message sent so far, oldest first. */
     get sent() {
       return sent.slice();
     },
+    /**
+     * Records `email`, or throws the simulated failure or `invalidMessage`
+     * for a subject with a line break.
+     * @param {unknown} _c the cancellation context (unused)
+     * @param {object} email an `Email`
+     */
     async send(_c, email) {
       if (failure !== undefined) throw failure;
       if (hasLineBreak(String(email.subject))) throw EmailError.invalidMessage("the subject contains a line break");
       sent.push(email);
     },
+    /**
+     * Makes every later `send` throw `error`.
+     * @param {object} error an `EmailError`
+     */
     simulateFailure(error) {
       failure = error;
     },
@@ -392,6 +464,16 @@ export function jobQueue(db, store) {
     return ops.op_k_jobs_enqueue(name, json, delay, tx);
   });
   return {
+    /**
+     * Stores one job of `kind` with its encoded payload, to run after `delay`
+     * milliseconds, in the open transaction if there is one.
+     * @param {unknown} _c the cancellation context (unused)
+     * @param {object|null} codec the payload's codec; `null` for no payload
+     * @param {{name: string}} kind the job kind
+     * @param {unknown} payload
+     * @param {number} [delay] milliseconds, 0 when absent
+     * @throws {KPanic} when the job can't be stored
+     */
     async enqueue(_c, codec, kind, payload, delay) {
       const json = codec ? stringify(codec.encode(payload)) : "{}";
       try {
@@ -411,9 +493,16 @@ export function jobQueue(db, store) {
 export function recordingJobQueue() {
   const queued = [];
   return {
+    /** Records the job without running it. */
     async enqueue(_c, _codec, kind, payload, delay) {
       queued.push({ name: String(kind.name), payload, delay: delay ?? 0 });
     },
+    /**
+     * The payloads of the jobs of `kind` enqueued so far, in order.
+     * @param {unknown} _codec the payload's codec (unused)
+     * @param {{name: string}} kind
+     * @returns {unknown[]}
+     */
     payloads(_codec, kind) {
       return queued.filter((q) => q.name === String(kind.name)).map((q) => q.payload);
     },
@@ -430,6 +519,16 @@ export function recordingJobQueue() {
  */
 export function inlineJobQueue(spec, c, db) {
   return {
+    /**
+     * Runs the job of `kind` with `payload` after the open transaction
+     * commits, or at once outside one.
+     * @param {AbortSignal|null} $c the caller's cancellation signal
+     * @param {object|null} codec the payload's codec
+     * @param {{name: string}} kind
+     * @param {unknown} payload
+     * @throws {KPanic} when the build has no such job, or it fails retryably
+     *   or panics
+     */
     async enqueue($c, codec, kind, payload) {
       const job = spec?.jobs?.[String(kind.name)];
       if (!job) panic(`InlineJobQueue: the build has no job named ${kind.name}`);

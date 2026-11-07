@@ -1,4 +1,4 @@
-//! The performance budgets of `docs/compiler/db.md` §13 that k_db owns:
+//! The performance budgets of `docs/compiler/db.md` §13 that `k_db` owns:
 //! rendering a typical query, and the driver's overhead per statement over
 //! the raw `rusqlite` call. Ignored by default; run in release:
 //!

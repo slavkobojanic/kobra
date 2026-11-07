@@ -29,7 +29,7 @@ pub struct ClientCaps {
 
 /// A snapshot of one project, with what converting results needs.
 pub struct Snap {
-    /// The analysis.
+    /// The project's analysis snapshot, which the request is answered from.
     pub analysis: Analysis,
     /// The project root.
     pub root: PathBuf,
@@ -189,7 +189,9 @@ pub fn goto(
 }
 
 /// `textDocument/implementation` across a workspace
-/// (`docs/design/40-workspaces-and-services.md`): the implementations in
+/// (`docs/design/40-workspaces-and-services.md`).
+///
+/// The answer is the implementations in
 /// the document's own project, and, for an interface or protocol (or a
 /// member of one) declared in a library, those in every sibling member
 /// that sees the same library file, so go to implementation on

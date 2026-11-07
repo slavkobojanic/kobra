@@ -1,5 +1,9 @@
-// The fake DOM (k:testing/dom) and the DOM renderer's binding helpers
-// (docs/compiler/runtime.md, "DOM renderer").
+/**
+ * @module k:/tests/dom.test.js
+ *
+ * The fake DOM (k:testing/dom) and the DOM renderer's binding helpers
+ * (docs/compiler/runtime.md, "DOM renderer").
+ */
 import { assert, assertEq, assertThrows, installDom, test } from "k:testing";
 import { attr, batch, classList, each, on, prop, renderEffect, root, signal, style, template, text, when } from "k:runtime";
 

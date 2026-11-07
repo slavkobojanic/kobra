@@ -4,12 +4,14 @@
 
 A constant is declared with `let`, a variable with `var`:
 
-```k
+```k,fails=K2011
+~func retry() {
 let maximumAttempts = 3
 var attempts = 0
 
 attempts += 1          // fine
 maximumAttempts = 4    // compile error: maximumAttempts is a let
+~}
 ```
 
 **Prefer `let`.** Most values never change after they're created, and a `let` tells the reader so.
@@ -20,11 +22,15 @@ K infers types from initial values. Write the type when there is no initial valu
 type isn't the one you want, or when the declaration is part of an API:
 
 ```k
+~struct Product {}
+~
+~func example() {
 let name = "Ana"                         // String
 let ratio = 0.75                         // Double
 let names: List<String> = []             // an empty list needs its element type
 var selected: Product? = nil             // an optional, initially empty
 let delay: Duration = 200ms
+~}
 ```
 
 A name can't be used before it has a value. The compiler checks this, so there is no "undefined".
@@ -42,6 +48,10 @@ component Stepper {
     @State var isFocused: Bool = false
 
     private var clicks = 0           // a plain var: ordinary, non-reactive data
+~
+~    view {
+~        text { "{value}" }
+~    }
 }
 ```
 
@@ -57,6 +67,20 @@ This rule means you can always tell, from the declaration alone, whether a field
 constants, so there is no `if var`:
 
 ```k
+~import k.auth.Session
+~import k.observe.Log
+~
+~struct Product {}
+~
+~enum CartError implements Error {
+~    case productNotFound
+~}
+~
+~interface Products {
+~    func product(_ id: Int) async -> Product?
+~}
+~
+~func example(session: Session, repository: Products, id: Int, state: LoadState<List<Product>>) async throws CartError {
 if let user = session.user {
     Log.info("signed in as {user.id}")
 }
@@ -66,9 +90,10 @@ guard let product = await repository.product(id) else {
 }
 
 match state {
-    case .loaded(let products) { … }
-    default { … }
+    case .loaded(let products) { Log.info("{products.count} products") }
+    default { Log.info("still loading") }
 }
+~}
 ```
 
 See [Control flow](control-flow.md) for `if let`, `guard` and `match`.
@@ -80,7 +105,15 @@ Constants and functions may be declared at the top level of a file, outside any 
 ```k
 let defaultPageSize = 50
 
-func clamp(value: Int, low: Int, high: Int) -> Int { … }
+func clamp(value: Int, low: Int, high: Int) -> Int {
+    if value < low {
+        return low
+    }
+    if value > high {
+        return high
+    }
+    return value
+}
 ```
 
 **A top-level `var` is a compile error.** Shared mutable state belongs in a

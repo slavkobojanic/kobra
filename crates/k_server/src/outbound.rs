@@ -1,11 +1,12 @@
-//! Outgoing I/O on behalf of K code: HTTP requests for `k.http.HttpClient`
-//! (`op_k_fetch`) and email over SMTP for `k.server.SmtpEmailProvider`
-//! (`op_k_smtp_send`). Designs: `docs/design/32-http-client.md` and
+//! Outgoing I/O on behalf of K code.
+//!
+//! That is HTTP requests for `k.http.HttpClient` (`op_k_fetch`) and email
+//! over SMTP for `k.server.SmtpEmailProvider` (`op_k_smtp_send`). Designs: `docs/design/32-http-client.md` and
 //! `docs/design/31-email.md`; the ops are specified in
 //! `docs/compiler/server.md` §4 and §18.
 //!
 //! Both functions are plain `async` Rust with no JavaScript in them, so they
-//! are tested directly against the fakes of [`crate::testing`]. Neither ever
+//! are tested directly against the fakes of [`crate::fakes`]. Neither ever
 //! panics on what a remote server sends: every failure is a value
 //! ([`FetchOutcome`], [`MailOutcome`]) whose message never contains a
 //! request's headers or body (where secrets travel).
@@ -121,6 +122,8 @@ pub enum FetchOutcome {
     },
 }
 
+/// The client type of outgoing requests: `hyper` over rustls, `http` and
+/// `https` alike.
 type HttpsClient = Client<hyper_rustls::HttpsConnector<HttpConnector>, Full<Bytes>>;
 
 thread_local! {
@@ -130,6 +133,11 @@ thread_local! {
     static CLIENT: RefCell<Option<HttpsClient>> = const { RefCell::new(None) };
 }
 
+/// This thread's [`CLIENT`], created on first use (with the webpki roots).
+///
+/// # Errors
+///
+/// The TLS configuration can't be built.
 fn client() -> Result<HttpsClient, String> {
     CLIENT.with(|c| {
         if let Some(client) = c.borrow().as_ref() {
@@ -208,6 +216,13 @@ pub async fn fetch(request: FetchRequest) -> FetchOutcome {
     }
 }
 
+/// Builds the `hyper` request for `request`, adding `user-agent: k-http/0.1`.
+///
+/// # Errors
+///
+/// A message for [`FetchOutcome::Invalid`]: a URL that isn't absolute
+/// `http(s)` with a host, an unsupported method, or a header name or value
+/// HTTP can't carry. Messages name headers, never their values.
 fn build(request: &FetchRequest) -> Result<hyper::Request<Full<Bytes>>, String> {
     let uri: hyper::Uri = request
         .url
@@ -241,6 +256,8 @@ fn build(request: &FetchRequest) -> Result<hyper::Request<Full<Bytes>>, String> 
     builder.body(body).map_err(|e| e.to_string())
 }
 
+/// The message of a client failure for [`FetchOutcome::Offline`]: whether
+/// the connection failed, followed by the chain of source errors.
 fn describe_client_error(e: &hyper_util::client::legacy::Error) -> String {
     use std::error::Error as _;
     let mut message = if e.is_connect() {
@@ -298,7 +315,7 @@ pub struct MailMessage {
     pub from: String,
     /// The recipient.
     pub to: String,
-    /// The subject.
+    /// The `Subject` header's text.
     pub subject: String,
     /// The plain-text part.
     pub text: String,
@@ -344,8 +361,9 @@ pub enum MailOutcome {
 ///
 /// # Errors
 ///
-/// [`MailOutcome::InvalidMessage`]'s reason: a line break in the subject
-/// (header injection), or an address lettre can't parse.
+/// [`MailOutcome::InvalidMessage`]'s reason: a line break in the subject or
+/// an address (header injection), an address lettre can't parse, or a
+/// message lettre refuses to build.
 pub fn build_message(m: &MailMessage) -> Result<lettre::Message, String> {
     use lettre::message::{Mailbox, MultiPart, SinglePart, header::ContentType};
     if m.subject.contains(['\r', '\n']) {

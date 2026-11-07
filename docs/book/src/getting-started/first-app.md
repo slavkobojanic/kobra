@@ -5,18 +5,21 @@ takes about five minutes.
 
 ## Creating a project
 
+> **Planned.** `k new hello` will create this skeleton for you. It isn't built yet, so for now you
+> write the five files by hand. They are short, and writing them once shows what every K app is made
+> of.
+
+A K app is a directory with a manifest, an app declaration and a `src/` directory. Create it:
+
 ```bash
-k new hello
+mkdir -p hello/src/home hello/src/theme
 cd hello
 ```
-
-`k new` creates a directory with everything an app needs and nothing it doesn't:
 
 ```text
 hello/
   k.toml                 the project manifest
-  App.k                  the app declaration: public app Hello { … }
-  .gitignore             ignores dist/, .k/ and .env
+  App.k                  the app declaration
   src/
     home/
       Home.k             the start page
@@ -25,10 +28,48 @@ hello/
       AppTheme.k         design tokens: colors, spacing, fonts
 ```
 
-There are no templates to choose from and nothing to configure. Every K app starts from the same
-skeleton, and the [project layout](project-layout.md) is fixed. The `app` is named after the project in
-upper camel case, so `k new my-shop` declares `public app MyShop`. Every generated file is already
-formatted and passes `k check`, including the test.
+The manifest, `k.toml`, names the app and the toolchain version it needs:
+
+```toml
+[package]
+name = "hello"
+title = "Hello"
+k = "0.1"
+version = "0.1.0"
+```
+
+`App.k` declares the app. It holds only what the compiler can't infer; this one names the document's
+language and nothing else:
+
+```k
+// App.k
+
+/// A first K app.
+public app Hello {
+    metadata {
+        locale(.english)
+    }
+}
+```
+
+`src/theme/AppTheme.k` declares the design tokens the styles use:
+
+```k
+// src/theme/AppTheme.k
+
+/// The app's design tokens.
+public theme AppTheme {
+    color primary: Color = #2563EB
+
+    space lg: Spacing = 24px
+
+    font body: Font = Font(family: "system-ui", size: 16px)
+}
+```
+
+The start page and its test follow below. The [project layout](project-layout.md) is fixed: every
+K project has this shape, and there is nothing to configure. Add a `.gitignore` that excludes `dist/`,
+`.k/` and `.env`.
 
 ## Running it
 
@@ -43,15 +84,18 @@ k dev
 the terminal.
 
 > **Planned.** State-preserving hot module replacement (HMR) isn't in the first compiler releases.
-> Today `k dev` rebuilds on save and the page reloads. With HMR, edits will apply without a reload, and component
-> state will be preserved, which is possible because K state is always declared explicitly with
-> `@State`.
+> Today `k dev` rebuilds and restarts the server on save, and you refresh the browser to see the change.
+> A build with errors is reported and the last good build keeps serving. With HMR, edits will apply
+> without a reload, and component state will be preserved, which is possible because K state is always
+> declared explicitly with `@State`.
 
 ## Reading the start page
 
-Open `src/home/Home.k`:
+Create `src/home/Home.k`:
 
 ```k
+// src/home/Home.k
+
 /// The app's start page.
 public page Home at "/" {
     @State var count: Int = 0
@@ -101,21 +145,30 @@ Even without reading the rest of this book, most of it is readable:
 Change the button and the paragraph:
 
 ```k
+~page Changed at "/changed" {
+~    @State var count: Int = 0
+~
+~    view {
 paragraph { "You clicked {count} times." }
 
 button { "Click me" }
     .on(click: { count += 1 })
+~    }
+~}
 ```
 
-Save, and the browser shows the change. Now make a mistake on purpose: change `.class(.page)` to
+Save and refresh the browser to see the change. Now make a mistake on purpose: change `.class(.page)` to
 `.class(.pgae)`. `k dev` reports a compile error, because `.pgae` isn't a class in this page's
 `style` block. Class names, like page names, element names and property values, are checked.
 
 ## Testing it
 
-`Home.test.k` sits next to `Home.k`:
+Tests sit next to the code they test. Create `src/home/Home.test.k`:
 
 ```k
+// src/home/Home.test.k
+~import k.test.render
+
 test Home {
     test "the button counts clicks" {
         let screen = render(Home())
@@ -144,9 +197,13 @@ save.
 k check
 ```
 
-`k check` is the one command CI runs. It type-checks the whole project, checks formatting, runs the
-tests, and compares the lockfiles with the code to catch breaking changes. If it passes, the project is
-ready to ship.
+`k check` is the gate CI runs. It parses and type-checks the whole project, applies every static
+rule of the language (layering, the server/client boundary, exhaustive matches, class and page
+references, doc links) and compares the lockfiles with the code to catch breaking changes. Run `k test`
+next to it in CI.
+
+> **Planned.** The design folds the formatting check and the test run into `k check`. Neither is part
+> of it yet: there is no formatter, and tests run with `k test`.
 
 ## Building for production
 

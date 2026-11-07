@@ -66,6 +66,10 @@ pub fn prepare(
 }
 
 /// Whether `resolution` can be renamed, and why not.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
 fn renameable(
     analysis: &Analysis,
     resolution: &Resolution,
@@ -107,6 +111,11 @@ fn renameable(
 
 /// Checks that `name` can name a K symbol: an ASCII identifier that is not
 /// a hard keyword or `_`.
+///
+/// # Errors
+///
+/// A message for the client saying why `name` isn't valid: not an
+/// identifier, `_`, or a keyword.
 pub fn valid_name(name: &str) -> Result<(), String> {
     let mut chars = name.chars();
     let first_ok = chars
@@ -204,6 +213,10 @@ pub fn rename(
 
 /// Adds the edits renaming page `old`'s cases (`.signIn`) in `Page` and
 /// `Endpoint`.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
 fn page_cases(
     analysis: &Analysis,
     old: &str,

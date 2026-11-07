@@ -1,8 +1,12 @@
-// Signals as the client UI uses them: batching, glitch-free reads, diamond
-// dependencies, effect cleanup, async effect cancellation, `untracked` and
-// the lowered form of `@Effect(on:)` (docs/compiler/runtime.md §3,
-// docs/design/03-reactivity.md). The basics are in signals.test.js; these
-// cases pin the guarantees generated components rely on.
+/**
+ * @module k:/tests/ui-signals.test.js
+ *
+ * Signals as the client UI uses them: batching, glitch-free reads, diamond
+ * dependencies, effect cleanup, async effect cancellation, `untracked` and
+ * the lowered form of `@Effect(on:)` (docs/compiler/runtime.md §3,
+ * docs/design/03-reactivity.md). The basics are in signals.test.js; these
+ * cases pin the guarantees generated components rely on.
+ */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import * as k from "k:runtime";
 import {
@@ -504,6 +508,7 @@ test("a user effect runs after the bindings of the same write", () => {
   assertDeepEq(seen, ["effect saw a for a", "effect saw b for b"]);
 });
 
+/** Asserts that the harness installed the fake DOM, which the tests calling it use. */
 function installTextDom() {
   // The harness installs a fresh fake DOM before each test; this only
   // documents that the test uses it.

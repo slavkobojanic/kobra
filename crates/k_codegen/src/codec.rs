@@ -360,6 +360,9 @@ fn json_key(g: &Gen<'_>, f: k_sema::view::MemberId) -> Option<String> {
     None
 }
 
+/// `true` for the types whose JSON form is their runtime value (`Int`,
+/// `String`, `Bool`), so a struct encoder copies the field instead of
+/// calling its codec.
 fn is_identity_codec(g: &Gen<'_>, t: &Type) -> bool {
     g.is_int(t) || g.is_string(t) || g.is_bool(t)
 }

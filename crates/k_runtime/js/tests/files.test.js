@@ -1,12 +1,17 @@
-// `k.device.BrowserFiles` (docs/design/42-files.md; docs/compiler/runtime.md §12.4): the picker is a
-// hidden file input with the types' `accept`, the chosen files come back read into `Bytes`, closing
-// the picker or a file over the limit is a typed error, and `save` downloads through an object URL.
+/**
+ * @module k:/tests/files.test.js
+ *
+ * `k.device.BrowserFiles` (docs/design/42-files.md; docs/compiler/runtime.md §12.4): the picker is a
+ * hidden file input with the types' `accept`, the chosen files come back read into `Bytes`, closing
+ * the picker or a file over the limit is a typed error, and `save` downloads through an object URL.
+ */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import { BrowserFiles, acceptOf } from "k:/runtime/files.js";
 import { unitCase } from "k:runtime";
 
 const json = unitCase(0);
 const text = unitCase(1);
+/** A `FileType.other` case of `mediaType` and `fileExtension`. */
 const other = (mediaType, fileExtension) => ({ $: 8, mediaType, fileExtension });
 
 /** A browser `File` of `content`. */
@@ -105,6 +110,7 @@ test("save downloads the bytes as the file's name through an object URL", () => 
   const timers = [];
   const saved = [globalThis.URL, globalThis.Blob, globalThis.setTimeout];
   globalThis.Blob = class {
+    /** Records the blob's parts and media type. */
     constructor(parts, options) {
       this.parts = parts;
       this.type = options.type;

@@ -77,6 +77,13 @@ pub fn status(args: &ProjectArgs) -> ExitCode {
     database(&args.project, false)
 }
 
+/// The body of `k migrate apply` (`migrate`) and `k migrate status`
+/// (`!migrate`): builds the project at `root` for development, resolves
+/// `DATABASE_URL` from the development environment, connects, and either
+/// applies the pending migrations or lists each one as applied or pending.
+/// Exits 1 for a project without a database, a configuration problem or a
+/// database failure, and with the compiler's code when the project has
+/// errors.
 #[cfg(feature = "server")]
 fn database(root: &Path, migrate: bool) -> ExitCode {
     use k_codegen::{CodegenError, Entry, Environment, Options, Profile, generate};
@@ -213,6 +220,8 @@ fn database(root: &Path, migrate: bool) -> ExitCode {
     }
 }
 
+/// Without the server runtime: reports that the database commands are
+/// unavailable and exits 2.
 #[cfg(not(feature = "server"))]
 fn database(_root: &Path, _migrate: bool) -> ExitCode {
     eprintln!("error: this `k` was built without the server runtime (feature `server`)");

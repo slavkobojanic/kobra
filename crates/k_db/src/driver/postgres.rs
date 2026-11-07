@@ -15,11 +15,20 @@ use crate::value::{Row, Value};
 
 /// A Postgres connection; its I/O task runs on the tokio runtime.
 pub struct PostgresDatabase {
+    /// The `tokio_postgres` client; the connection task spawned by
+    /// [`PostgresDatabase::connect`] drives its I/O and ends when it is dropped.
     client: Client,
 }
 
+/// The error type `tokio_postgres`'s [`ToSql`] and [`FromSql`] traits use.
 type BoxError = Box<dyn Error + Sync + Send>;
 
+/// Parses UUID text (hyphens anywhere are ignored) into its 16 bytes, for
+/// binding a [`Value::Text`] to a `uuid` parameter.
+///
+/// # Errors
+///
+/// The text without hyphens isn't exactly 32 hexadecimal digits.
 fn parse_uuid(text: &str) -> Result<[u8; 16], BoxError> {
     let hex: String = text.chars().filter(|c| *c != '-').collect();
     if hex.len() != 32 {
@@ -32,6 +41,11 @@ fn parse_uuid(text: &str) -> Result<[u8; 16], BoxError> {
     Ok(out)
 }
 
+/// Formats 16 UUID bytes in the canonical lowercase `8-4-4-4-12` layout.
+///
+/// # Panics
+///
+/// If `b` is shorter than 16 bytes; Postgres always sends 16 for a `uuid`.
 fn format_uuid(b: &[u8]) -> String {
     let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
     format!(
@@ -123,6 +137,10 @@ impl<'a> FromSql<'a> for Raw {
     }
 }
 
+/// Maps a driver error to a [`DbError`]: a unique violation becomes
+/// [`DbError::UniqueViolation`] with the table, column and constraint the
+/// server reported, a closed connection [`DbError::Connection`], and anything
+/// else [`DbError::Statement`] with the server's message.
 fn map_error(error: tokio_postgres::Error) -> DbError {
     if error.code() == Some(&SqlState::UNIQUE_VIOLATION) {
         let db = error.as_db_error();
@@ -144,6 +162,19 @@ fn map_error(error: tokio_postgres::Error) -> DbError {
     }
 }
 
+/// Reads column `i` of `row` as a [`Value`]: integers and floats by width,
+/// `uuid` as canonical text, and `numeric`, timestamps and JSON decoded from
+/// their binary form to the text SQLite would store.
+///
+/// # Errors
+///
+/// [`DbError::UnsupportedType`] for a column type K never declares, or
+/// [`DbError::Statement`] when the value can't be decoded.
+///
+/// # Panics
+///
+/// If `i` is not a column index of `row`; [`PostgresDatabase::query`] only
+/// passes indexes below `row.columns().len()`.
 fn read(row: &tokio_postgres::Row, i: usize) -> Result<Value, DbError> {
     let ty = row.columns()[i].type_().clone();
     let get = |e: tokio_postgres::Error| DbError::Statement(e.to_string());
@@ -203,6 +234,15 @@ fn read(row: &tokio_postgres::Row, i: usize) -> Result<Value, DbError> {
 }
 
 impl PostgresDatabase {
+    /// Connects to the server at `url` (a `postgres://` URL), with
+    /// [`DatabaseOptions::password`] overriding any password in the URL, and
+    /// spawns the connection's I/O task on the current tokio runtime.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::InvalidUrl`] for a URL `tokio_postgres` can't parse (the URL
+    /// itself is not echoed, it may hold a password), or
+    /// [`DbError::Connection`] when connecting or authenticating fails.
     pub(super) async fn connect(
         url: &str,
         options: &DatabaseOptions,
@@ -224,10 +264,19 @@ impl PostgresDatabase {
         Ok(PostgresDatabase { client })
     }
 
+    /// Borrows the bind values as the trait objects `tokio_postgres` takes.
     fn refs(params: &[Value]) -> Vec<&(dyn ToSql + Sync)> {
         params.iter().map(|p| p as &(dyn ToSql + Sync)).collect()
     }
 
+    /// Runs `sql` and returns the number of rows it affected. Without
+    /// parameters it uses the simple query protocol (so `sql` may hold several
+    /// statements, and the counts are summed); with parameters, one prepared
+    /// statement.
+    ///
+    /// # Errors
+    ///
+    /// The statement's failure, mapped by [`map_error`].
     pub(super) async fn execute(&self, sql: &str, params: &[Value]) -> Result<u64, DbError> {
         if params.is_empty() {
             // Transaction control and DDL: the simple protocol accepts
@@ -248,6 +297,13 @@ impl PostgresDatabase {
             .map_err(map_error)
     }
 
+    /// Runs one prepared statement and returns its rows, each with the column
+    /// names in result order.
+    ///
+    /// # Errors
+    ///
+    /// The statement's failure, mapped by [`map_error`], or a column [`read`]
+    /// can't decode.
     pub(super) async fn query(&self, sql: &str, params: &[Value]) -> Result<Vec<Row>, DbError> {
         let rows = self
             .client

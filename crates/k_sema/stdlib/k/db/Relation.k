@@ -3,6 +3,6 @@
 @Annotation
 public struct Relation {
     /// The field of the target entity this to-many relation is the other
-    /// side of, when it isn't unique.
+    /// side of; needed only when the target has several relations back.
     let inverse: DeclarationName? = nil
 }

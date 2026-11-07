@@ -6,6 +6,6 @@
 /// that injects it.
 @Annotation
 public struct Platform {
-    /// Where the interface can be used.
+    /// Where the interface can be used ([`PlatformSide`]).
     let side: PlatformSide
 }

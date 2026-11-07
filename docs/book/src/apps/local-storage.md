@@ -6,54 +6,60 @@ typed, because browser storage really does fail: it can be full, blocked, or hol
 decodes.
 
 ```k
+// examples/todos/src/todo/TodoService.k
 public service TodoService {
     @Inject let storage: LocalStorage
-
-    // Users' saved todos live under this key.
+    // ...
+    // Users' saved todos live under this key. Its name and the shape of
+    // `Todo` are recorded in storage.lock, so `k check` fails if a change
+    // would make every saved list unreadable.
     private let savedTodos: StorageKey<List<Todo>> = StorageKey(name: "todos")
-
+    // ...
     @State var items: List<Todo> = []
+    // ...
     @State var problem: StorageProblem? = nil
-
+    // ...
     init() {
         restore()
     }
-
+    // ...
     func restore() {
         do {
             items = try storage.read(key: savedTodos) ?? []
+            problem = nil
         } catch .unreadable {
+            items = []
             problem = .unreadable
         } catch .unavailable {
+            items = []
             problem = .unavailable
         }
     }
-
-    func add(title: String) {
-        items.append(Todo(id: Uuid.random(), title: title, isDone: false))
-        save()
-    }
-
+    // ...
     private func save() {
         do {
             try storage.write(key: savedTodos, value: items)
+            problem = nil
         } catch .quotaExceeded {
             problem = .full
         } catch .unavailable {
             problem = .unavailable
         }
     }
+    // ...
 }
 ```
 
 ## `LocalStorage`
 
 ```k
+// crates/k_sema/stdlib/k/storage/LocalStorage.k
 public interface LocalStorage {
+    // ...
     func read<T>(key: StorageKey<T>) throws StorageReadError -> T? where T implements Codable
-
+    // ...
     func write<T>(key: StorageKey<T>, value: T) throws StorageWriteError where T implements Codable
-
+    // ...
     func remove<T>(key: StorageKey<T>)
 }
 ```
@@ -79,10 +85,30 @@ public interface LocalStorage {
 ## Keys
 
 ```k
+~import k.storage.StorageKey
+~
+~import k.storage.LocalStorage
+~import k.storage.StorageReadError
+~import k.storage.StorageWriteError
+~
+~struct Todo implements Codable {
+~    let title: String
+~}
+~
+~service Todos {
+~    @Inject let storage: LocalStorage
+~    @State var items: List<Todo> = []
 private let savedTodos: StorageKey<List<Todo>> = StorageKey(name: "todos")
 
+~
+~    func reload() throws StorageReadError {
 let saved = try storage.read(key: savedTodos)          // List<Todo>?
+~    }
+~
+~    func persist() throws StorageWriteError {
 try storage.write(key: savedTodos, value: items)        // value must be a List<Todo>
+~    }
+~}
 ```
 
 - **`StorageKey<T>` pairs a name with the type stored under it,** so a read can't ask for a different type
@@ -167,14 +193,24 @@ fields = [
 ## Errors
 
 ```k
-public enum StorageReadError implements Error {
-    case unavailable        // storage is blocked or disabled in this browser
-    case unreadable         // something is stored, but it doesn't decode as T
+// crates/k_sema/stdlib/k/storage/StorageReadError.k
+/// Why a local-storage read ([`LocalStorage.read`]) failed.
+public enum StorageReadError implements Error, Codable {
+    /// Storage is blocked or disabled in this browser.
+    case unavailable
+    /// Something is stored, but it doesn't decode as the key's type.
+    case unreadable
 }
+```
 
-public enum StorageWriteError implements Error {
-    case unavailable        // storage is blocked or disabled in this browser
-    case quotaExceeded      // the origin's storage quota is used up
+```k
+// crates/k_sema/stdlib/k/storage/StorageWriteError.k
+/// Why a local-storage write ([`LocalStorage.write`]) failed.
+public enum StorageWriteError implements Error, Codable {
+    /// Storage is blocked or disabled in this browser.
+    case unavailable
+    /// The origin's storage quota is used up.
+    case quotaExceeded
 }
 ```
 
@@ -195,18 +231,20 @@ test. A test reaches it with `@Inject let storage: MemoryStorage`:
 | `stopFailing()` | ends both simulations |
 
 ```k
+// examples/todos/src/todo/TodoService.test.k
 test TodoService {
     @Inject let storage: MemoryStorage
     @Inject let todos: TodoService
-
+    // ...
     test "unreadable saved data starts an empty list and says so" {
         storage.writeRaw(name: "todos", text: "{{ this is not JSON")
 
         todos.restore()
 
-        expect todos.problem == .unreadable
         expect todos.items.isEmpty
+        expect todos.problem == .unreadable
     }
+    // ...
 }
 ```
 

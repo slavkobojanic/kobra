@@ -4,7 +4,7 @@ Drag and drop is three components in `k.drag`: **`Draggable`** makes its content
 **`DropTarget`** is a region that accepts drops, and **`ReorderableList`** is a list whose items
 reorder within it and move to other lists. Every one of them works with a mouse, a pen, a finger and
 the keyboard, and announces each keyboard step to screen readers. The design is in
-[41-drag-and-drop.md](../../../design/41-drag-and-drop.md).
+`docs/design/41-drag-and-drop.md`.
 
 ## What is dragged: `DragKind`
 
@@ -12,16 +12,20 @@ A drag has a **kind**: a name paired with the type of its payload, the way a `St
 with the type stored under it.
 
 ```k
+// examples/kanban/src/board/cardDrag.k
 import k.drag.DragKind
 
-// Every card drag carries a `Card`.
+/// The drag of a card: every column's list has this kind, so cards move
+/// between columns, and nothing else can be dropped on one.
 public let cardDrag: DragKind<Card> = DragKind(name: "card")
 ```
 
 A region accepts only drags of its own kind, and its handler receives the kind's payload type, so a
 drop can never deliver the wrong value. Both mistakes are compile errors:
 
-```k
+```k,ignore
+~import k.drag.Draggable
+~import k.drag.DropTarget
 Draggable(kind: cardDrag, payload: column, label: column.title) { … }   // error: a Column isn't a Card
 
 DropTarget(kind: cardDrag, label: "Trash") { … }
@@ -34,11 +38,16 @@ DropTarget(kind: cardDrag, label: "Trash") { … }
 `key`, like `for … key`. Lists of the same kind exchange items:
 
 ```k
-import k.drag.ReorderableList
-
+// examples/kanban/src/pages/ColumnView.k
 ReorderableList(kind: cardDrag, id: column.id.text, items: column.cards, key: { card => card.id.text }, label: column.title)
     .row { card =>
-        CardView(card: card)
+        if editing == card.id {
+            CardEditor(board: board, card: card)
+                .on(closed: { closed.emit() })
+        } else {
+            CardView(card: card, isDone: isDone)
+                .on(edit: { edit.emit(card.id) })
+        }
     }
     .itemLabel { card => card.title }
     .on(moved: { move => boards.moveCard(board: board, move: move) })
@@ -49,10 +58,25 @@ item, with a `ListMove`: the item, the list and position it came from, and the l
 was dropped at. Your service applies it, and both lists redraw from the new state:
 
 ```k
+// examples/kanban/src/board/BoardService.k
 func moveCard(board: BoardId, move: ListMove<Card>) {
-    // …find the two columns by `move.fromList` and `move.toList`…
-    let card = columns[from].cards.remove(at: move.fromIndex)
-    columns[to].cards.insert(card, at: move.toIndex)
+    guard let b = indexOfBoard(id: board) else {
+        return
+    }
+
+    guard let from = indexOfColumn(board: b, text: move.fromList) else {
+        return
+    }
+
+    guard let to = indexOfColumn(board: b, text: move.toList) else {
+        return
+    }
+    // ...
+    let card = boards[b].columns[from].cards.remove(at: move.fromIndex)
+    var at = move.toIndex
+    // ...
+    boards[b].columns[to].cards.insert(card, at: at)
+    changed(board: b)
 }
 ```
 
@@ -64,13 +88,32 @@ the end. `accepts` refines which items a list takes from other lists:
 ## Drop targets
 
 ```k
+~import k.drag.DragKind
 import k.drag.DropTarget
+~
+~struct Card implements Codable {
+~    let id: Int
+~    let isDone: Bool
+~}
+~
+~let cardDrag: DragKind<Card> = DragKind(name: "card")
+~
+~service Boards {
+~    func archive(id: Int) {}
+~}
+~
+~component ArchiveZone {
+~    @Inject let boards: Boards
+~
+~    view {
 
 DropTarget(kind: cardDrag, label: "Archive") {
     text { "Drop a card here to archive it" }
 }
 .accepts { card => card.isDone }
 .on(dropped: { card => boards.archive(id: card.id) })
+~    }
+~}
 ```
 
 A row of a `ReorderableList` can be dropped on a `DropTarget` of its kind (a trash zone), and so can a
@@ -99,24 +142,31 @@ Tests drag the way users do. `element.drag(to: other)` presses, moves and releas
 the keyboard path is `press`:
 
 ```k
-test "a card moves to Doing with the keyboard" {
+// examples/kanban/src/pages/BoardPage.test.k
+test "Space, ArrowRight and Space move a card to the next column" {
+    let id = try seeded()
     let screen = render(BoardPage(id: id.value))
-    let card = screen.list(named: "To do").item(containing: "Write tests")
+    let card = screen.list(named: "To do").item(containing: "A")
 
     card.press(.space)
     card.press(.arrowRight)
     card.press(.space)
 
+    expect screen.list(named: "To do").items().count == 1
     expect screen.list(named: "Doing").items().count == 1
+    // ...
 }
-
-test "a card dragged onto Done is done" {
+// ...
+test "a mouse drag onto the Done column finishes a card, and the progress follows" {
+    let id = try seeded()
     let screen = render(BoardPage(id: id.value))
 
-    screen.item(containing: "Ship").drag(to: screen.list(named: "Done"))
+    screen.list(named: "To do").item(containing: "B").drag(to: screen.list(named: "Done"))
 
     expect screen.list(named: "Done").items().count == 1
+    expect screen.text("Progress: 1 of 2 cards done").isVisible
+    // ...
 }
 ```
 
-The Kanban example (`examples/kanban` in the repository, [below](kanban.md)) uses all of it.
+The Kanban example (`examples/kanban` in the repository, [its chapter](../examples/kanban.md)) uses all of it.

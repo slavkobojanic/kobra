@@ -102,6 +102,12 @@ export function BrowserFiles() {
   return {
     open: async (_c, types) => (await pick(types, false))[0],
     openAll: (_c, types) => pick(types, true),
+    /**
+     * Downloads `file` through a temporary hidden link to a blob URL, which
+     * is revoked ten seconds later.
+     * @param {{bytes: Uint8Array, name: string, mediaType: string}} file
+     * @throws {object} `FileSaveError.unavailable` when the browser refuses
+     */
     save(file) {
       try {
         const url = URL.createObjectURL(new Blob([file.bytes], { type: file.mediaType || "application/octet-stream" }));

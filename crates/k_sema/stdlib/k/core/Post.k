@@ -1,3 +1,4 @@
-/// Marks the `POST` handler of an endpoint page.
+/// Marks the `POST` handler of an endpoint page
+/// (`docs/design/27-endpoint-pages.md`); see also [`Get`].
 @Annotation
 public struct Post {}

@@ -122,9 +122,14 @@ const fn property(
     }
 }
 
+/// The value types of spacing-like properties (`padding`, `gap`, the
+/// insets `top`/`left`/…): spacing tokens, lengths and percentages.
 const SPACING: &[&str] = &["Spacing", "Length", "Percent"];
+/// The value types of color properties.
 const COLOR: &[&str] = &["Color"];
+/// The value types of length properties: lengths and percentages.
 const LENGTH: &[&str] = &["Length", "Percent"];
+/// For properties whose values are keywords only (no K type).
 const NONE: &[&str] = &[];
 
 /// Every supported property, sorted by K name.

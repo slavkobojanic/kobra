@@ -1,11 +1,15 @@
-// Regressions found by adversarial testing of the runtime
-// (docs/compiler/testing.md §7: runtime bugs are pinned next to the code).
-// An open finding is a `test.pending` with the behaviour the design
-// requires: it passes while the bug is there and fails once it is fixed,
-// with a message to turn it into `test`; a fixed one is a plain `test`
-// that guards the fix. The generated-code findings
-// (client routing, keyed rows, rpc decoding, XSS) are in
-// crates/k_server/tests/regressions/.
+/**
+ * @module k:/tests/regressions.test.js
+ *
+ * Regressions found by adversarial testing of the runtime
+ * (docs/compiler/testing.md §7: runtime bugs are pinned next to the code).
+ * An open finding is a `test.pending` with the behaviour the design
+ * requires: it passes while the bug is there and fails once it is fixed,
+ * with a message to turn it into `test`; a fixed one is a plain `test`
+ * that guards the fix. The generated-code findings
+ * (client routing, keyed rows, rpc decoding, XSS) are in
+ * crates/k_server/tests/regressions/.
+ */
 import { assert, assertEq, test } from "k:testing";
 import { batch, codecs, DecodeFailure, each, root, signal, when } from "k:runtime";
 import { requestText } from "k:runtime/server";

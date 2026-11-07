@@ -1,8 +1,8 @@
-/// Collects cross-field failures in `validate(rules:)`.
+/// Collects cross-field failures in [`Validatable.validate(rules:)`].
 @Native
 public class Rules {
     /// Records `message` under `field` unless `condition` holds. `field` is
-    /// a case of the struct's generated `FieldName` enum:
+    /// a case of the struct's generated [`FieldName`] enum:
     /// `rules.check(confirm == password, field: .confirmPassword, message: "…")`.
     func check(_ condition: Bool, field: FieldName, message: String)
 }

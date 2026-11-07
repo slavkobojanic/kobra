@@ -35,7 +35,7 @@ k = "0.1"                                  # minimum toolchain version
 version = "0.1.0"                          # apps only, optional
 
 [dependencies]
-"github.com/acme/charts" = "v1.2.0"        # module path = git tag, written by `k add`
+"github.com/acme/charts" = "v1.2.0"        # module path = git tag
 
 [aliases]
 charts = "github.com/acme/charts"          # enables `import charts.LineChart`
@@ -111,7 +111,7 @@ time. [Project files and lockfiles](../reference/project-files.md) describes eac
 
 ## Ignored files
 
-`k new` generates a `.gitignore` that excludes:
+A project's `.gitignore` excludes:
 
 - `dist/`, the build output;
 - `.k/`, the toolchain's local state, such as the SQLite database `k dev` uses;
@@ -123,12 +123,7 @@ it holds placeholders, never working values (see
 
 ## Creating a project
 
-```bash
-k new hello                                  # an app in ./hello
-k new --library github.com/acme/charts       # a library package in ./charts
-```
-
-`k new` has no templates and no other options. It refuses to write into a directory that isn't empty,
-doesn't initialize version control, and writes no lockfiles; they appear when the toolchain first needs
-them. The library skeleton holds a `k.toml`, a `.gitignore` and one documented public function with a
-test, so `k check` has something to check.
+> **Planned.** `k new hello` will create an app skeleton in `./hello`, and
+> `k new --library github.com/acme/charts` a library package in `./charts`. `k new` isn't built yet;
+> [Your first app](first-app.md#creating-a-project) shows the files to write by hand, and the apps in
+> `examples/` are complete projects to start from.

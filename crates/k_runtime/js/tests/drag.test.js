@@ -1,7 +1,11 @@
-// `k.drag` in the browser (docs/design/41-drag-and-drop.md; docs/compiler/runtime.md §12.3):
-// `Draggable`, `DropTarget` and `ReorderableList` in the fake DOM. Pointer drags (mouse and touch)
-// and the keyboard alternative reach the same events with the same payloads; nothing moves until the
-// drop, the app's state change redraws, and every keyboard step is announced.
+/**
+ * @module k:/tests/drag.test.js
+ *
+ * `k.drag` in the browser (docs/design/41-drag-and-drop.md; docs/compiler/runtime.md §12.3):
+ * `Draggable`, `DropTarget` and `ReorderableList` in the fake DOM. Pointer drags (mouse and touch)
+ * and the keyboard alternative reach the same events with the same payloads; nothing moves until the
+ * drop, the app's state change redraws, and every keyboard step is announced.
+ */
 import { assert, assertDeepEq, assertEq, installDom, test } from "k:testing";
 import { DragKind$init, Draggable, DropTarget, ReorderableList } from "k:/runtime/drag.js";
 import { flush, hydrate, root, signal, textNode } from "k:runtime";

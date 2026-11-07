@@ -198,11 +198,16 @@ pub(crate) struct Member {
     pub(crate) name: String,
     /// Its kind.
     pub(crate) kind: MemberKind,
-    /// `true` for `static` members and enum cases.
+    /// `true` for members reached through the type rather than an instance:
+    /// `static` members, enum cases, `init`, theme tokens and every
+    /// generated member except `copy(…)`.
     pub(crate) is_static: bool,
     /// `true` for `var` fields.
     pub(crate) is_var: bool,
-    /// `true` for fields with a default value and parameters-like optionals.
+    /// `true` for fields written with an initializer (`let x = 1`) and for
+    /// theme tokens, whose value is their default. An optional field without
+    /// an initializer is `false` here; callers that treat it as omittable
+    /// check its type as well.
     pub(crate) has_default: bool,
     /// The written visibility.
     pub(crate) visibility: Visibility,
@@ -348,6 +353,10 @@ impl<'a> Program<'a> {
         program
     }
 
+    /// Returns the module with dotted `path`, creating it on first use.
+    ///
+    /// `k.test` and its submodules are always test-only; `stdlib` and
+    /// `test_only` are taken from the first call for a path.
     fn module(&mut self, path: &str, stdlib: bool, test_only: bool) -> ModId {
         if let Some(&id) = self.module_by_path.get(path) {
             return id;
@@ -365,6 +374,11 @@ impl<'a> Program<'a> {
         id
     }
 
+    /// Adds a parsed file (stdlib or project) and its top-level declarations.
+    ///
+    /// Each named declaration goes into its module's names (test files' into
+    /// the test names), public non-test ones also into the qualified-name
+    /// table (the first wins); extensions are listed separately.
     #[allow(clippy::too_many_arguments)]
     fn add_file(
         &mut self,
@@ -424,6 +438,11 @@ impl<'a> Program<'a> {
         }
     }
 
+    /// Adds one top-level item of `file` as a declaration, with its
+    /// annotations, generic parameters and members; returns its id.
+    ///
+    /// An `extend` block becomes an [`DeclKind::Extension`] and a top-level
+    /// test case a nameless test suite.
     fn add_item(&mut self, file: FileIx, item: &ast::Item) -> DeclId {
         let id = DeclId(u32::try_from(self.decls.len()).unwrap_or(u32::MAX));
         let node = item.syntax().clone();
@@ -480,12 +499,19 @@ impl<'a> Program<'a> {
         id
     }
 
+    /// Adds a generic parameter called `name`, declared by `owner`.
     fn add_generic(&mut self, name: String, owner: GenOwner) -> GenId {
         let id = GenId(u32::try_from(self.generics.len()).unwrap_or(u32::MAX));
         self.generics.push(Generic { name, owner });
         id
     }
 
+    /// Adds one member of `owner` (field, computed property, function,
+    /// initializer, case, rpc, token …) from its syntax.
+    ///
+    /// Functions are also grouped by name in [`Decl::funcs`] (overloads). In
+    /// the member-name table a function keeps the first entry of its name, any
+    /// other member (not an initializer) replaces a function of the same name.
     fn add_member(&mut self, owner: DeclId, member: &ast::Member) {
         let node = member.syntax().clone();
         let (kind, name_token, is_static, is_var, has_default, keyword, category) = match member {
@@ -624,6 +650,8 @@ impl<'a> Program<'a> {
         id
     }
 
+    /// Builds the prelude: the public declarations of `k.core`, then the
+    /// [`PRELUDE_REEXPORTS`] from other stdlib modules.
     fn build_prelude(&mut self) {
         if let Some(&core) = self.module_by_path.get(CORE_MODULE) {
             for (name, decls) in &self.modules[core.0 as usize].names {
@@ -753,6 +781,7 @@ fn annotation_names(node: &SyntaxNode) -> Vec<String> {
         .collect()
 }
 
+/// Returns the names of a declaration's generic parameters, in order.
 fn generic_names(node: &SyntaxNode) -> Vec<String> {
     node.children()
         .find(|c| c.kind() == SyntaxKind::GenericParamList)
@@ -765,6 +794,9 @@ fn generic_names(node: &SyntaxNode) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Returns the member list of a declaration item (extensions included);
+/// `None` for top-level functions, constants and test cases, which have
+/// none.
 fn member_list(item: &ast::Item) -> Option<ast::MemberList> {
     match item {
         ast::Item::ComponentDecl(d) => d.member_list(),
@@ -813,6 +845,8 @@ pub(crate) fn item_name(item: &ast::Item) -> Option<SyntaxToken> {
     }
 }
 
+/// Collects the imports of a file, in order, with their ranges and
+/// whether each path is plain (identifiers and dots only).
 fn collect_imports(root: &SyntaxNode) -> Vec<ImportInfo> {
     let mut imports = Vec::new();
     for import in root.children().filter_map(ast::Import::cast) {

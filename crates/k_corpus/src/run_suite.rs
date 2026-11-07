@@ -66,6 +66,11 @@ pub fn stdout_line(level: &str, message: &str) -> String {
     )
 }
 
+/// Compares an expected and an actual result line.
+///
+/// `returns VALUE` and `throws VALUE` lines compare their values as JSON
+/// when both parse, so formatting differences such as key spacing do not
+/// matter; anything else must match exactly.
 fn results_match(expected: &str, actual: &str) -> bool {
     let split = |s: &str| s.split_once(' ').map(|(a, b)| (a.to_owned(), b.to_owned()));
     match (split(expected), split(actual)) {

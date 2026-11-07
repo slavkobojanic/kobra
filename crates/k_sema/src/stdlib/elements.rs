@@ -108,44 +108,54 @@ pub const UNIVERSAL_ATTRIBUTES: &[Param] = &[
     },
 ];
 
+/// The `label:` attribute.
 const LABEL: Param = Param {
     label: "label",
     ty: "String",
     doc: "a visible label on form controls; the accessible name of landmarks and groups",
 };
+/// The `role:` attribute (an `AriaRole`).
 const ROLE: Param = Param {
     label: "role",
     ty: "AriaRole",
     doc: "a role no semantic element expresses (`.alert`, `.status`, …)",
 };
+/// The `disabled:` attribute of controls.
 const DISABLED: Param = Param {
     label: "disabled",
     ty: "Bool",
     doc: "disables the control",
 };
+/// The `placeholder:` attribute of text inputs.
 const PLACEHOLDER: Param = Param {
     label: "placeholder",
     ty: "String",
     doc: "the placeholder text of a text input",
 };
+/// The `expanded:` attribute (`aria-expanded`) of buttons and links.
 const EXPANDED: Param = Param {
     label: "expanded",
     ty: "Bool",
     doc: "`aria-expanded`",
 };
 
+/// The `click` event.
 const CLICK: Event = Event {
     name: "click",
     payload: "Void",
 };
+/// The `focus` event.
 const FOCUS: Event = Event {
     name: "focus",
     payload: "Void",
 };
+/// The `blur` event.
 const BLUR: Event = Event {
     name: "blur",
     payload: "Void",
 };
+/// The pointer events of interactive elements: `click`, `mouseEnter`,
+/// `mouseLeave`.
 const POINTER: &[Event] = &[
     CLICK,
     Event {
@@ -157,11 +167,16 @@ const POINTER: &[Event] = &[
         payload: "Void",
     },
 ];
+/// The focus events of form controls.
 const CONTROL_EVENTS: &[Event] = &[FOCUS, BLUR];
 
+/// The attributes of plain content elements.
 const CONTENT_ATTRIBUTES: &[Param] = &[ROLE, LABEL];
+/// The attributes of landmark elements (`main`, `nav`, …).
 const LANDMARK_ATTRIBUTES: &[Param] = &[LABEL, ROLE];
+/// The attributes of text inputs.
 const TEXT_INPUT_ATTRIBUTES: &[Param] = &[LABEL, PLACEHOLDER, DISABLED];
+/// The attributes of other form controls.
 const CONTROL_ATTRIBUTES: &[Param] = &[LABEL, DISABLED];
 
 /// Defines a plain content element with no required arguments.

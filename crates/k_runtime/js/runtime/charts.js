@@ -22,8 +22,11 @@ import { Instant, localTimeZone } from "./std.js";
 const WIDTH = 640;
 /** Room for the y labels, the right edge, the top and the x labels. */
 const LEFT = 48;
+/** The right margin, in SVG units. */
 const RIGHT = 16;
+/** The top margin, in SVG units. */
 const TOP = 16;
+/** The bottom margin, which holds the x labels, in SVG units. */
 const BOTTOM = 36;
 /** Styles of the hidden table: `VisuallyHidden`'s (codegen.md §10). */
 const HIDDEN = "position: absolute; width: 1px; height: 1px; padding: 0; margin: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0";

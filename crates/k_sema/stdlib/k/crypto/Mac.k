@@ -1,11 +1,15 @@
-/// A message authentication code. It doesn't implement `Equatable`, so the
-/// constant-time `matches` is the only comparison that compiles.
+/// A message authentication code, from [`Hmac`]. It doesn't implement
+/// [`Equatable`], so the constant-time [`matches`] is the only comparison
+/// that compiles.
 @Native
 public struct Mac {
     /// Compares with `other` in constant time.
+    ///
+    /// - Parameter other: the code received, such as a webhook signature.
+    /// - Returns: `true` if `other` is exactly this code.
     func matches(_ other: Bytes) -> Bool
-    /// The digest.
+    /// The code's bytes.
     var bytes: Bytes
-    /// The digest as lowercase hex.
+    /// The code as lowercase hex.
     var hex: String
 }

@@ -12,8 +12,12 @@ use crate::kind::SyntaxKind as K;
 /// Associativity of a binary operator.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Assoc {
+    /// `a - b - c` is `(a - b) - c`.
     Left,
+    /// `a ?? b ?? c` is `a ?? (b ?? c)`.
     Right,
+    /// Chaining operators of the same level, such as `a < b < c`, reports
+    /// [`codes::NON_ASSOCIATIVE_CHAIN`].
     None,
 }
 
@@ -527,6 +531,8 @@ fn index(p: &mut Parser<'_>) {
 
 // ------------------------------------------------------------ primaries
 
+/// The unit suffixes a `UnitLit` may carry (grammar.md, "Unit literals");
+/// any other suffix reports [`codes::UNKNOWN_UNIT`].
 const KNOWN_UNITS: &[&str] = &[
     "px", "em", "rem", "ch", "vw", "vh", "vmin", "vmax", "dvh", "svh", "lvh", "fr", "%", "deg",
     "ms", "s",
@@ -642,6 +648,13 @@ pub(crate) fn check_unit(p: &mut Parser<'_>) {
     p.report(diagnostic);
 }
 
+/// `PrimaryExpr`: parses a literal, string, name, implicit member,
+/// parenthesized expression or tuple, list or map, lambda, `if` or `match`
+/// at the current token.
+///
+/// A run of lexer `Error` tokens becomes one `ErrorNode`. Returns `None`,
+/// after reporting [`codes::EXPECTED_EXPRESSION`] and consuming nothing,
+/// when the current token cannot start a primary expression.
 fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     match p.current() {
         K::IntLit | K::FloatLit | K::UnitLit | K::ColorLit | K::TrueKw | K::FalseKw | K::NilKw => {
@@ -894,6 +907,8 @@ pub(crate) fn arg_list(p: &mut Parser<'_>) {
     m.complete(p, K::ArgList);
 }
 
+/// Returns `true` if the current token can start an argument: an
+/// expression or a `label:` prefix.
 fn can_start_arg(p: &Parser<'_>) -> bool {
     can_start_expr(p) || (is_name_like(p.current()) && p.nth(1) == K::Colon)
 }
@@ -1007,6 +1022,8 @@ fn lambda_param_list(p: &mut Parser<'_>) {
     m.complete(p, K::LambdaParamList);
 }
 
+/// `LambdaParam ::= IDENT ( ':' Type )?`, where the type annotation is
+/// allowed only when `typed` (in the parenthesized form).
 fn lambda_param(p: &mut Parser<'_>, typed: bool) {
     let m = p.start();
     if p.at(K::Ident) {

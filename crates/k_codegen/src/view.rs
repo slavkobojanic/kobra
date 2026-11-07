@@ -155,7 +155,7 @@ pub(crate) enum AttrVal {
 /// How a dynamic attribute value is written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AttrKind {
-    /// A string.
+    /// A text value, written as is.
     Text,
     /// A boolean attribute (present or absent).
     Bool,
@@ -216,11 +216,17 @@ fn control_value(b: &mut Body<'_, '_>, place: &ast::Expr, mode: ControlMode) -> 
 /// An element of a view.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Elem {
+    /// The HTML tag name, `button` or `h1`.
     pub tag: String,
+    /// The attributes in source order, by HTML attribute name.
     pub attrs: Vec<(String, AttrVal)>,
+    /// The classes: scoped static names, conditional ones and expressions.
     pub classes: Vec<ClassPart>,
+    /// The event handlers, by DOM event name (`click`).
     pub events: Vec<(String, ast::Expr)>,
+    /// The child nodes, in document order.
     pub children: Vec<VNode>,
+    /// The two-way binding of a form control (`bind`), if any.
     pub control: Option<Control>,
     /// The visible `<label>` text of a form control.
     pub label: Option<String>,
@@ -231,6 +237,7 @@ pub(crate) struct Elem {
 /// A child component call.
 #[derive(Clone, Debug)]
 pub(crate) struct Comp {
+    /// The component declaration instantiated.
     pub decl: DeclId,
     /// Prop name → value (with `bind` kept).
     pub args: Vec<(String, ast::Expr)>,
@@ -244,6 +251,7 @@ pub(crate) struct Comp {
 
 /// Builds the node tree of a view's statements.
 pub(crate) struct Tree<'b, 'g, 'a> {
+    /// The body the view belongs to, which lowers the expressions in it.
     pub b: &'b mut Body<'g, 'a>,
     /// The component whose view this is.
     pub owner: DeclId,
@@ -346,6 +354,9 @@ impl Tree<'_, '_, '_> {
         merge_texts(out)
     }
 
+    /// The node of one statement of a view: a block (`if`, `match`, `for`),
+    /// static or dynamic text, an element or component call, a slot call or a
+    /// `metadata` call; `None` for a statement that renders nothing.
     fn node(&mut self, s: &SyntaxNode) -> Option<VNode> {
         match s.kind() {
             SyntaxKind::ForStmt => return Some(VNode::For(s.clone())),
@@ -416,6 +427,7 @@ impl Tree<'_, '_, '_> {
         }
     }
 
+    /// The `@Slot` member of the owner named `name`, if any.
     fn slot_named(&self, name: &str) -> Option<MemberId> {
         self.b
             .g
@@ -490,6 +502,9 @@ impl Tree<'_, '_, '_> {
         }
     }
 
+    /// `true` if `e` is a call chain rooted at a built-in element or a
+    /// component or layout (`button("Go").disabled(x)`), so it renders a
+    /// node rather than a text.
     fn is_view_call(&self, e: &ast::Expr) -> bool {
         let mut cur = e.clone();
         loop {
@@ -517,6 +532,8 @@ impl Tree<'_, '_, '_> {
         }
     }
 
+    /// The nodes of a content lambda's body (its parameters skipped); empty
+    /// without one.
     fn content(&mut self, lambda: Option<ast::LambdaExpr>) -> Vec<VNode> {
         let Some(l) = lambda else { return Vec::new() };
         let stmts: Vec<SyntaxNode> = l
@@ -527,6 +544,9 @@ impl Tree<'_, '_, '_> {
         self.nodes(&stmts)
     }
 
+    /// The node of a built-in element call with its modifier chain: the tag,
+    /// attributes, classes, events, a form control's binding and label, and
+    /// the children from its content lambda.
     #[allow(clippy::too_many_lines)]
     fn element(
         &mut self,
@@ -804,6 +824,9 @@ impl Tree<'_, '_, '_> {
         }
     }
 
+    /// The node of a child component call: its props (with `bind` kept),
+    /// events, slots (the trailing lambda fills the first `@Slot`, or
+    /// `content`) and stylable values.
     fn component(
         &mut self,
         d: DeclId,
@@ -984,6 +1007,8 @@ impl Tree<'_, '_, '_> {
         Some(VNode::Elem(Box::new(el)))
     }
 
+    /// The name of the first `@Slot` member of component `d`, which a trailing
+    /// content lambda fills.
     fn default_slot(&self, d: DeclId) -> Option<String> {
         self.b.g.view.decl(d).members.iter().copied().find_map(|m| {
             let mi = self.b.g.view.member(m);
@@ -1006,6 +1031,7 @@ pub(crate) fn escape_attr(s: &str) -> String {
     escape_text(s).replace('"', "&quot;")
 }
 
+/// The HTML void elements, which have no end tag.
 const VOID: &[&str] = &[
     "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track",
     "wbr",
@@ -1042,6 +1068,7 @@ fn start_tag(el: &Elem) -> String {
     s
 }
 
+/// The end tag of an element; empty for a void element ([`VOID`]).
 fn end_tag(el: &Elem) -> String {
     if VOID.contains(&el.tag.as_str()) {
         String::new()
@@ -1053,10 +1080,14 @@ fn end_tag(el: &Elem) -> String {
 /// One step of a path from a template root.
 #[derive(Clone, Copy, Debug)]
 enum Step {
+    /// `.firstChild`: down to the first child.
     First,
+    /// `.nextSibling`: on to the next sibling.
     Next,
 }
 
+/// The expression that reaches a node of a cloned template from its root
+/// `root` by following `path`, `root.firstChild.nextSibling…`.
 fn path_expr(root: &str, path: &[Step]) -> Expr {
     let mut e = id(root);
     for s in path {
@@ -1075,7 +1106,9 @@ fn path_expr(root: &str, path: &[Step]) -> Expr {
 
 /// Renders view nodes on the client.
 pub(crate) struct Client<'b, 'g, 'a> {
+    /// The body the view belongs to.
     pub b: &'b mut Body<'g, 'a>,
+    /// The component whose view is rendered.
     pub owner: DeclId,
     /// The component's async-handler context name, when one is needed.
     pub lifetime: Option<String>,
@@ -1083,9 +1116,14 @@ pub(crate) struct Client<'b, 'g, 'a> {
 
 /// A dynamic part found while building a template.
 enum Part {
+    /// A dynamic text node.
     Text(ast::Expr),
+    /// A text node joined from static and dynamic pieces.
     Mixed(Vec<Piece>),
+    /// An element with dynamic attributes, classes, styles, events or a
+    /// control.
     Elem(Box<Elem>),
+    /// A block, child component or slot, rendered between markers.
     Block(VNode),
     /// The `<label>` of the labeled control that follows it in the
     /// template: both get one fresh `uid()` (`for` and `id`).
@@ -1201,6 +1239,10 @@ impl Client<'_, '_, '_> {
         }
     }
 
+    /// Renders an element with its static subtree as one module-level
+    /// template: clones it, reaches every dynamic part by its path and binds
+    /// it. A visible label gets a template of its own, cloned first. Returns
+    /// the expression of the created node (a fragment when there is a label).
     fn element_root(&mut self, el: &Elem) -> Expr {
         let mut html = String::new();
         let mut parts: Vec<(Vec<Step>, Part)> = Vec::new();
@@ -1300,6 +1342,7 @@ impl Client<'_, '_, '_> {
         id(root)
     }
 
+    /// Binds the text of `node` to the joined `pieces`, with one render effect.
     fn pieces_binding(&mut self, node: &Expr, pieces: &[Piece]) {
         let (pre, value) = self.b.capture(|b| pieces_text(b, pieces));
         let body = rt("text", vec![node.clone(), value]);
@@ -1313,6 +1356,8 @@ impl Client<'_, '_, '_> {
         self.b.stmts.push(Stmt::Expr(rt("renderEffect", vec![f])));
     }
 
+    /// Binds the text of `node` to the interpolation text of `e`, with one
+    /// render effect.
     fn text_binding(&mut self, node: &Expr, e: &ast::Expr) {
         let (pre, value) = self.b.capture(|b| {
             let t = b.ty(e.syntax());
@@ -1330,6 +1375,8 @@ impl Client<'_, '_, '_> {
         self.b.stmts.push(Stmt::Expr(rt("renderEffect", vec![f])));
     }
 
+    /// Emits a render effect whose body is the expression `f` lowers (after
+    /// any statements it needs).
     fn effect_of(&mut self, f: impl FnOnce(&mut Body<'_, '_>) -> Expr) {
         let (pre, body) = self.b.capture(f);
         let f = if pre.is_empty() {
@@ -1342,6 +1389,9 @@ impl Client<'_, '_, '_> {
         self.b.stmts.push(Stmt::Expr(rt("renderEffect", vec![f])));
     }
 
+    /// Binds the dynamic parts of element `node`: attributes, classes and
+    /// reactive styles each in a render effect, a control's property and its
+    /// write-back event, then the event handlers.
     #[allow(clippy::too_many_lines)]
     fn element_bindings(&mut self, node: &Expr, el: &Elem) {
         for (name, v) in &el.attrs {
@@ -1525,6 +1575,7 @@ impl Client<'_, '_, '_> {
         self.element_events(node, el);
     }
 
+    /// Attaches the element's event handlers with `$k.on`.
     fn element_events(&mut self, node: &Expr, el: &Elem) {
         for (event, h) in &el.events {
             let handler = self.handler(h);
@@ -1574,6 +1625,8 @@ impl Client<'_, '_, '_> {
         self.b.expr(h)
     }
 
+    /// The name of the cancellation context async handlers run under: the
+    /// component's lifetime, or `$life`.
     fn lifetime_name(&mut self) -> String {
         if let Some(n) = &self.lifetime {
             return n.clone();
@@ -1805,6 +1858,7 @@ impl Client<'_, '_, '_> {
         js::arrow_block(params, body, false)
     }
 
+    /// The nodes of a block's statements.
     fn block_nodes(&mut self, block: &SyntaxNode) -> Vec<VNode> {
         let stmts: Vec<SyntaxNode> = block.children().collect();
         let mut t = Tree {
@@ -1814,6 +1868,9 @@ impl Client<'_, '_, '_> {
         t.nodes(&stmts)
     }
 
+    /// The arguments of `$k.when` for an `if` block: the condition as a
+    /// thunk, the render function of the `then` branch and that of the `else`
+    /// branch (an `else if` nests another `when`), if any.
     fn if_block(&mut self, node: &SyntaxNode) -> (Expr, Expr, Option<Expr>) {
         let blocks: Vec<SyntaxNode> = node
             .children()
@@ -1950,6 +2007,8 @@ impl Client<'_, '_, '_> {
         }
     }
 
+    /// The arguments of `$k.branch` for a `match` block: a thunk selecting the
+    /// index of the arm that matches, and each arm's render function.
     fn match_block(&mut self, node: &SyntaxNode) -> (Expr, Vec<Expr>) {
         let scrutinee = node.children().find_map(ast::Expr::cast);
         let arms: Vec<SyntaxNode> = node
@@ -2066,6 +2125,10 @@ impl Client<'_, '_, '_> {
         (js::arrow(vec![], select), rendered)
     }
 
+    /// The `$k.each` call for a `for … key` block between `start` and `end`:
+    /// the items as a thunk, the key function and the row render function,
+    /// whose item is read through a signal accessor so a row updates in
+    /// place when its item changes under the same key.
     fn for_block(&mut self, node: &SyntaxNode, start: &Expr, end: &Expr) -> Expr {
         let pattern = node.children().find_map(ast::Pattern::cast);
         let iter = node.children().find_map(ast::Expr::cast);
@@ -2217,6 +2280,7 @@ pub(crate) fn props_object_inner(b: &mut Body<'_, '_>, c: &Comp, target: Target)
     Expr::Object(props, false)
 }
 
+/// The owner of `b`, or the first declaration when it has none.
 fn b_owner(b: &Body<'_, '_>) -> DeclId {
     b.owner.unwrap_or(DeclId(0))
 }
@@ -2270,11 +2334,15 @@ fn slot_fn(b: &mut Body<'_, '_>, l: &ast::LambdaExpr, target: Target) -> Expr {
 
 /// Renders view nodes as SSR string building.
 pub(crate) struct Ssr<'b, 'g, 'a> {
+    /// The body the view belongs to.
     pub b: &'b mut Body<'g, 'a>,
+    /// The component whose view is rendered.
     pub owner: DeclId,
 }
 
 impl Ssr<'_, '_, '_> {
+    /// Emits `out.raw(html)` for markup escaped at build time, merging it
+    /// into the preceding `out.raw` when there is one.
     fn raw(&mut self, html: &str) {
         if html.is_empty() {
             return;
@@ -2295,6 +2363,8 @@ impl Ssr<'_, '_, '_> {
         )));
     }
 
+    /// Emits `out.raw($s.WHICH)`: a hydration marker of the server runtime
+    /// (`OPEN`, `CLOSE`, `SEPARATOR`).
     fn marker(&mut self, which: &str) {
         self.b.stmts.push(Stmt::Expr(call(
             member(id("out"), "raw"),
@@ -2315,6 +2385,9 @@ impl Ssr<'_, '_, '_> {
         }
     }
 
+    /// Emits one node: static text, dynamic text through `out.text`, an
+    /// element, a block between markers, a child component's renderer or a
+    /// slot.
     #[allow(clippy::too_many_lines)]
     fn node(&mut self, n: &VNode) {
         match n {
@@ -2432,6 +2505,8 @@ impl Ssr<'_, '_, '_> {
         }
     }
 
+    /// Emits an element: its label (with a per-request id), its start tag,
+    /// its children or its control's value, and its end tag.
     #[allow(clippy::too_many_lines)]
     fn element(&mut self, el: &Elem) {
         if let Some(text) = &el.label {
@@ -2489,6 +2564,8 @@ impl Ssr<'_, '_, '_> {
         self.raw(&end_tag(el));
     }
 
+    /// Emits the start tag of `el`: the static part as raw markup, and each
+    /// dynamic attribute, class list and style through `out.attribute`.
     fn open(&mut self, el: &Elem, id_attr: Option<String>) {
         let tag = start_tag(el);
         let dynamic_classes = el
@@ -2607,6 +2684,7 @@ impl Ssr<'_, '_, '_> {
         self.raw(">");
     }
 
+    /// The nodes of a block's statements.
     fn block_nodes(&mut self, block: &SyntaxNode) -> Vec<VNode> {
         let stmts: Vec<SyntaxNode> = block.children().collect();
         let mut t = Tree {
@@ -2616,12 +2694,15 @@ impl Ssr<'_, '_, '_> {
         t.nodes(&stmts)
     }
 
+    /// Runs `f` with a fresh statement buffer and returns what it emitted.
     fn sub(&mut self, f: impl FnOnce(&mut Self)) -> Vec<Stmt> {
         let saved = std::mem::take(&mut self.b.stmts);
         f(self);
         std::mem::replace(&mut self.b.stmts, saved)
     }
 
+    /// The `if` statement that renders an `if` block's branches, with its
+    /// `let` bindings.
     fn if_stmt(&mut self, node: &SyntaxNode) -> Stmt {
         let blocks: Vec<SyntaxNode> = node
             .children()
@@ -2709,6 +2790,8 @@ impl Ssr<'_, '_, '_> {
         }
     }
 
+    /// Emits the `if` chain that renders the arm of a `match` block that
+    /// matches.
     fn match_stmt(&mut self, node: &SyntaxNode) {
         let scrutinee = node.children().find_map(ast::Expr::cast);
         let arms: Vec<SyntaxNode> = node
@@ -2806,6 +2889,7 @@ impl Ssr<'_, '_, '_> {
         }
     }
 
+    /// Emits a `for … of` loop that renders a `for` block's rows.
     fn for_stmt(&mut self, node: &SyntaxNode) {
         let pattern = node.children().find_map(ast::Pattern::cast);
         let iter = node.children().find_map(ast::Expr::cast);

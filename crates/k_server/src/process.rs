@@ -129,12 +129,17 @@ pub struct ProcessState {
     pub session_idle: Duration,
     /// The absolute lifetime of sessions.
     pub session_max_age: Duration,
+    /// The sessions, by session id (the in-memory store of v0).
     sessions: Mutex<HashMap<String, SessionRow>>,
+    /// The in-memory rate limits: each key's calls within its window, oldest
+    /// first.
     rate: Mutex<HashMap<String, VecDeque<Instant>>>,
     /// The pairing of a test's virtual time with an instant, set by the
     /// first rate-limit count on virtual time ([`Self::rate_hit`]).
     virtual_origin: Mutex<Option<(i64, Instant)>>,
+    /// The `.server` state shared by every worker, by key, as JSON.
     shared: Mutex<HashMap<String, String>>,
+    /// The open broadcast subscribers, by id.
     subscribers: Mutex<HashMap<u64, Subscriber>>,
     /// The last subscriber id this state handed out.
     next_subscriber: Mutex<u64>,
@@ -155,6 +160,7 @@ impl Default for ProcessState {
 /// the program (ids start at 1).
 static NEXT_SUBSCRIBER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
+/// Locks `m`, recovering the data if a panicking thread poisoned it.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -262,6 +268,8 @@ impl ProcessState {
         self.session_at(id, Instant::now())
     }
 
+    /// [`ProcessState::session`] at the instant `now` (tests pass their own
+    /// clock).
     fn session_at(&self, id: &str, now: Instant) -> Option<SessionView> {
         let mut sessions = lock(&self.sessions);
         let row = sessions.get_mut(id)?;
@@ -645,6 +653,8 @@ impl ProcessState {
         self.rate_limit_at(key, limit, window, Instant::now())
     }
 
+    /// [`ProcessState::rate_limit`] at the instant `now` (tests pass their
+    /// own clock).
     fn rate_limit_at(&self, key: &str, limit: u32, window: Duration, now: Instant) -> u64 {
         let mut rate = lock(&self.rate);
         let calls = rate.entry(key.to_owned()).or_default();
@@ -764,6 +774,8 @@ impl ProcessState {
         lock(&self.subscribers).remove(&id);
     }
 
+    /// Closes every broadcast subscriber opened under `session` and wakes it,
+    /// so its stream ends (the session ended or expired).
     fn close_session_streams(&self, session: &str) {
         let mut subscribers = lock(&self.subscribers);
         for s in subscribers

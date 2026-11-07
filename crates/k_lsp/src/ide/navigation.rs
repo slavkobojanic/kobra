@@ -27,8 +27,9 @@ pub fn definition(
         .collect())
 }
 
-/// Where the type of the symbol at `offset` is declared: the nominal type
-/// of an expression, binding, field, parameter or function result, through
+/// Where the type of the symbol at `offset` is declared.
+///
+/// That is the nominal type of an expression, binding, field, parameter or function result, through
 /// one optional level and through the element type of a generic container
 /// when the container itself is from the stdlib (`List<Item>` goes to
 /// `Item`).
@@ -63,6 +64,10 @@ pub fn type_definition(
 
 /// The declared type of a symbol: a binding's recorded type, a field's
 /// type, a function's result.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
 fn symbol_type(
     analysis: &Analysis,
     view: &ProgramView,
@@ -116,8 +121,9 @@ fn nominal(view: &ProgramView, ty: &Type) -> Option<DeclId> {
     }
 }
 
-/// The implementations of the symbol at `offset`: for an interface or
-/// protocol, every declaration implementing it (transitively); for a member
+/// The implementations of the symbol at `offset`.
+///
+/// For an interface or protocol, every declaration implementing it (transitively); for a member
 /// of one, the members of those declarations (and of their extensions)
 /// with the same name and labels.
 ///
@@ -388,9 +394,11 @@ pub fn implementing_resolutions(
 }
 
 /// The family of interface member or implementing member `m`, which
-/// rename and find-references treat as one symbol: the interface members it implements (through its owner's
-/// `implements`, transitively), and every member implementing any of
-/// them.
+/// rename and find-references treat as one symbol.
+///
+/// The family is the interface members `m` implements (through its
+/// owner's `implements`, transitively), and every member implementing any
+/// of them.
 ///
 /// # Errors
 ///

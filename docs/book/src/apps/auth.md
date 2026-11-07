@@ -5,24 +5,34 @@ sides. **Signing in and out** is the server-only `SessionManager` service. Sessi
 database; the cookie holds only a random id.
 
 ```k
-// src/accounts/AccountId.k
-
+// examples/notes/src/accounts/AccountId.k
+~import k.auth.AuthUserId
+~import k.crypto.Uuid
 /// The id of an account, and of the signed-in user.
+///
+/// It is the app's one `AuthUserId`, so `SessionUser.id` has this type and
+/// every note's owner is typed, never text built by interpolation.
 public struct AccountId implements AuthUserId {
+    /// The random UUID behind the id.
     let value: Uuid
 }
 ```
 
 ```k
-// src/accounts/AuthApi.k
+// examples/notes/src/accounts/AuthApi.k
+~import k.time.Clock
+~import k.crypto.Password
+~import k.auth.SessionManager
 public service AuthApi implements AuthProtocol {
     @Inject let accounts: AccountRepository
     @Inject let sessions: SessionManager
-
+    @Inject let clock: Clock
+    // ...
     rpc signIn(credentials: Credentials) async throws SignInError {
-        let account = await accounts.byEmail(email: credentials.email)
+        let account = await accounts.byEmail(email: normalized(email: credentials.email))
 
-        // Verify even when no account has this email, so timing doesn't reveal which are registered.
+        // Verify against a hash even when no account has this email, so the
+        // response time doesn't reveal which emails are registered.
         let hash = if let account { account.passwordHash } else { Password.unusableHash }
         let matches = await Password.verify(password: credentials.password, hash: hash)
 
@@ -32,15 +42,19 @@ public service AuthApi implements AuthProtocol {
 
         await sessions.signIn(userId: account.id)
     }
+    // ...
 }
 ```
 
 ```k
-// src/accounts/AuthProtocol.k
+// examples/notes/src/accounts/AuthProtocol.k
+~import k.auth.RateLimit
 public protocol AuthProtocol {
+    // ...
     rpc signUp(request: SignUpRequest) throws SignUpError requires RateLimit(10.perMinute)
-
+    // ...
     rpc signIn(credentials: Credentials) throws SignInError requires RateLimit(10.perMinute)
+    // ...
 }
 ```
 
@@ -79,16 +93,32 @@ The server/client boundary is drawn per declaration, so the two faces of a sessi
 - Like `Page`, `SessionUser` is generated for the app and needs no import.
 
 ```k
+~import k.auth.AuthRole
+~import k.auth.AuthUserId
+~import k.auth.SessionManager
+~import k.text.EmailAddress
+~
 public struct StaffId implements AuthUserId {
     let email: EmailAddress
 }
 
-public enum StaffRole implements AuthRole {
+enum StaffRole implements AuthRole {
     case admin
 }
 
+~config StaffConfig {
+~    @Env("STAFF_EMAIL") let email: EmailAddress
+~}
+~
+~service StaffSignIn {
+~    @Inject let sessions: SessionManager
+~    @Inject let config: StaffConfig
+~
+~    func signIn() async {
 // in a server-side service
 await sessions.signIn(userId: StaffId(email: config.email), roles: Set([StaffRole.admin]))
+~    }
+~}
 ```
 
 ## Narrowing under `Authenticated`
@@ -100,10 +130,14 @@ guarded:**
 - a page that `requires Authenticated`, including its `@Load` initializers.
 
 ```k
-public service NotesApi implements NotesProtocol {        // NotesProtocol requires Authenticated
-    @Inject let session: Session
+// examples/notes/src/notes/NotesApi.k
+~import k.auth.Session
+~import k.crypto.Uuid
+public service NotesApi implements NotesProtocol {
     @Inject let notes: NoteRepository
-
+    // ...
+    @Inject let session: Session
+    // ...
     rpc get(id: Uuid) async throws LookupError -> NoteSummary {
         guard let note = await notes.find(id: id, ownerId: session.user.id) else {
             throw LookupError.notFound
@@ -111,6 +145,7 @@ public service NotesApi implements NotesProtocol {        // NotesProtocol requi
 
         return summarize(note: note)
     }
+    // ...
 }
 ```
 
@@ -118,7 +153,17 @@ Nothing else is narrowed, including private helpers called only from guarded rpc
 user explicitly, so its types never depend on who calls it:
 
 ```k
-private func ownerOf(user: SessionUser) -> AccountId { … }
+~import k.auth.AuthUserId
+~import k.auth.SessionUser
+~import k.crypto.Uuid
+~
+~struct AccountId implements AuthUserId {
+~    let value: Uuid
+~}
+~
+private func ownerOf(user: SessionUser) -> AccountId {
+    return user.id
+}
 ```
 
 ## Guards
@@ -147,9 +192,15 @@ A guard runs before the handler, so its refusal is part of the rpc's contract. I
 **`rpcFailure(.rejected(GuardRejection))`**, the fixed case every rpc's error enum has:
 
 ```k
-public enum GuardRejection implements Error {
+// crates/k_sema/stdlib/k/auth/GuardRejection.k
+/// Why a guard refused an rpc call, carried by [`k.rpc.RpcFailure.rejected`].
+public enum GuardRejection implements Error, Codable {
+    /// Nobody is signed in ([`Authenticated`] refused the call).
     case unauthenticated
+    /// The user lacks a required role ([`Role`] refused the call).
     case forbidden
+    /// The client exceeded a [`RateLimit`]; it may call again after
+    /// `retryAfter`.
     case rateLimited(retryAfter: Duration)
 }
 ```
@@ -157,18 +208,25 @@ public enum GuardRejection implements Error {
 Every caller decides what a refusal means, so an expired session is never an unhandled surprise:
 
 ```k
+// examples/notes/src/accounts/SignIn.k
+~import k.ui.Router
 do {
     try await auth.signIn(credentials: credentials.value)
 
     Router.navigate(to: returnTo)
 } catch .invalidCredentials {
-    problem = "That email and password don't match."
-} catch .rpcFailure(.rejected(.rateLimited)) {
-    problem = "Too many attempts. Wait a minute and try again."
-} catch .rpcFailure {
-    problem = "We couldn't sign you in. Try again."
+    problem = "That email and password don't match an account."
+} catch .rpcFailure(.invalid(let failure)) {
+    throw failure
+} catch .rpcFailure(.rejected) {
+    problem = "Too many attempts. Wait a minute, then try again."
+} catch .rpcFailure(.offline), .rpcFailure(.timeout) {
+    problem = "Couldn't reach K Notes. Check your connection and try again."
 }
 ```
+
+`.rpcFailure(.invalid(let failure))` rethrows a validation failure to the form, which shows it next to
+the field it is about (see [Forms](forms.md)).
 
 ## Signing up without races
 
@@ -176,13 +234,21 @@ A unique email is checked by the database, not by a lookup first. The account en
 `@Unique`, so `insert` throws a typed `UniqueViolation` that the handler maps to its own error:
 
 ```k
+// examples/notes/src/accounts/AuthApi.k
+~import k.crypto.Password
+~import k.crypto.Uuid
 rpc signUp(request: SignUpRequest) async throws SignUpError {
+    let passwordHash = await Password.hash(password: request.password)
     let account = Account(
         id: AccountId(value: Uuid.random()),
-        email: request.email,
-        passwordHash: await Password.hash(password: request.password)
+        email: normalized(email: request.email),
+        passwordHash: passwordHash,
+        createdAt: clock.now
     )
 
+    // The email's `@Check` already ran, but another sign-up can register
+    // the same address before this insert. The unique index decides,
+    // and its typed violation becomes this rpc's error.
     do {
         try await accounts.insert(account)
     } catch .email {
@@ -256,13 +322,17 @@ named `password`, or one whose type is `Secret<…>`, is a compile-time warning.
 - Guards run in tests exactly as in production:
 
 ```k
-test NotesApi {
-    @Inject let notes: NotesProtocol
-
-    test "notes are private" {
-        expect throws AccessError.rpcFailure(.rejected(.unauthenticated)) {
-            try await notes.list()
-        }
+// examples/notes/src/notes/NotesApi.test.k
+~import k.rpc.RpcOnlyError
+~import k.crypto.Uuid
+test "every rpc requires a signed-in session" {
+    expect throws RpcOnlyError.rpcFailure(.rejected(.unauthenticated)) {
+        try await api.watch()
     }
+
+    expect throws SaveError.rpcFailure(.rejected(.unauthenticated)) {
+        try await api.update(id: Uuid.random(), draft: draft(title: "Plan"), revision: 1)
+    }
+    // ...
 }
 ```

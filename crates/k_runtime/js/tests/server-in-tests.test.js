@@ -1,10 +1,14 @@
-// The server half of a `k test` run (docs/design/21-testing.md, "Which side
-// a test runs on"; runtime.md §13): a request may carry the test's context
-// (`request.test`), which the request state keeps; the server's `Clock` is
-// then the test's virtual clock; services bound once per test are shared by
-// every container of the test; a session change is reported to the test;
-// a streamed rpc writes to the request's own sink instead of the front's
-// ops; and `TestClient` sends requests through the app in-process.
+/**
+ * @module k:/tests/server-in-tests.test.js
+ *
+ * The server half of a `k test` run (docs/design/21-testing.md, "Which side
+ * a test runs on"; runtime.md §13): a request may carry the test's context
+ * (`request.test`), which the request state keeps; the server's `Clock` is
+ * then the test's virtual clock; services bound once per test are shared by
+ * every container of the test; a session change is reported to the test;
+ * a streamed rpc writes to the request's own sink instead of the front's
+ * ops; and `TestClient` sends requests through the app in-process.
+ */
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
 import { RequestState, clock, createApp, perTest, publicUrls, route, sessionManager, testClient } from "k:runtime/server";
 import { Instant, codecs, unitCase } from "k:runtime";
@@ -13,6 +17,7 @@ import { HttpResponse$text as responseText } from "k:/runtime/http.js";
 const enc = new TextEncoder();
 let nextId = 1;
 
+/** An in-process request of `method` to `path`, with `extra` fields and a UTF-8 body. */
 function req(method, path, extra = {}) {
   return { id: nextId++, method, path, headers: [], remote: "127.0.0.1", ...extra, body: enc.encode(extra.body ?? "") };
 }

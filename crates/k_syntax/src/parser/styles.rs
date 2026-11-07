@@ -372,6 +372,12 @@ fn compound(p: &mut Parser<'_>) {
     m.complete(p, K::CompoundSelector);
 }
 
+/// `SimpleSelector`: a class (`.name`), `&`, a pseudo-element (`::name`),
+/// a pseudo-class, an attribute selector or `*`.
+///
+/// Type selectors and id-like `#name` tokens are parsed so the tree stays
+/// lossless, but report [`codes::TYPE_SELECTOR`] and
+/// [`codes::ID_SELECTOR`]: style blocks select by class only.
 fn simple_selector(p: &mut Parser<'_>) {
     match p.current() {
         K::Dot => {

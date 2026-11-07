@@ -29,6 +29,9 @@
 //! reported as [`CodegenError::Unsupported`]. The design is
 //! `docs/compiler/codegen.md`.
 
+// Private items are documented too (`cargo doc --document-private-items`).
+#![warn(clippy::missing_docs_in_private_items)]
+
 mod app;
 mod bundle;
 mod codec;
@@ -73,12 +76,12 @@ pub enum Profile {
 /// (`docs/design/23-app-structure.md`, "Environments").
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub enum Environment {
-    /// `k build`.
+    /// The production wiring, which `k build` uses.
     #[default]
     Production,
-    /// `k dev`, `k run`.
+    /// The development wiring, which `k dev` and `k run` use.
     Development,
-    /// `k test` and the execution corpus.
+    /// The test wiring, which `k test` and the execution corpus use.
     Test,
 }
 
@@ -104,11 +107,11 @@ pub enum Entry {
 /// How to generate.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub struct Options {
-    /// Printing and hashing.
+    /// How output is printed and file and class names are hashed.
     pub profile: Profile,
-    /// The environment for DI.
+    /// The environment whose `use … in` rules wire dependency injection.
     pub environment: Environment,
-    /// The entry point.
+    /// What the bundles start from: the app, a script or the tests.
     pub entry: Entry,
 }
 
@@ -130,9 +133,9 @@ pub struct OutputFile {
     /// (`pages/product.3f2a1b9c.js`); for server files, the module
     /// specifier (`k:/app/shop/cart.js`).
     pub path: String,
-    /// The contents.
+    /// The file's text.
     pub contents: String,
-    /// The kind.
+    /// What the file holds.
     pub kind: FileKind,
 }
 
@@ -166,7 +169,7 @@ pub struct ConfigEntry {
     /// The bounds of an `@Range(lo...hi)` constraint on an `Int` field.
     #[serde(default)]
     pub range: Option<(i64, i64)>,
-    /// The variable.
+    /// The environment variable, `PORT`.
     pub env: String,
     /// `module.Config.field`.
     pub declared_at: String,
@@ -233,9 +236,11 @@ pub struct Output {
     pub client: Vec<OutputFile>,
     /// The server modules; empty for a static-only app.
     pub server: Vec<OutputFile>,
-    /// The specifier of the server entry module.
+    /// The specifier of the server entry module: `k:/app/$server.js`, or
+    /// `k:/app/$main.js` for [`Entry::Main`]; `None` for [`Entry::App`] in
+    /// a project without an `app`.
     pub server_entry: Option<String>,
-    /// The manifest.
+    /// Everything about the build that isn't code.
     pub manifest: Manifest,
     /// The database half of the build (`docs/compiler/db.md` §6): every
     /// statement the app runs, by number, in both dialects; the migrations;
@@ -248,13 +253,14 @@ pub struct Output {
 pub enum CodegenError {
     /// The program has `count` error diagnostics; `k check` reports them.
     HasErrors {
-        /// The number of errors.
+        /// The number of error diagnostics.
         count: usize,
     },
     /// The program uses something the code generator doesn't lower yet.
     /// `what` names it (`components`, `the whole program`).
     Unsupported {
-        /// What is not supported.
+        /// What is not supported, as a phrase that completes "code
+        /// generation does not support …".
         what: String,
     },
     /// The analysis was cancelled by a newer revision.
@@ -277,14 +283,42 @@ impl std::fmt::Display for CodegenError {
 
 impl std::error::Error for CodegenError {}
 
-/// Generates the bundles of the analysed project.
+/// Generates the client and server bundles, the CSS, the [`Manifest`] and
+/// the database manifest of the analysed project.
+///
+/// The output is deterministic: the same analysis and options give the
+/// same [`Output`], byte for byte, which is what makes content-hashed file
+/// names and the golden corpus stable. Generation reads the analysis
+/// (it never triggers new diagnostics) and checks for cancellation once
+/// more at the end, so a result computed against a stale revision is never
+/// returned.
 ///
 /// # Errors
 ///
 /// [`CodegenError::HasErrors`] if any diagnostic is an error,
 /// [`CodegenError::Cancelled`] if the analysis was cancelled, and
-/// [`CodegenError::Unsupported`] for programs the generator can't lower
-/// yet (currently every program).
+/// [`CodegenError::Unsupported`] for a construct the generator does not
+/// lower yet, or for an [`Entry::Main`] that names no top-level function.
+/// Never panics on a checked program.
+///
+/// # Examples
+///
+/// ```
+/// use k_codegen::{Options, generate};
+/// use k_sema::{AnalysisHost, Options as SemaOptions, ProjectPath};
+///
+/// let files = vec![
+///     (ProjectPath::new("k.toml").unwrap(), "[package]\nname = \"demo\"\nk = \"0.1\"\n".to_owned()),
+///     (ProjectPath::new("src/demo/a.k").unwrap(), "func f() -> Int {\n    return 1\n}\n".to_owned()),
+/// ];
+/// let host = AnalysisHost::with_files(SemaOptions::new(), files);
+/// let out = generate(&host.analysis(), &Options::default()).expect("a clean program generates");
+///
+/// let module = out.server.iter().find(|f| f.path == "k:/app/demo.js").expect("one module per K module");
+/// assert!(module.contents.contains("export function f()"));
+/// assert!(out.client.iter().any(|f| f.path.starts_with("runtime.")), "the runtime chunk always ships");
+/// assert_eq!(out.manifest.name, "demo");
+/// ```
 pub fn generate(analysis: &k_sema::Analysis, options: &Options) -> Result<Output, CodegenError> {
     let diagnostics = analysis
         .diagnostics()
@@ -744,9 +778,9 @@ pub(crate) fn feature_chunk(
 /// A violation of the client/server split found in generated output.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct SplitViolation {
-    /// The client file.
+    /// The path of the client file, as in [`OutputFile::path`].
     pub file: String,
-    /// What it contains that it must not.
+    /// The string it contains that it must not.
     pub found: String,
 }
 
@@ -757,7 +791,26 @@ pub struct SplitViolation {
 /// secret values in tests).
 ///
 /// Codegen guarantees the split by construction; this is the independent
-/// check that tests and `k build` run on the result.
+/// check that tests and `k build` run on the result. Returns one
+/// [`SplitViolation`] per client file and offending string, in file order;
+/// an empty vector means the split holds. Linear in the total size of the
+/// client files times the number of needles.
+///
+/// # Examples
+///
+/// ```
+/// use k_codegen::{FileKind, Output, OutputFile, check_client_bundle};
+///
+/// let mut output = Output::default();
+/// output.client.push(OutputFile {
+///     path: "pages/home.js".into(),
+///     contents: "import { cart } from \"k:/app/shop/cart.js\";".into(),
+///     kind: FileKind::JavaScript,
+/// });
+/// let found = check_client_bundle(&output, &["chargeCard"]);
+/// assert_eq!(found.len(), 1);
+/// assert_eq!(found[0].found, "k:/app/");
+/// ```
 #[must_use]
 pub fn check_client_bundle(output: &Output, forbidden: &[&str]) -> Vec<SplitViolation> {
     let mut out = Vec::new();

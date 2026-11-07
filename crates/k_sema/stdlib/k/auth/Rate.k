@@ -1,9 +1,9 @@
-/// A number of calls per period, for `RateLimit`: `100.perMinute`.
+/// A number of calls per period, for [`RateLimit`]: `100.perMinute`.
 @Native
 public struct Rate implements Equatable {
-    /// The number of calls.
+    /// The number of calls allowed per [`period`].
     var count: Int
-    /// The period.
+    /// The period the [`count`] applies to.
     var period: Duration
 }
 

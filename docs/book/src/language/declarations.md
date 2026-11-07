@@ -12,12 +12,57 @@ K has four general-purpose kinds of type. Each has one job:
 Services, components and entities have their own keywords and chapters. This chapter covers the four
 building blocks.
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
+```k
+// src/people/Context.k
+enum Country implements Equatable, Codable {
+    case norway
+    case sweden
+}
+
+struct UserId implements Equatable, Codable {
+    let value: Int
+}
+
+enum OrderStatus implements Codable {
+    case pending
+    case paid
+}
+
+enum Tone {
+    case neutral
+    case success
+}
+
+struct CardToken {
+    let value: String
+}
+
+enum PaymentError implements Error {
+    case declined
+}
+
+struct Receipt {
+    let amount: Money
+}
+
+struct RetryPolicy {
+    let attempts: Int
+}
+
+interface Priced {
+    let price: Money
+}
+```
+-->
+
 ## Structs
 
 A struct groups named fields:
 
 ```k
-struct Address {
+struct Address implements Codable, Equatable {
     var street: String
     var city: String
     var country: Country = .norway
@@ -33,8 +78,22 @@ struct User implements Codable, Equatable {
 A struct gets a **memberwise initializer**. Fields with a default value become optional arguments:
 
 ```k
+~struct Address {
+~    var street: String
+~    var city: String
+~    var country: Country = .norway
+~}
+~
+~struct User {
+~    let id: UserId
+~    var name: String
+~    var address: Address
+~}
+~
+~func example(id: UserId) {
 let home = Address(street: "Storgata 1", city: "Oslo")
 let user = User(id: id, name: "Ana", address: home)
+~}
 ```
 
 **Members follow their type.** The fields, functions, computed properties, static members and `init` of a
@@ -43,6 +102,8 @@ module. `private` is the only member modifier, and it hides a member from everyt
 declaration's body:
 
 ```k
+~import k.text.EmailAddress
+~import k.crypto.Uuid
 public struct Order implements Codable {
     let id: Uuid
     let email: EmailAddress
@@ -52,8 +113,8 @@ public struct Order implements Codable {
 }
 ```
 
-Writing `public` on a member is redundant. It is a warning with a machine-applicable fix, and `k fmt`
-removes it. See [Modules and visibility](modules.md#visibility-of-members).
+Writing `public` on a member is redundant. It is a warning (`K1302`) with a machine-applicable fix, which
+`k fmt` will apply (**Planned**). See [Modules and visibility](modules.md#visibility-of-members).
 
 ### Value semantics
 
@@ -61,8 +122,14 @@ removes it. See [Modules and visibility](modules.md#visibility-of-members).
 never affects another:
 
 ```k
+~struct User {
+~    var name: String
+~}
+~
+~func example(user: User) {
 var draft = user
 draft.name = "Ana Maria"         // user.name is still "Ana"
+~}
 ```
 
 `let` makes a struct value fully immutable, including its `var` fields. The compiler uses copy-on-write,
@@ -74,11 +141,26 @@ Value semantics are what make nested reactive state simple. Mutating a nested fi
 updates along that exact path:
 
 ```k
+~struct Address {
+~    var city: String
+~}
+~
+~struct User {
+~    var address: Address
+~
+~    static let sample = User(address: Address(city: "Oslo"))
+~}
+~
+~component Profile {
 @State var user: User = .sample
 
 func move() {
     user.address.city = "Bergen"      // only DOM nodes that read user.address.city update
 }
+~    view {
+~        text { user.address.city }
+~    }
+~}
 ```
 
 This is also what makes `bind user.address.city` work, with no proxies and no spread-everything
@@ -206,16 +288,23 @@ A class has **reference identity**: two names can refer to the same instance, an
 visible through the other.
 
 ```k
-class LruCache<K, V> {
-    private var entries: OrderedMap<K, V> = OrderedMap()
+class LruCache<K, V> where K implements Hashable {
+    private var entries: Map<K, V> = [:]
     let capacity: Int
 
     init(capacity: Int) {
         self.capacity = capacity
     }
 
-    func get(key: K) -> V? { … }
-    func set(key: K, value: V) { … }
+    func get(key: K) -> V? {
+        // …
+~        return entries.get(key)
+    }
+
+    func set(key: K, value: V) {
+        // …
+~        entries.set(key, value)
+    }
 }
 ```
 
@@ -241,7 +330,10 @@ interface PaymentProvider {
 }
 
 service StripePayments implements PaymentProvider {
-    func charge(amount: Money, card: CardToken) async throws PaymentError -> Receipt { … }
+    func charge(amount: Money, card: CardToken) async throws PaymentError -> Receipt {
+        // …
+~        throw .declined
+    }
 }
 ```
 
@@ -287,7 +379,7 @@ extend Int {
 }
 
 extend Date {
-    var isWeekend: Bool { … }
+    var isMidnightUtc: Bool { unixSeconds % 86400 == 0 }
 }
 ```
 
@@ -295,7 +387,7 @@ Generic types are extended with their type parameters after `extend`:
 
 ```k
 extend<T> List<T> where T implements Priced {
-    var totalPrice: Money { sum(in: .usd) { item => item.price } }
+    var totalPrice: Money { self.sum(in: .usd) { item => item.price } }
 }
 ```
 

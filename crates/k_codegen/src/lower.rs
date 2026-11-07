@@ -70,10 +70,17 @@ enum Dest {
 
 /// The lowering state of one function-like body.
 pub(crate) struct Body<'g, 'a> {
+    /// The generator context.
     pub g: &'g Gen<'a>,
+    /// The file the body is in: types and resolutions are looked up by range
+    /// in it.
     pub file: FileId,
+    /// The bundle the body is lowered for.
     pub target: Target,
+    /// How `self` and the owner's members are reached.
     pub self_mode: SelfMode,
+    /// The declaration whose member is being lowered, `None` for a top-level
+    /// function.
     pub owner: Option<DeclId>,
     /// `true` when the body has a cancellation context `$c`.
     pub has_c: bool,
@@ -81,16 +88,29 @@ pub(crate) struct Body<'g, 'a> {
     pub witnesses: HashMap<GenId, String>,
     /// Component members by member id (components only).
     pub access: HashMap<MemberId, MemberAccess>,
+    /// The visible locals, innermost scope last: each maps the offset of a
+    /// local's definition to its K name and its JavaScript name.
     scopes: Vec<HashMap<u32, (String, String)>>,
+    /// The JavaScript names taken in each enclosing function scope, so a new
+    /// local or temporary never shadows one that is still visible.
     names_in_use: Vec<HashSet<String>>,
+    /// The counter behind [`Body::fresh`]'s temporary names.
     temp: usize,
+    /// The collection locals known to be uniquely owned, which may be mutated
+    /// in place instead of copied (codegen.md §6.3).
     owned: HashSet<String>,
+    /// The symbols of declarations the body references, for imports and
+    /// reachability.
     pub uses: BTreeSet<(DeclId, String)>,
+    /// The statement buffer that lowering emits into ([`Body::capture`] swaps
+    /// it).
     pub stmts: Vec<Stmt>,
     /// Locals that are `var`s holding collections (copy-on-write).
     collection_vars: HashSet<String>,
     /// Struct-init field locals.
     init_fields: Vec<(String, String)>,
+    /// The labels of the enclosing loops, innermost last, which `break` and
+    /// `continue` target; `None` for an unlabelled loop.
     labels: Vec<Option<String>>,
     /// `true` while lowering the server renderer of a component (no
     /// signals: state reads are plain locals).
@@ -148,14 +168,17 @@ impl<'g, 'a> Body<'g, 'a> {
         self.g.type_at(self.file, node.text_range())
     }
 
+    /// The recorded type at exactly `range` of this body's file.
     fn ty_range(&self, range: TextRange) -> Type {
         self.g.type_at(self.file, range)
     }
 
+    /// The name resolution recorded at exactly `range` of this body's file.
     fn resolution(&self, range: TextRange) -> Option<Resolution> {
         self.g.resolution(self.file, range)
     }
 
+    /// The declaration or member that the name at `range` resolves to.
     fn resolved(&self, range: TextRange) -> Option<Resolved> {
         self.g.resolved(self.file, range)
     }
@@ -191,6 +214,7 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// `true` if `n` is in use in any enclosing function scope.
     fn name_taken(&self, n: &str) -> bool {
         self.names_in_use.iter().any(|s| s.contains(n))
     }
@@ -216,10 +240,13 @@ impl<'g, 'a> Body<'g, 'a> {
         self.names_in_use.pop();
     }
 
+    /// Opens a block scope inside the current function scope.
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
     }
 
+    /// Closes the innermost block scope; the JavaScript names it used stay
+    /// taken until the function scope closes.
     fn pop_scope(&mut self) {
         self.scopes.pop();
     }
@@ -264,6 +291,9 @@ impl<'g, 'a> Body<'g, 'a> {
         None
     }
 
+    /// The JavaScript name of the local `name` defined at `definition`,
+    /// searching the innermost scope first; the mangled K name when no scope
+    /// records it (a binding made outside this body).
     fn local_name(&self, name: &str, definition: TextRange) -> String {
         let at = u32::from(definition.start());
         for s in self.scopes.iter().rev() {
@@ -289,6 +319,7 @@ impl<'g, 'a> Body<'g, 'a> {
         self.owned.insert(js.to_owned());
     }
 
+    /// Appends `s` to the current statement buffer.
     fn emit(&mut self, s: Stmt) {
         self.stmts.push(s);
     }
@@ -594,6 +625,9 @@ impl<'g, 'a> Body<'g, 'a> {
         ));
     }
 
+    /// Lowers an expression used as a statement: a statement-like expression
+    /// (`if`, `match`, …) is lowered straight into statements, anything else
+    /// becomes an expression statement.
     fn expr_stmt(&mut self, e: &ast::Expr) {
         self.kill_aliases(e.syntax());
         if self.is_statementy(e) {
@@ -688,10 +722,14 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// The hook for converting a returned value to the function's return type;
+    /// currently returns `x` unchanged.
     fn coerce_to_return(&mut self, x: Expr, _e: &ast::Expr) -> Expr {
         x
     }
 
+    /// Lowers `let` and `var` bindings, including destructuring patterns; a
+    /// `var` holding a collection is tracked for copy-on-write.
     fn let_stmt(&mut self, node: &SyntaxNode) {
         let is_var = has_token(node, SyntaxKind::VarKw);
         let value = node.children().find_map(ast::Expr::cast);
@@ -751,6 +789,8 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// `true` for `List`, `Map` and `Set` types, whose locals are
+    /// copy-on-write.
     fn is_collection(&self, t: &Type) -> bool {
         [self.g.b.list, self.g.b.map, self.g.b.set]
             .iter()
@@ -800,6 +840,9 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// Lowers `guard cond else { … }`: the `else` block runs when a condition
+    /// fails, and the `let` bindings of the conditions stay visible after the
+    /// statement.
     fn guard_stmt(&mut self, node: &SyntaxNode) {
         let else_block = node.children().filter_map(ast::Block::cast).last();
         let conds: Vec<SyntaxNode> = node
@@ -840,6 +883,8 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// Lowers a `while` loop. A condition that needs statements is evaluated at
+    /// the top of `while (true)` and breaks out when false.
     fn while_stmt(&mut self, node: &SyntaxNode) {
         let cond = node.children().find_map(ast::Expr::cast);
         let body = node.children().find_map(ast::Block::cast);
@@ -866,6 +911,10 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// Lowers a `for … in` loop: a counted `for (let i = lo; i < hi; i += 1)`
+    /// over an `Int` range literal, otherwise `for … of` over the iterable
+    /// (ranges through `$k.rangeValues`), destructuring a pattern into
+    /// `const`s at the top of the body; `for await` keeps its `await`.
     fn for_stmt(&mut self, node: &SyntaxNode) {
         let pattern = node.children().find_map(ast::Pattern::cast);
         let iter = node.children().find_map(ast::Expr::cast);
@@ -976,6 +1025,10 @@ impl<'g, 'a> Body<'g, 'a> {
         t.args().first().cloned().unwrap_or(Type::Error)
     }
 
+    /// Lowers `do { … } catch …`: a `try` whose handler rethrows panics, then
+    /// tests each `catch` clause's pattern in order. Guarded clauses use a
+    /// `$caught` flag so a failed guard falls through to the next clause; an
+    /// error no clause matches is rethrown.
     #[allow(clippy::too_many_lines)]
     fn do_stmt(&mut self, node: &SyntaxNode) {
         let body = node.children().find_map(ast::Block::cast);
@@ -1150,6 +1203,9 @@ impl<'g, 'a> Body<'g, 'a> {
         Type::Error
     }
 
+    /// The declared error type of the function or member called by `e` (or of
+    /// the function value's type), `None` when `e` is not a call or the
+    /// callee doesn't throw.
     fn throws_of_call(&self, e: &ast::Expr) -> Option<Type> {
         let ast::Expr::CallExpr(c) = e else {
             return None;
@@ -1293,6 +1349,11 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// Lowers an enum case pattern (`.outOfStock(let n)`, `Error.atLimit`,
+    /// `.some(x)`, `.none`) matched against `value` of type `ty`.
+    ///
+    /// Returns the test (`None` when the pattern always matches) and the
+    /// bindings it introduces, as `(name, value)` pairs.
     fn case_pattern(
         &mut self,
         node: &SyntaxNode,
@@ -1420,6 +1481,8 @@ impl<'g, 'a> Body<'g, 'a> {
         })
     }
 
+    /// The value a literal pattern compares against: its literal or string,
+    /// negated when the pattern has a leading `-`.
     fn literal_pattern_value(&mut self, node: &SyntaxNode, ty: &Type) -> Expr {
         // A literal pattern holds a literal or a string, possibly negated.
         let neg = node
@@ -1450,6 +1513,11 @@ impl<'g, 'a> Body<'g, 'a> {
 
     // ------------------------------------------------------------- match
 
+    /// Lowers a `match` whose value goes to `dest`: a `switch` on the case tag
+    /// for an enum with payloads matched without guards or nested patterns,
+    /// otherwise an `if` chain of pattern tests (guarded arms in a labelled
+    /// block, so a failed guard falls through). Falling off the end of an
+    /// exhaustive match reaches `$k.unreachable()`.
     #[allow(clippy::too_many_lines)]
     fn match_into(&mut self, node: &SyntaxNode, dest: &Dest) {
         let scrutinee = node.children().find_map(ast::Expr::cast);
@@ -1659,6 +1727,8 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// The enum case a case pattern names: the recorded resolution of its
+    /// first name, or the member of that name on `ty` (optionals unwrapped).
     fn case_of_pattern(&self, node: &SyntaxNode, ty: &Type) -> Option<MemberId> {
         let name = node
             .children_with_tokens()
@@ -1675,6 +1745,9 @@ impl<'g, 'a> Body<'g, 'a> {
 
     // ---------------------------------------------------------------- if
 
+    /// `true` if an `if` expression can be a conditional expression
+    /// (`c ? a : b`): it has an `else`, no `let` conditions, and every branch
+    /// is a single expression that isn't itself statement-like.
     fn if_is_simple(&self, node: &SyntaxNode) -> bool {
         if node
             .children()
@@ -1702,6 +1775,8 @@ impl<'g, 'a> Body<'g, 'a> {
         blocks.iter().all(simple_block) && else_if.as_ref().is_none_or(|e| self.if_is_simple(e))
     }
 
+    /// Lowers an `if` statement or expression whose value goes to `dest`,
+    /// including `if let` bindings and `else if` chains.
     fn if_into(&mut self, node: &SyntaxNode, dest: &Dest) {
         let (test, binds) = self.conditions(node);
         let blocks: Vec<SyntaxNode> = node
@@ -1780,6 +1855,8 @@ impl<'g, 'a> Body<'g, 'a> {
         (test.unwrap_or(Expr::Bool(true)), Vec::new())
     }
 
+    /// Lowers `try expr else { fallback }` into `try { … } catch (e) { … }`:
+    /// the handler rethrows panics, then evaluates the fallback into `dest`.
     fn try_else_into(&mut self, node: &SyntaxNode, dest: &Dest) {
         let inner = node.children().find_map(ast::Expr::cast);
         let fallback = node.children().find_map(ast::Block::cast);
@@ -1800,6 +1877,10 @@ impl<'g, 'a> Body<'g, 'a> {
 
     // -------------------------------------------------------- assignment
 
+    /// Lowers an assignment (`=` or a compound `+=`, `-=`, `*=`, `/=`, `%=`)
+    /// to a local, a field path, a component member (a signal, binding or
+    /// store write) or an element, copying shared collections and structs
+    /// along the path as value semantics require.
     #[allow(clippy::too_many_lines)]
     fn assign_stmt(&mut self, node: &SyntaxNode) {
         let mut exprs = node.children().filter_map(ast::Expr::cast);
@@ -1974,6 +2055,8 @@ impl<'g, 'a> Body<'g, 'a> {
         self.store(place, value);
     }
 
+    /// `true` if `m` is a member of the component being lowered, read through
+    /// [`Body::access`].
     fn is_component_member(&self, m: MemberId) -> bool {
         self.access.contains_key(&m)
     }
@@ -2091,6 +2174,8 @@ impl<'g, 'a> Body<'g, 'a> {
             if self.g.view.member(m).has_annotation("Form"))
     }
 
+    /// `true` if `d` is a `service`, whose members are reached on the
+    /// instance from the container.
     pub(crate) fn is_service_like(&self, d: DeclId) -> bool {
         matches!(
             self.g.view.decl(d).named_kind(),
@@ -2358,6 +2443,9 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// Lowers an `if` that [`Body::if_is_simple`] accepted to `c ? a : b`; if a
+    /// branch turns out to need statements, the `if` is lowered as a
+    /// statement into a temporary instead.
     fn simple_if(&mut self, node: &SyntaxNode) -> Expr {
         let blocks: Vec<SyntaxNode> = node
             .children()
@@ -2394,6 +2482,8 @@ impl<'g, 'a> Body<'g, 'a> {
         Expr::Cond(Box::new(cond), Box::new(then), Box::new(otherwise))
     }
 
+    /// The value of a block whose single statement is an expression; `null`
+    /// otherwise.
     fn block_value(&mut self, b: &SyntaxNode) -> Expr {
         let e = ast::Block::cast(b.clone()).and_then(|b| b.statements().next());
         match e {
@@ -2470,6 +2560,9 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// Lowers a literal token of type `ty`: booleans, `nil`, numbers (with
+    /// `_` separators removed), and unit literals such as `10ms` or `90deg`,
+    /// which fold to the base unit.
     fn literal_token(&mut self, tok: &SyntaxToken, ty: &Type) -> Expr {
         let text = tok.text();
         match tok.kind() {
@@ -2540,6 +2633,9 @@ impl<'g, 'a> Body<'g, 'a> {
         js::str(clean)
     }
 
+    /// Lowers a string literal: escapes decoded at build time, and each
+    /// interpolation turned into a template part through
+    /// [`Body::text_of`].
     fn string(&mut self, s: &ast::StringLit) -> Expr {
         if let Some(v) = s.plain_value() {
             return js::str(v);
@@ -2647,6 +2743,8 @@ impl<'g, 'a> Body<'g, 'a> {
         member(id("$k"), "textOf")
     }
 
+    /// Lowers a list literal to an array, each element coerced to the element
+    /// type; a literal of `Set` type becomes a `Set` or `$k.HashSet`.
     fn list_literal(&mut self, node: &SyntaxNode) -> Expr {
         let t = self.ty(node);
         let elem = t.args().first().cloned().unwrap_or(Type::Error);
@@ -2689,6 +2787,8 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// Lowers a map literal to `new Map([[k, v], …])` or `$k.HashMap` (by key
+    /// type), keys and values coerced to the map's types.
     fn map_literal(&mut self, node: &SyntaxNode) -> Expr {
         let t = self.ty(node);
         let k = t.args().first().cloned().unwrap_or(Type::Error);
@@ -2821,6 +2921,9 @@ impl<'g, 'a> Body<'g, 'a> {
         Expr::Arrow(Box::new(f))
     }
 
+    /// Marks the collections a lambda captures as no longer owned. The same as
+    /// [`Body::kill_aliases`] (the save and restore of the owned set around it
+    /// has no effect).
     fn kill_aliases_captured(&mut self, node: &SyntaxNode) {
         // Collections captured by a lambda are no longer owned.
         let saved = self.owned.clone();
@@ -2830,6 +2933,10 @@ impl<'g, 'a> Body<'g, 'a> {
 
     // ------------------------------------------------------------- names
 
+    /// Lowers a name: `self`, a local or parameter (read through its signal
+    /// accessor for a keyed-row item), a component member, a member of the
+    /// owner reached implicitly, or a top-level declaration (recording the
+    /// use).
     #[allow(clippy::too_many_lines)]
     fn name_expr(&mut self, n: &ast::NameExpr) -> Expr {
         let Some(tok) = n.name() else {
@@ -3198,6 +3305,9 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// Lowers an implicit member `.name`: a `FieldName` as its string, a
+    /// theme token as its CSS value, a `Page` case as its value, or a static
+    /// member or case of the expected type.
     fn implicit_member(&mut self, node: &SyntaxNode, _args: Option<Vec<Expr>>) -> Expr {
         let Some(name) = node
             .children_with_tokens()
@@ -3241,6 +3351,11 @@ impl<'g, 'a> Body<'g, 'a> {
 
     // -------------------------------------------------------- operators
 
+    /// Lowers a binary operator by operand types: short-circuit operators
+    /// keep their laziness (a right operand that needs statements runs behind
+    /// an `if`), `==` is structural where needed, arithmetic on `Decimal`,
+    /// `Money` and the like goes through the runtime, and constant CSS
+    /// arithmetic folds.
     #[allow(clippy::too_many_lines)]
     fn binary(&mut self, b: &ast::BinaryExpr) -> Expr {
         let op = b.op().map(|t| t.text().to_owned()).unwrap_or_default();
@@ -3488,6 +3603,9 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// The CSS text of `e` when it lowers to a constant (a literal, a
+    /// parenthesized or binary expression of constants); `None` otherwise.
+    /// Statements emitted while trying are discarded.
     fn const_css(&mut self, e: &ast::Expr) -> Option<String> {
         let saved = self.stmts.len();
         let x = match e {
@@ -3508,6 +3626,9 @@ impl<'g, 'a> Body<'g, 'a> {
 
     // ----------------------------------------------------------- members
 
+    /// Lowers a member access `recv.name` (or `recv?.name`): static members and
+    /// cases on a type, native stdlib members, component and service members,
+    /// tuple elements and plain fields.
     #[allow(clippy::too_many_lines)]
     fn member_expr(&mut self, m: &ast::MemberExpr) -> Expr {
         let Some(name) = m.name() else {
@@ -3583,6 +3704,8 @@ impl<'g, 'a> Body<'g, 'a> {
         self.member_read(r, &base, name.text(), resolved, m.syntax())
     }
 
+    /// `true` if `e` is a name that resolves to a type declaration (anything
+    /// but a function or a constant), so `T.name` is static access.
     fn is_type_name(&self, e: &ast::Expr) -> bool {
         if let ast::Expr::NameExpr(n) = e {
             if let Some(t) = n.name() {
@@ -3623,6 +3746,8 @@ impl<'g, 'a> Body<'g, 'a> {
         member(recv, name.to_owned())
     }
 
+    /// Lowers `r?.name`: JavaScript optional chaining for a plain project
+    /// field, otherwise `r` in a temporary and `t == null ? null : t.name`.
     fn optional_member(
         &mut self,
         r: Expr,
@@ -3736,6 +3861,9 @@ impl<'g, 'a> Body<'g, 'a> {
         out
     }
 
+    /// Lowers one call argument for a parameter of type `param_ty`: a lambda
+    /// with the expected type, a statement-like expression through a
+    /// temporary, and the result coerced to the parameter type.
     fn arg(&mut self, e: &ast::Expr, param_ty: &Type) -> Expr {
         self.kill_aliases(e.syntax());
         let x = if let ast::Expr::LambdaExpr(l) = e {
@@ -3752,6 +3880,10 @@ impl<'g, 'a> Body<'g, 'a> {
         self.coerce(x, &from, param_ty)
     }
 
+    /// Lowers a call: functions, methods (native or not), initializers, enum
+    /// case constructors, lambdas and function values, with labelled
+    /// arguments reordered to the signature, defaults filled in, witnesses and
+    /// `$c` passed where needed.
     #[allow(clippy::too_many_lines)]
     fn call_expr(&mut self, c: &ast::CallExpr) -> Expr {
         let Some(callee) = c.callee() else {
@@ -4151,6 +4283,13 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// Picks the initializer of `inits` that the call's argument labels fit:
+    /// every label is a parameter label and every required parameter is
+    /// given. Falls back to the first initializer.
+    ///
+    /// # Panics
+    ///
+    /// If `inits` is empty and none fits; callers pass at least one.
     fn select_init(&self, inits: &[MemberId], c: &ast::CallExpr) -> MemberId {
         let mut labels: Vec<Option<String>> = Vec::new();
         if let Some(list) = c.arg_list() {
@@ -4544,6 +4683,7 @@ pub(crate) fn subst(t: &Type, f: &dyn Fn(GenId) -> Option<Type>) -> Type {
     }
 }
 
+/// `t` with each generic parameter bound in `m` replaced by its binding.
 fn subst_map(t: &Type, m: &HashMap<GenId, Type>) -> Type {
     subst(t, &|g| m.get(&g).cloned())
 }
@@ -4577,6 +4717,8 @@ pub(crate) fn unify(pattern: &Type, actual: &Type, out: &mut HashMap<GenId, Type
     }
 }
 
+/// The bound name and the value of a `let` condition (`if let x = e`);
+/// the value is `None` for the shorthand `if let x`.
 fn let_condition(c: &SyntaxNode) -> (Option<SyntaxToken>, Option<ast::Expr>) {
     let name = c
         .children_with_tokens()
@@ -4614,6 +4756,7 @@ fn index_base(i: &ast::IndexExpr) -> Option<ast::Expr> {
     i.syntax().children().find_map(ast::Expr::cast)
 }
 
+/// `e` without any enclosing `await` and `try` markers.
 fn strip_await(e: &ast::Expr) -> ast::Expr {
     match e {
         ast::Expr::AwaitExpr(a) => a
@@ -4635,20 +4778,25 @@ fn is_guarded_primitive(e: &Expr) -> bool {
     matches!(e, Expr::Call(f, _) if matches!(&**f, Expr::Member(o, n) if matches!(&**o, Expr::Ident(k) if k == "$k") && (n == "rpc" || n == "sleep")))
 }
 
-/// `if ($k.isPanic(e)) throw e;`.
 /// `text` trimmed, with every run of whitespace replaced by one space.
 pub(crate) fn squash(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// `if ($k.isPanic(e)) throw e;`: the first statement of a `catch (e)`,
+/// so a panic is never handled as a typed error.
 pub(crate) fn rethrow_panics() -> Stmt {
     rethrow("e")
 }
 
+/// [`rethrow_panics`] for a catch variable named `e`.
 fn rethrow(e: &str) -> Stmt {
     Stmt::If(rt("isPanic", vec![id(e)]), vec![Stmt::Throw(id(e))], None)
 }
 
+/// Prepends `flag = true;` to a catch clause's body (inside its guard when
+/// the body is a single `if`), so later clauses know the error was
+/// handled.
 fn mark_handled(body: &mut Vec<Stmt>, flag: &str) {
     let set = Stmt::Expr(js::assign(id(flag), Expr::Bool(true)));
     if let [Stmt::If(_, inner, _)] = body.as_mut_slice() {
@@ -4671,6 +4819,7 @@ pub(crate) fn ends_flow(stmts: &[Stmt]) -> bool {
     }
 }
 
+/// `s` with its first character upper-cased (`add` → `Add`).
 fn capitalize(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {

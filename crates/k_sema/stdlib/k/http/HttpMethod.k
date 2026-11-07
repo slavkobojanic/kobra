@@ -1,15 +1,15 @@
 /// An HTTP request method.
 public enum HttpMethod implements Equatable, Hashable, Codable {
-    /// `GET`.
+    /// The `GET` method: read a resource.
     case get
-    /// `POST`.
+    /// The `POST` method: submit data or create a resource.
     case post
-    /// `PUT`.
+    /// The `PUT` method: replace a resource.
     case put
-    /// `PATCH`.
+    /// The `PATCH` method: change part of a resource.
     case patch
-    /// `DELETE`.
+    /// The `DELETE` method: remove a resource.
     case delete
-    /// `HEAD`.
+    /// The `HEAD` method: `GET` without the body.
     case head
 }

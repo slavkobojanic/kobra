@@ -50,6 +50,8 @@ impl TestDatabase {
     }
 }
 
+/// A counter that makes each Postgres test schema name unique within the
+/// process (the name also has the process id).
 static NEXT: AtomicU32 = AtomicU32::new(0);
 
 /// Connects to every database the test run has: SQLite always, Postgres

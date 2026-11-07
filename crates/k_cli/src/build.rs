@@ -16,6 +16,11 @@ use crate::{sources, workspace};
 
 /// Analyses the project at `project` (a member of a workspace with the
 /// libraries it depends on) and generates its bundles.
+///
+/// # Errors
+///
+/// The exit status, after the problem was printed: as
+/// [`workspace::load_member`] and [`compile_member`].
 fn compile(project: &Path, options: &Options, command: &str) -> Result<Output, ExitCode> {
     let (loaded, member) = workspace::load_member(project, command)?;
     compile_member(&loaded, member, project, options).map(|(o, _)| o)
@@ -23,6 +28,11 @@ fn compile(project: &Path, options: &Options, command: &str) -> Result<Output, E
 
 /// Generates member `m`'s bundles, shown as `project`; also returns the
 /// `rpc.lock` its program implies (`k_sema::Analysis::rpc_lock`).
+///
+/// # Errors
+///
+/// The exit status, after the problem was printed: 1 when the project has
+/// errors, 2 when it is a library (no `app`) or code generation fails.
 fn compile_member(
     loaded: &workspace::Loaded,
     m: usize,
@@ -58,6 +68,11 @@ fn compile_member(
 /// (`docs/design/40-workspaces-and-services.md`, "Compatibility between
 /// deploys"): `k build` records the shape of every protocol the app
 /// serves, after `k check` accepted the change.
+///
+/// # Errors
+///
+/// Exit status 2, after printing the problem, when the file can't be
+/// written.
 fn write_rpc_lock(dir: &Path, lock: Option<&str>) -> Result<(), ExitCode> {
     let Some(lock) = lock else {
         return Ok(());
@@ -142,6 +157,14 @@ pub fn build(args: &BuildArgs) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Writes a build into `out`: the public files, then either the static-only
+/// document ([`write_static`]) or `out/app`, a copy of this executable with
+/// the app's [`AppPayload`](k_server::app::AppPayload) appended (made
+/// executable on Unix).
+///
+/// # Errors
+///
+/// Any failure to read this executable or to write the files.
 #[cfg(feature = "server")]
 fn write(output: &Output, out: &Path) -> std::io::Result<()> {
     use k_server::app::{AppPayload, ConfigSpec, EmbeddedFile, append};
@@ -211,6 +234,11 @@ fn write(output: &Output, out: &Path) -> std::io::Result<()> {
 /// once by the server runtime on a loopback port, so it can't differ from
 /// what `k run` serves: the app's metadata, its stylesheet and its entry
 /// script around an empty `#k-app`.
+///
+/// # Errors
+///
+/// A file can't be written or removed, the server runtime can't start, or
+/// rendering the page fails.
 #[cfg(feature = "server")]
 fn write_static(output: &Output, out: &Path) -> std::io::Result<()> {
     use k_server::{JsModule, Server, ServerBundle, ServerOptions};
@@ -251,6 +279,12 @@ fn write_static(output: &Output, out: &Path) -> std::io::Result<()> {
     std::fs::write(out.join("public").join("index.html"), &page.body)
 }
 
+/// Without the server runtime: writes only the public files; there is no
+/// `dist/app` to produce.
+///
+/// # Errors
+///
+/// Any failure to write the files.
 #[cfg(not(feature = "server"))]
 fn write(output: &Output, out: &Path) -> std::io::Result<()> {
     // Without the server runtime only the client assets can be written.
@@ -343,6 +377,12 @@ pub(crate) struct Wiring {
 /// wins; 25-config-and-secrets.md, "Per environment"), with `wiring`'s
 /// variables over the `.env`, and is validated first: every problem is
 /// printed and the error is exit status 78.
+///
+/// # Errors
+///
+/// The exit status, after the problem was printed: 78 for invalid
+/// configuration, 1 when the database settings are unusable, 2 when the
+/// server can't start.
 #[cfg(feature = "server")]
 fn start(
     output: &Output,
@@ -475,10 +515,16 @@ pub fn dev(args: &RunArgs) -> ExitCode {
 /// One app of `k dev` at a workspace root.
 #[cfg(feature = "server")]
 struct DevApp {
+    /// The member's index in the workspace.
     member: usize,
+    /// The member's directory.
     dir: std::path::PathBuf,
+    /// The port it is served on, fixed for the whole run.
     port: u16,
+    /// Its last good build.
     output: Output,
+    /// Its running server; `None` while stopped (before the first start, or
+    /// after a restart failed).
     server: Option<k_server::Server>,
 }
 
@@ -672,12 +718,20 @@ fn dev_workspace(root: &Path, port: u16, options: &Options) -> ExitCode {
     code
 }
 
+/// Without the server runtime: reports that `k dev` is unavailable and
+/// exits 2.
 #[cfg(not(feature = "server"))]
 fn dev_workspace(_root: &Path, _port: u16, _options: &Options) -> ExitCode {
     eprintln!("error: this `k` was built without the server runtime (feature `server`)");
     ExitCode::from(2)
 }
 
+/// The loop of `k dev` for one project: serves `output`, polls the
+/// project's [`fingerprint`] every `WATCH_INTERVAL`, and on a change waits
+/// for the writes to settle, rebuilds and restarts the server. A build
+/// with errors keeps the old server; a restart that fails leaves none
+/// until the next change. Exits 0 after a graceful stop on `SIGTERM` or
+/// Ctrl-C, 1 if the final shutdown fails, 2 if the watcher can't start.
 #[cfg(feature = "server")]
 fn watch(output: &Output, project: &Path, port: u16, options: &Options) -> ExitCode {
     let mut server = match start(output, project, port, &Wiring::default()) {
@@ -758,6 +812,8 @@ fn watch(output: &Output, project: &Path, port: u16, options: &Options) -> ExitC
     }
 }
 
+/// Without the server runtime: reports that `k dev` is unavailable and
+/// exits 2.
 #[cfg(not(feature = "server"))]
 fn watch(_output: &Output, _project: &Path, _port: u16, _options: &Options) -> ExitCode {
     eprintln!("error: this `k` was built without the server runtime (feature `server`)");
@@ -801,6 +857,8 @@ pub(crate) fn fingerprint(
     out
 }
 
+/// The `content-type` of a development build's asset, by extension (as
+/// `dist/app` serves them).
 #[cfg(feature = "server")]
 fn content_type(path: &str) -> &'static str {
     match path.rsplit('.').next() {
@@ -811,6 +869,8 @@ fn content_type(path: &str) -> &'static str {
     }
 }
 
+/// Without the server runtime: reports that `k run` is unavailable and
+/// exits 2.
 #[cfg(not(feature = "server"))]
 fn serve(_output: &Output, _project: &Path, _port: u16) -> ExitCode {
     eprintln!("error: this `k` was built without the server runtime (feature `server`)");

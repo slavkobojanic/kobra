@@ -17,6 +17,7 @@
 import { batch } from "./signals.js";
 import { localTimeZone } from "./std.js";
 
+/** `true` while a hydration pass is claiming server-rendered nodes. */
 let hydrating = false;
 
 /** The ranges templates claim from: `{ next, end, parent }`, innermost last. */
@@ -33,6 +34,7 @@ export function isHydrating() {
   return hydrating;
 }
 
+/** The counter behind `uid()`; reset by each hydration pass. */
 let nextUid = 0;
 
 /**

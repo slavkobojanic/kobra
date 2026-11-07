@@ -101,7 +101,7 @@ pub enum Predicate {
     },
     /// A string predicate on a column.
     Like {
-        /// The column.
+        /// The text column the predicate tests, by its locked name.
         column: String,
         /// Which predicate.
         kind: Like,
@@ -113,7 +113,7 @@ pub enum Predicate {
 /// One `ORDER BY` key.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Order {
-    /// The column.
+    /// The sort column, by its locked name.
     pub column: String,
     /// `true` for `sortedByDescending` / `thenByDescending`.
     pub descending: bool,
@@ -141,7 +141,7 @@ pub struct Select {
     pub order: Vec<Order>,
     /// `LIMIT` (`first` is a limit of 1).
     pub limit: Option<Count>,
-    /// `OFFSET`.
+    /// `OFFSET`: the number of rows to skip (`offset(n)`).
     pub offset: Option<Count>,
 }
 
@@ -156,7 +156,7 @@ pub enum Statement {
     /// `insert(entity)` / `insert(all:)`: one row of parameters per entity,
     /// numbered row by row (`rows` × `columns.len()` parameters).
     Insert {
-        /// The table.
+        /// The locked table name.
         table: String,
         /// The columns, in entity field order.
         columns: Vec<String>,
@@ -167,7 +167,7 @@ pub enum Statement {
     /// operand where the filter holds. A `@Version` update adds its version
     /// column to the filter and the set list.
     Update {
-        /// The table.
+        /// The locked table name.
         table: String,
         /// The assignments.
         set: Vec<(String, Operand)>,
@@ -176,7 +176,7 @@ pub enum Statement {
     },
     /// `delete(entity)` and bulk `delete()`.
     Delete {
-        /// The table.
+        /// The locked table name.
         table: String,
         /// The condition; `None` deletes every row (only bulk deletes).
         filter: Option<Predicate>,

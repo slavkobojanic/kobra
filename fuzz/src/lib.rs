@@ -60,6 +60,7 @@ pub const GENERATOR_MAX_INPUT: usize = 1024;
 /// If the app doesn't compile or the server doesn't start: the harness is
 /// broken, not the input.
 pub fn server() -> SocketAddr {
+    /// The server's address, set by the first call.
     static ADDR: OnceLock<SocketAddr> = OnceLock::new();
     *ADDR.get_or_init(|| {
         let server = horacle::start_server().expect("the fuzz app starts");

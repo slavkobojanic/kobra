@@ -1,3 +1,3 @@
-/// Takes up the free space in a `Stack`.
+/// Takes up the free space in a [`Stack`].
 @Native
 public component Spacer {}

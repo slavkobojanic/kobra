@@ -2,7 +2,8 @@
 /// `@JobName("order-confirmation")`.
 @Annotation
 public struct JobName {
-    /// Names the job.
+    /// Names the job `name`, its stable name in the queue and in
+    /// `storage.lock`; without it the name comes from the service's name.
     @Native
     init(_ name: String) {}
 }

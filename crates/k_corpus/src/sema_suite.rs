@@ -417,6 +417,11 @@ fn check_annotation(
     )))
 }
 
+/// Reads a corpus source file as UTF-8.
+///
+/// # Errors
+///
+/// Returns a message if the file cannot be read or is not valid UTF-8.
 fn read_text(path: &Path) -> Result<String, String> {
     let bytes = fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     String::from_utf8(bytes).map_err(|_| {
@@ -427,6 +432,8 @@ fn read_text(path: &Path) -> Result<String, String> {
     })
 }
 
+/// Appends every file below `dir`, recursively, to `out` in directory
+/// order (callers sort). Unreadable directories are skipped.
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -441,6 +448,8 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// Returns `path` relative to `root` with `/` separators, the form of a
+/// project path.
 fn relative_path(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)

@@ -3,9 +3,59 @@
 Pages and layouts declare their `<head>` content in a typed **`metadata { }` block**, next to `view`,
 `style` and `loading`.
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
 ```k
-page Product {
-    @Param let id: ProductId
+// src/store/Context.k
+import k.crypto.Uuid
+
+struct Product implements Codable {
+    let id: Uuid
+    let name: String
+    let summary: String
+    let imageUrl: Url
+    let price: Money
+}
+
+enum CatalogError implements Error, Codable {
+    case notFound
+    case unavailable
+}
+
+service ProductService {
+    func find(_ id: Uuid) async throws CatalogError -> Product {
+        throw .notFound
+    }
+}
+
+component ProductSkeleton {
+    view {
+        text { "Loading…" }
+    }
+}
+
+component NotFound {
+    view {
+        text { "Not found" }
+    }
+}
+
+component RetryPanel {
+    @Emits let retry: Event<Void>
+
+    view {
+        button { "Retry" }
+            .on(click: { retry.emit() })
+    }
+}
+```
+-->
+
+```k
+~import k.crypto.Uuid
+~
+page ProductDetail {
+    @Param let id: Uuid
     @Inject let products: ProductService
 
     @Load let product: Product = try await products.find(id)
@@ -13,12 +63,15 @@ page Product {
     metadata {
         title("{product.name} · Acme Shop")
         description(product.summary)
-        canonical(.product(id: id))
+        canonical(.productDetail(id: id))
         socialPreview(image: product.imageUrl, title: product.name)
         structuredData(.product(name: product.name, price: product.price))
     }
 
-    view { … }
+    view {
+        // …
+~        heading(level: 1) { product.name }
+    }
 
     loading { ProductSkeleton() }
 }
@@ -28,10 +81,13 @@ layout Shop {
 
     metadata {
         title("Acme Shop")              // the default for every page in this layout
-        icon(.appIcon)
+        icon(Url("/icon.svg"))
     }
 
-    view { … }
+    view {
+        // …
+~        main { content }
+    }
 }
 ```
 
@@ -48,12 +104,27 @@ layout Shop {
 
 The compiler warns about a page with no `title`, and about a description longer than 160 characters.
 
+> **Planned.** The first compiler releases don't give these two warnings yet.
+
 ## Status codes
 
 `status(_:)` sets the HTTP status of a server-rendered page. It is allowed only in a `metadata` block
 inside `failed`, so a missing product answers `404` instead of a soft `200`:
 
 ```k
+~import k.crypto.Uuid
+~
+~page Missing {
+~    @Param let id: Uuid
+~    @Inject let products: ProductService
+~
+~    @Load let product: Product = try await products.find(id)
+~
+~    view {
+~        text { product.name }
+~    }
+~
+~    loading { ProductSkeleton() }
 failed(let error) {
     match error {
         case .notFound {
@@ -70,6 +141,7 @@ failed(let error) {
         }
     }
 }
+~}
 ```
 
 ## Metadata when a load fails
@@ -78,15 +150,21 @@ failed(let error) {
 values, which don't exist when a load failed:
 
 ```k
-page Product {
-    @Param let id: ProductId
+~import k.crypto.Uuid
+~
+page ProductDetail {
+    @Param let id: Uuid
+~    @Inject let products: ProductService
     @Load let product: Product = try await products.find(id)
 
     metadata {
         title("{product.name} · Acme Shop")       // not evaluated when failed renders
     }
 
-    view { … }
+    view {
+        // …
+~        heading(level: 1) { product.name }
+    }
 
     loading { ProductSkeleton() }
 
@@ -132,6 +210,7 @@ language setting, so server-rendered text and hydrated text agree.
 App-wide entries, such as the web manifest, the theme color and the default locale, go in `App.k`:
 
 ```k
+// examples/weather/App.k
 public app Weather {
     metadata {
         manifest(name: "Weather", shortName: "Weather")

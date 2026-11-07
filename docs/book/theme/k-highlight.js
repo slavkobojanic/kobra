@@ -144,8 +144,29 @@
 
     hljs.registerLanguage('k', k);
 
+    // Highlights one block. Lines hidden with `~` (book.toml's
+    // `output.html.code.hidelines`) arrive wrapped in `<span class="boring">`,
+    // which mdBook's eye button shows and hides; `highlightBlock` would
+    // flatten them. So each run of plain and hidden text is highlighted on
+    // its own, continuing the previous run's state, and hidden runs are
+    // wrapped again.
+    function highlightKeepingHiddenLines(block) {
+        var html = '';
+        var state;
+        var nodes = Array.prototype.slice.call(block.childNodes);
+        for (var n = 0; n < nodes.length; n++) {
+            var node = nodes[n];
+            var hidden = node.nodeType === 1 && node.classList.contains('boring');
+            var result = hljs.highlight('k', node.textContent, true, state);
+            state = result.top;
+            html += hidden ? '<span class="boring">' + result.value + '</span>' : result.value;
+        }
+        block.innerHTML = html;
+        block.classList.add('hljs');
+    }
+
     var blocks = document.querySelectorAll('code.language-k');
     for (var i = 0; i < blocks.length; i++) {
-        hljs.highlightBlock(blocks[i]);
+        highlightKeepingHiddenLines(blocks[i]);
     }
 })();

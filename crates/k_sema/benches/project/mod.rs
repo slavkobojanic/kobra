@@ -108,9 +108,11 @@ pub fn project_bytes(files: &[File]) -> usize {
         .sum()
 }
 
+/// The `k.toml` of every generated project.
 const MANIFEST: &str =
     "[package]\nname = \"bench\"\ntitle = \"Bench\"\nk = \"0.1\"\nversion = \"0.1.0\"\n";
 
+/// `App.k`: the app declaration with its metadata.
 const APP: &str = "\
 /// The benchmark app: every page is found from its declaration.
 public app Bench {
@@ -122,6 +124,8 @@ public app Bench {
 }
 ";
 
+/// The app's theme: the tokens the generated styles use, with a dark
+/// variant.
 const THEME: &str = "\
 /// Design tokens shared by every component of the benchmark app.
 public theme BenchTheme {
@@ -156,6 +160,8 @@ public theme BenchTheme {
 }
 ";
 
+/// `core/Pair.k`: a generic struct with two type parameters and generic
+/// methods.
 const CORE_PAIR: &str = "\
 /// Two values of possibly different types.
 public struct Pair<A, B> {
@@ -177,6 +183,8 @@ public struct Pair<A, B> {
 }
 ";
 
+/// `core/Batch.k`: a generic struct with a computed property and methods
+/// taking lambdas.
 const CORE_BATCH: &str = "\
 /// A page of results with the total count, as list screens show them.
 public struct Batch<T> {
@@ -203,6 +211,7 @@ public struct Batch<T> {
 }
 ";
 
+/// `core/Outcome.k`: a generic enum with payload cases.
 const CORE_RESULT: &str = "\
 /// The outcome of a validation step.
 public enum Outcome<T> {
@@ -222,6 +231,7 @@ public enum Outcome<T> {
 }
 ";
 
+/// `core/Labeled.k`: an interface with a default method.
 const CORE_LABELED: &str = "\
 /// Something with a human-readable label.
 public interface Labeled {
@@ -235,6 +245,7 @@ public interface Labeled {
 }
 ";
 
+/// `core/largest.k`: a generic top-level function taking a lambda.
 const CORE_UTIL: &str = "\
 /// Returns the largest of `items` by `key`, or `nil` for an empty list.
 public func largest<T>(items: List<T>, key: (T) -> Int) -> T? {
@@ -323,6 +334,8 @@ pub fn signature_edit(text: &str, generation: usize) -> String {
     )
 }
 
+/// Returns `Helpers.k` of feature module `module`: private four-line
+/// helper functions, padded with blank lines to exactly `lines` lines.
 fn filler(module: usize, lines: usize) -> File {
     let mut text = String::new();
     // Each helper is 4 lines; the header and leftovers are blank lines.
@@ -346,10 +359,12 @@ fn filler(module: usize, lines: usize) -> File {
     )
 }
 
+/// Names of the `String` fields of generated records.
 const FIELD_NAMES: &[&str] = &[
     "title", "summary", "owner", "headline", "slug", "notes", "code", "region", "author",
     "category",
 ];
+/// Names of the `Int` fields of generated records.
 const INT_NAMES: &[&str] = &[
     "count", "rank", "quantity", "score", "weight", "position", "priority", "size", "age", "level",
 ];
@@ -383,6 +398,8 @@ fn feature_module(i: usize, rng: &mut Rng) -> Vec<File> {
     files
 }
 
+/// `Record<i>.k`: a `Codable`, `Equatable` struct with the given fields,
+/// implementing `Labeled` and `Shape<i>`.
 fn record(i: usize, strings: &[&str], ints: &[&str]) -> String {
     let mut t = String::from("import core.Labeled\n\n");
     let _ = writeln!(t, "/// A stored record of feature {i}.");
@@ -442,6 +459,8 @@ fn record(i: usize, strings: &[&str], ints: &[&str]) -> String {
     t
 }
 
+/// `Status<i>.k`: an enum with `cases` cases (some with payloads) and
+/// members that `match` over them exhaustively.
 fn status(i: usize, cases: usize) -> String {
     let mut t = String::new();
     let _ = writeln!(t, "/// Where a record of feature {i} is in its life cycle.");
@@ -494,6 +513,7 @@ fn status(i: usize, cases: usize) -> String {
     t
 }
 
+/// `Failure<i>.k`: the error enum of feature `i`.
 fn failure(i: usize) -> String {
     format!(
         "import k.rpc.RpcFailure
@@ -522,6 +542,7 @@ public enum Failure{i} implements Error, Codable {{
     )
 }
 
+/// `Shape<i>.k`: an interface with a requirement and a default method.
 fn shape(i: usize) -> String {
     format!(
         "/// Something feature {i} can measure.
@@ -538,6 +559,8 @@ public interface Shape{i} {{
     )
 }
 
+/// `Protocol<i>.k`: a protocol with typed-`throws` rpcs, `rpcs` of them
+/// counting records by an `Int` field.
 fn protocol(i: usize, ints: &[&str], rpcs: usize) -> String {
     let mut extra = String::new();
     for k in 0..rpcs {
@@ -571,6 +594,7 @@ public protocol Protocol{i} {{
     )
 }
 
+/// `Api<i>.k`: the server service implementing `Protocol<i>`.
 fn api(i: usize, strings: &[&str], ints: &[&str], rpcs: usize) -> String {
     let mut extra = String::new();
     for k in 0..rpcs {
@@ -627,6 +651,9 @@ public service Api{i} implements Protocol{i} {{
     )
 }
 
+/// `Service<i>.k`: the client service of feature `i`, injecting the
+/// protocol and the previous feature's service, with state, derived
+/// values and `methods` generic helpers.
 fn service(i: usize, ints: &[&str], methods: usize) -> String {
     let n0 = ints[0];
     let mut t = String::from(
@@ -802,6 +829,8 @@ fn service(i: usize, ints: &[&str], methods: usize) -> String {
     t
 }
 
+/// `Card<i>.k`: a component showing one record, with props, state, a view
+/// and a style block.
 fn card(i: usize, strings: &[&str], ints: &[&str]) -> String {
     let mut details = String::new();
     for s in strings {
@@ -889,6 +918,8 @@ public component Card{i} {{
     )
 }
 
+/// `Screen<i>.k`: a page with `@Inject`, `@Load`, `loading`, `failed`, a
+/// view and styles.
 fn screen(i: usize, ints: &[&str]) -> String {
     let n0 = ints[0];
     format!(
@@ -955,6 +986,8 @@ public page Screen{i} {{
     )
 }
 
+/// `Service<i>.test.k`: a test suite for `Service<i>` with at most eight
+/// generated cases.
 fn test_suite(i: usize, methods: usize) -> String {
     let mut extra = String::new();
     for k in 0..methods.min(8) {
@@ -1045,6 +1078,8 @@ impl Pathological {
     }
 }
 
+/// Appends the files of [`Pathological::DeepGenerics`] with nesting
+/// `depth`.
 fn deep_generics(depth: usize, files: &mut Vec<File>) {
     files.push((
         "src/deep/Wrap.k".into(),
@@ -1080,6 +1115,7 @@ public struct Wrap<T> {
     files.push(("src/deep/Builders.k".into(), t));
 }
 
+/// Appends the files of [`Pathological::HugeMatch`] with `cases` cases.
 fn huge_match(cases: usize, files: &mut Vec<File>) {
     let mut t = String::from("/// An enum with very many cases.\npublic enum Huge {\n");
     for c in 0..cases {
@@ -1131,6 +1167,8 @@ fn huge_match(cases: usize, files: &mut Vec<File>) {
     files.push(("src/huge/Classify.k".into(), t));
 }
 
+/// Appends the files of [`Pathological::ImportChain`] with `length`
+/// modules.
 fn import_chain(length: usize, files: &mut Vec<File>) {
     for i in 0..length {
         let m = format!("chain{i:04}");
@@ -1182,6 +1220,7 @@ fn import_chain(length: usize, files: &mut Vec<File>) {
     }
 }
 
+/// Appends the files of [`Pathological::WideDi`] with `width` branches.
 fn wide_di(width: usize, files: &mut Vec<File>) {
     files.push((
         "src/wide/Leaf.k".into(),

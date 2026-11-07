@@ -11,7 +11,11 @@
 
 export { install as installDom } from "./dom.js";
 
-/** @type {Array<{name: string, fn: () => unknown, pending: string|null}>} */
+/**
+ * The registered tests, in registration order; `pending` is the reason a
+ * pending test is skipped.
+ * @type {Array<{name: string, fn: () => unknown, pending: string|null}>}
+ */
 const registry = [];
 
 /**
@@ -38,12 +42,22 @@ test.pending = (name, reason, fn) => {
 
 /** An assertion failure. */
 export class AssertionError extends Error {
+  /**
+   * Creates a failure with `message`.
+   * @param {string} message what failed, shown in the test report
+   */
   constructor(message) {
     super(message);
     this.name = "AssertionError";
   }
 }
 
+/**
+ * `value` as text for a failure message: JSON (maps and sets shown by
+ * their entries), or `String(value)` when it doesn't serialize.
+ * @param {unknown} value
+ * @returns {string}
+ */
 function show(value) {
   try {
     return JSON.stringify(value, (k, v) => (v instanceof Map ? { Map: [...v] } : v instanceof Set ? { Set: [...v] } : v));

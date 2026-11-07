@@ -205,6 +205,8 @@ pub fn parse(text: &str) -> Result<Vec<Sexpr>, SexprError> {
     Ok(top)
 }
 
+/// Appends `value` to the innermost open list, or to the top-level
+/// sequence when no list is open.
 fn push(stack: &mut [(Vec<Sexpr>, u32, u32)], top: &mut Vec<Sexpr>, value: Sexpr) {
     match stack.last_mut() {
         Some((items, _, _)) => items.push(value),
@@ -212,13 +214,20 @@ fn push(stack: &mut [(Vec<Sexpr>, u32, u32)], top: &mut Vec<Sexpr>, value: Sexpr
     }
 }
 
+/// A character cursor over S-expression text that tracks the position of
+/// the next character for error messages.
 struct Reader<'a> {
+    /// The remaining characters.
     chars: std::iter::Peekable<std::str::Chars<'a>>,
+    /// The 1-based line of the next character.
     line: u32,
+    /// The 1-based column, in chars, of the next character.
     col: u32,
 }
 
 impl Reader<'_> {
+    /// Consumes the next character and advances the position, or returns
+    /// `None` at the end of the text.
     fn bump(&mut self) -> Option<char> {
         let c = self.chars.next()?;
         if c == '\n' {
@@ -230,6 +239,7 @@ impl Reader<'_> {
         Some(c)
     }
 
+    /// Skips whitespace and `;` comments, which run to the end of the line.
     fn skip_space_and_comments(&mut self) {
         while let Some(&c) = self.chars.peek() {
             if c == ';' {
@@ -247,6 +257,14 @@ impl Reader<'_> {
         }
     }
 
+    /// Reads a quoted string at the opening `"` and returns its decoded
+    /// value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error at the opening quote for an unclosed string, and at
+    /// the backslash for an unknown or malformed escape. The escapes are
+    /// `\\`, `\"`, `\n`, `\r`, `\t` and `\u{...}`.
     fn string(&mut self) -> Result<String, SexprError> {
         let (line, col) = (self.line, self.col);
         self.bump();
@@ -285,6 +303,13 @@ impl Reader<'_> {
         }
     }
 
+    /// Reads the `{hex}` part of a `\u{...}` escape whose backslash is at
+    /// `line`:`col`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error at that position unless the braces hold 1 to 6
+    /// hexadecimal digits naming a Unicode scalar value.
     fn unicode_escape(&mut self, line: u32, col: u32) -> Result<char, SexprError> {
         let error = || SexprError {
             line,
@@ -405,6 +430,7 @@ struct Layout {
 }
 
 impl Layout {
+    /// Measures every list under `root`, in pre-order, without recursion.
     fn measure(root: &Sexpr) -> Layout {
         let mut layout = Layout {
             widths: Vec::new(),

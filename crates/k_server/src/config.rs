@@ -130,7 +130,7 @@ pub enum ConfigValue {
     String(String),
     /// An integer.
     Int(i64),
-    /// A double.
+    /// A finite floating-point number (`Double`).
     Double(f64),
     /// A boolean.
     Bool(bool),
@@ -138,7 +138,8 @@ pub enum ConfigValue {
     Duration(f64),
     /// An enum case name.
     Enum(String),
-    /// A list.
+    /// A `List<…>` value: the comma-separated items, each parsed as the
+    /// element kind.
     List(Vec<ConfigValue>),
     /// `nil` for a missing optional field.
     Nil,
@@ -185,15 +186,16 @@ impl ConfigValue {
 }
 
 /// The development environment of `k run`, `k dev` and the end-to-end
-/// tests (25-config-and-secrets.md, "Per environment"): the variables of
-/// an optional `.env` file at the project root, under the process
+/// tests (25-config-and-secrets.md, "Per environment").
+///
+/// It has the variables of an optional `.env` file at the project root, under the process
 /// environment (which wins on a conflict) when `with_process` is set.
 /// `NAME_FILE` paths that are relative are read from the project root.
 #[derive(Clone, Debug, Default)]
 pub struct DevEnvironment {
     /// The project root.
     pub root: std::path::PathBuf,
-    /// The `.env` variables, in file order.
+    /// The `.env` variables, by name; a name set twice keeps its last value.
     pub dotenv: BTreeMap<String, String>,
     /// Whether the process environment is consulted first.
     pub with_process: bool,
@@ -212,8 +214,10 @@ impl DevEnvironment {
     }
 }
 
-/// Parses `.env` text: `NAME=value` lines; blank lines and lines starting
-/// with `#` are skipped, `export ` before a name is allowed, and a value
+/// Parses `.env` text into its variables, by name.
+///
+/// The text is `NAME=value` lines; blank lines and lines starting with
+/// `#` are skipped, `export ` before a name is allowed, and a value
 /// wrapped in matching single or double quotes loses them. Lines without
 /// `=` are ignored.
 #[must_use]
@@ -295,6 +299,10 @@ impl Environment for ProcessEnvironment {
     }
 }
 
+/// Parses a `Duration` configuration value, a decimal number with one of
+/// the units `ms`, `s`, `m`, `h` or `d` (`250ms`, `1.5h`), to milliseconds.
+/// Returns `None` for anything else: no unit, no digits, a sign, a leading
+/// or trailing point, or more than one point.
 fn parse_duration(text: &str) -> Option<f64> {
     let units = [
         ("ms", 1.0),
@@ -319,6 +327,13 @@ fn parse_duration(text: &str) -> Option<f64> {
     None
 }
 
+/// Parses the text of one variable as a value of `kind`.
+///
+/// # Errors
+///
+/// The end of a message that follows the variable's name (`is not an Int`,
+/// `is outside 1...10`); it never contains the text itself, which may be a
+/// secret.
 fn parse(kind: &ConfigKind, text: &str) -> Result<ConfigValue, String> {
     match kind {
         ConfigKind::String => Ok(ConfigValue::String(text.to_owned())),

@@ -39,11 +39,11 @@ pub enum SymbolKind {
 /// One outline entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DocumentSymbol {
-    /// The name.
+    /// The declaration's or member's name as written.
     pub name: String,
     /// A short detail (a member's type or signature).
     pub detail: Option<String>,
-    /// The kind.
+    /// What kind of declaration or member it is (the outline's icon).
     pub kind: SymbolKind,
     /// The whole item.
     pub range: TextRange,
@@ -56,9 +56,9 @@ pub struct DocumentSymbol {
 /// One workspace symbol.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkspaceSymbol {
-    /// The name.
+    /// The declaration's or member's simple name.
     pub name: String,
-    /// The kind.
+    /// What kind of declaration or member it is.
     pub kind: SymbolKind,
     /// The declaring file.
     pub file: FileId,
@@ -184,8 +184,10 @@ fn member_detail(view: &ProgramView, m: k_sema::view::MemberId) -> String {
 }
 
 /// The project's declarations and members whose names match `query`
-/// fuzzily (its characters in order, ignoring case), best matches first,
-/// at most `limit`. Stdlib declarations are left out. An empty query
+/// fuzzily, best matches first.
+///
+/// A name matches when it has the query's characters in order, ignoring
+/// case; at most `limit` are returned. Stdlib declarations are left out. An empty query
 /// matches every declaration, but no member.
 ///
 /// # Errors

@@ -49,6 +49,8 @@
 //! # let _ = FileId::new(0);
 //! ```
 
+#![warn(clippy::missing_docs_in_private_items)]
+
 pub mod codes;
 mod diagnostic;
 mod line_index;

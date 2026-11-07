@@ -26,41 +26,77 @@ use crate::ty::Ty;
 /// Declarations the checker gives meaning to (operators, literals,
 /// conformance).
 pub(crate) struct Builtins {
+    // Each field is `None` if the standard library lacks the declaration;
+    // [`builtin`] then gives `{error}`, which silences the checks that
+    // need it.
+    /// `k.core.Int`.
     pub(crate) int: Option<DeclId>,
+    /// `k.core.Double`.
     pub(crate) double: Option<DeclId>,
+    /// `k.core.Decimal`.
     pub(crate) decimal: Option<DeclId>,
+    /// `k.core.Bool`.
     pub(crate) bool_: Option<DeclId>,
+    /// `k.core.String`.
     pub(crate) string: Option<DeclId>,
+    /// `k.core.Void`.
     pub(crate) void: Option<DeclId>,
+    /// `k.core.Optional`.
     pub(crate) optional: Option<DeclId>,
+    /// `k.core.List`.
     pub(crate) list: Option<DeclId>,
+    /// `k.core.Map`.
     pub(crate) map: Option<DeclId>,
+    /// `k.core.Set`.
     pub(crate) set: Option<DeclId>,
+    /// `k.core.Stream`.
     pub(crate) stream: Option<DeclId>,
+    /// `k.core.HalfOpenRange`.
     pub(crate) half_open: Option<DeclId>,
+    /// `k.core.ClosedRange`.
     pub(crate) closed: Option<DeclId>,
+    /// `k.core.Length`.
     pub(crate) length: Option<DeclId>,
+    /// `k.core.Duration`.
     pub(crate) duration: Option<DeclId>,
+    /// `k.core.Angle`.
     pub(crate) angle: Option<DeclId>,
+    /// `k.core.Percent`.
     pub(crate) percent: Option<DeclId>,
+    /// `k.core.Color`.
     pub(crate) color: Option<DeclId>,
+    /// `k.core.Spacing`.
     pub(crate) spacing: Option<DeclId>,
+    /// `k.core.Radius`.
     pub(crate) radius: Option<DeclId>,
+    /// `k.core.FontSize`.
     pub(crate) font_size: Option<DeclId>,
+    /// `k.core.Money`.
     pub(crate) money: Option<DeclId>,
+    /// `k.core.Error`.
     pub(crate) error: Option<DeclId>,
+    /// `k.core.Equatable`.
     pub(crate) equatable: Option<DeclId>,
+    /// `k.core.Hashable`.
     pub(crate) hashable: Option<DeclId>,
+    /// `k.core.Comparable`.
     pub(crate) comparable: Option<DeclId>,
+    /// `k.core.Codable`.
     pub(crate) codable: Option<DeclId>,
+    /// `k.core.Copyable`.
     pub(crate) copyable: Option<DeclId>,
+    /// `k.core.Page`.
     pub(crate) page: Option<DeclId>,
+    /// `k.core.ThemeVariant`.
     pub(crate) theme_variant: Option<DeclId>,
+    /// `k.core.View`.
     pub(crate) view: Option<DeclId>,
+    /// `k.http.HttpStatus` (K2401's named status cases).
     pub(crate) http_status: Option<DeclId>,
 }
 
 impl Builtins {
+    /// Looks every builtin up in `p` by its qualified name.
     fn new(p: &Program<'_>) -> Builtins {
         let core = |n: &str| p.lookup_qualified(&format!("k.core.{n}"));
         Builtins {
@@ -140,7 +176,8 @@ pub(crate) struct SigParam {
     pub(crate) name: String,
     /// The type.
     pub(crate) ty: Ty,
-    /// `true` when the parameter has a default value.
+    /// `true` when a call may omit the argument: the parameter has a
+    /// default value, or it is a page case's optional `@Param`.
     pub(crate) has_default: bool,
     /// The internal name's range.
     pub(crate) name_range: TextRange,
@@ -232,18 +269,25 @@ pub(crate) struct Cx<'p, 'a> {
     /// own, or replayed from the previous revision; `crate::warm`). The
     /// project passes that read resolutions see these and `resolutions`.
     pub(crate) body_resolutions: RefCell<Vec<std::sync::Arc<crate::warm::RangeMap<Resolution>>>>,
+    /// Memoized field types ([`Cx::field_ty`]).
     field_tys: RefCell<FxHashMap<MemberId, Ty>>,
+    /// Fields whose type is being inferred: a field met again while its
+    /// own initializer is inferred is `{error}` (no infinite recursion).
     field_busy: RefCell<FxHashSet<MemberId>>,
+    /// Memoized signatures ([`Cx::sig`]).
     sigs: RefCell<FxHashMap<SigKey, Rc<Sig>>>,
+    /// Memoized `implements` lists ([`Cx::implements_list`]).
     implements: RefCell<FxHashMap<DeclId, Implements>>,
+    /// Memoized constraints of generic parameters ([`Cx::constraints`]).
     constraints: RefCell<FxHashMap<GenId, Rc<Vec<Ty>>>>,
+    /// Memoized extension targets ([`Cx::ext_target`]).
     ext_targets: RefCell<FxHashMap<DeclId, Ty>>,
     /// Extensions by the declaration they extend.
     pub(crate) extensions_of: RefCell<FxHashMap<DeclId, Vec<DeclId>>>,
     /// Theme tokens by category type.
     pub(crate) tokens: HashMap<DeclId, Vec<MemberId>>,
-    /// Bodies whose initializer types are being inferred, for field types
-    /// without an annotation.
+    /// The hook that infers the type of a field without annotation from
+    /// its initializer, installed by the semantic pass (`check.rs`).
     pub(crate) infer_field: RefCell<Option<FieldHook<'p, 'a>>>,
     /// Infers the type of a top-level constant without annotation.
     pub(crate) infer_constant: RefCell<Option<ConstantHook<'p, 'a>>>,
@@ -251,6 +295,7 @@ pub(crate) struct Cx<'p, 'a> {
     pub(crate) fw: crate::framework::FwState,
     /// Sides and `use` rules of the DI layer.
     pub(crate) di: crate::di::DiState,
+    /// Memoized [`Cx::session_alias`] answers.
     aliases: RefCell<FxHashMap<DeclId, Option<DeclId>>>,
 }
 
@@ -423,6 +468,9 @@ impl<'p, 'a> Cx<'p, 'a> {
         owner
     }
 
+    /// Returns the argument labels of a function-like member, `None` for an
+    /// unlabelled (`_`) parameter; a generated `copy` takes one label per
+    /// stored field of its type.
     fn member_labels(&self, member: MemberId) -> Vec<Option<String>> {
         let m = self.p.member(member);
         if m.kind == MemberKind::Generated && m.name == "copy" {
@@ -440,6 +488,12 @@ impl<'p, 'a> Cx<'p, 'a> {
 
     // --------------------------------------------------------------- imports
 
+    /// Resolves the imports of `file`, one [`ImportRes`] per import in order.
+    ///
+    /// Reports unknown imports (K1101, with a "did you mean" fix), imports of
+    /// non-public declarations (K1102), test-only modules imported outside tests (K1104) and
+    /// duplicate or self imports (K1106). `k.internal` is unknown outside
+    /// the stdlib, and package (non-plain) imports are [`ImportRes::Ignored`].
     fn resolve_imports(&self, file: FileIx) -> Vec<ImportRes> {
         let info = self.p.file(file);
         let mut out = Vec::new();
@@ -599,6 +653,11 @@ impl<'p, 'a> Cx<'p, 'a> {
         TextRange::new(to_size(line_start), to_size(line_end))
     }
 
+    /// Returns the qualified name closest to the unknown import `path` (edit
+    /// distance at most 2, ties broken alphabetically), skipping `k.internal`
+    /// and, outside test files, test-only modules.
+    ///
+    /// Linear in the number of qualified names.
     fn closest_import(&self, path: &str, test: bool) -> Option<String> {
         let mut best: Option<(usize, &String)> = None;
         for (name, decl) in &self.p.qualified {
@@ -797,6 +856,9 @@ impl<'p, 'a> Cx<'p, 'a> {
         })
     }
 
+    /// Returns where and what to insert to import `path` into `file`: in
+    /// alphabetical order among the existing imports, or before the first item
+    /// followed by a blank line when there are none.
     fn import_insertion(&self, file: FileIx, path: &str) -> (TextSize, String) {
         let info = self.p.file(file);
         if info.imports.is_empty() {
@@ -874,6 +936,10 @@ impl<'p, 'a> Cx<'p, 'a> {
         }
     }
 
+    /// Resolves a named type (`Name`, `Name<Args>` or a qualified
+    /// `Outer.Inner`) in `file` with `generics` in scope: generic parameters
+    /// first, then the file's names; reports unknown (K1202) and invisible
+    /// (K1301) types and returns `{error}` for them.
     fn resolve_path_type(&self, file: FileIx, generics: &[GenId], path: &ast::PathType) -> Ty {
         let segments = path.segments();
         let (Some(first), Some(last)) = (segments.first(), segments.last()) else {
@@ -1247,6 +1313,9 @@ impl<'p, 'a> Cx<'p, 'a> {
         sig
     }
 
+    /// Builds the signature of a function-like `node` under `key`: parameter
+    /// labels (the name when no label is written, `None` for `_`), types,
+    /// defaults, `async`, `throws` and the return type (`Void` when omitted).
     fn build_sig(
         &self,
         file: FileIx,
@@ -1371,6 +1440,9 @@ impl<'p, 'a> Cx<'p, 'a> {
         self.declares_inner(decl, iface, &mut seen)
     }
 
+    /// The recursion of [`Cx::declares`]; `seen` stops cycles of `implements`
+    /// clauses. Payload-less, non-generic enums declare `Equatable` and
+    /// `Hashable` implicitly (sema.md §9.2).
     fn declares_inner(&self, decl: DeclId, iface: DeclId, seen: &mut HashSet<DeclId>) -> bool {
         if decl == iface {
             return true;
@@ -1559,6 +1631,10 @@ impl<'p, 'a> Cx<'p, 'a> {
         }
     }
 
+    /// Looks the member `name` up in `decl` (instantiated with `args`) as seen
+    /// from `body_owner`: its own members, then (for statics) its theme
+    /// tokens, the interfaces it implements and its extensions whose `where`
+    /// constraints the receiver meets.
     fn lookup_in_decl(
         &self,
         file: FileIx,
@@ -1632,6 +1708,8 @@ impl<'p, 'a> Cx<'p, 'a> {
         MemberFound::Missing
     }
 
+    /// Looks the member `name` up in the interfaces `decl` implements,
+    /// depth-first in declaration order; `seen` stops cycles.
     fn lookup_in_interfaces(
         &self,
         body_owner: Option<DeclId>,
@@ -1658,6 +1736,9 @@ impl<'p, 'a> Cx<'p, 'a> {
         None
     }
 
+    /// Classifies a found member for a lookup: initializers are not members,
+    /// the static/instance kind must match ([`MemberFound::WrongKind`]) and a
+    /// private or `@Inject` member is visible only from its own declaration.
     fn check_member(
         &self,
         m: MemberId,
@@ -1866,16 +1947,23 @@ pub(crate) fn param_list_labels(node: &SyntaxNode) -> Vec<Option<String>> {
         .collect()
 }
 
+/// Returns where an import inserted before the first item (which starts
+/// at `offset`) goes; currently `offset` itself.
 fn item_start(_root: &SyntaxNode, offset: TextSize) -> TextSize {
     offset
 }
 
+/// Converts a byte offset to a [`TextSize`], saturating at `u32::MAX`.
 fn to_size(n: usize) -> TextSize {
     TextSize::from(u32::try_from(n).unwrap_or(u32::MAX))
 }
 
 /// The optimal-string-alignment distance of two strings, in characters:
 /// Levenshtein plus adjacent transpositions.
+///
+/// Strings whose lengths differ by more than 3 give `usize::MAX` without
+/// being compared (callers only accept small distances). O(|a|·|b|) time,
+/// O(|b|) space.
 pub(crate) fn edit_distance(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();

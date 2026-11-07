@@ -20,10 +20,14 @@ use k_codegen::{Options, check_client_bundle, generate};
 use k_sema::{AnalysisHost, Options as SemaOptions, ProjectPath};
 use proptest::prelude::*;
 
+/// The `k.toml` of the test project: a package named `demo`.
 const TOML: &str = "[package]\nname = \"demo\"\nk = \"0.1\"\n";
 
+/// The entity the generated repositories query: an id, an indexed owner, a
+/// unique title, a flag and a version.
 const NOTE: &str = "import k.crypto.Uuid\n\npublic entity Note {\n    @Id let id: Uuid\n    @Index let owner: String\n    @Unique var title: String\n    var isPinned: Bool = false\n    @Version var revision: Int = 1\n}\n";
 
+/// The migration that creates [`NOTE`]'s table, so the build has a schema.
 const MIGRATION: &str = "migration Init {\n    func up(schema: Schema) {\n        schema.createTable(name: \"note\") { table =>\n            table.column(name: \"id\", type: .uuid).primaryKey(true)\n            table.column(name: \"owner\", type: .text).indexed(true)\n            table.column(name: \"title\", type: .text).unique(true)\n            table.column(name: \"is_pinned\", type: .boolean).defaultValue(.boolean(false))\n            table.column(name: \"revision\", type: .integer)\n        }\n    }\n}\n";
 
 /// Constants that would break or change a statement if interpolated.
@@ -59,10 +63,12 @@ enum Cond {
     OwnerParam,
 }
 
+/// `text` escaped for a K string literal (backslashes and quotes).
 fn escape(text: &str) -> String {
     text.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// The K source of one filter conjunct.
 fn cond_text(c: &Cond) -> String {
     match c {
         Cond::OwnerIs(i, eq) => format!(
@@ -81,6 +87,7 @@ fn cond_text(c: &Cond) -> String {
     }
 }
 
+/// A strategy for one filter conjunct over the [`HOSTILE`] constants.
 fn cond() -> impl Strategy<Value = Cond> {
     let h = 0..HOSTILE.len();
     prop_oneof![
@@ -95,11 +102,17 @@ fn cond() -> impl Strategy<Value = Cond> {
 /// A query: conjuncts, an optional sort, an optional limit.
 #[derive(Clone, Debug)]
 struct Query {
+    /// The conjuncts of the filter, joined with `and`.
     conds: Vec<Cond>,
+    /// A sort by revision: `Some(true)` descending, `Some(false)`
+    /// ascending.
     sort: Option<bool>,
+    /// A constant `limit`.
     limit: Option<u32>,
 }
 
+/// A strategy for one query: one to three conjuncts, an optional sort and
+/// an optional limit below 100.
 fn query() -> impl Strategy<Value = Query> {
     (
         prop::collection::vec(cond(), 1..4),
@@ -109,6 +122,8 @@ fn query() -> impl Strategy<Value = Query> {
         .prop_map(|(conds, sort, limit)| Query { conds, sort, limit })
 }
 
+/// The K source of a `NoteRepository` with one function `q<i>(p:)` per
+/// query, each a `notes.filter { … }` chain.
 fn repository(queries: &[Query]) -> String {
     let mut out = String::from("public repository NoteRepository for Note {\n");
     for (i, q) in queries.iter().enumerate() {
@@ -168,6 +183,8 @@ fn skeleton(sql: &str) -> Result<String, String> {
     Ok(rest)
 }
 
+/// The proptest configuration: proptest's own (which reads
+/// `PROPTEST_CASES`) when that variable is set, otherwise 48 cases.
 fn config() -> ProptestConfig {
     if std::env::var_os("PROPTEST_CASES").is_some() {
         ProptestConfig::default()

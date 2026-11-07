@@ -22,7 +22,8 @@ use crate::lower::{Body, SelfMode};
 /// What one declaration contributes to one side.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Item {
-    /// The module-level statements.
+    /// The module-level statements of the declaration's own code, in
+    /// output order.
     pub stmts: Vec<Stmt>,
     /// The symbols of other declarations it references.
     pub uses: BTreeSet<(DeclId, String)>,
@@ -38,7 +39,7 @@ pub(crate) struct Item {
 pub(crate) struct OnDemand {
     /// The symbols it defines (`Point$codec`, `Point$encode`, …).
     pub symbols: Vec<String>,
-    /// The statements.
+    /// The statements that define [`OnDemand::symbols`].
     pub stmts: Vec<Stmt>,
     /// The symbols of other declarations it references.
     pub uses: BTreeSet<(DeclId, String)>,
@@ -154,6 +155,10 @@ pub(crate) fn params(
     out
 }
 
+/// `true` if the generic parameter `g` of a function needs a witness
+/// parameter (`$w_T`): it is constrained to `Codable` (the witness is the
+/// codec) or to a user interface whose operations go through a method
+/// table ([`Body::needs_witness`]).
 fn needs_witness_param(b: &Body<'_, '_>, g: k_sema::view::GenId) -> bool {
     let Some(info) = b.g.view.generics.get(g.0 as usize) else {
         return false;
@@ -227,6 +232,7 @@ pub(crate) fn getter_stmts(b: &mut Body<'_, '_>, field: &SyntaxNode) -> Vec<Stmt
     out
 }
 
+/// Lowers a top-level `func` to one exported function declaration.
 fn function_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let info = b.g.view.decl(d).clone();
     let node = b.g.decl_node(d);
@@ -240,6 +246,8 @@ fn function_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     vec![Stmt::Function(f, true)]
 }
 
+/// Lowers a top-level `let` to `export const name = value;`, preceded by
+/// any statements its value needs; a constant without a value is `null`.
 fn constant(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let Some(node) = b.g.decl_node(d) else {
         return Vec::new();
@@ -254,6 +262,12 @@ fn constant(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     out
 }
 
+/// Lowers the members of a value type or extension `d` to exported
+/// module-level functions: each instance `func` and computed property
+/// takes the receiver as a leading `self` parameter (read as
+/// `self_mode`), static ones take none, and a static field becomes an
+/// exported constant. Native members of stdlib declarations are skipped;
+/// their bodies live in the runtime.
 fn member_fns(b: &mut Body<'_, '_>, d: DeclId, self_mode: &SelfMode) -> Vec<Stmt> {
     let info = b.g.view.decl(d).clone();
     let mut out = Vec::new();
@@ -363,6 +377,10 @@ pub(crate) fn memberwise_constructor(b: &mut Body<'_, '_>, d: DeclId) -> Stmt {
     )
 }
 
+/// Lowers a `struct` or `entity` to its memberwise constructor, one function per
+/// declared initializer, its member functions and its on-demand extras
+/// (text, codecs, adapters). An `@Native` struct lowers to nothing: the
+/// runtime provides it.
 fn struct_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let info = b.g.view.decl(d).clone();
     if info.has_annotation("Native") {
@@ -682,6 +700,10 @@ fn adapters(b: &mut Body<'_, '_>, d: DeclId) -> Vec<(Vec<String>, Vec<Stmt>)> {
     out
 }
 
+/// Lowers an `enum` to its exported constructor object: each payload-free
+/// case is a `$k.unitCase(tag)` singleton, each payload case an arrow that
+/// builds `{ $: tag, …fields }`; then its member functions and extras.
+/// `Currency` is the runtime's `$k.Currency`.
 fn enum_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let info = b.g.view.decl(d).clone();
     b.owner = Some(d);
@@ -722,6 +744,9 @@ fn enum_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     out
 }
 
+/// Lowers a `class` to a JavaScript class whose methods read
+/// the receiver as `this`; field initializers run in the constructor. An
+/// `@Native` class lowers to nothing.
 fn class_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let info = b.g.view.decl(d).clone();
     if info.has_annotation("Native") {
@@ -969,6 +994,10 @@ fn stdlib_default_method(b: &mut Body<'_, '_>, iface: DeclId, m: MemberId) -> Op
     }
 }
 
+/// Lowers a user `interface` to its default methods (exported functions
+/// taking the interface value as `self`) and, on demand, its dynamic
+/// method table `Name$dyn`, which calls each operation on the value
+/// itself. A stdlib interface lowers to nothing.
 fn interface_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let info = b.g.view.decl(d).clone();
     if info.stdlib {
@@ -1033,6 +1062,9 @@ fn interface_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     out
 }
 
+/// Lowers an `extension` of a project type to member functions of the
+/// extended type ([`member_fns`]); extensions in the stdlib lower to
+/// nothing.
 fn extension(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let info = b.g.view.decl(d).clone();
     if info.stdlib {

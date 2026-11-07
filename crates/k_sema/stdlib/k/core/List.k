@@ -30,7 +30,7 @@ public struct List<T> implements Codable {
     /// The elements sorted by `key`, descending; stable.
     func sortedByDescending<K>(_ key: (T) -> K) -> List<T> where K implements Comparable
     /// Sorts elements that compare equal by the previous sort by `key`,
-    /// ascending; follows `sortedBy` or `sortedByDescending`.
+    /// ascending; follows [`sortedBy`] or [`sortedByDescending`].
     func thenBy<K>(_ key: (T) -> K) -> List<T> where K implements Comparable
     /// Sorts elements that compare equal by the previous sort by `key`,
     /// descending.
@@ -65,11 +65,11 @@ public struct List<T> implements Codable {
     func maxBy<K>(_ key: (T) -> K) -> T? where K implements Comparable
     /// The sum of the elements: `0` for an empty `List<Int>` and `0.0` for an
     /// empty `List<Double>`. Only lists of `Int` or `Double` have it; a list
-    /// of `Money` needs a currency and uses `sum(in:_:)` instead
+    /// of [`Money`] needs a currency and uses [`sum(in:_:)`] instead
     /// (`docs/design/34-money.md`). `Int` sums panic on overflow in debug
     /// and test builds, like `+`.
     func sum() -> T
-    /// The sum of `amount` over the elements, in `currency`; `Money.zero` for
+    /// The sum of `amount` over the elements, in `currency`; [`Money.zero`] for
     /// an empty list (`docs/design/34-money.md`).
     func sum(in currency: Currency, _ amount: (T) -> Money) -> Money
     /// The elements as text, separated by `separator`.
@@ -77,9 +77,10 @@ public struct List<T> implements Codable {
     /// `true` if `element` is in the list.
     func contains(_ element: T) -> Bool where T implements Equatable
     /// `true` if some element satisfies `predicate`; `contains { … }` reads
-    /// like `any`.
+    /// like [`any`].
     func contains(where predicate: (T) -> Bool) -> Bool
-    /// The list followed by `other`.
+    /// The list followed by the element `other`; the list itself is
+    /// unchanged.
     func appending(_ other: T) -> List<T>
     /// The pairs of each element and its index.
     func enumerated() -> List<(Int, T)>

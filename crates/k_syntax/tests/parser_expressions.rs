@@ -59,10 +59,13 @@ const BINARY: &[(&str, u8, Assoc)] = &[
 /// The level of prefix `not`.
 const NOT_LEVEL: u8 = 4;
 
+/// Returns the tree dump of the name expression `n`.
 fn name(n: &str) -> String {
     format!("(NameExpr {n})")
 }
 
+/// Returns the tree dump of the binary expression `lhs op rhs`, whose
+/// operands are already dumps.
 fn bin(lhs: &str, op: &str, rhs: &str) -> String {
     format!("(BinaryExpr {lhs} {op} {rhs})")
 }
@@ -72,6 +75,7 @@ fn top(expr: &str) -> String {
     format!("(SourceFile (FieldDecl let v = {expr}))")
 }
 
+/// Parses `text` as exactly one S-expression, panicking otherwise.
 fn read_one(text: &str) -> Sexpr {
     let mut parsed =
         sexpr::parse(text).unwrap_or_else(|e| panic!("bad expected sexpr {text}: {e}"));
@@ -106,6 +110,8 @@ fn parse_dump(source: &str) -> (Sexpr, Vec<(String, u32)>) {
 struct Failures(Vec<String>);
 
 impl Failures {
+    /// Parses `source` and records a failure if its tree dump differs from
+    /// `expected_tree` or its diagnostics differ from `expected_diags`.
     fn check(&mut self, source: &str, expected_tree: &str, expected_diags: &[(String, u32)]) {
         let (actual, diags) = parse_dump(source);
         let expected = read_one(expected_tree);
@@ -122,6 +128,7 @@ impl Failures {
         }
     }
 
+    /// Panics with every recorded mismatch, if there are any.
     fn finish(self) {
         assert!(
             self.0.is_empty(),

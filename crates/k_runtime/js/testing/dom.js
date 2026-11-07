@@ -16,6 +16,7 @@
  * `install()` puts a fresh `document` (and the classes) on `globalThis`.
  */
 
+/** The HTML void elements, which have no end tag and no children. */
 const VOID_ELEMENTS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 
 /**
@@ -28,6 +29,11 @@ const VOID_ELEMENTS = new Set(["area", "base", "br", "col", "embed", "hr", "img"
  * `childNodes` is an array snapshot, rebuilt after a mutation.
  */
 export class Node {
+  /**
+   * Creates a detached node without children.
+   * @param {number} nodeType 1 element, 3 text, 8 comment, 9 document, 11 fragment
+   * @param {Document|null} ownerDocument
+   */
   constructor(nodeType, ownerDocument) {
     /** 1 element, 3 text, 8 comment, 9 document, 11 fragment. */
     this.nodeType = nodeType;
@@ -61,22 +67,34 @@ export class Node {
     return this._kids;
   }
 
-  /** @returns {Node|null} */
+  /**
+   * The first child, or `null`.
+   * @returns {Node|null}
+   */
   get firstChild() {
     return this._first;
   }
 
-  /** @returns {Node|null} */
+  /**
+   * The last child, or `null`.
+   * @returns {Node|null}
+   */
   get lastChild() {
     return this._last;
   }
 
-  /** @returns {Node|null} */
+  /**
+   * The next sibling, or `null`.
+   * @returns {Node|null}
+   */
   get nextSibling() {
     return this._next;
   }
 
-  /** @returns {Node|null} */
+  /**
+   * The previous sibling, or `null`.
+   * @returns {Node|null}
+   */
   get previousSibling() {
     return this._prev;
   }
@@ -147,6 +165,11 @@ export class Node {
     return this.childNodes.map((c) => (c.nodeType === 8 ? "" : c.textContent)).join("");
   }
 
+  /**
+   * Sets the data of a text or comment node; on any other node, replaces
+   * the children with one text node (none for `""`).
+   * @param {string} value
+   */
   set textContent(value) {
     if (this.nodeType === 3 || this.nodeType === 8) {
       this.data = value;
@@ -166,11 +189,20 @@ export class Node {
 
 /** A text node. */
 export class Text extends Node {
+  /**
+   * Creates a detached text node.
+   * @param {string} data the text
+   * @param {Document} ownerDocument
+   */
   constructor(data, ownerDocument) {
     super(3, ownerDocument);
     this.data = data;
   }
 
+  /**
+   * A new text node with the same data.
+   * @returns {Text}
+   */
   shallowClone() {
     return new Text(this.data, this.ownerDocument);
   }
@@ -178,11 +210,20 @@ export class Text extends Node {
 
 /** A comment node (hydration markers). */
 export class Comment extends Node {
+  /**
+   * Creates a detached comment.
+   * @param {string} data the comment's text, without `<!--` and `-->`
+   * @param {Document} ownerDocument
+   */
   constructor(data, ownerDocument) {
     super(8, ownerDocument);
     this.data = data;
   }
 
+  /**
+   * A new comment with the same data.
+   * @returns {Comment}
+   */
   shallowClone() {
     return new Comment(this.data, this.ownerDocument);
   }
@@ -190,10 +231,18 @@ export class Comment extends Node {
 
 /** A document fragment. */
 export class DocumentFragment extends Node {
+  /**
+   * Creates an empty fragment.
+   * @param {Document} ownerDocument
+   */
   constructor(ownerDocument) {
     super(11, ownerDocument);
   }
 
+  /**
+   * A new empty fragment.
+   * @returns {DocumentFragment}
+   */
   shallowClone() {
     return new DocumentFragment(this.ownerDocument);
   }
@@ -201,7 +250,11 @@ export class DocumentFragment extends Node {
 
 /** An event, dispatched with bubbling. */
 export class Event {
-  /** @param {string} type @param {{bubbles?: boolean}} [init] */
+  /**
+   * Creates an undispatched event.
+   * @param {string} type the event type, `click`
+   * @param {{bubbles?: boolean}} [init] whether it bubbles (default `false`)
+   */
   constructor(type, init) {
     this.type = type;
     this.bubbles = init?.bubbles ?? false;
@@ -211,33 +264,58 @@ export class Event {
     this.propagationStopped = false;
   }
 
+  /** Marks the event's default action as prevented (`defaultPrevented`). */
   preventDefault() {
     this.defaultPrevented = true;
   }
 
+  /** Stops the event from bubbling past the current element. */
   stopPropagation() {
     this.propagationStopped = true;
   }
 }
 
+/**
+ * An element's inline style: custom properties and declarations by name,
+ * in insertion order.
+ */
 class Style {
+  /** Creates an empty style. */
   constructor() {
     /** @type {Map<string, string>} */
     this.properties = new Map();
   }
 
+  /**
+   * Sets property `name` to `value` (as text).
+   * @param {string} name
+   * @param {unknown} value
+   */
   setProperty(name, value) {
     this.properties.set(name, String(value));
   }
 
+  /**
+   * Removes property `name`.
+   * @param {string} name
+   */
   removeProperty(name) {
     this.properties.delete(name);
   }
 
+  /**
+   * The value of property `name`, or `""` when it is not set.
+   * @param {string} name
+   * @returns {string}
+   */
   getPropertyValue(name) {
     return this.properties.get(name) ?? "";
   }
 
+  /**
+   * The declarations as text, `a: b; c: d;`.
+   * @returns {string}
+   */
   get cssText() {
     return [...this.properties].map(([k, v]) => `${k}: ${v};`).join(" ");
   }
@@ -245,6 +323,12 @@ class Style {
 
 /** An element. */
 export class Element extends Node {
+  /**
+   * Creates an element without attributes or children; a `<template>` gets
+   * an empty `content` fragment.
+   * @param {string} tagName the tag name, lower case
+   * @param {Document} ownerDocument
+   */
   constructor(tagName, ownerDocument) {
     super(1, ownerDocument);
     /** Lower case, as written by the compiler. */
@@ -258,10 +342,18 @@ export class Element extends Node {
     this.content = tagName === "template" ? new DocumentFragment(ownerDocument) : null;
   }
 
+  /**
+   * The tag name in upper case, as in HTML documents.
+   * @returns {string}
+   */
   get tagName() {
     return this.localName.toUpperCase();
   }
 
+  /**
+   * The `id` attribute, or `""`.
+   * @returns {string}
+   */
   get id() {
     return this.attributes.get("id") ?? "";
   }
@@ -289,21 +381,41 @@ export class Element extends Node {
     this.attributes.set(name, String(value));
   }
 
+  /**
+   * Removes attribute `name`; `style` clears the inline style.
+   * @param {string} name
+   */
   removeAttribute(name) {
     if (name === "style") this.style.properties.clear();
     this.attributes.delete(name);
   }
 
+  /**
+   * `true` if attribute `name` is set; `style` is set when the inline style
+   * has a property.
+   * @param {string} name
+   * @returns {boolean}
+   */
   hasAttribute(name) {
     return name === "style" ? this.style.properties.size > 0 : this.attributes.has(name);
   }
 
+  /**
+   * Adds `listener` for events of `type` (no options, no capture phase).
+   * @param {string} type
+   * @param {(e: Event) => void} listener
+   */
   addEventListener(type, listener) {
     const list = this.listeners.get(type) ?? [];
     list.push(listener);
     this.listeners.set(type, list);
   }
 
+  /**
+   * Removes the first registration of `listener` for `type`.
+   * @param {string} type
+   * @param {(e: Event) => void} listener
+   */
   removeEventListener(type, listener) {
     const list = this.listeners.get(type);
     if (list === undefined) return;
@@ -357,16 +469,30 @@ export class Element extends Node {
     return children.map(serialize).join("");
   }
 
+  /**
+   * Replaces the children (a template's content) with the nodes parsed from
+   * `html`, which must be compiler-generated markup.
+   * @param {string} html
+   */
   set innerHTML(html) {
     const target = this.content !== null ? this.content : this;
     target._clear();
     parseInto(target, html, this.ownerDocument);
   }
 
+  /**
+   * The element serialized as HTML, itself included.
+   * @returns {string}
+   */
   get outerHTML() {
     return serialize(this);
   }
 
+  /**
+   * A new element with the same tag, attributes and inline style, and a deep
+   * copy of a template's content.
+   * @returns {Element}
+   */
   shallowClone() {
     const copy = new Element(this.localName, this.ownerDocument);
     for (const [k, v] of this.attributes) copy.attributes.set(k, v);
@@ -378,6 +504,10 @@ export class Element extends Node {
 
 /** The document. */
 export class Document extends Node {
+  /**
+   * Creates a document with `<html>`, `<head>` and `<body>`, the body
+   * focused.
+   */
   constructor() {
     super(9, null);
     this.ownerDocument = this;
@@ -412,18 +542,37 @@ export class Document extends Node {
     return hit;
   }
 
+  /**
+   * Creates an element owned by this document.
+   * @param {string} tagName any case; stored lower case
+   * @returns {Element}
+   */
   createElement(tagName) {
     return new Element(tagName.toLowerCase(), this);
   }
 
+  /**
+   * Creates a text node owned by this document.
+   * @param {string} data
+   * @returns {Text}
+   */
   createTextNode(data) {
     return new Text(data, this);
   }
 
+  /**
+   * Creates a comment owned by this document.
+   * @param {string} data
+   * @returns {Comment}
+   */
   createComment(data) {
     return new Comment(data, this);
   }
 
+  /**
+   * Creates an empty fragment owned by this document.
+   * @returns {DocumentFragment}
+   */
   createDocumentFragment() {
     return new DocumentFragment(this);
   }
@@ -441,15 +590,29 @@ export class Document extends Node {
     return visit(this);
   }
 
+  /**
+   * Not supported.
+   * @throws {Error} always
+   */
   shallowClone() {
     throw new Error("cloning a document is not supported");
   }
 }
 
+/**
+ * Escapes `&`, `<` and `>` for text content.
+ * @param {string} s
+ * @returns {string}
+ */
 function escapeText(s) {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+/**
+ * Escapes text for a double-quoted attribute value.
+ * @param {string} s
+ * @returns {string}
+ */
 function escapeAttribute(s) {
   return escapeText(s).replaceAll('"', "&quot;");
 }
@@ -476,8 +639,15 @@ export function serialize(node) {
   }
 }
 
+/** The named and numeric character references the parser decodes by name. */
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", apos: "'", nbsp: " " };
 
+/**
+ * Decodes the character references of `s`: the names of `ENTITIES`, and
+ * decimal and hexadecimal references; an unknown `&` is kept as written.
+ * @param {string} s
+ * @returns {string}
+ */
 function decode(s) {
   let out = "";
   let i = 0;

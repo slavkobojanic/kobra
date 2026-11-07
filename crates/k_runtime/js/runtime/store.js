@@ -6,6 +6,13 @@
 
 import { batch, signal } from "./signals.js";
 
+/**
+ * Reads the value at `path` below `value`; `undefined` when the path
+ * runs through `null` or `undefined`.
+ * @param {unknown} value the root
+ * @param {Array<string|number>} path field names and list indexes
+ * @returns {unknown}
+ */
 function pathGet(value, path) {
   let v = value;
   for (const k of path) {
@@ -15,6 +22,16 @@ function pathGet(value, path) {
   return v;
 }
 
+/**
+ * Returns a copy of `value` with `v` at `path[i..]`, copying each object
+ * and array along the path and sharing everything else (structural
+ * sharing; `value` is never mutated).
+ * @param {any} value the root of the remaining path
+ * @param {Array<string|number>} path
+ * @param {number} i the position in `path` reached so far
+ * @param {unknown} v the new value
+ * @returns {unknown}
+ */
 function pathSet(value, path, i, v) {
   if (i === path.length) return v;
   const k = path[i];
@@ -34,7 +51,10 @@ function pathSet(value, path, i, v) {
  * of its ancestors and of its descendants, but not of its siblings.
  */
 export class Store {
-  /** @param {unknown} initial */
+  /**
+   * Creates a store holding `initial`.
+   * @param {unknown} initial
+   */
   constructor(initial) {
     this.value = initial;
     /** @type {Map<string, {path: string[], signal: Signal}>} */

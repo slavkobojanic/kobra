@@ -35,12 +35,17 @@ use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::oneshot;
 
+/// Locks `m`, recovering the data if a panicking thread poisoned it.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Starts a current-thread runtime on a thread named `name` running
 /// `serve` until the returned sender is dropped or fired.
+///
+/// # Errors
+///
+/// The thread or its runtime can't be created.
 fn spawn_service<F, Fut>(name: &str, serve: F) -> std::io::Result<oneshot::Sender<()>>
 where
     F: FnOnce(oneshot::Receiver<()>) -> Fut + Send + 'static,
@@ -128,7 +133,7 @@ impl FakeRoute {
 /// A request a [`FakeHttp`] received.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
 pub struct RecordedRequest {
-    /// The method.
+    /// The request method, upper case.
     pub method: String,
     /// The path and query.
     pub path: String,
@@ -150,6 +155,9 @@ impl RecordedRequest {
     }
 }
 
+/// Decodes a form-encoded component: `+` is a space and `%XX` a byte;
+/// a `%` not followed by two hex digits is kept as is, and bytes that
+/// aren't UTF-8 are replaced.
 fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -172,17 +180,24 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// What a [`FakeHttp`] shares with its connection tasks.
 struct HttpState {
+    /// The canned answers; the first route matching method and path wins.
     routes: Vec<FakeRoute>,
+    /// Every request received so far, in order (except `/_fake/` ones).
     requests: Vec<RecordedRequest>,
+    /// The messages of the [`FakeSmtp`] attached with [`FakeHttp::with_mail`].
     mail: Option<Arc<Mutex<Vec<ReceivedMail>>>>,
 }
 
 /// A fake HTTP API on `127.0.0.1`: canned [`FakeRoute`]s, every request
 /// recorded. An unmatched request is `404` with the body `no fake route`.
 pub struct FakeHttp {
+    /// The bound address.
     addr: SocketAddr,
+    /// Routes and recorded requests, shared with the serving thread.
     state: Arc<Mutex<HttpState>>,
+    /// Dropping it stops the serving thread.
     _stop: oneshot::Sender<()>,
 }
 
@@ -254,6 +269,10 @@ impl FakeHttp {
     }
 }
 
+/// Answers one request: `GET /_fake/requests` and `GET /_fake/mail` with
+/// the recorded requests and mail as JSON; any other request is recorded
+/// and answered by the first route matching its method and path (after the
+/// route's delay), or `404` with `no fake route`.
 async fn answer(
     state: Arc<Mutex<HttpState>>,
     request: Request<Incoming>,
@@ -363,9 +382,13 @@ pub struct ReceivedMail {
 /// client without TLS (`SMTP_SECURITY=none`): `EHLO`/`HELO`, `MAIL`,
 /// `RCPT`, `DATA`, `RSET`, `NOOP`, `QUIT`.
 pub struct FakeSmtp {
+    /// The bound port on `127.0.0.1`.
     port: u16,
+    /// The messages accepted so far, in order.
     mail: Arc<Mutex<Vec<ReceivedMail>>>,
+    /// How `RCPT TO` commands are answered; read per command.
     behavior: Arc<Mutex<SmtpBehavior>>,
+    /// Dropping it stops the serving thread.
     _stop: oneshot::Sender<()>,
 }
 
@@ -425,6 +448,14 @@ impl FakeSmtp {
     }
 }
 
+/// Speaks SMTP with one client until it sends `QUIT` or closes the
+/// connection, storing each message accepted after `DATA` in `mail`.
+/// Recipients starting with `reject@` get `550` and `defer@` get `451`
+/// under [`SmtpBehavior::Accept`].
+///
+/// # Errors
+///
+/// A read or write on the connection failed.
 async fn smtp_session(
     stream: tokio::net::TcpStream,
     mail: Arc<Mutex<Vec<ReceivedMail>>>,

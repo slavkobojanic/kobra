@@ -19,7 +19,9 @@ public enum Currency implements Equatable, Hashable, Codable {
     @Native
     var minorUnitDigits: Int
 
-    /// Parses an upper-case code; `nil` if it isn't a known currency.
+    /// Parses an upper-case ISO 4217 code such as `"EUR"`.
+    ///
+    /// - Returns: the currency, or `nil` if `code` isn't a known one.
     @Native
     static func parse(code: String) -> Currency?
 }

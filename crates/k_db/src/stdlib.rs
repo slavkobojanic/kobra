@@ -147,8 +147,11 @@ pub enum Schedule {
     },
 }
 
+/// One minute in milliseconds.
 const MINUTE_MS: i64 = 60_000;
+/// One day in milliseconds (schedules are in UTC, which has no DST).
 const DAY_MS: i64 = 24 * 60 * MINUTE_MS;
+/// One week in milliseconds.
 const WEEK_MS: i64 = 7 * DAY_MS;
 /// The Unix epoch was a Thursday: Monday 1970-01-05 is 4 days later.
 const FIRST_MONDAY_MS: i64 = 4 * DAY_MS;
@@ -178,7 +181,9 @@ impl Schedule {
 }
 
 /// The wait before attempt `attempt + 1` after attempt `attempt` (1-based)
-/// failed: `base` doubled `attempt - 1` times, capped at
+/// failed.
+///
+/// It is `base` doubled `attempt - 1` times, capped at
 /// [`MAX_BACKOFF_MS`], then scaled by `1 + jitter` where `jitter` is in
 /// `-0.2..=0.2` (callers pass a random value), so retries of jobs that
 /// failed together spread out.
@@ -283,9 +288,10 @@ pub mod rate_sql {
 }
 
 /// The decision of a sliding-window rate limit from the hit counts of the
-/// previous and the current fixed window (the "sliding window counter"
-/// approximation, which needs two rows per key instead of one per call):
-/// the estimate is `previous × (1 − elapsed/window) + current`. Returns
+/// previous and the current fixed window.
+///
+/// This is the "sliding window counter" approximation, which needs two
+/// rows per key instead of one per call: the estimate is `previous × (1 − elapsed/window) + current`. Returns
 /// `0` when one more call is allowed, else the whole seconds (at least 1)
 /// until the estimate drops below `limit`.
 #[must_use]

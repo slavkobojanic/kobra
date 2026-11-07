@@ -1,5 +1,6 @@
-//! Inlay hints: each page's URL, shown after its name when the page has no
-//! `at` clause, so the URL derived from the name and its `@Param`s is
+//! Inlay hints: each page's URL, shown after its name.
+//!
+//! A hint appears when the page has no `at` clause, so the URL derived from the name and its `@Param`s is
 //! visible where the page is declared (`docs/design/13-tooling.md`: "Each
 //! page's current URL is shown inline"). A page with an `at` clause
 //! already shows its URL.

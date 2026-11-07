@@ -44,8 +44,9 @@ A library is a project without `App.k`. Its **modules keep their own paths**, so
 library's types exactly like its own:
 
 ```k
-import pay.Payments
+// examples/stack/shop/src/checkout/Checkout.k
 import pay.ChargeRequest
+import pay.Payments
 ```
 
 What shop sees of the library is its `public` declarations. The library's tests, lockfiles and migrations
@@ -84,12 +85,15 @@ A protocol between services is an ordinary protocol, usually guarded by `Service
 admits only the other services of the system:
 
 ```k
-// pay-contracts/src/pay/Payments.k
+// examples/stack/pay-contracts/src/pay/Payments.k
 import k.rpc.ServiceAuthenticated
 
-/// Takes payments for the other services of the system.
+/// Takes payments for the other services of the system. Served by paybox
+/// and called by shop, never by a browser: `ServiceAuthenticated` admits
+/// only callers holding a token signed with the shared secret.
 public protocol Payments requires ServiceAuthenticated {
-    /// Charges `request.cents` to a card.
+    /// Charges `request.cents` to a card. Throws `.declined` for an amount
+    /// that isn't positive.
     rpc charge(request: ChargeRequest) throws ChargeError -> Charge
 }
 ```
@@ -97,17 +101,28 @@ public protocol Payments requires ServiceAuthenticated {
 The serving app implements it like any protocol. `ServiceCaller` names the service that called:
 
 ```k
-// paybox/src/payments/PaymentsApi.k
+// examples/stack/paybox/src/payments/PaymentsApi.k
+~import k.rpc.ServiceCaller
+/// Paybox's implementation of `Payments`.
 public service PaymentsApi implements Payments {
     @Inject let caller: ServiceCaller
+    @Inject let log: ChargeLog
+    @Inject let events: PaymentEvents
 
     rpc charge(request: ChargeRequest) async throws ChargeError -> Charge {
         guard request.cents > 0 else {
             throw ChargeError.declined
         }
 
-        return Charge(id: "ch_{request.orderId}", orderId: request.orderId,
-                      cents: request.cents, caller: caller.name ?? "unknown")
+        let charge = Charge(
+            id: "ch_{request.orderId}",
+            orderId: request.orderId,
+            cents: request.cents,
+            caller: caller.name ?? "unknown"
+        )
+        log.record(charge: charge)
+        // ...
+        return charge
     }
 }
 ```
@@ -118,14 +133,21 @@ The calling app says where the other service runs with a config that implements 
 binds the protocol to it with a `remote` rule in `App.k`:
 
 ```k
-// shop/src/payments/PayboxService.k
+// examples/stack/shop/src/payments/PayboxService.k
+~import k.rpc.RemoteService
+/// Where paybox runs, for `Payments`.
 public config PayboxService implements RemoteService {
+    /// Paybox's base URL.
     @Env("PAYBOX_URL") let url: Url
+    /// The secret paybox verifies shop's calls with.
     @Env("PAYBOX_TOKEN") let token: Secret<String>
+    /// How long a call may take.
     @Env("PAYBOX_TIMEOUT") let timeout: Duration = 10.seconds
 }
+```
 
-// shop/App.k
+```k
+// examples/stack/shop/App.k
 public app Shop {
     use remote(PayboxService) for Payments
 }
@@ -135,9 +157,12 @@ Then any server-side service injects `Payments` and calls it. Errors arrive type
 `rpcFailure(.offline)` or `.timeout`, exactly as in the browser:
 
 ```k
+// examples/stack/shop/src/checkout/Checkout.k
+/// Pays through paybox. Server-only, since it holds a remote client.
 public service Checkout {
     @Inject let payments: Payments
 
+    /// Charges `cents` for `orderId`; the charge's id.
     func pay(orderId: String, cents: Int) async throws CheckoutError -> Receipt {
         do {
             let charge = try await payments.charge(request: ChargeRequest(orderId: orderId, cents: cents))
@@ -183,9 +208,19 @@ caller sees `rpcFailure(.rejected(.unauthenticated))`. Mutual TLS, if you want i
 registered. The protocol is the type you use the result as:
 
 ```k
-let events: PaymentEvents = RemoteClient.at(url: hook.url, token: hook.secret)
-try await events.paid(charge: charge)
+// examples/shop/paybox/src/payments/RemoteNotifier.k
+~import k.rpc.RemoteClient
+let events: PaymentEvents = RemoteClient.at(url: callbackUrl, token: config.token ?? service.token, timeout: config.timeout)
+
+do {
+    try await events.chargeSucceeded(charge: charge)
+} catch .rpcFailure(let failure) {
+    return failure
+}
 ```
+
+This is from the [shop workspace](../examples/shop.md)'s paybox, which tells merchants about charges at the
+callback URL each one registered.
 
 ## `rpc.lock`: deploys that don't break callers
 
@@ -248,10 +283,15 @@ shop serving on http://localhost:8081
 with `rpcFailure(.offline)`, so nothing leaves the process. Bind a fake to test the happy path:
 
 ```k
+// examples/stack/shop/src/checkout/Checkout.test.k
+/// A paybox that answers in-process.
 service FakePayments implements Payments {
     rpc charge(request: ChargeRequest) async throws ChargeError -> Charge {
-        return Charge(id: "ch_{request.orderId}", orderId: request.orderId,
-                      cents: request.cents, caller: "test")
+        guard request.cents > 0 else {
+            throw ChargeError.declined
+        }
+
+        return Charge(id: "ch_{request.orderId}", orderId: request.orderId, cents: request.cents, caller: "test")
     }
 }
 
@@ -262,8 +302,11 @@ test Checkout {
 
     test "a payment answers paybox's charge" {
         let receipt = try await checkout.pay(orderId: "o1", cents: 990)
+
         expect receipt.chargeId == "ch_o1"
+        expect receipt.cents == 990
     }
+    // ...
 }
 ```
 

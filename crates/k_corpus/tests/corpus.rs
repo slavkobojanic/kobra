@@ -13,6 +13,10 @@
 use k_corpus::{bless_enabled, corpus_root, discover, suites};
 use libtest_mimic::{Arguments, Failed, Trial};
 
+/// Discovers the corpus and runs every `lexer`, `parser`, `sema` and
+/// `codegen` case, plus one failing trial per layout problem, through
+/// `libtest-mimic`; `run` and `db` cases are skipped here (see the
+/// module documentation).
 fn main() {
     let args = Arguments::from_args();
     let bless = bless_enabled();

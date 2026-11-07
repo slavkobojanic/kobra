@@ -15,6 +15,8 @@
 //! When the executable carries an appended app (it is a `dist/app` built by
 //! `k build`), it runs that app instead: see `app_mode`.
 
+#![warn(clippy::missing_docs_in_private_items)]
+
 #[cfg(feature = "server")]
 mod app_mode;
 mod build;

@@ -1,5 +1,9 @@
-// SSR escaping and the output buffer (docs/compiler/runtime.md, "SSR").
-// Every dynamic value in server HTML goes through these functions.
+/**
+ * @module k:/tests/ssr.test.js
+ *
+ * SSR escaping and the output buffer (docs/compiler/runtime.md, "SSR").
+ * Every dynamic value in server HTML goes through these functions.
+ */
 import { assertEq, test } from "k:testing";
 import { codecs } from "k:runtime";
 import { CLOSE, OPEN, Out, SEPARATOR, escapeAttribute, escapeText, serializeData } from "k:runtime/server";

@@ -17,9 +17,10 @@
 public component ReorderableList<T> {
     /// Draws one item.
     @Slot let row: (T) -> View
-    /// The kind of drag the list's items are, and accepts.
+    /// The [`DragKind`] the list's items are dragged as, and the kind it
+    /// accepts.
     @Prop let kind: DragKind<T>
-    /// Identifies the list in a `ListMove` ("todo", a column's id).
+    /// Identifies the list in a [`ListMove`] ("todo", a column's id).
     @Prop let id: String
     /// The items, in order.
     @Prop let items: List<T>

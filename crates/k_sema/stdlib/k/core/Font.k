@@ -3,6 +3,6 @@
 public struct Font implements Equatable, Codable {
     /// The font family, such as `"Inter"`.
     let family: String
-    /// The font size.
+    /// The font size, a [`Length`].
     let size: Length
 }

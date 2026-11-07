@@ -4,6 +4,8 @@
 /// `total.multiplied(by: 1.0825, rounding: .halfEven)`.
 @Native
 public struct Decimal implements Equatable, Hashable, Comparable, Codable, ConfigValue {
-    /// Parses a decimal number; `nil` if `text` isn't one.
+    /// Parses a decimal number such as `"19.99"`.
+    ///
+    /// - Returns: the number, exactly, or `nil` if `text` isn't one.
     static func parse(_ text: String) -> Decimal?
 }

@@ -6,11 +6,12 @@
 -- On Neovim 0.11 and later this uses the built-in `vim.lsp.config` and
 -- `vim.lsp.enable`; on older versions it registers a configuration with
 -- nvim-lspconfig if that plugin is installed. Either way the server starts for
--- `k` buffers, with the nearest directory holding `k.toml` as the root.
+-- `k` buffers, rooted at the nearest directory holding `k.toml` (or `.git`).
 
 local M = {}
 
---- The default configuration.
+--- The default configuration: `k lsp` from PATH for `k` buffers, rooted by
+--- `root_markers` (the first found walking up from the buffer wins).
 M.defaults = {
   cmd = { "k", "lsp" },
   filetypes = { "k" },

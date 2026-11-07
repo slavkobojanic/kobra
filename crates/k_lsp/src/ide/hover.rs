@@ -1,4 +1,7 @@
-//! Hover: the symbol's declaration as K source, its rendered doc comment
+//! Hover: what the editor shows for the symbol or expression under the
+//! cursor.
+//!
+//! On a symbol: its declaration as K source, its rendered doc comment
 //! with intra-doc links resolved, the reactive dependencies of a
 //! `@Derived` field or `@Effect`, a page's URL and a declaration's side of
 //! the server/client boundary (`docs/design/13-tooling.md`, "Language
@@ -118,6 +121,10 @@ fn code(md: &mut String, source: &str) {
 }
 
 /// The hover of declaration `d`.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
 fn decl_hover(
     analysis: &Analysis,
     view: &ProgramView,
@@ -146,6 +153,10 @@ fn decl_hover(
 }
 
 /// The hover of member `m`.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
 fn member_hover(
     analysis: &Analysis,
     view: &ProgramView,
@@ -205,8 +216,10 @@ fn docs_of(
     }
 }
 
-/// The `///` lines documenting the item starting at `start`, each as the
-/// offset of its body (after `///` and one space) and the body. The item's
+/// The `///` lines documenting the item starting at `start`.
+///
+/// Each is returned as the offset of its body (after `///` and one space)
+/// and the body. The item's
 /// syntax may or may not include its leading doc comment; both are handled.
 #[must_use]
 pub fn doc_lines(text: &str, start: TextSize) -> Vec<(usize, &str)> {
@@ -318,6 +331,10 @@ fn link_target(analysis: &Analysis, file: FileId, start: usize, name: &str) -> O
 }
 
 /// The type of the innermost expression at `offset` that has one.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
 fn expression_type(
     analysis: &Analysis,
     file: FileId,

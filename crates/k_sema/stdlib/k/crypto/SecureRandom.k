@@ -1,8 +1,8 @@
 /// Random values from a secure source; there is no non-secure source.
 @Native
 public class SecureRandom {
-    /// `count` random bytes.
+    /// Returns `count` random bytes.
     static func bytes(count: Int) -> Bytes
-    /// A URL-safe Base64 token of `bytes` random bytes.
+    /// Returns a URL-safe Base64 token of `bytes` random bytes.
     static func token(bytes: Int) -> String
 }

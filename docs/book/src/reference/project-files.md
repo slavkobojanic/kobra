@@ -18,8 +18,8 @@
 | Section | Contents |
 |---|---|
 | `[package]` | `name` and `k` (the minimum toolchain version) are required. `title` and `description` are optional. Apps may set `version`; packages can't, because their git tag is their version. |
-| `[dependencies]` | module path = git tag; edited by `k add` and `k remove` |
-| `[aliases]` | short name = module path, enabling `import charts.LineChart` |
+| `[dependencies]` | `name = { workspace = true }` for a library of the same workspace; module path = git tag for a git package (**Planned**, as are `k add` and `k remove`, which will edit it) |
+| `[aliases]` | short name = module path, enabling `import charts.LineChart` (**Planned**, with git packages) |
 
 The manifest never holds environment variables, secrets, per-environment settings, build scripts or tool
 options. See [Project layout](../getting-started/project-layout.md#ktoml).
@@ -37,10 +37,15 @@ systems fails `k check`, unless it is marked as deliberate.
 | `schema.lock` | the database schema the migrations produce, with every table and column name, and the migration order | production data | `@Breaking("reason")` on a destructive migration |
 | `storage.lock` | the browser storage namespace, `StorageKey` names and value shapes, and job names and payload shapes | users' stored data, jobs queued during a deploy | `@Breaking("reason")` on the key or job |
 | `rpc.lock` | the rpcs, field numbers and error cases of every protocol an app serves | callers already deployed: other services, open browser tabs | `@Breaking("reason")` on the protocol |
-| `k.lock` | the exact commit and content hash of every package | reproducible builds | `k add` with a new version |
+| `k.lock` | the exact commit and content hash of every package (**Planned**, with git packages) | reproducible builds | `k add` with a new version |
 
 **A name that something outside depends on is recorded once and then kept.** Renaming the declaration it
 came from, or the project, never silently changes it.
+
+> **Planned.** In the first compiler releases, `k check` compares `rpc.lock` and the job payloads of
+> `storage.lock`. The comparisons of `protocol.lock`, `routes.lock`, `schema.lock` and the `storage.lock`
+> keys come later. The toolchain doesn't write `routes.lock` or `protocol.lock` yet either: a hand-written
+> `routes.lock` is read only for its `redirect "/old" -> page` lines. See [Design status](design-status.md).
 
 ### `protocol.lock`
 

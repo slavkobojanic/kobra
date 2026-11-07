@@ -49,6 +49,8 @@
 //! * **Deterministic:** the same input always yields the same tokens, tree
 //!   and diagnostics, sorted by position.
 
+#![warn(clippy::missing_docs_in_private_items)]
+
 pub mod ast;
 pub mod dump;
 pub mod kind;

@@ -19,12 +19,14 @@ export const CLOSE = "<!--]-->";
 /** Separates two adjacent dynamic texts, which HTML would merge. */
 export const SEPARATOR = "<!---->";
 
+/** The entity of each character special in text content. */
 const TEXT_ESCAPES = /** @type {Record<string, string>} */ ({
   "&": "&amp;",
   "<": "&lt;",
   ">": "&gt;",
 });
 
+/** The entity of each character special in a quoted attribute value. */
 const ATTRIBUTE_ESCAPES = /** @type {Record<string, string>} */ ({
   "&": "&amp;",
   "<": "&lt;",
@@ -33,7 +35,9 @@ const ATTRIBUTE_ESCAPES = /** @type {Record<string, string>} */ ({
   "'": "&#39;",
 });
 
+/** The characters `escapeText` replaces. */
 const TEXT_SPECIAL = new RegExp("[&<>]", "g");
+/** The characters `escapeAttribute` replaces. */
 const ATTRIBUTE_SPECIAL = new RegExp("[&<>\"']", "g");
 
 /**

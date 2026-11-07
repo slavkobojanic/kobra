@@ -1,7 +1,7 @@
 /// A time of day such as `TimeOfDay("03:00")`, used by job schedules.
 @Native
 public struct TimeOfDay implements Equatable, Hashable, Codable {
-    /// A literal `"HH:MM"`, validated at compile time.
+    /// A literal `"HH:MM"` on a 24-hour clock, validated at compile time.
     @Native
     @Literal
     init(_ literal: String) {}

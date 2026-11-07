@@ -234,11 +234,24 @@ const NOISE: &[&str] = &[
     "\"{}\"",
 ];
 
+/// The state of one generation: the byte source, the output and the limits
+/// that keep the output finite.
+///
+/// The methods named after grammar productions (`item`, `stmt`, `ty`,
+/// `pattern`, `view_node`, ...) each write one instance of that production
+/// at the current position. Every choice goes through [`Gen::pick`], so an
+/// exhausted byte source always takes the first, smallest option.
 struct Gen<'a, 'b> {
+    /// The source of every choice.
     u: &'b mut Unstructured<'a>,
+    /// The program written so far.
     out: String,
+    /// The current indentation, in levels of four spaces.
     indent: usize,
+    /// The line terminator of this program, `\n` or (one time in eight)
+    /// `\r\n`.
     newline: &'static str,
+    /// Whether tokens may be dropped, doubled or preceded by noise.
     noisy: bool,
     /// Remaining nodes; when it reaches zero only leaves are generated.
     budget: u32,
@@ -364,6 +377,8 @@ impl Gen<'_, '_> {
 
     // ------------------------------------------------------------- files
 
+    /// Writes a file: up to 3 imports, then 1 to 6 items, each optionally
+    /// preceded by a blank line or doc comment.
     fn file(&mut self) {
         let imports = self.count(3);
         for _ in 0..imports {
@@ -378,6 +393,8 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes an import of a dotted path, a URL-like package path or a
+    /// `proto` file.
     fn import(&mut self) {
         self.tok("import");
         self.sp();
@@ -394,6 +411,8 @@ impl Gen<'_, '_> {
 
     // ------------------------------------------------------ declarations
 
+    /// Writes up to two annotations and an optional `public` or `private`
+    /// modifier.
     fn prefix(&mut self) {
         for _ in 0..self.pick(3) {
             let a = self.one(ANNOTATIONS);
@@ -413,6 +432,8 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes one top-level item of a chosen kind: any declaration, a
+    /// function or a top-level `let`.
     fn item(&mut self) {
         self.budget = self.budget.saturating_sub(1);
         match self.pick(19) {
@@ -441,6 +462,8 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes the prefix, `keyword` and a type name: the start of every
+    /// named declaration.
     fn header(&mut self, keyword: &str) {
         self.prefix();
         self.tok(keyword);
@@ -449,6 +472,7 @@ impl Gen<'_, '_> {
         self.tok(name);
     }
 
+    /// Writes, one time in three, `<T>` or `<T, U>`.
     fn generic_params(&mut self) {
         if self.chance(1, 3) {
             self.tok("<");
@@ -462,6 +486,7 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes, one time in three, `implements` with one or two types.
     fn implements_clause(&mut self) {
         if self.chance(1, 3) {
             self.sp();
@@ -476,6 +501,7 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes, one time in four, `where T implements Type`.
     fn where_clause(&mut self) {
         if self.chance(1, 4) {
             self.sp();
@@ -489,6 +515,7 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes, one time in three, `requires` with one or two guards.
     fn requires_clause(&mut self) {
         if self.chance(1, 3) {
             self.sp();
@@ -503,6 +530,8 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes one guard: `Authenticated`, `Role(.admin)` or
+    /// `RateLimit(100.perMinute)`.
     fn guard(&mut self) {
         match self.pick(3) {
             0 => self.tok("Authenticated"),
@@ -524,6 +553,8 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes a `keyword` declaration with optional generic parameters and a
+    /// member list (components).
     fn decl_with_generics(&mut self, keyword: &str) {
         self.header(keyword);
         self.generic_params();
@@ -531,6 +562,8 @@ impl Gen<'_, '_> {
         self.member_list();
     }
 
+    /// Writes a `keyword` declaration with an optional `requires` clause and a
+    /// member list (layouts, protocols).
     fn decl_with_requires(&mut self, keyword: &str) {
         self.header(keyword);
         self.requires_clause();
@@ -538,6 +571,8 @@ impl Gen<'_, '_> {
         self.member_list();
     }
 
+    /// Writes a `keyword` declaration with an optional `implements` clause
+    /// and a member list (services, entities).
     fn decl_with_implements(&mut self, keyword: &str) {
         self.header(keyword);
         self.implements_clause();
@@ -545,6 +580,9 @@ impl Gen<'_, '_> {
         self.member_list();
     }
 
+    /// Writes a `keyword` declaration with optional generic parameters,
+    /// `implements` and `where` clauses and a member list (structs, enums,
+    /// classes, interfaces).
     fn full_decl(&mut self, keyword: &str) {
         self.header(keyword);
         self.generic_params();
@@ -554,12 +592,16 @@ impl Gen<'_, '_> {
         self.member_list();
     }
 
+    /// Writes a `keyword` declaration with just a name and a member list
+    /// (themes, apps, configs, migrations).
     fn simple_decl(&mut self, keyword: &str) {
         self.header(keyword);
         self.sp();
         self.member_list();
     }
 
+    /// Writes a `page` with an optional `requires` clause and, usually, an
+    /// `at "/products/{id}"` route.
     fn page(&mut self) {
         self.header("page");
         self.requires_clause();
@@ -577,6 +619,7 @@ impl Gen<'_, '_> {
         self.member_list();
     }
 
+    /// Writes a `repository ... for Type` declaration.
     fn repository(&mut self) {
         self.header("repository");
         self.sp();
@@ -587,6 +630,8 @@ impl Gen<'_, '_> {
         self.member_list();
     }
 
+    /// Writes either `extend<T> List<T>` (with an optional `where` clause) or
+    /// `extend Type`, with a member list.
     fn extend(&mut self) {
         self.prefix();
         self.tok("extend");
@@ -608,6 +653,8 @@ impl Gen<'_, '_> {
         self.member_list();
     }
 
+    /// Writes either a named `test` suite with a member list or a `test
+    /// "..."` case with a block.
     fn test_suite(&mut self) {
         self.prefix();
         self.tok("test");
@@ -626,6 +673,7 @@ impl Gen<'_, '_> {
 
     // ------------------------------------------------------------ members
 
+    /// Writes a `{ ... }` member list, or `{}` when nesting may not continue.
     fn member_list(&mut self) {
         if !self.enter() {
             self.tok("{");
@@ -638,6 +686,9 @@ impl Gen<'_, '_> {
         });
     }
 
+    /// Writes one member: a field, function, `init`, `rpc`, enum case,
+    /// `use` binding, theme token, override or variant, a `view`, `style`,
+    /// `loading`, `failed` or `metadata` block, or a nested test.
     fn member(&mut self) {
         match self.pick(18) {
             0 | 1 => {
@@ -739,6 +790,8 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes a `keyword` (`let` or `var`) field with an optional type and an
+    /// initializer, no initializer (when typed) or a computed-property block.
     fn field(&mut self, keyword: &str) {
         self.tok(keyword);
         self.sp();
@@ -766,6 +819,8 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes a function declaration, optionally `static`, generic, with
+    /// effects, a `where` clause and (usually) a body.
     fn func(&mut self) {
         self.prefix();
         if self.chance(1, 5) {
@@ -786,6 +841,8 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes an optional `async`, an optional `throws CartError` and an
+    /// optional `-> Type` return type.
     fn effects(&mut self) {
         if self.chance(1, 4) {
             self.sp();
@@ -805,6 +862,8 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes a parenthesized parameter list of up to 3 parameters, with
+    /// optional `@Event` annotations, `for` or `_` labels and defaults.
     fn params(&mut self) {
         self.tok("(");
         let n = self.count(3);
@@ -843,6 +902,8 @@ impl Gen<'_, '_> {
         self.tok(")");
     }
 
+    /// Writes an `rpc` declaration with parameters, effects, an optional
+    /// `requires` clause and an optional body.
     fn rpc(&mut self) {
         self.prefix();
         self.tok("rpc");
@@ -858,6 +919,8 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes an enum `case`, optionally with 1 to 3 (possibly labelled)
+    /// payload types.
     fn enum_case(&mut self) {
         self.tok("case");
         self.sp();
@@ -883,6 +946,8 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes a `use ... for Type` binding of a name or a config value,
+    /// optionally restricted to environments with `in`.
     fn use_decl(&mut self) {
         self.tok("use");
         self.sp();
@@ -925,6 +990,9 @@ impl Gen<'_, '_> {
 
     // -------------------------------------------------------------- types
 
+    /// Writes a type: a name, `List`/`Map` generic, tuple, function type or
+    /// parenthesized type, sometimes followed by `?` (never after a function
+    /// type, where it would apply to the return type).
     fn ty(&mut self) {
         let deeper = self.enter();
         self.depth += 1;
@@ -982,6 +1050,8 @@ impl Gen<'_, '_> {
         self.depth -= 1;
     }
 
+    /// Writes the effects of a function type, where the `-> Type` arrow is
+    /// required: an optional `async`, then the arrow.
     fn effects_required_arrow(&mut self) {
         if self.chance(1, 4) {
             self.sp();
@@ -996,6 +1066,8 @@ impl Gen<'_, '_> {
 
     // ---------------------------------------------------------- statements
 
+    /// Writes a `{ ... }` block of statements, or `{}` when nesting may not
+    /// continue.
     fn block(&mut self) {
         if !self.enter() {
             self.tok("{");
@@ -1005,6 +1077,10 @@ impl Gen<'_, '_> {
         self.block_lines(Self::stmt);
     }
 
+    /// Writes one statement. Once nesting may not continue only calls,
+    /// bindings and returns are chosen; otherwise also `throw`, `guard`,
+    /// `while`, `for`, `do`/`catch`, `expect`, `if`, `match`, assignments and
+    /// calls with a trailing lambda.
     fn stmt(&mut self) {
         let deep = self.enter();
         match if deep { self.pick(18) } else { self.pick(3) } {
@@ -1154,6 +1230,8 @@ impl Gen<'_, '_> {
         self.args();
     }
 
+    /// Writes one or two comma-separated conditions of `if`, `guard` or
+    /// `while`, each an expression or a `let` binding.
     fn conditions(&mut self) {
         let n = 1 + self.count(1);
         for i in 0..n {
@@ -1178,6 +1256,9 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes a `for` loop (optionally `for await`) over a name, `_` or tuple
+    /// pattern, with an optional `key` clause and `body` (a statement block
+    /// or, in views, a view block).
     fn for_stmt(&mut self, body: fn(&mut Self)) {
         self.tok("for");
         self.sp();
@@ -1216,6 +1297,8 @@ impl Gen<'_, '_> {
         body(self);
     }
 
+    /// Writes an `if` with an optional `else` or `else if` chain, using
+    /// `body` for each branch.
     fn if_expr(&mut self, body: fn(&mut Self)) {
         self.tok("if");
         self.sp();
@@ -1239,6 +1322,9 @@ impl Gen<'_, '_> {
         }
     }
 
+    /// Writes a `match` with up to 3 `case` arms (with alternative patterns
+    /// and `where` guards) and an optional `default`, using `body` for each
+    /// arm.
     fn match_expr(&mut self, body: fn(&mut Self)) {
         self.tok("match");
         self.sp();
@@ -1281,6 +1367,9 @@ impl Gen<'_, '_> {
 
     // ------------------------------------------------------------ patterns
 
+    /// Writes a pattern: `_`, a `let` binding, a literal, a range, an enum
+    /// case with sub-patterns or a tuple; only the first three once nesting
+    /// may not continue.
     fn pattern(&mut self) {
         let deeper = self.enter();
         self.depth += 1;
@@ -1424,6 +1513,9 @@ impl Gen<'_, '_> {
         self.postfix(nt)
     }
 
+    /// Writes a primary expression followed by up to 3 member accesses,
+    /// argument lists, indexes or (unless `nt` or inline) a call with a
+    /// trailing lambda. Returns `false` if it ended with a block.
     fn postfix(&mut self, nt: bool) -> bool {
         let Some(chainable) = self.primary(nt) else {
             return false;
@@ -1588,6 +1680,9 @@ impl Gen<'_, '_> {
         Some(chainable)
     }
 
+    /// Writes a parenthesized argument list of up to 3 (possibly labelled)
+    /// arguments, including `bind` and `when` forms; just `()` at the depth
+    /// limit.
     fn args(&mut self) {
         self.tok("(");
         if self.depth >= MAX_DEPTH {
@@ -1627,6 +1722,8 @@ impl Gen<'_, '_> {
         self.tok(")");
     }
 
+    /// Writes a lambda with no, untyped or typed parameters and a
+    /// single-line or multi-line body; `{ x }` once nesting may not continue.
     fn lambda(&mut self) {
         if !self.enter() {
             self.tok("{");
@@ -1693,6 +1790,8 @@ impl Gen<'_, '_> {
         self.depth -= 1;
     }
 
+    /// Writes a string literal of text, non-ASCII text, escapes, `{{`, stray
+    /// `}` and (budget permitting) interpolations.
     fn string(&mut self) {
         self.tok("\"");
         let n = self.count(4);
@@ -1717,6 +1816,7 @@ impl Gen<'_, '_> {
         self.tok("\"");
     }
 
+    /// Returns one valid string escape.
     fn one_escape(&mut self) -> &'static str {
         [
             "\\n",
@@ -1732,6 +1832,8 @@ impl Gen<'_, '_> {
 
     // -------------------------------------------------------------- views
 
+    /// Writes a `{ ... }` block of view nodes, or `{}` when nesting may not
+    /// continue.
     fn view_block(&mut self) {
         if !self.enter() {
             self.tok("{");
@@ -1741,6 +1843,9 @@ impl Gen<'_, '_> {
         self.block_lines(Self::view_node);
     }
 
+    /// Writes one view node: a string, a component call, an element with a
+    /// children block and modifiers, an `if`, `for` or `match` over view
+    /// blocks, a `let` or a bare name.
     fn view_node(&mut self) {
         let deep = self.enter();
         match if deep { self.pick(9) } else { self.pick(2) } {
@@ -1800,6 +1905,8 @@ impl Gen<'_, '_> {
 
     // ------------------------------------------------------------- styles
 
+    /// Writes a `style { ... }` block of rules, `@media` blocks and
+    /// `@keyframes`.
     fn style_block(&mut self) {
         self.tok("style");
         self.sp();
@@ -1864,6 +1971,9 @@ impl Gen<'_, '_> {
         self.tok("}");
     }
 
+    /// Writes an `@media (maxWidth: 600px)` block holding declarations (when
+    /// `declarations`, nested in a rule) or rules (at the block's top
+    /// level).
     fn media(&mut self, declarations: bool) {
         self.tok("@");
         self.tok("media");
@@ -1893,6 +2003,9 @@ impl Gen<'_, '_> {
         self.tok("}");
     }
 
+    /// Writes a rule with one or two selectors and up to 3 items:
+    /// declarations and, while nesting may continue, nested rules and
+    /// `@media` blocks.
     fn style_rule(&mut self) {
         let deeper = self.enter();
         let sel = self.one(SELECTORS);
@@ -1922,6 +2035,8 @@ impl Gen<'_, '_> {
         self.tok("}");
     }
 
+    /// Writes a `property: value;` declaration whose value is a CSS value or
+    /// an interpolation.
     fn declaration(&mut self) {
         let prop = self.one(PROPERTIES);
         self.tok(prop);

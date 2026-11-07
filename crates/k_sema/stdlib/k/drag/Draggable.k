@@ -1,6 +1,6 @@
 /// Makes its content draggable with a pointer (mouse, pen or touch) and
-/// with the keyboard, carrying a typed payload to any `DropTarget` of the
-/// same kind (`docs/design/41-drag-and-drop.md`).
+/// with the keyboard, carrying a typed payload to any [`DropTarget`] of
+/// the same kind (`docs/design/41-drag-and-drop.md`).
 ///
 /// The content is focusable. Space or Enter picks it up, the arrow keys
 /// choose a drop target, Space or Enter drops and Escape cancels, each step
@@ -8,9 +8,10 @@
 /// a swipe still scrolls.
 @Native
 public component Draggable<T> {
-    /// The content.
+    /// The content that is dragged.
     @Slot let content: View
-    /// The kind of drag, which decides the drop targets that accept it.
+    /// The [`DragKind`] of the drag, which decides the drop targets that
+    /// accept it.
     @Prop let kind: DragKind<T>
     /// The value a drop delivers.
     @Prop let payload: T

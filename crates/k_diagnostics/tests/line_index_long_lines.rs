@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 
 use k_diagnostics::{LineCol, LineIndex, TextSize};
 
+/// Asserts that every `(offset, col)` pair maps to line 1, column `col` of
+/// `text`, and that all lookups together take under two seconds.
 fn lookups_are_fast(text: &str, offsets: &[(u32, u32)]) {
     let index = LineIndex::new(text);
     let start = Instant::now();

@@ -45,6 +45,7 @@ use std::hint::black_box;
 use std::time::Duration;
 use workload::{Pathological, SEED, line_count, realistic, typical_file};
 
+/// The file id every benchmark lexes and parses under.
 const FILE: FileId = FileId::new(0);
 
 /// Realistic input sizes, in lines.
@@ -58,6 +59,9 @@ fn throughput(text: &str) -> Throughput {
     }
 }
 
+/// Benchmarks lexing and parsing [`realistic`] input of 1k, 10k and 100k
+/// lines (groups `lex` and `parse`), and parsing an already lexed 10k-line
+/// input (`parse_only`), so that parser and lexer time can be separated.
 fn bench_realistic(c: &mut Criterion) {
     let inputs: Vec<(&str, String)> = SIZES
         .iter()
@@ -100,6 +104,8 @@ fn bench_realistic(c: &mut Criterion) {
     parse_only.finish();
 }
 
+/// Benchmarks lexing and parsing one [`typical_file`], the unit of the
+/// per-file latency budget.
 fn bench_typical_file(c: &mut Criterion) {
     let text = typical_file(SEED);
     let mut group = c.benchmark_group("typical_file");
@@ -113,6 +119,9 @@ fn bench_typical_file(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmarks lexing (`pathological_lex`) and parsing
+/// (`pathological_parse`) every [`Pathological`] family at its
+/// [`Pathological::megabyte_size`].
 fn bench_pathological(c: &mut Criterion) {
     let inputs: Vec<(Pathological, String)> = Pathological::ALL
         .iter()

@@ -11,11 +11,17 @@
 const vscode = require("vscode");
 const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 
-/** @type {LanguageClient | undefined} */
+/**
+ * The running client; replaced by `k.restartServer`, `undefined` after
+ * deactivation.
+ * @type {LanguageClient | undefined}
+ */
 let client;
 
 /**
- * Creates the client for the configured `k` executable.
+ * Creates (without starting) the client for the configured `k` executable:
+ * `k.server.path lsp` over stdio, with `k.server.extraEnv` added to the
+ * environment, for K files on disk.
  * @returns {LanguageClient}
  */
 function createClient() {
@@ -45,7 +51,9 @@ function createClient() {
 }
 
 /**
- * Starts the language server when the extension activates.
+ * Starts the language server when the extension activates, and registers
+ * the `k.restartServer` command, which a change to any `k.server.*` setting
+ * also runs. A server that can't start is reported in an error message.
  * @param {vscode.ExtensionContext} context
  */
 async function activate(context) {

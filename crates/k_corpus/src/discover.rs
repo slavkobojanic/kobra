@@ -119,6 +119,12 @@ pub fn discover(root: &Path) -> Discovery {
     discovery
 }
 
+/// Scans the suite directory `dir`: registers every `.k` file as a case
+/// and every project directory as a project case, and records a
+/// [`Problem`] for orphaned expectation files, single-file `db` cases and
+/// any other file that is neither a case, an expectation nor a `.md`
+/// note. Files are visited in sorted order, so the result is
+/// deterministic.
 fn scan_suite(root: &Path, dir: &Path, suite: Suite, discovery: &mut Discovery) {
     let mut files = Vec::new();
     let mut projects = Vec::new();
@@ -257,10 +263,14 @@ fn collect_files(dir: &Path, projects: bool, out: &mut Vec<PathBuf>, found: &mut
     }
 }
 
+/// Returns `true` for `.md` files, which suites may contain as notes.
 fn is_markdown(path: &Path) -> bool {
     path.extension().is_some_and(|e| e == "md")
 }
 
+/// Returns `path` relative to `root` with `/` separators on every
+/// platform, the name a case is reported under (or `path` itself when it
+/// is not below `root`).
 fn relative_name(root: &Path, path: &Path) -> String {
     let relative = path.strip_prefix(root).unwrap_or(path);
     relative

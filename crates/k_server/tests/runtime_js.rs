@@ -23,22 +23,36 @@ use k_server::{Engine, EngineOptions, JsModule};
 use libtest_mimic::{Arguments, Failed, Trial};
 use serde::Deserialize;
 
+/// One test as `k:testing`'s `list()` reports it.
 #[derive(Deserialize)]
 struct Listed {
+    /// The name the test was registered with.
     name: String,
+    /// The reason of a `test.pending` test; `None` for a plain `test`.
     pending: Option<String>,
 }
 
+/// What `k:testing`'s `run(name)` reports for one test.
 #[derive(Deserialize)]
 struct Outcome {
+    /// `passed`, or how it didn't pass.
     outcome: String,
+    /// The failure's message, if any.
     message: Option<String>,
 }
 
+/// `crates/k_runtime/js/tests`, where the runtime's JS test files live.
 fn tests_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../k_runtime/js/tests")
 }
 
+/// A fresh isolate holding test file `file` (as `k:/tests/<file>`), with a
+/// ten-second limit per run and the compacted runtime when
+/// `compact_runtime` is set.
+///
+/// # Errors
+///
+/// The isolate can't be created.
 fn engine(file: &str, source: &str, compact_runtime: bool) -> Result<Engine, String> {
     Engine::new(EngineOptions {
         modules: vec![JsModule {
@@ -52,6 +66,11 @@ fn engine(file: &str, source: &str, compact_runtime: bool) -> Result<Engine, Str
     .map_err(|e| e.to_string())
 }
 
+/// The tests file `file` registers, in registration order.
+///
+/// # Errors
+///
+/// The file fails to load or the list isn't valid JSON.
 fn list(file: &str, source: &str) -> Result<Vec<Listed>, String> {
     let mut e = engine(file, source, false)?;
     let code = format!(
@@ -64,6 +83,12 @@ fn list(file: &str, source: &str) -> Result<Vec<Listed>, String> {
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
+/// Runs one test in its own isolate, with the DOM shim installed.
+///
+/// # Errors
+///
+/// The test's failure message; for a pending test, a message saying it
+/// passes now (a failing pending test is `Ok`).
 fn run(file: &str, source: &str, test: &Listed, compact_runtime: bool) -> Result<(), String> {
     let mut e = engine(file, source, compact_runtime)?;
     let name = serde_json::to_string(&test.name).map_err(|e| e.to_string())?;

@@ -29,6 +29,12 @@ use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_mai
 use k_sema::{AnalysisHost, Change, Options, ProjectPath};
 use project::{File, Pathological, SEED};
 
+/// Converts generated files to the host's input form.
+///
+/// # Panics
+///
+/// Panics if a generated path is not a valid project path (a generator
+/// bug).
 fn paths(files: &[File]) -> Vec<(ProjectPath, String)> {
     files
         .iter()
@@ -36,6 +42,12 @@ fn paths(files: &[File]) -> Vec<(ProjectPath, String)> {
         .collect()
 }
 
+/// Returns analysis options with exactly `threads` worker threads, or one
+/// per core for `None`.
+///
+/// # Panics
+///
+/// Panics if `threads` is `Some(0)`.
 fn options(threads: Option<usize>) -> Options {
     match threads {
         Some(n) => Options::new().with_threads(NonZeroUsize::new(n).unwrap()),
@@ -43,16 +55,25 @@ fn options(threads: Option<usize>) -> Options {
     }
 }
 
+/// Analyses `files` from scratch (parse and semantic pass) and returns the
+/// host, so later edits measure warm re-checks.
+///
+/// # Panics
+///
+/// Panics if the analysis is cancelled, which a fresh host never is.
 fn cold(options: &Options, files: Vec<(ProjectPath, String)>) -> AnalysisHost {
     let host = AnalysisHost::with_files(options.clone(), files);
     black_box(host.analysis().diagnostics().unwrap());
     host
 }
 
+/// Renders a project size as a benchmark label (`10k`).
 fn label(lines: usize) -> String {
     format!("{}k", lines / 1_000)
 }
 
+/// Benchmarks cold analyses of realistic projects of 1k, 10k and 100k
+/// lines, on one thread and on every core.
 fn bench_cold(c: &mut Criterion) {
     for (group_name, threads) in [("cold_1t", Some(1)), ("cold_mt", None)] {
         let mut group = c.benchmark_group(group_name);
@@ -80,6 +101,8 @@ fn bench_cold(c: &mut Criterion) {
 /// An edit of the benchmarked file: `(text, generation) -> new text`.
 type Edit = fn(&str, usize) -> String;
 
+/// Benchmarks re-checks after a body edit and after a signature edit of
+/// one service in realistic projects of 10k and 100k lines.
 fn bench_warm(c: &mut Criterion) {
     let edits: [(&str, Edit); 2] = [
         ("warm_body", project::body_edit),
@@ -114,6 +137,8 @@ fn bench_warm(c: &mut Criterion) {
     }
 }
 
+/// Benchmarks a cold single-threaded analysis of each pathological family
+/// at its default size.
 fn bench_pathological(c: &mut Criterion) {
     let mut group = c.benchmark_group("pathological");
     group.sample_size(10);

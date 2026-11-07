@@ -70,6 +70,7 @@ impl ChunkRefs {
 /// later revision can recognize the chunks it shares.
 #[derive(Debug, Default)]
 pub(crate) struct RefIndex {
+    /// Each resolution chunk with its reverse index, in chunk order.
     chunks: Vec<(Arc<RangeMap<Resolution>>, Arc<ChunkRefs>)>,
 }
 

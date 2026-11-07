@@ -26,6 +26,8 @@
 - [Structs, enums, classes and interfaces](language/declarations.md)
 - [Errors](language/errors.md)
 - [Modules and visibility](language/modules.md)
+- [Documentation comments](language/doc-comments.md)
+- [JavaScript interop](language/js-interop.md)
 
 # Building apps
 
@@ -47,8 +49,10 @@
 - [Email](apps/email.md)
 - [Calling HTTP APIs](apps/http.md)
 - [Bytes and cryptography](apps/crypto.md)
+- [Money](apps/money.md)
 - [Time and timers](apps/time.md)
 - [Local storage](apps/local-storage.md)
+- [Charts](apps/charts.md)
 - [Drag and drop](apps/drag-and-drop.md)
 - [Importing and exporting files](apps/files.md)
 - [Keyboard shortcuts](apps/keyboard-shortcuts.md)
@@ -58,7 +62,15 @@
 - [Document metadata](apps/metadata.md)
 - [The app declaration](apps/app.md)
 - [Deployment](apps/deployment.md)
-- [Example: a Kanban board](apps/kanban.md)
+
+# Example apps
+
+- [Todos: components and local state](examples/todos.md)
+- [Weather: loading data from an HTTP API](examples/weather.md)
+- [Notes: a full-stack app with accounts](examples/notes.md)
+- [Shop: a workspace of services with paybox](examples/shop.md)
+- [Stack: the smallest system of services](examples/stack.md)
+- [Kanban: drag and drop in the browser](examples/kanban.md)
 
 # Reference
 
@@ -66,6 +78,25 @@
 - [Annotations](reference/annotations.md)
 - [Operators and precedence](reference/operators.md)
 - [The k command](reference/cli.md)
+- [Diagnostics](reference/diagnostics.md)
 - [Project files and lockfiles](reference/project-files.md)
-- [Standard library overview](reference/stdlib.md)
+- [Standard library](reference/stdlib.md)
+    - [`k.core`](reference/stdlib/k-core.md)
+    - [`k.auth`](reference/stdlib/k-auth.md)
+    - [`k.charts`](reference/stdlib/k-charts.md)
+    - [`k.crypto`](reference/stdlib/k-crypto.md)
+    - [`k.db`](reference/stdlib/k-db.md)
+    - [`k.device`](reference/stdlib/k-device.md)
+    - [`k.drag`](reference/stdlib/k-drag.md)
+    - [`k.encoding`](reference/stdlib/k-encoding.md)
+    - [`k.http`](reference/stdlib/k-http.md)
+    - [`k.observe`](reference/stdlib/k-observe.md)
+    - [`k.rpc`](reference/stdlib/k-rpc.md)
+    - [`k.server`](reference/stdlib/k-server.md)
+    - [`k.storage`](reference/stdlib/k-storage.md)
+    - [`k.test`](reference/stdlib/k-test.md)
+    - [`k.text`](reference/stdlib/k-text.md)
+    - [`k.time`](reference/stdlib/k-time.md)
+    - [`k.ui`](reference/stdlib/k-ui.md)
+    - [`k.validation`](reference/stdlib/k-validation.md)
 - [Design status](reference/design-status.md)

@@ -18,6 +18,8 @@ use proptest::prelude::*;
 
 /// Every `.k` file below `tests/corpus`.
 fn corpus_files() -> Vec<PathBuf> {
+    /// Appends the `.k` files below `dir` to `out`, visiting entries in
+    /// sorted order.
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let mut entries: Vec<_> = std::fs::read_dir(dir)
             .unwrap()

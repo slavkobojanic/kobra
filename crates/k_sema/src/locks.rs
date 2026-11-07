@@ -204,7 +204,10 @@ struct StorageLock {
 /// Why a lockfile couldn't be read: the message and the byte offset of the
 /// problem.
 struct Invalid {
+    /// What is wrong, for the diagnostic.
     message: String,
+    /// The byte offset in the lockfile where the problem is (0 when the
+    /// TOML parser gives no position).
     offset: usize,
 }
 
@@ -426,7 +429,9 @@ fn payload_range(cx: &Cx<'_, '_>, d: DeclId) -> Option<TextRange> {
 
 /// A structural comparison of recorded types with the program's.
 struct Compare<'c, 'p, 'a> {
+    /// The checking context, for the program's types.
     cx: &'c Cx<'p, 'a>,
+    /// The lockfile whose recorded types are compared.
     lock: &'c StorageLock,
     /// Pairs already compared (recursive types).
     seen: HashSet<(String, DeclId)>,

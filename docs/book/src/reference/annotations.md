@@ -88,4 +88,4 @@ The annotation decides the keyword, and a mismatch is a compile error with a qui
 
 | Must be `var` | Must be `let` |
 |---|---|
-| `@State`, `@Binding`, `@Form`, `@Version` | `@Prop`, `@Derived`, `@Load`, `@Inject`, `@Param`, `@Slot`, `@Stylable`, `@Emits`, `@Env` |
+| `@State`, `@Binding`, `@Form`, `@Version` | `@Prop`, `@Derived`, `@Load`, `@Inject`, `@Param`, `@Slot`, `@Stylable`, `@Emits`, `@Env`, `@Id` |

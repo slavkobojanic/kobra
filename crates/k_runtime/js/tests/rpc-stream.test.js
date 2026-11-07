@@ -1,9 +1,13 @@
-// Server-streaming rpcs in the browser (docs/design/29-server-streaming.md;
-// docs/compiler/runtime.md §8; server.md §6 for the wire): the request is
-// one Connect envelope, a refusal or a failure before the stream opens is
-// the call's outcome, and an opened stream yields each element decoded,
-// in order, as envelopes arrive, ending at the end-of-stream envelope, a
-// dropped connection or when its caller is cancelled.
+/**
+ * @module k:/tests/rpc-stream.test.js
+ *
+ * Server-streaming rpcs in the browser (docs/design/29-server-streaming.md;
+ * docs/compiler/runtime.md §8; server.md §6 for the wire): the request is
+ * one Connect envelope, a refusal or a failure before the stream opens is
+ * the call's outcome, and an opened stream yields each element decoded,
+ * in order, as envelopes arrive, ending at the end-of-stream envelope, a
+ * dropped connection or when its caller is cancelled.
+ */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import { rpc } from "k:runtime";
 import { streamed } from "k:/runtime/streams.js";
@@ -55,6 +59,7 @@ function fakeResponse(status = 200) {
   };
 }
 
+/** A stand-in element decoder: wraps the element's `value`. */
 const each = (j) => ({ decoded: j.value });
 
 test("a streaming call sends one Connect envelope as application/connect+json", async () => {

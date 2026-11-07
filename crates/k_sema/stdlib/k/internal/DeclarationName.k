@@ -1,6 +1,7 @@
 /// The type of an annotation parameter that takes the name of a declaration
-/// written as an expression, such as `Dashboard` in `@Layout(Dashboard)` or
-/// `Clock` in `@TestDefault(replaces: Clock)`.
+/// written as an expression, such as `Dashboard` in `@Layout(Dashboard)`
+/// ([`k.core.Layout`]) or `Clock` in `@TestDefault(replaces: Clock)`
+/// ([`TestDefault`]).
 ///
 /// The argument must be a name that resolves to a declaration; the
 /// annotation table says which kinds of declaration are accepted.

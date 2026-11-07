@@ -32,6 +32,13 @@ pub struct Sql {
 /// Quotes an identifier with double quotes, doubling any `"` inside, so
 /// reserved words (`"order"`, `"user"`) and any locked name are safe in
 /// both dialects.
+///
+/// ```
+/// use k_db::sql::quote_identifier;
+///
+/// assert_eq!(quote_identifier("order"), r#""order""#);
+/// assert_eq!(quote_identifier(r#"a"b"#), r#""a""b""#);
+/// ```
 #[must_use]
 pub fn quote_identifier(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
@@ -40,6 +47,14 @@ pub fn quote_identifier(name: &str) -> String {
 /// Builds the bind value of a [`Like`] predicate from the text K code
 /// passed: `\`, `%` and `_` are escaped with `\` (every generated `LIKE`
 /// declares `ESCAPE '\'`), then wrapped in `%` as the predicate needs.
+///
+/// ```
+/// use k_db::ir::Like;
+/// use k_db::sql::like_pattern;
+///
+/// assert_eq!(like_pattern(Like::Contains, "50%_off"), r"%50\%\_off%");
+/// assert_eq!(like_pattern(Like::StartsWith, "pen"), "pen%");
+/// ```
 #[must_use]
 pub fn like_pattern(kind: Like, text: &str) -> String {
     let mut escaped = String::with_capacity(text.len() + 2);
@@ -56,13 +71,20 @@ pub fn like_pattern(kind: Like, text: &str) -> String {
     }
 }
 
+/// The state of one [`render`] call: SQL text written so far, and the
+/// highest parameter number it uses.
 struct Renderer {
+    /// The dialect being written.
     dialect: Dialect,
+    /// The SQL text so far.
     out: String,
+    /// The highest parameter number written so far (0 for none).
     params: u32,
 }
 
 impl Renderer {
+    /// Writes parameter placeholder `n` in the dialect's spelling and records
+    /// it in [`Renderer::params`].
     fn param(&mut self, n: u32) {
         self.params = self.params.max(n);
         match self.dialect {
@@ -75,10 +97,12 @@ impl Renderer {
         }
     }
 
+    /// Writes `name` as a quoted identifier ([`quote_identifier`]).
     fn ident(&mut self, name: &str) {
         self.out.push_str(&quote_identifier(name));
     }
 
+    /// Writes an operand: a column, a parameter, or parenthesized arithmetic.
     fn operand(&mut self, o: &Operand) {
         match o {
             Operand::Column(c) => self.ident(c),
@@ -96,6 +120,9 @@ impl Renderer {
         }
     }
 
+    /// Writes a predicate. `nested` is true inside another `AND`/`OR`, where a
+    /// multi-operand `AND`/`OR` is parenthesized; an empty `AND` is `1 = 1` and
+    /// an empty `OR` `1 = 0`, and a single operand is written alone.
     fn predicate(&mut self, p: &Predicate, nested: bool) {
         match p {
             Predicate::Compare { left, op, right } => {
@@ -172,6 +199,7 @@ impl Renderer {
         }
     }
 
+    /// Writes ` WHERE` and the predicate, or nothing without one.
     fn filter(&mut self, filter: Option<&Predicate>) {
         if let Some(p) = filter {
             self.out.push_str(" WHERE ");
@@ -179,6 +207,7 @@ impl Renderer {
         }
     }
 
+    /// Writes a `LIMIT`/`OFFSET` count: a literal or a parameter.
     fn count(&mut self, c: &Count) {
         match c {
             Count::Const(n) => {
@@ -188,6 +217,8 @@ impl Renderer {
         }
     }
 
+    /// Writes a `SELECT` with its columns (`*` for none), filter, order, limit
+    /// and offset; an offset without a limit gets the dialect's "no limit".
     fn select(&mut self, s: &Select) {
         self.out.push_str("SELECT ");
         if s.columns.is_empty() {
@@ -225,6 +256,8 @@ impl Renderer {
         }
     }
 
+    /// Writes the `ORDER BY` clause, placing `NULL` first ascending and last
+    /// descending in both dialects.
     fn order(&mut self, order: &[Order]) {
         for (i, o) in order.iter().enumerate() {
             self.out.push_str(if i == 0 { " ORDER BY " } else { ", " });
@@ -247,6 +280,30 @@ impl Renderer {
 /// Never panics. Parameters keep the IR's numbers, so the same bind list
 /// works for both dialects (except list parameters of [`Predicate::In`]:
 /// a JSON array text on SQLite, an array on Postgres).
+///
+/// ```
+/// use k_db::ir::{Count, Order, Select, Statement};
+/// use k_db::sql::{Dialect, render};
+///
+/// let newest = Statement::Select(Select {
+///     table: "order".into(),
+///     columns: vec!["id".into()],
+///     filter: None,
+///     order: vec![Order { column: "placed_at".into(), descending: true }],
+///     limit: Some(Count::Param(1)),
+///     offset: None,
+/// });
+/// assert_eq!(
+///     render(&newest, Dialect::Sqlite).text,
+///     r#"SELECT "id" FROM "order" ORDER BY "placed_at" DESC LIMIT ?1"#
+/// );
+/// let pg = render(&newest, Dialect::Postgres);
+/// assert_eq!(
+///     pg.text,
+///     r#"SELECT "id" FROM "order" ORDER BY "placed_at" DESC NULLS LAST LIMIT $1"#
+/// );
+/// assert_eq!(pg.params, 1);
+/// ```
 #[must_use]
 pub fn render(statement: &Statement, dialect: Dialect) -> Sql {
     let mut r = Renderer {

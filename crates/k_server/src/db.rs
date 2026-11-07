@@ -159,7 +159,7 @@ pub enum JobFate {
 /// A row of `k_job`, for `dist/app jobs list`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct JobRow {
-    /// The id.
+    /// The job's id (16 random bytes, base64url).
     pub id: String,
     /// The job's name.
     pub name: String,
@@ -186,16 +186,27 @@ pub enum Savepoint {
 
 /// The database every worker of a server process shares.
 pub struct ProcessDatabase {
+    /// The runtime of the `k-db` thread, where every database operation is
+    /// spawned ([`ProcessDatabase::on_db`]).
     handle: tokio::runtime::Handle,
     /// Dropping it ends the `k-db` thread.
     _stop: oneshot::Sender<()>,
+    /// The one connection to `DATABASE_URL`.
     db: Arc<Database>,
+    /// The connection's dialect, which picks the statement texts.
     dialect: Dialect,
     /// The statement texts for [`Self::dialect`], by id.
     statements: Arc<Vec<String>>,
+    /// The build's database manifest: statements, unique indexes and the schema
+    /// used to name the field of a unique violation.
     manifest: Arc<DbManifest>,
+    /// The connection's lease: held for one statement outside a transaction,
+    /// and from `BEGIN` to `COMMIT` or `ROLLBACK` by a transaction.
     lease: Arc<tokio::sync::Mutex<()>>,
+    /// The open transactions by id, each holding the lease until it ends.
     transactions: Arc<Mutex<HashMap<u32, OwnedMutexGuard<()>>>>,
+    /// The id the next `BEGIN` hands out; ids start at 1 because 0 means "no
+    /// transaction" in the ops.
     next_transaction: AtomicU32,
 }
 
@@ -205,10 +216,14 @@ impl std::fmt::Debug for ProcessDatabase {
     }
 }
 
+/// Locks `m`, recovering the data if a panicking thread poisoned it (the
+/// maps it guards stay consistent between statements).
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// An internal failure of the process database (its thread or task
+/// stopped), reported as [`DbError::Connection`].
 fn internal(message: impl Into<String>) -> DbError {
     DbError::Connection(message.into())
 }
@@ -322,6 +337,11 @@ impl ProcessDatabase {
     }
 
     /// Runs `work` on the database runtime and awaits it from anywhere.
+    ///
+    /// # Errors
+    ///
+    /// `work`'s own error, or [`DbError::Connection`] if the task panicked or
+    /// the database runtime is gone.
     async fn on_db<T: Send + 'static>(
         &self,
         work: impl Future<Output = Result<T, DbError>> + Send + 'static,
@@ -332,6 +352,12 @@ impl ProcessDatabase {
             .map_err(|_| internal("the database task failed"))?
     }
 
+    /// The text of statement `id` in this database's dialect.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Statement`] when the build has no statement with that id (a
+    /// mismatch between the server bundle and the manifest).
     fn statement(&self, id: u32) -> Result<String, DbError> {
         usize::try_from(id)
             .ok()
@@ -341,6 +367,11 @@ impl ProcessDatabase {
     }
 
     /// Checks that `tx` (0: none) is an open transaction.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Statement`] when `tx` was committed, rolled back or never
+    /// begun.
     fn check_transaction(&self, tx: u32) -> Result<(), DbError> {
         if tx != 0 && !lock(&self.transactions).contains_key(&tx) {
             return Err(DbError::Statement(format!(
@@ -351,6 +382,11 @@ impl ProcessDatabase {
     }
 
     /// Takes the connection's lease, bounded by [`LEASE_TIMEOUT`].
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Connection`] when [`LEASE_TIMEOUT`] passes first (another
+    /// request's transaction holds the connection).
     async fn lease(lease: Arc<tokio::sync::Mutex<()>>) -> Result<OwnedMutexGuard<()>, DbError> {
         tokio::time::timeout(LEASE_TIMEOUT, lease.lock_owned())
             .await
@@ -524,6 +560,11 @@ impl ProcessDatabase {
     /// Runs one of the stdlib's statements (`k_db::stdlib`, written with
     /// `$n` placeholders) and returns the rows affected, under the same
     /// lease and transaction rules as [`Self::execute`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::execute`]: a transaction that isn't open, a lease timeout,
+    /// or the statement's failure.
     async fn stdlib_execute(
         &self,
         text: &str,
@@ -545,6 +586,10 @@ impl ProcessDatabase {
     }
 
     /// Runs one of the stdlib's queries and returns its rows.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::stdlib_execute`].
     async fn stdlib_query(
         &self,
         text: &str,
@@ -868,8 +913,10 @@ impl ProcessDatabase {
     }
 }
 
-/// Converts a parameter from JavaScript: `null`, booleans, integers
-/// (`Int`), other numbers (`Double`) and strings. Anything else (an
+/// Converts a statement parameter from JavaScript to a [`Value`].
+///
+/// Accepted are `null`, booleans, integers (`Int`), other numbers
+/// (`Double`) and strings. Anything else (an
 /// object, an array) is an error, so a generated encoder that forgot a
 /// conversion fails loudly instead of binding garbage.
 ///

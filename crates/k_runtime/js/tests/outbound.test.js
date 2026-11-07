@@ -1,8 +1,12 @@
-// The server's I/O platform services (docs/compiler/server.md §18):
-// `FetchHttpClient` over a stand-in for `op_k_fetch`, the `TestHttpClient`
-// double, `SmtpEmailProvider` over a stand-in for `op_k_smtp_send`, and the
-// `RecordingEmailProvider` double. The ops themselves are tested in Rust
-// (`crates/k_server/tests/outbound.rs`).
+/**
+ * @module k:/tests/outbound.test.js
+ *
+ * The server's I/O platform services (docs/compiler/server.md §18):
+ * `FetchHttpClient` over a stand-in for `op_k_fetch`, the `TestHttpClient`
+ * double, `SmtpEmailProvider` over a stand-in for `op_k_smtp_send`, and the
+ * `RecordingEmailProvider` double. The ops themselves are tested in Rust
+ * (`crates/k_server/tests/outbound.rs`).
+ */
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
 import {
   Database,
@@ -39,6 +43,7 @@ const HttpStatus = {
 };
 const CODES = [200, 201, 404, 503, null];
 
+/** An `HttpRequest` to the search API, overridden by `extra`. */
 const request = (extra) => ({
   method: unitCase(0),
   url: "https://api.example.com/v1/search",
@@ -51,6 +56,7 @@ const request = (extra) => ({
   ...extra,
 });
 
+/** The UTF-8 bytes of `t`. */
 const bytes = (t) => new TextEncoder().encode(t);
 
 /** A transport answering `outcome`, recording `[id, wire]`. */
@@ -59,6 +65,7 @@ function transport(outcome) {
   return { sent, fn: async (id, wire) => (sent.push([id, wire]), outcome) };
 }
 
+/** What promise `p` rejects with, or `undefined` when it resolves. */
 async function rejection(p) {
   try {
     await p;
@@ -183,6 +190,7 @@ const CONFIG = {
   MAIL_FROM: "K Shop <orders@shop.example>",
 };
 
+/** An `Email` to Ana, overridden by `extra`. */
 const email = (extra) => ({ to: "ana@example.com", subject: "Your order", text: "Thanks!", html: null, from: null, replyTo: null, cc: [], bcc: [], ...extra });
 
 test("SMTP settings come from SmtpConfig's variables", () => {

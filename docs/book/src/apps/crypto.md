@@ -5,10 +5,12 @@ hashing. **Safety comes from types:** a MAC is a distinct `Mac` type that can't 
 the constant-time comparison is the only one that compiles.
 
 ```k
-let mac = await Hmac.sha256(key: config.signingSecret, message: "{timestamp}.".utf8 + payload)
+// examples/shop/shop/src/payments/StripeSignature.k
+func matches(payload: Bytes, secret: Secret<String>) async -> Bool {
+    let signedPayload = "{signedAt.unixSeconds}.".utf8 + payload
+    let expected = await Hmac.sha256(key: secret, message: signedPayload)
 
-guard mac.matches(signature) else {
-    throw WebhookError.invalidSignature
+    return candidates.contains { candidate => expected.matches(candidate) }
 }
 ```
 
@@ -44,6 +46,7 @@ and `Hashable`.
 Verifying a webhook signature, with the header's hex signatures already parsed by `Bytes.parse(hex:)`:
 
 ```k
+~import k.crypto.Hmac
 /// Checks the signatures of a `Stripe-Signature` header against the raw request body.
 func matches(payload: Bytes, timestamp: String, candidates: List<Bytes>, secret: Secret<String>) async -> Bool {
     let signedPayload = "{timestamp}.".utf8 + payload
@@ -80,8 +83,16 @@ tokens. There is no non-secure random source in `k.crypto`.
 ## Passwords
 
 ```k
+~import k.crypto.Password
+~
+~struct SignUp {
+~    let password: String
+~}
+~
+~func example(request: SignUp, typed: String, stored: Secret<String>) async {
 let hash = await Password.hash(password: request.password)            // Argon2id, as a PHC string
 let matches = await Password.verify(password: typed, hash: stored)     // constant time
+~}
 ```
 
 - Both are server-only and `async`, because hashing is deliberately slow.

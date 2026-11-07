@@ -1,4 +1,4 @@
-/// How `Date.formatted(as:)` writes a date.
+/// How [`Date.formatted`] writes a date.
 public enum DateStyle {
     /// The date only.
     case date

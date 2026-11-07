@@ -19,9 +19,11 @@ use std::hash::{BuildHasherDefault, Hasher};
 #[derive(Default, Clone, Copy)]
 pub(crate) struct FxHasher(u64);
 
+/// The multiplier of the Fx hash (the one rustc uses on 64-bit targets).
 const SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
 
 impl FxHasher {
+    /// Mixes one word into the state: rotate, xor, multiply.
     #[inline]
     fn add(&mut self, word: u64) {
         self.0 = (self.0.rotate_left(5) ^ word).wrapping_mul(SEED);

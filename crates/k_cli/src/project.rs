@@ -56,6 +56,10 @@ impl Project {
 /// Prints the problem and returns exit status 2 when `root` is not a
 /// project (or is a workspace root), and status 1 when some file can't be
 /// read.
+///
+/// # Errors
+///
+/// The exit status described above, after the problem was printed.
 pub fn load(root: &Path, command: &str) -> Result<Project, ExitCode> {
     let (loaded, member) = workspace::load_member(root, command)?;
     Ok(project_of(root, &loaded, member))
@@ -73,6 +77,10 @@ pub fn project_of(root: &Path, loaded: &workspace::Loaded, member: usize) -> Pro
 
 /// The files of the analysis of the project at `root`, with the same rules
 /// as [`load`].
+///
+/// # Errors
+///
+/// As [`load`].
 pub fn read(root: &Path) -> Result<Vec<(ProjectPath, String)>, ExitCode> {
     let (loaded, member) = workspace::load_member(root, "test --watch")?;
     Ok(loaded.workspace.analysis_files(member))

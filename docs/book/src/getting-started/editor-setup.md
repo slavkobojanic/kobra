@@ -27,8 +27,30 @@ Open a project, the directory with `k.toml`, or any directory above it. Then:
   field or an `@Effect` it lists the reactive values it reads, which are what make it re-run:
 
   ```k
+  ~struct Todo {
+  ~    let title: String
+  ~}
+  ~
+  ~enum Filter {
+  ~    case all
+  ~    case open
+  ~}
+  ~
+  ~extend List<Todo> {
+  ~    func visible(filter: Filter) -> List<Todo> {
+  ~        return self
+  ~    }
+  ~}
+  ~
+  ~component TodoList {
+  ~    @Prop let todos: List<Todo>
+  ~    @State var filter: Filter = .all
   @Derived let visibleTodos: List<Todo> = todos.visible(filter: filter)
   // Reactive dependencies: `filter`
+  ~    view {
+  ~        text { "{visibleTodos.count}" }
+  ~    }
+  ~}
   ```
 
   On a page it shows the page's URL.

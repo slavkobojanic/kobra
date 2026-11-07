@@ -6,10 +6,10 @@ public struct File implements Equatable {
     /// The media type ("application/json"); empty when the browser doesn't
     /// know it.
     let mediaType: String
-    /// The content.
+    /// The whole content.
     let bytes: Bytes
 
-    /// The largest file `Files.open` reads, in bytes: 16 MiB, 16777216.
+    /// The largest file [`Files.open`] reads, in bytes: 16 MiB, 16777216.
     @Native
     static var maximumSize: Int
 
@@ -17,11 +17,17 @@ public struct File implements Equatable {
     @Native
     var text: String?
 
-    /// The number of bytes.
+    /// The size of the content, in bytes.
     @Native
     var size: Int
 
-    /// A file of `text` encoded as UTF-8, with `type`'s media type.
+    /// Makes a file of `text` encoded as UTF-8, to save with
+    /// [`Files.save(_:)`].
+    ///
+    /// - Parameters:
+    ///   - name: the file name, without a path ("board.json").
+    ///   - type: the kind of file, which gives its [`mediaType`].
+    ///   - text: the content.
     @Native
     static func fromText(name: String, type: FileType, text: String) -> File
 }

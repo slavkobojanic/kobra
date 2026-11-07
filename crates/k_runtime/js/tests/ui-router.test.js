@@ -1,16 +1,20 @@
-// The client router (docs/compiler/runtime.md §10, docs/design/12-routing.md):
-// rendering the current page, intercepting internal links, `popstate`,
-// parameters from the path and the query, `navigate`, superseded
-// navigations and disposal of the page that is left.
-//
-// The test isolate has no `window`, `location` or `history`, so each test
-// installs the small fakes below on `globalThis`. Assumptions beyond
-// runtime.md §10 (to be pinned there): the router reads
-// `globalThis.location` (`pathname`, `search`, `origin`, `href`), writes
-// `globalThis.history.pushState(state, "", url)`, listens for `popstate`
-// with `globalThis.addEventListener`, intercepts clicks on `a` elements
-// inside `container` with an `href` attribute, and renders a route by
-// calling `(await route.load()).render(params, ctx)` inside a fresh scope.
+/**
+ * @module k:/tests/ui-router.test.js
+ *
+ * The client router (docs/compiler/runtime.md §10, docs/design/12-routing.md):
+ * rendering the current page, intercepting internal links, `popstate`,
+ * parameters from the path and the query, `navigate`, superseded
+ * navigations and disposal of the page that is left.
+ *
+ * The test isolate has no `window`, `location` or `history`, so each test
+ * installs the small fakes below on `globalThis`. Assumptions beyond
+ * runtime.md §10 (to be pinned there): the router reads
+ * `globalThis.location` (`pathname`, `search`, `origin`, `href`), writes
+ * `globalThis.history.pushState(state, "", url)`, listens for `popstate`
+ * with `globalThis.addEventListener`, intercepts clicks on `a` elements
+ * inside `container` with an `href` attribute, and renders a route by
+ * calling `(await route.load()).render(params, ctx)` inside a fresh scope.
+ */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import { child, flush, navigate, onCleanup, root, signal, startRouter, title } from "k:runtime";
 
@@ -81,6 +85,7 @@ function route(name, segments, log, options = {}) {
     load: async () => {
       if (options.gate) await options.gate;
       return {
+        /** Renders the page, logging the render and, on cleanup, the leave. */
         render(params) {
           log.push(`render ${name} ${JSON.stringify(params)}`);
           onCleanup(() => log.push(`leave ${name}`));
@@ -135,6 +140,7 @@ function click(target, init = {}) {
 }
 
 const LINKS = ["/product/7", "/pricing", "https://k.dev/docs", ["/pricing", "_blank"]];
+/** The route table of the router tests, recording renders in `log`. */
 const ROUTES = (log) => [route("home", [], log, { links: LINKS }), route("product", ["product", ":id"], log), route("pricing", ["pricing"], log)];
 
 // ---------------------------------------------------------------- start
@@ -351,6 +357,7 @@ function laidOut(name, segments, log, layouts, pageTitle) {
     parse: parser(segments),
     load: async () => ({
       layouts,
+      /** Renders the page, logging the render. */
       render(params) {
         log.push(`render ${name}`);
         onCleanup(() => log.push(`leave ${name}`));

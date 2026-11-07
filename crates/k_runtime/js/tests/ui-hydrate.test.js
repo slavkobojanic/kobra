@@ -1,11 +1,15 @@
-// Hydration (docs/compiler/runtime.md §6, docs/compiler/codegen.md §11.3):
-// the client factories claim the server-rendered nodes instead of creating
-// them, text bindings and handlers attach to what is there, blocks find their
-// markers, `@Load` values come from `k-data` so nothing is fetched twice, and a
-// mismatch client-renders only the range that differs.
-//
-// The server HTML in these tests is what the `$ssr` renderers write
-// (`Out`, `OPEN`, `CLOSE`, `SEPARATOR`), parsed by the fake DOM.
+/**
+ * @module k:/tests/ui-hydrate.test.js
+ *
+ * Hydration (docs/compiler/runtime.md §6, docs/compiler/codegen.md §11.3):
+ * the client factories claim the server-rendered nodes instead of creating
+ * them, text bindings and handlers attach to what is there, blocks find their
+ * markers, `@Load` values come from `k-data` so nothing is fetched twice, and a
+ * mismatch client-renders only the range that differs.
+ *
+ * The server HTML in these tests is what the `$ssr` renderers write
+ * (`Out`, `OPEN`, `CLOSE`, `SEPARATOR`), parsed by the fake DOM.
+ */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import {
   READY, batch, createLoads, each, effect, hydrate, isHydrating, on, readData, renderEffect, signal, template, text, when,
@@ -24,6 +28,7 @@ function page(html) {
 
 // The Counter of architecture.md §7.2: its server HTML and its client factory.
 const counterTemplate = template("<div><span> </span><button>Add</button></div>");
+/** The server HTML of the counter: a span with its text and a button. */
 function counterHtml(label, count) {
   const out = new Out();
   out.raw("<div><span>");
@@ -31,6 +36,7 @@ function counterHtml(label, count) {
   out.raw("</span><button>Add</button></div>");
   return out.html();
 }
+/** The client counter: claims or creates its template and binds its text and click. */
 function Counter(state) {
   const root$ = counterTemplate();
   const label = root$.firstChild.firstChild;

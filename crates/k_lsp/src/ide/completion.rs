@@ -182,6 +182,10 @@ fn annotation_items() -> Vec<CompletionItem> {
 
 /// The completions after a `.` ending at `dot_end` (the start of the
 /// prefix).
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
 fn dot_items(
     analysis: &Analysis,
     view: &ProgramView,
@@ -446,6 +450,10 @@ fn css_value_types(node: &SyntaxNode) -> Option<&'static [&'static str]> {
 
 /// The type an implicit member at `node` is expected to have, from its
 /// context.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
 fn expected_type(
     analysis: &Analysis,
     view: &ProgramView,
@@ -520,6 +528,10 @@ fn expected_type(
 
 /// The parameter type of argument `arg` of the call it belongs to, by label
 /// or position.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
 fn argument_type(
     analysis: &Analysis,
     view: &ProgramView,
@@ -590,6 +602,10 @@ fn argument_type(
 }
 
 /// The names in scope at `offset`.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
 fn scope_items(
     analysis: &Analysis,
     view: &ProgramView,

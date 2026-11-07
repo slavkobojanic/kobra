@@ -11,7 +11,125 @@ its server; the one escape hatch to raw HTTP, for external systems, is the
 
 ## Declaring a protocol
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
 ```k
+// src/cart/Context.k
+import k.auth.AuthRole
+import k.auth.SessionUserId
+import k.rpc.Broadcast
+import k.rpc.RpcFailure
+
+struct ProductId implements Equatable, Codable {
+    let value: Int
+}
+
+struct Product implements Codable {
+    let id: ProductId
+    let name: String
+}
+
+struct CartId implements Equatable, Hashable, Codable {
+    let value: Int
+}
+
+struct CartItem implements Codable {
+    let productId: ProductId
+}
+
+enum CartEvent implements Codable {
+    case added(CartItem)
+    case cleared
+}
+
+struct AddItemRequest implements Codable {
+    let productId: ProductId
+}
+
+enum CartError implements Error {
+    case productNotFound
+    case outOfStock(available: Int)
+    case rpcFailure(RpcFailure)
+}
+
+service CartRepository {
+    private let changes: Broadcast<CartId, CartEvent> = Broadcast()
+
+    func items(for owner: SessionUserId) async -> List<CartItem> {
+        return []
+    }
+
+    func product(_ id: ProductId) async -> Product? {
+        return nil
+    }
+
+    func add(_ product: Product, for owner: SessionUserId) async -> CartItem {
+        return CartItem(productId: product.id)
+    }
+
+    func events(cart: CartId) -> Stream<CartEvent> {
+        return changes.subscribe(key: cart)
+    }
+}
+
+enum StaffRole implements AuthRole {
+    case admin
+}
+
+struct SignInRequest implements Codable {
+    let email: String
+}
+
+enum SignInError implements Error {
+    case invalidCredentials
+    case rpcFailure(RpcFailure)
+}
+
+struct OrderSummary implements Codable {
+    let number: Int
+}
+
+enum AdminError implements Error {
+    case rpcFailure(RpcFailure)
+}
+
+struct OrderRequest implements Codable {
+    let productId: ProductId
+}
+
+struct PlacedOrder implements Codable {
+    let number: Int
+}
+
+interface CartActions {
+    func add(product: Product) async throws CartError
+}
+
+page Home at "/" {
+    view {
+        text { "Home" }
+    }
+}
+
+page SignIn at "/sign-in" {
+    @Param let returnTo: Page = .home
+
+    view {
+        text { "Sign in" }
+    }
+}
+
+page Cart at "/cart" {
+    view {
+        text { "Cart" }
+    }
+}
+```
+-->
+
+```k
+~import k.auth.Authenticated
+~import k.auth.RateLimit
 // CartProtocol.k: the contract
 public protocol CartProtocol requires Authenticated {
     rpc list() throws CartError -> List<CartItem>
@@ -34,6 +152,18 @@ public protocol CartProtocol requires Authenticated {
 A service that `implements` a protocol is its server implementation:
 
 ```k
+~import k.auth.Session
+~
+~import k.auth.Authenticated
+~import k.auth.RateLimit
+~
+~protocol CartProtocol requires Authenticated {
+~    rpc list() throws CartError -> List<CartItem>
+~
+~    rpc add(request: AddItemRequest) throws CartError -> CartItem requires RateLimit(100.perMinute)
+~
+~    rpc watch(cartId: CartId) throws CartError -> Stream<CartEvent>
+~}
 service CartApi implements CartProtocol {
     @Inject let repository: CartRepository
     @Inject let session: Session
@@ -50,7 +180,10 @@ service CartApi implements CartProtocol {
         return await repository.add(product, for: session.user.id)
     }
 
-    rpc watch(cartId: CartId) async throws CartError -> Stream<CartEvent> { … }
+    rpc watch(cartId: CartId) async throws CartError -> Stream<CartEvent> {
+        // …
+~        return repository.events(cart: cartId)
+    }
 }
 ```
 
@@ -67,6 +200,11 @@ service CartApi implements CartProtocol {
 **Only services inject protocols.** Components use them through services:
 
 ```k
+~import k.auth.Authenticated
+~
+~protocol CartProtocol requires Authenticated {
+~    rpc add(request: AddItemRequest) throws CartError -> CartItem
+~}
 service CartService {
     @Inject let api: CartProtocol
 
@@ -89,6 +227,14 @@ round trip. Guards and validation still run on in-process calls.
 threw, and client-side `catch` stays exhaustive over server errors.
 
 ```k
+~import k.ui.Router
+~
+~component AddButton {
+~    @Prop let cart: CartActions
+~    @Prop let product: Product
+~    @State var message: String? = nil
+~
+~    func add() async {
 do {
     try await cart.add(product: product)
 } catch .outOfStock(let available) {
@@ -100,6 +246,12 @@ do {
 } catch .rpcFailure {
     message = "Please try again"
 }
+~    }
+~
+~    view {
+~        text { message ?? "" }
+~    }
+~}
 ```
 
 ## Guards and middleware: `requires`
@@ -110,6 +262,9 @@ Cross-cutting interceptors that never reject a call, such as logging and tracing
 `App.k`.
 
 ```k
+~import k.auth.Authenticated
+~import k.auth.RateLimit
+~import k.auth.Role
 public protocol AdminProtocol {
     rpc signIn(request: SignInRequest) throws SignInError requires RateLimit(5.perMinute)
 
@@ -124,11 +279,18 @@ parameter fails validation), or on the way between the browser and the server. T
 standard enum in `k.rpc`:
 
 ```k
-public enum RpcFailure implements Error {
-    case rejected(GuardRejection)       // a guard refused the call
-    case invalid(ValidationError)       // a Validatable parameter failed validation
-    case offline                        // the browser couldn't reach the server
-    case timeout                        // the server didn't answer in time
+// crates/k_sema/stdlib/k/rpc/RpcFailure.k
+~import k.auth.GuardRejection
+~import k.validation.ValidationError
+public enum RpcFailure implements Error, Codable {
+    /// A guard refused the call; the payload says why.
+    case rejected(GuardRejection)
+    /// A [`k.validation.Validatable`] parameter failed validation.
+    case invalid(ValidationError)
+    /// The browser couldn't reach the server.
+    case offline
+    /// The server didn't answer in time.
+    case timeout
 }
 ```
 
@@ -137,13 +299,26 @@ can be called over the network, and the network can fail. The name is fixed, so 
 to find the case by its shape:
 
 ```k
+~import k.rpc.RpcFailure
+~
 public enum CheckoutError implements Error {
     case productNotFound
     case outOfStock(available: Int)
     case paymentUnavailable
     case rpcFailure(RpcFailure)
 }
+```
 
+```k
+~import k.auth.RateLimit
+~import k.rpc.RpcFailure
+~import k.rpc.RpcOnlyError
+~
+~enum CheckoutError implements Error {
+~    case productNotFound
+~    case rpcFailure(RpcFailure)
+~}
+~
 public protocol StoreProtocol {
     rpc placeOrder(request: OrderRequest) throws CheckoutError -> PlacedOrder requires RateLimit(10.perMinute)
 
@@ -159,9 +334,23 @@ public protocol StoreProtocol {
   a layer boundary passes it on like any other case:
 
   ```k
+  ~import k.rpc.RpcFailure
+  ~
+  ~enum LookupError implements Error {
+  ~    case notFound
+  ~    case rpcFailure(RpcFailure)
+  ~}
+  ~
+  ~func lookup(cart: CartActions, product: Product) async throws LookupError {
+  ~    do {
+  ~        try await cart.add(product: product)
+  ~    } catch .productNotFound, .outOfStock {
+  ~        throw LookupError.notFound
+  ~    }
   catch .rpcFailure(let failure) {
       throw LookupError.rpcFailure(failure)
   }
+  ~}
   ```
 
 - `GuardRejection` is `.unauthenticated`, `.forbidden` or `.rateLimited(retryAfter: Duration)`.
@@ -259,6 +448,10 @@ you:
 - A removed field's number is reserved automatically.
 - A deliberate breaking change requires `@Breaking("reason")` on the protocol, which bumps its version
   (`CartProtocol.v2`).
+
+> **Planned.** The first compiler releases don't compare `protocol.lock` yet. An app that serves
+> protocols records their shape in `rpc.lock`, which `k check` does compare: see
+> [Workspaces and services](workspaces.md#rpclock-deploys-that-dont-break-callers).
 
 Because K servers speak Connect, Go, Java and mobile clients can call them with ordinary gRPC or Connect
 tooling.

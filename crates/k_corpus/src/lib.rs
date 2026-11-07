@@ -38,6 +38,8 @@
 //! normally written by hand *before* the implementation exists; blessing is
 //! for bulk updates after a deliberate, reviewed change.
 
+#![warn(clippy::missing_docs_in_private_items)]
+
 pub mod annotations;
 pub mod codegen_suite;
 pub mod diag_format;

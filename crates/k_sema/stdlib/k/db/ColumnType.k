@@ -1,21 +1,23 @@
-/// The column types of the migration builder, mapped per database.
+/// The column types of the migration builder ([`TableBuilder.column`]),
+/// mapped per database.
 public enum ColumnType {
-    /// A UUID.
+    /// A UUID column.
     case uuid
-    /// Text.
+    /// A text column.
     case text
-    /// A whole number.
+    /// A whole-number column.
     case integer
-    /// An exact decimal.
+    /// An exact decimal column.
     case decimal
-    /// A boolean.
+    /// A boolean column.
     case boolean
-    /// A timestamp.
+    /// A timestamp column.
     case timestamp
-    /// Money, stored as `<name>_amount` and `<name>_currency`.
+    /// A [`Money`] value: one logical column that the builder expands to
+    /// `<name>_amount` and `<name>_currency` for every operation.
     case money
-    /// JSON.
+    /// A JSON column.
     case json
-    /// An enum's case names.
+    /// A column holding the name of one of `cases`, for an enum field.
     case enumeration(cases: List<String>)
 }

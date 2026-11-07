@@ -19,6 +19,7 @@
 use k_diagnostics::{Applicability, Code, Diagnostic, FileId};
 use k_syntax::{Parse, dump, parse, sexpr};
 
+/// The file id every test parses under.
 const FILE: FileId = FileId::new(0);
 
 /// Fragments covering every keyword, operator, literal shape, lexer mode and
@@ -180,6 +181,7 @@ const FRAGMENTS: &[&str] = &[
 struct Rng(u64);
 
 impl Rng {
+    /// Advances the xorshift state and returns it.
     fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -187,6 +189,7 @@ impl Rng {
         self.0
     }
 
+    /// Returns a value in `0..n`; `n` must not be zero.
     fn below(&mut self, n: usize) -> usize {
         usize::try_from(self.next() % n as u64).unwrap()
     }

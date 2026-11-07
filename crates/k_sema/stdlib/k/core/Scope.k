@@ -1,8 +1,8 @@
-/// The lifetime of a service: `@Scope(.server)`
+/// Sets the lifetime of a service: `@Scope(.server)`
 /// (`docs/design/10-services.md`, "Scopes").
 @Annotation
 public struct Scope {
-    /// Sets the scope.
+    /// Gives the service the lifetime `scope` ([`ServiceScope`]).
     @Native
     init(_ scope: ServiceScope) {}
 }

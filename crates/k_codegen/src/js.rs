@@ -4,15 +4,15 @@
 //! Lowering builds this IR and never JavaScript text, so escaping happens
 //! in exactly one place: [`print_string`] and [`print_template_text`].
 //! String literals are printed with `"` and JSON-compatible escapes, plus
-//! ` `/` `, and `<!--` and `</script` broken up so the output is
-//! safe to inline in HTML.
+//! `\u2028`/`\u2029` escaped, and `<!--` and `</script` broken up so the
+//! output is safe to inline in HTML.
 //!
 //! The printer is precedence-aware: it adds parentheses only where the
 //! tree needs them, so the output reads like hand-written code.
 
 use std::fmt::Write as _;
 
-/// An expression.
+/// A JavaScript expression of the generated subset.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Expr {
     /// An identifier (already mangled).
@@ -93,13 +93,14 @@ pub enum Prop {
 pub struct Function {
     /// The name (empty for arrows and anonymous functions).
     pub name: String,
-    /// The parameters.
+    /// The parameters, in order.
     pub params: Vec<Param>,
-    /// The body.
+    /// The body: a block, or an arrow's expression.
     pub body: Body,
-    /// `async`.
+    /// `true` for an `async` function.
     pub is_async: bool,
-    /// For methods: `get`, `set`, `static` or empty.
+    /// For a class method: a plain method, a getter, a static method or
+    /// the constructor; [`MethodKind::Plain`] for everything else.
     pub kind: MethodKind,
 }
 
@@ -117,7 +118,7 @@ pub enum MethodKind {
     Constructor,
 }
 
-/// A function body.
+/// The body of a [`Function`]: a block, or an arrow's single expression.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Body {
     /// `{ statements }`.
@@ -132,7 +133,8 @@ impl Default for Body {
     }
 }
 
-/// A parameter.
+/// One parameter of a [`Function`]: a name with an optional default, or a
+/// rest parameter.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Param {
     /// The name, or a destructuring pattern printed as is (generated only).
@@ -155,12 +157,12 @@ impl Param {
     }
 }
 
-/// A class declaration.
+/// A class declaration: its name, its `extends` clause and its methods.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Class {
-    /// The name.
+    /// The class name, already mangled.
     pub name: String,
-    /// `extends`.
+    /// The superclass expression of `extends`, if any.
     pub extends: Option<Expr>,
     /// Methods (constructor first by convention).
     pub methods: Vec<Function>,
@@ -171,11 +173,12 @@ pub struct Class {
 pub struct Case {
     /// The labels; empty for `default`.
     pub tests: Vec<Expr>,
-    /// The statements.
+    /// The statements that run for the case.
     pub body: Vec<Stmt>,
 }
 
-/// A statement.
+/// A JavaScript statement of the generated subset, including the
+/// module-level `import` and `export` forms.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Stmt {
     /// An expression statement.
@@ -223,55 +226,59 @@ pub enum Stmt {
 
 // ------------------------------------------------------------ constructors
 
-/// `name`.
+/// Builds the identifier `name`, which must already be mangled.
 #[must_use]
 pub fn id(name: impl Into<String>) -> Expr {
     Expr::Ident(name.into())
 }
 
-/// `"text"`.
+/// Builds the string literal `"text"`; escaping happens when it is
+/// printed.
 #[must_use]
 pub fn str(text: impl Into<String>) -> Expr {
     Expr::Str(text.into())
 }
 
-/// `e.name`.
+/// Builds the member access `e.name`.
 #[must_use]
 pub fn member(e: Expr, name: impl Into<String>) -> Expr {
     Expr::Member(Box::new(e), name.into())
 }
 
-/// `f(args)`.
+/// Builds the call `f(args)`.
 #[must_use]
 pub fn call(f: Expr, args: Vec<Expr>) -> Expr {
     Expr::Call(Box::new(f), args)
 }
 
-/// `$k.name(args)`.
+/// Builds a call of the runtime function `name`, `$k.name(args)`
+/// (generated modules import the runtime as `$k`).
 #[must_use]
 pub fn rt(name: &str, args: Vec<Expr>) -> Expr {
     call(member(id("$k"), name), args)
 }
 
-/// `a op b`.
+/// Builds the binary expression `a op b`; the printer parenthesizes the
+/// operands as precedence requires.
 #[must_use]
 pub fn bin(op: &'static str, a: Expr, b: Expr) -> Expr {
     Expr::Binary(op, Box::new(a), Box::new(b))
 }
 
-/// `op e`.
+/// Builds the prefix expression `op e` (`!`, `-`, `typeof`, …).
 #[must_use]
 pub fn un(op: &'static str, e: Expr) -> Expr {
     Expr::Unary(op, Box::new(e))
 }
 
-/// `place = value`.
+/// Builds the assignment `place = value`.
 #[must_use]
 pub fn assign(place: Expr, value: Expr) -> Expr {
     Expr::Assign("=", Box::new(place), Box::new(value))
 }
 
-/// An arrow function with an expression body.
+/// Builds a synchronous arrow function with an expression body,
+/// `(params) => body`.
 #[must_use]
 pub fn arrow(params: Vec<Param>, body: Expr) -> Expr {
     Expr::Arrow(Box::new(Function {
@@ -281,7 +288,7 @@ pub fn arrow(params: Vec<Param>, body: Expr) -> Expr {
     }))
 }
 
-/// An arrow function with a block body.
+/// Builds an arrow function with a block body, `async` when `is_async`.
 #[must_use]
 pub fn arrow_block(params: Vec<Param>, body: Vec<Stmt>, is_async: bool) -> Expr {
     Expr::Arrow(Box::new(Function {
@@ -294,7 +301,7 @@ pub fn arrow_block(params: Vec<Param>, body: Vec<Stmt>, is_async: bool) -> Expr 
 
 // --------------------------------------------------------------- printing
 
-/// Printing options.
+/// How [`print_module`] lays out its output.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PrintOptions {
     /// Strip indentation, line breaks between statements and comments.
@@ -328,6 +335,9 @@ pub fn print_module(stmts: &[Stmt], options: PrintOptions) -> String {
     p.out
 }
 
+/// `true` for a top-level `const` (exported or not) whose value is not a
+/// multi-line object: [`print_module`] keeps runs of these together without
+/// blank lines between them.
 fn is_simple_const(s: &Stmt) -> bool {
     match s {
         Stmt::Const(_, e) | Stmt::ExportConst(_, e) => !matches!(e, Expr::Object(_, true)),
@@ -335,7 +345,7 @@ fn is_simple_const(s: &Stmt) -> bool {
     }
 }
 
-/// Prints one expression.
+/// Prints one expression in readable form (tests only).
 #[cfg(test)]
 #[must_use]
 pub fn print_expr(e: &Expr) -> String {
@@ -348,29 +358,62 @@ pub fn print_expr(e: &Expr) -> String {
     p.out
 }
 
+/// The printer's state: the text so far, the indentation and the mode.
+///
+/// One printer prints one module or expression; its methods append to
+/// [`Printer::out`] and never fail.
 struct Printer {
+    /// The text printed so far.
     out: String,
+    /// The current indentation depth, two spaces per level (ignored when
+    /// compact).
     indent: usize,
+    /// `true` for release output: no indentation, line breaks or optional
+    /// spaces.
     compact: bool,
 }
 
-// Precedence levels (higher binds tighter).
+// Precedence levels (higher binds tighter), after ECMAScript's operator
+// precedence table.
+/// The comma operator; the lowest level, used where any expression is
+/// allowed (statements, parenthesized operands).
 const P_SEQ: u8 = 1;
+/// Assignment, arrow functions, spread and `yield`: the level of an
+/// argument, an array element or an object value.
 const P_ASSIGN: u8 = 2;
+/// The conditional operator `c ? a : b`.
 const P_COND: u8 = 3;
+/// `??`.
 const P_NULLISH: u8 = 4;
+/// `||`.
 const P_OR: u8 = 5;
+/// `&&` (the bitwise `|`, `^`, `&` follow at 7, 8 and 9).
 const P_AND: u8 = 6;
+/// Equality: `===`, `!==`, `==`, `!=`.
 const P_EQ: u8 = 10;
+/// Relational: `<`, `<=`, `>`, `>=`, `instanceof`, `in` (the shifts follow
+/// at 12).
 const P_REL: u8 = 11;
+/// Additive: `+`, `-`.
 const P_ADD: u8 = 13;
+/// Multiplicative: `*`, `/`, `%`.
 const P_MUL: u8 = 14;
+/// Exponentiation, `**` (right-associative).
 const P_EXP: u8 = 15;
+/// Prefix operators and `await`; also a negative number literal, which
+/// prints with a leading `-`.
 const P_UNARY: u8 = 16;
+/// Postfix `++` and `--`.
 const P_POSTFIX: u8 = 18;
+/// Member access, calls, `new` and `import()`: the level of a callee or a
+/// receiver.
 const P_CALL: u8 = 19;
+/// Literals, identifiers, `this`, templates, arrays and objects: never
+/// parenthesized.
 const P_PRIMARY: u8 = 20;
 
+/// The precedence of the binary operator `op` (ECMAScript's table); an
+/// unknown operator gets [`P_EQ`].
 fn binary_prec(op: &str) -> u8 {
     match op {
         "??" => P_NULLISH,
@@ -389,6 +432,8 @@ fn binary_prec(op: &str) -> u8 {
     }
 }
 
+/// The precedence of `e` as an operand: the binding strength of its
+/// outermost operator, or [`P_PRIMARY`] for a literal or name.
 fn prec(e: &Expr) -> u8 {
     match e {
         Expr::Num(n) if *n < 0.0 || (*n == 0.0 && n.is_sign_negative()) => P_UNARY,
@@ -418,6 +463,7 @@ fn prec(e: &Expr) -> u8 {
 }
 
 impl Printer {
+    /// Appends a line break, except in compact output.
     fn nl(&mut self) {
         if self.compact {
             return;
@@ -425,6 +471,7 @@ impl Printer {
         self.out.push('\n');
     }
 
+    /// Appends the indentation of the current depth, except in compact output.
     fn pad(&mut self) {
         if self.compact {
             return;
@@ -434,6 +481,8 @@ impl Printer {
         }
     }
 
+    /// Appends an optional space, one that only readability needs; compact
+    /// output leaves it out.
     fn sp(&mut self) {
         if !self.compact {
             self.out.push(' ');
@@ -458,6 +507,7 @@ impl Printer {
         }
     }
 
+    /// Ends a statement's line, except in compact output.
     fn line_end(&mut self) {
         if self.compact {
             return;
@@ -465,6 +515,8 @@ impl Printer {
         self.out.push('\n');
     }
 
+    /// Prints `{ … }` with `stmts` one level deeper; the caller has already
+    /// printed what precedes the brace.
     fn block(&mut self, stmts: &[Stmt]) {
         self.out.push('{');
         self.nl();
@@ -477,12 +529,19 @@ impl Printer {
         self.out.push('}');
     }
 
+    /// Prints `s` on a line of its own at the current indentation.
     fn stmt(&mut self, s: &Stmt) {
         self.pad();
         self.stmt_inline(s);
         self.line_end();
     }
 
+    /// Prints `s` without the leading indentation or the trailing line break,
+    /// for [`Printer::stmt`] and for positions such as `else if` and a `for`
+    /// initializer.
+    ///
+    /// An expression statement that would start with `{` or `function` is
+    /// parenthesized ([`starts_ambiguously`]).
     #[allow(clippy::too_many_lines)]
     fn stmt_inline(&mut self, s: &Stmt) {
         match s {
@@ -720,6 +779,8 @@ impl Printer {
         }
     }
 
+    /// Prints a function declaration, `async function name(params) { … }`; an
+    /// expression body is printed as a block that returns it.
     fn function_decl(&mut self, f: &Function) {
         if f.is_async {
             self.out.push_str("async ");
@@ -733,6 +794,8 @@ impl Printer {
         }
     }
 
+    /// Prints a class declaration with its `extends` clause and one method per
+    /// line.
     fn class(&mut self, c: &Class) {
         let _ = write!(self.out, "class {}", c.name);
         if let Some(e) = &c.extends {
@@ -753,6 +816,8 @@ impl Printer {
         self.out.push('}');
     }
 
+    /// Prints one class method: a getter, a static method, the constructor or a
+    /// plain method, with `async` when set.
     fn method(&mut self, f: &Function) {
         match f.kind {
             MethodKind::Getter => self.out.push_str("get "),
@@ -775,6 +840,8 @@ impl Printer {
         }
     }
 
+    /// Prints a parenthesized parameter list, with `...` for a rest parameter
+    /// and `= default` for a default value.
     fn params(&mut self, params: &[Param]) {
         self.out.push('(');
         for (i, p) in params.iter().enumerate() {
@@ -796,6 +863,8 @@ impl Printer {
         self.out.push(')');
     }
 
+    /// Prints a parenthesized argument list, each argument at [`P_ASSIGN`] so a
+    /// comma expression is parenthesized.
     fn args(&mut self, args: &[Expr]) {
         self.out.push('(');
         for (i, a) in args.iter().enumerate() {
@@ -808,6 +877,8 @@ impl Printer {
         self.out.push(')');
     }
 
+    /// Prints `e` where an operand of at least precedence `min` is expected,
+    /// wrapping it in parentheses when its own precedence ([`prec`]) is lower.
     #[allow(clippy::too_many_lines)]
     fn expr(&mut self, e: &Expr, min: u8) {
         let own = prec(e);
@@ -1003,6 +1074,9 @@ impl Printer {
         }
     }
 
+    /// Prints the object of a member access or index: parenthesized when it is
+    /// a number (`(1).toString()`), an object literal, or binds looser than a
+    /// call.
     fn receiver(&mut self, obj: &Expr) {
         // `1.toString()` would parse as a decimal point; numbers and
         // object/function literals are parenthesized as receivers.
@@ -1016,6 +1090,8 @@ impl Printer {
         }
     }
 
+    /// Prints the callee of a call: parenthesized when it is an object literal,
+    /// an arrow function, or binds looser than a call.
     fn callee(&mut self, f: &Expr) {
         let needs = matches!(f, Expr::Object(..) | Expr::Arrow(_)) || prec(f) < P_CALL;
         if needs {
@@ -1027,6 +1103,9 @@ impl Printer {
         }
     }
 
+    /// Prints an object literal, one property per line with trailing commas
+    /// when `multiline`, otherwise on one line; `{ k: k }` is shortened to
+    /// `{ k }`.
     fn object(&mut self, props: &[Prop], multiline: bool) {
         if props.is_empty() {
             self.out.push_str("{}");
@@ -1077,6 +1156,8 @@ impl Printer {
     }
 }
 
+/// `true` if `s` declares a binding (`const`, `let`, a function or a
+/// class), which a `switch` case body must scope in braces.
 fn declares(s: &Stmt) -> bool {
     matches!(
         s,
@@ -1112,6 +1193,8 @@ pub fn is_ident(s: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
+/// Prints an object property key: bare when it is an identifier
+/// ([`is_ident`]), otherwise as a string literal.
 fn print_key(out: &mut String, k: &str) {
     if is_ident(k) {
         out.push_str(k);

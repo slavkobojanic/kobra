@@ -135,6 +135,10 @@ impl Loaded {
 ///
 /// Prints the problem and returns exit status 2 when `path` is not inside a
 /// project, and 1 when some file can't be read.
+///
+/// # Errors
+///
+/// The exit status described above, after the problem was printed.
 pub fn load(path: &Path) -> Result<Loaded, ExitCode> {
     let (root, member) = match locate(path) {
         Some(Located { root, member }) => (root, member),
@@ -182,6 +186,10 @@ pub fn load(path: &Path) -> Result<Loaded, ExitCode> {
 
 /// [`load`] for commands that work on one project: refuses a workspace root
 /// (exit status 2), naming its members.
+///
+/// # Errors
+///
+/// Exit status 2 for a workspace root, else as [`load`].
 pub fn load_member(path: &Path, command: &str) -> Result<(Loaded, usize), ExitCode> {
     let loaded = load(path)?;
     match loaded.focus {

@@ -23,6 +23,57 @@
 //!
 //! The design is `docs/compiler/server.md`; what is v0 and what is deferred
 //! is marked there.
+//!
+//! # Examples
+//!
+//! Run JavaScript in an isolate with the K runtime and read back the value
+//! it reported through `op_k_set_result`:
+//!
+//! ```
+//! use k_server::{Engine, EngineOptions};
+//!
+//! let mut engine = Engine::new(EngineOptions::default())?;
+//! let result = engine.run_main("Deno.core.ops.op_k_set_result(String(6 * 7));")?;
+//! assert_eq!(result.as_deref(), Some("42"));
+//! # Ok::<(), k_server::EngineError>(())
+//! ```
+//!
+//! Serve a hand-written server bundle on an ephemeral loopback port and
+//! send it a request ([`testing::send`]):
+//!
+//! ```
+//! use k_server::{JsModule, Output, Server, ServerBundle, ServerOptions};
+//!
+//! let entry = "k:/app/server.js".to_owned();
+//! let bundle = ServerBundle {
+//!     modules: vec![JsModule {
+//!         specifier: entry.clone(),
+//!         source: r#"
+//!             import { serve } from "k:runtime/server";
+//!             await serve(async (request) => ({
+//!                 status: 200,
+//!                 headers: [["content-type", "text/plain"]],
+//!                 body: `hello from ${request.path}`,
+//!             }));
+//!         "#
+//!         .to_owned(),
+//!     }],
+//!     entry,
+//!     rpc_paths: Default::default(),
+//! };
+//! let mut options = ServerOptions::new("127.0.0.1:0".parse()?, bundle);
+//! options.workers = 1;
+//! options.log = Output::Capture;
+//! let server = Server::start(options)?;
+//!
+//! let response = k_server::testing::send(server.local_addr(), "GET", "/hi", &[], b"")?;
+//! assert_eq!(response.status, 200);
+//! assert_eq!(response.body, b"hello from /hi");
+//! server.shutdown()?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+
+#![warn(clippy::missing_docs_in_private_items)]
 
 pub mod app;
 pub mod config;

@@ -7,7 +7,7 @@ path, and its versions are git tags.
 k add github.com/acme/charts@v1.2.0
 ```
 
-```k
+```k,ignore
 import github.com/acme/charts.LineChart
 ```
 
@@ -40,7 +40,7 @@ Module paths can be long. An alias in `k.toml` allows short imports:
 charts = "github.com/acme/charts"
 ```
 
-```k
+```k,ignore
 import charts.LineChart
 ```
 

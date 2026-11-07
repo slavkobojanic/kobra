@@ -25,7 +25,9 @@ K uses English keywords where other languages use symbols:
 **There are no ternaries.** `if` is an expression, so it does the same job and reads as prose:
 
 ```k
+~func example(done: Bool) {
 let label = if done { "Done" } else { "Pending" }
+~}
 ```
 
 Symbols survive only where they are universal (`+`, `==`, `<`) or carry one of K's core mechanisms:
@@ -72,7 +74,7 @@ Built-in elements are spelled out: `paragraph`, not `p`; `numberedList`, not `ol
 Every declaration says whether it can change: `let` for constants, `var` for variables. This includes
 annotated fields, and the annotation decides which keyword is allowed:
 
-```k
+```k,ignore
 @State var isOpen: Bool = false      // @State, @Binding, @Form, @Version → var
 @Prop let label: String              // @Prop, @Derived, @Load, @Inject, @Param, @Slot, @Stylable, @Emits, @Env → let
 @Prop var label: String              // compile error: @Prop is read-only; use let
@@ -81,7 +83,7 @@ annotated fields, and the annotation decides which keyword is allowed:
 `let` also binds names out of optionals and patterns. Pattern bindings are always immutable, so there
 is no `if var`:
 
-```k
+```k,ignore
 if let footer { footer }
 guard let user = session.user else { throw AuthError.notLoggedIn }
 case .loaded(let product) { ProductCard(product: product) }
@@ -94,9 +96,24 @@ K builds the Java builder pattern into the language. Required values are named a
 values are set with chained calls:
 
 ```k
+~struct User {
+~    let name: String
+~    let avatarUrl: Url
+~}
+~
+~component Avatar {
+~    @Prop let user: User
+~
+~    view {
 image(source: user.avatarUrl, description: "Profile photo of {user.name}")
     .class(.avatar)
     .loading(.lazy)
+~    }
+~
+~    style {
+~        .avatar { borderRadius: .lg; }
+~    }
+~}
 ```
 
 The rule covers built-in elements, components, pages and types annotated `@Builder`. The compiler

@@ -34,6 +34,7 @@ public component Counter {
     view {
         box {
             text { "{label}: {count}" }
+                .class(.label)
 
             button { "Add" }
                 .on(click: increment)
@@ -70,17 +71,20 @@ are reviewing K code rather than writing it, the [tour](tour.md) and the chapter
 - **Building apps** covers the parts that make K a web language: components, views, styles,
   reactivity, services, routing, data loading, forms, RPC, persistence, authentication, configuration,
   background jobs, email, testing and deployment.
-- **Reference** collects keywords, annotations, operators, commands, project files and the standard
-  library in one place.
+- **Example apps** walks through the six complete apps in the repository's `examples/` directory, from a
+  browser-only todo list to a workspace of services.
+- **Reference** collects keywords, annotations, operators, commands and project files, every diagnostic
+  code with an example and a fix, and the API of every standard-library module.
 
 You can read the book front to back, or jump straight to the chapter you need. Each chapter is
 example-driven and stands on its own as far as possible.
 
 ## The state of K
 
-K is young. The language design is complete enough to write real applications on paper, and the
-compiler is being built now. This book describes the language as designed. Two small markers tell you
-when something isn't settled:
+K is young, but it runs: the compiler, the server runtime, the test runner, the development server and
+the language server are built, and the apps in `examples/` compile, pass their tests and deploy. This
+book describes the language as designed and says where the toolchain doesn't follow yet. Two small
+markers tell you when something isn't settled:
 
 > **Planned.** The design includes this feature, but the first compiler releases don't. It is described
 > so you know where the language is going.
@@ -99,5 +103,8 @@ Code blocks are K unless they say otherwise. Shell commands start with `k`:
 k dev
 ```
 
-A `…` inside a code block stands for code that was left out because it doesn't matter for the point
-being made. It isn't K syntax.
+**Every K sample in this book is compiled** by the book's own test, so a sample can't drift from the
+compiler. To keep them short, many samples hide the lines that make them compile, such as imports or
+the component around a view fragment; the eye button on a code block shows them. A comment `// …` or
+`// ...` marks code left out because it doesn't matter for the point being made. A sample whose first
+line names a file in `examples/` is an excerpt of that file, checked against it.

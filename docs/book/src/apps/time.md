@@ -5,11 +5,17 @@ the time writes `@Inject let clock: Clock`; there is no ambient way to read it. 
 by default, so they control time and never wait in real time.
 
 ```k
-@Inject let clock: Clock
+// examples/shop/shop/src/pages/Receipt.k
+/// While the payment is being confirmed, checks again every few seconds,
+/// so the page turns to "Payment received" without a manual refresh. The
+/// effect re-runs when `order.status` changes, which cancels the timer.
+@Effect
+func refreshWhileConfirming() {
+    guard order.status == .awaitingPayment else {
+        return
+    }
 
-@Effect(on: [placeId])
-func refreshPeriodically() {
-    let timer = clock.every(10.minutes) { reload() }
+    let timer = clock.every(3.seconds) { reload() }
 
     onCleanup { timer.cancel() }
 }
@@ -27,11 +33,23 @@ func refreshPeriodically() {
 | `clock.sleep(_ duration: Duration) async` | suspends the current async function |
 
 ```k
+~import k.time.Clock
+~
+~service Timers {
+~    @Inject let clock: Clock
+~
+~    func reload() {}
+~
+~    func dismiss() {}
+~
+~    func example() async {
 let timer = clock.every(10.minutes) { reload() }     // repeats; first fire after one interval
 let once = clock.after(2.seconds) { dismiss() }      // fires once
 timer.cancel()                                        // idempotent
 
 await clock.sleep(300ms)                              // suspends the current async function
+~    }
+~}
 ```
 
 - **It is a service, so it goes where services go:** components, pages, layouts, services, endpoint pages
@@ -41,16 +59,19 @@ await clock.sleep(300ms)                              // suspends the current as
   current instant takes it as a parameter, usually named `now`:
 
   ```k
-  struct StripeSignature {
-      let signedAt: Date
-
-      func isFresh(now: Date, tolerance: Duration) -> Bool {
-          return now - signedAt <= tolerance
-      }
+  // examples/shop/shop/src/payments/StripeSignature.k
+  func isFresh(now: Date, tolerance: Duration) -> Bool {
+      return signedAt >= now - tolerance and signedAt <= now + tolerance
   }
+  ```
 
-  // in the service that injects the clock
-  guard signature.isFresh(now: clock.now, tolerance: config.tolerance) else { … }
+  ```k
+  // examples/shop/shop/src/payments/StripeWebhookVerifier.k
+  guard signature.isFresh(now: clock.now, tolerance: config.tolerance) else {
+      Log.warning("Stripe webhook signed at {signature.signedAt} is outside the tolerance")
+
+      throw WebhookError.staleTimestamp
+  }
   ```
 
 - **There is no `Date.now`, `.ago` or `.fromNow`.** "Ten minutes ago" is `clock.now - 10.minutes`, and
@@ -65,6 +86,27 @@ await clock.sleep(300ms)                              // suspends the current as
   and that handles its own errors, as every effect must:
 
   ```k
+  ~import k.time.Clock
+  ~
+  ~enum SearchError implements Error, Codable {
+  ~    case offline
+  ~}
+  ~
+  ~struct Place implements Codable {
+  ~    let name: String
+  ~}
+  ~
+  ~service Places {
+  ~    func search(_ text: String) async throws SearchError -> List<Place> {
+  ~        return []
+  ~    }
+  ~}
+  ~
+  ~component Search {
+  ~    @Inject let clock: Clock
+  ~    @Inject let places: Places
+  ~    @State var query: String = ""
+  ~    @State var results: LoadState<List<Place>> = .idle
   @Effect
   func search() async {
       let text = query
@@ -77,6 +119,10 @@ await clock.sleep(300ms)                              // suspends the current as
           results = .failed(error)
       }
   }
+  ~    view {
+  ~        text { query }
+  ~    }
+  ~}
   ```
 
 - **Effects don't run during server rendering,** so neither do timers started in them. Server-side work
@@ -88,7 +134,8 @@ Relative formatting takes the reference instant explicitly, so it reads the cloc
 injected:
 
 ```k
-text { message.sentAt.formatted(as: .relative, from: clock.now) }     // "5 minutes ago"
+// examples/notes/src/notes/NoteCard.k
+text { "Edited {note.updatedAt.formatted(as: .relative, from: clock.now)}" }
 ```
 
 - **`date.formatted(as: .relative, from: reference)`** describes `date` relative to `reference`:
@@ -98,21 +145,23 @@ text { message.sentAt.formatted(as: .relative, from: clock.now) }     // "5 minu
 ## Testing with `TestClock`
 
 ```k
-test CityWeather {
-    use FakeWeatherService for WeatherService
+// examples/weather/src/pages/CityWeather.test.k
+test "the forecast refreshes every ten minutes" {
+    let screen = render(CityWeather(placeId: Place.berlin.id))
+    await screen.settle()
 
-    @Inject let weather: FakeWeatherService
-    @Inject let clock: TestClock
+    expect weather.forecastCalls == 1
 
-    test "the forecast refreshes every ten minutes" {
-        let screen = render(CityWeather(placeId: Place.berlin.id))
-        await screen.settle()
+    clock.advance(by: 9.minutes)
+    await screen.settle()
 
-        clock.advance(by: 10.minutes)
-        await screen.settle()
+    expect weather.forecastCalls == 1
 
-        expect weather.forecastCalls == 2
-    }
+    clock.advance(by: 1.minute)
+    await screen.settle()
+
+    expect weather.forecastCalls == 2
+    // ...
 }
 ```
 

@@ -27,41 +27,72 @@ pub(crate) enum Target {
 /// Declarations the generator gives meaning to.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Builtins {
+    /// `k.core.Int`, or `None` when the program's stdlib lacks it.
     pub int: Option<DeclId>,
+    /// `k.core.Double`, or `None` when the program's stdlib lacks it.
     pub double: Option<DeclId>,
+    /// `k.core.Decimal`, or `None` when the program's stdlib lacks it.
     pub decimal: Option<DeclId>,
+    /// `k.core.Bool`, or `None` when the program's stdlib lacks it.
     pub bool_: Option<DeclId>,
+    /// `k.core.String`, or `None` when the program's stdlib lacks it.
     pub string: Option<DeclId>,
+    /// `k.core.Void`, or `None` when the program's stdlib lacks it.
     pub void: Option<DeclId>,
+    /// `k.core.List`, or `None` when the program's stdlib lacks it.
     pub list: Option<DeclId>,
+    /// `k.core.Map`, or `None` when the program's stdlib lacks it.
     pub map: Option<DeclId>,
+    /// `k.core.Set`, or `None` when the program's stdlib lacks it.
     pub set: Option<DeclId>,
+    /// `k.core.Money`, or `None` when the program's stdlib lacks it.
     pub money: Option<DeclId>,
+    /// `k.core.Duration`, or `None` when the program's stdlib lacks it.
     pub duration: Option<DeclId>,
+    /// `k.core.Date`, or `None` when the program's stdlib lacks it.
     pub date: Option<DeclId>,
+    /// `k.core.Length`, or `None` when the program's stdlib lacks it.
     pub length: Option<DeclId>,
+    /// `k.core.Color`, or `None` when the program's stdlib lacks it.
     pub color: Option<DeclId>,
+    /// `k.core.Percent`, or `None` when the program's stdlib lacks it.
     pub percent: Option<DeclId>,
+    /// `k.core.Angle`, or `None` when the program's stdlib lacks it.
     pub angle: Option<DeclId>,
+    /// `k.core.HalfOpenRange`, or `None` when the program's stdlib lacks it.
     pub half_open: Option<DeclId>,
+    /// `k.core.ClosedRange`, or `None` when the program's stdlib lacks it.
     pub closed: Option<DeclId>,
+    /// `k.core.Result`, or `None` when the program's stdlib lacks it.
     pub result: Option<DeclId>,
+    /// `k.core.Secret`, or `None` when the program's stdlib lacks it.
     pub secret: Option<DeclId>,
+    /// `k.core.Currency`, or `None` when the program's stdlib lacks it.
     pub currency: Option<DeclId>,
+    /// `k.crypto.Uuid`, or `None` when the program's stdlib lacks it.
     pub uuid: Option<DeclId>,
+    /// `k.core.Url`, or `None` when the program's stdlib lacks it.
     pub url: Option<DeclId>,
+    /// `k.text.EmailAddress`, or `None` when the program's stdlib lacks it.
     pub email: Option<DeclId>,
+    /// `k.core.Bytes`, or `None` when the program's stdlib lacks it.
     pub bytes: Option<DeclId>,
+    /// `k.http.DecodingError`, or `None` when the program's stdlib lacks it.
     pub decoding_error: Option<DeclId>,
+    /// `k.core.Codable`, or `None` when the program's stdlib lacks it.
     pub codable: Option<DeclId>,
+    /// `k.core.Spacing`, or `None` when the program's stdlib lacks it.
     pub spacing: Option<DeclId>,
+    /// `k.core.Radius`, or `None` when the program's stdlib lacks it.
     pub radius: Option<DeclId>,
+    /// `k.core.FontSize`, or `None` when the program's stdlib lacks it.
     pub font_size: Option<DeclId>,
     /// `k.time.TimeZone`: its value is its IANA name, with a builtin codec.
     pub time_zone: Option<DeclId>,
 }
 
 impl Builtins {
+    /// Looks every builtin up by its qualified name in `view`.
     fn new(view: &ProgramView) -> Builtins {
         let core = |n: &str| view.lookup(&format!("k.core.{n}"));
         Builtins {
@@ -207,9 +238,13 @@ pub(crate) fn mangle(name: &str) -> String {
 
 /// The generator's context for one `generate` call.
 pub(crate) struct Gen<'a> {
+    /// The analysis being generated from: files, parses and type queries.
     pub analysis: &'a Analysis,
+    /// The checked program: declarations, members and their types.
     pub view: &'a ProgramView,
+    /// The profile, environment and entry of this `generate` call.
     pub options: &'a Options,
+    /// The builtin declarations, looked up once.
     pub b: Builtins,
     /// The JavaScript name of each declaration.
     names: HashMap<DeclId, String>,
@@ -231,7 +266,12 @@ pub(crate) struct Gen<'a> {
 }
 
 impl<'a> Gen<'a> {
-    /// Builds the context.
+    /// Builds the context for one `generate` call: looks up the builtins,
+    /// collects the syntax root of every parsed file and assigns every
+    /// declaration its JavaScript name ([`Gen::assign_names`]).
+    ///
+    /// Linear in the number of declarations, except that a name shared by
+    /// several declarations costs a scan of all of them per sharer.
     pub(crate) fn new(
         analysis: &'a Analysis,
         view: &'a ProgramView,
@@ -261,6 +301,14 @@ impl<'a> Gen<'a> {
         this
     }
 
+    /// Gives every declaration its JavaScript name and fills [`Gen::own`].
+    ///
+    /// A declaration keeps its simple (mangled) name unless another emitted
+    /// declaration shares it: a stdlib declaration then becomes
+    /// `module$Name`, and so does a project declaration when another project
+    /// declaration shares the name (a project declaration wins its simple name
+    /// over the stdlib). Test groups are named `$group<N>`, so they never take
+    /// the name of what they test.
     fn assign_names(&mut self) {
         // Simple names, unless two declarations of different modules that
         // are both emitted share one: then `module$name`.
@@ -738,12 +786,16 @@ impl<'a> Gen<'a> {
     }
 
     /// `true` if `decl` (a type) declares that it implements `iface`,
-    /// directly or through parent interfaces.
+    /// directly, in one of its extensions, or through parent interfaces;
+    /// a declaration counts as implementing itself.
     pub(crate) fn implements(&self, decl: DeclId, iface: DeclId) -> bool {
         let mut seen = BTreeSet::new();
         self.implements_inner(decl, iface, &mut seen)
     }
 
+    /// The recursion of [`Gen::implements`]: follows the `implements` lists of
+    /// `decl` and its extensions; `seen` cuts cycles, so a declaration is
+    /// visited at most once.
     fn implements_inner(&self, decl: DeclId, iface: DeclId, seen: &mut BTreeSet<DeclId>) -> bool {
         if decl == iface {
             return true;

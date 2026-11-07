@@ -8,25 +8,34 @@ import k.http.HttpStatus
 /// and `locale` only in `App.k`) is checked by the compiler.
 @Native
 public class MetadataEntries {
-    /// The document title.
+    /// Sets the document title.
     func title(_ text: String)
-    /// The description; over 160 characters is a warning.
+    /// Sets the description; over 160 characters is a warning.
     func description(_ text: String)
-    /// The canonical URL, rendered absolute.
+    /// Sets the canonical URL to `page`'s, rendered absolute.
     func canonical(_ page: Page)
-    /// Open Graph and similar previews.
+    /// Sets the Open Graph (and similar) preview shown when the page is
+    /// shared.
+    ///
+    /// - Parameters:
+    ///   - image: the preview image.
+    ///   - title: the preview title.
     func socialPreview(image: Url, title: String)
-    /// A schema.org entry.
+    /// Adds a schema.org entry ([`StructuredData`]).
     func structuredData(_ data: StructuredData)
-    /// The page icon.
+    /// Sets the page icon.
     func icon(_ url: Url)
-    /// The web manifest; `App.k` only.
+    /// Sets the web manifest; `App.k` only.
+    ///
+    /// - Parameters:
+    ///   - name: the app's full name.
+    ///   - shortName: the name under the home-screen icon.
     func manifest(name: String, shortName: String)
-    /// The browser theme color; `App.k` only.
+    /// Sets the browser theme color; `App.k` only.
     func themeColor(_ color: Color)
-    /// The locale for formatting.
+    /// Sets the locale for formatting ([`Locale`]); `App.k` only.
     func locale(_ locale: Locale)
-    /// The HTTP status of a server-rendered `failed` page; only in a
-    /// `metadata` block inside `failed`.
+    /// Sets the HTTP status of a server-rendered `failed` page
+    /// ([`k.http.HttpStatus`]); only in a `metadata` block inside `failed`.
     func status(_ status: HttpStatus)
 }

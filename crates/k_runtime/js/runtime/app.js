@@ -36,18 +36,24 @@ import * as http from "./http.js";
 import { chartKey, chartProps, lineChart } from "./charts.js";
 import { ATTRS as DRAG, DragKind$init } from "./drag.js";
 
+/** The ops the Rust server exposes to this isolate; `undefined` outside it. */
 const ops = globalThis.Deno?.core?.ops;
 
 /** Methods that can't change state, which skip the forgery check. */
 const SAFE = new Set(["GET", "HEAD"]);
 
+/** The `content-type` of plain-text responses. */
 const TEXT = "text/plain; charset=utf-8";
+/** The `content-type` of pages. */
 const HTML = "text/html; charset=utf-8";
+/** The `content-type` of rpc and JSON responses. */
 const JSON_TYPE = "application/json";
+/** The `cache-control` of a response that depends on the session. */
 const PRIVATE = "private, no-store";
 
 // ----------------------------------------------------------------- startup
 
+/** The cached result of `info()`, read from the Rust side once per isolate. */
 let serverInfo = null;
 
 /**
@@ -246,16 +252,34 @@ export class RequestState {
     return this.user() === null ? null : this.sessionId;
   }
 
+  /**
+   * Decodes the user id stored with a session through the app's codec
+   * (`spec.session.decodeUser`); without one the JSON is the id.
+   * @param {unknown} json the stored id
+   * @returns {unknown} the K user id
+   */
   decodeUser(json) {
     const d = this.spec.session?.decodeUser;
     return d ? d(json) : json;
   }
 
+  /**
+   * The role value of a stored role name: the generated enum's case of that
+   * name, or the name itself when the app declares no such case.
+   * @param {string} name
+   * @returns {unknown}
+   */
   decodeRole(name) {
     const cases = this.spec.session?.roles ?? {};
     return Object.hasOwn(cases, name) ? cases[name] : name;
   }
 
+  /**
+   * The name a role is stored under: its case name in the app's role enum,
+   * or `String(role)` for a role that isn't one of its cases.
+   * @param {unknown} role
+   * @returns {string}
+   */
   encodeRole(role) {
     const cases = this.spec.session?.roles ?? {};
     for (const k of Object.keys(cases)) if (cases[k] === role) return k;
@@ -302,6 +326,10 @@ export function parseCookies(headers) {
  */
 export function session(st) {
   return {
+    /**
+     * The signed-in user (`{ id, roles }`) or `null`; reading it marks the
+     * response private.
+     */
     get user() {
       st.sessionRead = true;
       return st.user();
@@ -322,6 +350,7 @@ export function clock(st) {
   // In a test, the test's virtual clock, shared with its browser.
   if (st?.test?.clock) return st.test.clock;
   return {
+    /** The current time, from `op_k_now` (or `Date.now()` outside the server). */
     get now() {
       return new Instant(ops?.op_k_now ? ops.op_k_now() : Date.now());
     },
@@ -348,6 +377,13 @@ export function sessionManager(st) {
     changed();
   };
   return {
+    /**
+     * Signs `userId` in with `roles`: deletes the current session, creates a
+     * new one and sets its cookie.
+     * @param {unknown} _c the cancellation context (unused)
+     * @param {unknown} userId the K user id
+     * @param {Iterable<unknown>} [roles] the user's roles
+     */
     async signIn(_c, userId, roles) {
       // The current session (a guest's too) ends: a planted id is never
       // adopted.
@@ -361,11 +397,22 @@ export function sessionManager(st) {
       st.sessionChanged = true;
       changed();
     },
+    /**
+     * Signs the current user out, deleting the session row; a no-op for a
+     * guest.
+     * @param {unknown} _c the cancellation context (unused)
+     */
     async signOut(_c) {
       if (st.user() === null) return;
       await ops.op_k_session_delete(st.sessionId);
       signedOut();
     },
+    /**
+     * Ends every session of `userId` on every device, signing the current
+     * request out too when it belongs to that user.
+     * @param {unknown} _c the cancellation context (unused)
+     * @param {unknown} userId the K user id
+     */
     async endAll(_c, userId) {
       const mine = st.user();
       await ops.op_k_session_end_all(toJSON(userId));
@@ -456,6 +503,10 @@ export async function checkGuards(st, guards) {
  */
 export function serviceCaller(st) {
   return {
+    /**
+     * The name of the calling service, or `null` for a request that no
+     * service sent.
+     */
     get name() {
       return st.serviceCaller ?? null;
     },
@@ -464,6 +515,14 @@ export function serviceCaller(st) {
 
 // --------------------------------------------------------------- responses
 
+/**
+ * Builds a plain response object.
+ * @param {number} status the HTTP status
+ * @param {string|null} type the `content-type`, or `null` for none
+ * @param {string|Uint8Array} body
+ * @param {Array<[string, string]>} [headers] further headers
+ * @returns {{status: number, headers: Array<[string, string]>, body: string|Uint8Array}}
+ */
 function respond(status, type, body, headers = []) {
   return { status, headers: type ? [["content-type", type], ...headers] : headers, body };
 }
@@ -872,37 +931,80 @@ function plainRefusal(st, refused) {
  * earlier one's entry. Generated `metadata { }` blocks call these methods.
  */
 export class Metadata {
+  /** Creates an empty layer. */
   constructor() {
     /** @type {Record<string, unknown>} */
     this.entries = {};
   }
+  /**
+   * Sets the page title.
+   * @param {string} text
+   */
   title(text) {
     this.entries.title = text;
   }
+  /**
+   * Sets the meta description.
+   * @param {string} text
+   */
   description(text) {
     this.entries.description = text;
   }
+  /**
+   * Sets the canonical URL.
+   * @param {string} href
+   */
   canonical(href) {
     this.entries.canonical = href;
   }
+  /**
+   * Sets the social preview (Open Graph and Twitter cards).
+   * @param {string} image the image URL
+   * @param {string|null} title the preview title
+   */
   socialPreview(image, title) {
     this.entries.preview = { image, title };
   }
+  /**
+   * Sets the icon.
+   * @param {string} url
+   */
   icon(url) {
     this.entries.icon = url;
   }
+  /**
+   * Sets the web app manifest's names.
+   * @param {string} name
+   * @param {string} shortName
+   */
   manifest(name, shortName) {
     this.entries.manifest = { name, shortName };
   }
+  /**
+   * Sets the `theme-color` meta element.
+   * @param {string} color
+   */
   themeColor(color) {
     this.entries.themeColor = color;
   }
+  /**
+   * Sets the page's language (`<html lang>`).
+   * @param {string} tag a BCP 47 tag
+   */
   locale(tag) {
     this.entries.locale = tag;
   }
+  /**
+   * Sets the JSON-LD structured data.
+   * @param {unknown} data
+   */
   structuredData(data) {
     this.entries.structuredData = data;
   }
+  /**
+   * Sets the HTTP status the page is served with.
+   * @param {number} code
+   */
   status(code) {
     this.entries.status = code;
   }
@@ -1117,6 +1219,13 @@ async function runJob(spec, request) {
   return { status: 200, headers: [["content-type", JSON_TYPE]], body: JSON.stringify(outcome) };
 }
 
+/**
+ * Routes one request, in order: an rpc path; an endpoint page; for a
+ * method other than GET or HEAD, 405 on a page's URL and 404 elsewhere; a
+ * recorded redirect (308); a view page; otherwise the 404 page.
+ * @param {RequestState} st the request
+ * @returns {Promise<object>} the response, or `STREAMED` for a streamed rpc
+ */
 async function dispatch(st) {
   const spec = st.spec;
   const path = st.url.pathname;
@@ -1211,6 +1320,11 @@ export class ServerBroadcast {
     const codec = this.codec;
     let done = false;
     return {
+      /**
+       * The next element, or `null` once the subscription is closed or its
+       * session has ended.
+       * @returns {Promise<unknown|null>}
+       */
       async next() {
         if (done) return null;
         const p = ops.op_k_broadcast_next(id);
@@ -1222,6 +1336,7 @@ export class ServerBroadcast {
         }
         return codec ? codec.decode(JSON.parse(j), "") : JSON.parse(j);
       },
+      /** Closes the subscription; later `next()` calls answer `null`. */
       close() {
         done = true;
         ops.op_k_broadcast_close(id);
@@ -1232,6 +1347,7 @@ export class ServerBroadcast {
 
 // ----------------------------------------------------- native stdlib bodies
 
+/** The hexadecimal digits, for formatting UUIDs. */
 const UUID_HEX = "0123456789abcdef";
 
 /** A random version-4 UUID from the operating system's CSPRNG. */
@@ -1324,6 +1440,7 @@ function bytesFromHex(text) {
   return out;
 }
 
+/** Two hexadecimal digits: one byte of `Bytes.parse(hex:)`. */
 const HEX_PAIR = new RegExp("^[0-9a-fA-F]{2}$");
 
 /**
@@ -1351,6 +1468,7 @@ function bytesFromBase64(text) {
   return Uint8Array.from(out);
 }
 
+/** The standard base64 alphabet, without padding. */
 const BASE64 = new RegExp("^[A-Za-z0-9+/]*$");
 
 /**
@@ -1387,16 +1505,22 @@ function lineChartSsr(props, ctx, out) {
  * which the hydrating browser claims.
  */
 const dragSsr = {
+  /** Renders a `Draggable`: a draggable source with its label and content. */
   Draggable(props, _ctx, out) {
     out.raw(`<div ${DRAG.draggable} aria-label="${escapeAttribute(String(props.label()))}" ${DRAG.source}><!--[-->`);
     props.content(out);
     out.raw("<!--]--></div>");
   },
+  /** Renders a `DropTarget`: a drop region with its label and content. */
   DropTarget(props, _ctx, out) {
     out.raw(`<div ${DRAG.region} aria-label="${escapeAttribute(String(props.label()))}"><!--[-->`);
     props.content(out);
     out.raw("<!--]--></div>");
   },
+  /**
+   * Renders a `ReorderableList`: a labelled list with one draggable item per
+   * element, each row's content between block markers.
+   */
   ReorderableList(props, _ctx, out) {
     out.raw(`<ul aria-label="${escapeAttribute(String(props.label()))}"><!--[-->`);
     for (const item of props.items()) {
@@ -1487,6 +1611,12 @@ export function publicUrls(href, endpointHref) {
     return o;
   };
   return {
+    /**
+     * The absolute URL of `page`: the public origin (without trailing
+     * slashes) followed by the page's path.
+     * @param {unknown} page a `Page` value
+     * @returns {string}
+     */
     absolute(page) {
       return origin() + href(page);
     },
@@ -1525,6 +1655,12 @@ export function perTest(c, key, make) {
 export function testClient(st, E, S, codes) {
   const statusOf = httpStatus(S, codes);
   return {
+    /**
+     * Sends `request` through the app in-process and returns the response.
+     * It never throws for an HTTP status; outside a test it panics.
+     * @param {unknown} _c the cancellation context (unused)
+     * @param {object} request an `HttpRequest`
+     */
     async send(_c, request) {
       if (!st?.test?.send) throw new KPanic("TestClient works only in a test of `k test`");
       const o = await st.test.send(wireRequest(request));

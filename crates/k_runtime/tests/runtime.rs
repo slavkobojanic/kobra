@@ -14,10 +14,17 @@ use k_runtime::{
     STREAMS_SIZE_BUDGET, compact, compacted_sources, modules, resolve,
 };
 
+/// The runtime's source directory, `crates/k_runtime/js/`.
 fn js_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("js")
 }
 
+/// Adds the path relative to `root`, with `/` separators, of every `.js`
+/// file below `dir` to `out`, skipping `tests/` directories.
+///
+/// # Panics
+///
+/// On an unreadable directory.
 fn collect(dir: &Path, root: &Path, out: &mut BTreeSet<String>) {
     for entry in fs::read_dir(dir).expect("readable js directory") {
         let path = entry.expect("entry").path();
@@ -191,6 +198,7 @@ fn raw_len(parts: &[Part]) -> usize {
         .sum()
 }
 
+/// The size of `s` gzipped at the best compression level.
 fn gzip_len(s: &str) -> usize {
     let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
     encoder.write_all(s.as_bytes()).expect("gzip");

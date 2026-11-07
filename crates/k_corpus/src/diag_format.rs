@@ -6,7 +6,7 @@
 //! ```text
 //! # Comments start with `#`; blank lines are ignored.
 //! error[K0002] 3:13-3:14: unterminated string literal
-//! warning[K3001] 7:5-7:12
+//! warning[K3204] 7:5-7:12
 //! error[K0104] 2:6-2:8: K uses `and`, not `&&`
 //!   label 2:1-2:3: condition starts here
 //!   note: K spells logical operators as words
@@ -192,6 +192,8 @@ impl fmt::Display for DiagEntry {
     }
 }
 
+/// Escapes the newlines in a message, label or note as `\n` so that it fits
+/// on one line of a `.diag` file.
 fn one_line(text: &str) -> String {
     text.replace('\n', "\\n")
 }
@@ -218,6 +220,29 @@ impl std::error::Error for DiagFormatError {}
 /// # Errors
 ///
 /// Returns the first malformed line.
+///
+/// # Example
+///
+/// Checking a parse against hand-written expectations, as the `parser`
+/// suite does:
+///
+/// ```
+/// use k_corpus::diag_format::{compare, entries_for, parse_diag_file};
+/// use k_diagnostics::FileId;
+///
+/// let source = "let a = b && c\n";
+/// let parse = k_syntax::parse(FileId::new(0), source);
+/// let actual = entries_for(parse.diagnostics(), source);
+///
+/// // No message given: any message matches.
+/// let expected = parse_diag_file("# `&&` is spelled `and`\nerror[K0104] 1:11-1:13\n").unwrap();
+/// assert_eq!(compare(&expected, &actual), Ok(()));
+///
+/// let wrong = parse_diag_file("error[K0104] 1:10-1:13\n").unwrap();
+/// assert!(compare(&wrong, &actual).is_err());
+///
+/// assert_eq!(parse_diag_file("error[K0104]").unwrap_err().line, 1);
+/// ```
 pub fn parse_diag_file(text: &str) -> Result<Vec<DiagEntry>, DiagFormatError> {
     let mut entries: Vec<DiagEntry> = Vec::new();
     for (index, raw) in text.lines().enumerate() {
@@ -290,6 +315,13 @@ pub fn parse_diag_file(text: &str) -> Result<Vec<DiagEntry>, DiagFormatError> {
     Ok(entries)
 }
 
+/// Parses a header line, `error[K0104] 2:6-2:8: message` or
+/// `warning[K3204] 7:5-7:12`, into an entry with no details.
+///
+/// # Errors
+///
+/// Returns a message if the severity prefix, the `]`, a well-formed code,
+/// the place or the space before it is missing or malformed.
 fn parse_header(line: &str) -> Result<DiagEntry, String> {
     let (severity, rest) = if let Some(rest) = line.strip_prefix("error[") {
         (Severity::Error, rest)
@@ -316,6 +348,12 @@ fn parse_header(line: &str) -> Result<DiagEntry, String> {
     })
 }
 
+/// Splits `PLACE: message` (or a bare `PLACE`, optionally followed by
+/// `:`) into the parsed place and the trimmed message.
+///
+/// # Errors
+///
+/// Returns the message of [`parse_place`] if the place is malformed.
 fn place_and_message(text: &str) -> Result<(Place, Option<String>), String> {
     match text.split_once(": ") {
         Some((place, message)) => Ok((parse_place(place.trim())?, Some(message.trim().to_owned()))),
@@ -493,6 +531,8 @@ fn entry(
     }
 }
 
+/// Sorts entries into the canonical order of a `.diag` file: by file,
+/// then span, code and message.
 fn sort(entries: &mut [DiagEntry]) {
     entries.sort_by(|a, b| {
         (&a.file, a.span, &a.code, &a.message).cmp(&(&b.file, b.span, &b.code, &b.message))
@@ -552,6 +592,8 @@ pub fn compare(expected: &[DiagEntry], actual: &[DiagEntry]) -> Result<(), Strin
     Err(report)
 }
 
+/// Indents every line of `text` by four spaces, ending each with a
+/// newline.
 fn indent(text: &str) -> String {
     text.lines().map(|line| format!("    {line}\n")).collect()
 }

@@ -63,9 +63,15 @@ struct Outcome {
 /// Why a test failed.
 #[derive(Debug)]
 struct Failure {
+    /// The failure's message (`the test failed` when the runtime gave none).
     message: String,
+    /// The byte offset in the test file where the failing expectation starts.
     start: u32,
+    /// The byte offset where it ends (never before [`Failure::start`] once
+    /// rendered).
     end: u32,
+    /// The values of the expectation's subexpressions, as source text and the
+    /// value it had, shown as notes.
     values: Vec<(String, String)>,
 }
 
@@ -73,6 +79,7 @@ struct Failure {
 struct Run {
     /// Every test of the bundle, selected or not.
     total: usize,
+    /// The outcomes of the tests that ran, in run order.
     outcomes: Vec<Outcome>,
 }
 
@@ -241,6 +248,11 @@ fn report(analysis: &Analysis, project: &project::Project, run: &Run, color: boo
 }
 
 /// Builds the test bundle of `analysis` and runs the selected tests.
+///
+/// # Errors
+///
+/// A message for the user: the project has errors, the test bundle can't
+/// be generated, or the isolate can't be created or fails to run it.
 #[cfg(feature = "server")]
 fn execute(
     analysis: &Analysis,
@@ -389,6 +401,12 @@ fn write_bundle(dir: &Path, modules: &[k_server::JsModule]) {
     }
 }
 
+/// Without the server runtime there is no isolate to run tests in: always
+/// fails. (The unused bindings keep the imports the server build needs.)
+///
+/// # Errors
+///
+/// Always, with a message naming the missing `server` feature.
 #[cfg(not(feature = "server"))]
 fn execute(
     _analysis: &Analysis,
@@ -484,6 +502,8 @@ fn watch(project: &mut project::Project, filters: &[String], color: bool) -> Exi
     }
 }
 
+/// Without the server runtime: reports that `k test --watch` is unavailable
+/// and exits 2.
 #[cfg(not(feature = "server"))]
 fn watch(_project: &mut project::Project, _filters: &[String], _color: bool) -> ExitCode {
     eprintln!("error: this `k` was built without the server runtime (feature `server`)");

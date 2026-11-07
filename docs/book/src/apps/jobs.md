@@ -5,36 +5,39 @@
 `dist/app serve`. No Redis or message broker is needed.
 
 ```k
-/// Emails the customer once their payment has been recorded.
+// examples/shop/shop/src/store/OrderConfirmationJob.k
 @Retry(attempts: 8, backoff: 30.seconds)
 @JobName("order-confirmation")
-public service OrderConfirmationJob implements Job<OrderConfirmation> {
+service OrderConfirmationJob implements Job<OrderConfirmation> {
     @Inject let orders: OrderRepository
     @Inject let mailer: EmailProvider
     @Inject let urls: PublicUrls
 
     func run(payload: OrderConfirmation) async throws JobError {
-        guard let order = await orders.byId(id: payload.orderId) else {
+        guard let order = await orders.byId(payload.orderId) else {
             throw JobError.permanent(reason: "Order {payload.orderId} no longer exists")
         }
 
+        let email = Email(
+            to: order.email,
+            subject: "Your K Shop order is confirmed",
+            text: confirmationText(for: order)
+        )
+
         do {
-            try await mailer.send(email: confirmation(order: order))
+            try await mailer.send(email: email)
         } catch .unavailable {
-            throw JobError.retryable(reason: "The mail server is unavailable")
-        } catch let error {
-            throw JobError.permanent(reason: "The message was refused: {error}")
+            throw JobError.retryable(reason: "The SMTP server is unavailable")
+        } catch .rejected(let reason) {
+            throw JobError.permanent(reason: "The SMTP server rejected the message: {reason}")
+        } catch .invalidMessage(let reason) {
+            throw JobError.permanent(reason: "The message can't be sent as written: {reason}")
         }
     }
-
-    private func confirmation(order: Order) -> Email {
-        let receipt = urls.absolute(.receipt(id: order.id))
-
-        return Email(to: order.email, subject: "Your order is confirmed", text: "View your receipt: {receipt}")
-    }
+    // ...
 }
-
-struct OrderConfirmation implements Codable {
+// ...
+struct OrderConfirmation implements Codable, Equatable {
     let orderId: Uuid
 }
 ```
@@ -42,15 +45,21 @@ struct OrderConfirmation implements Codable {
 ## Jobs
 
 ```k
+// crates/k_sema/stdlib/k/server/Job.k
 public interface Job<Payload> where Payload implements Codable {
-    func run(payload: Payload) async throws JobError
-}
+```
 
+```k
+// crates/k_sema/stdlib/k/server/JobError.k
 public enum JobError implements Error {
-    case retryable(reason: String)    // try again after the backoff
-    case permanent(reason: String)    // never try again
+    /// The run failed for now: try again after the backoff ([`Retry`]).
+    case retryable(reason: String)
+    /// The run can never succeed: don't try again; the job becomes dead.
+    case permanent(reason: String)
 }
 ```
+
+`Job` has one requirement, `func run(payload: Payload) async throws JobError`.
 
 - **No new keyword.** A job is a service with an interface, so injection and fakes work as for any
   service. `Job` is server-only, so a job is server-only too.
@@ -71,22 +80,23 @@ public enum JobError implements Error {
 ## Enqueueing
 
 ```k
-service PaymentRecorder {
-    @Inject let jobs: JobQueue
-    @Inject let database: Database
+// examples/shop/shop/src/store/PaymentRecorder.k
+public service PaymentRecorder {
     @Inject let orders: OrderRepository
+    @Inject let database: Database
+    @Inject let jobs: JobQueue
+    @Inject let clock: Clock
+    // ...
+    let recorded = await database.transaction {
+        let marked = await orders.markPaid(id: order.id, reference: reference, paidAt: clock.now)
 
-    func recordPayment(orderId: Uuid, reference: String) async -> Bool {
-        return await database.transaction {
-            let marked = await orders.markPaid(id: orderId, reference: reference)
-
-            if marked {
-                await jobs.enqueue(OrderConfirmationJob.kind, payload: OrderConfirmation(orderId: orderId))
-            }
-
-            marked
+        if marked {
+            await jobs.enqueue(OrderConfirmationJob.kind, payload: OrderConfirmation(orderId: order.id))
         }
+
+        marked
     }
+    // ...
 }
 ```
 
@@ -128,8 +138,17 @@ service PaymentRecorder {
 A job whose payload is `Void` can run on a schedule:
 
 ```k
+~import k.server.Schedule
+~import k.time.TimeOfDay
+~import k.server.Job
+~import k.server.JobError
+~
 @Schedule(.daily(at: TimeOfDay("03:00")))
-service PurgeExpiredCarts implements Job<Void> { … }
+service PurgeExpiredCarts implements Job<Void> {
+    func run(payload: Void) async throws JobError {
+        // …
+    }
+}
 ```
 
 - **Schedules are typed:** `.every(1.hour)`, `.daily(at: TimeOfDay)`, `.weekly(on: .monday, at:
@@ -150,15 +169,24 @@ a field, changing its type, or adding a required field is a `k check` error unle
   `queue.payloads(of: OrderConfirmationJob.kind)` returns what was enqueued, in order:
 
   ```k
-  test PaymentRecorder {
+  // examples/shop/shop/src/store/PaymentRecorder.test.k
+  test PaymentRecorderQueue {
       @Inject let recorder: PaymentRecorder
+      @Inject let catalog: ProductRepository
+      @Inject let orders: OrderRepository
       @Inject let queue: RecordingJobQueue
+      @Inject let clock: TestClock
 
-      test "a recorded payment enqueues one confirmation" {
-          let marked = await recorder.recordPayment(orderId: Order.awaitingPayment.id, reference: "pi_123")
+      test "a recorded payment enqueues one confirmation for its order" {
+          let mug = Product.mug()
+          let order = Order.sample(product: mug, placedAt: clock.now)
+          try await catalog.insert(mug)
+          await orders.insert(order)
 
-          expect marked
-          expect queue.payloads(of: OrderConfirmationJob.kind).count == 1
+          await recorder.recordPayment(orderId: order.id, amount: 48.00.usd, reference: "cs_test_1")
+          await recorder.recordPayment(orderId: order.id, amount: 48.00.usd, reference: "cs_test_1")
+
+          expect queue.payloads(of: OrderConfirmationJob.kind) == [OrderConfirmation(orderId: order.id)]
       }
   }
   ```

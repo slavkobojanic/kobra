@@ -4,6 +4,7 @@
 /// effect can't be `throws`.
 @Annotation
 public struct Effect {
-    /// Explicit dependencies; `nil` tracks what the body reads.
+    /// The explicit dependencies; `nil` tracks what the body reads, and
+    /// `[]` runs the effect once after mount.
     let on: List<Dependency>? = nil
 }

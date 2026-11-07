@@ -16,6 +16,8 @@ pub fn ty(view: &ProgramView, ty: &Type) -> String {
     out
 }
 
+/// Appends `ty` to `out` as [`ty`] renders it; unknown declarations and
+/// error types are written `{error}`.
 fn write_ty(view: &ProgramView, ty: &Type, out: &mut String) {
     match ty {
         Type::Error => out.push_str("{error}"),

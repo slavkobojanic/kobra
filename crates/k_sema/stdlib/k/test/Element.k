@@ -2,7 +2,7 @@
 /// handle even when nothing matches; an action on a handle that matches
 /// nothing, or several elements, fails the test.
 ///
-/// Every handle supports the queries of `Screen`, scoped to its subtree.
+/// Every handle supports the queries of [`Screen`], scoped to its subtree.
 @Native
 public class Element {
     /// `true` if exactly one element matched.
@@ -15,18 +15,19 @@ public class Element {
     var isPressed: Bool
     /// `true` for a disabled control.
     var isDisabled: Bool
-    /// A field's current text.
+    /// The current text of a field.
     var value: String
     /// The element's text content.
     var text: String
-    /// A heading's level.
+    /// The level of a heading, `1...6`.
     var level: Int
 
     /// Clicks the element and flushes synchronous updates.
     func click()
     /// Replaces a field's value and fires input events.
     func fill(_ text: String)
-    /// Presses a key; Enter in a form field submits the form.
+    /// Presses `key` ([`Key`]); [`Key.enter`] in a form field submits the
+    /// form.
     func press(_ key: Key)
     /// Drags the element onto `target` with the mouse: presses it, moves
     /// onto `target` and releases there (`docs/design/41-drag-and-drop.md`,
@@ -60,7 +61,7 @@ public class Element {
     func item(containing text: String) -> Element
     /// The `nav` landmark whose accessible name is exactly `name`.
     func navigation(named name: String) -> Element
-    /// The only list.
+    /// Returns the only list.
     func list() -> Element
     /// The list whose accessible name is exactly `name`.
     func list(named name: String) -> Element
@@ -68,12 +69,12 @@ public class Element {
     func alert() -> Element
     /// The only `.role(.status)` live region.
     func status() -> Element
-    /// Every list item.
+    /// Returns every list item, in document order.
     func items() -> List<Element>
-    /// Every button.
+    /// Returns every button, in document order.
     func buttons() -> List<Element>
-    /// Every heading.
+    /// Returns every heading, in document order.
     func headings() -> List<Element>
-    /// Every link.
+    /// Returns every link, in document order.
     func links() -> List<Element>
 }

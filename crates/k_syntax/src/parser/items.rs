@@ -91,6 +91,10 @@ pub(crate) fn at_member_start(p: &Parser<'_>) -> bool {
     }
 }
 
+/// Returns `true` if the current identifier starts a contextual member:
+/// a `view`, `loading` or `metadata` block, a `failed` handler, a theme
+/// `variant`, a `test`, or a theme token or override (any other word
+/// followed by a name or `=`).
 fn at_contextual_member(p: &Parser<'_>) -> bool {
     let next = p.nth(1);
     match p.nth_text(0) {
@@ -229,6 +233,9 @@ pub(crate) fn source_file(p: &mut Parser<'_>) {
     m.complete(p, K::SourceFile);
 }
 
+/// Returns `true` if the current token starts a top-level element: an
+/// import, a declaration, or a lexer `Error` token (consumed as an error
+/// node).
 fn at_top_start(p: &Parser<'_>) -> bool {
     p.at(K::ImportKw) || at_item_start(p) || p.at(K::Error)
 }
@@ -447,6 +454,13 @@ pub(crate) fn decl(p: &mut Parser<'_>, level: Level) {
     }
 }
 
+/// Parses a declaration introduced by a contextual keyword (`component`,
+/// `page`, `service`, `test`, ...) into the node started by `m`, remapping
+/// the identifier to its keyword kind.
+///
+/// At [`Level::Member`] the member-only forms of
+/// [`member_block_or_token`] are also accepted; at [`Level::Top`] any
+/// other word reports an expected declaration and abandons `m`.
 fn contextual_decl(p: &mut Parser<'_>, m: Marker, level: Level) {
     let text = p.nth_text(0);
     let next = p.nth(1);
@@ -1226,6 +1240,8 @@ fn param_list(p: &mut Parser<'_>) {
     m.complete(p, K::ParamList);
 }
 
+/// Returns `true` if the current token can start a parameter: an
+/// annotation, `_` or a name.
 fn can_start_param(p: &Parser<'_>) -> bool {
     let kind = p.current();
     kind == K::At || kind == K::Underscore || is_name_like(kind)

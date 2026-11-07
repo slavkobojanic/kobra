@@ -1,7 +1,7 @@
-/// A running timer from `Clock.every` or `Clock.after`. Discarding one
-/// returned inside an `@Effect` is a warning.
+/// A running timer from [`Clock.every`] or [`Clock.after`]. Discarding one
+/// returned inside an [`k.core.Effect`] is a warning.
 @Native
 public class TimerHandle {
-    /// Stops the timer. Idempotent.
+    /// Stops the timer; cancelling a stopped timer does nothing.
     func cancel()
 }

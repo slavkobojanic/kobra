@@ -54,6 +54,8 @@
 //! * **Incremental:** results are memoized per revision and kept for
 //!   unchanged inputs.
 
+#![warn(clippy::missing_docs_in_private_items)]
+
 mod app;
 mod body;
 mod check;

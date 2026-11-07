@@ -4,11 +4,138 @@ K uses **typed, checked errors**. A function declares exactly what it can throw,
 throw is marked with `try`, and `catch` must handle every case. Failures are part of a function's
 signature, where readers and the compiler can see them.
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
+```k
+// src/shop/Context.k
+import k.http.HttpClient
+import k.http.HttpStatus
+
+struct ProductId implements Equatable, Codable {
+    let value: Int
+}
+
+struct Product {
+    let id: ProductId
+    let stock: Int
+
+    static let soldOut = Product(id: ProductId(value: 1), stock: 0)
+}
+
+struct Reservation {
+    let product: ProductId
+    let quantity: Int
+}
+
+struct AddItemRequest implements Codable {
+    let productId: ProductId
+}
+
+struct CartItem {
+    let productId: ProductId
+}
+
+struct Cart {
+    let items: List<CartItem>
+    let total: Money
+}
+
+interface CartApi {
+    func add(request: AddItemRequest) async throws CartError -> CartItem
+}
+
+interface CartActions {
+    func add(product: Product) async throws CartError
+}
+
+page Home at "/" {
+    view {
+        text { "Home" }
+    }
+}
+
+page SignIn at "/sign-in" {
+    @Param let returnTo: Page = .home
+
+    view {
+        text { "Sign in" }
+    }
+}
+
+page CartPage at "/cart" {
+    view {
+        text { "Cart" }
+    }
+}
+
+struct Place implements Codable {
+    let name: String
+}
+
+enum UnitSystem {
+    case metric
+    case imperial
+}
+
+struct Forecast implements Codable {
+    let summary: String
+}
+
+enum WeatherError implements Error {
+    case offline
+    case timeout
+    case upstream(HttpStatus)
+    case invalidResponse(reason: String)
+}
+
+interface Weather {
+    func forecast(place: Place, units: UnitSystem) async throws WeatherError -> Forecast
+}
+
+struct CardToken {
+    let value: String
+}
+
+struct Receipt {
+    let total: Money
+}
+
+enum PaymentError implements Error {
+    case declined
+}
+
+enum InventoryError implements Error {
+    case soldOut
+}
+
+interface Inventory {
+    func reserve(items: List<CartItem>) async throws InventoryError
+}
+
+interface Payments {
+    func charge(amount: Money, card: CardToken) async throws PaymentError -> Receipt
+}
+
+struct User {
+    let name: String
+}
+
+enum UserError implements Error {
+    case notFound
+}
+
+interface Users {
+    func load(_ id: Int) async throws UserError -> User
+}
+```
+-->
+
 ## Declaring errors
 
 An error type is an ordinary enum that implements `Error`:
 
 ```k
+// src/shop/CartError.k
 enum CartError implements Error {
     case productNotFound
     case outOfStock(available: Int)
@@ -38,10 +165,14 @@ func reserve(product: Product, quantity: Int) throws CartError -> Reservation {
 jump:
 
 ```k
+~struct CartModel {
+~    let api: CartApi
+~    var items: List<CartItem>
 func add(product: Product) async throws CartError {
     let item = try await api.add(request: AddItemRequest(productId: product.id))
     items.append(item)
 }
+~}
 ```
 
 Inside a function that throws `CartError`, a `try` on a call that also throws `CartError` simply passes
@@ -50,6 +181,12 @@ the error on to the caller.
 ## Handling errors with `do` and `catch`
 
 ```k
+~import k.ui.Router
+~
+~component AddButton {
+~    @Prop let cart: CartActions
+~    @Prop let product: Product
+~    @State var error: CartError? = nil
 func add() async {
     do {
         try await cart.add(product: product)
@@ -59,6 +196,10 @@ func add() async {
         Router.navigate(to: .home)
     }
 }
+~    view {
+~        button { "Add" }
+~    }
+~}
 ```
 
 - `catch` clauses use the same patterns as [`match`](control-flow.md#patterns): cases, bindings with
@@ -74,6 +215,12 @@ func add() async {
 a caller handle a few cases on their own and the rest together, and it must come last:
 
 ```k
+~component ForecastView {
+~    @Prop let weather: Weather
+~    @Prop let place: Place
+~    @Prop let units: UnitSystem
+~    @State var forecast: Forecast? = nil
+~    @State var problem: String? = nil
 func refresh() async {
     do {
         forecast = try await weather.forecast(place: place, units: units)
@@ -85,6 +232,10 @@ func refresh() async {
         problem = "The forecast couldn't be loaded ({error})."      // error is a WeatherError
     }
 }
+~    view {
+~        text { problem ?? "" }
+~    }
+~}
 ```
 
 - The bound error has the static type of what the `do` block throws (here `WeatherError`), never an
@@ -108,6 +259,11 @@ enum CheckoutError implements Error {
     case inventory(InventoryError)
 }
 
+~struct CheckoutService {
+~    let cart: Cart
+~    let inventory: Inventory
+~    let payments: Payments
+~
 func checkout(card: CardToken) async throws CheckoutError -> Receipt {
     guard cart.items.isNotEmpty else { throw CheckoutError.emptyCart }
 
@@ -123,6 +279,7 @@ func checkout(card: CardToken) async throws CheckoutError -> Receipt {
         throw CheckoutError.payment(error)            // error is a PaymentError
     }
 }
+~}
 ```
 
 Each layer speaks in terms that make sense at its level. A page that checks out deals with
@@ -132,6 +289,11 @@ A boundary can also map each inner case to a case of its own. `WeatherService` d
 `HttpError` its HTTP client throws:
 
 ```k
+~import k.http.HttpClient
+~import k.http.HttpRequest
+~
+~struct WeatherService {
+~    let http: HttpClient
 private func fetch<T>(url: Url, query: Map<String, String>) async throws WeatherError -> T where T implements Codable {
     do {
         return try await http.fetchJson(request: HttpRequest(method: .get, url: url).query(query))
@@ -145,6 +307,7 @@ private func fetch<T>(url: Url, query: Map<String, String>) async throws Weather
         throw WeatherError.invalidResponse(reason: message)
     }
 }
+~}
 ```
 
 ## Turning errors into values
@@ -154,13 +317,37 @@ Sometimes you don't want to handle an error case by case. K uses keywords for th
 `try … else` provides a fallback block, which must exit or produce a value:
 
 ```k
+~enum AddError implements Error {
+~    case soldOut
+~}
+~
+~struct LocalCart {
+~    func add(product: Product) throws AddError -> CartItem {
+~        return CartItem(productId: product.id)
+~    }
+~}
+~
+~func example(cart: LocalCart, product: Product) {
 let item = try cart.add(product: product) else { return }
+~}
 ```
 
 `Result.of` captures success or failure as a `Result<T, E>` value:
 
 ```k
+~enum AddError implements Error {
+~    case soldOut
+~}
+~
+~struct LocalCart {
+~    func add(product: Product) throws AddError -> CartItem {
+~        return CartItem(productId: product.id)
+~    }
+~}
+~
+~func example(cart: LocalCart, product: Product) {
 let outcome = Result.of { try cart.add(product: product) }
+~}
 ```
 
 There is no `try?` and no `!`.
@@ -170,7 +357,7 @@ There is no `try?` and no `!`.
 A function can take a block and throw whatever the block throws. Its parameter's type names a generic
 error, `E`:
 
-```k
+```k,ignore
 // in k.db
 func transaction<T, E>(_ block: () async throws E -> T) async throws E -> T
 ```
@@ -188,6 +375,10 @@ func transaction<T, E>(_ block: () async throws E -> T) async throws E -> T
 catch the error. They handle every error inside, usually by recording it in state:
 
 ```k
+~component Profile {
+~    @Prop let users: Users
+~    @Prop let userId: Int
+~    @State var profile: LoadState<User> = .idle
 @Effect(on: [userId])
 func loadUser() async {
     do {
@@ -196,6 +387,10 @@ func loadUser() async {
         profile = .failed(error)
     }
 }
+~    view {
+~        text { "Profile" }
+~    }
+~}
 ```
 
 Declaring `throws` on an effect, or passing a throwing function to `.on(…)`, is a compile error with a
@@ -230,13 +425,49 @@ the browser, the server can't be reached or doesn't answer in time. Those failur
 with a fixed name, `rpcFailure(RpcFailure)`. Every rpc's error enum declares it, and an rpc with no
 errors of its own declares `throws RpcOnlyError`:
 
-```k
+```k,standalone
+~import k.ui.Router
+~import k.rpc.RpcFailure
 enum CartError implements Error {
     case productNotFound
     case outOfStock(available: Int)
     case rpcFailure(RpcFailure)
 }
 
+~struct Product {
+~    let name: String
+~}
+~
+~interface CartApi {
+~    func add(product: Product) async throws CartError
+~}
+~
+~page Home at "/" {
+~    view {
+~        text { "Home" }
+~    }
+~}
+~
+~page SignIn at "/sign-in" {
+~    @Param let returnTo: Page = .home
+~
+~    view {
+~        text { "Sign in" }
+~    }
+~}
+~
+~page Cart at "/cart" {
+~    view {
+~        text { "Cart" }
+~    }
+~}
+~
+~component AddToCart {
+~    @Prop let cart: CartApi
+~    @Prop let product: Product
+~    @State var problem: CartError? = nil
+~
+~    func add() async {
 do {
     try await cart.add(product: product)
 } catch .outOfStock(let available) {
@@ -246,6 +477,12 @@ do {
 } catch let other {
     problem = other
 }
+~    }
+~
+~    view {
+~        text { "Cart" }
+~    }
+~}
 ```
 
 See [Protocols and RPC](../apps/protocols.md#failures-outside-the-handler).
@@ -257,6 +494,13 @@ nested cases can be checked (`expect throws AccessError.rpcFailure(.rejected(.un
 case written without its payload matches any payload:
 
 ```k
+~struct LocalCart {
+~    func add(product: Product) async throws CartError {
+~        throw .outOfStock(available: product.stock)
+~    }
+~}
+~
+~let cart = LocalCart()
 test "out of stock surfaces a typed error" {
     expect throws CartError.outOfStock {
         try await cart.add(product: .soldOut)

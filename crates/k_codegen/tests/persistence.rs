@@ -8,12 +8,21 @@
 use k_codegen::{CodegenError, Options, Output, generate};
 use k_sema::{AnalysisHost, Options as SemaOptions, ProjectPath};
 
+/// The `k.toml` of the test project: a package named `demo`.
 const TOML: &str = "[package]\nname = \"demo\"\nk = \"0.1\"\n";
 
+/// The entity the test repositories query.
 const NOTE: &str = "import k.crypto.Uuid\n\npublic entity Note {\n    @Id let id: Uuid\n    @Index let owner: String\n    @Unique var title: String\n    var isPinned: Bool = false\n    @Version var revision: Int = 1\n}\n";
 
+/// The migration that creates [`NOTE`]'s table, so the build has a schema.
 const MIGRATION: &str = "migration Init {\n    func up(schema: Schema) {\n        schema.createTable(name: \"note\") { table =>\n            table.column(name: \"id\", type: .uuid).primaryKey(true)\n            table.column(name: \"owner\", type: .text).indexed(true)\n            table.column(name: \"title\", type: .text).unique(true)\n            table.column(name: \"is_pinned\", type: .boolean).defaultValue(.boolean(false))\n            table.column(name: \"revision\", type: .integer)\n        }\n    }\n}\n";
 
+/// Analyses `files` and generates them with the default options.
+///
+/// # Panics
+///
+/// If a path is invalid, the analysis is cancelled, or the program has an
+/// error: every case must check cleanly.
 fn generate_files(files: &[(&str, &str)]) -> Result<Output, CodegenError> {
     let files: Vec<(ProjectPath, String)> = files
         .iter()
@@ -31,10 +40,12 @@ fn generate_files(files: &[(&str, &str)]) -> Result<Output, CodegenError> {
     generate(&analysis, &Options::default())
 }
 
+/// The source of `NoteRepository` with the members `body`.
 fn repository(body: &str) -> String {
     format!("public repository NoteRepository for Note {{\n{body}\n}}\n")
 }
 
+/// Generates the test project with the repository source `repo`.
 fn program(repo: &str) -> Result<Output, CodegenError> {
     generate_files(&[
         ("k.toml", TOML),
@@ -44,6 +55,11 @@ fn program(repo: &str) -> Result<Output, CodegenError> {
     ])
 }
 
+/// The SQLite text of every statement of the build, by number.
+///
+/// # Panics
+///
+/// If the build has no database manifest.
 fn sqlite(out: &Output) -> Vec<String> {
     out.database
         .as_ref()
@@ -54,6 +70,7 @@ fn sqlite(out: &Output) -> Vec<String> {
         .collect()
 }
 
+/// Every server module's contents, concatenated.
 fn server_js(out: &Output) -> String {
     out.server.iter().map(|f| f.contents.as_str()).collect()
 }

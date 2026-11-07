@@ -1,4 +1,4 @@
-/// Why a local-storage write failed.
+/// Why a local-storage write ([`LocalStorage.write`]) failed.
 public enum StorageWriteError implements Error, Codable {
     /// Storage is blocked or disabled in this browser.
     case unavailable

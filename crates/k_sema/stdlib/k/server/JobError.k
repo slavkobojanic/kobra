@@ -1,7 +1,7 @@
-/// How a job run failed, which decides whether it is retried.
+/// How a job run ([`Job.run`]) failed, which decides whether it is retried.
 public enum JobError implements Error {
-    /// Try again after the backoff.
+    /// The run failed for now: try again after the backoff ([`Retry`]).
     case retryable(reason: String)
-    /// Never try again; the job becomes dead.
+    /// The run can never succeed: don't try again; the job becomes dead.
     case permanent(reason: String)
 }

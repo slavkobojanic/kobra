@@ -64,7 +64,10 @@ impl Names for SourceNames<'_, '_> {
 /// every recorded type eagerly instead cost about 15% of a check.
 #[derive(Debug, Default)]
 pub(crate) struct NameTable {
+    /// The rendered name of every declaration, by [`DeclId`] index: bare
+    /// for prelude names, qualified by its module otherwise.
     decls: Vec<Box<str>>,
+    /// The name of every generic parameter, by [`GenId`] index.
     generics: Vec<Box<str>>,
 }
 
@@ -250,6 +253,7 @@ impl Ty {
         out
     }
 
+    /// Appends the K rendering of the type to `out` (see [`Ty::render`]).
     fn write(&self, program: &dyn Names, out: &mut String) {
         match self {
             Ty::Error => out.push_str("{error}"),

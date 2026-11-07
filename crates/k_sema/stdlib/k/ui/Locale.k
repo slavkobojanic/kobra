@@ -1,5 +1,6 @@
 /// A locale for formatting numbers, dates and money, set with
-/// `locale(...)` in `metadata` (`docs/design/22-metadata.md`). The cases
+/// `locale(...)` in `metadata` ([`MetadataEntries.locale`],
+/// `docs/design/22-metadata.md`). The cases
 /// listed are those the examples use.
 public enum Locale {
     /// English.

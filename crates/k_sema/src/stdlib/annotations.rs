@@ -77,6 +77,8 @@ pub struct AnnotationDef {
     pub design: &'static str,
 }
 
+/// Builds an [`AnnotationDef`]; keeps the [`ANNOTATIONS`] table to one line
+/// per annotation.
 const fn def(
     name: &'static str,
     targets: &'static [Target],

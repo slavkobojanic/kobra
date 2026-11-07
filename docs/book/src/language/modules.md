@@ -18,6 +18,42 @@ src/
 
 The module name is the directory path under `src/`, with dots: `src/shop/cart/` is `shop.cart`.
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
+```k
+// src/shop/cart/CartItem.k
+import shop.catalog.Product
+
+/// One line of the cart.
+public struct CartItem {
+    /// The product in this line.
+    let product: Product
+}
+```
+
+```k
+// src/shop/catalog/Product.k
+/// A product in the catalog.
+public struct Product {
+    /// The product's name.
+    let name: String
+    /// The unit price.
+    let price: Money
+}
+```
+
+```k
+// src/shop/catalog/ProductService.k
+/// Looks products up.
+public service ProductService {
+    /// The products on sale.
+    func all() -> List<Product> {
+        return []
+    }
+}
+```
+-->
+
 ## One public declaration per file
 
 **A file has at most one `public` declaration, and the file is named after it.** `CartService.k` holds
@@ -37,10 +73,14 @@ public service CartService {               // visible to every module
     @State var items: List<CartItem> = []   // public, because CartService is
     private var retryCount = 0              // visible only inside CartService
 
-    func add(product: Product) { … }        // public, because CartService is
+    func add(product: Product) {            // public, because CartService is
+        items.append(CartItem(product: product))
+    }
 }
 
-struct CartLine { … }                      // no modifier: visible within shop.cart only
+struct CartLine {                          // no modifier: visible within shop.cart only
+    let quantity: Int
+}
 ```
 
 ## Visibility of declarations
@@ -66,8 +106,8 @@ There is no `protected`, because there is no inheritance.
   of a module-private type are visible within its module.
 - **`private` is the only member modifier.** It restricts a member to the body of its enclosing
   declaration.
-- **`public` on a member is redundant.** It is a warning with a machine-applicable fix, and `k fmt`
-  removes it, so there is one spelling.
+- **`public` on a member is redundant.** It is a warning (`K1302`) with a machine-applicable fix,
+  which `k fmt` will apply (**Planned**), so there is one spelling.
 - **`@Inject` fields are always private** to the declaration that injects them. Writing `public` on one
   is a compile error, and `private` is redundant. A type's dependencies are never part of its API, so
   other code can't read `verifier.config`, and a fake never has to declare its target's dependencies.
@@ -101,7 +141,7 @@ An extension has no name, so it can't be imported. Its members follow the extens
 import shop.catalog.Product
 import shop.catalog.ProductService
 import k.ui.Theme
-import k.collections.LruCache
+import k.time.Clock
 ```
 
 - There are no wildcard imports, so the origin of every name is visible at the top of the file.

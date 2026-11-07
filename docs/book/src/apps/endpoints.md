@@ -9,25 +9,32 @@ see HTTP.
 outside system.
 
 ```k
-import k.http.HttpResponse
-import k.http.IncomingRequest
-
-/// Receives Stripe's payment events.
+// examples/shop/shop/src/webhooks/StripeWebhook.k
 public page StripeWebhook at "/webhooks/stripe" {
-    @Inject let verifier: StripeWebhookVerifier
+    @Inject let verifier: StripeEvents
     @Inject let recorder: PaymentRecorder
-
+    // ...
     @Post
     func receive(request: IncomingRequest) async -> HttpResponse {
-        let event = try await verifier.verify(payload: request.rawBody, signatureHeader: request.headers["stripe-signature"]) else {
+        let signature = request.headers["stripe-signature"]
+
+        do {
+            let event = try await verifier.verify(payload: request.rawBody, signatureHeader: signature)
+
+            await apply(event: event)
+        } catch .disabled {
+            return HttpResponse(status: .notFound)
+                .body(.text("This shop doesn't take payments through Stripe."))
+        } catch let error {
+            Log.debug("Refused a Stripe webhook delivery: {error}")
+
             return HttpResponse(status: .badRequest)
                 .body(.text("Webhook signature verification failed."))
         }
 
-        await recorder.apply(event: event)
-
         return HttpResponse(status: .noContent)
     }
+    // ...
 }
 ```
 
@@ -58,7 +65,8 @@ public page StripeWebhook at "/webhooks/stripe" {
   a crafted `?returnTo=stripeWebhook` can't decode to one. `Endpoint.stripeWebhook.url` is the path, and
   `urls.absolute(endpoint: .stripeWebhook)` the absolute URL, from
   [`PublicUrls`](routing.md#absolute-urls-publicurls).
-- Endpoint URLs are recorded in `routes.lock` and listed by `k routes`, like every page.
+- Endpoint URLs are recorded in `routes.lock` (**Planned**, see [Project files](../reference/project-files.md#lockfiles))
+  and listed by `k routes`, like every page.
 
 ### Injection and guards
 
@@ -109,16 +117,36 @@ address and forwarding headers are ignored, so a client can't choose its own add
 `HttpResponse` and `HttpStatus` are the same types the HTTP client uses:
 
 ```k
+~import k.http.HttpResponse
+~
+~struct Summary implements Codable {
+~    let count: Int
+~}
+~
+~page Home at "/" {
+~    view {
+~        text { "Home" }
+~    }
+~}
+~
+~func responses(summary: Summary, providerAuthorizeUrl: Url) -> List<HttpResponse> {
+~    return [
 HttpResponse(status: .noContent)
+~,
 
 HttpResponse(status: .ok)
     .body(.json(summary))                       // sets Content-Type: application/json
+~,
 
 HttpResponse(status: .serviceUnavailable)
     .body(.text("database unavailable"))
+~,
 
 HttpResponse.redirect(to: .home)                // 303 See Other to the page's URL
+~,
 HttpResponse.redirect(url: providerAuthorizeUrl)
+~    ]
+~}
 ```
 
 - Statuses are a typed `HttpStatus` with implicit members for the standard codes (`.ok`, `.badRequest`,
@@ -126,15 +154,19 @@ HttpResponse.redirect(url: providerAuthorizeUrl)
 - **Cookies are set only through `Session`,** never as raw headers. Setting `set-cookie` on a response is
   a compile error for a literal header name, and a panic otherwise.
 
+> **Planned.** The compile error for a literal `set-cookie` header isn't in the first compiler releases.
+> Setting the header panics at run time, whatever its spelling.
+
 ## Health checks
 
 A health endpoint is an ordinary endpoint page, so the `Dockerfile` and orchestrator configuration that
 depend on its URL can't drift:
 
 ```k
+// examples/shop/shop/src/ops/HealthCheck.k
 public page HealthCheck at "/health" {
     @Inject let readiness: Readiness
-
+    // ...
     @Get
     func check(request: IncomingRequest) async -> HttpResponse {
         guard await readiness.isReady() else {
@@ -146,7 +178,7 @@ public page HealthCheck at "/health" {
             .body(.text("ok"))
     }
 }
-
+// ...
 service Readiness {
     @Inject let database: Database
 
@@ -166,19 +198,18 @@ Endpoint pages are tested with [`TestClient`](testing.md#http-level-tests-testcl
 receives, as the wire would:
 
 ```k
-test StripeWebhook {
-    use StripeWebhookConfig.sample for StripeWebhookConfig
+// examples/shop/shop/src/webhooks/StripeWebhook.test.k
+test "an unsigned request is refused and changes nothing" {
+    let order = try await placeOrder()
+    let payload = StripeTestEvent.checkoutCompleted(orderId: "{order.id}", amountTotal: 4800)
 
-    @Inject let client: TestClient
-    @Inject let urls: PublicUrls
+    let response = await deliver(payload: payload, signature: nil)
 
-    test "an unsigned request is refused" {
-        let request = HttpRequest(method: .post, url: urls.absolute(endpoint: .stripeWebhook))
-            .body(.text("{{}"))
-
-        let response = await client.send(request: request)
-
-        expect response.status == .badRequest
-    }
+    expect response.status == .badRequest
+    expect await orders.byId(order.id)?.status == .awaitingPayment
+    expect mailer.sent.isEmpty
 }
 ```
+
+`deliver` is a helper of the test group: it builds an `HttpRequest` to
+`urls.absolute(endpoint: .stripeWebhook)` and sends it with the injected `TestClient`.

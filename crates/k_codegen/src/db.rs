@@ -52,7 +52,11 @@ const INSERT_BATCHES: [u32; 4] = [64, 16, 4, 1];
 /// The statements registered while lowering, and persistence errors.
 #[derive(Default, Debug)]
 pub(crate) struct DbState {
+    /// The registered statements in both dialects; a statement's index is its
+    /// number in the manifest and in generated `$s.db` calls.
     statements: Vec<StatementSql>,
+    /// The number of each registered statement, by its SQLite and Postgres
+    /// text, so an identical statement is registered once.
     index: HashMap<(String, String), u32>,
     /// Problems that make the build fail (an untranslatable query, a
     /// migration that doesn't replay).
@@ -79,7 +83,10 @@ impl DbState {
 /// The per-build persistence state kept on [`Gen`].
 #[derive(Default, Debug)]
 pub(crate) struct DbCell {
+    /// The statements and errors, mutated while lowering through a shared
+    /// [`Gen`] (codegen is single-threaded, so a `RefCell` suffices).
     state: RefCell<DbState>,
+    /// The persistence model, built on first use by [`model`].
     model: std::cell::OnceCell<Model>,
 }
 
@@ -211,7 +218,7 @@ impl FieldModel {
 /// One entity and its table.
 #[derive(Clone, Debug)]
 pub(crate) struct EntityModel {
-    /// The entity.
+    /// The entity declaration.
     pub decl: DeclId,
     /// The locked table name.
     pub table: String,
@@ -229,10 +236,12 @@ impl EntityModel {
         self.fields.iter().flat_map(FieldModel::columns).collect()
     }
 
+    /// The field named `name` (its K name), if the entity has one.
     fn field(&self, name: &str) -> Option<&FieldModel> {
         self.fields.iter().find(|f| f.name == name)
     }
 
+    /// The `@Id` field, if the entity has one.
     pub(crate) fn id_field(&self) -> Option<&FieldModel> {
         self.id.and_then(|i| self.fields.get(i))
     }
@@ -250,6 +259,7 @@ impl EntityModel {
 /// Every entity of the program.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Model {
+    /// Each entity declaration of the project, by declaration.
     entities: HashMap<DeclId, EntityModel>,
 }
 
@@ -332,6 +342,9 @@ impl Model {
         self.entities.get(&d)
     }
 
+    /// Builds the model of every project entity, taking table and column
+    /// names from `schema.lock` where it records them and falling back to the
+    /// snake-case K names.
     fn build(g: &Gen<'_>) -> Model {
         let lock = lock(g);
         let entities: Vec<DeclId> = g
@@ -447,6 +460,7 @@ pub(crate) fn model<'g>(g: &'g Gen<'_>) -> &'g Model {
     g.db.model.get_or_init(|| Model::build(g))
 }
 
+/// The model of entity `d`, or `None` when `d` is not an entity.
 fn entity<'g>(g: &'g Gen<'_>, d: DeclId) -> Option<&'g EntityModel> {
     model(g).entities.get(&d)
 }
@@ -481,10 +495,13 @@ pub(crate) fn repository_entity(g: &Gen<'_>, d: DeclId) -> Option<DeclId> {
 
 // --------------------------------------------------------------- codecs
 
+/// `$s.name`: a member of the server runtime module, which generated
+/// server code imports as `$s`.
 fn s_member(name: &str) -> Expr {
     member(id("$s"), name)
 }
 
+/// `$s.dbc.name`: one of the column codecs of `db.js`.
 fn dbc(name: &str) -> Expr {
     member(s_member("dbc"), name)
 }
@@ -676,6 +693,7 @@ fn unique_cases(e: &EntityModel) -> Expr {
 
 /// A query being lowered: its parameters and how to encode them.
 struct Query<'m> {
+    /// The entity the query reads or writes.
     entity: &'m EntityModel,
     /// `[codec, value]` pairs, flattened in order into the parameters.
     slots: Vec<(Expr, Expr)>,
@@ -695,6 +713,8 @@ impl Query<'_> {
         first
     }
 
+    /// The runtime call that encodes the query's parameters,
+    /// `$s.dbParams([[codec, value], …])`, in slot order.
     fn params_expr(&self) -> Expr {
         call(
             s_member("dbParams"),
@@ -710,11 +730,13 @@ impl Query<'_> {
 
 /// A column reference found in a lambda: a field of the row.
 struct ColumnRef {
+    /// The index of the field in [`EntityModel::fields`].
     field: usize,
     /// The stored columns compared (the foreign key for `row.rel.id`).
     columns: Vec<String>,
 }
 
+/// `e` without any enclosing parentheses.
 fn strip_parens(e: &ast::Expr) -> ast::Expr {
     let mut e = e.clone();
     while let ast::Expr::ParenExpr(p) = &e {
@@ -755,11 +777,14 @@ fn lambda_value(l: &ast::LambdaExpr) -> Option<ast::Expr> {
     }
 }
 
+/// `true` if `e` is the literal `nil`, parenthesized or not.
 fn is_nil(e: &ast::Expr) -> bool {
     matches!(strip_parens(e), ast::Expr::Literal(l)
         if l.token().is_some_and(|t| t.kind() == SyntaxKind::NilKw))
 }
 
+/// The value of `e` when it is the literal `true` or `false`, parenthesized
+/// or not.
 fn bool_literal(e: &ast::Expr) -> Option<bool> {
     match strip_parens(e) {
         ast::Expr::Literal(l) => match l.token()?.kind() {
@@ -887,6 +912,18 @@ impl Query<'_> {
         Ok(b.expr(e))
     }
 
+    /// Translates a filter condition into a SQL predicate.
+    ///
+    /// `and`/`or` (or `&&`/`||`) nest flatly, `not` negates, comparisons go
+    /// through [`Query::compare`], `contains`-like calls through
+    /// [`Query::call_predicate`], and a `Bool` field on its own means `= true`.
+    /// The literal `true` is the empty conjunction and `false` the empty
+    /// disjunction.
+    ///
+    /// # Errors
+    ///
+    /// An explanation for anything that can't be translated to SQL, which
+    /// the caller records as a build error.
     fn predicate(&mut self, b: &mut Body<'_, '_>, e: &ast::Expr) -> Result<Predicate, String> {
         let e = strip_parens(e);
         if let Some(v) = bool_literal(&e) {
@@ -957,6 +994,14 @@ impl Query<'_> {
         }
     }
 
+    /// Translates the comparison `l op r`, where at least one side is a column
+    /// of the row; when the column is on the right the operator is mirrored so
+    /// the column comes first. The other side becomes a parameter.
+    ///
+    /// # Errors
+    ///
+    /// When neither side is a column, or when two `Money` fields (two columns
+    /// each) are compared with each other.
     fn compare(
         &mut self,
         b: &mut Body<'_, '_>,
@@ -1064,6 +1109,12 @@ impl Query<'_> {
         Ok(base)
     }
 
+    /// Translates `field.contains(x)`, `startsWith`/`hasPrefix` and
+    /// `endsWith`/`hasSuffix` on a text field into a `LIKE` predicate.
+    ///
+    /// # Errors
+    ///
+    /// For any other method, a non-text field, or a call without an argument.
     fn call_predicate(
         &mut self,
         b: &mut Body<'_, '_>,
@@ -1144,6 +1195,12 @@ impl Query<'_> {
         Ok(c.columns[0].clone())
     }
 
+    /// The count of `limit(n)` or `offset(n)`: an integer literal is inlined
+    /// into the SQL, anything else becomes an `Int` parameter.
+    ///
+    /// # Errors
+    ///
+    /// When the call has no argument.
     fn count(&mut self, b: &mut Body<'_, '_>, c: &ast::CallExpr) -> Result<Count, String> {
         let arg = c
             .arg_list()
@@ -1270,7 +1327,9 @@ impl Query<'_> {
 
 /// One step of a query chain: `.name(args)`.
 struct Step {
+    /// The method name, `filter`.
     name: String,
+    /// The whole call, for its arguments and its range.
     call: ast::CallExpr,
 }
 
@@ -1377,6 +1436,14 @@ fn repository_write(b: &mut Body<'_, '_>, c: &ast::CallExpr) -> Option<Expr> {
     Some(call(member(r, method), vec![b.c_expr(), v]))
 }
 
+/// Lowers a query chain on entity `e` into one registered statement and the
+/// runtime call that runs it.
+///
+/// `filter`, the sorts, `limit`, `offset` and `including` build the query;
+/// the terminal step (`first`, `single`, `count`, `list`, `delete`,
+/// `update`, `insert`) decides the statement and the result. A step that
+/// can't be translated is reported against `whole`: its explanation is
+/// recorded as a build error ([`fail`]) and the chain lowers to a stand-in.
 #[allow(clippy::too_many_lines)]
 fn lower_chain(b: &mut Body<'_, '_>, whole: &ast::Expr, e: &EntityModel, steps: &[Step]) -> Expr {
     let g = b.g;
@@ -1749,6 +1816,7 @@ pub(crate) fn repository(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     )]
 }
 
+/// An `async` plain method named `name` with block body `body`.
 fn method(name: &str, params: &[&str], body: Vec<Stmt>) -> Function {
     Function {
         name: name.to_owned(),
@@ -1759,6 +1827,7 @@ fn method(name: &str, params: &[&str], body: Vec<Stmt>) -> Function {
     }
 }
 
+/// `[c, v]`: a codec and the value it encodes, as `dbParams` takes them.
 fn pair(c: Expr, v: Expr) -> Expr {
     Expr::Array(vec![c, v])
 }
@@ -1982,6 +2051,7 @@ fn args(c: &ast::CallExpr) -> Vec<(String, ast::Expr)> {
         .unwrap_or_default()
 }
 
+/// The value of the argument labelled `label` of `c`, if present.
 fn arg(c: &ast::CallExpr, label: &str) -> Option<ast::Expr> {
     args(c)
         .into_iter()
@@ -1989,6 +2059,8 @@ fn arg(c: &ast::CallExpr, label: &str) -> Option<ast::Expr> {
         .map(|(_, v)| v)
 }
 
+/// The strings of a list literal of plain string literals; `None` if `e`
+/// is not a list literal or an element isn't a plain string.
 fn string_list(e: &ast::Expr) -> Option<Vec<String>> {
     match strip_parens(e) {
         ast::Expr::ListExpr(l) => l

@@ -5,20 +5,22 @@ import k.time.TimeZone
 /// `image(description:)`.
 @Native
 public component LineChart<X> {
-    /// The lines.
+    /// The lines, drawn in order; each is a [`LineSeries`].
     @Prop let series: List<LineSeries<X>>
-    /// The text description of what the chart shows.
+    /// The text description of what the chart shows, read by assistive
+    /// technology.
     @Prop let description: String
-    /// The height.
+    /// The height of the chart; it takes the full available width.
     @Prop let height: Length = 320px
-    /// The y axis title.
+    /// The title of the y axis; none when `nil`.
     @Prop let yAxisTitle: String? = nil
-    /// The x axis title.
+    /// The title of the x axis; none when `nil`.
     @Prop let xAxisTitle: String? = nil
-    /// The y range; automatic when `nil`.
+    /// The range of the y axis; computed from the data when `nil`.
     @Prop let yRange: ClosedRange<Double>? = nil
-    /// The time zone of `Date` axes.
+    /// The time zone in which [`k.core.Date`] values on the x axis are
+    /// labelled.
     @Prop let timeZone: TimeZone = .local
-    /// Shows the legend.
+    /// `true` to show the legend of the series names.
     @Prop let legend: Bool = true
 }

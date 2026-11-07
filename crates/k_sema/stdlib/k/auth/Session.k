@@ -5,6 +5,7 @@
 @Native
 public service Session {
     /// The signed-in user, or `nil` for a guest. Reactive. Its type is
-    /// `SessionUser`, not optional, inside bodies guarded by `Authenticated`.
+    /// [`SessionUser`], not optional, inside bodies guarded by
+    /// [`Authenticated`].
     var user: SessionUser?
 }

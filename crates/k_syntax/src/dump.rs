@@ -220,6 +220,9 @@ pub fn tree_sexpr(node: &SyntaxNode) -> Sexpr {
     result.unwrap_or_else(|| Sexpr::List(vec![Sexpr::Symbol(node.kind().name().to_owned())]))
 }
 
+/// Moves the decoded string text collected in `pending`, if any, into
+/// `items` as one string atom, so adjacent text and escape tokens dump as a
+/// single string.
 fn flush(pending: &mut Option<String>, items: &mut Vec<Sexpr>) {
     if let Some(text) = pending.take() {
         items.push(Sexpr::String(text));

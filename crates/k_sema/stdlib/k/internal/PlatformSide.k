@@ -1,4 +1,5 @@
-/// Where a standard-library declaration can be used.
+/// Where a standard-library declaration can be used, the argument of
+/// [`Platform`].
 public enum PlatformSide {
     /// Only on the server: server-only code may use it.
     case server

@@ -15,23 +15,29 @@ error.
 
 | Command | Purpose |
 |---|---|
-| `k dev` | build the `.development` environment, serve it, rebuild on save, run the job worker and load `.env` |
+| `k dev` | build the `.development` environment, serve it on port 8080 (`--port` to change), rebuild and restart on every change, run the job worker and load `.env`; a build with errors keeps the last good one serving |
+| `k run` | the same as `k dev`, without rebuilding on change |
 | `k test` | run every test: one browser and one server per test, a fresh database each; exit `0` when all passed, `1` on a failure or project errors |
 | `k test --filter <text>` | run only the tests whose full name (`Group › description`) contains the text; repeatable; matching nothing is an error |
 | `k test --watch` | run the tests, then re-run the affected ones on every save |
 | `k test --color always\|never\|auto` | when to color the report |
-| `k check` | type checking, formatting, tests, doc-comment checks and lockfile breaking-change detection; fails on any problem; no watch mode |
-| `k check --format json` | the same, with machine-readable diagnostics and quick fixes |
+| `k check [paths…]` | parse and check the projects at the paths (the current directory by default): types and every static rule, doc links, and lockfile breaking-change detection; exit `1` on any problem; no watch mode |
+| `k check --format json` | the same, with one JSON object per diagnostic (code, span, message, quick fixes) on standard output |
+| `k check --color always\|never\|auto` | when to color human-readable output |
 | `k fmt` | format code canonically, removing redundant spellings such as `public` on members (**Planned**) |
 | `k routes` | print the route table: one row per URL and method (pages, endpoint handlers, `routes.lock` redirects) with parameters and guards |
 | `k doc` | render documentation from `///` comments (**Planned**) |
+| `k explain <code>` | describe a diagnostic code (**Planned**; see the [diagnostics reference](diagnostics.md)) |
 | `k lsp` | run the language server on standard input and output, for editors ([Editor setup](../getting-started/editor-setup.md)) |
+
+> **Planned.** The design adds the formatting check, the test run and the type-checking of `k` blocks in
+> doc comments to `k check`; today run `k test` beside it.
 
 ## Building
 
 | Command | Purpose |
 |---|---|
-| `k build` | build the `.production` environment into `dist/`, and update `rpc.lock` |
+| `k build` | build the `.production` environment into `dist/` (`--out <dir>` to change), and update `rpc.lock` |
 
 ## Workspaces
 

@@ -5,9 +5,9 @@ import k.validation.ValidationError
 /// every rpc error enum has (`docs/design/28-rpc-wire-format.md`, "Failures
 /// outside the handler"). Only the runtime produces it.
 public enum RpcFailure implements Error, Codable {
-    /// A guard refused the call.
+    /// A guard refused the call; the payload says why.
     case rejected(GuardRejection)
-    /// A `Validatable` parameter failed validation.
+    /// A [`k.validation.Validatable`] parameter failed validation.
     case invalid(ValidationError)
     /// The browser couldn't reach the server.
     case offline

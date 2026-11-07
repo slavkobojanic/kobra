@@ -1,0 +1,229 @@
+# How to fix each diagnostic code: one line per code, `Kxxxx: text` (Markdown).
+#
+# `crates/k_corpus/tests/book_reference.rs` builds
+# `docs/book/src/reference/diagnostics.md` from the code registry
+# (`crates/k_diagnostics/src/codes.rs`), the golden corpus (`tests/corpus`)
+# and this file. The test fails when a registered code has no line here, or a
+# line names a code that isn't registered.
+K0001: Delete the character, or move it into a string or a comment. `$x` is written `bind x`.
+K0002: Close the string with `"` on the same line. Strings are single-line; use `\n` for a line break.
+K0003: Close the comment with `*/`, or use `//` line comments.
+K0004: Use one of the listed escapes; write `\\` for a literal backslash.
+K0005: Write the color as `#` and 3, 4, 6 or 8 hexadecimal digits, such as `#3B82F6`.
+K0006: Complete the literal: digits after `0x`, no trailing `_`, an exponent after `e`.
+K0007: Write `{{` for a literal `{` (the quick fix does this).
+K0008: Put 1 to 6 hexadecimal digits of a valid scalar value between the braces: `\u{1F44B}`.
+K0100: Write the token the message names at the marked place; the message says what was expected and what was found.
+K0101: Add the matching `)`, `]` or `}`, or remove the opening one.
+K0102: Put each statement, member or declaration on its own line.
+K0103: Remove the `;`. A newline ends a statement.
+K0104: Write `and` instead of `&&` (machine-applicable fix).
+K0105: Write `or` instead of `||` (machine-applicable fix).
+K0106: Write `not` instead of `!` (machine-applicable fix).
+K0107: Replace `a ? b : c` with `if a { b } else { c }`.
+K0108: Choose another name; `as` and `is` are reserved.
+K0109: Use `x when condition` only as a call argument or a list element, such as `.class(.active when isActive)`; elsewhere write an `if`.
+K0110: Move `bind` directly into the call argument: `textField(value: bind name)`.
+K0111: Move the import above the first declaration of the file.
+K0112: Use a known unit suffix (`px`, `rem`, `ms`, `%`, …) or a number extension (`10.minutes`).
+K0113: Add parentheses or split the comparison: `a < b and b < c`.
+K0114: Move `try` or `await` to the start of the expression: `try await a() + b` becomes `(try await a()) + b`, or bind the result first.
+K0115: Write `let name` to bind the value, or `.name` to match an enum case.
+K0116: Give the element a class with `.class(.name)` and select `.name` in the style block.
+K0117: End the declaration with `;` (machine-applicable fix).
+K0118: Remove `!important`; styles are scoped, so make the selector more specific instead.
+K0119: Use `..<` for a half-open range or `...` for a closed one.
+K0120: Use a single `?`. To tell "missing" from "empty", use an enum.
+K0121: Move the annotation before `public`, `private` or `static`.
+K0122: Write an expression at the marked place.
+K0123: Write a type at the marked place.
+K0124: Write a pattern at the marked place: `.case`, `let name`, a literal or `_`.
+K0125: Move the code into a declaration. Statements live in functions, view code in a `view` block.
+K0126: Write a member here: a field, a function, a block (`view`, `style`, …) or a `case`.
+K0127: Write each modifier once, and at most one of `public` and `private`.
+K0128: Put an expression between the braces, or write `{{` for a literal `{`.
+K0129: Name the error type: `throws CartError`.
+K0130: Give each case its own `case` line.
+K0131: Use `let`, or move the mutable state into a service (quick fix: `let`).
+K0132: Give the element a class and select the class.
+K0133: Put the declaration inside a rule such as `.name { … }`.
+K0134: Flatten the code: extract part of the nesting into a function, a component or a separate rule.
+K1001: Move the file to `App.k`, to a module directory under `src/`, or to `migrations/`.
+K1002: Rename the file after its public declaration, or rename the declaration.
+K1003: Move the other public declarations into files of their own, or make them module-private.
+K1004: Rename one of the declarations, or delete the duplicate.
+K1005: Move the declaration to where its kind belongs: the `app` in `App.k`, a `migration` in `migrations/`, tests in `*.test.k` files.
+K1101: Correct the module path or the name, or declare the missing declaration.
+K1102: Make the declaration `public`, or import something that is.
+K1103: Break the cycle: move what both modules need into a third module, or invert one dependency through an interface.
+K1104: Import test-only declarations only from `*.test.k` files and `testing` modules.
+K1105: Remove the import (machine-applicable fix).
+K1106: Remove one of the imports.
+K1201: Correct the name, or import the declaration (the quick fix imports it when exactly one visible declaration has the name).
+K1202: Correct the type name, or import the type (as for `K1201`).
+K1203: Correct the member name; the quick fix suggests the closest member.
+K1301: Use something visible at this place, or widen the declaration's visibility.
+K1302: Remove `public` from the member (machine-applicable fix).
+K1303: Remove `public`; injected dependencies are never API.
+K1304: Remove `private` from the extension.
+K1305: Rename one of the members, or remove one extension from the imports.
+K1901: Correct the reference in backticks, import what it names, or write it fully qualified (`k.http.HttpStatus`).
+K2001: Convert the value, or change the expected type; the message names both types.
+K2002: Write the type out: annotate the binding (`let names: List<String> = []`) or the lambda parameter.
+K2003: Pass the missing argument, with its label.
+K2004: Use a label the callee declares; the quick fix suggests the closest one.
+K2005: Call a function, an initializer or an element; drop the parentheses to read a value.
+K2006: Use a member the expected type has; the quick fix suggests the closest.
+K2007: Write the type name (`Color.primary`), or give the binding a type.
+K2008: Pass the missing field, or give it a default value in the declaration.
+K2009: Implement the required interface on the type, or use a type that implements it.
+K2010: Implement the missing member, with the requirement's signature.
+K2011: Declare the binding with `var`, or assign a new binding instead.
+K2012: Write `x` for `x == true` and `not x` for `x == false` (machine-applicable fix).
+K2013: Use operand types the operator supports, for example by implementing `Equatable` or `Comparable`.
+K2014: Implement an interface instead, or use composition.
+K2015: Give the member the requirement's exact type and labels.
+K2016: Move the stored field into the type's declaration, or make it a computed property.
+K2017: Unwrap the value first: `?.`, `if let`, `guard let` or `??`.
+K2018: Remove the `?.` or `??`; the value is never `nil`.
+K2019: Rename one of the fields, properties or cases.
+K2101: Convert to one dimension, or keep the quantities apart.
+K2201: Add `try` before the call (machine-applicable fix).
+K2202: Remove the `try` (machine-applicable fix).
+K2203: Catch the error with `do`/`catch`, or declare the error type in the function's `throws`.
+K2204: Add `await` before the call or query (machine-applicable fix).
+K2205: Make the enclosing function `async`, or move the call into an async function or handler.
+K2206: Add `catch` clauses for the missing cases (the quick fix adds them), a `catch let error`, or declare the error in `throws`.
+K2301: Handle the missing cases (the quick fix adds them), or add a `default` arm.
+K2302: Remove the arm, or move it before the arm that already covers its values.
+K2303: Write `default` instead of `case _` (machine-applicable fix).
+K2304: Write `default` (in `match`) or `catch _` (in `catch`) instead of an unused binding.
+K2305: End the `else` block with `return`, `throw`, `break` or `continue`.
+K2306: Give the binding a value on every path before reading it.
+K2307: Return a value on every path, or end with a `return`.
+K2308: Drop `return`: the lambda's last expression is its value.
+K2309: Use `break` and `continue` only inside a loop of the same function.
+K2310: Write `for await` (machine-applicable fix), inside an async function.
+K2311: Iterate a `Stream` with `for await`, and everything else with `for`.
+K2401: Use the named case, such as `.notFound` instead of `.other(404)`.
+K2402: Name the currency: `items.sum(in: .usd) { item => item.price }`.
+K3001: Use the keyword the annotation requires (the quick fix changes it): `@State`, `@Binding`, `@Form` and `@Version` are `var`; the others `let`.
+K3002: Remove the annotation, or move it to a declaration or member it applies to.
+K3003: Add a `view { … }` block.
+K3004: Merge the blocks into one.
+K3005: Use the type the annotation needs: `View` for `@Slot`, `Classes` for `@Stylable`, `Event<T>` for `@Emits`.
+K3010: Make the value `@State` if it is set directly, or change the inputs the `@Derived` value is computed from.
+K3011: Move the write into a function or an `@Effect`.
+K3012: Remove `throws` and handle the errors inside, usually by recording them in state (the quick fix wraps the body in `do`/`catch`).
+K3013: Keep the handle and cancel it in `onCleanup { timer.cancel() }`.
+K3014: Make the field a `@Binding` so the parent sees the change, or keep a local `@State` copy.
+K3015: Bind a `@State`, `@Binding` or `@Form` value, or a field of one.
+K3016: Write `bind` before the value (machine-applicable fix).
+K3017: Pass a function that handles its own errors, or wrap the call in `do`/`catch`.
+K3018: Remove `bind` and pass the value.
+K3020: Break the cycle: load one value from the other's inputs instead of from the other value.
+K3021: Make the loaded type `Codable`, or load a `Codable` summary of it.
+K3022: Add a `loading { … }` block.
+K3023: Rename the member; `reload()` is generated.
+K3024: Make the error type `Codable`, or map the error to a `Codable` one inside the initializer.
+K3025: Move `status(_:)` into a `metadata` block inside `failed`.
+K3026: Compute the value from inputs that don't depend on it.
+K3101: Use a K element name (`link` for `a`, `paragraph` for `p`) or a component's name.
+K3102: Pass the required named argument, such as `description:` on `image`.
+K3103: Use an attribute or prop the element or component defines; the quick fix suggests the closest one.
+K3104: Set the attribute once; to combine classes, pass a list: `.class([.a, .b])`.
+K3105: Use an event the element or component declares with `@Emits`.
+K3106: Add a key: `for item in items key item.id`.
+K3107: Put content the element accepts in its block, or use another element.
+K3108: Write one `.on(…)` call per event.
+K3109: Use an integer literal from 1 to 6.
+K3110: Use the semantic element instead of `.role(…)`, such as `button` for `.role(.button)`.
+K3111: Remove the `key` clause; it belongs only to a `for` in a view.
+K3201: Use the camelCase name of a real CSS property; the quick fix suggests the closest one.
+K3202: Use a value the property accepts; the message shows the property's grammar.
+K3203: Declare the class in the style block, or correct the reference; the quick fix suggests the closest class.
+K3204: Use the class with `.class(…)`, or delete it.
+K3205: Declare `@keyframes` with that name, or correct the name.
+K3206: Reference the keyframes with `animationName`, or delete them.
+K3207: Use `from`, `to` or a percentage from `0%` to `100%`.
+K3208: Keep only declarations in the keyframe block.
+K3209: Apply the `@Stylable` field with `.class([... , field])`, or remove it.
+K3210: Interpolate only props and state; compute other values into a `@Derived` field first.
+K3211: Use a known media feature, such as `maxWidth` or `prefersColorScheme`.
+K3212: Use `@media`, `@container`, `@layer` or `@keyframes`.
+K3213: Rename one of the keyframes.
+K3301: Declare the token in the theme (`color name: Color = …`), or correct its name.
+K3302: Override the library's token with the assignment form, `name = value` (the quick fix rewrites it).
+K3303: Move the override into the app's `theme`.
+K3304: Start the token with a category: `color`, `space`, `radius`, `fontSize`, `font`, `shadow` or `duration`.
+K3305: Give the token its category's type, such as `space md: Spacing`.
+K3306: Choose another variant name; `base` means the theme without a variant.
+K3307: Remove the duplicate token, variant or override.
+K4001: Declare a service that implements the interface, or bind one with `use` in `App.k`.
+K4002: Choose one with `use Impl for Interface` in `App.k`, optionally per environment.
+K4003: Break the cycle: extract what both need into a third service, or pass a value instead of injecting.
+K4004: Inject only services with the same or a longer scope; pass request data as arguments instead.
+K4005: Inject what the declaration's layer allows; a component injects a client-side service that wraps the protocol.
+K4006: Add a method to the service that makes the change, and call it.
+K4007: Move the code to the server side, or reach the server through a protocol.
+K4008: Remove the dependency that makes the service one-sided, or split it into two services.
+K4009: Pass what the job needs in its payload instead of reading the session.
+K4010: Use an implementation of the interface in the `use` rule.
+K4011: Bind a config value only inside a test, with `use Config.sample for Config`.
+K4012: Call it from an effect or a handler, which run only in the browser, or check the side first.
+K4013: Render the value only in the browser, or turn server rendering off with `@Rendering(.client)`.
+K4014: Remove the `use` rule (machine-applicable fix).
+K4015: Add a `use … in` rule for the uncovered environment, or drop the environment restriction from one rule.
+K4016: Declare one `init()` without parameters and without `throws`; take inputs through injection.
+K4017: Give the field an `@Env("NAME")` annotation, or move the member out of the config.
+K4018: Read each variable in one field only.
+K4019: Use a `ConfigValue` type: `String`, `Int`, `Bool`, `Url`, `Duration`, `Secret<T>`, `EmailAddress`, …
+K4020: Read configs through `@Inject`; in tests, bind a sample with `use`.
+K4021: Implement an interface instead; only test code may fake a service.
+K4022: Add `@Inject let session: Session` to the endpoint page.
+K4023: Add `use remote(SomeConfig) for Protocol` to `App.k`.
+K4024: Remove the rule; the protocol is implemented by the app, or isn't from a library dependency.
+K4025: Pass a config that implements `RemoteService`, with `url: Url` and `token: Secret<String>`.
+K4026: Give the binding a protocol type: `let events: PaymentEvents = RemoteClient.at(…)`.
+K5001: Give one of the pages or endpoints another URL, or another name.
+K5002: Use `String`, `Int`, `Uuid`, `Page`, a payload-free enum or an optional of these.
+K5003: Name every path parameter once in the template, as `{name}`, and declare a `@Param` for each.
+K5004: Add `at "/path"` to the endpoint page.
+K5005: Check the caller inside the handler; for webhooks, verify a signature.
+K5006: Name a guard: `Authenticated`, `Role(…)`, `RateLimit(…)` or a type that implements `Guard`.
+K5007: Name the sign-in page on the app with `@SignInPage(.signIn)`.
+K5008: Remove `requires Authenticated` from the sign-in page.
+K5009: Remove `@Layout` or `@NoLayout`; endpoint pages render no view.
+K5010: Remove the member; an endpoint page holds handlers and injected fields only.
+K5011: Merge the handlers for one method into one.
+K5012: Give the handler the signature `func name(request: IncomingRequest) async -> HttpResponse`.
+K5501: Add `throws RpcOnlyError`, or an error enum with a `case rpcFailure(RpcFailure)` (the quick fix adds `throws RpcOnlyError`).
+K5502: Add exactly one `case rpcFailure(RpcFailure)` to the error enum.
+K5503: Make the type `Codable`.
+K5504: Implement the protocol in a service that is server-side (it may inject repositories).
+K5505: Repeat the rpc's parameters, return type and `throws` in the handler.
+K5506: Throw one of the error enum's own cases; `rpcFailure` is produced only by the runtime.
+K6001: Use only fields, literals, parameters and the query operators the compiler translates; filter in K after loading if needed.
+K6002: Use a column type (`String`, `Int`, `Bool`, `Double`, `Decimal`, `Money`, `Date`, `Uuid`, an enum without payloads, …) or a `@Relation`.
+K6003: Rename the entity, or set another table name.
+K7001: Read `form.value` inside the action passed to `form.handle(…)`.
+K7002: Use `.empty` only to initialize a `@Form` field.
+K7003: Use `@Matches` or `@Length` on a `String`, or change the field to the parsed type.
+K7004: Remove `@Email` (machine-applicable fix).
+K7005: Pass the pattern as a string literal.
+K7006: Correct the regular expression.
+K7501: Pass a `Bool` expression to `expect`.
+K7502: Put a call that can throw that error inside the block, or expect another error.
+K7503: Bind the config in the test group: `use SomeConfig.sample for SomeConfig`.
+K7510: Fix the code or the expectation; the notes show the value of each part of the failed expression.
+K8001: Undo the breaking change, or mark it deliberate with `@Breaking("reason")` once no deployed caller relies on the old shape.
+K8002: Restore the lockfile from version control, or fix its syntax.
+K8003: Keep the payload compatible (add optional fields only), or give the job a new `@JobName` and drain the old queue.
+K8101: Fix the syntax of `k.toml`, and give `[package]` its `name` and `k` keys.
+K8102: Name a member of the workspace, or add the member to the root `k.toml`'s `members`.
+K8103: Create the member's `k.toml`, or remove it from `members`.
+K8104: Move what both packages need into a library both depend on.
+K8105: Depend on a library instead; move the shared code out of the app into one.
+K8106: Rename one of the modules.
+K9001: Save the file as UTF-8.
+K9002: Check that the path exists and is readable.

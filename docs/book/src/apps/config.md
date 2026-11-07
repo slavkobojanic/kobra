@@ -18,10 +18,10 @@ public config StripeWebhookConfig {
 ```
 
 ```k
+// src/payments/StripeWebhookVerifier.k
 public service StripeWebhookVerifier {
     @Inject let config: StripeWebhookConfig
-
-    …
+    // …
 }
 ```
 
@@ -53,6 +53,7 @@ browser, and arrive the way Docker and Kubernetes deliver them.
 - **A config is data.** It holds only `@Env` fields: no functions, no `@Inject`, no state.
 
 ```k
+~import k.text.EmailAddress
 /// The one staff account that can open the admin pages.
 public config AdminConfig {
     /// The address staff sign in with.
@@ -103,8 +104,11 @@ Setting both `NAME` and `NAME_FILE` is a startup error, so it is never ambiguous
 | Environment | Values come from |
 |---|---|
 | `.production` (`dist/app`) | the process environment only |
-| `.development` (`k dev`) | the process environment, plus an optional `.env` file at the project root. The process environment wins on a conflict, and `k dev` prints which `.env` keys were shadowed. `_FILE` variables may point at paths relative to the project root. |
+| `.development` (`k dev`) | the process environment, plus an optional `.env` file at the project root. The process environment wins on a conflict. `_FILE` variables may point at paths relative to the project root. |
 | `.test` (`k test`) | never the environment; see [Tests](#tests) |
+
+> **Planned.** The design has `k dev` print which `.env` keys the process environment shadowed. The
+> first compiler releases apply the precedence without saying so.
 
 ### Example files hold placeholders
 
@@ -201,6 +205,8 @@ test StripeWebhookVerifier {
 
   ```k
   // src/testing/Samples.k
+  ~import payments.StripeWebhookConfig
+  ~
   public extend StripeWebhookConfig {
       static let sample = StripeWebhookConfig(signingSecret: Secret("whsec_test"))
   }

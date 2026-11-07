@@ -3,13 +3,16 @@ import k.charts.ChartScalable
 /// A 64-bit floating-point number.
 @Native
 public struct Double implements Equatable, Comparable, Codable, ConfigValue, ChartScalable {
-    /// Parses a decimal number; `nil` if `text` isn't one.
+    /// Parses a decimal number such as `"2.5"`.
+    ///
+    /// - Returns: the nearest `Double`, or `nil` if `text` isn't a number.
     static func parse(_ text: String) -> Double?
 
-    /// The number rounded to the nearest whole number.
+    /// Returns the number rounded to the nearest whole number.
     func rounded() -> Int
 
-    /// Formats the number in the locale in effect.
+    /// Formats the number in the locale in effect, as `style` says
+    /// ([`NumberStyle`]).
     func formatted(as style: NumberStyle) -> String
 
     /// The duration of this many seconds (`0.2.seconds`).

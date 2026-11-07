@@ -89,11 +89,35 @@ impl std::error::Error for MigrationError {}
 /// no schema changes (a data migration written by hand) and the entities
 /// are not compared.
 ///
+/// The file is named after the description's words (runs of letters and
+/// digits, lower-cased, joined with `_`), numbered one past the larger of
+/// the lock's migration count and the highest `migrations/NNNN_*.k` file
+/// number. Nothing is written to disk: the caller (`k migrate new`)
+/// writes [`MigrationDraft::source`] and [`MigrationDraft::lock`].
+///
 /// # Errors
 ///
-/// [`MigrationError::Codegen`] for a program with errors,
-/// [`MigrationError::BadDescription`] for a description without a word,
-/// and [`MigrationError::Refused`] for differences it doesn't write.
+/// [`MigrationError::Codegen`] for a program with errors or a cancelled
+/// analysis, [`MigrationError::BadDescription`] for a description without
+/// a word, and [`MigrationError::Refused`] for differences it doesn't
+/// write.
+///
+/// # Examples
+///
+/// ```
+/// use k_codegen::{MigrationPlan, plan_migration};
+/// use k_sema::{AnalysisHost, Options, ProjectPath};
+///
+/// let files = vec![(
+///     ProjectPath::new("k.toml").unwrap(),
+///     "[package]\nname = \"demo\"\nk = \"0.1\"\n".to_owned(),
+/// )];
+/// let host = AnalysisHost::with_files(Options::new(), files);
+/// let plan = plan_migration(&host.analysis(), "Backfill notes!", true).expect("drafts");
+/// let MigrationPlan::Draft(draft) = plan else { panic!("an empty migration is always drafted") };
+/// assert_eq!(draft.file, "migrations/0001_backfill_notes.k");
+/// assert!(draft.lock.contains("0001_backfill_notes"));
+/// ```
 pub fn plan_migration(
     analysis: &k_sema::Analysis,
     description: &str,
@@ -171,6 +195,8 @@ struct Changes {
 }
 
 impl Changes {
+    /// `true` when the entities match the lock: no table, column, index or
+    /// retirement to write.
     fn is_empty(&self) -> bool {
         self.creates.is_empty()
             && self.adds.is_empty()

@@ -11,6 +11,23 @@
 //! to the end of the text, and an offset inside a multi-byte character (or
 //! between the `\r` and `\n` of a line break) snaps back to the start of
 //! the character.
+//!
+//! ```
+//! use k_diagnostics::TextSize;
+//! use k_lsp::line_index::LineIndex;
+//! use lsp_types::Position;
+//!
+//! // `é` is 2 bytes in UTF-8 but 1 UTF-16 unit; `😀` is 4 bytes and 2 units.
+//! let text = "let é = 1\nlet s = \"😀!\"";
+//! let index = LineIndex::new(text);
+//! assert_eq!(index.line_count(), 2);
+//!
+//! let bang = TextSize::from(u32::try_from(text.find('!').unwrap()).unwrap());
+//! assert_eq!(index.position(text, bang), Position::new(1, 11));
+//! assert_eq!(index.offset(text, Position::new(1, 11)), bang);
+//! // Past the end of a line clamps to its end (before the line break).
+//! assert_eq!(index.offset(text, Position::new(0, 99)), TextSize::from(10));
+//! ```
 
 use k_diagnostics::{TextRange, TextSize};
 use lsp_types::{Position, Range};

@@ -117,6 +117,11 @@ fn fastest<S, R>(
     best
 }
 
+/// The generated project's files as the input of an `AnalysisHost`.
+///
+/// # Panics
+///
+/// If a generated path is not a valid project path.
 fn paths(files: &[File]) -> Vec<(ProjectPath, String)> {
     files
         .iter()

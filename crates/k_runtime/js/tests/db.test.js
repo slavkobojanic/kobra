@@ -1,7 +1,11 @@
-// The database half of repositories (docs/compiler/db.md §4–§9): column
-// codecs, parameters, row decoding, relations loaded in one query, typed
-// unique violations, and transactions with savepoints. The ops are faked
-// here; `k_server`'s db tests and `tests/corpus/db` run the real database.
+/**
+ * @module k:/tests/db.test.js
+ *
+ * The database half of repositories (docs/compiler/db.md §4–§9): column
+ * codecs, parameters, row decoding, relations loaded in one query, typed
+ * unique violations, and transactions with savepoints. The ops are faked
+ * here; `k_server`'s db tests and `tests/corpus/db` run the real database.
+ */
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
 import {
   Database,
@@ -47,6 +51,7 @@ function fakeOps(rows = {}, writes = {}) {
   };
 }
 
+/** What promise `p` rejects with, or `undefined` when it resolves. */
 async function rejects(p) {
   try {
     await p;
@@ -56,6 +61,7 @@ async function rejects(p) {
   throw new Error("expected a rejection");
 }
 
+/** The SQL parameters that column codec `c` encodes `v` to. */
 function enc(c, v) {
   const out = [];
   c.enc(v, out);

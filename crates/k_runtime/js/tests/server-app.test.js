@@ -1,8 +1,12 @@
-// The server half of an app (docs/compiler/server.md §5–§10): routing and
-// typed parameters, rpc dispatch with Connect errors, endpoints, sessions,
-// guards and the document. These drive `createApp` with hand-written specs
-// (the generated entry builds the same shape) and call the handler
-// directly, without HTTP.
+/**
+ * @module k:/tests/server-app.test.js
+ *
+ * The server half of an app (docs/compiler/server.md §5–§10): routing and
+ * typed parameters, rpc dispatch with Connect errors, endpoints, sessions,
+ * guards and the document. These drive `createApp` with hand-written specs
+ * (the generated entry builds the same shape) and call the handler
+ * directly, without HTTP.
+ */
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
 import {
   Metadata,
@@ -34,10 +38,12 @@ function req(method, path, { headers = [], body = "" } = {}) {
   return { id: nextId++, method, path, headers, body: enc.encode(body), remote: "203.0.113.5" };
 }
 
+/** The value of header `name` of response `r`, or `undefined`. */
 function header(r, name) {
   return r.headers.find(([n]) => n === name)?.[1];
 }
 
+/** The body of response `r` as text. */
 function text(r) {
   return typeof r.body === "string" ? r.body : new TextDecoder().decode(r.body);
 }
@@ -222,6 +228,10 @@ test("Metadata keeps the last value of each entry", () => {
 
 // ------------------------------------------------------------------- rpcs
 
+/**
+ * Posts `body` to the `Echo` rpc of `app`; answers the status, the parsed JSON and the
+ * response.
+ */
 async function call(app, body, headers = [["content-type", "application/json"]]) {
   const r = await app(req("POST", "/t.P/Echo", { headers, body }));
   return { status: r.status, json: JSON.parse(text(r)), r };

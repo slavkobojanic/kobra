@@ -37,7 +37,7 @@ impl StatementSql {
 /// of the entity's generated `UniqueViolation` enum.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct UniqueIndex {
-    /// The table.
+    /// The table the index is on.
     pub table: String,
     /// The stored columns, in index order (two for money).
     pub columns: Vec<String>,

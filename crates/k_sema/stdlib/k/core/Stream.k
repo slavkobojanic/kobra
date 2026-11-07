@@ -2,12 +2,16 @@
 /// (`docs/design/29-server-streaming.md`).
 @Native
 public struct Stream<T> {
-    /// The elements for which `predicate` is `true`, lazily.
+    /// Returns a stream of the elements for which `predicate` is `true`,
+    /// computed lazily as they arrive.
     func filter(_ predicate: (T) -> Bool) -> Stream<T>
-    /// The results of `transform`, lazily.
+    /// Returns a stream of the results of `transform`, computed lazily.
     func map<U>(_ transform: (T) -> U) -> Stream<U>
-    /// A stream that yields `value` first, then the elements of this one.
+    /// Returns a stream that yields `value` first, then the elements of
+    /// this one.
     func startingWith(_ value: T) -> Stream<T>
-    /// The next element, or `nil` once the stream has ended.
+    /// Waits for the next element.
+    ///
+    /// - Returns: the element, or `nil` once the stream has ended.
     func next() async -> T?
 }

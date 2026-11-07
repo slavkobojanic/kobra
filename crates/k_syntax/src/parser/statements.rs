@@ -104,7 +104,9 @@ pub(crate) fn statement_list(p: &mut Parser<'_>, open: TextRange, in_match: bool
     }
 }
 
-/// One statement.
+/// `Stmt`: parses one statement at a token for which `can_start_stmt`
+/// holds, dispatching on its first token. A `return` takes a value only
+/// when one starts on the same line.
 fn stmt(p: &mut Parser<'_>) {
     match p.current() {
         K::LetKw | K::VarKw => let_stmt(p),
@@ -169,6 +171,8 @@ fn expr_stmt(p: &mut Parser<'_>) {
     }
 }
 
+/// Returns `true` if the current token is `=` or a compound assignment
+/// operator (`+=`, `-=`, `*=`, `/=`, `%=`).
 fn at_assignment_operator(p: &Parser<'_>) -> bool {
     matches!(
         p.current(),
@@ -406,6 +410,8 @@ pub(crate) fn match_expr(p: &mut Parser<'_>) -> CompletedMarker {
     m.complete(p, K::MatchExpr)
 }
 
+/// Returns `true` if the current token starts a match arm (`case` or
+/// `default`).
 fn at_arm_start(p: &Parser<'_>) -> bool {
     matches!(p.current(), K::CaseKw | K::DefaultKw)
 }

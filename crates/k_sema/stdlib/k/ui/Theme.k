@@ -4,7 +4,7 @@
 @ClientOnly
 @Native
 public service Theme {
-    /// The active variant. Reactive.
+    /// The active variant ([`k.core.ThemeVariant`]). Reactive.
     var current: ThemeVariant
 
     /// Makes `variant` active by swapping one class on the document root,

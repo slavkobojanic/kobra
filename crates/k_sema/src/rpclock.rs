@@ -79,7 +79,9 @@ enum Shape {
 /// Why the lock can't be read: a message and the byte offset of the
 /// problem.
 struct Invalid {
+    /// What is wrong, for the diagnostic.
     message: String,
+    /// The byte offset in the lockfile where the problem is.
     offset: usize,
 }
 

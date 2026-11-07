@@ -1,8 +1,12 @@
-// The control-flow blocks of views: `when` (`if`, `if let`), `branch`
-// (`match`) and `each` (`for … key`) with keyed reconciliation
-// (docs/compiler/runtime.md §5.3, docs/compiler/codegen.md §11.1). A block
-// owns the nodes between two comment markers and a child scope per branch
-// or row. All of these are test-first until the blocks land.
+/**
+ * @module k:/tests/ui-blocks.test.js
+ *
+ * The control-flow blocks of views: `when` (`if`, `if let`), `branch`
+ * (`match`) and `each` (`for … key`) with keyed reconciliation
+ * (docs/compiler/runtime.md §5.3, docs/compiler/codegen.md §11.1). A block
+ * owns the nodes between two comment markers and a child scope per branch
+ * or row. All of these are test-first until the blocks land.
+ */
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
 import { batch, branch, each, onCleanup, renderEffect, root, signal, text, when } from "k:runtime";
 

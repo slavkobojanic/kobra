@@ -1,18 +1,22 @@
-// `@Form` state on the client (docs/compiler/runtime.md §9,
-// docs/design/15-forms-and-validation.md): raw text per field, parsing,
-// constraints, cross-field rules, error wiring with `aria-invalid` and
-// `aria-describedby`, and `handle(action)` with double-submit protection.
-//
-// runtime.md §9 fixes `createForm(fields, initial, validate)` but not the
-// object it returns. These tests assume the shape below, which mirrors the
-// K surface of `k.validation.Form`; the implementation must either provide
-// it or update this header and the tests together:
-//
-//   form.field(name)          → { value(), set(raw), error(), isTouched(), touch(), attach(input, message?) }
-//   form.isValid(), form.isSubmitting(), form.isTouched(), form.errors()  (reactive reads)
-//   form.value()              → the parsed struct, only while the action runs
-//   form.handle(action)       → (event?) => Promise<void>; calls action(parsedStruct)
-//   validate(value, rules)    → rules.check(ok, fieldName, message), fieldName a string
+/**
+ * @module k:/tests/ui-forms.test.js
+ *
+ * `@Form` state on the client (docs/compiler/runtime.md §9,
+ * docs/design/15-forms-and-validation.md): raw text per field, parsing,
+ * constraints, cross-field rules, error wiring with `aria-invalid` and
+ * `aria-describedby`, and `handle(action)` with double-submit protection.
+ *
+ * runtime.md §9 fixes `createForm(fields, initial, validate)` but not the
+ * object it returns. These tests assume the shape below, which mirrors the
+ * K surface of `k.validation.Form`; the implementation must either provide
+ * it or update this header and the tests together:
+ *
+ *   form.field(name)          → { value(), set(raw), error(), isTouched(), touch(), attach(input, message?) }
+ *   form.isValid(), form.isSubmitting(), form.isTouched(), form.errors()  (reactive reads)
+ *   form.value()              → the parsed struct, only while the action runs
+ *   form.handle(action)       → (event?) => Promise<void>; calls action(parsedStruct)
+ *   validate(value, rules)    → rules.check(ok, fieldName, message), fieldName a string
+ */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import { batch, createForm, renderEffect, root } from "k:runtime";
 
@@ -37,6 +41,7 @@ const minLength = (n, message = `Use at least ${n} characters`) => (v) => (v.len
 /** `@Range(lo...hi)`. */
 const range = (lo, hi, message = `Enter a number from ${lo} to ${hi}`) => (v) => (v >= lo && v <= hi ? null : message);
 
+/** A form validator without cross-field rules. */
 const noRules = () => {};
 
 /** A deferred promise for actions that finish when the test says so. */

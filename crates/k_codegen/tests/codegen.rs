@@ -8,6 +8,11 @@ use k_codegen::{
 };
 use k_sema::{AnalysisHost, Options as SemaOptions, ProjectPath};
 
+/// An analysis host over `files`, given as `(project path, text)` pairs.
+///
+/// # Panics
+///
+/// If a path is not a valid project path.
 fn analyse(files: &[(&str, &str)]) -> AnalysisHost {
     let files = files
         .iter()
@@ -16,6 +21,7 @@ fn analyse(files: &[(&str, &str)]) -> AnalysisHost {
     AnalysisHost::with_files(SemaOptions::new(), files)
 }
 
+/// The `k.toml` of the test projects: a package named `demo`.
 const TOML: &str = "[package]\nname = \"demo\"\nk = \"0.1\"\n";
 
 #[test]
@@ -383,6 +389,11 @@ fn example_client(name: &str) -> Vec<OutputFile> {
     out.client
 }
 
+/// The contents of the client entry chunk (`app.<hash>.js`) among `files`.
+///
+/// # Panics
+///
+/// If there is no client entry.
 fn entry_of(files: &[OutputFile]) -> &str {
     &files
         .iter()

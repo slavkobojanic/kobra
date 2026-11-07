@@ -7,6 +7,7 @@ update and nothing else runs. There is no diffing.
 Reactivity is **explicit**: only annotated fields are reactive.
 
 ```k
+~import k.observe.Log
 component Counter {
     @State var count: Int = 0
     @Derived let doubled: Int = count * 2
@@ -39,7 +40,66 @@ A plain `var` is ordinary, non-reactive data. Changing it never updates the view
 
 `@State` fields are always `var`. Assigning one, or mutating it in place, is a tracked write:
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
 ```k
+// src/shop/Context.k
+struct CartItem {
+    let name: String
+}
+
+struct Address {
+    var city: String
+}
+
+struct User {
+    var address: Address
+
+    static let sample = User(address: Address(city: "Oslo"))
+}
+
+struct Product {
+    let price: Money
+}
+
+struct Draft implements Codable {
+    let text: String
+}
+
+enum LookupError implements Error {
+    case notFound
+}
+
+struct Profile {
+    let name: String
+}
+
+service Users {
+    func load(_ id: Int) async throws LookupError -> Profile {
+        throw .notFound
+    }
+}
+
+struct Place {
+    let name: String
+}
+
+service Places {
+    func search(_ text: String) async throws LookupError -> List<Place> {
+        return []
+    }
+}
+
+service Analytics {
+    func send(_ page: String, _ info: String) {}
+
+    func flush() {}
+}
+```
+-->
+
+```k
+~component Cart {
 @State var items: List<CartItem> = []
 @State var user: User = .sample
 
@@ -50,6 +110,10 @@ func add(item: CartItem) {
 func move() {
     user.address.city = "Bergen"
 }
+~    view {
+~        text { "…" }
+~    }
+~}
 ```
 
 Writes to nested fields of a struct are fine-grained: `user.address.city = "Bergen"` updates only the DOM
@@ -63,11 +127,16 @@ A `@Derived` field is a value computed from other reactive values. It is recompu
 changes, and only when something reads it:
 
 ```k
+~component ProductFilter {
 @State var maxPrice: Money = 50.usd
 @Prop let products: List<Product>
 
 @Derived let matches: List<Product> = products.filter { product => product.price <= maxPrice }
 @Derived let summary: String = if matches.isEmpty { "No results" } else { "{matches.count} results" }
+~    view {
+~        text { "…" }
+~    }
+~}
 ```
 
 There are no dependency arrays to keep in sync: the dependencies are whatever the expression reads.
@@ -81,12 +150,21 @@ An effect is a function that runs after the component mounts and re-runs wheneve
 `@Derived` value **it actually read during its last run** changes:
 
 ```k
+~component Editor {
+~    @Prop let isLoggedIn: Bool
+~    @State var draft: Draft = Draft(text: "")
+~
+~    func save(_ draft: Draft) {}
 @Effect
 func sync() {
     if isLoggedIn {           // always read
         save(draft)           // read only when isLoggedIn is true
     }
 }
+~    view {
+~        text { "…" }
+~    }
+~}
 ```
 
 Tracking happens at runtime, because a static scan would be wrong for conditional reads and for reads
@@ -119,6 +197,10 @@ Event handlers follow the same rule.
 `@Effect(on: […])` names the dependencies explicitly. Reads in the body are then ignored for tracking:
 
 ```k
+~component ProfileCard {
+~    @Inject let users: Users
+~    @Prop let userId: Int
+~    @State var profile: LoadState<Profile> = .idle
 @Effect(on: [userId])
 func loadUser() async {
     do {
@@ -127,6 +209,10 @@ func loadUser() async {
         profile = .failed(error)
     }
 }
+~    view {
+~        text { "…" }
+~    }
+~}
 ```
 
 `@Effect(on: [])` runs once after mount and never re-runs, which is how a page follows a long-lived
@@ -135,11 +221,19 @@ stream for as long as it is shown ([Server streaming](streaming.md)).
 ### Reading without subscribing, and cleaning up
 
 ```k
+~component Tracker {
+~    @Inject let analytics: Analytics
+~    @Prop let page: String
+~    @State var sessionInfo: String = ""
 @Effect
 func track() {
-    Analytics.send(page, untracked { sessionInfo })   // read without subscribing
-    onCleanup { Analytics.flush() }                    // before each re-run, and on unmount
+    analytics.send(page, untracked { sessionInfo })   // read without subscribing
+    onCleanup { analytics.flush() }                    // before each re-run, and on unmount
 }
+~    view {
+~        text { "…" }
+~    }
+~}
 ```
 
 - `untracked { … }` reads values without making them dependencies.
@@ -148,6 +242,12 @@ func track() {
 Timers started in an effect should be cancelled in `onCleanup`:
 
 ```k
+~import k.time.Clock
+~
+~component Forecast {
+~    @Prop let placeId: Int
+~
+~    func reload() {}
 @Inject let clock: Clock
 
 @Effect(on: [placeId])
@@ -156,6 +256,10 @@ func refreshPeriodically() {
 
     onCleanup { timer.cancel() }
 }
+~    view {
+~        text { "…" }
+~    }
+~}
 ```
 
 The compiler warns when a timer handle returned inside an effect is discarded, because the timer would
@@ -173,6 +277,13 @@ because each keystroke cancels the run that is still sleeping. The sleep comes f
 `Clock`, as every timer does:
 
 ```k
+~import k.time.Clock
+~
+~component Search {
+~    @Inject let clock: Clock
+~    @Inject let places: Places
+~    @State var query: String = ""
+~    @State var results: LoadState<List<Place>> = .idle
 @Effect
 func search() async {
     let text = query
@@ -185,6 +296,10 @@ func search() async {
         results = .failed(error)
     }
 }
+~    view {
+~        text { "…" }
+~    }
+~}
 ```
 
 ## State in services

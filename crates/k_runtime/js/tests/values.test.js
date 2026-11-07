@@ -1,5 +1,9 @@
-// Values: panics, checked Int arithmetic and structural equality
-// (docs/compiler/codegen.md, "Value representation").
+/**
+ * @module k:/tests/values.test.js
+ *
+ * Values: panics, checked Int arithmetic and structural equality
+ * (docs/compiler/codegen.md, "Value representation").
+ */
 import { assert, assertEq, assertThrows, test } from "k:testing";
 import { KPanic, checkInt, equals, intDiv, intRem, isPanic, panic, textOf, unitCase } from "k:runtime";
 

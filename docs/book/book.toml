@@ -19,6 +19,21 @@ smart-punctuation = true
 # every ```k block. See theme/k-highlight.js.
 additional-js = ["theme/k-highlight.js"]
 additional-css = ["theme/k.css"]
+# "Suggest an edit" links on every page. The repository isn't published yet,
+# so the template is set where the book is built for publishing, for example
+#   MDBOOK_OUTPUT__HTML__EDIT_URL_TEMPLATE='https://<host>/<repo>/edit/main/docs/book/src/{path}' \
+#   MDBOOK_OUTPUT__HTML__GIT_REPOSITORY_URL='https://<host>/<repo>' mdbook build docs/book
+# (mdBook reads any `MDBOOK_`-prefixed variable as a book.toml key). Fill in
+# the two keys below instead once the repository has a public URL.
+# edit-url-template = "https://<host>/<repo>/edit/main/docs/book/src/{path}"
+# git-repository-url = "https://<host>/<repo>"
+
+# Lines of a ```k block that start with `~` are hidden (readers can reveal
+# them with the eye button). They carry the imports and surrounding
+# declarations that make a sample compile; crates/k_sema/tests/book.rs
+# checks every ```k block with them included.
+[output.html.code.hidelines]
+k = "~"
 
 [output.html.fold]
 enable = true
@@ -26,3 +41,9 @@ level = 1
 
 [output.html.search]
 enable = true
+limit-results = 30
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 2
+expand = true
+heading-split-level = 2

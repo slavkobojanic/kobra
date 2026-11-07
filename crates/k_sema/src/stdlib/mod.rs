@@ -195,8 +195,11 @@ impl StdlibDeclaration {
 /// analysis. Building it parses about two hundred small files, well under a
 /// millisecond each.
 pub struct Stdlib {
+    /// The parsed files, in [`files::FILES`] order.
     files: Vec<StdlibFile>,
+    /// The named top-level declarations of every file, in file order.
     declarations: Vec<StdlibDeclaration>,
+    /// Indices into `declarations` by qualified name (`k.core.Int`).
     by_name: HashMap<String, usize>,
 }
 
@@ -206,11 +209,28 @@ impl Stdlib {
     pub const FILE_ID_BASE: u32 = 0;
 
     /// Returns the process-wide standard library, parsing it on first use.
+    ///
+    /// Thread-safe: concurrent first calls block until one of them has
+    /// built it, and every later call is a load.
+    ///
+    /// ```
+    /// use k_sema::stdlib::{DeclarationKind, Stdlib};
+    ///
+    /// let stdlib = Stdlib::get();
+    /// let client = stdlib.lookup("k.http.HttpClient").unwrap();
+    /// assert_eq!(client.kind, DeclarationKind::Interface);
+    /// assert_eq!(client.qualified_name(), "k.http.HttpClient");
+    /// // `Int` needs no import: it is in the prelude.
+    /// assert!(stdlib.prelude().iter().any(|(name, _)| *name == "Int"));
+    /// ```
     pub fn get() -> &'static Stdlib {
         static STDLIB: OnceLock<Stdlib> = OnceLock::new();
         STDLIB.get_or_init(Stdlib::build)
     }
 
+    /// Parses every embedded stdlib file (ids from [`Stdlib::FILE_ID_BASE`],
+    /// in [`files::FILES`] order) and indexes its declarations by qualified
+    /// name.
     fn build() -> Stdlib {
         let mut files = Vec::with_capacity(files::FILES.len());
         for (index, &(path, text)) in files::FILES.iter().enumerate() {
@@ -293,6 +313,8 @@ impl Stdlib {
     }
 }
 
+/// Appends the named top-level declarations of stdlib file number `index`
+/// to `out`, in source order.
 fn collect_declarations(index: usize, file: &StdlibFile, out: &mut Vec<StdlibDeclaration>) {
     let Some(root) = ast::SourceFile::cast(file.parse.syntax()) else {
         return;

@@ -3,8 +3,9 @@
 @ServerOnly
 @Native
 public service PublicUrls {
-    /// The absolute URL of a page.
+    /// Returns the absolute URL of `page` ([`k.core.Page`]), for emails and
+    /// redirects to the app.
     func absolute(_ page: Page) -> Url
-    /// The absolute URL of an endpoint page.
+    /// Returns the absolute URL of an endpoint page ([`k.core.Endpoint`]).
     func absolute(endpoint: Endpoint) -> Url
 }

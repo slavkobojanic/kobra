@@ -3,19 +3,25 @@
 /// or a custom property (`docs/design/07-themes-and-units.md`, "Colors").
 @Native
 public struct Color implements Equatable, Codable {
-    /// A color from hex text such as `"#3B82F6"`.
+    /// Returns the color of hex text such as `"#3B82F6"`.
     static func hex(_ text: String) -> Color
-    /// A color from red, green and blue components, each `0...255`.
+    /// Returns the color of red, green and blue components, each `0...255`.
     static func rgb(_ red: Int, _ green: Int, _ blue: Int) -> Color
-    /// White.
+    /// Opaque white, `#FFFFFF`.
     static let white: Color
-    /// Black.
+    /// Opaque black, `#000000`.
     static let black: Color
     /// A fully transparent color.
     static let transparent: Color
 
-    /// The color with its alpha multiplied by `alpha` (`0.0...1.0`).
+    /// Returns the color with its alpha multiplied by `alpha`
+    /// (`0.0...1.0`).
     func opacity(_ alpha: Double) -> Color
-    /// The color mixed with `other` by `amount`.
+    /// Returns the color mixed with `other`.
+    ///
+    /// - Parameters:
+    ///   - other: the color mixed in.
+    ///   - amount: the share of this color in the result, the rest being
+    ///     `other` (CSS `color-mix(in srgb, self amount, other)`).
     func mix(_ other: Color, _ amount: Percent) -> Color
 }

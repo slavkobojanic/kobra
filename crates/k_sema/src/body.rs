@@ -72,8 +72,11 @@ pub(crate) struct Local {
 /// What a name or member expression refers to, for mutability checks.
 #[derive(Clone, Copy, Debug)]
 enum Target {
+    /// A local binding of the body.
     Local(LocalId),
+    /// A member (field, property, function) of a declaration.
     Member(MemberId),
+    /// A top-level declaration.
     Decl(DeclId),
 }
 
@@ -81,40 +84,72 @@ enum Target {
 /// handled.
 #[derive(Clone, Debug)]
 struct Thrown {
+    /// The type of the thrown error.
     ty: Ty,
+    /// The pattern rows (one pattern per row) that nested `do … catch`
+    /// blocks already handled; the outer block's catches only need to
+    /// cover the rest.
     covered: Vec<Vec<Pat>>,
 }
 
 /// The state of one `do` block being checked.
 #[derive(Default)]
 struct DoCx {
+    /// Every error the block can throw, in source order.
     thrown: Vec<Thrown>,
+    /// `true` once the block threw (or called something that throws) an
+    /// error of an unknown (`{error}`) type: exhaustiveness and "can't
+    /// throw" checks are skipped so the first mistake is reported once.
     saw_unknown: bool,
+    /// `true` for the block of `expect throws`, which records whatever is
+    /// thrown instead of checking catches (K7502).
     accepts_any: bool,
 }
 
 /// The innermost `try`.
 struct TryCx {
+    /// The range of the whole `try` expression, where errors it marks are
+    /// reported.
     range: TextRange,
+    /// `true` for `try … else { … }`: the `else` block handles every error,
+    /// so nothing propagates.
     has_else: bool,
+    /// `true` once a throwing call was seen in the operand (else K2202,
+    /// needless `try`).
     saw_throwing: bool,
+    /// `true` once a call of unknown type was seen in the operand, which
+    /// suppresses the needless-`try` report.
     saw_unknown: bool,
+    /// `true` once an unhandled error was reported for this `try`, so one
+    /// `try` yields at most one K2203.
     reported: bool,
 }
 
 /// The function (or lambda) whose body is being checked.
 struct FnCx {
+    /// `true` when `await` is allowed (an `async` function, a lambda in an
+    /// async context, an initializer).
     is_async: bool,
     /// The declared error type; `Some(Error)` accepts anything.
     throws: Option<Ty>,
     /// The inferred error type of a lambda (an inference variable).
     lambda_throws: Option<Ty>,
+    /// The declared (or expected) return type; `None` for initializers and
+    /// bodies whose value is inferred.
     ret: Option<Ty>,
+    /// `true` for a lambda body: `return` is K2308 there.
     is_lambda: bool,
+    /// Depth of enclosing loops: `break` and `continue` need one.
     loops: u32,
+    /// The enclosing `do` blocks, innermost last.
     dos: Vec<DoCx>,
+    /// The enclosing `try` expressions, innermost last.
     tries: Vec<TryCx>,
+    /// Depth of enclosing `await` operands: an async call outside one is
+    /// K2204.
     awaits: u32,
+    /// The type whose initializer this is, `None` elsewhere: an
+    /// initializer may assign its type's non-static `let` fields.
     init_of: Option<DeclId>,
     /// The declaration whose signature this context checks (a function,
     /// method or initializer); `None` for lambdas, initializers of fields
@@ -241,6 +276,8 @@ impl SigPoints {
 /// The flow state at a point of the body.
 #[derive(Clone, Debug, PartialEq)]
 struct Flow {
+    /// `false` after a `return`, `throw`, `break` or `continue` (or a call
+    /// returning `Never`) on every path to this point.
     reachable: bool,
     /// Deferred bindings definitely assigned.
     init: Vec<LocalId>,
@@ -249,6 +286,8 @@ struct Flow {
 }
 
 impl Flow {
+    /// Returns the state at the start of a body: reachable, nothing
+    /// assigned.
     fn start() -> Flow {
         Flow {
             reachable: true,
@@ -257,6 +296,13 @@ impl Flow {
         }
     }
 
+    /// Joins the states at the end of alternative branches: reachable if
+    /// any branch is, definitely assigned if assigned on every reachable
+    /// branch, possibly assigned if on any.
+    ///
+    /// When no branch is reachable the result is the first branch's state
+    /// (or [`Flow::start`]) marked unreachable. Quadratic in the number of
+    /// deferred bindings, which is small.
     fn merge(branches: &[Flow]) -> Flow {
         let live: Vec<&Flow> = branches.iter().filter(|f| f.reachable).collect();
         if live.is_empty() {
@@ -284,9 +330,15 @@ impl Flow {
 
 /// A call argument.
 struct Arg {
+    /// The argument label and its range, `None` for positional arguments.
     label: Option<(String, TextRange)>,
+    /// The argument value, `None` when the parser recovered from a missing
+    /// one.
     expr: Option<ast::Expr>,
+    /// The range of the whole argument (label included).
     range: TextRange,
+    /// `true` for a lambda argument (including a trailing lambda), whose
+    /// parameter types come from the selected overload.
     is_lambda: bool,
 }
 
@@ -306,29 +358,66 @@ pub(crate) struct BodyOwner {
 }
 
 /// The checker of one body.
+///
+/// A checker is single-threaded and short-lived: one is created per body
+/// (see [`Checker::new`]), driven through one of its entry points and
+/// consumed by [`Checker::finish`], which hands its diagnostics and types
+/// to the shared [`Cx`].
 pub(crate) struct Checker<'c, 'p, 'a> {
+    /// The shared checking context (program, signatures, results).
     cx: &'c Cx<'p, 'a>,
+    /// Where the body is checked.
     owner: BodyOwner,
+    /// Every local binding of the body, indexed by [`LocalId`].
     pub(crate) locals: Vec<Local>,
+    /// The lexical scopes, innermost last: the names they bind, in order.
     scopes: Vec<Vec<(String, LocalId)>>,
+    /// The enclosing functions and lambdas, innermost last.
     fns: Vec<FnCx>,
+    /// The flow state at the current point.
     flow: Flow,
+    /// The inference variables: `vars[v]` is what `Ty::Var(v)` is bound
+    /// to, `None` while unbound.
     vars: Vec<Option<Ty>>,
+    /// Where each inference variable was bound, for K2002 labels; parallel
+    /// to [`Checker::vars`].
     origins: Vec<Option<TextRange>>,
+    /// Types of expressions to record for tooling, resolved and handed to
+    /// the context by [`Checker::finish`].
     node_types: Vec<(TextRange, Ty)>,
+    /// What each name or member expression refers to (by range), for
+    /// mutability and framework checks.
     targets: HashMap<TextRange, Target>,
+    /// Suppression depth: while positive, diagnostics are dropped (used
+    /// for speculative inference such as overload selection).
     quiet: u32,
     /// Lambdas that are the value of a lambda whose parameter types
     /// couldn't be inferred (K2002 already reported for the outer one).
     uninferred_values: std::collections::HashSet<TextRange>,
+    /// `true` when types and resolutions are recorded for tooling; off for
+    /// silent and speculative passes.
     record: bool,
+    /// The diagnostics reported so far, handed over by [`Checker::finish`].
     diags: Vec<Diagnostic>,
+    /// The latest type inferred for each expression range (unresolved),
+    /// read back by later checks on the same node.
     last_types: HashMap<TextRange, Ty>,
+    /// While positive, an implicit member (`.name`) without an expected
+    /// type is `{error}` silently instead of K2007.
     no_implicit: u32,
+    /// Set by [`Checker::allow_throws`]: the next initializer may throw
+    /// any error.
     initializer_throws: bool,
+    /// Member and call expressions inside an optional chain (`a?.b.c`):
+    /// the rest of the chain reads the unwrapped value.
     chained: std::collections::HashSet<TextRange>,
+    /// Set when a call turns out to be a chained prop or slot of a
+    /// component: its arguments are checked quietly by the framework
+    /// layer instead.
     quiet_args: bool,
+    /// The current expression nesting depth, bounded by [`MAX_EXPR_DEPTH`].
     depth: u32,
+    /// Memo of [`Checker::implicit_chain`] per node of a postfix chain.
     implicit_chains: HashMap<TextRange, bool>,
     /// `true` while the statements being checked are view content
     /// ([`view`]).
@@ -686,25 +775,37 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         self
     }
 
+    /// Returns the file of the body being checked.
     fn file(&self) -> FileIx {
         self.owner.file
     }
 
+    /// Returns the source text of `range` in the body's file.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `range` is not within the file or does not fall on UTF-8
+    /// boundaries; callers pass ranges of the file's own syntax tree.
     fn text(&self, range: TextRange) -> &'a str {
         let text = self.cx.p.file(self.file()).text;
         &text[usize::from(range.start())..usize::from(range.end())]
     }
 
+    /// Returns the [`Span`] of `range` in the body's file.
     fn span(&self, range: TextRange) -> Span {
         self.cx.p.span(self.file(), range)
     }
 
+    /// Collects `diagnostic`, unless reporting is suppressed
+    /// ([`Checker::quiet`] is positive).
     fn report(&mut self, diagnostic: Diagnostic) {
         if self.quiet == 0 {
             self.diags.push(diagnostic);
         }
     }
 
+    /// Reports a diagnostic with `code` and `message` at `range`, without
+    /// labels or fixes.
     fn err(&mut self, code: k_diagnostics::Code, range: TextRange, message: impl Into<String>) {
         let d = Diagnostic::new(code, self.span(range), message);
         self.report(d);
@@ -725,12 +826,16 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Records `ty` as the type of the node at `range` for tooling, when
+    /// recording is on.
     fn note_type(&mut self, range: TextRange, ty: &Ty) {
         if self.record {
             self.node_types.push((range, ty.clone()));
         }
     }
 
+    /// Records what the name at `range` resolves to for tooling, when
+    /// recording is on.
     fn note_res(&self, range: TextRange, resolution: Resolution) {
         if self.record {
             self.cx.record_resolution(self.file(), range, resolution);
@@ -872,23 +977,38 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         self.resolve(&ty)
     }
 
+    /// Enters a function or lambda context.
     fn push_fn(&mut self, f: FnCx) {
         self.fns.push(f);
     }
 
+    /// Leaves the innermost function or lambda context.
     fn pop_fn(&mut self) {
         self.fns.pop();
     }
 
+    /// Returns the innermost function context, mutably.
+    ///
+    /// # Panics
+    ///
+    /// Panics outside every function context; each entry point pushes one
+    /// before checking statements or expressions.
     fn fcx(&mut self) -> &mut FnCx {
         let len = self.fns.len();
         &mut self.fns[len - 1]
     }
 
+    /// Returns the innermost function context.
+    ///
+    /// # Panics
+    ///
+    /// Panics outside every function context, like [`Checker::fcx`].
     fn fcx_ref(&self) -> &FnCx {
         &self.fns[self.fns.len() - 1]
     }
 
+    /// Binds a parameter of the signature as an immutable local of the
+    /// current scope.
     fn bind_param(&mut self, p: &SigParam) {
         let id = self.add_local(Local {
             name: p.name.clone(),
@@ -904,6 +1024,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         let _ = id;
     }
 
+    /// Adds `local` to the body and binds its name in the innermost scope;
+    /// returns its id.
     fn add_local(&mut self, local: Local) -> LocalId {
         let id = self.locals.len();
         let name = local.name.clone();
@@ -914,14 +1036,21 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         id
     }
 
+    /// Opens a lexical scope.
     fn push_scope(&mut self) {
         self.scopes.push(Vec::new());
     }
 
+    /// Closes the innermost lexical scope; its bindings stop being visible
+    /// (they stay in [`Checker::locals`]).
     fn pop_scope(&mut self) {
         self.scopes.pop();
     }
 
+    /// Looks `name` up in the lexical scopes, innermost (and latest binding)
+    /// first; `None` when no local has that name.
+    ///
+    /// Linear in the number of visible bindings.
     fn find_local(&self, name: &str) -> Option<LocalId> {
         for scope in self.scopes.iter().rev() {
             if let Some((_, id)) = scope.iter().rev().find(|(n, _)| n == name) {
@@ -933,6 +1062,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
 
     // ------------------------------------------------------------ inference vars
 
+    /// Returns a new, unbound inference variable.
     fn fresh(&mut self) -> Ty {
         let id = u32::try_from(self.vars.len()).unwrap_or(u32::MAX);
         self.vars.push(None);
@@ -1025,6 +1155,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Binds the inference variable `v` to `ty`, remembering `origin` as
+    /// where it was first bound.
+    ///
+    /// Binding a variable to itself is a no-op (no cycle is created); an
+    /// unknown `v` is ignored.
     fn bind(&mut self, v: u32, ty: Ty, origin: Option<TextRange>) {
         if let Ty::Var(w) = ty {
             if w == v {
@@ -1179,6 +1314,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Returns `true` if a value of the style-token type `a` is accepted
+    /// where `b` is expected: `Length` and the length-like tokens (`Spacing`,
+    /// `Radius`, `FontSize`) convert to and from `Length`, not to each other.
     fn token_compatible(&self, a: DeclId, b: DeclId) -> bool {
         let b_ = &self.cx.b;
         let lengthy = [b_.length, b_.spacing, b_.radius, b_.font_size];
@@ -1187,14 +1325,18 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             && (Some(a) == b_.length || Some(b) == b_.length)
     }
 
+    /// Returns `true` if `ty` is `Void`.
     fn is_void(&self, ty: &Ty) -> bool {
         ty.decl().is_some() && ty.decl() == self.cx.b.void
     }
 
+    /// Returns `true` if `ty` is `Bool`.
     fn is_bool(&self, ty: &Ty) -> bool {
         ty.decl().is_some() && ty.decl() == self.cx.b.bool_
     }
 
+    /// Returns `ty` resolved, without one level of optionality (`T?` gives
+    /// `T`, anything else itself).
     fn deopt(&self, ty: &Ty) -> Ty {
         match self.resolve(ty) {
             Ty::Optional(inner) => (*inner).clone(),
@@ -1204,6 +1346,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
 
     // ------------------------------------------------------------ statements
 
+    /// Checks the statements of `block` in a new scope (as view content when
+    /// [`Checker::view_on`] is set).
     fn block_stmts(&mut self, block: &ast::Block) {
         self.push_scope();
         if self.view_on {
@@ -1288,6 +1432,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         ty
     }
 
+    /// Checks one statement, dispatching on its kind.
     fn stmt(&mut self, stmt: &ast::Stmt) {
         match stmt {
             ast::Stmt::Let(l) => self.let_stmt(l.syntax()),
@@ -1329,6 +1474,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Checks a `let` or `var` statement: the initializer is checked against
+    /// the annotation (or inferred) and the name is bound in the current
+    /// scope, as a deferred binding when there is no initializer.
     fn let_stmt(&mut self, node: &SyntaxNode) {
         let Some(name) = token(node, SyntaxKind::Ident) else {
             if let Some(e) = node.children().find_map(ast::Expr::cast) {
@@ -1377,6 +1525,12 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         });
     }
 
+    /// Checks an assignment (`=` or a compound `+=`, `-=`, `*=`, `/=`, `%=`).
+    ///
+    /// The value is checked against the target's type. A plain assignment to
+    /// a deferred `let` is its initialization (K2011 when it may already be
+    /// assigned); any other target must be writable (`var`, a writable
+    /// member) and not written while a `@Derived` value is computed.
     fn assign_stmt(&mut self, node: &SyntaxNode) {
         let mut exprs = node.children().filter_map(ast::Expr::cast);
         let lhs = exprs.next();
@@ -1662,10 +1816,15 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         !unqualified
     }
 
+    /// Returns the latest type inferred for the expression at `range`,
+    /// resolved; `None` if it was not inferred.
     fn type_of_node(&self, range: TextRange) -> Option<Ty> {
         self.last_types.get(&range).map(|t| self.resolve(t))
     }
 
+    /// Checks a `return` statement against the function's return type and
+    /// makes the rest of the block unreachable; in a lambda it is K2308 (with
+    /// a fix when it is the lambda's last statement).
     fn return_stmt(&mut self, node: &SyntaxNode) {
         let value = node.children().find_map(ast::Expr::cast);
         if self.fcx_ref().is_lambda {
@@ -1721,6 +1880,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         self.flow.reachable = false;
     }
 
+    /// Checks a `throw` statement: infers the error (with the function's
+    /// declared error type as a hint), sends it to its handler and makes the
+    /// rest of the block unreachable.
+    ///
+    /// A protocol handler throwing `rpcFailure` itself is K5506.
     fn throw_stmt(&mut self, node: &SyntaxNode) {
         let Some(value) = node.children().find_map(ast::Expr::cast) else {
             self.flow.reachable = false;
@@ -1877,6 +2041,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         fcx.throws.as_ref().is_some_and(accepts)
     }
 
+    /// Reports K2203: an error of type `ty` thrown at `at` is neither caught
+    /// nor declared, with labels and a fix pointing at the signature.
+    ///
+    /// With `from_try`, a `try` reports at most once.
     fn unhandled(&mut self, ty: &Ty, at: TextRange, from_try: bool) {
         if from_try {
             if let Some(t) = self.fcx().tries.last_mut() {
@@ -1916,6 +2084,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         self.report(d);
     }
 
+    /// Checks a `break` or `continue` (K2309 outside a loop) and makes the
+    /// rest of the block unreachable.
     fn jump(&mut self, node: &SyntaxNode) {
         if self.fcx_ref().loops == 0 {
             let kw = node
@@ -1978,6 +2148,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Checks a `guard … else { … }` statement: the conditions' bindings are
+    /// visible after the statement but not in `else`, and the `else` block
+    /// must exit (K2305).
     fn guard_stmt(&mut self, node: &SyntaxNode) {
         // The conditions bind in the enclosing scope, but not in `else`.
         let else_block = node.children().find_map(ast::Block::cast);
@@ -2007,6 +2180,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Checks a `while` loop: its conditions bind in the loop's scope, and
+    /// after the loop the flow is the state before it, reachable, plus what
+    /// the body possibly assigned.
     fn while_stmt(&mut self, node: &SyntaxNode) {
         self.push_scope();
         self.conditions(node);
@@ -2027,6 +2203,12 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         self.pop_scope();
     }
 
+    /// Checks a `for` (or `for await`) loop over a list, set, range, map or
+    /// stream.
+    ///
+    /// A `Stream` needs `for await` and a collection must not use it; loop
+    /// variables over a bindable list are themselves bindable. Flow after the
+    /// loop is as for [`Checker::while_stmt`].
     fn for_stmt(&mut self, node: &SyntaxNode) {
         let is_await = has_token(node, SyntaxKind::AwaitKw);
         let pattern = node.children().find_map(ast::Pattern::cast);
@@ -2219,6 +2401,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Binds the loop variables of a `for` pattern (a name, a tuple of
+    /// patterns or a binding) to the element type `ty`, as immutable locals of
+    /// the current scope; other patterns bind nothing.
     fn bind_for_pattern(&mut self, pattern: &ast::Pattern, ty: &Ty) {
         match pattern {
             ast::Pattern::IdentPattern(p) => {
@@ -2271,6 +2456,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Checks an `expect throws [Error.case] { … }` test statement.
+    ///
+    /// The block records what it can throw instead of propagating it, and is
+    /// K7502 when it can throw neither the named error nor anything of
+    /// unknown type. Flow after the statement is the state before the block.
     fn expect_throws(&mut self, node: &SyntaxNode) {
         let mut expected_error: Option<DeclId> = None;
         if let Some(p) = node.children().find_map(ast::Pattern::cast) {
@@ -2321,6 +2511,13 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Checks a `do { … } catch … { … }` statement.
+    ///
+    /// Errors thrown in the block are grouped by type and matched against the
+    /// `catch` clauses: a clause that can never run is K2302, an unused
+    /// catch-all binding K2304, and whatever the clauses do not cover
+    /// propagates to the enclosing handler. Exhaustiveness is skipped when the
+    /// block has syntax errors or threw something of unknown type.
     fn do_stmt(&mut self, node: &SyntaxNode) {
         let Some(block) = node.children().find_map(ast::Block::cast) else {
             return;
@@ -2726,6 +2923,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         ty
     }
 
+    /// Reports K2001 at `expr`: `found` is not `expected`. Nothing is reported
+    /// when either type contains `{error}`.
     fn mismatch(&mut self, expr: &ast::Expr, found: &Ty, expected: &Ty) {
         let found = self.resolve(found);
         let expected = self.resolve(expected);
@@ -2763,6 +2962,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         ty
     }
 
+    /// Synthesizes the type of `expr`, dispatching on its kind; the work of
+    /// [`Checker::infer`] without the depth bound and the recording.
     fn infer_inner(&mut self, expr: &ast::Expr, expected: Option<&Ty>) -> Ty {
         let expected = expected.map(|e| self.resolve(e));
         let expected = expected.as_ref();
@@ -2857,6 +3058,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Returns the type of a literal: an integer literal is `Double` or
+    /// `Decimal` where one is expected (else `Int`), a float literal `Decimal`
+    /// where expected (else `Double`), and the other literals their own type.
     fn literal(&mut self, l: &ast::Literal, expected: Option<&Ty>) -> Ty {
         let Some(tok) = l.token() else {
             return Ty::Error;
@@ -3102,6 +3306,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         Ty::func(Vec::new(), false, None, builtin(self.cx.b.void))
     }
 
+    /// Returns `true` if `m` is `k.auth.Session.user`, which is non-optional
+    /// behind a `requires` guard (see [`Checker::guarded`]).
     fn is_session_user(&self, m: MemberId) -> bool {
         let member = self.cx.p.member(m);
         member.name == "user" && self.cx.p.lookup_qualified("k.auth.Session") == Some(member.owner)
@@ -3140,6 +3346,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         })
     }
 
+    /// Returns the type of member `m` read as a value, with the owner's
+    /// generics substituted by `subst`.
     fn member_ty_for_value(&mut self, m: MemberId, subst: &[(GenId, Ty)]) -> Ty {
         self.cx.member_value_ty(m, subst)
     }
@@ -3168,6 +3376,12 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         (params, ret, is_async, throws)
     }
 
+    /// Instantiates a signature's own generics with fresh variables on top of
+    /// `subst` (the owner's generics).
+    ///
+    /// Returns the parameter types, the return type, whether the signature is
+    /// `async`, its error type and the full substitution (`subst` followed by
+    /// the fresh variables), for callers that infer explicit type arguments.
     #[allow(clippy::type_complexity)]
     fn instantiate_full(
         &mut self,
@@ -3364,6 +3578,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         (target.clone(), None)
     }
 
+    /// Returns the names an implicit member (`.name`) of `decl` may use: its
+    /// static members other than initializers, then its style tokens; used
+    /// for "did you mean" suggestions.
     fn implicit_candidates(&self, decl: DeclId) -> Vec<String> {
         let mut out: Vec<String> = self
             .cx
@@ -3381,6 +3598,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         out
     }
 
+    /// Returns `true` if `actual` is assignable to `expected`, binding
+    /// inference variables only on success (the bindings are rolled back
+    /// otherwise).
+    ///
+    /// Clones the variable table, so it costs O(number of variables).
     fn assignable_quiet(&mut self, actual: &Ty, expected: &Ty) -> bool {
         let saved = self.vars.clone();
         let ok = self.assignable(actual, expected, None);
@@ -3390,8 +3612,15 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         ok
     }
 
+    /// Hook for checks on a payload-less enum case used as an implicit member
+    /// (`.name`); currently does nothing.
     fn check_named_status(&mut self, _m: MemberId, _node: &SyntaxNode) {}
 
+    /// Checks a list literal: against the element type of an expected
+    /// `List<T>` or `Set<T>` (a set literal is written as a list), otherwise
+    /// the first well-typed element fixes the element type and the others are
+    /// checked against it; an empty literal without a type from context is
+    /// K2002.
     fn list_literal(&mut self, node: &SyntaxNode, expected: Option<&Ty>) -> Ty {
         let elements: Vec<ast::Expr> = node.children().filter_map(ast::Expr::cast).collect();
         let b = &self.cx.b;
@@ -3450,6 +3679,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Checks a map literal (`[key: value, …]`): against an expected
+    /// `Map<K, V>`, otherwise the first entry fixes the key and value types
+    /// (keys must be `Hashable`, else K2009) and the others
+    /// are checked against them; an empty `[:]` without context is K2002.
     fn map_literal(&mut self, node: &SyntaxNode, expected: Option<&Ty>) -> Ty {
         let entries: Vec<SyntaxNode> = node
             .children()
@@ -3526,6 +3759,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         Ty::generic(map, vec![kt.unwrap_or(Ty::Error), vt.unwrap_or(Ty::Error)])
     }
 
+    /// Checks a lambda against an expected function type (or infers it); the
+    /// lambda's body is never view content.
     fn lambda(&mut self, l: &ast::LambdaExpr, expected: Option<&Ty>) -> Ty {
         let saved = std::mem::replace(&mut self.view_on, false);
         let t = self.lambda_inner(l, expected);
@@ -3533,6 +3768,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         t
     }
 
+    /// The work of [`Checker::lambda`]: takes parameter types from the
+    /// annotations or the expected function type and checks the body in a
+    /// new function context. A lambda where a non-function value is expected
+    /// is K2001 (its body is still checked).
     fn lambda_inner(&mut self, l: &ast::LambdaExpr, expected: Option<&Ty>) -> Ty {
         let expected_fn = expected.map(|e| self.resolve(e)).and_then(|e| match e {
             Ty::Func(f) => Some(f),
@@ -3765,6 +4004,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         self.resolve(&value)
     }
 
+    /// Checks an `if` (or `if let`) expression or statement: the conditions'
+    /// bindings are visible in the first block only, the branches' flow
+    /// states are merged, and used as a value the branches must agree on a
+    /// type.
     fn if_expr(&mut self, node: &SyntaxNode, expected: Option<&Ty>) -> Ty {
         let entry_scope = self.scopes.len();
         self.push_scope();
@@ -3847,6 +4090,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Checks a `match`: each arm's pattern against the scrutinee's type,
+    /// unreachable arms (K2302) and exhaustiveness, and, used as a value, the
+    /// arms' common type. The arms' flow states are merged.
     fn match_expr(&mut self, node: &SyntaxNode, expected: Option<&Ty>) -> Ty {
         let scrutinee = node.children().find_map(ast::Expr::cast);
         let view = std::mem::replace(&mut self.view_on, false);
@@ -4053,6 +4299,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         value.unwrap_or(Ty::Error)
     }
 
+    /// Returns `true` if the `if`/`match` `node` is used as a value: anywhere
+    /// outside a block, or as the last statement of a block that is the value
+    /// of a field, a match arm or an `if` branch.
     fn is_value_position(&self, node: &SyntaxNode) -> bool {
         let Some(parent) = node.parent() else {
             return false;
@@ -4136,6 +4385,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Checks a literal pattern (`true`, `nil`, a number, a unit or a string)
+    /// against `ty`; `None` when the literal can't match a `ty` (e.g. `nil`
+    /// against a non-optional type).
     fn literal_pattern(&mut self, node: &SyntaxNode, ty: &Ty) -> Option<Pat> {
         let tok = node
             .descendants_with_tokens()
@@ -4183,6 +4435,12 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Checks an enum case pattern (`.name`, `.name(p, label: q)` or a
+    /// qualified `Light.red`) against `ty`, adding its bindings to `binds`.
+    ///
+    /// Returns the case constructor with its sub-patterns, or `None` when the
+    /// pattern doesn't name a case of the scrutinee's type (reported) or `ty`
+    /// is `{error}` (sub-patterns are still checked so their names bind).
     fn case_pattern(
         &mut self,
         node: &SyntaxNode,
@@ -4368,6 +4626,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
 
     // ------------------------------------------------------------ effects
 
+    /// Checks a `try` (or `try … else { … }`) expression: errors thrown by
+    /// the operand go to the `else` block or propagate, and a `try` over
+    /// nothing that throws is K2202 (with a fix removing it).
     fn try_expr(&mut self, node: &SyntaxNode, expected: Option<&Ty>) -> Ty {
         let operand = node.children().find_map(ast::Expr::cast);
         let else_block = node.children().find_map(ast::Block::cast);
@@ -4418,6 +4679,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         ty
     }
 
+    /// Checks an `await` expression: K2205 outside an async function (with a
+    /// fix adding `async` to the enclosing function), and the operand is
+    /// checked with [`FnCx::awaits`] raised so its async calls are awaited.
     fn await_expr(&mut self, node: &SyntaxNode, expected: Option<&Ty>) -> Ty {
         let kw = token(node, SyntaxKind::AwaitKw).map_or(node.text_range(), |t| t.text_range());
         if !self.fcx_ref().is_async {
@@ -4542,6 +4806,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         self.throw_error(err, Vec::new(), try_range, true);
     }
 
+    /// Notes a call whose callee couldn't be typed: the enclosing `try` and
+    /// `do` treat it as possibly throwing, so they report nothing about it.
     fn unknown_call(&mut self) {
         if let Some(t) = self.fcx().tries.last_mut() {
             t.saw_unknown = true;
@@ -4553,6 +4819,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
 
     // ------------------------------------------------------------ operators
 
+    /// Checks a prefix operator: `not`/`!` takes and gives `Bool`; `-` takes a
+    /// number, a unit type or `Money` and gives the same type (K2013 for
+    /// anything else). An expected optional type is unwrapped for the operand.
     fn prefix(&mut self, p: &ast::PrefixExpr, expected: Option<&Ty>) -> Ty {
         let op = p.op();
         let Some(operand) = p.operand() else {
@@ -4590,12 +4859,16 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Returns `true` if `t` is `Int`, `Double` or `Decimal`.
     fn is_numeric(&self, t: &Ty) -> bool {
         let b = &self.cx.b;
         let d = t.decl();
         d.is_some() && (d == b.int || d == b.double || d == b.decimal)
     }
 
+    /// Returns `true` if `t` is a unit type (`Length`, `Duration`, `Angle`,
+    /// `Percent`) or a length-like style token type (`Spacing`, `Radius`,
+    /// `FontSize`).
     fn is_unit(&self, t: &Ty) -> bool {
         let b = &self.cx.b;
         let d = t.decl();
@@ -4612,6 +4885,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             .contains(&d)
     }
 
+    /// Returns `true` if `e` is a numeric literal (integer or float), possibly
+    /// negated.
     fn is_int_literal(e: &ast::Expr) -> bool {
         match e {
             ast::Expr::Literal(l) => l
@@ -4622,6 +4897,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Checks a binary operator expression: logical operators on `Bool`,
+    /// equality and comparison (giving `Bool`), arithmetic (see
+    /// [`Checker::arith`]), ranges and `??`.
     fn binary(&mut self, b: &ast::BinaryExpr, expected: Option<&Ty>) -> Ty {
         let (Some(lhs), Some(rhs)) = (b.lhs(), b.rhs()) else {
             if let Some(l) = b.lhs() {
@@ -4979,6 +5257,12 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
 
     // ------------------------------------------------------------ members
 
+    /// Checks a member expression `recv.name` (or `recv?.name`) read as a
+    /// value, including the framework checks on reads of client state
+    /// (K4013) and of `form.value` (K7001).
+    ///
+    /// The expected type is passed to the receiver only when the chain starts
+    /// with an implicit member (`.idle.label`).
     fn member(&mut self, m: &ast::MemberExpr, expected: Option<&Ty>) -> Ty {
         let Some(recv) = m.receiver() else {
             return Ty::Error;
@@ -5417,12 +5701,17 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// Returns a substitution of `decl`'s generic parameters by fresh
+    /// inference variables; empty for `None`.
     fn fresh_subst(&mut self, decl: Option<DeclId>) -> Vec<(GenId, Ty)> {
         let Some(d) = decl else { return Vec::new() };
         let gens = self.cx.p.decl(d).generics.clone();
         gens.into_iter().map(|g| (g, self.fresh())).collect()
     }
 
+    /// Returns the names of `ty`'s static (with `statics`) or instance
+    /// members, its extensions' included and initializers excluded; used for
+    /// "did you mean" suggestions.
     fn member_candidates(&self, ty: &Ty, statics: bool) -> Vec<String> {
         let Some(d) = ty.decl() else {
             return Vec::new();
@@ -5461,6 +5750,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
 
     // ------------------------------------------------------------ calls
 
+    /// Checks a call expression: works out what is called (an implicit member,
+    /// a type's initializer, a function, a method, a payload case or a value
+    /// of function type), selects the overload and checks the arguments
+    /// against the signature (see [`Checker::apply_sig`]).
     fn call(&mut self, c: &ast::CallExpr, expected: Option<&Ty>) -> Ty {
         let node = c.syntax().clone();
         let args = self.collect_args(c);
@@ -5848,6 +6141,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         member
     }
 
+    /// Records the resolution of `range` like [`Checker::note_res`], replacing
+    /// one already recorded for the same range.
     fn note_res_force(&self, range: TextRange, resolution: Resolution) {
         if self.record {
             let key = (self.cx.p.file(self.file()).id, range);
@@ -5855,7 +6150,6 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
-    /// K2401: `.other(503)` for a status that has a named case.
     /// Checks `list.sum()`, which only lists of `Int` or `Double` have:
     /// a list of `Money` is K2402 with a fix to `sum(in:_:)`
     /// (docs/design/34-money.md), any other element type K2009. `sum` is
@@ -5953,6 +6247,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         self.err(codes::REMOTE_CLIENT_NOT_A_PROTOCOL, range, message);
     }
 
+    /// K2401: `.other(503)` for an `HttpStatus` that has a named case, with a
+    /// fix to the case (`.serviceUnavailable`).
+    ///
+    /// The case is found by [`Checker::status_case`] from the stdlib's doc
+    /// comments.
     fn check_status_literal(
         &mut self,
         call: &SyntaxNode,
@@ -6291,6 +6590,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         self.resolve(&self_ty)
     }
 
+    /// Collects the arguments of a call in source order, the trailing lambda
+    /// last.
     fn collect_args(&self, c: &ast::CallExpr) -> Vec<Arg> {
         let mut out = Vec::new();
         if let Some(list) = c.arg_list() {
@@ -6317,12 +6618,17 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         out
     }
 
+    /// Infers the arguments of a call that couldn't be resolved, without
+    /// expected types and without reporting implicit members (K2007), so the
+    /// names inside them still resolve.
     fn args_unchecked(&mut self, args: &[Arg]) {
         self.no_implicit += 1;
         self.args_unchecked_inner(args);
         self.no_implicit -= 1;
     }
 
+    /// The work of [`Checker::args_unchecked`]: lambda arguments are checked
+    /// with `{error}` parameter types, other arguments inferred.
     fn args_unchecked_inner(&mut self, args: &[Arg]) {
         for a in args {
             if let Some(e) = &a.expr {
@@ -6595,7 +6901,10 @@ pub(crate) fn case_name(node: &SyntaxNode) -> Option<SyntaxToken> {
         .last()
 }
 
+/// Unbound inference variables in a type.
 trait VarsIn {
+    /// Returns `true` if the type mentions an inference variable that is
+    /// unbound in `vars` (the checker's variable table).
     fn has_vars_in(&self, vars: &[Option<Ty>]) -> bool;
 }
 
@@ -6611,6 +6920,7 @@ impl VarsIn for Ty {
     }
 }
 
+/// Keeps the `FnTy` and `DeclKind` imports referenced; it is never called.
 #[allow(dead_code)]
 fn unused(_: FnTy, _: DeclKind) {}
 

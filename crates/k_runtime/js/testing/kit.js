@@ -120,6 +120,7 @@ const TRACKED_OPS = [
   "op_k_smtp_send",
 ];
 
+/** `true` once `trackOps` has wrapped the ops. */
 let opsTracked = false;
 
 /** Wraps the {@link TRACKED_OPS} once, so their calls are tracked. */
@@ -149,7 +150,9 @@ async function serverIdle() {
 
 // ------------------------------------------------- the in-process server
 
+/** The body of a request without one. */
 const EMPTY = new Uint8Array(0);
+/** The id of the next in-process request. */
 let nextRequest = 1;
 
 /**
@@ -167,11 +170,17 @@ function pushedBody() {
     else chunks.push(r);
   };
   return {
+    /**
+     * Delivers a chunk to the reader.
+     * @param {Uint8Array} bytes
+     * @returns {boolean} `false` once the body is closed or the reader cancelled
+     */
     push(bytes) {
       if (closed) return false;
       deliver({ done: false, value: bytes });
       return true;
     },
+    /** Ends the body: the reader's next read is done. Idempotent. */
     end() {
       if (closed) return;
       closed = true;
@@ -179,6 +188,10 @@ function pushedBody() {
     },
     reader: {
       read: () => (chunks.length ? Promise.resolve(chunks.shift()) : new Promise((resolve) => waiters.push(resolve))),
+      /**
+       * The reader's `cancel()`: closes the body, so later pushes report
+       * `false`.
+       */
       async cancel() {
         if (closed) return;
         closed = true;
@@ -468,9 +481,13 @@ function descendants(node) {
   return out;
 }
 
+/** The attribute `name` of `el`, or `null` (also for non-elements). */
 const attr = (el, name) => (typeof el.getAttribute === "function" ? el.getAttribute(name) : null);
+/** The explicit ARIA `role` of `el`, or `null`. */
 const role = (el) => attr(el, "role");
+/** The `type` of an input, lower case; `text` when absent. */
 const type = (el) => (attr(el, "type") ?? "text").toLowerCase();
+/** The tag name of `el`, lower case. */
 const tag = (el) => el.localName;
 
 /** The element's text, normalised. */
@@ -514,6 +531,7 @@ function nameOf(el) {
   return textOf(el);
 }
 
+/** What makes an element one of each kind the queries name: its tag, `type` or ARIA role. */
 const KINDS = {
   heading: (el) => new RegExp("^h[1-6]$").test(tag(el)) || role(el) === "heading",
   link: (el) => (tag(el) === "a" && attr(el, "href") !== null) || role(el) === "link",
@@ -537,6 +555,12 @@ function deepest(els) {
   return els.filter((e) => !els.some((o) => o !== e && contains(e, o)));
 }
 
+/**
+ * `true` if `b` is a proper descendant of `a`.
+ * @param {object} a
+ * @param {object} b
+ * @returns {boolean}
+ */
 function contains(a, b) {
   for (let n = b.parentNode; n !== null && n !== undefined; n = n.parentNode) if (n === a) return true;
   return false;
@@ -583,7 +607,10 @@ function submit(form) {
  * `scope()` returns.
  */
 class Queries {
-  /** @returns {Array<object>} the elements to search below */
+  /**
+   * The roots to search below; none for the base class.
+   * @returns {Array<object>} the elements to search below
+   */
   scope() {
     return [];
   }
@@ -593,10 +620,25 @@ class Queries {
     return this.scope().flatMap(descendants);
   }
 
+  /**
+   * A handle whose elements are those `pick` keeps of every element in
+   * scope, re-evaluated on each use.
+   * @param {string} describe the query as written, for failure messages
+   * @param {(els: object[]) => object[]} pick
+   * @returns {Handle}
+   */
   find(describe, pick) {
     return new Handle(describe, () => pick(this.all()));
   }
 
+  /**
+   * The elements of `kind` whose accessible name (or, with `how` set to
+   * `"label"`, whose label) is `name`, whitespace-normalised.
+   * @param {string} kind a key of `KINDS`
+   * @param {string} name
+   * @param {"label"} [how]
+   * @returns {Handle}
+   */
   named(kind, name, how) {
     const wanted = norm(name);
     const of = how === "label" ? labelOf : nameOf;
@@ -604,54 +646,78 @@ class Queries {
     return this.find(`${kind}(${verb}: ${quote(name)})`, (els) => els.filter((e) => KINDS[kind](e) && of(e) === wanted));
   }
 
+  /**
+   * The elements of `kind`, whatever their name.
+   * @param {string} kind a key of `KINDS`
+   * @returns {Handle}
+   */
   only(kind) {
     return this.find(`${kind}()`, (els) => els.filter(KINDS[kind]));
   }
 
+  /**
+   * One handle per element of `kind` in scope, in document order, each
+   * bound to its element.
+   * @param {string} kind a key of `KINDS`
+   * @returns {Handle[]}
+   */
   every(kind) {
     return this.all()
       .filter(KINDS[kind])
       .map((e) => new Handle(`${kind}s()`, () => [e]));
   }
 
+  /** `heading(name)`: the heading named `name`. */
   heading(name) {
     return this.named("heading", name);
   }
+  /** `link(name)`: the link named `name`. */
   link(name) {
     return this.named("link", name);
   }
+  /** `button(name)`: the button named `name`. */
   button(name) {
     return this.named("button", name);
   }
+  /** `navigation(name)`: the navigation landmark named `name`. */
   navigation(name) {
     return this.named("navigation", name);
   }
+  /** `textField(label)`: the text field labelled `label`. */
   textField(label) {
     return this.named("textField", label, "label");
   }
+  /** `passwordField(label)`: the password field labelled `label`. */
   passwordField(label) {
     return this.named("passwordField", label, "label");
   }
+  /** `textArea(label)`: the text area labelled `label`. */
   textArea(label) {
     return this.named("textArea", label, "label");
   }
+  /** `numberField(label)`: the number field labelled `label`. */
   numberField(label) {
     return this.named("numberField", label, "label");
   }
+  /** `dropdown(label)`: the `<select>` labelled `label`. */
   dropdown(label) {
     return this.named("dropdown", label, "label");
   }
+  /** `checkbox(label)`: the checkbox labelled `label`. */
   checkbox(label) {
     return this.named("checkbox", label, "label");
   }
+  /** `text(_)`: the deepest elements whose whole text is `text`. */
   text(text) {
     const wanted = norm(text);
     return this.find(`text(${quote(text)})`, (els) => deepest(els.filter((e) => textOf(e) === wanted)));
   }
+  /** `text(containing:)`: the deepest elements whose text contains `text`. */
   text$containing(text) {
     const wanted = norm(text);
     return this.find(`text(containing: ${quote(text)})`, (els) => deepest(els.filter((e) => textOf(e).includes(wanted))));
   }
+  /** `item(containing:)`: the list items whose text contains `text`. */
   item$containing(text) {
     const wanted = norm(text);
     return this.find(`item(containing: ${quote(text)})`, (els) => els.filter((e) => KINDS.item(e) && textOf(e).includes(wanted)));
@@ -660,27 +726,35 @@ class Queries {
   item(text) {
     return this.item$containing(text);
   }
+  /** `list()`: the list in scope. */
   list() {
     return this.only("list");
   }
+  /** `list(named:)`: the list named `name`. */
   list$named(name) {
     return this.named("list", name);
   }
+  /** `alert()`: the element with role `alert`. */
   alert() {
     return this.only("alert");
   }
+  /** `status()`: the element with role `status`. */
   status() {
     return this.only("status");
   }
+  /** `items()`: a handle per list item, in document order. */
   items() {
     return this.every("item");
   }
+  /** `buttons()`: a handle per button, in document order. */
   buttons() {
     return this.every("button");
   }
+  /** `headings()`: a handle per heading, in document order. */
   headings() {
     return this.every("heading");
   }
+  /** `links()`: a handle per link, in document order. */
   links() {
     return this.every("link");
   }
@@ -691,12 +765,22 @@ class Queries {
  * handle keeps answering as the view changes.
  */
 class Handle extends Queries {
+  /**
+   * Creates a handle.
+   * @param {string} describe the query as written, for failure messages
+   * @param {() => object[]} match evaluates the query
+   */
   constructor(describe, match) {
     super();
     this.describe = describe;
     this.match = match;
   }
 
+  /**
+   * Queries on a handle search below its element, when it matched exactly
+   * one.
+   * @returns {object[]}
+   */
   scope() {
     const m = this.match();
     return m.length === 1 ? m : [];
@@ -714,23 +798,32 @@ class Handle extends Queries {
     );
   }
 
+  /** `true` when the query matches exactly one element. */
   get exists() {
     return this.match().length === 1;
   }
+  /**
+   * `true` when the query matches exactly one element and neither it nor
+   * an ancestor is hidden.
+   */
   get isVisible() {
     const m = this.match();
     return m.length === 1 && visible(m[0]);
   }
+  /** Whether the checkbox is checked (the property, or `aria-checked`). */
   get isChecked() {
     const el = this.one();
     return el.checked === true || attr(el, "aria-checked") === "true";
   }
+  /** Whether the toggle button is pressed (`aria-pressed`). */
   get isPressed() {
     return attr(this.one(), "aria-pressed") === "true";
   }
+  /** Whether the control is disabled. */
   get isDisabled() {
     return disabled(this.one());
   }
+  /** The control's current value, as text. */
   get value() {
     const el = this.one();
     return String(el.value ?? attr(el, "value") ?? "");
@@ -739,6 +832,7 @@ class Handle extends Queries {
   $text() {
     return textOf(this.one());
   }
+  /** The heading's level: `aria-level`, or the `h1`–`h6` tag; 0 otherwise. */
   get level() {
     const el = this.one();
     const aria = attr(el, "aria-level");
@@ -747,6 +841,12 @@ class Handle extends Queries {
     return m ? Number(m[1]) : 0;
   }
 
+  /**
+   * Clicks the element as a user does: nothing for a disabled control; a
+   * checkbox or radio toggles and fires `click`, `input` and `change`; a
+   * submit button that isn't prevented submits its form. Effects are
+   * flushed afterwards.
+   */
   click() {
     const el = this.one();
     if (disabled(el)) return;
@@ -766,6 +866,12 @@ class Handle extends Queries {
     flush();
   }
 
+  /**
+   * Types `text` into the field, replacing its value, and fires `input` and
+   * `change`.
+   * @param {string} text
+   * @throws {Error} a test failure when the field is disabled
+   */
   fill(text) {
     const el = this.one();
     if (disabled(el)) throw failure(`${this.describe} is disabled`, -1, -1, []);
@@ -775,6 +881,11 @@ class Handle extends Queries {
     flush();
   }
 
+  /**
+   * Presses `key` on the element (`keydown`, then `keyup`); an unprevented
+   * Enter outside a text area submits the enclosing form.
+   * @param {{$: number, _0?: string}} [key] a `Key` case; Enter by default
+   */
   press(key) {
     const el = this.one();
     const name = key && key.$ === 8 ? String(key._0) : KEYS[key && key.$] ?? "Enter";
@@ -808,16 +919,26 @@ class Handle extends Queries {
 
 /** A rendered view: the queries over its container. */
 class Screen extends Queries {
+  /**
+   * Creates the screen of a mounted view.
+   * @param {object|null} host the view's container element
+   * @param {(() => void)|null} dispose unmounts the view
+   */
   constructor(host, dispose) {
     super();
     this.host = host;
     this.dispose = dispose;
   }
 
+  /**
+   * Queries on a screen search its container; none once unmounted.
+   * @returns {object[]}
+   */
   scope() {
     return this.host === null ? [] : [this.host];
   }
 
+  /** The document's title. */
   get title() {
     return String(globalThis.document?.title ?? "");
   }
@@ -833,6 +954,10 @@ class Screen extends Queries {
     throw new KPanic(`Screen.currentPage: no page has the URL ${url.pathname}${url.search}`);
   }
 
+  /**
+   * Waits until the view is quiet: its pending first load, every microtask
+   * and event-loop turn, and in-flight server work; then flushes effects.
+   */
   async settle() {
     if (this.pending) await this.pending;
     await idle();
@@ -841,6 +966,7 @@ class Screen extends Queries {
     flush();
   }
 
+  /** Disposes the view and removes its container. Idempotent. */
   unmount() {
     if (this.host === null) return;
     this.dispose?.();
@@ -928,18 +1054,26 @@ export function testClock() {
     const t = { due, every, f, seq: seq++, live: true };
     timers.push(t);
     return {
+      /** Cancels the timer. */
       cancel() {
         t.live = false;
       },
     };
   };
   return {
+    /** The virtual current time. */
     get now() {
       return new Instant(now);
     },
     every: (d, f) => add(now + Math.max(1, d), Math.max(1, d), f),
     after: (d, f) => add(now + Math.max(0, d), 0, f),
     sleep: (_c, d) => new Promise((resolve) => add(now + Math.max(0, d), 0, resolve)),
+    /**
+     * Moves virtual time forward by `d` milliseconds, firing every timer due
+     * on the way in due order (ties in creation order) and flushing effects
+     * after each.
+     * @param {number} d milliseconds; negative counts as 0
+     */
     advance(d) {
       const target = now + Math.max(0, d);
       for (;;) {
@@ -957,6 +1091,10 @@ export function testClock() {
       now = target;
       flush();
     },
+    /**
+     * Sets the virtual time to `instant` without firing timers.
+     * @param {{ms: number}} instant
+     */
     set(instant) {
       now = instant.ms;
     },
@@ -969,6 +1107,11 @@ export function memoryStorage(R, W) {
   let readError = null;
   let writeError = null;
   return {
+    /**
+     * Reads and decodes the value under `key`; `null` when none is stored.
+     * @throws {unknown} the error given to `failReads`, or
+     *   `StorageReadError.unreadable`
+     */
     read(codec, key) {
       if (readError !== null) throw readError;
       const text = items.get(key.name);
@@ -980,22 +1123,31 @@ export function memoryStorage(R, W) {
         throw R.unreadable;
       }
     },
+    /**
+     * Encodes and stores `value` under `key`.
+     * @throws {unknown} the error given to `failWrites`
+     */
     write(codec, key, value) {
       if (writeError !== null) throw writeError;
       items.set(key.name, JSON.stringify(codec.encode(value)));
     },
+    /** Removes the value under the key, the last argument. */
     remove(...a) {
       items.delete(a[a.length - 1].name);
     },
+    /** Stores `text` as is under `name`, to test reading unreadable data. */
     writeRaw(name, text) {
       items.set(String(name), String(text));
     },
+    /** Makes every later read throw `error`. */
     failReads(error) {
       readError = error;
     },
+    /** Makes every later write throw `error`. */
     failWrites(error) {
       writeError = error;
     },
+    /** Makes reads and writes succeed again. */
     stopFailing() {
       readError = null;
       writeError = null;
@@ -1029,24 +1181,33 @@ export function testFiles() {
     return files;
   };
   return {
+    /** A copy of the files saved so far, oldest first. */
     get saved() {
       return [...saved];
     },
+    /** A copy of the file types of each `open` and `openAll`, oldest first. */
     get requests() {
       return [...requests];
     },
     open: async (_c, types) => take(types, false)[0],
     openAll: async (_c, types) => take(types, true),
+    /** Records `file`, or throws the error given to `failSaves`. */
     save(file) {
       if (saveError !== null) throw saveError;
       saved.push(file);
     },
+    /**
+     * Queues `file` as what the user picks in the next `open` (or the next
+     * `openAll`, with every queued file).
+     */
     choose(file) {
       chosen.push(file);
     },
+    /** Makes the next `open` or `openAll` throw `error`. */
     failOpen(error) {
       openError = error;
     },
+    /** Makes every later `save` throw `error`. */
     failSaves(error) {
       saveError = error;
     },
@@ -1077,6 +1238,10 @@ export function testHttpClient(E, S) {
   const answer = (status, type, bytes) => ({ response: received(E, status, httpCode(status), [["content-type", type]], bytes) });
   return {
     requests,
+    /**
+     * Records `request` and answers what is canned for its path.
+     * @throws {KPanic} when nothing is canned for the path
+     */
     async send(_c, request) {
       requests.push(request);
       const a = answers.get(pathOf(request.url));
@@ -1084,20 +1249,31 @@ export function testHttpClient(E, S) {
       if (a.error !== undefined) throw a.error;
       return a.response;
     },
+    /**
+     * Sends `request` and decodes a successful response's JSON with `codec`.
+     * @throws {object} `HttpError.status` for a non-2xx response
+     */
     async fetchJson(c, codec, request) {
       const r = await this.send(c, request);
       if (!HttpResponse$isSuccess(r)) throw E.status(r.status, HttpResponse$text(r));
       return HttpResponse$json(r, codec, E);
     },
+    /** Cans `response`, returned as built, for requests to `path`. */
     respond(path, response) {
       answers.set(String(path), { response });
     },
+    /** Cans a 200 JSON response holding `value` for requests to `path`. */
     serveJson(codec, path, value) {
       answers.set(String(path), answer(ok, "application/json", new TextEncoder().encode(JSON.stringify(codec.encode(value)))));
     },
+    /**
+     * Cans a plain-text response for requests to `path`, `ok` unless
+     * `status` is given.
+     */
     serveText(path, text, status) {
       answers.set(String(path), answer(status ?? ok, "text/plain; charset=utf-8", new TextEncoder().encode(String(text))));
     },
+    /** Makes requests to `path` throw `error`. */
     fail(path, error) {
       answers.set(String(path), { error });
     },
@@ -1109,9 +1285,11 @@ export function testHttpClient(E, S) {
 export function recordingJobQueue() {
   const jobs = [];
   return {
+    /** Records the job with its JSON-encoded payload, without running it. */
     async enqueue(_c, codec, kind, payload, delay) {
       jobs.push({ name: kind.name, json: JSON.stringify(codec.encode(payload)), delay: delay ?? 0 });
     },
+    /** The decoded payloads of the jobs of `kind`, in enqueue order. */
     payloads(codec, kind) {
       return jobs.filter((j) => j.name === kind.name).map((j) => codec.decode(JSON.parse(j.json), ""));
     },
@@ -1124,10 +1302,12 @@ export function recordingEmailProvider() {
   let error = null;
   return {
     sent,
+    /** Records `email`, or throws the simulated failure. */
     async send(_c, email) {
       if (error !== null) throw error;
       sent.push(email);
     },
+    /** Makes every later `send` throw `e`. */
     simulateFailure(e) {
       error = e;
     },

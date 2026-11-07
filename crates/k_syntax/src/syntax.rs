@@ -56,7 +56,10 @@ pub type SyntaxNodeChildren = rowan::SyntaxNodeChildren<KLanguage>;
 /// the tree alive; drop them before the `Parse` to benefit from this.
 #[derive(Clone, Debug)]
 pub struct Parse {
+    /// The root of the lossless green tree, a `SourceFile` node.
     green: GreenNode,
+    /// Lexer and parser diagnostics, in the order given to the constructor
+    /// (source order when built by the parser).
     diagnostics: Vec<Diagnostic>,
     /// The nesting depth of the tree (the root has depth 1).
     depth: u32,

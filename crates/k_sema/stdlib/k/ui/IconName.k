@@ -27,7 +27,7 @@ public enum IconName implements Equatable, Hashable, Codable {
     case close
     /// A cloud in front of the moon.
     case cloudMoon
-    /// Fog.
+    /// A cloud with fog below it.
     case cloudFog
     /// Drizzle.
     case cloudDrizzle

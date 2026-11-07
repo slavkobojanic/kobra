@@ -28,7 +28,7 @@ use crate::lower::Body;
 
 /// One job service of the program.
 pub(crate) struct Job {
-    /// The service.
+    /// The job's service declaration.
     pub decl: DeclId,
     /// Its name, policy and schedule.
     pub spec: JobSpec,

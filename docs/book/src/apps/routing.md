@@ -3,14 +3,92 @@
 Routes are declared in code, not derived from the file system, and **developers don't write URLs.**
 Pages are typed values, and the compiler generates their URLs.
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
 ```k
+// src/store/Context.k
+import k.auth.AuthRole
+import k.crypto.Uuid
+import k.http.HttpResponse
+import k.http.IncomingRequest
+import k.rpc.RpcOnlyError
+
+enum ProductTab implements Equatable, Codable {
+    case overview
+    case reviews
+}
+
+struct CatalogItem {
+    let id: Uuid
+    let name: String
+}
+
+service ProductService {
+    func all() -> List<CatalogItem> {
+        return []
+    }
+}
+
+struct Order {
+    let id: Uuid
+}
+
+protocol StoreProtocol {
+    rpc checkout(orderId: Uuid) throws RpcOnlyError -> Url
+}
+
+page Receipt {
+    @Param let id: Uuid
+
+    view {
+        text { "Receipt {id}" }
+    }
+}
+
+page StripeWebhook at "/webhooks/stripe" {
+    @Post
+    func receive(request: IncomingRequest) async -> HttpResponse {
+        return HttpResponse(status: .ok)
+    }
+}
+
+enum StaffRole implements AuthRole {
+    case admin
+}
+
+component NavBar {
+    view {
+        nav { text { "K Shop" } }
+    }
+}
+
+component Footer {
+    view {
+        footer { text { "© K Shop" } }
+    }
+}
+
+service Readiness {
+    func isReady() async -> Bool {
+        return true
+    }
+}
+```
+-->
+
+```k
+~import k.crypto.Uuid
+~import k.auth.Authenticated
 page Product requires Authenticated {
-    @Param let id: ProductId                    // required
+    @Param let id: Uuid                    // required
     @Param let tab: ProductTab = .overview      // optional
 
     @Inject let products: ProductService
 
-    view { … }
+    view {
+        // …
+~        text { "Product" }
+    }
 }
 ```
 
@@ -25,19 +103,45 @@ There is only one kind of parameter, `@Param`. **You never choose between path a
 the compiler decides, as described under [URLs](#urls).
 
 - A parameter without a default is required. One with a default is optional.
-- Parameters are parsed into their types. An invalid value, such as an `id` that isn't a valid
-  `ProductId` or `Uuid`, gives a `404`.
+- Parameters are parsed into their types. An invalid value, such as an `id` that isn't a valid `Uuid`,
+  gives a `404`.
+- **A URL can carry** `String`, `Int`, `Uuid`, `Page`, an enum whose cases have no payloads, and an
+  optional of any of these. Any other type is `K5002`.
+
+> **Planned.** The design also lets an id type of your own, such as a `ProductId` struct, be a
+> parameter. The compiler doesn't accept one yet; use `Uuid` or `Int`.
 
 ## Navigation
 
-View pages are cases of a **`Page` enum that the compiler generates**, which avoids name clashes between
-`page Product` and `struct Product`. You navigate with implicit member syntax, following the
+View pages are cases of a **`Page` enum that the compiler generates**, so a link names `.product`, a
+case, rather than the declaration itself. (A page and a type in the same module still need different
+names.) You navigate with implicit member syntax, following the
 named-or-chained rule: required parameters are arguments, optional ones are chained.
 
 ```k
+~import k.crypto.Uuid
+~import k.ui.Router
+~
+~page Product {
+~    @Param let id: Uuid
+~    @Param let tab: ProductTab = .overview
+~
+~    view {
+~        text { "Product" }
+~    }
+~}
+~
+~component ProductLink {
+~    @Prop let product: CatalogItem
+~
+~    view {
 link(to: .product(id: product.id)) { product.name }
-
+~    }
+~
+~    func open() {
 Router.navigate(to: .product(id: product.id).tab(.reviews))
+~    }
+~}
 ```
 
 - Navigating to a page that doesn't exist, or with missing or wrongly typed parameters, is a compile
@@ -45,7 +149,7 @@ Router.navigate(to: .product(id: product.id).tab(.reviews))
 - **Pages are always referenced as `Page` values:** in `link(to:)`, `Router.navigate(to:)`,
   `canonical(…)`, `@SignInPage(.signIn)` and `Page`-typed `@Param`s alike.
 - Every `Page` value has `url: Url`, its path and query (`/product/42?tab=reviews`).
-- **Leaving the app:** `link(url: "https://…")` links out, and `Router.navigate(url: Url)` leaves with a
+- **Leaving the app:** `link(url: Url("https://…"))` links out, and `Router.navigate(url: Url)` leaves with a
   full page load, for example to a hosted payment page.
 
 ## Absolute URLs: `PublicUrls`
@@ -55,12 +159,19 @@ needs it absolute. **`PublicUrls`** is a server-only standard-library service in
 absolute URLs from the app's public origin (`K_PUBLIC_ORIGIN`, see [Deployment](deployment.md)):
 
 ```k
+~import k.rpc.RpcOnlyError
+~import k.crypto.Uuid
+~import k.server.PublicUrls
 service StoreApi implements StoreProtocol {
     @Inject let urls: PublicUrls
 
-    …
+    // …
+~    rpc checkout(orderId: Uuid) async throws RpcOnlyError -> Url {
+~        let order = Order(id: orderId)
     let returnUrl = urls.absolute(.receipt(id: order.id))        // https://shop.example/receipt/0b6f…
     let webhookUrl = urls.absolute(endpoint: .stripeWebhook)    // https://shop.example/webhooks/stripe
+~        return returnUrl
+~    }
 }
 ```
 
@@ -90,17 +201,36 @@ layout Shop {
   page can still choose its own with `@Layout`, or opt out with **`@NoLayout`**, which takes no argument.
 
 ```k
+~layout Shop {
+~    @Slot let content: View
+~
+~    view {
+~        main { content }
+~    }
+~}
+~
 @Layout(Shop)
-page Pricing { … }
+page Pricing {
+    // …
+~    view { text { "Pricing" } }
+}
 
 @NoLayout
-page Receipt { … }
+page Confirmation {
+    // …
+~    view { text { "Thanks" } }
+}
 ```
 
 ## Guards: `requires`
 
 ```k
-page Admin requires Authenticated, Role(.admin) { … }
+~import k.auth.Authenticated
+~import k.auth.Role
+page Admin requires Authenticated, Role(.admin) {
+    // …
+~    view { text { "Admin" } }
+}
 ```
 
 - Guards are the same middleware types used on [protocols](protocols.md), so `Authenticated` is one type
@@ -141,11 +271,23 @@ When something outside the app depends on a URL, such as search engines, webhook
 `/.well-known/*`, the page names it with `at`:
 
 ```k
-page Home at "/" { … }
+~import k.crypto.Uuid
+page Home at "/" {
+    // …
+~    view { text { "Home" } }
+}
 
-page Pricing at "/pricing" { … }
+page Pricing at "/pricing" {
+    // …
+~    view { text { "Pricing" } }
+}
 
-page ProductDetail at "/product/{id}/{tab}" { … }     // optional parameters in the path, explicitly
+page ProductDetail at "/product/{id}/{tab}" {           // optional parameters in the path, explicitly
+    @Param let id: Uuid
+    @Param let tab: ProductTab = .overview
+    // …
+~    view { text { "Product" } }
+}
 ```
 
 The URL is an ordinary string whose interpolations must each name a `@Param` of the page. **Named URLs
@@ -160,6 +302,10 @@ never change when the page is renamed.**
 - Duplicate or conflicting URLs are compile errors.
 - `k routes` prints the full route table.
 
+> **Planned.** The first compiler releases don't write `routes.lock` or add redirects on a rename. They
+> read a committed `routes.lock` for its `redirect "/old-path" -> page` lines, serve each one as a permanent
+> redirect, and list them in `k routes`, so a renamed page's old URL can be kept by adding a line by hand.
+
 ## Endpoint pages
 
 A page with HTTP handler functions instead of a `view` is an **endpoint page**: K's one deliberate
@@ -167,6 +313,8 @@ escape hatch to raw HTTP, for external systems that can't speak RPC, such as web
 health checks. Everything else, including every call from the app's own client, is RPC.
 
 ```k
+~import k.http.HttpResponse
+~import k.http.IncomingRequest
 public page HealthCheck at "/health" {
     @Inject let readiness: Readiness
 

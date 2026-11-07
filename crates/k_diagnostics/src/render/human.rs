@@ -27,11 +27,19 @@ impl HumanOptions {
     }
 }
 
+/// ANSI escape that resets all attributes.
 const RESET: &str = "\x1b[0m";
+/// ANSI bold, used for the header message and the `note` label.
 const BOLD: &str = "\x1b[1m";
+/// ANSI bold red, the color of `error` headers and primary error carets.
 const RED: &str = "\x1b[1;31m";
+/// ANSI bold yellow, the color of `warning` headers and primary warning
+/// carets.
 const YELLOW: &str = "\x1b[1;33m";
+/// ANSI bold blue, used for the gutter, line numbers, `-->` and secondary
+/// label underlines.
 const BLUE: &str = "\x1b[1;34m";
+/// ANSI bold cyan, used for the `help` and `fix` labels.
 const CYAN: &str = "\x1b[1;36m";
 
 /// Renders `diagnostic` as human-readable text, ending with a newline.
@@ -164,17 +172,22 @@ pub fn human(diagnostic: &Diagnostic, sources: &SourceMap, options: &HumanOption
     out
 }
 
-/// Conditional ANSI painting.
+/// Conditional ANSI painting: hands out escape codes when color is on and
+/// empty strings when it is off, so the renderer has a single code path.
 #[derive(Clone, Copy)]
 struct Paint {
+    /// Whether escapes are emitted; when `false` both methods return `""`.
     on: bool,
 }
 
 impl Paint {
+    /// Returns `code` when painting is enabled, otherwise the empty string.
     fn on(self, code: &'static str) -> &'static str {
         if self.on { code } else { "" }
     }
 
+    /// Returns the [`RESET`] escape when painting is enabled, otherwise the
+    /// empty string.
     fn off(self) -> &'static str {
         if self.on { RESET } else { "" }
     }
@@ -182,8 +195,13 @@ impl Paint {
 
 /// One source line shown in the snippet, with the marks under it.
 struct SnippetLine {
+    /// The 1-based line number shown in the gutter.
     line: u32,
+    /// The line's text without its terminator, tabs replaced by one space
+    /// so that display columns equal char indices.
     text: String,
+    /// The underlines on this line, sorted by column with the primary mark
+    /// first among marks at the same column.
     marks: Vec<Mark>,
 }
 
@@ -192,8 +210,13 @@ struct Mark {
     /// Display column (0-based, in chars, tabs expanded to one char) where
     /// the underline starts.
     col: usize,
+    /// Number of display columns underlined; at least 1.
     width: usize,
+    /// The label text printed after the underline; empty for the primary
+    /// span.
     message: String,
+    /// Whether this is the diagnostic's primary span (drawn with `^` in the
+    /// severity color) rather than a secondary label (drawn with `-`).
     primary: bool,
 }
 
@@ -237,6 +260,13 @@ fn snippet_lines(diagnostic: &Diagnostic, file: Option<&SourceFile>) -> Vec<Snip
 
 /// Finds the line containing the start of `span` and the column and width of
 /// the underline, clamped to that line.
+///
+/// Returns `(line, shown_text, col, width)`, where `line` is 1-based,
+/// `shown_text` has tabs replaced by spaces, `col` is a 0-based char column
+/// and `width` is at least 1. Spans that extend past the end of the line are
+/// cut at the line end; out-of-range offsets are clamped by
+/// [`SourceFile::line_col`]. Returns `None` when the line index has no start
+/// for the computed line or that start is not a char boundary of the text.
 fn locate(file: &SourceFile, span: Span) -> Option<(u32, String, usize, usize)> {
     let text = file.text();
     let start = file.line_col(span.start());

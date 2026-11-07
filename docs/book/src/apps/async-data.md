@@ -3,9 +3,115 @@
 Pages and components load async data with **`@Load` fields**, and describe what to show meanwhile with a
 **`loading` block** and, optionally, a **`failed` block** next to `view`.
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
 ```k
-page Product {
-    @Param let id: ProductId
+// src/store/Context.k
+import k.crypto.Uuid
+import k.rpc.RpcFailure
+
+struct Product implements Codable {
+    let id: Uuid
+    let name: String
+}
+
+struct Review implements Codable {
+    let stars: Int
+}
+
+enum CatalogError implements Error, Codable {
+    case notFound
+    case network(RpcFailure)
+}
+
+service ProductService {
+    func find(_ id: Uuid) async throws CatalogError -> Product {
+        throw .notFound
+    }
+
+    func reviews(for product: Uuid) async throws CatalogError -> List<Review> {
+        return []
+    }
+
+    func related(to product: Uuid) async throws CatalogError -> List<Product> {
+        return []
+    }
+}
+
+component ReviewList {
+    @Prop let reviews: List<Review>
+
+    view {
+        text { "{reviews.count} reviews" }
+    }
+}
+
+component RelatedProducts {
+    @Prop let products: List<Product>
+
+    view {
+        text { "{products.count} related" }
+    }
+}
+
+component ProductSkeleton {
+    view {
+        text { "Loading…" }
+    }
+}
+
+component NotFound {
+    view {
+        text { "Not found" }
+    }
+}
+
+component RetryPanel {
+    @Prop let error: RpcFailure
+    @Emits let retry: Event<Void>
+
+    view {
+        button { "Retry" }
+            .on(click: { retry.emit() })
+    }
+}
+
+struct OrderSummary implements Codable {
+    let id: Uuid
+    let number: Int
+}
+
+service OrderService {
+    func recent() async -> List<OrderSummary> {
+        return []
+    }
+}
+
+component OrderLine {
+    @Prop let order: OrderSummary
+
+    view {
+        text { "#{order.number}" }
+    }
+}
+
+struct Place implements Codable {
+    let name: String
+}
+
+service Places {
+    func search(_ text: String) async throws CatalogError -> List<Place> {
+        return []
+    }
+}
+```
+-->
+
+```k
+~import k.crypto.Uuid
+~
+page ProductDetail {
+    @Param let id: Uuid
     @Inject let products: ProductService
 
     @Load let product: Product = try await products.find(id)
@@ -121,12 +227,26 @@ Every page, layout or component with `@Load` fields gets a generated `reload()` 
 of its loads in dependency order. Use it for retry buttons and periodic refreshes:
 
 ```k
+~component Orders {
+~    @Inject let orders: OrderService
+~
+~    @Load let recent: List<OrderSummary> = await orders.recent()
+~
+~    view {
+~        text { "{recent.count} orders" }
+~    }
+~
+~    loading {
+~        text { "Loading…" }
+~    }
+~
 failed {
     paragraph { "Something went wrong." }
 
     button { "Try again" }
         .on(click: reload)
 }
+~}
 ```
 
 | Situation | Shows |
@@ -147,6 +267,13 @@ failed {
 To refresh periodically, start a timer in an effect and cancel it on cleanup:
 
 ```k
+~import k.time.Clock
+~import k.crypto.Uuid
+~
+~component Forecast {
+~    @Prop let placeId: Int
+~    @Inject let products: ProductService
+~    @Load let product: Product = try await products.find(Uuid.random())
 @Inject let clock: Clock
 
 @Effect(on: [placeId])
@@ -155,6 +282,15 @@ func refreshPeriodically() {
 
     onCleanup { timer.cancel() }
 }
+~
+~    view {
+~        text { product.name }
+~    }
+~
+~    loading {
+~        text { "Loading…" }
+~    }
+~}
 ```
 
 ## When to use `LoadState` instead
@@ -163,6 +299,9 @@ func refreshPeriodically() {
 search results, keep a `LoadState<T>` in `@State` and set it from an effect or a function:
 
 ```k
+~component Search {
+~    @Inject let places: Places
+~    @State var query: String = ""
 @State var results: LoadState<List<Place>> = .idle
 
 func search() async {
@@ -174,6 +313,10 @@ func search() async {
         results = .failed(error)
     }
 }
+~    view {
+~        text { "…" }
+~    }
+~}
 ```
 
 Then `match results` in the view.

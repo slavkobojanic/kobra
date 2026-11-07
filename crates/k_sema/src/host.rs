@@ -61,6 +61,7 @@ const SEMA_STACK: usize = 256 << 20;
 /// Settings of an analysis.
 #[derive(Clone, Debug, Default)]
 pub struct Options {
+    /// The number of worker threads; `None` for one per core.
     threads: Option<NonZeroUsize>,
 }
 
@@ -105,6 +106,8 @@ impl Options {
 /// ```
 #[derive(Clone, Debug, Default)]
 pub struct Change {
+    /// The edits in the order they were made: a new text, or `None` to
+    /// remove the file. A later entry for the same path wins.
     entries: Vec<(ProjectPath, Option<Arc<str>>)>,
 }
 
@@ -138,8 +141,11 @@ impl Change {
 /// One project file and its memoized results.
 #[derive(Debug)]
 struct FileData {
+    /// The file's project path.
     path: ProjectPath,
+    /// What the file is, from its path.
     kind: FileKind,
+    /// The file's text.
     text: Arc<str>,
     /// The parse, computed on first use. Kept across revisions while the
     /// text is unchanged.
@@ -149,11 +155,16 @@ struct FileData {
 /// The inputs of one revision.
 #[derive(Debug)]
 struct State {
+    /// The revision number, incremented by every non-empty change.
     revision: u64,
+    /// The analysis settings.
     options: Options,
     /// The project files by `id - stdlib_count`; `None` for removed files.
     files: Vec<Option<Arc<FileData>>>,
+    /// The id of every project path ever added (ids are never reused,
+    /// so a removed and re-added file keeps its id).
     by_path: HashMap<ProjectPath, FileId>,
+    /// The number of stdlib files, whose ids come first.
     stdlib_count: u32,
     /// The semantic pass's result, computed on first use.
     sema: OnceLock<Arc<SemaResult>>,
@@ -169,6 +180,8 @@ struct State {
 }
 
 impl State {
+    /// Returns the project file with id `file`; `None` for stdlib ids and
+    /// removed files.
     fn project_file(&self, file: FileId) -> Option<&Arc<FileData>> {
         let index = file.raw().checked_sub(self.stdlib_count)?;
         self.files.get(index as usize)?.as_ref()
@@ -182,6 +195,7 @@ impl State {
 /// [`analysis`](AnalysisHost::analysis) snapshots.
 #[derive(Debug)]
 pub struct AnalysisHost {
+    /// The inputs of the current revision, shared with its snapshots.
     state: Arc<State>,
     /// The current revision, shared with every snapshot so stale snapshots
     /// can tell they are cancelled.
@@ -310,7 +324,10 @@ pub enum FileOrigin<'a> {
 /// revision.
 #[derive(Clone, Debug)]
 pub struct Analysis {
+    /// The inputs (and memoized results) of the snapshot's revision.
     state: Arc<State>,
+    /// The host's current revision; the snapshot is cancelled once it
+    /// differs from `state.revision`.
     current: Arc<AtomicU64>,
 }
 
@@ -321,6 +338,11 @@ impl Analysis {
         self.current.load(Ordering::Acquire) != self.state.revision
     }
 
+    /// Returns `Ok` while this snapshot is current.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] once the host has applied a newer change.
     fn check(&self) -> Result<(), Cancelled> {
         if self.is_cancelled() {
             Err(Cancelled)
@@ -660,6 +682,10 @@ impl Analysis {
     }
 
     /// The revision's reverse index, built on first use.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
     fn ref_index(&self) -> Result<&RefIndex, Cancelled> {
         let sema = self.sema()?;
         let index = self.state.refs.get_or_init(|| {
@@ -674,6 +700,11 @@ impl Analysis {
 
     /// Parses every K source file that has no memoized parse yet, on
     /// [`Options::threads`] worker threads.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed; the parses already made are
+    /// kept.
     fn parse_all(&self) -> Result<(), Cancelled> {
         let pending: Vec<(FileId, &FileData)> = self
             .state
@@ -727,6 +758,10 @@ impl Analysis {
     }
 
     /// The diagnostics of the semantic stages (`docs/compiler/sema.md`).
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
     fn semantic_diagnostics(&self) -> Result<Vec<Diagnostic>, Cancelled> {
         Ok(self.sema()?.diagnostics.clone())
     }
@@ -738,6 +773,10 @@ impl Analysis {
     /// [`resolve_at`](Analysis::resolve_at)) call it once per syntax node
     /// during code generation, so it must not rescan the files
     /// (`docs/compiler/performance.md` §11.4).
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
     fn sema(&self) -> Result<&SemaResult, Cancelled> {
         if let Some(result) = self.state.sema.get() {
             self.check()?;

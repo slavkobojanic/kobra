@@ -3,7 +3,7 @@
 @Generated
 @ServerOnly
 public enum Endpoint implements Equatable, Hashable {
-    /// The endpoint's path.
+    /// The endpoint page's URL path.
     @Native
     var url: Url
 }

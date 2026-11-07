@@ -1,6 +1,10 @@
-// Calls between services (docs/design/40-workspaces-and-services.md): service
-// tokens, the remote client over a stand-in for `op_k_fetch`, the `TestRemote`
-// double, and the `ServiceAuthenticated` guard with `ServiceCaller`.
+/**
+ * @module k:/tests/remote.test.js
+ *
+ * Calls between services (docs/design/40-workspaces-and-services.md): service
+ * tokens, the remote client over a stand-in for `op_k_fetch`, the `TestRemote`
+ * double, and the `ServiceAuthenticated` guard with `ServiceCaller`.
+ */
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
 import {
   DEFAULT_REMOTE_TIMEOUT_MS,
@@ -26,6 +30,7 @@ function fakeHmac(key, message) {
 }
 
 const NOW = 1_700_000_000_000;
+/** The UTF-8 bytes of `t`. */
 const bytes = (t) => new TextEncoder().encode(t);
 
 /** A transport answering `outcome`, recording what was sent. */
@@ -34,6 +39,7 @@ function transport(outcome) {
   return { sent, fn: async (id, wire, body) => (sent.push({ id, wire, body: new TextDecoder().decode(body) }), outcome) };
 }
 
+/** A `remote` for paybox whose transport answers `outcome`, its options overridden by `extra`. */
 function client(outcome, extra) {
   const t = transport(outcome);
   const r = remote("shop", "http://paybox.internal:8081/", new Secret("s3cret"), 2500, {

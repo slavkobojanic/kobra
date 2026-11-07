@@ -34,31 +34,35 @@ The enums the compiler generates for the app need no import either: `Page`, `End
 
 ## Modules
 
-| Module | Contents |
-|---|---|
-| `k.ui` | built-in elements; layout (`Stack`, `Grid`, `Spacer`); accessible widgets (`Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable`); `VisuallyHidden`; `KeyboardShortcut`; `Icon` with a bundled icon set; the `Theme` service |
-| `k.animation` | transitions, springs, enter and exit animations, `.animate()` modifiers |
-| `k.charts` | line, bar, area, pie and scatter charts, built on SVG and themed by tokens |
-| `k.graphics` | Canvas 2D, SVG drawing |
-| `k.http` | `HttpClient`, `HttpRequest`, `IncomingRequest`, `HttpResponse`, `HttpStatus`; WebSocket, server-sent events |
-| `k.storage` | typed local storage (`LocalStorage`, `StorageKey`), typed IndexedDB collections, cookies |
-| `k.time` | the `Clock` service (`now`, `every`, `after`, `sleep`), `TimerHandle`, `TimeOfDay`, calendars, time zones, formatting, relative time |
-| `k.text` | formatting, regular expressions, Markdown rendering, slugs, `EmailAddress` |
-| `k.i18n` | localized strings, plurals, locale-aware number, date and currency formatting |
-| `k.crypto` | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only) |
-| `k.auth` | `Session`, `SessionManager`, `SessionUser`, the `Authenticated`, `Role` and `RateLimit` guards, `GuardRejection`, `AuthRole`, `AuthUserId`, `SessionConfig` |
-| `k.device` | `Files` (the file picker and downloads), `File`, `FileType`, `FileOpenError`, `FileSaveError`; clipboard, geolocation, notifications, sharing, camera, microphone |
-| `k.drag` | `DragKind`, `Draggable`, `DropTarget`, `ReorderableList`, `ListMove` |
-| `k.encoding` | JSON (`@JsonKey`), CSV, Base64, URL encoding |
-| `k.collections` | `Deque`, `PriorityQueue`, `OrderedMap`, `LruCache` |
-| `k.server` | `ServerConfig`, `PublicUrls`; background jobs (`Job`, `JobQueue`, `JobConfig`, schedules); email (`Email`, `EmailProvider`, `SmtpConfig`); file storage (S3-compatible) |
-| `k.observe` | structured logging, metrics, tracing (OpenTelemetry) |
-| `k.db` | entities, repositories, `Database`, `DatabaseConfig`, migrations and `Schema` |
-| `k.validation` | constraint annotations, `@Form` and `ValidationError` |
-| `k.rpc` | protocols and the Connect transport, `RpcFailure`, `RpcOnlyError`, `Broadcast`; calls between services: `RemoteService`, `RemoteClient`, `ServiceAuthenticated`, `ServiceCaller`, `ServiceConfig` ([Workspaces and services](../apps/workspaces.md)) |
-| `k.test` | the test runner, `render`, accessibility queries, `TestClient`, and the test doubles, `TestClock` included |
+The pages under this chapter are the API reference of each module, generated from the standard
+library's own doc comments (`crates/k_sema/stdlib`), so they list exactly what the compiler knows.
 
-Each declaration is imported individually: `import k.ui.Dialog`, `import k.rpc.RpcFailure`.
+| Module | Built today | Planned by the design |
+|---|---|---|
+| [`k.core`](stdlib/k-core.md) | strings, numbers, collections, `Optional`, `Result`, `LoadState`, `Stream`, units, `Date`, `Color`, `Url`, `Bytes`, `Money`, `Currency`, `Secret`, the framework annotations | |
+| [`k.ui`](stdlib/k-ui.md) | layout (`Stack`, `Grid`, `Spacer`), `VisuallyHidden`, `ErrorBoundary`, `KeyboardShortcut`, `Icon` with a bundled icon set, `Router`, the `Theme` service | accessible widgets: `Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable` |
+| [`k.charts`](stdlib/k-charts.md) | `LineChart`, `LineSeries`, `ChartPoint` and the chart tokens | bar, area, pie and scatter charts |
+| [`k.http`](stdlib/k-http.md) | `HttpClient`, `HttpRequest`, `HttpResponse`, `IncomingRequest`, `HttpStatus`, `HttpError` | WebSocket, server-sent events |
+| [`k.storage`](stdlib/k-storage.md) | typed local storage: `LocalStorage`, `StorageKey`, `BrowserStorage` | IndexedDB collections, session storage, cookies |
+| [`k.time`](stdlib/k-time.md) | `Clock`, `TimerHandle`, `TimeOfDay`, `TimeZone`, `Weekday` | calendars |
+| [`k.text`](stdlib/k-text.md) | `EmailAddress` | regular expressions, Markdown rendering, slugs |
+| [`k.crypto`](stdlib/k-crypto.md) | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only) | |
+| [`k.auth`](stdlib/k-auth.md) | `Session`, `SessionManager`, `SessionUser`, the `Authenticated`, `Role` and `RateLimit` guards, `GuardRejection`, `AuthRole`, `AuthUserId`, `SessionConfig` | OAuth providers, passkeys |
+| [`k.device`](stdlib/k-device.md) | `Files` (the file picker and downloads), `File`, `FileType` and their errors | clipboard, geolocation, notifications, sharing, camera, microphone |
+| [`k.drag`](stdlib/k-drag.md) | `DragKind`, `Draggable`, `DropTarget`, `ReorderableList`, `ListMove`, the drag tokens | |
+| [`k.encoding`](stdlib/k-encoding.md) | `Json`, `@JsonKey` | CSV, URL encoding |
+| [`k.server`](stdlib/k-server.md) | `ServerConfig`, `PublicUrls`; jobs (`Job`, `JobQueue`, `JobConfig`, `@Retry`, `@Schedule`, `@JobName`); email (`Email`, `EmailProvider`, `SmtpEmailProvider`, `SmtpConfig`) | file storage (S3-compatible) |
+| [`k.observe`](stdlib/k-observe.md) | `Log` | metrics, tracing (OpenTelemetry) |
+| [`k.db`](stdlib/k-db.md) | `Database`, `DatabaseConfig`, the entity annotations, migrations and `Schema` | |
+| [`k.validation`](stdlib/k-validation.md) | the constraint annotations, `@Form`, `Rules`, `ValidationError` | |
+| [`k.rpc`](stdlib/k-rpc.md) | `RpcFailure`, `RpcOnlyError`, `Broadcast`; calls between services (`RemoteService`, `RemoteClient`, `ServiceAuthenticated`, `ServiceCaller`, `ServiceConfig`) | |
+| [`k.test`](stdlib/k-test.md) | `render`, the accessibility queries, `TestClient` and the test doubles | |
+| `k.i18n` | | localized strings, plurals, locale-aware formatting |
+| `k.collections` | | `Deque`, `PriorityQueue`, `OrderedMap`, `LruCache` |
+| `k.animation` | | transitions, springs, enter and exit animations |
+| `k.graphics` | | Canvas 2D and SVG drawing |
+
+Each declaration is imported individually: `import k.ui.VisuallyHidden`, `import k.rpc.RpcFailure`.
 
 ## Test doubles
 
@@ -89,6 +93,10 @@ with `@Inject` by their concrete type:
 | `Clock`, `TimerHandle`, `TestClock`, `TimeOfDay` | [Time and timers](../apps/time.md) |
 | `LocalStorage`, `StorageKey<T>`, `MemoryStorage` | [Local storage](../apps/local-storage.md) |
 | `Database`, writes, `Schema` | [Persistence](../apps/persistence.md) |
-| `Theme`, `ThemeVariant`, `LineChart` | [Styles and themes](../apps/styles.md), [Views](../apps/views.md#charts) |
+| `Theme`, `ThemeVariant` | [Styles and themes](../apps/styles.md) |
+| `LineChart`, `LineSeries`, `ChartPoint` | [Charts](../apps/charts.md) |
 | `PublicUrls` | [Pages and routing](../apps/routing.md#absolute-urls-publicurls) |
-| `Money`, `Currency` | [Units and number extensions](../language/units.md#money) |
+| `Money`, `Currency` | [Money](../apps/money.md) |
+| `Files`, `File`, `FileType` | [Importing and exporting files](../apps/files.md) |
+| `DragKind`, `ReorderableList`, `DropTarget` | [Drag and drop](../apps/drag-and-drop.md) |
+| `KeyboardShortcut` | [Keyboard shortcuts](../apps/keyboard-shortcuts.md) |

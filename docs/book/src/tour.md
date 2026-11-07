@@ -23,6 +23,7 @@ encoding:
 
 ```k
 // src/guestbook/GuestbookEntry.k
+~import k.crypto.Uuid
 
 /// One guestbook entry, as the browser sees it.
 public struct GuestbookEntry implements Codable {
@@ -37,6 +38,9 @@ same struct backs the form in the browser and the request the server receives:
 
 ```k
 // src/guestbook/SignRequest.k
+~import k.validation.Length
+~import k.validation.NotBlank
+~import k.validation.Validatable
 
 /// What a visitor fills in to sign the guestbook.
 public struct SignRequest implements Codable, Validatable {
@@ -52,6 +56,8 @@ code, and the compiler translates the lambdas into SQL at compile time:
 
 ```k
 // src/guestbook/Entry.k
+~import k.db.Id
+~import k.crypto.Uuid
 entity Entry {
     @Id let id: Uuid
     var name: String
@@ -94,6 +100,7 @@ Connect protocol, so you never write a URL, a fetch call or a JSON parser:
 
 ```k
 // src/guestbook/GuestbookProtocol.k
+~import k.rpc.RpcOnlyError
 
 /// What the browser can ask the guestbook server.
 public protocol GuestbookProtocol {
@@ -116,6 +123,9 @@ because it is server-only:
 
 ```k
 // src/guestbook/GuestbookApi.k
+~import k.time.Clock
+~import k.rpc.RpcOnlyError
+~import k.crypto.Uuid
 service GuestbookApi implements GuestbookProtocol {
     @Inject let repository: EntryRepository
     @Inject let clock: Clock
@@ -152,6 +162,7 @@ retries and shared state belong. This one is thin for now:
 
 ```k
 // src/guestbook/GuestbookService.k
+~import k.rpc.RpcOnlyError
 public service GuestbookService {
     @Inject let api: GuestbookProtocol
 
@@ -176,6 +187,8 @@ time: a missing implementation or a dependency cycle is a compile error.
 
 ```k
 // src/guestbook/Guestbook.k
+~import k.validation.Form
+~import k.validation.ValidationError
 
 /// The guestbook: every entry, and a form to add one.
 public page Guestbook at "/" {
@@ -348,7 +361,7 @@ Then:
 ```bash
 k dev       # applies the migration and serves the app
 k test      # runs the test against an in-memory database
-k check     # everything, as CI runs it
+k check     # types, every static rule and the lockfiles, as CI runs it
 ```
 
 ## What the compiler checked for you

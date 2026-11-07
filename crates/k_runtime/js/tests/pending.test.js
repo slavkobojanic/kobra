@@ -1,5 +1,9 @@
-// Test-first tests for runtime parts that are specified but not
-// implemented yet. Each passes while it fails (docs/compiler/testing.md).
+/**
+ * @module k:/tests/pending.test.js
+ *
+ * Test-first tests for runtime parts that are specified but not
+ * implemented yet. Each passes while it fails (docs/compiler/testing.md).
+ */
 import { assertEq, installDom, test, tick } from "k:testing";
 import { FAILED, LOADING, READY, batch, createForm, createLoads, flush, hydrate, navigate, rpc, signal } from "k:runtime";
 

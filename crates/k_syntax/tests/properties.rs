@@ -216,10 +216,13 @@ const FRAGMENTS: &[&str] = &[
     "\u{2028}",
 ];
 
+/// Generates text by concatenating up to 95 K-like fragments.
 fn k_shaped() -> impl Strategy<Value = String> {
     prop::collection::vec(prop::sample::select(FRAGMENTS), 0..96).prop_map(|parts| parts.concat())
 }
 
+/// Generates up to 511 random bytes decoded lossily as UTF-8, so invalid
+/// sequences become U+FFFD.
 fn lossy_bytes() -> impl Strategy<Value = String> {
     prop::collection::vec(any::<u8>(), 0..512)
         .prop_map(|bytes| String::from_utf8_lossy(&bytes).into_owned())

@@ -7,8 +7,12 @@ use text_size::TextSize;
 /// One source file: its display path, its text and its line index.
 #[derive(Clone, Debug)]
 pub struct SourceFile {
+    /// The path shown in rendered locations (`path:line:col`); not
+    /// necessarily a path that exists on disk.
     path: String,
+    /// The complete source text, exactly as added.
     text: String,
+    /// Line starts of `text`, computed once when the file is added.
     line_index: LineIndex,
 }
 
@@ -44,8 +48,27 @@ impl SourceFile {
 /// out file ids and to give renderers access to source text. The incremental
 /// query database (see `docs/compiler/architecture.md`) will provide the same
 /// information through queries.
+///
+/// A `SourceMap` is plain owned data: it is `Send` and `Sync`, and it can be
+/// shared across threads behind a reference once all files are added.
+///
+/// # Example
+///
+/// ```
+/// use k_diagnostics::{LineCol, SourceMap, TextSize};
+///
+/// let mut sources = SourceMap::new();
+/// let a = sources.add("src/A.k", "func f() {}\n");
+/// let b = sources.add("src/B.k", "x\ny\n");
+/// assert_eq!((a.raw(), b.raw()), (0, 1));
+///
+/// let file = sources.get(b).expect("issued by this map");
+/// assert_eq!(file.path(), "src/B.k");
+/// assert_eq!(file.line_col(TextSize::from(2)), LineCol { line: 2, col: 1 });
+/// ```
 #[derive(Clone, Debug, Default)]
 pub struct SourceMap {
+    /// The files, where the file with id `n` is at index `n`.
     files: Vec<SourceFile>,
 }
 
@@ -58,6 +81,11 @@ impl SourceMap {
 
     /// Adds a file and returns its id. Ids are assigned densely from zero in
     /// insertion order.
+    ///
+    /// Building the line index is linear in the length of `text`. Adding the
+    /// same path twice adds a second, independent file. After `u32::MAX`
+    /// files every further id saturates to `u32::MAX` (unreachable in
+    /// practice).
     pub fn add(&mut self, path: impl Into<String>, text: impl Into<String>) -> FileId {
         let text = text.into();
         let line_index = LineIndex::new(&text);

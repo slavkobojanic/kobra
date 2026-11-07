@@ -1,6 +1,10 @@
-// Signals: reads, writes, computed laziness and cutoff, effect scheduling,
-// batching, untracked reads, cleanups, the owner tree, async cancellation
-// and error boundaries (docs/compiler/runtime.md, "Signals").
+/**
+ * @module k:/tests/signals.test.js
+ *
+ * Signals: reads, writes, computed laziness and cutoff, effect scheduling,
+ * batching, untracked reads, cleanups, the owner tree, async cancellation
+ * and error boundaries (docs/compiler/runtime.md, "Signals").
+ */
 import { assert, assertDeepEq, assertEq, assertThrows, test, tick } from "k:testing";
 import {
   batch, catchError, computed, effect, flush, isTracking, onCleanup, renderEffect, root, scope, signal, untrack,

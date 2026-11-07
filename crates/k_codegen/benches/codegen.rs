@@ -27,6 +27,12 @@ use k_codegen::{Entry, Environment, Options, Profile, generate};
 use k_sema::{AnalysisHost, Options as SemaOptions, ProjectPath};
 use project::{File, SEED};
 
+/// The generated project's files as the input of an `AnalysisHost`.
+///
+/// # Panics
+///
+/// If a generated path is not a valid project path (a bug in the
+/// generator).
 fn paths(files: &[File]) -> Vec<(ProjectPath, String)> {
     files
         .iter()
@@ -43,10 +49,16 @@ fn release() -> Options {
     }
 }
 
+/// The benchmark label of a project size, `10k` for 10 000 lines.
 fn label(lines: usize) -> String {
     format!("{}k", lines / 1_000)
 }
 
+/// The `emit` group: [`generate`] alone, over a warmed analysis.
+///
+/// # Panics
+///
+/// If a generated project has diagnostics or fails to generate.
 fn bench_emit(c: &mut Criterion) {
     let mut group = c.benchmark_group("emit");
     for lines in [1_000, 10_000, 100_000] {
@@ -68,6 +80,12 @@ fn bench_emit(c: &mut Criterion) {
     group.finish();
 }
 
+/// The `build` group: a cold build (a new host, checking and
+/// [`generate`]) per iteration.
+///
+/// # Panics
+///
+/// If a generated project fails to generate.
 fn bench_build(c: &mut Criterion) {
     let mut group = c.benchmark_group("build");
     group.sample_size(10);

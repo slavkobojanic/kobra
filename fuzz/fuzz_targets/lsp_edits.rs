@@ -29,6 +29,7 @@ const DOCUMENTS: &[(&str, &str)] = &[
 
 /// The process-wide server, initialized on the examples directory.
 fn client() -> &'static Mutex<Client> {
+    /// The server client, started by the first call.
     static CLIENT: OnceLock<Mutex<Client>> = OnceLock::new();
     CLIENT.get_or_init(|| {
         let root = lspdriver::example("todos");

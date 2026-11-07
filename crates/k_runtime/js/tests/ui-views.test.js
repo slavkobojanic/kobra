@@ -1,6 +1,10 @@
-// View bindings as generated code uses them: attributes (including ARIA
-// state), input value bindings, class lists, reactive style values and
-// events (docs/compiler/runtime.md §5.2, §5.4; docs/compiler/codegen.md §11).
+/**
+ * @module k:/tests/ui-views.test.js
+ *
+ * View bindings as generated code uses them: attributes (including ARIA
+ * state), input value bindings, class lists, reactive style values and
+ * events (docs/compiler/runtime.md §5.2, §5.4; docs/compiler/codegen.md §11).
+ */
 import { assert, assertEq, test } from "k:testing";
 import { attr, batch, classList, on, prop, renderEffect, root, signal, style, template } from "k:runtime";
 

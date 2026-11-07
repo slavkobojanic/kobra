@@ -174,6 +174,14 @@ pub fn run_case(case: &Case, bless: bool) -> Result<(), String> {
     }
 }
 
+/// Compares the actual token lines of a `lexer` case with its `.tokens`
+/// file, parsed rather than compared as text so that layout does not
+/// matter. With `bless`, a missing or differing file is (re)written.
+///
+/// # Errors
+///
+/// Returns a message for an unreadable or malformed expectation file, a
+/// missing file (without `bless`), or a line diff of the token streams.
 fn check_tokens(case: &Case, actual: &[TokenLine], bless: bool) -> Result<(), String> {
     let path = case.expectation("tokens");
     let actual_text: String = actual.iter().map(|t| format!("{t}\n")).collect();
@@ -196,6 +204,15 @@ fn check_tokens(case: &Case, actual: &[TokenLine], bless: bool) -> Result<(), St
     ))
 }
 
+/// Compares the actual tree dump of a `parser` case with its `.ast` file,
+/// which must hold exactly one S-expression; the comparison is structural,
+/// so layout and comments do not matter. With `bless`, a missing or
+/// differing file is (re)written in canonical layout.
+///
+/// # Errors
+///
+/// Returns a message for an unreadable or malformed expectation file, a
+/// missing file (without `bless`), or a diff of the pretty-printed trees.
 fn check_ast(case: &Case, actual: &sexpr::Sexpr, bless: bool) -> Result<(), String> {
     let path = case.expectation("ast");
     let actual_text = sexpr::pretty(actual);
@@ -223,6 +240,15 @@ fn check_ast(case: &Case, actual: &sexpr::Sexpr, bless: bool) -> Result<(), Stri
     ))
 }
 
+/// Compares `diagnostics` (converted to `.diag` entries against `source`)
+/// with the case's `.diag` file; a missing file expects no diagnostics.
+/// With `bless`, a mismatch rewrites the file, or removes it when there
+/// are no actual diagnostics.
+///
+/// # Errors
+///
+/// Returns a message for an unreadable or malformed `.diag` file, a
+/// failed write or removal, or the report of [`diag_format::compare`].
 fn check_diagnostics(
     case: &Case,
     source: &str,
@@ -253,6 +279,11 @@ fn check_diagnostics(
     }
 }
 
+/// Reads an expectation file, returning `Ok(None)` if it does not exist.
+///
+/// # Errors
+///
+/// Returns a message for any read error other than "not found".
 pub(crate) fn read_expectation(path: &Path) -> Result<Option<String>, String> {
     match fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
@@ -261,6 +292,14 @@ pub(crate) fn read_expectation(path: &Path) -> Result<Option<String>, String> {
     }
 }
 
+/// Handles a missing required expectation file: with `bless` it writes
+/// `actual` to `path`.
+///
+/// # Errors
+///
+/// Without `bless`, always returns a message that explains how to create
+/// the file and shows the current output; with `bless`, the error of
+/// [`write()`].
 pub(crate) fn missing(path: &Path, actual: &str, bless: bool) -> Result<(), String> {
     if bless {
         return write(path, actual);
@@ -272,6 +311,11 @@ pub(crate) fn missing(path: &Path, actual: &str, bless: bool) -> Result<(), Stri
     ))
 }
 
+/// Writes `text` to `path`, replacing the file.
+///
+/// # Errors
+///
+/// Returns a message naming the path if the write fails.
 pub(crate) fn write(path: &Path, text: &str) -> Result<(), String> {
     fs::write(path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }

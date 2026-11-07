@@ -64,6 +64,20 @@ impl std::error::Error for CompactError {}
 /// [`CompactError::Unterminated`] for a literal or block comment that runs
 /// to the end of the input, [`CompactError::RegexLiteral`] for a `/` that
 /// would start a regular expression. Never panics.
+///
+/// Runs in one pass, linear in the length of `source`.
+///
+/// # Examples
+///
+/// ```
+/// use k_runtime::{CompactError, compact};
+///
+/// let js = "/** Doubles. */\nfunction twice(x) {\n  return x * 2; // the result\n}\n";
+/// assert_eq!(compact(js).unwrap(), "function twice(x){return x*2;}\n");
+///
+/// // Regular-expression literals are refused rather than misread.
+/// assert!(matches!(compact("const r = /a+/;"), Err(CompactError::RegexLiteral { .. })));
+/// ```
 pub fn compact(source: &str) -> Result<String, CompactError> {
     let bytes = source.as_bytes();
     let mut out = String::with_capacity(source.len() / 2);

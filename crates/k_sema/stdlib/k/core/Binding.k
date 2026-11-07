@@ -8,7 +8,11 @@
 @Annotation
 @Native
 public struct Binding<T> {
-    /// A binding that reads with `get` and writes with `set`.
+    /// Creates a binding that reads with `get` and writes with `set`.
+    ///
+    /// - Parameters:
+    ///   - get: returns the current value.
+    ///   - set: stores a new value written by the child.
     @Native
     init(get: () -> T, set: (T) -> Void) {}
 }

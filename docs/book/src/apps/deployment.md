@@ -104,8 +104,11 @@ expand/contract: a column is retired in one release and dropped in a later one
 
 ## Containers
 
-The K project publishes `ghcr.io/k-lang/k:<version>`, a minimal image containing the static `k` binary,
-for multi-stage builds:
+> **Planned.** The K project will publish `ghcr.io/k-lang/k:<version>`, a minimal image containing the
+> static `k` binary. It isn't published yet; the examples build the toolchain in a first stage instead,
+> as described below the sample.
+
+With the toolchain image, a multi-stage build looks like this:
 
 ```text
 FROM ghcr.io/k-lang/k:0.1.0 AS build
@@ -196,6 +199,35 @@ readiness and liveness probes request `/health`, Services, an Ingress, and Confi
 secret. A script creates the Secrets from the same files, and each pod mounts its Secret at
 `/run/secrets`, so the `NAME_FILE` variables are the ones Compose uses.
 
+### Kubernetes on kind
+
+`examples/shop/deploy/kubernetes/README.md` has the full walkthrough. In short, at `examples/shop`:
+
+```bash
+scripts/init-secrets.sh
+docker compose build paybox shop                     # k-paybox:local and k-shop:local
+kind create cluster --name k-shop --config deploy/kubernetes/kind-config.yaml
+kind load docker-image k-paybox:local k-shop:local --name k-shop
+deploy/kubernetes/create-secrets.sh
+kubectl apply --kustomize deploy/kubernetes
+kubectl --namespace k-shop wait --for=condition=complete job --all --timeout=300s
+kubectl --namespace k-shop rollout status deployment/paybox deployment/shop --timeout=300s
+kubectl --namespace k-shop port-forward service/shop 8080:8080
+```
+
+kind runs its own container runtime, so the local images are loaded rather than pulled; the manifests
+use `imagePullPolicy: IfNotPresent`. The operational commands are the built server's own, run in a pod:
+
+| Task | Command |
+|---|---|
+| What a build reads | `kubectl --namespace k-shop exec deployment/shop -- /app config` |
+| Jobs that couldn't be delivered | `kubectl --namespace k-shop exec deployment/paybox -- /app jobs list --dead` |
+| Retry one | `kubectl --namespace k-shop exec deployment/paybox -- /app jobs retry <id>` |
+| Remove everything | `kind delete cluster --name k-shop` |
+
+Each pod drains for up to `K_SHUTDOWN_GRACE` (25 s) after `SIGTERM`, within its 30-second termination
+grace period, so a rolling restart drops no request.
+
 **The deployment is checked against the build.** `dist/app config` is the complete list of what an app
 reads, so a test can hold the deployment files to it: the K repository's `crates/k_cli/tests/deploy.rs`
 builds the workspace and fails when a container misses a required variable, sets a variable the app
@@ -217,7 +249,7 @@ an empty `#k-app`. The host should:
 
 The Kanban example's image does exactly that with nginx:
 
-```dockerfile
+```text
 FROM ghcr.io/k-lang/k:0.1.0 AS build
 WORKDIR /src
 COPY . .

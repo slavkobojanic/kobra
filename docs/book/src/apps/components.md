@@ -4,7 +4,7 @@ A component is a reusable piece of UI. In K it is **a single declaration** whose
 state, functions, view and styles: Vue's single-file component, without the XML sections.
 
 ```k
-// Counter.k
+// src/counter/Counter.k
 public component Counter {
     @Prop let label: String
     @Prop let start: Int = 0
@@ -38,6 +38,89 @@ public component Counter {
 - A file may hold several declarations, but at most one is `public`, and it matches the file name.
   Small helper components can live next to the component that uses them.
 
+<!-- The declarations the samples in this chapter use; checked, not rendered.
+
+```k
+// src/counter/Context.k
+struct CartItem {
+    let id: Int
+    let name: String
+}
+
+component CartRow {
+    @Prop let item: CartItem
+
+    view {
+        text { item.name }
+    }
+}
+
+component SearchResults {
+    @Prop let query: String
+
+    view {
+        text { "Results for {query}" }
+    }
+}
+
+service CartService {
+    @State var items: List<CartItem> = []
+}
+
+struct Note {
+    let title: String
+}
+
+component NoteCard {
+    @Prop let note: Note
+    @Emits let pinToggled: Event<Note>
+
+    view {
+        button { note.title }
+            .on(click: { pinToggled.emit(note) })
+    }
+}
+
+component Dialog {
+    @Prop let title: String
+    @Slot let content: View
+    @Emits let closed: Event<Void>
+
+    view {
+        heading(level: 2) { title }
+        content
+    }
+}
+
+component TemperatureField {
+    @Binding var value: Double
+
+    view {
+        text { "{value}°F" }
+    }
+}
+
+component Card {
+    @Prop let title: String
+    @Prop let items: List<CartItem>
+    @Slot let content: View
+    @Slot let footer: View? = nil
+    @Slot let row: (CartItem) -> View
+
+    view {
+        heading(level: 2) { title }
+        content
+        for item in items key item.id {
+            row(item)
+        }
+        if let footer {
+            footer
+        }
+    }
+}
+```
+-->
+
 ## A component's public API
 
 Annotated fields declare what a parent can pass in and what it can hear back:
@@ -62,11 +145,21 @@ component Stepper {
     @Binding var value: Int          // required → named argument
     @Prop let step: Int = 1          // has a default → .step()
     @Prop let max: Int? = nil        // optional → .max()
+~
+~    view {
+~        text { "{value}" }
+~    }
 }
 
+~component Order {
+~    @State var quantity: Int = 1
+~
+~    view {
 Stepper(value: bind quantity)
     .step(5)
     .max(99)
+~    }
+~}
 ```
 
 - The compiler generates the chained methods; you never write a builder.
@@ -130,7 +223,13 @@ Bindings work on nested fields: `bind user.address.city`. For a binding that con
 with `Binding(get:set:)`:
 
 ```k
+~component Thermostat {
+~    @State var celsius: Double = 20.0
+~
+~    view {
 TemperatureField(value: Binding(get: { celsius * 9 / 5 + 32 }, set: { f => celsius = (f - 32) * 5 / 9 }))
+~    }
+~}
 ```
 
 **Why isn't two-way binding inferred from writes?** Because a component's public API would then change
@@ -146,14 +245,27 @@ deleted), and bindings for state the parent shares.
 A parent listens with the same chained `.on(…)` it uses for element events, naming the `@Emits` field:
 
 ```k
+~import k.observe.Log
+~
+~component NotePage {
+~    @Prop let note: Note
+~    @State var isOpen: Bool = false
+~
+~    func togglePin(note: Note) {}
+~
+~    view {
 Counter(label: "Votes")
     .on(changed: { value => Log.info("votes: {value}") })
 
 NoteCard(note: note)
     .on(pinToggled: togglePin)
 
-Dialog(title: "Delete note?") { … }
+Dialog(title: "Delete note?") {
+    paragraph { "This can't be undone." }
+}
     .on(closed: { isOpen = false })
+~    }
+~}
 ```
 
 - **The handler's type follows the event's payload.** For `Event<T>` it is a function taking a `T`: a
@@ -180,7 +292,11 @@ Dialog(title: "Delete note?") { … }
 
 A component accepts content through **typed `@Slot` fields**:
 
-```k
+```k,standalone
+~struct CartItem {
+~    let id: Int
+~}
+~
 component Card {
     @Prop let title: String
     @Prop let items: List<CartItem>
@@ -209,6 +325,12 @@ component Card {
 The parent passes the main content as a trailing block and the other slots by the named-or-chained rule:
 
 ```k
+~component CartPage {
+~    @Prop let items: List<CartItem>
+~
+~    func checkout() {}
+~
+~    view {
 Card(title: "Your cart", items: items) {
     paragraph { "Review before checkout." }
 }
@@ -219,6 +341,8 @@ Card(title: "Your cart", items: items) {
     button { "Checkout" }
         .on(click: checkout)
 }
+~    }
+~}
 ```
 
 - The required unnamed slot is the trailing block.

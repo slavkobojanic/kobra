@@ -1,9 +1,13 @@
-// Components as codegen lowers them (docs/compiler/codegen.md §10): a
-// factory `Name(props, ctx)` over the runtime, props as getters, `@Binding`
-// as `{get, set}` pairs, `@Emits` handlers read from `props.on$name`, slots
-// as functions returning nodes, `@Stylable` getters, one scope per instance.
-// The factories below are written exactly as the generator emits them, so
-// these tests pin the contract between generated code and the runtime.
+/**
+ * @module k:/tests/ui-components.test.js
+ *
+ * Components as codegen lowers them (docs/compiler/codegen.md §10): a
+ * factory `Name(props, ctx)` over the runtime, props as getters, `@Binding`
+ * as `{get, set}` pairs, `@Emits` handlers read from `props.on$name`, slots
+ * as functions returning nodes, `@Stylable` getters, one scope per instance.
+ * The factories below are written exactly as the generator emits them, so
+ * these tests pin the contract between generated code and the runtime.
+ */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import {
   KPanic, batch, catchError, classList, effect, flush, on, onCleanup, panic, renderEffect, root, scope, signal, template, text,
@@ -16,6 +20,9 @@ function place(end, node) {
 
 // `component Greeting { @Prop let name: String; view { text { "Hello, {name}" } } }`
 const t0 = template("<span> </span>");
+/**
+ * The client factory the compiler generates for `Greeting` (above); counts its renders in `ctx`.
+ */
 function Greeting(props, ctx) {
   const root$ = t0();
   ctx.renders = (ctx.renders ?? 0) + 1;
@@ -42,6 +49,7 @@ test("a prop getter carries the parent's signal into the child", () => {
 
 // `component Stepper { @Binding var value: Int; @Prop let step: Int = 1 … }`
 const t1 = template("<div><button>-</button><span> </span><button>+</button></div>");
+/** The client factory the compiler generates for `Stepper` (above). */
 function Stepper(props, ctx) {
   const step = props.step ?? (() => 1);
   const root$ = t1();
@@ -106,6 +114,7 @@ test("a custom binding converts in both directions", () => {
 
 // `component Counter { @Emits let changed: Event<Int> … changed.emit(count) }`
 const t2 = template("<button>Add</button>");
+/** The client factory the compiler generates for `Counter` (above). */
 function Counter(props, ctx) {
   const count = signal(0);
   const changed = props.on$changed ?? null;
@@ -144,6 +153,7 @@ test("an event without a listener does nothing", () => {
 
 // `component Card { @Slot let content: View; view { article { content } } }`
 const t3 = template("<article><!--[--><!--]--></article>");
+/** The client factory the compiler generates for `Card` (above), its slot between markers. */
 function Card(props, ctx) {
   const root$ = t3();
   const end = root$.lastChild;

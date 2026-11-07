@@ -36,6 +36,8 @@
 //!   obsolete answers `ContentModified`; `$/cancelRequest` answers
 //!   `RequestCancelled`.
 
+#![warn(clippy::missing_docs_in_private_items)]
+
 pub mod ide;
 pub mod line_index;
 pub mod server;
@@ -45,7 +47,9 @@ pub mod workspace;
 pub use server::{Config, serve};
 
 /// Runs the language server on standard input and output until the client
-/// sends `exit` or closes the input. Returns the process exit code: 0 after
+/// sends `exit` or closes the input.
+///
+/// Returns the process exit code: 0 after
 /// a `shutdown` request, 1 otherwise (as the protocol specifies).
 #[must_use]
 pub fn run_stdio() -> i32 {

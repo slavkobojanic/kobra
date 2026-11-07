@@ -5,7 +5,17 @@
 //! name hashes only need to differ between components, which the generator
 //! verifies for each build (`docs/compiler/codegen.md`, "Styles").
 
-/// The 64-bit FNV-1a hash of `bytes`.
+/// Returns the 64-bit FNV-1a hash of `bytes`.
+///
+/// Linear in the length of `bytes`; the same input always gives the same
+/// value on every platform.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(k_codegen::hash::fnv1a(b""), 0xcbf2_9ce4_8422_2325);
+/// assert_eq!(k_codegen::hash::fnv1a(b"a"), 0xaf63_dc4c_8601_ec8c);
+/// ```
 #[must_use]
 pub fn fnv1a(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -16,8 +26,12 @@ pub fn fnv1a(bytes: &[u8]) -> u64 {
     h
 }
 
+/// The digits of base 36, in value order: `0`–`9`, then `a`–`z`.
 const BASE36: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
 
+/// Formats the low `digits` base-36 digits of `n`, most significant first,
+/// zero-padded on the left; higher digits are dropped, so the result is
+/// always exactly `digits` characters of [`BASE36`].
 fn base36(mut n: u64, digits: usize) -> String {
     let mut out = vec![b'0'; digits];
     for slot in out.iter_mut().rev() {
@@ -27,30 +41,63 @@ fn base36(mut n: u64, digits: usize) -> String {
     String::from_utf8(out).unwrap_or_default()
 }
 
-/// The content hash used in file names: 8 lower-case hex digits.
+/// Returns the content hash used in file names: the high 32 bits of
+/// [`fnv1a`] as 8 lower-case hex digits.
+///
+/// # Examples
+///
+/// ```
+/// let h = k_codegen::hash::content_hash(b"export {};");
+/// assert_eq!(h.len(), 8);
+/// assert!(h.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
+/// ```
 #[must_use]
 pub fn content_hash(bytes: &[u8]) -> String {
     format!("{:08x}", fnv1a(bytes) >> 32)
 }
 
-/// A content-hashed file name: `stem.<hash>.ext` (`app.3f2a1b9c.js`).
+/// Returns a content-hashed file name, `stem.<hash>.ext`
+/// (`app.3f2a1b9c.js`), with the hash of `contents` from
+/// [`content_hash`].
+///
+/// # Examples
+///
+/// ```
+/// use k_codegen::hash::{content_hash, hashed_file_name};
+///
+/// let name = hashed_file_name("app", "js", b"x");
+/// assert_eq!(name, format!("app.{}.js", content_hash(b"x")));
+/// ```
 #[must_use]
 pub fn hashed_file_name(stem: &str, extension: &str, contents: &[u8]) -> String {
     format!("{stem}.{}.{extension}", content_hash(contents))
 }
 
-/// The scope suffix of a component's CSS names: 6 base-36 digits of the
-/// hash of its qualified name (`shop.CartSummary`), so it doesn't change
-/// when the component's styles do and class names stay stable across
-/// deploys.
+/// Returns the scope suffix of a component's CSS names: 6 base-36 digits
+/// of the hash of its qualified name (`shop.CartSummary`), so it doesn't
+/// change when the component's styles do and class names stay stable
+/// across deploys.
 #[must_use]
 pub fn scope_suffix(component: &str) -> String {
     base36(fnv1a(component.as_bytes()), 6)
 }
 
-/// The scoped CSS name of class (or keyframes) `name` of `component`:
-/// `panel_k3x9a1`, or `CartSummary__panel` under
-/// [`crate::Profile::Test`]-style readable names when `readable` is set.
+/// Returns the scoped CSS name of class (or keyframes) `name` of
+/// `component`: `panel_k3x9a1` ([`scope_suffix`] of the qualified name),
+/// or `CartSummary__panel` (the component's simple name) when `readable`
+/// is set, as under [`crate::Profile::Test`].
+///
+/// # Examples
+///
+/// ```
+/// use k_codegen::hash::{scope_suffix, scoped_name};
+///
+/// assert_eq!(scoped_name("shop.CartSummary", "panel", true), "CartSummary__panel");
+/// assert_eq!(
+///     scoped_name("shop.CartSummary", "panel", false),
+///     format!("panel_{}", scope_suffix("shop.CartSummary")),
+/// );
+/// ```
 #[must_use]
 pub fn scoped_name(component: &str, name: &str, readable: bool) -> String {
     if readable {

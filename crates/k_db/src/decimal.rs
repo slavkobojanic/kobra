@@ -18,6 +18,8 @@ pub const COLLATION: &str = "k_decimal";
 
 /// A decimal literal split into its normalized parts.
 struct Parts<'a> {
+    /// Whether the value is negative: a `-` sign on a nonzero value (`-0`
+    /// is zero, so it is not negative).
     negative: bool,
     /// The integer digits without leading zeros (empty for zero).
     int: &'a str,
@@ -69,6 +71,15 @@ fn magnitude(a: &Parts<'_>, b: &Parts<'_>) -> Ordering {
 /// that isn't a decimal literal (which K never stores in a decimal column)
 /// sorts after every decimal, and among itself byte by byte. It never
 /// panics and allocates nothing.
+///
+/// ```
+/// use std::cmp::Ordering;
+/// use k_db::decimal::compare;
+///
+/// assert_eq!(compare("10.0", "9.6"), Ordering::Greater);
+/// assert_eq!(compare("1.50", "1.5"), Ordering::Equal);
+/// assert_eq!(compare("-2", "1"), Ordering::Less);
+/// ```
 #[must_use]
 pub fn compare(a: &str, b: &str) -> Ordering {
     match (parts(a), parts(b)) {

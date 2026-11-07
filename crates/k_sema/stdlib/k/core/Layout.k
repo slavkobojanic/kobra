@@ -2,7 +2,7 @@
 /// `@Layout(Dashboard)` (`docs/design/12-routing.md`).
 @Annotation
 public struct Layout {
-    /// Names the layout by its type name.
+    /// Wraps the page in `layout`, named by its type name.
     @Native
     init(_ layout: DeclarationName) {}
 }

@@ -10,6 +10,8 @@
 use k_fuzz::soracle;
 use libfuzzer_sys::fuzz_target;
 
+/// The project paths the first input byte chooses from: a module file, a
+/// test file, the app file and a file outside `src/`.
 const PATHS: &[&str] = &["src/fz/Case.k", "src/fz/Case.test.k", "App.k", "notes/Stray.k"];
 
 fuzz_target!(|data: &[u8]| {

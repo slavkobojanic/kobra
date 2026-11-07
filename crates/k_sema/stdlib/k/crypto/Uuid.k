@@ -2,13 +2,16 @@
 /// invalid id in a URL is a `404`.
 @Native
 public struct Uuid implements Equatable, Hashable, Codable, ConfigValue {
-    /// A literal, validated at compile time.
+    /// A literal, validated at compile time: `Uuid("…")` with a string
+    /// literal only.
     @Native
     @Literal
     init(_ literal: String) {}
 
-    /// Parses canonical text in either case; `nil` if it isn't a UUID.
+    /// Parses canonical text (`8-4-4-4-12` hex digits) in either case.
+    ///
+    /// - Returns: the UUID, or `nil` if `text` isn't one.
     static func parse(_ text: String) -> Uuid?
-    /// A version 4 UUID from a secure random source.
+    /// Returns a new version 4 UUID from a secure random source.
     static func random() -> Uuid
 }

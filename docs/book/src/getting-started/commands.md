@@ -16,16 +16,25 @@ it rebuilds what changed and reports compile errors in the terminal.
 - `k dev` builds the **`.development` environment**. Any `use … in .development` rules in `App.k`
   apply, so you can use a fake payment provider locally and the real one in production.
 - It loads configuration from the process environment and, if it exists, from a `.env` file at the
-  project root. When both set a variable, the process environment wins, and `k dev` prints which `.env`
-  keys were shadowed.
+  project root. When both set a variable, the process environment wins.
 - It only asks for configuration that the development dependency graph reaches, so a variable needed
   only by a production payment provider is never required locally. See
   [Configuration and secrets](../apps/config.md).
 - If the app has a database, `k dev` uses the `DATABASE_URL` from your environment, such as a SQLite
   file in `.k/`, applies pending migrations at startup, and runs the background-job worker.
 
+- **On a change** `k dev` rebuilds and restarts the server on the same port. A build with errors is
+  reported and the last good build keeps serving. A restart drops in-memory state such as sessions.
+- **At a workspace root** `k dev` builds and serves every app member, each on its own port (`8080`,
+  `8081`, … in dependency order), and wires each `remote` rule to the sibling that serves it. See
+  [Workspaces and services](../apps/workspaces.md).
+- `--port` changes the port. `k run` is the same without the rebuilding.
+
 > **Planned.** State-preserving hot module replacement isn't in the first compiler releases. Until it
-> lands, a rebuild reloads the page.
+> lands, refresh the browser after a rebuild.
+
+> **Planned.** The design has `k dev` print which `.env` keys the process environment shadowed. The
+> first compiler releases apply the precedence silently.
 
 ## `k test`
 
@@ -81,18 +90,25 @@ k check
 k check --format json
 ```
 
-`k check` is the gate. It fails, with a non-zero exit status, on any problem:
+`k check` is the gate. It fails, with exit status `1`, on any problem:
 
 1. **Type errors** and every other compile-time check: layering, the server/client boundary,
    exhaustive matches, class and page references, style values.
-2. **Formatting.** Code that isn't in canonical form fails the check.
-3. **Tests.** Every test runs.
-4. **Documentation.** References in `///` comments must resolve, and `k` code blocks in them must type
-   check. In a package, public API without a doc comment is a warning.
-5. **Lockfiles.** A breaking change to a protocol, a URL, the database schema or a stored format fails
+2. **Documentation.** References in `///` comments must resolve; one that doesn't is a warning.
+3. **Lockfiles.** A breaking change to a protocol, a URL, the database schema or a stored format fails
    unless it is deliberate and marked with `@Breaking("reason")`.
 
-`k check` has no watch mode; it is the one-shot gate.
+> **Planned.** In the first compiler releases, `k check` compares two lockfiles: `rpc.lock` (the rpcs an
+> app serves) and the job payloads in `storage.lock`. Comparing `protocol.lock`, `routes.lock`,
+> `schema.lock` and the `storage.lock` keys comes later; the build already checks that the migrations
+> create what the entities store (see [Persistence](../apps/persistence.md#schemalock)).
+
+`k check` takes files or directories (the project by default). Run at a workspace root, it checks every
+member, each with the libraries it depends on. It has no watch mode; it is the one-shot gate.
+
+> **Planned.** The design adds three more steps to `k check`: the formatting check, running every test,
+> and type-checking the `k` code blocks inside `///` comments. None of them is part of `k check` yet, so
+> CI runs `k test` as well.
 
 Run it in CI. With `--format json`, diagnostics are machine-readable, including their quick fixes,
 which is how agents apply fixes directly.
@@ -160,4 +176,7 @@ See [Persistence](../apps/persistence.md#migrations).
 ## Exit status
 
 Every command exits with `0` on success, `1` when it found problems (a type error, a failing test), and
-`2` on a usage or internal error. Scripts and CI can rely on this.
+`2` on a usage or internal error. The one exception is invalid configuration: `k run`, `k dev` and
+`dist/app` exit with `78` (`EX_CONFIG`) when a config value is missing or malformed (see
+[Configuration and secrets](../apps/config.md#validated-at-startup-all-at-once)). Scripts and CI can rely
+on these.

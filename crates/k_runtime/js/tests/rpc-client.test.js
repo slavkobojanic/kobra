@@ -1,7 +1,11 @@
-// The RPC client's typed errors (docs/compiler/runtime.md §8;
-// docs/design/28-rpc-wire-format.md): a declared error case arrives as
-// `failed_precondition` with a `k.TypedError` detail whose `debug` names
-// the case and its payload fields, as the server sends it (server.md §6).
+/**
+ * @module k:/tests/rpc-client.test.js
+ *
+ * The RPC client's typed errors (docs/compiler/runtime.md §8;
+ * docs/design/28-rpc-wire-format.md): a declared error case arrives as
+ * `failed_precondition` with a `k.TypedError` detail whose `debug` names
+ * the case and its payload fields, as the server sends it (server.md §6).
+ */
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
 import { payloadFields, rpcError, unitCase } from "k:runtime";
 
@@ -11,6 +15,7 @@ const CheckoutError = {
   rpcFailure: (_0) => ({ $: 2, _0 }),
 };
 
+/** A Connect failure carrying a `k.TypedError` detail whose debug value is `debug`. */
 const typed = (debug) => ({
   ok: false,
   kind: "connect",
@@ -77,6 +82,7 @@ test("network outcomes are rpcFailure(.offline) and rpcFailure(.timeout)", () =>
   assertDeepEq(rpcError({ ok: false, kind: "timeout" }, CheckoutError), { $: 2, _0: { $: 3, _0: null } });
 });
 
+/** A Connect failure with `code`, `details` and `retryAfter`. */
 const connect = (code, details = [], retryAfter = 0) => ({ ok: false, kind: "connect", code, details, retryAfter });
 
 test("invalid_argument is rpcFailure(.invalid) with the ValidationError's failures", () => {

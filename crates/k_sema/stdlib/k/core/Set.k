@@ -11,10 +11,11 @@ public struct Set<T> implements Codable where T implements Hashable {
     /// `true` if the set has no elements.
     var isEmpty: Bool
 
-    /// `true` if `element` is in the set.
+    /// Returns `true` if `element` is in the set.
     func contains(_ element: T) -> Bool
-    /// Adds `element`. Requires a `var` set.
+    /// Adds `element`; does nothing if it is already in the set. Requires
+    /// a `var` set.
     func insert(_ element: T)
-    /// Removes `element`. Requires a `var` set.
+    /// Removes `element`, if it is in the set. Requires a `var` set.
     func remove(_ element: T)
 }

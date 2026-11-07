@@ -75,6 +75,9 @@ impl ColumnDef {
         }
     }
 
+    /// Converts the definition into the schema model's [`Column`], with no
+    /// entity field (`field: None`): migrations know tables and columns, not
+    /// the entities that map to them.
     fn column(&self) -> Column {
         Column {
             field: None,
@@ -110,7 +113,7 @@ pub enum AlterOp {
     EnumCase {
         /// The builder method, for the message.
         method: String,
-        /// The column.
+        /// The enumeration column the operation names.
         column: String,
     },
 }
@@ -146,14 +149,14 @@ pub enum SchemaOp {
     },
     /// `createIndex(table:columns:)`.
     CreateIndex {
-        /// The table.
+        /// The table to index.
         table: String,
         /// The (logical) columns, in index order.
         columns: Vec<String>,
     },
     /// `insert(into:rows:)`.
     Insert {
-        /// The table.
+        /// The table to insert into.
         table: String,
         /// The rows, each its column values.
         rows: Vec<Vec<(String, Literal)>>,
@@ -177,6 +180,8 @@ pub struct Rendered {
 }
 
 impl Rendered {
+    /// Appends the statements `f` renders for each dialect, SQLite's to
+    /// [`Rendered::sqlite`] and Postgres' to [`Rendered::postgres`].
     fn push(&mut self, f: impl Fn(Dialect) -> Vec<String>) {
         self.sqlite.extend(f(Dialect::Sqlite));
         self.postgres.extend(f(Dialect::Postgres));
@@ -191,6 +196,12 @@ pub struct Replay {
 }
 
 /// A literal as SQL text for a column of `ty`.
+///
+/// # Errors
+///
+/// A message when the literal doesn't fit `ty`: any value for a `Money`
+/// column, a malformed decimal or UUID, a text that isn't one of an enum's
+/// cases, or a literal of another type. `null` fits every column.
 fn literal(l: &Literal, ty: &ColumnType, dialect: Dialect) -> Result<String, String> {
     let quoted = |s: &str| format!("'{}'", s.replace('\'', "''"));
     Ok(match (l, ty) {
@@ -263,12 +274,25 @@ impl Replay {
         Replay::default()
     }
 
+    /// The columns of table `name` as the replay currently has them.
+    ///
+    /// # Errors
+    ///
+    /// A message saying the table doesn't exist at this point of the
+    /// migrations.
     fn table(&self, name: &str) -> Result<&Vec<ColumnDef>, String> {
         self.tables
             .get(name)
             .ok_or_else(|| format!("there is no table `{name}` at this point of the migrations"))
     }
 
+    /// Finds column `name` among `columns`, which belong to `table` (named only
+    /// for the message).
+    ///
+    /// # Errors
+    ///
+    /// A message saying the table has no such column at this point of the
+    /// migrations.
     fn column<'t>(
         columns: &'t [ColumnDef],
         table: &str,
@@ -279,6 +303,14 @@ impl Replay {
         })
     }
 
+    /// Checks that `c` can be added to `table`, whose columns so far are
+    /// `columns`: a non-empty name not already taken, a `references` target that
+    /// is `table` itself or an existing table, and a default that is a valid
+    /// literal of the column's type.
+    ///
+    /// # Errors
+    ///
+    /// A message naming the first rule `c` breaks.
     fn check_new_column(
         &self,
         table: &str,
@@ -321,6 +353,12 @@ impl Replay {
         Ok(out)
     }
 
+    /// Applies one operation to the replayed schema and appends its statements
+    /// in both dialects to `out`.
+    ///
+    /// # Errors
+    ///
+    /// A message naming why `op` doesn't fit the schema.
     #[allow(clippy::too_many_lines)]
     fn apply_one(&mut self, op: &SchemaOp, out: &mut Rendered) -> Result<(), String> {
         match op {

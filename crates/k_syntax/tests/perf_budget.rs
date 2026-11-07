@@ -54,6 +54,7 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 use workload::{Pathological, SEED, realistic, typical_file};
 
+/// The file id every measurement lexes and parses under.
 const FILE: FileId = FileId::new(0);
 
 /// Lexing budget, MB/s.
@@ -124,12 +125,16 @@ fn mb_per_s(bytes: usize, time: Duration) -> f64 {
     bytes as f64 / 1e6 / time.as_secs_f64()
 }
 
+/// Returns the fastest lexing time of `text` over at least `min_runs`
+/// runs and 300 ms.
 fn lex_time(text: &str, min_runs: usize) -> Duration {
     fastest(min_runs, Duration::from_millis(300), || {
         k_syntax::lex(FILE, black_box(text))
     })
 }
 
+/// Returns the fastest lex-and-parse time of `text` over at least
+/// `min_runs` runs and 300 ms.
 fn parse_time(text: &str, min_runs: usize) -> Duration {
     fastest(min_runs, Duration::from_millis(300), || {
         k_syntax::parse(FILE, black_box(text))

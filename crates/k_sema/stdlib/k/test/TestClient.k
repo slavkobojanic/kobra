@@ -6,6 +6,8 @@ import k.http.HttpResponse
 /// (`docs/design/21-testing.md`, "HTTP-level tests").
 @Native
 public service TestClient {
-    /// Sends `request` and returns the response. Never throws.
+    /// Sends `request` through the server stack. Never throws.
+    ///
+    /// - Returns: the response the app produced, with any status.
     func send(request: HttpRequest) async -> HttpResponse
 }

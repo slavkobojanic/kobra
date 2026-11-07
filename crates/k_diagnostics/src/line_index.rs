@@ -36,6 +36,21 @@ impl fmt::Display for LineCol {
 ///
 /// Line terminators are `\n`, `\r\n` and a lone `\r`, matching the lexer's
 /// definition of a newline (see `docs/compiler/grammar.md`).
+///
+/// # Example
+///
+/// ```
+/// use k_diagnostics::{LineCol, LineIndex, TextSize};
+///
+/// let text = "let a = 1\r\nlet é = 2\n";
+/// let index = LineIndex::new(text);
+/// assert_eq!(index.line_count(), 3);
+///
+/// // `=` on the second line is at byte 18 but column 7: `é` is two bytes.
+/// let at = index.line_col(text, TextSize::from(18));
+/// assert_eq!(at, LineCol { line: 2, col: 7 });
+/// assert_eq!(index.offset(text, at), Some(TextSize::from(18)));
+/// ```
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct LineIndex {
     /// Byte offset of the first character of every line. Always starts with 0.

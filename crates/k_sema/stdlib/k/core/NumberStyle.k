@@ -1,4 +1,5 @@
-/// How `formatted(as:)` writes a number or an amount of money.
+/// How `formatted(as:)` ([`Int.formatted`], [`Double.formatted`],
+/// [`Money.formatted`]) writes a number or an amount of money.
 public enum NumberStyle {
     /// Digits with the locale's grouping and decimal separators.
     case decimal

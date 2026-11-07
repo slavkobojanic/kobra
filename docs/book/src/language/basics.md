@@ -18,9 +18,9 @@ familiar even where the spelling differs. The chapters are:
 
 ```k
 let greeting = "Hello"
-var visits = 0
 
-func welcome(name: String) -> String {
+func welcome(name: String, visitsSoFar: Int) -> String {
+    var visits = visitsSoFar
     visits += 1
 
     return "{greeting}, {name}! You are visitor number {visits}."
@@ -29,7 +29,8 @@ func welcome(name: String) -> String {
 
 Even this small snippet shows several of K's rules:
 
-- Every declaration states its mutability: `let` or `var`.
+- Every declaration states its mutability: `let` or `var`. Top-level values are always `let`; mutable
+  state lives in a function, a component or a service.
 - Types are inferred where they're obvious, and written where they're part of an API (`name: String`,
   `-> String`).
 - Strings interpolate with `{ }`.
@@ -38,6 +39,11 @@ Even this small snippet shows several of K's rules:
 ## Comments
 
 ```k
+~struct CartItem {
+~    let price: Money
+~    let quantity: Int
+~}
+~
 // An ordinary comment. Tools ignore it.
 
 /* A block comment,
@@ -51,37 +57,11 @@ public func total(items: List<CartItem>) -> Money {
 ```
 
 Documentation comments start with `///` and come before the declaration **and before its
-annotations**, so `/// …` goes above `@Prop` or `@Param`. The body is Markdown. The first sentence is
-the summary shown in autocomplete and in `k doc`; further paragraphs follow a blank `///` line.
-Structured sections use Markdown list items, as in Swift:
-
-```k
-/// Looks up a single place by its id.
-///
-/// - Parameter id: the id from a `Place`, usually taken from the URL.
-/// - Returns: the place, from the cache when it has been seen before.
-/// - Throws: `WeatherError.placeNotFound` when no place has this id.
-public func place(id: Int) async throws WeatherError -> Place { … }
-```
-
-- Names in backticks that resolve to declarations become links, and the compiler checks them: a
-  reference to something that doesn't exist is a warning, so documentation can't drift after a rename.
-- **What counts as a reference:** a backticked identifier, a dotted path of identifiers
-  (`` `WeatherError.offline` ``), or a function name with its labels (`` `searchPlaces(query:)` ``).
-  Other code spans, keywords included (`` `300ms` ``, `` `"todos"` ``, `` `nil` ``, `` `a + b` ``), are
-  plain code and aren't checked.
-- **A reference resolves against three things only:** the file's imports, the file's own package (an
-  application counts as one package), and fully qualified names (`` `k.http.HttpStatus` ``). A reference
-  that resolves against none of these is a warning, even when some other module declares the name.
-- Fenced code blocks tagged `k` inside a doc comment are type-checked by `k check`, but not run.
-- There are no block doc comments (`/** */`), and no Javadoc-style `@param`, because `@` already means an
-  annotation.
-
-**What must be documented** is what is API: public top-level declarations, their non-private functions,
-computed properties and enum cases, and the annotated inputs of components and pages (`@Prop`,
-`@Binding`, `@Slot`, `@Emits`, `@Stylable`, `@Param`). Stored fields of public structs, entities and
-configs are a lint only, and injected fields never need documentation. In a package, `k check` warns on
-missing documentation; in an application it is a lint.
+annotations**, so `/// …` goes above `@Prop` or `@Param`. The body is Markdown: the first sentence is the
+summary shown in completion and on hover, and structured sections are Markdown list items, as in Swift.
+A code span in square brackets, such as `` [`WeatherError.placeNotFound`] ``, is a link to a
+declaration, and the compiler checks that it resolves.
+[Documentation comments](doc-comments.md) covers the rules.
 
 ## Naming
 
@@ -100,6 +80,15 @@ Because newlines end statements, a long expression continues on the next line on
 starts with something that can't begin a new statement, such as a `.` or a binary operator:
 
 ```k
+~struct Product {
+~    let stock: Int
+~    let price: Money
+~}
+~
+~let products: List<Product> = []
+~let hasLoaded = true
+~let isSignedIn = false
+~
 let inStock = products
     .filter { product => product.stock > 0 }
     .sortedBy { product => product.price }

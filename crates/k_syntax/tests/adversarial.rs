@@ -12,6 +12,7 @@
 use k_diagnostics::{Code, FileId};
 use k_syntax::{Parse, dump, parse};
 
+/// The file id every test parses under.
 const FILE: FileId = FileId::new(0);
 
 /// Runs `f` on a thread with `mib` MiB of stack.
@@ -24,6 +25,7 @@ fn on_stack(mib: usize, f: impl FnOnce() + Send + 'static) {
         .unwrap();
 }
 
+/// Returns the number of `NESTING_TOO_DEEP` (K0134) diagnostics of `parse`.
 fn too_deep_count(parse: &Parse) -> usize {
     parse
         .diagnostics()

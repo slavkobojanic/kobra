@@ -40,6 +40,12 @@ impl Migration {
     }
 }
 
+/// Creates the [`MIGRATIONS_TABLE`] bookkeeping table (migration name,
+/// time applied) if it doesn't exist yet.
+///
+/// # Errors
+///
+/// The `CREATE TABLE` statement's failure.
 async fn ensure_table(db: &Database) -> Result<(), DbError> {
     let applied_at = match db.dialect() {
         Dialect::Sqlite => "TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
@@ -130,6 +136,12 @@ pub async fn apply(db: &Database, migrations: &[Migration]) -> Result<Vec<String
 /// ASCII digits, so it is recognizable in `pg_locks`.
 pub const ADVISORY_LOCK_KEY: i64 = 0x6b5f_6d69_6772;
 
+/// The body of [`apply`], run while the caller holds the Postgres advisory
+/// lock (SQLite needs none: its connection is exclusive to the process).
+///
+/// # Errors
+///
+/// As [`apply`].
 async fn apply_unlocked(db: &Database, migrations: &[Migration]) -> Result<Vec<String>, DbError> {
     let done = applied(db).await?;
     for name in &done {

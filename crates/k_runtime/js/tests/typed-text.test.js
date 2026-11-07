@@ -1,8 +1,12 @@
-// Typed text values, their codecs, shared route matching and the
-// hydration helpers for texts and markers at the top of a view
-// (docs/compiler/runtime.md §6, §10, §12; docs/design/28-rpc-wire-format.md).
-// The parsers are the only way runtime text becomes a `Url`, `EmailAddress`,
-// `Uuid` or `Color`, so each refuses everything that isn't one.
+/**
+ * @module k:/tests/typed-text.test.js
+ *
+ * Typed text values, their codecs, shared route matching and the
+ * hydration helpers for texts and markers at the top of a view
+ * (docs/compiler/runtime.md §6, §10, §12; docs/design/28-rpc-wire-format.md).
+ * The parsers are the only way runtime text becomes a `Url`, `EmailAddress`,
+ * `Uuid` or `Color`, so each refuses everything that isn't one.
+ */
 import { assert, assertEq, assertThrows, test } from "k:testing";
 import {
   DecodeFailure,

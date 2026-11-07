@@ -33,7 +33,7 @@ use crate::ops;
 pub struct LogLine {
     /// `debug`, `info`, `warning` or `error`.
     pub level: String,
-    /// The message.
+    /// The logged text, as the runtime formatted it.
     pub message: String,
 }
 
@@ -104,6 +104,7 @@ impl std::error::Error for EngineError {}
 
 /// Resolves runtime and application modules from memory.
 struct Loader {
+    /// The source of every application module, by specifier.
     modules: HashMap<String, String>,
     /// [`EngineOptions::compact_runtime`].
     compact_runtime: bool,
@@ -232,10 +233,16 @@ const BOOTSTRAP: &str = r#"
 
 /// A V8 isolate with the K runtime.
 pub struct Engine {
+    /// The `deno_core` runtime that owns the isolate.
     runtime: JsRuntime,
+    /// The current-thread runtime the event loop and the ops' I/O run on.
     tokio: tokio::runtime::Runtime,
+    /// The state the ops share with this engine (log lines, result, queues).
     state: Rc<RefCell<ops::EngineState>>,
+    /// [`EngineOptions::timeout`]: the limit of each [`Engine::run_main`].
     timeout: Option<Duration>,
+    /// The number of the next [`Engine::run_main`] module; the first one is
+    /// loaded as the main module, later ones as side modules.
     next_main: u32,
 }
 

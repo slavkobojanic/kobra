@@ -77,6 +77,28 @@ const METHODS: [&str; 5] = ["Get", "Post", "Put", "Patch", "Delete"];
 /// [`CodegenError::HasErrors`] when the program has errors (its routes
 /// are not well defined), [`CodegenError::Cancelled`] when the analysis
 /// was cancelled.
+///
+/// # Examples
+///
+/// ```
+/// use k_codegen::{RouteKind, route_table};
+/// use k_sema::{AnalysisHost, Options, ProjectPath};
+///
+/// let files = vec![
+///     (ProjectPath::new("k.toml").unwrap(), "[package]\nname = \"demo\"\nk = \"0.1\"\n".to_owned()),
+///     (ProjectPath::new("App.k").unwrap(), "public app Demo {}\n".to_owned()),
+///     (
+///         ProjectPath::new("src/demo/Home.k").unwrap(),
+///         "public page Home {\n    view {\n        heading(level: 1) { \"Hi\" }\n    }\n}\n".to_owned(),
+///     ),
+/// ];
+/// let host = AnalysisHost::with_files(Options::new(), files);
+/// let routes = route_table(&host.analysis()).expect("a clean program");
+/// assert_eq!(routes.len(), 1);
+/// assert_eq!((routes[0].method.as_str(), routes[0].page.as_str()), ("GET", "Home"));
+/// assert_eq!(routes[0].kind, RouteKind::Page);
+/// assert_eq!(routes[0].url, "/home", "no routes.lock: derived from the name");
+/// ```
 pub fn route_table(analysis: &k_sema::Analysis) -> Result<Vec<Route>, CodegenError> {
     let diagnostics = analysis
         .diagnostics()

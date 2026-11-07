@@ -53,6 +53,10 @@ export function clock(data) {
     return { cancel: () => (every ? clearInterval : clearTimeout)(id) };
   };
   return {
+    /**
+     * The current time; while hydrating, the time the server rendered at, so
+     * the first client render matches the server's HTML.
+     */
     get now() {
       return isHydrating() && rendered ? rendered : new Instant(Date.now());
     },
@@ -96,13 +100,26 @@ export function theme() {
     current.set(variant);
   };
   return {
+    /**
+     * The applied theme variant (`"base"` when following the system), read
+     * reactively.
+     */
     get current() {
       return current.get();
     },
+    /**
+     * Applies `variant` and remembers it for a year in the theme cookie, so
+     * the server renders it too.
+     * @param {string} variant a theme variant's name
+     */
     apply(variant) {
       set(variant, true);
       setThemeCookie(variant, 31536000);
     },
+    /**
+     * Returns to the base theme, which follows the system's preference, and
+     * clears the theme cookie.
+     */
     followSystem() {
       set("base", false);
       setThemeCookie("", 0);
@@ -129,6 +146,14 @@ export function browserStorage(R, W) {
     return null;
   };
   return {
+    /**
+     * Reads and decodes the value stored under `key`; `null` when none is.
+     * @param {object} codec the value's codec
+     * @param {{name: string}} key the storage key
+     * @returns {unknown}
+     * @throws {object} `StorageReadError.unavailable` when storage is blocked,
+     *   `StorageReadError.unreadable` when the stored text doesn't decode
+     */
     read(codec, key) {
       const s = store();
       if (s === null) throw R.unavailable;
@@ -146,6 +171,14 @@ export function browserStorage(R, W) {
         throw R.unreadable;
       }
     },
+    /**
+     * Encodes and stores `value` under `key`.
+     * @param {object} codec the value's codec
+     * @param {{name: string}} key the storage key
+     * @param {unknown} value
+     * @throws {object} `StorageWriteError.quotaExceeded` or
+     *   `StorageWriteError.unavailable`
+     */
     write(codec, key, value) {
       const s = store();
       if (s === null) throw W.unavailable;
@@ -155,6 +188,11 @@ export function browserStorage(R, W) {
         throw e && e.name === "QuotaExceededError" ? W.quotaExceeded : W.unavailable;
       }
     },
+    /**
+     * Removes the value stored under the key, the last argument (a codec may
+     * precede it). Never throws.
+     * @param {...unknown} a the call's arguments, the key last
+     */
     remove(...a) {
       try {
         store()?.removeItem(a[a.length - 1].name);
@@ -236,6 +274,15 @@ export function fetchHttpClient(E, S) {
     });
   return {
     send,
+    /**
+     * Sends `r` and decodes a successful response's JSON body with `codec`.
+     * @param {AbortSignal|null} c the call's cancellation signal
+     * @param {object} codec the codec of the expected type
+     * @param {object} r an `HttpRequest`
+     * @returns {Promise<unknown>}
+     * @throws {object} `HttpError.status` for a non-2xx response, or what
+     *   `send` and `json` throw
+     */
     async fetchJson(c, codec, r) {
       const res = await send(c, r);
       if (!res.isSuccess) throw E.status(res.status, res.body);
@@ -282,6 +329,10 @@ function headerView(pairs) {
 export function session(data) {
   if (data && data.session) sessionMirror.set(data.session);
   return {
+    /**
+     * The signed-in user mirrored from the server (`{ id, roles }`), or
+     * `null`; reactive, so a view updates on sign-in and sign-out.
+     */
     get user() {
       return sessionMirror.get().user;
     },
@@ -324,6 +375,13 @@ export function hasNative(name) {
   return Object.hasOwn(NATIVES, name);
 }
 
+/**
+ * A stand-in for the missing browser native `name`: calling or
+ * constructing it panics with its name, and any member of it is a
+ * stand-in for `name.member`.
+ * @param {string} name the member's qualified name
+ * @returns {Function} a proxy
+ */
 function stub(name) {
   const fail = () => {
     throw new KPanic(`${name} is not implemented in the browser yet`);

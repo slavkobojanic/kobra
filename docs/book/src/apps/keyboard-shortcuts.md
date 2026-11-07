@@ -2,21 +2,24 @@
 
 A single-key shortcut for a page is the **`KeyboardShortcut` component in `k.ui`**. While it is
 mounted, pressing its key fires its `pressed` event. It renders nothing. The design is in
-[43-keyboard-shortcuts.md](../../../design/43-keyboard-shortcuts.md).
+`docs/design/43-keyboard-shortcuts.md`.
 
 ```k
-import k.ui.KeyboardShortcut
-
+// examples/kanban/src/pages/BoardPage.k
 view {
-    KeyboardShortcut(key: "n", label: "New card")
-        .on(pressed: startNewCard)
+    main {
+        KeyboardShortcut(key: "n", label: "Add a card to the first column")
+            .on(pressed: startNewCard)
 
-    KeyboardShortcut(key: "?", label: "Show keyboard shortcuts")
-        .on(pressed: { isShowingShortcuts = not isShowingShortcuts })
+        KeyboardShortcut(key: "e", label: "Export the board")
+            .on(pressed: exportBoard)
 
-    button { "New card (N)" }
-        .on(click: startNewCard)
-}
+        KeyboardShortcut(key: "?", label: "Show keyboard shortcuts")
+            .on(pressed: { isShowingShortcuts = not isShowingShortcuts })
+
+        KeyboardShortcut(key: "Escape", label: "Close the editor")
+            .on(pressed: closeEditor)
+        // ...
 ```
 
 - `key` is the key as the browser names it: a character (`"n"`, `"?"`) or a key name (`"Escape"`).
@@ -31,7 +34,7 @@ view {
 In tests, `Key.character(_)` presses the key a user would:
 
 ```k
-screen.heading(named: "Launch").press(.character("n"))
-
-expect screen.textField(labeled: "New card in To do").exists
+// examples/kanban/src/pages/BoardPage.test.k
+screen.heading(named: "Seed").press(.character("n"))
+screen.textField(labeled: "New card in To do").fill("")
 ```

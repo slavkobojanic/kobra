@@ -66,27 +66,41 @@ pub(crate) enum Event {
     /// Starts a node. `forward_parent` is the distance (in events) to the
     /// `Start` of a node that must wrap this one.
     Start {
+        /// The node kind, or [`TOMBSTONE`] for an abandoned or not yet
+        /// completed marker.
         kind: SyntaxKind,
+        /// Forward distance to the `Start` of the wrapping node, if any.
         forward_parent: Option<NonZeroU32>,
     },
     /// Consumes the next non-trivia token, giving it `kind` in the tree
     /// (which differs from the lexed kind for remapped contextual keywords).
-    Token { kind: SyntaxKind },
+    Token {
+        /// The kind the token gets in the tree.
+        kind: SyntaxKind,
+    },
     /// Finishes the innermost open node.
     Finish,
 }
 
 /// A started node whose kind is not decided yet.
+///
+/// A marker is finished with [`Marker::complete`] or [`Marker::abandon`].
+/// Until then its `Start` event holds the [`TOMBSTONE`] kind, which the sink
+/// skips, so an abandoned (or dropped) marker adds no node to the tree.
 #[must_use]
 pub(crate) struct Marker {
+    /// Index of the marker's `Start` event in [`Parser::events`].
     pos: u32,
+    /// The index (in the trivia-free view) of the node's first token.
     first_token: u32,
 }
 
 /// A completed node, which may still be wrapped by [`CompletedMarker::precede`].
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CompletedMarker {
+    /// Index of the node's `Start` event in [`Parser::events`].
     pos: u32,
+    /// The kind the node was completed with.
     kind: SyntaxKind,
     /// The index (in the trivia-free view) of the node's first token.
     first_token: u32,
@@ -120,18 +134,30 @@ impl CompletedMarker {
 
 /// The parser state shared by all grammar functions.
 pub(crate) struct Parser<'t> {
+    /// The source text.
     text: &'t str,
+    /// The file that diagnostic spans point into.
     file: FileId,
     /// Kinds of the non-trivia tokens, followed by one [`EOF`] entry.
     kinds: Vec<SyntaxKind>,
     /// Byte ranges of the non-trivia tokens (the `EOF` entry is empty, at
     /// the end of the text).
     starts: Vec<u32>,
+    /// End offsets, parallel to `starts`.
     ends: Vec<u32>,
+    /// [`NEWLINE_BEFORE`] and [`TRIVIA_BEFORE`] bits of every token,
+    /// parallel to `kinds`.
     flags: Vec<u8>,
+    /// Index of the current token in the trivia-free view.
     pos: usize,
+    /// The recorded events, in order.
     events: Vec<Event>,
+    /// Parser diagnostics in the order they were reported; the caller sorts
+    /// them together with the lexer's.
     pub(crate) diagnostics: Vec<Diagnostic>,
+    /// Lookaheads left before the parser counts as stuck; refilled to
+    /// [`FUEL`] by every consumed token. A `Cell` so that lookahead can take
+    /// `&self`.
     fuel: std::cell::Cell<u32>,
     /// Newlines are significant (outside parentheses, brackets and generic
     /// argument lists; rule N1).
@@ -162,6 +188,7 @@ pub(crate) struct Parser<'t> {
 /// lexer's frame stack to find interpolations ended by a line terminator.
 #[derive(Clone, Copy)]
 enum OpenFrame {
+    /// A string literal.
     String,
     /// An interpolation whose `InterpStart` has this index in the
     /// trivia-free view.
@@ -169,6 +196,12 @@ enum OpenFrame {
 }
 
 impl<'t> Parser<'t> {
+    /// Builds the parser for `lexed`: the trivia-free token view with the
+    /// newline and trivia flags of every token, and the limits of
+    /// interpolations that the lexer ended at a line terminator.
+    ///
+    /// One linear pass over the lexed tokens; it replays the lexer's string
+    /// and interpolation frames instead of re-lexing.
     pub(crate) fn new(lexed: &Lexed<'t>, file: FileId) -> Parser<'t> {
         let raw_kinds = lexed.kinds();
         let raw_starts = lexed.starts();
@@ -299,6 +332,8 @@ impl<'t> Parser<'t> {
         self.start_at(first)
     }
 
+    /// Starts a node whose first token is `first_token` by pushing a
+    /// tombstone `Start` event.
     fn start_at(&mut self, first_token: u32) -> Marker {
         let pos = u32::try_from(self.events.len()).unwrap_or(u32::MAX);
         self.events.push(Event::Start {
@@ -441,14 +476,19 @@ impl<'t> Parser<'t> {
 
     // ------------------------------------------------------------- offsets
 
+    /// Returns the source text being parsed.
     pub(crate) fn text(&self) -> &'t str {
         self.text
     }
 
+    /// Returns the start offset of token `index` in the trivia-free view, or
+    /// 0 if there is no such token.
     pub(crate) fn token_start(&self, index: usize) -> u32 {
         self.starts.get(index).copied().unwrap_or(0)
     }
 
+    /// Returns the end offset of token `index` in the trivia-free view, or 0
+    /// if there is no such token.
     pub(crate) fn token_end(&self, index: usize) -> u32 {
         self.ends.get(index).copied().unwrap_or(0)
     }
@@ -524,6 +564,7 @@ impl<'t> Parser<'t> {
         }
     }
 
+    /// Returns `range` as a span in the parsed file.
     pub(crate) fn span(&self, range: TextRange) -> Span {
         Span::new(self.file, range)
     }

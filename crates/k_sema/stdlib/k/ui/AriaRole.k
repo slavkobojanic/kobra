@@ -7,10 +7,11 @@ public enum AriaRole {
     case status
     /// A group of related controls.
     case group
-    /// A toolbar.
+    /// A toolbar: a row of controls.
     case toolbar
     /// A region of the page; use `section` when it has a heading.
     case region
-    /// Navigation; a compile error with the hint "use `nav`".
+    /// A navigation landmark; always a compile error, with the hint "use
+    /// `nav`".
     case navigation
 }

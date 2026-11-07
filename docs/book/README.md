@@ -38,11 +38,15 @@ pass `--port` to change it.
 ## Layout
 
 ```text
-book.toml              mdBook configuration
-src/SUMMARY.md         the table of contents; every chapter must be listed here
-src/                   chapters, grouped by part (getting-started, language, apps, reference)
-theme/k-highlight.js   the highlight.js language definition for K (```k code blocks)
-theme/k.css            small style additions
+book.toml                    mdBook configuration
+src/SUMMARY.md               the table of contents; every chapter must be listed here
+src/                         chapters, grouped by part (getting-started, language, apps, examples, reference)
+src/reference/stdlib/        generated: the standard library reference, one page per module
+src/reference/diagnostics.md generated: every diagnostic code
+check/BookTheme.k            the theme the samples are checked against
+check/diagnostic-fixes.txt   the fix for each diagnostic code
+theme/k-highlight.js         the highlight.js language definition for K (```k code blocks)
+theme/k.css                  small style additions
 ```
 
 ## Writing chapters
@@ -60,6 +64,64 @@ theme/k.css            small style additions
 - Link between chapters with relative `.md` links; mdBook rewrites them to `.html`. Refer to files outside
   the book, such as design topics, by their repository path in backticks, because the site doesn't contain
   them.
+
+## Every K sample compiles
+
+`cargo test -p k_sema --test book` extracts every fenced block tagged `k` from `src/` and checks it with
+the same analysis `k check` runs. A block passes when it reports no error. The rules
+(`crates/k_sema/tests/book.rs` has the details):
+
+| Block | What the test does |
+|---|---|
+| ` ```k ` | checks it; it must compile |
+| ` ```k,ignore ` | skips it: a fragment, pseudo-code or a Planned feature |
+| ` ```k,fails=K2011 ` | checks that it reports that code (`+` joins several), and no other error: for samples that show a mistake |
+| ` ```k,standalone ` | checks it without the chapter's project files, for a sample that redeclares one of them |
+
+- **Hidden lines.** A line starting with `~` is hidden in the book (`output.html.code.hidelines` in
+  `book.toml`; readers can reveal it) but included in the check. Use hidden lines for imports and for the
+  declarations around a fragment, such as a `component` wrapped around a view snippet. The `~` is removed
+  and the rest of the line is kept, so write `~    view {` with the indentation after the `~`.
+- **Project files.** A block whose first visible line is `// src/<module>/<File>.k` (or `// App.k`) is
+  that file of the chapter's project. All of a chapter's project files are checked together, and every
+  other block of the chapter is checked with them, in the module of the first one.
+- **Chapter context.** A fenced block inside an HTML comment (`<!-- … -->`) is invisible in the book but
+  still checked. A chapter declares the types its samples use in such a block, as a project file.
+- **Excerpts.** A block whose first visible line is `// examples/…/File.k` or
+  `// crates/k_sema/stdlib/…/File.k` is an excerpt: each run of lines between `// ...` lines must occur,
+  line by line (indentation aside), in that file. The examples are compiled by their own tests, so an
+  excerpt is checked by being in the file. Prefer excerpts in the example chapters.
+- **The theme.** A project without a `theme` gets `check/BookTheme.k`, which declares the tokens the
+  samples use (`.md`, `.muted`, `.lg`).
+
+## Generated reference pages
+
+`src/reference/diagnostics.md` and `src/reference/stdlib/*.md` are generated, and
+`cargo test -p k_corpus --test book_reference` fails when they are out of date:
+
+- the diagnostics page from the code registry (`crates/k_diagnostics/src/codes.rs`), an example per code
+  from the golden corpus (`tests/corpus`) with the compiler's actual output, and the fixes in
+  `check/diagnostic-fixes.txt` (one line per code; the test fails when a code has none);
+- one page per standard-library module, from the `///` comments in `crates/k_sema/stdlib`.
+
+Regenerate both after changing any of their sources:
+
+```sh
+K_BLESS=1 cargo test -p k_corpus --test book_reference
+```
+
+A new stdlib module also needs an entry in `src/SUMMARY.md`; the test says which.
+
+## Edit links
+
+`book.toml` leaves `edit-url-template` and `git-repository-url` unset until the repository has a public
+URL. Set them when building for publishing, for example:
+
+```sh
+MDBOOK_OUTPUT__HTML__EDIT_URL_TEMPLATE='https://<host>/<repo>/edit/main/docs/book/src/{path}' \
+MDBOOK_OUTPUT__HTML__GIT_REPOSITORY_URL='https://<host>/<repo>' \
+mdbook build docs/book
+```
 
 ## Syntax highlighting
 

@@ -545,6 +545,9 @@ fn ssr_marker(which: &str) -> Stmt {
     ))
 }
 
+/// `true` if `t` is a non-optional project struct: `@State` of such a type
+/// is held in a path store (`$k.store`), so field writes update only the
+/// bindings that read them, rather than in a plain signal.
 fn is_struct(g: &Gen<'_>, t: Option<&Type>) -> bool {
     t.is_some_and(|t| {
         !matches!(t, Type::Optional(_))

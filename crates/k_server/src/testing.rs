@@ -71,7 +71,7 @@ pub struct Exchange {
     pub title: String,
     /// The 1-based line of the `###`.
     pub line: usize,
-    /// The method.
+    /// The request method (`GET`, `POST`, …).
     pub method: String,
     /// The path and query.
     pub path: String,
@@ -272,6 +272,11 @@ pub fn parse_script(text: &str) -> Result<Vec<Exchange>, String> {
     }
 }
 
+/// Removes `Transfer-Encoding: chunked` framing from a complete body.
+///
+/// # Errors
+///
+/// A malformed chunk size line or a chunk shorter than its size.
 fn decode_chunked(mut data: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     loop {
@@ -378,7 +383,9 @@ pub struct StreamingResponse {
     pub status: u16,
     /// The headers, names lower case, in order.
     pub headers: Vec<(String, String)>,
+    /// The body as the reading thread receives it.
     chunks: std::sync::mpsc::Receiver<StreamChunk>,
+    /// A handle on the connection, shut down on drop to end the stream.
     socket: TcpStream,
 }
 
@@ -572,6 +579,11 @@ pub fn run_script(addr: SocketAddr, script: &str) -> Result<(), String> {
 /// Sends one exchange's request and returns its failed expectations
 /// (empty when the response is as expected), taking cookies the response
 /// sets into `cookies`.
+///
+/// # Errors
+///
+/// The request couldn't be sent or its response read; a response that
+/// doesn't match is not an error but a list of problems.
 fn exchange(
     addr: SocketAddr,
     ex: &Exchange,

@@ -2,8 +2,8 @@
 /// doubling, with jitter. The default is 5 attempts from 10 seconds.
 @Annotation
 public struct Retry {
-    /// The total number of runs.
+    /// The total number of runs, the first one included.
     let attempts: Int
-    /// The first wait.
+    /// The wait before the second run; each later wait doubles.
     let backoff: Duration
 }

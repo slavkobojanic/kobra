@@ -18,6 +18,10 @@ language yet.
 Inside a string, `{ }` holds a K expression, and its value is inserted into the text:
 
 ```k
+~let price = 12.00.usd
+~let quantity = 2
+~let isSignedIn = true
+~
 let name = "Ana"
 let items = 3
 
@@ -61,12 +65,22 @@ Any other backslash sequence is a compile error. In particular, `\{` is an error
 Inside a view, a string literal *is* a text node. No wrapper is needed:
 
 ```k
+~struct User {
+~    let name: String
+~}
+~
+~component Greeting {
+~    @Prop let user: User
+~
+~    func signOut() {}
+~
 view {
     paragraph { "Welcome back, {user.name}." }
 
     button { "Sign out" }
         .on(click: signOut)
 }
+~}
 ```
 
 Interpolated values are always inserted as text, never as HTML, so user input can't inject markup.
@@ -76,14 +90,20 @@ Interpolated values are always inserted as text, never as HTML, so user input ca
 Values that have more than one sensible text form are formatted explicitly with `formatted(as:)`:
 
 ```k
+~component Total {
 let price = 48.00.usd
 
+~view {
 paragraph { "Total: {price.formatted(as: .currency)}" }    // Total: $48.00, depending on the locale
+~}
+~}
 ```
 
-Locale-aware number, date and currency formatting lives in `k.i18n` and `k.time`; text utilities such as
-regular expressions, slugs and Markdown rendering live in `k.text`. See the
-[standard library overview](../reference/stdlib.md).
+`formatted(as:)` is available on numbers, [money](../apps/money.md) and [dates](../apps/time.md).
+
+> **Planned.** The design gives `k.text` regular expressions, slugs and Markdown rendering, and adds a
+> `k.i18n` module for localized strings and plurals. Neither is built yet: `k.text` holds only
+> `EmailAddress` today. See the [standard library overview](../reference/stdlib.md).
 
 ## Secrets in strings
 
@@ -91,7 +111,15 @@ A value of type `Secret<String>`, such as an API key read from [configuration](.
 interpolates as `Secret(•••)`, never as its value, so logging a configuration can't leak it:
 
 ```k
+~import k.observe.Log
+~
+~config WebhookConfig {
+~    @Env("WEBHOOK_SECRET") let signingSecret: Secret<String>
+~}
+~
+~func verify(config: WebhookConfig) {
 Log.info("verifying with {config.signingSecret}")      // verifying with Secret(•••)
+~}
 ```
 
 Most code never needs the value: outgoing HTTP requests and `Hmac` take secrets directly. Code that

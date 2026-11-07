@@ -1,6 +1,10 @@
-// `k.ui.KeyboardShortcut` (docs/design/43-keyboard-shortcuts.md; docs/compiler/runtime.md §12.5): a key
-// pressed anywhere on the page fires `pressed` while the component is mounted, never while the user
-// types in a field or holds a modifier, and letters match in either case.
+/**
+ * @module k:/tests/keys.test.js
+ *
+ * `k.ui.KeyboardShortcut` (docs/design/43-keyboard-shortcuts.md; docs/compiler/runtime.md §12.5): a key
+ * pressed anywhere on the page fires `pressed` while the component is mounted, never while the user
+ * types in a field or holds a modifier, and letters match in either case.
+ */
 import { assert, assertEq, test } from "k:testing";
 import { KeyboardShortcut } from "k:/runtime/keys.js";
 import { flush, root } from "k:runtime";
@@ -17,6 +21,7 @@ function shortcut(key) {
   return { count: () => count, dispose };
 }
 
+/** Dispatches a bubbling `keydown` of `key` (with `extra` fields) on `el` and returns the event. */
 const press = (el, key, extra = {}) => {
   const e = Object.assign(new Event("keydown", { bubbles: true }), { key, ...extra });
   el.dispatchEvent(e);

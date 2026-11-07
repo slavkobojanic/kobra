@@ -21,6 +21,7 @@ use k_diagnostics::{Applicability, Diagnostic, FileId, Severity};
 use k_syntax::{Lexed, SyntaxKind, lex};
 use proptest::prelude::*;
 
+/// The file id every test lexes under.
 const FILE: FileId = FileId::new(0);
 
 /// The non-whitespace tokens of `text`, as `(kind, text)` pairs.
@@ -339,6 +340,9 @@ fn messages_follow_the_conventions() {
     }
 }
 
+/// Asserts the message conventions of `docs/compiler/diagnostics.md`: a
+/// non-empty single line that starts in lowercase and does not end with a
+/// period.
 fn assert_message_conventions(diagnostic: &Diagnostic) {
     let message = &diagnostic.message;
     assert!(!message.is_empty(), "{diagnostic:?}");
@@ -383,6 +387,8 @@ fn on_small_stack(f: impl FnOnce() + Send + 'static) {
         .expect("lexing deeply nested input must not overflow the stack");
 }
 
+/// Nesting depth of the deep-interpolation tests, far beyond what a
+/// recursive lexer could handle on a small stack.
 const DEPTH: usize = 100_000;
 
 #[test]
@@ -531,10 +537,12 @@ const FRAGMENTS: &[&str] = &[
     "\u{c}",
 ];
 
+/// Generates text by concatenating up to 47 K-like fragments.
 fn k_shaped() -> impl Strategy<Value = String> {
     prop::collection::vec(prop::sample::select(FRAGMENTS), 0..48).prop_map(|parts| parts.concat())
 }
 
+/// Generates either arbitrary Unicode text or [`k_shaped`] text.
 fn any_input() -> impl Strategy<Value = String> {
     prop_oneof![any::<String>(), k_shaped()]
 }

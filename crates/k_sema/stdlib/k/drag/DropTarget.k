@@ -7,9 +7,9 @@
 /// attribute and the `dropTarget` token's outline.
 @Native
 public component DropTarget<T> {
-    /// The content.
+    /// The content of the region.
     @Slot let content: View
-    /// The kind of drag accepted.
+    /// The [`DragKind`] of the drags accepted.
     @Prop let kind: DragKind<T>
     /// The region's name, announced while a drag is over it ("Trash").
     @Prop let label: String

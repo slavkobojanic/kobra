@@ -1,16 +1,16 @@
-/// A rendered view, returned by `render`. It supports every query of
-/// `Element` over the whole view.
+/// A rendered view, returned by [`render(_:)`]. It supports every query of
+/// [`Element`] over the whole view.
 @Native
 public class Screen {
     /// The document title from the `metadata` blocks in effect.
     var title: String
-    /// The page the router is on.
+    /// The page the router is on ([`k.core.Page`]).
     var currentPage: Page
 
     /// Waits until no `@Load`, async effect or handler is in flight, apart
-    /// from work waiting on the `TestClock` or on an open stream.
+    /// from work waiting on the [`TestClock`] or on an open stream.
     func settle() async
-    /// Unmounts the view, running every `onCleanup`.
+    /// Unmounts the view, running every [`k.core.onCleanup`] block.
     func unmount()
 
     /// The heading whose accessible name is exactly `name`.
@@ -39,7 +39,7 @@ public class Screen {
     func item(containing text: String) -> Element
     /// The `nav` landmark whose accessible name is exactly `name`.
     func navigation(named name: String) -> Element
-    /// The only list.
+    /// Returns the only list.
     func list() -> Element
     /// The list whose accessible name is exactly `name`.
     func list(named name: String) -> Element
@@ -47,12 +47,12 @@ public class Screen {
     func alert() -> Element
     /// The only `.role(.status)` live region.
     func status() -> Element
-    /// Every list item.
+    /// Returns every list item, in document order.
     func items() -> List<Element>
-    /// Every button.
+    /// Returns every button, in document order.
     func buttons() -> List<Element>
-    /// Every heading.
+    /// Returns every heading, in document order.
     func headings() -> List<Element>
-    /// Every link.
+    /// Returns every link, in document order.
     func links() -> List<Element>
 }

@@ -61,6 +61,7 @@ let pressed = null;
 const regions = new Set();
 /** The list indicator and the pointer's copy, made on first use. */
 let marker = null;
+/** The copy of the dragged element that follows the pointer, made on first use. */
 let ghost = null;
 /** The root element the document-wide pointer listeners are installed on. */
 let listening = null;

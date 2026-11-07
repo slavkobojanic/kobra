@@ -1153,6 +1153,9 @@ pub(crate) fn form(b: &mut Body<'_, '_>, m: MemberId, init: Option<&ast::Expr>) 
     )
 }
 
+/// The plain string of a validation annotation's `message:` argument
+/// (`@Min(1, message: "…")`), or `None` when it has none or it is not a
+/// plain string literal.
 fn message_arg(l: Option<&ast::ArgList>) -> Option<String> {
     l?.args()
         .find(|a| a.label().is_some_and(|t| t.text() == "message"))
@@ -1343,5 +1346,7 @@ pub(crate) fn is_generated_enum(g: &Gen<'_>, d: DeclId) -> bool {
     g.view.lookup("k.core.Page") == Some(d) || g.view.lookup("k.core.ThemeVariant") == Some(d)
 }
 
+/// A leftover that nothing calls (hence `dead_code` is allowed); it has
+/// no effect on the output and can be removed.
 #[allow(dead_code)]
 fn unused(_: Target) {}

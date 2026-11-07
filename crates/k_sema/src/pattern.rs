@@ -157,6 +157,7 @@ fn arity(checker: &Checker<'_, '_, '_>, ctor: &Ctor, ty: &Ty) -> Vec<Ty> {
 /// the trie it reaches.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Rows {
+    /// The node of the whole matrix (depth 0).
     root: Node,
 }
 
@@ -251,6 +252,9 @@ impl Rows {
 }
 
 impl Node {
+    /// Adds `row` (columns typed by `tys`) to this node at trie depth
+    /// `depth`, and to the child matrix its head specializes into; a row
+    /// past [`MAX_DEPTH`] marks the node [`flat`](Node::flat) instead.
     fn push(&mut self, checker: &Checker<'_, '_, '_>, row: Vec<Pat>, tys: &[Ty], depth: u32) {
         let index = !self.flat && depth <= MAX_DEPTH;
         if !index {
@@ -290,6 +294,9 @@ impl Node {
         self.rows.push(row);
     }
 
+    /// Returns `true` if `row` matches a value no row of this node's
+    /// matrix matches: follows the index while the node has no wildcard
+    /// rows and is not flat, and falls back to [`useful_depth`] otherwise.
     fn useful(&self, checker: &Checker<'_, '_, '_>, row: &[Pat], tys: &[Ty], depth: u32) -> bool {
         let Some((head, rest)) = row.split_first() else {
             return self.rows.is_empty();

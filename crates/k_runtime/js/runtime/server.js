@@ -144,6 +144,7 @@ export async function serve(handler) {
   }
 }
 
+/** The response to a handler that throws or answers something that is not a response. */
 const INTERNAL_ERROR = Object.freeze({
   status: 500,
   headers: [["content-type", "text/plain; charset=utf-8"]],

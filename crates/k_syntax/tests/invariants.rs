@@ -106,10 +106,16 @@ const FRAGMENTS: &[&str] = &[
     "\u{feff}",
 ];
 
+/// Generates text by concatenating up to 63 K-like fragments, so random
+/// inputs hit keywords, strings, styles and delimiters often.
 fn k_shaped() -> impl Strategy<Value = String> {
     prop::collection::vec(prop::sample::select(FRAGMENTS), 0..64).prop_map(|parts| parts.concat())
 }
 
+/// Asserts the basic invariants for `text`: the token stream is
+/// gapless, non-empty per token and lossless; the tree is a lossless
+/// `SourceFile`; and every lexer and parser diagnostic span is in bounds
+/// on char boundaries.
 fn check(text: &str) {
     let file = FileId::new(0);
     let lexed = lex(file, text);
@@ -138,6 +144,8 @@ fn check(text: &str) {
     check_spans(text, parse.diagnostics());
 }
 
+/// Asserts that every diagnostic span lies within `text` and starts and
+/// ends on char boundaries.
 fn check_spans(text: &str, diagnostics: &[k_diagnostics::Diagnostic]) {
     for diagnostic in diagnostics {
         let start = usize::from(diagnostic.span.start());

@@ -57,6 +57,10 @@ pub struct LockedColumn {
 }
 
 /// Reads a TOML string, boolean, integer or float as text.
+///
+/// # Errors
+///
+/// The value is an array, a table or a datetime.
 fn scalar_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     use serde::de::Error;
     match toml::Value::deserialize(d)? {
@@ -106,6 +110,8 @@ impl std::fmt::Display for LockError {
 
 impl std::error::Error for LockError {}
 
+/// Writes `s` as a TOML basic string, escaping quotes, backslashes and
+/// control characters.
 fn quote(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -125,6 +131,8 @@ fn quote(s: &str) -> String {
     out
 }
 
+/// Writes `s` as a TOML key: bare when it only has ASCII letters, digits,
+/// `_` and `-`, else quoted with [`quote`].
 fn key(s: &str) -> String {
     if !s.is_empty()
         && s.chars()

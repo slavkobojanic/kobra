@@ -21,6 +21,7 @@ use k_syntax::{SyntaxKind, SyntaxNode, lex, parse};
 use std::collections::BTreeSet;
 use workload::{Pathological, Rng, SEED, line_count, realistic, typical_file};
 
+/// The file id every test parses under.
 const FILE: FileId = FileId::new(0);
 
 /// Parses `text` and fails with the first few diagnostics, quoting the lines

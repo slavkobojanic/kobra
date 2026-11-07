@@ -48,6 +48,7 @@ pub const SEED: u64 = 0x4b5f_5359_4e54_4158; // "K_SYNTAX"
 /// be reproducible and well distributed enough to vary the generated text.
 #[derive(Clone, Debug)]
 pub struct Rng {
+    /// The SplitMix64 state, advanced by a fixed increment on every draw.
     state: u64,
 }
 
@@ -96,6 +97,7 @@ impl Rng {
 // Vocabulary
 // ---------------------------------------------------------------------------
 
+/// Domain nouns; the stems of declaration, type and service names.
 const NOUNS: &[&str] = &[
     "Cart",
     "Product",
@@ -119,6 +121,7 @@ const NOUNS: &[&str] = &[
     "Inventory",
 ];
 
+/// Field and property names.
 const FIELDS: &[&str] = &[
     "title",
     "price",
@@ -140,11 +143,14 @@ const FIELDS: &[&str] = &[
     "tags",
 ];
 
+/// Local variable names.
 const LOCALS: &[&str] = &[
     "item", "value", "result", "entry", "product", "order", "user", "index", "total", "line",
     "draft", "next", "current", "response",
 ];
 
+/// Type expressions, from simple names to generics, optionals, tuples and
+/// function types.
 const TYPES: &[&str] = &[
     "Int",
     "String",
@@ -165,6 +171,7 @@ const TYPES: &[&str] = &[
     "(Product) -> Bool",
 ];
 
+/// View element calls that take a children block.
 const ELEMENTS: &[&str] = &[
     "section",
     "box",
@@ -179,11 +186,13 @@ const ELEMENTS: &[&str] = &[
     "label(for: .email)",
 ];
 
+/// Style class names, used in `.class(...)` and in selectors.
 const CLASSES: &[&str] = &[
     "summary", "muted", "small", "expanded", "card", "header", "footer", "active", "primary",
     "danger", "grid", "title", "badge", "toolbar",
 ];
 
+/// Style property names (camelCase, as K writes them).
 const PROPERTIES: &[&str] = &[
     "padding",
     "margin",
@@ -201,6 +210,8 @@ const PROPERTIES: &[&str] = &[
     "opacity",
 ];
 
+/// Style declaration values, including theme references, interpolations and
+/// CSS functions.
 const CSS_VALUES: &[&str] = &[
     ".md",
     ".sm",
@@ -224,6 +235,7 @@ const CSS_VALUES: &[&str] = &[
     "{opacity}",
 ];
 
+/// Words for string literals and doc comments.
 const WORDS: &[&str] = &[
     "Your", "cart", "is", "empty", "Pay", "now", "Nothing", "here", "yet", "Loading", "Saved",
     "items", "total", "Welcome", "back", "Order", "shipped", "on",
@@ -267,15 +279,25 @@ pub fn line_count(text: &str) -> usize {
 }
 
 /// The state of the realistic generator.
+///
+/// Each `fn` that writes a construct emits complete lines at the current
+/// indentation and leaves the indentation as it found it.
 struct Gen {
+    /// The text generated so far.
     out: String,
+    /// The source of every choice.
     rng: Rng,
+    /// The current indentation, in levels of four spaces.
     indent: usize,
+    /// The number of lines written so far.
     lines: usize,
+    /// The last number handed out by [`Gen::serial`].
     serial: u32,
 }
 
 impl Gen {
+    /// Creates a generator seeded with `seed` whose output buffer has room for
+    /// `capacity` bytes.
     fn new(seed: u64, capacity: usize) -> Gen {
         Gen {
             out: String::with_capacity(capacity),
@@ -329,24 +351,30 @@ impl Gen {
         self.serial
     }
 
+    /// Picks a noun from [`NOUNS`].
     fn noun(&mut self) -> &'static str {
         self.rng.pick(NOUNS)
     }
 
+    /// Picks a field name from [`FIELDS`].
     fn field(&mut self) -> &'static str {
         self.rng.pick(FIELDS)
     }
 
+    /// Picks a local variable name from [`LOCALS`].
     fn local(&mut self) -> &'static str {
         self.rng.pick(LOCALS)
     }
 
+    /// Picks a type expression from [`TYPES`].
     fn ty(&mut self) -> &'static str {
         self.rng.pick(TYPES)
     }
 
     // -- files and items ----------------------------------------------------
 
+    /// Writes 4 to 12 imports of every form (dotted paths, URL-like
+    /// packages, `import proto`) and a blank line.
     fn imports(&mut self) {
         let count = self.rng.range(4, 12);
         for _ in 0..count {
@@ -366,6 +394,8 @@ impl Gen {
         self.blank();
     }
 
+    /// Writes one top-level declaration of a seeded kind, sometimes preceded
+    /// by a doc comment or a nested block comment, and a blank line.
     fn item(&mut self) {
         if self.rng.chance(60) {
             let doc = format!(
@@ -397,6 +427,7 @@ impl Gen {
         self.blank();
     }
 
+    /// Returns `public `, `private ` or (most often) no visibility modifier.
     fn visibility(&mut self) -> &'static str {
         match self.rng.below(6) {
             0 => "public ",
@@ -405,6 +436,8 @@ impl Gen {
         }
     }
 
+    /// Writes a `component` with props, an injected service, state, a
+    /// function, a view and a style block.
     fn component(&mut self) {
         let name = format!(
             "{}{}{}",
@@ -438,6 +471,8 @@ impl Gen {
         self.close();
     }
 
+    /// Writes a `page` with an `at` route (sometimes with `requires`),
+    /// parameters, state and `loading`, `failed` and `metadata` blocks.
     fn page(&mut self) {
         let noun = self.noun();
         let name = format!("{noun}Page{}", self.serial());
@@ -474,6 +509,7 @@ impl Gen {
         self.close();
     }
 
+    /// Writes a `layout` with a view.
     fn layout(&mut self) {
         let name = format!("{}Layout{}", self.noun(), self.serial());
         let header = if self.rng.chance(50) {
@@ -493,6 +529,8 @@ impl Gen {
         self.close();
     }
 
+    /// Writes a `service` with an injected protocol, state, throwing
+    /// functions and sometimes an `rpc` member.
     fn service(&mut self) {
         let noun = self.noun();
         let name = format!("{noun}Service{}", self.serial());
@@ -522,6 +560,7 @@ impl Gen {
         self.close();
     }
 
+    /// Writes a `protocol` of function requirements.
     fn protocol(&mut self) {
         let noun = self.noun();
         let name = format!("{noun}Protocol{}", self.serial());
@@ -546,6 +585,7 @@ impl Gen {
         self.close();
     }
 
+    /// Writes an `entity` implementing `Auditable`, with annotated fields.
     fn entity(&mut self) {
         let noun = self.noun();
         let header = format!("entity {noun}Record{} implements Auditable", self.serial());
@@ -565,6 +605,7 @@ impl Gen {
         self.close();
     }
 
+    /// Writes a `repository ... for` an entity, with a query function.
     fn repository(&mut self) {
         let noun = self.noun();
         let header = format!(
@@ -581,6 +622,7 @@ impl Gen {
         self.close();
     }
 
+    /// Writes a `struct` with fields, an initializer and a computed property.
     fn structure(&mut self) {
         let name = format!("{}Item{}", self.noun(), self.serial());
         let header = match self.rng.below(3) {
@@ -606,6 +648,8 @@ impl Gen {
         self.close();
     }
 
+    /// Writes an error `enum` with payload cases and a method that matches on
+    /// `self`.
     fn enumeration(&mut self) {
         let noun = self.noun();
         let header = format!("enum {noun}Error{} implements Error", self.serial());
@@ -629,6 +673,8 @@ impl Gen {
         self.close();
     }
 
+    /// Writes either a `class` or a generic `interface` with `get` and `put`
+    /// requirements.
     fn class_or_interface(&mut self) {
         let noun = self.noun();
         if self.rng.chance(50) {
@@ -660,6 +706,8 @@ impl Gen {
         }
     }
 
+    /// Writes either a `theme` with tokens and a `dark` variant, or an `app`
+    /// with environment-specific `use` bindings.
     fn theme_or_app(&mut self) {
         if self.rng.chance(50) {
             let header = format!("theme Brand{}", self.serial());
@@ -687,6 +735,8 @@ impl Gen {
         }
     }
 
+    /// Writes a `test` suite with a fake binding, an injected service and two
+    /// test cases, one of them `expect throws`.
     fn test_suite(&mut self) {
         let noun = self.noun();
         let header = format!("test {noun}Service{}", self.serial());
@@ -714,6 +764,8 @@ impl Gen {
         self.close();
     }
 
+    /// Writes either a generic `extend<T> ... where` block or a plain
+    /// `extend` with a computed property.
     fn extension(&mut self) {
         if self.rng.chance(50) {
             self.open("extend<T> List<T> where T implements Priced");
@@ -731,6 +783,7 @@ impl Gen {
         }
     }
 
+    /// Writes a top-level `let` with a literal value or a top-level function.
     fn top_level(&mut self) {
         if self.rng.chance(30) {
             let line = format!(
@@ -755,6 +808,8 @@ impl Gen {
 
     // -- functions and statements --------------------------------------------
 
+    /// Writes a function with seeded parameters, effects and return type and
+    /// 3 to 7 statements; `may_throw` allows `async throws` and `try`.
     fn func(&mut self, may_throw: bool) {
         let name = format!(
             "{}{}",
@@ -792,6 +847,9 @@ impl Gen {
         self.close();
     }
 
+    /// Writes one statement. At `depth` 0 only simple statements are chosen;
+    /// above it, control flow (`if`, `for`, `while`, `guard`, `match`, ...)
+    /// nests statements of `depth - 1`, which bounds the nesting.
     fn statement(&mut self, depth: usize, may_throw: bool) {
         let choice = if depth == 0 {
             self.rng.below(5)
@@ -951,6 +1009,8 @@ impl Gen {
         self.atom_in(depth, true)
     }
 
+    /// Returns a binary expression or an atom; with `nt`, no operand ends in
+    /// a trailing lambda (an `expr_nt` position).
     fn expr_in(&mut self, depth: usize, nt: bool) -> String {
         match self.rng.below(8) {
             0..=2 => self.atom_in(depth, nt),
@@ -1184,6 +1244,8 @@ impl Gen {
 
     // -- views and styles --------------------------------------------------
 
+    /// Writes a `view` block with a root element, 2 to 4 nested nodes and a
+    /// `.class(...)` modifier.
     fn view(&mut self) {
         self.open("view");
         let root = self.rng.pick(&["section", "column", "card"]);
@@ -1199,6 +1261,9 @@ impl Gen {
         self.close();
     }
 
+    /// Writes one view node: text, a component call, an element with
+    /// modifiers, or (above `depth` 0) a nested element, `if`/`else`, `for`
+    /// or `match` whose children have `depth - 1`.
     fn view_node(&mut self, depth: usize) {
         let choice = if depth == 0 {
             self.rng.below(4)
@@ -1270,6 +1335,7 @@ impl Gen {
         }
     }
 
+    /// Writes a `style` block of rules, sometimes with an `@media` block.
     fn style(&mut self) {
         self.open("style");
         for _ in 0..self.rng.range(2, 4) {
@@ -1283,6 +1349,8 @@ impl Gen {
         self.close();
     }
 
+    /// Writes one style rule with a seeded selector and 1 to 4 declarations;
+    /// with `depth` above 0 it may nest `&:hover` and, above 1, `@media`.
     fn style_rule(&mut self, depth: usize) {
         let a = self.rng.pick(CLASSES);
         let b = self.rng.pick(CLASSES);
@@ -1548,6 +1616,7 @@ impl Pathological {
                 line.repeat(size)
             }
             Pathological::ManyDiagnostics => {
+                /// Lines that each produce at least one diagnostic.
                 const LINES: &[&str] = &[
                     "let a = !b && c || d",
                     "let t = ready ? 1 : 2",

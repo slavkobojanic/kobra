@@ -5,10 +5,11 @@ responses, statuses and errors. Like every platform interface, it is injectable 
 components can't call external APIs directly, and retries, caching and error wrapping stay in one place.
 
 ```k
+// crates/k_sema/stdlib/k/http/HttpClient.k
 public interface HttpClient {
+    // ...
     func send(request: HttpRequest) async throws HttpError -> HttpResponse
-
-    /// Sends the request, requires a 2xx status, and decodes the body as JSON.
+    // ...
     func fetchJson<T>(request: HttpRequest) async throws HttpError -> T where T implements Codable {
         let response = try await send(request: request)
 
@@ -30,11 +31,14 @@ public interface HttpClient {
 ## Requests are a `@Builder` struct
 
 ```k
-let request = HttpRequest(method: .post, url: config.apiUrl.appending(path: "/v1/checkout/sessions"))
+// examples/shop/shop/src/payments/StripeCheckout.k
+let call = HttpRequest(method: .post, url: config.apiUrl.appending(path: "/v1/checkout/sessions"))
     .bearerToken(config.apiKey)
-    .headers(["idempotency-key": "checkout-{order.id}"])
-    .body(.form(["mode": "payment", "client_reference_id": "{order.id}"]))
-    .timeout(10.seconds)
+    .headers(["idempotency-key": "checkout-{request.orderId}"])
+    .body(.form([
+        "mode": "payment",
+        "client_reference_id": "{request.orderId}",
+        // ...
 ```
 
 | Field | Kind | Default |
@@ -96,11 +100,18 @@ let request = HttpRequest(method: .post, url: config.apiUrl.appending(path: "/v1
 ## Errors
 
 ```k
-public enum HttpError implements Error {
-    case offline                                // DNS failure, refused connection, no network
-    case timeout                                // the request's timeout elapsed
-    case status(HttpStatus, body: String)       // a non-2xx response, from fetchJson
-    case decoding(message: String)              // the body wasn't the expected JSON
+// crates/k_sema/stdlib/k/http/HttpError.k
+public enum HttpError implements Error, Codable {
+    /// The server couldn't be reached: a DNS failure, a refused
+    /// connection or no network.
+    case offline
+    /// The request's [`HttpRequest.timeout`] elapsed.
+    case timeout
+    /// A non-2xx response, from [`HttpClient.fetchJson`], with the third
+    /// party's body.
+    case status(HttpStatus, body: String)
+    /// The body wasn't the expected JSON.
+    case decoding(message: String)
 }
 ```
 
@@ -117,17 +128,29 @@ public enum HttpError implements Error {
 A service maps each `HttpError` case to a case of its own error enum, keeping only what its callers need:
 
 ```k
-public enum WeatherError implements Error {
+// examples/weather/src/weather/WeatherError.k
+public enum WeatherError implements Error, Codable {
+    // ...
     case placeNotFound(id: Int)
-    case offline                            // from HttpError.offline
-    case timeout                            // from HttpError.timeout
-    case upstream(HttpStatus)               // from HttpError.status, without the body
-    case invalidResponse(reason: String)    // from HttpError.decoding
+    // ...
+    case offline
+    // ...
+    case timeout
+    // ...
+    case upstream(HttpStatus)
+    // ...
 }
+```
 
+```k
+// examples/weather/src/weather/WeatherService.k
 private func fetch<T>(url: Url, query: Map<String, String>) async throws WeatherError -> T where T implements Codable {
+    let request = HttpRequest(method: .get, url: url)
+        .query(query)
+        .timeout(requestTimeout)
+
     do {
-        return try await http.fetchJson(request: HttpRequest(method: .get, url: url).query(query))
+        return try await http.fetchJson(request: request)
     } catch .offline {
         throw WeatherError.offline
     } catch .timeout {
@@ -151,6 +174,7 @@ Codable structs map JSON keys to field names one to one. When an external API us
 says so with `@JsonKey` (from `k.encoding`):
 
 ```k
+~import k.encoding.JsonKey
 struct CurrentResponse implements Codable {
     @JsonKey("temperature_2m") let temperature: Double
 }
@@ -170,16 +194,12 @@ a fake never reaches the internet:
 | `requests: List<HttpRequest>` | every request sent so far |
 
 ```k
-test WeatherService {
-    @Inject let http: TestHttpClient
-    @Inject let weather: WeatherService
+// examples/weather/src/weather/WeatherService.test.k
+test "a server error status is an upstream error" {
+    http.serveText(path: "/v1/forecast", body: "Service unavailable", status: .serviceUnavailable)
 
-    test "an upstream outage is reported without its body" {
-        http.respond(path: "/v1/forecast", with: HttpResponse(status: .serviceUnavailable).body(.text("down")))
-
-        expect throws WeatherError.upstream(.serviceUnavailable) {
-            try await weather.forecast(place: .berlin)
-        }
+    expect throws WeatherError.upstream(.serviceUnavailable) {
+        try await weather.forecast(place: .berlin, units: .metric)
     }
 }
 ```

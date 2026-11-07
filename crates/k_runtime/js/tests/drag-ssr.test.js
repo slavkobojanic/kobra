@@ -1,12 +1,17 @@
-// `k.drag` on the server (docs/design/41-drag-and-drop.md, "Server rendering"): the components
-// render the elements and attributes the browser's do, slot content between block markers, so the
-// page reads before the client starts and the browser claims it while hydrating.
+/**
+ * @module k:/tests/drag-ssr.test.js
+ *
+ * `k.drag` on the server (docs/design/41-drag-and-drop.md, "Server rendering"): the components
+ * render the elements and attributes the browser's do, slot content between block markers, so the
+ * page reads before the client starts and the browser claims it while hydrating.
+ */
 import { assert, assertEq, test } from "k:testing";
 import { Out, natives } from "k:runtime/server";
 import { ATTRS, ReorderableList } from "k:/runtime/drag.js";
 import { flush, hydrate, root, textNode } from "k:runtime";
 
 const kind = natives["k.drag.DragKind$init"]("card");
+/** The HTML that the server renderer of the `k.drag` component `name` writes for `props`. */
 const render = (name, props) => {
   const out = new Out();
   natives[`k.drag.${name}$ssr`](props, {}, out);

@@ -105,6 +105,12 @@ export function createForm(fields, initial, validate) {
     }
     if (parsed && list.length === 0 && validate) {
       validate(value, {
+        /**
+         * Records `message` as an error of the field at `path` unless `ok`.
+         * @param {boolean} ok whether the rule holds
+         * @param {string} path the field's name
+         * @param {string} message the error to show
+         */
         check(ok, path, message) {
           if (!ok) list.push({ path, message });
         },

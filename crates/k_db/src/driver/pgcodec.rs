@@ -17,6 +17,11 @@ const NUMERIC_NEG: u16 = 0x4000;
 const NUMERIC_NAN: u16 = 0xC000;
 
 /// Encodes decimal text (`-12.3400`, `7`, `.5`) as a binary `numeric`.
+///
+/// # Errors
+///
+/// `not a decimal number` for text that isn't an optional sign, digits and
+/// an optional fraction, or that has too many digits for the format.
 pub(super) fn encode_numeric(text: &str) -> Result<Vec<u8>, CodecError> {
     let bad = || -> CodecError { "not a decimal number".into() };
     let (negative, rest) = match text.as_bytes().first() {
@@ -85,6 +90,11 @@ pub(super) fn encode_numeric(text: &str) -> Result<Vec<u8>, CodecError> {
     Ok(out)
 }
 
+/// Reads the big-endian `u16` at byte offset `at` of `raw`.
+///
+/// # Errors
+///
+/// `truncated numeric` when `raw` ends before `at + 2`.
 fn be16(raw: &[u8], at: usize) -> Result<u16, CodecError> {
     raw.get(at..at + 2)
         .map(|b| u16::from_be_bytes([b[0], b[1]]))
@@ -92,6 +102,10 @@ fn be16(raw: &[u8], at: usize) -> Result<u16, CodecError> {
 }
 
 /// Decodes a binary `numeric` to decimal text with its scale (`12.3400`).
+///
+/// # Errors
+///
+/// Truncated input, `NaN`, or a digit group outside `0..10000`.
 pub(super) fn decode_numeric(raw: &[u8]) -> Result<String, CodecError> {
     let ndigits = usize::from(be16(raw, 0)?);
     let weight = i32::from(i16::from_be_bytes(be16(raw, 2)?.to_be_bytes()));
@@ -182,6 +196,11 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
 
 /// Parses RFC 3339 text (`2026-11-07T10:00:00.250Z`, `…+01:00`) to
 /// microseconds since the Unix epoch.
+///
+/// # Errors
+///
+/// Text that isn't RFC 3339 with a `Z` or `±hh:mm` offset, a field out of
+/// range, or a time outside what microseconds since the epoch can hold.
 pub(super) fn parse_rfc3339(text: &str) -> Result<i64, CodecError> {
     let bad = || -> CodecError { "not an RFC 3339 timestamp".into() };
     let b = text.as_bytes();
@@ -263,6 +282,11 @@ pub(super) fn format_rfc3339(micros: i64) -> String {
 }
 
 /// Encodes RFC 3339 text as a binary `timestamptz`.
+///
+/// # Errors
+///
+/// As [`parse_rfc3339`], or a time outside Postgres' microsecond range
+/// from its 2000-01-01 epoch.
 pub(super) fn encode_timestamp(text: &str) -> Result<Vec<u8>, CodecError> {
     let micros = parse_rfc3339(text)?
         .checked_sub(PG_EPOCH_MICROS)
@@ -271,6 +295,11 @@ pub(super) fn encode_timestamp(text: &str) -> Result<Vec<u8>, CodecError> {
 }
 
 /// Decodes a binary `timestamptz` to RFC 3339 text.
+///
+/// # Errors
+///
+/// Input that isn't 8 bytes, `infinity`/`-infinity`, or a time out of
+/// range.
 pub(super) fn decode_timestamp(raw: &[u8]) -> Result<String, CodecError> {
     let bytes: [u8; 8] = raw.try_into().map_err(|_| "malformed timestamp")?;
     let micros = i64::from_be_bytes(bytes);
@@ -292,6 +321,10 @@ pub(super) fn encode_jsonb(text: &str) -> Vec<u8> {
 }
 
 /// Decodes binary `jsonb` to JSON text.
+///
+/// # Errors
+///
+/// An unknown `jsonb` format version, or text that isn't UTF-8.
 pub(super) fn decode_jsonb(raw: &[u8]) -> Result<String, CodecError> {
     match raw.split_first() {
         Some((1, rest)) => Ok(std::str::from_utf8(rest)?.to_owned()),

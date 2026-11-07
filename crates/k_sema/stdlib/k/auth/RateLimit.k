@@ -4,6 +4,9 @@
 @Guard
 public struct RateLimit {
     /// Allows at most `rate`.
+    ///
+    /// - Parameter rate: the allowed number of calls per period, such as
+    ///   `10.perMinute`.
     @Native
     init(_ rate: Rate) {}
 }

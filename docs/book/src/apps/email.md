@@ -5,11 +5,23 @@ implementation configured from the environment. Messages are a `@Builder` struct
 validated **`EmailAddress`** type, so an invalid address can't reach `send`.
 
 ```k
+~import k.server.Email
+~import k.text.EmailAddress
+~
+~import k.server.EmailError
+~import k.server.EmailProvider
+~
+~struct Order {
+~    let email: EmailAddress
+~}
+~
+~func confirm(order: Order, mailer: EmailProvider, body: String, htmlBody: String) async throws EmailError {
 let email = Email(to: order.email, subject: "Your order is confirmed", text: body)
     .html(htmlBody)
     .replyTo(EmailAddress("support@shop.example"))
 
 try await mailer.send(email: email)
+~}
 ```
 
 ## `EmailAddress`
@@ -44,14 +56,29 @@ try await mailer.send(email: email)
 ## `EmailProvider`
 
 ```k
+// crates/k_sema/stdlib/k/server/EmailProvider.k
 public interface EmailProvider {
+    /// Sends `email`.
+    ///
+    /// - Throws: [`EmailError.unavailable`] for a temporary failure,
+    ///   [`EmailError.rejected`] for a permanent one and
+    ///   [`EmailError.invalidMessage`] for a message that can't be sent.
     func send(email: Email) async throws EmailError
 }
+```
 
-public enum EmailError implements Error {
-    case unavailable                       // can't connect, timed out, or a temporary (4xx) SMTP reply
-    case rejected(reason: String)          // a permanent (5xx) SMTP reply, with the server's text
-    case invalidMessage(reason: String)    // the message can't be sent as written
+```k
+// crates/k_sema/stdlib/k/server/EmailError.k
+public enum EmailError implements Error, Codable {
+    /// The provider couldn't connect, timed out, or gave a temporary (4xx)
+    /// SMTP reply; worth retrying.
+    case unavailable
+    /// A permanent (5xx) SMTP reply, with the server's text; not worth
+    /// retrying.
+    case rejected(reason: String)
+    /// The message can't be sent as written (such as a line break in the
+    /// subject).
+    case invalidMessage(reason: String)
 }
 ```
 
@@ -107,16 +134,13 @@ can send real mail. A test reaches it with `@Inject let mailer: RecordingEmailPr
 | `simulateFailure(error: EmailError)` | makes every later `send` throw `error` |
 
 ```k
-test OrderConfirmationJob {
-    @Inject let job: OrderConfirmationJob
-    @Inject let mailer: RecordingEmailProvider
+// examples/shop/shop/src/store/OrderConfirmationJob.test.k
+test "an SMTP outage is retried later" {
+    let order = try await placeOrder()
+    mailer.simulateFailure(error: .unavailable)
 
-    test "a temporary mail outage is retried" {
-        mailer.simulateFailure(error: .unavailable)
-
-        expect throws JobError.retryable {
-            try await job.run(payload: OrderConfirmation(orderId: Order.paid.id))
-        }
+    expect throws JobError.retryable {
+        try await job.run(payload: OrderConfirmation(orderId: order.id))
     }
 }
 ```

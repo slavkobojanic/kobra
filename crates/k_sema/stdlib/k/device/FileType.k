@@ -17,7 +17,8 @@ public enum FileType implements Equatable {
     case svg
     /// A PDF document, `.pdf`.
     case pdf
-    /// Any other kind: its media type and extension, without the dot.
+    /// Any other kind of file: its media type and its extension, without
+    /// the dot.
     case other(mediaType: String, fileExtension: String)
 
     /// The media type ("application/json"), as the table of

@@ -1,9 +1,13 @@
-// Dependency injection in the browser and the client bodies of the
-// stdlib's platform services (docs/compiler/runtime.md, "Services";
-// docs/design/10-services.md, 07-themes-and-units.md, 32-http-client.md,
-// 35-time.md, 36-local-storage.md): `provide`, `afterHydration`, `Clock`,
-// `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session` mirror and
-// browser `@Native` members.
+/**
+ * @module k:/tests/services.test.js
+ *
+ * Dependency injection in the browser and the client bodies of the
+ * stdlib's platform services (docs/compiler/runtime.md, "Services";
+ * docs/design/10-services.md, 07-themes-and-units.md, 32-http-client.md,
+ * 35-time.md, 36-local-storage.md): `provide`, `afterHydration`, `Clock`,
+ * `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session` mirror and
+ * browser `@Native` members.
+ */
 import { assert, assertDeepEq, assertEq, assertThrows, installDom, test, tick } from "k:testing";
 import {
   Instant, KPanic, afterHydration, browserStorage, clock, codecs, effect, fetchHttpClient, flush, hydrate, isHydrating, native,
@@ -42,7 +46,9 @@ function cookies() {
 // ------------------------------------------------------------- containers
 
 test("provide answers one name and delegates the rest to the container", () => {
+  /** A stand-in for a generated container with one shared service. */
   class C {
+    /** The container's `Shared` service, made once. */
     get Shared() {
       return (this.$s ??= { n: 1 });
     }
@@ -140,6 +146,7 @@ test("Theme.apply swaps the root class, remembers the choice and is reactive", (
 const ReadError = { unavailable: unitCase(0), unreadable: unitCase(1) };
 const WriteError = { unavailable: unitCase(0), quotaExceeded: unitCase(1) };
 
+/** Installs an in-memory `localStorage` whose writes throw `fail` when given; returns its items. */
 function memoryStorage(fail) {
   const items = new Map();
   globalThis.localStorage = {
@@ -215,6 +222,7 @@ function fakeFetch(status, body) {
   return sent;
 }
 
+/** An `HttpRequest` to the search API, overridden by `extra`. */
 const request = (extra) => ({ method: unitCase(0), url: "https://api.example.com/v1/search", query: new Map(), headers: new Map(), secretHeaders: new Map(), bearerToken: null, body: null, timeout: 1000, ...extra });
 
 test("FetchHttpClient sends the query, headers and method", async () => {

@@ -1,8 +1,12 @@
-// The test kit behind `k test` (docs/design/21-testing.md, "Rendering and
-// querying", "Test doubles and defaults"; docs/compiler/runtime.md,
-// "The test kit"): accessibility queries over a rendered view, actions
-// that flush, `TestClock`, `MemoryStorage`, `TestHttpClient`, the recording
-// doubles, expectation failures and the runner.
+/**
+ * @module k:/tests/kit.test.js
+ *
+ * The test kit behind `k test` (docs/design/21-testing.md, "Rendering and
+ * querying", "Test doubles and defaults"; docs/compiler/runtime.md,
+ * "The test kit"): accessibility queries over a rendered view, actions
+ * that flush, `TestClock`, `MemoryStorage`, `TestHttpClient`, the recording
+ * doubles, expectation failures and the runner.
+ */
 import { assert, assertDeepEq, assertEq, assertThrows, installDom, test } from "k:testing";
 import { Instant, KPanic, effect, flush, isPanic, on, root, signal, unitCase } from "k:runtime";
 import * as kit from "k:testing/kit";
@@ -295,22 +299,29 @@ test("fail throws a panic carrying the expectation and the values", () => {
 
 test("the runner gives every test a fresh container and reports each outcome", async () => {
   const made = [];
+  /** A stand-in for a generated test container; records each instance. */
   class Container {
+    /** Records this instance in `made`. */
     constructor() {
       made.push(this);
     }
   }
+  /** A stand-in for a generated test group: one method per test. */
   class Group {
+    /** Keeps the test's container. */
     constructor(c) {
       this.c = c;
     }
     async $t0() {}
+    /** Fails an expectation. */
     async $t1() {
       kit.fail({ start: 1, end: 2, source: "x", values: [] });
     }
+    /** Panics. */
     async $t2() {
       throw new KPanic("boom");
     }
+    /** Throws a typed error. */
     async $t3() {
       throw unitCase(1);
     }
@@ -344,10 +355,13 @@ test("a failed test's watchdog stops when the test does", async () => {
     groups: [(st) => ({ $r: st })],
     reset() {},
   };
+  /** A test group whose first test fails and whose second keeps server work in flight. */
   class Group {
+    /** Panics. */
     async $t0() {
       throw new KPanic("first fails");
     }
+    /** Spins through 20 event-loop turns, counting them in `spins`. */
     async $t1() {
       // Server work in flight for a while: many event-loop turns.
       for (let i = 0; i < 20; i++) {
@@ -370,7 +384,9 @@ test("a failed test's watchdog stops when the test does", async () => {
 });
 
 test("a test that never finishes its async work is reported, not hung", async () => {
+  /** A test group whose only test never finishes. */
   class Group {
+    /** Returns a promise that never settles. */
     $t0() {
       return new Promise(() => {});
     }

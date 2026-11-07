@@ -26,7 +26,30 @@ use crate::Output;
 /// # Errors
 ///
 /// I/O failures, and [`io::ErrorKind::InvalidInput`] for an output path
-/// that would leave the directory (`..`, absolute paths).
+/// that would leave the directory (`..`, absolute paths). The write is not
+/// atomic: on an error, stale files may already be removed and the client
+/// files before the failing one written.
+///
+/// # Examples
+///
+/// ```
+/// use k_codegen::{FileKind, Output, OutputFile, dist::write_public};
+///
+/// let dist = std::env::temp_dir().join(format!("k-codegen-doc-{}", std::process::id()));
+/// let mut output = Output::default();
+/// output.client.push(OutputFile {
+///     path: "app.3f2a1b9c.js".into(),
+///     contents: "export {};\n".into(),
+///     kind: FileKind::JavaScript,
+/// });
+/// write_public(&output, &dist).expect("writes");
+/// assert!(dist.join("public/assets/app.3f2a1b9c.js").is_file());
+/// assert!(dist.join("manifest.json").is_file());
+///
+/// output.client[0].path = "../escape.js".into();
+/// assert_eq!(write_public(&output, &dist).unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+/// # std::fs::remove_dir_all(&dist).unwrap();
+/// ```
 pub fn write_public(output: &Output, dist: &Path) -> io::Result<()> {
     let assets = dist.join("public").join("assets");
     fs::create_dir_all(&assets)?;

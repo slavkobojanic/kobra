@@ -66,6 +66,8 @@ pub(crate) type RangeMap<V> = FxHashMap<(FileId, TextRange), V>;
 /// the warm re-check path.
 #[derive(Debug)]
 pub(crate) struct Chunked<V> {
+    /// The non-empty chunks, in the order they were added; when two hold
+    /// the same key, [`Chunked::get`] answers from the earlier one.
     chunks: Vec<Arc<RangeMap<V>>>,
     /// For each file, the indices (ascending) of the chunks with a key in
     /// it.

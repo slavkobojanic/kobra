@@ -2,5 +2,5 @@
 /// Error` (`docs/design/09-errors.md`).
 ///
 /// Error types are ordinary enums. An error that crosses the wire (an rpc
-/// error, a `@Load` error) must also be `Codable`.
+/// error, a [`Load`] error) must also be [`Codable`].
 public interface Error {}

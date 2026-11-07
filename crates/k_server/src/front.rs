@@ -1,6 +1,7 @@
-//! The checks the HTTP front makes before any JavaScript runs
-//! (`docs/compiler/server.md`, "Request lifecycle"): body limits, RPC
-//! preconditions and request forgery. They are pure functions of the
+//! The checks the HTTP front makes before any JavaScript runs.
+//!
+//! They cover body limits, RPC preconditions and request forgery
+//! (`docs/compiler/server.md`, "Request lifecycle"), and are pure functions of the
 //! request head, so they are unit-tested exhaustively here.
 
 use std::collections::BTreeSet;
@@ -20,7 +21,9 @@ pub const HEADER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 
 /// How long the server waits for a whole request body (at most
 /// [`DEFAULT_MAX_BODY_BYTES`] by default) before it gives up with `408`
-/// and closes the connection: a client that declares a length and stalls
+/// and closes the connection.
+///
+/// A client that declares a length and stalls
 /// holds no connection forever.
 pub const BODY_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
@@ -44,11 +47,13 @@ pub struct FrontResponse {
     pub headers: Vec<(String, String)>,
     /// The content type of `body`.
     pub content_type: &'static str,
-    /// The body.
+    /// The body text, of type `content_type`.
     pub body: String,
 }
 
 impl FrontResponse {
+    /// A Connect-style error response (`{"code": …, "message": …}` JSON), the
+    /// shape rpc clients decode.
     fn connect(status: u16, code: &str, message: &str) -> FrontResponse {
         let body = serde_json::json!({ "code": code, "message": message }).to_string();
         FrontResponse {
@@ -59,6 +64,8 @@ impl FrontResponse {
         }
     }
 
+    /// A `text/plain` response with `message` as its body, for pages and
+    /// endpoints.
     fn plain(status: u16, message: &str) -> FrontResponse {
         FrontResponse {
             status,

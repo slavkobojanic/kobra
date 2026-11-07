@@ -5,6 +5,33 @@ Validation uses **constraint annotations on struct fields**, in the style of Spr
 server.
 
 ```k
+~import k.text.EmailAddress
+~import k.validation.Form
+~import k.validation.Length
+~import k.validation.Range
+~import k.ui.Router
+~import k.validation.Rules
+~import k.validation.Validatable
+~import k.validation.ValidationError
+~import k.rpc.RpcFailure
+~
+~enum SignupError implements Error {
+~    case emailTaken
+~    case rpcFailure(RpcFailure)
+~}
+~
+~service AuthService {
+~    func signup(request: SignupRequest) async throws SignupError {
+~        throw .emailTaken
+~    }
+~}
+~
+~page Welcome {
+~    view {
+~        text { "Welcome" }
+~    }
+~}
+~
 struct SignupRequest implements Codable, Validatable {
     var email: EmailAddress
     @Length(min: 8) var password: String
@@ -70,9 +97,16 @@ component Signup {
 otherwise the message comes from the standard library.
 
 ```k
+~import k.validation.Length
+~import k.validation.NotBlank
+~
+~import k.validation.Validatable
+~
+~struct NoteDraft implements Codable, Validatable {
 @NotBlank(message: "Give your note a title")
 @Length(max: 200)
 var title: String
+~}
 ```
 
 **Typed values validate themselves.** A field of type `EmailAddress` binds to a `textField` as text and
@@ -88,7 +122,14 @@ A typed field's parse failure has its own message, set with `@Format(message:)`.
 standard library's default message for the type is used:
 
 ```k
+~import k.text.EmailAddress
+~import k.validation.Format
+~
+~import k.validation.Validatable
+~
+~struct Contact implements Codable, Validatable {
 @Format(message: "Enter a valid email address") var email: EmailAddress
+~}
 ```
 
 - `@Format` applies only to fields whose type is parsed from text: `EmailAddress`, `Url`, `Money`, `Int`,
@@ -104,8 +145,14 @@ is a compile error at the annotation. Passing anything other than a literal is a
 every pattern is known at compile time.
 
 ```k
+~import k.validation.Matches
+~
+~import k.validation.Validatable
+~
+~struct Product implements Codable, Validatable {
 @Matches("^[a-z0-9-]+$", message: "Use lowercase letters, digits and dashes")
 var slug: String
+~}
 ```
 
 ### Configs
@@ -135,10 +182,22 @@ reach the form: the action passes them on with `catch .rpcFailure(.invalid(let f
 ### The initial value
 
 ```k
+~import k.validation.Form
+~import k.validation.Validatable
+~
+~struct OrderRequest implements Codable, Validatable {
+~    var productSlug: String
+~    var quantity: Int
+~}
+~
 page Checkout {
     @Param let slug: String
 
     @Form var order: OrderRequest = .empty(productSlug: slug, quantity: 1)
+~
+~    view {
+~        text { "{order.isSubmitting}" }
+~    }
 }
 ```
 
@@ -177,12 +236,27 @@ Some rules need the server, such as "this email isn't registered yet". They live
 referenced with `@Check`:
 
 ```k
+~import k.validation.Check
+~import k.text.EmailAddress
+~
+~import k.rpc.RpcOnlyError
+~import k.validation.Validatable
+~
+~protocol UserService {
+~    rpc emailAvailable(email: EmailAddress) throws RpcOnlyError -> Bool
+~}
+~
+~struct SignupRequest implements Codable, Validatable {
 @Check(UserService.emailAvailable, message: "An account with this email already exists")
 var email: EmailAddress
+~}
 ```
 
 In the browser, the check runs debounced when the field loses focus. On the server, it always runs in
 full. A server-side `@Check` that fails appears under its field.
+
+> **Planned.** The browser's debounced run of `@Check` isn't in the first compiler releases. The rule runs
+> on the server, and its failure reaches the field through the `ValidationError` the rpc returns.
 
 ## The last line of defence
 
@@ -191,6 +265,7 @@ duplicate** of a `@Unique` field as a typed `UniqueViolation`, which the server 
 (`emailTaken` above):
 
 ```k
+// examples/notes/src/accounts/AuthApi.k
 do {
     try await accounts.insert(account)
 } catch .email {

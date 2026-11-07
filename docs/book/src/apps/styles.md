@@ -14,7 +14,10 @@ component CartSummary {
             paragraph { "Nothing here yet." }
                 .class([.muted, .small])
 
-            box { … }
+            box {
+                // …
+~                text { "Details" }
+            }
                 .class([.panel, .expanded when isExpanded])
         }
         .class(.summary)
@@ -72,8 +75,16 @@ Position decides meaning: at the start of a rule, `.summary` is a class selector
 ## Class references
 
 ```k
+~component Empty {
+~    view {
 paragraph { "Nothing here yet." }
     .class(.muted)
+~    }
+~
+~    style {
+~        .muted { color: .muted; }
+~    }
+~}
 ```
 
 - `.class(.muted)` refers to the `.muted` class in this component's own `style` block.
@@ -90,8 +101,14 @@ collide with `.panel` in another, and no style leaks out of its component.
 Global CSS is an explicit escape hatch:
 
 ```k
-box { … }
+~component Legacy {
+~    view {
+box {
+    // …
+}
     .class(global("btn-primary"))
+~    }
+~}
 ```
 
 ## Styling child components: `@Stylable`
@@ -100,6 +117,13 @@ box { … }
 fields, and choosing exactly which of its elements receive them:
 
 ```k
+~struct CartItem {
+~    let id: Int
+~    let name: String
+~    let price: Money
+~    let isRemoved: Bool
+~}
+~
 component CartRow {
     @Prop let item: CartItem
     @Stylable let container: Classes
@@ -124,9 +148,21 @@ component CartRow {
 }
 
 // In the parent:
+~component Cart {
+~    @Prop let item: CartItem
+~    @Prop let selectedId: Int
+~
+~    view {
 CartRow(item: item)
     .container(.highlighted when item.id == selectedId)
     .title(.strikethrough when item.isRemoved)
+~    }
+~
+~    style {
+~        .highlighted { backgroundColor: .surfaceHover; }
+~        .strikethrough { textDecoration: line-through; }
+~    }
+~}
 ```
 
 - `@Stylable` fields are optional, so they become chained methods automatically.
@@ -152,6 +188,8 @@ public theme AppTheme {
 
     radius md: Radius = 8px
     radius lg: Radius = 16px
+
+    fontSize sm: FontSize = 14px
 
     font body: Font = Font(family: "Inter", size: 16px)
 
@@ -206,10 +244,14 @@ public theme WeatherTheme {
 A `variant` overrides existing tokens, with the same types. It can't add new ones:
 
 ```k
+~theme VariantTheme {
+~    color surface: Color = #FFFFFF
+~    color surfaceHover: Color = #F3F4F6
 variant dark {
     surface = #111827
     surfaceHover = #1F2937
 }
+~}
 ```
 
 ### Switching variants at runtime
@@ -256,6 +298,18 @@ component ThemeToggle {
   is applied from an `@Effect` in a page or layout that is always mounted:
 
   ```k
+  ~import k.ui.Theme
+  ~
+  ~enum ColorScheme {
+  ~    case light
+  ~    case dark
+  ~}
+  ~
+  ~service AppearanceService {
+  ~    @State var scheme: ColorScheme = .light
+  ~}
+  ~
+  ~component Appearance {
   @Inject let theme: Theme
   @Inject let appearance: AppearanceService
 
@@ -263,6 +317,10 @@ component ThemeToggle {
   func applyColorScheme() {
       theme.apply(if appearance.scheme == .dark { .dark } else { .base })
   }
+  ~    view {
+  ~        text { "…" }
+  ~    }
+  ~}
   ```
 
 - The method is `apply`, not `use`, because `use` is a keyword and K has no member names that are
@@ -276,7 +334,7 @@ variant with `@Inject let theme: Theme` and `theme.current`.
 `Color` values have methods, computed at compile time where possible and turned into `color-mix()` or
 custom properties where not:
 
-```k
+```k,ignore
 .primary.opacity(0.8)
 .primary.mix(.white, 20%)
 Color.hex("#3B82F6")

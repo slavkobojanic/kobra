@@ -31,7 +31,7 @@ pub struct DatabaseOptions {
 pub enum Database {
     /// SQLite, in memory or in a file.
     Sqlite(sqlite::SqliteDatabase),
-    /// Postgres.
+    /// A Postgres server, over one connection.
     Postgres(postgres::PostgresDatabase),
 }
 

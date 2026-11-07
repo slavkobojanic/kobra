@@ -2,47 +2,66 @@
 
 Opening a file the user chooses and saving a file your app makes are the **client-only `Files`
 interface in `k.device`**. You inject it into a service, like `LocalStorage`. The design is in
-[42-files.md](../../../design/42-files.md).
+`docs/design/42-files.md`.
 
 ```k
-import k.device.File
-import k.device.Files
-import k.encoding.Json
-
+// examples/kanban/src/board/BoardTransfer.k
 public service BoardTransfer {
     @Inject let files: Files
     @Inject let boards: BoardService
-
+    // ...
+    let format: Int = 1
+    // ...
     @State var problem: TransferProblem? = nil
+    // ...
+    func export(board id: BoardId) {
+        guard let board = boards.board(id: id) else {
+            return
+        }
 
-    func export(board: Board) {
+        let name = board.title.lowercased().split(separator: " ").filter { w => w.isNotEmpty }.joined(separator: "-")
+        let file = File.fromText(name: "{name}.json", type: .json, text: Json.encode(BoardFile(format: format, board: board)))
+
         do {
-            try files.save(File.fromText(name: "board.json", type: .json, text: Json.encode(board)))
+            try files.save(file)
+            problem = nil
         } catch .unavailable {
             problem = .downloadsBlocked
         }
     }
-
-    func importBoard() async {
+    // ...
+    func importBoard() async -> BoardId? {
         do {
             let file = try await files.open(accepting: [.json])
-            read(file: file)
+            return read(file: file)
         } catch .cancelled {
-            // The user closed the picker: nothing to say.
+            return nil
         } catch .tooLarge(let limit) {
             problem = .tooLarge(limit: limit)
+            return nil
         } catch .unreadable {
             problem = .unreadable
+            return nil
         }
     }
-
-    // Decoding is the app's step, with its own error.
-    private func read(file: File) {
+    // ...
+    private func read(file: File) -> BoardId? {
         do {
-            let board: Board = try Json.decode(file.bytes)
-            boards.add(board)
-        } catch let decoding {
-            problem = .notABoard(decoding)
+            let decoded: BoardFile = try Json.decode(file.bytes)
+
+            guard decoded.format <= format else {
+                problem = .newerFormat(version: decoded.format)
+                return nil
+            }
+
+            problem = nil
+            return boards.importBoard(decoded.board)
+        } catch .malformed(let message) {
+            problem = .notABoard(detail: message)
+            return nil
+        } catch .mismatch(let path, let message) {
+            problem = .notABoard(detail: "{path}: {message}")
+            return nil
         }
     }
 }
@@ -74,18 +93,26 @@ with the type's media type; a binary file is `File(name:mediaType:bytes:)`. It t
 its concrete type to say what the user chooses and to read what was saved:
 
 ```k
+// examples/kanban/src/board/BoardTransfer.test.k
 test BoardTransfer {
     @Inject let files: TestFiles
     @Inject let transfer: BoardTransfer
-
-    test "an exported board imports back" {
-        transfer.export(board: Board.sample)
+    @Inject let service: BoardService
+    // ...
+    test "an exported board imports back, replacing the board with its id" {
+        let id = try Board.seed(in: service, cards: ["Write tests"])
+        transfer.export(board: id)
+        try service.renameBoard(id: id, title: "Renamed since")
         files.choose(files.saved[0])
 
-        await transfer.importBoard()
+        let imported = await transfer.importBoard()
 
-        expect transfer.problem == nil
+        expect imported == id
+        expect service.boards.count == 1
+        expect service.board(id: id)?.title == "Seed"
+        expect files.requests == [[FileType.json]]
     }
+    // ...
 }
 ```
 

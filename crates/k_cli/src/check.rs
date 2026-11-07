@@ -19,7 +19,9 @@ use crate::sources::{self, Group, Problem, Scope};
 
 /// The diagnostics of one group, with the map that renders them.
 struct Report {
+    /// The sources the diagnostics point into.
     map: SourceMap,
+    /// The group's diagnostics, in the order they are printed.
     diagnostics: Vec<Diagnostic>,
 }
 

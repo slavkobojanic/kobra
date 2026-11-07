@@ -1,4 +1,4 @@
-/// Why a local-storage read failed.
+/// Why a local-storage read ([`LocalStorage.read`]) failed.
 public enum StorageReadError implements Error, Codable {
     /// Storage is blocked or disabled in this browser.
     case unavailable

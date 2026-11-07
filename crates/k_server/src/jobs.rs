@@ -76,7 +76,9 @@ pub type Dispatch = Arc<dyn Fn(PendingRequest) -> bool + Send + Sync>;
 /// A running jobs worker. Dropping it without [`JobWorker::stop`] stops it
 /// too.
 pub struct JobWorker {
+    /// Set to `true` to stop the worker; `None` once stopped.
     stop: Option<watch::Sender<bool>>,
+    /// The worker thread; `None` once joined.
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -108,6 +110,8 @@ pub fn job_id() -> Result<String, String> {
     Ok(crate::process::base64url(&b))
 }
 
+/// Writes a server log line on standard output in [`Output::JsonLines`]
+/// mode (and drops it otherwise).
 fn log(mode: Output, level: &str, message: &str) {
     if mode == Output::JsonLines {
         let line = serde_json::json!({ "level": level, "message": message });
@@ -190,6 +194,8 @@ impl JobWorker {
         self.stop_and_join();
     }
 
+    /// Signals the worker to stop and joins its thread; a no-op the second
+    /// time.
     fn stop_and_join(&mut self) {
         if let Some(s) = self.stop.take() {
             let _ = s.send(true);
@@ -206,6 +212,11 @@ impl Drop for JobWorker {
     }
 }
 
+/// The worker's loop: every `poll`, enqueues the schedules that fell due
+/// (once across replicas, [`ProcessDatabase::claim_schedule`]), claims up
+/// to `concurrency` jobs minus those running, runs each through `dispatch`
+/// and records its fate, until `stop` turns `true`. Database failures are
+/// logged and retried on the next poll.
 async fn run(
     db: Arc<ProcessDatabase>,
     options: JobWorkerOptions,

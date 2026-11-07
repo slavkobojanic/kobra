@@ -17,6 +17,29 @@
 //! The shape of each node (which children it has, in which order) is
 //! specified by the grammar productions in `docs/compiler/grammar.md`; the
 //! production name equals the node kind name.
+//!
+//! # Example
+//!
+//! ```
+//! use k_diagnostics::FileId;
+//! use k_syntax::ast::{HasMemberList, HasName, Item, Member};
+//!
+//! let source = "component Counter {\n    @State var count: Int = 0\n    func increment() { count += 1 }\n}\n";
+//! let file = k_syntax::parse(FileId::new(0), source).tree().expect("always a SourceFile");
+//!
+//! let Some(Item::ComponentDecl(counter)) = file.items().next() else { panic!("a component") };
+//! assert_eq!(counter.name().map(|t| t.text().to_owned()).as_deref(), Some("Counter"));
+//!
+//! let functions: Vec<String> = counter
+//!     .members()
+//!     .into_iter()
+//!     .filter_map(|member| match member {
+//!         Member::FuncDecl(func) => func.name().map(|t| t.text().to_owned()),
+//!         _ => None,
+//!     })
+//!     .collect();
+//! assert_eq!(functions, ["increment"]);
+//! ```
 
 pub use rowan::ast::{AstChildren, AstNode};
 
@@ -455,6 +478,8 @@ pub trait HasMemberList: AstNode<Language = KLanguage> {
     }
 }
 
+/// Implements the accessor trait `$trait` (whose methods all have
+/// default bodies) for each listed AST node type.
 macro_rules! impl_traits {
     ($trait:ident: $( $name:ident ),* $(,)?) => {
         $( impl $trait for $name {} )*

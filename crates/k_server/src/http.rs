@@ -188,21 +188,37 @@ impl std::error::Error for ServerError {}
 
 /// A running server.
 pub struct Server {
+    /// The bound address (with the actual port when `0` was asked for).
     addr: SocketAddr,
+    /// Fired (or dropped) to stop accepting; `None` once stopped.
     stop: Option<oneshot::Sender<()>>,
+    /// The HTTP thread, joined by [`Server::stop_and_join`]; `None` once joined.
     thread: Option<std::thread::JoinHandle<Result<(), ServerError>>>,
 }
 
+/// What every connection task of a [`Server`] shares.
 struct Shared {
+    /// The front's checks ([`front::check`]).
     policy: FrontPolicy,
     /// [`ServerOptions::forgery_exempt`], split into segments.
     exempt: Vec<Vec<String>>,
+    /// The static assets, by request path.
     assets: HashMap<String, StaticAsset>,
     /// Cleared at shutdown, which closes every worker's queue.
     workers: std::sync::RwLock<Vec<mpsc::UnboundedSender<PendingRequest>>>,
+    /// Round-robin counter picking the worker for the next request.
     next: AtomicUsize,
 }
 
+/// The body of one worker thread: creates its isolate, reports on `started`
+/// whether that worked, then runs the bundle's entry module, which serves
+/// `receiver`'s requests until the queue closes.
+///
+/// # Errors
+///
+/// [`ServerError::Worker`] when the isolate can't be created or the entry
+/// module fails; [`ServerError::Internal`] if the entry specifier can't be
+/// encoded.
 fn worker_thread(
     bundle: ServerBundle,
     log: Output,
@@ -248,6 +264,8 @@ fn log_line(log: Output, level: &str, message: &str) {
     }
 }
 
+/// A complete response with `status` (`500` if it isn't a valid status),
+/// `content_type` (left out if it isn't a valid header value) and `body`.
 fn simple(status: u16, content_type: &str, body: impl Into<Bytes>) -> Response<Body> {
     let mut r = Response::new(Full::new(body.into()).boxed());
     *r.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
@@ -273,6 +291,8 @@ fn matches_template(templates: &[Vec<String>], path: &str) -> bool {
     })
 }
 
+/// Adds the headers of every response: `x-content-type-options: nosniff`,
+/// and `cache-control: private, no-store` on rpc-shaped answers.
 fn finish(mut r: Response<Body>, rpc: bool) -> Response<Body> {
     let h = r.headers_mut();
     h.insert(
@@ -288,6 +308,11 @@ fn finish(mut r: Response<Body>, rpc: bool) -> Response<Body> {
     r
 }
 
+/// Answers one request: a static asset for `GET`/`HEAD` when one matches;
+/// otherwise the front's checks ([`front::check`]), the body read within
+/// [`front::BODY_READ_TIMEOUT`] and the body limit (`408` and `413`), and
+/// then a worker chosen round robin. `503` when no worker takes it (at
+/// shutdown). Never fails: every outcome is a response.
 async fn handle(
     shared: Arc<Shared>,
     remote: SocketAddr,
@@ -647,6 +672,12 @@ impl Server {
         self.shutdown()
     }
 
+    /// Stops accepting and joins the HTTP thread; a no-op the second time.
+    ///
+    /// # Errors
+    ///
+    /// The HTTP thread's own error, or [`ServerError::Internal`] if it
+    /// panicked.
     fn stop_and_join(&mut self) -> Result<(), ServerError> {
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());
@@ -666,6 +697,14 @@ impl Drop for Server {
     }
 }
 
+/// Accepts connections until `stop` fires, serving each over HTTP/1.1 with
+/// the header read timeout ([`front::HEADER_READ_TIMEOUT`]), then waits up
+/// to `grace` for open connections to finish.
+///
+/// # Errors
+///
+/// [`ServerError::Bind`] if the listener can't join the runtime. Failed
+/// accepts are skipped.
 async fn accept_loop(
     listener: std::net::TcpListener,
     shared: Arc<Shared>,

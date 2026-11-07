@@ -60,6 +60,8 @@ impl ColumnType {
         }
     }
 
+    /// The plain column type in `dialect`, without the decimal collation that
+    /// [`ColumnType::column_sql`] adds on SQLite.
     fn sql(&self, dialect: Dialect) -> &'static str {
         match (self, dialect) {
             (ColumnType::Uuid, Dialect::Postgres) => "uuid",

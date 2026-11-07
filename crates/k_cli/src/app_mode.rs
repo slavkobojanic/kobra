@@ -101,6 +101,8 @@ pub fn config_table(specs: &[ConfigSpec]) -> String {
     out
 }
 
+/// The `content-type` of an embedded asset, by extension: JavaScript, CSS,
+/// source maps (JSON), anything else `application/octet-stream`.
 fn content_type(path: &str) -> &'static str {
     match path.rsplit('.').next() {
         Some("js") => "text/javascript; charset=utf-8",
@@ -110,6 +112,11 @@ fn content_type(path: &str) -> &'static str {
     }
 }
 
+/// `app` with no subcommand: resolves the configuration from the process
+/// environment (every problem reported at once, exit 78), opens and
+/// migrates the database, then serves the embedded app on `0.0.0.0:$PORT`
+/// (default 8080) until `SIGTERM` or Ctrl-C. Exits 0 after a graceful
+/// shutdown and 1 when the server can't start or fails.
 fn serve(payload: AppPayload) -> ExitCode {
     let fields: Vec<config::ConfigField> = specs(&payload)
         .iter()
@@ -203,6 +210,10 @@ fn serve(payload: AppPayload) -> ExitCode {
 /// migrated when `migrate`), or the exit code: 78 for invalid
 /// configuration, 1 for a database that can't be opened or a build
 /// without one.
+///
+/// # Errors
+///
+/// The exit status described above, after the problem was printed.
 fn open_database(
     payload: AppPayload,
     migrate: bool,
@@ -247,6 +258,8 @@ fn migrate(payload: AppPayload) -> ExitCode {
     }
 }
 
+/// Runs `f` to completion on a fresh current-thread runtime; `None` if the
+/// runtime can't be created.
 fn block_on<T>(f: impl Future<Output = T>) -> Option<T> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()

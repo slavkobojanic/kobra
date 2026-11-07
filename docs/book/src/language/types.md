@@ -41,8 +41,10 @@ Types whose values can be written as text follow one convention:
   forms, the label names the form: `Bytes.parse(hex:)`, `Bytes.parse(base64:)`, `Currency.parse(code:)`.
 
 ```k
+~func example(next: String?) {
 let api = Url("https://api.open-meteo.com")             // checked when you compile
-let callback = Url.parse(request.query["next"] ?? "")   // Url?, checked when it runs
+let callback = Url.parse(next ?? "")                    // Url?, checked when it runs
+~}
 ```
 
 There are no failable initializers, so the same spelling never means "checked literal" for one type and
@@ -53,9 +55,15 @@ There are no failable initializers, so the same spelling never means "checked li
 Logical operators are words:
 
 ```k
+~struct Cart {
+~    let items: List<Int>
+~}
+~
+~func example(isSignedIn: Bool, cart: Cart, isOffline: Bool, hasError: Bool) {
 let canCheckout = isSignedIn and cart.items.isNotEmpty
 let showBanner = isOffline or hasError
 let isGuest = not isSignedIn
+~}
 ```
 
 `&&`, `||` and `!` are compile errors with a quick fix that replaces them.
@@ -63,7 +71,7 @@ let isGuest = not isSignedIn
 **Don't compare a `Bool` with a literal.** `x == true` is just `x`, and `x == false` is `not x`. The
 compiler reports the comparison with a machine-applicable fix:
 
-```k
+```k,ignore
 let isPinned = not note.isPinned       // not `note.isPinned == false`
 expect not screen.alert().exists       // not `screen.alert().exists == false`
 ```
@@ -73,13 +81,27 @@ expect not screen.alert().exists       // not `screen.alert().exists == false`
 A type followed by `?` may hold a value or `nil`:
 
 ```k
+~func example() {
 var nickname: String? = nil
 nickname = "Ana"
+~}
 ```
 
 You can't use an optional as if it were a value. Unwrap it first, with one of these:
 
 ```k
+~import k.auth.Session
+~import k.observe.Log
+~
+~struct Address {
+~    let city: String
+~}
+~
+~struct User {
+~    let address: Address
+~}
+~
+~func example(session: Session, nickname: String?, user: User?) {
 // if let: run a block only when there is a value
 if let nickname {
     Log.info("greeting {nickname}")
@@ -93,6 +115,7 @@ let city = user?.address.city
 
 // ?? : a default value
 let displayName = nickname ?? "friend"
+~}
 ```
 
 There is no force-unwrap operator. K has no `!`, and no way to pretend an optional is present.
@@ -113,7 +136,7 @@ let empty: List<String> = []             // the element type must be given
 A leading `.name` resolves against **the type expected at that spot**. This one rule is behind much of
 K's readable syntax:
 
-```k
+```k,ignore
 let c: Color = .primary                  // Color.primary
 button { "Pay" }.type(.submit)           // ButtonType.submit
 paragraph { "…" }.class(.muted)          // this component's generated Classes type

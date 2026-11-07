@@ -6,7 +6,10 @@
 /// kinds with the same name are the same kind.
 @Native
 public struct DragKind<T> {
-    /// A kind named `name`, a string literal.
+    /// Creates the kind named `name`.
+    ///
+    /// - Parameter name: a string literal; kinds with the same name are the
+    ///   same kind.
     @Native
     init(name: String) {}
 

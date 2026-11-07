@@ -15,6 +15,8 @@ const CONSTRAINT_PRIMARYKEY: i32 = 1555;
 
 /// A SQLite connection, used from the blocking thread pool.
 pub struct SqliteDatabase {
+    /// The one connection, shared with the blocking tasks that use it; the
+    /// mutex serializes statements, as SQLite connections require.
     connection: Arc<Mutex<Connection>>,
 }
 
@@ -31,6 +33,10 @@ impl ToSql for Value {
     }
 }
 
+/// Maps a driver error to a [`DbError`]: a unique or primary key violation
+/// becomes [`DbError::UniqueViolation`] with the table and columns parsed
+/// from SQLite's message (SQLite reports no constraint name), anything else
+/// [`DbError::Statement`].
 fn map_error(error: rusqlite::Error) -> DbError {
     if let rusqlite::Error::SqliteFailure(e, message) = &error {
         if e.code == ErrorCode::ConstraintViolation
@@ -57,6 +63,8 @@ fn map_error(error: rusqlite::Error) -> DbError {
     DbError::Statement(error.to_string())
 }
 
+/// Maps a blocking task that panicked or was cancelled to
+/// [`DbError::Connection`].
 fn join_error(error: tokio::task::JoinError) -> DbError {
     DbError::Connection(format!("the SQLite worker failed: {error}"))
 }
@@ -66,6 +74,10 @@ fn join_error(error: tokio::task::JoinError) -> DbError {
 /// otherwise reads an unknown `"name"` as a string literal, so a wrong
 /// column name would silently compare against its own spelling), and the
 /// `k_decimal` collation for decimal columns ([`crate::decimal`]).
+///
+/// # Errors
+///
+/// SQLite refused one of the settings, mapped by [`map_error`].
 fn configure(c: &Connection) -> Result<(), DbError> {
     use rusqlite::config::DbConfig;
     c.execute_batch("PRAGMA foreign_keys = ON; PRAGMA case_sensitive_like = ON;")
@@ -80,6 +92,14 @@ fn configure(c: &Connection) -> Result<(), DbError> {
 }
 
 impl SqliteDatabase {
+    /// Opens (creating if needed) the database file at `path`, or a private
+    /// in-memory database for `:memory:`, and [`configure`]s it. The open runs
+    /// on the blocking thread pool.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Connection`] when the file can't be opened, or the failure
+    /// of a configuration step.
     pub(super) async fn open(path: &str) -> Result<SqliteDatabase, DbError> {
         let path = path.to_owned();
         let connection = tokio::task::spawn_blocking(move || {
@@ -99,6 +119,14 @@ impl SqliteDatabase {
         })
     }
 
+    /// Runs one statement (prepared through the connection's statement cache)
+    /// on the blocking thread pool and returns the number of rows it changed.
+    ///
+    /// # Errors
+    ///
+    /// The statement's failure, mapped by [`map_error`], or
+    /// [`DbError::Connection`] when a previous statement panicked while holding
+    /// the connection.
     pub(super) async fn execute(&self, sql: &str, params: &[Value]) -> Result<u64, DbError> {
         let connection = Arc::clone(&self.connection);
         let sql = sql.to_owned();
@@ -117,6 +145,13 @@ impl SqliteDatabase {
         .map_err(join_error)?
     }
 
+    /// Runs one query on the blocking thread pool and returns its rows, each
+    /// with the column names in result order. Text that isn't valid UTF-8 is
+    /// read lossily.
+    ///
+    /// # Errors
+    ///
+    /// As [`SqliteDatabase::execute`].
     pub(super) async fn query(&self, sql: &str, params: &[Value]) -> Result<Vec<Row>, DbError> {
         let connection = Arc::clone(&self.connection);
         let sql = sql.to_owned();

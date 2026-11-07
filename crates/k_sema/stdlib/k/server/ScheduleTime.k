@@ -1,12 +1,12 @@
 import k.time.TimeOfDay
 import k.time.Weekday
 
-/// When a scheduled job runs.
+/// When a scheduled job ([`Schedule`]) runs.
 public enum ScheduleTime {
-    /// Every `interval`.
+    /// Runs every time the payload duration elapses.
     case every(Duration)
-    /// Every day at `at`, UTC.
+    /// Runs every day at `at`, UTC.
     case daily(at: TimeOfDay)
-    /// Every week on `on` at `at`, UTC.
+    /// Runs every week on `on` at `at`, UTC.
     case weekly(on: Weekday, at: TimeOfDay)
 }

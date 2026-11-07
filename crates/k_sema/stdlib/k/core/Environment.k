@@ -1,10 +1,10 @@
 /// The environments `use … in` rules choose between
 /// (`docs/design/23-app-structure.md`, "Environments").
 public enum Environment {
-    /// `k dev`.
+    /// The app run by `k dev`.
     case development
-    /// `k test`.
+    /// The app run by `k test`.
     case test
-    /// `k build`.
+    /// The app built by `k build`.
     case production
 }

@@ -252,8 +252,9 @@ pub fn decl_resolution(view: &ProgramView, id: DeclId) -> Option<Resolution> {
     (view.resolve(&resolution) == Some(Resolved::Decl(id))).then_some(resolution)
 }
 
-/// The resolution of member `id`, as references to it record it: the
-/// owner is the extended type for a member of an extension, and functions
+/// The resolution of member `id`, as references to it record it.
+///
+/// The owner is the extended type for a member of an extension, and functions
 /// carry their labels (`add(product:)`). Theme tokens are
 /// [`Resolution::Token`]s of their category type.
 #[must_use]

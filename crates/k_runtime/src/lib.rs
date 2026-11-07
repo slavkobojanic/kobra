@@ -33,6 +33,9 @@
 //! | `k:testing` | `k:/testing/harness.js` | the JS unit-test harness and fake DOM (tests only) |
 //! | `k:testing/kit` | `k:/testing/kit.js` | the test kit behind `k test`: queries, doubles, the runner (tests only) |
 
+// Private items are documented too (`cargo doc --document-private-items`).
+#![warn(clippy::missing_docs_in_private_items)]
+
 mod compact;
 
 pub use compact::{CompactError, compact};
@@ -172,6 +175,12 @@ pub struct Module {
     pub part: Part,
 }
 
+/// Builds the [`MODULES`] table from `Part "path"` pairs.
+///
+/// Each pair becomes a [`Module`] whose specifier is `k:/` followed by the
+/// path, whose source is the file under `crates/k_runtime/js/` embedded with
+/// [`include_str!`] at compile time, and whose part is the named [`Part`]
+/// variant. A misspelt path is therefore a compile error, not a runtime one.
 macro_rules! modules {
     ($( $part:ident $path:literal ),* $(,)?) => {
         &[$(Module {
@@ -220,7 +229,18 @@ const MODULES: &[Module] = modules![
     Testing "testing/kit.js",
 ];
 
-/// Returns every embedded runtime file.
+/// Returns every embedded runtime file, in table order (core modules
+/// first).
+///
+/// # Examples
+///
+/// ```
+/// use k_runtime::{Part, modules};
+///
+/// let core: Vec<_> = modules().iter().filter(|m| m.part == Part::Core).collect();
+/// assert_eq!(core[0].specifier, "k:/runtime/signals.js");
+/// assert!(modules().iter().all(|m| m.specifier == format!("k:/{}", m.path)));
+/// ```
 #[must_use]
 pub fn modules() -> &'static [Module] {
     MODULES
@@ -229,6 +249,16 @@ pub fn modules() -> &'static [Module] {
 /// Returns the runtime file with the given specifier (`k:/runtime/dom.js`),
 /// or `None`. Short names such as `k:runtime` are not specifiers; pass them
 /// through [`resolve`] first.
+///
+/// Linear in the number of runtime files (there are a few dozen).
+///
+/// # Examples
+///
+/// ```
+/// let dom = k_runtime::module("k:/runtime/dom.js").expect("embedded");
+/// assert_eq!(dom.path, "runtime/dom.js");
+/// assert!(k_runtime::module("k:runtime").is_none(), "short names are not specifiers");
+/// ```
 #[must_use]
 pub fn module(specifier: &str) -> Option<&'static Module> {
     MODULES.iter().find(|m| m.specifier == specifier)
@@ -246,6 +276,24 @@ pub fn module(specifier: &str) -> Option<&'static Module> {
 ///
 /// Returns `None` for anything else, including a relative import that
 /// leaves `k:/` or names no embedded file. Never panics.
+///
+/// # Examples
+///
+/// ```
+/// use k_runtime::resolve;
+///
+/// assert_eq!(resolve("k:runtime", None), Some("k:/runtime/index.js"));
+/// assert_eq!(
+///     resolve("./signals.js", Some("k:/runtime/dom.js")),
+///     Some("k:/runtime/signals.js"),
+/// );
+/// assert_eq!(
+///     resolve("../runtime/index.js", Some("k:/testing/kit.js")),
+///     Some("k:/runtime/index.js"),
+/// );
+/// assert_eq!(resolve("./nope.js", Some("k:/runtime/dom.js")), None);
+/// assert_eq!(resolve("./signals.js", None), None, "a relative import needs a referrer");
+/// ```
 #[must_use]
 pub fn resolve(specifier: &str, referrer: Option<&str>) -> Option<&'static str> {
     let target = match specifier {
@@ -281,7 +329,18 @@ pub fn resolve(specifier: &str, referrer: Option<&str>) -> Option<&'static str> 
 ///
 /// # Errors
 ///
-/// Returns the first [`CompactError`], naming the file.
+/// Returns the first [`CompactError`], paired with the path of the file
+/// (relative to `crates/k_runtime/js/`) that caused it.
+///
+/// # Examples
+///
+/// ```
+/// use k_runtime::{Part, compacted_sources};
+///
+/// let core = compacted_sources(&[Part::Core]).expect("the runtime compacts");
+/// assert!(core.contains("export function signal("));
+/// assert!(!core.contains("/**"), "comments are stripped");
+/// ```
 pub fn compacted_sources(parts: &[Part]) -> Result<String, (String, CompactError)> {
     let mut out = String::new();
     for m in MODULES.iter().filter(|m| parts.contains(&m.part)) {
@@ -296,7 +355,19 @@ pub fn compacted_sources(parts: &[Part]) -> Result<String, (String, CompactError
 /// `export * from "…";` and `export { … } from "…";` statements (possibly
 /// spanning lines), which the bundler drops when it concatenates the
 /// client files into the runtime chunk (their top-level names are unique,
-/// a test checks). Everything else is kept as written. Never panics.
+/// a test checks). Everything else is kept as written, and every kept line
+/// ends with a newline. Never panics; linear in the length of `src`.
+///
+/// The recognition is line based: a link must start its line (after
+/// indentation), and a multi-line link ends at the first line ending in
+/// `;`.
+///
+/// # Examples
+///
+/// ```
+/// let src = "import { a } from \"./a.js\";\nexport { b } from \"./b.js\";\nexport const c = a;\n";
+/// assert_eq!(k_runtime::strip_links(src), "export const c = a;\n");
+/// ```
 #[must_use]
 pub fn strip_links(src: &str) -> String {
     let mut out = String::with_capacity(src.len());

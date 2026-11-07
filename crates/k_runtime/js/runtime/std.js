@@ -20,9 +20,15 @@ import { KPanic, checkInt, equals, isPanic, panic, unitCase } from "./values.js"
  * as `List<Int?>.first`): distinct from the outer `null`.
  */
 export const NONE = Object.freeze({
-  /** @returns {string} the text of the inner `nil` */
+  /**
+   * The text of the inner `nil`.
+   * @returns {string} the text of the inner `nil`
+   */
   toString: () => "nil",
-  /** @returns {null} */
+  /**
+   * Encodes as JSON `null`.
+   * @returns {null}
+   */
   toJSON: () => null,
 });
 
@@ -233,11 +239,17 @@ export function toJSON(v) {
  * text and JSON forms are redacted.
  */
 export class Secret {
-  /** @param {unknown} value */
+  /**
+   * Wraps `value`, kept in a non-enumerable property so it never serializes.
+   * @param {unknown} value
+   */
   constructor(value) {
     Object.defineProperty(this, "v", { value, enumerable: false });
   }
-  /** @returns {unknown} the wrapped value */
+  /**
+   * The wrapped value.
+   * @returns {unknown} the wrapped value
+   */
   reveal() {
     return this.v;
   }
@@ -253,11 +265,17 @@ export class Secret {
     for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a.charCodeAt(i) | 0) ^ (b.charCodeAt(i) | 0);
     return diff === 0;
   }
-  /** @returns {string} */
+  /**
+   * The redacted text, `Secret(•••)`.
+   * @returns {string}
+   */
   toString() {
     return "Secret(•••)";
   }
-  /** @returns {string} */
+  /**
+   * The redacted JSON form, `"Secret(•••)"`.
+   * @returns {string}
+   */
   toJSON() {
     return "Secret(•••)";
   }
@@ -343,21 +361,36 @@ export function hash(v) {
  * insertion order like `Map`.
  */
 export class HashMap {
-  /** @param {Iterable<[any, any]>} [entries] */
+  /**
+   * Creates a map holding `entries`, later duplicates replacing earlier ones.
+   * @param {Iterable<[any, any]>} [entries]
+   */
   constructor(entries) {
     this.m = new Map();
     if (entries) for (const [k, v] of entries) this.set(k, v);
   }
-  /** @returns {number} */
+  /**
+   * The number of entries.
+   * @returns {number}
+   */
   get size() {
     return this.m.size;
   }
-  /** @param {any} k @returns {any} */
+  /**
+   * The value of key `k` (compared structurally), or `undefined`.
+   * @param {any} k
+   * @returns {any}
+   */
   get(k) {
     const e = this.m.get(hash(k));
     return e === undefined ? undefined : e[1];
   }
-  /** @param {any} k @param {any} v @returns {HashMap} */
+  /**
+   * Sets the value of key `k`, keeping the first-inserted key object and its position.
+   * @param {any} k
+   * @param {any} v
+   * @returns {HashMap}
+   */
   set(k, v) {
     const h = hash(k);
     const e = this.m.get(h);
@@ -365,27 +398,48 @@ export class HashMap {
     else this.m.set(h, [k, v]);
     return this;
   }
-  /** @param {any} k @returns {boolean} */
+  /**
+   * `true` if the map has key `k`.
+   * @param {any} k
+   * @returns {boolean}
+   */
   has(k) {
     return this.m.has(hash(k));
   }
-  /** @param {any} k @returns {boolean} */
+  /**
+   * Removes key `k`; `true` if it was present.
+   * @param {any} k
+   * @returns {boolean}
+   */
   delete(k) {
     return this.m.delete(hash(k));
   }
-  /** @returns {IterableIterator<any>} */
+  /**
+   * The keys in insertion order.
+   * @returns {IterableIterator<any>}
+   */
   *keys() {
     for (const e of this.m.values()) yield e[0];
   }
-  /** @returns {IterableIterator<any>} */
+  /**
+   * The values in insertion order.
+   * @returns {IterableIterator<any>}
+   */
   *values() {
     for (const e of this.m.values()) yield e[1];
   }
-  /** @returns {IterableIterator<[any, any]>} */
+  /**
+   * The `[key, value]` entries in insertion order.
+   * @returns {IterableIterator<[any, any]>}
+   */
   *[Symbol.iterator]() {
     for (const e of this.m.values()) yield [e[0], e[1]];
   }
-  /** @param {any} o @returns {boolean} */
+  /**
+   * Structural equality: the same keys with structurally equal values, in any order.
+   * @param {any} o
+   * @returns {boolean}
+   */
   equals(o) {
     if (!(o instanceof HashMap) || o.size !== this.size) return false;
     for (const [k, v] of this) if (!o.has(k) || !equals(v, o.get(k))) return false;
@@ -395,34 +449,59 @@ export class HashMap {
 
 /** A `Set` whose elements compare structurally. */
 export class HashSet {
-  /** @param {Iterable<any>} [items] */
+  /**
+   * Creates a set holding `items`.
+   * @param {Iterable<any>} [items]
+   */
   constructor(items) {
     this.m = new Map();
     if (items) for (const v of items) this.add(v);
   }
-  /** @returns {number} */
+  /**
+   * The number of elements.
+   * @returns {number}
+   */
   get size() {
     return this.m.size;
   }
-  /** @param {any} v @returns {HashSet} */
+  /**
+   * Adds `v` unless a structurally equal element is present.
+   * @param {any} v
+   * @returns {HashSet}
+   */
   add(v) {
     const h = hash(v);
     if (!this.m.has(h)) this.m.set(h, v);
     return this;
   }
-  /** @param {any} v @returns {boolean} */
+  /**
+   * `true` if the set has an element structurally equal to `v`.
+   * @param {any} v
+   * @returns {boolean}
+   */
   has(v) {
     return this.m.has(hash(v));
   }
-  /** @param {any} v @returns {boolean} */
+  /**
+   * Removes the element structurally equal to `v`; `true` if one was present.
+   * @param {any} v
+   * @returns {boolean}
+   */
   delete(v) {
     return this.m.delete(hash(v));
   }
-  /** @returns {IterableIterator<any>} */
+  /**
+   * The elements in insertion order.
+   * @returns {IterableIterator<any>}
+   */
   [Symbol.iterator]() {
     return this.m.values();
   }
-  /** @param {any} o @returns {boolean} */
+  /**
+   * Structural equality: the same elements, in any order.
+   * @param {any} o
+   * @returns {boolean}
+   */
   equals(o) {
     if (!(o instanceof HashSet) || o.size !== this.size) return false;
     for (const v of this) if (!o.has(v)) return false;
@@ -432,6 +511,13 @@ export class HashSet {
 
 // ------------------------------------------------------------ collections
 
+/**
+ * Panics with the out-of-range message for index `i` of a list of `n`
+ * elements.
+ * @param {number} i
+ * @param {number} n
+ * @returns {never}
+ */
 function outOfRange(i, n) {
   return panic(`index out of range: ${i} is not in 0..<${n}`);
 }
@@ -674,6 +760,14 @@ export function prefix(xs, n) {
   return xs.slice(0, Math.max(0, n));
 }
 
+/**
+ * The first element of `xs` whose `key` is smallest (`sign` 1) or largest
+ * (`sign` -1) by `compare`; `null` for an empty list. Linear.
+ * @param {any[]} xs
+ * @param {(x: any) => unknown} key
+ * @param {1|-1} sign
+ * @returns {any}
+ */
 function extreme(xs, key, sign) {
   if (!xs.length) return null;
   let best = xs[0];
@@ -804,15 +898,26 @@ class Range {
     this.hi = hi;
     this.closed = closed;
   }
-  /** @param {any} v @returns {boolean} */
+  /**
+   * `true` if `v` lies in the range (`compare`), the upper bound included only when closed.
+   * @param {any} v
+   * @returns {boolean}
+   */
   contains(v) {
     return compare(v, this.lo) >= 0 && (this.closed ? compare(v, this.hi) <= 0 : compare(v, this.hi) < 0);
   }
-  /** @param {any} o @returns {boolean} */
+  /**
+   * Structural equality: the same bounds and the same kind.
+   * @param {any} o
+   * @returns {boolean}
+   */
   equals(o) {
     return o instanceof Range && o.closed === this.closed && equals(o.lo, this.lo) && equals(o.hi, this.hi);
   }
-  /** @returns {object} */
+  /**
+   * The JSON form, `{ lowerBound, upperBound }`.
+   * @returns {object}
+   */
   toJSON() {
     return { lowerBound: toJSON(this.lo), upperBound: toJSON(this.hi) };
   }
@@ -852,6 +957,10 @@ export function rangeValues(r) {
 
 // ---------------------------------------------------------------- strings
 
+/**
+ * The grapheme segmenter behind `graphemes`, or `null` where
+ * `Intl.Segmenter` is missing (then code points are used).
+ */
 const segmenter = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter() : null;
 
 /**
@@ -1036,6 +1145,7 @@ export function colorHex(text) {
   return HEX_RE.test(text) ? text : panic(`not a hex color: ${JSON.stringify(text)}`);
 }
 
+/** A hex color: `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`. */
 const HEX_RE = new RegExp("^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$");
 
 /**
@@ -1084,6 +1194,7 @@ export function bytesHex(b) {
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+/** The standard base64 alphabet, by digit value. */
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /**
@@ -1116,8 +1227,14 @@ export function bytesUtf8(b) {
 
 // --------------------------------------------------------------- Decimal
 
+/** `10n`, the base of `Decimal` scales. */
 const TEN = 10n;
 
+/**
+ * `10^n` as a bigint.
+ * @param {number} n a non-negative integer
+ * @returns {bigint}
+ */
 function pow10(n) {
   return TEN ** BigInt(n);
 }
@@ -1132,33 +1249,56 @@ export class Decimal {
     this.units = units;
     this.scale = scale;
   }
-  /** @param {Decimal} o @returns {[bigint, bigint, number]} */
+  /**
+   * Both operands' units at the larger of the two scales, and that scale.
+   * @param {Decimal} o
+   * @returns {[bigint, bigint, number]}
+   */
   align(o) {
     const s = Math.max(this.scale, o.scale);
     return [this.units * pow10(s - this.scale), o.units * pow10(s - o.scale), s];
   }
-  /** @param {Decimal} o @returns {Decimal} */
+  /**
+   * The exact sum.
+   * @param {Decimal} o
+   * @returns {Decimal}
+   */
   plus(o) {
     const [a, b, s] = this.align(o);
     return new Decimal(a + b, s);
   }
-  /** @param {Decimal} o @returns {Decimal} */
+  /**
+   * The exact difference.
+   * @param {Decimal} o
+   * @returns {Decimal}
+   */
   minus(o) {
     const [a, b, s] = this.align(o);
     return new Decimal(a - b, s);
   }
-  /** @param {Decimal} o @returns {Decimal} */
+  /**
+   * The exact product.
+   * @param {Decimal} o
+   * @returns {Decimal}
+   */
   times(o) {
     return new Decimal(this.units * o.units, this.scale + o.scale);
   }
-  /** @param {Decimal} o @returns {Decimal} */
+  /**
+   * The quotient with 18 extra digits of scale, truncated toward zero and normalized; panics on division by zero.
+   * @param {Decimal} o
+   * @returns {Decimal}
+   */
   dividedBy(o) {
     if (o.units === 0n) panic("division by zero");
     const extra = 18;
     const n = this.units * pow10(o.scale + extra);
     return new Decimal(n / o.units, this.scale + extra).normalized();
   }
-  /** @returns {Decimal} trailing zeros removed */
+  /**
+   * The same value with trailing zeros of the fraction removed.
+   * @returns {Decimal} trailing zeros removed
+   */
   normalized() {
     let u = this.units;
     let s = this.scale;
@@ -1168,25 +1308,42 @@ export class Decimal {
     }
     return new Decimal(u, s);
   }
-  /** @returns {Decimal} */
+  /**
+   * The negated value.
+   * @returns {Decimal}
+   */
   negate() {
     return new Decimal(-this.units, this.scale);
   }
-  /** @param {Decimal} o @returns {number} */
+  /**
+   * Compares by value (`1.0` equals `1`): -1, 0 or 1.
+   * @param {Decimal} o
+   * @returns {number}
+   */
   compare(o) {
     const [a, b] = this.align(o);
     return a < b ? -1 : a > b ? 1 : 0;
   }
-  /** @param {unknown} o @returns {boolean} */
+  /**
+   * Equality by value, whatever the scales.
+   * @param {unknown} o
+   * @returns {boolean}
+   */
   equals(o) {
     return o instanceof Decimal && this.compare(o) === 0;
   }
-  /** @returns {string} */
+  /**
+   * A key equal for equal values, for `HashMap` and `HashSet`.
+   * @returns {string}
+   */
   hashKey() {
     const n = this.normalized();
     return "D" + n.units + "e" + n.scale;
   }
-  /** @returns {string} */
+  /**
+   * The plain decimal text, `-12.50`, with the value's own scale.
+   * @returns {string}
+   */
   toString() {
     const neg = this.units < 0n;
     let digits = (neg ? -this.units : this.units).toString();
@@ -1194,7 +1351,10 @@ export class Decimal {
     digits = digits.padStart(this.scale + 1, "0");
     return (neg ? "-" : "") + digits.slice(0, digits.length - this.scale) + "." + digits.slice(digits.length - this.scale);
   }
-  /** @returns {string} */
+  /**
+   * The JSON form: the decimal text.
+   * @returns {string}
+   */
   toJSON() {
     return this.toString();
   }
@@ -1235,6 +1395,11 @@ export function decimal(text) {
   return parseDecimal(text) ?? new Decimal(0n, 0);
 }
 
+/**
+ * `v` as a `Decimal`: itself, or the parse of its text (0 when that fails).
+ * @param {unknown} v
+ * @returns {Decimal}
+ */
 function toDecimal(v) {
   return v instanceof Decimal ? v : decimal(String(v));
 }
@@ -1283,6 +1448,7 @@ export function decimalDividedBy(a, b) {
 
 /** The ISO 4217 currencies, in the declaration order of `Currency`. */
 const CURRENCY_CODES = ["USD", "EUR", "GBP", "JPY", "CHF"];
+/** The minor-unit digits of each currency, in the order of `CURRENCY_CODES`. */
 const CURRENCY_DIGITS = [2, 2, 2, 0, 2];
 
 /** The `Currency` enum's cases (the runtime owns their representation). */
@@ -1294,6 +1460,7 @@ export const Currency = Object.freeze({
   chf: unitCase(4),
 });
 
+/** The `Currency` cases by tag. */
 const CURRENCY_CASES = [Currency.usd, Currency.eur, Currency.gbp, Currency.jpy, Currency.chf];
 
 /**
@@ -1334,29 +1501,50 @@ export class Money {
     this.minor = minor;
     this.currency = currency;
   }
-  /** @param {Money} o */
+  /**
+   * Panics unless `o` is in the same currency.
+   * @param {Money} o
+   */
   same(o) {
     if (o.currency !== this.currency) panic(`currency mismatch: ${currencyCode(this.currency)} and ${currencyCode(o.currency)}`);
   }
-  /** @param {Money} o @returns {Money} */
+  /**
+   * The sum; panics on a currency mismatch.
+   * @param {Money} o
+   * @returns {Money}
+   */
   plus(o) {
     this.same(o);
     return new Money(this.minor + o.minor, this.currency);
   }
-  /** @param {Money} o @returns {Money} */
+  /**
+   * The difference; panics on a currency mismatch.
+   * @param {Money} o
+   * @returns {Money}
+   */
   minus(o) {
     this.same(o);
     return new Money(this.minor - o.minor, this.currency);
   }
-  /** @param {number} n @returns {Money} */
+  /**
+   * The amount multiplied by the integer `n`.
+   * @param {number} n
+   * @returns {Money}
+   */
   times(n) {
     return new Money(this.minor * BigInt(n), this.currency);
   }
-  /** @returns {Money} */
+  /**
+   * The negated amount.
+   * @returns {Money}
+   */
   negate() {
     return new Money(-this.minor, this.currency);
   }
-  /** @returns {number} */
+  /**
+   * The amount in minor units as an `Int`; panics outside the safe integer range.
+   * @returns {number}
+   */
   minorUnits() {
     return checkInt(Number(this.minor));
   }
@@ -1420,20 +1608,34 @@ export class Money {
     }
     return out;
   }
-  /** @param {Money} o @returns {number} */
+  /**
+   * Compares amounts of the same currency: -1, 0 or 1; panics on a currency mismatch.
+   * @param {Money} o
+   * @returns {number}
+   */
   compare(o) {
     this.same(o);
     return this.minor < o.minor ? -1 : this.minor > o.minor ? 1 : 0;
   }
-  /** @param {unknown} o @returns {boolean} */
+  /**
+   * Equality: the same currency and amount.
+   * @param {unknown} o
+   * @returns {boolean}
+   */
   equals(o) {
     return o instanceof Money && o.currency === this.currency && o.minor === this.minor;
   }
-  /** @returns {string} */
+  /**
+   * A key equal for equal amounts, for `HashMap` and `HashSet`.
+   * @returns {string}
+   */
   hashKey() {
     return "M" + this.minor + currencyCode(this.currency);
   }
-  /** @returns {string} the amount with the currency's digits */
+  /**
+   * The amount as decimal text with the currency's digits, `12.50`.
+   * @returns {string} the amount with the currency's digits
+   */
   amount() {
     return new Decimal(this.minor, currencyDigits(this.currency)).toString();
   }
@@ -1453,11 +1655,17 @@ export class Money {
     const o = tag === 3 ? { style: "currency", currency: code } : tag === 1 ? { maximumFractionDigits: 0 } : tag === 2 ? { style: "percent" } : { minimumFractionDigits: d, maximumFractionDigits: d };
     return new Intl.NumberFormat("en-US", o).format(amount);
   }
-  /** @returns {string} */
+  /**
+   * The amount and code, `12.50 USD`.
+   * @returns {string}
+   */
   toString() {
     return `${this.amount()} ${currencyCode(this.currency)}`;
   }
-  /** @returns {{amount: string, currency: string}} */
+  /**
+   * The JSON form, `{ amount, currency }`.
+   * @returns {{amount: string, currency: string}}
+   */
   toJSON() {
     return { amount: this.amount(), currency: currencyCode(this.currency) };
   }
@@ -1517,40 +1725,71 @@ export function sumMoney(xs, currency, amount) {
 
 /** K's `Date`: an instant, in epoch milliseconds. */
 export class Instant {
-  /** @param {number} ms */
+  /**
+   * Creates the instant `ms` milliseconds after the Unix epoch.
+   * @param {number} ms
+   */
   constructor(ms) {
     this.ms = ms;
   }
-  /** @param {number} duration milliseconds @returns {Instant} */
+  /**
+   * The instant `duration` milliseconds later.
+   * @param {number} duration milliseconds
+   * @returns {Instant}
+   */
   plus(duration) {
     return new Instant(this.ms + duration);
   }
-  /** @param {Instant} o @returns {number} the duration between, in ms */
+  /**
+   * The duration from `o` to this instant.
+   * @param {Instant} o
+   * @returns {number} the duration between, in ms
+   */
   minus(o) {
     return this.ms - o.ms;
   }
-  /** @returns {number} */
+  /**
+   * Whole seconds since the Unix epoch, rounded down.
+   * @returns {number}
+   */
   unixSeconds() {
     return Math.floor(this.ms / 1000);
   }
-  /** @param {Instant} o @returns {number} */
+  /**
+   * Compares in time: -1, 0 or 1.
+   * @param {Instant} o
+   * @returns {number}
+   */
   compare(o) {
     return this.ms < o.ms ? -1 : this.ms > o.ms ? 1 : 0;
   }
-  /** @param {unknown} o @returns {boolean} */
+  /**
+   * Equality: the same millisecond.
+   * @param {unknown} o
+   * @returns {boolean}
+   */
   equals(o) {
     return o instanceof Instant && o.ms === this.ms;
   }
-  /** @returns {string} */
+  /**
+   * A key equal for equal instants, for `HashMap` and `HashSet`.
+   * @returns {string}
+   */
   hashKey() {
     return "I" + this.ms;
   }
-  /** @returns {string} RFC 3339 in UTC, milliseconds only when non-zero */
+  /**
+   * The JSON form.
+   * @returns {string} RFC 3339 in UTC, milliseconds only when non-zero
+   */
   toJSON() {
     const s = new Date(this.ms).toISOString();
     return s.endsWith(".000Z") ? s.slice(0, -5) + "Z" : s;
   }
-  /** @returns {string} */
+  /**
+   * The RFC 3339 text, as `toJSON`.
+   * @returns {string}
+   */
   toString() {
     return this.toJSON();
   }
@@ -1615,6 +1854,7 @@ export function instantFromSeconds(s) {
   return new Instant(s * 1000);
 }
 
+/** An RFC 3339 date-time with a `Z` or numeric offset and optional fractional seconds. */
 const RFC3339 = new RegExp("^(\\d{4})-(\\d{2})-(\\d{2})[Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d+)?([Zz]|[+-]\\d{2}:\\d{2})$");
 
 /**
@@ -1750,7 +1990,9 @@ export function parseQuery(search) {
 /** A failed parameter parse: the URL doesn't match the route. */
 export const NO = Symbol("k.no-match");
 
+/** The text of an `Int` route or query parameter. */
 const INT_RE = new RegExp("^-?[0-9]+$");
+/** The text of a `Double` route or query parameter. */
 const DOUBLE_RE = new RegExp("^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$");
 
 /**
@@ -1857,6 +2099,7 @@ export function parseEmail(text) {
   return t.slice(0, at + 1) + t.slice(at + 1).toLowerCase();
 }
 
+/** A UUID in its hyphenated form, any case. */
 const UUID_RE = new RegExp("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
 /**
@@ -1973,7 +2216,10 @@ export function decodeUnitCase(j, p, cases, names) {
 
 /** A `Double` in encoded JSON, printed with at least one decimal. */
 class JsonDouble {
-  /** @param {number} v */
+  /**
+   * Wraps the double `v`.
+   * @param {number} v
+   */
   constructor(v) {
     this.v = v;
   }
@@ -1996,6 +2242,13 @@ export function stringify(j) {
   return JSON.stringify(j);
 }
 
+/**
+ * The codec of a primitive whose JSON form is its value: `encode` is the
+ * identity, `decode` fails with `expected <what>` unless `check` accepts.
+ * @param {(j: unknown) => boolean} check
+ * @param {string} what the expected kind, for the error
+ * @returns {{encode: Function, decode: Function}}
+ */
 function prim(check, what) {
   return {
     encode: (v) => v,
@@ -2190,11 +2443,15 @@ export const Json = {
  * leaving the loop early calls `close`, when the stream has one.
  */
 export class PushStream {
+  /** Creates an open stream with nothing pushed. */
   constructor() {
     this.items = [];
     this.waiters = [];
   }
-  /** @param {unknown} v a value, or `null` to end the stream */
+  /**
+   * Delivers `v` to the oldest waiting `next()`, or queues it.
+   * @param {unknown} v a value, or `null` to end the stream
+   */
   push(v) {
     if (v === null) {
       for (const w of this.waiters.splice(0)) w(null);
@@ -2205,13 +2462,19 @@ export class PushStream {
     if (w) w(v);
     else this.items.push(v);
   }
-  /** @returns {Promise<unknown>} */
+  /**
+   * The next value; `null` once the stream has ended.
+   * @returns {Promise<unknown>}
+   */
   next() {
     if (this.items[0] === null) return Promise.resolve(null);
     if (this.items.length) return Promise.resolve(this.items.shift());
     return new Promise((resolve) => this.waiters.push(resolve));
   }
-  /** @returns {AsyncIterator<unknown>} */
+  /**
+   * Iterates the stream with `for await`.
+   * @returns {AsyncIterator<unknown>}
+   */
   [Symbol.asyncIterator]() {
     return iterate(this);
   }
@@ -2242,7 +2505,10 @@ class MappedStream {
     this.step = step;
     this.initial = initial ? initial.slice() : [];
   }
-  /** @returns {Promise<unknown>} */
+  /**
+   * The next value that the step keeps (initial values first); `null` at the end.
+   * @returns {Promise<unknown>}
+   */
   async next() {
     if (this.initial.length) return this.initial.shift();
     for (;;) {
@@ -2252,7 +2518,10 @@ class MappedStream {
       if (r.keep) return r.value;
     }
   }
-  /** @returns {AsyncIterator<unknown>} */
+  /**
+   * Iterates the stream with `for await`.
+   * @returns {AsyncIterator<unknown>}
+   */
   [Symbol.asyncIterator]() {
     return iterate(this);
   }
@@ -2290,6 +2559,7 @@ export function streamStartingWith(s, v) {
 
 /** `k.rpc.Broadcast`: publishes values to the subscribers of a key. */
 export class Broadcast {
+  /** Creates a broadcast without subscribers. */
   constructor() {
     this.subs = new HashMap();
   }

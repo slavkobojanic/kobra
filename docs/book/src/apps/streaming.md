@@ -4,31 +4,46 @@ A server-streaming rpc's handler **returns a `Stream<T>`**, the client reads it 
 requests share events through a keyed **`Broadcast`** held by a process-wide service.
 
 ```k
+// examples/notes/src/notes/NotesProtocol.k
 public protocol NotesProtocol requires Authenticated {
-    rpc watch() throws AccessError -> Stream<NoteChange>
+    // ...
+    rpc watch() throws RpcOnlyError -> Stream<NoteChange>
+    // ...
 }
+```
 
+```k
+// examples/notes/src/notes/NotesApi.k
 public service NotesApi implements NotesProtocol {
-    @Inject let session: Session
     @Inject let notes: NoteRepository
+    @Inject let tags: TagRepository
     @Inject let changes: NoteChanges
+    @Inject let session: Session
+    // ...
+    rpc watch() async throws RpcOnlyError -> Stream<NoteChange> {
+        let ownerId = session.user.id
 
-    rpc watch() async throws AccessError -> Stream<NoteChange> {
-        let live = changes.subscribe(ownerId: session.user.id)     // subscribe first, so nothing is missed
-        let current = await notes.list(ownerId: session.user.id)
+        // Subscribe before reading, so a change saved in between is delivered
+        // after the snapshot instead of being lost.
+        let live = changes.subscribe(ownerId: ownerId)
+        let current = await notes.list(ownerId: ownerId)
 
         return live.startingWith(.snapshot(current.map(summarize)))
     }
+    // ...
 }
+```
 
+```k
+// examples/notes/src/notes/NoteChanges.k
 @Scope(.server)
-service NoteChanges {
+public service NoteChanges {
     private let channel: Broadcast<AccountId, NoteChange> = Broadcast()
-
+    // ...
     func publish(ownerId: AccountId, change: NoteChange) {
         channel.publish(key: ownerId, value: change)
     }
-
+    // ...
     func subscribe(ownerId: AccountId) -> Stream<NoteChange> {
         return channel.subscribe(key: ownerId)
     }
@@ -61,10 +76,17 @@ service NoteChanges {
 ## Reading a stream: `for await`
 
 ```k
-let changes = try await api.watch()
+// examples/notes/src/notes/NotesService.k
+func watch() async throws RpcOnlyError {
+    while true {
+        let changes = try await api.watch()
 
-for await change in changes {
-    apply(change: change)
+        for await change in changes {
+            apply(change: change)
+        }
+
+        isLive = false
+    }
 }
 ```
 
@@ -78,18 +100,23 @@ for await change in changes {
 
 ### Following a stream for the life of a page
 
-A page starts the stream from an effect with no dependencies, which runs once after mount and is cancelled
-when the page is left. Effects can't throw, so it handles errors itself:
+A page starts the stream from an effect, which runs after mount and is cancelled when the page is left.
+With `@Effect(on: [])` it runs once; the notes page lists `connectAttempt`, a counter its "Reconnect"
+button increments, so the effect also re-runs on demand. Effects can't throw, so it handles errors
+itself:
 
 ```k
-@Effect(on: [])
+// examples/notes/src/notes/Notes.k
+@Effect(on: [connectAttempt])
 func followChanges() async {
+    isDisconnected = false
+
     do {
-        try await notes.watch()          // a service method; returns when the stream ends
+        try await notes.watch()
     } catch .rpcFailure(.rejected) {
-        Router.navigate(to: .signIn)
-    } catch let other {
-        problem = other
+        Router.navigate(to: .signIn.returnTo(.notes))
+    } catch .rpcFailure {
+        isDisconnected = true
     }
 }
 ```

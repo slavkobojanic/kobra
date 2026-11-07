@@ -1,9 +1,13 @@
-// `k.http.HttpResponse` on both sides (32-http-client.md, 27-endpoint-pages.md):
-// one value that is built (`HttpResponse(status:)`, `.headers(_:)`,
-// `.body(_:)`) by endpoints and by test fakes of `HttpClient`, and read
-// (`status`, `isSuccess`, `headers`, `body`, `bodyBytes`, `json()`) by the
-// code that receives it. A built response reads exactly like one an
-// `HttpClient` received, in the browser and on the server.
+/**
+ * @module k:/tests/http-response.test.js
+ *
+ * `k.http.HttpResponse` on both sides (32-http-client.md, 27-endpoint-pages.md):
+ * one value that is built (`HttpResponse(status:)`, `.headers(_:)`,
+ * `.body(_:)`) by endpoints and by test fakes of `HttpClient`, and read
+ * (`status`, `isSuccess`, `headers`, `body`, `bodyBytes`, `json()`) by the
+ * code that receives it. A built response reads exactly like one an
+ * `HttpClient` received, in the browser and on the server.
+ */
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
 import { KPanic, codecs, native, unitCase } from "k:runtime";
 import {
