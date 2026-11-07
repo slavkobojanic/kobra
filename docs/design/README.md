@@ -57,6 +57,7 @@ K borrows ideas, not syntax. Where another language does something well, K adapt
 | 37 | Charts | [37-charts.md](37-charts.md) |
 | 38 | Deployment | [38-deployment.md](38-deployment.md) |
 | 39 | Documentation comments | [39-doc-comments.md](39-doc-comments.md) |
+| 40 | Workspaces and services | [40-workspaces-and-services.md](40-workspaces-and-services.md) |
 
 ## Decisions still open
 

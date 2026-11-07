@@ -24,7 +24,7 @@ struct CartLine { ... }                   // no modifier: visible within shop.ca
 ## Modules
 
 - **A directory is a module.** The module name comes from the path, so files never declare `package`.
-- **Circular imports between modules are a compile error.** Test files don't take part in cycle detection, because nothing imports them (see [Test-only modules](#test-only-modules)).
+- **Circular imports between modules are a compile error.** Test files don't take part in cycle detection, because nothing imports them (see [Test-only modules](#test-only-modules)). The same rule holds between packages and between workspace members: the whole dependency graph is a DAG ([40-workspaces-and-services.md](40-workspaces-and-services.md)).
 
 ## Visibility of declarations
 
