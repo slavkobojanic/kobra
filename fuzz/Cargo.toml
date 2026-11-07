@@ -22,13 +22,28 @@
 #   check_typed      bytes drive the typed generator: zero errors, order
 #                    independence, incremental edits, machine fixes add no
 #                    errors
+#   codegen          bytes drive the typed generator: generation succeeds in
+#                    every profile, deterministically, with no server code
+#                    in the client bundle (no V8)
+#   codegen_run      bytes drive one of four generators (typed programs,
+#                    closed expressions, Codable values, views) whose output
+#                    runs in V8 against its oracle
+#   rpc_json         bytes are the body of an echo rpc of the fuzz app: 200
+#                    fixed point or 400 invalid_argument, never 500
+#   http_request     bytes are written raw to the fuzz app's server:
+#                    well-formed answers, never 500, still serving
+#
+# The V8 targets link the prebuilt V8 of `deno_core`; point
+# RUSTY_V8_ARCHIVE at the archive the stable build downloaded
+# (target/release/gn_out/obj/librusty_v8.a) to skip a second download.
 #
 # The syntax invariants live in crates/k_syntax/tests/support/oracle.rs and
 # the grammar generator in crates/k_syntax/tests/support/kgen.rs; the
 # semantic invariants in crates/k_sema/tests/support/soracle.rs and the typed
-# generator in crates/k_sema/tests/support/tgen.rs. All are shared with the
+# generator in crates/k_sema/tests/support/tgen.rs; the stage 3 oracles and
+# generators in crates/k_server/tests/support/. All are shared with the
 # stable property tests (crates/k_syntax/tests/properties.rs,
-# crates/k_sema/tests/properties.rs).
+# crates/k_sema/tests/properties.rs, crates/k_server/tests/differential.rs).
 #
 # This crate is excluded from the stable workspace. See
 # docs/compiler/testing.md, "Fuzzing".
@@ -51,6 +66,10 @@ libfuzzer-sys = "0.4"
 k_diagnostics = { path = "../crates/k_diagnostics" }
 k_syntax = { path = "../crates/k_syntax" }
 k_sema = { path = "../crates/k_sema" }
+k_codegen = { path = "../crates/k_codegen" }
+k_server = { path = "../crates/k_server" }
+k_db = { path = "../crates/k_db" }
+serde_json = "1.0"
 
 [[bin]]
 name = "lex"
@@ -97,6 +116,34 @@ bench = false
 [[bin]]
 name = "check_typed"
 path = "fuzz_targets/check_typed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "codegen"
+path = "fuzz_targets/codegen.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "codegen_run"
+path = "fuzz_targets/codegen_run.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rpc_json"
+path = "fuzz_targets/rpc_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_request"
+path = "fuzz_targets/http_request.rs"
 test = false
 doc = false
 bench = false

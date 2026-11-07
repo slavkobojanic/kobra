@@ -1,0 +1,8 @@
+/* file: app.[hash].css */
+.Badge__pill {
+  padding: 4px;
+  border-radius: 8px;
+}
+.Badge__fresh {
+  background-color: #FEF3C7;
+}

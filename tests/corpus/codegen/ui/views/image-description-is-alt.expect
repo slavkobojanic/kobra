@@ -1,0 +1,5 @@
+client contains <img
+client contains alt=\"The K logo\"
+client contains loading=\"lazy\"
+client contains "src"
+server contains out.attribute("src",

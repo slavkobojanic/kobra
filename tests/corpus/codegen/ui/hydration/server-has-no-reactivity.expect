@@ -1,0 +1,7 @@
+server lacks $k.signal
+server lacks $k.computed
+server lacks $k.effect
+server lacks $k.renderEffect
+server lacks $k.template
+server lacks document
+client contains $k.template(

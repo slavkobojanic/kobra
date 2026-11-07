@@ -1,0 +1,6 @@
+# Endpoint pages end to end: handlers per method, fixed URLs, typed path
+# parameters, raw bodies, sessions opt-in (docs/design/27-endpoint-pages.md,
+# docs/compiler/server.md §10).
+[package]
+name = "endpoints"
+k = "0.1"

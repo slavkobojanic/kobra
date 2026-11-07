@@ -1,0 +1,7 @@
+client contains <textarea
+client contains <select
+client contains <option
+client contains >Small</option>
+server contains <textarea
+server contains out.text(note)
+server contains selected

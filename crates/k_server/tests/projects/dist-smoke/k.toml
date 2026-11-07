@@ -1,0 +1,6 @@
+# The dist/app smoke test (docs/compiler/server.md §12, §14,
+# docs/design/38-deployment.md): `k build` this project, then run the single
+# executable. Driven from crates/k_server/tests/stage3_server.rs.
+[package]
+name = "smoke"
+k = "0.1"

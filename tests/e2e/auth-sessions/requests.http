@@ -1,0 +1,525 @@
+# Sessions, guards and request forgery (docs/design/26-auth-and-sessions.md,
+# docs/compiler/server.md §9). The script is one browser: cookies set by a
+# response are sent on every later exchange. The public origin is
+# http://localhost, so the cookie is `k_session`, and every state-changing
+# request that carries it needs `Origin: http://localhost` or
+# `Sec-Fetch-Site: same-origin`.
+#
+# Cookie attributes, session fixation and Retry-After values need header
+# inspection a script can't do; they are in crates/k_server/tests/stage3_server.rs.
+
+### a guest sees the public page and no cookie is set
+GET /
+>>> 200
+~ home for a guest
+!set-cookie
+
+### a page that reads Session is never cached
+GET /
+>>> 200
+cache-control: private, no-store
+
+### the guest's session mirror is serialized as user null
+GET /
+>>> 200
+~ "session":{"user":null}
+
+### a guest on an Authenticated page is redirected with 303 to the sign-in page
+GET /dashboard
+>>> 303
+location: /sign-in?returnTo=%2Fdashboard
+!set-cookie
+
+### the redirect keeps the refused page's parameters in returnTo
+GET /dashboard?tab=stats
+>>> 303
+location: /sign-in?returnTo=%2Fdashboard%3Ftab%3Dstats
+
+### HEAD of a guarded page redirects too
+HEAD /dashboard
+>>> 303
+location: /sign-in?returnTo=%2Fdashboard
+
+### Authenticated is checked before Role, so a guest is redirected from an admin page
+GET /admin-page
+>>> 303
+location: /sign-in?returnTo=%2Fadmin-page
+
+### the sign-in page renders for a guest
+GET /sign-in?returnTo=%2Fdashboard
+>>> 200
+~ continue to /dashboard
+
+### a guest calling an Authenticated rpc is unauthenticated with HTTP 401
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 401
+~ "code":"unauthenticated"
+cache-control: private, no-store
+
+### a protocol-level requires guards each of its rpcs
+POST /auth.accounts.VaultProtocol/Note
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 401
+~ "code":"unauthenticated"
+
+### a guest calling an admin rpc is unauthenticated, not forbidden
+POST /auth.accounts.AuthProtocol/AdminReport
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 401
+~ "code":"unauthenticated"
+
+### an unguarded rpc answers a guest
+POST /auth.accounts.AuthProtocol/Status
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 200
+json {"value": "guest"}
+
+### a guest's rpc without the session cookie needs no Origin
+POST /auth.accounts.AuthProtocol/Status
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": "guest"}
+
+### a guest refused by a guard is not given a session
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 401
+!set-cookie
+
+### signing out as a guest does nothing
+POST /auth.accounts.AuthProtocol/SignOut
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 200
+json {}
+
+# A forged cookie: an id the server never issued reads as a guest, and still
+# triggers the forgery check.
+### a forged session cookie is a guest on pages
+GET /dashboard
+cookie: k_session=forged-0123456789
+>>> 303
+location: /sign-in?returnTo=%2Fdashboard
+
+### a forged session cookie is a guest for rpcs
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+cookie: k_session=forged-0123456789
+
+{}
+>>> 401
+~ "code":"unauthenticated"
+
+### a request carrying any session cookie without an Origin is refused with 403
+POST /auth.accounts.AuthProtocol/Status
+content-type: application/json
+connect-protocol-version: 1
+cookie: k_session=forged-0123456789
+
+{}
+>>> 403
+
+# Signing in. signIn allows 4 calls a minute, counted per client address for
+# guests and per session once signed in: this is guest call 1, the next is 2.
+### a wrong password is the declared error
+POST /auth.accounts.AuthProtocol/SignIn
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{"credentials": {"name": "ada", "password": "wrong"}}
+>>> 400
+~ "code":"failed_precondition"
+~ "case":"invalidCredentials"
+!set-cookie
+
+### signing in sets the session cookie and answers {}
+POST /auth.accounts.AuthProtocol/SignIn
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{"credentials": {"name": "ada", "password": "correct horse"}}
+>>> 200
+json {}
+cache-control: private, no-store
+
+### an rpc that doesn't change the session sends no session mirror
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 200
+json {"value": "ada"}
+!x-k-session
+!set-cookie
+
+### a protocol-level guard admits a signed-in user
+POST /auth.accounts.VaultProtocol/Note
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 200
+json {"value": "the vault note for ada"}
+
+### the unguarded rpc sees the session too
+POST /auth.accounts.AuthProtocol/Status
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 200
+json {"value": "signed in as ada"}
+
+### an Authenticated page renders for a signed-in user
+GET /dashboard
+>>> 200
+~ dashboard main for ada
+
+### a page that read the session is never cached
+GET /dashboard
+>>> 200
+cache-control: private, no-store
+
+### the session mirror carries the user for hydration
+GET /dashboard
+>>> 200
+~ "session":{"user":{
+~ "name":"ada"
+
+### parameters still work behind a guard
+GET /dashboard?tab=stats
+>>> 200
+~ dashboard stats for ada
+
+### the public page sees the signed-in user
+GET /
+>>> 200
+~ home for ada
+
+### a refused Role on a page is 403
+GET /admin-page
+>>> 403
+!~ admin page
+
+### a refused Role on an rpc is permission_denied with HTTP 403
+POST /auth.accounts.AuthProtocol/AdminReport
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 403
+~ "code":"permission_denied"
+
+# Request forgery, with a real session cookie.
+### a state-changing request with the cookie and no Origin is refused
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 403
+
+### an Origin other than the public origin is refused
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: https://evil.example
+
+{}
+>>> 403
+
+### a different port is a different origin
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost:8080
+
+{}
+>>> 403
+
+### a different scheme is a different origin
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: https://localhost
+
+{}
+>>> 403
+
+### an origin with a trailing slash is not the origin
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost/
+
+{}
+>>> 403
+
+### Origin null is refused
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: null
+
+{}
+>>> 403
+
+### a sibling subdomain is refused
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: http://evil.localhost
+
+{}
+>>> 403
+
+### Sec-Fetch-Site: same-site is not enough
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+sec-fetch-site: same-site
+
+{}
+>>> 403
+
+### Sec-Fetch-Site: cross-site is refused
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+sec-fetch-site: cross-site
+
+{}
+>>> 403
+
+### Sec-Fetch-Site: same-origin is accepted without an Origin
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+sec-fetch-site: same-origin
+
+{}
+>>> 200
+json {"value": "ada"}
+
+### a matching Origin is accepted
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 200
+json {"value": "ada"}
+
+### a GET with the cookie from another origin is allowed: it can't change state
+GET /dashboard
+origin: https://evil.example
+sec-fetch-site: cross-site
+>>> 200
+~ dashboard main for ada
+
+### a cross-site form post to an rpc is refused before anything runs
+POST /auth.accounts.AuthProtocol/SignOut
+content-type: application/x-www-form-urlencoded
+connect-protocol-version: 1
+origin: http://localhost
+
+x=1
+>>> 415
+
+### the forgery check also covers rpcs that don't use the session
+POST /auth.accounts.AuthProtocol/Status
+content-type: application/json
+connect-protocol-version: 1
+origin: https://evil.example
+
+{}
+>>> 403
+
+### signing out answers {}
+POST /auth.accounts.AuthProtocol/SignOut
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 200
+json {}
+
+### after signing out the old cookie is a guest at once
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 401
+~ "code":"unauthenticated"
+
+### after signing out guarded pages redirect again
+GET /dashboard
+>>> 303
+location: /sign-in?returnTo=%2Fdashboard
+
+# Guest sign-in call 3. Signing in again while signed in as root counts
+# against root's session, not the address.
+### signing in as root grants the admin role
+POST /auth.accounts.AuthProtocol/SignIn
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{"credentials": {"name": "root", "password": "correct horse"}}
+>>> 200
+json {}
+
+### an admin passes the Role guard
+POST /auth.accounts.AuthProtocol/AdminReport
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 200
+json {"value": "report for root"}
+
+### an admin sees the admin page
+GET /admin-page
+>>> 200
+~ admin page
+
+### signing in again replaces the current session
+POST /auth.accounts.AuthProtocol/SignIn
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{"credentials": {"name": "ada", "password": "correct horse"}}
+>>> 200
+json {}
+
+### the replacing session has the new user's roles only
+POST /auth.accounts.AuthProtocol/AdminReport
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 403
+~ "code":"permission_denied"
+
+### ending every session of the user signs this browser out too
+POST /auth.accounts.AuthProtocol/SignOutEverywhere
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 200
+json {}
+
+### after endAll the session is gone
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 401
+
+# Guest sign-in calls 4 (allowed) and 5 (refused).
+### the fourth guest sign-in in a minute is still allowed
+POST /auth.accounts.AuthProtocol/SignIn
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{"credentials": {"name": "nobody", "password": "x"}}
+>>> 400
+~ "case":"invalidCredentials"
+
+### the fifth guest sign-in is refused with resource_exhausted and HTTP 429
+POST /auth.accounts.AuthProtocol/SignIn
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{"credentials": {"name": "ada", "password": "correct horse"}}
+>>> 429
+~ "code":"resource_exhausted"
+!set-cookie
+
+### a rate limit refusal never reaches the handler, so it signs nobody in
+POST /auth.accounts.AuthProtocol/Whoami
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 401
+
+### other rpcs are not limited by signIn's limit
+POST /auth.accounts.AuthProtocol/Status
+content-type: application/json
+connect-protocol-version: 1
+origin: http://localhost
+
+{}
+>>> 200
+json {"value": "guest"}
+
+### a rate-limited page answers twice
+GET /limited
+>>> 200
+~ limited page
+
+### a rate-limited page answers the second request
+GET /limited
+>>> 200
+~ limited page
+
+### a rate-limited page refuses the third request in a minute with 429
+GET /limited
+>>> 429
+!~ limited page
+
+### a page without a limit is unaffected
+GET /about
+>>> 200
+~ about page

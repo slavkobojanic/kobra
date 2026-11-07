@@ -1,0 +1,7 @@
+client contains $k.attr(
+client contains "aria-pressed"
+client contains "aria-expanded"
+client lacks "pressed"
+client lacks "expanded"
+server contains aria-pressed
+server contains aria-expanded

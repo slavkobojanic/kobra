@@ -1,0 +1,4 @@
+server contains export function greet(name, greeting = "Hello", punctuation = "!")
+server contains greet("Ana")
+server contains greet("Ben", undefined, "?")
+server contains `${greeting}, ${name}${punctuation}`

@@ -1,0 +1,5 @@
+client contains $k.startRouter(
+client contains export function Home(props, ctx)
+client lacks $k.hydrate(
+client lacks $k.readData(
+server lacks Home$ssr

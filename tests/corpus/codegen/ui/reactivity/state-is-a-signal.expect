@@ -1,0 +1,7 @@
+client contains export function Clicks(props, ctx)
+client contains $k.signal(0)
+client contains count.get()
+server contains export function Clicks$ssr(props, ctx, out)
+server contains const count = 0
+server lacks $k.signal
+server lacks count.get()

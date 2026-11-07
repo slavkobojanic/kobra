@@ -1,0 +1,4 @@
+{
+  "rpcPaths": ["/fixture.GreeterProtocol/Greet", "/fixture.GreeterProtocol/Fail"],
+  "publicOrigin": "https://app.example"
+}

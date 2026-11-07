@@ -1,0 +1,3 @@
+client contains export function Sidebar(props, ctx)
+client contains $k.createLoads(
+client contains name: "degrees", after: []

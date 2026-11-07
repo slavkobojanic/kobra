@@ -1,0 +1,5 @@
+client contains <button disabled>Locked</button>
+client contains <button>Open</button>
+client contains "disabled"
+client contains "hidden"
+server contains <button disabled>Locked</button>

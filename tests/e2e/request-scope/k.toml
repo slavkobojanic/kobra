@@ -1,0 +1,7 @@
+# Request-scoped dependency injection on the server: a fresh request
+# container per request, shared within it; `.server` services shared by every
+# request (docs/design/10-services.md, docs/compiler/codegen.md §13,
+# docs/compiler/server.md §5).
+[package]
+name = "scopes"
+k = "0.1"

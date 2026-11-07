@@ -1,0 +1,4 @@
+client contains <button aria-pressed=\"true\">Bold</button>
+client contains <button aria-pressed=\"false\">Italic</button>
+client contains <button aria-expanded=\"false\">Menu</button>
+client lacks $k.renderEffect

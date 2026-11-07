@@ -1,0 +1,5 @@
+# Sessions, guards and request forgery end to end
+# (docs/design/26-auth-and-sessions.md, docs/compiler/server.md §9).
+[package]
+name = "auth"
+k = "0.1"

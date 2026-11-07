@@ -1,0 +1,19 @@
+# docs/compiler/codegen.md §16: the client bundle has the page, the client service and a generated RPC
+# client, and nothing of the repository, the protocol implementation, the config or their literals.
+client contains export function Home(props, ctx)
+client contains export class NotesService
+client contains "/split.notes.NotesProtocol/Find"
+client lacks NoteRepository
+client lacks NotesApi
+client lacks SearchConfig
+client lacks NOTES_SEARCH_SECRET
+client lacks server-only literal
+client lacks SELECT
+server contains export class NotesApi
+server contains NOTES_SEARCH_SECRET
+server contains "/split.notes.NotesProtocol/Find"
+# The repository's query runs on the server by statement number; its SQL lives in the build's
+# database manifest (docs/compiler/db.md §6), never in JavaScript on either side.
+server contains export class NoteRepository
+server contains $s.dbQuery(this.$db, 0,
+server lacks SELECT

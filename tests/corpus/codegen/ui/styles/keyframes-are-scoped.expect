@@ -1,0 +1,7 @@
+css contains @keyframes Toast__fade {
+css contains   from {
+css contains   50% {
+css contains   to {
+css contains   animation-name: Toast__fade;
+css contains   animation-duration: 200ms;
+css lacks @keyframes fade

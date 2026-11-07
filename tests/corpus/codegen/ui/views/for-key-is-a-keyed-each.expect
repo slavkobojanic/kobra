@@ -1,0 +1,6 @@
+client contains $k.template("<ul><!--[--><!--]--></ul>")
+client contains $k.each(
+client contains tags.get()
+client contains (tag) => tag
+client contains $k.template("<li> </li>")
+server contains for (const tag of tags)

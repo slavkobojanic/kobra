@@ -1,0 +1,1 @@
+returns [{"celsius": -5, "label": "freezing"}, {"celsius": 20, "label": "fine"}]

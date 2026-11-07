@@ -19,6 +19,11 @@ fn main() {
     let discovery = discover::discover(&corpus_root());
     let mut trials = Vec::with_capacity(discovery.cases.len() + discovery.problems.len());
     for case in discovery.cases {
+        // Run cases need V8; `k_server`'s `corpus_run` test executes them.
+        // Db cases need the server; its `e2e` test executes them.
+        if matches!(case.suite, suites::Suite::Run | suites::Suite::Db) {
+            continue;
+        }
         let name = case.name.clone();
         trials.push(Trial::test(name, move || {
             suites::run_case(&case, bless).map_err(Failed::from)

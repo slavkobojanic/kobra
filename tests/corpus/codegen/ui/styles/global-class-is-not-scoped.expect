@@ -1,0 +1,3 @@
+client contains <button class=\"btn-primary\">Buy</button>
+client lacks Buy__btn-primary
+css lacks btn-primary

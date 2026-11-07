@@ -1,0 +1,1 @@
+returns [[{"amount": "3.34", "currency": "USD"}, {"amount": "3.33", "currency": "USD"}, {"amount": "3.33", "currency": "USD"}], [{"amount": "34", "currency": "JPY"}, {"amount": "33", "currency": "JPY"}, {"amount": "33", "currency": "JPY"}], [{"amount": "0.01", "currency": "USD"}, {"amount": "0.00", "currency": "USD"}], [{"amount": "6.00", "currency": "USD"}]]

@@ -1,0 +1,4 @@
+server contains return $k.equals(a, b);
+server contains return x === y;
+server contains return mode === Mode.on;
+server contains return !$k.equals(a, b);

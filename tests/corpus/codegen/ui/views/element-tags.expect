@@ -1,0 +1,2 @@
+client contains $k.template("<div><p>Hi</p><span>a</span><em>b</em><h3>T</h3><br><hr><pre><code>x</code></pre></div>")
+server contains <div><p>Hi</p><span>a</span><em>b</em><h3>T</h3><br><hr><pre><code>x</code></pre></div>

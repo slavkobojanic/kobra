@@ -1,0 +1,7 @@
+POST /fuzz_wire.wire.EchoProtocol/Text HTTP/1.1
+host: x
+content-type: application/json
+connect-protocol-version: 1
+content-length: 15
+
+{"value":"hi"}

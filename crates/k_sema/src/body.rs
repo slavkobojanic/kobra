@@ -5569,6 +5569,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                         self.query_update_depth += u32::from(update);
                         let ret =
                             self.apply_sig(&node, &sig, &subst, &args, expected.as_ref(), kind);
+                        if let Some(mm) = member {
+                            self.check_numeric_sum(mm, &sig, &recv_ty, &name, &node);
+                        }
                         self.query_update_depth -= u32::from(update);
                         self.query_lambda_depth -= u32::from(query);
                         self.handle_depth -= u32::from(handle);
@@ -5842,6 +5845,66 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
     }
 
     /// K2401: `.other(503)` for a status that has a named case.
+    /// Checks `list.sum()`, which only lists of `Int` or `Double` have:
+    /// a list of `Money` is K2402 with a fix to `sum(in:_:)`
+    /// (docs/design/34-money.md), any other element type K2009. `sum` is
+    /// declared without a constraint in `List.k` because no interface
+    /// describes "Int or Double"; this check is that constraint.
+    fn check_numeric_sum(
+        &mut self,
+        member: MemberId,
+        sig: &Sig,
+        recv_ty: &Ty,
+        name: &SyntaxToken,
+        call: &SyntaxNode,
+    ) {
+        let b = &self.cx.b;
+        let m = self.cx.p.member(member);
+        if m.name != "sum" || !sig.params.is_empty() || b.list.is_none() || Some(m.owner) != b.list
+        {
+            return;
+        }
+        let list = match recv_ty {
+            Ty::Optional(inner) => (**inner).clone(),
+            other => other.clone(),
+        };
+        let Some(element) = list.args().first().cloned() else {
+            return;
+        };
+        let element = self.resolve(&element);
+        if element.contains_error() || matches!(element, Ty::Var(_) | Ty::Param(_)) {
+            return;
+        }
+        let decl = element.decl();
+        if decl.is_some() && (decl == b.int || decl == b.double) {
+            return;
+        }
+        let range = TextRange::new(name.text_range().start(), call.text_range().end());
+        if decl.is_some() && decl == b.money {
+            let d = Diagnostic::new(
+                codes::MONEY_SUM_WITHOUT_CURRENCY,
+                self.span(range),
+                "a sum over `Money` needs a currency: use `sum(in:_:)`, which is `Money.zero` for an empty list",
+            )
+            .with_fix(
+                Fix::replace(
+                    "Sum in a currency with `sum(in:_:)`",
+                    self.span(range),
+                    "sum(in: .usd) { amount => amount }",
+                )
+                .maybe_incorrect(),
+            );
+            self.report(d);
+            return;
+        }
+        let rendered = element.render(self.cx.p);
+        self.err(
+            codes::UNSATISFIED_CONSTRAINT,
+            range,
+            format!("`sum()` adds `Int` or `Double` elements, and `{rendered}` is neither"),
+        );
+    }
+
     fn check_status_literal(
         &mut self,
         call: &SyntaxNode,

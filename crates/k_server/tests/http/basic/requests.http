@@ -1,0 +1,107 @@
+# The HTTP front and the worker loop, against server.js.
+
+### server-rendered HTML escapes dynamic text
+GET /?name=%3Cscript%3E
+>>> 200
+content-type: text/html; charset=utf-8
+x-content-type-options: nosniff
+~ <h1>Hello, &lt;script&gt;</h1>
+!~ <script>
+
+### an rpc call returns JSON and is never cached
+POST /fixture.GreeterProtocol/Greet
+content-type: application/json
+connect-protocol-version: 1
+
+{"name": "Ana"}
+>>> 200
+content-type: application/json
+cache-control: private, no-store
+json {"value": "Hello, Ana"}
+
+### an rpc without the Connect header is refused before JavaScript
+POST /fixture.GreeterProtocol/Greet
+content-type: application/json
+
+{"name": "Ana"}
+>>> 415
+
+### an rpc must be POST
+GET /fixture.GreeterProtocol/Greet
+>>> 405
+allow: POST
+
+### a form post to an rpc is refused
+POST /fixture.GreeterProtocol/Greet
+content-type: application/x-www-form-urlencoded
+connect-protocol-version: 1
+
+name=Ana
+>>> 415
+
+### an unknown rpc is unimplemented
+POST /fixture.GreeterProtocol/Missing
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 404
+json {"code": "unimplemented", "message": "no such rpc"}
+
+### a panic in a handler is a 500 without details
+POST /fixture.GreeterProtocol/Fail
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 500
+!~ a panic in a handler
+
+### an endpoint page receives the raw body and lower-cased headers
+POST /webhooks/echo
+X-Signature: t=1,v1=abc
+
+raw bytes, exactly
+>>> 200
+x-signature-seen: t=1,v1=abc
+= raw bytes, exactly
+
+### hashed static assets are immutable
+GET /assets/app.3f2a1b9c.js
+>>> 200
+content-type: text/javascript; charset=utf-8
+cache-control: public, max-age=31536000, immutable
+~ client bundle
+
+### HEAD of an asset has no body
+HEAD /assets/app.3f2a1b9c.js
+>>> 200
+=
+
+### signing in sets the session cookie
+POST /sign-in
+>>> 204
+
+### the cookie comes back on later requests
+GET /whoami
+>>> 200
+json {"cookie": "k_session=abc123"}
+
+### a cross-origin post with the session cookie is refused
+POST /webhooks/echo
+origin: https://evil.example
+
+x
+>>> 403
+
+### the same post from the public origin passes
+POST /webhooks/echo
+origin: https://app.example
+
+x
+>>> 200
+= x
+
+### an unknown page is a 404 from the app
+GET /nowhere
+>>> 404

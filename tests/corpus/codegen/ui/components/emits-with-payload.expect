@@ -1,0 +1,4 @@
+client contains const changed = props.on$changed ?? null;
+client contains changed?.(count.get())
+client contains on$changed: (value) =>
+client contains last.set(value)

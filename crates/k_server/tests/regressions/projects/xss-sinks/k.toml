@@ -1,0 +1,5 @@
+# Adversarial regressions: user text reaching URL attributes in server
+# rendering (docs/design/05-views.md, docs/compiler/runtime.md §11).
+[package]
+name = "site"
+k = "0.1"

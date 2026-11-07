@@ -1,0 +1,88 @@
+# Static assets (docs/compiler/server.md §13, docs/compiler/codegen.md §19).
+# The harness marks a file immutable when its name has an 8-hex-digit hash
+# segment.
+
+### a hashed script is served with immutable caching
+GET /assets/app.3f2a1b9c.js
+>>> 200
+content-type: text/javascript; charset=utf-8
+cache-control: public, max-age=31536000, immutable
+x-content-type-options: nosniff
+!x-from-app
+= console.log("hashed client chunk");
+
+### a hashed stylesheet is text/css
+GET /assets/app.5a6b7c8d.css
+>>> 200
+content-type: text/css; charset=utf-8
+cache-control: public, max-age=31536000, immutable
+= .k-a{color:red}
+
+### a source map is JSON and hashed like its chunk
+GET /assets/app.3f2a1b9c.js.map
+>>> 200
+content-type: application/json
+cache-control: public, max-age=31536000, immutable
+
+### an unhashed file must be revalidated
+GET /assets/index.html
+>>> 200
+content-type: text/html; charset=utf-8
+cache-control: no-cache
+
+### an unknown extension is served as octet-stream, never sniffed
+GET /assets/robots.txt
+>>> 200
+content-type: application/octet-stream
+x-content-type-options: nosniff
+cache-control: no-cache
+
+### HEAD of an asset has its headers and no body
+HEAD /assets/app.5a6b7c8d.css
+>>> 200
+content-type: text/css; charset=utf-8
+cache-control: public, max-age=31536000, immutable
+=
+
+### a query string doesn't change which asset is served
+GET /assets/app.3f2a1b9c.js?v=2
+>>> 200
+cache-control: public, max-age=31536000, immutable
+= console.log("hashed client chunk");
+
+### an unknown asset reaches the app
+GET /assets/app.00000000.js
+>>> 404
+x-from-app: 1
+
+### asset names are case-sensitive
+GET /assets/APP.3F2A1B9C.JS
+>>> 404
+x-from-app: 1
+
+### a dot segment never escapes the asset directory
+GET /assets/../server.js
+>>> 404
+!~ import
+
+### an encoded dot segment never escapes it either
+GET /assets/%2e%2e/server.js
+>>> 404
+!~ import
+
+### a POST to an asset path is not a static request
+POST /assets/app.3f2a1b9c.js
+
+x
+>>> 404
+x-from-app: 1
+
+### assets are only under their exact paths
+GET /app.3f2a1b9c.js
+>>> 404
+x-from-app: 1
+
+### the asset directory itself is not a listing
+GET /assets/
+>>> 404
+x-from-app: 1

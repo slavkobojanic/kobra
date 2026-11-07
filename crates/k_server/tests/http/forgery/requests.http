@@ -1,0 +1,209 @@
+# Request forgery with K_PUBLIC_ORIGIN=https://app.example: the session
+# cookie is `__Host-k_session`, and any request carrying a session cookie
+# that isn't GET or HEAD needs Origin: https://app.example or
+# Sec-Fetch-Site: same-origin. Cookies are sent by hand here; no response
+# sets one.
+
+### a POST with the https session cookie and no Origin is refused
+POST /hook
+cookie: __Host-k_session=abc
+
+x
+>>> 403
+!x-from-app
+
+### the http cookie name counts as a session cookie too
+POST /hook
+cookie: k_session=abc
+
+x
+>>> 403
+
+### the session cookie among others is found
+POST /hook
+cookie: theme=dark; __Host-k_session=abc; lang=en
+
+x
+>>> 403
+
+### the session cookie in a second Cookie header is found
+POST /hook
+cookie: theme=dark
+cookie: __Host-k_session=abc
+
+x
+>>> 403
+
+### a cookie whose name only ends with k_session is not the session
+POST /hook
+cookie: xk_session=abc
+
+x
+>>> 200
+x-from-app: 1
+
+### a cookie whose name only starts with k_session is not the session
+POST /hook
+cookie: k_session_old=abc
+
+x
+>>> 200
+x-from-app: 1
+
+### a cookie value that mentions k_session is not the session
+POST /hook
+cookie: note=k_session
+
+x
+>>> 200
+x-from-app: 1
+
+### the public origin passes
+POST /hook
+cookie: __Host-k_session=abc
+origin: https://app.example
+
+x
+>>> 200
+x-from-app: 1
+
+### Sec-Fetch-Site: same-origin passes without an Origin
+POST /hook
+cookie: __Host-k_session=abc
+sec-fetch-site: same-origin
+
+x
+>>> 200
+x-from-app: 1
+
+### the http form of the origin is another origin
+POST /hook
+cookie: __Host-k_session=abc
+origin: http://app.example
+
+x
+>>> 403
+
+### a subdomain of the origin is refused
+POST /hook
+cookie: __Host-k_session=abc
+origin: https://evil.app.example
+
+x
+>>> 403
+
+### an origin that only starts with the public origin is refused
+POST /hook
+cookie: __Host-k_session=abc
+origin: https://app.example.evil.example
+
+x
+>>> 403
+
+### an origin with a default port spelled out is not the serialized origin
+POST /hook
+cookie: __Host-k_session=abc
+origin: https://app.example:443
+
+x
+>>> 403
+
+### a foreign Origin is refused even with Sec-Fetch-Site same-site
+POST /hook
+cookie: __Host-k_session=abc
+origin: https://evil.example
+sec-fetch-site: same-site
+
+x
+>>> 403
+
+### PUT with the cookie is checked
+PUT /hook
+cookie: __Host-k_session=abc
+
+x
+>>> 403
+
+### PATCH with the cookie is checked
+PATCH /hook
+cookie: __Host-k_session=abc
+
+x
+>>> 403
+
+### DELETE with the cookie is checked
+DELETE /hook
+cookie: __Host-k_session=abc
+>>> 403
+
+### GET with the cookie from a foreign origin passes: GET never changes state
+GET /page
+cookie: __Host-k_session=abc
+origin: https://evil.example
+sec-fetch-site: cross-site
+>>> 200
+x-from-app: 1
+
+### HEAD with the cookie from a foreign origin passes
+HEAD /page
+cookie: __Host-k_session=abc
+origin: https://evil.example
+>>> 200
+
+### a POST without any session cookie needs no Origin
+POST /hook
+origin: https://evil.example
+
+x
+>>> 200
+x-from-app: 1
+
+### a refused rpc is Connect permission_denied and never cached
+POST /fixture.CartProtocol/Add
+content-type: application/json
+connect-protocol-version: 1
+cookie: __Host-k_session=abc
+origin: https://evil.example
+
+{}
+>>> 403
+content-type: application/json
+cache-control: private, no-store
+~ "code":"permission_denied"
+
+### an rpc from the public origin with the cookie passes
+POST /fixture.CartProtocol/Add
+content-type: application/json
+connect-protocol-version: 1
+cookie: __Host-k_session=abc
+origin: https://app.example
+
+{}
+>>> 200
+x-from-app: 1
+cache-control: private, no-store
+
+### the content-type check comes before the forgery check
+POST /fixture.CartProtocol/Add
+content-type: text/plain
+connect-protocol-version: 1
+cookie: __Host-k_session=abc
+
+{}
+>>> 415
+
+### the method check comes before the forgery check
+GET /fixture.CartProtocol/Add
+cookie: __Host-k_session=abc
+>>> 405
+allow: POST
+
+### an unknown rpc is 404 before the forgery check
+POST /fixture.CartProtocol/Remove
+content-type: application/json
+connect-protocol-version: 1
+cookie: __Host-k_session=abc
+
+{}
+>>> 404
+~ "code":"unimplemented"

@@ -1,0 +1,4 @@
+client contains $k.template("<p> <!----> </p>")
+client contains props.first()
+client contains props.last()
+server contains <!---->

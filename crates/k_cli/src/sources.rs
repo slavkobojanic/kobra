@@ -29,6 +29,12 @@ const SKIPPED_DIRS: &[&str] = &["target", "dist", "node_modules"];
 /// The manifest that marks a project root.
 const MANIFEST: &str = "k.toml";
 
+/// Whether a directory named `name` is build output or vendored code that
+/// is never searched for sources ([`SKIPPED_DIRS`]).
+pub fn is_skipped_dir(name: &str) -> bool {
+    SKIPPED_DIRS.contains(&name)
+}
+
 /// A problem loading a file, reported by the driver as a diagnostic.
 pub enum Problem {
     /// The file could not be read (K9002).

@@ -1,0 +1,5 @@
+server contains $k.checkInt(a + b)
+server contains $k.intDiv(a, b)
+server contains $k.intRem(a, b)
+server contains x * 2
+server lacks $k.checkInt(x

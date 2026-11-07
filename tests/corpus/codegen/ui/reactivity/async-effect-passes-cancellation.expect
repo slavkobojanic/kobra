@@ -1,0 +1,5 @@
+client contains $k.effect(
+client contains async function fetch($c, id)
+client contains await $k.guard($c, fetch($c, props.userId()))
+client contains if ($k.isPanic(e)) throw e;
+server lacks $k.effect(

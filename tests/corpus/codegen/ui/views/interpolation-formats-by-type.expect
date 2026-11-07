@@ -1,0 +1,3 @@
+client contains $k.formatDouble(props.ratio())
+server contains $k.formatDouble(props.ratio())
+client contains "nil"

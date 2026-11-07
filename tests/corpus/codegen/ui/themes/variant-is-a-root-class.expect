@@ -1,0 +1,6 @@
+css contains :root {
+css contains   --k-color-surface: #FFFFFF;
+css contains   --k-color-text: #111827;
+css contains :root.k-theme-dark {
+css contains   --k-color-surface: #111827;
+css lacks prefers-color-scheme

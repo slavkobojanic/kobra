@@ -1,0 +1,40 @@
+# Password hashing (docs/design/33-crypto.md, "Passwords"): Argon2id PHC
+# strings with a fresh salt each time, verification, the unusable hash, and
+# a malformed hash, which matches nothing instead of panicking. Parameters
+# are the OWASP minimum for Argon2id: m=19456 (19 MiB), t=2, p=1.
+
+### a hash verifies its password and no other, and is salted
+POST /pw.PasswordProtocol/RoundTrip
+content-type: application/json
+connect-protocol-version: 1
+
+{"password": "correct horse battery staple", "other": "correct horse battery stapler"}
+>>> 200
+json {"value": "same=true wrong=false salted=true phc=true"}
+
+### an empty password hashes and verifies too
+POST /pw.PasswordProtocol/RoundTrip
+content-type: application/json
+connect-protocol-version: 1
+
+{"password": "", "other": " "}
+>>> 200
+json {"value": "same=true wrong=false salted=true phc=true"}
+
+### no password matches the unusable hash
+POST /pw.PasswordProtocol/Unusable
+content-type: application/json
+connect-protocol-version: 1
+
+{"password": ""}
+>>> 200
+json {"value": false}
+
+### a malformed hash matches nothing
+POST /pw.PasswordProtocol/Against
+content-type: application/json
+connect-protocol-version: 1
+
+{"password": "x", "hash": "not a hash"}
+>>> 200
+json {"value": false}

@@ -1,0 +1,5 @@
+client contains $k.prop(
+client contains "value"
+client contains "input"
+client contains name.set(
+server contains out.attribute("value", name)

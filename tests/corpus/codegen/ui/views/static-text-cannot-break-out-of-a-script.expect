@@ -1,0 +1,8 @@
+client lacks </script
+client lacks <script>
+client lacks <!-- x
+server lacks </script
+server lacks <script>
+server lacks <!-- x
+client contains &lt;/script&gt;
+server contains &lt;/script&gt;

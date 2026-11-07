@@ -3,7 +3,9 @@
 This document describes the architecture of the whole K toolchain: the `k` binary, the compiler, the
 JavaScript runtime and the server runtime. It is the source of truth for compiler internals; the language
 itself is specified in [`docs/design`](../design) and its syntax in [grammar.md](grammar.md). Related
-documents: [diagnostics.md](diagnostics.md) and [testing.md](testing.md).
+documents: [sema.md](sema.md), [codegen.md](codegen.md), [runtime.md](runtime.md), [server.md](server.md),
+[db.md](db.md), [diagnostics.md](diagnostics.md), [testing.md](testing.md) and
+[performance.md](performance.md).
 
 Contents:
 
@@ -71,17 +73,21 @@ k_cli ──▶ k_server ──▶ k_runtime
   │        │           └─────▶ k_db
   │        └──▶ k_runtime
   ├──▶ k_sema (k check)
-  └──▶ k_corpus (golden formats, sema suite) ──▶ k_sema, k_syntax
+  └──▶ k_corpus (golden formats, sema/codegen/run suites) ──▶ k_codegen, k_sema, k_syntax
 ```
+
+Test-only edges: `k_server`'s tests use `k_corpus`, `k_sema` and `k_codegen` (the execution corpus and
+the e2e projects need V8 and the compiler together); `k_cli`'s tests use `k_server` to build an app
+archive by hand.
 
 - `k_diagnostics` depends on nothing but `text-size`.
 - `k_syntax` knows nothing about semantics.
 - `k_sema` never generates code; `k_codegen` never reports semantic errors. Codegen may assume a checked
   program but must still not panic on an erroneous one; it refuses to emit when errors exist.
 - `k_db` is low-level: it owns the schema model, a small **query IR**, SQL generation for both dialects,
-  migrations and the drivers. `k_sema` lowers repository lambdas into the query IR (and reports what
-  cannot be translated); `k_server` uses the drivers. The server runtime therefore never links the
-  compiler.
+  the migration builder, the build's database manifest and the drivers. `k_sema` reports what can't be
+  translated; `k_codegen` lowers repository queries into the query IR; `k_server` uses the drivers. The
+  server runtime therefore never links the compiler.
 - `k_server` (and so V8) is behind the default-on cargo feature `server` of `k_cli`, so compiler
   development can build and test without compiling V8.
 
@@ -322,7 +328,8 @@ The batch driver (`k check`) and tests use the same `AnalysisHost`; there is no 
 
 ## 7. Code generation
 
-`k_codegen` emits ES2022 modules and CSS. It never invokes an external tool.
+`k_codegen` emits ES2022 modules and CSS. It never invokes an external tool. **The detailed design is
+[codegen.md](codegen.md)**; this section is the summary.
 
 ### 7.1 Value representation
 
@@ -410,7 +417,7 @@ the real implementation, which server-side rendering calls in-process.
 ## 8. JavaScript runtime
 
 `k_runtime` is hand-written JavaScript (ES2022, no dependencies) embedded in the binary. It is small,
-readable and tested ([§13](#13-testing-strategy)).
+readable and tested ([§13](#13-testing-strategy)). **The detailed design is [runtime.md](runtime.md)**.
 
 ### 8.1 Signals
 
@@ -462,14 +469,15 @@ an `AbortSignal` with the effect or load that issued them.
 ### 8.7 Size budget
 
 Signals, DOM renderer and hydration: at most 5 KB minified and brotli-compressed. With router and RPC
-client: at most 10 KB.
+client: at most 10 KB. The budget test compacts the runtime and measures gzip at the best level, which is
+an upper bound for brotli ([runtime.md §2](runtime.md#2-modules-api-and-size-budget)).
 
 ---
 
 ## 9. Server runtime
 
 `k_server` runs the server bundle in V8 through [deno_core](https://docs.rs/deno_core), with HTTP served by
-[hyper](https://hyper.rs) on tokio.
+[hyper](https://hyper.rs) on tokio. **The detailed design is [server.md](server.md)**.
 
 ### 9.1 Process model
 
@@ -478,8 +486,11 @@ client: at most 10 KB.
   requests interleave on the isolate's event loop.
 - Isolates start from a **V8 snapshot** containing the runtime and the application bundle, created by
   `k build`, so cold start is fast.
-- Only web-standard APIs are exposed to JavaScript (fetch, streams, URL, Web Crypto, encoding, console),
-  through deno's extension crates, plus K's ops (database, secrets, logging, timers).
+- **Decision:** no deno extension crates. Isolates get what V8 provides plus a small bootstrap
+  (`console`, `queueMicrotask`, `AbortController`, `TextEncoder`/`TextDecoder`) and K's ops (logging,
+  requests, database, config, timers, crypto, fetch); there is no ambient I/O
+  ([server.md §3–4](server.md#3-process-model)). This keeps the binary and the attack surface small and
+  every effect on the world visible as an op.
 
 ### 9.2 Request handling
 
@@ -492,8 +503,13 @@ hyper request
 ```
 
 - Every request gets a fresh request scope: `@Scope(.request)` services and the server-side instances of
-  client services, so no state leaks between users (design 10).
+  client services, so no state leaks between users (design 10). State every worker must share (sessions,
+  rate limits, `@Scope(.server)` state, broadcasts) lives in Rust behind ops.
+- **Decision (round 1b):** after the Rust front's checks, a request is handled by the hand-written
+  `k:runtime/app` over a table the generated server entry describes (routes, rpcs, endpoints,
+  containers); see [server.md §1](server.md#1-status-and-scope).
 - SSR streams HTML: the shell and layouts flush first, then each loading boundary as its data resolves.
+  (v0 renders the whole document, then sends it.)
 - A panic becomes a 500 response; in development it includes the K stack trace (mapped through source
   maps), in production a request id only.
 
@@ -528,33 +544,42 @@ deferred.
 
 ### 9.4 Configuration and secrets
 
-`k.toml` declares the secrets an app needs (provisional syntax: `[secrets] names = ["STRIPE_KEY"]`). At
-startup `dist/app` reads them from the environment (or a secrets file passed with `--secrets`) and refuses
-to start if one is missing. Server code reads them through the server-only stdlib `Secrets` service, so
-the compiler keeps them out of client bundles. `DATABASE_URL` selects the database (`sqlite:` or
-`postgres://`).
+Configuration and secrets are typed `config` declarations read from the environment
+([25-config-and-secrets.md](../design/25-config-and-secrets.md)): `NAME_FILE` (secrets only), then
+`NAME`, then the default; every problem is reported at once and `dist/app` exits 78 before opening a port;
+secret values are never printed. The compiler keeps configs and secrets out of client bundles.
+`DATABASE_URL` selects the database (`sqlite:` or `postgres://`). Details:
+[server.md §8](server.md#8-configuration-and-secrets).
 
 ---
 
 ## 10. Persistence
 
-- **Schema model:** entities map to tables (snake_case names), `@Id` to the primary key, `@Unique` to
-  unique indexes, `@Relation` to foreign keys or join tables.
-- **Query translation:** `k_sema` lowers repository bodies from HIR into `k_db`'s query IR at compile
-  time. Supported: `filter`
-  with comparisons, `and`/`or`/`not`, `nil` checks, membership and string predicates; `sortedBy`
-  (and descending), `limit`, `offset`, `first`, `count`, `including` (batched `IN` queries, no N+1).
-  Captured values become bind parameters. SQL is generated for both dialects at compile time and embedded
-  as constants. Anything else is a compile error (design 19).
-- **Drivers:** SQLite through `rusqlite` (bundled SQLite, run on a blocking thread pool) and Postgres
-  through `tokio-postgres` with a small connection pool. Both are exposed to JavaScript as async ops that
-  take a statement id and parameters and return rows.
-- **Transactions:** `db.transaction { ... }` maps to a driver transaction bound to the request; a throw
-  rolls back.
-- **Tests:** each integration test runs in a SQLite transaction that is rolled back (design 21).
-- **Migrations:** `k migrate new <name>` diffs entities against `schema.lock` and writes
-  `migrations/NNNN_<name>.sql` for both dialects; `k migrate apply` applies pending migrations and records
-  them in a `k_migrations` table; destructive changes require `@Breaking("reason")`.
+**The detailed design is [db.md](db.md)**; this section is the summary.
+
+- **Schema model:** entities map to tables (snake_case names, or the names `schema.lock` records),
+  `@Id` to the primary key, `@Unique` to unique indexes, a to-one `@Relation` to a `<field>_id` foreign
+  key, a to-many one to its target's foreign key.
+- **Query translation:** `k_sema` checks repository lambdas (K6001 for calls SQL can't express);
+  `k_codegen` (`crate::db`) lowers every awaited chain on a repository's collection into `k_db`'s query
+  IR. Supported: `filter` with comparisons, `and`/`or`/`not`, `nil` checks, membership, `contains`/
+  `startsWith`/`endsWith`; `sortedBy`/`thenBy` (and descending), `limit`, `offset`, `first`, `single`,
+  `count`, bulk `update`/`delete`, `including` (one query per relation, no N+1). Every value is a bind
+  parameter. SQL is rendered for both dialects at build time into the build's **database manifest**
+  (numbered statements, migrations, unique indexes), never into JavaScript. Anything else fails the
+  build (design 19).
+- **Drivers:** SQLite through `rusqlite` (bundled SQLite, on a blocking thread pool) and Postgres
+  through `tokio-postgres`, behind one `Database`; the server runs it on its own `k-db` runtime and
+  exposes it to JavaScript as async ops that take a statement number and parameters.
+- **Transactions:** `database.transaction { … }` is a driver transaction bound to the request, nested
+  blocks are savepoints, a throw rolls back. v0 has one connection per process, leased to a transaction
+  for its duration.
+- **Migrations:** `migrations/NNNN_*.k` hold `Schema` builder calls, which `k_db::builder` replays into
+  both dialects at build time; the build fails when a migration doesn't replay or the result lacks an
+  entity's columns. `dist/app serve` applies the pending ones before the port opens and records them in
+  `k_migrations`. `k migrate new` (diffing entities against `schema.lock`) is planned.
+- **Tests:** `tests/corpus/db` serves apps on fresh SQLite (and Postgres) databases; `k test`'s
+  rolled-back transaction per test is planned (design 21).
 
 ---
 
@@ -590,20 +615,33 @@ past a budget blocks the change.
 | Cold `k build`, 100,000-line project | ≤ 2.5 s, excluding a cached V8 snapshot |
 | Language server (deferred): diagnostics after a keystroke / completions | ≤ 100 ms / ≤ 50 ms at p95 |
 | Compiler memory, 100,000-line project, warm | ≤ 1.5 GB |
-| Client runtime size (min + brotli) | ≤ 5 KB core, ≤ 10 KB with router and RPC |
+| Client runtime size (min + brotli) | ≤ 5 KB core, ≤ 10 KB with router and RPC; the shipped runtime chunk (with the stdlib bodies, ≤ 10 KB of their own) ≤ 20 KB |
 | Hydration of a 1,000-node page | ≤ 10 ms |
 | Signal write to DOM text update | ≤ 1 µs per binding |
-| Replacing a 1,000-row keyed list | ≤ 20 ms |
+| Signal write propagated through computeds to an effect | ≤ 1 µs per write (a diamond of three computeds) |
+| Replacing a 1,000-row keyed list | ≤ 20 ms; 10,000 rows ≤ 200 ms (linear); every other list operation of 1,000 rows ≤ 20 ms |
 | `dist/app` cold start (snapshot) | ≤ 150 ms to first response |
+| Code generation (lowering + printing), single-threaded | ≥ 200,000 lines/s ([codegen.md §20](codegen.md#20-performance-budgets)) |
 | SSR of a 1,000-node page (data loaded) | ≤ 3 ms |
+| SSR under load (2 clients per core), the 1,000-node page and the example apps' pages | ≥ 1,000 pages/s per core, p99 ≤ 25 ms |
+| RPC with one SQLite query ([db.md §13](db.md#13-performance-budgets)) | ≤ 250 µs at p50, whole round trip |
 | RPC dispatch overhead (excluding the handler) | ≤ 50 µs at p50 |
 | Trivial RPC throughput, 8 cores | ≥ 30,000 requests/s |
 
+The code generation, runtime, server and `dist/app` budgets are enforced by `scripts/bench-check.sh`
+(`--codegen`, `--runtime`, `--server`, `--db`, `--app`) through `crates/k_codegen/tests/perf_budget.rs`,
+`crates/k_runtime/tests/runtime.rs`, `crates/k_server/tests/perf_budget.rs`, `crates/k_db/tests/perf_budget.rs`
+and `crates/k_cli/tests/perf_budget.rs` (the real `dist/app` of the examples over HTTP); method and baselines
+are in [performance.md §11](performance.md#11-stage-3-runtime-and-server). All are met today; the full client
+runtime has 62 bytes of gzip headroom. The SSR-under-load and 10,000-row budgets were added with the stage 3
+benchmarks: the first is the 3 ms single-request budget turned into a per-core rate with margin, the second
+the 1,000-row budget scaled linearly.
+
 The syntax budgets and the `k check` budgets (cold, warm after a body or signature edit, memory) are
 enforced by `scripts/bench-check.sh`; its method, the measured baselines and the profiles of the parser
-and the checker are in [performance.md](performance.md). The warm body-edit budget is **not met yet**
-(about 100 ms; [performance.md §10.4](performance.md#104-budget-status)): it needs the per-declaration
-early cutoff of [sema.md §3.3](sema.md#33-layers).
+and the checker are in [performance.md](performance.md). The warm body-edit budget is met with little
+margin (28.7 ms of 30 ms on 2026-11-07; [performance.md §10.4](performance.md#104-budget-status)); the
+per-declaration early cutoff of [sema.md §3.3](sema.md#33-layers) would widen it.
 
 Practices that keep the compiler within budget: structure-of-arrays token storage, interning of names,
 arena allocation for HIR, no per-token heap allocation, `&str` slices instead of `String`s in hot paths,
@@ -619,9 +657,12 @@ All test kinds, their commands and their file formats are documented in [testing
 - **Golden corpus** (`tests/corpus`): token streams, S-expression trees and diagnostics now; checks,
   generated JS/CSS later. Expectations are written by hand, before the implementation.
 - **Property tests** (proptest) for invariants: losslessness, never panicking, dump round-trips,
-  formatter idempotence, deterministic output.
-- **Fuzzing** (cargo-fuzz) of lexer, parser and later the checker and codegen. Crashes become regression
-  cases.
+  formatter idempotence, deterministic output; and **differential tests** of stage 3: generated programs
+  run in V8 against a reference evaluator, release against development builds, server HTML hydrated
+  against the client render, the JSON wire format against a reference codec, SQLite against a reference
+  query evaluator ([testing.md §5.6](testing.md#56-stage-3-properties-code-generation-execution-the-server-and-sql)).
+- **Fuzzing** (cargo-fuzz) of lexer, parser, checker, code generation (and execution in V8), RPC JSON
+  decoding and HTTP request handling through the real server. Crashes become regression cases.
 - **Regression tests** for every fixed bug.
 - **End-to-end tests:** the `k` binary on projects; built servers over HTTP; real browsers through the
   DevTools protocol when available; the example apps.
@@ -642,7 +683,7 @@ my-app/
   src/
     shop/cart/CartService.k        module shop.cart
     shop/cart/CartService.test.k   its tests
-  migrations/0001_init.sql
+  migrations/0001_init.k
   dist/                build output (not committed)
     app                server executable (runtime + snapshot + server bundle)
     public/            hashed client JS, CSS and source maps
@@ -651,7 +692,8 @@ my-app/
 | Command | v0 behavior |
 |---|---|
 | `k check [paths]` | parse, check, lockfile comparison, tests in CI mode; `--format human\|json` |
-| `k build` | check, then emit `dist/` |
+| `k build [project] [--out dir]` | check, then emit `dist/` ([codegen.md §19](codegen.md#19-output-layout-of-dist)) |
+| `k run [project] [--port n]` | build for development and serve in-process |
 | `k dev` | build and serve with rebuild on change (HMR deferred) |
 | `k test` | run `test` declarations (unit, component and integration tests) |
 | `k routes` | print the route table from the checked program |
@@ -660,8 +702,10 @@ my-app/
 
 Exit status: 0 success, 1 problems found, 2 usage or internal error.
 
-`dist/app` is a copy of a slim runtime executable (the server runtime without the compiler) with the
-snapshot and assets appended in an archive trailer that it reads at startup. Deployment is copying one
+`dist/app` is a copy of a runtime executable with the server bundle and assets appended in an archive
+trailer that it reads at startup ([server.md §12](server.md#12-packaging-distapp)); in v0 the runtime
+executable is `k` itself, which serves when it finds a trailer, and a slim runtime binary without the
+compiler is deferred. Deployment is copying one
 file, or a minimal container image (`FROM scratch`-style with CA certificates).
 
 ---
@@ -680,10 +724,15 @@ Few, well-known crates. Adding one requires a line here.
 | `libfuzzer-sys` | fuzz targets (nightly, outside workspace) | in use |
 | `arbitrary` | structure-aware K program generator shared by fuzz targets and property tests (dev) | in use |
 | `salsa` | incremental query engine | rejected: hand-rolled queries ([sema.md §3.1](sema.md#31-decision-hand-rolled-salsa-style-layered-queries)) |
-| `serde`, `serde_json`, `toml` | lockfiles, `k.toml`, server JSON | planned |
-| `tokio`, `hyper`, `hyper-util`, `http-body-util` | HTTP server | planned (k_server) |
-| `deno_core` and deno web extensions | V8 embedding, web APIs | planned (k_server) |
-| `rusqlite` (bundled), `tokio-postgres` | database drivers | planned (k_db) |
+| `serde`, `serde_json` | manifests, ops, RPC JSON, app archive | in use (k_codegen, k_server, k_db, k_corpus) |
+| `toml` (parse only) | `schema.lock` | in use (k_db) |
+| `tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes` | HTTP server, async drivers | in use (k_server, k_db) |
+| `deno_core`, `deno_error` | V8 embedding, ops | in use (k_server) |
+| deno web extensions | web APIs in isolates | rejected: a small bootstrap and K ops instead ([§9.1](#91-process-model)) |
+| `rusqlite` (bundled, statement cache, `collation` for `k_decimal`), `tokio-postgres` | database drivers | in use (k_db) |
+| `flate2` | gzip for the runtime size-budget test (dev) | in use (k_runtime) |
+| `getrandom` | the OS CSPRNG for session ids and OAuth state (already in the tree through deno_core) | in use (k_server) |
+| `argon2` | Argon2id password hashing (`k.crypto.Password`, PHC strings; RustCrypto, pure Rust) | in use (k_server) |
 
 No JavaScript package ecosystem is used, at build time or at runtime.
 
@@ -716,7 +765,5 @@ and bidirectional streaming.
   `docs/design/19`–`39`; the syntax layer parses `config` and `migration` (grammar RA-32), and the
   later stages and §9.4 below still need updating to match them.
 - The auth and session model behind `Authenticated`, `Role` and `Session`.
-- The exact secrets declaration syntax ([§9.4](#94-configuration-and-secrets)); the `config` proposal
-  would replace the provisional `k.toml` list.
 - Whether `Int` should be a 64-bit integer (`bigint`) on the server; v0 uses safe-integer `number`
   everywhere for identical semantics on both sides.

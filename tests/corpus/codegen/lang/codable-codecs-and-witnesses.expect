@@ -1,0 +1,5 @@
+server contains export function Point$encode(
+server contains export function Point$decode(
+server contains export function text($w_T, value)
+server contains Json.encode($w_T, value)
+server contains text(Point$codec,

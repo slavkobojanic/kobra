@@ -1,0 +1,1 @@
+returns [{"id": 1, "name": "Ana", "email": "a@example.com"}, {"id": 1, "name": "Anna", "email": "a@example.com"}, {"id": 1, "name": "Ana", "email": "a@example.com"}, {"id": 2, "name": "Ana", "email": "b@example.com"}]

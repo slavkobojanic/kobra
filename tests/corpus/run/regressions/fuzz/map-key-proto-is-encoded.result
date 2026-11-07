@@ -1,0 +1,1 @@
+returns ["{\"__proto__\":true,\"a\":false}", "1", "{\"__proto__\":true}"]

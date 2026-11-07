@@ -259,6 +259,7 @@ Messages and detail lines for this range that the corpus pins exactly:
 | Code | Name | Severity | Primary span | Fix |
 |---|---|---|---|---|
 | K2401 | `named-status-as-other` | error | The integer literal. | Replace with the named case (machine-applicable). |
+| K2402 | `money-sum-without-currency` | error | From the name `sum` to the end of the call `sum()` on a `List<Money>`. | Replace with `sum(in: .usd) { amount => amount }` (maybe-incorrect: the currency is a placeholder to choose). `sum()` on a list of any element type other than `Int`, `Double` or `Money` is K2009 at the same span. |
 
 ### Annotations, members and reactivity (K3000–K3099)
 

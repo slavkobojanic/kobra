@@ -4,7 +4,8 @@ This document records how the performance of the K toolchain is measured, the cu
 what the profiles say. The budgets themselves are defined in
 [architecture.md §12](architecture.md#12-performance-budgets); the benchmark conventions are in
 [testing.md §9](testing.md#9-benchmarks-and-performance-budgets). Sections 1–9 cover the syntax layer
-(lexer, parser, tree sink); [§10](#10-semantic-analysis) covers semantic analysis (`k check`).
+(lexer, parser, tree sink); [§10](#10-semantic-analysis) covers semantic analysis (`k check`);
+[§11](#11-stage-3-runtime-and-server) covers the JavaScript runtime and the server.
 
 Contents:
 
@@ -18,6 +19,7 @@ Contents:
 8. [Known costs and next steps](#8-known-costs-and-next-steps)
 9. [History](#9-history)
 10. [Semantic analysis](#10-semantic-analysis)
+11. [Stage 3: runtime and server](#11-stage-3-runtime-and-server)
 
 ---
 
@@ -32,8 +34,10 @@ cargo bench -p k_syntax -- --save-baseline main       # record a baseline
 cargo bench -p k_syntax -- --baseline main            # compare a change against it
 K_BUDGET_SCALE=0.5 scripts/bench-check.sh             # slower machine: enforce half the throughput
 scripts/bench-check.sh --sema                         # only the semantic budgets (--syntax: only syntax)
+scripts/bench-check.sh --codegen --server --app       # stage 3 areas (also --runtime, --db); see §11.1
 cargo bench -p k_sema                                 # semantic criterion benchmarks
 cargo bench -p k_sema -- '^warm_body/'                # one group
+cargo bench -p k_codegen                              # code generation criterion benchmarks
 ```
 
 `scripts/bench-check.sh` runs the `#[ignore]`d tests of `crates/k_syntax/tests/perf_budget.rs` with
@@ -512,3 +516,141 @@ Effect on the 100k-line project (budget check, best-of): cold on 1 thread 141 �
 |---|---|---|---|---|---|
 | 2026-11-07 | benchmarks and budget check introduced | 141 ms | 125 ms | 686 ms | 50.7 ms |
 | 2026-11-07 | §10.6 changes | 120 ms | 102 ms | 34.0 ms | 11.9 ms |
+
+---
+
+## 11. Stage 3: runtime and server
+
+### 11.1 Running
+
+```sh
+scripts/bench-check.sh --codegen --runtime --server --db --app   # every stage 3 budget
+cargo test --release -p k_codegen --test perf_budget -- --ignored --nocapture --test-threads 1
+cargo test --release -p k_runtime --test runtime -- --nocapture size_budget
+cargo test --release -p k_server --test perf_budget -- --ignored --nocapture --test-threads 1
+cargo test --release -p k_db --test perf_budget -- --ignored --nocapture --test-threads 1
+cargo test --release -p k_cli --test perf_budget -- --ignored --nocapture --test-threads 1
+cargo bench -p k_codegen                                         # criterion: emit/*, build/*
+```
+
+`--test-threads 1` keeps the latency and throughput measurements from competing with each other. The
+`k_cli` tests build the example apps with the `k` Cargo built for them, so they must run in release: a
+debug `dist/app` is not the product.
+
+**Profiling** without extra tools on macOS: start the test binary
+(`target/release/deps/perf_budget-<hash> --ignored --exact <test>`) in the background and attach
+`sample <pid> 4 -file out.txt`; the "Sort by top of stack" section names the hot frames and the call graph
+their callers. That is how the codegen costs of §11.4 were found.
+
+### 11.2 Method
+
+Every client-runtime benchmark runs in the embedded V8 against the test DOM of `k:testing`. That DOM links
+siblings as browsers do (§11.4), so `firstChild`, `nextSibling`, `insertBefore` and `removeChild` are O(1)
+and the numbers are the runtime's own cost plus a small constant DOM cost; a browser's DOM is slower per
+node operation, which is why the budgets keep a wide margin. V8's `Date.now()` has millisecond resolution,
+so each JS measurement times a *block* of rounds (state for every round built before the block starts) and
+divides; the best of three to five blocks is kept.
+
+| Test | Measures |
+|---|---|
+| `k_codegen` `lowering_and_printing_a_100k_line_project` | `generate` on a checked 100k-line realistic project (`crates/k_sema/benches/project/`, the same text `k check` is measured on), program view and point-query index already built: lowering, printing, bundling; fastest of ≥ 3 runs; lines of K per second |
+| `k_codegen` `codegen_time_is_linear_in_project_size` | the same at 10k and 100k lines; time ratio |
+| `k_codegen` `cold_build_of_a_100k_line_project` | new host, check and `generate` on min(8, cores) threads (`k build` without file I/O); the codegen part separately |
+| `the_core_runtime_meets_its_size_budget`, `the_full_client_runtime_meets_its_size_budget`, `the_stdlib_bodies_meet_their_size_budget` (`k_runtime`) | the parts concatenated in table order: raw, after `compact`, gzip level 9 (an upper bound for brotli) |
+| `cold_start_to_first_response` | `Server::start` with one worker (isolate creation, runtime and bundle load, bind) plus one rpc over a fresh connection |
+| `isolate_creation` | `Engine::new` + loading `k:runtime`, averaged over 20 |
+| `rpc_round_trip_latency` | 20,000 sequential trivial rpcs on one keep-alive connection after 2,000 warm-up calls; p50 and p99 of the whole round trip (client write, hyper, front checks, worker queue, `serve()` and back) |
+| `trivial_rpc_throughput` | 2 × cores keep-alive clients × 5,000 rpcs against `cores` workers; the budget (30,000/s on 8 cores) is scaled linearly by the core count |
+| `signal_write_to_text_update` | 1,000 text bindings on one signal in V8 with the test DOM; 500 batched writes; ns per binding update |
+| `signal_update_throughput` | 200,000 batched writes to a signal read by a diamond of three computeds and one effect (every node runs once per write); best of 3 blocks; also bare writes with no reader |
+| `keyed_list_of_a_thousand_rows`, `keyed_list_of_ten_thousand_rows` | an `each` over rows of the js-framework-benchmark shape (`<tr>` with three cells, two text bindings); ms per operation: create N rows, replace all N (new keys), update every 10th row, swap rows 1 and N − 2, remove one, append N to N, clear |
+| `hydration_of_a_thousand_node_page` | server HTML written with `Out` (heading, a keyed list of 200 rows of five nodes, footer: 1,008 nodes), parsed untimed; `hydrate` with templates, an `each` and two bindings per row claiming every node; checks that the server's nodes were claimed |
+| `generated_rpc_round_trip_latency` | like `rpc_round_trip_latency`, against a generated app (release build of an in-memory project): decode, guards, request container, handler and encode through `k:runtime/app` |
+| `generated_rpc_throughput` | like `trivial_rpc_throughput`, against the generated app |
+| `ssr_of_a_thousand_node_page` | 2,000 sequential `GET`s (after 300 warm-up) of a generated page with one `@Load` and 500 rows of two elements; p50 and p99 of the whole round trip, document and `k-data` included |
+| `ssr_throughput_of_a_thousand_node_page` | the same page, `cores` workers, 2 × cores keep-alive clients for 3 s: pages/s, p50 and p99 under load |
+| `database_rpc_round_trip_latency` | a generated app with an entity, a repository and a migration on in-memory SQLite, 1,000 rows; 10,000 sequential rpcs each of a primary-key `first` and of an indexed, sorted, `limit(10)` query; p50 and p99 of the whole round trip (codegen'd query, op, `k-db` runtime hop, SQLite, decoding) |
+| `database_rpc_throughput` | 2 × cores keep-alive clients for 3 s of primary-key rpcs against `cores` workers sharing the one connection |
+| `k_db` `rendering_a_typical_query`, `driver_overhead_over_rusqlite` | `render` of a 7-column filtered, sorted, limited select, both dialects; a point query through `Database` against the same `rusqlite` call |
+| `k_cli` `cold_start_of_dist_app` | `k build examples/{weather,shop}`, then 10 × spawn `dist/app serve` (shop: in-memory SQLite, so migrations run) and poll `GET /` every 0.5 ms on fresh connections until a complete 200; median and best, spawn to last byte; the executable is paged in once first, as a deployed binary would be |
+| `k_cli` `ssr_of_realistic_pages` | the real `dist/app` of `examples/weather` (`/`, server-rendered) and `examples/shop` (`/`, storefront from SQLite): 3,000 sequential keep-alive `GET`s (p50, p99), then 2 × cores clients for 3 s (pages/s, p50, p99) |
+| `k_cli` `database_rpcs_of_the_examples` | `notes` `IsEmailAvailable` and `shop` `Products` (both SQLite queries) on the real `dist/app`: 10,000 sequential rpcs (p50, p99), then 2 s under load |
+| `k_cli` `shipped_client_assets` | every file under `dist/public` of the four examples, raw and gzip; the `runtime.<hash>.js` chunk (client runtime + stdlib bodies) against `FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET` |
+
+### 11.3 Budget status
+
+Measured 2026-11-07, release build, 14-core Apple M-series:
+
+| Budget | Value | Status |
+|---|---|---|
+| Codegen ≥ 200,000 lines/s single-threaded (codegen.md §20) | 500,000 lines/s (100k lines: 200 ms, 4.8 MB of JS/CSS in 280 files); criterion `emit/realistic/100k` 201 ms | met (was 41,000 before §11.4) |
+| Codegen linear in project size (10k → 100k ≤ 14×) | 10.7× | met (was 55×) |
+| Cold `k build` of 100k lines ≤ 2.5 s, codegen ≤ 0.6 s of it | 314 ms (check 113 ms + codegen 201 ms) on 8 threads | met |
+| Client runtime ≤ 5 KB core / ≤ 10 KB full (compressed) | core 36.5 KB raw, 16.8 KB compacted, **4,782 B** gzip; full 70.3 KB raw, 35.4 KB compacted, **10,192 B** gzip (budget 10,240); stdlib bodies **10,116 B** (budget 10,240) | met, **48 bytes of headroom** on the full runtime and 124 on the stdlib bodies after round 2 (typed client routing moved into the shared `std.js` matcher, hydration claims for root texts and markers, `ErrorBoundary`; the grapheme fallback was dropped to pay for it): the next feature needs a size cut first |
+| Stdlib bodies ≤ 10 KB | 53.8 KB raw, 29.9 KB compacted, 8,569 B gzip | met |
+| Shipped `runtime.<hash>.js` (full runtime + stdlib) ≤ 20 KB | 63,038 B raw, 17,683 B gzip, 15,869 B brotli -q 11; per example 23.8–29.2 KB gzip of client assets in total | met |
+| Signal write to DOM text update ≤ 1 µs per binding | 86 ns | met |
+| Signal propagation ≤ 1 µs per write (diamond of 3 computeds + effect) | 280 ns (3.6 M writes/s); a write without readers 4 ns | met |
+| Replacing a 1,000-row keyed list ≤ 20 ms | 1.65 ms (create 2.05, update every 10th 0.15, swap 0.05, remove 0.10, append 1,000 3.55, clear 0.50) | met |
+| Replacing a 10,000-row keyed list ≤ 200 ms (the 1k budget × 10) | 26 ms (create 21.7, update 2.3, swap 1.7, remove 1.7, append 10,000 33.3, clear 5.0) | met; swap and remove stay below a tenth of a replace |
+| Hydration of a 1,000-node page ≤ 10 ms | 0.10 ms (1,008 nodes) | met |
+| `dist/app` cold start ≤ 150 ms | in process, 1 worker: 34 ms; the real `dist/app` with 14 workers, spawn to the first complete `/`: weather 44 ms, shop (SQLite migrations) 46 ms median | met, without a V8 snapshot |
+| RPC dispatch overhead ≤ 50 µs p50 | 45 µs p50 / 60 µs p99 for the full loopback round trip | met (the overhead alone is smaller) |
+| Trivial RPC throughput ≥ 30,000 req/s on 8 cores | 124,000 req/s on 14 cores (scaled budget 52,500) | met |
+| Generated rpc | 47 µs p50 / 58 µs p99 round trip, 125,000 req/s on 14 cores | met: dispatch through `k:runtime/app` adds about 2 µs |
+| SSR of a 1,000-node page ≤ 3 ms | 0.17 ms p50 / 0.22 ms p99 for the whole round trip | met |
+| SSR throughput ≥ 1,000 pages/s per core, p99 under load ≤ 25 ms | 1,000-node page: 56,000 pages/s on 14 workers, p99 2.0 ms; `dist/app` weather `/`: 128,000 pages/s, p99 0.53 ms; shop `/` (SQLite): 40,600 pages/s, p99 0.82 ms | met; shop is bound by its one SQLite connection |
+| Database rpc on SQLite ≤ 250 µs p50 | in process: 76 µs p50 / 95 µs p99 (primary key), 86 µs / 102 µs (indexed 10-row page); `dist/app`: notes 84 µs / 133 µs, shop 77 µs / 276 µs | met: the database adds about 30 µs to a generated rpc |
+| Database rpc throughput ≥ 10,000 req/s | 40,400 req/s on 14 workers, one SQLite connection; `dist/app` 41,000–42,000 req/s | met |
+| `render` ≤ 2 µs; driver overhead ≤ 10 µs ([db.md §13](db.md#13-performance-budgets)) | 0.96 µs; 5.7 µs over a 0.7 µs `rusqlite` call | met |
+
+Criterion baselines (`cargo bench -p k_codegen`): `emit/realistic/1k` 1.95 ms (512 K lines/s),
+`emit/realistic/10k` 19.1 ms (522 K lines/s), `emit/realistic/100k` 201 ms (498 K lines/s),
+`build/realistic/10k` 34.4 ms, `build/realistic/100k` 327 ms (every core).
+
+Other numbers worth knowing: `dist/app` is 69 MB (the `k` binary with V8, plus the archive); the first
+`k build` after a rebuild of `k` takes about 0.7–1.0 s, almost all of it writing and paging that
+executable, later ones 50–70 ms for the examples.
+
+### 11.4 Changes made while setting up the benchmarks
+
+- **Effect flush**: the first version sorted the queue and removed effects with `Array.prototype.shift`,
+  which is linear, so a flush of n effects was quadratic: 3.0 µs per binding at 1,000 bindings. A flush
+  now takes the whole queue as one round, sorts it once and iterates (effects queued during a round run
+  in the next one): 88 ns per binding.
+- **Codegen was quadratic in the number of files** (41,000 lines/s at 100k lines, 10k → 100k ratio 55×).
+  `sample` showed three costs, each O(files) per call and called per syntax node or per rpc:
+  1. `Analysis::sema()` ran `parse_all()` (a scan building a list of every file) before returning the
+     memoized result, on every `type_info_at` / `resolve_at` call. It now returns the memoized result
+     first (`k_sema/src/host.rs`).
+  2. `Chunked::get` (the types and resolutions of a revision, one chunk per file so warm re-checks can
+     share them) probed every chunk. It now looks up a per-file index of the chunks that hold keys of
+     that file, built lazily on the first lookup of a revision, so the check and the warm re-check never
+     pay for it (`k_sema/src/warm.rs`; warm body re-check unchanged at 28.7 ms).
+  3. `Gen::project_name()` read `k.toml` through `Analysis::files()` (collect, hash every path, sort) per
+     rpc path and per module; it is now read once per `generate` (`k_codegen/src/cx.rs`).
+
+  Result: 500,000 lines/s, ratio 10.7×; the cold 100k-line build went from 2.35 s to 0.31 s.
+- **Test DOM with sibling links**: `k:testing`'s DOM kept children in arrays, so `nextSibling` was an
+  `indexOf` and `insertBefore` a search plus a splice; a 10,000-row list benchmark would have measured
+  that quadratic cost instead of the runtime. Children are now a doubly linked list as in browsers;
+  `childNodes` is an array snapshot rebuilt after a mutation. Every runtime JS test passes unchanged.
+
+### 11.5 Open costs
+
+- The full client runtime is 62 bytes under its gzip budget. Candidates for a cut: the release-build name
+  shortener (deferred in codegen.md §1) and moving rarely used `std.js` bodies into the page chunks that
+  call them.
+- Hydration and keyed lists are measured against the test DOM, not a browser. A browser run through the
+  DevTools protocol (architecture.md §13) should re-baseline them when it exists.
+- `dist/app` cold start creates one isolate per core without a V8 snapshot (about 3.4 ms each, in
+  parallel); a snapshot would cut it further but is not needed for the budget.
+
+### 11.6 History
+
+| Date | Change | signal→DOM | cold start | rpc p50 | rpc/s (14 cores) | codegen (100k lines) | 10k-row replace |
+|---|---|---|---|---|---|---|---|
+| 2026-11-07 | benchmarks introduced | 3,058 ns | 25 ms | 44 µs | 122,000 | — | — |
+| 2026-11-07 | §11.4 flush rounds | 88 ns | 25 ms | 44 µs | 122,000 | — | — |
+| 2026-11-07 | codegen, keyed list, hydration, SSR load and `dist/app` benchmarks | 86 ns | 34 ms in process, 44 ms `dist/app` | 45 µs | 124,000 | 41,000 lines/s | 26 ms |
+| 2026-11-07 | §11.4 codegen point queries | 86 ns | 34 ms | 45 µs | 124,000 | 500,000 lines/s | 26 ms |

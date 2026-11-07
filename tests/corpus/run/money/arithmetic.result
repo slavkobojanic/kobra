@@ -1,0 +1,1 @@
+returns [{"amount": "0.30", "currency": "USD"}, {"amount": "72.00", "currency": "USD"}, {"amount": "23.99", "currency": "USD"}, {"amount": "-5.00", "currency": "EUR"}, {"amount": "3000", "currency": "JPY"}]

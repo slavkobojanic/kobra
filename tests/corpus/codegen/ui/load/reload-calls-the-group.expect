@@ -1,0 +1,3 @@
+client contains .reload()
+client contains <button>Refresh</button>
+client contains <button>Retry</button>

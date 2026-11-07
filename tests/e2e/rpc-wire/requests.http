@@ -1,0 +1,508 @@
+# RPC over JSON (docs/design/28-rpc-wire-format.md, docs/compiler/server.md §6).
+# Paths are POST /{package}.{Service}/{Method}: the project `rpc-wire` and the
+# module `catalog` give the package `rpc_wire.catalog`. Error bodies are
+# Connect's {"code", "message", "details"}; messages are free text, so only
+# codes and details are asserted.
+
+### a Validatable parameter that fails a field rule is invalid_argument
+POST /rpc_wire.catalog.CatalogProtocol/AddReview
+content-type: application/json
+connect-protocol-version: 1
+
+{"review": {"text": "ok", "stars": 4, "title": "Fine"}}
+>>> 400
+~ "code":"invalid_argument"
+~ "k.ValidationError"
+~ Write at least 3 characters
+
+### every failed rule is reported, not only the first
+POST /rpc_wire.catalog.CatalogProtocol/AddReview
+content-type: application/json
+connect-protocol-version: 1
+
+{"review": {"text": "ok", "stars": 9, "title": "Fine"}}
+>>> 400
+~ Write at least 3 characters
+~ Choose 1 to 5 stars
+
+### a cross-field rule from validate(rules:) is reported under its field
+POST /rpc_wire.catalog.CatalogProtocol/AddReview
+content-type: application/json
+connect-protocol-version: 1
+
+{"review": {"text": "same text", "stars": 3, "title": "same text"}}
+>>> 400
+~ "code":"invalid_argument"
+~ The title must differ from the text
+~ title
+~ "path":"review.title"
+!~ var(--k-
+
+### validation errors name the failing field by path
+POST /rpc_wire.catalog.CatalogProtocol/AddReview
+content-type: application/json
+connect-protocol-version: 1
+
+{"review": {"text": "ok", "stars": 3, "title": "Fine"}}
+>>> 400
+~ text
+
+### validation runs before the handler: no handler has run yet
+POST /rpc_wire.catalog.CatalogProtocol/HandlerCalls
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": 0}
+
+### a valid Validatable parameter reaches the handler
+POST /rpc_wire.catalog.CatalogProtocol/AddReview
+content-type: application/json
+connect-protocol-version: 1
+
+{"review": {"text": "Lovely mug", "stars": 4, "title": "Great"}}
+>>> 200
+json {"value": 4}
+
+### an rpc without parameters or result takes and answers {}
+POST /rpc_wire.catalog.CatalogProtocol/Ping
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+content-type: application/json
+json {}
+
+### rpc responses are never cached and never sniffed
+POST /rpc_wire.catalog.CatalogProtocol/Ping
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+cache-control: private, no-store
+x-content-type-options: nosniff
+
+### an rpc without parameters ignores unknown fields
+POST /rpc_wire.catalog.CatalogProtocol/Ping
+content-type: application/json
+connect-protocol-version: 1
+
+{"extra": 1}
+>>> 200
+json {}
+
+### a scalar result is wrapped in value
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "hello"}
+>>> 200
+json {"value": "hello"}
+
+### strings round-trip unicode and markup unchanged
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "h\u00e9llo <b>&amp;</b> \u2028 \ud83d\ude00"}
+>>> 200
+json {"value": "héllo <b>&amp;</b>   😀"}
+
+### an empty string is a valid String
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": ""}
+>>> 200
+json {"value": ""}
+
+### unknown request fields are ignored
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "a", "other": [1, 2]}
+>>> 200
+json {"value": "a"}
+
+### a struct result is the response message itself
+POST /rpc_wire.catalog.CatalogProtocol/Product
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug"}
+>>> 200
+json {"slug": "k-mug", "name": "K <Mug>", "priceCents": 1200, "tags": ["mug", "k"], "note": null}
+
+### the wire field is the internal name, not the external label
+POST /rpc_wire.catalog.CatalogProtocol/Product
+content-type: application/json
+connect-protocol-version: 1
+
+{"for": "k-mug"}
+>>> 400
+~ "code":"invalid_argument"
+
+### an unlabeled parameter's wire field is its internal name
+POST /rpc_wire.catalog.CatalogProtocol/ByIndex
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": 1}
+>>> 200
+~ "note":"first"
+
+### an optional struct result present is wrapped in value
+POST /rpc_wire.catalog.CatalogProtocol/Find
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug"}
+>>> 200
+json {"value": {"slug": "k-mug", "name": "K <Mug>", "priceCents": 1200, "tags": [], "note": null}}
+
+### an optional result that is nil is value null
+POST /rpc_wire.catalog.CatalogProtocol/Find
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "nope"}
+>>> 200
+json {"value": null}
+
+### a payload-free enum crosses as its case name
+POST /rpc_wire.catalog.CatalogProtocol/Availability
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug"}
+>>> 200
+json {"value": "inStock"}
+
+### another case of the same enum
+POST /rpc_wire.catalog.CatalogProtocol/Availability
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "other"}
+>>> 200
+json {"value": "soldOut"}
+
+### a list result is wrapped in value
+POST /rpc_wire.catalog.CatalogProtocol/Slugs
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": ["k-mug", "k-shirt"]}
+
+### several parameters are fields of one message
+POST /rpc_wire.catalog.CatalogProtocol/Reserve
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug", "quantity": 2}
+>>> 200
+json {"value": 1}
+
+### parameter order in the message doesn't matter
+POST /rpc_wire.catalog.CatalogProtocol/Reserve
+content-type: application/json
+connect-protocol-version: 1
+
+{"quantity": 1, "slug": "k-mug"}
+>>> 200
+json {"value": 2}
+
+### the request content type may carry a charset
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json; charset=utf-8
+connect-protocol-version: 1
+
+{"text": "x"}
+>>> 200
+json {"value": "x"}
+
+### a field of the wrong type is invalid_argument
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": 3}
+>>> 400
+~ "code":"invalid_argument"
+
+### a missing required field is invalid_argument
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 400
+~ "code":"invalid_argument"
+
+### null for a non-optional field is invalid_argument
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": null}
+>>> 400
+~ "code":"invalid_argument"
+
+### a body that isn't JSON is invalid_argument
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+text=hello
+>>> 400
+~ "code":"invalid_argument"
+
+### a JSON array is not a message
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+["hello"]
+>>> 400
+~ "code":"invalid_argument"
+
+### a JSON string is not a message
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+"hello"
+>>> 400
+~ "code":"invalid_argument"
+
+### an Int sent as a decimal is invalid_argument
+POST /rpc_wire.catalog.CatalogProtocol/Reserve
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug", "quantity": 1.5}
+>>> 400
+~ "code":"invalid_argument"
+
+### an Int sent as a string is invalid_argument
+POST /rpc_wire.catalog.CatalogProtocol/Reserve
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug", "quantity": "1"}
+>>> 400
+~ "code":"invalid_argument"
+
+### an Int outside the safe range is invalid_argument
+POST /rpc_wire.catalog.CatalogProtocol/Reserve
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug", "quantity": 9007199254740993}
+>>> 400
+~ "code":"invalid_argument"
+
+### a nested message with a wrong field type is invalid_argument
+POST /rpc_wire.catalog.CatalogProtocol/AddReview
+content-type: application/json
+connect-protocol-version: 1
+
+{"review": {"text": "Lovely", "stars": "five", "title": "t"}}
+>>> 400
+~ "code":"invalid_argument"
+!~ "k.ValidationError"
+
+### a decoding failure never reaches the handler
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": false}
+>>> 400
+~ "code":"invalid_argument"
+
+### a declared error case is failed_precondition with HTTP 400
+POST /rpc_wire.catalog.CatalogProtocol/Product
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "nope"}
+>>> 400
+content-type: application/json
+~ "code":"failed_precondition"
+
+### the typed error detail names the error type and case
+POST /rpc_wire.catalog.CatalogProtocol/Product
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "nope"}
+>>> 400
+~ "type":"k.TypedError"
+~ "error":"rpc_wire.catalog.CatalogError"
+~ "case":"productNotFound"
+
+### a payload-free case has empty fields
+POST /rpc_wire.catalog.CatalogProtocol/Product
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "nope"}
+>>> 400
+~ "fields":{}
+
+### an error case's payload is in the detail's fields
+POST /rpc_wire.catalog.CatalogProtocol/Reserve
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug", "quantity": 5}
+>>> 400
+~ "case":"outOfStock"
+~ "fields":{"available":3}
+
+### a payload with several fields keeps each field and its type
+POST /rpc_wire.catalog.CatalogProtocol/Reprice
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug"}
+>>> 400
+~ "case":"priceChanged"
+~ "from":1200
+~ "to":1500
+~ "reason":"<tax>"
+
+### an error response is never cached
+POST /rpc_wire.catalog.CatalogProtocol/Product
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "nope"}
+>>> 400
+cache-control: private, no-store
+
+### a panic in a handler is internal with HTTP 500
+POST /rpc_wire.catalog.CatalogProtocol/Crash
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 500
+~ "code":"internal"
+cache-control: private, no-store
+
+### an rpc must be POST
+GET /rpc_wire.catalog.CatalogProtocol/Echo
+>>> 405
+allow: POST
+
+### PUT is not POST either
+PUT /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "x"}
+>>> 405
+allow: POST
+
+### an rpc without Connect-Protocol-Version is 415
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+
+{"text": "x"}
+>>> 415
+
+### a Connect-Protocol-Version other than 1 is 415
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 2
+
+{"text": "x"}
+>>> 415
+
+### text/plain is 415 even with a JSON body
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: text/plain
+connect-protocol-version: 1
+
+{"text": "x"}
+>>> 415
+
+### multipart form data is 415
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: multipart/form-data; boundary=x
+connect-protocol-version: 1
+
+{"text": "x"}
+>>> 415
+
+### an unknown method of a known service is unimplemented
+POST /rpc_wire.catalog.CatalogProtocol/Delete
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 404
+~ "code":"unimplemented"
+
+### a method name in lower camel case is not the rpc
+POST /rpc_wire.catalog.CatalogProtocol/echo
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "x"}
+>>> 404
+
+### an unknown service is unimplemented
+POST /rpc_wire.catalog.NoSuchProtocol/Ping
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 404
+~ "code":"unimplemented"
+
+### the package must match exactly
+POST /rpc-wire.catalog.CatalogProtocol/Ping
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 404
+
+### a query string on an rpc path is ignored by routing
+POST /rpc_wire.catalog.CatalogProtocol/Echo?debug=1
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "q"}
+>>> 200
+json {"value": "q"}
+
+### a CORS preflight for an rpc is never granted
+OPTIONS /rpc_wire.catalog.CatalogProtocol/Echo
+origin: https://evil.example
+access-control-request-method: POST
+access-control-request-headers: content-type, connect-protocol-version
+>>> 405
+!access-control-allow-origin
+!access-control-allow-headers
+
+### a cross-origin rpc response grants no CORS
+POST /rpc_wire.catalog.CatalogProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+origin: https://evil.example
+
+{"text": "x"}
+>>> 200
+!access-control-allow-origin

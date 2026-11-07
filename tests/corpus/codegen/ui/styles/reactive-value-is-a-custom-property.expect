@@ -1,0 +1,6 @@
+css contains   border-left: 4px solid var(--k-Summary-0);
+client contains $k.style(
+client contains "--k-Summary-0"
+client contains props.accent()
+server contains --k-Summary-0
+server contains style

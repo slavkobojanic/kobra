@@ -1,0 +1,5 @@
+server contains k:runtime/server
+server contains OPEN
+server contains CLOSE
+server contains Badge$ssr(
+client contains <section><!--[--><!--]--><!--[--><!--]--><!--[--><!--]--></section>

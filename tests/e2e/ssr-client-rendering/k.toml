@@ -1,0 +1,5 @@
+# `@Rendering(.client)`: the server sends one shell with the app-wide
+# metadata and no loads (docs/compiler/server.md §7, docs/design/23-app-structure.md).
+[package]
+name = "client_rendering"
+k = "0.1"

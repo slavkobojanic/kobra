@@ -1,0 +1,2 @@
+client contains $k.template("<p>Items: <span> </span></p>")
+server contains out.raw("<p>Items: <span>")

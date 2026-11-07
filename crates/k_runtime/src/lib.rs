@@ -1,24 +1,200 @@
-//! The JavaScript runtime of K, embedded in the `k` binary.
+//! The hand-written JavaScript runtime of K, embedded in the `k` binary.
 //!
-//! The runtime is hand-written JavaScript (no npm, no bundler) stored under
-//! this crate and embedded with `include_str!`. Generated code imports it.
-//! It provides:
+//! The runtime is plain ES2022 under `crates/k_runtime/js/`, with no
+//! dependencies and no build step. This crate embeds every file with
+//! [`include_str!`] and gives the rest of the toolchain three things:
 //!
-//! * **signals**: `signal`, `computed`, `effect`, `batch`, `untrack` and
-//!   `onCleanup`, with an owner tree for disposal and automatic cancellation
-//!   of async effects;
-//! * **path stores** for fine-grained updates of nested `@State` structs;
-//! * the **DOM renderer**: template cloning, text/attribute/class/event
-//!   bindings, keyed lists (`for ... key`), conditionals and `match`;
-//! * **hydration** of server-rendered HTML;
-//! * the **router**: History API navigation, typed URL building and parsing,
-//!   layouts, guards and redirects;
-//! * the **RPC client**: Connect-compatible JSON over HTTP, typed errors and
-//!   cancellation.
+//! * the **module table** ([`modules`], [`module`]): every runtime file with
+//!   its module specifier and the [`Part`] of the runtime it belongs to;
+//! * **specifier resolution** ([`resolve`]): how `import … from "k:runtime"`
+//!   in generated code, and relative imports between runtime files, map to
+//!   module specifiers. The server's module loader and the codegen's
+//!   bundler use the same function, so the two can't disagree;
+//! * the **compactor** ([`compact()`]): a comment and whitespace stripper that
+//!   release builds apply to the runtime, and the size budgets it is
+//!   measured against ([`CORE_SIZE_BUDGET`], [`FULL_SIZE_BUDGET`]).
 //!
-//! The design and its size budget are in `docs/compiler/architecture.md`,
-//! "JavaScript runtime".
+//! The runtime's API, its semantics (signals, DOM renderer, hydration,
+//! router, forms, `@Load`, RPC client) and the budgets are specified in
+//! `docs/compiler/runtime.md`. Its JavaScript unit tests run inside V8
+//! through `k_server` (`crates/k_server/tests/runtime_js.rs`), against the
+//! fake DOM in `js/testing/dom.js`; there is no Node and no npm.
 //!
-//! # Status
+//! # Specifiers
 //!
-//! Not implemented yet.
+//! Every runtime file has a hierarchical specifier in the `k:` scheme,
+//! `k:/runtime/signals.js`, so relative imports between files resolve like
+//! URLs. Generated code imports the public entry points by short names:
+//!
+//! | Import | Resolves to | Contents |
+//! |---|---|---|
+//! | `k:runtime` | `k:/runtime/index.js` | the client runtime |
+//! | `k:runtime/server` | `k:/runtime/server.js` | SSR helpers and the server request loop |
+//! | `k:testing` | `k:/testing/harness.js` | the JS unit-test harness and fake DOM (tests only) |
+
+mod compact;
+
+pub use compact::{CompactError, compact};
+
+/// The largest the core client runtime (signals, DOM renderer, hydration,
+/// values) may be, in bytes, after [`compact()`] and compression
+/// (`docs/compiler/architecture.md` §12: 5 KB min + brotli).
+///
+/// The budget test measures gzip at the best level, which is larger than
+/// brotli for the same input, so meeting it with gzip meets the brotli
+/// budget.
+pub const CORE_SIZE_BUDGET: usize = 5 * 1024;
+
+/// The largest the whole client runtime (the core plus router, RPC client,
+/// forms and `@Load`) may be, in bytes, measured like
+/// [`CORE_SIZE_BUDGET`] (10 KB).
+pub const FULL_SIZE_BUDGET: usize = 10 * 1024;
+
+/// The largest the stdlib's native bodies ([`Part::Stdlib`]) may be,
+/// measured like [`CORE_SIZE_BUDGET`] (10 KB).
+pub const STDLIB_SIZE_BUDGET: usize = 10 * 1024;
+
+/// The part of the runtime a module belongs to, which decides the bundles
+/// it ships in and the size budget it counts against.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Part {
+    /// Signals, the DOM renderer, hydration and values: every client page
+    /// needs them. Counts against [`CORE_SIZE_BUDGET`].
+    Core,
+    /// The router, the RPC client, forms and `@Load`: shipped when the app
+    /// uses them. Counts against [`FULL_SIZE_BUDGET`] with the core.
+    Extended,
+    /// Native bodies of the stdlib (collections, strings, `Money`,
+    /// `Decimal`, dates, JSON codecs): shipped with every client, measured
+    /// on its own (`STDLIB_SIZE_BUDGET`), because its size grows with the
+    /// stdlib rather than with the framework.
+    Stdlib,
+    /// The public client entry point that re-exports both, `k:runtime`.
+    /// Generated client code imports it; the bundler keeps only what is
+    /// used.
+    ClientEntry,
+    /// Server-only modules (SSR, the request loop). Never in a client
+    /// bundle.
+    Server,
+    /// The JS unit-test harness and fake DOM. Only loaded by tests.
+    Testing,
+}
+
+/// One embedded runtime file.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Module {
+    /// The module specifier, for example `k:/runtime/signals.js`.
+    pub specifier: &'static str,
+    /// The file's path relative to `crates/k_runtime/js/`.
+    pub path: &'static str,
+    /// The source text, exactly as written.
+    pub source: &'static str,
+    /// The part of the runtime the file belongs to.
+    pub part: Part,
+}
+
+macro_rules! modules {
+    ($( $part:ident $path:literal ),* $(,)?) => {
+        &[$(Module {
+            specifier: concat!("k:/", $path),
+            path: $path,
+            source: include_str!(concat!("../js/", $path)),
+            part: Part::$part,
+        }),*]
+    };
+}
+
+/// Every embedded runtime file, in a fixed order: core modules first, so
+/// concatenating the [`Part::Core`] sources gives the core bundle.
+///
+/// A test checks that this table lists exactly the files under
+/// `crates/k_runtime/js/` (excluding `js/tests/`, the JS unit tests).
+const MODULES: &[Module] = modules![
+    Core "runtime/signals.js",
+    Core "runtime/values.js",
+    Core "runtime/hydrate.js",
+    Core "runtime/dom.js",
+    Extended "runtime/router.js",
+    Extended "runtime/rpc.js",
+    Extended "runtime/forms.js",
+    Extended "runtime/load.js",
+    Extended "runtime/store.js",
+    Extended "runtime/list.js",
+    Extended "runtime/view.js",
+    Stdlib "runtime/std.js",
+    ClientEntry "runtime/index.js",
+    Server "runtime/ssr.js",
+    Server "runtime/server.js",
+    Server "runtime/app.js",
+    Server "runtime/db.js",
+    Testing "testing/dom.js",
+    Testing "testing/harness.js",
+];
+
+/// Returns every embedded runtime file.
+#[must_use]
+pub fn modules() -> &'static [Module] {
+    MODULES
+}
+
+/// Returns the runtime file with the given specifier (`k:/runtime/dom.js`),
+/// or `None`. Short names such as `k:runtime` are not specifiers; pass them
+/// through [`resolve`] first.
+#[must_use]
+pub fn module(specifier: &str) -> Option<&'static Module> {
+    MODULES.iter().find(|m| m.specifier == specifier)
+}
+
+/// Resolves an import of runtime code to a module specifier.
+///
+/// * The public short names resolve to their entry files: `k:runtime` to
+///   `k:/runtime/index.js`, `k:runtime/server` to `k:/runtime/server.js`,
+///   `k:testing` to `k:/testing/harness.js`.
+/// * A specifier that already names a runtime file resolves to itself.
+/// * A relative import (`./signals.js`, `../runtime/index.js`) resolves
+///   against `referrer`, which must itself be a runtime specifier.
+///
+/// Returns `None` for anything else, including a relative import that
+/// leaves `k:/` or names no embedded file. Never panics.
+#[must_use]
+pub fn resolve(specifier: &str, referrer: Option<&str>) -> Option<&'static str> {
+    let target = match specifier {
+        "k:runtime" => "k:/runtime/index.js".to_owned(),
+        "k:runtime/server" => "k:/runtime/server.js".to_owned(),
+        "k:testing" => "k:/testing/harness.js".to_owned(),
+        s if s.starts_with("./") || s.starts_with("../") => {
+            let base = referrer?.strip_prefix("k:/")?;
+            let mut parts: Vec<&str> = base.split('/').collect();
+            parts.pop();
+            for segment in s.split('/') {
+                match segment {
+                    "." | "" => {}
+                    ".." => {
+                        parts.pop()?;
+                    }
+                    other => parts.push(other),
+                }
+            }
+            format!("k:/{}", parts.join("/"))
+        }
+        s => s.to_owned(),
+    };
+    module(&target).map(|m| m.specifier)
+}
+
+/// Concatenates the compacted sources of the modules in `parts`, in table
+/// order, separated by newlines. This is what the size budget tests
+/// measure; the codegen's bundler produces the shipped files.
+///
+/// # Errors
+///
+/// Returns the first [`CompactError`], naming the file.
+pub fn compacted_sources(parts: &[Part]) -> Result<String, (String, CompactError)> {
+    let mut out = String::new();
+    for m in MODULES.iter().filter(|m| parts.contains(&m.part)) {
+        let c = compact(m.source).map_err(|e| (m.path.to_owned(), e))?;
+        out.push_str(&c);
+        out.push('\n');
+    }
+    Ok(out)
+}

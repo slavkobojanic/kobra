@@ -1,0 +1,14 @@
+# Interfaces in the server's request container (docs/compiler/codegen.md
+# §13). The e2e runner builds the development environment, whose `use` rule
+# picks `LoudGreeter`; `Stamp` has a single implementation and no rule; and
+# `PublicUrls` builds absolute URLs from the public origin
+# (`http://localhost` in this runner).
+
+### the development rule, the single implementation and PublicUrls
+POST /bindings.greet.GreetProtocol/Greet
+content-type: application/json
+connect-protocol-version: 1
+
+{"name": "Ana"}
+>>> 200
+json {"text": "HELLO, Ana! (stamped)", "home": "http://localhost/home"}

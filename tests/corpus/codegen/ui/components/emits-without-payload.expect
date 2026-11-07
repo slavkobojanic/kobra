@@ -1,0 +1,3 @@
+client contains closed?.()
+client contains on$closed: () =>
+client contains isOpen.set(false)

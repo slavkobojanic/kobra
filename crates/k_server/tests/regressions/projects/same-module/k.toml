@@ -1,0 +1,5 @@
+# Adversarial regressions: two components with views in two files of one
+# module (docs/compiler/codegen.md §17: one chunk per module).
+[package]
+name = "parts"
+k = "0.1"

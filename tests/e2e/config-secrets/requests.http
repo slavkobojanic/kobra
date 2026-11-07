@@ -1,0 +1,75 @@
+# Configuration in the development environment (docs/design/25-config-and-secrets.md).
+# `.env` sets APP_GREETING, APP_API_TOKEN, APP_MODE, APP_TAGS and
+# APP_SIGNING_KEY_FILE (a path relative to the project root); every other
+# field takes its default.
+
+### values come from .env, then the defaults
+GET /config/all
+>>> 200
+~ greeting=howdy
+~ retries=3
+~ timeout=90s
+
+### an enum value is read by its case name
+GET /config/all
+>>> 200
+~ mode=strict
+
+### a list value is comma-separated with spaces trimmed
+GET /config/all
+>>> 200
+~ tags=3:red|green|blue
+
+### a missing optional field is nil
+GET /config/all
+>>> 200
+~ nickname=nil
+
+### a secret interpolates as Secret(•••)
+GET /config/all
+>>> 200
+~ token=Secret(•••)
+~ key=Secret(•••)
+
+### a secret's value never appears in a response that printed it
+GET /config/all
+>>> 200
+!~ tok_e2e_SECRET_7f3a9c
+!~ whsec_e2eFILEkey42
+
+### matches compares a candidate with a secret
+GET /config/token?candidate=tok_e2e_SECRET_7f3a9c
+>>> 200
+= match
+
+### a wrong candidate doesn't match
+GET /config/token?candidate=tok_e2e_SECRET_7f3a9
+>>> 200
+= no match
+
+### an empty candidate doesn't match
+GET /config/token
+>>> 200
+= no match
+
+### a NAME_FILE secret is read from the file relative to the project root
+GET /config/key?candidate=whsec_e2eFILEkey42
+>>> 200
+= match
+
+### one trailing line ending is removed from a secret file
+GET /config/key?candidate=whsec_e2eFILEkey42%0A
+>>> 200
+= no match
+
+### a config value reaches a page only through the rpc, with the secret redacted
+GET /welcome
+>>> 200
+~ howdy (token Secret(•••))
+!~ tok_e2e_SECRET_7f3a9c
+
+### the page's hydration data holds the loaded text, not the config
+GET /welcome
+>>> 200
+~ "text":"howdy (token Secret(•••))"
+!~ APP_API_TOKEN

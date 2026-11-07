@@ -1,0 +1,3 @@
+client contains get: () =>
+client contains set: (f) =>
+client contains celsius.set(

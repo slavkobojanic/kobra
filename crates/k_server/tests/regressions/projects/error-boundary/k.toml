@@ -1,0 +1,5 @@
+# Adversarial regressions: panics in a view reach the nearest ErrorBoundary
+# (docs/design/09-errors.md, "Panics"; docs/compiler/runtime.md §3.7).
+[package]
+name = "safe"
+k = "0.1"

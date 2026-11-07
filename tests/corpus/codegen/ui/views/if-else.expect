@@ -1,0 +1,5 @@
+client contains $k.when(
+client contains <p>Nothing here yet.</p>
+client contains <p>Ready to pay</p>
+client lacks , null)
+server contains } else {

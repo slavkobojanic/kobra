@@ -1,0 +1,5 @@
+public page Home {
+    view {
+        heading(level: 1) { "Hello from K" }
+    }
+}

@@ -7,6 +7,63 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+k_runtime.workspace = true
+k_db.workspace = true
+deno_core.workspace = true
+deno_error.workspace = true
+tokio.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+bytes.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+getrandom.workspace = true
+argon2.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+libtest-mimic.workspace = true
+tokio = { workspace = true, features = ["rt"] }
+k_corpus.workspace = true
+k_sema.workspace = true
+k_codegen.workspace = true
+proptest.workspace = true
+arbitrary.workspace = true
+
+[[test]]
+name = "runtime_js"
+path = "tests/runtime_js.rs"
+harness = false
+
+[[test]]
+name = "engine"
+path = "tests/engine.rs"
+
+[[test]]
+name = "config"
+path = "tests/config.rs"
+
+[[test]]
+name = "corpus_run"
+path = "tests/corpus_run.rs"
+harness = false
+
+[[test]]
+name = "e2e"
+path = "tests/e2e.rs"
+harness = false
+
+[[test]]
+name = "server"
+path = "tests/server.rs"
+
+[[test]]
+name = "differential"
+path = "tests/differential.rs"
+
+[[test]]
+name = "perf_budget"
+path = "tests/perf_budget.rs"

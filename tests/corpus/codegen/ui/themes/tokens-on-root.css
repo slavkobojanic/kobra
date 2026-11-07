@@ -1,0 +1,11 @@
+/* file: app.[hash].css */
+:root {
+  --k-color-primary: #3B82F6;
+  --k-color-surface-hover: #F3F4F6;
+  --k-space-md: 16px;
+  --k-radius-lg: 16px;
+  --k-font-size-sm: 0.875rem;
+}
+.Card__card {
+  padding: var(--k-space-md);
+}

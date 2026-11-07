@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 760f1aecc54ada877b710d601d7976c462babd58ec0c897a6142968df1f55fa1 # shrinks to t = Table { name: "x y", id: "$1", int: "\\", text: "%_" }, p = CmpInt(Eq, 0, false), n = 0, limit = None
+cc fc94c2741c6606763a61c6e9d86f7ad4d376a29cca3238d9f0dc59752898454a # shrinks to t = Table { name: "user", id: "select", int: ";--", text: "\\" }, rows = [Row { id: 1, int: None, text: None }], p = Not(In([])), limit = None, offset = None, delta = 0
+cc 65e0143757a930145f1e0f5128f1836338aa09944a91249456210f3b100bbbd6 # shrinks to t = Table { name: "user", id: "Robert'); DROP TABLE t;--", int: "\\", text: "%_" }, p = Or([And([In([])])]), n = 0, limit = None

@@ -5,6 +5,8 @@
 //! and `.diag` files, which makes writing and debugging corpus cases easy.
 //! `k debug sema case` prints the `.diag` of a `sema` case: a single file,
 //! or a project directory (with paths), exactly as the suite compares it.
+//! `k debug codegen dir` prints every file `k run` would generate for the
+//! project in `dir` (development profile), each under a `=== path` line.
 
 use std::fs;
 use std::process::ExitCode;
@@ -22,6 +24,9 @@ use crate::cli::{DebugArgs, DebugWhat};
 pub fn run(args: &DebugArgs) -> ExitCode {
     if args.what == DebugWhat::Sema {
         return sema(args);
+    }
+    if args.what == DebugWhat::Codegen {
+        return crate::build::dump(&args.file);
     }
     let text = match fs::read(&args.file).map(String::from_utf8) {
         Ok(Ok(text)) => text,
@@ -43,6 +48,7 @@ pub fn run(args: &DebugArgs) -> ExitCode {
             diag_format::render(&diag_format::entries_for(parse.diagnostics(), &text))
         }
         DebugWhat::Sema => return sema(args),
+        DebugWhat::Codegen => return crate::build::dump(&args.file),
     };
     print!("{output}");
     ExitCode::SUCCESS

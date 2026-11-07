@@ -41,6 +41,8 @@ pub(crate) struct SemaResult {
     /// The body facts of every file, for the next revision's warm re-check
     /// ([`crate::warm`]).
     pub(crate) cache: Arc<BodyCache>,
+    /// The read-only program view for code generation ([`crate::view`]).
+    pub(crate) view: crate::view::ProgramView,
 }
 
 /// Runs the semantic pass over `inputs`.
@@ -144,6 +146,10 @@ pub(crate) fn analyze(inputs: Vec<InputFile<'_>>, prev: Option<&BodyCache>) -> S
     cx.fw.styles_checked.set(true);
     crate::framework::report_unused(&cx);
     let diagnostics = std::mem::take(&mut *cx.diags.borrow_mut());
+    // Signatures no check needed may report while the view resolves them;
+    // those diagnostics are not part of the result.
+    let view = crate::view::build(&cx, &sides);
+    cx.diags.borrow_mut().clear();
     let mut types = Chunked::default();
     types.push(Arc::new(std::mem::take(&mut *cx.types.borrow_mut())));
     for chunk in type_chunks {
@@ -164,6 +170,7 @@ pub(crate) fn analyze(inputs: Vec<InputFile<'_>>, prev: Option<&BodyCache>) -> S
             file_list,
             files: facts_by_file,
         }),
+        view,
     }
 }
 
@@ -186,8 +193,18 @@ fn resolve_signatures(cx: &Cx<'_, '_>) {
         let id = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
         match d.named_kind() {
             // Checked by the framework layer alone, member signatures
-            // included (`check_decl`): nothing else reads them.
-            Some(DeclarationKind::App | DeclarationKind::Migration) => continue,
+            // included (`check_decl`), except `@Inject` fields: the
+            // dependency-injection pass reads their types in every revision
+            // (`crate::di`), so they are signature facts. Resolving them in
+            // the body check instead would cache their diagnostics with the
+            // file's body facts and report them twice when a warm re-check
+            // replays the file.
+            Some(DeclarationKind::App | DeclarationKind::Migration) => {
+                for (m, _) in crate::di::inject_fields(cx, id) {
+                    let _ = cx.field_ty(m);
+                }
+                continue;
+            }
             Some(DeclarationKind::Function) => {
                 let _ = cx.sig(SigKey::Decl(id));
                 continue;

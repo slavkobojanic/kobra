@@ -1,0 +1,5 @@
+client contains props.content()
+client contains content: () =>
+client contains <article><!--[--><!--]--></article>
+client contains <p>Review before checkout.</p>
+server contains Review before checkout.

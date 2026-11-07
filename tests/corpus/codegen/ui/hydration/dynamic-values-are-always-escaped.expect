@@ -1,0 +1,6 @@
+server contains out.text(props.author())
+server contains out.attribute("aria-label", props.author())
+server lacks out.raw(props.
+server lacks out.raw(`
+server lacks innerHTML
+client lacks innerHTML

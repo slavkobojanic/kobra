@@ -1,0 +1,20 @@
+# The client: an app chunk with the entry and the route table, one chunk per page.
+client contains // file: app.[hash].js
+client contains // file: pages/home.[hash].js
+client contains // file: pages/product.[hash].js
+# The router hydrates the first page with the k-data payload
+# (runtime.md §6, §10): the entry passes `{ data: readData(document) }`.
+client contains $k.startRouter(
+client contains $k.readData(document)
+client contains import(
+client contains export function Home(props, ctx)
+client contains export function Product(props, ctx)
+client lacks $ssr
+# The server: renderers for both pages and the same route table.
+server contains export function Home$ssr(
+server contains export function Product$ssr(
+server contains "product"
+# The document and its k-data element are written by the runtime
+# (k:runtime/app) from the spec the entry passes to createApp.
+server contains $s.createApp($spec)
+server contains render: Home$ssr

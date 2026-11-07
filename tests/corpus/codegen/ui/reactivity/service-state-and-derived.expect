@@ -1,0 +1,3 @@
+client contains export class Counter
+client contains this.items = $k.signal([])
+client contains this.total = $k.computed(

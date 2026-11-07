@@ -1,0 +1,3 @@
+client contains href=\"/sign-in\"
+client contains "/product-detail/"
+client lacks /signIn

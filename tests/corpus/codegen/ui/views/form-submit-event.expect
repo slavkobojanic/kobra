@@ -1,0 +1,2 @@
+client contains "submit"
+client contains <form><button type=\"submit\">Subscribe</button></form>

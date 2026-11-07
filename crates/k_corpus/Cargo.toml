@@ -10,6 +10,8 @@ publish.workspace = true
 k_diagnostics.workspace = true
 k_syntax.workspace = true
 k_sema.workspace = true
+k_codegen.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 libtest-mimic.workspace = true

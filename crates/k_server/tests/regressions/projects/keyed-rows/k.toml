@@ -1,0 +1,5 @@
+# Adversarial regressions: keyed lists whose rows are blocks
+# (docs/compiler/runtime.md §5.3).
+[package]
+name = "rows"
+k = "0.1"

@@ -1,0 +1,4 @@
+server contains export function Bag$find(self, item)
+server contains export function Bag$find$where(self, predicate)
+server contains Bag$find(bag, 3)
+server contains Bag$find$where(bag, (n) => n > 0)

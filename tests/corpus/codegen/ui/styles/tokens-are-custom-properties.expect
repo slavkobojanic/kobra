@@ -1,0 +1,5 @@
+css contains   color: var(--k-color-muted);
+css contains   background-color: var(--k-color-surface-hover);
+css contains   padding: var(--k-space-md);
+css contains   border-radius: var(--k-radius-lg);
+css contains   font-size: var(--k-font-size-sm);

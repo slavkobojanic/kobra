@@ -1,0 +1,3 @@
+css contains @keyframes Toast__fade {
+css contains @keyframes Banner__fade {
+css contains   animation-name: Banner__fade;

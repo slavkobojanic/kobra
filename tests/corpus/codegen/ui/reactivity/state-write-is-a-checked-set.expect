@@ -1,0 +1,2 @@
+client contains count.set($k.checkInt(count.get() + 1))
+client lacks count.set(count.get() + 1)

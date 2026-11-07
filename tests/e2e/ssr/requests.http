@@ -1,0 +1,223 @@
+# Server-side rendering of view pages: the document, escaping of every
+# dynamic value, metadata layering, @Load serialization into k-data, and
+# failed loads with their status (docs/compiler/server.md §7,
+# docs/compiler/runtime.md §6, docs/design/14-async-data.md, 22-metadata.md).
+#
+# Expectations are written against the markers of runtime.md §6: a dynamic
+# text alone in an element renders without markers, so `>Article intro</h1>`
+# is matched without the opening tag.
+
+### a page renders a complete HTML document
+GET /plain
+>>> 200
+content-type: text/html; charset=utf-8
+x-content-type-options: nosniff
+~ <!doctype html>
+~ <html lang="en">
+~ <head>
+~ </head>
+~ <body>
+~ plain page
+~ </html>
+
+### the document links the hashed stylesheet and module scripts
+GET /plain
+>>> 200
+~ <link rel="stylesheet" href="/assets/
+~ <script type="module" src="/assets/
+
+### the document carries the hydration data element
+GET /plain
+>>> 200
+~ <script type="application/json" id="k-data">
+~ "v":1
+~ "session":{"user":null}
+
+### rendering a page for a guest sets no cookie
+GET /plain
+>>> 200
+!set-cookie
+
+### the layout wraps the page
+GET /plain
+>>> 200
+~ site header
+~ <main>
+
+### the layout's metadata applies when the page has none
+GET /plain
+>>> 200
+~ <title>SSR Test</title>
+~ <meta name="description" content="The layout&#39;s description.">
+
+### @NoLayout renders the page without the default layout
+GET /bare
+>>> 200
+~ bare page
+!~ site header
+
+### HEAD of a page has the GET status and headers and no body
+HEAD /plain
+>>> 200
+content-type: text/html; charset=utf-8
+=
+
+### a default parameter renders its default
+GET /greeting
+>>> 200
+~ Hello, world
+~ <title>Hello world</title>
+
+### a link to the page at its default parameter omits it from the query
+GET /greeting
+>>> 200
+~ href="/greeting"
+
+### a query parameter is decoded before rendering
+GET /greeting?name=%C3%A9t%C3%A9
+>>> 200
+~ Hello, été
+
+### text from a parameter is escaped in the body
+GET /greeting?name=%3Cb%3Ebold%3C%2Fb%3E
+>>> 200
+~ Hello, &lt;b&gt;bold&lt;/b&gt;
+!~ <b>bold
+
+### text from a parameter is escaped in the title
+GET /greeting?name=%3Cb%3E
+>>> 200
+~ <title>Hello &lt;b&gt;</title>
+
+### an attribute from a parameter escapes quotes as well
+GET /greeting?name=%22%3E%3Cimg%20src%3Dx%3E%27
+>>> 200
+~ alt="A wave for &quot;&gt;&lt;img src=x&gt;&#39;"
+!~ "><img src=x>
+
+### an ampersand is escaped in text
+GET /greeting?name=a%26b
+>>> 200
+~ Hello, a&amp;b
+
+### a link built from a parameter percent-encodes it in the href
+GET /greeting?name=%3Cb%3E
+>>> 200
+~ href="/greeting?name=%3Cb%3E"
+
+### the page's @Load values render in the view
+GET /articles/intro
+>>> 200
+~ >Article intro</h1>
+~ Body of intro &amp; more
+
+### a dependent load runs after the load it reads
+GET /articles/intro
+>>> 200
+~ intro-a
+~ intro-b
+
+### the loaded values are serialized into k-data for hydration
+# k-data escapes <, > and & as \uXXXX (docs/compiler/runtime.md §11).
+GET /articles/intro
+>>> 200
+~ "loads":{
+~ "article":{"slug":"intro","title":"Article intro","body":"Body of intro \u0026 more"}
+~ "related":["intro-a","intro-b"]
+
+### the loading block is not rendered once the loads resolved
+GET /articles/intro
+>>> 200
+!~ Loading article
+
+### the page's metadata overrides the layout's
+GET /articles/intro
+>>> 200
+~ <title>Article intro · SSR Test</title>
+~ <meta name="description" content="Read Article intro">
+!~ The layout&#39;s description.
+
+### canonical renders the page's absolute URL from the public origin
+GET /articles/intro
+>>> 200
+~ <link rel="canonical" href="http://localhost/articles/intro">
+
+### a canonical URL built from a parameter is encoded and escaped
+GET /articles/a%22b
+>>> 200
+~ <link rel="canonical" href="http://localhost/articles/a%22b">
+
+### loaded markup is escaped in the view and the title
+GET /articles/xss
+>>> 200
+~ &lt;script&gt;alert(1)&lt;/script&gt;
+~ <title>&lt;script&gt;alert(1)&lt;/script&gt; · SSR Test</title>
+!~ <script>alert
+
+### a script end tag in loaded data can't close the k-data element
+GET /articles/xss
+>>> 200
+~ \u003c/script\u003e\u003cscript\u003ealert(2)\u003c/script\u003e
+!~ </script><script>alert(2)
+
+### a path parameter is percent-decoded
+GET /articles/a%20b
+>>> 200
+~ >Article a b</h1>
+
+### an encoded slash stays inside one path parameter
+GET /articles/a%2Fb
+>>> 200
+~ >Article a/b</h1>
+
+### an empty path segment doesn't match a String parameter
+GET /articles/
+>>> 404
+
+### a failed load with status(.notFound) answers 404
+GET /articles/missing
+>>> 404
+content-type: text/html; charset=utf-8
+~ No such article
+
+### the failed block's metadata replaces the page's, which isn't evaluated
+GET /articles/missing
+>>> 404
+~ <title>Not found · SSR Test</title>
+!~ Read
+
+### status(.forbidden) in failed answers 403 with the layout's title
+GET /articles/hidden
+>>> 403
+~ This article is hidden.
+~ <title>SSR Test</title>
+
+### a failed block without status(_:) answers 200
+GET /articles/locked
+>>> 200
+~ Locked until &lt;tomorrow&gt;
+!~ <tomorrow>
+
+### the typed error of a failed load is serialized for hydration
+GET /articles/locked
+>>> 200
+~ "case":"locked"
+~ "until":"\u003ctomorrow\u003e"
+
+### a failed page is still wrapped in the layout
+GET /articles/missing
+>>> 404
+~ site header
+
+### a load that panics is a 500
+GET /broken
+>>> 500
+!~ <script type="application/json" id="k-data">
+
+### an unknown path is a 404 page
+GET /no-such-page
+>>> 404
+
+### the root path has no page in this app
+GET /
+>>> 404

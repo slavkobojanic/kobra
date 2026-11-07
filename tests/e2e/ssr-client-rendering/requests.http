@@ -1,0 +1,25 @@
+# Client rendering: every page answers the same shell (docs/compiler/server.md §7).
+
+### a page answers the HTML shell
+GET /board
+>>> 200
+content-type: text/html; charset=utf-8
+~ <!doctype html>
+~ <html lang="en">
+~ <script type="module" src="/assets/
+
+### the shell has the app-wide metadata, not the page's
+GET /board
+>>> 200
+~ <title>Client App</title>
+!~ Board page title
+
+### the server runs no loads and renders no view under client rendering
+GET /board
+>>> 200
+!~ LOADED-ON-THE-SERVER
+!~ "loads"
+
+### an unknown path is still a 404
+GET /nowhere
+>>> 404

@@ -26,11 +26,31 @@ pub enum Suite {
     /// semantic) and caret annotations ([`crate::annotations`]); single
     /// files and multi-file projects. See [`crate::sema_suite`].
     Sema,
+    /// `tests/corpus/codegen`: generated client JS, server JS and CSS,
+    /// compared after normalization, or assertions about them. See
+    /// [`crate::codegen_suite`].
+    Codegen,
+    /// `tests/corpus/run`: programs compiled and executed in V8, compared
+    /// on their log output and result. Executed by the `k_server` test
+    /// binary `corpus_run`, which has the engine; see [`crate::run_suite`].
+    Run,
+    /// `tests/corpus/db`: apps with entities, repositories and migrations,
+    /// served on a fresh SQLite database and driven by their
+    /// `requests.http` script. Executed by the `k_server` test binary `e2e`,
+    /// which has the server.
+    Db,
 }
 
 impl Suite {
     /// Every suite.
-    pub const ALL: &'static [Suite] = &[Suite::Lexer, Suite::Parser, Suite::Sema];
+    pub const ALL: &'static [Suite] = &[
+        Suite::Lexer,
+        Suite::Parser,
+        Suite::Sema,
+        Suite::Codegen,
+        Suite::Run,
+        Suite::Db,
+    ];
 
     /// Returns the directory name of the suite.
     #[must_use]
@@ -39,6 +59,9 @@ impl Suite {
             Suite::Lexer => "lexer",
             Suite::Parser => "parser",
             Suite::Sema => "sema",
+            Suite::Codegen => "codegen",
+            Suite::Run => "run",
+            Suite::Db => "db",
         }
     }
 
@@ -57,6 +80,9 @@ impl Suite {
             Suite::Lexer => &["tokens", "diag"],
             Suite::Parser => &["ast", "diag"],
             Suite::Sema => &["diag", "pending"],
+            Suite::Codegen => &["client.js", "server.js", "css", "expect", "pending"],
+            Suite::Run => &["stdout", "result", "pending"],
+            Suite::Db => &["pending"],
         }
     }
 
@@ -64,7 +90,7 @@ impl Suite {
     /// case in this suite.
     #[must_use]
     pub const fn has_projects(self) -> bool {
-        matches!(self, Suite::Sema)
+        matches!(self, Suite::Sema | Suite::Codegen | Suite::Run | Suite::Db)
     }
 }
 
@@ -75,9 +101,24 @@ impl Suite {
 ///
 /// Returns a failure report: what differs and how to inspect it.
 pub fn run_case(case: &Case, bless: bool) -> Result<(), String> {
-    // A sema case may be a directory, so it is read by its own driver.
-    if case.suite == Suite::Sema {
-        return crate::sema_suite::run(case, bless);
+    // These cases may be directories, so they are read by their own
+    // drivers.
+    match case.suite {
+        Suite::Sema => return crate::sema_suite::run(case, bless),
+        Suite::Codegen => return crate::codegen_suite::run(case, bless),
+        Suite::Run => {
+            return Err(
+                "run cases execute JavaScript and are run by `cargo test -p k_server --test corpus_run`"
+                    .to_owned(),
+            );
+        }
+        Suite::Db => {
+            return Err(
+                "db cases serve an app on a database and are run by `cargo test -p k_server --test e2e -- db/`"
+                    .to_owned(),
+            );
+        }
+        Suite::Lexer | Suite::Parser => {}
     }
     let bytes = fs::read(&case.source)
         .map_err(|e| format!("cannot read {}: {e}", case.source.display()))?;
@@ -115,7 +156,12 @@ pub fn run_case(case: &Case, bless: bool) -> Result<(), String> {
             parse.diagnostics().to_vec()
         }
         // Handled before the source is read; kept for exhaustiveness.
-        Suite::Sema => return crate::sema_suite::run(case, bless),
+        Suite::Sema | Suite::Codegen | Suite::Run | Suite::Db => {
+            return Err(format!(
+                "{} cases are run by their own driver",
+                case.suite.dir_name()
+            ));
+        }
     };
 
     if let Err(failure) = check_diagnostics(case, &source, &diagnostics, bless) {

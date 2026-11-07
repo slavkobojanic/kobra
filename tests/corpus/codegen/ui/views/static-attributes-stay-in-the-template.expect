@@ -1,0 +1,6 @@
+client contains aria-label=\"Main\"
+client contains placeholder=\"Search\"
+client contains role=\"status\"
+client contains type=\"submit\"
+server contains aria-label=\"Main\"
+server contains role=\"status\"

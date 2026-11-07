@@ -1,0 +1,4 @@
+css contains @media (max-width: 600px) {
+css contains   .Summary__summary {
+css contains     padding: var(--k-space-sm);
+css lacks maxWidth

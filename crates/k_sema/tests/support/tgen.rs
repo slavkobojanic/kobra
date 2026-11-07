@@ -87,21 +87,33 @@ pub fn dump_files(files: &[(String, String)]) -> String {
 
 /// Generates one well-typed project from `u`.
 pub fn generate(u: &mut Unstructured<'_>) -> Program {
-    let mut g = Gen {
-        u,
-        types: Vec::new(),
-        funcs: Vec::new(),
-        globals: Vec::new(),
-        budget: 900,
-        fresh: 0,
-        lib_only: false,
-        file: None,
-        uses: Vec::new(),
-        locals: Vec::new(),
-        in_interp: false,
-    };
-    g.signatures();
-    g.emit()
+    Gen::new(u, false).run()
+}
+
+/// The entry of a [`generate_runnable`] project: `logic.main`, a function
+/// without parameters returning `Void`.
+pub const RUNNABLE_ENTRY: &str = "logic.main";
+
+/// Generates one well-typed project from `u` that also **terminates when
+/// run**, for the stage 3 execution properties
+/// (`crates/k_server/tests/differential.rs`).
+///
+/// It is the project [`generate`] writes, with three differences that keep
+/// every execution finite without changing what is well-typed:
+///
+/// * calls are acyclic: function `f<i>` only calls `f<j>` for `j < i`,
+///   and methods call neither functions nor methods, so there is no
+///   recursion;
+/// * every `while` loop also counts its iterations in a private counter
+///   and stops after three (`while (c) and n < 3 { n += 1 … }`);
+/// * `logic/F0.k` gets a `func main()` ([`RUNNABLE_ENTRY`]) that calls
+///   every function once with generated arguments and logs each
+///   primitive result with `Log.info`.
+///
+/// Running it can still panic (integer overflow), which is a K outcome,
+/// not a failure.
+pub fn generate_runnable(u: &mut Unstructured<'_>) -> Program {
+    Gen::new(u, true).run()
 }
 
 /// Checker findings this generator steers around, so that the zero-error
@@ -109,9 +121,13 @@ pub fn generate(u: &mut Unstructured<'_>) -> Program {
 /// pending corpus case; when the checker is fixed, delete the `.pending`
 /// file, the entry here and the workaround that cites it.
 ///
-/// Empty: the two findings it held (`-(if …)` under an optional expected
-/// type, and unchecked arguments of an unresolved callee) are fixed and
-/// their corpus cases are regular.
+/// None is open. The two stage 2 findings it held (`-(if …)` under an
+/// optional expected type, and unchecked arguments of an unresolved
+/// callee) are fixed and their corpus cases are regular; so are the two
+/// code generation findings that [`generate_runnable`] steered around
+/// (`release-minus-minus`, guarded by `fixed_findings_stay_fixed` in
+/// `crates/k_server/tests/differential.rs`, and a `match` with a `default`
+/// arm over an enum, `tests/corpus/run/regressions/fuzz/match-default-over-an-enum.k`).
 pub const KNOWN_FINDINGS: &[(&str, &str)] = &[];
 
 // ------------------------------------------------------------------ model
@@ -220,9 +236,81 @@ struct Gen<'a, 'b> {
     uses: Vec<BTreeSet<String>>,
     locals: Vec<Local>,
     in_interp: bool,
+    /// [`generate_runnable`]: acyclic calls, bounded loops and a `main`.
+    runnable: bool,
+    /// In runnable mode, only functions with an index below this one may
+    /// be called (`None`: any).
+    callee_limit: Option<usize>,
+    /// In runnable mode, generating a method body: no calls at all.
+    in_method: bool,
 }
 
-impl Gen<'_, '_> {
+impl<'a, 'b> Gen<'a, 'b> {
+    fn new(u: &'a mut Unstructured<'b>, runnable: bool) -> Gen<'a, 'b> {
+        Gen {
+            u,
+            types: Vec::new(),
+            funcs: Vec::new(),
+            globals: Vec::new(),
+            budget: 900,
+            fresh: 0,
+            lib_only: false,
+            file: None,
+            uses: Vec::new(),
+            locals: Vec::new(),
+            in_interp: false,
+            runnable,
+            callee_limit: None,
+            in_method: false,
+        }
+    }
+
+    fn run(mut self) -> Program {
+        self.signatures();
+        self.emit()
+    }
+
+    /// `true` if function `index` may be called here (runnable mode keeps
+    /// the call graph acyclic).
+    fn may_call(&self, index: usize) -> bool {
+        !self.runnable || (!self.in_method && self.callee_limit.is_none_or(|l| index < l))
+    }
+
+    /// The `main` of a runnable project: every function called once.
+    fn main_function(&mut self) -> String {
+        let mut out = String::from("func main() {\n");
+        self.locals.clear();
+        for gl in self.globals.clone() {
+            self.locals.push(Local {
+                name: gl.name,
+                ty: gl.ty,
+                var: false,
+            });
+        }
+        self.callee_limit = None;
+        for f in 0..self.funcs.len() {
+            let sig = self.funcs[f].sig.clone();
+            let args = self.args(&sig.params, 1);
+            match &sig.ret {
+                None => {
+                    let _ = writeln!(out, "{INDENT}{}({args})", sig.name);
+                }
+                Some(ret) => {
+                    let name = format!("r{f}");
+                    let _ = writeln!(out, "{INDENT}let {name} = {}({args})", sig.name);
+                    if ret.is_prim() {
+                        let _ = writeln!(out, "{INDENT}Log.info(\"{name}={{{name}}}\")");
+                    } else {
+                        let _ = writeln!(out, "{INDENT}Log.info(\"{name}\")");
+                    }
+                }
+            }
+        }
+        out.push_str("}\n");
+        self.locals.clear();
+        out
+    }
+
     // -------------------------------------------------------------- choices
 
     /// Returns an index below `n` (`n > 0`); 0 once the bytes run out.
@@ -442,15 +530,26 @@ impl Gen<'_, '_> {
         for f in 0..self.funcs.len() {
             let Func { sig, file } = self.funcs[f].clone();
             self.file = Some(file);
+            self.callee_limit = Some(f);
             let text = self.function(&sig, 0, &[]);
+            self.callee_limit = None;
             push_decl(&mut bodies[file], &text);
+        }
+        if self.runnable {
+            self.file = Some(0);
+            let text = self.main_function();
+            push_decl(&mut bodies[0], &text);
         }
         for (i, body) in bodies.into_iter().enumerate() {
             let mut text = String::new();
+            let log = self.runnable && i == 0;
+            if log {
+                text.push_str("import k.observe.Log\n");
+            }
             for name in &self.uses[i] {
                 let _ = writeln!(text, "import {MODEL}.{name}");
             }
-            if !self.uses[i].is_empty() {
+            if log || !self.uses[i].is_empty() {
                 text.push('\n');
             }
             text.push_str(&body);
@@ -500,7 +599,10 @@ impl Gen<'_, '_> {
                     .collect();
                 for sig in methods {
                     out.push('\n');
+                    let outer = self.in_method;
+                    self.in_method = true;
                     let text = self.function(sig, 1, &field_locals);
+                    self.in_method = outer;
                     out.push_str(&text);
                 }
                 out.push_str("}\n");
@@ -616,6 +718,17 @@ impl Gen<'_, '_> {
                 }
                 let _ = writeln!(out, "{pad}}}");
             }
+            7 if self.runnable => {
+                // A bounded loop: the counter is not a local of the body,
+                // so nothing else assigns it.
+                let c = self.expr(&Ty::Bool, true, 1);
+                let n = self.fresh();
+                let _ = writeln!(out, "{pad}var {n} = 0");
+                let _ = writeln!(out, "{pad}while ({c}) and {n} < 3 {{");
+                let _ = writeln!(out, "{pad}{INDENT}{n} += 1");
+                self.block(out, level + 1, ret, depth + 1);
+                let _ = writeln!(out, "{pad}}}");
+            }
             7 => {
                 let c = self.expr(&Ty::Bool, true, 1);
                 let _ = writeln!(out, "{pad}while {c} {{");
@@ -699,8 +812,9 @@ impl Gen<'_, '_> {
         } else {
             self.funcs
                 .iter()
-                .filter(|f| f.sig.ret.is_none())
-                .map(|f| f.sig.clone())
+                .enumerate()
+                .filter(|(i, f)| f.sig.ret.is_none() && self.may_call(*i))
+                .map(|(_, f)| f.sig.clone())
                 .collect()
         };
         if voids.is_empty() || self.budget < 20 {
@@ -1085,8 +1199,9 @@ impl Gen<'_, '_> {
         let found: Vec<Sig> = self
             .funcs
             .iter()
-            .filter(|f| f.sig.ret.as_ref() == Some(ty))
-            .map(|f| f.sig.clone())
+            .enumerate()
+            .filter(|(i, f)| f.sig.ret.as_ref() == Some(ty) && self.may_call(*i))
+            .map(|(_, f)| f.sig.clone())
             .collect();
         if found.is_empty() {
             return None;
@@ -1098,6 +1213,9 @@ impl Gen<'_, '_> {
 
     /// `receiver.method(…)` returning `ty`.
     fn method_of(&mut self, ty: &Ty, d: u32) -> Option<String> {
+        if self.runnable && self.in_method {
+            return None;
+        }
         let mut found = Vec::new();
         for (k, def) in self.types.iter().enumerate() {
             if self.lib_only && !def.lib {

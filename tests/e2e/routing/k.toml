@@ -1,0 +1,6 @@
+# The route table end to end: default and named URLs, typed parameters with
+# 404 on a failed parse, specificity, and redirects recorded in routes.lock
+# (docs/design/12-routing.md, docs/compiler/codegen.md §14).
+[package]
+name = "routing"
+k = "0.1"

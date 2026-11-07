@@ -1,0 +1,5 @@
+css contains :root.k-theme-dark {
+css contains @media (prefers-color-scheme: dark) {
+css contains   :root:not(.k-theme-set) {
+css contains     --k-color-surface: #111827;
+css contains :root.k-theme-high-contrast {

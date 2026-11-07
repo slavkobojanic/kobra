@@ -1,0 +1,3 @@
+server contains export function delete$(new$)
+server contains const arguments$ = $k.checkInt(new$ + 1)
+server contains return arguments$;

@@ -1,0 +1,4 @@
+server contains export async function fetch($c, id)
+server contains export async function both($c)
+server contains await $k.guard($c, fetch($c, 1))
+server contains await $k.guard($c, fetch($c, 2))

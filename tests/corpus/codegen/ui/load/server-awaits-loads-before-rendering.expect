@@ -1,0 +1,4 @@
+server contains export async function Hello$ssr(
+server contains await
+server contains Greeting$encode(
+server contains loads

@@ -1,0 +1,5 @@
+client contains $k.template("<p> </p>")
+client contains $k.renderEffect(() => $k.text(
+client contains props.name()
+server contains out.text(props.name())
+server lacks out.raw(props.name())

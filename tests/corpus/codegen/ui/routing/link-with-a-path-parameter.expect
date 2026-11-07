@@ -1,0 +1,4 @@
+client contains Page.product(
+client contains "href"
+client contains "/product/"
+server contains out.attribute("href",

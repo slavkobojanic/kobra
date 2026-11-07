@@ -1,0 +1,5 @@
+client contains $k.template("<footer><p>Made with K</p></footer>")
+client lacks $k.renderEffect
+client lacks $k.signal
+client lacks <!--[-->
+server lacks out.text(

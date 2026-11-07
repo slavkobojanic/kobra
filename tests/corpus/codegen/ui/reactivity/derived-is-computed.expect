@@ -1,0 +1,4 @@
+client contains $k.computed(() => $k.checkInt(count.get() * 2))
+client contains doubled.get()
+server contains const doubled = $k.checkInt(count * 2)
+server lacks $k.computed

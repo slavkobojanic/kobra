@@ -485,6 +485,38 @@ impl Analysis {
         Ok(sema.sides.get(&(file, range)).copied())
     }
 
+    /// Returns the read-only view of the checked program: every
+    /// declaration, member and generic parameter with resolved signatures
+    /// ([`crate::view`]). Code generation reads the program through it and
+    /// through [`type_info_at`](Analysis::type_info_at) and
+    /// [`resolve_at`](Analysis::resolve_at).
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
+    pub fn program(&self) -> Result<&crate::view::ProgramView, Cancelled> {
+        Ok(&self.sema()?.view)
+    }
+
+    /// Returns the type of the node whose range is exactly `range` in
+    /// `file`, like [`type_at`](Analysis::type_at) but in the structured
+    /// form whose ids index [`program`](Analysis::program).
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
+    pub fn type_info_at(
+        &self,
+        file: FileId,
+        range: TextRange,
+    ) -> Result<Option<crate::view::Type>, Cancelled> {
+        let sema = self.sema()?;
+        Ok(sema
+            .types
+            .get(&(file, range))
+            .map(crate::view::Type::from_ty))
+    }
+
     /// Parses every K source file that has no memoized parse yet, on
     /// [`Options::threads`] worker threads.
     fn parse_all(&self) -> Result<(), Cancelled> {
@@ -545,7 +577,17 @@ impl Analysis {
     }
 
     /// Runs the semantic pass once per revision (`crate::check`).
+    ///
+    /// Once the result exists this is O(1): the point queries
+    /// ([`type_info_at`](Analysis::type_info_at),
+    /// [`resolve_at`](Analysis::resolve_at)) call it once per syntax node
+    /// during code generation, so it must not rescan the files
+    /// (`docs/compiler/performance.md` §11.4).
     fn sema(&self) -> Result<&SemaResult, Cancelled> {
+        if let Some(result) = self.state.sema.get() {
+            self.check()?;
+            return Ok(result);
+        }
         self.parse_all()?;
         let result = self.state.sema.get_or_init(|| {
             // The checker recurses over expressions; give it a stack well

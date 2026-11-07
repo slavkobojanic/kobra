@@ -1,0 +1,5 @@
+client contains type=\"password\"
+client contains type=\"number\"
+client contains type=\"checkbox\"
+client contains "checked"
+client contains agreed.set(

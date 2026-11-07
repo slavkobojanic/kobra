@@ -1,0 +1,5 @@
+# Adversarial regressions: the stdlib's layout components
+# (docs/design/05-views.md, "Built-in element names").
+[package]
+name = "layout"
+k = "0.1"

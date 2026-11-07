@@ -1,0 +1,5 @@
+client contains $k.createLoads(
+client contains name: "product", after: []
+client contains name: "reviews", after: ["product"]
+client contains <span>Loading…</span>
+client contains <span>Not found</span>

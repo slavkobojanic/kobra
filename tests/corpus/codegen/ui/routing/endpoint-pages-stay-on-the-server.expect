@@ -1,0 +1,3 @@
+client lacks /health/check
+client lacks Health
+server contains /health/check

@@ -1,0 +1,5 @@
+# Server streaming (docs/design/29-server-streaming.md), driven from
+# crates/k_server/tests/stage3_server.rs with Connect streaming envelopes.
+[package]
+name = "streams"
+k = "0.1"

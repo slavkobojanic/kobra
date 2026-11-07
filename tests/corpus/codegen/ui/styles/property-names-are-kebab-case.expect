@@ -1,0 +1,6 @@
+css contains   border-left: 4px solid #000000;
+css contains   background-color: #FFFFFF;
+css contains   max-height: 400px;
+css contains   font-weight: bold;
+css lacks borderLeft
+css lacks backgroundColor

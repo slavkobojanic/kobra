@@ -1,0 +1,1 @@
+throws {"error": "corpus.Problem", "case": "outOfStock", "fields": {"available": 3}}

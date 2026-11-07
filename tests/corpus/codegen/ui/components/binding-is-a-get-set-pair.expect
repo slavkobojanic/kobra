@@ -1,0 +1,5 @@
+client contains props.value.get()
+client contains props.value.set($k.checkInt(props.value.get() - props.step()))
+client contains props.value.set($k.checkInt(props.value.get() + props.step()))
+client contains get: () => quantity.get()
+client contains quantity.set(

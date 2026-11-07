@@ -14,10 +14,26 @@ path = "src/main.rs"
 k_diagnostics.workspace = true
 k_syntax.workspace = true
 k_sema.workspace = true
+k_codegen.workspace = true
+k_server = { workspace = true, optional = true }
+# `k dev` waits for a signal or a source change (server builds only).
+tokio = { workspace = true, optional = true }
 # The golden-file formats (`.diag` rendering for `k debug diag`). Only the
 # library part is used; it has no test-only dependencies.
 k_corpus.workspace = true
 clap.workspace = true
+
+[dev-dependencies]
+k_server.workspace = true
+serde_json.workspace = true
+flate2.workspace = true
+k_runtime.workspace = true
+
+[features]
+# The server runtime (V8). On by default; `--no-default-features` builds a
+# compiler-only `k` without V8, for fast compiler development.
+default = ["server"]
+server = ["dep:k_server", "dep:tokio"]
 
 [lints]
 workspace = true

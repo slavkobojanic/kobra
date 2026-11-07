@@ -1,0 +1,8 @@
+# Configuration and secrets end to end in the development environment:
+# `.env`, NAME_FILE relative to the project, defaults, typed values and
+# redaction (docs/design/25-config-and-secrets.md, docs/compiler/server.md §8).
+# Startup validation and exit 78 are tested on dist/app in
+# crates/k_server/tests/stage3_server.rs.
+[package]
+name = "config_secrets"
+k = "0.1"

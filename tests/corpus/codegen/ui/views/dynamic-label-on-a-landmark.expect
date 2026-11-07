@@ -1,0 +1,4 @@
+client contains "aria-label"
+client contains props.title()
+server contains out.attribute("aria-label", props.title())
+server lacks out.raw(props.title())

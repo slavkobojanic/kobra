@@ -56,21 +56,37 @@ pub(crate) type RangeMap<V> = FxHashMap<(FileId, TextRange), V>;
 /// shared with the cache so a replay copies nothing.
 ///
 /// A key is in at most one chunk in practice; [`Chunked::get`] returns the
-/// first match. A lookup costs one hash probe per chunk, so per file.
+/// first match. Lookups go through a per-file index of the chunks that hold
+/// keys of that file, built on the first lookup of the revision (O(entries)
+/// once), so a lookup costs a hash probe for the file plus one per chunk
+/// that mentions it, usually one or two. Without the index a lookup probed
+/// every chunk, which made code generation quadratic in the number of files
+/// (`docs/compiler/performance.md` §11.4). The check itself never looks
+/// facts up through this type, so building the index lazily keeps it off
+/// the warm re-check path.
 #[derive(Debug)]
 pub(crate) struct Chunked<V> {
     chunks: Vec<Arc<RangeMap<V>>>,
+    /// For each file, the indices (ascending) of the chunks with a key in
+    /// it.
+    by_file: std::sync::OnceLock<FxHashMap<FileId, Vec<u32>>>,
 }
 
 impl<V> Default for Chunked<V> {
     fn default() -> Chunked<V> {
-        Chunked { chunks: Vec::new() }
+        Chunked {
+            chunks: Vec::new(),
+            by_file: std::sync::OnceLock::new(),
+        }
     }
 }
 
 impl<V> Chunked<V> {
-    /// Adds a chunk; empty chunks are dropped.
+    /// Adds a chunk; empty chunks are dropped. Must not be called after the
+    /// first [`get`](Chunked::get) (the result of a revision is immutable
+    /// once built; the index would be stale).
     pub(crate) fn push(&mut self, chunk: Arc<RangeMap<V>>) {
+        debug_assert!(self.by_file.get().is_none(), "push after get");
         if !chunk.is_empty() {
             self.chunks.push(chunk);
         }
@@ -78,7 +94,33 @@ impl<V> Chunked<V> {
 
     /// The value at `key`, if any chunk has one.
     pub(crate) fn get(&self, key: &(FileId, TextRange)) -> Option<&V> {
-        self.chunks.iter().find_map(|c| c.get(key))
+        let index = self.by_file.get_or_init(|| self.index());
+        index
+            .get(&key.0)?
+            .iter()
+            .find_map(|&i| self.chunks.get(i as usize)?.get(key))
+    }
+
+    /// Builds the per-file chunk index.
+    fn index(&self) -> FxHashMap<FileId, Vec<u32>> {
+        let mut by_file: FxHashMap<FileId, Vec<u32>> = FxHashMap::default();
+        for (i, chunk) in self.chunks.iter().enumerate() {
+            let i = u32::try_from(i).unwrap_or(u32::MAX);
+            // A body chunk's keys are almost all in one file: skip the
+            // probe while the file repeats.
+            let mut last = None;
+            for (file, _) in chunk.keys() {
+                if last == Some(*file) {
+                    continue;
+                }
+                last = Some(*file);
+                let list = by_file.entry(*file).or_default();
+                if list.last() != Some(&i) {
+                    list.push(i);
+                }
+            }
+        }
+        by_file
     }
 }
 

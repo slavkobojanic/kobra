@@ -1,0 +1,6 @@
+# The app the `http_request` and `rpc_json` fuzz targets serve
+# (docs/compiler/testing.md, "Stage 3 properties"): a page, an endpoint
+# page and one echo rpc per message shape of the wire format.
+[package]
+name = "fuzz-wire"
+k = "0.1"

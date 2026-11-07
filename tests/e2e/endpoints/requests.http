@@ -1,0 +1,292 @@
+# Endpoint pages (docs/design/27-endpoint-pages.md, docs/compiler/server.md §10).
+# The public origin is http://localhost.
+
+### a GET handler answers at its fixed URL
+GET /health
+>>> 200
+content-type: text/plain; charset=utf-8
+x-content-type-options: nosniff
+= ok
+
+### HEAD follows GET without a body
+HEAD /health
+>>> 200
+content-type: text/plain; charset=utf-8
+=
+
+### a method without a handler is 405 with Allow listing GET and HEAD
+POST /health
+
+x
+>>> 405
+allow: GET, HEAD
+
+### a POST-only endpoint lists only POST in Allow
+GET /post-only
+>>> 405
+allow: POST
+
+### a POST-only endpoint has no HEAD either
+HEAD /post-only
+>>> 405
+
+### a POST handler answers with its chosen status and no body
+POST /post-only
+
+x
+>>> 202
+=
+
+### each method reaches its own handler: GET
+GET /items
+>>> 200
+= listed
+
+### each method reaches its own handler: POST
+POST /items
+
+x
+>>> 201
+= created
+
+### each method reaches its own handler: DELETE
+DELETE /items
+>>> 204
+=
+
+### an unhandled method on a multi-method endpoint is 405
+PUT /items
+
+x
+>>> 405
+
+### PATCH without a handler is 405 too
+PATCH /items
+
+x
+>>> 405
+
+### an endpoint's URL has no sub-paths
+GET /health/deep
+>>> 404
+
+### an endpoint receives the body exactly as sent
+POST /webhooks/echo
+content-type: application/json
+
+{"b": 2,   "a": 1}
+>>> 200
+content-type: application/octet-stream
+= {"b": 2,   "a": 1}
+
+### an endpoint sees header names lower-cased whatever the sender's case
+POST /webhooks/echo
+X-SIGNATURE: t=1,v1=abc
+
+body
+>>> 200
+x-signature-seen: t=1,v1=abc
+
+### an empty body reaches the handler as empty bytes
+POST /webhooks/echo
+>>> 200
+=
+
+### an endpoint that doesn't use the session never sees the cookie
+POST /webhooks/echo
+cookie: k_session=abc123; other=1
+
+x
+>>> 200
+x-cookie-seen: none
+
+### an endpoint without the session needs no forgery check, even with the cookie
+POST /webhooks/echo
+cookie: k_session=abc123
+origin: https://evil.example
+
+x
+>>> 200
+= x
+
+### an endpoint without the session never sets a session cookie
+POST /webhooks/echo
+
+x
+>>> 200
+!set-cookie
+!cache-control
+
+### a repeated header reads as its values joined with a comma
+GET /inspect
+x-multi: one
+x-multi: two
+>>> 200
+~ multi=[one, two] count=2
+
+### an absent header reads as nil
+GET /inspect
+>>> 200
+~ multi=[none] count=0
+
+### the query string is a map of decoded values
+GET /inspect?q=a%20b%26c
+>>> 200
+~ q=[a b&c]
+
+### the client address is the socket's when no proxies are trusted
+GET /inspect
+x-forwarded-for: 203.0.113.9
+>>> 200
+~ address=127.0.0.1
+!~ 203.0.113.9
+
+### the request URL is absolute, built from the public origin
+GET /inspect?q=1
+>>> 200
+~ url=http://localhost/inspect?q=1
+
+### a typed path parameter is parsed
+GET /tenants/7/ping
+>>> 200
+= pong from tenant 7
+
+### a path parameter that fails to parse is a 404 before the handler
+GET /tenants/seven/ping
+>>> 404
+!~ pong
+
+### a negative Int path parameter parses
+GET /tenants/-1/ping
+>>> 200
+= pong from tenant -1
+
+### an empty path parameter doesn't match
+GET /tenants//ping
+>>> 404
+
+### a String path parameter is percent-decoded
+GET /files/a%20b.txt
+>>> 200
+= file [a b.txt]
+
+### an encoded slash stays in the parameter
+GET /files/a%2Fb
+>>> 200
+= file [a/b]
+
+### a JSON body decodes into a Codable type and a json body is encoded back
+POST /hooks/json
+content-type: application/json
+
+{"orderId": 7, "status": "paid", "ignored": true}
+>>> 200
+content-type: application/json
+json {"orderId": 7, "status": "paid"}
+
+### a body that doesn't decode is the handler's own response
+POST /hooks/json
+content-type: application/json
+
+{"orderId": "seven"}
+>>> 400
+= not an order event
+
+### a body that isn't JSON at all is the handler's own response too
+POST /hooks/json
+
+<xml/>
+>>> 400
+= not an order event
+
+### redirect(to:) is 303 See Other to the page's URL
+GET /responses/home
+>>> 303
+location: /home
+
+### redirect(url:) is 303 to the external URL
+GET /responses/away
+>>> 303
+location: https://example.com/away
+
+### a status without a case is sent as its code
+GET /responses/teapot
+>>> 418
+= short and stout
+
+### a handler's own 404 is its response
+GET /responses/unknown
+>>> 404
+= no such kind
+
+### a custom header from a handler is sent
+GET /responses/header?name=x-custom
+>>> 200
+x-custom: a=b
+
+### setting set-cookie from a handler is a panic
+GET /responses/header?name=set-cookie
+>>> 500
+!set-cookie
+
+### setting Set-Cookie in another letter case is a panic as well
+GET /responses/header?name=Set-Cookie
+>>> 500
+!set-cookie
+
+### a panic in a handler is a 500
+GET /responses/panic
+>>> 500
+
+### an endpoint that injects Session receives the cookie session
+GET /oauth/callback
+>>> 200
+= callback as guest
+
+### an endpoint that uses the session is never cached
+GET /oauth/callback
+>>> 200
+cache-control: private, no-store
+
+### a session endpoint's POST with the cookie and a foreign Origin is refused
+POST /oauth/callback
+cookie: k_session=abc123
+origin: https://evil.example
+
+x
+>>> 403
+
+### a session endpoint's POST with the cookie and the public Origin passes
+POST /oauth/callback
+cookie: k_session=abc123
+origin: http://localhost
+
+x
+>>> 200
+= posted
+
+### a session endpoint's POST without any cookie needs no Origin
+POST /oauth/callback
+
+x
+>>> 200
+= posted
+
+### a rate-limited endpoint answers the first call
+POST /limited-hook
+
+x
+>>> 204
+
+### a rate-limited endpoint refuses the second call in a minute with 429
+POST /limited-hook
+
+x
+>>> 429
+
+### endpoint pages are not view pages: the Endpoint enum has no client route
+GET /home
+>>> 200
+~ home page
+!~ /webhooks/echo
+!~ /oauth/callback

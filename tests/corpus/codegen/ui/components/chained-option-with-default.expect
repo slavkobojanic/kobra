@@ -1,0 +1,3 @@
+client contains step: () => 5
+client contains max: () => 99
+client contains props.step()

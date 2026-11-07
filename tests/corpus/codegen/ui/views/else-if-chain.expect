@@ -1,0 +1,4 @@
+client contains $k.when(
+client contains props.score() >= 90
+client contains props.score() >= 50
+client contains <span>C</span>

@@ -72,6 +72,7 @@ mod routing;
 mod rpc;
 pub mod stdlib;
 mod ty;
+pub mod view;
 mod warm;
 
 pub use host::{Analysis, AnalysisHost, Change, FileOrigin, Options};

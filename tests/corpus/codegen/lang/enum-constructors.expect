@@ -1,0 +1,4 @@
+server contains empty: $k.unitCase(0),
+server contains circle: (radius) => ({ $: 1, radius }),
+server contains pair: (_0, _1) => ({ $: 2, _0, _1 }),
+server contains return [Shape.empty, Shape.circle(2), Shape.pair(1, 2)];

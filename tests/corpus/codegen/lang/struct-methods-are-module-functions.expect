@@ -1,0 +1,4 @@
+server contains export function Point$moved(self, d)
+server contains export function Int$squared(self)
+server contains Int$squared(Point$moved(p, 2).x)
+server lacks class Point

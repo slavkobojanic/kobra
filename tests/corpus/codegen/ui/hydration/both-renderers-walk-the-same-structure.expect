@@ -1,0 +1,5 @@
+client contains $k.template("<li><span> </span><!--[--><!--]--></li>")
+server contains out.raw("<li><span>")
+server contains out.text(props.title())
+server contains if (props.isDone()) {
+server contains <span>done</span>

@@ -1,0 +1,31 @@
+# The full pipeline: sema → codegen → server. docs/compiler/testing.md §8.2.
+
+### the home page is rendered on the server
+GET /home
+>>> 200
+content-type: text/html; charset=utf-8
+~ <h1>Hello from K</h1>
+~ <script type="application/json" id="k-data">
+
+### the rpc answers its struct as the message
+POST /hello.home.GreeterProtocol/Greet
+content-type: application/json
+connect-protocol-version: 1
+
+{"name": "<Ana>"}
+>>> 200
+cache-control: private, no-store
+json {"text": "Hello, <Ana>"}
+
+### a request that isn't a message is invalid_argument
+POST /hello.home.GreeterProtocol/Greet
+content-type: application/json
+connect-protocol-version: 1
+
+{"name": 3}
+>>> 400
+~ "invalid_argument"
+
+### an unknown page is a 404
+GET /nowhere
+>>> 404

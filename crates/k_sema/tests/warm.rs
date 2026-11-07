@@ -247,6 +247,31 @@ fn a_signature_edit_re_checks_everything() {
     );
 }
 
+/// Regression (property `incremental_recheck_of_syntax_projects_equals_a_fresh_check`):
+/// the type of an `@Inject` field of a `migration` (or `app`) is read by the
+/// dependency-injection pass in every revision, so its diagnostics must not
+/// be cached with the file's body facts; replaying them reported an unknown
+/// type twice after an edit to another file.
+#[test]
+fn an_inject_field_of_a_migration_reports_once_after_a_replay() {
+    let migration = "migration CartItem {\n    @Inject let name: Float\n}\n";
+    let other = "public func one() -> Int {\n    return 1\n}\n";
+    let files = vec![
+        file("k.toml", MANIFEST),
+        file("src/m/a/A.k", other),
+        file("src/m/a/B.k", migration),
+    ];
+    let edited = other.replace("return 1", "return 2");
+    run(
+        files,
+        &[
+            ("src/m/a/A.k", other.to_owned()),
+            ("src/m/a/A.k", edited),
+            ("src/m/a/A.k", other.to_owned()),
+        ],
+    );
+}
+
 fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples")
 }

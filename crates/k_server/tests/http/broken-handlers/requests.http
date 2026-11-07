@@ -1,0 +1,37 @@
+# A handler that breaks the response protocol must cost one request a 500,
+# never the worker (docs/compiler/server.md §15, "Never panic in Rust on
+# input"; §3, "a worker whose isolate died answers 503"). Two workers serve
+# this fixture, so the requests below alternate between them.
+
+### a handler that returns undefined is a 500
+GET /undefined
+>>> 500
+
+### a handler that returns a string is a 500
+GET /not-an-object
+>>> 500
+
+### a thrown non-Error is a 500 without its text
+GET /throw-string
+>>> 500
+!~ SECRET-DETAIL
+
+### a rejected promise is a 500 without its message
+GET /reject
+>>> 500
+!~ SECRET-DETAIL
+
+### the workers still answer after every broken handler above
+GET /alive
+>>> 200
+= still alive
+
+### and on the other worker too
+GET /alive
+>>> 200
+= still alive
+
+### a third request is answered too
+GET /alive
+>>> 200
+= still alive

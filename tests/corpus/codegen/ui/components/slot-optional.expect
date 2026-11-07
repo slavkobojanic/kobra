@@ -1,0 +1,3 @@
+client contains props.footer
+client contains $k.when(
+client contains footer: () =>

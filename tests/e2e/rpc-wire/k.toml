@@ -1,0 +1,6 @@
+# RPC over JSON with Connect-compatible paths, messages and errors
+# (docs/design/28-rpc-wire-format.md, docs/compiler/server.md §6). The
+# project name `rpc-wire` becomes the Protobuf prefix `rpc_wire`.
+[package]
+name = "rpc-wire"
+k = "0.1"

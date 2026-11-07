@@ -1,0 +1,7 @@
+server contains async function Signup$check(v, p, f, c, $c)
+server contains $k.parseEmail(v) === null ? "Enter an email address" : null
+server contains new RegExp("^[a-z]+$").test(v) ? null : "Lowercase letters only"
+server contains $k.lengthRule(2, 8, "Use 2 to 8 characters")
+server contains .isFree($c, x)
+server contains "Taken"
+server contains "[" + $i0 + "]"

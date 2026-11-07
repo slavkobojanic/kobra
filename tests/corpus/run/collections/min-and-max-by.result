@@ -1,0 +1,1 @@
+returns [{"name": "Tromso", "population": 77}, {"name": "Oslo", "population": 700}, null]

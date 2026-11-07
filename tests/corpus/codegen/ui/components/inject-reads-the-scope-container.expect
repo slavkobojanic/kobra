@@ -1,0 +1,3 @@
+client contains ctx.c.CartService
+client contains cart.count.get()
+server contains ctx.c.CartService

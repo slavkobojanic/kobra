@@ -1,0 +1,3 @@
+client contains props.row(
+client contains row: (item) =>
+client contains CartRow({

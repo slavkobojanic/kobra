@@ -1,0 +1,6 @@
+# The client/server split (docs/compiler/codegen.md §16): every server-only
+# declaration below carries a marker string that must never appear in a
+# client file. Driven from crates/k_server/tests/stage3_server.rs.
+[package]
+name = "split"
+k = "0.1"

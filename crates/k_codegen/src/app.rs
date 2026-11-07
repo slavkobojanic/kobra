@@ -1,0 +1,861 @@
+//! The application layer of code generation: the generated `Page` and
+//! `ThemeVariant` enums, URLs and the route table, `@Load` groups, `@Form`
+//! state, RPC paths, repositories as SQL, endpoint pages and the entry
+//! modules of both sides (`docs/compiler/codegen.md` §10, §13–§15, §17).
+
+use std::collections::BTreeSet;
+
+use k_sema::stdlib::DeclarationKind;
+use k_sema::view::{DeclId, MemberId, MemberKind, Resolved, Type};
+use k_syntax::SyntaxKind;
+use k_syntax::ast::{self, AstNode};
+
+use crate::cx::{Gen, Target, mangle};
+use crate::js::{self, Expr, Function, Param, Prop, Stmt, bin, call, id, member, rt};
+use crate::lower::{Body, MemberAccess};
+use crate::view::VNode;
+
+// ---------------------------------------------------------------- pages
+
+/// The pages of the project (declarations with a view), in a fixed order.
+pub(crate) fn pages(g: &Gen<'_>) -> Vec<DeclId> {
+    g.own
+        .iter()
+        .copied()
+        .filter(|&d| {
+            let info = g.view.decl(d);
+            info.named_kind() == Some(DeclarationKind::Page)
+                && g.decl_node(d)
+                    .is_some_and(|n| n.descendants().any(|c| c.kind() == SyntaxKind::ViewBlock))
+        })
+        .collect()
+}
+
+/// The endpoint pages (pages without a view).
+pub(crate) fn endpoints(g: &Gen<'_>) -> Vec<DeclId> {
+    g.own
+        .iter()
+        .copied()
+        .filter(|&d| {
+            g.view.decl(d).named_kind() == Some(DeclarationKind::Page)
+                && !g
+                    .decl_node(d)
+                    .is_some_and(|n| n.descendants().any(|c| c.kind() == SyntaxKind::ViewBlock))
+        })
+        .collect()
+}
+
+/// The `Page` case name of a page: its name in lower camel case.
+pub(crate) fn case_name(name: &str) -> String {
+    let mut c = name.chars();
+    match c.next() {
+        Some(f) => f.to_lowercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    }
+}
+
+/// A page's `@Param`s: `(name, type, has default)`.
+pub(crate) fn params(g: &Gen<'_>, page: DeclId) -> Vec<(MemberId, String, Type, bool)> {
+    g.view
+        .decl(page)
+        .members
+        .iter()
+        .copied()
+        .filter(|&m| g.view.member(m).has_annotation("Param"))
+        .map(|m| {
+            let mi = g.view.member(m);
+            (
+                m,
+                mi.name.clone(),
+                mi.ty.clone().unwrap_or(Type::Error),
+                mi.has_default,
+            )
+        })
+        .collect()
+}
+
+/// The URL template of a page: its `at "…"`, or the derived one
+/// (12-routing.md, "Default URLs"): the name in kebab case (`Home` is
+/// `/home`; only `at "/"` names the root), required parameters as path
+/// segments in declaration order.
+pub(crate) fn template(g: &Gen<'_>, page: DeclId) -> String {
+    if let Some(node) = g.decl_node(page) {
+        if let Some(at) = node.children().find(|c| c.kind() == SyntaxKind::AtClause) {
+            if let Some(s) = at.children().find_map(ast::StringLit::cast) {
+                if let Some(v) = s.plain_value() {
+                    return v;
+                }
+                // `"/articles/{slug}"` parses as an interpolation; its source
+                // text is the template.
+                let text = s.syntax().text().to_string();
+                let t = text.trim_matches('"');
+                if t.starts_with('/') {
+                    return t.to_owned();
+                }
+            }
+        }
+    }
+    let name = &g.view.decl(page).name;
+    let mut t = format!("/{}", crate::css::kebab(name));
+    for (_, p, _, optional) in params(g, page) {
+        if !optional {
+            t.push_str(&format!("/{{{p}}}"));
+        }
+    }
+    if t.is_empty() {
+        t.push('/');
+    }
+    t
+}
+
+/// The page a `Page` case stands for.
+fn page_of_case(g: &Gen<'_>, case: &str) -> Option<DeclId> {
+    pages(g)
+        .into_iter()
+        .find(|&p| case_name(&g.view.decl(p).name) == case)
+}
+
+/// A static `href` for a page value without parameters: `.pricing`.
+pub(crate) fn static_href(b: &Body<'_, '_>, v: &ast::Expr) -> Option<String> {
+    let name = match v {
+        ast::Expr::ImplicitMemberExpr(m) => m.name()?,
+        ast::Expr::MemberExpr(m) => m.name()?,
+        _ => return None,
+    };
+    let page = page_of_case(b.g, name.text())?;
+    if params(b.g, page)
+        .iter()
+        .any(|(_, _, _, optional)| !optional)
+    {
+        return None;
+    }
+    Some(template(b.g, page))
+}
+
+/// `Page$href(value)`: the URL of a page value.
+pub(crate) fn href_expr(b: &mut Body<'_, '_>, v: &ast::Expr) -> Expr {
+    let x = b.expr(v);
+    match b.g.view.lookup("k.core.Page") {
+        Some(p) => {
+            let f = b.use_decl(p, "Page$href".into());
+            call(f, vec![x])
+        }
+        None => x,
+    }
+}
+
+/// Lowers the generated `Page` enum: one constructor per page with its
+/// parameters as fields, `Page$href` and `Page$parse` (codegen.md §14).
+pub(crate) fn page_enum(b: &mut Body<'_, '_>) -> Vec<Stmt> {
+    let g = b.g;
+    // Endpoint pages are `Endpoint` cases, server-only; `Page` has only
+    // the pages with a view.
+    let all: Vec<DeclId> = pages(g);
+    let mut props = Vec::new();
+    let mut cases = Vec::new();
+    let mut parse_routes = Vec::new();
+    let file = b.file;
+    for (tag, &p) in all.iter().enumerate() {
+        let cname = case_name(&g.view.decl(p).name);
+        let ps = params(g, p);
+        // Defaults are expressions of the page's own file.
+        b.file = g.view.decl(p).file;
+        let value = if ps.is_empty() {
+            rt("unitCase", vec![Expr::Num(tag as f64)])
+        } else {
+            let mut obj = vec![Prop::KeyValue("$".into(), Expr::Num(tag as f64))];
+            let mut fps = Vec::new();
+            for (m, name, _, optional) in &ps {
+                let pn = mangle(name);
+                let default = if *optional {
+                    g.member_node(*m)
+                        .and_then(|n| n.children().find_map(ast::Expr::cast))
+                        .map(|e| b.expr(&e))
+                } else {
+                    None
+                };
+                fps.push(Param {
+                    name: pn.clone(),
+                    default,
+                    rest: false,
+                });
+                obj.push(Prop::KeyValue(name.clone(), id(pn)));
+            }
+            js::arrow(fps, Expr::Object(obj, false))
+        };
+        props.push(Prop::KeyValue(cname.clone(), value));
+        // href: the path with required parameters, optionals in the query.
+        let tpl = template(g, p);
+        let mut pieces: Vec<Expr> = Vec::new();
+        let mut rest = tpl.as_str();
+        while let Some(i) = rest.find('{') {
+            pieces.push(js::str(rest[..i].to_owned()));
+            let end = rest[i..].find('}').map_or(rest.len(), |e| i + e);
+            let pname = &rest[i + 1..end];
+            let t = ps
+                .iter()
+                .find(|(_, n, _, _)| n == pname)
+                .map(|(_, _, t, _)| t.clone())
+                .unwrap_or(Type::Error);
+            let x = b.text_of(member(id("p"), pname.to_owned()), &t);
+            pieces.push(call(id("encodeURIComponent"), vec![x]));
+            rest = if end < rest.len() {
+                &rest[end + 1..]
+            } else {
+                ""
+            };
+        }
+        if !rest.is_empty() || pieces.is_empty() {
+            pieces.push(js::str(rest.to_owned()));
+        }
+        let mut query = Vec::new();
+        for (m, name, t, optional) in &ps {
+            if !*optional {
+                continue;
+            }
+            let default = g
+                .member_node(*m)
+                .and_then(|n| n.children().find_map(ast::Expr::cast))
+                .map_or(Expr::Null, |e| b.expr(&e));
+            let x = b.text_of(member(id("p"), name.clone()), t);
+            query.push(Expr::Array(vec![
+                js::str(format!("{name}=")),
+                x,
+                member(id("p"), name.clone()),
+                default,
+            ]));
+        }
+        let path = pieces
+            .into_iter()
+            .reduce(|a, c| bin("+", a, c))
+            .unwrap_or_else(|| js::str("/"));
+        let href = if query.is_empty() {
+            path
+        } else {
+            rt("withQuery", vec![path, Expr::Array(query)])
+        };
+        b.file = file;
+        cases.push(js::Case {
+            tests: vec![Expr::Num(tag as f64)],
+            body: vec![Stmt::Return(Some(href))],
+        });
+        let segments: Vec<Expr> = tpl
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .map(|s| js::str(s.to_owned()))
+            .collect();
+        parse_routes.push(Expr::Array(vec![js::str(cname), Expr::Array(segments)]));
+    }
+    cases.push(js::Case {
+        tests: Vec::new(),
+        body: vec![Stmt::Return(Some(js::str("/")))],
+    });
+    vec![
+        Stmt::ExportConst("Page".into(), Expr::Object(props, true)),
+        Stmt::Function(
+            Function {
+                name: "Page$href".into(),
+                params: vec![Param::new("p")],
+                body: js::Body::Block(vec![Stmt::Switch(member(id("p"), "$"), cases)]),
+                ..Function::default()
+            },
+            true,
+        ),
+        Stmt::ExportConst("Page$routes".into(), Expr::Array(parse_routes)),
+    ]
+}
+
+/// The generated `ThemeVariant` enum: one case per theme variant (plus
+/// `base`), each the variant's name.
+pub(crate) fn theme_variant_enum(b: &mut Body<'_, '_>) -> Vec<Stmt> {
+    let mut props = vec![Prop::KeyValue("base".into(), js::str("base"))];
+    for v in crate::css::variants(b.g) {
+        props.push(Prop::KeyValue(v.clone(), js::str(v)));
+    }
+    vec![Stmt::ExportConst(
+        "ThemeVariant".into(),
+        Expr::Object(props, true),
+    )]
+}
+
+/// The route table: `[{ name, segments, load }]` (codegen.md §14).
+fn route_table(g: &Gen<'_>, b: &mut Body<'_, '_>, target: Target) -> Expr {
+    let mut routes = Vec::new();
+    let mut ordered = pages(g);
+    ordered.sort_by_key(|&p| {
+        let t = template(g, p);
+        let dynamic = t.matches('{').count();
+        (
+            dynamic,
+            std::cmp::Reverse(t.len()),
+            g.view.decl(p).name.clone(),
+        )
+    });
+    for p in ordered {
+        let name = g.name(p);
+        let cname = case_name(&g.view.decl(p).name);
+        let load = match target {
+            Target::Client => js::arrow(
+                vec![],
+                call(
+                    member(
+                        Expr::Import(Box::new(js::str(format!("$page:{}", p.0)))),
+                        "then",
+                    ),
+                    vec![js::arrow(
+                        vec![Param::new("m")],
+                        Expr::Object(
+                            vec![Prop::KeyValue(
+                                "render".into(),
+                                js::arrow(
+                                    vec![Param::new("params"), Param::new("ctx")],
+                                    call(
+                                        member(id("m"), name.clone()),
+                                        vec![rt("paramProps", vec![id("params")]), id("ctx")],
+                                    ),
+                                ),
+                            )],
+                            false,
+                        ),
+                    )],
+                ),
+            ),
+            Target::Server => b.use_decl(p, format!("{name}$ssr")),
+        };
+        // The same typed matcher as the server's (`route` in `std.js`),
+        // so a parameter is an `Int` on both sides and a URL the server
+        // answers with 404 matches no route here either.
+        let tpl = template(g, p);
+        let file = b.file;
+        b.file = g.view.decl(p).file;
+        let parse = crate::server::matcher(b, p, &tpl);
+        let value = crate::server::page_value(b, p);
+        b.file = file;
+        routes.push(Expr::Object(
+            vec![
+                Prop::KeyValue("name".into(), js::str(cname.clone())),
+                Prop::KeyValue("parse".into(), parse),
+                Prop::KeyValue("value".into(), value),
+                Prop::KeyValue("load".into(), load),
+            ],
+            false,
+        ));
+    }
+    Expr::Array(routes)
+}
+
+/// The client entry (`app.[hash].js`): hydrate the server's HTML, or render
+/// for `@Rendering(.client)`, and start the router.
+pub(crate) fn client_entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)>) {
+    let file = g
+        .own
+        .first()
+        .map_or(k_diagnostics::FileId::new(0), |&d| g.view.decl(d).file);
+    let mut b = Body::new(g, file, Target::Client);
+    let routes = route_table(g, &mut b, Target::Client);
+    let mut stmts = vec![Stmt::Const("routes".into(), routes)];
+    let container = call(
+        member(id("document"), "getElementById"),
+        vec![js::str("k-app")],
+    );
+    stmts.push(Stmt::Const("container".into(), container));
+    if g.client_rendered() {
+        stmts.push(Stmt::Expr(rt(
+            "startRouter",
+            vec![id("routes"), id("container")],
+        )));
+    } else {
+        // The router hydrates the first page once its chunk has loaded:
+        // its templates claim the server's nodes and its loads start from
+        // `k-data` (runtime.md §6, §10).
+        stmts.push(Stmt::Expr(rt(
+            "startRouter",
+            vec![
+                id("routes"),
+                id("container"),
+                Expr::Object(
+                    vec![Prop::KeyValue(
+                        "data".into(),
+                        rt("readData", vec![id("document")]),
+                    )],
+                    false,
+                ),
+            ],
+        )));
+    }
+    (stmts, b.uses)
+}
+
+/// An endpoint page's handlers and its table entry (server only).
+pub(crate) fn endpoint(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
+    let g = b.g;
+    let info = g.view.decl(d).clone();
+    let mut out = Vec::new();
+    let mut methods = Vec::new();
+    // Handlers receive `$e`: the parsed `@Param`s and the request
+    // container that `@Inject`s read from (server.md §10).
+    for &m in &info.members {
+        let mi = g.view.member(m);
+        if mi.kind != MemberKind::Field {
+            continue;
+        }
+        if mi.has_annotation("Param") {
+            b.access.insert(
+                m,
+                MemberAccess::Raw(member(member(id("$e"), "params"), mi.name.clone())),
+            );
+        } else if mi.has_annotation("Inject") {
+            let tn = mi
+                .ty
+                .as_ref()
+                .and_then(Type::decl)
+                .map(|t| g.name(t))
+                .unwrap_or_default();
+            b.access
+                .insert(m, MemberAccess::Raw(member(member(id("$e"), "c"), tn)));
+        }
+    }
+    for &m in &info.members {
+        let mi = g.view.member(m).clone();
+        if mi.kind != MemberKind::Func {
+            continue;
+        }
+        let verb = ["Get", "Post", "Put", "Patch", "Delete"]
+            .iter()
+            .find(|v| mi.has_annotation(v));
+        let node = g.member_node(m);
+        let name = format!("{}${}", g.name(d), g.member_name(m));
+        let f = crate::decl::function(
+            b,
+            name.clone(),
+            node.as_ref(),
+            mi.signature.as_ref(),
+            vec![Param::new("$e")],
+        );
+        out.push(Stmt::Function(f, true));
+        if let Some(v) = verb {
+            methods.push(Prop::KeyValue(v.to_uppercase(), id(name)));
+        }
+    }
+    out.push(Stmt::ExportConst(
+        format!("{}$endpoint", g.name(d)),
+        Expr::Object(
+            vec![
+                Prop::KeyValue("template".into(), js::str(template(g, d))),
+                Prop::KeyValue("methods".into(), Expr::Object(methods, false)),
+            ],
+            false,
+        ),
+    ));
+    out
+}
+
+/// `true` when a server renderer awaits children (components with loads).
+pub(crate) fn has_async_children(g: &Gen<'_>, nodes: &[VNode]) -> bool {
+    nodes.iter().any(|n| match n {
+        VNode::Component(c) => crate::ui::has_loads(g, c.decl),
+        VNode::Elem(e) => has_async_children(g, &e.children),
+        _ => false,
+    })
+}
+
+// ----------------------------------------------------------------- loads
+
+/// The loads a `@Load` initializer reads.
+fn load_deps(b: &Body<'_, '_>, init: &ast::Expr, loads: &[MemberId]) -> Vec<String> {
+    let mut out = Vec::new();
+    for n in init.syntax().descendants() {
+        if n.kind() != SyntaxKind::NameExpr {
+            continue;
+        }
+        if let Some(Resolved::Member(m)) = b.g.resolved(b.file, n.text_range()) {
+            if loads.contains(&m) {
+                let name = b.g.view.member(m).name.clone();
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The client load group: `$k.createLoads([{ name, after, run }], serialized)`.
+pub(crate) fn client_loads(b: &mut Body<'_, '_>, _d: DeclId, loads: &[MemberId]) -> Expr {
+    let mut specs = Vec::new();
+    for &m in loads {
+        let mi = b.g.view.member(m).clone();
+        let init =
+            b.g.member_node(m)
+                .and_then(|n| n.children().find_map(ast::Expr::cast));
+        let Some(init) = init else { continue };
+        let deps = load_deps(b, &init, loads);
+        // Inside `run`, other loads are read from its values.
+        let saved: Vec<(MemberId, Option<MemberAccess>)> = loads
+            .iter()
+            .map(|&l| (l, b.access.get(&l).cloned()))
+            .collect();
+        for &l in loads {
+            let n = b.g.view.member(l).name.clone();
+            b.access.insert(l, MemberAccess::Raw(member(id("v"), n)));
+        }
+        let saved_c = b.has_c;
+        b.has_c = true;
+        let (pre, x) = b.capture(|b| b.expr(&init));
+        b.has_c = saved_c;
+        for (l, a) in saved {
+            match a {
+                Some(a) => {
+                    b.access.insert(l, a);
+                }
+                None => {
+                    b.access.remove(&l);
+                }
+            }
+        }
+        let mut body = pre;
+        body.push(Stmt::Return(Some(x)));
+        let run = js::arrow_block(vec![Param::new("v"), Param::new("$c")], body, true);
+        specs.push(Expr::Object(
+            vec![
+                Prop::KeyValue("name".into(), js::str(mi.name.clone())),
+                Prop::KeyValue(
+                    "after".into(),
+                    Expr::Array(deps.into_iter().map(js::str).collect()),
+                ),
+                Prop::KeyValue("run".into(), run),
+            ],
+            false,
+        ));
+    }
+    rt(
+        "createLoads",
+        vec![Expr::Array(specs), rt("loadsOf", vec![id("ctx")])],
+    )
+}
+
+/// The server's loads: awaited in order before rendering, and serialized
+/// into `k-data` with their codecs.
+pub(crate) fn ssr_loads(b: &mut Body<'_, '_>, _d: DeclId, loads: &[MemberId]) -> Vec<Stmt> {
+    let mut out = Vec::new();
+    let mut data = Vec::new();
+    for &m in loads {
+        let mi = b.g.view.member(m).clone();
+        let init =
+            b.g.member_node(m)
+                .and_then(|n| n.children().find_map(ast::Expr::cast));
+        let Some(init) = init else { continue };
+        let (pre, x) = b.capture(|b| b.expr(&init));
+        out.extend(pre);
+        let n = mangle(&mi.name);
+        out.push(Stmt::Const(n.clone(), x));
+        let t = mi.ty.clone().unwrap_or(Type::Error);
+        data.push(Prop::KeyValue(mi.name.clone(), encode_expr(b, &t, id(n))));
+    }
+    out.push(Stmt::Expr(js::assign(
+        Expr::Index(
+            Box::new(member(id("out"), "data")),
+            Box::new(bin("??", member(id("ctx"), "key"), js::str("0"))),
+        ),
+        Expr::Object(
+            vec![Prop::KeyValue("loads".into(), Expr::Object(data, false))],
+            false,
+        ),
+    )));
+    out
+}
+
+/// Encodes `x` of type `t`: `T$encode(x)` for named codecs, else through the
+/// codec object.
+pub(crate) fn encode_expr(b: &mut Body<'_, '_>, t: &Type, x: Expr) -> Expr {
+    if let Some(d) = t.decl() {
+        if crate::codec::has_codec(b.g, d) && b.g.view.decl(d).generics.is_empty() {
+            let f = b.use_decl(d, format!("{}$encode", b.g.name(d)));
+            return call(f, vec![x]);
+        }
+    }
+    let c = crate::codec::codec_expr(b, t);
+    call(member(c, "encode"), vec![x])
+}
+
+// ----------------------------------------------------------------- forms
+
+/// The state of a `@Form`: `$k.createForm(fields, initial, validate)`.
+pub(crate) fn form(b: &mut Body<'_, '_>, m: MemberId, init: Option<&ast::Expr>) -> Expr {
+    let g = b.g;
+    let ty = g.view.member(m).ty.clone().unwrap_or(Type::Error);
+    let Some(d) = ty.decl() else {
+        return Expr::Null;
+    };
+    let mut fields = Vec::new();
+    for f in g.stored_fields(d) {
+        let fi = g.view.member(f).clone();
+        let ft = fi.ty.clone().unwrap_or(Type::Error);
+        let node = g.member_node(f);
+        let anns: Vec<(String, Option<ast::ArgList>)> = node
+            .as_ref()
+            .map(|n| {
+                n.children()
+                    .filter_map(ast::Annotation::cast)
+                    .map(|a| {
+                        (
+                            a.name().map(|t| t.text().to_owned()).unwrap_or_default(),
+                            a.arg_list(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let format_message = anns
+            .iter()
+            .find(|(n, _)| n == "Format")
+            .and_then(|(_, l)| message_arg(l.as_ref()));
+        let parse = parse_fn(b, &ft, format_message);
+        let mut constraints = Vec::new();
+        for (name, args) in &anns {
+            if let Some(c) = constraint(b, name, args.as_ref(), &ft) {
+                constraints.push(c);
+            }
+        }
+        fields.push(Expr::Object(
+            vec![
+                Prop::KeyValue("name".into(), js::str(fi.name.clone())),
+                Prop::KeyValue("parse".into(), parse),
+                Prop::KeyValue("constraints".into(), Expr::Array(constraints)),
+            ],
+            false,
+        ));
+    }
+    // Initial raw text: `.empty(name: x, age: 18)`.
+    let mut initial = Vec::new();
+    if let Some(ast::Expr::CallExpr(c)) = init {
+        if let Some(list) = c.arg_list() {
+            for a in list.args() {
+                if let (Some(l), Some(v)) = (a.label(), a.value()) {
+                    let x = match &v {
+                        ast::Expr::Literal(lit) => {
+                            js::str(lit.token().map(|t| t.text().to_owned()).unwrap_or_default())
+                        }
+                        ast::Expr::StringLit(s) if s.is_plain() => {
+                            js::str(s.plain_value().unwrap_or_default())
+                        }
+                        other => {
+                            let t = b.ty(other.syntax());
+                            let x = b.expr(other);
+                            b.text_of(x, &t)
+                        }
+                    };
+                    initial.push(Prop::KeyValue(l.text().to_owned(), x));
+                }
+            }
+        }
+    }
+    let validate = match g.find_member(d, "validate") {
+        Some(v) if !g.view.member(v).is_static => {
+            let f = b.fn_ref(v);
+            js::arrow(
+                vec![Param::new("v"), Param::new("rules")],
+                call(f, vec![id("v"), id("rules")]),
+            )
+        }
+        _ => Expr::Null,
+    };
+    rt(
+        "createForm",
+        vec![Expr::Array(fields), Expr::Object(initial, false), validate],
+    )
+}
+
+fn message_arg(l: Option<&ast::ArgList>) -> Option<String> {
+    l?.args()
+        .find(|a| a.label().is_some_and(|t| t.text() == "message"))
+        .and_then(|a| a.value())
+        .and_then(|v| match v {
+            ast::Expr::StringLit(s) => s.plain_value(),
+            _ => None,
+        })
+}
+
+/// The `parse` of a form field by its type.
+fn parse_fn(b: &mut Body<'_, '_>, t: &Type, message: Option<String>) -> Expr {
+    let g = b.g;
+    let base = t.unwrap_optional();
+    let (kind, default_message) = if g.is_int(base) {
+        ("int", "Enter a whole number")
+    } else if g.is_double(base) {
+        ("double", "Enter a number")
+    } else if g.is_bool(base) {
+        ("bool", "")
+    } else if g.is(base, g.b.email) {
+        ("email", "Enter an email address")
+    } else if g.is(base, g.b.money) || g.is(base, g.b.decimal) {
+        ("decimal", "Enter an amount")
+    } else {
+        ("text", "")
+    };
+    let msg = message.unwrap_or_else(|| default_message.to_owned());
+    rt(
+        "fieldParser",
+        vec![
+            js::str(kind),
+            js::str(msg),
+            Expr::Bool(matches!(t, Type::Optional(_))),
+        ],
+    )
+}
+
+/// A constraint annotation as a check function returning a message or
+/// `null` (15-forms-and-validation.md).
+pub(crate) fn constraint(
+    b: &mut Body<'_, '_>,
+    name: &str,
+    args: Option<&ast::ArgList>,
+    t: &Type,
+) -> Option<Expr> {
+    let message = message_arg(args);
+    let arg = |label: &str| -> Option<ast::Expr> {
+        args?
+            .args()
+            .find(|a| a.label().is_some_and(|l| l.text() == label))
+            .and_then(|a| a.value())
+    };
+    let first = args
+        .and_then(|l| l.args().next())
+        .filter(|a| a.label().is_none())
+        .and_then(|a| a.value());
+    let num = |e: Option<ast::Expr>| -> Option<f64> {
+        let e = e?;
+        let text = e.syntax().text().to_string();
+        text.replace('_', "").parse().ok()
+    };
+    let _ = t;
+    match name {
+        "Length" => {
+            let min = num(arg("min"));
+            let max = num(arg("max"));
+            let default = match (min, max) {
+                (Some(lo), None) => {
+                    format!("Use at least {} characters", crate::lower::fmt_num(lo))
+                }
+                (None, Some(hi)) => format!("Use at most {} characters", crate::lower::fmt_num(hi)),
+                (Some(lo), Some(hi)) => format!(
+                    "Use {} to {} characters",
+                    crate::lower::fmt_num(lo),
+                    crate::lower::fmt_num(hi)
+                ),
+                (None, None) => String::new(),
+            };
+            Some(rt(
+                "lengthRule",
+                vec![
+                    min.map_or(Expr::Null, Expr::Num),
+                    max.map_or(Expr::Null, Expr::Num),
+                    js::str(message.unwrap_or(default)),
+                ],
+            ))
+        }
+        "Range" => {
+            let (lo, hi) = match &first {
+                Some(ast::Expr::BinaryExpr(be)) => (num(be.lhs()), num(be.rhs())),
+                _ => (None, None),
+            };
+            let default = format!(
+                "Enter a number from {} to {}",
+                lo.map_or_else(String::new, crate::lower::fmt_num),
+                hi.map_or_else(String::new, crate::lower::fmt_num)
+            );
+            Some(rt(
+                "rangeRule",
+                vec![
+                    lo.map_or(Expr::Null, Expr::Num),
+                    hi.map_or(Expr::Null, Expr::Num),
+                    js::str(message.unwrap_or(default)),
+                ],
+            ))
+        }
+        "Required" | "NotEmpty" => Some(rt(
+            "requiredRule",
+            vec![js::str(message.unwrap_or_else(|| "Required".into()))],
+        )),
+        // Generated inline rather than in the runtime: blank after trimming.
+        "NotBlank" => Some(js::arrow(
+            vec![Param::new("v")],
+            Expr::Cond(
+                Box::new(bin(
+                    "===",
+                    call(member(id("v"), "trim"), vec![]),
+                    js::str(""),
+                )),
+                Box::new(js::str(message.unwrap_or_else(|| "Required".into()))),
+                Box::new(Expr::Null),
+            ),
+        )),
+        // An email address as `EmailAddress.parse` accepts one.
+        "Email" => Some(js::arrow(
+            vec![Param::new("v")],
+            Expr::Cond(
+                Box::new(bin("===", rt("parseEmail", vec![id("v")]), Expr::Null)),
+                Box::new(js::str(
+                    message.unwrap_or_else(|| "Enter an email address".into()),
+                )),
+                Box::new(Expr::Null),
+            ),
+        )),
+        // The pattern is a checked string literal (sema); JS `RegExp`
+        // syntax without flags, as the design's examples are written.
+        "Matches" => {
+            let pattern = match &first {
+                Some(ast::Expr::StringLit(s)) => s.plain_value(),
+                _ => None,
+            }?;
+            Some(js::arrow(
+                vec![Param::new("v")],
+                Expr::Cond(
+                    Box::new(call(
+                        member(
+                            Expr::New(Box::new(id("RegExp")), vec![js::str(pattern)]),
+                            "test",
+                        ),
+                        vec![id("v")],
+                    )),
+                    Box::new(Expr::Null),
+                    Box::new(js::str(
+                        message.unwrap_or_else(|| "Use the expected format".into()),
+                    )),
+                ),
+            ))
+        }
+        // `@Check` is asynchronous and runs a service: the server's
+        // validator generates it (`server::validator`); the browser's
+        // debounced run is not written yet (runtime.md §9).
+        _ => {
+            let _ = b;
+            None
+        }
+    }
+}
+
+// ------------------------------------------------------------------ rpc
+
+/// The rpc path of protocol member `m`: `/package.module.Protocol/Method`.
+pub(crate) fn rpc_path(g: &Gen<'_>, d: DeclId, m: MemberId) -> String {
+    let info = g.view.decl(d);
+    let module = info.module.clone().unwrap_or_default();
+    let package = crate::server::package_of(g, &module);
+    let name = &g.view.member(m).name;
+    let mut c = name.chars();
+    let method = match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    };
+    format!("/{package}.{}/{method}", info.name)
+}
+
+/// `true` for the stdlib `Page` / `ThemeVariant` declarations, which the
+/// generator emits per app.
+pub(crate) fn is_generated_enum(g: &Gen<'_>, d: DeclId) -> bool {
+    g.view.lookup("k.core.Page") == Some(d) || g.view.lookup("k.core.ThemeVariant") == Some(d)
+}
+
+#[allow(dead_code)]
+fn unused(_: Target) {}

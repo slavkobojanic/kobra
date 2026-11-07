@@ -1,0 +1,158 @@
+# Repositories end to end on a fresh SQLite database (docs/compiler/db.md).
+# The client chooses note ids so later exchanges can refer to them; tag ids
+# are random, so they are never asserted.
+
+### an insert inside a transaction, insert(all:) of tags, and single with including
+POST /db_notes.notes.NotesProtocol/Create
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-00000000000a", "owner": "ada", "title": "beta", "body": "b", "tags": ["work", "ideas"]}
+>>> 200
+json {"id": "00000000-0000-4000-8000-00000000000a", "title": "beta", "body": "b", "tags": ["ideas", "work"], "isPinned": false, "revision": 1}
+
+### a note without tags inserts no tag rows
+POST /db_notes.notes.NotesProtocol/Create
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-00000000000b", "owner": "ada", "title": "alpha", "body": "", "tags": []}
+>>> 200
+json {"id": "00000000-0000-4000-8000-00000000000b", "title": "alpha", "body": "", "tags": [], "isPinned": false, "revision": 1}
+
+### another owner's note
+POST /db_notes.notes.NotesProtocol/Create
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-00000000000c", "owner": "bob", "title": "gamma", "body": "it's 100% \"quoted\"", "tags": ["x"]}
+>>> 200
+json {"id": "00000000-0000-4000-8000-00000000000c", "title": "gamma", "body": "it's 100% \"quoted\"", "tags": ["x"], "isPinned": false, "revision": 1}
+
+### a list is filtered by owner and sorted by title, tags included
+POST /db_notes.notes.NotesProtocol/List
+content-type: application/json
+connect-protocol-version: 1
+
+{"owner": "ada"}
+>>> 200
+json {"value": [{"id": "00000000-0000-4000-8000-00000000000b", "title": "alpha", "body": "", "tags": [], "isPinned": false, "revision": 1}, {"id": "00000000-0000-4000-8000-00000000000a", "title": "beta", "body": "b", "tags": ["ideas", "work"], "isPinned": false, "revision": 1}]}
+
+### a bulk update changes one row and reports it
+POST /db_notes.notes.NotesProtocol/Pin
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-00000000000a", "owner": "ada", "isPinned": true}
+>>> 200
+json {"value": true}
+
+### a bulk update filtered to nothing changes nothing
+POST /db_notes.notes.NotesProtocol/Pin
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-00000000000c", "owner": "ada", "isPinned": true}
+>>> 200
+json {"value": false}
+
+### pinned notes sort first; the bulk update left the revision alone
+POST /db_notes.notes.NotesProtocol/List
+content-type: application/json
+connect-protocol-version: 1
+
+{"owner": "ada"}
+>>> 200
+json {"value": [{"id": "00000000-0000-4000-8000-00000000000a", "title": "beta", "body": "b", "tags": ["ideas", "work"], "isPinned": true, "revision": 1}, {"id": "00000000-0000-4000-8000-00000000000b", "title": "alpha", "body": "", "tags": [], "isPinned": false, "revision": 1}]}
+
+### update(entity) at the stored revision writes and bumps it
+POST /db_notes.notes.NotesProtocol/Edit
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-00000000000a", "owner": "ada", "title": "beta 2", "revision": 1}
+>>> 200
+json {"id": "00000000-0000-4000-8000-00000000000a", "title": "beta 2", "body": "b", "tags": ["ideas", "work"], "isPinned": true, "revision": 2}
+
+### update(entity) from an older revision is a conflict, not a lost update
+POST /db_notes.notes.NotesProtocol/Edit
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-00000000000a", "owner": "ada", "title": "stale", "revision": 1}
+>>> 400
+~ "code":"failed_precondition"
+~ "case":"conflict"
+~ "stored":2
+
+### first finds nothing for another owner
+POST /db_notes.notes.NotesProtocol/Edit
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-00000000000c", "owner": "ada", "title": "mine now", "revision": 1}
+>>> 400
+~ "case":"notFound"
+
+### count() per owner and in all
+POST /db_notes.notes.NotesProtocol/Counts
+content-type: application/json
+connect-protocol-version: 1
+
+{"owner": "ada"}
+>>> 200
+json {"value": [2, 3]}
+
+### a literal limit with a parameter offset
+POST /db_notes.notes.NotesProtocol/Page
+content-type: application/json
+connect-protocol-version: 1
+
+{"owner": "ada", "offset": 1}
+>>> 200
+json {"value": ["beta 2"]}
+
+### the first page
+POST /db_notes.notes.NotesProtocol/Page
+content-type: application/json
+connect-protocol-version: 1
+
+{"owner": "ada", "offset": 0}
+>>> 200
+json {"value": ["alpha", "beta 2"]}
+
+### delete(entity) and a filtered bulk delete in one transaction
+POST /db_notes.notes.NotesProtocol/Remove
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-00000000000a", "owner": "ada"}
+>>> 200
+json {"value": true}
+
+### the note and its tags are gone
+POST /db_notes.notes.NotesProtocol/Counts
+content-type: application/json
+connect-protocol-version: 1
+
+{"owner": "ada"}
+>>> 200
+json {"value": [1, 1]}
+
+### deleting it again finds nothing
+POST /db_notes.notes.NotesProtocol/Remove
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-00000000000a", "owner": "ada"}
+>>> 200
+json {"value": false}
+
+### other owners' notes are untouched, text stored exactly
+POST /db_notes.notes.NotesProtocol/List
+content-type: application/json
+connect-protocol-version: 1
+
+{"owner": "bob"}
+>>> 200
+json {"value": [{"id": "00000000-0000-4000-8000-00000000000c", "title": "gamma", "body": "it's 100% \"quoted\"", "tags": ["x"], "isPinned": false, "revision": 1}]}

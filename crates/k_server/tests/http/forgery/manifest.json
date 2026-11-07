@@ -1,0 +1,4 @@
+{
+  "rpcPaths": ["/fixture.CartProtocol/Add"],
+  "publicOrigin": "https://app.example"
+}

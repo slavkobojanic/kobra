@@ -1,0 +1,6 @@
+client contains $k.createForm(
+client contains name: "name"
+client contains name: "age"
+client contains name: "newsletter"
+client contains signup.handle(
+client contains "submit"

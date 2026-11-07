@@ -63,6 +63,12 @@ public struct List<T> implements Codable {
     func minBy<K>(_ key: (T) -> K) -> T? where K implements Comparable
     /// The element with the largest `key`, or `nil` if the list is empty.
     func maxBy<K>(_ key: (T) -> K) -> T? where K implements Comparable
+    /// The sum of the elements: `0` for an empty `List<Int>` and `0.0` for an
+    /// empty `List<Double>`. Only lists of `Int` or `Double` have it; a list
+    /// of `Money` needs a currency and uses `sum(in:_:)` instead
+    /// (`docs/design/34-money.md`). `Int` sums panic on overflow in debug
+    /// and test builds, like `+`.
+    func sum() -> T
     /// The sum of `amount` over the elements, in `currency`; `Money.zero` for
     /// an empty list (`docs/design/34-money.md`).
     func sum(in currency: Currency, _ amount: (T) -> Money) -> Money

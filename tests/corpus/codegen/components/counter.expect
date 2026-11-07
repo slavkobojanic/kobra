@@ -1,0 +1,10 @@
+client contains export function Counter(props, ctx)
+client contains $k.template("<div><span> </span><button>Add</button></div>")
+client contains $k.signal(props.start())
+client contains $k.renderEffect(
+client contains $k.on(
+server contains export function Counter$ssr(props, ctx, out)
+server contains out.raw("<div><span>")
+server contains out.text(
+server lacks $k.signal
+server lacks $k.renderEffect

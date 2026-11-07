@@ -1,0 +1,1 @@
+returns ["ok 42", "empty", "too long (5)", "other: invalid"]

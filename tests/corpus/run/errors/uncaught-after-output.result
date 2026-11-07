@@ -1,0 +1,1 @@
+throws {"error": "corpus.Failure", "case": "broken", "fields": {"reason": "test", "code": 7}}

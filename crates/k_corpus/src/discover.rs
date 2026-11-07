@@ -133,20 +133,31 @@ fn scan_suite(root: &Path, dir: &Path, suite: Suite, discovery: &mut Discovery) 
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or_default();
-        if extension == "k" {
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        if extension == "k" && suite == Suite::Db {
+            discovery.problems.push(Problem {
+                name,
+                message: "a db case is a project directory (k.toml, App.k, migrations/, requests.http), not a single file".to_owned(),
+            });
+        } else if extension == "k" {
             discovery.cases.push(Case {
                 suite,
                 source: path,
                 name,
                 project: false,
             });
-        } else if suite.expectation_extensions().contains(&extension) {
-            if !path.with_extension("k").is_file() {
+        } else if let Some(ext) = expectation_extension(suite, file_name) {
+            let stem = &file_name[..file_name.len() - ext.len() - 1];
+            let source = path.with_file_name(format!("{stem}.k"));
+            if !source.is_file() {
                 discovery.problems.push(Problem {
                     name,
                     message: format!(
                         "orphaned expectation file: `{}` does not exist",
-                        relative_name(root, &path.with_extension("k"))
+                        relative_name(root, &source)
                     ),
                 });
             }
@@ -175,15 +186,17 @@ fn scan_project(root: &Path, dir: &Path, suite: Suite, discovery: &mut Discovery
         let mut entries: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
         entries.sort();
         for path in entries {
-            let is_expectation = path
-                .file_stem()
-                .is_some_and(|s| s == PROJECT_EXPECTATION_STEM)
-                && path.is_file();
-            let extension = path
-                .extension()
-                .and_then(|e| e.to_str())
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
                 .unwrap_or_default();
-            if is_expectation && !suite.expectation_extensions().contains(&extension) {
+            let extension = file_name
+                .strip_prefix(PROJECT_EXPECTATION_STEM)
+                .and_then(|rest| rest.strip_prefix('.'));
+            let is_expectation = extension.is_some() && path.is_file();
+            if is_expectation
+                && !extension.is_some_and(|e| suite.expectation_extensions().contains(&e))
+            {
                 discovery.problems.push(Problem {
                     name: relative_name(root, &path),
                     message: format!(
@@ -205,6 +218,23 @@ fn scan_project(root: &Path, dir: &Path, suite: Suite, discovery: &mut Discovery
         name,
         project: true,
     });
+}
+
+/// Returns the expectation extension (`diag`, `client.js`) that the file
+/// name `name` ends with, if the suite uses one and something precedes it.
+/// The longest matching extension wins.
+#[must_use]
+pub fn expectation_extension(suite: Suite, name: &str) -> Option<&'static str> {
+    suite
+        .expectation_extensions()
+        .iter()
+        .copied()
+        .filter(|ext| {
+            name.len() > ext.len() + 1
+                && name.ends_with(ext)
+                && name.as_bytes()[name.len() - ext.len() - 1] == b'.'
+        })
+        .max_by_key(|ext| ext.len())
 }
 
 /// Collects the files below `dir`. With `projects`, a directory holding a
@@ -341,6 +371,93 @@ mod tests {
             problems,
             ["parser/x/k.toml", "sema/modules/bad/expected.ast"]
         );
+    }
+
+    #[test]
+    fn multi_part_extensions_and_execution_suites() {
+        let dir = TempDir::new("discover_codegen");
+        dir.write("codegen/components/counter.k", "");
+        dir.write("codegen/components/counter.client.js", "");
+        dir.write("codegen/components/counter.server.js", "");
+        dir.write("codegen/components/counter.css", "");
+        dir.write("codegen/components/counter.expect", "");
+        dir.write("codegen/orphan.server.js", "");
+        dir.write("codegen/stray.js", "");
+        dir.write("codegen/app/k.toml", "");
+        dir.write("codegen/app/expected.client.js", "");
+        dir.write("codegen/app/expected.diag", "");
+        dir.write("run/ints/overflow.k", "");
+        dir.write("run/ints/overflow.result", "");
+        dir.write("run/ints/overflow.stdout", "");
+        dir.write("run/ints/overflow.client.js", "");
+        let found = discover(&dir.0);
+        let names: Vec<_> = found.cases.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "codegen/app/",
+                "codegen/components/counter.k",
+                "run/ints/overflow.k"
+            ]
+        );
+        assert!(
+            found.cases[1]
+                .expectation("client.js")
+                .ends_with("counter.client.js")
+        );
+        assert!(
+            found.cases[0]
+                .expectation("client.js")
+                .ends_with("app/expected.client.js")
+        );
+        let problems: Vec<_> = found.problems.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            problems,
+            [
+                "codegen/app/expected.diag",
+                "codegen/orphan.server.js",
+                "codegen/stray.js",
+                "run/ints/overflow.client.js"
+            ]
+        );
+    }
+
+    #[test]
+    fn db_cases_are_projects_only() {
+        let dir = TempDir::new("discover_db");
+        dir.write("db/notes/k.toml", "");
+        dir.write("db/notes/requests.http", "");
+        dir.write("db/notes/.env", "");
+        dir.write("db/notes/expected.pending", "later");
+        dir.write("db/notes/expected.diag", "");
+        dir.write("db/loose.k", "");
+        dir.write("db/README.md", "");
+        let found = discover(&dir.0);
+        let names: Vec<_> = found.cases.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["db/notes/"]);
+        assert!(found.cases[0].project);
+        assert!(
+            found.cases[0]
+                .expectation("pending")
+                .ends_with("notes/expected.pending")
+        );
+        let problems: Vec<_> = found.problems.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(problems, ["db/loose.k", "db/notes/expected.diag"]);
+    }
+
+    #[test]
+    fn expectation_extensions_need_a_stem() {
+        assert_eq!(
+            expectation_extension(Suite::Codegen, "a.client.js"),
+            Some("client.js")
+        );
+        assert_eq!(expectation_extension(Suite::Codegen, ".css"), None);
+        assert_eq!(expectation_extension(Suite::Codegen, "aclient.js"), None);
+        assert_eq!(
+            expectation_extension(Suite::Run, "x.stdout"),
+            Some("stdout")
+        );
+        assert_eq!(expectation_extension(Suite::Lexer, "x.stdout"), None);
     }
 
     #[test]

@@ -1,0 +1,4 @@
+{
+  "rpcPaths": ["/fixture.EdgeProtocol/Echo"],
+  "publicOrigin": "http://localhost"
+}

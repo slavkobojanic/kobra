@@ -1,0 +1,654 @@
+//! The database of a server process (`docs/compiler/db.md` §6 and §9).
+//!
+//! [`ProcessDatabase::open`] connects to `DATABASE_URL`, applies the
+//! build's pending migrations and loads its statement table for the
+//! database's dialect; [`crate::http::Server::start`] does that before any
+//! worker starts or the port opens, so a failed migration keeps the old
+//! release serving elsewhere and this one from starting.
+//!
+//! **One runtime for the database.** Workers are threads with their own
+//! single-threaded runtimes, while a Postgres connection is a task that
+//! must keep running between requests. The database therefore lives on a
+//! runtime of its own, on the `k-db` thread, and every operation is spawned
+//! there; the ops await the result from any worker.
+//!
+//! **Transactions are bound to a request.** v0 has one connection per
+//! process (the pool is planned, db.md §6), shared by every worker. A
+//! statement outside a transaction takes the connection's *lease* for the
+//! statement only; `BEGIN` takes it until `COMMIT` or `ROLLBACK`, so other
+//! requests wait instead of running inside someone else's transaction.
+//! Waiting for the lease is bounded ([`LEASE_TIMEOUT`]): a transaction left
+//! open for that long makes the waiting statement fail (a panic of its
+//! request) rather than hang the server.
+//!
+//! Statements are referred to by their number in the build's
+//! [`DbManifest`]; SQL text never comes from JavaScript. Error messages
+//! never contain bound values or the connection URL.
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use k_db::manifest::DbManifest;
+use k_db::{Database, DatabaseOptions, DbError, Dialect, Value};
+use tokio::sync::{OwnedMutexGuard, oneshot};
+
+/// How long a statement waits for the connection while another request's
+/// transaction holds it.
+pub const LEASE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// What a server needs to open its database.
+#[derive(Clone, Debug, Default)]
+pub struct DatabaseSetup {
+    /// `DATABASE_URL`: `sqlite:<path>`, `sqlite::memory:` or `postgres://…`.
+    pub url: String,
+    /// `DATABASE_PASSWORD`, overriding a password in the URL.
+    pub password: Option<String>,
+    /// The build's statements, migrations and unique indexes.
+    pub manifest: DbManifest,
+}
+
+impl DatabaseSetup {
+    /// The setup of a build's database from its validated configuration:
+    /// `DATABASE_URL` and the optional `DATABASE_PASSWORD` secret. `None`
+    /// when the build has no database or the app reads no `DATABASE_URL`
+    /// (an app with entities but no `Database` configuration panics on its
+    /// first query instead).
+    #[must_use]
+    pub fn from_config(
+        manifest: Option<DbManifest>,
+        config: &std::collections::BTreeMap<String, crate::config::ConfigValue>,
+    ) -> Option<DatabaseSetup> {
+        use crate::config::ConfigValue;
+        let manifest = manifest?;
+        let text = |v: &ConfigValue| -> Option<String> {
+            match v {
+                ConfigValue::String(s) => Some(s.clone()),
+                ConfigValue::Secret(inner) => match inner.as_ref() {
+                    ConfigValue::String(s) => Some(s.clone()),
+                    _ => None,
+                },
+                _ => None,
+            }
+        };
+        let url = config.get("DATABASE_URL").and_then(text)?;
+        let password = config.get("DATABASE_PASSWORD").and_then(text);
+        Some(DatabaseSetup {
+            url,
+            password,
+            manifest,
+        })
+    }
+}
+
+/// The outcome of a write.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum WriteOutcome {
+    /// The number of rows affected.
+    Count(u64),
+    /// A `@Unique` field's index was violated: the field, which names the
+    /// case of the entity's `UniqueViolation`.
+    Unique(String),
+}
+
+/// A savepoint operation inside a transaction (db.md §9).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Savepoint {
+    /// `SAVEPOINT k_sp_<n>`: a nested `transaction { … }` starts.
+    Begin,
+    /// `RELEASE SAVEPOINT k_sp_<n>`: the nested block returned.
+    Release,
+    /// `ROLLBACK TO SAVEPOINT k_sp_<n>` then `RELEASE`: the block threw.
+    Rollback,
+}
+
+/// The database every worker of a server process shares.
+pub struct ProcessDatabase {
+    handle: tokio::runtime::Handle,
+    /// Dropping it ends the `k-db` thread.
+    _stop: oneshot::Sender<()>,
+    db: Arc<Database>,
+    dialect: Dialect,
+    /// The statement texts for [`Self::dialect`], by id.
+    statements: Arc<Vec<String>>,
+    manifest: Arc<DbManifest>,
+    lease: Arc<tokio::sync::Mutex<()>>,
+    transactions: Arc<Mutex<HashMap<u32, OwnedMutexGuard<()>>>>,
+    next_transaction: AtomicU32,
+}
+
+impl std::fmt::Debug for ProcessDatabase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ProcessDatabase({:?})", self.dialect)
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn internal(message: impl Into<String>) -> DbError {
+    DbError::Connection(message.into())
+}
+
+impl ProcessDatabase {
+    /// Starts the `k-db` thread, connects, applies the pending migrations
+    /// and returns the database with the names of the migrations it
+    /// applied. Blocks the calling thread until then; never call it from
+    /// a runtime worker that the database work itself needs.
+    ///
+    /// # Errors
+    ///
+    /// An invalid URL, a failed connection or a failed migration
+    /// ([`DbError::Migration`], rolled back), none of which echo the URL
+    /// or the password.
+    pub fn open(setup: DatabaseSetup) -> Result<(Arc<ProcessDatabase>, Vec<String>), DbError> {
+        let (handle_tx, handle_rx) = std::sync::mpsc::channel();
+        let (stop_tx, stop_rx) = oneshot::channel::<()>();
+        std::thread::Builder::new()
+            .name("k-db".to_owned())
+            .spawn(move || {
+                let runtime = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let _ = handle_tx.send(Err(e.to_string()));
+                        return;
+                    }
+                };
+                let _ = handle_tx.send(Ok(runtime.handle().clone()));
+                // Runs the database tasks until the database is dropped.
+                runtime.block_on(async move {
+                    let _ = stop_rx.await;
+                });
+            })
+            .map_err(|e| internal(format!("cannot start the database thread: {e}")))?;
+        let handle = handle_rx
+            .recv()
+            .map_err(|_| internal("the database thread exited while starting"))?
+            .map_err(|e| internal(format!("cannot start the database runtime: {e}")))?;
+        let DatabaseSetup {
+            url,
+            password,
+            manifest,
+        } = setup;
+        let migrations = manifest.migrations.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        handle.spawn(async move {
+            let result = async {
+                let db = Database::connect(&url, &DatabaseOptions { password }).await?;
+                let applied = k_db::migrate::apply(&db, &migrations).await?;
+                Ok::<_, DbError>((db, applied))
+            }
+            .await;
+            let _ = done_tx.send(result);
+        });
+        let (db, applied) = done_rx
+            .recv()
+            .map_err(|_| internal("the database thread stopped while connecting"))??;
+        let dialect = db.dialect();
+        let statements = manifest
+            .statements
+            .iter()
+            .map(|s| s.text(dialect).to_owned())
+            .collect();
+        Ok((
+            Arc::new(ProcessDatabase {
+                handle,
+                _stop: stop_tx,
+                db: Arc::new(db),
+                dialect,
+                statements: Arc::new(statements),
+                manifest: Arc::new(manifest),
+                lease: Arc::new(tokio::sync::Mutex::new(())),
+                transactions: Arc::new(Mutex::new(HashMap::new())),
+                next_transaction: AtomicU32::new(1),
+            }),
+            applied,
+        ))
+    }
+
+    /// The dialect of `DATABASE_URL`.
+    #[must_use]
+    pub fn dialect(&self) -> Dialect {
+        self.dialect
+    }
+
+    /// Runs `work` on the database runtime and awaits it from anywhere.
+    async fn on_db<T: Send + 'static>(
+        &self,
+        work: impl Future<Output = Result<T, DbError>> + Send + 'static,
+    ) -> Result<T, DbError> {
+        self.handle
+            .spawn(work)
+            .await
+            .map_err(|_| internal("the database task failed"))?
+    }
+
+    fn statement(&self, id: u32) -> Result<String, DbError> {
+        usize::try_from(id)
+            .ok()
+            .and_then(|i| self.statements.get(i))
+            .cloned()
+            .ok_or_else(|| DbError::Statement(format!("the build has no statement {id}")))
+    }
+
+    /// Checks that `tx` (0: none) is an open transaction.
+    fn check_transaction(&self, tx: u32) -> Result<(), DbError> {
+        if tx != 0 && !lock(&self.transactions).contains_key(&tx) {
+            return Err(DbError::Statement(format!(
+                "transaction {tx} is not open (it was committed or rolled back)"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Takes the connection's lease, bounded by [`LEASE_TIMEOUT`].
+    async fn lease(lease: Arc<tokio::sync::Mutex<()>>) -> Result<OwnedMutexGuard<()>, DbError> {
+        tokio::time::timeout(LEASE_TIMEOUT, lease.lock_owned())
+            .await
+            .map_err(|_| {
+                internal(
+                    "timed out waiting for the database connection: another request's transaction held it too long",
+                )
+            })
+    }
+
+    /// Runs statement `id` and returns its rows, each a list of values in
+    /// select order. `tx` is the request's transaction, 0 for none.
+    ///
+    /// # Errors
+    ///
+    /// Any [`DbError`]: an unknown statement or transaction, a database
+    /// failure.
+    pub async fn query(
+        &self,
+        id: u32,
+        params: Vec<Value>,
+        tx: u32,
+    ) -> Result<Vec<Vec<Value>>, DbError> {
+        let sql = self.statement(id)?;
+        self.check_transaction(tx)?;
+        let db = Arc::clone(&self.db);
+        let lease = (tx == 0).then(|| Arc::clone(&self.lease));
+        self.on_db(async move {
+            let _held = match lease {
+                Some(l) => Some(Self::lease(l).await?),
+                None => None,
+            };
+            let rows = db.query(&sql, &params).await?;
+            Ok(rows.into_iter().map(|r| r.values).collect())
+        })
+        .await
+    }
+
+    /// Runs write statement `id` and returns the rows affected, or the
+    /// `@Unique` field whose index it violated.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query`]; a unique violation that isn't a `@Unique`
+    /// field's (a primary key) is an error too.
+    pub async fn execute(
+        &self,
+        id: u32,
+        params: Vec<Value>,
+        tx: u32,
+    ) -> Result<WriteOutcome, DbError> {
+        let sql = self.statement(id)?;
+        self.check_transaction(tx)?;
+        let db = Arc::clone(&self.db);
+        let manifest = Arc::clone(&self.manifest);
+        let lease = (tx == 0).then(|| Arc::clone(&self.lease));
+        self.on_db(async move {
+            let _held = match lease {
+                Some(l) => Some(Self::lease(l).await?),
+                None => None,
+            };
+            match db.execute(&sql, &params).await {
+                Ok(n) => Ok(WriteOutcome::Count(n)),
+                Err(e) => match manifest.unique_field(&e) {
+                    Some(field) => Ok(WriteOutcome::Unique(field.to_owned())),
+                    None => Err(e),
+                },
+            }
+        })
+        .await
+    }
+
+    /// Begins a transaction and returns its id. It holds the connection
+    /// until [`Self::finish`].
+    ///
+    /// # Errors
+    ///
+    /// The lease timed out, or `BEGIN` failed.
+    pub async fn begin(&self) -> Result<u32, DbError> {
+        let db = Arc::clone(&self.db);
+        let lease = Arc::clone(&self.lease);
+        let begin = match self.dialect {
+            // Writers serialize up front instead of failing with
+            // SQLITE_BUSY when a read turns into a write.
+            Dialect::Sqlite => "BEGIN IMMEDIATE",
+            Dialect::Postgres => "BEGIN ISOLATION LEVEL READ COMMITTED",
+        };
+        let guard = self
+            .on_db(async move {
+                let guard = Self::lease(lease).await?;
+                db.execute(begin, &[]).await?;
+                Ok(guard)
+            })
+            .await?;
+        let mut id = self.next_transaction.fetch_add(1, Ordering::Relaxed);
+        if id == 0 {
+            id = self.next_transaction.fetch_add(1, Ordering::Relaxed);
+        }
+        lock(&self.transactions).insert(id, guard);
+        Ok(id)
+    }
+
+    /// Commits (`commit`) or rolls back transaction `tx` and releases the
+    /// connection. A failed commit is rolled back.
+    ///
+    /// # Errors
+    ///
+    /// `tx` isn't open, or the database failed.
+    pub async fn finish(&self, tx: u32, commit: bool) -> Result<(), DbError> {
+        let Some(guard) = lock(&self.transactions).remove(&tx) else {
+            return Err(DbError::Statement(format!("transaction {tx} is not open")));
+        };
+        let db = Arc::clone(&self.db);
+        self.on_db(async move {
+            let _guard = guard;
+            if commit {
+                if let Err(e) = db.execute("COMMIT", &[]).await {
+                    let _ = db.execute("ROLLBACK", &[]).await;
+                    return Err(e);
+                }
+                Ok(())
+            } else {
+                db.execute("ROLLBACK", &[]).await.map(|_| ())
+            }
+        })
+        .await
+    }
+
+    /// Runs savepoint operation `op` for nesting depth `depth` inside
+    /// transaction `tx`.
+    ///
+    /// # Errors
+    ///
+    /// `tx` isn't open, or the database failed.
+    pub async fn savepoint(&self, tx: u32, depth: u32, op: Savepoint) -> Result<(), DbError> {
+        if tx == 0 {
+            return Err(DbError::Statement(
+                "a savepoint needs a transaction".to_owned(),
+            ));
+        }
+        self.check_transaction(tx)?;
+        let name = k_db::sql::quote_identifier(&format!("k_sp_{depth}"));
+        let statements = match op {
+            Savepoint::Begin => vec![format!("SAVEPOINT {name}")],
+            Savepoint::Release => vec![format!("RELEASE SAVEPOINT {name}")],
+            Savepoint::Rollback => vec![
+                format!("ROLLBACK TO SAVEPOINT {name}"),
+                format!("RELEASE SAVEPOINT {name}"),
+            ],
+        };
+        let db = Arc::clone(&self.db);
+        self.on_db(async move {
+            for s in statements {
+                db.execute(&s, &[]).await?;
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// `SELECT 1` within `timeout`; never fails (`database.ping`). It
+    /// doesn't wait for the lease, so a long transaction doesn't make a
+    /// health check fail.
+    pub async fn ping(&self, timeout: Duration) -> bool {
+        let db = Arc::clone(&self.db);
+        self.on_db(async move { Ok(db.ping(timeout).await) })
+            .await
+            .unwrap_or(false)
+    }
+
+    /// The number of open transactions (for tests and diagnostics).
+    #[must_use]
+    pub fn open_transactions(&self) -> usize {
+        lock(&self.transactions).len()
+    }
+}
+
+/// Converts a parameter from JavaScript: `null`, booleans, integers
+/// (`Int`), other numbers (`Double`) and strings. Anything else (an
+/// object, an array) is an error, so a generated encoder that forgot a
+/// conversion fails loudly instead of binding garbage.
+///
+/// # Errors
+///
+/// A value that isn't one of those.
+pub fn param_from_json(v: serde_json::Value) -> Result<Value, String> {
+    Ok(match v {
+        serde_json::Value::Null => Value::Null,
+        serde_json::Value::Bool(b) => Value::Bool(b),
+        serde_json::Value::Number(n) => match n.as_i64() {
+            Some(i) => Value::Int(i),
+            None => Value::Double(n.as_f64().ok_or("a number out of range")?),
+        },
+        serde_json::Value::String(s) => Value::Text(s),
+        serde_json::Value::Array(_) => return Err("an array is not a parameter".to_owned()),
+        serde_json::Value::Object(_) => return Err("an object is not a parameter".to_owned()),
+    })
+}
+
+/// Converts a column value for JavaScript: bytes become an array of
+/// numbers, a non-finite double `null`.
+#[must_use]
+pub fn value_to_json(v: Value) -> serde_json::Value {
+    match v {
+        Value::Null => serde_json::Value::Null,
+        Value::Bool(b) => serde_json::Value::Bool(b),
+        Value::Int(i) => serde_json::Value::from(i),
+        Value::Double(d) => serde_json::Number::from_f64(d)
+            .map_or(serde_json::Value::Null, serde_json::Value::Number),
+        Value::Text(s) => serde_json::Value::String(s),
+        Value::Bytes(b) => {
+            serde_json::Value::Array(b.into_iter().map(serde_json::Value::from).collect())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use k_db::manifest::{StatementSql, UniqueIndex};
+    use k_db::migrate::Migration;
+
+    fn statement(sql: &str) -> StatementSql {
+        StatementSql {
+            sqlite: sql.to_owned(),
+            postgres: sql.to_owned(),
+        }
+    }
+
+    fn setup() -> DatabaseSetup {
+        DatabaseSetup {
+            url: "sqlite::memory:".into(),
+            password: None,
+            manifest: DbManifest {
+                statements: vec![
+                    statement("SELECT \"id\", \"email\" FROM \"account\" ORDER BY \"id\""),
+                    statement("INSERT INTO \"account\" (\"id\", \"email\") VALUES (?1, ?2)"),
+                    statement("SELECT COUNT(*) FROM \"account\""),
+                ],
+                migrations: vec![Migration {
+                    name: "0001_init".into(),
+                    sqlite: vec![
+                        "CREATE TABLE \"account\" (\"id\" TEXT NOT NULL PRIMARY KEY, \"email\" TEXT NOT NULL)".into(),
+                        "CREATE UNIQUE INDEX \"account_email_key\" ON \"account\" (\"email\")".into(),
+                    ],
+                    postgres: vec![],
+                }],
+                unique: vec![UniqueIndex {
+                    table: "account".into(),
+                    columns: vec!["email".into()],
+                    index: "account_email_key".into(),
+                    field: "email".into(),
+                }],
+            },
+        }
+    }
+
+    fn text(s: &str) -> Value {
+        Value::Text(s.to_owned())
+    }
+
+    fn block_on<T>(f: impl Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(f)
+    }
+
+    #[test]
+    fn opens_migrates_and_runs_statements_by_id() {
+        let (db, applied) = ProcessDatabase::open(setup()).expect("opens");
+        assert_eq!(applied, ["0001_init"]);
+        block_on(async {
+            assert_eq!(
+                db.execute(1, vec![text("a"), text("a@example.com")], 0)
+                    .await,
+                Ok(WriteOutcome::Count(1))
+            );
+            assert_eq!(
+                db.execute(1, vec![text("b"), text("a@example.com")], 0)
+                    .await,
+                Ok(WriteOutcome::Unique("email".into()))
+            );
+            // A primary-key violation isn't a typed outcome.
+            assert!(
+                db.execute(1, vec![text("a"), text("c@example.com")], 0)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(
+                db.query(0, vec![], 0).await,
+                Ok(vec![vec![text("a"), text("a@example.com")]])
+            );
+            assert!(db.query(99, vec![], 0).await.is_err());
+            assert!(db.ping(Duration::from_secs(2)).await);
+        });
+    }
+
+    #[test]
+    fn transactions_commit_roll_back_and_nest() {
+        let (db, _) = ProcessDatabase::open(setup()).expect("opens");
+        block_on(async {
+            let tx = db.begin().await.expect("begins");
+            db.execute(1, vec![text("a"), text("a@x")], tx)
+                .await
+                .expect("inserts");
+            db.savepoint(tx, 1, Savepoint::Begin)
+                .await
+                .expect("savepoint");
+            db.execute(1, vec![text("b"), text("b@x")], tx)
+                .await
+                .expect("inserts");
+            db.savepoint(tx, 1, Savepoint::Rollback)
+                .await
+                .expect("rolls back");
+            db.finish(tx, true).await.expect("commits");
+            assert_eq!(db.query(2, vec![], 0).await, Ok(vec![vec![Value::Int(1)]]));
+            assert_eq!(db.open_transactions(), 0);
+
+            let tx = db.begin().await.expect("begins");
+            db.execute(1, vec![text("c"), text("c@x")], tx)
+                .await
+                .expect("inserts");
+            db.finish(tx, false).await.expect("rolls back");
+            assert_eq!(db.query(2, vec![], 0).await, Ok(vec![vec![Value::Int(1)]]));
+            // A finished transaction can't be used or finished again.
+            assert!(db.query(2, vec![], tx).await.is_err());
+            assert!(db.finish(tx, true).await.is_err());
+            assert!(db.savepoint(0, 1, Savepoint::Begin).await.is_err());
+        });
+    }
+
+    #[test]
+    fn a_statement_outside_waits_for_the_transaction() {
+        let (db, _) = ProcessDatabase::open(setup()).expect("opens");
+        block_on(async {
+            let tx = db.begin().await.expect("begins");
+            db.execute(1, vec![text("a"), text("a@x")], tx)
+                .await
+                .expect("inserts");
+            let outside = {
+                let db = Arc::clone(&db);
+                tokio::spawn(async move { db.query(2, vec![], 0).await })
+            };
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            assert!(!outside.is_finished(), "waits for the lease");
+            db.finish(tx, true).await.expect("commits");
+            assert_eq!(
+                outside.await.expect("joins"),
+                Ok(vec![vec![Value::Int(1)]]),
+                "sees the committed row, never the open transaction"
+            );
+        });
+    }
+
+    #[test]
+    fn a_failing_migration_is_an_error_without_secrets() {
+        let mut s = setup();
+        s.manifest.migrations[0]
+            .sqlite
+            .push("CREATE TABLE broken (".into());
+        let err = ProcessDatabase::open(s).expect_err("fails");
+        assert!(
+            matches!(err, DbError::Migration { ref name, .. } if name == "0001_init"),
+            "{err}"
+        );
+        let mut s = setup();
+        s.url = "postgres://user:hunter2@127.0.0.1:1/x".into();
+        let err = ProcessDatabase::open(s).expect_err("fails").to_string();
+        assert!(!err.contains("hunter2"), "{err}");
+        let mut s = setup();
+        s.url = "mysql://x".into();
+        assert!(matches!(
+            ProcessDatabase::open(s),
+            Err(DbError::InvalidUrl(_))
+        ));
+    }
+
+    #[test]
+    fn json_parameters_and_values_convert() {
+        assert_eq!(param_from_json(serde_json::json!(null)), Ok(Value::Null));
+        assert_eq!(
+            param_from_json(serde_json::json!(true)),
+            Ok(Value::Bool(true))
+        );
+        assert_eq!(param_from_json(serde_json::json!(42)), Ok(Value::Int(42)));
+        assert_eq!(
+            param_from_json(serde_json::json!(1.5)),
+            Ok(Value::Double(1.5))
+        );
+        assert_eq!(param_from_json(serde_json::json!("x")), Ok(text("x")));
+        assert!(param_from_json(serde_json::json!([1])).is_err());
+        assert!(param_from_json(serde_json::json!({"a": 1})).is_err());
+        assert_eq!(
+            value_to_json(Value::Double(f64::NAN)),
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            value_to_json(Value::Bytes(vec![1, 2])),
+            serde_json::json!([1, 2])
+        );
+        assert_eq!(value_to_json(Value::Int(-3)), serde_json::json!(-3));
+    }
+}

@@ -83,6 +83,8 @@ The API in `crates/k_sema/src/lib.rs` is final; later stages fill in its impleme
 | `Analysis::type_at(file, range)` | The type of the expression, pattern binding or declaration name whose range is exactly `range`, rendered as K type syntax. |
 | `Analysis::resolve_at(file, range)` | What the name, member, element, attribute, CSS property, class, keyframes or token reference at `range` refers to (`Resolution`). |
 | `Analysis::side_of(file, range)` | The server/client side of the top-level declaration whose name token is `range` (`Side`). |
+| `Analysis::program()` | The read-only **program view** (`k_sema::view::ProgramView`) code generation consumes: every declaration and extension (kind, module, file and syntax range, annotations, resolved `implements`, extended type, function signature, constant type, side), every member (kind, flags, field type, signature with labels, defaults and parameter ranges), every generic parameter with its constraints, and extensions by extended type. Ids (`DeclId`, `MemberId`, `GenId`) index its tables for one revision. `ProgramView::resolve` maps a `Resolution` back to ids (members of extensions through the extended type). Built once per revision at the end of the semantic pass; signatures it resolves that no check needed report nothing. |
+| `Analysis::type_info_at(file, range)` | Like `type_at`, but the structured `view::Type` (ids into the program view); unresolved inference variables are `Type::Error`. |
 | `Cancelled` | Returned by every query once the host has moved to a newer revision. |
 | `ProjectPath`, `FileKind`, `ModulePath`, `LockfileKind` | The project model (§4). |
 | `stdlib` | The embedded standard library and its tables (§5). |
@@ -498,9 +500,14 @@ and set elements must be `Hashable` (K2009).
 - `Money` ([34-money.md](../design/34-money.md)): `+` and `-` take two `Money` values and `Money * Int`
   scales by a quantity; any other operator or operand (`/`, `Money * Money`, `Money * Double`) is
   **K2013**, because a rate goes through `multiplied(by:rounding:)`. **Not yet checked:** a literal with
-  more decimal places than its currency (`1.005.usd`), mixing two currencies the checker can see
-  (`1.usd + 2.eur`), and the dedicated `sum` over `Money` without `in:` error with its fix to
-  `sum(in:)` (today the missing arguments are an ordinary K2003).
+  more decimal places than its currency (`1.005.usd`) and mixing two currencies the checker can see
+  (`1.usd + 2.eur`).
+- **Sums:** `List` has two `sum` overloads. `sum() -> T` adds the elements of a `List<Int>` or a
+  `List<Double>` (the empty sum is `0` or `0.0`); `sum(in:_:)` sums `Money` in a currency. Because no
+  interface expresses "Int or Double", `sum()` is declared unconstrained in `List.k` and the checker
+  supplies the constraint: on a `List<Money>` it is **K2402** with a fix to `sum(in:_:)`, on any other
+  element type **K2009**, both spanning `sum()`; the call keeps the element type, so nothing cascades.
+  An element type that is still an inference variable or `{error}` is not checked.
 
 ---
 

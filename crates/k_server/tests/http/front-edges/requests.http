@@ -1,0 +1,128 @@
+# The front and the worker loop with unusual handlers and requests
+# (docs/compiler/server.md §4, §5, §15).
+
+### the request path reaches JavaScript with its raw query string
+GET /echo-path?a=1&b=%20
+>>> 200
+= /echo-path?a=1&b=%20
+
+### the request path reaches JavaScript still percent-encoded
+GET /echo-path/%3Cx%3E
+>>> 200
+= /echo-path/%3Cx%3E
+
+### request header names are lower-cased and kept in order
+GET /echo-headers
+X-Zeta: 1
+X-Alpha: 2
+>>> 200
+= x-zeta=1;x-alpha=2
+
+### repeated request headers stay separate entries
+GET /echo-headers
+x-twice: a
+x-twice: b
+>>> 200
+= x-twice=a;x-twice=b
+
+### the method reaches JavaScript as sent
+DELETE /echo-method
+>>> 200
+= DELETE
+
+### a request body reaches JavaScript as bytes
+POST /body-length
+
+héllo
+>>> 200
+= 6
+
+### a Uint8Array response body is sent as bytes
+GET /bytes
+>>> 200
+content-type: application/octet-stream
+= hi
+
+### a status below 100 from JavaScript is a 500
+GET /status-99
+>>> 500
+x-content-type-options: nosniff
+!~ too small
+
+### a status above 999 from JavaScript is a 500
+GET /status-1000
+>>> 500
+
+### a status that isn't a u16 is a 500, not a dead worker
+GET /status-70000
+>>> 500
+
+### an invalid header name from JavaScript is skipped and the rest is kept
+GET /bad-header-name
+>>> 200
+x-good: yes
+= kept
+
+### an invalid header value from JavaScript is skipped and the rest is kept
+GET /bad-header-value
+>>> 200
+x-good: yes
+!x-bad
+
+### a 204 has no body
+GET /empty
+>>> 204
+=
+
+### every response from JavaScript is nosniff
+GET /nowhere
+>>> 404
+x-content-type-options: nosniff
+
+### a front refusal is nosniff too
+GET /fixture.EdgeProtocol/Echo
+>>> 405
+x-content-type-options: nosniff
+
+### an rpc answer from JavaScript gets the rpc caching headers from the front
+POST /fixture.EdgeProtocol/Echo
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+cache-control: private, no-store
+json {"value": "echo"}
+
+### an unknown rpc's 404 is an rpc response and is never cached either
+POST /fixture.EdgeProtocol/Missing
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 404
+cache-control: private, no-store
+json {"code": "unimplemented", "message": "no such rpc"}
+
+### a 415 for an rpc is never cached
+POST /fixture.EdgeProtocol/Echo
+content-type: text/plain
+connect-protocol-version: 1
+
+{}
+>>> 415
+cache-control: private, no-store
+
+### a path that only looks like an rpc in lower case is the app's
+POST /fixture.EdgeProtocol/echo
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 404
+= not found
+
+### a dotted path that is not rpc-shaped reaches the app
+GET /files/report.v2/Final/x
+>>> 404
+= not found

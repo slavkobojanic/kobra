@@ -1,0 +1,7 @@
+# Unique violations as typed errors, and transactions: a throw rolls back,
+# a nested block is a savepoint, ping never throws (docs/compiler/db.md §7,
+# §9; docs/design/19-persistence.md, "Writes" and "Database and
+# transactions").
+[package]
+name = "db-accounts"
+k = "0.1"

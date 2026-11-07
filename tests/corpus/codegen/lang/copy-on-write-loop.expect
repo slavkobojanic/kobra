@@ -1,0 +1,3 @@
+server contains out.push(
+server lacks out.slice()
+server lacks [...out

@@ -1,0 +1,282 @@
+# Column types and query shapes on a fresh SQLite database. Money crosses
+# the wire as {"amount", "currency"}, decimals as text, enums by case name.
+
+### the data migration's reference rows are there, in order, a Bool field as a condition
+POST /db_catalog.store.CatalogProtocol/Categories
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": ["Pens & 'quills'", "Mugs", "featured: Pens & 'quills'"]}
+
+### money, decimal, enum default and optional text round-trip
+POST /db_catalog.store.CatalogProtocol/Add
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000001", "slug": "k-mug", "name": "K mug", "price": {"amount": "12.50", "currency": "EUR"}, "weight": "0.35", "stock": 5, "note": "fragile"}
+>>> 200
+json {"slug": "k-mug", "name": "K mug", "price": {"amount": "12.50", "currency": "EUR"}, "weight": "0.35", "stock": 5, "status": "draft", "note": "fragile"}
+
+### a name with LIKE wildcards is stored as text
+POST /db_catalog.store.CatalogProtocol/Add
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000002", "slug": "k-pen", "name": "K pen 100%_", "price": {"amount": "3.00", "currency": "EUR"}, "weight": "0.02", "stock": 1, "note": null}
+>>> 200
+json {"slug": "k-pen", "name": "K pen 100%_", "price": {"amount": "3.00", "currency": "EUR"}, "weight": "0.02", "stock": 1, "status": "draft", "note": null}
+
+### a heavy product
+POST /db_catalog.store.CatalogProtocol/Add
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000003", "slug": "big-tee", "name": "Big tee", "price": {"amount": "25.00", "currency": "EUR"}, "weight": "10.0", "stock": 2, "note": null}
+>>> 200
+json {"slug": "big-tee", "name": "Big tee", "price": {"amount": "25.00", "currency": "EUR"}, "weight": "10", "stock": 2, "status": "draft", "note": null}
+
+### another currency
+POST /db_catalog.store.CatalogProtocol/Add
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000004", "slug": "usd-cap", "name": "Cap", "price": {"amount": "9.00", "currency": "USD"}, "weight": "9.6", "stock": 0, "note": "fragile"}
+>>> 200
+json {"slug": "usd-cap", "name": "Cap", "price": {"amount": "9.00", "currency": "USD"}, "weight": "9.6", "stock": 0, "status": "draft", "note": "fragile"}
+
+### a duplicate slug is the typed UniqueViolation.slug
+POST /db_catalog.store.CatalogProtocol/Add
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000005", "slug": "k-mug", "name": "Dup", "price": {"amount": "1.00", "currency": "EUR"}, "weight": "1", "stock": 1, "note": null}
+>>> 200
+~ "name":"Dup"
+
+### the duplicate was not stored
+POST /db_catalog.store.CatalogProtocol/Product
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug"}
+>>> 200
+json {"value": {"slug": "k-mug", "name": "K mug", "price": {"amount": "12.50", "currency": "EUR"}, "weight": "0.35", "stock": 5, "status": "draft", "note": "fragile"}}
+
+### a bulk update assigns an enum case
+POST /db_catalog.store.CatalogProtocol/Publish
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug"}
+>>> 200
+json {"value": 1}
+
+### publish a second one
+POST /db_catalog.store.CatalogProtocol/Publish
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "big-tee"}
+>>> 200
+json {"value": 1}
+
+### an enum filter, sorted by the locked column
+POST /db_catalog.store.CatalogProtocol/Live
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": ["big-tee", "k-mug"]}
+
+### contains and startsWith are case-sensitive LIKE
+POST /db_catalog.store.CatalogProtocol/Search
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "K"}
+>>> 200
+json {"value": ["k-mug", "k-pen"]}
+
+### % in the text is a literal character, not a wildcard
+POST /db_catalog.store.CatalogProtocol/Search
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "%"}
+>>> 200
+json {"value": ["k-pen"]}
+
+### _ in the text is a literal character too
+POST /db_catalog.store.CatalogProtocol/Search
+content-type: application/json
+connect-protocol-version: 1
+
+{"text": "_"}
+>>> 200
+json {"value": ["k-pen"]}
+
+### decimals compare as numbers: 10.0 > 9.6
+POST /db_catalog.store.CatalogProtocol/HeavierThan
+content-type: application/json
+connect-protocol-version: 1
+
+{"weight": "9.6"}
+>>> 200
+json {"value": ["big-tee"]}
+
+### and sort as numbers
+POST /db_catalog.store.CatalogProtocol/HeavierThan
+content-type: application/json
+connect-protocol-version: 1
+
+{"weight": "0.1"}
+>>> 200
+json {"value": ["big-tee", "usd-cap", "k-mug"]}
+
+### money compares amounts within its currency only
+POST /db_catalog.store.CatalogProtocol/AtMost
+content-type: application/json
+connect-protocol-version: 1
+
+{"price": {"amount": "12.50", "currency": "EUR"}}
+>>> 200
+json {"value": ["k-mug", "k-pen"]}
+
+### an optional value equal to a stored one
+POST /db_catalog.store.CatalogProtocol/Noted
+content-type: application/json
+connect-protocol-version: 1
+
+{"note": "fragile"}
+>>> 200
+json {"value": ["k-mug", "usd-cap"]}
+
+### nil equals nil, as in K
+POST /db_catalog.store.CatalogProtocol/Noted
+content-type: application/json
+connect-protocol-version: 1
+
+{"note": null}
+>>> 200
+json {"value": ["big-tee", "k-pen"]}
+
+### list membership is one parameter
+POST /db_catalog.store.CatalogProtocol/Among
+content-type: application/json
+connect-protocol-version: 1
+
+{"ids": ["00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000099"]}
+>>> 200
+json {"value": ["big-tee", "k-pen"]}
+
+### an empty list matches nothing
+POST /db_catalog.store.CatalogProtocol/Among
+content-type: application/json
+connect-protocol-version: 1
+
+{"ids": []}
+>>> 200
+json {"value": []}
+
+### a conditional bulk update takes stock in SQL
+POST /db_catalog.store.CatalogProtocol/Buy
+content-type: application/json
+connect-protocol-version: 1
+
+{"purchase": "00000000-0000-4000-8000-0000000000a1", "product": "00000000-0000-4000-8000-000000000001", "customer": "00000000-0000-4000-8000-0000000000c1", "quantity": 2}
+>>> 200
+json {"value": true}
+
+### not enough stock changes nothing
+POST /db_catalog.store.CatalogProtocol/Buy
+content-type: application/json
+connect-protocol-version: 1
+
+{"purchase": "00000000-0000-4000-8000-0000000000a2", "product": "00000000-0000-4000-8000-000000000002", "customer": "00000000-0000-4000-8000-0000000000c1", "quantity": 2}
+>>> 200
+json {"value": false}
+
+### the last unit
+POST /db_catalog.store.CatalogProtocol/Buy
+content-type: application/json
+connect-protocol-version: 1
+
+{"purchase": "00000000-0000-4000-8000-0000000000a3", "product": "00000000-0000-4000-8000-000000000002", "customer": "00000000-0000-4000-8000-0000000000c1", "quantity": 1}
+>>> 200
+json {"value": true}
+
+### the stock went down by the quantity
+POST /db_catalog.store.CatalogProtocol/Product
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "k-mug"}
+>>> 200
+json {"value": {"slug": "k-mug", "name": "K mug", "price": {"amount": "12.50", "currency": "EUR"}, "weight": "0.35", "stock": 3, "status": "live", "note": "fragile"}}
+
+### a to-one relation is loaded with one more query; the one-field id is its column
+POST /db_catalog.store.CatalogProtocol/History
+content-type: application/json
+connect-protocol-version: 1
+
+{"customer": "00000000-0000-4000-8000-0000000000c1"}
+>>> 200
+json {"value": ["K mug (12.50 EUR)", "K pen 100%_ (3.00 EUR)", "unpaid 2"]}
+
+### another customer has nothing
+POST /db_catalog.store.CatalogProtocol/History
+content-type: application/json
+connect-protocol-version: 1
+
+{"customer": "00000000-0000-4000-8000-0000000000c2"}
+>>> 200
+json {"value": ["unpaid 2"]}
+
+### a guarded update of an optional date
+POST /db_catalog.store.CatalogProtocol/Pay
+content-type: application/json
+connect-protocol-version: 1
+
+{"purchase": "00000000-0000-4000-8000-0000000000a1"}
+>>> 200
+json {"value": true}
+
+### paying twice changes nothing
+POST /db_catalog.store.CatalogProtocol/Pay
+content-type: application/json
+connect-protocol-version: 1
+
+{"purchase": "00000000-0000-4000-8000-0000000000a1"}
+>>> 200
+json {"value": false}
+
+### one is still unpaid
+POST /db_catalog.store.CatalogProtocol/History
+content-type: application/json
+connect-protocol-version: 1
+
+{"customer": "00000000-0000-4000-8000-0000000000c2"}
+>>> 200
+json {"value": ["unpaid 1"]}
+
+### not (…) and != on an enum
+POST /db_catalog.store.CatalogProtocol/Active
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": 4}
+
+### first finds nothing
+POST /db_catalog.store.CatalogProtocol/Product
+content-type: application/json
+connect-protocol-version: 1
+
+{"slug": "nope"}
+>>> 200
+json {"value": null}
+

@@ -1,0 +1,2 @@
+client contains $k.signal(props.start())
+server contains const count = props.start()

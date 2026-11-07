@@ -1,0 +1,3 @@
+server contains if ($k.isPanic(e)) throw e;
+server contains throw Problem.missing;
+server lacks try?

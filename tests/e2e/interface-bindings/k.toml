@@ -1,0 +1,7 @@
+# Interfaces in the server's request container: an app `use` rule per
+# environment, the single implementation of an interface with no rule, and
+# the stdlib's PublicUrls (docs/design/10-services.md, docs/design/12-routing.md
+# "Absolute URLs", docs/compiler/codegen.md §13).
+[package]
+name = "bindings"
+k = "0.1"

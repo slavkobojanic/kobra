@@ -1,0 +1,112 @@
+# Typed unique violations and transactions on a fresh SQLite database.
+
+### an insert succeeds
+POST /db_accounts.accounts.AccountsProtocol/SignUp
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000001", "email": "ada@example.com", "handle": "ada", "name": "Ada"}
+>>> 200
+json {"value": 1}
+
+### a duplicate email is UniqueViolation.email, mapped by the caller
+POST /db_accounts.accounts.AccountsProtocol/SignUp
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000002", "email": "ada@example.com", "handle": "other", "name": "Imposter"}
+>>> 400
+~ "code":"failed_precondition"
+~ "case":"emailTaken"
+!~ ada@example.com
+
+### a duplicate of the second unique field is its own case
+POST /db_accounts.accounts.AccountsProtocol/SignUp
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000003", "email": "grace@example.com", "handle": "ada", "name": "Grace"}
+>>> 400
+~ "case":"handleTaken"
+
+### nothing was inserted by the refused sign-ups
+POST /db_accounts.accounts.AccountsProtocol/SignUp
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000004", "email": "grace@example.com", "handle": "grace", "name": "Grace"}
+>>> 200
+json {"value": 2}
+
+### update(entity) also maps a unique violation
+POST /db_accounts.accounts.AccountsProtocol/Rename
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000004", "handle": "ada"}
+>>> 400
+~ "case":"handleTaken"
+
+### and writes when the value is free
+POST /db_accounts.accounts.AccountsProtocol/Rename
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000004", "handle": "grace_h"}
+>>> 200
+json {"value": "grace_h"}
+
+### a throw inside a transaction rolls it back and is rethrown
+POST /db_accounts.accounts.AccountsProtocol/FailAfterWriting
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-0000000000a1"}
+>>> 400
+~ "case":"emailTaken"
+
+### the rolled-back write is gone
+POST /db_accounts.accounts.AccountsProtocol/Audit
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": []}
+
+### a nested transaction is a savepoint: its throw undoes only its writes
+POST /db_accounts.accounts.AccountsProtocol/Nested
+content-type: application/json
+connect-protocol-version: 1
+
+{"outer": "00000000-0000-4000-8000-0000000000b1", "inner": "00000000-0000-4000-8000-0000000000b2"}
+>>> 200
+json {"value": ["outer kept"]}
+
+### the outer write was committed
+POST /db_accounts.accounts.AccountsProtocol/Audit
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": ["outer kept"]}
+
+### a primary-key duplicate is a programmer error: a panic, never a typed case
+POST /db_accounts.accounts.AccountsProtocol/SignUp
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-000000000001", "email": "new@example.com", "handle": "new", "name": "New"}
+>>> 500
+!~ new@example.com
+!~ UNIQUE
+
+### the server keeps serving after the panic, and ping answers
+POST /db_accounts.accounts.AccountsProtocol/Healthy
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": true}

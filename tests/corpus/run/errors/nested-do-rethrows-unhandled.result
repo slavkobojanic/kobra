@@ -1,0 +1,1 @@
+returns ["inner timeout", "outer refused", "value 2"]

@@ -1,0 +1,6 @@
+client contains $k.template("<div><!--[--><!--]--></div>")
+client contains $k.when(
+client contains isShown.get()
+client contains $k.template("<p>Hello</p>")
+client contains , null)
+server contains if (isShown) {

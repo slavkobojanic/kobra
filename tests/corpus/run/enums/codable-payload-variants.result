@@ -1,0 +1,1 @@
+returns [{"case": "solid", "_0": "red"}, {"case": "gradient", "from": "red", "to": {"case": "custom", "hex": "#fff"}}]

@@ -1,0 +1,6 @@
+client contains $k.branch(
+client contains state.get().$
+client contains ._0
+client contains .message
+client contains <p role=\"alert\"> </p>
+server contains switch (state.$)

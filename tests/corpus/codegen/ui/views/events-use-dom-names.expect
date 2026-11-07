@@ -1,0 +1,7 @@
+client contains "click"
+client contains "focus"
+client contains "blur"
+client contains "mouseenter"
+client contains "mouseleave"
+client lacks "mouseEnter"
+client lacks "mouseLeave"

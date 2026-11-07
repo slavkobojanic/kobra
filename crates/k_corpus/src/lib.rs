@@ -10,6 +10,8 @@
 //! | `lexer` | `name.tokens` (required), `name.diag` (optional) | [`k_syntax::lex`] |
 //! | `parser` | `name.ast` (required), `name.diag` (optional) | [`k_syntax::parse`] |
 //! | `sema` | `name.diag`, `name.pending` (both optional); projects: `expected.diag`, `expected.pending` | [`k_sema::Analysis::diagnostics`] and the position queries |
+//! | `codegen` | `name.client.js`, `name.server.js`, `name.css`, `name.expect` (at least one), `name.pending` | [`k_codegen::generate`]; see [`codegen_suite`] |
+//! | `run` | `name.stdout`, `name.result`, `name.pending` (all optional) | compile and execute in V8; see [`run_suite`] (executed by `k_server`'s `corpus_run` test) |
 //!
 //! A missing `.diag` file means "no diagnostics expected". The exact file
 //! formats are specified in `docs/compiler/testing.md`; this crate implements
@@ -37,9 +39,11 @@
 //! for bulk updates after a deliberate, reviewed change.
 
 pub mod annotations;
+pub mod codegen_suite;
 pub mod diag_format;
 pub mod diff;
 pub mod discover;
+pub mod run_suite;
 pub mod sema_suite;
 pub mod suites;
 

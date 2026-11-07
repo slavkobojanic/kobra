@@ -1,0 +1,190 @@
+# The route table (docs/design/12-routing.md, docs/compiler/codegen.md §14).
+# Every page prints its parsed parameters, so a match is visible in the body.
+
+### a named root URL serves its page
+GET /
+>>> 200
+~ landing page
+
+### a page without `at` is at its kebab-case name
+GET /pricing
+>>> 200
+~ pricing page
+
+### a multi-word page name becomes kebab case
+GET /sign-up-flow
+>>> 200
+~ sign up flow page
+
+### the camel-case spelling of a kebab URL is not a route
+GET /signUpFlow
+>>> 404
+
+### unknown query parameters are ignored
+GET /pricing?utm_source=mail&x=1
+>>> 200
+~ pricing page
+
+### a required Int parameter is a path segment
+GET /product/42
+>>> 200
+~ product 42
+~ tab overview
+
+### a negative Int parses
+GET /product/-7
+>>> 200
+~ product -7
+
+### a parameter that isn't an Int is a 404
+GET /product/forty-two
+>>> 404
+
+### a decimal is not an Int
+GET /product/4.2
+>>> 404
+
+### an Int outside the safe range is a 404, not a wrong page
+GET /product/99999999999999999999
+>>> 404
+
+### a missing required parameter is a 404
+GET /product
+>>> 404
+
+### an extra path segment is not the page
+GET /product/42/extra
+>>> 404
+
+### an optional enum parameter is read from the query by case name
+GET /product/42?tab=reviews
+>>> 200
+~ tab reviews
+
+### an unknown enum case in the query is a 404
+GET /product/42?tab=specs
+>>> 404
+
+### an enum case in the wrong letter case is a 404
+GET /product/42?tab=Reviews
+>>> 404
+
+### an optional parameter at its default is omitted from links
+GET /product/42
+>>> 200
+~ href="/product/42"
+~ href="/product/42?tab=reviews"
+
+### a named URL with a static suffix wins over shorter templates
+GET /product/42/reviews
+>>> 200
+~ reviews of product 42
+
+### links to a named URL use its template
+GET /product/9
+>>> 200
+~ href="/product/9/reviews"
+
+### a static segment wins over a parameter in the same position
+GET /posts/new
+>>> 200
+~ new post form
+!~ post new
+
+### the parameter matches every other value
+GET /posts/hello-world
+>>> 200
+~ post hello-world
+
+### a Uuid parameter parses a UUID
+GET /item/0b6f3c8e-2d4a-4f1b-9c3e-5a7d8e9f0a1b
+>>> 200
+~ item 0b6f3c8e-2d4a-4f1b-9c3e-5a7d8e9f0a1b
+
+### a malformed Uuid is a 404
+GET /item/not-a-uuid
+>>> 404
+
+### a Uuid with a missing group is a 404
+GET /item/0b6f3c8e-2d4a-4f1b-9c3e
+>>> 404
+
+### two required parameters are two segments in declaration order
+GET /compare/1/2
+>>> 200
+~ compare 1 with 2
+
+### a page with only optional parameters takes them all from the query
+GET /search?query=lamps&page=3
+>>> 200
+~ search [lamps] page 3
+~ no tag
+
+### a page with only optional parameters renders its defaults without a query
+GET /search
+>>> 200
+~ search [] page 1
+
+### an optional Int that doesn't parse is a 404
+GET /search?page=two
+>>> 404
+
+### an optional String? parameter is set from the query
+GET /search?tag=red
+>>> 200
+~ tag [red]
+
+### links omit optional parameters at their defaults and keep the others
+GET /search?query=lamps
+>>> 200
+~ href="/search?query=lamps&amp;page=2"
+
+### a Page parameter parses a path of this app
+GET /proceed?returnTo=%2Fproduct%2F42%3Ftab%3Dreviews
+>>> 200
+~ continue to /product/42?tab=reviews
+
+### a Page parameter at its default
+GET /proceed
+>>> 200
+~ continue to /
+
+### a Page parameter can't name another site
+GET /proceed?returnTo=https%3A%2F%2Fevil.example%2F
+>>> 404
+
+### a protocol-relative Page parameter can't name another site
+GET /proceed?returnTo=%2F%2Fevil.example%2F
+>>> 404
+
+### a Page parameter must name a page that exists
+GET /proceed?returnTo=%2Fnowhere
+>>> 404
+
+### a renamed page's old URL redirects permanently
+GET /plans
+>>> 308
+location: /pricing
+
+### a redirect keeps the parameters of the renamed page
+GET /product-page/42
+>>> 308
+location: /product/42
+
+### a redirect keeps the query string
+GET /product-page/42?tab=reviews
+>>> 308
+location: /product/42?tab=reviews
+
+### a redirect from an old URL still parses its parameters
+GET /product-page/abc
+>>> 404
+
+### HEAD of a redirect is a redirect
+HEAD /plans
+>>> 308
+location: /pricing
+
+### an unknown path is a 404
+GET /nowhere/at/all
+>>> 404

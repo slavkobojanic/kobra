@@ -91,9 +91,11 @@ pub fn load(case: &Case) -> Result<LoadedCase, String> {
         let mut files = Vec::with_capacity(paths.len());
         for path in paths {
             let relative = relative_path(&case.source, &path);
-            let expectation = Path::new(&relative)
-                .file_stem()
-                .is_some_and(|s| s == PROJECT_EXPECTATION_STEM)
+            // `expected.diag`, `expected.client.js`, … in the project
+            // directory itself are expectations, not project files.
+            let expectation = relative
+                .strip_prefix(PROJECT_EXPECTATION_STEM)
+                .is_some_and(|rest| rest.starts_with('.'))
                 && !relative.contains('/');
             if expectation {
                 continue;

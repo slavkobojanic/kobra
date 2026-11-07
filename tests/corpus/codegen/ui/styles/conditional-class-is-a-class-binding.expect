@@ -1,0 +1,4 @@
+client contains $k.classList(
+client contains "Accordion__panel"
+client contains isExpanded.get() && "Accordion__expanded"
+server contains Accordion__panel

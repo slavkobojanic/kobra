@@ -1,0 +1,18 @@
+# routes.lock: the URL of every page and endpoint, and redirects from renamed
+# pages (docs/design/12-routing.md). The exact format is not specified yet
+# (docs/design/13-tooling.md, "Lockfiles"); this file uses one line per page
+# and one `redirect` line per rename, which the stage-3 lockfile work will
+# replace with the real format.
+page landing "/"
+page pricing "/pricing"
+page signUpFlow "/sign-up-flow"
+page product "/product/{id}"
+page productReviews "/product/{id}/reviews"
+page postNew "/posts/new"
+page postDetail "/posts/{slug}"
+page item "/item/{id}"
+page compare "/compare/{left}/{right}"
+page search "/search"
+page proceed "/proceed"
+redirect "/plans" -> pricing
+redirect "/product-page/{id}" -> product

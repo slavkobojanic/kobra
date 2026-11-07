@@ -1,0 +1,5 @@
+client contains export function Greeting(props, ctx)
+client contains props.name()
+client contains name: () => user.get()
+server contains export function Greeting$ssr(props, ctx, out)
+server contains Greeting$ssr({

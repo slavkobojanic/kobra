@@ -1,0 +1,5 @@
+# Adversarial regressions: what an rpc accepts from the wire
+# (docs/design/28-rpc-wire-format.md, 15-forms-and-validation.md).
+[package]
+name = "wire"
+k = "0.1"

@@ -1,0 +1,5 @@
+# Adversarial regressions: route parameters on the client and the server
+# (docs/design/12-routing.md, docs/compiler/runtime.md §10).
+[package]
+name = "shop"
+k = "0.1"

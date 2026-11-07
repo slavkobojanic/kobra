@@ -442,6 +442,9 @@ codes! {
     /// `HttpStatus.other(code)` can't hold a code that has a named case.
     NAMED_STATUS_AS_OTHER = 2401, "named-status-as-other", Error,
         "`HttpStatus.other(code)` can't hold a code that has a named case.";
+    /// A sum over `Money` needs a currency: `sum(in:_:)`, not `sum()`.
+    MONEY_SUM_WITHOUT_CURRENCY = 2402, "money-sum-without-currency", Error,
+        "A sum over `Money` needs a currency: `sum(in:_:)`, not `sum()`.";
 
     // ---------------------------------------------------------------- annotations, members and reactivity
     /// An annotated field must be declared `let` or `var` as its annotation requires.

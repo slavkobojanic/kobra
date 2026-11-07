@@ -19,9 +19,11 @@ pub enum Command {
     /// Check the project: syntax, types, layering and lockfiles. Fails on any problem.
     Check(CheckArgs),
     /// Build the server executable and the client assets into `dist/`.
-    Build,
-    /// Run the development server.
-    Dev,
+    Build(BuildArgs),
+    /// Build for development and serve the app (no rebuild on change).
+    Run(RunArgs),
+    /// Run the development server: like `run`, rebuilding and restarting on change (no HMR).
+    Dev(RunArgs),
     /// Run the project's tests.
     Test,
     /// Print the route table.
@@ -85,13 +87,35 @@ pub struct CheckArgs {
     pub color: ColorChoice,
 }
 
+/// Arguments of `k build`.
+#[derive(Debug, Args)]
+pub struct BuildArgs {
+    /// The project directory (the one with `k.toml`).
+    #[arg(default_value = ".")]
+    pub project: PathBuf,
+    /// The output directory; `dist` inside the project by default.
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+}
+
+/// Arguments of `k run` and `k dev`.
+#[derive(Debug, Args)]
+pub struct RunArgs {
+    /// The project directory (the one with `k.toml`).
+    #[arg(default_value = ".")]
+    pub project: PathBuf,
+    /// The port to listen on.
+    #[arg(long, default_value_t = 8080)]
+    pub port: u16,
+}
+
 /// Arguments of `k debug`.
 #[derive(Debug, Args)]
 pub struct DebugArgs {
     /// What to print.
     #[arg(value_enum)]
     pub what: DebugWhat,
-    /// The `.k` file to inspect (for `sema`, also a project directory).
+    /// The `.k` file to inspect (for `sema`, also a project directory; for `codegen`, a project directory).
     pub file: PathBuf,
 }
 
@@ -106,4 +130,6 @@ pub enum DebugWhat {
     Diag,
     /// Every diagnostic of a `sema` corpus case (a `.k` file or a project directory), in `.diag` format.
     Sema,
+    /// The generated files of a project directory (development profile), server modules first.
+    Codegen,
 }

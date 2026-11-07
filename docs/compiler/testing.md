@@ -27,10 +27,17 @@ Contents:
 | Integration | `crates/<crate>/tests/*.rs` | A crate's public API |
 | Golden corpus | `tests/corpus/<suite>/**/*.k` + expectation files | Exact output of a compiler stage for a K source |
 | Property | `crates/<crate>/tests/properties.rs`, `invariants.rs` | Invariants over generated inputs (proptest) |
+| Differential | `crates/k_server/tests/differential.rs`, `crates/k_db/tests/sql_properties.rs`, `crates/k_codegen/tests/persistence_properties.rs` | Generated programs compiled and run in V8 agree with a reference, across builds and between server and client rendering; SQL never holds a value (§5.6) |
 | Fuzz | `fuzz/fuzz_targets/*.rs` | No panics, no invariant violations on arbitrary and generated inputs (libFuzzer) |
 | Regression | `tests/corpus/<suite>/regressions/` | A fixed bug stays fixed |
-| End-to-end | `crates/k_cli/tests/`, later `tests/e2e/` and `examples/` | The `k` binary, built apps, HTTP, browser |
-| Benchmark | `crates/<crate>/benches/*.rs` (criterion) | Throughput and latency against the budgets |
+| Codegen golden | `tests/corpus/codegen/**` | Generated client JS, server JS and CSS, or assertions about them (§3.9) |
+| Execution | `tests/corpus/run/**` | A program's log output and result after compiling and running it in V8: the main behavioural suite for language semantics (§3.10) |
+| Runtime JS | `crates/k_runtime/js/tests/*.test.js` | The JavaScript runtime, inside V8 with a fake DOM (§4.1) |
+| Database | `crates/k_db/tests/*.rs` | Drivers, SQL, the migration builder and migrations on SQLite, and on Postgres when configured (§4.2) |
+| Database corpus | `tests/corpus/db/<app>/` | Apps with entities, repositories and migrations served on a fresh database and driven by `requests.http` (§3.11) |
+| Examples | `crates/k_cli/tests/examples.rs` | Each example builds with `k build`, its `dist/app` serves its main page and an rpc (§8.1) |
+| End-to-end | `crates/k_cli/tests/`, `tests/e2e/`, `crates/k_server/tests/http/` | The `k` binary, built apps, HTTP (§8) |
+| Benchmark | `crates/<crate>/benches/*.rs` (criterion), `tests/perf_budget.rs` | Throughput and latency against the budgets |
 
 ---
 
@@ -50,7 +57,23 @@ cargo test -p k_syntax --test invariants        # the original minimal invariant
 cargo test -p k_sema --test properties          # semantic property tests (soracle, typed generator; §5.5)
 PROPTEST_CASES=3000 cargo test --release -p k_sema --test properties   # longer semantic run
 PROPTEST_CASES=20000 cargo test -p k_syntax --test properties   # longer property run
+cargo test -p k_server --test differential      # stage 3 differential properties (§5.6)
+PROPTEST_CASES=500 cargo test -p k_server --test differential -- --test-threads=4   # longer run
+cargo test -p k_db --test sql_properties        # SQL never interpolates, SQLite equals the reference
+cargo test -p k_codegen --test persistence_properties   # repository SQL never holds a constant
 K_STRESS_CASES=100000 cargo test -p k_syntax --test robustness  # longer random stress run
+cargo test -p k_corpus --test corpus -- codegen/   # the codegen golden suite (§3.9)
+cargo test -p k_server --test corpus_run        # the execution corpus, in V8 (§3.10)
+cargo test -p k_server --test runtime_js        # the runtime's JS unit tests, in V8 (§4.1)
+cargo test -p k_server --test client_bundle     # generated client bundles running in V8
+cargo test -p k_db                              # database tests on SQLite (§4.2)
+K_TEST_POSTGRES_URL=postgres://u:pw@127.0.0.1:5432/k_test cargo test -p k_db   # and on Postgres
+cargo test -p k_server --test e2e               # server end-to-end request scripts (§8.2)
+cargo test -p k_server --test e2e -- db/        # the database corpus (§3.11); with K_TEST_POSTGRES_URL also on Postgres
+cargo test -p k_cli --test examples             # the example apps built and served (§8.1)
+cargo test -p k_server --test regressions        # adversarial findings in generated apps, pinned (§7)
+cargo test --release -p k_db --test perf_budget -- --ignored --nocapture --test-threads 1
+cargo test --release -p k_server --test perf_budget -- --ignored --nocapture --test-threads 1
 cargo +nightly fuzz run parse                   # fuzzing (see §6)
 cargo bench -p k_syntax                         # benchmarks (see §9)
 cargo clippy --workspace --all-targets          # must be clean
@@ -103,6 +126,9 @@ tests/corpus/
 ```
 
 - Every **direct subdirectory** of `tests/corpus` is a suite. An unknown suite name fails the run.
+- `sema`, `codegen` and `run` also have **project cases**: a directory holding a `k.toml` is one case,
+  and its expectations are `expected.<extension>` inside it. Extensions may contain a dot
+  (`name.client.js`, `expected.server.js`); the longest matching extension of the suite wins.
 - Every `*.k` file anywhere below a suite directory is **one case**. Subdirectories are only for
   grouping; nest them as deep as useful.
 - Expectations are **siblings with the same stem**: `escapes.k` → `escapes.tokens`, `escapes.diag`.
@@ -116,6 +142,8 @@ tests/corpus/
 | `lexer` | `k_syntax::lex` | `name.tokens` | `name.diag` (lexer diagnostics) |
 | `parser` | `k_syntax::parse` | `name.ast` | `name.diag` (lexer + parser diagnostics) |
 | `sema` | `k_sema::Analysis` over a whole project | — | `name.diag` (every diagnostic), `name.pending`; projects: `expected.diag`, `expected.pending`; caret annotations in the sources (§3.8) |
+| `codegen` | `k_codegen::generate` (profile `Test`) | at least one of `name.client.js`, `name.server.js`, `name.css`, `name.expect` | `name.pending`; projects: `expected.*` (§3.9) |
+| `run` | `k_codegen::generate` + V8 (`k_server`) | — | `name.stdout`, `name.result`, `name.pending`; projects: `expected.*` (§3.10) |
 
 **No `.diag` file means "no diagnostics".** Every diagnostic the stage produces must be listed.
 
@@ -405,6 +433,129 @@ line 1, an explicit span outside the file) fails the case, pending or not.
 5. If the check doesn't exist yet, add the `.pending` file. Run
    `cargo test -p k_corpus --test corpus -- sema/` and `k debug sema <case>` to see the current output.
 
+### 3.9 The `codegen` suite
+
+The `codegen` suite pins what the code generator emits ([codegen.md](codegen.md)). Cases are single files
+or projects exactly as in the `sema` suite (§3.8: the implicit `corpus` library project, path directives,
+`expected.*` inside project directories); `crates/k_corpus/src/codegen_suite.rs` implements it.
+
+| File | Meaning |
+|---|---|
+| `name.client.js` | the client bundle **without** the runtime chunk (files whose path starts with `runtime.`), rendered as below |
+| `name.server.js` | the server bundle, rendered as below |
+| `name.css` | the stylesheets, rendered as below |
+| `name.expect` | assertions about the three rendered outputs, for cases that pin a property rather than exact text |
+| `name.pending` | test-first: one line saying what is missing; the case passes while it fails and fails once it passes |
+
+At least one of the first four is required. **Generation options**: `Profile::Test` (readable output,
+placeholder hashes `[hash]` in file names, readable class names `Component__class`, no source-map comments)
+and `Environment::Production`, entry `App`.
+
+**Rendering**: the files of one output kind, sorted by path, each under a header line and normalized:
+
+```text
+// file: shop/cart.js
+export function CartBadge(props, ctx) {
+  …
+}
+// file: pages/product.[hash].js
+…
+```
+
+CSS files use `/* file: app.[hash].css */`. **Normalization** (applied to both sides): `\r\n` → `\n`,
+trailing whitespace removed from every line, trailing blank lines dropped, one final newline.
+
+**`.expect` format**, one assertion per line; `#` comments and blank lines are ignored:
+
+```text
+# The server-only repository and the secret's variable never reach the browser.
+client lacks NoteRepository
+client lacks STRIPE_SECRET
+server contains NoteRepository
+css contains .CartSummary__panel
+```
+
+`TARGET contains TEXT` / `TARGET lacks TEXT`, where `TARGET` is `client`, `server` or `css` (the rendered
+outputs above) and `TEXT` is everything after the second space, matched literally.
+
+**Always checked**, pending or not: the case must analyse **without errors** (a test-first case is still
+a valid program), and `k_codegen::check_client_bundle` must find no server code in client files.
+**Behaviour-only assertions** use the `run` suite (§3.10): a codegen case pins text, a run case pins what
+the text does. With `K_BLESS=1`, a failing non-pending case rewrites the exact-output files it already
+has; it never creates new ones and never touches `.expect`.
+
+### 3.10 The `run` suite
+
+The `run` suite is the **main behavioural suite for language semantics**: each case is compiled and
+executed in V8, and its log output and result are compared. `crates/k_corpus/src/run_suite.rs` defines
+it; the executor needs V8, so the cases run in `cargo test -p k_server --test corpus_run`
+(`k_corpus`'s own corpus binary skips them, but still checks their layout).
+
+- **Single file** `name.k`: the implicit `corpus` library project of §3.8; the entry is `corpus.main`.
+  **Project**: a directory with `k.toml`; the entry is its one top-level function `main`.
+- `main` takes no parameters and may be `async` and `throws`. It is generated with
+  `Profile::Development` (so `Int` overflow checks are on) and `Environment::Test`, entry
+  `Entry::Main(…)`: the server entry module exports `run()`, which calls `main` and returns the result
+  line. Each case gets a fresh isolate and a 10-second limit.
+
+| File | Format | Absent means |
+|---|---|---|
+| `name.stdout` | one line per `Log.*`/`console.*` call: `LEVEL MESSAGE`, `LEVEL` one of `debug`, `info`, `warning`, `error`; a line break in a message is written `\n` (backslash, `n`) and a backslash as `\\` | no output |
+| `name.result` | exactly one line: `returns void`, `returns JSON`, `throws JSON` or `panics MESSAGE` | `returns void` |
+| `name.pending` | test-first, as everywhere | — |
+
+- `returns JSON` is the return value in its `Codable` JSON encoding (the wire mapping of
+  [28-rpc-wire-format.md](../design/28-rpc-wire-format.md)); `main`'s return type must be `Codable` or
+  `Void`.
+- `throws JSON` is the uncaught typed error as `{"error": "corpus.ParseError", "case": "empty", "fields":
+  {}}`.
+- `panics MESSAGE` is the panic message exactly (`panics integer overflow: 9007199254740992 is outside the
+  Int range`).
+- JSON is compared as values, so spacing and key order don't matter.
+
+```k
+// tests/corpus/run/control-flow/match-guards.k
+import k.observe.Log
+
+enum Shape {
+    case circle(radius: Int)
+    case square(side: Int)
+}
+
+func describe(shape: Shape) -> String {
+    return match shape {
+        case .circle(let r) where r > 10 { "big circle" }
+        case .circle { "circle" }
+        case .square(let s) { "square {s}" }
+    }
+}
+
+func main() -> List<String> {
+    Log.info(describe(shape: .circle(radius: 20)))
+    return [describe(shape: .circle(radius: 1)), describe(shape: .square(side: 2))]
+}
+```
+
+`match-guards.stdout`: `info big circle`; `match-guards.result`: `returns ["circle", "square 2"]`.
+Like codegen cases, run cases must analyse without errors, pending or not.
+
+### 3.11 The `db` suite
+
+`tests/corpus/db` holds **apps that persist**: each case is a project directory (a single `.k` file is a
+layout error) with `k.toml`, `App.k`, `src/`, `migrations/`, optionally `schema.lock`, a `.env` setting
+`DATABASE_URL=sqlite::memory:`, and a `requests.http` script in the format of §8.2. The suite is defined
+in `k_corpus` (expectation: `expected.pending` only) and executed by
+`cargo test -p k_server --test e2e -- db/`: the case is analysed (it must check cleanly), compiled, served
+with a fresh database that the server migrates before the first request, and the script runs against it.
+With `K_TEST_POSTGRES_URL` set, every case runs a second time as `db/<case>/postgres`, in a fresh Postgres
+schema dropped afterwards.
+
+The cases cover what [db.md](db.md) specifies end to end: `notes/` (queries of every shape, ordering,
+`including`, bulk writes, `@Version`, `insert(all:)`, `Clock`), `accounts/` (typed unique violations,
+rollback, savepoints, a primary-key panic, `ping`), `catalog/` (money, decimals, enums, optionals, a
+one-field id, `LIKE` escaping, `IN` lists, nil equality, bulk arithmetic, locked names, a data migration
+and `renameColumn`). Ids are chosen by the client so later exchanges can refer to them.
+
 ---
 
 ## 4. Unit and integration tests
@@ -420,6 +571,71 @@ line 1, an explicit span outside the file) fails the case, pending or not.
   the example apps in `examples/` and fails on any syntax diagnostic. The examples are written against
   `docs/design`, not the parser, so a construct the design adopted but the grammar lacks fails here.
   When it does, add the construct to `grammar.md` and the corpus first, then to the parser.
+
+### 4.1 Runtime JS tests
+
+The JavaScript runtime ([runtime.md](runtime.md)) is tested **inside V8**, never in Node:
+`crates/k_runtime/js/tests/*.test.js` are ES modules run by `crates/k_server/tests/runtime_js.rs`.
+
+```js
+// crates/k_runtime/js/tests/signals.test.js
+import { assertEq, assertDeepEq, assertThrows, installDom, test, tick } from "k:testing";
+import { batch, renderEffect, root, signal } from "k:runtime";
+
+test("batch flushes synchronously when the outermost batch ends", () => {
+  const a = signal(1);
+  const seen = [];
+  root(() => renderEffect(() => seen.push(a.get())));
+  batch(() => a.set(2));
+  assertDeepEq(seen, [1, 2]);
+});
+
+test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.md §5.3)", () => { … });
+```
+
+- **Registering**: `test(name, fn)` (`fn` may be async) and `test.pending(name, reason, fn)`; names are
+  unique per file. Each registered test is one cargo test named `<file>/<name>`, so
+  `cargo test -p k_server --test runtime_js -- signals.test` runs one file.
+- **Server tests**: `server-app.test.js` drives `k:runtime/app` with hand-written specs; the isolate has
+  K's ops, so sessions, rate limits and `.server` state work as in a server (each test's isolate has a
+  fresh, private process state).
+- **Isolation**: every test runs in a **fresh isolate**, with `installDom()` already called (a fresh fake
+  `document` and the DOM classes on `globalThis`), and a 10-second limit.
+- **Assertions** from `k:testing`: `assert(v, msg?)`, `assertEq(actual, expected, msg?)` (`Object.is`),
+  `assertDeepEq` (JSON-equal, `Map`/`Set` aware), `assertThrows(fn, substring?)` (returns the error),
+  `tick()` (lets microtasks and effect flushes run).
+- **Pending**: a `test.pending` test passes while it fails and fails once it passes, with a message to
+  turn it into `test`, exactly like `.pending` corpus files.
+- **The fake DOM** (`k:testing/dom`, [runtime.md §13](runtime.md#13-testing)) parses compiler-style HTML
+  and throws on malformed input.
+- The driver protocol: it evaluates `import { list } from "k:testing"; import "k:/tests/<file>";` to get
+  `[{name, pending}]`, then per test `run(name)`, which returns `{"outcome": "passed"}` or
+  `{"outcome": "failed", "message": …}` through `op_k_set_result`.
+
+### 4.2 Database tests
+
+`crates/k_db/tests/drivers.rs` runs **every test against every available database**
+([db.md §12](db.md#12-testing)):
+
+```rust
+#[tokio::test]
+async fn duplicates_map_to_the_unique_field() {
+    for t in k_db::testing::test_databases().await.expect("databases") {
+        // … use t.db; label assertions with t.name ("sqlite" / "postgres") …
+        t.finish().await.expect("cleanup");
+    }
+}
+```
+
+- **SQLite** (in memory) always; **Postgres** when `K_TEST_POSTGRES_URL` is set, each test in a fresh
+  schema `k_test_<pid>_<n>` that `finish` drops. Unset, Postgres is skipped silently and nothing fails; set
+  but unreachable, the test fails, because the run asked for Postgres.
+- A local Postgres for a run: `docker run --rm -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=k_test -p
+  127.0.0.1:55432:5432 postgres:17-alpine`, then
+  `K_TEST_POSTGRES_URL=postgres://postgres:pw@127.0.0.1:55432/k_test cargo test -p k_db`.
+- SQL text is tested separately and exactly (`crates/k_db/tests/sql.rs`), without a database, and so is
+  the migration builder's DDL (`builder.rs`, which then applies it to each database).
+- The same `K_TEST_POSTGRES_URL` runs the database corpus on Postgres too (§3.11).
 
 ---
 
@@ -502,8 +718,8 @@ express: recursion that must be bounded by the nesting limit (function-type chai
 in conditions) and dumps of very deep trees. It is a separate test binary because a stack overflow
 aborts the whole binary.
 
-Later stages add their own property files, for example: formatting is idempotent; codegen output is
-deterministic.
+Later stages add their own property files: code generation and execution are §5.6; the formatter
+(deferred) will state that formatting is idempotent.
 
 ### 5.5 Semantic properties
 
@@ -567,6 +783,152 @@ Default case counts are lower than the syntax properties' (256 for arbitrary tex
 properties) because each case runs several whole-project analyses; the whole file takes about 15 s in a
 debug build. `PROPTEST_CASES=N` sets every property's count.
 
+
+### 5.6 Stage 3 properties: code generation, execution, the server and SQL
+
+Stage 3 is checked **differentially**: generated programs are compiled by `k_codegen` and run in the
+embedded V8 (`k_server::Engine`), and what they do is compared with an independent reference, with
+another build of the same program, or with the other renderer. As in §5.1 and §5.5, every check lives in
+a support module that the property tests and the fuzz targets (§6) share, under
+`crates/k_server/tests/support/`:
+
+| Module | Role |
+|---|---|
+| `coracle.rs` | the codegen oracle: `check_codegen` (every profile generates; a fresh analysis generates byte-identical output; `check_client_bundle` finds no server code), `run` (executes a script and classifies the outcome), `check_terminating_program` |
+| `exprgen.rs` | closed expressions over `Int`, `Double`, `Bool`, `String` with a reference evaluator in Rust |
+| `codablegen.rs` | `Codable` declarations and values with the reference JSON encoding, JSON mutations and a reference decoder |
+| `viewgen.rs` | components with generated views and two sets of props |
+| `horacle.rs` | the HTTP oracle over the app `crates/k_server/tests/projects/fuzz-wire` |
+
+`crates/k_server/tests/differential.rs` states the properties; `crates/k_sema/tests/support/tgen.rs` (the
+stage 2 typed generator, §5.5) gained a **runnable mode**, `tgen::generate_runnable`, for them.
+
+**Outcomes.** `coracle::run` runs `run()` of a script's entry module (the `run` corpus' protocol, §3.10)
+in a fresh isolate. `returns`, `throws` and `panics` are K outcomes. Because `run()` reports any
+JavaScript exception as `panics <message>`, a panic is re-run by calling the entry function directly to
+read the exception's class: only a `KPanic` is a K outcome. A `TypeError`, a `ReferenceError`, a module
+that fails to load (a syntax error in generated code) or anything else is `Unexpected`, which is always a
+code generation or runtime bug. A time-out is a failure for the generators below, which only write
+programs that terminate.
+
+| Property | Input | Invariant |
+|---|---|---|
+| `typed_programs_generate_deterministically_and_run` | `tgen::generate_runnable` | `check_codegen`; the development build runs to a K outcome; the release build (renamed locals, compact printing) logs the same lines and ends the same way, unless the development build panicked with an integer overflow (release builds don't check `Int` `+ - *`, [codegen.md §5](codegen.md)) |
+| `closed_expressions_agree_with_the_reference` | `exprgen::generate` | as above, and `main` returns exactly the reference values, written **inline** (all literals, which the code generator may fold) and **opaque** (every literal behind an identity function, which it can't); a panic is the reference's first panic in evaluation order |
+| `codable_values_round_trip_and_decode_like_the_reference` | `codablegen::generate` | `Json.encode` writes the reference JSON; decoding it gives an equal value (`==`) that encodes the same; every mutated text decodes to the reference decoder's value, `malformed` or `mismatch` |
+| `server_html_hydrates_to_the_client_render` | `viewgen::generate` | the server HTML parses back to itself (escaping is complete); the client render is the same HTML; hydration leaves the same HTML and **keeps every server node** (it may only add the empty text node an empty dynamic text has); after a props change the hydrated DOM equals the client-rendered DOM and a fresh server render |
+| `the_server_answers_the_fuzz_seeds`, `rpc_bodies_never_fail_the_server` | the seeds of the server fuzz targets; seeds with a byte changed; arbitrary bytes | `horacle`: a raw request gets no answer or a well-formed HTTP/1.1 answer that isn't a `500`, and the server still serves `/home` and an rpc; an rpc body gets a `200` JSON message that is a **fixed point** (posting it back answers the same) or a `400 invalid_argument` |
+| `pinned_findings_still_reproduce` | the minimized findings the `run` corpus can't hold | each still fails as recorded (below); none is open today |
+| `fixed_findings_stay_fixed` | the reproductions of every finding that was pinned there, plus the cases found while fixing them | each runs and agrees with the reference |
+
+**The runnable typed generator.** `tgen::generate_runnable` writes the project `tgen::generate` writes,
+plus `logic.main` (`tgen::RUNNABLE_ENTRY`), which calls every function once with generated arguments and
+logs each primitive result. Three changes make every execution finite without changing what is
+well-typed: calls are acyclic (`f<i>` only calls `f<j>`, `j < i`; methods call nothing), and every
+`while` loop also counts to three in a private counter. The non-runnable mode, which the stage 2
+properties use, is unchanged.
+
+**The reference semantics** (`exprgen`): `Int` is a safe integer (±(2^53 − 1)); `+ - *` and unary `-`
+panic with `integer overflow: … is outside the Int range` beyond it; `/` truncates toward zero and `%`
+has the dividend's sign, and both panic with `division by zero`; `Double` is IEEE 754 (`%` is `fmod`);
+`and`, `or` and `if` evaluate only what they need. Strings compare by UTF-16 code units; `count`,
+`prefix` and interpolation follow the `run` corpus (`tests/corpus/run/{ints,doubles,strings}`). Where the
+format is unspecified (a non-finite `Double` result, a `Double` interpolated outside `[1e-6, 1e15)` or
+`-0.0`), the generator writes a literal instead, so the reference never depends on it. The string
+alphabet has quotes, backslashes, braces, markup, two-byte, three-byte and astral characters, but nothing
+that combines into a larger grapheme cluster.
+
+**The reference wire format** (`codablegen`, [28-rpc-wire-format.md](../design/28-rpc-wire-format.md),
+[codegen.md §5.1](codegen.md)): fields by K name; payload-free cases as their name; payload cases as
+`{"case": name, label: …}`; `nil` as `null`; `Map<String, T>` as an object; decoding ignores unknown keys,
+reads a missing or `null` optional as `nil`, and accepts as an `Int` any JSON number with a safe-integer
+value (`1.0` and `1e2` included: JavaScript can't tell them from `1` and `100`). Map keys include names
+special to JavaScript objects (`constructor`, `toString`, `hasOwnProperty`). The mutations replace a node
+by every JSON shape, drop or add keys, write an integer as `1.0` or `1e0`, truncate, pad or append to the
+text, and repeat a key (the last one wins, as in `JSON.parse`). A payload-free case written as
+`{"case": "c0"}`, and a payload case whose fields are all optional written as its bare name `"c0"`, are
+shapes the wire format leaves open (the decoder accepts both today): either a value or `mismatch` is
+accepted, never `malformed` or an exception.
+
+**The view generator** (`viewgen`) nests `box`, `section`, `article`, `paragraph`, `text`, `emphasis`,
+`heading`, `list`/`item` and `button`, with static texts that need escaping (`<script>`, `-->`,
+`&amp;`, quotes), dynamic texts and interpolations of the props, `if`/`else`, keyed `for` loops and
+dynamic `.label` attributes. The driver imports the client component and `hydrate`, `signal` and `batch`
+from the **client runtime chunk** (`runtime.<hash>.js`): the client chunks import that module instance,
+not `k:runtime`, and hydration state lives in it. Two spellings of the same markup are normalized before
+comparing: the fake DOM serializes an empty attribute as `name` (HTML: `name=""`) and doesn't escape `'`
+in attribute values (the server writes `&#39;`).
+
+**SQL.** `crates/k_db/tests/sql_properties.rs` generates query IR over tables whose names and columns are
+hostile identifiers (`order`, `a"b`, `Robert'); DROP TABLE t;--`, `$1`, …) and values (quotes, `%`, `_`,
+`\`, `--`, `' OR '1'='1`):
+
+- `rendered_sql_interpolates_nothing`: in both dialects and for every statement kind, once quoted
+  identifiers (each unquoted back to one of the statement's names) and numbered parameters (each at most
+  `Sql::params`, `?n` on SQLite and `$n` on Postgres) are taken out, the text is only keywords,
+  punctuation and the renderer's own constants (`1 = 1`, `LIMIT -1`, `ESCAPE '\'`, a source `LIMIT 50`);
+- `sqlite_agrees_with_the_reference`: rows inserted with rendered `INSERT`s read back exactly, and
+  rendered `SELECT` (with `LIMIT`/`OFFSET` parameters), `ORDER BY` a nullable text column (`NULL` first
+  ascending, last descending, byte order), `COUNT`, `UPDATE … SET c = (c + ?)` and `DELETE` return or
+  change exactly the rows of a three-valued-logic reference (SQL `NULL`, `x IN ()` false even for `NULL`,
+  case-sensitive `LIKE` with its escapes).
+
+`crates/k_codegen/tests/persistence_properties.rs` closes the loop from K: generated repositories filter,
+search (`contains`, `startsWith`, `endsWith`), sort and limit with hostile constants and captured
+parameters, and no statement of the database manifest holds a string literal, a number other than a
+source `limit`, or any constant of the program; the server JavaScript names statements by number and
+holds no SQL; no client file holds the repository.
+
+**Running and minimizing.** The defaults are 64 cases per V8 property and 128 for rpc bodies (about 10 s
+in a debug build; each case compiles a project and starts isolates); `PROPTEST_CASES=N` raises them all
+(1,000 each take about 90 s on 6 threads). `sql_properties` runs 256 cases of each property in well under
+a second, and `persistence_properties` 48 analyses in about a second. Two ignored tests replay a finding by hand while it is minimized:
+
+```sh
+K_REPLAY_DIR=path/to/project K_REPLAY_ENTRY=calc.main K_DIFF_DUMP=1 \
+  cargo test -p k_server --test differential -- --ignored replay_program --nocapture
+K_REPLAY_VIEW=path/to/Generated.k K_REPLAY_PROPS='[{"title":"a","count":0,"isOn":true,"items":[]},{…}]' \
+  K_DIFF_DUMP=1 cargo test -p k_server --test differential -- --ignored replay_view
+```
+
+`K_DIFF_DUMP=1` prints the release build's modules (`replay_program`) or every module of the view case.
+
+**Known findings.** A bug these properties find is minimized, pinned and steered around, never worked
+around silently (as in §5.5):
+
+- a finding the `run` suite can express (a development build, server side) becomes a pending case in
+  `tests/corpus/run/regressions/fuzz/` with a row in its `README.md`;
+- a finding that needs a release build or the client DOM is an entry of `pinned_findings_still_reproduce`
+  in `differential.rs`, with the symptom its failure must mention; the test fails once the finding is
+  fixed (or fails differently);
+- the generator that found it steers around exactly that shape, citing it in its `KNOWN_FINDINGS`
+  (`tgen.rs`, `exprgen.rs`, `codablegen.rs`, `viewgen.rs`). When the finding is fixed, the pending file or
+  pin, the `KNOWN_FINDINGS` entry and the workaround go together; a pin's reproduction moves to
+  `fixed_findings_stay_fixed`, and a fixed corpus case stays as a regular case.
+
+The findings of the first runs:
+
+| Finding | Pinned in | Workaround |
+|---|---|---|
+| the release printer writes `a - (-b)`, `a - (-3)` and `x -= (-x)` as `a--b`: a syntax error | `pinned_findings_still_reproduce` | `exprgen` rewrites `a - (-b)` to the equal `a + b`; runnable `tgen` writes negation as `(0 - a)` |
+| a `match` over an enum with a `default` arm gets two `default:` clauses: the module fails to load | `run/regressions/fuzz/match-default-over-an-enum.k` | runnable `tgen` writes every enum `match` exhaustively |
+| `Json.encode` drops a `Map` entry whose key is `__proto__` | `run/regressions/fuzz/map-key-proto-is-encoded.k` | no generated map key is `__proto__` |
+| a JSON array decodes as an empty `Map` instead of `mismatch` | `run/regressions/fuzz/map-decodes-only-objects.k` | no object or `null` node is mutated into `[]` |
+| a static text next to another text (`paragraph { "a" title }`, `"a" "b" text { … }`) or an empty static text shares one text node with it in the parsed template, but the element paths count them apart: the client render throws a `TypeError` | `pinned_findings_still_reproduce` | static texts are never empty; a text next to a static text is wrapped in `text { }` |
+| hydration re-creates, instead of claiming, a text or a nested block at the top of an `if` branch, although the HTML matches | `pinned_findings_still_reproduce` | each `if` branch is one `box` |
+| hydrating a view whose root is a block (`if` at the top) adds a second pair of block markers | `pinned_findings_still_reproduce` | the generated view's root is one `box` |
+
+None of these was fixed by the commit that pinned it. **All are fixed now** (stage 3, implementation
+round 2), every `KNOWN_FINDINGS` list is empty and the generators write these shapes again:
+
+| Finding | Fix |
+|---|---|
+| `a--b` in release builds | the compact printer puts a space between a binary `-`/`+` and a right operand that starts with the same sign (`js.rs`) |
+| two `default:` clauses | a `default` arm (no patterns) is the `switch`'s `default:` (`lower.rs`) |
+| `__proto__` map key, arrays as maps | the map codec encodes text-keyed maps into a prototype-less object and decodes each shape only from itself: objects for text keys, `[key, value]` pairs otherwise (`std.js`) |
+| adjacent and empty static texts | adjacent texts with a static one merge into one text node on both sides, empty static texts are dropped (`view.rs` `merge_texts`) |
+| texts and blocks at the top of a branch, block roots | `textNode`, `separator` and `markers` claim the server's text, `<!---->` and marker pair while hydrating (`hydrate.js`) |
+
 ---
 
 ## 6. Fuzzing
@@ -597,9 +959,20 @@ corpus cases; it keeps what the fuzzer has already found.
 | `check` | first byte picks the path (module file, test file, `App.k`, stray file); the rest is UTF-8 | semantic analysis of a one-file project: no panic, `check_diagnostics`, `check_queries` |
 | `check_structured` | bytes for one to three `kgen` programs in two modules, then edits | `check_diagnostics`, `check_deterministic`, `check_order_independent`, `check_incremental` |
 | `check_typed` | bytes for `tgen::generate`, then edits and mistakes | zero errors, `check_order_independent`, `check_incremental`, `check_fixes_add_no_errors` |
+| `codegen` | first byte picks `tgen::generate` or `generate_runnable`, the rest drives it | `coracle::check_codegen`: every profile generates, deterministically, with no server code in the client bundle (no V8) |
+| `codegen_run` | first byte picks `tgen::generate_runnable`, `exprgen`, `codablegen` or `viewgen`, the rest drives it | the property of §5.6 for that generator, run in V8 (one isolate at a time) |
+| `rpc_json` | first byte picks an echo rpc of the fuzz app, the rest is the request body | `horacle::check_rpc_body`: a `200` fixed point or `400 invalid_argument`, never a `500` |
+| `http_request` | raw bytes written to a connection of the fuzz app's server | `horacle::check_raw_request`: well-formed HTTP/1.1 answers, never a `500`, still serving afterwards |
 
-All targets share `crates/k_syntax/tests/support/{oracle,kgen}.rs` and
-`crates/k_sema/tests/support/{soracle,tgen}.rs` through `fuzz/src/lib.rs`. Debug assertions are on in fuzz
+All targets share `crates/k_syntax/tests/support/{oracle,kgen}.rs`,
+`crates/k_sema/tests/support/{soracle,tgen}.rs` and
+`crates/k_server/tests/support/{coracle,exprgen,codablegen,viewgen,horacle}.rs` through `fuzz/src/lib.rs`.
+The server targets start the fuzz app (`crates/k_server/tests/projects/fuzz-wire`: a page, two endpoint
+pages, one echo rpc per message shape) once per process with one worker; their seeds are
+`fuzz/seeds/<target>/` (the same requests as `RAW_SEEDS` and `RPC_SEEDS` in `horacle.rs`), copied into the
+corpora by `seed-corpus.sh`, and `fuzz/http.dict` holds HTTP tokens for `http_request`. The V8 targets link
+the prebuilt V8 of `deno_core`; set `RUSTY_V8_ARCHIVE=target/release/gn_out/obj/librusty_v8.a` (the archive
+the stable build downloaded) so the fuzz build doesn't download it again. Debug assertions are on in fuzz
 builds, so the parser's fuel assertion (a loop that does not consume input) is a crash too.
 
 ### 6.3 Running
@@ -613,6 +986,11 @@ cargo +nightly fuzz run structured -- -max_total_time=600 -max_len=8192
 cargo +nightly fuzz run lex -- -jobs=8 -workers=8 -max_total_time=3600 -dict=fuzz/k.dict
 cargo +nightly fuzz run check -- -max_total_time=600 -dict=fuzz/k.dict -timeout=20
 cargo +nightly fuzz run check_typed -- -max_total_time=600 -max_len=8192 -timeout=20
+export RUSTY_V8_ARCHIVE=$PWD/target/release/gn_out/obj/librusty_v8.a
+cargo +nightly fuzz run codegen -- -max_total_time=600 -max_len=4096 -timeout=30
+cargo +nightly fuzz run codegen_run -- -max_total_time=600 -max_len=4096 -timeout=60 -rss_limit_mb=6144
+cargo +nightly fuzz run rpc_json -- -max_total_time=600 -max_len=2048 -timeout=30
+cargo +nightly fuzz run http_request -- -max_total_time=600 -max_len=2048 -timeout=30 -dict=fuzz/http.dict
 ```
 
 Useful libFuzzer flags: `-max_total_time=S` (stop after S seconds), `-max_len=N` (input size cap; 8192 is
@@ -630,6 +1008,18 @@ every input is one or more whole-project analyses, standard library included: `c
 inputs/s, `check_structured` and `check_typed` about 10–20 (several analyses per input). Replaying the
 seeded corpus alone takes them about four minutes, so run them with `-fork=N` (or `-jobs`) and for at
 least 10 minutes when their oracle or generator changes.
+
+The stage 3 targets must each run clean for at least 60 seconds before a change to code generation, the
+runtimes or the server is merged. Measured throughput (M-series laptop, sanitizers on): `codegen` about
+18 inputs/s (three profiles, two analyses each), `codegen_run` about 10 (an analysis, three generations
+and one to three isolates per input), `rpc_json` about 2,000–2,500 (one or two rpcs on a keep-alive
+connection), `http_request` about 350. `http_request` opens a connection per input, and on loopback both
+ends of a closed connection stay in `TIME_WAIT` for 30 s (macOS), so `horacle` paces new connections to 400
+a second to stay below the 16,384 ephemeral ports; well-formed requests (health checks, rpcs) share one
+keep-alive connection. `codegen_run` grows by about 1 MB of RSS per input under AddressSanitizer (V8 heaps
+in quarantine), hence `-rss_limit_mb=6144`; for runs longer than about 10 minutes, use `-fork=N`, which
+restarts workers. `-len_control=0` with the random seeds of `seed-corpus.sh` makes the generator targets
+start from programs of every size instead of growing from tiny inputs.
 
 ### 6.4 When a target crashes
 
@@ -664,8 +1054,15 @@ For the `check*` targets, step 3 and 4 differ:
   as a failure), so a panic is pinned in the `README.md` row with its minimized source and turned into a
   case by the commit that fixes it.
 
-Later stages add targets (`codegen`, `fmt`) on the same pattern: an oracle module shared with a
-stable property test, a byte-level target and a structure-aware one.
+For the stage 3 targets (`codegen*`, `rpc_json`, `http_request`) the panic message prints the
+generated project (and props), or the request; minimize it by hand with the `replay_program` and
+`replay_view` tools of `differential.rs` (§5.6), then pin it as §5.6 says (a pending `run` case under
+`tests/corpus/run/regressions/fuzz/`, or an entry of `pinned_findings_still_reproduce`) and steer the
+generator around it (`KNOWN_FINDINGS`). A failure that turns out to be the oracle's (an HTTP/1.0 answer, a
+transport error of the fuzzer's own socket table) is fixed in the oracle.
+
+The formatter (deferred) will add its targets on the same pattern: an oracle module shared with a stable
+property test, a byte-level target and a structure-aware one.
 
 ---
 
@@ -684,18 +1081,90 @@ Every fixed bug gets a test that fails without the fix:
   `KNOWN_*` lists that steer the generators around it are emptied by the same commit that deletes the
   `.pending` file.
 - For runtime or server bugs, add the test next to the code it fixes, with a comment naming the bug.
+- Findings of adversarial testing that need a generated app (rpc decoding and validation, client
+  routing and hydration, keyed rows, XSS sinks, sessions, slow clients) are in
+  `crates/k_server/tests/regressions/main.rs`, one test per finding, serving the K projects in
+  `crates/k_server/tests/regressions/projects/`; runtime-only findings are in
+  `crates/k_runtime/js/tests/regressions.test.js` (`test.pending`) and language-semantics findings in
+  `tests/corpus/run/regressions/`. An open finding runs through `pending(…)` (or has a `.pending` file):
+  it passes while the bug is there and fails once it is fixed, so the wrapper is removed with the fix.
 
 ---
 
 ## 8. End-to-end tests
 
-- **CLI:** `crates/k_cli/tests/cli.rs` runs the built `k` binary (`env!("CARGO_BIN_EXE_k")`) in
-  temporary directories and asserts exit codes (0 = success, 1 = problems found, 2 = usage or internal
-  error), stdout/stderr and output formats (`--format json` emits JSON Lines).
-- **Projects (planned):** `tests/e2e/<name>/` holds small K projects. Each test runs `k check`, `k test`
-  and `k build` on the project and asserts the results.
-- **Server (planned):** a built `dist/app` is started on a free port and exercised over HTTP: SSR HTML,
-  hydration data, RPC calls (Connect JSON), typed errors, guards, static assets.
+### 8.1 The `k` binary
+
+`crates/k_cli/tests/cli.rs` runs the built `k` binary (`env!("CARGO_BIN_EXE_k")`) in temporary
+directories and asserts exit codes (0 = success, 1 = problems found, 2 = usage or internal error),
+stdout/stderr and output formats (`--format json` emits JSON Lines). It also builds a `dist/app` by hand
+(the `k` binary plus an appended fixture app) and checks `serve`, `probe`, `SIGTERM` (exit 0) and invalid
+configuration (exit 78).
+
+`crates/k_cli/tests/examples.rs` builds **each example** with `k build --out <temp>`, starts its
+`dist/app` on a free port (with `DATABASE_URL=sqlite::memory:` and placeholder values for the required
+configuration), and checks its main page and one rpc: todos (the client-rendered shell and a hashed asset;
+it has no rpc), weather (the server-rendered home page and an asset; it has no rpc), notes (`/` redirects to
+`/sign-in`, which renders; `IsEmailAvailable` answers from the migrated database), shop (the storefront
+renders from the database; `Products` and a typed `notFound`). Each app must stop with exit 0 on `SIGTERM`
+and log no errors. A database that can't be opened exits 1 before the port opens, without the password.
+
+### 8.2 Server end-to-end tests
+
+`crates/k_server/tests/e2e.rs` starts a real server on an ephemeral port (`127.0.0.1:0`, two workers) and
+runs an **HTTP request script** against it. Two kinds of case:
+
+| Kind | Where | Server bundle |
+|---|---|---|
+| K project | `tests/e2e/<name>/` with `k.toml`, `requests.http`, optional `expected.pending` | analysed (must check cleanly), compiled by `k_codegen` (`Development`), client assets served, split checked; served with the development environment of `k run` (the manifest's config resolved from the project's `.env` only, never the test runner's environment) and the manifest's session-free endpoints as `forgery_exempt` |
+| bundle fixture | `crates/k_server/tests/http/<name>/` with `server.js`, `requests.http`, optional `manifest.json` (`{"rpcPaths": [...], "publicOrigin": "..."}`) and `assets/` | the hand-written `server.js` as the entry module; tests the HTTP front and the worker loop without codegen |
+
+**The request script format** (`requests.http`, parsed by `k_server::testing::parse_script`):
+
+```text
+# Comments start with '#'. Cookies set by responses are sent on later requests.
+
+### an rpc answers JSON
+POST /todos.TodoProtocol/List
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+content-type: application/json
+cache-control: private, no-store
+json {"value": []}
+
+### the home page renders on the server and escapes
+GET /?name=%3Cb%3E
+>>> 200
+~ <h1>Hello, &lt;b&gt;</h1>
+!~ <b>
+!set-cookie
+```
+
+- `### title` starts an exchange. Then the **request line** `METHOD /path?query`, **headers**
+  `name: value`, and optionally a blank line and **body** lines (joined with `\n`, trailing blank lines
+  dropped) up to the expectation line.
+- `>>> STATUS` starts the **expectations**: `name: value` (the response header equals `value`; names are
+  case-insensitive), `!name` (the header is absent), `= text` (the body equals the text; consecutive `=`
+  lines join with `\n`; a bare `=` is an empty line), `~ text` (the body contains it), `!~ text` (it
+  doesn't), `json VALUE` (the body is JSON equal to `VALUE`).
+- Requests are HTTP/1.1 with `Connection: close`; `Host` and `Content-Length` are added. A `Set-Cookie`
+  name/value is remembered and sent as `Cookie` on later exchanges of the same script.
+- A failure lists every failed expectation with the exchange's line and title. A K-project case with
+  `expected.pending` passes while it fails and fails once it passes. All nine projects (`hello`, `ssr`,
+  `ssr-client-rendering`, `routing`, `rpc-wire`, `request-scope`, `endpoints`, `config-secrets`,
+  `auth-sessions`) pass for real; none is pending.
+- `K_E2E_LOG=1 cargo test -p k_server --test e2e` prints the workers' log lines (panics with their
+  stacks) instead of capturing them.
+
+`crates/k_server/tests/server.rs` covers what a script can't: streamed bodies over the limit, many
+concurrent clients, graceful shutdown with a request in flight, and start-up failures.
+`crates/k_server/tests/stage3_server.rs` covers the generated server beyond scripts (cookie attributes,
+fixation, `x-k-session`, `Retry-After`, `k-data` as JSON, streaming envelopes, body limits, the split on
+served assets, the config table, `dist/app` built by `k build` and run as a process); its harness
+serves projects like the e2e one. One test there is pending (stream back-pressure, see server.md §16).
 - **Browser (planned):** with a Chrome or Chromium executable available, tests drive it through the
   DevTools protocol from Rust to check hydration, navigation and reactivity in a real DOM. They skip with
   a message when no browser is found.
@@ -715,6 +1184,7 @@ cargo bench -p k_syntax                              # run
 cargo bench -p k_syntax -- --save-baseline main      # record a baseline
 cargo bench -p k_syntax -- --baseline main           # compare a change against it
 cargo bench -p k_sema                                # the semantic benchmarks
+cargo bench -p k_codegen                             # code generation
 ```
 
 `crates/k_syntax/benches/syntax.rs` measures, in lines/s and bytes/s, lexing and parsing of realistic
@@ -735,13 +1205,26 @@ generator, `crates/k_sema/benches/project/`, is tested in `crates/k_sema/tests/p
 project, family and benchmark edit analyses with zero diagnostics, sizes are exact and generation is
 deterministic.
 
-**Budget check.** `scripts/bench-check.sh` runs the ignored tests in `crates/k_syntax/tests/perf_budget.rs`
-and `crates/k_sema/tests/perf_budget.rs` in a release build and fails if lexing, parsing or the typical
-file miss their budgets, if any pathological family drops below its floor, if parse time grows faster
-than the input, if a cold or warm check of the 100k-line project misses its time budget or its memory
-budget, or if check time grows faster than allowed. Methods, baselines and history are in
-[performance.md](performance.md). New hot paths get a benchmark when they are
-written. A change that makes a benchmark more than 5% slower needs a stated reason.
+`crates/k_codegen/benches/codegen.rs` measures code generation over the same generated projects:
+lowering, printing and bundling of an already checked 1k, 10k and 100k-line project (`emit`, in lines of
+K per second) and a cold build, check included (`build`).
+
+**Budget check.** `scripts/bench-check.sh` runs the ignored `perf_budget` tests of every area in a release
+build, one test at a time, and fails when any budget is missed (`--syntax`, `--sema`, `--codegen`,
+`--runtime`, `--server`, `--db`, `--app` select areas):
+
+| Area | Test file | Checks |
+|---|---|---|
+| syntax | `crates/k_syntax/tests/perf_budget.rs` | lexing, parsing, the typical file, pathological floors, linearity |
+| sema | `crates/k_sema/tests/perf_budget.rs` | cold and warm `k check` of 100k lines, memory, linearity |
+| codegen | `crates/k_codegen/tests/perf_budget.rs` | lowering + printing of 100k lines, cold build, linearity |
+| runtime | `crates/k_runtime/tests/runtime.rs` | client runtime size (raw, compacted, gzip) |
+| server | `crates/k_server/tests/perf_budget.rs` | in V8: signal propagation, signal-to-DOM, keyed lists of 1k/10k rows, hydration; over HTTP in process: rpc latency and throughput, SSR latency and throughput, SQLite rpcs, cold start |
+| db | `crates/k_db/tests/perf_budget.rs` | query rendering, driver overhead over `rusqlite` |
+| app | `crates/k_cli/tests/perf_budget.rs` | the real `dist/app` of the examples: cold start, SSR and database rpcs over HTTP, shipped asset sizes |
+
+Methods, baselines and history are in [performance.md](performance.md). New hot paths get a benchmark when
+they are written. A change that makes a benchmark more than 5% slower needs a stated reason.
 
 ---
 
@@ -752,9 +1235,7 @@ tests can be written early.
 
 | Suite | Runs | Expectations |
 |---|---|---|
-| `codegen` | the full compiler | `name.client.js`, `name.server.js`, `name.css` (each optional; at least one) |
 | `fmt` (deferred) | the formatter | `name.formatted.k` |
 
-The semantic suite planned here as `check` exists as `sema` (§3.8). `codegen` uses the same case kinds:
-single files and project directories with `k.toml`, whose expectations are `expected.*` inside the
-directory, with paths in `.diag` headers as in §3.5.
+The semantic suite planned here as `check` exists as `sema` (§3.8); `codegen` and `run` exist (§3.9,
+§3.10).

@@ -1,0 +1,5 @@
+server contains <\/script>
+server contains <\u0021-- note -->
+server contains \u2028
+server lacks </script>
+server lacks <!--

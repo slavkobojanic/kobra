@@ -1,0 +1,110 @@
+# Request-scoped DI on the server (docs/compiler/codegen.md §13,
+# docs/compiler/server.md §5). Every request gets a fresh request container:
+# `.app` services start from their initial state on every request and are
+# shared by everything within it. `.server` services are one per server
+# process (docs/design/29-server-streaming.md), so their state carries across
+# requests.
+
+### two services in one request share one .app instance
+POST /scopes.counting.CounterProtocol/RequestVisits
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": 3}
+
+### the next request gets a fresh .app instance
+POST /scopes.counting.CounterProtocol/RequestVisits
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": 3}
+
+### state never leaks from one request to the next, on any worker
+POST /scopes.counting.CounterProtocol/RequestVisits
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": 3}
+
+### a fourth request is still fresh
+POST /scopes.counting.CounterProtocol/RequestVisits
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": 3}
+
+### a .server service counts its first hit
+POST /scopes.counting.CounterProtocol/ProcessHits
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": 1}
+
+### a .server service is shared by the next request
+POST /scopes.counting.CounterProtocol/ProcessHits
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": 2}
+
+### a .server service is shared across workers of one process
+POST /scopes.counting.CounterProtocol/ProcessHits
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": 3}
+
+### request-scoped rpcs in between don't touch the process counter
+POST /scopes.counting.CounterProtocol/RequestVisits
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": 3}
+
+### the process counter continues
+POST /scopes.counting.CounterProtocol/ProcessHits
+content-type: application/json
+connect-protocol-version: 1
+
+{}
+>>> 200
+json {"value": 4}
+
+### during SSR the load and the components share the request's instance
+GET /counts
+>>> 200
+~ load counted 2
+~ badge sees 2
+
+### every component instance in the request sees the same state
+GET /counts
+>>> 200
+!~ badge sees 0
+!~ badge sees 4
+
+### a second render starts from a fresh container
+GET /counts
+>>> 200
+~ load counted 2
+!~ load counted 4
+
+### SSR state is not shared with rpcs of other requests
+GET /counts
+>>> 200
+~ load counted 2

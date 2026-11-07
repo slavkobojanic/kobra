@@ -1,0 +1,3 @@
+client contains $k.scope(
+client contains Badge({
+client contains <div><!--[--><!--]--></div>

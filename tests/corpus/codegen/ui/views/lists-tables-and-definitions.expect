@@ -1,0 +1,5 @@
+client contains <ul><li>one</li></ul>
+client contains <ol><li>first</li></ol>
+client contains <dl><dt>K</dt><dd>a language</dd></dl>
+client contains <table><tbody><tr><th>Name</th><td>Lamp</td></tr></tbody></table>
+server contains <table><tbody><tr><th>Name</th><td>Lamp</td></tr></tbody></table>

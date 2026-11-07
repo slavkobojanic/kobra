@@ -1,0 +1,6 @@
+# Repositories end to end on SQLite (docs/compiler/db.md): queries lowered
+# to SQL at build time, relations loaded with one query, bulk writes,
+# optimistic locking with @Version, insert(all:) and Clock.
+[package]
+name = "db-notes"
+k = "0.1"

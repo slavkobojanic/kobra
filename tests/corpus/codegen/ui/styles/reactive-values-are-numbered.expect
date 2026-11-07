@@ -1,0 +1,4 @@
+css contains   background-color: var(--k-Bar-0);
+css contains   border-color: var(--k-Bar-1);
+client contains "--k-Bar-0"
+client contains "--k-Bar-1"

@@ -587,18 +587,24 @@ pub fn check_queries(analysis: &Analysis, limit: usize) {
 }
 
 fn diff(want: &[Norm], got: &[Norm]) -> String {
+    // A multiset difference, so a diagnostic reported a different number of
+    // times shows up too.
+    let count = |list: &[Norm], d: &Norm| list.iter().filter(|x| *x == d).count();
     let mut out = String::new();
-    for d in want.iter().filter(|d| !got.contains(d)) {
-        out.push_str(&format!(
-            "- {} {} {:?} {}\n",
-            d.code, d.path, d.range, d.message
-        ));
-    }
-    for d in got.iter().filter(|d| !want.contains(d)) {
-        out.push_str(&format!(
-            "+ {} {} {:?} {}\n",
-            d.code, d.path, d.range, d.message
-        ));
+    let mut seen: Vec<&Norm> = Vec::new();
+    for d in want.iter().chain(got) {
+        if seen.contains(&d) {
+            continue;
+        }
+        seen.push(d);
+        let (w, g) = (count(want, d), count(got, d));
+        if w != g {
+            let sign = if w > g { '-' } else { '+' };
+            out.push_str(&format!(
+                "{sign} {} {} {:?} {} (expected {w}x, got {g}x)\n",
+                d.code, d.path, d.range, d.message
+            ));
+        }
     }
     out
 }

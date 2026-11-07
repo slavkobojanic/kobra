@@ -1,0 +1,6 @@
+# Server-side rendering end to end: the HTML document, escaping, metadata,
+# @Load serialization and failed loads (docs/compiler/server.md §7,
+# docs/compiler/runtime.md §6, docs/design/14-async-data.md, 22-metadata.md).
+[package]
+name = "ssr"
+k = "0.1"

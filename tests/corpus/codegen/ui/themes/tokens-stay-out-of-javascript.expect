@@ -1,0 +1,3 @@
+client lacks #ABCDEF
+server lacks #ABCDEF
+css contains   --k-color-accent: #ABCDEF;

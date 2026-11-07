@@ -1,0 +1,7 @@
+client contains props.container()
+client contains $k.classList(
+client contains "CartRow__row"
+client contains "CartList__highlighted"
+client lacks CartRow__highlighted
+css contains .CartList__highlighted {
+css contains .CartRow__row {

@@ -1,0 +1,4 @@
+css contains .Link__item {
+css contains .Link__item:hover {
+css contains .Link__item::before {
+css lacks &

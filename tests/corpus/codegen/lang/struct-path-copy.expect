@@ -1,0 +1,2 @@
+server contains u = { ...u, address: { ...u.address, city: "Oslo" } };
+server lacks u.address.city = "Oslo"

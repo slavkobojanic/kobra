@@ -1,0 +1,4 @@
+client contains $k.on(
+server lacks $k.on(
+server lacks addEventListener
+server lacks "click"

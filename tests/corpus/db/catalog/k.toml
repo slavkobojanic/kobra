@@ -1,0 +1,7 @@
+# Column types and query shapes (docs/compiler/db.md §3–§5): money,
+# decimals, enums, optionals and a one-field id struct; a to-one relation
+# loaded with including; bulk arithmetic; LIKE, IN and nil checks; locked
+# names from schema.lock and data rows from a migration.
+[package]
+name = "db-catalog"
+k = "0.1"

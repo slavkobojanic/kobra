@@ -1,0 +1,3 @@
+server contains return 630000;
+server contains return 200;
+server lacks minutes

@@ -1,0 +1,3 @@
+css contains @keyframes Pulse__pulse {
+css contains   0%, 100% {
+css contains   animation-iteration-count: infinite;

@@ -1,0 +1,5 @@
+# docs/compiler/codegen.md §15: the server validates every constraint of every
+# Validatable value an rpc receives, nested ones and list elements included.
+[package]
+name = "acct"
+k = "0.1"

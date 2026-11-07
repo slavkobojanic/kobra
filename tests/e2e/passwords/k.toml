@@ -1,0 +1,6 @@
+# Password hashing on the server: Argon2id PHC strings, verification,
+# `Password.unusableHash` and malformed hashes (docs/design/33-crypto.md,
+# "Passwords").
+[package]
+name = "pw"
+k = "0.1"

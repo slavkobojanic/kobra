@@ -1,0 +1,2 @@
+server contains return [...a, ...b];
+server contains return "Hello, " + name;

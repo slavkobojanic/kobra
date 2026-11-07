@@ -1,0 +1,1 @@
+returns [{"product": "mug", "quantity": 1, "note": null}, {"product": "cup", "quantity": 3, "note": "gift"}]

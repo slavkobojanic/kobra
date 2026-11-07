@@ -1,0 +1,19 @@
+/* file: app.[hash].css */
+:root {
+  --k-color-surface: #FFFFFF;
+  --k-color-surface-hover: #F3F4F6;
+  --k-space-sm: 8px;
+  --k-space-md: 16px;
+}
+.Panel__panel {
+  padding: var(--k-space-md);
+  background-color: var(--k-color-surface);
+}
+.Panel__panel:hover {
+  background-color: var(--k-color-surface-hover);
+}
+@media (max-width: 600px) {
+  .Panel__panel {
+    padding: var(--k-space-sm);
+  }
+}
