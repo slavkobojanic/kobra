@@ -506,11 +506,20 @@ fn contextual_decl(p: &mut Parser<'_>, m: Marker, level: Level) {
             }
             body(p, m, K::RepositoryDecl);
         }
-        "theme" | "app" | "config" | "migration" if next == K::Ident => {
+        "config" if next == K::Ident => {
+            // A config may implement interfaces (`RemoteService`,
+            // 40-workspaces-and-services.md).
+            p.bump_remap(K::ConfigKw);
+            decl_name(p);
+            if p.at(K::ImplementsKw) {
+                implements_clause(p);
+            }
+            body(p, m, K::ConfigDecl);
+        }
+        "theme" | "app" | "migration" if next == K::Ident => {
             let (kw, node) = match text {
                 "theme" => (K::ThemeKw, K::ThemeDecl),
                 "app" => (K::AppKw, K::AppDecl),
-                "config" => (K::ConfigKw, K::ConfigDecl),
                 _ => (K::MigrationKw, K::MigrationDecl),
             };
             p.bump_remap(kw);

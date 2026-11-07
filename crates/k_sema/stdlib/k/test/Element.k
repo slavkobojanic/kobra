@@ -28,6 +28,10 @@ public class Element {
     func fill(_ text: String)
     /// Presses a key; Enter in a form field submits the form.
     func press(_ key: Key)
+    /// Drags the element onto `target` with the mouse: presses it, moves
+    /// onto `target` and releases there (`docs/design/41-drag-and-drop.md`,
+    /// "Tests").
+    func drag(to target: Element)
 
     /// The heading whose accessible name is exactly `name`.
     func heading(named name: String) -> Element
@@ -58,6 +62,8 @@ public class Element {
     func navigation(named name: String) -> Element
     /// The only list.
     func list() -> Element
+    /// The list whose accessible name is exactly `name`.
+    func list(named name: String) -> Element
     /// The only `.role(.alert)` live region.
     func alert() -> Element
     /// The only `.role(.status)` live region.

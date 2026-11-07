@@ -1,16 +1,8 @@
-# Format: docs/design/24-projects.md
+# Format: docs/design/40-workspaces-and-services.md
 #
-# The manifest holds only what can't be expressed in K. Per-environment
-# choices live in App.k, and configuration and secrets come from the process
-# environment (see docs/design/25-config-and-secrets.md), never from this
-# committed file.
+# K Shop as a small system of services: a contract library and the two apps
+# that use it. `k check`, `k test` and `k build` here apply to every member;
+# `k dev` here runs paybox and the shop, each calling the other.
 
-[package]
-name = "shop"
-title = "K Shop"
-description = "A small production-style shop: Stripe payments, Postgres, background email, Docker."
-k = "0.1"
-version = "0.1.0"
-
-# Only the standard library is used, so there are no [dependencies] or
-# [aliases]. Stripe is called over HTTP with k.http, not through a vendor SDK.
+[workspace]
+members = ["pay-contracts", "paybox", "shop"]

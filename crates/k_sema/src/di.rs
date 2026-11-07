@@ -85,8 +85,12 @@ pub(crate) enum Injectable {
 /// One `use X for I [in .env, …]` rule of `App.k`.
 #[derive(Clone, Debug)]
 struct UseRule {
-    /// The implementation, `None` when it doesn't resolve (K1202).
+    /// The implementation, `None` when it doesn't resolve (K1202) or the
+    /// rule is a `remote` rule.
     imp: Option<DeclId>,
+    /// For `use remote(Config) for Protocol`: the config, `None` when the
+    /// argument names nothing (K4025).
+    remote: Option<Option<DeclId>>,
     /// The target.
     target: Option<DeclId>,
     /// The environments; empty means every one.
@@ -310,6 +314,80 @@ fn rules<'c>(cx: &'c Cx<'_, '_>) -> &'c [UseRule] {
     cx.di.rules.get_or_init(|| collect_rules(cx))
 }
 
+/// The argument of a `remote(Name)` operand of a `use` rule: `Some(None)`
+/// for a `remote(…)` call whose argument is not one name, `None` when the
+/// operand is not a `remote(…)` call at all.
+pub(crate) fn remote_arg(e: &ast::Expr) -> Option<Option<(String, TextRange)>> {
+    let ast::Expr::CallExpr(call) = e else {
+        return None;
+    };
+    let callee = call.syntax().children().find_map(ast::Expr::cast)?;
+    let ast::Expr::NameExpr(n) = &callee else {
+        return None;
+    };
+    if n.syntax().text() != "remote" {
+        return None;
+    }
+    let args: Vec<ast::Arg> = call
+        .syntax()
+        .children()
+        .find_map(ast::ArgList::cast)
+        .map(|l| l.args().collect())
+        .unwrap_or_default();
+    let [arg] = args.as_slice() else {
+        return Some(None);
+    };
+    if arg
+        .syntax()
+        .children_with_tokens()
+        .filter_map(rowan::NodeOrToken::into_token)
+        .any(|t| t.kind() == SyntaxKind::Colon)
+    {
+        return Some(None);
+    }
+    match arg.value() {
+        Some(ast::Expr::NameExpr(name)) => {
+            let text = name.syntax().text().to_string();
+            Some(Some((text.trim().to_owned(), name.syntax().text_range())))
+        }
+        _ => Some(None),
+    }
+}
+
+/// `true` when the app has a `remote` rule for protocol `p`, in any
+/// environment: its injections are remote clients, which are server-only.
+pub(crate) fn has_remote_rule(cx: &Cx<'_, '_>, p: DeclId) -> bool {
+    rules(cx)
+        .iter()
+        .any(|r| r.remote.is_some() && r.target == Some(p))
+}
+
+/// `true` when declaration `d` comes from a library the project depends
+/// on: its file is mounted below `.deps/` (`crate::workspace`).
+pub(crate) fn from_dependency(cx: &Cx<'_, '_>, d: DeclId) -> bool {
+    cx.p.file(cx.p.decl(d).file)
+        .path
+        .is_some_and(|path| path.dependency().is_some())
+}
+
+/// The services of the app's own code (not tests, not test-only modules)
+/// that implement protocol `p`.
+pub(crate) fn protocol_implementations(cx: &Cx<'_, '_>, p: DeclId) -> Vec<DeclId> {
+    implementations(cx, p)
+        .into_iter()
+        .filter(|&s| {
+            let decl = cx.p.decl(s);
+            let file = cx.p.file(decl.file);
+            !file.is_test
+                && !file.stdlib
+                && !cx
+                    .p
+                    .decl_module(s)
+                    .is_some_and(|m| cx.p.modules[m.0 as usize].test_only)
+        })
+        .collect()
+}
+
 /// The project's `app` declaration, if it is an app.
 fn app_decl(cx: &Cx<'_, '_>) -> Option<DeclId> {
     cx.p.decls.iter().enumerate().find_map(|(i, d)| {
@@ -336,6 +414,12 @@ fn collect_rules(cx: &Cx<'_, '_>) -> Vec<UseRule> {
         let imp = u
             .implementation()
             .and_then(|t| cx.resolve_type_quiet(d.file, &[], &t).decl());
+        let remote = u.value().and_then(|e| remote_arg(&e)).map(|arg| {
+            arg.and_then(|(name, _)| match cx.lookup(d.file, &name) {
+                crate::cx::Found::Decl(c) => Some(c),
+                _ => None,
+            })
+        });
         let Some(target_node) = u.target() else {
             continue;
         };
@@ -353,6 +437,7 @@ fn collect_rules(cx: &Cx<'_, '_>) -> Vec<UseRule> {
             .collect();
         out.push(UseRule {
             imp,
+            remote,
             target,
             envs,
             target_range: target_node.syntax().text_range(),
@@ -550,6 +635,8 @@ fn injected_side(cx: &Cx<'_, '_>, ty: &Ty) -> Sides {
             .iter()
             .fold(Sides::default(), |s, c| s.union(side(cx, c.imp))),
         Injectable::Repository(_) | Injectable::Config(_) => SERVER,
+        // A remote client holds a service token (40-workspaces-and-services.md).
+        Injectable::Protocol(p) if has_remote_rule(cx, p) => SERVER,
         Injectable::Protocol(_) | Injectable::Not | Injectable::Unknown => Sides::default(),
     }
 }
@@ -610,6 +697,9 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
                 if kind != Some(K::TestSuite) && choices(cx, *iface).is_empty() {
                     missing_or_ambiguous(cx, decl.file, range, *iface);
                 }
+            }
+            if let Injectable::Protocol(proto) = &what {
+                missing_remote_rule(cx, kind, decl.file, range, *proto);
             }
             if kind == Some(K::Service) {
                 let via = match what {
@@ -705,6 +795,207 @@ fn layering(
         );
     }
     ok
+}
+
+/// K4023: an injected protocol from a library dependency that the app
+/// neither implements nor binds with a `remote` rule has nothing to call.
+fn missing_remote_rule(
+    cx: &Cx<'_, '_>,
+    kind: Option<K>,
+    file: FileIx,
+    range: TextRange,
+    proto: DeclId,
+) {
+    if app_decl(cx).is_none()
+        || kind == Some(K::TestSuite)
+        || cx.p.file(file).is_test
+        || !from_dependency(cx, proto)
+        || has_remote_rule(cx, proto)
+        || !protocol_implementations(cx, proto).is_empty()
+    {
+        return;
+    }
+    let p = cx.p;
+    let name = p.decl(proto).name.clone();
+    cx.report(
+        file,
+        Diagnostic::new(
+            codes::MISSING_REMOTE_RULE,
+            p.span(file, range),
+            format!(
+                "`{}` comes from a dependency and this app doesn't implement it, so it needs a `remote` rule",
+                p.decl_name(proto)
+            ),
+        )
+        .with_note(format!(
+            "add `use remote(Config) for {name}` to `App.k`, where `Config` is a config implementing `RemoteService`"
+        )),
+    );
+}
+
+/// The checks of one `use remote(Config) for Target` rule: K4024 for a
+/// target that isn't a library protocol the app doesn't implement, K4025
+/// for an argument that isn't a `RemoteService` config.
+fn remote_rule(
+    cx: &Cx<'_, '_>,
+    file: FileIx,
+    call: &ast::Expr,
+    target: Option<(DeclId, TextRange)>,
+) {
+    let p = cx.p;
+    match remote_arg(call).flatten() {
+        None => cx.error(
+            file,
+            codes::NOT_A_REMOTE_SERVICE,
+            call.syntax().text_range(),
+            "`remote(…)` takes the name of a config that implements `RemoteService`",
+        ),
+        Some((name, range)) => match cx.lookup(file, &name) {
+            crate::cx::Found::Decl(c) => {
+                cx.record_resolution(file, range, cx.decl_resolution(c));
+                if p.decl(c).named_kind() != Some(K::Config) {
+                    cx.error(
+                        file,
+                        codes::NOT_A_REMOTE_SERVICE,
+                        range,
+                        format!(
+                            "`{}` is not a config; `remote(…)` takes a config that implements `RemoteService`",
+                            p.decl_name(c)
+                        ),
+                    );
+                } else if !is_remote_service(cx, c) {
+                    cx.error(
+                        file,
+                        codes::NOT_A_REMOTE_SERVICE,
+                        range,
+                        format!("`{}` doesn't implement `RemoteService`", p.decl_name(c)),
+                    );
+                }
+            }
+            _ => cx.error(
+                file,
+                codes::NOT_A_REMOTE_SERVICE,
+                range,
+                format!("`{name}` doesn't name a config that implements `RemoteService`"),
+            ),
+        },
+    }
+    let Some((t, range)) = target else { return };
+    if p.decl(t).named_kind() != Some(K::Protocol) {
+        cx.error(
+            file,
+            codes::REMOTE_RULE_NOT_ALLOWED,
+            range,
+            format!(
+                "`{}` is not a protocol; a `remote` rule binds a protocol",
+                p.decl_name(t)
+            ),
+        );
+        return;
+    }
+    if let Some(&imp) = protocol_implementations(cx, t).first() {
+        cx.report(
+            file,
+            Diagnostic::new(
+                codes::REMOTE_RULE_NOT_ALLOWED,
+                p.span(file, range),
+                format!(
+                    "this app implements `{}` (`{}`), so it can't have a `remote` rule",
+                    p.decl_name(t),
+                    p.decl_name(imp)
+                ),
+            )
+            .with_note("a `remote` rule is for a protocol the app calls in another service"),
+        );
+        return;
+    }
+    if !from_dependency(cx, t) && !p.is_stdlib(t) {
+        cx.report(
+            file,
+            Diagnostic::new(
+                codes::REMOTE_RULE_NOT_ALLOWED,
+                p.span(file, range),
+                format!(
+                    "`{}` is declared in this app, so no other service implements it",
+                    p.decl_name(t)
+                ),
+            )
+            .with_note("a `remote` rule is for a protocol from a library dependency; move the protocol into a library both services depend on"),
+        );
+    }
+}
+
+/// `true` when config `c` implements `k.rpc.RemoteService`.
+fn is_remote_service(cx: &Cx<'_, '_>, c: DeclId) -> bool {
+    cx.p.lookup_qualified("k.rpc.RemoteService")
+        .is_some_and(|r| cx.declares(c, r))
+}
+
+/// K4025 for every config implementing `RemoteService` without `url: Url`
+/// and `token: Secret<String>`, or with a `timeout` that isn't a
+/// `Duration`.
+pub(crate) fn remote_services(cx: &Cx<'_, '_>) {
+    let p = cx.p;
+    let Some(remote) = p.lookup_qualified("k.rpc.RemoteService") else {
+        return;
+    };
+    for (i, decl) in p.decls.iter().enumerate() {
+        let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
+        if p.file(decl.file).stdlib
+            || decl.named_kind() != Some(K::Config)
+            || !cx.declares(d, remote)
+        {
+            continue;
+        }
+        let field = |name: &str| {
+            decl.members.iter().copied().find(|&m| {
+                let member = p.member(m);
+                member.name == name && member.kind == MemberKind::Field
+            })
+        };
+        for (name, wanted, written) in [
+            ("url", "k.core.Url", "Url"),
+            ("token", "k.core.Secret", "Secret<String>"),
+            ("timeout", "k.core.Duration", "Duration"),
+        ] {
+            let Some(m) = field(name) else {
+                if name != "timeout" {
+                    cx.error(
+                        decl.file,
+                        codes::NOT_A_REMOTE_SERVICE,
+                        decl.name_range,
+                        format!(
+                            "`{}` implements `RemoteService`, so it needs `{name}: {written}`",
+                            p.decl_name(d)
+                        ),
+                    );
+                }
+                continue;
+            };
+            let ty = cx.field_ty(m);
+            if ty.contains_error() {
+                continue;
+            }
+            let is = |t: Option<DeclId>, q: &str| t.is_some() && t == p.lookup_qualified(q);
+            let ok = is(ty.decl(), wanted)
+                && (name != "token"
+                    || matches!(&ty, Ty::Named(_, args) if is(args.first().and_then(Ty::decl), "k.core.String")));
+            if !ok {
+                let member = p.member(m);
+                let range = member
+                    .node
+                    .as_ref()
+                    .and_then(|n| n.children().find_map(ast::Type::cast))
+                    .map_or(member.name_range, |t| t.syntax().text_range());
+                cx.error(
+                    decl.file,
+                    codes::NOT_A_REMOTE_SERVICE,
+                    range,
+                    format!("`{name}` of a `RemoteService` is a `{written}`"),
+                );
+            }
+        }
+    }
 }
 
 /// K4001 / K4002 for an interface without a single implementation.
@@ -1010,6 +1301,15 @@ fn use_rules(cx: &Cx<'_, '_>) {
             checker.check_initializer(&e, Some(&env));
         }
         if let Some(e) = u.value() {
+            if remote_arg(&e).is_some() {
+                let target = u.target().and_then(|t| {
+                    cx.resolve_type(d.file, &[], &t)
+                        .decl()
+                        .map(|decl| (decl, t.syntax().text_range()))
+                });
+                remote_rule(cx, d.file, &e, target);
+                continue;
+            }
             if u.implementation().is_none() {
                 cx.error(
                     d.file,
@@ -1167,15 +1467,30 @@ pub(crate) fn client_references(cx: &Cx<'_, '_>) {
                 };
                 if side(cx, *d).server && !side(cx, *d).client && used_outside_injects(*d) {
                     reported.insert(*d);
-                    cx.error(
-                        fix,
+                    let mut diag = Diagnostic::new(
                         codes::SERVER_ONLY_IN_CLIENT,
-                        file.imports[i].range,
+                        p.span(fix, file.imports[i].range),
                         format!(
                             "`{}` is server-only; this file reaches the browser",
                             p.decl_name(*d)
                         ),
                     );
+                    // Through what it is server-only, when that is a
+                    // `remote` client deeper down (40-workspaces-and-services.md).
+                    if let Some(path) = server_path(cx, *d, &mut HashSet::new()) {
+                        if path.decls.len() > 1
+                            && path
+                                .decls
+                                .last()
+                                .is_some_and(|&l| p.decl(l).named_kind() == Some(K::Protocol))
+                        {
+                            let names: Vec<String> =
+                                path.decls.iter().map(|t| p.decl_name(*t)).collect();
+                            diag =
+                                diag.with_note(format!("{} ({})", names.join(" → "), path.reason));
+                        }
+                    }
+                    cx.report(fix, diag);
                 }
             }
         }
@@ -1325,6 +1640,11 @@ fn server_path_of(
         | Injectable::Infra(t)
         | Injectable::Repository(t)
         | Injectable::Config(t) => server_path(cx, *t, seen),
+        Injectable::Protocol(p) if has_remote_rule(cx, *p) => Some(ServerPath {
+            decls: vec![*p],
+            reason: "a `remote` client, which holds a service token, is server-only".to_owned(),
+            environment: None,
+        }),
         Injectable::Protocol(_) | Injectable::Not | Injectable::Unknown => None,
     }
 }

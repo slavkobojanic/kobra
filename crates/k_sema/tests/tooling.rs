@@ -322,7 +322,10 @@ fn collect(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) {
         let Ok(pp) = ProjectPath::new(&rel) else {
             continue;
         };
-        if pp.kind() != FileKind::Other {
+        // A workspace member's manifest and lockfiles are classified
+        // relative to the member, by `Workspace::from_files`.
+        let member_file = name == "k.toml" || name.ends_with(".lock");
+        if pp.kind() != FileKind::Other || member_file {
             out.push((pp, fs::read_to_string(&p).unwrap()));
         }
     }
@@ -378,36 +381,66 @@ fn check_definitions(analysis: &Analysis) -> usize {
     checked
 }
 
+/// The analyses of the example at `dir`: one, or for a workspace
+/// (`examples/shop`, `examples/stack`) one per member with the libraries it
+/// depends on.
+fn example_analyses(dir: &Path) -> Vec<Analysis> {
+    let mut files = Vec::new();
+    collect(dir, dir, &mut files);
+    let manifest = fs::read_to_string(dir.join("k.toml")).unwrap_or_default();
+    if !k_sema::Workspace::is_workspace_manifest(&manifest) {
+        return vec![AnalysisHost::with_files(Options::new(), files).analysis()];
+    }
+    let ws =
+        k_sema::Workspace::from_files(files.into_iter().map(|(p, t)| (p.as_str().to_owned(), t)));
+    assert!(
+        ws.problems.is_empty(),
+        "{}: {:?}",
+        dir.display(),
+        ws.problems
+    );
+    (0..ws.members.len())
+        .map(|m| AnalysisHost::with_files(Options::new(), ws.analysis_files(m)).analysis())
+        .collect()
+}
+
 #[test]
 fn every_definition_of_the_examples_is_spelled_like_its_references() {
     for dir in examples() {
-        let mut files = Vec::new();
-        collect(&dir, &dir, &mut files);
-        let host = AnalysisHost::with_files(Options::new(), files);
-        let analysis = host.analysis();
-        let checked = check_definitions(&analysis);
+        let mut checked = 0;
+        for analysis in example_analyses(&dir) {
+            checked += check_example_definitions(&analysis);
+        }
         assert!(
             checked > 100,
             "{}: only {checked} references",
             dir.display()
         );
-        // Every declaration resolves back to itself, except a test suite
-        // named like the declaration it tests.
-        let program = analysis.program().unwrap();
-        for (i, decl) in program.decls.iter().enumerate() {
-            if decl.stdlib
-                || decl.name.is_empty()
-                || decl.named_kind() == Some(k_sema::stdlib::DeclarationKind::TestSuite)
-            {
-                continue;
-            }
-            let id = k_sema::view::DeclId(u32::try_from(i).unwrap());
-            let resolution = Resolution::Declaration {
-                name: decl.display_name.clone(),
-            };
-            assert_eq!(program.resolve(&resolution), Some(Resolved::Decl(id)));
-        }
     }
+}
+
+/// [`check_definitions`] on one analysis of an example, and every
+/// declaration resolving back to itself. Returns how many references were
+/// checked.
+fn check_example_definitions(analysis: &Analysis) -> usize {
+    let checked = check_definitions(analysis);
+    // Every declaration resolves back to itself, except a test suite named
+    // like the declaration it tests.
+    let program = analysis.program().unwrap();
+    for (i, decl) in program.decls.iter().enumerate() {
+        if decl.stdlib
+            || decl.name.is_empty()
+            || decl.named_kind() == Some(k_sema::stdlib::DeclarationKind::TestSuite)
+        {
+            continue;
+        }
+        let id = k_sema::view::DeclId(u32::try_from(i).unwrap());
+        let resolution = Resolution::Declaration {
+            name: decl.display_name.clone(),
+        };
+        assert_eq!(program.resolve(&resolution), Some(Resolved::Decl(id)));
+    }
+    checked
 }
 
 proptest! {

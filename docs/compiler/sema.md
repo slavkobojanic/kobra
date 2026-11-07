@@ -47,8 +47,8 @@ stage or milestone that picks it up. A deferred rule's code is assigned when it 
 
 | Area | v0 | Deferred |
 |---|---|---|
-| Project model and files | layout, file rule, duplicates, misplaced declarations | `k.toml` package resolution (`k add`), aliases |
-| Modules and imports | resolution, visibility, cycles, test-only modules, unused/duplicate imports | packages from `[dependencies]` |
+| Project model and files | layout, file rule, duplicates, misplaced declarations; workspaces, manifests and workspace dependencies (§4.1) | git packages (`k add`), aliases |
+| Modules and imports | resolution, visibility, cycles, test-only modules, unused/duplicate imports; library modules of workspace dependencies | modules of git packages |
 | Names | locals, parameters, members, declarations, prelude, implicit members | — |
 | Types | everything in §9 | variance annotations; higher-kinded uses |
 | Effects | `async`, typed `throws`, `try`, exhaustive `catch`, error-generic parameters | — |
@@ -58,14 +58,14 @@ stage or milestone that picks it up. A deferred rule's code is assigned when it 
 | Styles and themes | property table, value grammar, classes, keyframes, tokens, overrides, variants | `@container`/`@layer` value checks |
 | DI, layering, boundary | DI graph, scopes, layering table, state ownership, server/client classification | — |
 | Routing | `Page`/`Endpoint` enums, `@Param`, `at`, URL conflicts, `requires`, endpoint pages | `routes.lock` comparison (stage 3 with lockfiles) |
-| Protocols | rpc `throws` rules, Codable payloads, server-only implementations | `protocol.lock`; streaming restrictions beyond `Stream` returns |
+| Protocols | rpc `throws` rules, Codable payloads, server-only implementations; `remote` rules and `RemoteClient.at` (§12.8) | `protocol.lock`; streaming restrictions beyond `Stream` returns; streaming between services |
 | Persistence | entity column types | query lambda lowering to `k_db`'s query IR (stage 3), `schema.lock`, migrations |
 | Forms | `.empty`, `form.value`, `@Format`, `@Email`, `@Matches` | — |
 | Config | `@Env`, `Secret<T>` server-only, constraints on config fields | startup validation (runtime) |
 | Jobs | `Job` services server-only, Codable payloads, no session in the graph, payloads vs `storage.lock` (§12.16) | — |
 | Tests | `expect`, `expect throws`, `use` in tests, test-only visibility | — |
 | Doc comments | intra-doc links | type-checking fenced `k` examples |
-| Lockfiles | `storage.lock` job payloads (K8002, K8003; §12.16) | `routes.lock`, `protocol.lock`, `schema.lock`, `storage.lock` keys |
+| Lockfiles | `storage.lock` job payloads (K8002, K8003), `rpc.lock` (K8001, K8002; §12.16) | `routes.lock`, `protocol.lock`, `schema.lock`, `storage.lock` keys |
 
 ---
 
@@ -189,12 +189,13 @@ Implemented in `crates/k_sema/src/project.rs`. The layout is fixed ([24-projects
 
 | Path | `FileKind` | Analysis |
 |---|---|---|
-| `k.toml` | `Manifest` | read for `name` (lockfile namespaces); malformed → K8101 (deferred) |
+| `k.toml` | `Manifest` | read by the workspace layer (§4.1): malformed → K8101 |
 | `App.k` | `App` | parsed; holds the `app` declaration and `use` rules |
 | `src/<dirs>/<Name>.k` | `Source { module, is_test }` | the module is the dot-joined directories |
 | `src/<dirs>/<Name>.test.k` | `Source { is_test: true }` | same module; see test files below |
 | `migrations/<name>.k` | `Migration` | not a module; holds one `migration` |
-| `protocol.lock`, `routes.lock`, `schema.lock`, `storage.lock`, `k.lock` | `Lockfile` | inputs to the lockfile checks (§12.16; `storage.lock` job payloads in v0) |
+| `protocol.lock`, `routes.lock`, `schema.lock`, `storage.lock`, `rpc.lock`, `k.lock` | `Lockfile` | inputs to the lockfile checks (§12.16; `storage.lock` job payloads and `rpc.lock` in v0) |
+| `.deps/<dir>/<path>` | the kind of `<path>`, sources only | a library mounted by the workspace layer (§4.1); its `k.toml` is mounted as an inert `Other` file |
 | any other `.k` file | `Stray` | parsed, then K1001 **v0** |
 | anything else | `Other` | ignored |
 
@@ -216,11 +217,48 @@ A test file sees its module's declarations, test-only modules and `k.test`. `tes
 free identifiers (they need not name a declaration), several groups per file are allowed, and they
 don't take part in the K1004 namespace.
 
+### 4.1 Workspaces
+
+**v0**, design [40-workspaces-and-services.md](../design/40-workspaces-and-services.md);
+`crates/k_sema/src/workspace.rs` (public: `k_sema::Workspace`, `k_sema::workspace::parse_manifest`).
+
+- **A workspace** is a root `k.toml` with `[workspace] members = [...]`, member directories relative to the
+  root (no `..`, no hidden directories, not nested in one another; a root has no `[package]`). A project
+  outside every workspace is a workspace of one member whose directory is empty, so every driver plans
+  the same way.
+- **`Workspace::from_files`** takes every file below the root by its path relative to the root and plans:
+  the members (sorted by directory), each with its own files, its direct dependencies and `libraries`,
+  every library it depends on transitively in dependency order. Manifests are parsed here: malformed TOML,
+  a missing `[package] name` or `k`, a dependency that is neither a git tag nor `{ workspace = true }`, a
+  bad `members` entry, a duplicate package name → **K8101**; `{ workspace = true }` naming no member, used
+  outside a workspace, or a git tag (not resolved yet) → **K8102**; a listed member without `k.toml` →
+  **K8103** (at the `members` string); a dependency cycle (Tarjan's SCC over member edges, self-edges
+  included) → **K8104** at every edge in the cycle, with the cycle as a note; a dependency on an app →
+  **K8105**; a module declared by two packages of one member's build → **K8106** at the dependency entry
+  that brings the second in. Edges reported as K8104/K8105 are left out, so the graph every analysis sees
+  is a DAG and every member is still analysed.
+- **Mounting.** `Workspace::analysis_files(member)` is the member's own files plus, for each library in
+  `libraries`, its `k.toml` and non-test sources at `ProjectPath::mounted(dir, path)`
+  (`.deps/<dir>/<path>`, `/` and `%` of `dir` escaped). `.deps` is hidden, so no file on disk can collide.
+  A mounted file is classified by its inner path (`FileKind::Source` with the library's module), so a
+  library's modules keep their own paths and are imported like the member's own (`import pay.Payments`);
+  non-`public` declarations stay unreachable from the member (K1102). `ProjectPath::dependency()` tells
+  mounted files apart; the DI checks use it (§12.6) and code generation takes a declaration's Protobuf
+  package from its library's name.
+- **Reporting.** `Workspace::report(analyses, display)` merges the diagnostics of several members'
+  analyses and the manifest problems into one `SourceMap` of real paths (a mounted file is the library's
+  own), dropping duplicates, so a library's diagnostic appears once however many members mount it. Only
+  the problems of the analysed members' manifests (and the root's) are included.
+- `Workspace::view_path(viewer, real)` and `real_path(member, path)` map between real paths and a
+  member's analysis paths; the language server uses them to keep every mounted copy of a library file
+  in sync.
+
 **The driver** (`k check`, `crates/k_cli/src/sources.rs`) finds the projects named on the command line:
 a path inside a directory with `k.toml` checks that whole project; a plain directory is searched for
-projects, and its remaining `.k` files form an ad-hoc group without a manifest. Manifest checks belong
-to the driver and the package layer (K8100–K8199), not to the analysis, which never reports a missing
-`k.toml`.
+projects, and its remaining `.k` files form an ad-hoc group without a manifest. A path in a workspace
+checks the workspace (every member from the root, the member otherwise), each member with its libraries,
+through `Workspace::report`. Manifest checks belong to the workspace layer (K8100–K8199), not to the
+analysis, which never reports a missing `k.toml`.
 
 ---
 
@@ -257,7 +295,7 @@ library is documented, reviewable K and the checker has no second declaration fo
 | `k.ui` | `Theme` (with `apply(_:)`), `Router`, `Stack`, `Grid`, `Spacer`, `Icon`, `IconName`, `ErrorBoundary`, `VisuallyHidden`, `Locale`, `AriaRole`, `ButtonType`, `ImageLoading`, `Axis`, `MetadataEntries`, `StructuredData` | 04, 05, 07, 22 |
 | `k.http` | `HttpClient`, `FetchHttpClient`, `HttpRequest`, `HttpResponse`, `HttpMethod`, `HttpHeaders`, `HttpBody`, `HttpStatus` (enum with `.other(Int)`), `HttpError`, `DecodingError`, `IncomingRequest` | 32, 27 |
 | `k.time` | `Clock` (a stdlib service: `now`, `sleep(for:)`, `every(_:_:)`, `after(_:_:)`), `TimerHandle`, `TimeZone`, `TimeOfDay`, `Weekday` | 35 |
-| `k.rpc` | `RpcFailure`, `RpcOnlyError`, `Broadcast` | 11, 28, 29 |
+| `k.rpc` | `RpcFailure`, `RpcOnlyError`, `Broadcast`, `RemoteService`, `RemoteClient`, `ServiceAuthenticated`, `ServiceCaller`, `ServiceConfig` | 11, 28, 29, 40 |
 | `k.auth` | `Authenticated`, `Role`, `Session`, `SessionManager`, `SessionConfig`, `SessionUser`, `SessionUserId`, `SessionRole`, `AuthUserId`, `AuthRole`, `RateLimit`, `Rate`, `GuardRejection` | 26 |
 | `k.storage` | `LocalStorage`, `BrowserStorage`, `StorageKey`, `StorageReadError`, `StorageWriteError` | 36 |
 | `k.server` | email (`Email`, `EmailProvider`, `SmtpEmailProvider`, `SmtpConfig`, `SmtpSecurity`, `EmailError`), jobs (`Job`, `JobQueue`, `DatabaseJobQueue`, `JobConfig`, `JobError`, `JobKind`, `@JobName`, `@Retry`, `@Schedule`, `ScheduleTime`), `ServerConfig`, `PublicUrls` | 30, 31, 12 |
@@ -268,7 +306,7 @@ library is documented, reviewable K and the checker has no second declaration fo
 | `k.encoding` | `Json`, `@JsonKey` | 20 |
 | `k.text` | `EmailAddress` | 31 |
 | `k.observe` | `Log` | 38 |
-| `k.test` (test-only) | `TestClock`, `TestClient`, `TestHttpClient`, `MemoryStorage`, `RecordingEmailProvider`, `RecordingJobQueue`, `InlineJobQueue`, `Screen`, `Element`, `Key`, `render` | 21 |
+| `k.test` (test-only) | `TestClock`, `TestClient`, `TestHttpClient`, `TestRemote`, `MemoryStorage`, `RecordingEmailProvider`, `RecordingJobQueue`, `InlineJobQueue`, `Screen`, `Element`, `Key`, `render` | 21, 40 |
 
 Module names follow the design documents: email and jobs live in `k.server`, money and config values in
 `k.core`, testing support in `k.test`. The examples' imports are pinned by
@@ -711,6 +749,19 @@ Accessibility lints beyond required accessible names are **deferred**.
 - **`use` operands:** `use <expression> for C` is allowed only in a `test` body and only when `C` is a
   `config` type (**K4011**); the `Type` form is allowed in `App.k`'s `app` and in `test` bodies
   ([grammar.md RA-35](grammar.md#ra-35-the-operand-of-use)).
+- **`remote` rules** ([40-workspaces-and-services.md](../design/40-workspaces-and-services.md)): `use
+  remote(Config) for P [in .env, …]` in `App.k` binds protocol `P` to a client of another service. The
+  operand is the call `remote(Name)` (not K4011). `Name` must be a `config` implementing
+  `k.rpc.RemoteService` (**K4025** at the name, which records its resolution); such a config needs `url:
+  Url` and `token: Secret<String>` and may have `timeout: Duration` (**K4025** at the config's name or the
+  field's type). `P` must be a protocol (**K4024**), not implemented by the app's own services (test fakes
+  don't count; **K4024** naming the implementation) and declared in a library dependency, a mounted file
+  (**K4024** for the app's own protocol). An injected protocol from a dependency that the app neither
+  implements nor binds remotely is **K4023** at the field (apps only; test code exempt). Remote rules
+  take part in K4015's environment coverage. **A remote client is server-only:** a protocol with a
+  remote rule injects as `SERVER`, so injecting it from code that reaches the browser is K4007 with the
+  path "… → pay.Payments (a `remote` client, which holds a service token, is server-only)" (also at an
+  import when the file is all client code).
 - **Tests' defaults:** in `k test`, `Clock` is `TestClock` without a `use` line (so `@Inject let clock:
   TestClock` is valid), and the stdlib's `@TestDefault`s apply ([21-testing.md](../design/21-testing.md)).
 
@@ -748,7 +799,12 @@ Accessibility lints beyond required accessible names are **deferred**.
 - A protocol is injectable only into services (K4005). `Stream<T>` results are server streams
   ([29-server-streaming.md](../design/29-server-streaming.md)); client and bidirectional streaming are
   deferred with the wire format.
-- `protocol.lock` (Protobuf names and field numbers) is **deferred** (stage 3).
+- `protocol.lock` (Protobuf names and field numbers) is **deferred** (stage 3); `rpc.lock` (§12.16)
+  records what deployed callers rely on.
+- **`RemoteClient.at(url:token:timeout:)`** (`k.rpc`, server-only) returns a client of its generic result
+  `P`, the type it is used as (K has no explicit type arguments in expressions). A result that resolves
+  to anything but a protocol is **K4026**; one that can't be inferred is K2002
+  (`crates/k_sema/src/body.rs`, `check_remote_client`).
 
 ### 12.9 Async data: `@Load`
 
@@ -836,6 +892,41 @@ service is marked `@Breaking("reason")` (a job service accepts `@Breaking`). An 
 case and a required field made optional are compatible. New jobs and recorded jobs that no longer exist are
 not reported: when the compiler writes lockfiles is open (13-tooling.md). The `[keys.*]` entries
 (`StorageKey` shapes), `protocol.lock` and `routes.lock` checks are still deferred.
+
+**`rpc.lock`** (**v0**, `rpclock.rs`, design
+[40-workspaces-and-services.md](../design/40-workspaces-and-services.md#compatibility-between-deploys)).
+For an app, the protocols it *serves* are the non-stdlib protocols its own non-test services implement.
+The lock is TOML:
+
+```toml
+[protocols."pay.Payments".rpcs.charge]
+params = [{ name = "request", type = "pay.ChargeRequest" }]
+returns = "pay.Charge"
+throws = "pay.ChargeError"
+
+[types."pay.ChargeRequest"]
+fields = [
+    { name = "orderId", type = "String", number = 1 },
+    { name = "cents", type = "Int", number = 2 },
+]
+reserved = [3]
+
+[types."pay.ChargeError"]
+cases = ["declined", "rpcFailure"]
+```
+
+Types are written like `storage.lock`'s (stdlib types by simple name); `[types]` holds every app or
+library struct and enum reachable from the served signatures. Malformed TOML, a field number that isn't a
+positive integer, a number used twice in one type or both used and reserved → **K8002** at the line. The
+comparison, per recorded protocol: an rpc, parameter, field or case removed; a parameter, field, result
+or error type changed (by written type); a new required parameter or field (not optional, no default) →
+**K8001** at the protocol's name, one note per change, a label at the protocol's line in the lock, unless
+the protocol is `@Breaking("reason")`. A recorded protocol the app no longer serves → K8001 at the app's
+name. New rpcs, optional fields and parameters and new cases are compatible. **Writing:**
+`Analysis::rpc_lock()` is the lock the program implies: recorded field numbers kept, new fields numbered
+after every number used or reserved, removed fields' numbers added to `reserved`; `None` for a library or
+an app that serves nothing and has no lock. `k build` writes it when it differs; `k check` never writes.
+An unreadable lock is reported and the implied lock is the program's alone.
 
 `Analysis::file_dependencies(file)` lists the files whose declarations a file's names, types and members
 resolve to; `k test --watch` uses it to find the tests a change affects.

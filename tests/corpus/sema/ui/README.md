@@ -26,3 +26,4 @@ quick-fix wording these cases pin are in
 | `recovery/` | one mistake, one diagnostic |
 | `projects/` | multi-module projects: props, styling and tokens across modules, library tokens, pages |
 | `clean/` | the design documents' examples, which must check cleanly |
+| `drag/` | `k.drag` (41-drag-and-drop.md): payloads typed by their `DragKind`, `dropped` and `moved` handler types, chained `row` and `accepts` |

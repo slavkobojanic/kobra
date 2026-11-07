@@ -36,7 +36,7 @@ The enums the compiler generates for the app need no import either: `Page`, `End
 
 | Module | Contents |
 |---|---|
-| `k.ui` | built-in elements; layout (`Stack`, `Grid`, `Spacer`); accessible widgets (`Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable`); `VisuallyHidden`; `Icon` with a bundled icon set; the `Theme` service |
+| `k.ui` | built-in elements; layout (`Stack`, `Grid`, `Spacer`); accessible widgets (`Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable`); `VisuallyHidden`; `KeyboardShortcut`; `Icon` with a bundled icon set; the `Theme` service |
 | `k.animation` | transitions, springs, enter and exit animations, `.animate()` modifiers |
 | `k.charts` | line, bar, area, pie and scatter charts, built on SVG and themed by tokens |
 | `k.graphics` | Canvas 2D, SVG drawing |
@@ -47,14 +47,15 @@ The enums the compiler generates for the app need no import either: `Page`, `End
 | `k.i18n` | localized strings, plurals, locale-aware number, date and currency formatting |
 | `k.crypto` | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only) |
 | `k.auth` | `Session`, `SessionManager`, `SessionUser`, the `Authenticated`, `Role` and `RateLimit` guards, `GuardRejection`, `AuthRole`, `AuthUserId`, `SessionConfig` |
-| `k.device` | clipboard, geolocation, notifications, sharing, camera, microphone, file picker |
+| `k.device` | `Files` (the file picker and downloads), `File`, `FileType`, `FileOpenError`, `FileSaveError`; clipboard, geolocation, notifications, sharing, camera, microphone |
+| `k.drag` | `DragKind`, `Draggable`, `DropTarget`, `ReorderableList`, `ListMove` |
 | `k.encoding` | JSON (`@JsonKey`), CSV, Base64, URL encoding |
 | `k.collections` | `Deque`, `PriorityQueue`, `OrderedMap`, `LruCache` |
 | `k.server` | `ServerConfig`, `PublicUrls`; background jobs (`Job`, `JobQueue`, `JobConfig`, schedules); email (`Email`, `EmailProvider`, `SmtpConfig`); file storage (S3-compatible) |
 | `k.observe` | structured logging, metrics, tracing (OpenTelemetry) |
 | `k.db` | entities, repositories, `Database`, `DatabaseConfig`, migrations and `Schema` |
 | `k.validation` | constraint annotations, `@Form` and `ValidationError` |
-| `k.rpc` | protocols and the Connect transport, `RpcFailure`, `RpcOnlyError`, `Broadcast` |
+| `k.rpc` | protocols and the Connect transport, `RpcFailure`, `RpcOnlyError`, `Broadcast`; calls between services: `RemoteService`, `RemoteClient`, `ServiceAuthenticated`, `ServiceCaller`, `ServiceConfig` ([Workspaces and services](../apps/workspaces.md)) |
 | `k.test` | the test runner, `render`, accessibility queries, `TestClient`, and the test doubles, `TestClock` included |
 
 Each declaration is imported individually: `import k.ui.Dialog`, `import k.rpc.RpcFailure`.

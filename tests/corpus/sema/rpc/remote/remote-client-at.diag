@@ -1,0 +1,2 @@
+error[K4026] 26:39-26:65: `RemoteClient.at` builds a client of a protocol, and `corpus.Hook` is not one
+error[K2002] 27:23-27:62: the type of this expression can't be inferred (`{unknown}`)

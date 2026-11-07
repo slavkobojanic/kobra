@@ -9,9 +9,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use k_runtime::{
-    CHARTS_SIZE_BUDGET, CORE_SIZE_BUDGET, FULL_SIZE_BUDGET, HTTP_SIZE_BUDGET, Part,
-    SERVICES_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET, compact, compacted_sources,
-    modules, resolve,
+    CHARTS_SIZE_BUDGET, CORE_SIZE_BUDGET, DRAG_SIZE_BUDGET, FILES_SIZE_BUDGET, FULL_SIZE_BUDGET,
+    HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, Part, SERVICES_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
+    STREAMS_SIZE_BUDGET, compact, compacted_sources, modules, resolve,
 };
 
 fn js_root() -> PathBuf {
@@ -162,6 +162,9 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Stdlib
                 | Part::Services
                 | Part::Charts
+                | Part::Drag
+                | Part::Files
+                | Part::Keys
                 | Part::Streams
                 | Part::Http
         ) {
@@ -302,6 +305,51 @@ fn the_charts_meet_their_size_budget() {
 }
 
 #[test]
+fn drag_and_drop_meets_its_size_budget() {
+    let drag = compacted_sources(&[Part::Drag]).expect("compacts");
+    let size = gzip_len(&drag);
+    eprintln!(
+        "drag: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {DRAG_SIZE_BUDGET})",
+        raw_len(&[Part::Drag]),
+        drag.len()
+    );
+    assert!(
+        size <= DRAG_SIZE_BUDGET,
+        "drag and drop is {size} bytes gzip, over the {DRAG_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn the_files_meet_their_size_budget() {
+    let files = compacted_sources(&[Part::Files]).expect("compacts");
+    let size = gzip_len(&files);
+    eprintln!(
+        "files: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {FILES_SIZE_BUDGET})",
+        raw_len(&[Part::Files]),
+        files.len()
+    );
+    assert!(
+        size <= FILES_SIZE_BUDGET,
+        "the files are {size} bytes gzip, over the {FILES_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn keyboard_shortcuts_meet_their_size_budget() {
+    let keys = compacted_sources(&[Part::Keys]).expect("compacts");
+    let size = gzip_len(&keys);
+    eprintln!(
+        "keys: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {KEYS_SIZE_BUDGET})",
+        raw_len(&[Part::Keys]),
+        keys.len()
+    );
+    assert!(
+        size <= KEYS_SIZE_BUDGET,
+        "keyboard shortcuts are {size} bytes gzip, over the {KEYS_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
 fn the_streams_meet_their_size_budget() {
     let streams = compacted_sources(&[Part::Streams]).expect("compacts");
     let size = gzip_len(&streams);
@@ -344,6 +392,9 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::Stdlib
                 | Part::Services
                 | Part::Charts
+                | Part::Drag
+                | Part::Files
+                | Part::Keys
                 | Part::Streams
         ) {
             continue;

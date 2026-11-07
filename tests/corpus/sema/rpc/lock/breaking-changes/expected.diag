@@ -1,0 +1,9 @@
+error[K8001] src/cart/CartApi.k:2:17-2:24: `cart.CartApi` changed in a way that breaks callers already deployed, without `@Breaking`
+  label rpc.lock:4:1-4:27: recorded here
+  note: rpc `add` returned `Int` and now returns `String`
+  note: rpc `clear` was removed
+  note: case `outOfStock` of `cart.CartError` was removed
+  note: field `productId` of `cart.CartItem` was `Int` and is now `String`
+  note: field `quantity` of `cart.CartItem` was removed
+  note: field `size` of `cart.CartItem` is new and required; a new field must be optional
+  note: keep the recorded shape (adding an rpc, an optional field or an error case is compatible), or mark the protocol `@Breaking("reason")` once no deployed caller relies on it

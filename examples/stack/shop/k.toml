@@ -1,0 +1,10 @@
+# The storefront: serves `pay.PaymentEvents` and calls `pay.Payments`.
+
+[package]
+name = "shop"
+title = "Stack shop"
+description = "A storefront that pays through paybox."
+k = "0.1"
+
+[dependencies]
+pay-contracts = { workspace = true }

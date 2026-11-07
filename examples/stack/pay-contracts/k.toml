@@ -1,0 +1,7 @@
+# The contract library both services depend on. A library has no App.k.
+
+[package]
+name = "pay-contracts"
+title = "Payment contracts"
+description = "The protocols between paybox and shop, and the types they carry."
+k = "0.1"

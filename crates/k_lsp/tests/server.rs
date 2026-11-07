@@ -172,12 +172,25 @@ fn go_to_definition_into_the_stdlib() {
 /// identifier (a page case, `.signIn`, is defined by its page `SignIn`).
 #[test]
 fn every_definition_in_the_examples_is_spelled_like_its_reference() {
-    for name in ["todos", "weather", "notes", "shop"] {
+    // `examples/shop` is a workspace: the server loads it from its root,
+    // and every member's sources are checked.
+    let examples: [(&str, &[&str]); 4] = [
+        ("todos", &[""]),
+        ("weather", &[""]),
+        ("notes", &[""]),
+        ("shop", &["pay-contracts", "paybox", "shop"]),
+    ];
+    for (name, members) in examples {
         let root = example(name);
         let mut client = Client::start(&root);
         let mut files = Vec::new();
-        collect(&root.join("src"), &mut files);
-        files.push(root.join("App.k"));
+        for member in members {
+            let dir = root.join(member);
+            collect(&dir.join("src"), &mut files);
+            if dir.join("App.k").exists() {
+                files.push(dir.join("App.k"));
+            }
+        }
         let mut checked = 0usize;
         for file in files {
             let text = fs::read_to_string(&file).unwrap();
@@ -257,4 +270,78 @@ fn collect(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
         }
     }
     out.sort();
+}
+
+/// The position of the `nth` occurrence of `needle` in `text`, plus
+/// `shift` characters.
+fn position_of(text: &str, needle: &str, nth: usize, shift: u32) -> Value {
+    let at = text.match_indices(needle).nth(nth).unwrap().0;
+    let line = text[..at].matches('\n').count();
+    let column = at - text[..at].rfind('\n').map_or(0, |n| n + 1);
+    json!({ "line": line, "character": u32::try_from(column).unwrap() + shift })
+}
+
+#[test]
+fn the_whole_workspace_is_indexed_and_implementations_cross_members() {
+    // `examples/stack`: shop calls `Payments.charge`, paybox implements it,
+    // and both depend on the `pay-contracts` library.
+    let root = example("stack");
+    let checkout = root.join("shop/src/checkout/Checkout.k");
+    let text = fs::read_to_string(&checkout).unwrap();
+    let uri = url(&checkout);
+    let mut client = Client::start(&root);
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri, "languageId": "k", "version": 1, "text": text } }),
+    );
+    // The member is analysed with its library: no errors.
+    client.diagnostics(&uri, <[Value]>::is_empty);
+    let at = position_of(&text, "charge(request", 0, 1);
+    // Definition: into the library's own file, not a copy.
+    let defs = client.request(
+        "textDocument/definition",
+        json!({ "textDocument": { "uri": uri }, "position": at }),
+    );
+    let contracts = url(&root.join("pay-contracts/src/pay/Payments.k"));
+    assert_eq!(defs[0]["uri"], json!(contracts), "{defs}");
+    // Implementation: into paybox, another member.
+    let impls = client.request(
+        "textDocument/implementation",
+        json!({ "textDocument": { "uri": uri }, "position": at }),
+    );
+    let api = url(&root.join("paybox/src/payments/PaymentsApi.k"));
+    let found: Vec<&Value> = impls.as_array().unwrap().iter().collect();
+    assert!(found.iter().any(|l| l["uri"] == json!(api)), "{impls}");
+    // From the protocol in the library, too.
+    let library = fs::read_to_string(root.join("pay-contracts/src/pay/Payments.k")).unwrap();
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": contracts, "languageId": "k", "version": 1, "text": library } }),
+    );
+    let impls = client.request(
+        "textDocument/implementation",
+        json!({ "textDocument": { "uri": contracts }, "position": position_of(&library, "Payments requires", 0, 1) }),
+    );
+    assert!(
+        impls
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|l| l["uri"] == json!(api)),
+        "{impls}"
+    );
+    // An edit of the library reaches the members that mount it: shop's
+    // call now fails to type-check.
+    client.notify(
+        "textDocument/didChange",
+        json!({ "textDocument": { "uri": contracts, "version": 2 }, "contentChanges": [{ "text": library.replace("rpc charge(", "rpc take(") }] }),
+    );
+    let errors = client.diagnostics(&uri, |d| !d.is_empty());
+    assert!(
+        errors
+            .iter()
+            .any(|e| e["message"].as_str().unwrap_or_default().contains("charge")),
+        "{errors:?}"
+    );
+    assert_eq!(client.shutdown(), 0);
 }

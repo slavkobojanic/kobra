@@ -1,0 +1,6 @@
+; A config may implement interfaces, such as `RemoteService` (40-workspaces-and-services.md).
+(SourceFile
+  (ConfigDecl public config PayboxService
+    (ImplementsClause implements (PathType RemoteService))
+    (MemberList
+      (FieldDecl (Annotation Env (ArgList (Arg (StringLit "PAYBOX_URL")))) let url (PathType Url)))))

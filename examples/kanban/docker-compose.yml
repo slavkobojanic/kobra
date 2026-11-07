@@ -1,0 +1,22 @@
+# Kanban served by nginx: `docker compose up --build`, then open
+# http://localhost:8080. The boards live in your browser's local storage, so
+# the container keeps no state and needs no configuration, secrets or
+# database.
+services:
+  kanban:
+    build:
+      # The repository root: the toolchain is built from source.
+      context: ../..
+      dockerfile: examples/kanban/Dockerfile
+    image: kanban:local
+    ports:
+      - "8080:8080"
+    read_only: true
+    tmpfs:
+      # nginx's temporary files and its pid file.
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped

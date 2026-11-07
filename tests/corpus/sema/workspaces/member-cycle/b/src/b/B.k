@@ -1,0 +1,2 @@
+/// B.
+public struct B {}

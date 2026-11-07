@@ -72,12 +72,15 @@ mod refs;
 mod regex;
 mod routing;
 mod rpc;
+mod rpclock;
 pub mod stdlib;
 mod tooling;
 mod ty;
 pub mod view;
 mod warm;
+pub mod workspace;
 
 pub use host::{Analysis, AnalysisHost, Change, FileOrigin, Options};
 pub use lookup::{Cancelled, Resolution, Side};
-pub use project::{FileKind, LockfileKind, ModulePath, PathError, ProjectPath};
+pub use project::{DEPENDENCY_DIR, FileKind, LockfileKind, ModulePath, PathError, ProjectPath};
+pub use workspace::Workspace;

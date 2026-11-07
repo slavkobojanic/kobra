@@ -56,7 +56,7 @@ public app Shop {
 - **Remote clients are server-only.** A browser never holds a service token, and calls between services never need CORS. When the browser needs data from another service, it calls its own app's server, which calls the other service.
 - **The wire format is the app's own RPC wire format** ([28-rpc-wire-format.md](28-rpc-wire-format.md)). Errors arrive typed, and network failures surface as `rpcFailure(.offline)` and `.timeout`, exactly as they do in the browser.
 - **Calls are authenticated with a signed service token.** The calling app signs a short-lived token from the shared secret in its `RemoteService` config: the caller's name, an expiry and an HMAC. The stdlib guard `ServiceAuthenticated` verifies it on the serving side, and an injected `ServiceCaller` gives the verified caller's name. Mutual TLS is left to the platform.
-- **`RemoteClient<P>.at(url:token:)`** builds a client for a URL known only at run time, such as a merchant's callback address that is registered with paybox. It goes through the same codecs, timeouts and error mapping.
+- **`RemoteClient.at(url:token:)`** builds a client of protocol `P` for a URL known only at run time, such as a merchant's callback address that is registered with paybox. K has no explicit type arguments in expressions, so `P` is the type the result is used as: `let events: PaymentEvents = RemoteClient.at(url: hook, token: secret)`. It goes through the same codecs, timeouts and error mapping.
 
 ## Compatibility between deploys
 
@@ -67,8 +67,45 @@ public app Shop {
 
 - **Commands run at the workspace root apply to every member:** `k check`, `k test`, `k build` (each app to `dist/<name>/`).
 - **`k dev` at the root starts every app member,** each on its own port. In `.development`, a `remote` rule resolves to the sibling member's dev server automatically, with a generated development secret, so no `PAYBOX_URL` needs to be set.
-- **Tests stay hermetic.** In `.test`, a `remote` rule binds an in-process client to the serving member's implementation, when it is in the workspace, or to a `TestRemote<P>` double. No sockets are opened.
+- **Tests stay hermetic.** In `.test`, a `remote` rule binds a `TestRemote<P>` double, whose calls fail with `rpcFailure(.offline)`; a test that needs answers binds a fake with `use FakePayments for Payments`. No sockets are opened. Binding the serving member's own implementation in-process is planned (see "Decided while implementing").
 - **The language server indexes the whole workspace,** so go to implementation on `Payments.charge` jumps from shop's call into paybox's implementation.
+
+## Decided while implementing
+
+**Projects and dependencies**
+
+- **A library's modules keep their own paths.** `pay-contracts/src/pay/Payments.k` is `pay.Payments` in every member that depends on it, imported as `import pay.Payments`; the package name is not a prefix. A module belongs to one package of a build: a member and a library (or two libraries) declaring the same module is `K8106`. Git packages ([18-packages.md](18-packages.md)) will mount the same way when they arrive.
+- **A dependency names the library's `[package] name`**: `pay-contracts = { workspace = true }`. That table is the only form a workspace dependency has; a git tag (`"v1.2.0"`) is reported as not resolvable yet (`K8102`).
+- **The root is not a package.** A root `k.toml` with `[workspace]` has no `[package]`; members are directories below the root, without `..` or hidden directories, never inside one another, and their package names are unique. A member's `k.toml` can't declare a workspace of its own.
+- **Diagnostics:** `K8101` malformed manifests, `K8102` unknown dependency, `K8103` a member without `k.toml`, `K8104` a cycle between members (reported at every edge of the cycle, with the cycle), `K8105` a dependency on an app, `K8106` a module in two packages. A reported edge is left out of the graph, so every member is still checked.
+- **What a member sees of a library**: its `public` declarations, from its non-test sources. A library's tests, lockfiles and migrations stay its own; its test-only (`testing`) modules are visible to the member's tests.
+- **A library's protocols take their Protobuf package from the library**: `/pay_contracts.pay.Payments/Charge` for both paybox and shop, whatever the app's name.
+
+**Calling another service**
+
+- **`RemoteService` is a marker interface** whose fields the compiler checks: a config implementing it has `url: Url` and `token: Secret<String>`, and may have `timeout: Duration` (10 seconds without one), else `K4025`. A `config` may now have an `implements` clause.
+- **The rules of `remote`**: the argument names a `RemoteService` config (`K4025`); the target is a protocol (`K4024`) that the app's own services don't implement (`K4024`; a test's fake doesn't count) and that comes from a library (`K4024` for the app's own protocol, which no other service can implement). An injected library protocol that the app neither implements nor binds remotely is `K4023`, in apps only, test code excepted. `remote` rules take `in .env` like any rule and count for environment coverage (`K4015`).
+- **Remote clients are server-only** because a protocol with a `remote` rule is a server-only injection: injecting it from code that reaches the browser is `K4007`, with the path ending "a `remote` client, which holds a service token, is server-only". `RemoteClient` itself is `@ServerOnly`, and its result must be a protocol (`K4026`).
+- **The service token** is `v1.<caller>.<expiry>.<mac>`: the calling app's name, an expiry one minute ahead, and the HMAC-SHA256 of both under the secret, sent as `x-k-service-token`. The serving app verifies it with `K_SERVICE_TOKEN`, the stdlib's `ServiceConfig`, which every app serving a `ServiceAuthenticated` protocol requires; it is the same secret as the callers' `token`. A token that is malformed, forged, expired or valid for more than two minutes (a skewed clock) is refused like a missing one (`rpcFailure(.rejected(.unauthenticated))` for the caller). In-process calls of the app's own code skip the check. `ServiceCaller.name` is `String?`: `nil` outside a verified service call.
+- **Streaming rpcs between services aren't supported yet**: a remote client of a `Stream` rpc panics with the rpc's path (open question below).
+
+- **A remote client is a protocol-typed value, but a service isn't one.** A test fake can be bound to a protocol with `use FakePaybox for Payments`, yet a service can't be returned where a protocol type is expected (`K2001`). Code that builds clients with `RemoteClient.at` therefore keeps the call behind its own interface (paybox's `MerchantNotifier`, implemented by `RemoteNotifier`), which tests bind to an in-process double.
+- **Each serving app has its own secret, and a caller signs with the server's.** In `examples/shop` the shop signs its calls with paybox's `K_SERVICE_TOKEN` (`PAYBOX_TOKEN`), and paybox signs its callbacks with the shop's (`PAYBOX_CALLBACK_TOKEN`, an optional `Secret<String>?` that falls back to paybox's own `K_SERVICE_TOKEN`, which is what `k dev`'s one development secret needs). A config field of type `Secret<T>?` is a secret like `Secret<T>` (`NAME_FILE`, redacted).
+- **App code may inject a stdlib config**, such as `k.rpc.ServiceConfig` for that fallback: it is read from the environment like the app's own configs, and its variables join the build's configuration.
+
+**`rpc.lock`**
+
+- **One per serving app**, next to its `k.toml`, recording every protocol its own services implement (the browser-facing ones too, since open tabs are deployed callers): each rpc's parameters, result and error type, and every struct (fields with Protobuf numbers, plus `reserved` numbers of removed fields) and enum (case names) they carry. The format is in [sema.md §12.16](../compiler/sema.md#1216-lockfiles). It complements `protocol.lock`, which will record the wire names.
+- **Breaking** (`K8001` at the protocol, one note per change, unless `@Breaking`): removing an rpc, a parameter, a field or a case; changing the type of any of them; adding a required parameter or field; no longer serving a recorded protocol (at the app; delete its entry by hand once no caller remains). **Compatible:** a new rpc, an optional field or parameter, a new case. A type shared by two protocols breaks both.
+- **`k build` writes the lock** (creating it, recording compatible additions, and recording a change marked `@Breaking`); `k check` only reads it, so CI catches what a developer didn't build. Field numbers are kept while a field exists, a new field takes the next number after every number used or reserved, and a removed field's number is reserved forever, so a number is never reused.
+
+**Tooling**
+
+- **`k check`, `k test` and `k build` at the root** apply to every member, in dependency order; in a member they apply to it alone, with its libraries. `k test` prints `== <name>` before each member's report; `--watch` runs in a member only. `k build` at the root writes each app to `dist/<name>/` below the root (or `--out`), skips libraries, and updates each app's `rpc.lock`.
+- **`k dev` at the root** builds and serves every app member on `--port`, `--port + 1`, … in dependency order. Each `remote` rule whose protocol a sibling member serves gets the sibling's address as its config's `url` variable and one development secret, generated per run, as its `token`; every member gets the same secret as `K_SERVICE_TOKEN`. These values win over a member's `.env` (the process environment still wins over both). A change anywhere rebuilds and restarts every app; a build with errors keeps the last good builds serving. Each app prints `<name> serving on http://localhost:<port>`.
+- **In `.test`, every `remote` rule binds `TestRemote<P>`**, even when the serving app is a member of the workspace. Binding the serving member's implementation in-process is deferred: two apps would share one test isolate's process state (configuration, sessions, the test database), which needs per-app runtime state first.
+- **`k dev` gives each member its own development database.** A relative `sqlite:` path in a member's `DATABASE_URL` (`sqlite:.k/dev.sqlite`) is relative to that member's directory, like a relative `NAME_FILE` path, and its directory is created, so two apps run at the root never share a file. `k run` and `k migrate` resolve it the same way.
+- **The language server** loads every member with its libraries mounted, so definitions go to the library's own files, an edit of a library re-checks every member that uses it, and go to implementation from shop's `payments.charge` reaches paybox's handler. Find references on an interface or protocol method now also lists the methods implementing it and the calls through concrete types, as rename covers them.
 
 ## Why
 
@@ -79,5 +116,7 @@ public app Shop {
 ## Open questions
 
 - Service discovery beyond a configured URL (DNS SRV, a registry) is left to the platform.
-- Whether `k build` at the root should also emit a compose file, or leave that to hand-written examples (examples/stack).
+- Whether `k build` at the root should also emit a compose file and Kubernetes manifests, or leave them hand-written: `examples/shop` writes both by hand, and `crates/k_cli/tests/deploy.rs` checks them against each app's `dist/app config`, which a generator would make unnecessary.
 - Streaming rpcs between services can be planned with the browser streaming client ([29-server-streaming.md](29-server-streaming.md)).
+- The in-process `.test` binding to a serving member's implementation (see above).
+- Per-caller secrets (today one secret per serving app, shared by its callers), and rotating them without downtime.

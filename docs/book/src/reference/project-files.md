@@ -36,6 +36,7 @@ systems fails `k check`, unless it is marked as deliberate.
 | `routes.lock` | every page's URL, endpoint pages included, and redirects from old URLs | bookmarks, search engines, links in emails, webhook senders | renaming adds a permanent redirect automatically; conflicts are errors |
 | `schema.lock` | the database schema the migrations produce, with every table and column name, and the migration order | production data | `@Breaking("reason")` on a destructive migration |
 | `storage.lock` | the browser storage namespace, `StorageKey` names and value shapes, and job names and payload shapes | users' stored data, jobs queued during a deploy | `@Breaking("reason")` on the key or job |
+| `rpc.lock` | the rpcs, field numbers and error cases of every protocol an app serves | callers already deployed: other services, open browser tabs | `@Breaking("reason")` on the protocol |
 | `k.lock` | the exact commit and content hash of every package | reproducible builds | `k add` with a new version |
 
 **A name that something outside depends on is recorded once and then kept.** Renaming the declaration it
@@ -46,6 +47,14 @@ came from, or the project, never silently changes it.
 The compiler assigns Protobuf field numbers so struct source stays clean, and derives each protocol's
 wire names from the project name, module, protocol and rpc names. A removed field, a changed type, a
 reused number or a changed wire name fails the check; a removed field's number is reserved automatically.
+
+### `rpc.lock`
+
+An app that implements protocols records their shape in `rpc.lock`: each rpc's parameters, result and
+error type, and the fields (with their Protobuf numbers) and cases of the types they carry. `k build`
+writes it; `k check` compares the code with it. Removing an rpc, a field or an error case, changing a
+type, or adding a required field fails the check until the protocol is marked `@Breaking("reason")`.
+See [Workspaces and services](../apps/workspaces.md#rpclock-deploys-that-dont-break-callers).
 
 ### `routes.lock`
 

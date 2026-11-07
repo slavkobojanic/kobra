@@ -1,0 +1,3 @@
+error[K8001] App.k:1:12-1:16: `cart.CartApi` is recorded in rpc.lock, but the app no longer serves it
+  label rpc.lock:4:1-4:27: recorded here
+  note: callers already deployed still call it; keep implementing it, or delete its entries from rpc.lock once none does

@@ -1,0 +1,6 @@
+[package]
+name = "paybox"
+k = "0.1"
+
+[dependencies]
+contracts = { workspace = true }

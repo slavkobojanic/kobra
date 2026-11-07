@@ -86,9 +86,28 @@ const MANIFEST: &str = "[package]\nname = \"demo\"\nk = \"0.1\"\n";
 
 #[test]
 fn routes_prints_the_shop_table_with_endpoints_methods_guards_and_params() {
-    let out = k(&["routes", "examples/shop"], &repo());
+    // `examples/shop` is a workspace; the shop is its `shop` member.
+    let out = k(&["routes", "examples/shop/shop"], &repo());
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert_golden(&stdout(&out), "routes-shop.txt");
+}
+
+#[test]
+fn routes_of_a_server_only_member_list_its_endpoints_alone() {
+    // Paybox serves `pay.Payments` and has no pages: only its health check.
+    let out = k(&["routes", "examples/shop/paybox"], &repo());
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_golden(&stdout(&out), "routes-paybox.txt");
+}
+
+#[test]
+fn routes_at_a_workspace_root_names_the_members_to_run_it_in() {
+    let out = k(&["routes", "examples/shop"], &repo());
+    // A usage error: the command needs one project.
+    assert_eq!(out.status.code(), Some(2), "{}", stdout(&out));
+    let err = stderr(&out);
+    assert!(err.contains("is a workspace root"), "{err}");
+    assert!(err.contains("examples/shop/paybox"), "{err}");
 }
 
 #[test]
@@ -651,10 +670,47 @@ fn test_runs_the_notes_example() {
 }
 
 #[test]
+fn test_runs_the_kanban_example() {
+    // Drag and drop with the pointer and the keyboard, keyboard shortcuts,
+    // @Form card editing, import and export through TestFiles, local
+    // storage through MemoryStorage, progress on the TestClock.
+    assert_example_passes("kanban");
+}
+
+#[test]
+fn check_and_build_the_kanban_example_to_static_files() {
+    let check = k(&["check", "examples/kanban"], &repo());
+    assert_eq!(check.status.code(), Some(0), "{}", stderr(&check));
+    let dir = TempDir::new("kanban_build");
+    let out = dir.0.join("dist");
+    let out_arg = out.to_string_lossy().into_owned();
+    let built = k(&["build", "examples/kanban", "--out", &out_arg], &repo());
+    assert_eq!(built.status.code(), Some(0), "{}", stderr(&built));
+    assert!(!out.join("app").exists(), "kanban is static-only");
+    let assets = files_below(&out.join("public/assets"));
+    for chunk in ["drag.", "files.", "keys.", "charts."] {
+        assert!(
+            assets.iter().any(|a| a.starts_with(chunk)),
+            "kanban ships the {chunk}… feature chunk: {assets:?}"
+        );
+    }
+    assert!(
+        !assets.iter().any(|a| a.starts_with("streams.")),
+        "{assets:?}"
+    );
+}
+
+#[test]
 fn test_runs_the_shop_example() {
-    // Server-side `use` rules, configs bound by value, InlineJobQueue,
-    // RecordingEmailProvider and TestClient through the endpoint pages.
+    // A workspace: every member's tests. Server-side `use` rules, configs
+    // bound by value, InlineJobQueue, RecordingEmailProvider, TestClient
+    // through the endpoint pages, and fakes of a library protocol.
     assert_example_passes("shop");
+    let out = k(&["test", "--color", "never", "examples/shop"], &repo());
+    let text = stdout(&out);
+    for member in ["== pay-contracts", "== paybox", "== shop"] {
+        assert!(text.contains(member), "{text}");
+    }
 }
 
 /// The fixture of `k test` regressions: every test must pass.
@@ -783,4 +839,71 @@ fn test_watch_reruns_only_the_affected_tests() {
     assert!(third.iter().any(|l| l == "running 9 tests"), "{third:?}");
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// docs/design/38-deployment.md, "Static-only apps": a client-rendered app
+/// without server-only code builds to `dist/public` only, with the
+/// document every URL answers as `index.html`; a `dist/app` left by an
+/// earlier build is removed, since it would serve an old version.
+#[test]
+fn build_of_a_static_only_app_writes_index_html_and_no_app() {
+    let dir = TempDir::new("static");
+    write(&dir.0, "k.toml", MANIFEST);
+    write(
+        &dir.0,
+        "App.k",
+        "@Rendering(.client)\npublic app Demo {\n    metadata {\n        locale(.english)\n    }\n}\n",
+    );
+    write(&dir.0, "src/site/Home.k", &home("Static"));
+    write(&dir.0, "out/app", "an old server build");
+    let built = k(&["build", "--out", "out"], &dir.0);
+    assert_eq!(built.status.code(), Some(0), "{}", stderr(&built));
+    assert!(
+        !dir.0.join("out/app").exists(),
+        "no dist/app for a static-only app"
+    );
+    let index = fs::read_to_string(dir.0.join("out/public/index.html")).expect("index.html");
+    assert!(
+        index.starts_with("<!doctype html><html lang=\"en\">"),
+        "{index}"
+    );
+    assert!(
+        index.contains("<div id=\"k-app\"></div>"),
+        "an empty mount point: {index}"
+    );
+    assert!(
+        !index.contains("k-data"),
+        "a client-rendered document has no k-data: {index}"
+    );
+    let assets = files_below(&dir.0.join("out/public/assets"));
+    for reference in index.split("\"/assets/").skip(1) {
+        let path = reference.split('"').next().unwrap_or_default();
+        assert!(
+            assets.contains(&path.to_owned()),
+            "index.html links {path}, which is in dist/public/assets: {assets:?}"
+        );
+    }
+    assert!(
+        index.contains("<script type=\"module\" src=\"/assets/app."),
+        "{index}"
+    );
+    assert!(
+        index.contains("<link rel=\"stylesheet\" href=\"/assets/app."),
+        "{index}"
+    );
+    let manifest = fs::read_to_string(dir.0.join("out/manifest.json")).expect("manifest");
+    assert!(manifest.contains("\"static_only\": true"), "{manifest}");
+}
+
+/// A server-rendered app keeps `dist/app` and has no `index.html`.
+#[test]
+fn build_of_a_server_rendered_app_writes_the_app_and_no_index_html() {
+    let dir = TempDir::new("served");
+    write(&dir.0, "k.toml", MANIFEST);
+    write(&dir.0, "App.k", "public app Demo {}\n");
+    write(&dir.0, "src/site/Home.k", &home("Served"));
+    let built = k(&["build", "--out", "out"], &dir.0);
+    assert_eq!(built.status.code(), Some(0), "{}", stderr(&built));
+    assert!(dir.0.join("out/app").is_file());
+    assert!(!dir.0.join("out/public/index.html").exists());
 }

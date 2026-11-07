@@ -45,6 +45,7 @@ test AddToCart {
 - **`expect` is a keyword that takes any boolean expression.** There is no matcher library (`toEqual`, `toHaveLength`). On failure, the compiler shows the value of each sub-expression, for example: `cart.items.count` was `0`, expected `== 1`. Absence is checked with `not` (`expect not x.exists`); comparing a `Bool` with `true` or `false` is a lint ([08-types.md](08-types.md#booleans)).
 - **`expect throws` takes a pattern,** as `catch` does: `expect throws WeatherError.upstream(.serviceUnavailable) { … }`. A case written without its payload (`WeatherError.upstream`) matches any payload.
 - **Components are tested through accessibility queries:** `button(named:)`, `textField(labeled:)`, `text(...)`. An element a test can't find by role and name isn't accessible either.
+- **Gestures are actions too:** `click()`, `fill(_:)`, `press(_:)` (Enter, Escape, Tab, Space, the arrow keys, or `.character("n")`) and `drag(to:)`, which drags an element onto another with the mouse ([41-drag-and-drop.md](41-drag-and-drop.md#tests)).
 - **Every `test "…"` gets a fresh container,** so no service, fake, session or theme state leaks between tests.
 - **There are no snapshot tests.** They encourage accepting changes without reviewing them.
 - `k test` runs tests. **`k test --watch`** runs them, then re-runs the affected ones whenever a source file is saved; "affected" comes from the compiler's incremental queries. `k check` runs every test in CI and has no watch mode.
@@ -72,6 +73,7 @@ test AddToCart {
 | `LocalStorage` | `MemoryStorage` | an empty in-memory store that can simulate failures ([36-local-storage.md](36-local-storage.md)) |
 | `EmailProvider` | `RecordingEmailProvider` | keeps sent messages in `sent`; `simulateFailure(error:)` ([31-email.md](31-email.md)) |
 | `HttpClient` | `TestHttpClient` | answers only requests it has a canned response for; any other request fails the test, naming the URL ([32-http-client.md](32-http-client.md)) |
+| `Files` | `TestFiles` | opens no picker and starts no download; `choose(_:)` says what the user picks, `saved` holds what was saved ([42-files.md](42-files.md#tests-testfiles)) |
 
 - **A test reaches a default with `@Inject`,** by its concrete type: `@Inject let clock: TestClock`, `@Inject let mailer: RecordingEmailProvider`.
 - **`use` is written only to choose something else,** such as `use InlineJobQueue for JobQueue` or the app's own `use FakeHttpClient for HttpClient`. A `use` that restates the default is a warning with a quick fix that removes it, so there is one way to write a test.

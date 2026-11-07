@@ -744,14 +744,21 @@ pub(crate) fn service(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
 }
 
 /// A protocol: on the client, the RPC stub class `P$client` whose methods
-/// post to the rpc paths; on the server, nothing (the implementing service
-/// is the handler, dispatched by the entry).
+/// post to the rpc paths; on the server, nothing when the app implements
+/// it (the implementing service is the handler, dispatched by the entry),
+/// else the remote client class `P$remote`
+/// (`docs/design/40-workspaces-and-services.md`): constructed with a
+/// remote binding (`$s.remote…`), its methods call `$s.remoteCall` with the
+/// same codecs and error mapping as the browser's stub.
 pub(crate) fn protocol(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let g = b.g;
     let info = g.view.decl(d).clone();
     if info.stdlib {
         return Vec::new();
     }
+    let remote = b.target == Target::Server
+        && crate::server::implementation(g, d).is_none()
+        && g.remote_protocols().contains(&d);
     let mut methods = Vec::new();
     for &m in &info.members {
         let mi = g.view.member(m).clone();
@@ -807,8 +814,20 @@ pub(crate) fn protocol(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         } else {
             decode_message(b, &ret, member(id("o"), "message"))
         };
-        let mut args = vec![js::str(path), Expr::Object(fields, false), id("$c")];
-        args.extend(options);
+        let call_rpc = if remote {
+            let mut args = vec![
+                member(Expr::This, "r"),
+                js::str(path),
+                Expr::Object(fields, false),
+                id("$c"),
+            ];
+            args.extend(options);
+            call(member(id("$s"), "remoteCall"), args)
+        } else {
+            let mut args = vec![js::str(path), Expr::Object(fields, false), id("$c")];
+            args.extend(options);
+            rt("rpc", args)
+        };
         let err = sig.as_ref().and_then(|s| s.throws.clone());
         let fail = match err.as_ref().and_then(Type::decl) {
             // A Codable error's detail is decoded with its codec
@@ -825,7 +844,7 @@ pub(crate) fn protocol(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             None => rt("rpcError", vec![id("o"), Expr::Null]),
         };
         let body = vec![
-            Stmt::Const("o".into(), Expr::Await(Box::new(rt("rpc", args)))),
+            Stmt::Const("o".into(), Expr::Await(Box::new(call_rpc))),
             Stmt::If(
                 member(id("o"), "ok"),
                 vec![Stmt::Return(Some(decode))],
@@ -840,6 +859,28 @@ pub(crate) fn protocol(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             is_async: true,
             kind: MethodKind::Plain,
         });
+    }
+    if remote {
+        methods.insert(
+            0,
+            Function {
+                kind: MethodKind::Constructor,
+                params: vec![Param::new("r")],
+                body: js::Body::Block(vec![Stmt::Expr(js::assign(
+                    member(Expr::This, "r"),
+                    id("r"),
+                ))]),
+                ..Function::default()
+            },
+        );
+        return vec![Stmt::Class(
+            Class {
+                name: format!("{}$remote", g.name(d)),
+                extends: None,
+                methods,
+            },
+            true,
+        )];
     }
     if b.target == Target::Server || methods.is_empty() {
         return Vec::new();
@@ -861,6 +902,31 @@ pub(crate) fn config(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         return Vec::new();
     }
     let g = b.g;
+    let object = config_object(b, d);
+    let mut out = vec![Stmt::Function(
+        Function {
+            name: format!("{}$load", g.name(d)),
+            params: Vec::new(),
+            body: js::Body::Block(vec![Stmt::Return(Some(object))]),
+            ..Function::default()
+        },
+        true,
+    )];
+    // Tests bind configs to values they build (`use AdminConfig.sample for
+    // AdminConfig`, 25-config-and-secrets.md), with the memberwise
+    // constructor.
+    if g.options.entry == crate::Entry::Tests {
+        b.owner = Some(d);
+        out.push(crate::decl::memberwise_constructor(b, d));
+    }
+    out
+}
+
+/// The value of config `d` (an app's own or the stdlib's): an object with
+/// each `@Env` field read from the validated configuration, a secret
+/// wrapped in `Secret` and an enum by case.
+pub(crate) fn config_object(b: &mut Body<'_, '_>, d: DeclId) -> Expr {
+    let g = b.g;
     let info = g.view.decl(d).clone();
     let mut props = Vec::new();
     for &m in &info.members {
@@ -868,14 +934,18 @@ pub(crate) fn config(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         if mi.kind != MemberKind::Field {
             continue;
         }
-        let env = g.member_node(m).and_then(|n| {
-            let text = n.text().to_string();
-            let i = text.find("@Env(\"")?;
-            let rest = &text[i + 6..];
-            Some(rest[..rest.find('"')?].to_owned())
-        });
+        let env = g
+            .member_node(m)
+            .and_then(|n| {
+                let text = n.text().to_string();
+                let i = text.find("@Env(\"")?;
+                let rest = &text[i + 6..];
+                Some(rest[..rest.find('"')?].to_owned())
+            })
+            .or_else(|| crate::server::stdlib_config_env(g, d, &mi.name));
         let t = mi.ty.clone().unwrap_or(Type::Error);
-        let secret = g.is(&t, g.b.secret);
+        // `Secret<T>?` is a secret too: `nil` when unset, else wrapped.
+        let secret = g.is(t.unwrap_optional(), g.b.secret);
         let name = js::str(
             env.unwrap_or_else(|| crate::css::kebab(&mi.name).to_uppercase().replace('-', "_")),
         );
@@ -909,23 +979,7 @@ pub(crate) fn config(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         };
         props.push(Prop::KeyValue(mi.name.clone(), v));
     }
-    let mut out = vec![Stmt::Function(
-        Function {
-            name: format!("{}$load", g.name(d)),
-            params: Vec::new(),
-            body: js::Body::Block(vec![Stmt::Return(Some(Expr::Object(props, true)))]),
-            ..Function::default()
-        },
-        true,
-    )];
-    // Tests bind configs to values they build (`use AdminConfig.sample for
-    // AdminConfig`, 25-config-and-secrets.md), with the memberwise
-    // constructor.
-    if g.options.entry == crate::Entry::Tests {
-        b.owner = Some(d);
-        out.push(crate::decl::memberwise_constructor(b, d));
-    }
-    out
+    Expr::Object(props, true)
 }
 
 /// A repository: a class whose functions run their queries as SQL

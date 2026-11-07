@@ -1,0 +1,12 @@
+client contains // file: drag.[hash].js
+client contains import { DragKind$init, DropTarget, ReorderableList } from "./drag.[hash].js";
+client contains from "./runtime.[hash].js";
+client contains export function ReorderableList(props, _ctx)
+client contains on$moved:
+client contains on$dropped:
+client lacks $k.native("k.drag.
+client lacks from "./hydrate.js"
+client lacks files.[hash].js
+server contains $s.natives["k.drag.ReorderableList$ssr"]
+server contains $s.natives["k.drag.DropTarget$ssr"]
+server contains $s.natives["k.drag.DragKind$init"]

@@ -1,0 +1,12 @@
+# docs/design/42-files.md, docs/compiler/codegen.md §16: `Files` resolves to `BrowserFiles` with no
+# `use` rule. Its browser body is the files chunk, which only an app whose client injects `Files`
+# ships; the entry's container imports it from there. The server has no files: its container's
+# `Files` is the stand-in that panics.
+client contains // file: files.[hash].js
+client contains import { BrowserFiles } from "./files.[hash].js";
+client contains get Files() {
+client contains BrowserFiles()
+client contains export function BrowserFiles()
+client lacks $k.native("k.device.
+client lacks drag.[hash].js
+server contains $s.missingNative("k.device.Files")

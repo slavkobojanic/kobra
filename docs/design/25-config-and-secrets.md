@@ -57,6 +57,7 @@ The requirements this meets:
 - **Revealed values keep that rule.** Within a function, the compiler tracks values computed from `reveal()` (directly, through interpolation or concatenation, or through local bindings). `==` or `!=` with such a value is a compile error, with a quick fix to `secret.matches(candidate)`. So `request.headers["authorization"] == "Bearer {config.token.reveal()}"` doesn't compile.
 - **Most uses need no `reveal()`.** Outgoing requests take secrets directly (`.bearerToken(config.apiKey)`, [32-http-client.md](32-http-client.md)), and so does `Hmac` ([33-crypto.md](33-crypto.md)). Logging redacts them.
 - `reveal()` is greppable on purpose: a review of secret handling is a search for `.reveal()`.
+- **An optional secret is still a secret.** A field of type `Secret<T>?` may come from `NAME_FILE`, is never printed, and is `nil` when unset, so a secret with a fallback (`config.token ?? service.token`) needs no sentinel value.
 
 ## Where values come from
 

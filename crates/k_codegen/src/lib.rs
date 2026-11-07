@@ -201,6 +201,28 @@ pub struct Manifest {
     /// server's jobs worker runs them.
     #[serde(default)]
     pub jobs: Vec<k_db::stdlib::JobSpec>,
+    /// The protocols the app calls in other services through `remote`
+    /// rules in the selected environment
+    /// (`docs/design/40-workspaces-and-services.md`), sorted by protocol.
+    /// `k dev` at a workspace root wires each to the member serving it.
+    #[serde(default)]
+    pub remotes: Vec<RemoteEntry>,
+    /// The protocols the app serves (implements), by qualified name,
+    /// sorted.
+    #[serde(default)]
+    pub serves: Vec<String>,
+}
+
+/// A protocol the app calls in another service, and the variables of the
+/// `RemoteService` config that says where.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct RemoteEntry {
+    /// The protocol's qualified name, `pay.Payments`.
+    pub protocol: String,
+    /// The variable of the config's `url`, `PAYBOX_URL`.
+    pub url_env: String,
+    /// The variable of the config's `token`, `PAYBOX_TOKEN`.
+    pub token_env: String,
 }
 
 /// The result of [`generate`].
@@ -338,6 +360,8 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
     let mut output = Output {
         manifest: Manifest {
             name: g.project_name(),
+            remotes: server::remote_entries(g),
+            serves: server::served_protocols(g),
             ..Manifest::default()
         },
         ..Output::default()
@@ -527,6 +551,25 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
             .into_iter()
             .collect()
     };
+    // docs/design/38-deployment.md, "Static-only apps": an app that
+    // renders on the client and has nothing for a server to run.
+    output.manifest.static_only = app.is_some()
+        && g.options.entry == Entry::App
+        && g.client_rendered()
+        && output.manifest.rpc_paths.is_empty()
+        && output.manifest.endpoints.is_empty()
+        // The server's own settings (`ServerConfig`) are always listed.
+        && output
+            .manifest
+            .config
+            .iter()
+            .all(|c| c.declared_at.starts_with("k.server.ServerConfig."))
+        && output.manifest.jobs.is_empty()
+        && output.database.is_none()
+        && !g.own.iter().any(|&d| {
+            let info = g.view.decl(d);
+            !info.is_test && !info.in_test_module && info.side == Some(k_sema::Side::ServerOnly)
+        });
     Ok(output)
 }
 

@@ -8,11 +8,11 @@
  * - `render` mounts a view in the test's browser container and returns a
  *   `Screen`; `Screen` and every element handle answer the accessibility
  *   queries (`button(named:)`, `textField(labeled:)`, `text(_)`, …) and the
- *   actions (`click`, `fill`, `press`), each action flushing synchronous
- *   updates.
+ *   actions (`click`, `fill`, `press`, `drag(to:)`), each action flushing
+ *   synchronous updates.
  * - The hermetic defaults of `k.test`: `TestClock` (virtual time),
- *   `MemoryStorage`, `TestHttpClient`, `RecordingJobQueue` and
- *   `RecordingEmailProvider`.
+ *   `MemoryStorage`, `TestHttpClient`, `TestFiles`, `RecordingJobQueue`
+ *   and `RecordingEmailProvider`.
  * - `fail` and `failThrows`: a failed `expect`, as a panic carrying the
  *   expectation's source range and the values of its sub-expressions.
  * - `run`: runs the selected tests of the generated groups, each with a
@@ -25,7 +25,7 @@
  */
 
 import { flush, root } from "../runtime/signals.js";
-import { KPanic, isPanic } from "../runtime/values.js";
+import { KPanic, isPanic, unitCase } from "../runtime/values.js";
 import { Instant, httpCode } from "../runtime/std.js";
 import { HttpResponse$isSuccess, HttpResponse$json, HttpResponse$text } from "../runtime/http.js";
 import { received } from "../runtime/outbound.js";
@@ -552,7 +552,7 @@ function visible(el) {
 }
 
 /** The keys of `Key`, by case tag. */
-const KEYS = ["Enter", "Escape", "Tab", " ", "ArrowUp", "ArrowDown"];
+const KEYS = ["Enter", "Escape", "Tab", " ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 
 /** A bubbling event of `type` with `extra` fields. */
 function event(type, extra) {
@@ -656,8 +656,15 @@ class Queries {
     const wanted = norm(text);
     return this.find(`item(containing: ${quote(text)})`, (els) => els.filter((e) => KINDS.item(e) && textOf(e).includes(wanted)));
   }
+  /** `item(containing:)`, by the name the compiler gives it: it has no overload, so no label suffix. */
+  item(text) {
+    return this.item$containing(text);
+  }
   list() {
     return this.only("list");
+  }
+  list$named(name) {
+    return this.named("list", name);
   }
   alert() {
     return this.only("alert");
@@ -770,12 +777,31 @@ class Handle extends Queries {
 
   press(key) {
     const el = this.one();
-    const name = KEYS[key && key.$] ?? "Enter";
+    const name = key && key.$ === 8 ? String(key._0) : KEYS[key && key.$] ?? "Enter";
     const down = event("keydown", { key: name });
     el.dispatchEvent(down);
     const form = name === "Enter" && !down.defaultPrevented && tag(el) !== "textarea" ? formOf(el) : null;
     if (form !== null) submit(form);
     el.dispatchEvent(event("keyup", { key: name }));
+    flush();
+  }
+
+  /**
+   * Drags this element onto `target` with the mouse, as a user does
+   * (41-drag-and-drop.md, "Tests"): presses the pointer here, moves it
+   * past the drag threshold onto `target`, releases it there, and clicks
+   * where the browser would (the click a drag ends with, which the drag
+   * swallows).
+   */
+  drag(target) {
+    const from = this.one();
+    const to = target.one();
+    const at = (x) => ({ pointerType: "mouse", pointerId: 1, isPrimary: true, button: 0, clientX: x, clientY: x });
+    from.dispatchEvent(event("pointerdown", at(0)));
+    to.dispatchEvent(event("pointermove", at(8)));
+    to.dispatchEvent(event("pointermove", at(16)));
+    to.dispatchEvent(event("pointerup", at(16)));
+    to.dispatchEvent(event("click", at(16)));
     flush();
   }
 }
@@ -973,6 +999,56 @@ export function memoryStorage(R, W) {
     stopFailing() {
       readError = null;
       writeError = null;
+    },
+  };
+}
+
+/**
+ * `k.test.TestFiles`: `Files` without a picker or downloads
+ * (42-files.md, "Tests"). `open` and `openAll` answer the files the test
+ * chose (`choose`), else throw `.cancelled`; `failOpen` makes the next one
+ * throw instead. `save` records the file in `saved`, unless `failSaves`
+ * set an error. The errors are the enums' cases (`unitCase`).
+ */
+export function testFiles() {
+  let chosen = [];
+  let openError = null;
+  let saveError = null;
+  const saved = [];
+  const requests = [];
+  const take = (types, all) => {
+    requests.push(types);
+    if (openError !== null) {
+      const e = openError;
+      openError = null;
+      throw e;
+    }
+    if (chosen.length === 0) throw unitCase(0);
+    const files = all ? chosen : chosen.slice(0, 1);
+    chosen = all ? [] : chosen.slice(1);
+    return files;
+  };
+  return {
+    get saved() {
+      return [...saved];
+    },
+    get requests() {
+      return [...requests];
+    },
+    open: async (_c, types) => take(types, false)[0],
+    openAll: async (_c, types) => take(types, true),
+    save(file) {
+      if (saveError !== null) throw saveError;
+      saved.push(file);
+    },
+    choose(file) {
+      chosen.push(file);
+    },
+    failOpen(error) {
+      openError = error;
+    },
+    failSaves(error) {
+      saveError = error;
     },
   };
 }

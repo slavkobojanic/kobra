@@ -2,6 +2,7 @@ METHOD  URL               PAGE                      PARAMS                    GU
 GET     /                 Home
 GET     /admin            Admin                                               Authenticated, Role(.admin)
 GET     /health           HealthCheck (endpoint)
+GET     /payment/{id}     Payment                   id: Uuid
 GET     /products/{slug}  ProductDetail             slug: String
 GET     /receipt/{id}     Receipt                   id: Uuid
 GET     /sign-in          SignIn                    ?returnTo: Page = .admin

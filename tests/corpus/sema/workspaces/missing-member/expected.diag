@@ -1,0 +1,2 @@
+error[K8103] k.toml:2:20-2:26: workspace member `gone` has no k.toml
+  note: create `gone/k.toml` with a `[package]` table, or remove `gone` from `members`

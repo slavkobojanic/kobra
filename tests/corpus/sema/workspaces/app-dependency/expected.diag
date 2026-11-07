@@ -1,0 +1,2 @@
+error[K8105] shop/k.toml:6:1-6:30: `paybox` is an app; only libraries can be depended on
+  note: move the protocols and types both sides need into a library, and depend on it from each app

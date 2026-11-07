@@ -23,7 +23,7 @@ use crate::{project, sources};
 
 /// Runs `k migrate new`.
 pub fn new(args: &MigrateNewArgs) -> ExitCode {
-    let project = match project::load(&args.project) {
+    let project = match project::load(&args.project, "migrate") {
         Ok(p) => p,
         Err(code) => return code,
     };
@@ -81,7 +81,7 @@ pub fn status(args: &ProjectArgs) -> ExitCode {
 fn database(root: &Path, migrate: bool) -> ExitCode {
     use k_codegen::{CodegenError, Entry, Environment, Options, Profile, generate};
     use k_server::config::{ConfigField, DevEnvironment, report, resolve};
-    let project = match project::load(root) {
+    let project = match project::load(root, "migrate") {
         Ok(p) => p,
         Err(code) => return code,
     };
@@ -148,6 +148,15 @@ fn database(root: &Path, migrate: bool) -> ExitCode {
     let Some(setup) = k_server::db::DatabaseSetup::from_config(Some(manifest), &values) else {
         eprintln!("error: no database is configured: set DATABASE_URL");
         return ExitCode::from(1);
+    };
+    // The same database `k run` and `k dev` open: a relative SQLite path is
+    // the project's.
+    let setup = match setup.rooted_at(root) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: database: {e}");
+            return ExitCode::from(1);
+        }
     };
     if migrate {
         return match k_server::db::ProcessDatabase::open_with(setup, true) {

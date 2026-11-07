@@ -80,6 +80,35 @@ impl DatabaseSetup {
             manifest,
         })
     }
+
+    /// For development (`k run`, `k dev`, `k migrate`): a relative
+    /// `sqlite:` path in the URL is made relative to `project` instead of
+    /// the working directory, like a relative `NAME_FILE` path, so each
+    /// member of a workspace run from its root keeps its own database; and
+    /// the file's directory is created. Other URLs are kept.
+    ///
+    /// # Errors
+    ///
+    /// The directory couldn't be created.
+    pub fn rooted_at(mut self, project: &std::path::Path) -> std::io::Result<DatabaseSetup> {
+        let Some(path) = self.url.strip_prefix("sqlite:") else {
+            return Ok(self);
+        };
+        if path == ":memory:" || path.is_empty() {
+            return Ok(self);
+        }
+        let path = std::path::Path::new(path);
+        let full = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            project.join(path)
+        };
+        if let Some(dir) = full.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        self.url = format!("sqlite:{}", full.display());
+        Ok(self)
+    }
 }
 
 /// The outcome of a write.
@@ -883,6 +912,39 @@ mod tests {
     use super::*;
     use k_db::manifest::{StatementSql, UniqueIndex};
     use k_db::migrate::Migration;
+
+    fn setup_at(url: &str) -> DatabaseSetup {
+        DatabaseSetup {
+            url: url.to_owned(),
+            password: None,
+            manifest: DbManifest::default(),
+        }
+    }
+
+    #[test]
+    fn a_relative_sqlite_path_is_rooted_at_the_project_and_its_directory_created() {
+        let project = std::env::temp_dir().join(format!("k_db_rooted_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&project);
+        let rooted = setup_at("sqlite:.k/dev.sqlite")
+            .rooted_at(&project)
+            .expect("rooted");
+        assert_eq!(
+            rooted.url,
+            format!("sqlite:{}", project.join(".k/dev.sqlite").display())
+        );
+        assert!(project.join(".k").is_dir(), "the directory is created");
+        let _ = std::fs::remove_dir_all(&project);
+    }
+
+    #[test]
+    fn absolute_memory_and_postgres_urls_are_kept() {
+        let project = std::path::Path::new("/nowhere/project");
+        let absolute = std::env::temp_dir().join("k_db_absolute.sqlite");
+        let url = format!("sqlite:{}", absolute.display());
+        for url in [url.as_str(), "sqlite::memory:", "postgres://k@db:5432/k"] {
+            assert_eq!(setup_at(url).rooted_at(project).expect("kept").url, url);
+        }
+    }
 
     fn statement(sql: &str) -> StatementSql {
         StatementSql {

@@ -1,0 +1,3 @@
+# shop calls a protocol nobody in shop implements, without saying where it runs.
+[workspace]
+members = ["contracts", "shop"]

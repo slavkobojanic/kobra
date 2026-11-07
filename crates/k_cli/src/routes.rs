@@ -19,7 +19,7 @@ use crate::project;
 /// Runs `k routes`: exit 0 with the table on standard output, 1 when the
 /// project has errors, 2 when the directory is not a project.
 pub fn run(args: &ProjectArgs) -> ExitCode {
-    let project = match project::load(&args.project) {
+    let project = match project::load(&args.project, "routes") {
         Ok(p) => p,
         Err(code) => return code,
     };

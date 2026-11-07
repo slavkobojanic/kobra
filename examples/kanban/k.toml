@@ -1,0 +1,11 @@
+# Format: docs/design/24-projects.md
+
+[package]
+name = "kanban"
+title = "Kanban"
+description = "Boards of columns and cards that live in the browser, with drag and drop, import and export."
+k = "0.1"
+version = "0.1.0"
+
+# This example uses only the standard library, so it has no [dependencies]
+# and no [aliases].

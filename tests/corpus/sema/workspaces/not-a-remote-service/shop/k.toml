@@ -1,0 +1,6 @@
+[package]
+name = "shop"
+k = "0.1"
+
+[dependencies]
+contracts = { workspace = true }

@@ -1,0 +1,6 @@
+error[K8104] a/k.toml:6:1-6:25: `a` and `b` depend on each other
+  note: the cycle: a → b → a
+  note: dependencies must form a DAG: move what both need into a library both depend on
+error[K8104] b/k.toml:6:1-6:25: `b` and `a` depend on each other
+  note: the cycle: b → a → b
+  note: dependencies must form a DAG: move what both need into a library both depend on

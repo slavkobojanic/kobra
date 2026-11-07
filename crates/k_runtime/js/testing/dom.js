@@ -6,8 +6,12 @@
  * implements exactly what the runtime and generated code use: the node
  * tree, attributes, inline style custom properties, `<template>` with an
  * `innerHTML` parser for compiler-generated HTML, events with capture-free
- * bubbling, and HTML serialization. It is not a browser: no layout, no
- * CSS, no form semantics beyond `value` and `checked` properties.
+ * bubbling, focus (`focus()`, `blur()`, `document.activeElement`), and
+ * HTML serialization. It is not a browser: no CSS, no form semantics
+ * beyond `value` and `checked` properties, and no layout: an element's
+ * box is the `rect` a test gives it (`{left, top, width, height}`, zero
+ * by default), which `getBoundingClientRect` and
+ * `document.elementFromPoint` read.
  *
  * `install()` puts a fresh `document` (and the classes) on `globalThis`.
  */
@@ -323,6 +327,30 @@ export class Element extends Node {
     this.dispatchEvent(new Event("click", { bubbles: true }));
   }
 
+  /** Makes this the document's active element: `blur` on the previous one, then `focus`. */
+  focus() {
+    const doc = this.ownerDocument;
+    const previous = doc.activeElement;
+    if (previous === this) return;
+    doc.activeElement = this;
+    if (previous !== null && previous !== doc.body) previous.dispatchEvent(new Event("blur"));
+    this.dispatchEvent(new Event("focus"));
+  }
+
+  /** Gives the focus back to the body when this element has it. */
+  blur() {
+    const doc = this.ownerDocument;
+    if (doc.activeElement !== this) return;
+    doc.activeElement = doc.body;
+    this.dispatchEvent(new Event("blur"));
+  }
+
+  /** The box a test set as `rect`, or an empty one at the origin. */
+  getBoundingClientRect() {
+    const r = this.rect ?? { left: 0, top: 0, width: 0, height: 0 };
+    return { ...r, x: r.left, y: r.top, right: r.left + r.width, bottom: r.top + r.height };
+  }
+
   /** The serialized children; setting parses HTML. */
   get innerHTML() {
     const children = this.content !== null ? this.content.childNodes : this.childNodes;
@@ -359,6 +387,29 @@ export class Document extends Node {
     this.documentElement.appendChild(this.head);
     this.documentElement.appendChild(this.body);
     this.appendChild(this.documentElement);
+    /** The focused element: the body until an element is focused. */
+    this.activeElement = this.body;
+  }
+
+  /**
+   * The deepest element, last in tree order, whose `rect` contains the
+   * point, or `null`: hit testing for elements with a box a test gave them.
+   * @param {number} x
+   * @param {number} y
+   * @returns {Element|null}
+   */
+  elementFromPoint(x, y) {
+    let hit = null;
+    const visit = (n) => {
+      for (let c = n.firstChild; c !== null; c = c.nextSibling) {
+        if (c.nodeType !== 1) continue;
+        const r = c.rect;
+        if (r && x >= r.left && x < r.left + r.width && y >= r.top && y < r.top + r.height && c.style.getPropertyValue("pointer-events") !== "none") hit = c;
+        visit(c);
+      }
+    };
+    visit(this);
+    return hit;
   }
 
   createElement(tagName) {

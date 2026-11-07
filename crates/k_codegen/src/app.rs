@@ -680,6 +680,7 @@ pub(crate) fn client_containers(
                 let default = match qualified.as_str() {
                     "k.storage.LocalStorage" => "k.storage.BrowserStorage",
                     "k.http.HttpClient" => "k.http.FetchHttpClient",
+                    "k.device.Files" => "k.device.BrowserFiles",
                     _ => return None,
                 };
                 g.view.lookup(default)
@@ -787,8 +788,14 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
                 &["k.storage.StorageReadError", "k.storage.StorageWriteError"],
             ),
         ),
+        // The files chunk's (runtime.md §12.4), imported by the entry.
+        "k.device.BrowserFiles" => match b.g.view.lookup(qualified) {
+            Some(d) => call(b.use_decl(d, "BrowserFiles".into()), vec![]),
+            None => rt("native", vec![js::str(qualified)]),
+        },
         // The test's one clock, shared with its server container.
         "k.test.TestClock" => crate::suite::kit_call("sharedClock", vec![]),
+        "k.test.TestFiles" => crate::suite::kit_call("testFiles", vec![]),
         "k.test.MemoryStorage" => crate::suite::kit_call(
             "memoryStorage",
             enums(
@@ -813,10 +820,11 @@ pub(crate) fn endpoint(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let mut out = Vec::new();
     let mut methods = Vec::new();
     // Handlers receive `$e`: the parsed `@Param`s and the request
-    // container that `@Inject`s read from (server.md §10).
+    // container that `@Inject`s read from (server.md §10). The page's
+    // functions are module functions taking `$e` first too.
     for &m in &info.members {
         let mi = g.view.member(m);
-        if mi.kind != MemberKind::Field {
+        if mi.kind != MemberKind::Field && mi.kind != MemberKind::Func {
             continue;
         }
         if mi.has_annotation("Param") {
@@ -833,6 +841,14 @@ pub(crate) fn endpoint(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 .unwrap_or_default();
             b.access
                 .insert(m, MemberAccess::Raw(member(member(id("$e"), "c"), tn)));
+        } else if mi.kind == MemberKind::Func {
+            // A handler calling the page's own function: the generated
+            // `Page$fn($e, …)` with this request's `$e` bound first.
+            let name = format!("{}${}", g.name(d), g.member_name(m));
+            b.access.insert(
+                m,
+                MemberAccess::Raw(call(member(id(name), "bind"), vec![Expr::Null, id("$e")])),
+            );
         }
     }
     for &m in &info.members {
@@ -1311,8 +1327,7 @@ pub(crate) fn constraint(
 /// The rpc path of protocol member `m`: `/package.module.Protocol/Method`.
 pub(crate) fn rpc_path(g: &Gen<'_>, d: DeclId, m: MemberId) -> String {
     let info = g.view.decl(d);
-    let module = info.module.clone().unwrap_or_default();
-    let package = crate::server::package_of(g, &module);
+    let package = crate::server::package_of(g, d);
     let name = &g.view.member(m).name;
     let mut c = name.chars();
     let method = match c.next() {

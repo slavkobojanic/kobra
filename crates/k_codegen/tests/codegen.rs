@@ -101,6 +101,19 @@ fn project(dir: &std::path::Path) -> Vec<(ProjectPath, String)> {
     out
 }
 
+/// The shop member of the `examples/shop` workspace, with the
+/// `pay-contracts` library it depends on mounted.
+fn shop_files() -> Vec<(ProjectPath, String)> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/shop");
+    let ws = k_sema::Workspace::from_files(
+        project(&dir)
+            .into_iter()
+            .map(|(p, t)| (p.as_str().to_owned(), t)),
+    );
+    let shop = ws.member("shop").expect("the shop member");
+    ws.analysis_files(shop)
+}
+
 #[test]
 fn the_example_apps_generate_without_server_code_in_the_client() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
@@ -111,25 +124,47 @@ fn the_example_apps_generate_without_server_code_in_the_client() {
             continue;
         }
         seen += 1;
-        let host = AnalysisHost::with_files(SemaOptions::new(), project(&dir));
-        for profile in [
-            k_codegen::Profile::Development,
-            k_codegen::Profile::Release,
-            k_codegen::Profile::Test,
-        ] {
-            let options = Options {
-                profile,
-                ..Options::default()
-            };
-            match generate(&host.analysis(), &options) {
-                Ok(out) => {
-                    let found = check_client_bundle(&out, &[]);
-                    assert!(found.is_empty(), "{}: {found:?}", dir.display());
+        let files = project(&dir);
+        // A workspace example (`examples/stack`): every app member, with
+        // the libraries it depends on.
+        let manifest = std::fs::read_to_string(dir.join("k.toml")).unwrap_or_default();
+        let hosts: Vec<AnalysisHost> = if k_sema::Workspace::is_workspace_manifest(&manifest) {
+            let ws = k_sema::Workspace::from_files(
+                files.into_iter().map(|(p, t)| (p.as_str().to_owned(), t)),
+            );
+            assert!(
+                ws.problems.is_empty(),
+                "{}: {:?}",
+                dir.display(),
+                ws.problems
+            );
+            (0..ws.members.len())
+                .filter(|&m| ws.members[m].is_app)
+                .map(|m| AnalysisHost::with_files(SemaOptions::new(), ws.analysis_files(m)))
+                .collect()
+        } else {
+            vec![AnalysisHost::with_files(SemaOptions::new(), files)]
+        };
+        for host in hosts {
+            for profile in [
+                k_codegen::Profile::Development,
+                k_codegen::Profile::Release,
+                k_codegen::Profile::Test,
+            ] {
+                let options = Options {
+                    profile,
+                    ..Options::default()
+                };
+                match generate(&host.analysis(), &options) {
+                    Ok(out) => {
+                        let found = check_client_bundle(&out, &[]);
+                        assert!(found.is_empty(), "{}: {found:?}", dir.display());
+                    }
+                    Err(CodegenError::Unsupported { what }) => {
+                        panic!("{}: unsupported: {what}", dir.display());
+                    }
+                    Err(e) => panic!("{}: {e}", dir.display()),
                 }
-                Err(CodegenError::Unsupported { what }) => {
-                    panic!("{}: unsupported: {what}", dir.display());
-                }
-                Err(e) => panic!("{}: {e}", dir.display()),
             }
         }
     }
@@ -228,6 +263,108 @@ fn the_manifest_lists_only_configs_the_environment_reaches() {
     assert!(development.iter().any(|e| e == "PORT"), "{development:?}");
 }
 
+/// A config field of type `Secret<T>?` is a secret like `Secret<T>`: it may
+/// come from `NAME_FILE`, and `dist/app config` marks it as one.
+#[test]
+fn an_optional_secret_config_field_is_listed_as_a_secret() {
+    let host = analyse(&[
+        ("k.toml", TOML),
+        ("App.k", "public app Demo {}\n"),
+        (
+            "src/hooks/HookConfig.k",
+            "public config HookConfig {\n    @Env(\"HOOK_TOKEN\") let token: Secret<String>? = nil\n    @Env(\"HOOK_KEY\") let key: Secret<String>\n    @Env(\"HOOK_NAME\") let name: String? = nil\n}\n",
+        ),
+        (
+            "src/hooks/HookProtocol.k",
+            "import k.rpc.RpcOnlyError\n\npublic protocol HookProtocol {\n    rpc ping() throws RpcOnlyError -> String\n}\n",
+        ),
+        (
+            "src/hooks/HookApi.k",
+            "import k.rpc.RpcOnlyError\n\npublic service HookApi implements HookProtocol {\n    @Inject let config: HookConfig\n\n    rpc ping() async throws RpcOnlyError -> String {\n        return config.name ?? \"none\"\n    }\n}\n",
+        ),
+    ]);
+    let out = generate(&host.analysis(), &Options::default()).expect("generates");
+    let entry = |env: &str| {
+        out.manifest
+            .config
+            .iter()
+            .find(|c| c.env == env)
+            .unwrap_or_else(|| panic!("{env} in {:?}", out.manifest.config))
+    };
+    assert!(entry("HOOK_TOKEN").secret, "{:?}", entry("HOOK_TOKEN"));
+    assert!(!entry("HOOK_TOKEN").required);
+    assert!(entry("HOOK_KEY").secret);
+    assert!(!entry("HOOK_NAME").secret);
+    // The server sends a secret's value wrapped (`{"$secret": …}`), so the
+    // config loader unwraps it into a `Secret`, or `nil` when it is unset.
+    let loader = out
+        .server
+        .iter()
+        .find(|f| f.contents.contains("function HookConfig$load"))
+        .expect("the config loader");
+    for needle in [
+        "token: $s.configSecret(\"HOOK_TOKEN\")",
+        "key: $s.configSecret(\"HOOK_KEY\")",
+        "name: $s.config(\"HOOK_NAME\")",
+    ] {
+        assert!(
+            loader.contents.contains(needle),
+            "{needle} in\n{}",
+            loader.contents
+        );
+    }
+}
+
+/// A stdlib `config` that app code injects (`k.rpc.ServiceConfig`) is
+/// built from the environment like the app's own configs, and its
+/// variables are listed, even when nothing else would require them.
+#[test]
+fn an_injected_stdlib_config_is_read_from_the_environment() {
+    let host = analyse(&[
+        ("k.toml", TOML),
+        ("App.k", "public app Demo {}\n"),
+        (
+            "src/hooks/Signer.k",
+            "import k.rpc.ServiceConfig\n\npublic service Signer {\n    @Inject let service: ServiceConfig\n\n    func secret() -> Secret<String> {\n        return service.token\n    }\n}\n",
+        ),
+        (
+            "src/hooks/HookProtocol.k",
+            "import k.rpc.RpcOnlyError\n\npublic protocol HookProtocol {\n    rpc ping() throws RpcOnlyError -> Bool\n}\n",
+        ),
+        (
+            "src/hooks/HookApi.k",
+            "import k.rpc.RpcOnlyError\n\npublic service HookApi implements HookProtocol {\n    @Inject let signer: Signer\n\n    rpc ping() async throws RpcOnlyError -> Bool {\n        return signer.secret().matches(\"x\")\n    }\n}\n",
+        ),
+    ]);
+    let out = generate(&host.analysis(), &Options::default()).expect("generates");
+    let token = out
+        .manifest
+        .config
+        .iter()
+        .find(|c| c.env == "K_SERVICE_TOKEN")
+        .unwrap_or_else(|| panic!("K_SERVICE_TOKEN in {:?}", out.manifest.config));
+    assert!(token.secret && token.required, "{token:?}");
+    let entry = out
+        .server
+        .iter()
+        .find(|f| Some(&f.path) == out.server_entry.as_ref())
+        .expect("the entry");
+    assert!(
+        entry
+            .contents
+            .contains("token: $s.configSecret(\"K_SERVICE_TOKEN\")"),
+        "{}",
+        entry.contents
+    );
+    assert!(
+        !entry
+            .contents
+            .contains("missingNative(\"k.rpc.ServiceConfig\")"),
+        "{}",
+        entry.contents
+    );
+}
+
 /// The generated client files of `examples/<name>` for development.
 fn example_client(name: &str) -> Vec<OutputFile> {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -312,8 +449,7 @@ fn test_only_modules_never_ship_or_bind_outside_tests() {
 
 #[test]
 fn hydrated_load_values_are_decoded_and_server_loads_are_framed() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/shop");
-    let host = AnalysisHost::with_files(SemaOptions::new(), project(&dir));
+    let host = AnalysisHost::with_files(SemaOptions::new(), shop_files());
     let out = generate(
         &host.analysis(),
         &Options {
@@ -359,8 +495,7 @@ fn hydrated_load_values_are_decoded_and_server_loads_are_framed() {
 
 /// The shop's server entry for `environment`.
 fn shop_server(environment: k_codegen::Environment) -> (String, Output) {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/shop");
-    let host = AnalysisHost::with_files(SemaOptions::new(), project(&dir));
+    let host = AnalysisHost::with_files(SemaOptions::new(), shop_files());
     let out = generate(
         &host.analysis(),
         &Options {
@@ -499,4 +634,53 @@ fn the_runtime_status_table_follows_the_stdlib_enum() {
         .split(", ")
         .collect();
     assert_eq!(generated, runtime);
+}
+
+/// The production build of `examples/<name>`, or of the member `<member>`
+/// of the workspace `examples/<name>` when `name` is `<name>/<member>` (the
+/// libraries it depends on mounted).
+fn example_build(name: &str) -> Output {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let files = match name.split_once('/') {
+        Some((workspace, member)) => {
+            let ws = k_sema::Workspace::from_files(
+                project(&examples.join(workspace))
+                    .into_iter()
+                    .map(|(p, t)| (p.as_str().to_owned(), t)),
+            );
+            let m = ws.member(member).expect("the workspace member");
+            ws.analysis_files(m)
+        }
+        None => project(&examples.join(name)),
+    };
+    let host = AnalysisHost::with_files(SemaOptions::new(), files);
+    generate(
+        &host.analysis(),
+        &Options {
+            profile: k_codegen::Profile::Release,
+            environment: k_codegen::Environment::Production,
+            entry: k_codegen::Entry::App,
+        },
+    )
+    .expect("generates")
+}
+
+/// docs/design/38-deployment.md, "Static-only apps": an app that renders
+/// on the client and has no server-only code (no rpc, endpoint page,
+/// configuration, job or entity) is static-only, so `k build` emits only
+/// `dist/public`; every other app keeps `dist/app`.
+#[test]
+fn client_rendered_apps_without_server_code_are_static_only() {
+    for name in ["todos", "kanban"] {
+        assert!(
+            example_build(name).manifest.static_only,
+            "{name} renders on the client and has no server-only code"
+        );
+    }
+    for name in ["weather", "notes", "shop/shop", "shop/paybox"] {
+        assert!(
+            !example_build(name).manifest.static_only,
+            "{name} renders on the server or has server-only code"
+        );
+    }
 }

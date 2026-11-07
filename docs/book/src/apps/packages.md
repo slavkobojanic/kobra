@@ -75,3 +75,9 @@ internal mechanism that user code can't access.
 Typed npm interop, with bindings generated from `.d.ts` files, is deferred by the design and may be added
 later. Any design for it would keep JavaScript calls behind services, as the layering rules already do
 for protocols.
+
+## Libraries in a workspace
+
+Libraries you don't publish, such as the contracts between your own services, live in the same
+[workspace](workspaces.md) as the apps that use them and are depended on with `name = { workspace = true
+}`. That works today, without `k add`.

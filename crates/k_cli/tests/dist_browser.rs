@@ -14,6 +14,10 @@
 //! nodes, that `@Load` data is not fetched again, and that nothing was
 //! logged at the error level.
 //!
+//! A static-only example (`todos`, `kanban`) has no `dist/app`: its
+//! `dist/public` is served by the tests' static host as its nginx image
+//! serves it, and the tab loads `index.html`, which the client renders.
+//!
 //! ```text
 //! cargo test -p k_cli --test dist_browser
 //! ```
@@ -32,6 +36,9 @@ use k_server::testing::{HttpResponse, send};
 use k_server::{Engine, EngineOptions, JsModule};
 
 const SIM: &str = include_str!("../../k_server/tests/browser/sim.js");
+
+#[path = "support/static_host.rs"]
+mod static_host;
 
 fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -61,7 +68,10 @@ impl Drop for TempDir {
 /// A running `dist/app` with a cookie jar, as one browser sees it.
 struct Site {
     name: String,
-    child: Child,
+    /// The running `dist/app`, or `None` for a static-only app.
+    child: Option<Child>,
+    /// The static host of a static-only app's `dist/public`.
+    host: Option<static_host::StaticHost>,
     addr: SocketAddr,
     cookies: Vec<(String, String)>,
     /// The shipped client files, as `k:/client/<path under assets/>`.
@@ -98,51 +108,161 @@ fn collect_assets(dir: &Path, root: &Path, out: &mut Vec<JsModule>) {
     }
 }
 
+/// Builds `examples/<name>` (a project, or a workspace member such as
+/// `shop/paybox`) with `k build` into `out/dist` and starts its
+/// `dist/app serve` with `env` as its whole configuration, once it listens.
+/// `{port}` in a value is the port the app serves on. Returns the process,
+/// its port and the dist directory.
+fn serve(name: &str, out: &Path, env: &[(&str, &str)]) -> (Child, u16, PathBuf) {
+    let dist = build(name, out);
+    let (child, port) = spawn(name, &dist, env);
+    (child, port, dist)
+}
+
+/// Builds `examples/<name>` with `k build` into `out/dist` and returns the
+/// dist directory.
+fn build(name: &str, out: &Path) -> PathBuf {
+    let dist = out.join("dist");
+    let built = Command::new(env!("CARGO_BIN_EXE_k"))
+        .arg("build")
+        .arg(repo().join("examples").join(name))
+        .arg("--out")
+        .arg(&dist)
+        .output()
+        .expect("k build runs");
+    assert!(
+        built.status.success(),
+        "k build {name}: {}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    dist
+}
+
+/// Starts the `dist/app serve` of the build in `dist` with `env` as its
+/// whole configuration (`{port}` in a value is the port it serves on) and
+/// returns it with its port once it listens.
+fn spawn(name: &str, dist: &Path, env: &[(&str, &str)]) -> (Child, u16) {
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|l| l.local_addr())
+        .map(|a| a.port())
+        .expect("a free port");
+    let mut cmd = Command::new(dist.join("app"));
+    cmd.arg("serve")
+        .env_remove("DATABASE_URL")
+        .env_remove("DATABASE_PASSWORD")
+        .env("PORT", port.to_string())
+        .env("K_PUBLIC_ORIGIN", "http://localhost")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    for (k, v) in env {
+        cmd.env(k, v.replace("{port}", &port.to_string()));
+    }
+    let mut child = cmd.spawn().expect("dist/app starts");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while TcpStream::connect(("127.0.0.1", port)).is_err() {
+        if let Some(status) = child.try_wait().ok().flatten() {
+            let mut err = String::new();
+            if let Some(mut e) = child.stderr.take() {
+                let _ = e.read_to_string(&mut err);
+            }
+            panic!("{name}: dist/app exited ({status}) before listening: {err}");
+        }
+        assert!(Instant::now() < deadline, "{name}: dist/app listens");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    (child, port)
+}
+
+/// Stops `child` with `SIGTERM` and, unless the thread is panicking,
+/// asserts that it exited cleanly and logged no error.
+fn stop(name: &str, child: &mut Child) {
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-TERM", &child.id().to_string()])
+            .status();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
+    }
+    let status = child.wait();
+    let mut err = String::new();
+    if let Some(mut e) = child.stderr.take() {
+        let _ = e.read_to_string(&mut err);
+    }
+    if !std::thread::panicking() {
+        #[cfg(unix)]
+        assert!(
+            status.as_ref().is_ok_and(|s| s.code() == Some(0)),
+            "{name}: SIGTERM shuts down cleanly ({status:?}): {err}"
+        );
+        assert!(
+            !err.contains("\"level\":\"error\""),
+            "{name}: no errors were logged: {err}"
+        );
+    }
+}
+
+/// A running server-only `dist/app` (no pages, so no tab): paybox.
+struct Service {
+    name: String,
+    child: Child,
+    port: u16,
+}
+
+impl Service {
+    /// Builds and starts `examples/<name>` as [`serve`] does.
+    fn start(name: &str, out: &Path, env: &[(&str, &str)]) -> Service {
+        let (child, port, _) = serve(name, out, env);
+        Service {
+            name: name.to_owned(),
+            child,
+            port,
+        }
+    }
+
+    /// The service's base URL.
+    fn url(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
+    }
+}
+
+impl Drop for Service {
+    fn drop(&mut self) {
+        stop(&self.name, &mut self.child);
+    }
+}
+
 impl Site {
     /// Builds `examples/<name>` with `k build` into `out` and starts its
-    /// `dist/app serve` with `env` as its whole configuration.
+    /// `dist/app serve` with `env` as its whole configuration (see
+    /// [`serve`]).
     fn start(name: &str, out: &Path, env: &[(&str, &str)]) -> Site {
-        let dist = out.join("dist");
-        let built = Command::new(env!("CARGO_BIN_EXE_k"))
-            .arg("build")
-            .arg(repo().join("examples").join(name))
-            .arg("--out")
-            .arg(&dist)
-            .output()
-            .expect("k build runs");
-        assert!(
-            built.status.success(),
-            "k build {name}: {}",
-            String::from_utf8_lossy(&built.stderr)
-        );
-        let port = std::net::TcpListener::bind("127.0.0.1:0")
-            .and_then(|l| l.local_addr())
-            .map(|a| a.port())
-            .expect("a free port");
-        let mut cmd = Command::new(dist.join("app"));
-        cmd.arg("serve")
-            .env_remove("DATABASE_URL")
-            .env_remove("DATABASE_PASSWORD")
-            .env("PORT", port.to_string())
-            .env("K_PUBLIC_ORIGIN", "http://localhost")
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped());
-        for (k, v) in env {
-            cmd.env(k, v);
+        let dist = build(name, out);
+        if !dist.join("app").exists() {
+            assert!(
+                env.is_empty(),
+                "{name}: a static-only app has no configuration"
+            );
+            let host = static_host::StaticHost::start(&dist.join("public"));
+            let addr = host.addr;
+            return Site::over(name, &dist, None, Some(host), addr);
         }
-        let mut child = cmd.spawn().expect("dist/app starts");
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while TcpStream::connect(("127.0.0.1", port)).is_err() {
-            if let Some(status) = child.try_wait().ok().flatten() {
-                let mut err = String::new();
-                if let Some(mut e) = child.stderr.take() {
-                    let _ = e.read_to_string(&mut err);
-                }
-                panic!("{name}: dist/app exited ({status}) before listening: {err}");
-            }
-            assert!(Instant::now() < deadline, "{name}: dist/app listens");
-            std::thread::sleep(Duration::from_millis(25));
-        }
+        let (child, port) = spawn(name, &dist, env);
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        Site::over(name, &dist, Some(child), None, addr)
+    }
+
+    /// The site of the build in `dist`, served on `addr` by `child` or by
+    /// `host`.
+    fn over(
+        name: &str,
+        dist: &Path,
+        child: Option<Child>,
+        host: Option<static_host::StaticHost>,
+        addr: SocketAddr,
+    ) -> Site {
         let assets = dist.join("public").join("assets");
         let mut client = Vec::new();
         collect_assets(&assets, &assets, &mut client);
@@ -154,7 +274,8 @@ impl Site {
         Site {
             name: name.to_owned(),
             child,
-            addr: SocketAddr::from(([127, 0, 0, 1], port)),
+            host,
+            addr,
             cookies: Vec::new(),
             client,
             entry,
@@ -271,33 +392,9 @@ impl Site {
 
 impl Drop for Site {
     fn drop(&mut self) {
-        #[cfg(unix)]
-        {
-            let _ = Command::new("kill")
-                .args(["-TERM", &self.child.id().to_string()])
-                .status();
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = self.child.kill();
-        }
-        let status = self.child.wait();
-        let mut err = String::new();
-        if let Some(mut e) = self.child.stderr.take() {
-            let _ = e.read_to_string(&mut err);
-        }
-        if !std::thread::panicking() {
-            #[cfg(unix)]
-            assert!(
-                status.as_ref().is_ok_and(|s| s.code() == Some(0)),
-                "{}: SIGTERM shuts down cleanly ({status:?}): {err}",
-                self.name
-            );
-            assert!(
-                !err.contains("\"level\":\"error\""),
-                "{}: no errors were logged: {err}",
-                self.name
-            );
+        self.host = None;
+        if let Some(child) = self.child.as_mut() {
+            stop(&self.name, child);
         }
     }
 }
@@ -755,21 +852,24 @@ fn notes_dist_app_signs_in_creates_and_edits_a_note_in_the_browser() {
 fn shop_dist_app_hydrates_the_storefront_and_validates_the_order_form_in_the_browser() {
     let dir = TempDir::new("shop");
     let url = format!("sqlite:{}", dir.0.join("app.db").display());
+    // The shop is the `shop` member of the `examples/shop` workspace. Paybox
+    // isn't needed to browse.
     let mut site = Site::start(
-        "shop",
+        "shop/shop",
         &dir.0,
         &[
             ("DATABASE_URL", url.as_str()),
             ("SHOP_ADMIN_EMAIL", "admin@example.com"),
             ("SHOP_ADMIN_PASSWORD_HASH", "placeholder_ADMIN_HASH_SECRET"),
-            ("STRIPE_API_KEY", "sk_test_placeholder_STRIPE_SECRET"),
-            ("STRIPE_WEBHOOK_SECRET", "whsec_placeholder_WEBHOOK_SECRET"),
+            ("K_SERVICE_TOKEN", "shop_SERVICE_SECRET"),
+            ("PAYBOX_URL", "http://127.0.0.1:9"),
+            ("PAYBOX_TOKEN", "paybox_SERVICE_SECRET"),
+            ("PAYBOX_CALLBACK_URL", "http://127.0.0.1:{port}"),
             ("SMTP_HOST", "localhost"),
             ("MAIL_FROM", "K Shop <orders@shop.example>"),
         ],
     );
-    let catalog = std::fs::read_to_string(repo().join("examples/shop/scripts/demo-catalog.sql"))
-        .expect("the demo catalog");
+    let catalog = std::fs::read_to_string(demo_catalog()).expect("the demo catalog");
     execute(&url, &catalog);
     let since = site.requests.len();
     let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
@@ -811,6 +911,12 @@ fn shop_dist_app_hydrates_the_storefront_and_validates_the_order_form_in_the_bro
         0
     );
     drop(tab);
+    // A missing product is a real 404, rendered by the page's `failed`
+    // branch (which catches the load's error) in the release build.
+    let missing = site.page("/products/no-such-product");
+    let body = String::from_utf8_lossy(&missing.body).into_owned();
+    assert_eq!(missing.status, 404, "{body}");
+    contains(&body, "Product not found", "the not-found page");
     // The admin page sends visitors without a session to sign in.
     let admin = site.page("/admin");
     assert_eq!(admin.status, 303);
@@ -820,10 +926,19 @@ fn shop_dist_app_hydrates_the_storefront_and_validates_the_order_form_in_the_bro
     let mut shipped: Vec<String> = site.client.iter().map(|m| m.source.clone()).collect();
     shipped.extend(site.responses.iter().map(|(_, b)| b.clone()));
     for s in &shipped {
-        for secret in ["ADMIN_HASH_SECRET", "STRIPE_SECRET", "WEBHOOK_SECRET"] {
+        for secret in ["ADMIN_HASH_SECRET", "SERVICE_SECRET"] {
             lacks(s, secret, "a client file or response");
         }
-        for name in ["StripeCheckout", "LocalCheckout", "StoreApi", "AdminApi"] {
+        for name in [
+            "StripeCheckout",
+            "LocalCheckout",
+            "PayboxCheckout",
+            "StoreApi",
+            "AdminApi",
+            "CardApi",
+            "PaymentEventsApi",
+            "x-k-service-token",
+        ] {
             lacks(s, name, "a client file or response");
         }
     }
@@ -854,11 +969,16 @@ fn query(url: &str, sql: &str) -> Vec<Vec<serde_json::Value>> {
     })
 }
 
+/// The shop's demo catalog.
+fn demo_catalog() -> PathBuf {
+    repo().join("examples/shop/shop/scripts/demo-catalog.sql")
+}
+
 #[test]
-fn shop_dist_app_places_an_order_against_a_fake_stripe() {
+fn shop_dist_app_places_and_pays_an_order_through_a_paybox_dist_app() {
     let dir = TempDir::new("shop-order");
     let url = format!("sqlite:{}", dir.0.join("app.db").display());
-    place_an_order_against_a_fake_stripe(&dir, &url);
+    place_and_pay_an_order_through_paybox(&dir, &url);
 }
 
 /// The environment variable that runs the shop on Postgres: a
@@ -867,7 +987,7 @@ fn shop_dist_app_places_an_order_against_a_fake_stripe() {
 const POSTGRES_ENV: &str = "DATABASE_URL";
 
 #[test]
-fn shop_dist_app_places_an_order_on_postgres_when_a_postgres_url_is_given() {
+fn shop_dist_app_places_and_pays_an_order_on_postgres_when_a_postgres_url_is_given() {
     // Skipped unless `DATABASE_URL` names a Postgres server; then the run
     // asked for Postgres, and an unreachable one fails the test.
     let Some(server) = std::env::var(POSTGRES_ENV)
@@ -887,7 +1007,7 @@ fn shop_dist_app_places_an_order_on_postgres_when_a_postgres_url_is_given() {
     execute(&server, &format!("CREATE DATABASE {name}"));
     let url = with_database(&server, &name);
     let dir = TempDir::new("shop-postgres");
-    let outcome = std::panic::catch_unwind(|| place_an_order_against_a_fake_stripe(&dir, &url));
+    let outcome = std::panic::catch_unwind(|| place_and_pay_an_order_through_paybox(&dir, &url));
     execute(
         &server,
         &format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"),
@@ -914,38 +1034,57 @@ fn with_database(url: &str, name: &str) -> String {
     out
 }
 
-/// Builds and starts the shop on the database at `url`, loads the demo
-/// catalog and places an order through the browser against a fake Stripe at
-/// `STRIPE_API_URL`: the production build's `StripeCheckout` creates the
-/// checkout session there with the secret key, and the browser goes to
-/// Stripe; the order then waits for payment with its stock reserved.
-fn place_an_order_against_a_fake_stripe(dir: &TempDir, url: &str) {
-    let stripe = k_server::fakes::FakeHttp::start(vec![k_server::fakes::FakeRoute::json(
-        "POST",
-        "/v1/checkout/sessions",
-        &serde_json::json!({
-            "id": "cs_test_e2e",
-            "url": "https://checkout.stripe.test/c/pay/cs_test_e2e"
-        }),
-    )])
-    .expect("the fake Stripe starts");
-    let origin = stripe.origin();
+/// Polls `check` every 50 ms for up to 20 seconds; fails with `what`.
+fn eventually(what: &str, check: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !check() {
+        assert!(Instant::now() < deadline, "{what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Builds and starts paybox (on its own SQLite database) and the shop (on
+/// the database at `url`), as two `dist/app` processes calling each other
+/// with different service secrets, as in `docker-compose.yml`. Through the
+/// browser: an order is placed, a declined card is refused, the success
+/// card pays; paybox then delivers `chargeSucceeded` to the shop from a
+/// background job, the order is paid, and the confirmation goes out over
+/// SMTP once.
+fn place_and_pay_an_order_through_paybox(dir: &TempDir, url: &str) {
+    let smtp = k_server::fakes::FakeSmtp::start().expect("the fake SMTP server starts");
+    let paybox_db = format!("sqlite:{}", dir.0.join("paybox.db").display());
+    let paybox_dir = dir.0.join("paybox");
+    let paybox = Service::start(
+        "shop/paybox",
+        &paybox_dir,
+        &[
+            ("DATABASE_URL", paybox_db.as_str()),
+            // Paybox verifies the shop's calls with its own secret, and
+            // signs its calls to the shop with the shop's.
+            ("K_SERVICE_TOKEN", "paybox_SERVICE_SECRET"),
+            ("PAYBOX_CALLBACK_TOKEN", "shop_SERVICE_SECRET"),
+        ],
+    );
+    let paybox_url = paybox.url();
+    let smtp_port = smtp.port().to_string();
     let mut site = Site::start(
-        "shop",
-        &dir.0,
+        "shop/shop",
+        &dir.0.join("shop"),
         &[
             ("DATABASE_URL", url),
             ("SHOP_ADMIN_EMAIL", "admin@example.com"),
             ("SHOP_ADMIN_PASSWORD_HASH", "placeholder_ADMIN_HASH_SECRET"),
-            ("STRIPE_API_KEY", "sk_test_e2e_STRIPE_SECRET"),
-            ("STRIPE_API_URL", origin.as_str()),
-            ("STRIPE_WEBHOOK_SECRET", "whsec_placeholder_WEBHOOK_SECRET"),
-            ("SMTP_HOST", "localhost"),
+            ("K_SERVICE_TOKEN", "shop_SERVICE_SECRET"),
+            ("PAYBOX_URL", paybox_url.as_str()),
+            ("PAYBOX_TOKEN", "paybox_SERVICE_SECRET"),
+            ("PAYBOX_CALLBACK_URL", "http://127.0.0.1:{port}"),
+            ("SMTP_HOST", "127.0.0.1"),
+            ("SMTP_PORT", smtp_port.as_str()),
+            ("SMTP_SECURITY", "none"),
             ("MAIL_FROM", "K Shop <orders@shop.example>"),
         ],
     );
-    let catalog = std::fs::read_to_string(repo().join("examples/shop/scripts/demo-catalog.sql"))
-        .expect("the demo catalog");
+    let catalog = std::fs::read_to_string(demo_catalog()).expect("the demo catalog");
     execute(url, &catalog);
     let stock =
         |url: &str| query(url, "SELECT stock FROM product WHERE slug = 'k-mug'")[0][0].clone();
@@ -966,43 +1105,222 @@ fn place_an_order_against_a_fake_stripe(dir: &TempDir, url: &str) {
         "{:?}",
         tab.site.requests
     );
-    // The browser went to the checkout page Stripe answered with.
-    let loads = tab.run("done(sim.state().loads);");
-    assert_eq!(
-        loads,
-        serde_json::json!(["https://checkout.stripe.test/c/pay/cs_test_e2e"]),
-        "{}",
-        tab.log()
+    // Checkout registered the shop with paybox, and sent the browser to the
+    // shop's own card form, on the same origin.
+    let pushed = tab.run("done(sim.state().pushed);");
+    contains(
+        &pushed.to_string(),
+        "/payment/",
+        "the browser goes to the payment page",
     );
-    drop(tab);
-    // Stripe received one session, authenticated with the secret key, for
-    // two mugs; the key never reached the browser.
-    let sent = stripe.requests();
-    assert_eq!(sent.len(), 1, "{sent:?}");
-    assert_eq!(sent[0].method, "POST");
+    contains(&tab.text(), "2 × K Mug, $48.00", "payment page");
+    let paybox_rows = |sql: &str| query(&paybox_db, sql);
     assert_eq!(
-        sent[0].headers.get("authorization").map(String::as_str),
-        Some("Bearer sk_test_e2e_STRIPE_SECRET")
+        paybox_rows("SELECT name, callback_url FROM merchant_account"),
+        vec![vec![
+            serde_json::json!("shop"),
+            serde_json::json!(format!("http://127.0.0.1:{}", tab.site.addr.port())),
+        ]],
+        "paybox knows the shop by its service token's name"
     );
-    assert_eq!(
-        sent[0].form_field("line_items[0][quantity]").as_deref(),
-        Some("2")
-    );
-    assert_eq!(
-        sent[0].form_field("customer_email").as_deref(),
-        Some("ana@example.com")
-    );
-    // The order waits for payment, with its stock reserved.
-    let orders = query(url, "SELECT status, quantity, email FROM \"order\"");
-    assert_eq!(orders.len(), 1, "{orders:?}");
-    assert_eq!(orders[0][1], serde_json::json!(2));
-    assert_eq!(orders[0][2], serde_json::json!("ana@example.com"));
     assert_eq!(
         stock(url).as_i64().zip(before.as_i64()).map(|(a, b)| b - a),
         Some(2),
         "two mugs are reserved"
     );
+    // The card that is always declined: nothing is charged, and the form
+    // stays for another card.
+    tab.run(&format!(
+        "{}sim.submit(sim.find(\"form\"));",
+        fill("Card number", "4000 0000 0000 0002")
+    ));
+    contains(
+        &tab.text(),
+        "Your card was declined. Try another card.",
+        "a declined card",
+    );
+    assert!(paybox_rows("SELECT id FROM charge_record").is_empty());
+    // The card that always succeeds: the shop's server charges it through
+    // paybox, and the browser goes to the receipt.
+    tab.run(&format!(
+        "{}sim.submit(sim.find(\"form\"));",
+        fill("Card number", "4242 4242 4242 4242")
+    ));
+    let pushed = tab.run("done(sim.state().pushed);");
+    contains(
+        &pushed.to_string(),
+        "/receipt/",
+        "the browser goes to the receipt",
+    );
+    contains(&tab.text(), "Thanks for your order", "receipt");
+    let orders = query(url, "SELECT id, status, quantity, email FROM \"order\"");
+    assert_eq!(orders.len(), 1, "{orders:?}");
+    let order_id = orders[0][0].as_str().expect("an id").to_owned();
+    let charges = paybox_rows("SELECT id, key, last4, merchant FROM charge_record");
+    assert_eq!(charges.len(), 1, "{charges:?}");
+    assert_eq!(charges[0][1], serde_json::json!(format!("shop/{order_id}")));
+    assert_eq!(charges[0][2], serde_json::json!("4242"));
+    let charge_id = charges[0][0].as_str().expect("a charge id").to_owned();
+    // Paybox's delivery job calls the shop's `PaymentEvents`, signed with
+    // the shop's secret: the order is paid, with paybox's charge id.
+    eventually("paybox's event marks the order paid", || {
+        query(url, "SELECT status FROM \"order\"")[0][0] == serde_json::json!("paid")
+    });
+    assert_eq!(
+        query(url, "SELECT payment_reference FROM \"order\"")[0][0],
+        serde_json::json!(charge_id)
+    );
+    eventually("the delivery job is done", || {
+        paybox_rows("SELECT id FROM k_job").is_empty()
+    });
+    // The receipt follows on its next reload.
+    tab.run("sim.advance(3000);");
+    contains(
+        &tab.text(),
+        "Payment received",
+        "the receipt after the event",
+    );
+    // The confirmation job emails the customer, once.
+    eventually("the confirmation is sent", || !smtp.mail().is_empty());
+    std::thread::sleep(Duration::from_millis(300));
+    let mail = smtp.mail();
+    assert_eq!(mail.len(), 1, "{mail:?}");
+    assert_eq!(mail[0].to, ["ana@example.com"]);
+    assert_eq!(mail[0].subject, "Your K Shop order is confirmed");
+    drop(tab);
+    // No service secret reached the browser.
     for (_, body) in &site.responses {
-        lacks(body, "STRIPE_SECRET", "a served response");
+        lacks(body, "SERVICE_SECRET", "a served response");
     }
+    drop(site);
+    drop(paybox);
+}
+
+/// Types `value` into the input whose accessible name is `label` (its
+/// `aria-label`).
+fn typed(label: &str, value: &str) -> String {
+    format!("sim.type(sim.find(\"input\", null, {{ \"aria-label\": {label:?} }}), {value:?});\n")
+}
+
+/// A bubbling event of `type` with `fields`, dispatched on `target` (a JS
+/// expression), as the sim's tab would receive it from a user.
+fn dispatch(target: &str, kind: &str, fields: &str) -> String {
+    format!(
+        "{target}.dispatchEvent(Object.assign(new Event({kind:?}, {{ bubbles: true }}), {fields}));\n"
+    )
+}
+
+#[test]
+fn kanban_static_build_creates_a_board_drags_cards_and_keeps_them_in_local_storage() {
+    let dir = TempDir::new("kanban");
+    let mut site = Site::start("kanban", &dir.0, &[]);
+    let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
+    contains(&tab.text(), "No boards yet", "the empty home page");
+    // A new board opens on its own URL.
+    tab.run(&format!(
+        "{}sim.submit(sim.find(\"form\", null, {{ \"aria-label\": \"New board\" }}));",
+        fill("New board", "Launch")
+    ));
+    let url = tab.run("done(location.pathname);");
+    let url = url.as_str().unwrap_or_default().to_owned();
+    assert!(url.starts_with("/boards/"), "the board's URL: {url}");
+    contains(&tab.text(), "To do", "the board page");
+    // N (a keyboard shortcut on the page) opens the first column's form.
+    tab.run(&dispatch("document.body", "keydown", "{ key: \"n\" }"));
+    tab.run(&format!(
+        "{}sim.submit(sim.find(\"form\", null, {{ \"aria-label\": \"New card in To do\" }}));",
+        typed("New card in To do", "Write tests")
+    ));
+    tab.run(&format!(
+        "{}{}sim.submit(sim.find(\"form\", null, {{ \"aria-label\": \"New card in To do\" }}));",
+        dispatch("document.body", "keydown", "{ key: \"n\" }"),
+        typed("New card in To do", "Ship")
+    ));
+    let todo = "sim.find(\"ul\", null, { \"aria-label\": \"To do\" })";
+    let doing = "sim.find(\"ul\", null, { \"aria-label\": \"Doing\" })";
+    let done_list = "sim.find(\"ul\", null, { \"aria-label\": \"Done\" })";
+    let count = |list: &str| {
+        format!("done([...{list}.childNodes].filter((n) => n.localName === \"li\").length);")
+    };
+    assert_eq!(tab.run(&count(todo)), serde_json::json!(2));
+    // The keyboard: Space picks the first card up, ArrowRight carries it
+    // to Doing, Space drops it.
+    let first = format!("[...{todo}.childNodes].find((n) => n.localName === \"li\")");
+    tab.run(&format!(
+        "const card = {first};\n{}{}{}",
+        dispatch("card", "keydown", "{ key: \" \" }"),
+        dispatch("card", "keydown", "{ key: \"ArrowRight\" }"),
+        dispatch("card", "keydown", "{ key: \" \" }")
+    ));
+    assert_eq!(tab.run(&count(todo)), serde_json::json!(1));
+    assert_eq!(tab.run(&count(doing)), serde_json::json!(1));
+    let live = tab.run("done(document.getElementById(\"k-drag-live\").textContent);");
+    contains(
+        live.as_str().unwrap_or_default(),
+        "Dropped Write tests. Position 1 of 1 in Doing.",
+        "the drop is announced",
+    );
+    // The mouse: Ship is pressed, moved past the threshold onto Done and
+    // released there.
+    tab.run(&format!(
+        "const card = [...{todo}.childNodes].find((n) => n.localName === \"li\");\nconst target = {done_list};\n{}{}{}{}",
+        dispatch("card", "pointerdown", "{ pointerType: \"mouse\", button: 0, clientX: 0, clientY: 0 }"),
+        dispatch("target", "pointermove", "{ pointerType: \"mouse\", clientX: 30, clientY: 30 }"),
+        dispatch("target", "pointerup", "{ pointerType: \"mouse\", clientX: 30, clientY: 30 }"),
+        dispatch("target", "click", "{ button: 0 }")
+    ));
+    assert_eq!(tab.run(&count(done_list)), serde_json::json!(1));
+    contains(
+        &tab.text(),
+        "Progress: 1 of 2 cards done",
+        "the progress chart's caption",
+    );
+    contains(&tab.html(), "role=\"img\"", "the chart's SVG");
+    // `BrowserStorage` saved the board as it is now.
+    let saved = tab.run("done(sim.state().storage.get(\"boards\") ?? null);");
+    let saved: serde_json::Value =
+        serde_json::from_str(saved.as_str().unwrap_or("null")).expect("the saved boards are JSON");
+    let columns = &saved[0]["columns"];
+    assert_eq!(saved[0]["title"], serde_json::json!("Launch"));
+    assert_eq!(
+        columns[1]["cards"][0]["title"],
+        serde_json::json!("Write tests")
+    );
+    assert_eq!(columns[2]["cards"][0]["title"], serde_json::json!("Ship"));
+    // The theme buttons switch the look on the document root.
+    let theme = tab.run(
+        "sim.click(\"button\", \"Dark\");\ndone(document.documentElement.getAttribute(\"class\"));",
+    );
+    contains(
+        theme.as_str().unwrap_or(""),
+        "k-theme-dark",
+        "dark root class",
+    );
+}
+
+#[test]
+fn kanban_reopens_a_saved_board_from_its_url() {
+    let dir = TempDir::new("kanban_saved");
+    let mut site = Site::start("kanban", &dir.0, &[]);
+    let board = serde_json::json!([{
+        "id": { "value": "7f1c1a52-6f39-4b9b-9a52-1a2b3c4d5e6f" },
+        "title": "Saved",
+        "columns": [
+            { "id": { "value": "7f1c1a52-6f39-4b9b-9a52-1a2b3c4d5e01" }, "title": "To do", "cards": [
+                { "id": { "value": "7f1c1a52-6f39-4b9b-9a52-1a2b3c4d5e10" }, "title": "Carried over", "notes": "", "priority": "high" }
+            ] },
+            { "id": { "value": "7f1c1a52-6f39-4b9b-9a52-1a2b3c4d5e02" }, "title": "Done", "cards": [] }
+        ],
+        "history": []
+    }]);
+    let storage = serde_json::json!({ "boards": board.to_string() });
+    let mut tab = Tab::open(
+        &mut site,
+        "/boards/7f1c1a52-6f39-4b9b-9a52-1a2b3c4d5e6f",
+        &storage,
+    );
+    let text = tab.text();
+    contains(&text, "Saved", "the board's heading");
+    contains(&text, "Carried over", "its card");
+    contains(&text, "High", "the card's priority");
 }

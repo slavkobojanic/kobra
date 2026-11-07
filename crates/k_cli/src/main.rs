@@ -26,6 +26,7 @@ mod project;
 mod routes;
 mod sources;
 mod test;
+mod workspace;
 
 use std::process::ExitCode;
 

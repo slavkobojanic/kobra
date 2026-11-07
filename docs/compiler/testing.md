@@ -343,8 +343,14 @@ together, plus assertions about inferred types and resolved names. The design of
 [sema.md](sema.md); every semantic code, with its primary span and fix, is in
 [diagnostics.md](diagnostics.md#semantic-codes).
 
-**Two kinds of case:**
+**Three kinds of case:**
 
+- **Workspace:** a project directory whose `k.toml` declares a `[workspace]`
+  (`tests/corpus/sema/workspaces/`). Every member is analysed with the libraries it depends on
+  (`k_sema::Workspace`), and the case's diagnostics are the merged `Workspace::report`, with paths relative
+  to the case directory: `error[K8104] a/k.toml:6:1-6:25`, `error[K4023] shop/src/checkout/Checkout.k:5:27-5:35`.
+  Caret annotations are checked in the analysis of the member owning the file. `stack/` mirrors
+  `examples/stack` without errors; the other cases each produce one workspace or `remote` diagnostic.
 - **Single file:** any `name.k` below `tests/corpus/sema` (outside a project directory). It is analysed
   as the only source file of a library project whose `k.toml` is
   `[package]` / `name = "corpus"` / `k = "0.1"`, at the project path `src/corpus/name.k`. So the module
@@ -613,7 +619,14 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
 - **Pending**: a `test.pending` test passes while it fails and fails once it passes, with a message to
   turn it into `test`, exactly like `.pending` corpus files.
 - **The fake DOM** (`k:testing/dom`, [runtime.md §13](runtime.md#13-testing)) parses compiler-style HTML
-  and throws on malformed input.
+  and throws on malformed input. It has focus (`focus()`, `blur()`, `document.activeElement`) and boxes
+  only where a test gives them: an element's `rect` (`{left, top, width, height}`) is what
+  `getBoundingClientRect` and `document.elementFromPoint` read.
+- **Feature chunks**: `drag.test.js` (pointer, touch with stubbed timers, the keyboard path and its
+  announcements, the indicator, hydration, a fresh document per `k test` test), `drag-ssr.test.js` (the
+  server's markup and the browser claiming it), `files.test.js` (the picker, its errors, downloads over
+  stubbed `URL` and `Blob`) and `keys.test.js` (`KeyboardShortcut`'s filters) test the chunks of
+  [runtime.md §12.3–12.5](runtime.md#123-drag-and-drop).
 - The driver protocol: it evaluates `import { list } from "k:testing"; import "k:/tests/<file>";` to get
   `[{name, pending}]`, then per test `run(name)`, which returns `{"outcome": "passed"}` or
   `{"outcome": "failed", "message": …}` through `op_k_set_result`.
@@ -681,28 +694,43 @@ async fn duplicates_map_to_the_unique_field() {
   an unknown city's 404 hydrated into its `failed` block), `notes` (a wrong password, sign in, a new note
   from the toolbar link, a note created and then deleted elsewhere reaching the page through its open
   `watch()` stream, the stream closed when the page is left, editing the server-rendered note) and `shop`
-  (storefront hydration, a client navigation to a product with one `Product` rpc, the order form's
-  validation without an rpc, placing an order and the receipt's polling).
+  (the `shop` member of the `examples/shop` workspace, with paybox stood in for by a `FakeHttp`:
+  storefront hydration, a client navigation to a product with one `Product` rpc, the order form's
+  validation without an rpc, placing an order, which registers the shop with paybox under a service
+  token, the card form's validation without an rpc, paying, which the shop's server charges through
+  paybox, and the receipt's polling).
 - **The shipped build** (`crates/k_cli/tests/dist_browser.rs`): the same tab and driver against what
   `k build` ships. Each example is built with the `k` binary, its `dist/app serve` runs as a process on a
   free port (a fresh SQLite file for `notes` and `shop`, placeholder secrets), the tab loads the release
-  client files of `dist/public/assets`, and the driver forwards its requests to the process over HTTP.
-  Cases: `todos` (add a todo, `BrowserStorage`, the `Theme` root class and cookie), `weather` (hydration,
+  client files of `dist/public/assets`, and the driver forwards its requests to the process over HTTP. A
+  static-only example (`todos`, `kanban`) has no `dist/app`: its `dist/public` is served by the static
+  host of `tests/support/static_host.rs`, which behaves like the examples' nginx images (immutable
+  `/assets/`, a `no-cache` `index.html` for every other URL).
+  Cases: `todos` (add a todo, `BrowserStorage`, the `Theme` root class and cookie), `kanban` (create a
+  board, which navigates to `/boards/<id>`; add cards with the N `KeyboardShortcut`; move one with Space,
+  ArrowRight and Space and read the live region's announcement; move one with pointer events; the chart;
+  both moves in local storage; the theme; and a board reopened from saved storage at its URL), `weather` (hydration,
   a search debounced on the injected `Clock` through `FetchHttpClient`), `notes` (sign in, the `Session`
   mirror in the layout, a new note, a note saved elsewhere arriving through the `watch()` stream, editing
   the server-rendered note without refetching it) and `shop`
-  (storefront hydration, a client navigation, the order form's validation in the browser, the sign-in
-  page, and no secret value or server-only or production-unbound service name in any client file or
-  response). `dist/app` must exit 0 on `SIGTERM` and log no errors.
-- **A shop order against a fake Stripe** (`shop_dist_app_places_an_order_against_a_fake_stripe`): the
-  production build with `STRIPE_API_URL` pointing at a `FakeHttp` that answers
-  `POST /v1/checkout/sessions`. The tab fills the order form and submits it; one `PlaceOrder` rpc creates
-  the checkout session through `StripeCheckout` and `FetchHttpClient`, and the browser goes to the URL
-  the fake answered with. The fake received the secret key as the bearer token and the order's form
-  fields; the order waits for payment with its stock reserved; the key reached no response.
-- **On Postgres** (`shop_dist_app_places_an_order_on_postgres_when_a_postgres_url_is_given`): the same
-  order on Postgres when `DATABASE_URL` is a `postgres://` URL, in a database the test creates and drops
-  (`CREATE DATABASE` rights needed); skipped, with a note on standard error, otherwise.
+  (storefront hydration, a client navigation, the order form's validation in the browser, a missing
+  product's 404 rendered by its `failed` branch, the sign-in page, and no secret value, service token
+  header or server-only or production-unbound service name in any client file or response). `dist/app`
+  must exit 0 on `SIGTERM` and log no errors.
+- **A shop order through a real paybox**
+  (`shop_dist_app_places_and_pays_an_order_through_a_paybox_dist_app`): both apps of the `examples/shop`
+  workspace built with `k build` and run as two `dist/app` processes with different service secrets, as
+  in its `docker-compose.yml`, and a `FakeSmtp`. The tab places an order, which registers the shop with
+  paybox (paybox's `merchant_account` names the shop by its token) and goes to the card form; the
+  decline card is refused and charges nothing; the success card is charged through paybox, and the tab
+  goes to the receipt. Paybox's `EventDeliveryJob` then calls the shop's `PaymentEvents` signed with the
+  shop's secret: the order is paid with paybox's charge id, paybox's job queue empties, the receipt turns
+  to "Payment received" on its next reload, and exactly one confirmation is sent over SMTP. No service
+  secret reaches a response.
+- **On Postgres** (`shop_dist_app_places_and_pays_an_order_on_postgres_when_a_postgres_url_is_given`):
+  the same order with the shop on Postgres when `DATABASE_URL` is a `postgres://` URL, in a database the
+  test creates and drops (`CREATE DATABASE` rights needed); skipped, with a note on standard error,
+  otherwise.
   `examples/shop/docker-compose.test.yml` starts a throwaway server on `127.0.0.1:55432`:
 
   ```text
@@ -1208,11 +1236,43 @@ codes.
 
 `crates/k_cli/tests/examples.rs` builds **each example** with `k build --out <temp>`, starts its
 `dist/app` on a free port (with `DATABASE_URL=sqlite::memory:` and placeholder values for the required
-configuration), and checks its main page and one rpc: todos (the client-rendered shell and a hashed asset;
-it has no rpc), weather (the server-rendered home page and an asset; it has no rpc), notes (`/` redirects to
-`/sign-in`, which renders; `IsEmailAvailable` answers from the migrated database), shop (the storefront
-renders from the database; `Products` and a typed `notFound`). Each app must stop with exit 0 on `SIGTERM`
-and log no errors. A database that can't be opened exits 1 before the port opens, without the password.
+configuration), and checks its main page and one rpc. The static-only `todos` and `kanban` must build to
+`dist/public` with an `index.html` and no `dist/app`; their `dist/public` is served by the static host,
+and the document (and, for kanban, a deep link) and every hashed asset it links must answer with their
+cache headers; kanban's `nginx.conf` and `Dockerfile` are checked to serve the same way. Then weather (the server-rendered home page and an asset; it has no rpc), notes (`/` redirects to
+`/sign-in`, which renders; `IsEmailAvailable` answers from the migrated database), shop (the `shop` member
+of `examples/shop`: the storefront renders from the database; `Products` and a typed `notFound`) and
+paybox (its member: `/health`, and `Payments` refusing a call without a service token with 401). Each app
+must stop with exit 0 on `SIGTERM` and log no errors. A database that can't be opened exits 1 before the port opens, without the password.
+
+`crates/k_cli/tests/workspaces.rs` covers workspaces end to end on copies of `examples/stack`
+([40-workspaces-and-services.md](../design/40-workspaces-and-services.md)): `k check` at the root and in
+members (the libraries mounted), manifest problems and library errors reported once with real paths;
+`k test` at the root running every member's tests; `k build` at the root writing each app to
+`dist/<name>/` and `rpc.lock` (which must equal the committed one), then a breaking contract change
+failing `k check` until both protocols carrying the type are `@Breaking`, and the next build keeping the
+field number; the two built services calling each other with signed tokens (a typed error crossing both
+hops, a wrong secret mapped to the shop's own error, a call without a token refused with 401); and `k dev`
+at the root serving both apps with their remotes wired, so one rpc to the shop makes paybox call the
+shop back. On a copy of `examples/shop`, run as its README says (each member's `.env` from its
+`.env.example`), `k dev` at the root gives each member its own SQLite database below its own directory,
+and an order placed and paid through the shop is marked paid by paybox's event, with the run's one
+development secret on both sides.
+
+`crates/k_cli/tests/deploy.rs` checks **the deployment files** of `examples/shop` without Docker or a
+cluster. It builds the workspace in a copy (whose `rpc.lock` files must equal the committed ones), reads
+each app's variables from `dist/<app>/app config`, and parses `docker-compose.yml` (merge keys applied)
+and the Kubernetes manifests (`yaml-rust2`), the ConfigMaps behind `envFrom` and the Secrets that
+`create-secrets.sh` makes. For every container running an app it requires every required variable, a
+secret only as `NAME_FILE` naming a mounted file that comes from a `secrets/` file with a committed
+`.example`, no variable the app doesn't read, health probes on `/health`, the images the Dockerfile
+builds, the service URLs naming existing services, and the two services' tokens paired (the shop signs
+with paybox's `K_SERVICE_TOKEN`, paybox with the shop's, and they differ). It also checks that a
+migration Job runs `dist/app migrate` per app, two shop replicas, that both Postgres setups create
+paybox's database the same way, that Compose and Kubernetes read the same secret files, all generated by
+`scripts/init-secrets.sh`, and that `secrets/` is git- and Docker-ignored. `examples/shop/scripts/e2e.sh`
+runs the Compose stack itself (it needs Docker): a declined card, a paid order confirmed by paybox's
+event, one email in Mailpit, a session shared by the replicas and the sign-in rate limit.
 
 ### 8.2 Server end-to-end tests
 
@@ -1293,9 +1353,11 @@ behavior = "accept"   # or "reject" or "defer"
 ```
 
 `tests/e2e/http-client` and `tests/e2e/email` use them; `crates/k_server/tests/outbound.rs` tests the ops
-against them directly, and `crates/k_server/tests/shop_production.rs` runs the shop built for production
-against a fake Stripe (`FakeHttp`) and a fake mail server (`FakeSmtp`): checkout, Stripe failures, the
-signed webhook, the confirmation job and its email. `crates/k_server/tests/sessions.rs` runs one or two
+against them directly, and `crates/k_server/tests/shop_production.rs` runs the shop's optional Stripe
+binding (the shop built for production with `App.k` edited exactly as its documentation shows) against a
+fake Stripe (`FakeHttp`) and a fake mail server (`FakeSmtp`): checkout, Stripe failures, the signed
+webhook, the confirmation job and its email; and checks that the default build reads no Stripe variable
+and requires paybox's. `crates/k_server/tests/sessions.rs` runs one or two
 servers on a SQLite file for sessions that survive restarts and are shared by replicas.
 
 `crates/k_server/tests/server.rs` covers what a script can't: streamed bodies over the limit, many
@@ -1309,7 +1371,7 @@ serves projects like the e2e one. One test there is pending (stream back-pressur
   a message when no browser is found.
 - **Example apps:** each app under `examples/` has its own K tests and is built and smoke-tested by the
   e2e suite (§8.1). `k test` runs both sides of them (§8.4), and every example's own tests pass:
-  `todos`, `weather`, `notes` and `shop`.
+  `todos`, `weather`, `notes`, `kanban`, and every member of the workspaces `shop` and `stack`.
 
 ### 8.4 `k test` and the project commands
 
@@ -1317,8 +1379,9 @@ serves projects like the e2e one. One test there is pending (stream back-pressur
 their output byte for byte with golden files in `crates/k_cli/tests/golden/` (hand-written first; a
 format change is a reviewed diff):
 
-- **`k routes`** on `examples/shop` (endpoint pages, methods, guards, path parameters) and `examples/notes`
-  (query parameters with defaults), and on a fixture with `routes.lock` redirects and an endpoint with two
+- **`k routes`** on `examples/shop/shop` (endpoint pages, methods, guards, path parameters),
+  `examples/shop/paybox` (endpoints only) and `examples/notes` (query parameters with defaults), at a
+  workspace root (exit 2, naming the members), and on a fixture with `routes.lock` redirects and an endpoint with two
   methods; a project without pages prints only the header; errors exit 1, a non-project 2.
 - **`k migrate new`** on a fixture catalog (the first migration and lock: every column kind, a relation),
   on `examples/notes` taken back to before pinning (an added column with its default: the generated file
@@ -1331,7 +1394,9 @@ format change is a reviewed diff):
   (exit 1), a project without tests (exit 0), a project with errors (exit 1, the errors printed), every
   test of `examples/todos`, and `--watch` re-running only the test files a change affects (an edit of
   `CounterView.k` re-runs `CounterView.test.k` only; of `Counter.k`, both).
-- **Every example's own tests** (`test_runs_the_{todos,weather,notes,shop}_example`): all must pass, the
+- **Every example's own tests** (`test_runs_the_{todos,weather,notes,shop,kanban}_example`; kanban's
+  drags with `drag(to:)` and the keyboard, its shortcuts, forms, files through `TestFiles` and progress on
+  the `TestClock`), and `k check` plus a static `k build` of kanban with its feature chunks: all must pass, the
   server-side ones included (sessions, guards, repositories on a fresh database, server streams,
   `TestClient` through endpoint pages and server rendering, `InlineJobQueue` and `RecordingEmailProvider`,
   server-side `use` rules and configs bound by value).

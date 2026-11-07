@@ -1,0 +1,6 @@
+[package]
+name = "a"
+k = "0.1"
+
+[dependencies]
+b = { workspace = true }

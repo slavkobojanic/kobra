@@ -677,6 +677,18 @@ codes! {
     /// An endpoint page whose dependencies reach `Session` or `SessionManager` must inject `Session` itself.
     ENDPOINT_SESSION_NOT_INJECTED = 4022, "endpoint-session-not-injected", Error,
         "An endpoint page whose dependencies reach `Session` or `SessionManager` must inject `Session` itself.";
+    /// A protocol from a dependency that the app doesn't implement is injected without a `remote` rule.
+    MISSING_REMOTE_RULE = 4023, "missing-remote-rule", Error,
+        "A protocol from a dependency that the app doesn't implement needs a `use remote(Config) for Protocol` rule.";
+    /// A `remote` rule names something other than a library protocol the app doesn't implement.
+    REMOTE_RULE_NOT_ALLOWED = 4024, "remote-rule-not-allowed", Error,
+        "A `remote` rule binds only a protocol from a library dependency that the app doesn't implement.";
+    /// `remote(…)` names something that isn't a config implementing `RemoteService` with a `url` and a `token`.
+    NOT_A_REMOTE_SERVICE = 4025, "not-a-remote-service", Error,
+        "`remote(…)` takes a config that implements `RemoteService`, with `url: Url` and `token: Secret<String>`.";
+    /// `RemoteClient.at` builds a client of a protocol, given by the type its result is used as.
+    REMOTE_CLIENT_NOT_A_PROTOCOL = 4026, "remote-client-not-a-protocol", Error,
+        "`RemoteClient.at` builds a client of a protocol: use it where a protocol type is expected.";
 
     // ---------------------------------------------------------------- pages and routing
     /// Two pages or endpoints have the same URL.
@@ -794,6 +806,21 @@ codes! {
     /// `k.toml` is malformed or lacks a required key.
     INVALID_MANIFEST = 8101, "invalid-manifest", Error,
         "`k.toml` is malformed or lacks a required key.";
+    /// A dependency can't be resolved: `{ workspace = true }` names no member of the workspace.
+    UNKNOWN_DEPENDENCY = 8102, "unknown-dependency", Error,
+        "A dependency can't be resolved: `{ workspace = true }` names no member of the workspace.";
+    /// A workspace member directory has no `k.toml`.
+    MISSING_WORKSPACE_MEMBER = 8103, "missing-workspace-member", Error,
+        "A workspace member listed in `members` has no `k.toml`.";
+    /// Packages or workspace members depend on each other in a cycle.
+    PACKAGE_CYCLE = 8104, "package-cycle", Error,
+        "Packages depend on each other in a cycle; the dependency graph must be acyclic.";
+    /// A dependency names an app, which can't be depended on.
+    APP_DEPENDENCY = 8105, "app-dependency", Error,
+        "Only libraries can be depended on; an app can't be a dependency.";
+    /// Two packages of one build declare the same module.
+    DUPLICATE_MODULE = 8106, "duplicate-module", Error,
+        "Two packages of one build declare the same module.";
 
     // --------------------------------------------------------------- driver
     /// A source file that is not valid UTF-8.

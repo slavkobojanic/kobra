@@ -41,6 +41,7 @@ export {
   responseHeaders,
   route,
   session,
+  serviceCaller,
   sessionManager,
   shareState,
   splitTarget,
@@ -63,6 +64,18 @@ export {
   wireEmail,
   wireRequest,
 } from "./outbound.js";
+
+export {
+  DEFAULT_REMOTE_TIMEOUT_MS,
+  SERVICE_TOKEN_HEADER,
+  TOKEN_LIFETIME_MS,
+  remote,
+  remoteCall,
+  remoteOf,
+  serviceToken,
+  testRemote,
+  verifyServiceToken,
+} from "./remote.js";
 
 export {
   Database,

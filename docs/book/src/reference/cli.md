@@ -31,7 +31,19 @@ error.
 
 | Command | Purpose |
 |---|---|
-| `k build` | build the `.production` environment into `dist/` |
+| `k build` | build the `.production` environment into `dist/`, and update `rpc.lock` |
+
+## Workspaces
+
+At the root of a [workspace](../apps/workspaces.md), the commands apply to every member; in a member, to
+that member with the libraries it depends on.
+
+| Command | At a workspace root |
+|---|---|
+| `k check` | check every member, reporting each problem once |
+| `k test` | run every member's tests, each after a `== <name>` line (`--watch` only in a member) |
+| `k build` | build each app into `dist/<name>/` and update its `rpc.lock`; libraries build nothing |
+| `k dev` | run every app, on `--port`, `--port + 1`, …, with each `remote` rule wired to the sibling that serves its protocol |
 
 ## Databases
 

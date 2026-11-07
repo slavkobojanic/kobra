@@ -1,13 +1,14 @@
 //! Loading one project for the commands that work on a whole project
 //! (`k routes`, `k migrate`, `k test`): find its `k.toml`, read its files
-//! and analyse them.
+//! and analyse them. A member of a workspace is analysed with the
+//! libraries it depends on (`crate::workspace`).
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use k_sema::{AnalysisHost, Options as SemaOptions, ProjectPath};
+use k_sema::{AnalysisHost, ProjectPath, Workspace};
 
-use crate::sources;
+use crate::{sources, workspace};
 
 /// A loaded project.
 pub struct Project {
@@ -15,6 +16,8 @@ pub struct Project {
     pub root: PathBuf,
     /// The analysis host over its files.
     pub host: AnalysisHost,
+    /// The workspace root, the plan and this project's member.
+    ws: (PathBuf, Workspace, usize),
 }
 
 impl Project {
@@ -27,37 +30,50 @@ impl Project {
         );
         ExitCode::from(1)
     }
+
+    /// How a path of the analysis is shown: relative to the working
+    /// directory, a library's file at its own place in the workspace.
+    #[must_use]
+    pub fn display(&self, path: &ProjectPath) -> String {
+        let (root, ws, member) = &self.ws;
+        let real = ws
+            .real_path(*member, path)
+            .unwrap_or_else(|| path.to_string());
+        sources::display(&root.join(real))
+    }
+
+    /// The `[package] name` of the project.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.ws.1.members[self.ws.2].name
+    }
 }
 
-/// Reads every file of the project at `root` (the one with `k.toml`).
+/// Reads every file of the project at `root` (the one with `k.toml`), with
+/// the libraries it depends on when it is a member of a workspace.
+/// `command` names the command for the error about a workspace root.
 ///
-/// Prints the problem and returns exit status 2 when `root` has no
-/// `k.toml`, and status 1 when some file can't be read.
-pub fn load(root: &Path) -> Result<Project, ExitCode> {
-    let files = read(root)?;
-    Ok(Project {
-        root: root.to_path_buf(),
-        host: AnalysisHost::with_files(SemaOptions::new(), files),
-    })
+/// Prints the problem and returns exit status 2 when `root` is not a
+/// project (or is a workspace root), and status 1 when some file can't be
+/// read.
+pub fn load(root: &Path, command: &str) -> Result<Project, ExitCode> {
+    let (loaded, member) = workspace::load_member(root, command)?;
+    Ok(project_of(root, &loaded, member))
 }
 
-/// The files of the project at `root`, with the same rules as [`load`].
+/// The project of member `member` of `loaded`, shown as `root`.
+#[must_use]
+pub fn project_of(root: &Path, loaded: &workspace::Loaded, member: usize) -> Project {
+    Project {
+        root: root.to_path_buf(),
+        host: loaded.host(member),
+        ws: (loaded.root.clone(), loaded.workspace.clone(), member),
+    }
+}
+
+/// The files of the analysis of the project at `root`, with the same rules
+/// as [`load`].
 pub fn read(root: &Path) -> Result<Vec<(ProjectPath, String)>, ExitCode> {
-    if !root.join("k.toml").is_file() {
-        eprintln!(
-            "error: `{}` is not a project: it has no k.toml",
-            sources::display(root)
-        );
-        return Err(ExitCode::from(2));
-    }
-    let loaded = sources::load(&[root.to_path_buf()]);
-    let Some(group) = loaded.groups.into_iter().next() else {
-        eprintln!("error: no sources found in `{}`", sources::display(root));
-        return Err(ExitCode::from(2));
-    };
-    if !group.problems.is_empty() {
-        eprintln!("error: some files can't be read; run `k check` for details");
-        return Err(ExitCode::from(1));
-    }
-    Ok(group.files)
+    let (loaded, member) = workspace::load_member(root, "test --watch")?;
+    Ok(loaded.workspace.analysis_files(member))
 }

@@ -1,0 +1,2 @@
+error[K4024] paybox/App.k:5:35-5:43: this app implements `pay.Payments` (`payments.PaymentsApi`), so it can't have a `remote` rule
+  note: a `remote` rule is for a protocol the app calls in another service

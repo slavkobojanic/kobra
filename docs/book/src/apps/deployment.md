@@ -111,8 +111,9 @@ for multi-stage builds:
 FROM ghcr.io/k-lang/k:0.1.0 AS build
 WORKDIR /src
 COPY . .
-# k check fails on any type error, failing test, or lockfile drift (schema.lock included).
+# k check fails on any type error or lockfile drift (schema.lock included); k test on a failing test.
 RUN k check
+RUN k test
 RUN k build
 
 FROM gcr.io/distroless/cc-debian12:nonroot
@@ -135,7 +136,113 @@ services:
     secrets: [db_password]
 ```
 
+Until that image is published, `examples/shop/Dockerfile` shows the alternative: a first stage compiles
+`k` from the repository with the official `rust` image, and `ARG K_TOOLCHAIN` switches to the published
+image when there is one. Nothing in the build needs an account.
+
+## A system of services
+
+`examples/shop` deploys a [workspace](workspaces.md) of two apps, the shop and paybox, its payment
+service, with no account anywhere. It is the worked example for everything on this page.
+
+**One Dockerfile, one image per app.** The build stage runs `k check`, `k test` and `k build` at the
+workspace root, which builds every app into `dist/<name>/app`. The runtime stage copies one of them,
+chosen by a build argument:
+
+```text
+FROM toolchain AS build
+WORKDIR /src
+COPY examples/shop .
+RUN k check
+RUN k test
+RUN k build --out /dist           # /dist/paybox/app, /dist/shop/app
+
+FROM gcr.io/distroless/cc-debian12:nonroot
+ARG APP
+COPY --from=build /dist/${APP}/app /app
+ENTRYPOINT ["/app"]
+CMD ["serve"]
+```
+
+**Docker Compose** (`examples/shop/docker-compose.yml`) runs Postgres with a database per service,
+Mailpit as the SMTP server (with a web inbox), paybox, two shop replicas and Caddy in front of them:
+
+```text
+  shop:
+    build: { context: ../.., dockerfile: examples/shop/Dockerfile, args: { APP: shop } }
+    deploy: { replicas: 2 }
+    environment:
+      DATABASE_URL: postgres://shop@db:5432/shop
+      DATABASE_PASSWORD_FILE: /run/secrets/db_password
+      K_SERVICE_TOKEN_FILE: /run/secrets/shop_service_token      # verifies paybox's callbacks
+      PAYBOX_URL: http://paybox:8080
+      PAYBOX_TOKEN_FILE: /run/secrets/paybox_service_token       # signs the calls to paybox
+      PAYBOX_CALLBACK_URL: http://shop:8080                      # any replica
+    healthcheck:
+      test: ["CMD", "/app", "probe", "http://127.0.0.1:8080/health"]
+```
+
+- **Each service has its own secret**, and a caller signs with the secret of the service it calls:
+  paybox's `K_SERVICE_TOKEN` is the shop's `PAYBOX_TOKEN`, and the shop's is paybox's
+  `PAYBOX_CALLBACK_TOKEN`.
+- **Replicas share nothing but the database,** so the proxy needs no sticky sessions, and paybox can call
+  back whichever replica the service name resolves to.
+- **Secrets are files.** `scripts/init-secrets.sh` writes them into the git-ignored `secrets/`, and only
+  `*.example` placeholders are committed.
+
+**Kubernetes** (`examples/shop/deploy/kubernetes`, for a local kind cluster) runs the same images:
+Postgres as a StatefulSet, a `Job` per app running `dist/app migrate`, Deployments whose startup,
+readiness and liveness probes request `/health`, Services, an Ingress, and ConfigMaps for what isn't
+secret. A script creates the Secrets from the same files, and each pod mounts its Secret at
+`/run/secrets`, so the `NAME_FILE` variables are the ones Compose uses.
+
+**The deployment is checked against the build.** `dist/app config` is the complete list of what an app
+reads, so a test can hold the deployment files to it: the K repository's `crates/k_cli/tests/deploy.rs`
+builds the workspace and fails when a container misses a required variable, sets a variable the app
+doesn't read (a typo), passes a secret as a plain variable, or pairs the services' tokens wrongly.
+
 ## Static hosting
 
 An app with `@Rendering(.client)` and no server-only code builds to static files only, in `dist/public`.
 Upload them to any static host; there is no server to run.
+
+`dist/public/index.html` is the app's document: its metadata, its stylesheet and its entry script around
+an empty `#k-app`. The host should:
+
+- answer `index.html` for every URL that isn't a file, so a deep link such as `/boards/<id>` reaches the
+  client router (the single-page-app fallback);
+- send `index.html` with `Cache-Control: no-cache`, so a new deploy is seen on the next load;
+- send everything below `/assets/` with `Cache-Control: public, max-age=31536000, immutable`, because
+  those names change whenever their content does, and answer 404 for a missing one.
+
+The Kanban example's image does exactly that with nginx:
+
+```dockerfile
+FROM ghcr.io/k-lang/k:0.1.0 AS build
+WORKDIR /src
+COPY . .
+RUN k check
+RUN k build
+
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /src/dist/public /usr/share/nginx/html
+EXPOSE 8080
+```
+
+```nginx
+location /assets/ {
+    try_files $uri =404;
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+}
+
+location / {
+    try_files $uri /index.html;
+    add_header Cache-Control "no-cache" always;
+}
+```
+
+Until the toolchain image is published, `examples/kanban/Dockerfile` builds `k` from this repository in
+a first stage, as the shop's does (its build context is the repository root;
+`--build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0` switches to the published image), and also runs
+`k test` before `k build`.

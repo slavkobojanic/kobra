@@ -42,6 +42,9 @@ No npm, no bundler, no transpiler: the files are shipped as written (compacted i
 | Router (layouts kept across navigations, `document.title`), RPC client, forms, `@Load` (hydrating a failed render too) | `router.js`, `rpc.js`, `forms.js`, `load.js` | **implemented** (extended) |
 | Server streams in the browser (`streamed`: the request envelope, the response read as it arrives) | `runtime/streams.js` | **implemented** (part `Streams`, a chunk of its own, [§8](#8-rpc-client)) |
 | `k.charts.LineChart`, one drawing for the server and the browser | `runtime/charts.js` | **implemented** (part `Charts`, a chunk of its own, [§12.2](#122-charts)) |
+| `k.drag`: `Draggable`, `DropTarget`, `ReorderableList` with pointer, touch and keyboard dragging | `runtime/drag.js` | **implemented** (part `Drag`, a chunk of its own, [§12.3](#123-drag-and-drop)) |
+| `k.device.BrowserFiles`: the file picker and downloads | `runtime/files.js` | **implemented** (part `Files`, a chunk of its own, [§12.4](#124-files)) |
+| `k.ui.KeyboardShortcut` | `runtime/keys.js` | **implemented** (part `Keys`, a chunk of its own, [§12.5](#125-keyboard-shortcuts)) |
 | Native stdlib bodies: collections, strings, numbers, `Decimal`, `Money`, `Currency`, `Instant`, `HashMap`/`HashSet`, typed text parsers (`Url`, `EmailAddress`, `Uuid`, `Color`), `TimeZone`, JSON codecs, route matching shared with the server (`route`, `routeParam`, `splitTarget`, `parseQuery`), streams, `Broadcast`, `Secret`, `$k.guard`, `runMain` | `runtime/std.js` | **implemented** (part `Stdlib`) |
 | SSR escaping and output buffer | `runtime/ssr.js` | **implemented** |
 | Server request loop, `env` | `runtime/server.js` | **implemented** (`serve` turns a broken handler into a `500` and keeps the loop) |
@@ -55,11 +58,13 @@ No npm, no bundler, no transpiler: the files are shipped as written (compacted i
 re-export lines between them removed (`k_runtime::strip_links`; compacted in release builds). Top-level names
 are therefore unique across those files; `crates/k_runtime/tests/runtime.rs` checks it.
 
-**Feature chunks.** `charts.js` (part `Charts`) and `streams.js` (part `Streams`) ship as client chunks of
-their own, `charts.[hash].js` and `streams.[hash].js`, and only to apps whose client uses them: the bundler
-emits a feature chunk when a client chunk references a stdlib symbol the file exports (`k.charts.LineChart`;
-`streamed`, which generated stubs of server-streaming rpcs call), and that chunk imports it instead of binding
-`$k.native(…)`. A feature chunk's imports of other runtime files point at the runtime chunk, which exports
+**Feature chunks.** `charts.js` (part `Charts`), `drag.js` (`Drag`), `files.js` (`Files`), `keys.js`
+(`Keys`), `http.js` (`Http`) and `streams.js` (part `Streams`) ship as client chunks of their own,
+`charts.[hash].js`, `drag.[hash].js` and so on, and only to apps whose client uses them: the bundler
+emits a feature chunk when a client chunk, or the client entry's containers, reference a stdlib symbol the
+file exports (`k.charts.LineChart`; `k.drag.ReorderableList`; `k.device.BrowserFiles`, which the `$App`
+container constructs for `Files`; `k.ui.KeyboardShortcut`; `streamed`, which generated stubs of
+server-streaming rpcs call), and that chunk imports it instead of binding `$k.native(…)`. A feature chunk's imports of other runtime files point at the runtime chunk, which exports
 every name they use ([codegen.md §16](codegen.md#16-the-clientserver-split)). *Deferred*: HMR state
 transfer, streaming SSR of loading boundaries (v0 renders the whole page, then sends it),
 transitions/animation, shipping only the runtime modules an app uses beyond the two feature chunks.
@@ -91,7 +96,9 @@ owns its subtree); from `services.js` `provide`, `afterHydration`, `clock`, `the
 `fetchHttpClient`, `session`, `native`; and from `std.js` (among the stdlib bodies) `route`, `routeParam`, `NO`, `splitTarget`,
 `parseQuery`, `parseUrl`, `urlHost`, `urlPath`, `parseEmail`, `parseUuid`, `parseColor`, `colorHex`,
 `parseTimeZone`, `localTimeZone`, `PushStream`, `payloadFields`. The feature chunks export `LineChart`,
-`lineChart`, `chartKey` and `chartProps` (`charts.js`) and `streamed` (`streams.js`). **`k:runtime/server` exports**: `serve`, `Out`, `escapeText`, `escapeAttribute`,
+`lineChart`, `chartKey` and `chartProps` (`charts.js`), `Draggable`, `DropTarget`, `ReorderableList`,
+`DragKind$init` and `ATTRS` (`drag.js`), `BrowserFiles` and `acceptOf` (`files.js`), `KeyboardShortcut`
+(`keys.js`) and `streamed` (`streams.js`). **`k:runtime/server` exports**: `serve`, `Out`, `escapeText`, `escapeAttribute`,
 `serializeData`, `OPEN`, `CLOSE`, `SEPARATOR`, `KPanic`, `isPanic`, and from `app.js`: `createApp` (the
 request handler of a generated spec), `route` and `param` (typed route matching), `splitTarget`,
 `parseQuery`, `parseCookies`, `RequestState`, `session`, `sessionManager`, `checkGuards`, `Metadata`,
@@ -119,6 +126,9 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | browser services | `services.js` (part `Services`): the client DI helpers and the browser bodies of the stdlib's platform services | ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | 2,124 B |
 | shipped `runtime.<hash>.js` | full client + stdlib bodies + browser services, as `k build` writes it | ≤ 23 KB (the sum of the three; `crates/k_cli/tests/perf_budget.rs`) | 20,795 B gzip |
 | `charts.[hash].js` | `charts.js` (part `Charts`), shipped only to apps that chart | ≤ 3 KB (`CHARTS_SIZE_BUDGET`) | 2,306 B |
+| `drag.[hash].js` | `drag.js` (part `Drag`), shipped only to apps that drag and drop | ≤ 4 KB (`DRAG_SIZE_BUDGET`) | 3,493 B |
+| `files.[hash].js` | `files.js` (part `Files`), shipped only to apps whose client injects `Files` | ≤ 1 KB (`FILES_SIZE_BUDGET`) | 886 B |
+| `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
 | `streams.[hash].js` | `streams.js` (part `Streams`), shipped only to apps with a streaming rpc | ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | 569 B |
 
 The test fails the build when a budget is exceeded. **Decision:** the browser's service support is its own part with its own budget, like the stdlib
@@ -399,6 +409,30 @@ outside `READY`/`RELOADING`.
 
 ---
 
+### 8.1 Remote clients
+
+`runtime/remote.js` (server part; [40-workspaces-and-services.md](../design/40-workspaces-and-services.md)):
+
+- **`remoteCall(r, path, message, signal, stream)`** posts the encoded message to `r.url + path` with
+  `op_k_fetch` (`content-type: application/json`, `connect-protocol-version: 1`, and the token) and
+  resolves to the same outcomes as `rpc`: `{ok, message}`, a Connect error `{kind: "connect", code,
+  details, retryAfter}`, `offline` (refused, unreachable, or a body that isn't JSON, such as a proxy's 502
+  page) or `timeout` after `r.timeoutMs`. An aborted signal cancels the fetch (`op_k_fetch_abort`) and the
+  promise never settles. A streaming rpc panics: streaming between services isn't supported yet.
+- **Bindings.** `remote(caller, url, token, timeoutMs)` (a trailing `/` of the URL dropped, 10 s when
+  the timeout isn't positive), `remoteOf(caller, config)` from a `RemoteService` config instance, and
+  `testRemote(caller)`, the `TestRemote<P>` double whose calls are all `offline` without any I/O.
+- **Service tokens.** `serviceToken(caller, secret, now)` is `v1.<caller>.<expiry>.<mac>`: the caller's
+  name URI-encoded with `.` as `%2E`, the expiry one minute after `now` (ms), and the hex HMAC-SHA256
+  (`op_k_hmac`) of the first three parts. `verifyServiceToken(token, secret, now)` answers the caller's
+  name or `null`, never throws: wrong shape, wrong version, expired, valid for more than two lifetimes
+  (a skewed clock), an empty secret or a MAC that differs (compared in constant time) are all `null`.
+- **The guard** `["service", secret]` in `checkGuards` reads `x-k-service-token`, verifies it against
+  `secret()` (`K_SERVICE_TOKEN`) and stores the caller on the request state for `serviceCaller(st)`
+  (`ServiceCaller.name`); a refusal is `unauthenticated` (401, `rpcFailure(.rejected(.unauthenticated))`
+  for the caller). In-process calls (`callLocal`) skip it: the app's own code needs no token.
+- Tested by `crates/k_runtime/js/tests/remote.test.js`, over stand-ins for `op_k_fetch` and `op_k_hmac`.
+
 ## 9. Forms
 
 `createForm(fields, initial, validate)` backs a `@Form`
@@ -548,6 +582,67 @@ generate ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
   browser's zone); when the key differs from the element's it replaces the contents, so hydration keeps
   the server's drawing when it is the same chart, and a change of the data draws it again.
 
+### 12.3 Drag and drop
+
+`drag.js` (part `Drag`, a feature chunk) is `k.drag` ([41-drag-and-drop.md](../design/41-drag-and-drop.md)):
+
+- **The components.** `Draggable(props, ctx)` renders its `content` slot between block markers in a
+  focusable `div` (`role="group"`, `aria-roledescription="draggable"`, `aria-label` = `label`);
+  `DropTarget` in a `div` (`role="group"`, `aria-label`); `ReorderableList` a `ul` (`aria-label`) whose
+  rows are an `each` over `items` keyed by `key`, each row an `li` drawing the `row` slot again when its
+  item changes under the same key. Every source carries `ATTRS.source` (`tabindex="0"`,
+  `aria-describedby="k-drag-help"`, `touch-action: manipulation`, no selection or callout). While
+  hydrating each claims the server's element (`claimRaw`) and its slot content (`claimRange` over the
+  element's markers); the server renders the same markup from `ATTRS` (`$s.natives["k.drag.…$ssr"]`).
+  `DragKind(name:)` is `{name}` on both sides; kinds compare by name.
+- **One drag at a time**, module state: the drag (`kind`, `payload`, `label`, the source list and index,
+  the target region and position), the regions mounted (registered on their element, removed with their
+  owner) and, per document, one set of pointer listeners on the root element.
+- **Pointer.** `pointerdown` on a source (button 0, not inside a `button`, `input`, `select`, `textarea`
+  or `a`) records a press; a mouse or pen drag starts past 4px, a touch drag after 250ms without moving
+  8px (`setTimeout`; moving first abandons it, so the page scrolls). On start a copy of the source
+  (ids removed, `aria-hidden`, `pointer-events: none`, fixed at the source's box) follows the pointer by
+  `transform`. Each move hit-tests `document.elementFromPoint` (else the event's target) up to a region;
+  over a row of a list the position is that row's, over the list itself its end. `pointerup` drops,
+  `pointercancel` and Escape cancel, the click a drag ends with is swallowed, and `touchmove` is
+  prevented while a drag runs.
+- **Keyboard.** Space or Enter on the source itself picks it up; while carrying, ArrowUp/ArrowDown move
+  within a list (clamped), ArrowLeft/ArrowRight (or any arrow for a `Draggable`) step through the regions
+  that accept the drag in document order, wrapping; Space or Enter drops, Escape and `blur` cancel. Each
+  step sets the text of one assertive live region (`#k-drag-live`); one hidden help text (`#k-drag-help`)
+  describes every source. After a keyboard drop into a list, the row with the moved key gets the focus.
+- **Accepting.** A region accepts a drag of its kind when its `accepts` (default: all) returns true; a
+  list takes back its own item always, and takes no `Draggable`. The region under the drag gets
+  `data-k-drop-target` and an outline in `var(--k-color-drop-target)`; a list shows an `li.k-drop-indicator`
+  (`aria-hidden`, a 2px line in `var(--k-color-drop-indicator)`) before the row the item would land
+  before. Nothing else moves.
+- **Dropping** fires, in a `batch` and then a `flush`, `on$dropped(payload)` of a target or
+  `on$moved({item, fromList, fromIndex, toList, toIndex})` of a list, `toIndex` counted after removing the
+  item from its list; a drop where the item was fires nothing.
+
+### 12.4 Files
+
+`files.js` (part `Files`, a feature chunk) is `k.device.BrowserFiles` ([42-files.md](../design/42-files.md)),
+constructed by the client entry's `$App` for `Files`: `open(c, types)` and `openAll(c, types)` append a
+hidden `<input type="file">` (with `accept` from `acceptOf(types)`: each type's media type and
+`.extension`; `multiple` for `openAll`) and click it synchronously, so the picker opens in the user's
+action; `cancel`, or a `change` with no file, rejects with `FileOpenError.cancelled`, a file over 16 MiB
+with `.tooLarge(limit:)`, a read that fails with `.unreadable`; otherwise each file is read whole
+(`arrayBuffer`) into `{name, mediaType, bytes}`. `save(file)` clicks a hidden `a[download]` over an
+object URL of a `Blob` (revoked 10 s later) and throws `FileSaveError.unavailable` when that fails. The
+errors are the shared `unitCase`s and `{$: 1, limit}`, so the chunk needs no generated enum. `File`'s
+`text`, `size`, `maximumSize` and `fromText`, and `FileType`'s `mediaType` and `fileExtension`, are
+lowered inline by the compiler (`native.rs`). The test double is the kit's `testFiles`.
+
+### 12.5 Keyboard shortcuts
+
+`keys.js` (part `Keys`, a feature chunk) is `k.ui.KeyboardShortcut`
+([43-keyboard-shortcuts.md](../design/43-keyboard-shortcuts.md)): each instance adds one `keydown`
+listener on the document's root element, removed with its owner, and renders an empty comment (the
+server renders nothing, `$s.natives["k.ui.KeyboardShortcut$ssr"]`). A key fires `on$pressed` in a batch,
+and is prevented, unless it was prevented already, Control, Alt or Meta is held, or the target is an
+`input`, `textarea`, `select` or editable element; a one-character key matches in either case.
+
 ---
 
 ## 13. Testing
@@ -561,7 +656,9 @@ generate ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
   `style` attribute is the inline style, as in browsers, so the server's `style="…"` and a binding's
   `style.setProperty` are one style),
   `<template>` with an `innerHTML` parser for compiler-style HTML (malformed HTML throws, so a generator
-  bug shows), bubbling events with `stopPropagation`, `getElementById` and serialization.
+  bug shows), bubbling events with `stopPropagation`, `getElementById` and serialization; focus
+  (`focus()`, `blur()`, `document.activeElement`); and boxes only where a test gives them (`el.rect`,
+  read by `getBoundingClientRect` and `document.elementFromPoint`).
 - **The test kit** (`testing/kit.js`, `k:testing/kit`) is what `k test` runs on: the generated test
   bundle's runtime chunk re-exports the embedded `k:runtime` and the kit (as `$test`), and answers `native`
   from the kit, so generated code, kit and fake DOM share one runtime instance ([codegen.md
@@ -573,11 +670,14 @@ generate ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
   honours `hidden`, `aria-hidden` and `display: none`, `isChecked`, `isPressed`, `isDisabled`, `value`,
   `level`, and the `text` property as `$text()` because `text(_)` is a query); actions that flush (`click`
   toggles a checkbox and submits a form through a submit button, `fill` fires `input` and `change`,
-  `press(.enter)` submits the field's form). An action or state read on a handle that doesn't match exactly
+  `press(.enter)` submits the field's form, `.arrowLeft`/`.arrowRight` and `.character(_)` press those keys,
+  `drag(to:)` presses the mouse on an element, moves it past the drag threshold onto another, releases it
+  and clicks there, as a browser would; `list(named:)` finds a list by its accessible name). An action or state read on a handle that doesn't match exactly
   one element fails the test with the query and the count. The hermetic doubles: `testClock` (virtual time
   from 2026-01-01T12:00:00Z; `advance` fires due timers in due order, then scheduling order),
   `memoryStorage`, `testHttpClient` (canned responses by path; any other request fails the test naming the
-  URL), `recordingJobQueue`, `recordingEmailProvider`. `fail`/`failThrows` throw a panic carrying the
+  URL), `testFiles` (chosen files queued for the next `open`, `.cancelled` with none, `failOpen`,
+  `failSaves`, `saved`, `requests`), `recordingJobQueue`, `recordingEmailProvider`. `fail`/`failThrows` throw a panic carrying the
   expectation's source range and operand values. `run(groups, selected, server, pages)` gives each test a
   fresh fake DOM, fresh browser globals (a deterministic `crypto.randomUUID`, `location`, `history`,
   `matchMedia`) and a fresh container, captures errors thrown by effects flushed in microtasks (and a
@@ -609,7 +709,7 @@ generate ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
 
 | Area | Budget | Measured (release, Apple M-series) |
 |---|---|---|
-| Client runtime size, compacted + compressed | ≤ 5 KB core, ≤ 10 KB full, ≤ 3 KB browser services, ≤ 3 KB charts, ≤ 1 KB streams, ≤ 1.5 KB http | 4,550 B / 9,863 B / 2,340 B / 2,306 B / 569 B / 1,175 B gzip |
+| Client runtime size, compacted + compressed | ≤ 5 KB core, ≤ 10 KB full, ≤ 3 KB browser services, ≤ 3 KB charts, ≤ 1 KB streams, ≤ 1.5 KB http, ≤ 4 KB drag, ≤ 1 KB files, ≤ 512 B keys | 4,550 B / 9,863 B / 2,340 B / 2,306 B / 569 B / 1,175 B / 3,493 B / 886 B / 384 B gzip |
 | Signal write to DOM text update | ≤ 1 µs per binding | 86 ns (1,000 bindings, test DOM in V8) |
 | Signal write through a diamond of three computeds to an effect | ≤ 1 µs | 280 ns |
 | Hydration of a 1,000-node page | ≤ 10 ms | 0.10 ms (1,008 nodes, test DOM) |

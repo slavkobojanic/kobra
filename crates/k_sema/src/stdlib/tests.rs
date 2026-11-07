@@ -87,6 +87,8 @@ fn every_module_is_below_k() {
         "k.core",
         "k.crypto",
         "k.db",
+        "k.device",
+        "k.drag",
         "k.encoding",
         "k.http",
         "k.internal",

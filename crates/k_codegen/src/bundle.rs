@@ -338,12 +338,19 @@ pub(crate) fn client_files(
         contents: runtime,
         kind: FileKind::JavaScript,
     });
-    // Feature chunks ship only when the client uses one of their symbols.
+    // Feature chunks ship only when the client uses one of their symbols:
+    // its items, or the entry's containers (a platform service's browser
+    // body, `BrowserFiles`).
+    let entry_uses: Vec<(DeclId, String)> = entry
+        .as_ref()
+        .map(|(_, uses)| uses.iter().cloned().collect())
+        .unwrap_or_default();
     let mut features: Vec<(usize, String)> = Vec::new();
     for (i, (stem, specifier, _)) in FEATURE_CHUNKS.iter().enumerate() {
         let used = items
             .values()
             .flat_map(|it| it.uses.iter())
+            .chain(entry_uses.iter())
             .any(|(d, sym)| {
                 g.view.decl(*d).stdlib
                     && !items.contains_key(d)
@@ -430,6 +437,8 @@ pub(crate) fn client_files(
     }
     if let Some((entry, uses)) = entry {
         let mut stmts = vec![Stmt::ImportAll("$k".into(), format!("./{runtime_name}"))];
+        // Platform services whose browser body is a feature chunk's.
+        stmts.extend(feature_imports(g, items, &uses, &features));
         // The containers construct services and RPC clients of the shared
         // chunk (`$shared` is replaced by its name below).
         let syms: BTreeSet<String> = uses
@@ -467,6 +476,9 @@ pub(crate) fn client_files(
 /// symbols they implement)` (runtime.md §2).
 const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("charts", "k:/runtime/charts.js", "k/charts"),
+    ("drag", "k:/runtime/drag.js", "k/drag"),
+    ("files", "k:/runtime/files.js", "k/device"),
+    ("keys", "k:/runtime/keys.js", "k/ui"),
     ("streams", "k:/runtime/streams.js", "k/core"),
     ("http", "k:/runtime/http.js", "k/http"),
 ];
@@ -515,6 +527,35 @@ fn client_natives<'a>(
         .into_iter()
         .map(|(name, syms)| Stmt::Import(syms, format!("{prefix}{name}")));
     imports.chain(out).collect()
+}
+
+/// The imports of the stdlib symbols in `uses` that a shipped feature
+/// chunk implements (`features`, as in [`client_natives`]), from the
+/// client entry, which sits next to the chunks. Unlike
+/// [`client_natives`] it binds nothing else: the entry's other stdlib
+/// uses are the shared chunk's.
+fn feature_imports(
+    g: &Gen<'_>,
+    items: &BTreeMap<DeclId, Item>,
+    uses: &BTreeSet<(DeclId, String)>,
+    features: &[(usize, String)],
+) -> Vec<Stmt> {
+    let mut from: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for (d, sym) in uses {
+        if items.contains_key(d) || !g.view.decl(*d).stdlib {
+            continue;
+        }
+        let chunk = feature_of(&module_path(g, *d), sym)
+            .and_then(|i| features.iter().find(|(f, _)| *f == i));
+        if let Some((_, name)) = chunk {
+            from.entry(name.clone())
+                .or_default()
+                .push((sym.clone(), sym.clone()));
+        }
+    }
+    from.into_iter()
+        .map(|(name, syms)| Stmt::Import(syms, format!("./{name}")))
+        .collect()
 }
 
 /// `stem.<hash>.ext`, or `stem.[hash].ext` under the test profile.

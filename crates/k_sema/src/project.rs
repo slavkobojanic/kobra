@@ -101,12 +101,48 @@ impl ProjectPath {
         self.0.rsplit('/').next().unwrap_or(&self.0)
     }
 
+    /// The path of `inner`, a file of the library at workspace directory
+    /// `dir` (`pay-contracts`), as mounted into a member that depends on
+    /// it: `.deps/<dir>/<inner>`, with `%` and `/` of `dir` written as
+    /// `%25` and `%2F` so the directory is one segment. Hidden directories
+    /// are never loaded from disk, so a mounted path can't collide with a
+    /// file of the member (`docs/compiler/sema.md`, "Workspaces").
+    #[must_use]
+    pub fn mounted(dir: &str, inner: &ProjectPath) -> ProjectPath {
+        let segment = dir.replace('%', "%25").replace('/', "%2F");
+        let segment = if segment.is_empty() || segment == "." || segment == ".." {
+            format!("%{segment}")
+        } else {
+            segment
+        };
+        ProjectPath(format!("{DEPENDENCY_DIR}/{segment}/{}", inner.0).into())
+    }
+
+    /// For a path made by [`ProjectPath::mounted`], the library's workspace
+    /// directory and the path inside it; `None` for the member's own files.
+    #[must_use]
+    pub fn dependency(&self) -> Option<(String, ProjectPath)> {
+        let rest = self.0.strip_prefix(DEPENDENCY_DIR)?.strip_prefix('/')?;
+        let (segment, inner) = rest.split_once('/')?;
+        let segment = segment
+            .strip_prefix('%')
+            .filter(|s| s.is_empty() || *s == "." || *s == "..")
+            .unwrap_or(segment);
+        let dir = segment.replace("%2F", "/").replace("%25", "%");
+        Some((dir, ProjectPath::new(inner).ok()?))
+    }
+
     /// Classifies the file by its place in the fixed project layout.
+    ///
+    /// A file of a library mounted into a member that depends on it
+    /// ([`ProjectPath::mounted`]) is classified by its path inside the
+    /// library, except that only its sources take part: its `k.toml`,
+    /// lockfiles, migrations and an `App.k` are [`FileKind::Other`].
     ///
     /// * `k.toml` is the [`FileKind::Manifest`];
     /// * `App.k` is [`FileKind::App`];
-    /// * `protocol.lock`, `routes.lock`, `schema.lock`, `storage.lock` and
-    ///   `k.lock` at the root are [`FileKind::Lockfile`]s;
+    /// * `protocol.lock`, `routes.lock`, `schema.lock`, `storage.lock`,
+    ///   `rpc.lock` and `k.lock` at the root are [`FileKind::Lockfile`]s;
     /// * `src/<dir>/…/<Name>.k` with at least one directory is a
     ///   [`FileKind::Source`] file of the module named by its directories;
     /// * `migrations/<name>.k` is a [`FileKind::Migration`];
@@ -117,6 +153,12 @@ impl ProjectPath {
     /// * everything else is [`FileKind::Other`] and is ignored.
     #[must_use]
     pub fn kind(&self) -> FileKind {
+        if let Some((_, inner)) = self.dependency() {
+            return match inner.kind() {
+                kind @ (FileKind::Source { .. } | FileKind::Stray) => kind,
+                _ => FileKind::Other,
+            };
+        }
         let text = self.as_str();
         match text {
             "k.toml" => return FileKind::Manifest,
@@ -155,6 +197,10 @@ impl fmt::Debug for ProjectPath {
         write!(f, "{:?}", &*self.0)
     }
 }
+
+/// The hidden directory below which a member's analysis holds the files of
+/// the libraries it depends on ([`ProjectPath::mounted`]).
+pub const DEPENDENCY_DIR: &str = ".deps";
 
 /// What a project file is, by its place in the layout.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -207,6 +253,9 @@ pub enum LockfileKind {
     Storage,
     /// `k.lock`: package versions and hashes.
     Packages,
+    /// `rpc.lock`: the shape of every protocol a serving app implements
+    /// (`docs/design/40-workspaces-and-services.md`).
+    Rpc,
 }
 
 impl LockfileKind {
@@ -217,6 +266,7 @@ impl LockfileKind {
         LockfileKind::Schema,
         LockfileKind::Storage,
         LockfileKind::Packages,
+        LockfileKind::Rpc,
     ];
 
     /// Returns the file name at the project root.
@@ -228,6 +278,7 @@ impl LockfileKind {
             LockfileKind::Schema => "schema.lock",
             LockfileKind::Storage => "storage.lock",
             LockfileKind::Packages => "k.lock",
+            LockfileKind::Rpc => "rpc.lock",
         }
     }
 
@@ -375,6 +426,34 @@ mod tests {
         assert!(kind("App.k").is_k_source());
         assert!(kind("Main.k").is_k_source());
         assert!(!kind("k.toml").is_k_source());
+    }
+
+    #[test]
+    fn mounted_paths_round_trip_and_classify_by_their_inner_path() {
+        let inner = ProjectPath::new("src/pay/Payments.k").unwrap();
+        for dir in ["pay-contracts", "libs/contracts", "a%2Fb", "", ".", ".."] {
+            let mounted = ProjectPath::mounted(dir, &inner);
+            assert!(ProjectPath::new(mounted.as_str()).is_ok(), "{mounted}");
+            assert_eq!(mounted.dependency(), Some((dir.to_owned(), inner.clone())));
+        }
+        let mounted = ProjectPath::mounted("libs/contracts", &inner);
+        assert_eq!(
+            mounted.as_str(),
+            ".deps/libs%2Fcontracts/src/pay/Payments.k"
+        );
+        assert_eq!(
+            mounted.kind(),
+            FileKind::Source {
+                module: ModulePath::parse("pay").unwrap(),
+                is_test: false
+            }
+        );
+        for other in ["k.toml", "App.k", "rpc.lock", "migrations/0001_a.k"] {
+            let p = ProjectPath::mounted("lib", &ProjectPath::new(other).unwrap());
+            assert_eq!(p.kind(), FileKind::Other, "{other}");
+        }
+        assert_eq!(kind(".deps/x"), FileKind::Other);
+        assert_eq!(ProjectPath::new("src/a/A.k").unwrap().dependency(), None);
     }
 
     #[test]

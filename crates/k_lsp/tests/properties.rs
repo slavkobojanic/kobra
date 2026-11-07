@@ -40,7 +40,8 @@ const DOCUMENTS: &[(&str, &str)] = &[
     ("todos", "src/todo/TodoService.k"),
     ("weather", "App.k"),
     ("notes", "src/notes/Notes.k"),
-    ("shop", "src/payments/StripeCheckout.k"),
+    ("shop", "shop/src/payments/StripeCheckout.k"),
+    ("shop", "paybox/src/payments/TestCards.k"),
 ];
 
 /// The diagnostic codes of a fresh check of the project with `path` set to
@@ -52,6 +53,25 @@ fn fresh_codes(project: &str, path: &str, text: &str) -> Vec<String> {
     let target = ProjectPath::new(path).unwrap();
     files.retain(|(p, _)| *p != target);
     files.push((target.clone(), text.to_owned()));
+    // In a workspace (`examples/shop`), the file's member is analysed with
+    // the libraries it depends on, as the server does.
+    let manifest = files
+        .iter()
+        .find(|(p, _)| p.as_str() == "k.toml")
+        .map(|(_, t)| t.clone())
+        .unwrap_or_default();
+    let (files, target) = if k_sema::Workspace::is_workspace_manifest(&manifest) {
+        let ws = k_sema::Workspace::from_files(
+            files.into_iter().map(|(p, t)| (p.as_str().to_owned(), t)),
+        );
+        let member = ws.owner_of(path).unwrap();
+        let inner = path
+            .strip_prefix(&format!("{}/", ws.members[member].dir))
+            .unwrap();
+        (ws.analysis_files(member), ProjectPath::new(inner).unwrap())
+    } else {
+        (files, target)
+    };
     let host = AnalysisHost::with_files(Options::new(), files);
     let analysis = host.analysis();
     let id = analysis.file_id(&target).unwrap();
@@ -83,7 +103,10 @@ fn collect(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(Project
         let Ok(pp) = ProjectPath::new(&rel) else {
             continue;
         };
-        if pp.kind() != k_sema::FileKind::Other {
+        // A workspace member's manifest and lockfiles are classified
+        // relative to the member, by `Workspace::from_files`.
+        let member_file = name == "k.toml" || name.ends_with(".lock");
+        if pp.kind() != k_sema::FileKind::Other || member_file {
             out.push((pp, fs::read_to_string(&p).unwrap()));
         }
     }

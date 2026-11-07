@@ -850,10 +850,13 @@ impl Tree<'_, '_, '_> {
                 }
                 continue;
             }
+            // A chained option of a function type may take its lambda as a
+            // trailing block (`.itemLabel { card => card.title }`).
             let value = args
                 .as_ref()
                 .and_then(|l| l.args().next())
-                .and_then(|a| a.value());
+                .and_then(|a| a.value())
+                .or_else(|| lambda.clone().map(ast::Expr::LambdaExpr));
             if let Some(v) = value {
                 if is_stylable {
                     comp.stylables.push((m.clone(), v));
@@ -1848,8 +1851,14 @@ impl Client<'_, '_, '_> {
             });
         }
         let cond = js::arrow(vec![], test.unwrap_or(Expr::Bool(true)));
-        // Bindings of `if let`: read once when the branch renders.
+        // Bindings of `if let`: the branch renders again only when a value
+        // turns nil, so each binding is read through a getter, `x$()`, as a
+        // `for` row reads its item: its uses follow the value while the
+        // branch shows. The getter keeps the last non-nil value, so an
+        // effect that runs before a branch going away is disposed never
+        // sees nil.
         let mut prefix = Vec::new();
+        let mut bound = Vec::new();
         for c in &conds {
             if c.kind() != SyntaxKind::LetCondition {
                 continue;
@@ -1858,22 +1867,43 @@ impl Client<'_, '_, '_> {
                 continue;
             };
             let value = c.children().find_map(ast::Expr::cast);
-            let v = match &value {
-                Some(v) => {
-                    let (pre, x) = self.b.capture(|b| b.expr(v));
-                    prefix.extend(pre);
-                    x
-                }
-                None => self.shorthand(&n),
+            let (mut body, v) = match &value {
+                Some(v) => self.b.capture(|b| b.expr(v)),
+                None => (Vec::new(), self.shorthand(&n)),
             };
             let js_name = self.b.bind(&n);
-            prefix.push(Stmt::Const(js_name, v));
+            // An optional slot (`if let footer`) is placed, not read: it
+            // keeps its plain binding.
+            if value.is_none() && self.is_slot(&n) {
+                prefix.extend(body);
+                prefix.push(Stmt::Const(js_name, v));
+                continue;
+            }
+            let last = format!("{js_name}$last");
+            body.push(Stmt::Const("$v".into(), v));
+            body.push(Stmt::If(
+                bin("!==", id("$v"), Expr::Null),
+                vec![Stmt::Expr(js::assign(id(&last), id("$v")))],
+                None,
+            ));
+            body.push(Stmt::Return(Some(id(&last))));
+            prefix.push(Stmt::Let(last, Some(Expr::Null)));
+            prefix.push(Stmt::Const(
+                format!("{js_name}$"),
+                js::arrow_block(vec![], body, false),
+            ));
+            if self.b.signal_locals.insert(js_name.clone()) {
+                bound.push(js_name);
+            }
         }
         let then_nodes = blocks
             .first()
             .map(|b| self.block_nodes(b))
             .unwrap_or_default();
         let then = self.render_fn(&then_nodes, Vec::new(), prefix);
+        for name in bound {
+            self.b.signal_locals.remove(&name);
+        }
         let otherwise = if let Some(ei) = else_if {
             let nested = VNode::If(ei);
             Some(self.render_fn(&[nested], Vec::new(), Vec::new()))
@@ -1884,6 +1914,14 @@ impl Client<'_, '_, '_> {
             })
         };
         (cond, then, otherwise)
+    }
+
+    /// `true` when a shorthand `if let x` names a `@Slot` of the owner.
+    fn is_slot(&self, n: &k_syntax::SyntaxToken) -> bool {
+        self.b.g.view.decl(self.owner).members.iter().any(|&m| {
+            let mi = self.b.g.view.member(m);
+            mi.name == n.text() && mi.has_annotation("Slot")
+        })
     }
 
     /// The value a shorthand `if let x` reads: the member or slot `x`.

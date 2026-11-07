@@ -383,6 +383,10 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K4020 | `config-construction` | error | The call expression that constructs the config, outside test code (`App.k`'s `use` operands are K4011). | — |
 | K4021 | `implements-service` | error | The service's name in the `implements` clause, outside test files and test-only modules. | — |
 | K4022 | `endpoint-session-not-injected` | error | The endpoint page's name token; a note names the path to `Session`/`SessionManager`. | Insert `@Inject let session: Session` (maybe-incorrect). |
+| K4023 | `missing-remote-rule` | error | The type of the `@Inject` field of a protocol from a library dependency that the app neither implements nor binds with `use remote(…) for P`; a note shows the rule to add. Apps only; test code is exempt. | — |
+| K4024 | `remote-rule-not-allowed` | error | The target type of a `remote` rule that isn't a protocol, is implemented by the app (the message names the implementation) or is declared in the app itself (a note says to move it into a library). | — |
+| K4025 | `not-a-remote-service` | error | The argument of `remote(…)` that isn't a config implementing `RemoteService` (or the whole call when it isn't one name); for a `RemoteService` config, its name when `url: Url` or `token: Secret<String>` is missing, or the type of a `url`, `token` or `timeout` field of the wrong type. | — |
+| K4026 | `remote-client-not-a-protocol` | error | `at(…)` of a `RemoteClient.at` call whose result type resolves to a declaration that isn't a protocol. | — |
 
 ### Pages and routing (K5000–K5499)
 
@@ -444,10 +448,15 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 
 | Code | Name | Severity | Primary span | Fix |
 |---|---|---|---|---|
-| K8001 | `breaking-change` | error | The declaration or member that changed; a note names the lockfile entry. | — |
+| K8001 | `breaking-change` | error | The declaration or member that changed; a note names the lockfile entry. For `rpc.lock`: the protocol's name (the app's name for a protocol no longer served), one note per change, a label at the protocol's line in the lock. | — |
 | K8002 | `invalid-lockfile` | error | The offending line, or offset 0. | — |
 | K8003 | `incompatible-job-payload` | error | The payload type argument of the job's `implements Job<…>`; one note per incompatible change, then a note on how to proceed. | — |
-| K8101 | `invalid-manifest` | error | The offending key or line, or offset 0. | — |
+| K8101 | `invalid-manifest` | error | The offending key or line, or offset 0: unreadable TOML, `[package]` without `name` or `k`, a dependency that is neither a git tag nor `{ workspace = true }`, a bad or duplicate `members` entry, a nested workspace, a `[package]` at a workspace root, a package name used twice. | — |
+| K8102 | `unknown-dependency` | error | The `[dependencies]` line of `{ workspace = true }` naming no member (a note lists the members), used outside a workspace, or of a git tag (not resolved yet). | — |
+| K8103 | `missing-workspace-member` | error | The string in the root's `members` naming a directory without `k.toml`; a note says what to create. | — |
+| K8104 | `package-cycle` | error | Each `[dependencies]` line on a cycle between members, in the depending member's `k.toml`; notes: the cycle (`a → b → a`) and the fix. | — |
+| K8105 | `app-dependency` | error | The `[dependencies]` line naming an app member; a note says to share a library instead. | — |
+| K8106 | `duplicate-module` | error | The `[dependencies]` line that brings in a library declaring a module the member (or an earlier library) declares too. | — |
 
 ## Driver codes
 

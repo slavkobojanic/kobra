@@ -27,12 +27,14 @@
  * `failed_precondition` with a `k.TypedError` detail.
  */
 
+import { SERVICE_TOKEN_HEADER, verifyServiceToken } from "./remote.js";
 import { KPanic, isPanic, panic } from "./values.js";
 import { DecodeFailure, Instant, NO, Secret, currencyCode, parseEmail, parseQuery, parseTimeZone, parseUuid, route, routeParam, splitTarget, stringify, toJSON } from "./std.js";
 import { Out, escapeAttribute, escapeText, serializeData } from "./ssr.js";
 import { httpStatus, received, runJobBody, wireRequest } from "./outbound.js";
 import * as http from "./http.js";
 import { chartKey, chartProps, lineChart } from "./charts.js";
+import { ATTRS as DRAG, DragKind$init } from "./drag.js";
 
 const ops = globalThis.Deno?.core?.ops;
 
@@ -186,6 +188,8 @@ export class RequestState {
     /** @type {string|null} a `Set-Cookie` value to send */
     this.setCookie = null;
     this.clientAddress = request.remote ?? "";
+    /** The verified calling service of a `ServiceAuthenticated` rpc, or `null`. */
+    this.serviceCaller = null;
     /**
      * The running test of `k test`, or `null` (21-testing.md): its virtual
      * clock, its per-test instances, its group's server container and its
@@ -422,11 +426,40 @@ export async function checkGuards(st, guards) {
         if (wait > 0) return { kind: "rate", retryAfter: wait };
         break;
       }
+      case "service": {
+        // `ServiceAuthenticated` (40-workspaces-and-services.md): a valid
+        // service token signed with `K_SERVICE_TOKEN`; `g[1]` reads it.
+        let secret = null;
+        try {
+          secret = typeof g[1] === "function" ? g[1]() : null;
+        } catch {
+          secret = null;
+        }
+        const token = st.headers?.find?.(([n]) => n === SERVICE_TOKEN_HEADER)?.[1];
+        const now = st.test?.clock ? st.test.clock.now.ms : ops?.op_k_now ? ops.op_k_now() : Date.now();
+        const caller = verifyServiceToken(token, secret, now);
+        if (caller === null) return { kind: "unauthenticated" };
+        st.serviceCaller = caller;
+        break;
+      }
       default:
         throw new KPanic(`unknown guard ${String(g[0])}`);
     }
   }
   return null;
+}
+
+/**
+ * The server's `k.rpc.ServiceCaller`: the name of the service whose token
+ * the current rpc's `ServiceAuthenticated` guard verified, else `null`.
+ * @param {RequestState} st
+ */
+export function serviceCaller(st) {
+  return {
+    get name() {
+      return st.serviceCaller ?? null;
+    },
+  };
 }
 
 // --------------------------------------------------------------- responses
@@ -557,7 +590,8 @@ export async function callLocal(c, rpc, $c, args) {
     const failures = await rpc.validate(args, c, $c);
     if (failures.length) fail(1, { failures });
   }
-  const refused = await checkGuards(st, rpc.guards);
+  // An in-process call is the app's own code: no service token to check.
+  const refused = await checkGuards(st, (rpc.guards ?? []).filter((g) => g[0] !== "service"));
   if (refused !== null) fail(0, { $: ["unauthenticated", "forbidden", "rate"].indexOf(refused.kind), retryAfter: (refused.retryAfter ?? 0) * 1000 });
   return rpc.call(c, $c, args);
 }
@@ -1347,6 +1381,34 @@ function lineChartSsr(props, ctx, out) {
 }
 
 /**
+ * The server's `k.drag` components (41-drag-and-drop.md, "Server
+ * rendering"): the elements and attributes the browser's render
+ * (`ATTRS` of `drag.js`), each slot's content between block markers,
+ * which the hydrating browser claims.
+ */
+const dragSsr = {
+  Draggable(props, _ctx, out) {
+    out.raw(`<div ${DRAG.draggable} aria-label="${escapeAttribute(String(props.label()))}" ${DRAG.source}><!--[-->`);
+    props.content(out);
+    out.raw("<!--]--></div>");
+  },
+  DropTarget(props, _ctx, out) {
+    out.raw(`<div ${DRAG.region} aria-label="${escapeAttribute(String(props.label()))}"><!--[-->`);
+    props.content(out);
+    out.raw("<!--]--></div>");
+  },
+  ReorderableList(props, _ctx, out) {
+    out.raw(`<ul aria-label="${escapeAttribute(String(props.label()))}"><!--[-->`);
+    for (const item of props.items()) {
+      out.raw(`<li ${DRAG.source}><!--[-->`);
+      props.row(item, out);
+      out.raw("<!--]--></li>");
+    }
+    out.raw("<!--]--></ul>");
+  },
+};
+
+/**
  * Server implementations of `@Native` stdlib members that have no
  * generated body, by `module.Owner$member` (the generated bundle falls
  * back to {@link missingNative}). A `Uuid` is its lowercase canonical text,
@@ -1354,6 +1416,12 @@ function lineChartSsr(props, ctx, out) {
  */
 export const natives = {
   "k.charts.LineChart$ssr": lineChartSsr,
+  "k.drag.Draggable$ssr": dragSsr.Draggable,
+  "k.drag.DropTarget$ssr": dragSsr.DropTarget,
+  "k.drag.ReorderableList$ssr": dragSsr.ReorderableList,
+  "k.drag.DragKind$init": DragKind$init,
+  // A shortcut renders nothing; it listens once the browser runs.
+  "k.ui.KeyboardShortcut$ssr": () => {},
   "k.crypto.Password": password,
   "k.crypto.Hmac": { sha256: hmacOf(256), sha512: hmacOf(512) },
   "k.crypto.Mac$matches": macMatches,

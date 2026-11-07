@@ -1,242 +1,286 @@
 # K Shop
 
-A small, production-style shop written entirely in K. Customers browse
-products, check out as guests, and pay through Stripe Checkout. A Stripe
-webhook confirms the payment, and a background job emails a confirmation over
-SMTP. Staff sign in to an admin page that lists orders. The whole app ships
-as one executable, `dist/app`, in a minimal container next to Postgres.
+A small, production-style shop written entirely in K, as a **workspace of two services** and the contract
+library between them ([`docs/design/40-workspaces-and-services.md`](../../docs/design/40-workspaces-and-services.md)):
 
-> The K compiler doesn't exist yet. This example was written by hand against
-> the design in [`docs/design`](../../docs/design) (see
-> [Design documents used](#design-documents-used)) and the grammar in
-> [`docs/compiler/grammar.md`](../../docs/compiler/grammar.md). The commands
-> below describe how it will run.
+- **shop** is the storefront. Customers browse products, check out as guests and pay by card. A
+  background job emails a confirmation over SMTP, and staff sign in to an admin page that lists orders.
+- **paybox** is a fake card payment provider, a server-only K app. It charges test card numbers, refunds,
+  keeps merchants' callback addresses, and tells each merchant about its payments by calling the
+  merchant back from retried background jobs. It has its own database and its own tests.
+- **pay-contracts** is a library holding the two protocols between them, `Payments` (served by paybox)
+  and `PaymentEvents` (served by the shop), and the types they carry.
 
-## What it demonstrates
-
-| Feature | Where |
-|---|---|
-| `Dockerfile` that runs `k check` and `k build`, then copies only `dist/app` into `distroless/cc` | [`Dockerfile`](Dockerfile) |
-| Compose with Postgres, health checks, a named volume and Docker secrets | [`docker-compose.yml`](docker-compose.yml), [`secrets/`](secrets) |
-| Type-safe configuration and secrets, injected only into server-only services | [`StripeWebhookConfig.k`](src/payments/StripeWebhookConfig.k), [`StripeApiConfig.k`](src/payments/StripeApiConfig.k), [`AdminConfig.k`](src/admin/AdminConfig.k) |
-| Entities, repositories, conditional updates and transactions on Postgres | [`src/store`](src/store) |
-| A migration and its committed `schema.lock`, and the job payload recorded in `storage.lock` | [`migrations/`](migrations), [`schema.lock`](schema.lock), [`storage.lock`](storage.lock) |
-| A webhook at a fixed URL, `page StripeWebhook at "/webhooks/stripe"`, verified with HMAC-SHA256 from `k.crypto` (no vendor SDK) | [`StripeWebhook.k`](src/webhooks/StripeWebhook.k), [`StripeSignature.k`](src/payments/StripeSignature.k), [`StripeWebhookVerifier.k`](src/payments/StripeWebhookVerifier.k) |
-| `requires Authenticated, Role(.admin)` on a page and on an rpc, with a typed user id | [`Admin.k`](src/pages/Admin.k), [`AdminProtocol.k`](src/admin/AdminProtocol.k), [`StaffId.k`](src/admin/StaffId.k) |
-| `RateLimit` on rpcs (placing orders, signing in) | [`StoreProtocol.k`](src/store/StoreProtocol.k), [`AdminProtocol.k`](src/admin/AdminProtocol.k) |
-| A background job sending email through `k.server`'s SMTP provider | [`OrderConfirmationJob.k`](src/store/OrderConfirmationJob.k) |
-| SEO metadata: `canonical`, `structuredData`, `socialPreview`, and a real `404` for missing products | [`ProductDetail.k`](src/pages/ProductDetail.k), [`Home.k`](src/pages/Home.k) |
-| `use X for Y in .environment` | [`App.k`](App.k) |
-| Unit, integration and HTTP-level tests next to the source | `*.test.k` |
-| An end-to-end test with Docker Compose and `curl`, with generated secrets | [`scripts/e2e.sh`](scripts/e2e.sh) |
+Everything runs locally with **no account on any service**: `docker compose up` starts Postgres, Mailpit
+(an SMTP server with a web inbox), paybox, two shop replicas and a reverse proxy, and the same system
+runs on a local [kind](https://kind.sigs.k8s.io) cluster with the manifests in
+[`deploy/kubernetes`](deploy/kubernetes). Stripe stays available as an optional binding, off by default.
 
 ## How a purchase flows
 
-1. `ProductDetail` submits an `@Form` of `OrderRequest` to `StoreService`,
-   which calls `StoreProtocol.placeOrder`. The rpc is rate limited to 10 a
-   minute per client, and the request is validated on the server too; a
-   server-side validation failure comes back as `rpcFailure(.invalid(…))`
-   and is shown under the form's fields.
-2. `StoreApi` reserves stock and records the order in one transaction, using
-   a conditional `UPDATE` so the last unit can't be sold twice. It then asks
-   the `PaymentGateway` for a checkout URL, with return and cancel URLs from
-   `PublicUrls`. If the gateway fails, the order is cancelled and the stock
-   released.
-3. In production, `StripeCheckout` creates a Stripe Checkout Session over
-   HTTP, using the order id as `client_reference_id` and as the idempotency
-   key. The customer pays on Stripe's page.
-4. Stripe calls `/webhooks/stripe`. `StripeWebhookVerifier` checks the
-   `Stripe-Signature` header (HMAC-SHA256 over `"{timestamp}.{raw body}"`,
-   constant-time comparison through `Mac.matches`, five-minute replay
-   window) before reading the JSON.
-5. `PaymentRecorder` checks that the amount matches the order total, marks
-   the order paid with a conditional update, and enqueues
-   `OrderConfirmationJob` through `JobQueue` in the same transaction. A
-   repeated webhook delivery changes nothing and sends no second email.
-6. The worker inside `dist/app` runs the job, which emails the customer
-   through SMTP, retrying with backoff when the server is unavailable.
-7. The customer's `Receipt` page polls with `reload()` until the payment is
-   confirmed.
+```text
+ browser ──▶ shop (2 replicas, behind Caddy) ──Payments──▶ paybox ──▶ Postgres (paybox)
+    ▲              │  ▲                                       │
+    │              │  └──────────PaymentEvents (job)──────────┘
+    │              ▼
+    │           Postgres (shop) ──job──▶ Mailpit (SMTP)
+    └── receipt polls until paid
+```
+
+1. `ProductDetail` submits an `@Form` of `OrderRequest`; `StoreApi` reserves stock and records the order
+   in one transaction (a conditional `UPDATE`, so the last unit can't be sold twice), then asks the
+   `PaymentGateway` for the payment URL.
+2. In production and development the gateway is `PayboxCheckout`. It registers the shop with paybox
+   (`Payments.registerMerchant`, idempotent, giving the address where paybox calls the shop back) and
+   sends the customer to the shop's own card form, `/payment/<order>`. If paybox is unreachable, the
+   order is cancelled and its stock released.
+3. The card form calls the shop's `CardProtocol.pay`. The shop's **server** charges the order's own total
+   through paybox: the browser never talks to paybox, because a remote client holds a service token. The
+   order id is the charge's reference, so paying twice charges once.
+4. Paybox decides by card number (below), records the charge and, in the same transaction, enqueues
+   `EventDeliveryJob`. The job calls the shop's `PaymentEvents.chargeSucceeded` at the registered
+   callback URL with `RemoteClient.at`, retrying with backoff while the shop is unreachable.
+5. The shop's `PaymentEventsApi` hands the charge to `PaymentRecorder`, which marks the order paid with a
+   conditional update and enqueues `OrderConfirmationJob` in the same transaction; a repeated event
+   changes nothing. The job emails the customer through SMTP.
+6. The customer's `Receipt` polls with `reload()` until the payment is confirmed.
+
+### Test cards
+
+Paybox is a stand-in for a payment provider, so it never moves money. Like a provider's test mode, the
+card number decides what happens (any spaces or dashes are ignored):
+
+| Card number | Outcome |
+|---|---|
+| `4242 4242 4242 4242` | the charge succeeds |
+| `4000 0000 0000 0002` | declined: card declined |
+| `4000 0000 0000 9995` | declined: insufficient funds |
+| `4000 0000 0000 0069` | declined: expired card |
+| any other number of 12 to 19 digits that passes the Luhn check | the charge succeeds |
+| anything else | not a card number |
 
 ## Structure
 
 ```
-App.k                         the app: per-environment payment gateway, layout, sign-in page
-k.toml                        manifest
-schema.lock                   the schema the migrations produce, checked by `k check`
-storage.lock                  the confirmation job's name and payload shape, checked by `k check`
-migrations/                   0001 creates the tables
-src/
-  theme/ShopTheme.k           design tokens
-  store/                      catalog and orders: entities, repositories, StoreProtocol,
-                              its server implementation (StoreApi) and client service
-                              (StoreService), PaymentRecorder and OrderConfirmationJob
-  payments/                   PaymentGateway and its two implementations, Stripe
-                              signature verification, Stripe configs. Knows nothing
-                              about orders, so `store` imports `payments` and never
-                              the reverse.
-  admin/                      staff sign-in and the order list: AdminProtocol, AdminApi,
-                              AdminService, StaffId, StaffRole, AdminConfig
-  webhooks/StripeWebhook.k    the endpoint page Stripe calls
-  ops/HealthCheck.k           GET /health for Docker health checks
-  pages/                      Storefront layout, Home, ProductDetail, Receipt, SignIn,
-                              Admin, and the ProductCard component
-  testing/                    test-only module: Stripe event builder, shared samples
-scripts/e2e.sh                end-to-end test
-scripts/demo-catalog.sql      the three demo products, for `k dev` and the end-to-end test
-secrets/*.example             placeholder Docker secrets; real ones are git-ignored
+k.toml                        [workspace] members = ["pay-contracts", "paybox", "shop"]
+Dockerfile                    builds the toolchain, checks and tests every member, ships one app (APP=paybox|shop)
+Dockerfile.dockerignore       the build context is the repository; only sources go in
+docker-compose.yml            Postgres, Mailpit, paybox, 2 shop replicas, Caddy
+docker-compose.test.yml       a throwaway Postgres for the compiler's test suite
+deploy/caddy/Caddyfile        the reverse proxy in front of the shop replicas
+deploy/postgres/              creates paybox's own database next to the shop's
+deploy/kubernetes/            kind cluster, manifests, Secrets script and walkthrough
+scripts/init-secrets.sh       generates every secret into secrets/ (git-ignored)
+scripts/e2e.sh                builds and starts the Compose stack, checks it over HTTP, tears it down
+secrets/*.example             placeholders; real secrets are never committed
+
+pay-contracts/                library (no App.k)
+  src/pay/                    Payments, PaymentEvents, ChargeRequest, CardDetails, Charge, Refund,
+                              Merchant, and their errors: ChargeError, DeclineReason, RefundError,
+                              RegistrationError
+
+paybox/                       app: serves Payments, calls each merchant's PaymentEvents
+  App.k                       no rules to choose: merchants' addresses are known only at run time
+  rpc.lock, schema.lock,      generated lockfiles: Payments' shape (which deployed shops rely on),
+  storage.lock                the tables, the delivery job's payload
+  migrations/                 0001 creates merchant_account, charge_record, refund_record
+  src/merchants/              MerchantAccount, MerchantRepository, CallingMerchant (who is calling)
+  src/payments/               PaymentsApi, TestCards, charges and refunds, EventDeliveryJob,
+                              MerchantNotifier and RemoteNotifier (RemoteClient.at), CallbackConfig
+  src/ops/HealthCheck.k       GET /health
+  src/testing/                test-only: TestMerchant, RecordingMerchant, samples
+
+shop/                         app: serves StoreProtocol, AdminProtocol, CardProtocol, PaymentEvents
+  App.k                       use remote(PayboxService) for Payments; the gateway per environment;
+                              the optional Stripe binding (off)
+  rpc.lock, schema.lock,      generated lockfiles
+  storage.lock
+  migrations/                 0001 creates the catalog and orders
+  scripts/demo-catalog.sql    the three demo products
+  src/
+    store/                    catalog and orders: entities, repositories, StoreProtocol, StoreApi,
+                              StoreService, PaymentRecorder, OrderConfirmationJob
+    payments/                 PaymentGateway, LocalCheckout (tests), and the optional Stripe binding:
+                              StripeCheckout, StripeWebhookVerifier, StripeDisabled (the default)
+    paybox/                   paying through paybox: PayboxCheckout, the Payment page, CardProtocol,
+                              CardApi, CardService, PaymentEventsApi, PayboxService, PayboxCallbackConfig
+    admin/                    staff sign-in and the order list
+    webhooks/StripeWebhook.k  the endpoint Stripe calls when Stripe is enabled (404 otherwise)
+    ops/HealthCheck.k         GET /health
+    pages/                    Storefront layout, Home, ProductDetail, Receipt, SignIn, Admin, ProductCard
+    testing/                  test-only: FakePaybox, the Stripe event builder, shared samples
 ```
 
-Every file holds at most one public declaration, named after the file;
-helpers in the same file are module-private. Members of a public type are
-public unless marked `private`. Each directory is a module.
+Every file holds at most one public declaration, named after the file; helpers in the same file are
+module-private. Each directory is a module.
 
 ## Running it
+
+Every command below runs at the workspace root unless it says otherwise. They need the `k` toolchain;
+the Docker image builds its own from this repository.
 
 ### Development
 
 ```bash
-cp .env.example .env
-for f in secrets/*.example; do cp -n "$f" "${f%.example}"; done
-# Replace the placeholder hash with a real one (see Configuration):
-printf '%s' 'your-admin-password' | argon2 "$(openssl rand -hex 16)" -id -t 3 -m 16 -p 4 -e > secrets/admin_password_hash.txt
-docker compose up --detach mail        # optional: Mailpit catches emails at http://localhost:8025
-k dev                                  # applies migrations to .k/dev.sqlite, then serves
+scripts/init-secrets.sh                    # once: secrets/*.txt, and an admin password it prints
+cp paybox/.env.example paybox/.env
+cp shop/.env.example shop/.env
+docker compose up --detach mail            # optional: Mailpit catches emails at http://localhost:8025
+k dev                                      # paybox on 8080, the shop on 8081
+sqlite3 shop/.k/dev.sqlite < shop/scripts/demo-catalog.sql
 ```
 
-Once `k dev` has created the tables, load the demo catalog from another
-terminal: `sqlite3 .k/dev.sqlite < scripts/demo-catalog.sql`.
+Open http://localhost:8081 and pay with `4242 4242 4242 4242`. `k dev` at the root builds and serves both
+apps, wires `PAYBOX_URL` and `PAYBOX_TOKEN` to the paybox it started, and gives both apps one development
+secret generated for the run, so the services trust each other with no setup. Each app keeps its own
+SQLite database below its own directory (`paybox/.k/`, `shop/.k/`). A change anywhere rebuilds and
+restarts both. Sign in at `/sign-in` as `admin@shop.example` with the password `init-secrets.sh` printed
+(it is also in `secrets/admin_password.txt`).
 
-`k dev` uses SQLite under `.k/` and `LocalCheckout`, which skips Stripe and
-sends the customer straight to the receipt. To confirm an order locally, send
-a signed webhook as `scripts/e2e.sh` does. Sign in at `/sign-in` as
-`admin@shop.example` with the password you hashed.
+To run one app alone, run `k dev` in `paybox/`, then `k dev --port 8081` in `shop/`.
 
 ### Tests
 
 ```bash
-k test           # every *.test.k file, against in-memory SQLite
-k test --watch
+k test           # every member's *.test.k files, against in-memory SQLite
+k check          # types, layering and every lockfile, in every member
 ```
 
-Tests never touch the network, a mail server or the environment: `k test`
-installs hermetic defaults for `Clock`, `JobQueue`, `EmailProvider` and
-`HttpClient`, and each test group binds the app's own configs, for example
-`use AdminConfig.sample for AdminConfig`. A group writes `use` only to choose
-something else, such as `use InlineJobQueue for JobQueue` to run jobs.
+Tests never touch the network, a mail server or the environment. In the shop's tests `Payments` is a
+`TestRemote` whose every call is offline; the tests that need answers bind `testing.FakePaybox`. Paybox's
+tests call `PaymentsApi` as the merchant `shop` (`TestMerchant`) and deliver events to an in-process
+`RecordingMerchant`.
 
-`k check` runs the tests too, together with type checking, the formatter
-check, and breaking-change detection on the committed lockfiles:
-`schema.lock` for the database and `storage.lock` for the queued job's
-payload. The compiler generates them. It also generates `protocol.lock` and
-`routes.lock`, which this example doesn't include, because their file
-formats aren't specified yet.
+`k check` also compares each app's protocols with its committed `rpc.lock`: a change that would break a
+deployed caller (a removed field or error case, a changed type) fails unless it is marked
+`@Breaking("…")`. `k build` updates the locks.
 
-### Production build
+### Docker Compose
 
 ```bash
-k build                                  # dist/app
-docker compose up --build --wait         # the whole stack, as in production
-docker compose exec -T db psql --username=shop --dbname=shop < scripts/demo-catalog.sql
-scripts/e2e.sh                           # build, start, exercise over HTTP, tear down
+scripts/init-secrets.sh
+docker compose up --build --wait
+docker compose exec -T db psql --username=shop --dbname=shop < shop/scripts/demo-catalog.sql
 ```
 
-The compose stack uses `stripe/stripe-mock` instead of the real Stripe API,
-so the production build's `StripeCheckout` runs end to end without an
-account. For a real deployment, put real values in `secrets/*.txt` (keep
-them out of version control), set `K_PUBLIC_ORIGIN` to the public `https://`
-origin, point the `SMTP_*` variables at a real mail server, and remove
-`STRIPE_API_URL`.
+Then open http://localhost:8080 (the shop, through Caddy) and http://localhost:8025 (the inbox).
 
-`scripts/e2e.sh` doesn't read `secrets/`: it generates every secret for its
-run, including a random admin password and its hash, and points Compose at
-them with an override file.
+- The **Dockerfile** builds the `k` toolchain from this repository (no published image or registry
+  account is needed; pass `--build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0` to use a published one), runs
+  `k check` and `k test` at the workspace root, and copies only `dist/<app>/app` into
+  `gcr.io/distroless/cc`. The same Dockerfile builds both images, `k-paybox:local` and `k-shop:local`,
+  with `APP=paybox` or `APP=shop`. The first build compiles the toolchain and takes a few minutes; later
+  ones reuse it.
+- **Postgres** holds two databases, `shop` and `paybox`, each owned by its own role;
+  `deploy/postgres/create-paybox-database.sh` creates paybox's when the volume is new.
+- **Two shop replicas** sit behind **Caddy**, which balances between them and takes a replica out of
+  rotation while its `/health` fails. Sessions, rate limits and the job queue are in Postgres, so any
+  replica can answer any request. Paybox calls the shop back at `http://shop:8080`, any replica.
+- **Health checks** use `dist/app probe http://127.0.0.1:8080/health`: the images have no shell or curl.
+- **Secrets** are Docker secrets from the files in `secrets/`, read through `NAME_FILE` variables. Each
+  service has its own service secret: paybox verifies the shop's calls with `paybox_service_token` (the
+  shop signs with it as `PAYBOX_TOKEN`), and the shop verifies paybox's callbacks with
+  `shop_service_token` (paybox signs with it as `PAYBOX_CALLBACK_TOKEN`).
 
-`dist/app config` lists every variable the build reads.
+`scripts/e2e.sh` does all of this with secrets generated for the run, then checks the storefront and SEO,
+a declined card, a paid order confirmed by paybox's event, exactly one confirmation email in Mailpit,
+the admin guard, a session shared by the replicas and the sign-in rate limit, and tears the stack down.
+
+### Kubernetes
+
+[`deploy/kubernetes/README.md`](deploy/kubernetes/README.md) walks through running the same system on a
+local kind cluster: Postgres as a StatefulSet, Mailpit, paybox and two shop pods with probes, a migration
+Job per app, Secrets created from `secrets/` by a script, and an Ingress (or `kubectl port-forward`).
+
+`cargo test -p k_cli --test deploy` checks, without Docker or a cluster, that `docker-compose.yml` and the
+Kubernetes manifests give every container each variable its `dist/app config` lists, every secret as a
+mounted file, and the two services' tokens in the right pairs.
 
 ## Configuration
 
-Values come from environment variables. Secrets can also come from a file
-named by `NAME_FILE`, which is how Docker secrets arrive.
+Values come from environment variables. A secret can also come from a file named by `NAME_FILE`, which is
+how Docker and Kubernetes secrets arrive. `dist/<app>/app config` lists every variable a build reads, and
+`dist/app` refuses to start, listing every problem, when one is missing or malformed.
+
+**paybox**
 
 | Variable | Required | Read by |
 |---|---|---|
-| `K_PUBLIC_ORIGIN` | in production | stdlib `ServerConfig`: canonical links and `PublicUrls` (Stripe return URLs, email links) |
-| `PORT` | no (`8080`) | stdlib `ServerConfig` |
+| `DATABASE_URL`, `DATABASE_PASSWORD[_FILE]` | yes | stdlib `DatabaseConfig` |
+| `K_SERVICE_TOKEN[_FILE]` (secret) | yes | stdlib `ServiceConfig`: verifies the merchants' calls |
+| `PAYBOX_CALLBACK_TOKEN[_FILE]` (secret) | no (`K_SERVICE_TOKEN`) | `payments.CallbackConfig`: signs the calls to merchants; the shop's `K_SERVICE_TOKEN` |
+| `PAYBOX_CALLBACK_TIMEOUT` | no (`5s`) | `payments.CallbackConfig` |
+| `K_PUBLIC_ORIGIN`, `PORT` | no | stdlib `ServerConfig` |
+
+**shop**
+
+| Variable | Required | Read by |
+|---|---|---|
+| `K_PUBLIC_ORIGIN` | in production | stdlib `ServerConfig`: canonical links and `PublicUrls` (payment page, email links) |
+| `PORT`, `K_TRUSTED_PROXIES` | no | stdlib `ServerConfig` |
 | `DATABASE_URL`, `DATABASE_PASSWORD[_FILE]` | yes | stdlib `DatabaseConfig` |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `MAIL_FROM` | yes | stdlib `SmtpConfig` |
-| `STRIPE_WEBHOOK_SECRET[_FILE]` (secret), `STRIPE_WEBHOOK_TOLERANCE` | yes | `payments.StripeWebhookConfig` |
-| `STRIPE_API_KEY[_FILE]` (secret), `STRIPE_API_URL`, `STRIPE_API_TIMEOUT` | in production only | `payments.StripeApiConfig` (only `StripeCheckout` injects it) |
+| `K_SERVICE_TOKEN[_FILE]` (secret) | yes | stdlib `ServiceConfig`: verifies paybox's callbacks |
+| `PAYBOX_URL`, `PAYBOX_TOKEN[_FILE]` (secret), `PAYBOX_TIMEOUT` | yes | `paybox.PayboxService`, the `remote` rule of `Payments` |
+| `PAYBOX_CALLBACK_URL` | yes | `paybox.PayboxCallbackConfig`: the shop's address as paybox reaches it |
 | `SHOP_ADMIN_EMAIL`, `SHOP_ADMIN_PASSWORD_HASH[_FILE]` (secret) | yes | `admin.AdminConfig` |
 
-`dist/app` validates all of them at startup and refuses to start, listing
-every problem, if any are missing or malformed. Tests never read the
-environment.
+The committed `secrets/*.example` files hold placeholders, never working values; in particular
+`admin_password_hash.txt.example` isn't a hash, so the shop refuses to start with it.
+`scripts/init-secrets.sh` writes random values and an Argon2id hash of a random admin password (with the
+`argon2` command-line tool, or in a throwaway `alpine` container when it isn't installed).
 
-The committed `secrets/*.example` files hold placeholders, never working
-values. In particular, `admin_password_hash.txt.example` isn't a hash at all,
-so the app refuses to start until a real one is in place. To make one, hash
-the password with Argon2id and store the PHC string (`$argon2id$v=19$…`) in
-`secrets/admin_password_hash.txt`, for example with the `argon2` command-line
-tool:
+## Paying through Stripe instead (optional)
 
-```bash
-printf '%s' 'your-admin-password' | argon2 "$(openssl rand -hex 16)" -id -t 3 -m 16 -p 4 -e > secrets/admin_password_hash.txt
-```
+`StripeCheckout`, `StripeWebhookVerifier` and their tests stay in `shop/src/payments` as an optional
+binding, **off by default**: `StripeDisabled` makes `/webhooks/stripe` answer `404`, and no Stripe
+variable is read. To take payments through Stripe in production, replace the first two `use` rules in
+`shop/App.k` with the four its documentation shows (`use StripeCheckout for PaymentGateway in
+.production`, …), then set `STRIPE_API_KEY[_FILE]`, `STRIPE_WEBHOOK_SECRET[_FILE]` (see
+`secrets/stripe_*.txt.example`) and register `https://<your origin>/webhooks/stripe` in the Stripe
+dashboard. `STRIPE_API_URL` points `StripeCheckout` at a stand-in such as `stripe/stripe-mock` for local
+runs. The card page and paybox's events stay part of the shop, so the `PAYBOX_*` variables (except
+`PAYBOX_CALLBACK_URL`) are still read. `crates/k_server/tests/shop_production.rs` builds exactly that
+edit and runs a Stripe checkout and its webhook against a fake Stripe.
 
 ## Language features by file
 
 | File | Shows |
 |---|---|
-| `App.k` | `app`, `use … for … in .production`, `@Layout`, `@SignInPage(.signIn)`, app `metadata` |
-| `store/Product.k`, `store/Order.k` | `entity`, `@Id`, `@Unique`, `@Index`, `@Relation`, an `EmailAddress` field, defaults, a method returning a wire struct |
-| `store/ProductRepository.k`, `store/OrderRepository.k` | `repository … for`, awaited lambda queries, `.including`, `.sortedByDescending`, conditional `filter … update` with `and` |
-| `store/OrderStatus.k` | an enum stored as its case names, with a computed property using `match` |
-| `store/OrderRequest.k` | `Validatable` with `@NotBlank`, `@Range`, a self-validating `EmailAddress` field, and custom messages, including `@Format` for an address that doesn't parse |
-| `store/StoreProtocol.k` | `protocol`, `rpc`, typed `throws` on every rpc (`RpcOnlyError` when it has no errors of its own), then `requires RateLimit(10.perMinute)` |
-| `store/StoreApi.k` | `service … implements Protocol`, `guard let`, `database.transaction`, `PublicUrls`, exhaustive `catch`, compensation on failure |
-| `store/CheckoutError.k`, `store/LookupError.k`, `admin/SignInError.k` | rpc error enums with `case rpcFailure(RpcFailure)`, which also carries `.offline` and `.timeout` in the browser |
-| `admin/AdminProtocol.k` | `throws RpcOnlyError` on rpcs with no errors of their own |
-| `store/PaymentRecorder.k` | idempotent state changes, `JobQueue.enqueue(OrderConfirmationJob.kind, …)` inside a transaction whose lambda's last expression is its value, the injected `Clock` |
-| `store/OrderConfirmationJob.k` | `Job<Payload>`, `@Retry`, `@JobName`, `JobError`, `EmailProvider`, `PublicUrls` |
-| `payments/PaymentGateway.k` | an `interface` with two implementations chosen per environment |
-| `payments/StripeCheckout.k` | `HttpClient`, `HttpRequest` builder with `.bearerToken(secret)`, form bodies, `catch … where status.isClientError`, `catch let` |
-| `payments/StripeSignature.k` | a struct with a `static func`, `match` on strings, `Bytes.parse(hex:)`, async `Hmac` keyed by a `Secret`, constant-time `Mac.matches` |
-| `payments/StripeWebhookVerifier.k` | a server-only service injecting a config and the `Clock`, `try await … else`, `Currency.parse(code:)`, `@JsonKey` |
-| `*Config.k` | `config`, `@Env`, `Secret<String>`, `EmailAddress`, defaults, an `@Matches` constraint on a `Secret` field |
-| `admin/AdminApi.k`, `admin/StaffId.k` | `SessionManager.signIn` with a typed `AuthUserId`, `Password.verify` against a `Secret` hash, timing-safe sign-in |
-| `webhooks/StripeWebhook.k`, `ops/HealthCheck.k` | endpoint pages with fixed URLs and `@Post` / `@Get` handlers taking `IncomingRequest`, typed `HttpStatus` responses |
-| `pages/ProductDetail.k` | `@Param`, `@Load`, `@Form` prefilled with `.empty(productSlug:quantity:)`, `bind`, `if` expressions, `loading`, `failed` with its own `metadata` and `status(.notFound)`, rethrowing `.rpcFailure(.invalid)` to the form, handling `.rpcFailure(.offline)` and `.timeout`, `metadata` with `canonical` and `structuredData` |
-| `pages/Admin.k` | `requires Authenticated, Role(.admin)`, a table, conditional classes with `when`, `reload()`, `match` with `default` in `failed` |
-| `pages/Receipt.k` | `match` in a view, `@Effect` with `clock.every` and `onCleanup`, `status(.notFound)` |
-| `pages/SignIn.k` | a typed `@Param let returnTo: Page`, `@Form` starting from `.empty` |
-| `pages/Storefront.k`, `pages/ProductCard.k` | a `layout` with `@Slot`, a `component` with `@Prop`, scoped styles and theme tokens |
-| `testing/*` | a test-only module: fixtures as static members of public extensions, a Stripe event builder |
-| `*.test.k` | `test` groups, `use` overrides (fakes and config values), `expect` and `expect not`, `expect throws` with nested patterns, the `TestClock`, `RecordingEmailProvider` and `RecordingJobQueue` defaults, `InlineJobQueue`, `SessionManager` in tests, `render` with accessibility queries, `TestClient` with `PublicUrls` |
+| `k.toml`, `*/k.toml` | a `[workspace]`, a library, `{ workspace = true }` dependencies |
+| `pay-contracts/src/pay/Payments.k` | a library protocol `requires ServiceAuthenticated`, documented like an API |
+| `shop/App.k` | `use remote(PayboxService) for Payments`, `use … for … in .production`, `@Layout`, `@SignInPage`, app `metadata` |
+| `shop/src/paybox/PayboxService.k` | a `config` that `implements RemoteService` |
+| `shop/src/paybox/CardApi.k` | a server-only remote client, typed library errors mapped to the shop's own |
+| `shop/src/paybox/PaymentEventsApi.k` | serving a library protocol to another service, idempotently |
+| `shop/src/paybox/Payment.k` | `@Load`, `@Form` with a `@NotBlank` message, `Router.navigate(to:)`, handling `.declined(let message)` |
+| `paybox/src/payments/RemoteNotifier.k` | `RemoteClient.at(url:token:timeout:)` typed by its declaration |
+| `paybox/src/payments/EventDeliveryJob.k` | `Job<Payload>`, `@Retry`, `@JobName`, `JobError.retryable` and `.permanent` |
+| `paybox/src/payments/PaymentsApi.k` | `ServiceCaller` through an interface seam, idempotency through a unique key, a transaction that records and enqueues |
+| `paybox/src/payments/TestCards.k` | a dependency-free struct of `static func`s, the Luhn check |
+| `paybox/src/payments/CallbackConfig.k` | an optional `Secret<String>?` with a fallback |
+| `shop/src/store/*` | `entity`, `repository … for`, conditional updates, transactions, `Validatable`, `RateLimit` |
+| `shop/src/store/OrderConfirmationJob.k` | `EmailProvider`, `PublicUrls` |
+| `shop/src/payments/StripeEvents.k`, `StripeDisabled.k` | an optional integration switched by a `use` rule |
+| `shop/src/payments/StripeSignature.k` | `Bytes.parse(hex:)`, async `Hmac` keyed by a `Secret`, constant-time `Mac.matches` |
+| `shop/src/admin/AdminApi.k` | `SessionManager.signIn`, `Password.verify` against a `Secret` hash |
+| `*/src/ops/HealthCheck.k`, `shop/src/webhooks/StripeWebhook.k` | endpoint pages with fixed URLs, `@Get`/`@Post` handlers calling the page's own functions |
+| `shop/src/pages/*` | pages, a layout, a component, `metadata` with `canonical` and `structuredData`, `failed` with `status(.notFound)` |
+| `*.test.k` | `test` groups, `use` overrides (fakes of a library protocol, configs, interfaces), `expect throws`, `InlineJobQueue`, `RecordingEmailProvider`, `TestClient`, `render` |
 
 ## Design documents used
 
-Besides the core design, this example relies on:
-
-- [App structure](../../docs/design/23-app-structure.md),
-  [projects and `k.toml`](../../docs/design/24-projects.md),
-  [config and secrets](../../docs/design/25-config-and-secrets.md),
-  [auth and sessions](../../docs/design/26-auth-and-sessions.md),
-  [endpoint pages](../../docs/design/27-endpoint-pages.md),
-  [RPC wire format](../../docs/design/28-rpc-wire-format.md).
-- [Background jobs](../../docs/design/30-background-jobs.md),
-  [email](../../docs/design/31-email.md),
-  [HTTP client](../../docs/design/32-http-client.md),
-  [bytes and cryptography](../../docs/design/33-crypto.md),
-  [money](../../docs/design/34-money.md),
-  [timers and the clock](../../docs/design/35-time.md),
-  [local storage](../../docs/design/36-local-storage.md#storagelock) (the
-  `storage.lock` format),
+- [Workspaces and services](../../docs/design/40-workspaces-and-services.md),
   [deployment](../../docs/design/38-deployment.md),
-  [doc comments](../../docs/design/39-doc-comments.md).
-- [Persistence](../../docs/design/19-persistence.md) (migrations, writes,
-  `schema.lock`), [testing](../../docs/design/21-testing.md) (test doubles and
-  defaults), [errors](../../docs/design/09-errors.md) (`catch let`),
-  [async data](../../docs/design/14-async-data.md) (`reload()`,
-  `status(_:)`), [forms](../../docs/design/15-forms-and-validation.md) and
-  [views](../../docs/design/05-views.md) (element accessibility).
+  [config and secrets](../../docs/design/25-config-and-secrets.md),
+  [app structure](../../docs/design/23-app-structure.md),
+  [projects and `k.toml`](../../docs/design/24-projects.md).
+- [Background jobs](../../docs/design/30-background-jobs.md), [email](../../docs/design/31-email.md),
+  [RPC wire format](../../docs/design/28-rpc-wire-format.md),
+  [endpoint pages](../../docs/design/27-endpoint-pages.md),
+  [auth and sessions](../../docs/design/26-auth-and-sessions.md), [money](../../docs/design/34-money.md),
+  [bytes and cryptography](../../docs/design/33-crypto.md),
+  [HTTP client](../../docs/design/32-http-client.md).
+- [Persistence](../../docs/design/19-persistence.md), [testing](../../docs/design/21-testing.md),
+  [errors](../../docs/design/09-errors.md), [async data](../../docs/design/14-async-data.md),
+  [forms](../../docs/design/15-forms-and-validation.md).

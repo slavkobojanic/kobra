@@ -1,0 +1,16 @@
+# Format: docs/design/24-projects.md
+#
+# Paybox: the payment service of this workspace. It serves `pay.Payments` to
+# merchant services and calls back their `pay.PaymentEvents`; it has no
+# pages. Configuration and secrets come from the process environment
+# (docs/design/25-config-and-secrets.md).
+
+[package]
+name = "paybox"
+title = "Paybox"
+description = "A fake card payment provider for the other services: test card numbers, refunds and payment events delivered back to merchants."
+k = "0.1"
+version = "0.1.0"
+
+[dependencies]
+pay-contracts = { workspace = true }

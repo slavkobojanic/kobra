@@ -1,0 +1,9 @@
+# The contract library between paybox and its merchants. A library has no
+# App.k: it holds the protocols and the types they carry, and both services
+# depend on it instead of on each other.
+
+[package]
+name = "pay-contracts"
+title = "Paybox contracts"
+description = "The protocols between paybox and the merchants it takes payments for, and the types they carry."
+k = "0.1"

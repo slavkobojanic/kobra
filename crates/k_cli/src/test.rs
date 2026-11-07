@@ -47,7 +47,7 @@ use k_diagnostics::{Diagnostic, FileId, Span, TextRange, TextSize, codes, render
 use k_sema::{Analysis, ProjectPath};
 
 use crate::cli::{ColorChoice, TestArgs};
-use crate::{project, sources};
+use crate::project;
 
 /// One test's outcome, as the kit reports it.
 #[derive(Debug)]
@@ -78,20 +78,52 @@ struct Run {
 
 /// Runs `k test`.
 pub fn run(args: &TestArgs) -> ExitCode {
-    let mut project = match project::load(&args.project) {
-        Ok(p) => p,
-        Err(code) => return code,
-    };
     let color = match args.color {
         ColorChoice::Always => true,
         ColorChoice::Never => false,
         ColorChoice::Auto => std::io::stdout().is_terminal(),
+    };
+    // At a workspace root: every member's tests, members in dependency
+    // order (40-workspaces-and-services.md).
+    if crate::workspace::locate(&args.project).is_some_and(|l| l.member.is_none()) {
+        if args.watch {
+            eprintln!(
+                "error: `k test --watch` runs in one project; run it in a member of the workspace"
+            );
+            return ExitCode::from(2);
+        }
+        return run_workspace(args, color);
+    }
+    let mut project = match project::load(&args.project, "test") {
+        Ok(p) => p,
+        Err(code) => return code,
     };
     let first = run_once(&project, &args.filter, None, color);
     if !args.watch {
         return first;
     }
     watch(&mut project, &args.filter, color)
+}
+
+/// Runs the tests of every member of the workspace at `args.project`, each
+/// after a `== <name>` line; fails when any member fails.
+fn run_workspace(args: &TestArgs, color: bool) -> ExitCode {
+    let loaded = match crate::workspace::load(&args.project) {
+        Ok(l) => l,
+        Err(code) => return code,
+    };
+    let mut worst = ExitCode::SUCCESS;
+    for m in loaded.targets() {
+        let dir = loaded.member_dir(m);
+        let project = project::project_of(&dir, &loaded, m);
+        println!("== {}", project.name());
+        let code = run_once(&project, &args.filter, None, color);
+        if code != ExitCode::SUCCESS {
+            worst = code;
+        }
+        println!();
+    }
+    worst
 }
 
 /// Analyses, builds and runs once: every test, or those of `files` (test
@@ -109,7 +141,7 @@ fn run_once(
     };
     let errors = diagnostics.iter().filter(|d| d.is_error()).count();
     if errors > 0 {
-        let map = analysis.source_map(|p| sources::display(&project.root.join(p.as_str())));
+        let map = analysis.source_map(|p| project.display(p));
         let options = if std::io::stderr().is_terminal() {
             render::HumanOptions::colored()
         } else {
@@ -172,7 +204,7 @@ fn report(analysis: &Analysis, project: &project::Project, run: &Run, color: boo
         .collect();
     if !failed.is_empty() {
         out.push_str("failures:\n\n");
-        let map = analysis.source_map(|p| sources::display(&project.root.join(p.as_str())));
+        let map = analysis.source_map(|p| project.display(p));
         let options = if color {
             render::HumanOptions::colored()
         } else {

@@ -1,0 +1,6 @@
+client contains // file: keys.[hash].js
+client contains import { KeyboardShortcut } from "./keys.[hash].js";
+client contains on$pressed:
+client lacks $k.native("k.ui.KeyboardShortcut")
+client lacks drag.[hash].js
+server contains $s.natives["k.ui.KeyboardShortcut$ssr"]

@@ -1,8 +1,0 @@
-# Secrets reach the container only as Docker secrets at runtime, never as
-# part of the image.
-secrets/
-.env
-
-dist/
-.k/
-scripts/

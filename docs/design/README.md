@@ -58,10 +58,17 @@ K borrows ideas, not syntax. Where another language does something well, K adapt
 | 38 | Deployment | [38-deployment.md](38-deployment.md) |
 | 39 | Documentation comments | [39-doc-comments.md](39-doc-comments.md) |
 | 40 | Workspaces and services | [40-workspaces-and-services.md](40-workspaces-and-services.md) |
+| 41 | Drag and drop | [41-drag-and-drop.md](41-drag-and-drop.md) |
+| 42 | Files: import and export | [42-files.md](42-files.md) |
+| 43 | Keyboard shortcuts | [43-keyboard-shortcuts.md](43-keyboard-shortcuts.md) |
 
 ## Decisions still open
 
-No cross-cutting decision is open. The two most recent ones:
+No cross-cutting decision is open. The most recent ones:
+
+- **Drag and drop is typed by a `DragKind<T>`:** `Draggable`, `DropTarget` and `ReorderableList` in `k.drag` accept only drags of their kind, deliver payloads of its type, work with a pointer, touch and the keyboard, and never move anything themselves: the receiving list fires `moved` and the app changes its state. See [41-drag-and-drop.md](41-drag-and-drop.md).
+- **Keyboard shortcuts are a component:** `KeyboardShortcut(key:label:)` in `k.ui` fires `pressed` while mounted, never while typing, with a modifier, or for a key something already handled. See [43-keyboard-shortcuts.md](43-keyboard-shortcuts.md).
+- **Files are opened and saved through the injected, client-only `Files`:** `open(accepting:)` returns a `File` read whole, `save(_:)` downloads, and both throw typed errors. See [42-files.md](42-files.md).
 
 - **Network failures on the client during an rpc are typed:** `RpcFailure` has `.offline` and `.timeout`, so every rpc declares an error enum with the `rpcFailure(RpcFailure)` case, or `throws RpcOnlyError`. See [28-rpc-wire-format.md](28-rpc-wire-format.md#network-failures).
 - **The clock is injected only:** code writes `@Inject let clock: Clock` and calls `clock.now`, `clock.every(…)` and `clock.after(…)`. There is no `Date.now`, `.ago` or ambient `Timer`; plain functions take `now: Date`. See [35-time.md](35-time.md).

@@ -105,13 +105,28 @@ fn env_of(name: &str) -> Vec<(&'static str, &'static str)> {
             ("DATABASE_URL", "sqlite::memory:"),
             ("SHOP_ADMIN_EMAIL", "admin@example.com"),
             ("SHOP_ADMIN_PASSWORD_HASH", "placeholder"),
-            ("STRIPE_API_KEY", "sk_test_placeholder"),
-            ("STRIPE_WEBHOOK_SECRET", "whsec_placeholder"),
+            // Paybox isn't running: the measured pages and rpcs never call
+            // it.
+            ("K_SERVICE_TOKEN", "placeholder"),
+            ("PAYBOX_URL", "http://127.0.0.1:9"),
+            ("PAYBOX_TOKEN", "placeholder"),
+            ("PAYBOX_CALLBACK_URL", "http://127.0.0.1:9"),
             // The confirmation job's `SmtpEmailProvider` needs `SmtpConfig`.
             ("SMTP_HOST", "localhost"),
             ("MAIL_FROM", "K Shop <orders@shop.example>"),
         ],
         _ => Vec::new(),
+    }
+}
+
+/// The project directory of example `name`: the shop is the `shop` member
+/// of the `examples/shop` workspace.
+fn project_of(name: &str) -> PathBuf {
+    let dir = repo().join("examples").join(name);
+    if name == "shop" {
+        dir.join("shop")
+    } else {
+        dir
     }
 }
 
@@ -122,7 +137,7 @@ fn build(name: &str, out: &Path) -> (PathBuf, Duration) {
     let started = Instant::now();
     let built = Command::new(env!("CARGO_BIN_EXE_k"))
         .arg("build")
-        .arg(repo().join("examples").join(name))
+        .arg(project_of(name))
         .arg("--out")
         .arg(&dist)
         .output()
@@ -458,7 +473,17 @@ fn shipped_client_assets() {
     let budget = k_runtime::FULL_SIZE_BUDGET
         + k_runtime::STDLIB_SIZE_BUDGET
         + k_runtime::SERVICES_SIZE_BUDGET;
-    for name in ["todos", "weather", "notes", "shop"] {
+    // Feature chunks ship only to apps that use them, each within its own
+    // budget (runtime.md §2).
+    let features = [
+        ("charts.", k_runtime::CHARTS_SIZE_BUDGET),
+        ("drag.", k_runtime::DRAG_SIZE_BUDGET),
+        ("files.", k_runtime::FILES_SIZE_BUDGET),
+        ("keys.", k_runtime::KEYS_SIZE_BUDGET),
+        ("streams.", k_runtime::STREAMS_SIZE_BUDGET),
+        ("http.", k_runtime::HTTP_SIZE_BUDGET),
+    ];
+    for name in ["todos", "weather", "notes", "shop", "kanban"] {
         let dir = TempDir::new(name);
         let (dist, _) = build(name, &dir.0);
         let mut files = Vec::new();
@@ -485,6 +510,14 @@ fn shipped_client_assets() {
             let rel = f.strip_prefix(&dist).unwrap().display().to_string();
             if rel.contains("assets/runtime.") {
                 runtime = Some(g);
+            }
+            for (stem, limit) in features {
+                if rel.contains(&format!("assets/{stem}")) {
+                    assert!(
+                        g <= limit,
+                        "{name}: {rel} is {g} bytes gzip (budget {limit})"
+                    );
+                }
             }
             lines.push(format!("  {rel}: {} raw, {g} gzip", bytes.len()));
         }

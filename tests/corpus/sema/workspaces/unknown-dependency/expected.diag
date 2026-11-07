@@ -1,0 +1,2 @@
+error[K8102] shop/k.toml:6:1-6:33: no workspace member is named `contracts`
+  note: the members are `shop`

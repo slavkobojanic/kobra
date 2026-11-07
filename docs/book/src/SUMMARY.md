@@ -49,11 +49,16 @@
 - [Bytes and cryptography](apps/crypto.md)
 - [Time and timers](apps/time.md)
 - [Local storage](apps/local-storage.md)
+- [Drag and drop](apps/drag-and-drop.md)
+- [Importing and exporting files](apps/files.md)
+- [Keyboard shortcuts](apps/keyboard-shortcuts.md)
 - [Testing](apps/testing.md)
 - [Packages](apps/packages.md)
+- [Workspaces and services](apps/workspaces.md)
 - [Document metadata](apps/metadata.md)
 - [The app declaration](apps/app.md)
 - [Deployment](apps/deployment.md)
+- [Example: a Kanban board](apps/kanban.md)
 
 # Reference
 

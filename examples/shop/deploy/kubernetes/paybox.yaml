@@ -1,0 +1,83 @@
+# Paybox: the payment service. The shop reaches it at http://paybox:8080; it
+# has no pages, so nothing outside the cluster does.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: paybox
+  namespace: k-shop
+spec:
+  selector:
+    app: paybox
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paybox
+  namespace: k-shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paybox
+  template:
+    metadata:
+      labels:
+        app: paybox
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      # `serve` drains for up to K_SHUTDOWN_GRACE (25 s) after SIGTERM.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: paybox
+          image: k-paybox:local
+          imagePullPolicy: IfNotPresent
+          args: ["serve"]
+          envFrom:
+            - configMapRef:
+                name: paybox-config
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
+          # /health answers 200 only while the database does.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: secrets
+          secret:
+            secretName: paybox-secrets

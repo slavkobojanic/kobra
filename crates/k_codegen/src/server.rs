@@ -265,6 +265,15 @@ pub(crate) fn guards(b: &mut Body<'_, '_>, node: &SyntaxNode, key: &str) -> Vec<
             .and_then(|a| a.value());
         match name.as_str() {
             "Authenticated" => out.push(Expr::Array(vec![js::str("auth")])),
+            // The secret is read when the guard runs, from the stdlib's
+            // `ServiceConfig` (40-workspaces-and-services.md).
+            "ServiceAuthenticated" => out.push(Expr::Array(vec![
+                js::str("service"),
+                js::arrow(
+                    vec![],
+                    srt("configSecret", vec![js::str("K_SERVICE_TOKEN")]),
+                ),
+            ])),
             "Role" => {
                 let role = arg
                     .as_ref()
@@ -557,10 +566,15 @@ pub(crate) fn is_server_scoped(g: &Gen<'_>, d: DeclId) -> bool {
     scope_of(g, d) == "server"
 }
 
-/// The implementing service of protocol `p`.
+/// The implementing service of protocol `p`: the app's own, never a
+/// test's fake (a fake is bound by a test's `use` rule instead).
 pub(crate) fn implementation(g: &Gen<'_>, p: DeclId) -> Option<DeclId> {
     g.own.iter().copied().find(|&s| {
-        g.view.decl(s).named_kind() == Some(DeclarationKind::Service) && g.implements(s, p)
+        let info = g.view.decl(s);
+        info.named_kind() == Some(DeclarationKind::Service)
+            && !info.is_test
+            && !info.in_test_module
+            && g.implements(s, p)
     })
 }
 
@@ -574,6 +588,8 @@ pub(crate) fn implementation(g: &Gen<'_>, p: DeclId) -> Option<DeclId> {
 ///   `DatabaseJobQueue`, or their `k.test` doubles in a test build);
 /// * `k.server.PublicUrls` is `$s.publicUrls(Page$href)`, absolute URLs
 ///   from `K_PUBLIC_ORIGIN` (docs/design/12-routing.md, "Absolute URLs");
+/// * a stdlib config the app injects is read from the environment like
+///   the app's own (`crate::ui::config_object`), outside tests;
 /// * a stdlib service with a server body is that body
 ///   ([`server_platform_service`]), memoized per container;
 /// * anything else (a stdlib service the v0 server doesn't provide yet) is
@@ -636,6 +652,12 @@ fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Func
                 wanted.push(imp);
             }
             this(g.name(imp))
+        } else if g.view.decl(t).named_kind() == Some(DeclarationKind::Config) && !tests(g) {
+            // A stdlib config the app injects (`k.rpc.ServiceConfig`): read
+            // from the environment like the app's own configs. Tests never
+            // read the environment, so there it stays a stand-in whose use
+            // panics with its name.
+            memo(&name, crate::ui::config_object(b, t))
         } else if let Some(body) = server_platform_service(b, &qualified) {
             if tests(g) && qualified.starts_with("k.test.") && qualified != "k.test.InlineJobQueue"
             {
@@ -723,6 +745,8 @@ fn server_platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Option<Expr
         ),
         // The test's virtual clock, shared with its browser container.
         "k.test.TestClock" => srt("clock", vec![this("$r")]),
+        // The verified caller of a `ServiceAuthenticated` rpc.
+        "k.rpc.ServiceCaller" => srt("serviceCaller", vec![this("$r")]),
         "k.test.TestClient" => {
             let mut args = vec![this("$r")];
             args.extend(stdlib_enums(b, &["k.http.HttpError", "k.http.HttpStatus"]));
@@ -736,7 +760,10 @@ fn server_platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Option<Expr
 /// One `use Impl for Target in .env, …` rule of the app.
 pub(crate) struct UseRule {
     imp: Option<DeclId>,
-    target: Option<DeclId>,
+    /// For `use remote(Config) for Protocol`: the config, `None` when it
+    /// doesn't resolve.
+    pub(crate) remote: Option<Option<DeclId>>,
+    pub(crate) target: Option<DeclId>,
     /// The environments' case names; empty for every environment.
     envs: Vec<String>,
 }
@@ -775,6 +802,7 @@ pub(crate) fn use_rules(g: &Gen<'_>) -> Vec<UseRule> {
         .filter_map(ast::UseDecl::cast)
         .map(|u| UseRule {
             imp: u.implementation().and_then(|t| resolve(&t)),
+            remote: u.value().and_then(|e| remote_config(g, file, &e)),
             target: u.target().and_then(|t| resolve(&t)),
             envs: u
                 .environments()
@@ -789,6 +817,95 @@ pub(crate) fn use_rules(g: &Gen<'_>) -> Vec<UseRule> {
                 .collect(),
         })
         .collect()
+}
+
+/// The config of a `remote(Config)` operand: `Some(None)` when it names
+/// nothing, `None` when the operand isn't `remote(…)`.
+fn remote_config(
+    g: &Gen<'_>,
+    file: k_diagnostics::FileId,
+    e: &ast::Expr,
+) -> Option<Option<DeclId>> {
+    let ast::Expr::CallExpr(c) = e else {
+        return None;
+    };
+    let callee = c.syntax().children().find_map(ast::Expr::cast)?;
+    if callee.syntax().text() != "remote" {
+        return None;
+    }
+    let arg = c
+        .syntax()
+        .children()
+        .find_map(ast::ArgList::cast)
+        .and_then(|l| l.args().next())
+        .and_then(|a| a.value());
+    Some(
+        arg.and_then(|a| match g.resolved(file, a.syntax().text_range()) {
+            Some(k_sema::view::Resolved::Decl(d)) => Some(d),
+            _ => None,
+        }),
+    )
+}
+
+/// The config of the `remote` rule that binds protocol `p` in the
+/// selected environment, if one does.
+pub(crate) fn remote_binding(g: &Gen<'_>, rules: &[UseRule], p: DeclId) -> Option<DeclId> {
+    let env = match g.options.environment {
+        crate::Environment::Production => "production",
+        crate::Environment::Development => "development",
+        crate::Environment::Test => "test",
+    };
+    rules
+        .iter()
+        .find(|r| r.target == Some(p) && (r.envs.is_empty() || r.envs.iter().any(|e| e == env)))
+        .and_then(|r| r.remote.flatten())
+}
+
+/// The manifest's [`crate::RemoteEntry`]s: every protocol a `remote` rule
+/// binds in the selected environment, with its config's `url` and `token`
+/// variables.
+pub(crate) fn remote_entries(g: &Gen<'_>) -> Vec<crate::RemoteEntry> {
+    let rules = use_rules(g);
+    let mut out: Vec<crate::RemoteEntry> = Vec::new();
+    for &p in g.remote_protocols() {
+        let Some(c) = remote_binding(g, &rules, p) else {
+            continue;
+        };
+        let field_env = |name: &str| {
+            g.view
+                .decl(c)
+                .members
+                .iter()
+                .find(|&&m| g.view.member(m).name == name)
+                .and_then(|&m| g.member_node(m))
+                .and_then(|n| env_name(&n))
+        };
+        if let (Some(url_env), Some(token_env)) = (field_env("url"), field_env("token")) {
+            out.push(crate::RemoteEntry {
+                protocol: g.view.qualified_name(p),
+                url_env,
+                token_env,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.protocol.cmp(&b.protocol));
+    out
+}
+
+/// The qualified names of the protocols the app implements, sorted.
+pub(crate) fn served_protocols(g: &Gen<'_>) -> Vec<String> {
+    let mut out: Vec<String> = g
+        .own
+        .iter()
+        .copied()
+        .filter(|&p| {
+            g.view.decl(p).named_kind() == Some(DeclarationKind::Protocol)
+                && implementation(g, p).is_some()
+        })
+        .map(|p| g.view.qualified_name(p))
+        .collect();
+    out.sort();
+    out
 }
 
 /// The implementation interface `iface` is bound to in the selected
@@ -1002,6 +1119,31 @@ fn containers(b: &mut Body<'_, '_>) -> Vec<Stmt> {
             memo(&pname, Expr::New(Box::new(id(local)), vec![Expr::This])),
         ));
     }
+    // Protocols called in another service (40-workspaces-and-services.md):
+    // the remote client of the environment's `remote` rule, or the
+    // `TestRemote` double in a test build, which never opens a socket.
+    let rules = use_rules(g);
+    let caller = g.project_name();
+    for &p in g.remote_protocols() {
+        if implementation(g, p).is_some() {
+            continue;
+        }
+        let pname = g.name(p);
+        let binding = if tests(g) {
+            Some(srt("testRemote", vec![js::str(caller.clone())]))
+        } else {
+            remote_binding(g, &rules, p)
+                .map(|c| srt("remoteOf", vec![js::str(caller.clone()), this(g.name(c))]))
+        };
+        let Some(binding) = binding else {
+            continue;
+        };
+        let class = b.use_decl(p, format!("{pname}$remote"));
+        request.push(getter(
+            pname.clone(),
+            memo(&pname, Expr::New(Box::new(class), vec![binding])),
+        ));
+    }
     // Interfaces and stdlib services that something injects.
     let mut provided: BTreeSet<String> = request.iter().map(|f| f.name.clone()).collect();
     provided.extend(
@@ -1068,12 +1210,15 @@ fn containers(b: &mut Body<'_, '_>) -> Vec<Stmt> {
 
 // --------------------------------------------------------------------- rpc
 
-/// The package of a module, prefixed with the project name like rpc paths
-/// (`rpc_wire.catalog`).
-pub(crate) fn package_of(g: &Gen<'_>, module: &str) -> String {
-    let project = g.project_name().replace('-', "_");
+/// The Protobuf package of declaration `d`: its module, prefixed with the
+/// name of the package that declares it like rpc paths (`rpc_wire.catalog`;
+/// a library's declarations take the library's name, so every app of a
+/// workspace agrees on them).
+pub(crate) fn package_of(g: &Gen<'_>, d: DeclId) -> String {
+    let module = g.view.decl(d).module.clone().unwrap_or_default();
+    let project = g.package_name(d).replace('-', "_");
     if project.is_empty() || module == project || module.starts_with(&format!("{project}.")) {
-        module.to_owned()
+        module
     } else if module.is_empty() {
         project
     } else {
@@ -1453,11 +1598,7 @@ fn rpc_table(b: &mut Body<'_, '_>, helpers: &mut Vec<Stmt>) -> Expr {
                 Some(t) if t.decl().is_some() && t.decl() != rpc_only => {
                     let d = t.decl().unwrap_or(p);
                     let di = g.view.decl(d);
-                    let name = format!(
-                        "{}.{}",
-                        package_of(g, di.module.as_deref().unwrap_or("")),
-                        di.name
-                    );
+                    let name = format!("{}.{}", package_of(g, d), di.name);
                     let text = b.text_fn(&t);
                     // A Codable error's fields are its codec's form, which
                     // the client stub decodes with the same codec.
@@ -2026,6 +2167,33 @@ fn env_name(node: &SyntaxNode) -> Option<String> {
     }
 }
 
+/// The `@Env` variable of field `field` of the stdlib config `d`
+/// (`k.rpc.ServiceConfig.token` is `K_SERVICE_TOKEN`), read from the
+/// stdlib's source; `None` for an app config or an unknown field.
+pub(crate) fn stdlib_config_env(g: &Gen<'_>, d: DeclId, field: &str) -> Option<String> {
+    let qualified = g.view.qualified_name(d);
+    let path = format!("{}.k", qualified.replace('.', "/"));
+    let stdlib = k_sema::stdlib::Stdlib::get();
+    let file = stdlib.files().iter().find(|f| f.path == path)?;
+    let name = g.view.decl(d).name.clone();
+    let ident = |n: &SyntaxNode| {
+        n.children_with_tokens()
+            .filter_map(rowan::NodeOrToken::into_token)
+            .find(|t| t.kind() == SyntaxKind::Ident)
+            .map(|t| t.text().to_owned())
+    };
+    let root = file.parse.syntax();
+    let config = root
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::ConfigDecl)
+        .find(|c| ident(c).as_deref() == Some(name.as_str()))?;
+    let decl = config
+        .descendants()
+        .filter(|c| c.kind() == SyntaxKind::FieldDecl)
+        .find(|f| ident(f).as_deref() == Some(field))?;
+    env_name(&decl)
+}
+
 /// The stdlib configs the production graph reads: the server's
 /// (`ServerConfig`), sessions' when the app signs users in, the database's
 /// when it has entities or repositories, and the job worker's when it has
@@ -2070,6 +2238,36 @@ fn stdlib_configs(g: &Gen<'_>) -> Vec<&'static str> {
     });
     if sends_smtp {
         out.push("k/server/SmtpConfig.k");
+    }
+    // `K_SERVICE_TOKEN` when a protocol the app serves admits only other
+    // services (`requires ServiceAuthenticated`).
+    let guarded = g.own.iter().any(|&p| {
+        g.view.decl(p).named_kind() == Some(DeclarationKind::Protocol)
+            && implementation(g, p).is_some()
+            && g.decl_node(p).is_some_and(|n| {
+                n.descendants()
+                    .filter(|c| c.kind() == SyntaxKind::RequiresClause)
+                    .any(|c| c.text().to_string().contains("ServiceAuthenticated"))
+            })
+    });
+    if guarded {
+        out.push("k/rpc/ServiceConfig.k");
+    }
+    // Any other stdlib config the app's code injects itself
+    // (`@Inject let service: ServiceConfig`).
+    let stdlib = k_sema::stdlib::Stdlib::get();
+    for &d in &reached {
+        for t in injected(g, d) {
+            if g.view.decl(t).named_kind() != Some(DeclarationKind::Config) {
+                continue;
+            }
+            let path = format!("{}.k", g.view.qualified_name(t).replace('.', "/"));
+            if let Some(file) = stdlib.files().iter().find(|f| f.path == path)
+                && !out.contains(&file.path)
+            {
+                out.push(file.path);
+            }
+        }
     }
     out
 }
@@ -2143,6 +2341,12 @@ fn reachable(g: &Gen<'_>) -> BTreeSet<DeclId> {
         }
         for t in injected(g, d) {
             let info = g.view.decl(t);
+            if info.named_kind() == Some(DeclarationKind::Protocol) {
+                // A remote client reads its config (40-workspaces-and-services.md).
+                if let Some(c) = remote_binding(g, &rules, t) {
+                    stack.push(c);
+                }
+            }
             if info.named_kind() == Some(DeclarationKind::Interface) && !info.stdlib {
                 match binding(g, &rules, t) {
                     Some(imp) => stack.push(imp),
@@ -2207,7 +2411,7 @@ pub(crate) fn config_entries(g: &Gen<'_>) -> Vec<crate::ConfigEntry> {
                 cases,
             ) {
                 e.ty = type_text(g, &t);
-                e.secret = g.is(&t, g.b.secret);
+                e.secret = g.is(t.unwrap_optional(), g.b.secret);
                 e.required = e.required && !mi.has_default && !matches!(t, Type::Optional(_));
                 push(e);
             }

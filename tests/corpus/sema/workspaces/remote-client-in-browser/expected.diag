@@ -1,0 +1,2 @@
+error[K4007] shop/src/home/Home.k:1:8-1:25: `checkout.Checkout` is server-only; this file reaches the browser
+  note: checkout.Checkout → pay.Payments (a `remote` client, which holds a service token, is server-only)

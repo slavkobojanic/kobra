@@ -413,9 +413,10 @@ fn definition_type_definition_and_hover_in_todos() {
 
 #[test]
 fn implementations_in_shop_and_notes() {
+    // `examples/shop` is a workspace; the server starts at its root.
     let root = example("shop");
     let mut client = Client::start(&root);
-    let gateway = root.join("src/payments/PaymentGateway.k");
+    let gateway = root.join("shop/src/payments/PaymentGateway.k");
     let text = std::fs::read_to_string(&gateway).unwrap();
     let uri = client.open(&gateway, None);
     let impls = client.request(
@@ -437,12 +438,29 @@ fn implementations_in_shop_and_notes() {
     files.sort();
     assert!(files.contains(&"LocalCheckout.k".to_owned()), "{files:?}");
     assert!(files.contains(&"StripeCheckout.k".to_owned()), "{files:?}");
+    assert!(files.contains(&"PayboxCheckout.k".to_owned()), "{files:?}");
     // The method: each implementing method.
     let impls = client.request(
         "textDocument/implementation",
         at(&uri, position(&text, "startCheckout", 0, 1)),
     );
-    assert!(impls.as_array().unwrap().len() >= 2, "{impls}");
+    assert!(impls.as_array().unwrap().len() >= 3, "{impls}");
+    // A library protocol is implemented in another member: the shop's
+    // call of `payments.charge` reaches paybox's handler.
+    let card_api = root.join("shop/src/paybox/CardApi.k");
+    let text = std::fs::read_to_string(&card_api).unwrap();
+    let uri = client.open(&card_api, None);
+    let impls = client.request(
+        "textDocument/implementation",
+        at(&uri, position(&text, "payments.charge(", 0, 9)),
+    );
+    let files: Vec<PathBuf> = impls.as_array().unwrap().iter().map(path_of).collect();
+    assert!(
+        files
+            .iter()
+            .any(|f| f.ends_with("paybox/src/payments/PaymentsApi.k")),
+        "{files:?}"
+    );
     assert_eq!(client.shutdown(), 0);
 
     // A protocol is implemented by its server service.

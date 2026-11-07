@@ -5580,6 +5580,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                             self.apply_sig(&node, &sig, &subst, &args, expected.as_ref(), kind);
                         if let Some(mm) = member {
                             self.check_numeric_sum(mm, &sig, &recv_ty, &name, &node);
+                            self.check_remote_client(mm, &ret, &name, &node);
                         }
                         self.query_update_depth -= u32::from(update);
                         self.query_lambda_depth -= u32::from(query);
@@ -5913,6 +5914,43 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             range,
             format!("`sum()` adds `Int` or `Double` elements, and `{rendered}` is neither"),
         );
+    }
+
+    /// K4026: `RemoteClient.at(url:token:)` returns a client of the
+    /// protocol its result is used as
+    /// (docs/design/40-workspaces-and-services.md), so that type must be
+    /// known and be a protocol.
+    fn check_remote_client(
+        &mut self,
+        member: MemberId,
+        ret: &Ty,
+        name: &SyntaxToken,
+        call: &SyntaxNode,
+    ) {
+        let m = self.cx.p.member(member);
+        if m.name != "at" || self.cx.p.lookup_qualified("k.rpc.RemoteClient") != Some(m.owner) {
+            return;
+        }
+        let ret = self.resolve(ret);
+        if ret.contains_error() {
+            return;
+        }
+        let protocol = ret
+            .decl()
+            .is_some_and(|d| self.cx.p.decl(d).named_kind() == Some(DeclarationKind::Protocol));
+        if protocol {
+            return;
+        }
+        // An unknown protocol is K2002 at the call already.
+        if ret.decl().is_none() {
+            return;
+        }
+        let range = TextRange::new(name.text_range().start(), call.text_range().end());
+        let message = format!(
+            "`RemoteClient.at` builds a client of a protocol, and `{}` is not one",
+            ret.render(self.cx.p)
+        );
+        self.err(codes::REMOTE_CLIENT_NOT_A_PROTOCOL, range, message);
     }
 
     fn check_status_literal(

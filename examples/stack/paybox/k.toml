@@ -1,0 +1,10 @@
+# The payment service: serves `pay.Payments` and calls `pay.PaymentEvents`.
+
+[package]
+name = "paybox"
+title = "Paybox"
+description = "Takes payments for the other services; it has no pages."
+k = "0.1"
+
+[dependencies]
+pay-contracts = { workspace = true }

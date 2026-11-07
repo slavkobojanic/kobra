@@ -1,0 +1,26 @@
+# The shop at http://localhost:8080, through an ingress controller of class
+# `nginx` and kind's port mapping (kind-config.yaml). Without an ingress
+# controller,
+#
+#   kubectl --namespace k-shop port-forward service/shop 8080:8080
+#
+# serves the same origin.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop
+  namespace: k-shop
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: shop
+                port:
+                  name: http

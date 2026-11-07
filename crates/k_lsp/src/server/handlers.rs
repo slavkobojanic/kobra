@@ -4,7 +4,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use k_diagnostics::{Diagnostic as KDiagnostic, FileId, Severity, Span, TextRange, TextSize};
 use k_sema::{Analysis, Cancelled};
@@ -33,6 +33,8 @@ pub struct Snap {
     pub analysis: Analysis,
     /// The project root.
     pub root: PathBuf,
+    /// The workspace root, when the project is a member of a workspace.
+    pub ws_root: Option<PathBuf>,
     /// The client's capabilities.
     pub caps: ClientCaps,
     /// The versions of the project's open documents, by file.
@@ -54,6 +56,7 @@ impl Snap {
         Snap {
             analysis,
             root: project.root.clone(),
+            ws_root: project.workspace_root().map(Path::to_path_buf),
             caps,
             versions,
             indexes: RefCell::new(HashMap::new()),
@@ -63,7 +66,7 @@ impl Snap {
     /// The URL of a file of the analysis.
     #[must_use]
     pub fn url(&self, file: FileId) -> Option<Url> {
-        let path = Project::file_path(&self.root, &self.analysis, file)?;
+        let path = Project::file_path(&self.root, self.ws_root.as_deref(), &self.analysis, file)?;
         Url::from_file_path(path).ok()
     }
 
@@ -183,6 +186,52 @@ pub fn goto(
     Ok(Some(lsp::GotoDefinitionResponse::Array(locations(
         snap, spans,
     ))))
+}
+
+/// `textDocument/implementation` across a workspace
+/// (`docs/design/40-workspaces-and-services.md`): the implementations in
+/// the document's own project, and, for an interface or protocol (or a
+/// member of one) declared in a library, those in every sibling member
+/// that sees the same library file, so go to implementation on
+/// `Payments.charge` in shop finds paybox's handler.
+///
+/// # Errors
+///
+/// [`Cancelled`] if a snapshot is stale.
+pub fn implementation_across(
+    snap: &Snap,
+    siblings: &[Snap],
+    file: FileId,
+    position: lsp::Position,
+) -> Result<Option<lsp::GotoDefinitionResponse>, Cancelled> {
+    let Some(offset) = snap.offset(file, position) else {
+        return Ok(None);
+    };
+    let a = &snap.analysis;
+    let mut out = locations(snap, ide::navigation::implementation(a, file, offset)?);
+    let Some(target) = ide::navigation::target_at(a, file, offset)? else {
+        return Ok(Some(lsp::GotoDefinitionResponse::Array(out)));
+    };
+    // Where the declaration is, on disk: the same file in every member.
+    let view = a.program()?;
+    let decl_url = snap.url(view.decl(target.decl).file);
+    for other in siblings {
+        let ov = other.analysis.program()?;
+        let Some(d) = ov.lookup(&target.qualified) else {
+            continue;
+        };
+        if other.url(ov.decl(d).file) != decl_url {
+            continue;
+        }
+        let spans =
+            ide::navigation::implementations_of(&other.analysis, d, target.member.as_ref())?;
+        for l in locations(other, spans) {
+            if !out.contains(&l) {
+                out.push(l);
+            }
+        }
+    }
+    Ok(Some(lsp::GotoDefinitionResponse::Array(out)))
 }
 
 /// `textDocument/references`.
@@ -710,6 +759,13 @@ pub fn project_diagnostics(snap: &Snap) -> Result<Vec<(Url, Vec<lsp::Diagnostic>
     for d in &all {
         if ide::is_stdlib(&snap.analysis, d.span.file) {
             continue;
+        }
+        // A mounted library file's diagnostics are the library project's
+        // to publish (its own analysis reports them).
+        if let Some(k_sema::FileOrigin::Project(path)) = snap.analysis.origin(d.span.file) {
+            if path.dependency().is_some() {
+                continue;
+            }
         }
         let Some(converted) = diagnostic(snap, d) else {
             continue;

@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use k_sema::stdlib::Stdlib;
-use k_sema::{AnalysisHost, FileKind, Options, ProjectPath};
+use k_sema::{AnalysisHost, FileKind, Options, ProjectPath, Workspace};
 
 fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples")
@@ -47,7 +47,11 @@ fn collect(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) {
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect();
         let project_path = ProjectPath::new(&relative.join("/")).unwrap();
-        if project_path.kind() != FileKind::Other {
+        // A workspace's member manifests and lockfiles are classified
+        // relative to their member, by `Workspace::from_files`.
+        let name = project_path.file_name();
+        let member_file = name == "k.toml" || name.ends_with(".lock");
+        if project_path.kind() != FileKind::Other || member_file {
             out.push((project_path, fs::read_to_string(&path).unwrap()));
         }
     }
@@ -60,27 +64,45 @@ fn project_files(root: &Path) -> Vec<(ProjectPath, String)> {
     files
 }
 
+/// The analyses of an example: one, or for a workspace (`examples/stack`)
+/// one per member with the libraries it depends on.
+fn analyses(example: &Path) -> Vec<k_sema::Analysis> {
+    let files = project_files(example);
+    let root = files.iter().find(|(p, _)| p.as_str() == "k.toml").unwrap();
+    if !Workspace::is_workspace_manifest(&root.1) {
+        return vec![AnalysisHost::with_files(Options::new(), files).analysis()];
+    }
+    let ws = Workspace::from_files(files.into_iter().map(|(p, t)| (p.as_str().to_owned(), t)));
+    assert!(
+        ws.problems.is_empty(),
+        "{}: {:?}",
+        example.display(),
+        ws.problems
+    );
+    (0..ws.members.len())
+        .map(|m| AnalysisHost::with_files(Options::new(), ws.analysis_files(m)).analysis())
+        .collect()
+}
+
 #[test]
 fn every_example_analyses_without_diagnostics() {
     for example in examples() {
-        let files = project_files(&example);
-        assert!(files.iter().any(|(p, _)| p.as_str() == "k.toml"));
-        let host = AnalysisHost::with_files(Options::new(), files);
-        let analysis = host.analysis();
-        let diagnostics = analysis.diagnostics().unwrap();
-        if !diagnostics.is_empty() {
-            let map = analysis.source_map(ToString::to_string);
-            let rendered: Vec<String> = diagnostics
-                .iter()
-                .map(|d| {
-                    k_diagnostics::render::human(
-                        d,
-                        &map,
-                        &k_diagnostics::render::HumanOptions::plain(),
-                    )
-                })
-                .collect();
-            panic!("{}:\n{}", example.display(), rendered.join("\n"));
+        for analysis in analyses(&example) {
+            let diagnostics = analysis.diagnostics().unwrap();
+            if !diagnostics.is_empty() {
+                let map = analysis.source_map(ToString::to_string);
+                let rendered: Vec<String> = diagnostics
+                    .iter()
+                    .map(|d| {
+                        k_diagnostics::render::human(
+                            d,
+                            &map,
+                            &k_diagnostics::render::HumanOptions::plain(),
+                        )
+                    })
+                    .collect();
+                panic!("{}:\n{}", example.display(), rendered.join("\n"));
+            }
         }
     }
 }

@@ -1,0 +1,2 @@
+error[K8106] shop/k.toml:6:1-6:33: module `pay` is declared by both `contracts` and `shop`
+  note: a library's modules are imported by their own paths, so rename one of them

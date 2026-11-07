@@ -12,6 +12,12 @@
 //! * a `.k` file that is not inside a project is checked alone, rooted at
 //!   its directory.
 //!
+//! A path in a **workspace** (`docs/design/40-workspaces-and-services.md`,
+//! [`crate::workspace::locate`]) checks that workspace instead: its root
+//! checks every member, a path inside a member checks that member, each
+//! with the libraries it depends on. Such a group is rooted at the
+//! workspace root and holds every file below it ([`Scope::Workspace`]).
+//!
 //! Files of a project are the ones the analysis reads
 //! ([`k_sema::FileKind`] other than `Other`): `k.toml`, `App.k`, lockfiles
 //! and `.k` files. Searches skip hidden directories and [`SKIPPED_DIRS`].
@@ -51,10 +57,22 @@ pub enum Problem {
     InvalidPath(String),
 }
 
+/// What a group is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// One project, or loose files.
+    Project,
+    /// A workspace, rooted at its root: the members to check, by
+    /// directory, or `None` for every member.
+    Workspace(Option<BTreeSet<String>>),
+}
+
 /// One group of files analysed together.
 pub struct Group {
     /// The directory the project paths are relative to.
     pub root: PathBuf,
+    /// A project or a workspace.
+    pub scope: Scope,
     /// The loaded files, sorted by path.
     pub files: Vec<(ProjectPath, String)>,
     /// Files that could not be loaded, by display path.
@@ -76,6 +94,28 @@ struct Plan {
     whole: bool,
     /// Individual files to load.
     files: BTreeSet<PathBuf>,
+    /// For a workspace root: `Some(None)` checks every member,
+    /// `Some(Some(dirs))` the members named.
+    workspace: Option<Option<BTreeSet<String>>>,
+}
+
+/// Plans the project at `root`: its workspace when it is in one.
+fn plan_project(root: PathBuf, plans: &mut BTreeMap<PathBuf, Plan>) {
+    match crate::workspace::locate(&root) {
+        Some(found) => {
+            let plan = plans.entry(found.root).or_default();
+            plan.whole = true;
+            match (found.member, &mut plan.workspace) {
+                (None, slot) => *slot = Some(None),
+                (Some(_), Some(None)) => {}
+                (Some(m), Some(Some(set))) => {
+                    set.insert(m);
+                }
+                (Some(m), slot @ None) => *slot = Some(Some(BTreeSet::from([m]))),
+            }
+        }
+        None => plans.entry(root).or_default().whole = true,
+    }
 }
 
 /// Finds and loads the groups for `paths`.
@@ -92,8 +132,13 @@ pub fn load(paths: &[PathBuf]) -> Sources {
         } else {
             parent(path)
         };
-        if let Some(root) = project_root(&start) {
-            plans.entry(root).or_default().whole = true;
+        if let Some(found) = crate::workspace::locate(&start) {
+            plan_project(
+                found.root.join(found.member.unwrap_or_default()),
+                &mut plans,
+            );
+        } else if let Some(root) = project_root(&start) {
+            plan_project(root, &mut plans);
         } else if path.is_dir() {
             search(path, &mut plans);
         } else {
@@ -150,7 +195,7 @@ fn search(dir: &Path, plans: &mut BTreeMap<PathBuf, Plan>) {
     let mut projects = Vec::new();
     walk(dir, &mut loose, &mut projects, true);
     for project in projects {
-        plans.entry(project).or_default().whole = true;
+        plan_project(project, plans);
     }
     let plan = plans.entry(dir.to_path_buf()).or_default();
     plan.files.extend(
@@ -186,18 +231,35 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>, projects: &mut Vec<PathBuf>, split: 
     }
 }
 
+/// Every file below `root` that the analysis reads, nested projects
+/// included: the files of a workspace.
+pub fn load_tree(root: &Path) -> Group {
+    load_group(
+        root.to_path_buf(),
+        Plan {
+            whole: true,
+            files: BTreeSet::new(),
+            workspace: Some(None),
+        },
+    )
+}
+
 fn load_group(root: PathBuf, plan: Plan) -> Group {
     let mut paths: BTreeSet<PathBuf> = plan.files;
     if plan.whole {
         let mut all = Vec::new();
         // A project's files stop at nested projects, which are checked on
-        // their own when named.
+        // their own when named; a workspace holds its members' files.
         let mut nested = Vec::new();
-        walk(&root, &mut all, &mut nested, true);
+        walk(&root, &mut all, &mut nested, plan.workspace.is_none());
         paths.extend(all);
     }
     let mut group = Group {
         root,
+        scope: match plan.workspace {
+            Some(members) => Scope::Workspace(members),
+            None => Scope::Project,
+        },
         files: Vec::new(),
         problems: Vec::new(),
     };
@@ -210,7 +272,17 @@ fn load_group(root: PathBuf, plan: Plan) -> Group {
             ));
             continue;
         };
-        if project_path.kind() == FileKind::Other {
+        // A workspace's files are classified relative to their member,
+        // later; here, keep every manifest, lockfile and K source.
+        let wanted = if group.scope == Scope::Project {
+            project_path.kind() != FileKind::Other
+        } else {
+            let name = project_path.file_name();
+            name == MANIFEST
+                || k_sema::LockfileKind::from_file_name(name).is_some()
+                || name.ends_with(".k")
+        };
+        if !wanted {
             continue;
         }
         match fs::read(&path) {

@@ -1,0 +1,88 @@
+# Applies each app's pending migrations, then exits (`dist/app migrate`), for
+# teams that gate schema changes separately from rollout
+# (docs/design/38-deployment.md). The Deployments' `serve` would apply them
+# too, holding a Postgres advisory lock so replicas starting together
+# migrate once; with these Jobs done first, `serve` finds nothing pending.
+#
+# A Job runs once. For the next release, delete it and apply again:
+#
+#   kubectl --namespace k-shop delete job paybox-migrate shop-migrate
+#   kubectl apply --kustomize deploy/kubernetes
+#
+# `migrate` validates the whole configuration first, like `serve`, so each
+# Job gets the same environment and secrets as its Deployment.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: paybox-migrate
+  namespace: k-shop
+spec:
+  # Retries while Postgres is still starting.
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: paybox-migrate
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: migrate
+          image: k-paybox:local
+          imagePullPolicy: IfNotPresent
+          args: ["migrate"]
+          envFrom:
+            - configMapRef:
+                name: paybox-config
+          volumeMounts:
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: secrets
+          secret:
+            secretName: paybox-secrets
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: shop-migrate
+  namespace: k-shop
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: shop-migrate
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: migrate
+          image: k-shop:local
+          imagePullPolicy: IfNotPresent
+          args: ["migrate"]
+          envFrom:
+            - configMapRef:
+                name: shop-config
+          volumeMounts:
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: secrets
+          secret:
+            secretName: shop-secrets

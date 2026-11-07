@@ -413,7 +413,7 @@ fn struct_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
 /// Text, codecs, adapters and witness tables of a struct or enum.
 fn value_extras(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let name = b.g.name(d);
-    on_demand(b, vec![format!("{name}$text")], |b| vec![text_fn(b, d)]);
+    on_demand(b, vec![format!("{name}$$text")], |b| vec![text_fn(b, d)]);
     if crate::codec::has_codec(b.g, d) {
         on_demand(
             b,
@@ -451,7 +451,9 @@ fn on_demand(
     });
 }
 
-/// `T$text(v)`: the interpolation text (enum case names, struct fields).
+/// `T$$text(v)`: the interpolation text (enum case names, struct fields).
+/// Two `$`, so it can't collide with the member function `T$text` of a
+/// member named `text`.
 fn text_fn(b: &mut Body<'_, '_>, d: DeclId) -> Stmt {
     let info = b.g.view.decl(d).clone();
     let name = b.g.name(d);
@@ -481,7 +483,7 @@ fn text_fn(b: &mut Body<'_, '_>, d: DeclId) -> Stmt {
     };
     Stmt::Function(
         Function {
-            name: format!("{name}$text"),
+            name: format!("{name}$$text"),
             params: vec![Param::new("v")],
             body: js::Body::Block(body),
             ..Function::default()
@@ -691,7 +693,7 @@ fn enum_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             member(id("$k"), "Currency"),
         ));
         let n = b.g.name(d);
-        on_demand(b, vec![format!("{n}$text")], |b| vec![text_fn(b, d)]);
+        on_demand(b, vec![format!("{n}$$text")], |b| vec![text_fn(b, d)]);
         return out;
     }
     let mut props = Vec::new();

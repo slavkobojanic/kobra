@@ -1,0 +1,3 @@
+# paybox implements Payments itself, so it never calls it remotely.
+[workspace]
+members = ["contracts", "paybox"]

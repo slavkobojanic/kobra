@@ -314,6 +314,72 @@ fn references_and_highlights() {
     assert_eq!(hl.len(), 3, "{hl:?}");
 }
 
+/// Calls `area` through the concrete type, not the interface.
+const CONCRETE: &str = "\
+import geo.Square
+
+func squareArea(square: Square) -> Double {
+    return square.area()
+}
+";
+
+#[test]
+fn references_of_an_interface_method_include_implementations_and_concrete_calls() {
+    // From the interface method, like rename: the implementing methods,
+    // the call through the interface and the call through `Square`.
+    let f = fixture(&[
+        ("src/geo/Shape.k", &with_cursor(SHAPE, "area()", 0, 0)),
+        ("src/use/Uses.k", USES),
+        ("src/use/Concrete.k", CONCRETE),
+    ]);
+    let refs = references(&f.analysis(), f.file, f.offset, false).unwrap();
+    let expected = [
+        f.span("src/geo/Square.k", "area", 1),
+        f.span("src/geo/Circle.k", "area", 1),
+        f.span("src/use/Uses.k", "area", 0),
+        f.span("src/use/Concrete.k", "area", 0),
+    ];
+    for span in expected {
+        assert!(refs.contains(&span), "{span:?} in {refs:?}");
+    }
+    assert!(
+        !refs.contains(&f.span("src/geo/Shape.k", "area", 2)),
+        "no declaration"
+    );
+    let with = references(&f.analysis(), f.file, f.offset, true).unwrap();
+    assert_eq!(
+        with[0],
+        f.span("src/geo/Shape.k", "area", 2),
+        "the declaration first"
+    );
+    assert_eq!(with.len(), refs.len() + 1);
+    // From an implementing method: the same family.
+    let f = fixture(&[
+        ("src/geo/Square.k", &with_cursor(SQUARE, "area()", 0, 0)),
+        ("src/use/Uses.k", USES),
+        ("src/use/Concrete.k", CONCRETE),
+    ]);
+    let refs = references(&f.analysis(), f.file, f.offset, true).unwrap();
+    assert_eq!(
+        refs[0],
+        f.span("src/geo/Square.k", "area", 1),
+        "its declaration first"
+    );
+    for span in [
+        f.span("src/geo/Shape.k", "area", 2),
+        f.span("src/geo/Circle.k", "area", 1),
+        f.span("src/use/Uses.k", "area", 0),
+        f.span("src/use/Concrete.k", "area", 0),
+    ] {
+        assert!(refs.contains(&span), "{span:?} in {refs:?}");
+    }
+    // No duplicates.
+    let mut sorted = refs.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(sorted.len(), refs.len());
+}
+
 #[test]
 fn rename_covers_imports_doc_links_and_files() {
     let f = fixture(&[("src/use/Uses.k", &with_cursor(USES, "Square(side", 0, 0))]);

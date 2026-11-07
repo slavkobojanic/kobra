@@ -440,6 +440,24 @@ impl Printer {
         }
     }
 
+    /// A binary operator between its operands: spaced in readable output,
+    /// and in compact output only when it is a word (`instanceof`, `in`),
+    /// which would otherwise run into the names around it.
+    fn binary_op(&mut self, op: &str) {
+        let word = op.bytes().all(|b| b.is_ascii_alphabetic());
+        if word {
+            self.out.push(' ');
+        } else {
+            self.sp();
+        }
+        self.out.push_str(op);
+        if word {
+            self.out.push(' ');
+        } else {
+            self.sp();
+        }
+    }
+
     fn line_end(&mut self) {
         if self.compact {
             return;
@@ -901,9 +919,7 @@ impl Printer {
                         }
                     };
                     wrap(self, a, p);
-                    self.sp();
-                    self.out.push_str(op);
-                    self.sp();
+                    self.binary_op(op);
                     wrap(self, b, p + 1);
                     // (`??`, `&&` and `||` never end with a sign.)
                     if paren {
@@ -919,9 +935,7 @@ impl Printer {
                         p
                     };
                 self.expr(a, left_min);
-                self.sp();
-                self.out.push_str(op);
-                self.sp();
+                self.binary_op(op);
                 let right_min = if *op == "??" && !matches!(**b, Expr::Binary("??", ..)) {
                     p + 1
                 } else if *op == "??" {
@@ -1291,6 +1305,26 @@ mod tests {
         );
         // Spaced printing is unchanged.
         assert_eq!(print_expr(&bin("-", id("a"), un("-", id("b")))), "a - -b");
+    }
+
+    #[test]
+    fn compact_printing_keeps_spaces_around_word_operators() {
+        let compact = |e: Expr| print_module(&[Stmt::Expr(e)], PrintOptions { compact: true });
+        // `e instanceof Error` printed as `einstanceofError` is one name.
+        assert_eq!(
+            compact(bin("instanceof", id("e"), id("Error"))),
+            "e instanceof Error;"
+        );
+        assert_eq!(compact(bin("in", str("k"), id("o"))), "\"k\" in o;");
+        // Also when mixed with `||`, which takes the parenthesizing branch.
+        assert_eq!(
+            compact(bin(
+                "||",
+                bin("instanceof", id("e"), id("Error")),
+                bin("??", id("a"), id("b"))
+            )),
+            "e instanceof Error||(a??b);"
+        );
     }
 
     #[test]

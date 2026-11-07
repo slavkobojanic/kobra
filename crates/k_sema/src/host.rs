@@ -645,6 +645,20 @@ impl Analysis {
         Ok(crate::tooling::page_url(self, &sema.view, decl))
     }
 
+    /// Returns the text of `rpc.lock` as the program implies it: for an app
+    /// that serves protocols (or has an `rpc.lock`), the shape of every
+    /// protocol it implements, keeping the field numbers the current lock
+    /// records (`docs/design/40-workspaces-and-services.md`). `k build`
+    /// writes it; `None` for a library and for an app that serves no
+    /// protocol and has no lock.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
+    pub fn rpc_lock(&self) -> Result<Option<String>, Cancelled> {
+        Ok(self.sema()?.rpc_lock.clone())
+    }
+
     /// The revision's reverse index, built on first use.
     fn ref_index(&self) -> Result<&RefIndex, Cancelled> {
         let sema = self.sema()?;

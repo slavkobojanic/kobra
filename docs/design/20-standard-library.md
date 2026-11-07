@@ -23,7 +23,7 @@ Types whose values can be written as text follow one convention:
 
 ### Platform interfaces
 
-I/O the platform provides is reached through stdlib interfaces (`HttpClient`, `LocalStorage`, `EmailProvider`, `JobQueue`), which are injectable only into services and are declared client-only, server-only or both ([10-services.md](10-services.md#layering)). Each has one production implementation, so it is injected with no `use` rule, and one hermetic test default.
+I/O the platform provides is reached through stdlib interfaces (`HttpClient`, `LocalStorage`, `Files`, `EmailProvider`, `JobQueue`), which are injectable only into services and are declared client-only, server-only or both ([10-services.md](10-services.md#layering)). Each has one production implementation, so it is injected with no `use` rule, and one hermetic test default.
 
 ### Stdlib configs
 
@@ -33,7 +33,7 @@ Stdlib providers read their settings from ordinary `config` declarations (`Serve
 
 | Module | Contents |
 |---|---|
-| `k.ui` | Built-in elements; layout (`Stack`, `Grid`, `Spacer`); accessible widgets (`Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable`); `VisuallyHidden`; `Icon` with a bundled icon set; the `Theme` service ([07-themes-and-units.md](07-themes-and-units.md)) |
+| `k.ui` | Built-in elements; layout (`Stack`, `Grid`, `Spacer`); accessible widgets (`Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable`); `VisuallyHidden`; `KeyboardShortcut` ([43-keyboard-shortcuts.md](43-keyboard-shortcuts.md)); `Icon` with a bundled icon set; the `Theme` service ([07-themes-and-units.md](07-themes-and-units.md)) |
 | `k.animation` | Transitions, springs, enter/exit animation, `.animate()` modifiers |
 | `k.charts` | Line, bar, area, pie and scatter charts, built on SVG and themed by tokens ([37-charts.md](37-charts.md)) |
 | `k.graphics` | Canvas 2D, SVG drawing |
@@ -44,7 +44,8 @@ Stdlib providers read their settings from ordinary `config` declarations (`Serve
 | `k.i18n` | Localized strings, plurals, locale-aware number, date and currency formatting |
 | `k.crypto` | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only) ([33-crypto.md](33-crypto.md)) |
 | `k.auth` | `Session`, `SessionManager`, `SessionUser`, the `Authenticated`, `Role` and `RateLimit` guards, `GuardRejection`, `AuthRole`, `AuthUserId`, `SessionConfig`; OAuth providers and passkeys ([26-auth-and-sessions.md](26-auth-and-sessions.md)) |
-| `k.device` | Clipboard, geolocation, notifications, sharing, camera, microphone, file picker |
+| `k.device` | Files: the `Files` interface (the file picker and downloads), `File`, `FileType`, `FileOpenError`, `FileSaveError` ([42-files.md](42-files.md)); clipboard, geolocation, notifications, sharing, camera, microphone |
+| `k.drag` | Drag and drop: `DragKind`, `Draggable`, `DropTarget`, `ReorderableList`, `ListMove`, with pointer, touch and keyboard dragging ([41-drag-and-drop.md](41-drag-and-drop.md)) |
 | `k.encoding` | JSON (`@JsonKey`), CSV, Base64, URL encoding |
 | `k.collections` | `Deque`, `PriorityQueue`, `OrderedMap`, `LruCache` |
 | `k.server` | `ServerConfig`, `PublicUrls`; background jobs (`Job`, `JobQueue`, `JobConfig`, schedules; [30-background-jobs.md](30-background-jobs.md)); email (`Email`, `EmailProvider`, `SmtpConfig`; [31-email.md](31-email.md)); file storage (S3-compatible) |

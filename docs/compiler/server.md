@@ -343,7 +343,13 @@ server streaming.
   environment; `k run` (and the e2e harness) against the **development environment**,
   `config::DevEnvironment`: an optional `.env` at the project root under the process environment (which
   wins; the harness leaves the process out), `NAME_FILE` paths relative to the project root. The stdlib's
-  server variables are always read; `K_PUBLIC_ORIGIN` falls back to `http://localhost:{PORT}`.
+  server variables are always read; `K_PUBLIC_ORIGIN` falls back to `http://localhost:{PORT}`. A
+  relative `sqlite:` path in `DATABASE_URL` is relative to the project root too, and its directory is
+  created (`DatabaseSetup::rooted_at`), for `k run`, `k dev` and `k migrate` alike, so each member that
+  `k dev` runs at a workspace root has its own database (`sqlite:.k/dev.sqlite` is
+  `<member>/.k/dev.sqlite`). `dist/app` keeps the working directory.
+- A `Secret<T>?` field is a secret like `Secret<T>`: it may come from `NAME_FILE`, is never printed, and
+  reaches JavaScript as `Secret` or `null`.
 - Values reach JavaScript once per isolate through `op_k_server_info`, already typed (a `Duration` in
   ms, an enum by case name, a list as an array). The generated `C$load()` wraps a secret in `Secret`
   (`$s.configSecret`), whose text and JSON forms are `Secret(•••)`; only `reveal()` and `matches(_:)` read
@@ -397,6 +403,18 @@ server streaming.
   the session cookie. CORS is never granted for rpc routes.
 
 ---
+
+### 9.1 Service tokens
+
+An rpc whose protocol (or itself) `requires ServiceAuthenticated`
+([40-workspaces-and-services.md](../design/40-workspaces-and-services.md)) admits only calls carrying a
+valid service token in `x-k-service-token`, signed with the app's `K_SERVICE_TOKEN` (the stdlib's
+`ServiceConfig`, a required secret of every app that serves such a protocol). The token format and its
+checks are in [runtime.md §8.1](runtime.md#81-remote-clients); a missing, forged or expired token is `401
+unauthenticated`. The front's request-forgery check doesn't apply (a service call carries no session
+cookie), and in-process calls skip the guard. `ServiceCaller.name` is the verified caller's name for the
+rest of the request. The calling side's client posts with `op_k_fetch`, so `fetch_origins` in tests
+apply to it too.
 
 ## 10. Endpoint pages
 

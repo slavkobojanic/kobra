@@ -215,6 +215,13 @@ including which checks are v0 and which are deferred, the stdlib surface and the
 - The **file rule**: at most one `public` declaration per file, named like the file. Test files
   (`*.test.k`) belong to the same module as their neighbors.
 - Imports name exactly one declaration. Circular imports between modules are errors.
+- **Workspaces** ([40-workspaces-and-services.md](../design/40-workspaces-and-services.md),
+  [sema.md §4.1](sema.md#41-workspaces)): a root `k.toml` with `[workspace] members` groups projects.
+  `k_sema::Workspace` plans the members and their dependency DAG (cycles and dependencies on apps are
+  diagnostics) and gives each member's analysis its own files plus its libraries' sources mounted below
+  the hidden `.deps/`, so a library's modules are imported by their own paths. Every driver (`k check`,
+  `k test`, `k build`, `k dev`, the language server) goes through it; a lone project is a workspace of
+  one member.
 
 ### 5.2 Item tree, def maps and name resolution
 
@@ -281,9 +288,10 @@ design calls for them.
 
 ### 5.6 Lockfiles
 
-`protocol.lock`, `routes.lock` and `schema.lock` are read as inputs and compared with what the program
-declares. `k check` reports breaking changes; `k build` updates the lockfiles for non-breaking additions.
-Lockfiles are deterministic, sorted, line-oriented TOML so diffs review well.
+`protocol.lock`, `routes.lock`, `schema.lock`, `storage.lock` and `rpc.lock` are read as inputs and
+compared with what the program declares. `k check` reports breaking changes; `k build` updates `rpc.lock`
+(the protocols an app serves, [sema.md §12.16](sema.md#1216-lockfiles)) and `k migrate new` updates
+`schema.lock`. Lockfiles are deterministic, sorted, line-oriented TOML so diffs review well.
 
 ---
 
@@ -554,6 +562,10 @@ deferred.
   the request scope and calls the implementation. During SSR, protocol calls skip HTTP entirely.
 - Server streaming (`Stream<T>`) uses Connect's streaming envelope with JSON messages (after the v0 unary
   slice).
+- **Between services** ([40-workspaces-and-services.md](../design/40-workspaces-and-services.md)) the
+  same wire format: a `remote` rule's client posts from the server with `op_k_fetch`, signs each call
+  with a short-lived service token (`x-k-service-token`), and the serving app's `ServiceAuthenticated`
+  guard verifies it (`runtime/remote.js`; [runtime.md §8.1](runtime.md#81-remote-clients)).
 
 ### 9.4 Configuration and secrets
 
@@ -628,7 +640,7 @@ past a budget blocks the change.
 | Cold `k build`, 100,000-line project | ≤ 2.5 s, excluding a cached V8 snapshot |
 | Language server: diagnostics after a keystroke / completions | ≤ 100 ms / ≤ 50 ms at p95; hover and go-to-definition ≤ 2 ms at p50 warm ([performance.md §12](performance.md#12-language-server)) |
 | Compiler memory, 100,000-line project, warm | ≤ 1.5 GB |
-| Client runtime size (min + brotli) | ≤ 5 KB core, ≤ 10 KB with router and RPC; the shipped runtime chunk (with the stdlib bodies, ≤ 10 KB of their own, and the browser services, ≤ 3 KB of their own) ≤ 23 KB, the sum of its parts; the feature chunks ≤ 3 KB (`k.charts`) and ≤ 1 KB (server streams) |
+| Client runtime size (min + brotli) | ≤ 5 KB core, ≤ 10 KB with router and RPC; the shipped runtime chunk (with the stdlib bodies, ≤ 10 KB of their own, and the browser services, ≤ 3 KB of their own) ≤ 23 KB, the sum of its parts; the feature chunks ≤ 3 KB (`k.charts`), ≤ 4 KB (`k.drag`), ≤ 1 KB (`k.device` files), ≤ 512 B (`KeyboardShortcut`), ≤ 1.5 KB (`HttpResponse`) and ≤ 1 KB (server streams) |
 | Hydration of a 1,000-node page | ≤ 10 ms |
 | Signal write to DOM text update | ≤ 1 µs per binding |
 | Signal write propagated through computeds to an effect | ≤ 1 µs per write (a diamond of three computeds) |
@@ -743,6 +755,7 @@ Few, well-known crates. Adding one requires a line here.
 | `salsa` | incremental query engine | rejected: hand-rolled queries ([sema.md §3.1](sema.md#31-decision-hand-rolled-salsa-style-layered-queries)) |
 | `serde`, `serde_json` | manifests, ops, RPC JSON, app archive, `k test` results | in use (k_codegen, k_server, k_db, k_corpus, k_cli) |
 | `toml` (parse only) | `schema.lock`; `storage.lock` (the payload check); `fakes.toml` of e2e projects (dev) | in use (k_db, k_sema; k_server tests) |
+| `yaml-rust2` (no default features) | reading `examples/shop`'s `docker-compose.yml` and Kubernetes manifests in `k_cli`'s `tests/deploy.rs` (dev); pure Rust, YAML 1.2 | in use (k_cli tests) |
 | `tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes` | HTTP server, async drivers | in use (k_server, k_db) |
 | `deno_core`, `deno_error` | V8 embedding, ops | in use (k_server) |
 | deno web extensions | web APIs in isolates | rejected: a small bootstrap and K ops instead ([§9.1](#91-process-model)) |

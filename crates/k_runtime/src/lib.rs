@@ -82,6 +82,26 @@ pub const STREAMS_SIZE_BUDGET: usize = 1024;
 /// (`docs/compiler/performance.md` §11.3).
 pub const HTTP_SIZE_BUDGET: usize = 1536;
 
+/// The largest `k.drag` in the browser ([`Part::Drag`]: `Draggable`,
+/// `DropTarget` and `ReorderableList` with pointer, touch and keyboard
+/// dragging) may be, measured like [`CORE_SIZE_BUDGET`] (4 KB). It ships in
+/// its own chunk, only to apps that use drag and drop, so it counts against
+/// no other budget (`docs/compiler/performance.md` §11.3).
+pub const DRAG_SIZE_BUDGET: usize = 4 * 1024;
+
+/// The largest `k.device`'s files in the browser ([`Part::Files`]:
+/// `BrowserFiles`, the file picker and downloads) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (1 KB). It ships in its own chunk, only to apps
+/// whose client opens or saves files (`docs/compiler/performance.md`
+/// §11.3).
+pub const FILES_SIZE_BUDGET: usize = 1024;
+
+/// The largest `k.ui.KeyboardShortcut` in the browser ([`Part::Keys`]) may
+/// be, measured like [`CORE_SIZE_BUDGET`] (512 B). It ships in its own
+/// chunk, only to apps that use keyboard shortcuts
+/// (`docs/compiler/performance.md` §11.3).
+pub const KEYS_SIZE_BUDGET: usize = 512;
+
 /// The part of the runtime a module belongs to, which decides the bundles
 /// it ships in and the size budget it counts against.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -101,6 +121,18 @@ pub enum Part {
     /// as its own client chunk, only to apps that use it, and measured on
     /// its own ([`CHARTS_SIZE_BUDGET`]).
     Charts,
+    /// `k.drag` in the browser (`Draggable`, `DropTarget`,
+    /// `ReorderableList`): shipped as its own client chunk, only to apps
+    /// that use it, and measured on its own ([`DRAG_SIZE_BUDGET`]).
+    Drag,
+    /// `k.device`'s files in the browser (`BrowserFiles`): shipped as its
+    /// own client chunk, only to apps whose client opens or saves files,
+    /// and measured on its own ([`FILES_SIZE_BUDGET`]).
+    Files,
+    /// `k.ui.KeyboardShortcut` in the browser: shipped as its own client
+    /// chunk, only to apps that use it, and measured on its own
+    /// ([`KEYS_SIZE_BUDGET`]).
+    Keys,
     /// Server-streaming rpcs in the browser: shipped as its own client
     /// chunk, only to apps with a streaming rpc, and measured on its own
     /// ([`STREAMS_SIZE_BUDGET`]).
@@ -171,6 +203,9 @@ const MODULES: &[Module] = modules![
     Stdlib "runtime/std.js",
     Services "runtime/services.js",
     Charts "runtime/charts.js",
+    Drag "runtime/drag.js",
+    Files "runtime/files.js",
+    Keys "runtime/keys.js",
     Streams "runtime/streams.js",
     Http "runtime/http.js",
     ClientEntry "runtime/index.js",
@@ -178,6 +213,7 @@ const MODULES: &[Module] = modules![
     Server "runtime/server.js",
     Server "runtime/app.js",
     Server "runtime/outbound.js",
+    Server "runtime/remote.js",
     Server "runtime/db.js",
     Testing "testing/dom.js",
     Testing "testing/harness.js",

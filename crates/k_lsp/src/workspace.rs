@@ -13,6 +13,14 @@
 //! changed on disk (`workspace/didChangeWatchedFiles`) are reloaded unless
 //! open.
 //!
+//! **Workspaces** (`docs/design/40-workspaces-and-services.md`): a member
+//! of a workspace is a project whose analysis also holds, mounted, the
+//! sources of the libraries it depends on ([`k_sema::Workspace`]); a
+//! workspace root found in a folder opens every member. A library file is
+//! one document for all of them: an edit reaches its own project and every
+//! member that mounts it ([`Workspace::locate_all`]), and locations in a
+//! mounted copy are the library's own file.
+//!
 //! The standard library is embedded in the compiler and has no files of its
 //! own; for go-to-definition into it, [`stdlib_path`] writes its sources
 //! once per process to a versioned directory below the system's temporary
@@ -36,11 +44,24 @@ const SEARCH_DEPTH: usize = 4;
 /// The manifest marking a project root.
 const MANIFEST: &str = "k.toml";
 
+/// A project's place in its workspace.
+#[derive(Clone, Debug)]
+pub struct Membership {
+    /// The workspace root.
+    pub root: PathBuf,
+    /// The plan of the workspace when the project was loaded.
+    pub plan: k_sema::Workspace,
+    /// The project's member in the plan.
+    pub member: usize,
+}
+
 /// One project and its analysis.
 #[derive(Debug)]
 pub struct Project {
     /// The directory paths are relative to.
     pub root: PathBuf,
+    /// Its workspace, when it is a member of one.
+    pub membership: Option<Membership>,
     /// `true` for a project without a `k.toml`, holding only open documents.
     pub loose: bool,
     /// The analysis inputs.
@@ -57,9 +78,38 @@ impl Project {
     /// unless it is `loose`.
     fn load(root: PathBuf, loose: bool, options: &Options) -> Project {
         let mut host = AnalysisHost::new(options.clone());
+        let mut membership = None;
         if !loose {
-            let mut files = Vec::new();
-            collect(&root, &root, &mut files);
+            let files = match member_of(&root) {
+                Some((ws_root, dir)) => {
+                    let mut all = Vec::new();
+                    collect_tree(&ws_root, &ws_root, &mut all);
+                    let plan = k_sema::Workspace::from_files(
+                        all.into_iter().map(|(p, t)| (p.as_str().to_owned(), t)),
+                    );
+                    match plan.member(&dir) {
+                        Some(member) => {
+                            let files = plan.analysis_files(member);
+                            membership = Some(Membership {
+                                root: ws_root,
+                                plan,
+                                member,
+                            });
+                            files
+                        }
+                        None => {
+                            let mut files = Vec::new();
+                            collect(&root, &root, &mut files);
+                            files
+                        }
+                    }
+                }
+                None => {
+                    let mut files = Vec::new();
+                    collect(&root, &root, &mut files);
+                    files
+                }
+            };
             let mut change = Change::new();
             for (path, text) in files {
                 change.set_file(path, text);
@@ -68,11 +118,47 @@ impl Project {
         }
         Project {
             root,
+            membership,
             loose,
             host,
             open: HashMap::new(),
             generation: 0,
         }
+    }
+
+    /// The file on disk of `path`: below the root, or, for a mounted
+    /// library file, the library's own.
+    #[must_use]
+    pub fn disk_path(&self, path: &ProjectPath) -> PathBuf {
+        match (&self.membership, path.dependency()) {
+            (Some(m), Some((dir, inner))) => m.root.join(dir).join(inner.as_str()),
+            _ => self.root.join(path.as_str()),
+        }
+    }
+
+    /// The path in this project's analysis of the file at `disk`: one of
+    /// its own, or the mounted copy of a library file it depends on.
+    #[must_use]
+    pub fn view_path(&self, disk: &Path) -> Option<ProjectPath> {
+        if let Ok(rel) = disk.strip_prefix(&self.root) {
+            let text = rel.to_str()?.replace('\\', "/");
+            if let Ok(p) = ProjectPath::new(&text) {
+                return Some(p);
+            }
+        }
+        let m = self.membership.as_ref()?;
+        let rel = disk
+            .strip_prefix(&m.root)
+            .ok()?
+            .to_str()?
+            .replace('\\', "/");
+        m.plan.view_path(m.member, &rel)
+    }
+
+    /// The workspace root, when the project is a member of a workspace.
+    #[must_use]
+    pub fn workspace_root(&self) -> Option<&Path> {
+        self.membership.as_ref().map(|m| m.root.as_path())
     }
 
     /// A snapshot of the project's current state.
@@ -126,10 +212,13 @@ impl Project {
         if self.open.contains_key(path) {
             return;
         }
-        let disk = self.root.join(path.as_str());
+        let disk = self.disk_path(path);
         let mut change = Change::new();
         match fs::read(&disk) {
-            Ok(bytes) if !self.loose && path.kind() != FileKind::Other => {
+            Ok(bytes)
+                if !self.loose
+                    && (path.kind() != FileKind::Other || path.dependency().is_some()) =>
+            {
                 change.set_file(path.clone(), String::from_utf8_lossy(&bytes).into_owned());
             }
             _ => change.remove_file(path.clone()),
@@ -139,11 +228,20 @@ impl Project {
     }
 
     /// The path on disk of a file of this project's analysis: the project
-    /// file below the root, or the materialized stdlib file.
+    /// file below the root, a mounted library file at its own place below
+    /// the workspace root `ws_root`, or the materialized stdlib file.
     #[must_use]
-    pub fn file_path(root: &Path, analysis: &Analysis, file: FileId) -> Option<PathBuf> {
+    pub fn file_path(
+        root: &Path,
+        ws_root: Option<&Path>,
+        analysis: &Analysis,
+        file: FileId,
+    ) -> Option<PathBuf> {
         match analysis.origin(file)? {
-            FileOrigin::Project(path) => Some(root.join(path.as_str())),
+            FileOrigin::Project(path) => match (path.dependency(), ws_root) {
+                (Some((dir, inner)), Some(ws)) => Some(ws.join(dir).join(inner.as_str())),
+                _ => Some(root.join(path.as_str())),
+            },
             FileOrigin::Stdlib(path) => stdlib_path(path),
         }
     }
@@ -170,17 +268,73 @@ impl Workspace {
         };
         for folder in folders {
             if let Some(root) = project_root(folder) {
-                workspace.add(root, false);
+                workspace.add_project(root);
                 continue;
             }
             let mut roots = Vec::new();
             find_projects(folder, SEARCH_DEPTH, &mut roots);
             roots.sort();
             for root in roots {
-                workspace.add(root, false);
+                workspace.add_project(root);
             }
         }
         workspace
+    }
+
+    /// Adds the project at `root`, or every member when it is a
+    /// workspace root.
+    fn add_project(&mut self, root: PathBuf) {
+        let members = workspace_members(&root);
+        if members.is_empty() {
+            self.add(root, false);
+        } else {
+            for dir in members {
+                self.add(root.join(dir), false);
+            }
+        }
+    }
+
+    /// Every project whose analysis holds the file at `path`: the one that
+    /// owns it ([`Workspace::locate`]) first, then the members of its
+    /// workspace that mount it as a library file.
+    pub fn locate_all(&mut self, path: &Path) -> Vec<(usize, ProjectPath)> {
+        let Some(owner) = self.locate(path) else {
+            return Vec::new();
+        };
+        let ws_root = self.projects[owner.0]
+            .workspace_root()
+            .map(Path::to_path_buf);
+        let mut out = vec![owner];
+        if let Some(ws_root) = ws_root {
+            // Every member of the workspace, so a library edit reaches the
+            // members that mount it even before they were opened.
+            for dir in workspace_members(&ws_root) {
+                self.add(ws_root.join(dir), false);
+            }
+            for (i, p) in self.projects.iter().enumerate() {
+                if out.iter().any(|(j, _)| *j == i) || p.workspace_root() != Some(&ws_root) {
+                    continue;
+                }
+                if let Some(view) = p.view_path(path) {
+                    if view.dependency().is_some() {
+                        out.push((i, view));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The projects of the workspace the project at `index` belongs to,
+    /// other than itself.
+    #[must_use]
+    pub fn siblings(&self, index: usize) -> Vec<usize> {
+        let Some(root) = self.projects.get(index).and_then(Project::workspace_root) else {
+            return Vec::new();
+        };
+        (0..self.projects.len())
+            .filter(|&i| i != index && self.projects[i].workspace_root() == Some(root))
+            .collect()
     }
 
     /// Adds the project at `root` unless it is already there; returns its
@@ -234,6 +388,82 @@ impl Workspace {
     /// The project at `index`, mutably.
     pub fn project_mut(&mut self, index: usize) -> Option<&mut Project> {
         self.projects.get_mut(index)
+    }
+}
+
+/// The member directories of the workspace whose root is `root`, relative
+/// to it; empty when `root/k.toml` declares no workspace.
+fn workspace_members(root: &Path) -> Vec<String> {
+    let Ok(text) = fs::read_to_string(root.join(MANIFEST)) else {
+        return Vec::new();
+    };
+    if !k_sema::Workspace::is_workspace_manifest(&text) {
+        return Vec::new();
+    }
+    let (manifest, _) = k_sema::workspace::parse_manifest(MANIFEST, &text, true, false);
+    manifest
+        .members
+        .into_iter()
+        .map(|(m, _)| m.trim_matches('/').trim_start_matches("./").to_owned())
+        .filter(|m| root.join(m).join(MANIFEST).is_file())
+        .collect()
+}
+
+/// The workspace root and member directory of the project at `root`, when
+/// an ancestor's `k.toml` declares a workspace listing it.
+fn member_of(root: &Path) -> Option<(PathBuf, String)> {
+    for ancestor in root.ancestors().skip(1) {
+        let members = workspace_members(ancestor);
+        if members.is_empty() {
+            continue;
+        }
+        let rel = root
+            .strip_prefix(ancestor)
+            .ok()?
+            .to_str()?
+            .replace('\\', "/");
+        return members
+            .contains(&rel)
+            .then(|| (ancestor.to_path_buf(), rel));
+    }
+    None
+}
+
+/// Collects the files below `dir` that a workspace's members read
+/// (manifests, lockfiles and K sources), as paths relative to `root`.
+fn collect_tree(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut entries: Vec<fs::DirEntry> = entries.flatten().collect();
+    entries.sort_by_key(fs::DirEntry::file_name);
+    for entry in entries {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            if searchable(&name) {
+                collect_tree(&path, root, out);
+            }
+            continue;
+        }
+        let wanted = name == MANIFEST
+            || k_sema::LockfileKind::from_file_name(&name).is_some()
+            || name.ends_with(".k");
+        if !wanted {
+            continue;
+        }
+        let Some(rel) = path.strip_prefix(root).ok().and_then(Path::to_str) else {
+            continue;
+        };
+        let Ok(project_path) = ProjectPath::new(&rel.replace('\\', "/")) else {
+            continue;
+        };
+        if let Ok(bytes) = fs::read(&path) {
+            out.push((project_path, String::from_utf8_lossy(&bytes).into_owned()));
+        }
     }
 }
 

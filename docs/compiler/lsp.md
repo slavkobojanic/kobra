@@ -100,6 +100,22 @@ cursor), `references` (the project-wide reverse index, incremental per file), `d
 members and signatures) and `file_diagnostics`. Imports and doc links record resolutions, so references and
 rename cover them.
 
+### 2.1 Workspaces
+
+A project that is a member of a workspace
+([40-workspaces-and-services.md](../design/40-workspaces-and-services.md)) is loaded with the libraries
+it depends on mounted (`k_sema::Workspace::analysis_files`; `crates/k_lsp/src/workspace.rs`,
+`Membership`), and a folder holding a workspace root opens every member. Locations in a mounted file are
+the library's own file on disk (`Project::file_path`), so definitions jump into `pay-contracts/`, not a
+copy. A library document is one document for every project: `didOpen`/`didChange`/`didClose` and watched
+file changes reach its own project and every member that mounts it (`Workspace::locate_all`), so an edit
+of a contract re-checks its callers at once. Each project publishes only its own files' diagnostics; a
+library's are published by the library's project. `textDocument/implementation` also asks every sibling
+member that sees the same library file (`handlers::implementation_across`, matching the declaration by
+qualified name and the member by name and labels), so go to implementation on `Payments.charge` in
+shop finds paybox's handler. Tested by
+`the_whole_workspace_is_indexed_and_implementations_cross_members` (`crates/k_lsp/tests/server.rs`).
+
 ## 3. Protocol coverage
 
 | Method | Notes |
@@ -159,7 +175,12 @@ symbol is a `Resolution`, the key of the reverse index.
 * **Implementation**: for an interface or protocol, every declaration implementing it, transitively through
   other interfaces (a protocol's server service included); for a member of one, the members with the same
   name, kind and labels in each implementor and its extensions.
-* **References** and **highlights**: the reverse index; the declaration is included on request.
+* **Implementation** also crosses the members of a workspace (§2.1).
+* **References** and **highlights**: the reverse index; the declaration is included on request. A member
+  of an interface or protocol and the members implementing it are **one symbol, as for rename**
+  (`navigation::member_family`): find-references on an interface method lists the implementing methods
+  (their names) and every call, through the interface or through a concrete type; on an implementing
+  method, the interface method, the other implementations and their calls.
 
 **Rename** replaces the declaration's name and every reference the index holds (code, imports, doc links)
 with plain text edits, each checked to spell the old name (sema.md §17 guarantees they do). It also covers:

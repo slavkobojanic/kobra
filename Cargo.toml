@@ -59,6 +59,7 @@ getrandom = "0.4"
 argon2 = "0.5"
 lsp-types = "0.95.1"
 regex = { version = "1.11", default-features = false, features = ["std", "unicode-perl"] }
+yaml-rust2 = { version = "0.13", default-features = false }
 
 [workspace.lints.rust]
 missing_docs = "warn"

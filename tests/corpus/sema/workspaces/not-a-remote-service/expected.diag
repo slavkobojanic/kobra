@@ -1,0 +1,4 @@
+error[K4025] shop/App.k:7:16-7:24: `payments.Checkout` is not a config; `remote(…)` takes a config that implements `RemoteService`
+error[K4025] shop/App.k:8:16-8:27: `payments.PlainConfig` doesn't implement `RemoteService`
+error[K4025] shop/src/payments/NoToken.k:4:15-4:22: `payments.NoToken` implements `RemoteService`, so it needs `token: Secret<String>`
+error[K4025] shop/src/payments/NoToken.k:6:43-6:46: `timeout` of a `RemoteService` is a `Duration`

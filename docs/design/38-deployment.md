@@ -15,6 +15,12 @@
 
 When an app renders on the client and has no server-only code ([23-app-structure.md](23-app-structure.md#rendering-mode)), **`k build` emits only `dist/public`**, which any static host can serve. There is no `dist/app`, so no `serve`, `probe`, migrations or job worker, and no `K_PUBLIC_ORIGIN` or other server configuration is needed. Adding server-only code later brings `dist/app` back.
 
+- **"No server-only code"** means no rpc, no endpoint page, no `config` of the app's own, no background job, no entity and no other declaration that only the server can run. The server's own settings (`ServerConfig`) don't count: there is no server to read them.
+- **`dist/public/index.html` is the app's document:** its metadata, stylesheet and entry script around an empty `#k-app`, exactly what the app's server would answer for a page. It is rendered once at build time by the same code that renders documents on a server. Every URL of the app answers it (the host's single-page-app fallback), and the client router renders the page the URL names.
+- **Hosting:** serve `index.html` with `Cache-Control: no-cache`, so a deploy is seen at once, and everything below `/assets/` with `Cache-Control: public, max-age=31536000, immutable`, since those names change with their content. A missing file below `/assets/` is a 404, never the fallback. [`examples/kanban`](../../examples/kanban) ships an nginx image configured this way.
+- A `dist/app` left by an earlier build is removed, since it would serve an old version.
+- `dist/manifest.json` (routes and configuration, for tooling such as `k routes`) is still written beside `dist/public`; it is never served or deployed.
+
 ## Commands
 
 | Command | Does |
@@ -72,6 +78,10 @@ COPY --from=build /src/dist/app /app
 ENTRYPOINT ["/app"]
 CMD ["serve"]
 ```
+
+- **Until that image is published, a Dockerfile builds the toolchain from the repository.** `examples/shop/Dockerfile` and `examples/kanban/Dockerfile` compile `k` in a `rust` stage selected by `ARG K_TOOLCHAIN` (default: the source stage; `--build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0` switches to the published image and skips it), so `docker compose up` needs no account or registry. Their build context is the repository root, with `Dockerfile.dockerignore` keeping it to the sources.
+- **A workspace builds once and ships one app per image.** The build stage runs `k check`, `k test` and `k build` at the workspace root; the runtime stage copies only `dist/<APP>/app`, chosen by a build argument, into `distroless/cc`.
+- **Deployments are checked against the build.** For `examples/shop`, a test reads `dist/<app>/app config` and the Compose file and Kubernetes manifests, and requires every variable each container needs, secrets only as mounted `NAME_FILE`s, and no variable the app doesn't read.
 
 ## Why
 

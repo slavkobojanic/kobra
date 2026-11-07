@@ -1,0 +1,3 @@
+# An app can be called, never depended on.
+[workspace]
+members = ["paybox", "shop"]

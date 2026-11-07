@@ -2359,10 +2359,6 @@ impl<'g, 'a> Body<'g, 'a> {
     }
 
     fn simple_if(&mut self, node: &SyntaxNode) -> Expr {
-        let cond = node
-            .children()
-            .find_map(ast::Expr::cast)
-            .map_or(Expr::Bool(true), |c| self.expr(&c));
         let blocks: Vec<SyntaxNode> = node
             .children()
             .filter(|c| c.kind() == SyntaxKind::Block)
@@ -2371,12 +2367,30 @@ impl<'g, 'a> Body<'g, 'a> {
             .children()
             .skip_while(|c| c.kind() != SyntaxKind::Block)
             .find(|c| c.kind() == SyntaxKind::IfExpr);
-        let then = blocks.first().map_or(Expr::Null, |b| self.block_value(b));
-        let otherwise = if let Some(ei) = else_if {
-            self.simple_if(&ei)
-        } else {
-            blocks.get(1).map_or(Expr::Null, |b| self.block_value(b))
-        };
+        // A branch whose value needs statements first (a `@State` list's
+        // copy-on-write in `items.remove(at: 0)`) can't be one arm of a
+        // conditional expression: its statements would run whichever arm
+        // is taken. Such an `if` is lowered as a statement into a
+        // temporary instead.
+        let (pre_then, then) =
+            self.capture(|b| blocks.first().map_or(Expr::Null, |t| b.block_value(t)));
+        let (pre_else, otherwise) = self.capture(|b| {
+            if let Some(ei) = &else_if {
+                b.simple_if(ei)
+            } else {
+                blocks.get(1).map_or(Expr::Null, |e| b.block_value(e))
+            }
+        });
+        if !pre_then.is_empty() || !pre_else.is_empty() {
+            let t = self.fresh("v");
+            self.emit(Stmt::Let(t.clone(), None));
+            self.if_into(node, &Dest::Assign(t.clone()));
+            return id(t);
+        }
+        let cond = node
+            .children()
+            .find_map(ast::Expr::cast)
+            .map_or(Expr::Bool(true), |c| self.expr(&c));
         Expr::Cond(Box::new(cond), Box::new(then), Box::new(otherwise))
     }
 
@@ -2614,11 +2628,11 @@ impl<'g, 'a> Body<'g, 'a> {
                     Some(DeclarationKind::Enum | DeclarationKind::Struct)
                 )
             {
-                let n = format!("{}$text", self.g.name(d));
+                let n = format!("{}$$text", self.g.name(d));
                 return self.use_decl(d, n);
             }
             if info.stdlib && info.named_kind() == Some(DeclarationKind::Enum) {
-                let n = format!("{}$text", self.g.name(d));
+                let n = format!("{}$$text", self.g.name(d));
                 return self.use_decl(d, n);
             }
             if self.g.is(t, self.g.b.secret) {
@@ -2866,6 +2880,14 @@ impl<'g, 'a> Body<'g, 'a> {
     /// visible local `name`, else the owner's member `name` (`if let
     /// region` in a method of a struct with a `region` field).
     fn shorthand_value(&mut self, n: &SyntaxToken) -> Expr {
+        // `if let user` naming a member (a `@State` or `@Derived` of a
+        // component, whose JS local is the signal) reads the member's
+        // value, so a `@Derived` initializer tracks it.
+        if let Some(Resolved::Member(m)) = self.resolved(n.text_range()) {
+            if self.access.contains_key(&m) {
+                return self.implicit_self_member(m);
+            }
+        }
         if let Some(local) = self.local_by_name(n.text()) {
             return id(local);
         }

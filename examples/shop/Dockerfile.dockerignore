@@ -1,0 +1,18 @@
+# The build context of Dockerfile is the repository root (the toolchain is
+# built from source). Only the toolchain's sources and this example are
+# sent; secrets reach the containers only as Docker secrets at run time,
+# never as part of an image.
+*
+!Cargo.toml
+!Cargo.lock
+!rustfmt.toml
+!clippy.toml
+!crates/
+!examples/shop/
+crates/*/target
+examples/shop/secrets/
+examples/shop/**/.env
+examples/shop/**/dist/
+examples/shop/**/.k/
+examples/shop/deploy/
+examples/shop/scripts/

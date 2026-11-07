@@ -1,0 +1,24 @@
+# A local Kubernetes cluster for K Shop: one node, with the ingress
+# controller's ports on the host (README.md, "Kubernetes").
+#
+#   kind create cluster --name k-shop --config deploy/kubernetes/kind-config.yaml
+#
+# Port 8080 on the host reaches the ingress controller's port 80, so the shop
+# is at http://localhost:8080, the same origin as with Docker Compose
+# (K_PUBLIC_ORIGIN in config.yaml).
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8080
+        listenAddress: 127.0.0.1
+        protocol: TCP

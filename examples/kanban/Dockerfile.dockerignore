@@ -1,0 +1,15 @@
+# The build context of Dockerfile is the repository root (the toolchain is
+# built from source). Only the toolchain's sources and this example are
+# sent; earlier builds and editor files stay out.
+*
+!Cargo.toml
+!Cargo.lock
+!rustfmt.toml
+!clippy.toml
+!crates/
+!examples/kanban/
+crates/*/target
+examples/kanban/dist/
+examples/kanban/.k/
+**/*.swp
+**/.DS_Store

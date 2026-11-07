@@ -405,12 +405,7 @@ impl Server {
                 |p| p.text_document_position_params,
                 |snap, file, pos, _| handlers::goto(snap, file, pos, Goto::TypeDefinition),
             ),
-            "textDocument/implementation" => self.position_request::<lsp::GotoDefinitionParams, _>(
-                id,
-                params,
-                |p| p.text_document_position_params,
-                |snap, file, pos, _| handlers::goto(snap, file, pos, Goto::Implementation),
-            ),
+            "textDocument/implementation" => self.implementation(id, params),
             "textDocument/documentHighlight" => self
                 .position_request::<lsp::DocumentHighlightParams, _>(
                     id,
@@ -561,6 +556,47 @@ impl Server {
             Ok(Some(r)) => to_value(&r),
             Ok(None) => Outcome::Ok(Value::Null),
             Err(c) => c.into(),
+        });
+        None
+    }
+
+    /// `textDocument/implementation`: in the document's project and the
+    /// other members of its workspace.
+    fn implementation(&mut self, id: Value, params: Value) -> Option<Outcome> {
+        let p: lsp::GotoDefinitionParams = match serde_json::from_value(params) {
+            Ok(p) => p,
+            Err(e) => return Some(Outcome::Err(codes::INVALID_PARAMS, e.to_string())),
+        };
+        let at = p.text_document_position_params;
+        let Ok(path) = at.text_document.uri.to_file_path() else {
+            return Some(Outcome::Ok(Value::Null));
+        };
+        let Some(workspace) = self.workspace.as_mut() else {
+            return Some(Outcome::Ok(Value::Null));
+        };
+        let Some((index, project_path)) = workspace.locate(&path) else {
+            return Some(Outcome::Ok(Value::Null));
+        };
+        let caps = self.caps;
+        let Some(project) = workspace.project(index) else {
+            return Some(Outcome::Ok(Value::Null));
+        };
+        let snap = Snap::new(project, caps);
+        let Some(file) = snap.analysis.file_id(&project_path) else {
+            return Some(Outcome::Ok(Value::Null));
+        };
+        let siblings: Vec<Snap> = workspace
+            .siblings(index)
+            .into_iter()
+            .filter_map(|i| workspace.project(i))
+            .map(|p| Snap::new(p, caps))
+            .collect();
+        self.spawn(id, move || {
+            match handlers::implementation_across(&snap, &siblings, file, at.position) {
+                Ok(Some(r)) => to_value(&r),
+                Ok(None) => Outcome::Ok(Value::Null),
+                Err(c) => c.into(),
+            }
         });
         None
     }
@@ -728,7 +764,7 @@ impl Server {
                 if let Ok(p) = serde_json::from_value::<lsp::DidOpenTextDocumentParams>(params) {
                     let doc = p.text_document;
                     self.with_document(&doc.uri, |project, path| {
-                        project.open(path, doc.version, doc.text)
+                        project.open(path, doc.version, doc.text.clone());
                     });
                 }
             }
@@ -745,7 +781,7 @@ impl Server {
                                 a.file_id(&path).and_then(|f| a.text(f)).map(str::to_owned)
                             })
                             .unwrap_or_default();
-                        for change in changes {
+                        for change in changes.clone() {
                             apply_change(&mut text, change);
                         }
                         project.update(path, version, text);
@@ -784,20 +820,21 @@ impl Server {
     fn with_document(
         &mut self,
         uri: &Url,
-        f: impl FnOnce(&mut crate::workspace::Project, ProjectPath),
+        mut f: impl FnMut(&mut crate::workspace::Project, ProjectPath),
     ) {
         let Ok(path) = uri.to_file_path() else { return };
         let Some(workspace) = self.workspace.as_mut() else {
             return;
         };
-        let Some((index, project_path)) = workspace.locate(&path) else {
-            return;
-        };
-        let Some(project) = workspace.project_mut(index) else {
-            return;
-        };
-        f(project, project_path);
-        self.dirty.insert(index);
+        // A library file is in its own project and mounted in every member
+        // that depends on it (40-workspaces-and-services.md).
+        for (index, project_path) in workspace.locate_all(&path) {
+            let Some(project) = workspace.project_mut(index) else {
+                continue;
+            };
+            f(project, project_path);
+            self.dirty.insert(index);
+        }
         self.due = Some(Instant::now() + self.config.debounce);
     }
 

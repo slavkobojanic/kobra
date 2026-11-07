@@ -54,6 +54,7 @@ All are committed to the repository and checked on every build:
 - `routes.lock`: page URLs and redirects ([12-routing.md](12-routing.md))
 - `schema.lock`: database schema, migration order, and table and column names ([19-persistence.md](19-persistence.md))
 - `storage.lock`: the storage namespace, `StorageKey` names and value shapes, and job names and payload shapes ([36-local-storage.md](36-local-storage.md), [30-background-jobs.md](30-background-jobs.md))
+- `rpc.lock`: the rpcs, field numbers and error cases of every protocol a serving app implements; `k build` writes it ([40-workspaces-and-services.md](40-workspaces-and-services.md#compatibility-between-deploys))
 - `k.lock`: package versions and hashes ([18-packages.md](18-packages.md))
 
 When each lockfile is first written, and whether `k build` updates them or only an explicit command does, is still open.

@@ -1,0 +1,8 @@
+# Format: docs/design/40-workspaces-and-services.md
+#
+# A workspace of three projects: a contract library and the two services
+# that use it. `k check`, `k test` and `k build` here apply to every member;
+# `k dev` here runs both apps, each calling the other.
+
+[workspace]
+members = ["pay-contracts", "paybox", "shop"]

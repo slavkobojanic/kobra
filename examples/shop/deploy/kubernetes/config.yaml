@@ -1,0 +1,64 @@
+# The configuration that isn't secret, as environment variables for each
+# app (`dist/app config` lists what each one reads). Secrets arrive as files
+# under /run/secrets, named by the `_FILE` variables, exactly as with Docker
+# Compose; create-secrets.sh makes them. crates/k_cli/tests/deploy.rs checks
+# that these manifests give each container everything it needs.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paybox-config
+  namespace: k-shop
+data:
+  K_PUBLIC_ORIGIN: http://paybox:8080
+  DATABASE_URL: postgres://paybox@db:5432/paybox
+  DATABASE_PASSWORD_FILE: /run/secrets/paybox_db_password
+  # Verifies the shop's calls: the shop signs them with this secret.
+  K_SERVICE_TOKEN_FILE: /run/secrets/paybox_service_token
+  # Signs paybox's calls to the shop's PaymentEvents: the shop's secret.
+  PAYBOX_CALLBACK_TOKEN_FILE: /run/secrets/shop_service_token
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shop-config
+  namespace: k-shop
+data:
+  K_PUBLIC_ORIGIN: http://localhost:8080
+  # The pods' network in kind: only the ingress controller sets
+  # X-Forwarded-For.
+  K_TRUSTED_PROXIES: 10.244.0.0/16
+  DATABASE_URL: postgres://shop@db:5432/shop
+  DATABASE_PASSWORD_FILE: /run/secrets/db_password
+  SMTP_HOST: mail
+  SMTP_PORT: "1025"
+  SMTP_SECURITY: none
+  MAIL_FROM: K Shop <orders@shop.example>
+  SHOP_ADMIN_EMAIL: admin@shop.example
+  SHOP_ADMIN_PASSWORD_HASH_FILE: /run/secrets/admin_password_hash
+  # Verifies paybox's calls: paybox signs them with this secret.
+  K_SERVICE_TOKEN_FILE: /run/secrets/shop_service_token
+  PAYBOX_URL: http://paybox:8080
+  # Signs the shop's calls to paybox: paybox's secret.
+  PAYBOX_TOKEN_FILE: /run/secrets/paybox_service_token
+  # Where paybox delivers payment events: any shop pod, through the Service.
+  PAYBOX_CALLBACK_URL: http://shop:8080
+---
+# Runs once, when Postgres initialises its empty volume: gives paybox its
+# own role and database next to the shop's (the same script as
+# deploy/postgres/create-paybox-database.sh, for Docker Compose).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: k-shop
+data:
+  10-paybox.sh: |
+    #!/bin/sh
+    set -eu
+    password="$(cat /run/secrets/paybox_db_password)"
+    psql --variable=ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" \
+        --set=password="$password" <<'SQL'
+    CREATE ROLE paybox LOGIN PASSWORD :'password';
+    CREATE DATABASE paybox OWNER paybox;
+    SQL

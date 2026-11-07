@@ -50,6 +50,7 @@ protocol.lock    generated and committed
 routes.lock      generated and committed
 schema.lock      generated and committed
 storage.lock     generated and committed
+rpc.lock         generated and committed by apps that serve protocols (40-workspaces-and-services.md)
 k.lock           package lock, generated and committed
 .env             optional, git-ignored; loaded by `k dev` only
 .env.example     committed; documents what .env may contain

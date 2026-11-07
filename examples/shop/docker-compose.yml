@@ -1,21 +1,32 @@
-# The shop as it runs in production: the dist/app image, Postgres, an SMTP
-# server and a stand-in for the Stripe API, all on one machine. The app
-# applies pending migrations at startup, before it accepts requests.
+# K Shop as it runs in production, on one machine, with no account anywhere:
+# Postgres, Mailpit (an SMTP server with a web inbox), paybox (the payment
+# service), two replicas of the shop and Caddy in front of them.
 #
-#   for f in secrets/*.example; do cp -n "$f" "${f%.example}"; done
-#   # put real values in secrets/*.txt; admin_password_hash.txt needs an
-#   # Argon2id hash (see README.md), or the app refuses to start
+#   scripts/init-secrets.sh                 # generates secrets/*.txt once
 #   docker compose up --build --wait
-#   docker compose exec -T db psql --username=shop --dbname=shop < scripts/demo-catalog.sql
+#   docker compose exec -T db psql --username=shop --dbname=shop < shop/scripts/demo-catalog.sql
 #
-# Then open http://localhost:8080 (shop) and http://localhost:8025 (mail).
-# scripts/e2e.sh runs this stack with generated secrets instead.
+# Then open http://localhost:8080 (the shop; pay with 4242 4242 4242 4242)
+# and http://localhost:8025 (the inbox the confirmation emails land in).
+# scripts/e2e.sh runs this stack with generated secrets and checks it.
 #
-# For a real deployment, also set K_PUBLIC_ORIGIN to the public https://
-# origin, point SMTP_* at a real mail server, and remove STRIPE_API_URL so the
-# app talks to api.stripe.com.
+# Every container is a `dist/app` built by the Dockerfile, configured only
+# through the environment and Docker secrets (`NAME_FILE`); `dist/app
+# config` lists what each one reads, and
+# crates/k_cli/tests/deploy.rs checks that this file provides all of it.
 
 name: k-shop
+
+x-app: &app
+  read_only: true
+  restart: unless-stopped
+  healthcheck:
+    # The images have no shell or curl, so the executable probes itself.
+    test: ["CMD", "/app", "probe", "http://127.0.0.1:8080/health"]
+    interval: 5s
+    timeout: 3s
+    retries: 20
+    start_period: 10s
 
 services:
   db:
@@ -26,8 +37,11 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/db_password
     secrets:
       - db_password
+      - paybox_db_password
     volumes:
       - pgdata:/var/lib/postgresql
+      # Creates paybox's role and database when the volume is new.
+      - ./deploy/postgres/create-paybox-database.sh:/docker-entrypoint-initdb.d/10-paybox.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready --username=shop --dbname=shop"]
       interval: 5s
@@ -38,68 +52,120 @@ services:
   mail:
     image: axllent/mailpit:v1.33
     ports:
-      - "127.0.0.1:8025:8025"     # web UI and the API scripts/e2e.sh reads
+      - "127.0.0.1:8025:8025"     # the web inbox, and the API scripts/e2e.sh reads
     healthcheck:
       test: ["CMD", "/mailpit", "readyz"]
       interval: 5s
       timeout: 3s
       retries: 20
 
-  # Stripe's official API mock. It accepts any sk_test_ key and answers with
-  # realistic objects, so StripeCheckout runs its production code path.
-  stripe:
-    image: stripe/stripe-mock:v0.206.0
+  paybox:
+    <<: *app
+    build:
+      context: ../..
+      dockerfile: examples/shop/Dockerfile
+      args:
+        APP: paybox
+    image: k-paybox:local
+    environment:
+      K_PUBLIC_ORIGIN: http://paybox:8080
+      DATABASE_URL: postgres://paybox@db:5432/paybox
+      DATABASE_PASSWORD_FILE: /run/secrets/paybox_db_password
+      # Verifies the shop's calls: the shop signs them with this secret.
+      K_SERVICE_TOKEN_FILE: /run/secrets/paybox_service_token
+      # Signs paybox's calls to the shop's PaymentEvents: the shop's secret.
+      PAYBOX_CALLBACK_TOKEN_FILE: /run/secrets/shop_service_token
+    secrets:
+      - paybox_db_password
+      - paybox_service_token
+      - shop_service_token
+    depends_on:
+      db:
+        condition: service_healthy
 
-  app:
-    build: .
+  # Two equal replicas; Caddy balances between them, and paybox calls
+  # whichever one http://shop:8080 resolves to.
+  shop:
+    <<: *app
+    build:
+      context: ../..
+      dockerfile: examples/shop/Dockerfile
+      args:
+        APP: shop
     image: k-shop:local
+    deploy:
+      replicas: 2
     environment:
       K_PUBLIC_ORIGIN: http://localhost:8080
+      # Only Caddy, on this network, may set X-Forwarded-For.
+      K_TRUSTED_PROXIES: 172.29.89.0/24
       DATABASE_URL: postgres://shop@db:5432/shop
       DATABASE_PASSWORD_FILE: /run/secrets/db_password
       SMTP_HOST: mail
       SMTP_PORT: "1025"
       SMTP_SECURITY: none
       MAIL_FROM: K Shop <orders@shop.example>
-      STRIPE_API_URL: http://stripe:12111
-      STRIPE_API_KEY_FILE: /run/secrets/stripe_api_key
-      STRIPE_WEBHOOK_SECRET_FILE: /run/secrets/stripe_webhook_secret
       SHOP_ADMIN_EMAIL: admin@shop.example
       SHOP_ADMIN_PASSWORD_HASH_FILE: /run/secrets/admin_password_hash
+      # Verifies paybox's calls: paybox signs them with this secret.
+      K_SERVICE_TOKEN_FILE: /run/secrets/shop_service_token
+      PAYBOX_URL: http://paybox:8080
+      # Signs the shop's calls to paybox: paybox's secret.
+      PAYBOX_TOKEN_FILE: /run/secrets/paybox_service_token
+      # Where paybox delivers payment events: any replica, by service name.
+      PAYBOX_CALLBACK_URL: http://shop:8080
     secrets:
       - db_password
-      - stripe_api_key
-      - stripe_webhook_secret
       - admin_password_hash
-    ports:
-      - "127.0.0.1:8080:8080"
-    read_only: true
+      - shop_service_token
+      - paybox_service_token
     depends_on:
       db:
         condition: service_healthy
       mail:
         condition: service_healthy
-      stripe:
-        condition: service_started
+      paybox:
+        condition: service_healthy
+
+  proxy:
+    image: caddy:2.11.7-alpine
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      default:
+        ipv4_address: 172.29.89.10
+    depends_on:
+      shop:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "/app", "probe", "http://127.0.0.1:8080/health"]
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/health"]
       interval: 5s
       timeout: 3s
       retries: 20
-      start_period: 10s
     restart: unless-stopped
 
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.29.89.0/24
+
 # Docker secrets from local files, mounted at /run/secrets/<name>. The files
-# are git-ignored; only the *.example versions are committed.
+# are git-ignored; only the *.example versions are committed, and
+# scripts/init-secrets.sh generates real ones.
 secrets:
   db_password:
     file: ./secrets/db_password.txt
-  stripe_api_key:
-    file: ./secrets/stripe_api_key.txt
-  stripe_webhook_secret:
-    file: ./secrets/stripe_webhook_secret.txt
+  paybox_db_password:
+    file: ./secrets/paybox_db_password.txt
   admin_password_hash:
     file: ./secrets/admin_password_hash.txt
+  paybox_service_token:
+    file: ./secrets/paybox_service_token.txt
+  shop_service_token:
+    file: ./secrets/shop_service_token.txt
 
 volumes:
   pgdata:

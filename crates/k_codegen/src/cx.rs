@@ -10,7 +10,7 @@ use std::collections::{BTreeSet, HashMap};
 use k_diagnostics::{FileId, TextRange};
 use k_sema::stdlib::DeclarationKind;
 use k_sema::view::{DeclId, DeclKind, MemberId, MemberKind, ProgramView, Resolved, Type};
-use k_sema::{Analysis, Resolution};
+use k_sema::{Analysis, ProjectPath, Resolution};
 use k_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use crate::{Options, Profile};
@@ -180,6 +180,21 @@ const RESERVED: &[&str] = &[
     "URL",
 ];
 
+/// The `[package] name` of a `k.toml` text (the first `name = "…"` line);
+/// empty when there is none.
+fn manifest_name(text: &str) -> String {
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("name") {
+            let rest = rest.trim_start();
+            if let Some(v) = rest.strip_prefix('=') {
+                return v.trim().trim_matches('"').to_owned();
+            }
+        }
+    }
+    String::new()
+}
+
 /// Mangles a K identifier for use as a JavaScript binding.
 #[must_use]
 pub(crate) fn mangle(name: &str) -> String {
@@ -211,6 +226,8 @@ pub(crate) struct Gen<'a> {
     /// The project name from `k.toml`, read once ([`Gen::project_name`]
     /// is called per rpc and per module; reading it scanned every file).
     project: std::cell::OnceCell<String>,
+    /// The protocols called remotely ([`Gen::remote_protocols`]).
+    remote: std::cell::OnceCell<BTreeSet<DeclId>>,
 }
 
 impl<'a> Gen<'a> {
@@ -238,6 +255,7 @@ impl<'a> Gen<'a> {
             own: Vec::new(),
             db: crate::db::DbCell::default(),
             project: std::cell::OnceCell::new(),
+            remote: std::cell::OnceCell::new(),
         };
         this.assign_names();
         this
@@ -383,20 +401,73 @@ impl<'a> Gen<'a> {
             if path.as_str() != "k.toml" {
                 continue;
             }
-            let Some(text) = self.analysis.text(file) else {
-                continue;
-            };
-            for line in text.lines() {
-                let line = line.trim();
-                if let Some(rest) = line.strip_prefix("name") {
-                    let rest = rest.trim_start();
-                    if let Some(v) = rest.strip_prefix('=') {
-                        return v.trim().trim_matches('"').to_owned();
-                    }
-                }
+            if let Some(text) = self.analysis.text(file) {
+                return manifest_name(text);
             }
         }
         String::new()
+    }
+
+    /// The protocols this app calls in other services
+    /// (`docs/design/40-workspaces-and-services.md`): the targets of its
+    /// `use remote(…) for P` rules and the protocols `RemoteClient.at`
+    /// builds clients of. The server emits a `P$remote` client class for
+    /// each one it doesn't implement.
+    pub(crate) fn remote_protocols(&self) -> &BTreeSet<DeclId> {
+        self.remote.get_or_init(|| {
+            let mut out = BTreeSet::new();
+            for rule in crate::server::use_rules(self) {
+                if rule.remote.is_some() {
+                    out.extend(rule.target);
+                }
+            }
+            for (&file, root) in &self.roots {
+                for call in root
+                    .descendants()
+                    .filter_map(<k_syntax::ast::CallExpr as k_syntax::ast::AstNode>::cast)
+                {
+                    let syntax = k_syntax::ast::AstNode::syntax(&call);
+                    let text = syntax.text().to_string();
+                    if !text.trim_start().starts_with("RemoteClient") {
+                        continue;
+                    }
+                    let range = syntax.text_range();
+                    if let Ok(Some(t)) = self.analysis.type_info_at(file, range) {
+                        if let Some(d) = t.decl() {
+                            if self.view.decl(d).named_kind() == Some(DeclarationKind::Protocol) {
+                                out.insert(d);
+                            }
+                        }
+                    }
+                }
+            }
+            out
+        })
+    }
+
+    /// The `[package] name` of the package that declares `d`: the
+    /// library's, for a declaration of a library mounted from the
+    /// workspace (`k_sema::workspace`), else the project's own. Protocols
+    /// take their Protobuf package from it, so the serving and the calling
+    /// app agree on the rpc paths (`docs/design/40-workspaces-and-services.md`).
+    pub(crate) fn package_name(&self, d: DeclId) -> String {
+        let file = self.view.decl(d).file;
+        let Some(k_sema::FileOrigin::Project(path)) = self.analysis.origin(file) else {
+            return self.project_name();
+        };
+        let Some((dir, _)) = path.dependency() else {
+            return self.project_name();
+        };
+        let Ok(manifest) = ProjectPath::new("k.toml") else {
+            return self.project_name();
+        };
+        let mounted = ProjectPath::mounted(&dir, &manifest);
+        self.analysis
+            .file_id(&mounted)
+            .and_then(|f| self.analysis.text(f))
+            .map(manifest_name)
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| dir.rsplit('/').next().unwrap_or_default().to_owned())
     }
 
     /// The JavaScript name of a declaration.

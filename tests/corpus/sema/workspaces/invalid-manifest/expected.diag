@@ -1,0 +1,2 @@
+error[K8101] shop/k.toml:1:1-1:10: `[package] k`, the minimum toolchain version, must be a string such as "0.1"
+error[K8101] shop/k.toml:5:1-5:38: dependency `contracts` must be a git tag ("v1.2.0") or `{ workspace = true }`

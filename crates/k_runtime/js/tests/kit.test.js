@@ -392,3 +392,76 @@ test("native answers the browser's members first, then the server's", async () =
   kit.installBrowser();
   assertEq(kit.native("k.crypto.Uuid$random")(), "00000000-0000-4000-8000-000000000001");
 });
+
+// ------------------------------------------------------- k.drag and k.device
+
+test("TestFiles answers the chosen files in order, else .cancelled, and records saves", async () => {
+  const files = kit.testFiles();
+  const a = { name: "a.json", mediaType: "application/json", bytes: new Uint8Array([1]) };
+  const b = { name: "b.json", mediaType: "application/json", bytes: new Uint8Array([2]) };
+  let threw = null;
+  try {
+    await files.open(null, [unitCase(0)]);
+  } catch (e) {
+    threw = e;
+  }
+  assertEq(threw, unitCase(0), "nothing chosen: the user closed the picker");
+  files.choose(a);
+  files.choose(b);
+  assertEq(await files.open(null, []), a);
+  assertEq(await files.open(null, []), b);
+  files.choose(a);
+  files.choose(b);
+  assertDeepEq((await files.openAll(null, [])).map((f) => f.name), ["a.json", "b.json"]);
+  assertEq(files.requests.length, 4);
+  assertEq(files.requests[0][0], unitCase(0), "the types of each request");
+  files.choose(a);
+  files.failOpen({ $: 1, limit: 16777216 });
+  threw = null;
+  try {
+    await files.open(null, []);
+  } catch (e) {
+    threw = e;
+  }
+  assertDeepEq(threw, { $: 1, limit: 16777216 });
+  assertEq(await files.open(null, []), a, "failOpen applies to the next open only");
+  files.save(a);
+  assertDeepEq(files.saved, [a]);
+  files.failSaves(unitCase(0));
+  assertEq(assertThrows(() => files.save(b)), unitCase(0));
+  assertEq(files.saved.length, 1, "a failed save keeps nothing");
+});
+
+test("press knows the arrow keys left and right, and characters", () => {
+  const s = screenOf("<button>Go</button>");
+  const keys = [];
+  document.body.firstChild.firstChild.addEventListener("keydown", (e) => keys.push(e.key));
+  s.button("Go").press({ $: 6 });
+  s.button("Go").press({ $: 7 });
+  s.button("Go").press({ $: 8, _0: "n" });
+  assertDeepEq(keys, ["ArrowLeft", "ArrowRight", "n"], "and .character(_) types its text");
+});
+
+test("list(named:) finds a list by its accessible name", () => {
+  const s = screenOf('<ul aria-label="To do"><li>a</li></ul><ul aria-label="Done"></ul>');
+  assert(s.list$named("To do").exists);
+  assertEq(s.list$named("To do").items().length, 1);
+  assert(!s.list$named("Doing").exists);
+});
+
+test("drag(to:) presses, moves past the threshold onto the target, releases and clicks there", () => {
+  const s = screenOf('<ul aria-label="A"><li>card</li></ul><ul aria-label="B"></ul>');
+  const seen = [];
+  const host = document.body.firstChild;
+  for (const type of ["pointerdown", "pointermove", "pointerup", "click"]) {
+    host.addEventListener(type, (e) => seen.push([type, e.target.getAttribute("aria-label") ?? e.target.textContent, e.clientX, e.pointerType]));
+  }
+  s.item("card").drag(s.list$named("B"));
+  assertDeepEq(seen, [
+    ["pointerdown", "card", 0, "mouse"],
+    ["pointermove", "B", 8, "mouse"],
+    ["pointermove", "B", 16, "mouse"],
+    ["pointerup", "B", 16, "mouse"],
+    ["click", "B", 16, "mouse"],
+  ]);
+});

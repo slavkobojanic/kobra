@@ -1,11 +1,12 @@
 # Real secrets never leave this machine. Only the *.example files are
-# committed; copy each one without the suffix and replace its contents.
+# committed; scripts/init-secrets.sh generates the real ones.
 secrets/*
 !secrets/*.example
 
-# Local configuration for `k dev` (copy .env.example).
+# Local configuration for `k dev` (copy each member's .env.example).
 .env
 
-# Build output and the toolchain's local state (dev database, caches).
+# Build output and the toolchain's local state (dev databases, caches), at
+# the root and in every member.
 dist/
 .k/

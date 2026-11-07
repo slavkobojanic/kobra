@@ -12,4 +12,10 @@ public enum Key {
     case arrowUp
     /// Arrow down.
     case arrowDown
+    /// Arrow left.
+    case arrowLeft
+    /// Arrow right.
+    case arrowRight
+    /// The key that types `text` ("n", "?"), for keyboard shortcuts.
+    case character(String)
 }

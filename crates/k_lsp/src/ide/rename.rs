@@ -26,12 +26,12 @@ use std::collections::BTreeSet;
 
 use k_diagnostics::{FileId, Span, TextRange, TextSize};
 use k_sema::stdlib::DeclarationKind;
-use k_sema::view::{MemberId, ProgramView, Resolved, Type};
+use k_sema::view::Resolved;
 use k_sema::{Analysis, Cancelled, FileOrigin, Resolution};
 use k_syntax::SyntaxKind;
 
-use super::navigation::implementing_resolutions;
-use super::{is_stdlib, member_resolution, span_text, symbol_at, syntax};
+use super::navigation::member_family;
+use super::{is_stdlib, span_text, symbol_at, syntax};
 
 /// The edits of a rename.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -200,52 +200,6 @@ pub fn rename(
     }
     out.edits = edits.into_iter().collect();
     Ok(Ok(out))
-}
-
-/// The members to rename with interface member or implementing member
-/// `m`: the interface members it implements (through its owner's
-/// `implements`, transitively), and every member implementing any of
-/// them.
-fn member_family(
-    analysis: &Analysis,
-    view: &ProgramView,
-    m: MemberId,
-) -> Result<Vec<(MemberId, Resolution)>, Cancelled> {
-    let member = view.member(m);
-    let labels = view.labels(m);
-    let mut roots = vec![m];
-    // Upwards: the interfaces the owner implements, transitively.
-    let mut stack: Vec<Type> = view.decl(member.owner).implements.clone();
-    let mut seen = Vec::new();
-    while let Some(t) = stack.pop() {
-        let Some(iface) = t.decl() else { continue };
-        if seen.contains(&iface) {
-            continue;
-        }
-        seen.push(iface);
-        let info = view.decl(iface);
-        stack.extend(info.implements.iter().cloned());
-        for &candidate in &info.members {
-            let c = view.member(candidate);
-            if c.name == member.name && c.kind == member.kind && view.labels(candidate) == labels {
-                roots.push(candidate);
-            }
-        }
-    }
-    let mut out: Vec<(MemberId, Resolution)> = Vec::new();
-    for root in roots {
-        if let Some(r) = member_resolution(view, root) {
-            if !out.iter().any(|(id, _)| *id == root) {
-                out.push((root, r));
-            }
-        }
-        for (id, r) in implementing_resolutions(analysis, view, root)? {
-            if !out.iter().any(|(existing, _)| *existing == id) {
-                out.push((id, r));
-            }
-        }
-    }
-    Ok(out)
 }
 
 /// Adds the edits renaming page `old`'s cases (`.signIn`) in `Page` and

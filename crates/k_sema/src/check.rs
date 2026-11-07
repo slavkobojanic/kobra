@@ -43,6 +43,9 @@ pub(crate) struct SemaResult {
     pub(crate) cache: Arc<BodyCache>,
     /// The read-only program view for code generation ([`crate::view`]).
     pub(crate) view: crate::view::ProgramView,
+    /// The `rpc.lock` the program implies ([`crate::rpclock`]); `None` for
+    /// a project that serves no protocol and has no lock.
+    pub(crate) rpc_lock: Option<String>,
 }
 
 /// Runs the semantic pass over `inputs` and the project's `lockfiles`.
@@ -150,7 +153,9 @@ pub(crate) fn analyze(
     crate::rpc::check(&cx);
     crate::app::check(&cx);
     crate::di::check(&cx);
+    crate::di::remote_services(&cx);
     crate::locks::check(&cx);
+    let rpc_lock = crate::rpclock::check(&cx);
     crate::di::client_references(&cx);
     let sides = crate::di::sides(&cx);
     unused_imports(&cx);
@@ -182,6 +187,7 @@ pub(crate) fn analyze(
             files: facts_by_file,
         }),
         view,
+        rpc_lock,
     });
     // `cx` and `program` are dropped here, after the result is delivered.
 }

@@ -271,7 +271,7 @@ Structs and collections have value semantics without cloning on assignment:
 
 String interpolation is a template literal whose parts are formatted by type: `String` as is, `Int` by
 `String(n)`, `Double` by `$k.formatDouble`, `Bool` by `String(b)`, optionals by the inner type or `nil`,
-`Secret` as `Secret(•••)`, other types by their generated `T$text`. Static parts are printed with
+`Secret` as `Secret(•••)`, other types by their generated `T$$text` (two `$`, so a member named `text` can't collide with it). Static parts are printed with
 template-literal escaping (`` ` ``, `\`, `${`).
 
 ### 6.5 Units and calc folding
@@ -297,7 +297,9 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
 - **Builder structs** (`@Builder`, such as `HttpRequest`): a chained optional field is a copy with the
   field set, `HttpRequest(HttpMethod.get, url).query(q)` → `{ ...HttpRequest(HttpMethod.get, url), query: q }`.
 - **Shorthand `if let name`** binds the visible local `name`, else the declaration's member `name`
-  (`if let region` in a method of a struct with a `region` field reads `self.region`).
+  (`if let region` in a method of a struct with a `region` field reads `self.region`). A member a
+  component holds in a signal (`@State`, `@Derived`) is read through it (`user.get()`), so a
+  `@Derived` initializer with `if let user` tracks `user`.
 - **Values of stdlib interfaces** (`Error`, `Codable`) are passed as they are: only project interfaces
   have adapter classes ([§9](#9-generics-interfaces-and-witnesses)).
 - **`Router.navigate(url:)`** navigates to the URL's text; `Router.navigate(to:)` to `Page$href(page)`.
@@ -472,7 +474,7 @@ Dynamic parts and how they are reached in the cloned tree:
 | `.class([.a, .b when x])` | static classes in `class` | `classList(el, "a_h", [x() && "b_h"])` |
 | reactive style value `{accent}` | the class's CSS uses `var(--k-…)` | `style(el, "--k-…", …)` |
 | `.on(event: f)` | — | `on(el, "event", f)` |
-| `if`, `if let` | `<!--[--><!--]-->` | `when(start, end, cond, render, otherwise)` |
+| `if`, `if let` | `<!--[--><!--]-->` | `when(start, end, cond, render, otherwise)`; an `if let x` binding is the getter `x$()`, which reads the value again (the last non-nil one), so the branch follows a new non-nil value without rendering again; an optional slot keeps a plain binding |
 | `match` | `<!--[--><!--]-->` | `branch(start, end, select, arms)` |
 | `for … key` | `<!--[--><!--]-->` | `each(start, end, items, key, row)` |
 | component | `<!--[--><!--]-->` | the child factory's nodes inserted between the markers |
@@ -598,7 +600,12 @@ generated code is plain construction.
 
 - **On the server (implemented)** the entry `k:/app/$server.js` emits two containers: `$Process` (one per
   isolate: `@Scope(.server)` services, wrapped by `$s.shareState(instance, "module.Name", [@State
-  fields])` so their state is the process's across workers, and configs, `C$load()` once) and
+  fields])` so their state is the process's across workers, and configs, `C$load()` once: each `@Env`
+  field read with `$s.config(name)`, `$s.configEnum(name, cases)`, or `$s.configSecret(name)` for a
+  `Secret<T>` or `Secret<T>?`, which is `null` when unset; a stdlib config the app injects itself, such as
+  `k.rpc.ServiceConfig`, is built the same way from the stdlib's `@Env` names and joins the manifest's
+  configuration, except in a test build, which never reads the environment and gets the panicking
+  `$s.missingNative` stand-in) and
   `$Request` (`constructor(st)`, one per request: every other service, memoized getters
   `get X() { return this.$X ??= new X({ Dep: this.Dep }); }`, `.server` getters delegating to
   `$process`, `Session`/`SessionManager` from the request state, `Database` (`$s.database()`, one per
@@ -654,8 +661,8 @@ generated code is plain construction.
   - **What is bound.** Only what the client roots reach (`app::client_reach`): starting from the
     `app`, its pages and layouts, the declarations their client items use, every `@Inject` dependency,
     and for an injected interface the implementation bound for the selected environment. A service only
-    server code injects (`examples/shop`'s `LocalCheckout`, the development `PaymentGateway`, which
-    only `StoreApi` uses) or one nothing injects has no getter and is in no client file, even though
+    server code injects (`examples/shop`'s `PayboxCheckout`, the `PaymentGateway` of production and
+    development, which only `StoreApi` uses) or one nothing injects has no getter and is in no client file, even though
     nothing marks it server-only (`codegen/split/client-holds-only-reachable-services`). Within that
     set: every client service of the project; every protocol to its generated RPC client
     `P$client` ([§15](#15-rpc-client-stubs-and-server-dispatch)); every interface that client code
@@ -776,7 +783,9 @@ implementing `k.server.Job<Payload>`:
   page's parameters, so the redirect keeps them and the query) and `history.replaceState` on the client
   (planned).
 - **Endpoint pages** are in a separate server-only table with their methods (`Endpoint` enum), never in
-  the client bundle.
+  the client bundle. Each function of the page is a module function `Page$fn($e, …)` taking the
+  request's `$e` (its `@Param`s and container) first; a handler calling the page's own function calls it
+  with the same `$e` (`tests/e2e/endpoints`, `/helper`).
 - Guards (`requires`) are compiled into the table entry as `["auth"]`, `["role", Role.case]` and
   `["rate", key, count, windowMs]` (from the literal `N.perMinute`): the server evaluates them for every
   request, the client only to decide navigation ([runtime.md §10](runtime.md#10-router)).
@@ -838,6 +847,27 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
   a `new $s.ServerBroadcast(name, T$codec)`, so a publish on any worker reaches every subscriber, and the
   element crosses isolates in its codec's encoding and comes out decoded, with its types (before, it
   crossed as structural JSON, and an element with a `Date` or a `Uuid` field broke the stream).
+- **Remote clients** ([40-workspaces-and-services.md](../design/40-workspaces-and-services.md)). The
+  server emits `P$remote` for every protocol the app calls in another service and doesn't implement
+  (`Gen::remote_protocols`: the targets of `use remote(…) for P` rules and the result types of
+  `RemoteClient.at` calls). It is the client stub with a constructor taking a remote binding `r` and
+  `$s.remoteCall(this.r, path, message, $c)` in place of `$k.rpc(…)`; decoding and `$k.rpcError` are
+  the same, so a paybox error arrives in shop typed. The request container binds `P` to
+  `new P$remote($s.remoteOf("<app>", this.<Config>))` for the environment's `remote` rule (its config
+  counts as reached, so the manifest lists its variables), or to `new P$remote($s.testRemote("<app>"))`
+  in a test build. `RemoteClient.at(url:token:timeout:)` lowers to
+  `new P$remote($s.remote("<app>", url, token, timeout))`, `P` the call's type.
+- **Rpc paths of library protocols.** The Protobuf package is the module prefixed with the name of the
+  package that **declares** the protocol (`Gen::package_name`): for a declaration mounted from a
+  workspace library, the library's `[package] name` read from its mounted `k.toml`. So the serving and the
+  calling app both use `/pay_contracts.pay.Payments/Charge`.
+- **`ServiceAuthenticated`** in a `requires` clause is the guard `["service", () =>
+  $s.configSecret("K_SERVICE_TOKEN")]`; the stdlib's `ServiceConfig` joins the manifest's configuration
+  when a served protocol requires it. `ServiceCaller` is `$s.serviceCaller(this.$r)`.
+- **The manifest** lists `remotes` (each remote rule's protocol and its config's `url` and `token`
+  variables) and `serves` (the protocols the app implements), which `k dev` at a workspace root wires.
+- A test's fake (a service in a test file or test-only module) is never a protocol's implementation:
+  it is bound by the test's `use` rule.
 - **The client stub of a streaming rpc** passes the element decoder to the runtime's `streamed` and
   returns the open stream:
 
@@ -895,11 +925,16 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
 - **Imports** between chunks use relative URLs with hashed names; the hash of a chunk covers its contents
   *and* the names it imports, so changing a dependency renames its dependents. The entry imports the
   services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
-- **Feature chunks**: `charts.[hash].js` and `streams.[hash].js` (`runtime/charts.js`, `runtime/streams.js`),
-  emitted only when a client chunk uses a symbol they implement (`k.charts.LineChart`; `streamed`), with
-  their imports of other runtime files pointing at the runtime chunk; the chunks that use them import those
-  symbols from them (`import { LineChart } from "../charts.[hash].js";`) instead of binding `$k.native`
-  ([runtime.md §1](runtime.md#1-status-and-scope)).
+- **Feature chunks**: `charts.[hash].js`, `drag.[hash].js`, `files.[hash].js`, `keys.[hash].js`,
+  `http.[hash].js` and `streams.[hash].js` (`runtime/charts.js`, …), emitted only when a client chunk or
+  the client entry uses a symbol they implement (`k.charts.LineChart`; `k.drag.ReorderableList`,
+  `Draggable`, `DropTarget`, `DragKind(name:)`; `k.ui.KeyboardShortcut`; `streamed`; and
+  `k.device.BrowserFiles`, which the entry's `$App` constructs for `Files`), with their imports of other
+  runtime files pointing at the runtime chunk; the chunks that use them import those symbols from them
+  (`import { LineChart } from "../charts.[hash].js";`, and from the entry
+  `import { BrowserFiles } from "./files.[hash].js";`) instead of binding `$k.native`
+  ([runtime.md §1](runtime.md#1-status-and-scope)). The `k.drag` components and `KeyboardShortcut`
+  render on the server through `$s.natives["k.drag.…$ssr"]` and `$s.natives["k.ui.KeyboardShortcut$ssr"]`.
 - **Stdlib declarations** the client or server code references are emitted like project code when they
   are non-native enums or structs (`HttpError`, `HttpStatus`, `HttpRequest`). A stdlib struct's memberwise
   initializer fills in the defaults its fields declare, lowered from the stdlib's own source
@@ -913,7 +948,8 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
 - **Printing**: development output is indented with 2 spaces, one statement per line; release output
   omits whitespace and comments (*deferred*: renaming locals), but keeps a space between a binary `-` or
   `+` and a right operand that starts with the same sign (`a- -b`, never the `a--b` that JS reads as a
-  decrement). The runtime's own files are compacted by `k_runtime::compact` instead
+  decrement), and spaces around a word operator (`e instanceof Error`, `"k" in o`), which would otherwise
+  run into the names beside it. The runtime's own files are compacted by `k_runtime::compact` instead
   ([runtime.md §2](runtime.md#2-modules-api-and-size-budget)). Numbers print in shortest round-trip form;
   strings with `"`.
 

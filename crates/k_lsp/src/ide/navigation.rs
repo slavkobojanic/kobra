@@ -156,6 +156,89 @@ pub fn implementation(
     Ok(spans)
 }
 
+/// The declaration (or member of one) a cursor is on, by name, so another
+/// analysis of the same files can find it: the qualified name of the
+/// declaration and, for a member, the member's name and labels.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Target {
+    /// The declaration in this analysis.
+    pub decl: DeclId,
+    /// Its qualified name (`pay.Payments`).
+    pub qualified: String,
+    /// For a member: its name and labels (`charge`, `[Some("request")]`).
+    pub member: Option<(String, Vec<Option<String>>)>,
+}
+
+/// The [`Target`] at `offset`, when it is a declaration or a member.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
+pub fn target_at(
+    analysis: &Analysis,
+    file: FileId,
+    offset: TextSize,
+) -> Result<Option<Target>, Cancelled> {
+    let Some(symbol) = symbol_at(analysis, file, offset)? else {
+        return Ok(None);
+    };
+    let view = analysis.program()?;
+    Ok(match view.resolve(&symbol.resolution) {
+        Some(Resolved::Decl(d)) => Some(Target {
+            decl: d,
+            qualified: view.qualified_name(d),
+            member: None,
+        }),
+        Some(Resolved::Member(m)) => {
+            let owner = view.member(m).owner;
+            Some(Target {
+                decl: owner,
+                qualified: view.qualified_name(owner),
+                member: Some((view.member(m).name.clone(), view.labels(m))),
+            })
+        }
+        None => None,
+    })
+}
+
+/// The implementations of declaration `d`, or of its member named and
+/// labelled like `member`: their name spans.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
+pub fn implementations_of(
+    analysis: &Analysis,
+    d: DeclId,
+    member: Option<&(String, Vec<Option<String>>)>,
+) -> Result<Vec<Span>, Cancelled> {
+    let view = analysis.program()?;
+    let Some((name, labels)) = member else {
+        return Ok(analysis
+            .implementations(d)?
+            .into_iter()
+            .map(|i| Span::new(view.decl(i).file, view.decl(i).name_range))
+            .collect());
+    };
+    let Some(&m) = view
+        .decl(d)
+        .members
+        .iter()
+        .find(|&&m| view.member(m).name == *name && view.labels(m) == *labels)
+    else {
+        return Ok(Vec::new());
+    };
+    Ok(implementing_members(analysis, view, m)?
+        .into_iter()
+        .map(|i| {
+            Span::new(
+                view.decl(view.member(i).owner).file,
+                view.member(i).name_range,
+            )
+        })
+        .collect())
+}
+
 /// The members implementing interface member `m`: in each implementor of
 /// its owner, and in their extensions, the members named like `m` with the
 /// same labels.
@@ -191,8 +274,15 @@ pub fn implementing_members(
     Ok(out)
 }
 
-/// Every reference to the symbol at `offset`, project-wide, sorted; with
-/// its declaration first when `include_declaration` is set.
+/// Every reference to the symbol at `offset`, project-wide; with its
+/// declaration first when `include_declaration` is set.
+///
+/// A member of an interface and the members implementing it are one
+/// symbol, as for rename ([`member_family`]): the references of an
+/// interface method include the methods implementing it (their
+/// declarations) and the calls through concrete types, and those of an
+/// implementing method include the interface method and its other
+/// implementations.
 ///
 /// # Errors
 ///
@@ -206,14 +296,36 @@ pub fn references(
     let Some(symbol) = symbol_at(analysis, file, offset)? else {
         return Ok(Vec::new());
     };
+    let own = analysis.definition(&symbol.resolution)?;
     let mut out = Vec::new();
     if include_declaration {
-        if let Some(def) = analysis.definition(&symbol.resolution)? {
-            out.push(def);
+        out.extend(own);
+    }
+    let mut targets = vec![symbol.resolution.clone()];
+    let view = analysis.program()?;
+    if let Some(Resolved::Member(m)) = view.resolve(&symbol.resolution) {
+        for (_, r) in member_family(analysis, view, m)? {
+            if !targets.contains(&r) {
+                targets.push(r);
+            }
         }
     }
-    for span in analysis.references(&symbol.resolution)? {
-        if !out.contains(&span) {
+    let mut rest = Vec::new();
+    for (i, target) in targets.iter().enumerate() {
+        if i > 0 {
+            // The family's other members are references by their
+            // declarations.
+            if let Some(def) = analysis.definition(target)? {
+                if !super::is_stdlib(analysis, def.file) {
+                    rest.push(def);
+                }
+            }
+        }
+        rest.extend(analysis.references(target)?);
+    }
+    rest.sort();
+    for span in rest {
+        if !out.contains(&span) && Some(span) != own {
             out.push(span);
         }
     }
@@ -273,4 +385,54 @@ pub fn implementing_resolutions(
         .into_iter()
         .filter_map(|i| member_resolution(view, i).map(|r| (i, r)))
         .collect())
+}
+
+/// The family of interface member or implementing member `m`, which
+/// rename and find-references treat as one symbol: the interface members it implements (through its owner's
+/// `implements`, transitively), and every member implementing any of
+/// them.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
+pub fn member_family(
+    analysis: &Analysis,
+    view: &ProgramView,
+    m: MemberId,
+) -> Result<Vec<(MemberId, Resolution)>, Cancelled> {
+    let member = view.member(m);
+    let labels = view.labels(m);
+    let mut roots = vec![m];
+    // Upwards: the interfaces the owner implements, transitively.
+    let mut stack: Vec<Type> = view.decl(member.owner).implements.clone();
+    let mut seen = Vec::new();
+    while let Some(t) = stack.pop() {
+        let Some(iface) = t.decl() else { continue };
+        if seen.contains(&iface) {
+            continue;
+        }
+        seen.push(iface);
+        let info = view.decl(iface);
+        stack.extend(info.implements.iter().cloned());
+        for &candidate in &info.members {
+            let c = view.member(candidate);
+            if c.name == member.name && c.kind == member.kind && view.labels(candidate) == labels {
+                roots.push(candidate);
+            }
+        }
+    }
+    let mut out: Vec<(MemberId, Resolution)> = Vec::new();
+    for root in roots {
+        if let Some(r) = member_resolution(view, root) {
+            if !out.iter().any(|(id, _)| *id == root) {
+                out.push((root, r));
+            }
+        }
+        for (id, r) in implementing_resolutions(analysis, view, root)? {
+            if !out.iter().any(|(existing, _)| *existing == id) {
+                out.push((id, r));
+            }
+        }
+    }
+    Ok(out)
 }

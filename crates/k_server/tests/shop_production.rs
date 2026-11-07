@@ -1,10 +1,15 @@
-//! The shop's production checkout end to end (`examples/shop`, built for
-//! `.production` like `k build`): `PlaceOrder` reserves stock, stores the
-//! order and starts a Stripe Checkout session through `StripeCheckout`,
+//! The shop's optional Stripe binding end to end (the `shop` member of the
+//! `examples/shop` workspace, with Stripe enabled in `App.k` exactly as its
+//! documentation says, built for `.production` like `k build`):
+//! `PlaceOrder` reserves stock, stores the order and starts a Stripe
+//! Checkout session through `StripeCheckout`,
 //! the stdlib's `FetchHttpClient` and `op_k_fetch`, against a fake Stripe
 //! API (`k_server::fakes::FakeHttp`). What the fake receives is the request
 //! the real Stripe would: `POST /v1/checkout/sessions`, form-encoded, with
 //! the secret key as a bearer token and the order id as the idempotency key.
+//!
+//! The default build pays through paybox instead; `k_cli`'s
+//! `dist_browser` tests run it against a real paybox `dist/app`.
 //!
 //! `docs/compiler/testing.md` §8.3.
 
@@ -21,9 +26,25 @@ use k_server::fakes::{FakeHttp, FakeRoute, FakeSmtp};
 use k_server::testing::{HttpResponse, send};
 use k_server::{JsModule, Output as LogOutput, Server, ServerBundle, ServerOptions};
 
-fn shop_dir() -> PathBuf {
+/// The `examples/shop` workspace.
+fn workspace_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/shop")
 }
+
+/// The shop member of the workspace.
+fn shop_dir() -> PathBuf {
+    workspace_dir().join("shop")
+}
+
+/// The `use` rules of `App.k` that the Stripe binding replaces, and what
+/// its documentation says to put in their place.
+const PAYBOX_RULES: &str = "    use PayboxCheckout for PaymentGateway in .production, .development\n    use StripeDisabled for StripeEvents\n";
+const STRIPE_RULES: [&str; 4] = [
+    "use StripeCheckout for PaymentGateway in .production",
+    "use PayboxCheckout for PaymentGateway in .development",
+    "use StripeWebhookVerifier for StripeEvents in .production",
+    "use StripeDisabled for StripeEvents in .development, .test",
+];
 
 fn collect(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) {
     for e in std::fs::read_dir(dir)
@@ -51,14 +72,51 @@ fn collect(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) {
     }
 }
 
-/// The shop as `k build` compiles it: release profile, production
-/// environment (`use StripeCheckout for PaymentGateway in .production`).
-fn build_production() -> Output {
-    let dir = shop_dir();
+/// The shop member's analysis files (with `pay-contracts` mounted), with
+/// Stripe enabled in `App.k` when `stripe` is set.
+fn shop_files(stripe: bool) -> Vec<(ProjectPath, String)> {
+    let dir = workspace_dir();
     let mut files = Vec::new();
     collect(&dir, &dir, &mut files);
-    let host = AnalysisHost::with_files(SemaOptions::new(), files);
+    let ws =
+        k_sema::Workspace::from_files(files.into_iter().map(|(p, t)| (p.as_str().to_owned(), t)));
+    let member = ws.member("shop").expect("the shop member");
+    let mut files = ws.analysis_files(member);
+    if stripe {
+        let app = files
+            .iter_mut()
+            .find(|(p, _)| p.as_str() == "App.k")
+            .expect("App.k");
+        // The documentation shows the rules that enable Stripe; the test
+        // applies exactly those, so the two can't drift apart.
+        for rule in STRIPE_RULES {
+            assert!(
+                app.1.contains(&format!("///   {rule}\n")),
+                "App.k documents `{rule}`"
+            );
+        }
+        assert!(
+            app.1.contains(PAYBOX_RULES),
+            "App.k binds paybox by default"
+        );
+        let replacement: String = STRIPE_RULES.iter().map(|r| format!("    {r}\n")).collect();
+        app.1 = format!(
+            "import payments.StripeCheckout\nimport payments.StripeWebhookVerifier\n{}",
+            app.1.replace(PAYBOX_RULES, &replacement)
+        );
+    }
+    files
+}
+
+/// The shop as `k build` compiles it: release profile, production
+/// environment; with Stripe enabled when `stripe` is set.
+fn build(stripe: bool) -> Output {
+    let host = AnalysisHost::with_files(SemaOptions::new(), shop_files(stripe));
     let analysis = host.analysis();
+    let diagnostics = analysis.diagnostics().expect("not cancelled");
+    if let Some(d) = diagnostics.iter().find(|d| d.is_error()) {
+        panic!("the shop must check cleanly: {}: {}", d.code, d.message);
+    }
     generate(
         &analysis,
         &Options {
@@ -68,6 +126,11 @@ fn build_production() -> Output {
         },
     )
     .expect("the shop generates for production")
+}
+
+/// The shop with the optional Stripe binding enabled.
+fn build_production() -> Output {
+    build(true)
 }
 
 struct TempDb(PathBuf);
@@ -161,6 +224,12 @@ fn start(output: &Output, db: &TempDb, stripe: &FakeHttp, smtp: &FakeSmtp) -> Se
         ("STRIPE_API_TIMEOUT", "2s".into()),
         ("STRIPE_WEBHOOK_SECRET", "whsec_test_secret".into()),
         ("SHOP_ADMIN_EMAIL", "admin@shop.example".into()),
+        // The card page and paybox's events stay part of the shop with
+        // Stripe enabled, so paybox's address is still configured; nothing
+        // in these tests calls it.
+        ("K_SERVICE_TOKEN", "shop_service_secret".into()),
+        ("PAYBOX_URL", "http://127.0.0.1:9".into()),
+        ("PAYBOX_TOKEN", "paybox_service_secret".into()),
         (
             "SHOP_ADMIN_PASSWORD_HASH",
             "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaA".into(),
@@ -241,6 +310,47 @@ fn stock(db: &TempDb, slug: &str) -> i64 {
         Some(k_db::Value::Int(n)) => *n,
         other => panic!("no stock for {slug}: {other:?}"),
     }
+}
+
+#[test]
+fn the_default_production_build_needs_no_stripe_configuration() {
+    let output = build(false);
+    let env: Vec<&str> = output
+        .manifest
+        .config
+        .iter()
+        .map(|c| c.env.as_str())
+        .collect();
+    for stripe in ["STRIPE_API_KEY", "STRIPE_WEBHOOK_SECRET"] {
+        assert!(!env.contains(&stripe), "{stripe} in {env:?}");
+    }
+    for paybox in [
+        "PAYBOX_URL",
+        "PAYBOX_TOKEN",
+        "PAYBOX_CALLBACK_URL",
+        "K_SERVICE_TOKEN",
+    ] {
+        assert!(
+            output
+                .manifest
+                .config
+                .iter()
+                .any(|c| c.env == paybox && c.required),
+            "{paybox} is required: {env:?}"
+        );
+    }
+    // With Stripe enabled, the callback address isn't needed: only
+    // `PayboxCheckout` injects it.
+    let stripe = build(true);
+    assert!(
+        !stripe
+            .manifest
+            .config
+            .iter()
+            .any(|c| c.env == "PAYBOX_CALLBACK_URL"),
+        "{:?}",
+        stripe.manifest.config
+    );
 }
 
 #[test]

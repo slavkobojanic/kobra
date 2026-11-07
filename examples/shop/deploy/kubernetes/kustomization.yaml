@@ -1,0 +1,17 @@
+# Everything but the Secrets, which create-secrets.sh makes from the files in
+# secrets/ (never committed):
+#
+#   kubectl apply --kustomize deploy/kubernetes
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: k-shop
+resources:
+  - namespace.yaml
+  - config.yaml
+  - postgres.yaml
+  - mailpit.yaml
+  - migrate.yaml
+  - paybox.yaml
+  - shop.yaml
+  - ingress.yaml

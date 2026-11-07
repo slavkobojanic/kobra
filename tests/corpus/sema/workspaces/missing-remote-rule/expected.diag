@@ -1,0 +1,2 @@
+error[K4023] shop/src/checkout/Checkout.k:5:27-5:35: `pay.Payments` comes from a dependency and this app doesn't implement it, so it needs a `remote` rule
+  note: add `use remote(Config) for Payments` to `App.k`, where `Config` is a config implementing `RemoteService`

@@ -1,0 +1,53 @@
+# Mailpit: the SMTP server the shop's confirmation emails go to, with a web
+# inbox. Nothing leaves the cluster.
+#
+#   kubectl --namespace k-shop port-forward service/mail 8025:8025
+#
+# then open http://localhost:8025.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mail
+  namespace: k-shop
+spec:
+  selector:
+    app: mail
+  ports:
+    - name: smtp
+      port: 1025
+    - name: web
+      port: 8025
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mail
+  namespace: k-shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mail
+  template:
+    metadata:
+      labels:
+        app: mail
+    spec:
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:v1.33
+          ports:
+            - name: smtp
+              containerPort: 1025
+            - name: web
+              containerPort: 8025
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: web
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi

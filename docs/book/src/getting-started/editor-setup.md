@@ -17,8 +17,8 @@ Open a project, the directory with `k.toml`, or any directory above it. Then:
   blindly is marked as preferred.
 - **Navigation.** Go to the definition of anything, standard library included. Go to the *type* of a value.
   Go to the **implementations** of an interface or protocol, or of one of its methods: the shop example's
-  `PaymentGateway` jumps to `LocalCheckout` and `StripeCheckout`, and a protocol jumps to the service that
-  serves it.
+  `PaymentGateway` jumps to `PayboxCheckout`, `LocalCheckout` and `StripeCheckout`, and a protocol jumps
+  to the service that serves it, in another app of the workspace too.
 - **Find references and rename** across the whole project, imports and doc comment links included. Renaming
   a public declaration also renames its file, since a file's public declaration must share its name.
   Renaming an interface method renames the methods that implement it. Renaming a page renames its

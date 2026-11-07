@@ -1,0 +1,20 @@
+# Format: docs/design/24-projects.md
+#
+# The manifest holds only what can't be expressed in K. Per-environment
+# choices live in App.k, and configuration and secrets come from the process
+# environment (see docs/design/25-config-and-secrets.md), never from this
+# committed file.
+
+[package]
+name = "shop"
+title = "K Shop"
+description = "A small production-style shop: payments through paybox, Postgres, background email, Docker and Kubernetes."
+k = "0.1"
+version = "0.1.0"
+
+# The contracts with paybox, the payment service of this workspace
+# (docs/design/40-workspaces-and-services.md). Everything else comes from the
+# standard library; the optional Stripe binding calls Stripe over HTTP with
+# k.http, not through a vendor SDK.
+[dependencies]
+pay-contracts = { workspace = true }

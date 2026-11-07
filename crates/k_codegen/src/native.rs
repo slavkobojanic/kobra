@@ -46,6 +46,8 @@ pub(crate) fn static_value(b: &mut Body<'_, '_>, m: MemberId) -> Option<Expr> {
     let (owner, name) = owner_name(b, m);
     Some(match (owner.as_str(), name.as_str()) {
         ("k.core.Color", "white") => js::str("#FFFFFF"),
+        // `File.maximumSize`, which `files.js` (`LIMIT`) enforces.
+        ("k.device.File", "maximumSize") => Expr::Num(16_777_216.0),
         ("k.core.Color", "black") => js::str("#000000"),
         ("k.core.Color", "transparent") => js::str("transparent"),
         // A `TimeZone` is its IANA name (runtime.md §12).
@@ -232,6 +234,11 @@ pub(crate) fn property(
         ("k.core.Bytes", "hex") => rt("bytesHex", vec![recv]),
         ("k.core.Bytes", "base64") => rt("bytesBase64", vec![recv]),
         ("k.core.Bytes", "utf8Text") => rt("bytesUtf8", vec![recv]),
+        // A `File` is `{name, mediaType, bytes}` (42-files.md).
+        ("k.device.File", "text") => rt("bytesUtf8", vec![member(recv, "bytes")]),
+        ("k.device.File", "size") => len(member(recv, "bytes")),
+        ("k.device.FileType", "mediaType") => file_type_part(recv, 0),
+        ("k.device.FileType", "fileExtension") => file_type_part(recv, 1),
         ("k.core.Angle", "degrees") => recv,
         ("k.core.Url", "path") => rt("urlPath", vec![recv]),
         ("k.core.Page", "url") => match b.g.view.lookup("k.core.Page") {
@@ -725,6 +732,8 @@ pub(crate) fn construct(
         ),
         "k.core.Url" => a0,
         "k.core.Angle" => a0,
+        // `Double(n)` of an `Int`: both are JavaScript numbers.
+        "k.core.Double" => a0,
         // On the server a broadcast spans every worker isolate.
         "k.rpc.Broadcast"
             if b.target == crate::cx::Target::Server
@@ -786,6 +795,18 @@ pub(crate) fn static_call(
         ("k.core.Money", "zero") => rt("moneyZero", vec![a0]),
         ("k.core.Currency", "parse") => rt("currencyParse", vec![a0]),
         ("k.core.Color", "hex") => rt("colorHex", vec![a0]),
+        ("k.device.File", "fromText") => {
+            let a1 = args.get(1).cloned().unwrap_or(Expr::Null);
+            let a2 = args.get(2).cloned().unwrap_or(Expr::Null);
+            Expr::Object(
+                vec![
+                    js::Prop::KeyValue("name".into(), a0),
+                    js::Prop::KeyValue("mediaType".into(), file_type_part(a1, 0)),
+                    js::Prop::KeyValue("bytes".into(), rt("utf8", vec![a2])),
+                ],
+                false,
+            )
+        }
         ("k.core.Color", "rgb") => rt("colorRgb", args),
         ("k.observe.Log", level) => rt("log", vec![js::str(level), a0]),
         ("k.encoding.Json", "encode") => {
@@ -833,6 +854,19 @@ pub(crate) fn static_call(
             };
             call(member(id("$s"), "redirect"), vec![location])
         }
+        // A client of the protocol the call is used as
+        // (40-workspaces-and-services.md); `P$remote` is emitted for every
+        // protocol `RemoteClient.at` builds (`Gen::remote_protocols`).
+        ("k.rpc.RemoteClient", "at") => {
+            let p = result.decl()?;
+            let class = b.use_decl(p, format!("{}$remote", b.g.name(p)));
+            let mut parts = vec![js::str(b.g.project_name())];
+            parts.extend(args.iter().take(3).cloned());
+            Expr::New(
+                Box::new(class),
+                vec![call(member(id("$s"), "remote"), parts)],
+            )
+        }
         ("k.core.Result", "of") => {
             let r = b.g.b.result.map(|r| b.decl_ref(r)).unwrap_or(Expr::Null);
             rt("resultOf", vec![a0, r])
@@ -847,6 +881,43 @@ pub(crate) fn decoding_error(b: &mut Body<'_, '_>) -> Expr {
         Some(d) => b.decl_ref(d),
         None => Expr::Null,
     }
+}
+
+/// The media types and extensions of `k.device.FileType`'s cases without
+/// a payload, by case tag (42-files.md); `files.js` has the same table
+/// for the picker's `accept`.
+const FILE_TYPES: [(&str, &str); 8] = [
+    ("application/json", "json"),
+    ("text/plain", "txt"),
+    ("text/csv", "csv"),
+    ("text/markdown", "md"),
+    ("image/png", "png"),
+    ("image/jpeg", "jpg"),
+    ("image/svg+xml", "svg"),
+    ("application/pdf", "pdf"),
+];
+
+/// A `FileType` value's media type (`part` 0) or extension (1): its
+/// fields for `.other(mediaType:fileExtension:)` (tag 8), else the table's.
+fn file_type_part(value: Expr, part: usize) -> Expr {
+    let field = if part == 0 {
+        "mediaType"
+    } else {
+        "fileExtension"
+    };
+    let table = Expr::Array(
+        FILE_TYPES
+            .iter()
+            .map(|(m, e)| js::str(if part == 0 { *m } else { *e }))
+            .collect(),
+    );
+    let t = || id("t");
+    let pick = Expr::Cond(
+        Box::new(bin("===", member(t(), "$"), Expr::Num(8.0))),
+        Box::new(member(t(), field)),
+        Box::new(Expr::Index(Box::new(table), Box::new(member(t(), "$")))),
+    );
+    call(js::arrow(vec![Param::new("t")], pick), vec![value])
 }
 
 /// `true` for stdlib declarations whose code the generator emits like

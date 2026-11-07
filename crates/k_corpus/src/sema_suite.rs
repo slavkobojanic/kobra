@@ -10,6 +10,14 @@
 //!   `routes.lock`, …), except `expected.diag` and `expected.pending` in
 //!   the directory itself, which are the case's expectations.
 //!
+//! A project whose `k.toml` declares a `[workspace]` is a **workspace
+//! case** (`docs/design/40-workspaces-and-services.md`): every member is
+//! analysed with the libraries it depends on mounted
+//! ([`k_sema::Workspace`]), and the case's diagnostics are the merged
+//! [`k_sema::Workspace::report`], with every path relative to the case
+//! directory (`shop/App.k:3:5-3:9`, `shop/k.toml:6:1-6:33`). Caret
+//! annotations are checked in the analysis of the member that owns the file.
+//!
 //! A single file is analysed as the only source file of a library project
 //! whose `k.toml` is [`IMPLICIT_MANIFEST`]. Its project path is
 //! `src/corpus/<file name>` ([`SINGLE_FILE_MODULE`]), unless its first line
@@ -49,7 +57,7 @@ use std::path::{Path, PathBuf};
 
 use k_diagnostics::{FileId, LineIndex, TextRange, codes};
 use k_sema::stdlib::Stdlib;
-use k_sema::{Analysis, AnalysisHost, Options, ProjectPath};
+use k_sema::{Analysis, AnalysisHost, Options, ProjectPath, Workspace};
 
 use crate::annotations::{self, Annotation, Query};
 use crate::diag_format::{self, DiagEntry};
@@ -146,6 +154,10 @@ fn single_file_path(case: &Case, text: &str) -> Result<ProjectPath, String> {
 /// Returns a message if the case's files can't be loaded.
 pub fn render_diagnostics(case: &Case) -> Result<String, String> {
     let loaded = load(case)?;
+    if let Some(ws) = workspace_of(&loaded) {
+        let (entries, _) = workspace_entries(&ws, NonZeroUsize::MIN)?;
+        return Ok(diag_format::render(&entries));
+    }
     let host = AnalysisHost::with_files(Options::new(), loaded.files);
     let analysis = host.analysis();
     Ok(diag_format::render(&actual_entries(
@@ -188,20 +200,39 @@ pub fn run(case: &Case, bless: bool) -> Result<(), String> {
         }
     }
 
-    let host = AnalysisHost::with_files(
-        Options::new().with_threads(NonZeroUsize::MIN),
-        loaded.files.clone(),
-    );
-    let analysis = host.analysis();
-    let actual = actual_entries(&analysis, loaded.home.as_ref())?;
-
     let mut failures = Vec::new();
-    let diag_mismatch = diag_format::compare(&expected, &actual).err();
-    for (path, annotation) in &annotations {
-        if let Some(failure) = check_annotation(&analysis, path, annotation)? {
-            failures.push(failure);
+    let actual = if let Some(ws) = workspace_of(&loaded) {
+        let (actual, analyses) = workspace_entries(&ws, NonZeroUsize::MIN)?;
+        for (path, annotation) in &annotations {
+            let Some(member) = ws.owner_of(path.as_str()) else {
+                failures.push(format!("{path}: the file belongs to no workspace member"));
+                continue;
+            };
+            let Some(inner) = ws.view_path(member, path.as_str()) else {
+                continue;
+            };
+            let Some((_, analysis)) = analyses.iter().find(|(m, _)| *m == member) else {
+                continue;
+            };
+            if let Some(failure) = check_annotation(analysis, &inner, annotation)? {
+                failures.push(format!("{path}: {failure}"));
+            }
         }
-    }
+        actual
+    } else {
+        let host = AnalysisHost::with_files(
+            Options::new().with_threads(NonZeroUsize::MIN),
+            loaded.files.clone(),
+        );
+        let analysis = host.analysis();
+        for (path, annotation) in &annotations {
+            if let Some(failure) = check_annotation(&analysis, path, annotation)? {
+                failures.push(failure);
+            }
+        }
+        actual_entries(&analysis, loaded.home.as_ref())?
+    };
+    let diag_mismatch = diag_format::compare(&expected, &actual).err();
 
     if pending.is_some() {
         // Stage 1 is done, so a pending case's syntax diagnostics must hold
@@ -249,6 +280,49 @@ pub fn run(case: &Case, bless: bool) -> Result<(), String> {
     } else {
         Err(failures.join("\n\n"))
     }
+}
+
+/// Each member's analysis, by member index.
+type MemberAnalyses = Vec<(usize, Analysis)>;
+
+/// The workspace of a project case whose `k.toml` declares one.
+fn workspace_of(loaded: &LoadedCase) -> Option<Workspace> {
+    let root = loaded.files.iter().find(|(p, _)| p.as_str() == "k.toml")?;
+    if loaded.home.is_some() || !Workspace::is_workspace_manifest(&root.1) {
+        return None;
+    }
+    Some(Workspace::from_files(
+        loaded
+            .files
+            .iter()
+            .map(|(p, t)| (p.as_str().to_owned(), t.clone())),
+    ))
+}
+
+/// Analyses every member of `ws` and returns the merged diagnostics as
+/// `.diag` entries (paths relative to the case directory), with the
+/// member analyses.
+fn workspace_entries(
+    ws: &Workspace,
+    threads: NonZeroUsize,
+) -> Result<(Vec<DiagEntry>, MemberAnalyses), String> {
+    let analyses: Vec<(usize, Analysis)> = (0..ws.members.len())
+        .map(|i| {
+            let host = AnalysisHost::with_files(
+                Options::new().with_threads(threads),
+                ws.analysis_files(i),
+            );
+            (i, host.analysis())
+        })
+        .collect();
+    let (map, diagnostics) = ws
+        .report(&analyses, str::to_owned)
+        .map_err(|e| e.to_string())?;
+    let lookup = |file: FileId| map.get(file).map(|f| (f.path(), f.text()));
+    Ok((
+        diag_format::entries_for_files(&diagnostics, lookup, None),
+        analyses,
+    ))
 }
 
 /// Returns `true` for a lexer or parser code (`K0001`–`K0999`).

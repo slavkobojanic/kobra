@@ -1,0 +1,3 @@
+# Libraries that depend on each other: the graph must be a DAG.
+[workspace]
+members = ["a", "b"]

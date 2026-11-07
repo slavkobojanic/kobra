@@ -290,3 +290,10 @@ GET /home
 ~ home page
 !~ /webhooks/echo
 !~ /oauth/callback
+
+### a handler calls the endpoint page's own functions, async and not
+POST /helper
+
+hello
+>>> 200
+= 5 bytes

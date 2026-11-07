@@ -41,6 +41,8 @@ public class Screen {
     func navigation(named name: String) -> Element
     /// The only list.
     func list() -> Element
+    /// The list whose accessible name is exactly `name`.
+    func list(named name: String) -> Element
     /// The only `.role(.alert)` live region.
     func alert() -> Element
     /// The only `.role(.status)` live region.

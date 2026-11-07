@@ -68,12 +68,34 @@ fn collect(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) {
     }
 }
 
+/// The files of `examples/<name>`'s analysis. A `<workspace>/<member>`
+/// name (`shop/shop`) is that member of the workspace, with the libraries
+/// it depends on mounted.
+fn project_files(name: &str) -> Vec<(ProjectPath, String)> {
+    let mut files = Vec::new();
+    match name.split_once('/') {
+        Some((workspace, member)) => {
+            let root = repo().join("examples").join(workspace);
+            collect(&root, &root, &mut files);
+            let ws = k_sema::Workspace::from_files(
+                files.into_iter().map(|(p, t)| (p.as_str().to_owned(), t)),
+            );
+            let m = ws
+                .member(member)
+                .unwrap_or_else(|| panic!("{name}: no member {member}"));
+            ws.analysis_files(m)
+        }
+        None => {
+            let dir = repo().join("examples").join(name);
+            collect(&dir, &dir, &mut files);
+            files
+        }
+    }
+}
+
 /// Compiles `examples/<name>` for development.
 fn build(name: &str) -> Output {
-    let dir = repo().join("examples").join(name);
-    let mut files = Vec::new();
-    collect(&dir, &dir, &mut files);
-    let host = AnalysisHost::with_files(SemaOptions::new(), files);
+    let host = AnalysisHost::with_files(SemaOptions::new(), project_files(name));
     let analysis = host.analysis();
     let diagnostics = analysis.diagnostics().expect("not cancelled");
     if let Some(d) = diagnostics.iter().find(|d| d.is_error()) {
@@ -792,21 +814,52 @@ impl Drop for TempDb {
     }
 }
 
-fn shop() -> (Site, TempDb) {
+/// A stand-in for paybox, the payment service the shop calls in
+/// development: it registers the shop and charges every card.
+fn fake_paybox() -> k_server::fakes::FakeHttp {
+    use k_server::fakes::{FakeHttp, FakeRoute};
+    FakeHttp::start(vec![
+        FakeRoute::json(
+            "POST",
+            "/pay_contracts.pay.Payments/RegisterMerchant",
+            &serde_json::json!({ "name": "shop", "callbackUrl": "http://127.0.0.1:9" }),
+        ),
+        FakeRoute::json(
+            "POST",
+            "/pay_contracts.pay.Payments/Charge",
+            &serde_json::json!({
+                "id": "ch_browser_1",
+                "reference": "order",
+                "amount": { "amount": "48.00", "currency": "USD" },
+                "last4": "4242",
+                "refunded": { "amount": "0.00", "currency": "USD" },
+            }),
+        ),
+    ])
+    .expect("the fake paybox starts")
+}
+
+/// The shop (the `shop` member of the `examples/shop` workspace) with the
+/// demo catalog, paying through `paybox`.
+fn shop(paybox: &k_server::fakes::FakeHttp) -> (Site, TempDb) {
     let db = TempDb::new("shop");
     let url = db.url();
+    let origin = paybox.origin();
     let site = Site::start(
-        "shop",
+        "shop/shop",
         &[
             ("DATABASE_URL", url.as_str()),
             ("SHOP_ADMIN_EMAIL", "admin@example.com"),
             ("SHOP_ADMIN_PASSWORD_HASH", "placeholder"),
-            ("STRIPE_WEBHOOK_SECRET", "whsec_placeholder_SECRET"),
+            ("K_SERVICE_TOKEN", "shop_service_SECRET"),
+            ("PAYBOX_URL", origin.as_str()),
+            ("PAYBOX_TOKEN", "paybox_service_SECRET"),
+            ("PAYBOX_CALLBACK_URL", "http://127.0.0.1:9"),
             ("SMTP_HOST", "localhost"),
             ("MAIL_FROM", "K Shop <orders@shop.example>"),
         ],
     );
-    let catalog = fs::read_to_string(repo().join("examples/shop/scripts/demo-catalog.sql"))
+    let catalog = fs::read_to_string(repo().join("examples/shop/shop/scripts/demo-catalog.sql"))
         .expect("the demo catalog");
     db.execute(&catalog);
     (site, db)
@@ -814,7 +867,8 @@ fn shop() -> (Site, TempDb) {
 
 #[test]
 fn shop_hydrates_the_storefront_and_navigates_to_a_product_without_refetching() {
-    let (mut site, _db) = shop();
+    let paybox = fake_paybox();
+    let (mut site, _db) = shop(&paybox);
     let since = site.requests.len();
     let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
     tab.assert_hydrated();
@@ -822,7 +876,7 @@ fn shop_hydrates_the_storefront_and_navigates_to_a_product_without_refetching() 
     contains(&text, "New this season", "storefront");
     contains(&text, "K Mug", "storefront");
     contains(&text, "Sold out", "storefront");
-    contains(&text, "Payments are handled by Stripe", "the layout");
+    contains(&text, "Payments are handled by paybox", "the layout");
     // Hydration reads the products from `k-data`.
     assert_eq!(
         tab.site.count(since, "/shop.store.StoreProtocol/Products"),
@@ -840,7 +894,7 @@ fn shop_hydrates_the_storefront_and_navigates_to_a_product_without_refetching() 
     let text = tab.text();
     contains(&text, "K Mug", "product page");
     contains(&text, "Buy now", "product page");
-    contains(&text, "Payments are handled by Stripe", "the layout stays");
+    contains(&text, "Payments are handled by paybox", "the layout stays");
     lacks(&text, "New this season", "product page");
     assert_eq!(
         tab.site.count(since, "/shop.store.StoreProtocol/Product"),
@@ -857,7 +911,8 @@ fn shop_hydrates_the_storefront_and_navigates_to_a_product_without_refetching() 
 
 #[test]
 fn shop_validates_the_order_form_before_placing_an_order() {
-    let (mut site, _db) = shop();
+    let paybox = fake_paybox();
+    let (mut site, _db) = shop(&paybox);
     let since = site.requests.len();
     let mut tab = Tab::open(&mut site, "/products/k-mug", &serde_json::json!({}));
     tab.assert_hydrated();
@@ -911,11 +966,59 @@ fn shop_validates_the_order_form_before_placing_an_order() {
         "{:?}",
         tab.site.requests
     );
-    // `LocalCheckout` pays at once: the payment page is the receipt, a
+    // In development the shop pays through paybox: checkout registers the
+    // shop with it, and the payment page is the shop's own card form, a
     // client navigation on the same origin.
     let went = tab.run("done([sim.state().pushed, sim.state().loads]);");
     let all = went.to_string();
-    contains(&all, "/receipt/", "the browser goes to the payment page");
+    contains(&all, "/payment/", "the browser goes to the payment page");
+    let text = tab.text();
+    contains(&text, "Pay for your order", "payment page");
+    contains(&text, "2 × K Mug, $48.00", "payment page");
+    let sent = paybox.requests();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].path, "/pay_contracts.pay.Payments/RegisterMerchant");
+    assert!(
+        sent[0].headers.contains_key("x-k-service-token"),
+        "paybox calls carry a service token: {sent:?}"
+    );
+    // A blank card number is refused in the browser.
+    let since = tab.site.requests.len();
+    tab.run("sim.submit(sim.find(\"form\"));");
+    contains(&tab.text(), "Enter your card number.", "card rule");
+    assert_eq!(
+        tab.site.count(since, "/shop.paybox.CardProtocol/Pay"),
+        0,
+        "an invalid card form must not reach the server"
+    );
+    // Paying charges the card through the shop's server, which calls
+    // paybox; the browser never does. Then the receipt.
+    tab.run(
+        "const card = sim.find(\"input\", null, { id: sim.find(\"label\", \"Card number\").getAttribute(\"for\") });\n\
+         sim.type(card, \"4242 4242 4242 4242\");\n\
+         sim.submit(sim.find(\"form\"));",
+    );
+    assert_eq!(
+        tab.site.count(since, "/shop.paybox.CardProtocol/Pay"),
+        1,
+        "{:?}",
+        tab.site.requests
+    );
+    let sent = paybox.requests();
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert_eq!(sent[1].path, "/pay_contracts.pay.Payments/Charge");
+    assert!(
+        sent[1].body.contains("4242 4242 4242 4242"),
+        "{}",
+        sent[1].body
+    );
+    assert!(sent[1].body.contains("\"48.00\""), "{}", sent[1].body);
+    let went = tab.run("done(sim.state().pushed);");
+    contains(
+        &went.to_string(),
+        "/receipt/",
+        "the browser goes to the receipt",
+    );
     let text = tab.text();
     contains(&text, "Thanks for your order", "receipt");
     contains(&text, "2 × K Mug", "receipt");

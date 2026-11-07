@@ -4,6 +4,11 @@
 //! main page and one rpc (or, for the apps without rpcs, one hashed asset)
 //! must answer. `SIGTERM` must then shut it down cleanly.
 //!
+//! A static-only app (`todos`, `kanban`; `docs/design/38-deployment.md`,
+//! "Static-only apps") has no `dist/app`: its `dist/public` is served by
+//! the tests' static host, as the examples' nginx images serve it, and
+//! every URL must answer its `index.html`.
+//!
 //! The configuration is the minimum each app requires, with placeholder
 //! values; nothing reaches an outside service.
 
@@ -12,6 +17,9 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+
+#[path = "support/static_host.rs"]
+mod static_host;
 
 fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -134,7 +142,8 @@ struct App {
 }
 
 impl App {
-    /// Builds `examples/<name>` into a temporary `dist/` and starts it.
+    /// Builds `examples/<name>` (a project, or a workspace member such as
+    /// `shop/paybox`) into a temporary `dist/` and starts it.
     fn start(name: &str, out: &Path, env: &[(&str, &str)]) -> App {
         let project = repo().join("examples").join(name);
         let dist = out.join("dist");
@@ -250,6 +259,78 @@ impl App {
     }
 }
 
+/// A static-only app's `dist/public`, served by [`static_host`].
+struct Static {
+    host: static_host::StaticHost,
+    name: String,
+}
+
+impl Static {
+    /// Builds `examples/<name>` into a temporary `dist/`, checks that it
+    /// is static files only, and serves `dist/public`.
+    fn build(name: &str, out: &Path) -> Static {
+        let dist = out.join("dist");
+        let built = Command::new(env!("CARGO_BIN_EXE_k"))
+            .arg("build")
+            .arg(repo().join("examples").join(name))
+            .arg("--out")
+            .arg(&dist)
+            .output()
+            .expect("k build runs");
+        assert!(
+            built.status.success(),
+            "k build {name}: {}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        assert!(
+            !dist.join("app").exists(),
+            "{name}: static files only, no dist/app"
+        );
+        assert!(
+            dist.join("public/index.html").is_file(),
+            "{name}: dist/public/index.html"
+        );
+        Static {
+            host: static_host::StaticHost::start(&dist.join("public")),
+            name: name.to_owned(),
+        }
+    }
+
+    fn get(&self, path: &str) -> Response {
+        http(
+            self.host.addr.port(),
+            "GET",
+            path,
+            &[("accept", "text/html")],
+            "",
+        )
+        .expect("GET answers")
+    }
+
+    /// Asserts that every hashed file `page` links is served, immutable.
+    fn serves_its_assets(&self, page: &Response) {
+        let mut linked = 0;
+        for rest in page.body.split("\"/assets/").skip(1) {
+            let path = format!("/assets/{}", rest.split('"').next().unwrap_or_default());
+            let asset = self.get(&path);
+            assert_eq!(asset.status, 200, "{}: {path}", self.name);
+            assert!(
+                asset
+                    .header("cache-control")
+                    .is_some_and(|c| c.contains("immutable")),
+                "{}: hashed assets are immutable",
+                self.name
+            );
+            linked += 1;
+        }
+        assert!(
+            linked >= 2,
+            "{}: the page links its script and stylesheet",
+            self.name
+        );
+    }
+}
+
 fn json(r: &Response) -> serde_json::Value {
     serde_json::from_str(&r.body).expect("a JSON body")
 }
@@ -257,17 +338,44 @@ fn json(r: &Response) -> serde_json::Value {
 #[test]
 fn todos_serves_its_client_rendered_page() {
     let dir = TempDir::new("todos");
-    let app = App::start("todos", &dir.0, &[]);
-    let home = app.get("/");
+    let site = Static::build("todos", &dir.0);
+    let home = site.get("/");
     assert_eq!(home.status, 200);
-    // Rendering is `.client`: the server sends the empty shell only.
+    // Rendering is `.client`: the document is the empty shell only.
     assert!(
         home.body.contains("<div id=\"k-app\"></div>"),
         "{}",
         home.body
     );
-    app.serves_its_assets(&home);
-    app.stop();
+    assert!(
+        home.header("cache-control") == Some("no-cache"),
+        "the document is revalidated, so a deploy is seen at once"
+    );
+    site.serves_its_assets(&home);
+}
+
+#[test]
+fn kanban_serves_its_document_for_every_url_and_its_assets() {
+    let dir = TempDir::new("kanban");
+    let site = Static::build("kanban", &dir.0);
+    let home = site.get("/");
+    assert_eq!(home.status, 200);
+    assert!(
+        home.body.contains("<div id=\"k-app\"></div>"),
+        "{}",
+        home.body
+    );
+    assert!(home.body.contains("<title>Kanban</title>"), "{}", home.body);
+    // A deep link reaches the client router through the fallback.
+    let deep = site.get("/boards/7f1c1a52-6f39-4b9b-9a52-1a2b3c4d5e6f");
+    assert_eq!(deep.status, 200);
+    assert_eq!(deep.body, home.body);
+    assert_eq!(
+        site.get("/assets/missing.0123abcd.js").status,
+        404,
+        "no fallback for assets"
+    );
+    site.serves_its_assets(&home);
 }
 
 #[test]
@@ -330,15 +438,20 @@ fn notes_migrates_redirects_to_sign_in_and_answers_an_rpc_from_the_database() {
 #[test]
 fn shop_renders_the_storefront_and_lists_products_from_the_database() {
     let dir = TempDir::new("shop");
+    // The shop is the `shop` member of the `examples/shop` workspace. Its
+    // production build pays through paybox, which isn't needed to render
+    // the storefront.
     let app = App::start(
-        "shop",
+        "shop/shop",
         &dir.0,
         &[
             ("DATABASE_URL", "sqlite::memory:"),
             ("SHOP_ADMIN_EMAIL", "admin@example.com"),
-            ("SHOP_ADMIN_PASSWORD_HASH", "placeholder"),
-            ("STRIPE_API_KEY", "sk_test_placeholder_SECRET"),
-            ("STRIPE_WEBHOOK_SECRET", "whsec_placeholder_SECRET"),
+            ("SHOP_ADMIN_PASSWORD_HASH", "placeholder_SECRET"),
+            ("K_SERVICE_TOKEN", "shop_service_SECRET"),
+            ("PAYBOX_URL", "http://127.0.0.1:9"),
+            ("PAYBOX_TOKEN", "paybox_service_SECRET"),
+            ("PAYBOX_CALLBACK_URL", "http://127.0.0.1:9"),
             // The order confirmation job sends email over SMTP, so a
             // production server requires `SmtpConfig` (31-email.md).
             ("SMTP_HOST", "localhost"),
@@ -373,6 +486,33 @@ fn shop_renders_the_storefront_and_lists_products_from_the_database() {
 }
 
 #[test]
+fn paybox_answers_its_health_check_and_refuses_calls_without_a_service_token() {
+    let dir = TempDir::new("paybox");
+    let app = App::start(
+        "shop/paybox",
+        &dir.0,
+        &[
+            ("DATABASE_URL", "sqlite::memory:"),
+            ("K_SERVICE_TOKEN", "paybox_service_SECRET"),
+        ],
+    );
+    let health = app.get("/health");
+    assert_eq!(health.status, 200, "{}", health.body);
+    assert_eq!(health.body, "ok");
+    // `Payments` requires `ServiceAuthenticated`: a call without a token
+    // (a browser, or a misconfigured service) is refused before the handler.
+    let charge = rpc(
+        app.port,
+        "/pay_contracts.pay.Payments/RegisterMerchant",
+        "{\"callbackUrl\": \"http://shop.internal\"}",
+    );
+    assert_eq!(charge.status, 401, "{}", charge.body);
+    assert!(charge.body.contains("unauthenticated"), "{}", charge.body);
+    assert!(!charge.body.contains("SECRET"), "{}", charge.body);
+    app.stop();
+}
+
+#[test]
 fn an_app_refuses_to_start_when_its_database_cannot_be_opened() {
     let dir = TempDir::new("notes_bad_url");
     let project = repo().join("examples/notes");
@@ -403,4 +543,49 @@ fn an_app_refuses_to_start_when_its_database_cannot_be_opened() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("database"), "{err}");
     assert!(!err.contains("hunter2"), "{err}");
+}
+
+/// The kanban image's nginx serves `dist/public` as the tests' static host
+/// does (`support/static_host.rs`): a year of immutable caching for the
+/// hashed assets and a 404 for a missing one, `no-cache` and the
+/// single-page-app fallback for everything else; and the image copies
+/// `dist/public` only, with no `dist/app` to run.
+#[test]
+fn kanban_image_serves_dist_public_like_the_static_host() {
+    let dir = repo().join("examples/kanban");
+    let conf = std::fs::read_to_string(dir.join("nginx.conf")).expect("nginx.conf");
+    let assets = conf
+        .split("location /assets/ {")
+        .nth(1)
+        .and_then(|s| s.split('}').next())
+        .expect("a location for the hashed assets");
+    assert!(assets.contains("try_files $uri =404;"), "{assets}");
+    assert!(
+        assets.contains("Cache-Control \"public, max-age=31536000, immutable\""),
+        "{assets}"
+    );
+    let document = conf
+        .split("location / {")
+        .nth(1)
+        .and_then(|s| s.split('}').next())
+        .expect("a location for the document");
+    assert!(
+        document.contains("try_files $uri /index.html;"),
+        "{document}"
+    );
+    assert!(
+        document.contains("Cache-Control \"no-cache\""),
+        "{document}"
+    );
+    let dockerfile = std::fs::read_to_string(dir.join("Dockerfile")).expect("Dockerfile");
+    assert!(dockerfile.contains("RUN k check"), "{dockerfile}");
+    assert!(dockerfile.contains("RUN k build"), "{dockerfile}");
+    assert!(
+        dockerfile.contains("COPY --from=build /src/dist/public /usr/share/nginx/html"),
+        "{dockerfile}"
+    );
+    assert!(
+        !dockerfile.contains("/src/dist/app"),
+        "a static-only image copies no dist/app: {dockerfile}"
+    );
 }

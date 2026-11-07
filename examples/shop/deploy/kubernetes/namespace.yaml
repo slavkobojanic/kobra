@@ -1,0 +1,6 @@
+# Every K Shop resource lives in this namespace; deleting it removes them all,
+# the database volume included.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k-shop
