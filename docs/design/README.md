@@ -61,11 +61,17 @@ K borrows ideas, not syntax. Where another language does something well, K adapt
 | 41 | Drag and drop | [41-drag-and-drop.md](41-drag-and-drop.md) |
 | 42 | Files: import and export | [42-files.md](42-files.md) |
 | 43 | Keyboard shortcuts | [43-keyboard-shortcuts.md](43-keyboard-shortcuts.md) |
+| 44 | Channels: typed realtime | [44-channels.md](44-channels.md) |
+| 45 | The web platform | [45-web-platform.md](45-web-platform.md) |
+| 46 | Media capture, recording and calls | [46-media-and-rtc.md](46-media-and-rtc.md) |
+| 47 | Client-rendered components (*proposal*) | [47-client-rendered-components.md](47-client-rendered-components.md) |
 
 ## Decisions still open
 
 No cross-cutting decision is open. The most recent ones:
 
+- **A client-rendered app with a server gets the session mirror:** its shell embeds the same `k-data` session payload a server-rendered document does, and the server checks a page's guards before sending it, so client-side guards work exactly as in server-rendered apps. A guarded page keeps an app from being static-only. See [23-app-structure.md](23-app-structure.md#rendering-mode) and [26-auth-and-sessions.md](26-auth-and-sessions.md#in-the-browser).
+- **`TimeOfDay` is a value on both sides, not only in job schedules:** its `HH:MM` text, with `hour`, `minute`, `TimeOfDay.parse(_:)` and the text as its printed and encoded form. See [35-time.md](35-time.md#timeofday).
 - **An `rpc` is only written where a protocol serves it:** an `rpc` member of a struct, a component, or a service that implements no protocol declaring it is `K5508`, with a fix to `func`. See [11-protocols-and-rpc.md](11-protocols-and-rpc.md#rules).
 - **Checks over names and literals:** two `DragKind`s with the same name and different payload types are `K2406` ([41-drag-and-drop.md](41-drag-and-drop.md#kinds-and-payloads)); `1.usd + 2.eur`, two different literal currencies, is `K2407` ([34-money.md](34-money.md)); `K5507`'s fix removes the imports only the clause used.
 - **Workspace libraries keep their own module paths; git packages are prefixed by their URL,** which an `[aliases]` entry shortens, and `K8106` keeps module paths unique. `RemoteClient.at` takes its protocol from the expected type, `k build` writes `rpc.lock` and `k check` checks it, and in `.test` a `remote` rule binds an offline `TestRemote` unless a test binds its own fake. See [18-packages.md](18-packages.md) and [40-workspaces-and-services.md](40-workspaces-and-services.md).

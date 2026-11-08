@@ -54,7 +54,7 @@ public page Home at "/" {
     style {
         .grid {
             display: grid;
-            gridTemplateColumns: repeat(auto-fill, minmax(14rem, 1fr));
+            gridTemplateColumns: repeat(autoFill, minmax(14rem, 1fr));
             gap: .lg;
             marginTop: .lg;
         }

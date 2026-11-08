@@ -4,7 +4,8 @@
 //! public [`Type`] form (`docs/compiler/sema.md` §2, "Program view").
 //!
 //! The view is built once per revision at the end of the semantic pass,
-//! while the checking context is still alive, and owned by the revision's
+//! while the checking context is still alive, just after the rest of the
+//! result is handed over (`ViewSlot`), and owned by the revision's
 //! result. It holds no syntax: declarations and members point at their
 //! syntax by file and range, and a consumer finds the nodes in the parses
 //! of [`Analysis::parse`](crate::Analysis::parse).
@@ -472,6 +473,90 @@ pub enum Resolved {
     Decl(DeclId),
     /// A member.
     Member(MemberId),
+}
+
+/// A revision's [`ProgramView`], filled after the rest of its result.
+///
+/// Only code generation and the editor queries read the view; the
+/// diagnostics don't. So the semantic pass hands its result over first and
+/// builds the view afterwards, on its own thread, while the caller reports
+/// the diagnostics (about a tenth of a warm re-check at 100k lines,
+/// `docs/compiler/performance.md` §10.4). A reader that comes before the
+/// view is filled waits for it ([`ViewSlot::get`]).
+#[derive(Debug)]
+pub(crate) struct ViewSlot {
+    /// The view, once built.
+    view: std::sync::OnceLock<ProgramView>,
+    /// Guards the wait for [`ViewSlot::view`].
+    lock: std::sync::Mutex<()>,
+    /// Signalled when [`ViewSlot::view`] is filled.
+    ready: std::sync::Condvar,
+}
+
+impl Default for ViewSlot {
+    /// A slot holding an empty view (the result of a pass that never ran).
+    fn default() -> ViewSlot {
+        let slot = ViewSlot::pending();
+        slot.fill(ProgramView::default());
+        slot
+    }
+}
+
+impl ViewSlot {
+    /// An empty slot, to be filled with [`ViewSlot::fill`].
+    pub(crate) fn pending() -> ViewSlot {
+        ViewSlot {
+            view: std::sync::OnceLock::new(),
+            lock: std::sync::Mutex::new(()),
+            ready: std::sync::Condvar::new(),
+        }
+    }
+
+    /// Fills the slot and wakes every reader waiting for it; a second fill
+    /// is ignored.
+    pub(crate) fn fill(&self, view: ProgramView) {
+        let _ = self.view.set(view);
+        // Taking the lock orders the fill before the wake-up: a reader that
+        // saw the slot empty holds the lock until it waits.
+        drop(
+            self.lock
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        self.ready.notify_all();
+    }
+
+    /// The view, waiting until it is filled.
+    pub(crate) fn get(&self) -> &ProgramView {
+        if let Some(view) = self.view.get() {
+            return view;
+        }
+        let mut guard = self
+            .lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            if let Some(view) = self.view.get() {
+                return view;
+            }
+            guard = self
+                .ready
+                .wait(guard)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+/// Fills a [`ViewSlot`] with an empty view if it is dropped before the
+/// real one is built (the pass panicked), so no reader waits forever.
+pub(crate) struct FillOnDrop<'s>(pub(crate) &'s ViewSlot);
+
+impl Drop for FillOnDrop<'_> {
+    fn drop(&mut self) {
+        if self.0.view.get().is_none() {
+            self.0.fill(ProgramView::default());
+        }
+    }
 }
 
 /// Converts a checker signature to its public [`Signature`] form.

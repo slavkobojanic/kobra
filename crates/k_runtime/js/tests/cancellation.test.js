@@ -260,3 +260,177 @@ test("a stopped bound value never settles", async () => {
   await tick();
   assertEq(settled, false);
 });
+
+// ------------------------------------------- what a component leaves behind
+
+// A disposed component's handlers do nothing. Its nodes can outlive it: a
+// page the session gate disposed stays on screen until the full page load
+// the router left for replaces the document, and a click on it must not
+// run a body that reads the narrowed user (03-reactivity.md, "What a
+// component leaves behind").
+test("a handler of a disposed owner does nothing", () => {
+  const button = globalThis.document.createElement("button");
+  globalThis.document.body.appendChild(button);
+  let calls = 0;
+  let dispose = null;
+  root((d) => {
+    dispose = d;
+    on(button, "click", () => {
+      calls++;
+    });
+  });
+  button.click();
+  assertEq(calls, 1);
+  dispose();
+  button.click();
+  assertEq(calls, 1, "the disposed owner's handler did not run");
+});
+
+// A synchronous handler stopped by the cancellation (a bound function of
+// another disposed component returning a value) is as silent as an async
+// one.
+test("a handler that throws the cancellation is silent", () => {
+  const button = globalThis.document.createElement("button");
+  globalThis.document.body.appendChild(button);
+  let calls = 0;
+  root(() =>
+    on(button, "click", () => {
+      calls++;
+      throw k.CANCELLED;
+    }),
+  );
+  button.click();
+  assertEq(calls, 1);
+});
+
+// A function value a component hands to a service (a listener it keeps,
+// a timer's action) is bound to the component's lifetime: it is the
+// function while the component is live.
+test("bound runs the function while its lifetime is live", async () => {
+  assertEq(typeof k.bound, "function", "k:runtime exports bound");
+  const life = new AbortController();
+  const got = [];
+  const f = k.bound((a, b) => (got.push([a, b]), a + b), life.signal, 1);
+  assertEq(f(2, 3), 5);
+  const caller = new AbortController();
+  const g = k.bound(async ($c, a) => {
+    got.push([$c.aborted, a]);
+    return a * 2;
+  }, life.signal, 3);
+  assertEq(await g(caller.signal, 4), 8);
+  assertEq(await g(null, 5), 10, "a caller without a context runs it under the lifetime");
+  assertDeepEq(got, [[2, 3], [false, 4], [false, 5]]);
+  assertEq(f.lifetime, life.signal, "the bound value names its lifetime");
+});
+
+// Once the component is disposed, calling the value runs none of its
+// code: a function of `Void` returns at once (an async one resolves), and
+// one returning a value stops its caller with the cancellation, as
+// awaiting the component's own work does.
+test("bound runs nothing once its lifetime is aborted", async () => {
+  const life = new AbortController();
+  let calls = 0;
+  const sync = k.bound(() => { calls++; }, life.signal, 0);
+  const value = k.bound(() => (calls++, 1), life.signal, 1);
+  const later = k.bound(async () => { calls++; }, life.signal, 2);
+  const answer = k.bound(async () => (calls++, 1), life.signal, 3);
+  life.abort();
+  assertEq(sync(), undefined);
+  let thrown = null;
+  try {
+    value();
+  } catch (e) {
+    thrown = e;
+  }
+  assertEq(thrown, k.CANCELLED);
+  assertEq(await later(null), undefined);
+  let rejected = null;
+  await answer(null).then(undefined, (e) => { rejected = e; });
+  assertEq(rejected, k.CANCELLED);
+  assertEq(calls, 0);
+});
+
+// An async bound value started while the component is live runs under a
+// context that its caller's cancellation and the component's both abort,
+// so the body stops at its next await when the component goes away.
+test("a bound async value stops when its lifetime ends mid-run", async () => {
+  const life = new AbortController();
+  const caller = new AbortController();
+  const gate = deferred();
+  const seen = [];
+  const f = k.bound(async ($c) => {
+    seen.push("start");
+    k.live($c, await k.guard($c, gate.promise));
+    seen.push("after");
+  }, life.signal, 2);
+  f(caller.signal);
+  await tick();
+  life.abort();
+  gate.resolve(1);
+  await tick();
+  await tick();
+  assertDeepEq(seen, ["start"], "the caller is live, the component is not");
+  assertEq(caller.signal.aborted, false);
+});
+
+// Without a lifetime (outside a component's client renderer) the value is
+// the function itself.
+test("bound without a lifetime is the function", () => {
+  const f = () => 1;
+  assertEq(k.bound(f, null, 1), f);
+});
+
+// The browser Clock stops a timer whose action is bound to a lifetime
+// when that lifetime ends, so a page's timers stop with it.
+test("a Clock timer whose action is bound stops with its lifetime", () => {
+  const calls = [];
+  const saved = [globalThis.setTimeout, globalThis.setInterval, globalThis.clearTimeout, globalThis.clearInterval];
+  globalThis.setTimeout = (f, d) => (calls.push(["timeout", d]), 1);
+  globalThis.setInterval = (f, d) => (calls.push(["interval", d]), 2);
+  globalThis.clearTimeout = (id) => calls.push(["clearTimeout", id]);
+  globalThis.clearInterval = (id) => calls.push(["clearInterval", id]);
+  try {
+    const life = new AbortController();
+    const c = k.clock(null);
+    c.after(300, k.bound(() => {}, life.signal, 0));
+    c.every(3000, k.bound(() => {}, life.signal, 0));
+    c.after(500, () => {});
+    life.abort();
+  } finally {
+    [globalThis.setTimeout, globalThis.setInterval, globalThis.clearTimeout, globalThis.clearInterval] = saved;
+  }
+  assertDeepEq(calls, [["timeout", 300], ["interval", 3000], ["timeout", 500], ["clearTimeout", 1], ["clearInterval", 2]]);
+});
+
+// A live run that calls a disposed component's bound function for a value
+// is stopped by the cancellation, and that is silent wherever the run
+// ends: an effect (sync or async) reports nothing to its error boundary,
+// and a load is not a failure.
+test("a live run stopped by a disposed component's function reports nothing", async () => {
+  const life = new AbortController();
+  life.abort();
+  const stale = k.bound(() => 1, life.signal, 1);
+  const staleAsync = k.bound(async () => 1, life.signal, 3);
+  const errors = [];
+  let group = null;
+  root(() =>
+    catchError(
+      () => {
+        effect(() => {
+          stale();
+        });
+        effect(async ($c) => {
+          k.live($c, await k.guard($c, staleAsync($c)));
+        });
+        group = createLoads([{ name: "n", after: [], run: async (v, $c) => k.live($c, await k.guard($c, staleAsync($c))) }], null);
+      },
+      (e) => errors.push(e),
+    ),
+  );
+  flush();
+  await tick();
+  await tick();
+  assertDeepEq(errors, []);
+  assertEq(group.state(), k.LOADING);
+  assertEq(group.error(), null);
+});

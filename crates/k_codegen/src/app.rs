@@ -506,14 +506,14 @@ pub(crate) fn client_entry(
         vec![js::str("k-app")],
     );
     stmts.push(Stmt::Const("container".into(), container));
-    // The `k-data` payload of a server-rendered document: the first page
-    // hydrates from it, and `Clock` and `Session` start from it.
-    let data = if g.client_rendered() {
-        Expr::Null
-    } else {
-        rt("readData", vec![id("document")])
-    };
-    stmts.push(Stmt::Const("data".into(), data));
+    // The `k-data` payload of the document: a server-rendered one's first
+    // page hydrates from it, and `Clock` and `Session` start from it. A
+    // client-rendered app's shell carries only the session mirror, and a
+    // static-only app's none (`readData` is then `null`).
+    stmts.push(Stmt::Const(
+        "data".into(),
+        rt("readData", vec![id("document")]),
+    ));
     stmts.push(Stmt::Const(
         "app".into(),
         Expr::New(Box::new(id("$App")), vec![id("data")]),
@@ -526,7 +526,11 @@ pub(crate) fn client_entry(
         js::arrow(vec![], id("app"))
     };
     let mut options = vec![Prop::KeyValue("c".into(), make)];
-    if !g.client_rendered() {
+    if g.client_rendered() {
+        // The shell's mirror: the router checks the guards against it, as
+        // in a server-rendered app, but there is nothing to hydrate.
+        options.push(Prop::KeyValue("session".into(), id("data")));
+    } else {
         // The router hydrates the first page once its chunk has loaded:
         // its templates claim the server's nodes and its loads start from
         // `k-data` (runtime.md §6, §10).
@@ -628,7 +632,17 @@ pub(crate) fn client_containers(
             }
             _ => {
                 let deps = deps_of(b, s, &|n| member(this("$a"), n));
-                let construct = Expr::New(Box::new(class), vec![deps]);
+                // An app-scoped service lives as long as the app, so what
+                // its constructor creates (an `@Derived` computed, an
+                // effect) has no owner: built while a page renders, it
+                // would otherwise be disposed with that page.
+                let construct = rt(
+                    "runWithOwner",
+                    vec![
+                        Expr::Null,
+                        js::arrow(vec![], Expr::New(Box::new(class), vec![deps])),
+                    ],
+                );
                 app.push(getter(name.clone(), app_memo(&name, construct)));
             }
         }

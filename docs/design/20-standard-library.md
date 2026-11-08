@@ -22,7 +22,7 @@ Types whose values can be written as text follow one convention:
   - `Url`: an absolute `http`, `https`, `ws` or `wss` URL with a host. A relative URL or a script scheme (`javascript:`) is an error.
   - `Uuid`: 32 hexadecimal digits in groups of 8-4-4-4-12, in either case, held in lower case.
   - `EmailAddress`: a bare address or a display name with the address in angle brackets, normalized as [31-email.md](31-email.md) describes.
-  - `TimeOfDay`: `HH:MM` on a 24-hour clock, two digits each.
+  - `TimeOfDay`: `HH:MM` on a 24-hour clock, two digits each, held as that text ([35-time.md](35-time.md#timeofday)).
   - `HttpStatus(code:)`: `100...599`.
   - A money amount (`24.00.usd`) has no more decimal places than its currency, not counting trailing zeros ([34-money.md](34-money.md)).
 - **`Type.parse(_ text: String) -> Type?` is the only runtime parse.** When a type has several text forms, the label names the form: `Bytes.parse(hex:)`, `Bytes.parse(base64:)`, `Currency.parse(code:)`.
@@ -40,18 +40,20 @@ Stdlib providers read their settings from ordinary `config` declarations (`Serve
 
 | Module | Contents |
 |---|---|
-| `k.ui` | Built-in elements; layout (`Stack`, `Grid`, `Spacer`); accessible widgets (`Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable`); `VisuallyHidden`; `KeyboardShortcut` ([43-keyboard-shortcuts.md](43-keyboard-shortcuts.md)); `Icon` with a bundled icon set; the `Theme` service ([07-themes-and-units.md](07-themes-and-units.md)) |
+| `k.ui` | Built-in elements; layout (`Stack`, `Grid`, `Spacer`); accessible widgets (`Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable`); `VisuallyHidden`; `KeyboardShortcut` ([43-keyboard-shortcuts.md](43-keyboard-shortcuts.md)); the element events `appeared`, `disappeared` and `resized` ([45-web-platform.md](45-web-platform.md#element-events)); `Icon` with a bundled icon set; the `Theme` service ([07-themes-and-units.md](07-themes-and-units.md)) |
 | `k.animation` | Transitions, springs, enter/exit animation, `.animate()` modifiers |
 | `k.charts` | Line, bar, area, pie and scatter charts, built on SVG and themed by tokens ([37-charts.md](37-charts.md)) |
 | `k.graphics` | Canvas 2D, SVG drawing |
-| `k.http` | `HttpClient`, `HttpRequest`, `IncomingRequest`, `HttpResponse`, `HttpStatus` ([32-http-client.md](32-http-client.md)); WebSocket, server-sent events |
+| `k.http` | `HttpClient`, `HttpRequest`, `IncomingRequest`, `HttpResponse`, `HttpStatus` ([32-http-client.md](32-http-client.md)); `WebSocketClient`, `WebSocketRequest`, `WebSocket`, `WebSocketMessage`, `WebSocketError` for third-party endpoints ([44-channels.md](44-channels.md#raw-websockets-khttp)); server-sent events |
 | `k.storage` | Typed local storage ([36-local-storage.md](36-local-storage.md)), typed IndexedDB collections, cookies |
-| `k.time` | the `Clock` service (`now`, `every`, `after`, `sleep`), `TimerHandle`, `TimeOfDay`, calendars, time zones, formatting, relative time ([35-time.md](35-time.md)) |
+| `k.time` | the `Clock` service (`now`, `every`, `after`, `sleep`), `TimerHandle`, `Backoff` ([44-channels.md](44-channels.md#raw-websockets-khttp)), `TimeOfDay`, calendars, time zones, formatting, relative time ([35-time.md](35-time.md)) |
 | `k.text` | Formatting, regex, Markdown rendering, slugs, `EmailAddress` ([31-email.md](31-email.md)) |
 | `k.i18n` | Localized strings, plurals, locale-aware number, date and currency formatting |
-| `k.crypto` | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only) ([33-crypto.md](33-crypto.md)) |
+| `k.crypto` | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `ConstantTime`, `Password` (server only); authenticated encryption (`AesGcmKey`, `Sealed<T>`, `OpenError`), key derivation (HKDF, `PassphraseSalt` with PBKDF2), key wrapping (`Exportable<K>`, `WrappedKey<K>`), signatures (`Ed25519…`, `EcdsaP256…`, verify-only `RsaPublicKey`), key agreement (`X25519…`, `SharedSecret`), HPKE `Envelope<T>` and `EnvelopedKey<K>`, `Jwt`, `Jws`, `JwkSet`, `JwtError`; the client-only `KeyStore` with `KeyName`, `KeyStoreError`, `StoragePersistence` ([33-crypto.md](33-crypto.md)) |
 | `k.auth` | `Session`, `SessionManager`, `SessionUser`, the `Authenticated`, `Role` and `RateLimit` guards, `GuardRejection`, `AuthRole`, `AuthUserId`, `SessionConfig`; OAuth providers and passkeys ([26-auth-and-sessions.md](26-auth-and-sessions.md)) |
-| `k.device` | Files: the `Files` interface (the file picker and downloads), `File`, `FileType`, `FileOpenError`, `FileSaveError` ([42-files.md](42-files.md)); clipboard, geolocation, notifications, sharing, camera, microphone |
+| `k.device` | Files: the `Files` interface (the file picker and downloads), `File`, `FileType`, `FileOpenError`, `FileSaveError` ([42-files.md](42-files.md)); the web platform wrappers ([45-web-platform.md](45-web-platform.md)): `PermissionState`, `Subscription`; the client-only `Clipboard`, `Share`, `Notifications`, `Geolocation` and `TabMessaging` (`TabChannel`); the `PageVisibility`, `Connectivity`, `Preferences` and `Viewport` services; the `CopyButton`, `ShareButton` and `KeepScreenAwake` components (camera, microphone and recording are `k.media`) |
+| `k.media` | Camera, microphone and screen capture (`MediaDevices` with `requestAccess(for:)`, `CaptureRequest`, `CaptureError`, `MediaStream`, `MediaTrack`; permission as `k.device.PermissionState`); recording to a `File` (`Recorder`, `RecordingSession`, `Recording`); audio levels and short sounds (`Audio`, `AudioMeter`, `LevelMeter`); `MediaSource` and `MediaController` for the `video` and `audio` elements. Client-only ([46-media-and-rtc.md](46-media-and-rtc.md)) |
+| `k.rtc` | Peer-to-peer calls: `PeerConnections`, `PeerConnection`, `MediaSender`, typed data channels (`DataChannelKind`, `DataChannel`); signalling over a channel rpc (`Signal`, `SignallingRelay`, `RelayPeer`); self-hosted STUN/TURN (`IceServer`, `IceServers`, `TurnConfig`) ([46-media-and-rtc.md](46-media-and-rtc.md)) |
 | `k.drag` | Drag and drop: `DragKind`, `Draggable`, `DropTarget`, `ReorderableList`, `ListMove`, with pointer, touch and keyboard dragging ([41-drag-and-drop.md](41-drag-and-drop.md)) |
 | `k.encoding` | JSON (`@JsonKey`), CSV, Base64, URL encoding |
 | `k.collections` | `Deque`, `PriorityQueue`, `OrderedMap`, `LruCache` |
@@ -59,5 +61,5 @@ Stdlib providers read their settings from ordinary `config` declarations (`Serve
 | `k.observe` | Structured logging, metrics, tracing (OpenTelemetry) |
 | `k.db` | Entities, repositories, `Database`, `DatabaseConfig`, migrations and `Schema` ([19-persistence.md](19-persistence.md)) |
 | `k.validation` | Constraint annotations, `@Form` and `ValidationError` ([15-forms-and-validation.md](15-forms-and-validation.md)) |
-| `k.rpc` | Protocols and Connect transport, `RpcFailure`, `RpcOnlyError` ([28-rpc-wire-format.md](28-rpc-wire-format.md)), `Broadcast` ([29-server-streaming.md](29-server-streaming.md)) |
-| `k.test` | Test runner, `render`, accessibility queries, `TestClient` and the test doubles, `TestClock` included ([21-testing.md](21-testing.md)) |
+| `k.rpc` | Protocols and Connect transport, `RpcFailure`, `RpcOnlyError` ([28-rpc-wire-format.md](28-rpc-wire-format.md)), `Broadcast` ([29-server-streaming.md](29-server-streaming.md)); channels: `Channel`, `ChannelState`, `ChannelClose`, `ChannelConfig`, `Presence`, `PresenceLease`, `PresenceChange` ([44-channels.md](44-channels.md)) |
+| `k.test` | Test runner, `render`, accessibility queries, `TestClient` and the test doubles, `TestClock` included ([21-testing.md](21-testing.md)); `TestChannels`, `TestChannel`, `TestPeers`, `TestWebSocketClient` ([44-channels.md](44-channels.md#testing)); `TestClipboard`, `TestShare`, `TestNotifications`, `TestGeolocation`, `TestTabMessaging`, `TestWakeLock`, `TestConnectivity`, `TestPageVisibility`, `TestPreferences`, `TestViewport` ([45-web-platform.md](45-web-platform.md#tests)); `TestMediaDevices`, `TestRecorder`, `TestAudio`, `TestPeerConnections`, `TestCallPeer` ([46-media-and-rtc.md](46-media-and-rtc.md#tests)); `MemoryKeyStore`, `TestKeys` ([33-crypto.md](33-crypto.md#testing)) |

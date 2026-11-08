@@ -24,7 +24,7 @@ serde_json.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 arbitrary.workspace = true
-# Evaluates the TextMate grammar's patterns in tests/textmate.rs.
+# Evaluates the TextMate grammar's patterns in tests/editors.rs and tests/textmate.rs.
 regex.workspace = true
 
 [lints]

@@ -124,6 +124,58 @@ export function own(f, c) {
 }
 
 /**
+ * A function value a component hands to a service (a listener the service
+ * keeps, a `Clock` timer's action), bound to the component's lifetime
+ * `life` (03-reactivity.md, "What a component leaves behind"). While
+ * `life` is live, a call runs `f`; an async `f` takes its caller's context
+ * first, as every K function value does, and runs under a context that the
+ * caller's cancellation and `life` both abort. Once `life` is aborted a
+ * call runs none of `f`: one of `Void` returns at once (an async one
+ * resolves), and one with a value stops its caller with {@link CANCELLED},
+ * as awaiting the disposed component's own work does. The bound value
+ * names `life` as its `lifetime`, which the browser `Clock` stops a timer
+ * by. Without a lifetime (outside a component's client renderer) it is `f`.
+ * @param {Function} f the function value, in K's calling convention
+ * @param {AbortSignal|null} life the component's lifetime (`$life`)
+ * @param {number} mode 0 a synchronous `Void` function, 1 a synchronous one
+ *   with a value, 2 an async `Void` one, 3 an async one with a value
+ * @returns {Function}
+ */
+export function bound(f, life, mode) {
+  if (!life) return f;
+  const g =
+    mode >= 2
+      ? (c, ...a) => {
+        if (life.aborted) return mode === 2 ? Promise.resolve() : Promise.reject(CANCELLED);
+        return f(either(c, life), ...a);
+      }
+      : (...a) => {
+        if (!life.aborted) return f(...a);
+        if (mode === 1) throw CANCELLED;
+        return undefined;
+      };
+  g.lifetime = life;
+  return g;
+}
+
+/**
+ * A signal aborted when `c` or `life` is: the context a bound async value
+ * runs under. Without a caller's context it is `life`.
+ * @param {AbortSignal|null|undefined} c the caller's context
+ * @param {AbortSignal} life the component's lifetime
+ * @returns {AbortSignal}
+ */
+function either(c, life) {
+  if (!c || c === life || c.aborted) return c || life;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([c, life]);
+  const both = new AbortController();
+  const stop = () => both.abort();
+  c.addEventListener("abort", stop, { once: true });
+  life.addEventListener("abort", stop, { once: true });
+  return both.signal;
+}
+
+/**
  * The props of a page from its route parameters: one getter per parameter.
  * @param {Record<string, unknown>} params
  * @returns {Record<string, () => unknown>}

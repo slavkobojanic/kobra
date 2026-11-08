@@ -184,6 +184,53 @@ pub(crate) struct BodyCache {
     pub(crate) file_list: Vec<(FileId, String)>,
     /// The facts of each project file.
     pub(crate) files: FxHashMap<FileId, Arc<FileFacts>>,
+    /// The lockfiles' texts, by file, and the manifests' texts, by path:
+    /// with the signatures, the inputs of the passes [`PassFacts`] records.
+    pub(crate) side_inputs: SideInputs,
+    /// What the `rpc.lock` check produced ([`crate::rpclock`]).
+    pub(crate) rpc_lock: Option<Arc<PassFacts<Option<String>>>>,
+}
+
+/// The lockfiles' texts by file and the manifests' texts by path, in the
+/// host's order.
+pub(crate) type SideInputs = (Vec<(FileId, Arc<str>)>, Vec<(String, Arc<str>)>);
+
+/// What a project pass produced whose inputs are only the project's
+/// signatures, its lockfiles and its manifests (not the bodies): its
+/// diagnostics and its value.
+///
+/// Such a pass gives the same result again while those inputs are the
+/// same, except for positions: a body edit moves the declarations after
+/// it. So a revision replays the facts instead of running the pass when
+/// the file list and every signature are unchanged ([`BodyCache`]'s
+/// conditions for replaying body facts), the lockfiles and manifests have
+/// the same texts, and every position the diagnostics mention is in a file
+/// whose text is unchanged ([`PassFacts::replayable`]). The value must hold
+/// no positions.
+///
+/// This keeps the `rpc.lock` check off a warm re-check after a body edit:
+/// it renders every served protocol, the types it carries and the lock
+/// itself, about a tenth of the re-check at 100k lines
+/// (`docs/compiler/performance.md` §10.4).
+#[derive(Debug)]
+pub(crate) struct PassFacts<T> {
+    /// The diagnostics the pass reported, in order.
+    pub(crate) diags: Vec<Diagnostic>,
+    /// What the pass returned.
+    pub(crate) value: T,
+}
+
+impl<T> PassFacts<T> {
+    /// `true` when every file the diagnostics mention (their spans, labels
+    /// and fix edits) satisfies `unchanged`, so their positions still hold.
+    pub(crate) fn replayable(&self, unchanged: impl Fn(FileId) -> bool) -> bool {
+        self.diags.iter().all(|d| {
+            std::iter::once(d.span)
+                .chain(d.labels.iter().map(|l| l.span))
+                .chain(d.fixes.iter().flat_map(|f| f.edits.iter().map(|e| e.span)))
+                .all(|span| unchanged(span.file))
+        })
+    }
 }
 
 /// Returns the signature text of a file: every non-trivia token, each as

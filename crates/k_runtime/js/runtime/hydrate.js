@@ -49,7 +49,7 @@ export function uid() {
 
 /**
  * Reads and parses the `<script type="application/json" id="k-data">`
- * element, or returns `null` when the page has none (client rendering).
+ * element, or returns `null` when the page has none (a static-only app).
  * @param {Document} doc
  * @returns {Record<string, unknown>|null}
  */

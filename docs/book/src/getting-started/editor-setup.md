@@ -53,10 +53,20 @@ Open a project, the directory with `k.toml`, or any directory above it. Then:
   ~}
   ```
 
-  On a page it shows the page's URL.
+  On a page it shows the page's URL. On a theme token (`.muted`) it shows the token's value and what each
+  variant of the theme sets it to; on a class (`.class(.count)`) it shows the class's rule, and go to
+  definition jumps to that rule.
 - **Completion** lists only what is valid where you are: names in scope, members after `.`, the right
   implicit members after a bare `.` (`padding: .` lists your theme's spacing tokens, `filter = .` the cases
   of `Filter`), annotations after `@`. Choosing a declaration from another module adds its import.
+  - After `.on(`, the events of the component or element before it, with their payload types and
+    documentation: `CardView(card: card).on(` offers `edit:`, `button { … }.on(` offers `click:`. Events
+    that an earlier `.on(…)` of the same chain already handles are left out.
+  - In a `style` block: property names at the start of a declaration; after `property:` the keywords
+    that property accepts (`justifyContent: ` offers `spaceBetween`, `center`, …) and the theme tokens of
+    the right kind with their values (`.md` for `gap`, `.muted` for `color`); in a selector, the classes
+    of the component; in `@media (`, the media features and their keywords.
+  - In `.class(.`, `.class([.a, .`, or before `when`, the classes of the component's style block.
 - **Signature help** inside a call, the **outline** of a file, **workspace symbols**, and **inlay hints**
   that show each page's URL next to its name when the URL comes from the page's name.
 
@@ -74,6 +84,9 @@ code --install-extension k-language-0.1.0.vsix
 
 npm is only needed to package the extension; K itself never uses it. The command **K: Restart Language
 Server** restarts the server, for example after you rebuild `k`.
+
+Highlighting comes from the extension's own grammar, so after you update the repository, package and install
+the extension again to pick up its fixes.
 
 ## Neovim
 

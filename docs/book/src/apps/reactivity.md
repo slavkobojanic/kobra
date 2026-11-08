@@ -184,6 +184,11 @@ The compiler also runs a static pass, for tooling:
   them. Server-side work on a schedule is a [background job](jobs.md).
 - Leaving a page, or unmounting a component, cancels its running effects and runs their `onCleanup`
   blocks.
+- **Nothing a disposed component made runs afterwards.** Its buttons answer no clicks, even while they
+  are still on screen, and a lambda or method it handed to a service, such as a listener an app-wide
+  service keeps or a `clock.after` action, does nothing when the service calls it later. A listener
+  that returns `Void` simply returns; one that returns a value stops the run that called it, as a
+  cancelled `await` does.
 
 ### Effects handle their own errors
 

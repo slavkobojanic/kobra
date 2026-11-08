@@ -111,7 +111,12 @@ function delegate(e) {
  * Listens to an event. The handler runs inside `batch`, so the DOM is
  * current when it returns; a promise it returns (an async handler) is not
  * awaited, and its rejection with {@link CANCELLED} (the handler stopped
- * because its component was disposed) is dropped. Bubbling events (`click`, `input`, `submit`, `keydown`) on an
+ * because its component was disposed) is dropped, as is a synchronous
+ * throw of it. Once the owner that was current when `on` was called (the
+ * component) is disposed, the handler no longer runs: a disposed page's
+ * nodes can stay on screen (the session gate leaves for a full page load
+ * that replaces them later), and a click on them must not run its body
+ * (03-reactivity.md, "What a component leaves behind"). Bubbling events (`click`, `input`, `submit`, `keydown`) on an
  * element already in the document are delegated: one listener per document
  * dispatches by a per-element handler table.
  * @param {EventTarget} target
@@ -119,8 +124,17 @@ function delegate(e) {
  * @param {(event: Event) => unknown} handler
  */
 export function on(target, event, handler) {
+  const owner = getOwner();
   const run = (e) => {
-    batch(() => handler(e))?.then?.(undefined, (x) => {
+    if (owner !== null && owner.disposed) return;
+    let r;
+    try {
+      r = batch(() => handler(e));
+    } catch (x) {
+      if (x === CANCELLED) return;
+      throw x;
+    }
+    r?.then?.(undefined, (x) => {
       if (x !== CANCELLED) throw x;
     });
   };

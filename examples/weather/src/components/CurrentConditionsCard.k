@@ -96,7 +96,7 @@ public component CurrentConditionsCard {
         }
 
         .windArrow {
-            display: inline-block;
+            display: inlineBlock;
             width: 1em;
             height: 1em;
             marginRight: .xs;

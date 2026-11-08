@@ -41,8 +41,9 @@ pub(crate) struct SemaResult {
     /// The body facts of every file, for the next revision's warm re-check
     /// ([`crate::warm`]).
     pub(crate) cache: Arc<BodyCache>,
-    /// The read-only program view for code generation ([`crate::view`]).
-    pub(crate) view: crate::view::ProgramView,
+    /// The read-only program view for code generation ([`crate::view`]),
+    /// filled after the rest of the result ([`crate::view::ViewSlot`]).
+    pub(crate) view: Arc<crate::view::ViewSlot>,
     /// The `rpc.lock` the program implies ([`crate::rpclock`]); `None` for
     /// a project that serves no protocol and has no lock.
     pub(crate) rpc_lock: Option<String>,
@@ -69,6 +70,13 @@ pub(crate) fn analyze(
         .iter()
         .map(|i| (i.id, Arc::clone(i.shared), i.path.as_str().to_owned()))
         .collect();
+    let side_inputs: crate::warm::SideInputs = (
+        lockfiles
+            .iter()
+            .map(|l| (l.id, Arc::clone(&l.text)))
+            .collect(),
+        manifests.clone(),
+    );
     let mut program = Program::build(inputs);
     program.lockfiles = lockfiles;
     program.manifests = manifests;
@@ -158,17 +166,33 @@ pub(crate) fn analyze(
     crate::di::check(&cx);
     crate::di::remote_services(&cx);
     crate::locks::check(&cx);
-    let rpc_lock = crate::rpclock::check(&cx);
-    crate::di::client_references(&cx);
+    // The `rpc.lock` check reads no body: replayed while its inputs are
+    // unchanged (`warm::PassFacts`).
+    let same_side_inputs = prev.is_some_and(|c| c.side_inputs == side_inputs);
+    let lock_files: FxHashSet<FileId> = side_inputs.0.iter().map(|(id, _)| *id).collect();
+    let rpc_lock = match prev
+        .filter(|_| same_side_inputs)
+        .and_then(|c| c.rpc_lock.as_ref())
+        .filter(|f| f.replayable(|id| unchanged.contains(&id) || lock_files.contains(&id)))
+    {
+        Some(facts) => {
+            cx.diags.borrow_mut().extend(facts.diags.iter().cloned());
+            Arc::clone(facts)
+        }
+        None => {
+            let start = cx.diags.borrow().len();
+            let value = crate::rpclock::check(&cx);
+            let diags = cx.diags.borrow()[start..].to_vec();
+            Arc::new(crate::warm::PassFacts { diags, value })
+        }
+    };
+    let names = crate::ty::NameTable::new(&program);
+    crate::di::client_references(&cx, &names);
     let sides = crate::di::sides(&cx);
     unused_imports(&cx);
     cx.fw.styles_checked.set(true);
     crate::framework::report_unused(&cx);
     let diagnostics = std::mem::take(&mut *cx.diags.borrow_mut());
-    // Signatures no check needed may report while the view resolves them;
-    // those diagnostics are not part of the result.
-    let view = crate::view::build(&cx, &sides);
-    cx.diags.borrow_mut().clear();
     let mut types = Chunked::default();
     types.push(Arc::new(std::mem::take(&mut *cx.types.borrow_mut())));
     for chunk in type_chunks {
@@ -179,19 +203,35 @@ pub(crate) fn analyze(
     for chunk in cx.body_resolutions.borrow().iter() {
         resolutions.push(Arc::clone(chunk));
     }
+    // The view is built after the result is delivered (`view::ViewSlot`):
+    // the caller reports the diagnostics meanwhile.
+    let view = Arc::new(crate::view::ViewSlot::pending());
+    let fill = crate::view::FillOnDrop(&view);
+    let view_sides = sides.clone();
     deliver(SemaResult {
         diagnostics,
-        names: crate::ty::NameTable::new(&program),
+        names,
         types,
         resolutions,
         sides,
         cache: Arc::new(BodyCache {
             file_list,
             files: facts_by_file,
+            side_inputs,
+            rpc_lock: Some(Arc::clone(&rpc_lock)),
         }),
-        view,
-        rpc_lock,
+        view: Arc::clone(&view),
+        rpc_lock: rpc_lock.value.clone(),
     });
+    // Every signature is resolved by now (`resolve_signatures`), so the
+    // view records no type or resolution the delivered result would lack.
+    // Diagnostics it causes (signatures no check needed) are dropped.
+    view.fill(crate::view::build(&cx, &view_sides));
+    debug_assert!(
+        cx.types.borrow().is_empty() && cx.resolutions.borrow().is_empty(),
+        "the program view resolved a signature `resolve_signatures` missed"
+    );
+    drop(fill);
     // `cx` and `program` are dropped here, after the result is delivered.
 }
 
@@ -228,6 +268,11 @@ fn resolve_signatures(cx: &Cx<'_, '_>) {
             }
             Some(DeclarationKind::Function) => {
                 let _ = cx.sig(SigKey::Decl(id));
+                // The `where` clause too: the view reads it, and a body
+                // calling the function must not be the first to resolve it.
+                for &g in &d.generics {
+                    let _ = cx.constraints(g);
+                }
                 continue;
             }
             Some(DeclarationKind::Constant) => {

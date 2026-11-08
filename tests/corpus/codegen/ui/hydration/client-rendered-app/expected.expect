@@ -1,5 +1,9 @@
 client contains $k.startRouter(
 client contains export function Home(props, ctx)
 client lacks $k.hydrate(
-client lacks $k.readData(
+# The shell's `k-data` only starts the session mirror (26-auth-and-sessions.md): the router is
+# given it as `session`, never as `data`, so the first page renders instead of hydrating.
+client contains $k.readData(document)
+client contains session: data
+client lacks data: data
 server lacks Home$ssr

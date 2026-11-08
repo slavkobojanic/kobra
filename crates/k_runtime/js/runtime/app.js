@@ -1119,7 +1119,16 @@ async function renderPage(st, r, params) {
   if (spec.rendering === "client") {
     const meta = new Metadata();
     spec.appMeta?.(meta);
-    return respond(200, HTML, documentHtml(spec, st, mergeMeta([meta]), "", null));
+    // The shell carries the session mirror, so the router checks guards
+    // as in a server-rendered app; nothing was rendered, so no instant.
+    // Without an rpc or an endpoint nothing can sign anyone in, so a
+    // static-only app's document (`k build`'s index.html) has none.
+    let data = null;
+    if (Object.keys(spec.rpcs).length > 0 || spec.endpoints.length > 0) {
+      data = { v: 1, session: st.mirror(), c: {} };
+      if (data.session.user !== null) st.sessionRead = true;
+    }
+    return respond(200, HTML, documentHtml(spec, st, mergeMeta([meta]), "", data));
   }
   const pageMeta = new Metadata();
   const ids = { n: 0 };

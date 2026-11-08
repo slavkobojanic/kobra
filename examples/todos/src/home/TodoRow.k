@@ -122,7 +122,7 @@ component TodoRow {
             borderBottom: 1px solid .border;
         }
 
-        .done    { color: .muted; textDecoration: line-through; }
+        .done    { color: .muted; textDecoration: lineThrough; }
         .editing { backgroundColor: .background; }
         .edit    { marginLeft: auto; }
         .delete  { color: .danger; }

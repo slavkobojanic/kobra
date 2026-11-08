@@ -71,6 +71,7 @@ Features the design relies on:
 - Hovering an effect shows its reactive dependencies.
 - Each page's current URL is shown inline.
 - Autocomplete after an implicit member (`.`) lists only valid members of the expected type, for example spacing tokens after `padding: .`.
+- Autocomplete knows views and styles: the events after `.on(`, CSS properties, keyword values and theme tokens in style blocks, and the component's classes wherever a class goes.
 - Quick fixes for structured compiler errors, such as changing `@Prop` to `@Binding` or `a` to `link`.
 
 Decisions made with the server:
@@ -80,10 +81,31 @@ Decisions made with the server:
   the reverse; renaming a page renames its cases (`.signIn` for `SignIn`); renaming a parameter whose name is
   also its label keeps the label (`a: Int` becomes `a b: Int`). Imports and doc links are references like any
   other. Standard library declarations can't be renamed.
+- **Completion in `.on(…)` follows the one-event rule.** `.on(` offers the receiver's events (a component's
+  `@Emits`, an element's events) as `edit:` labels, leaving out those another `.on(…)` of the same chain
+  already handles. After a first event's comma (`.on(edit: { … }, `) it offers nothing: a call takes one
+  event (K3108), so offering a second would suggest an error; the next event goes in a chained `.on(`.
+- **Tokens are offered with their dot where none is typed.** After `gap: ` the list holds `.sm`, `.md`
+  (inserting the dot) beside the keywords; after `gap: .` it holds `sm`, `md`. Each shows its value, so
+  picking a token doesn't need a trip to the theme. Of two tokens of one name, the project theme's wins
+  over the stdlib's, as in resolution.
+- **`(` and `:` trigger completion only where they start something.** They open the list after `.on(` and
+  in CSS values, and answer nothing elsewhere, so a call or a type annotation doesn't pop up every name in
+  scope. Explicit invocation still lists the names in scope there.
+- **Class completion is per place.** A class reference (`.class(.`, a `@Stylable` prop) offers the classes
+  the style block declares, since anything else is K3203. A selector also offers the classes the view
+  references without a rule yet, which is what the user is about to write.
 - **Doc links are references.** Find references, rename and go-to-definition treat ``[`Name`]`` in a `///`
   comment like a use of `Name` in code, and hover renders it as a link.
 - **Editors** ship in the repository (`editors/`): VS Code, Neovim and Vim. npm is used only to package the
   VS Code extension, never by the toolchain.
+- **The TextMate grammar follows the lexer on strings and comments.** A string ends at its closing quote or at
+  the end of its line (strings cannot span lines), an interpolation `{...}` balances the braces inside it
+  (a trailing lambda, a `style {}` block), and `test "name"` leaves the name to the ordinary string rule. A
+  `cargo test` (`k_lsp/tests/textmate.rs`) runs the grammar with a small TextMate engine and checks, over
+  every lexer-clean `.k` file of the examples, the standard library and the test corpus, that each string
+  token of the lexer is coloured as a string, each comment as a comment and every other token as code.
+  An engine in Rust rather than `vscode-textmate` keeps npm out of the toolchain's tests.
 
 ## Compiler errors
 

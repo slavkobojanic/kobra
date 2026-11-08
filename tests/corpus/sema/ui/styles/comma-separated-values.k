@@ -7,7 +7,7 @@ component Card {
 
     style {
         .card {
-            fontFamily: "Inter", sans-serif;
+            fontFamily: "Inter", sansSerif;
             animationDuration: 200ms, 1s;
             boxShadow: 0 1px 2px #00000033;
         }

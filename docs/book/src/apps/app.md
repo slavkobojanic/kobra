@@ -157,10 +157,13 @@ public app Todos {
 
 - With client rendering, the server sends one HTML shell holding the app-wide `metadata`. Pages render in
   the browser, and page `metadata` is applied there.
+- **The shell carries the session mirror,** and the server checks a page's guards before sending it, so
+  `Session` and page guards work exactly as in a server-rendered app ([Authentication and
+  sessions](auth.md)).
 - In a server-rendered app, a page that reads a client-only service is a warning with a quick fix that
   adds this annotation.
 - **When an app renders on the client and has no server-only code** (no protocol implementations,
-  repositories, configs, jobs, endpoint pages or `.request`/`.server` services), `k build` emits only
+  repositories, configs, jobs, endpoint pages, guarded pages or `.request`/`.server` services), `k build` emits only
   static files in `dist/public`, which any static host can serve. Adding server-only code later brings
   `dist/app` back with no other change.
 - It's an annotation on `app`, not a `k.toml` key, because it changes what the compiled program does, and

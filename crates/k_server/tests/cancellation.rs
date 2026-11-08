@@ -341,3 +341,80 @@ fn leaving_the_page_while_an_event_handler_awaits_is_silent() {
     tab.step("answer(0, { value: \"name 3\" }); await wait(64);");
     assert_eq!(logs(&mut tab), Vec::<String>::new());
 }
+
+/// Replaces the tab's timers with a queue that `runTimers(ms)` fires: each
+/// `setTimeout` and `setInterval` is `{f, d, on}` in `timers`, and clearing
+/// one turns it off.
+fn fake_timers(tab: &mut Tab) {
+    tab.step(
+        r"globalThis.timers = [];
+globalThis.setTimeout = (f, d) => timers.push({ f, d, on: true });
+globalThis.setInterval = globalThis.setTimeout;
+globalThis.clearTimeout = (i) => { if (timers[i - 1]) timers[i - 1].on = false; };
+globalThis.clearInterval = globalThis.clearTimeout;
+globalThis.runTimers = (d) => { for (const t of timers) if (t.on && t.d === d) { t.on = false; t.f(); } };",
+    );
+}
+
+// The session gate disposes a guarded page whose session ended and leaves
+// for a full page load, but the page's nodes stay on screen until that
+// load replaces the document. A click on them runs nothing, so no handler
+// reads the narrowed `session.user` the mirror no longer has
+// (03-reactivity.md, "What a component leaves behind").
+#[test]
+fn a_disposed_pages_nodes_run_no_handler() {
+    let mut tab = Tab::open("/badge");
+    tab.step("await wait(8); button(\"Who\").click();");
+    assert_eq!(logs(&mut tab), ["who ada"]);
+    tab.step("button(\"Sign out\").click();");
+    tab.step("answer(0, {}, { user: null }); await wait(16);");
+    assert_eq!(tab.get("location.loads"), serde_json::json!(["/badge"]));
+    tab.step("button(\"Who\").click(); await wait(16);");
+    assert_eq!(logs(&mut tab), ["who ada", "-- session ended"]);
+}
+
+// Listeners a page left in an app-wide service, and a timer it started,
+// run nothing once the page is left: an open page signs out (the router
+// stays, so nothing reloads the document) and fires the listeners, and the
+// timer falls due, and nothing reads the user who is gone. While the page
+// is shown they run, so the test stops what would otherwise have run.
+#[test]
+fn listeners_and_timers_a_page_leaves_behind_run_nothing() {
+    let mut tab = Tab::open("/badge");
+    fake_timers(&mut tab);
+    tab.step("await wait(8); button(\"Fire\").click(); await wait(16);");
+    assert_eq!(
+        logs(&mut tab),
+        ["heard ada", "heard async ada", "heard plain ada"]
+    );
+    tab.step("button(\"Remind\").click();");
+    tab.step("linkTo(\"Board\").dispatchEvent(Object.assign(new Event(\"click\", { bubbles: true }), { button: 0 })); await wait(16);");
+    assert_eq!(tab.get("text()"), serde_json::json!("boardFireSign out"));
+    assert_eq!(
+        tab.get("timers.filter((t) => t.d === 1000).map((t) => t.on)"),
+        serde_json::json!([false]),
+        "leaving the page stops its timer"
+    );
+    tab.step("button(\"Sign out\").click();");
+    tab.step("answer(0, {}, { user: null }); await wait(16);");
+    assert_eq!(tab.get("location.loads"), serde_json::json!([]));
+    tab.step("button(\"Fire\").click(); await wait(16); runTimers(1000); await wait(16);");
+    assert_eq!(
+        logs(&mut tab),
+        [
+            "heard ada",
+            "heard async ada",
+            "heard plain ada",
+            "-- session ended"
+        ]
+    );
+}
+
+// A page's async function passed to a service's function parameter keeps
+// its arguments: the service calls it the way K calls a function value.
+#[test]
+fn a_pages_async_function_passed_to_a_service_keeps_its_arguments() {
+    let mut tab = Tab::open("/badge");
+    tab.step("button(\"Show\").click(); await wait(16);");
+    assert_eq!(logs(&mut tab), ["shown 5 for ada"]);
+}

@@ -7,6 +7,8 @@ error[K2403] 12:19-12:27
 error[K2403] 13:30-13:34
   fix "Parse it at run time with `EmailAddress.parse`, which returns an optional" maybe-incorrect
     edit 13:29-13:29 ".parse"
-error[K2403] 14:26-14:30: `TimeOfDay(…)` takes a string literal, checked when you compile
+error[K2403] 14:26-14:30
+  fix "Parse it at run time with `TimeOfDay.parse`, which returns an optional" maybe-incorrect
+    edit 14:25-14:25 ".parse"
 error[K2403] 15:35-15:39: `HttpStatus(code:)` takes an integer literal, checked when you compile
 error[K2403] 16:52-16:56: `StorageKey(name:)` takes a string literal, checked when you compile

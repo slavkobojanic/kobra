@@ -169,7 +169,7 @@ public page BoardPage at "/boards/{id}" {
 
         .columns {
             display: grid;
-            gridTemplateColumns: repeat(auto-fit, minmax(16rem, 1fr));
+            gridTemplateColumns: repeat(autoFit, minmax(16rem, 1fr));
             gap: .md;
             alignItems: start;
         }

@@ -90,14 +90,49 @@ pub fn hover(
             None => code(&mut md, name),
         },
         Resolution::Class { component, name } => {
-            code(&mut md, &format!("class .{name} // in {component}"))
+            let rule = analysis
+                .definition(&symbol.resolution)?
+                .and_then(|def| style_rule(analysis, def));
+            match rule {
+                Some(rule) => code(&mut md, &format!("// class .{name} in {component}\n{rule}")),
+                None => code(&mut md, &format!("class .{name} // in {component}")),
+            }
         }
         Resolution::Keyframes { component, name } => {
             code(&mut md, &format!("@keyframes {name} // in {component}"));
         }
         Resolution::Token { category, name } => {
-            code(&mut md, &format!("{category}.{name}"));
-            if let Some(def) = analysis.definition(&symbol.resolution)? {
+            let def = analysis.definition(&symbol.resolution)?;
+            // The token's declaration, with its value.
+            let member = def.and_then(|def| {
+                view.members.iter().find(|m| {
+                    m.kind == k_sema::view::MemberKind::Token
+                        && m.name_range == def.range
+                        && view.decl(m.owner).file == def.file
+                })
+            });
+            let source = member.and_then(|m| {
+                let source = super::completion::token_source(analysis, view, m)?;
+                Some(format!(
+                    "{source} // in {}",
+                    view.decl(m.owner).display_name
+                ))
+            });
+            code(
+                &mut md,
+                &source.unwrap_or_else(|| format!("{category}.{name}")),
+            );
+            let variants = def
+                .map(|d| variant_values(analysis, d, name))
+                .unwrap_or_default();
+            if !variants.is_empty() {
+                let list: Vec<String> = variants
+                    .iter()
+                    .map(|(variant, value)| format!("`{variant}`: `{value}`"))
+                    .collect();
+                let _ = writeln!(md, "\nVariants: {}", list.join(" · "));
+            }
+            if let Some(def) = def {
                 docs_of(analysis, def.file, def.range, link, &mut md);
             }
         }
@@ -113,6 +148,86 @@ pub fn hover(
         range: symbol.range,
         markdown: md.trim_end().to_owned(),
     }))
+}
+
+/// The values the variants of the theme declaring token `name` (at
+/// `def`) give it: `("dark", "#4ADE80")` for `variant dark … { name = #4ADE80 }`.
+fn variant_values(analysis: &Analysis, def: Span, name: &str) -> Vec<(String, String)> {
+    use k_syntax::SyntaxKind;
+    let Some(root) = syntax(analysis, def.file) else {
+        return Vec::new();
+    };
+    let Some(theme) = root
+        .token_at_offset(def.range.start())
+        .right_biased()
+        .and_then(|t| {
+            t.parent_ancestors()
+                .find(|n| n.kind() == SyntaxKind::ThemeDecl)
+        })
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for variant in theme
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::ThemeVariant)
+    {
+        let Some(variant_name) = variant
+            .children_with_tokens()
+            .filter_map(rowan::NodeOrToken::into_token)
+            .find(|t| t.kind() == SyntaxKind::Ident)
+        else {
+            continue;
+        };
+        for o in variant
+            .children()
+            .filter(|n| n.kind() == SyntaxKind::ThemeOverride)
+        {
+            let text = o.text().to_string();
+            if let Some((target, value)) = text.split_once('=') {
+                if target.trim() == name {
+                    out.push((variant_name.text().to_owned(), value.trim().to_owned()));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The longest rule hover shows, in lines.
+const RULE_LINES: usize = 24;
+
+/// The source of the style rule whose selector holds `name` (a class
+/// selector's name), dedented and cut at [`RULE_LINES`] lines.
+fn style_rule(analysis: &Analysis, name: Span) -> Option<String> {
+    let root = syntax(analysis, name.file)?;
+    let rule = root
+        .token_at_offset(name.range.start())
+        .right_biased()?
+        .parent_ancestors()
+        .find(|n| n.kind() == k_syntax::SyntaxKind::StyleRule)?;
+    let text = analysis.text(name.file)?;
+    let start = usize::from(rule.text_range().start());
+    let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+    let indent = text[line_start..start].len();
+    let source = text.get(start..usize::from(rule.text_range().end()))?;
+    let mut lines: Vec<&str> = source
+        .lines()
+        .enumerate()
+        .map(|(i, l)| {
+            if i == 0 {
+                l
+            } else {
+                let strip = l.len() - l.trim_start().len();
+                &l[strip.min(indent)..]
+            }
+        })
+        .collect();
+    if lines.len() > RULE_LINES {
+        lines.truncate(RULE_LINES);
+        lines.push("…");
+    }
+    Some(lines.join("\n").trim_end().to_owned())
 }
 
 /// Writes a fenced K code block.
@@ -343,6 +458,9 @@ fn expression_type(
     let Some(root) = syntax(analysis, file) else {
         return Ok(None);
     };
+    if !root.text_range().contains_inclusive(offset) {
+        return Ok(None);
+    }
     let token = match name_token_at(&root, offset) {
         Some(t) => t,
         None => match root.token_at_offset(offset).right_biased() {

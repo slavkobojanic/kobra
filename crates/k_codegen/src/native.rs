@@ -181,6 +181,9 @@ pub(crate) fn property(
             rt(f, vec![recv])
         }
         ("k.time.TimeZone", "identifier" | "name") => recv,
+        // A `TimeOfDay` is its `HH:MM` text (runtime.md §12).
+        ("k.time.TimeOfDay", "hour") => rt("timeOfDayHour", vec![recv]),
+        ("k.time.TimeOfDay", "minute") => rt("timeOfDayMinute", vec![recv]),
         // `Element.text` is a property and `text(_)` a query: in the kit
         // the property is the method `$text()` (`crate::suite`).
         ("k.test.Element", "text") => call(member(recv, "$text"), vec![]),
@@ -710,7 +713,8 @@ fn mutate(
 }
 
 /// Constructs a stdlib type: `Set(list)`, `Money(minorUnits:currency:)`,
-/// `Date(unixSeconds:)`, `Binding(get:set:)`, `Url("…")`, `Secret(v)`.
+/// `Date(unixSeconds:)`, `Binding(get:set:)`, `Url("…")`, `Secret(v)`, the
+/// checked literals `Uuid("…")`, `EmailAddress("…")` and `TimeOfDay("…")`.
 pub(crate) fn construct(
     b: &mut Body<'_, '_>,
     d: DeclId,
@@ -749,7 +753,7 @@ pub(crate) fn construct(
         "k.core.Url" => a0,
         // Checked literals are normalized when compiled (sema K2404), so the
         // bundle holds the value `Type.parse` would give, as a constant.
-        "k.crypto.Uuid" | "k.text.EmailAddress" => {
+        "k.crypto.Uuid" | "k.text.EmailAddress" | "k.time.TimeOfDay" => {
             let text = c
                 .arg_list()
                 .and_then(|l| l.args().next())
@@ -758,10 +762,13 @@ pub(crate) fn construct(
                     ast::Expr::StringLit(s) => s.plain_value(),
                     _ => None,
                 })?;
-            let value = if name == "k.crypto.Uuid" {
-                k_sema::literals::parse_uuid(&text)
-            } else {
-                k_sema::literals::parse_email(&text)
+            let value = match name.as_str() {
+                "k.crypto.Uuid" => k_sema::literals::parse_uuid(&text),
+                // `HH:MM`, which is its own normalized text.
+                "k.time.TimeOfDay" => k_sema::literals::time_of_day(&text)
+                    .ok()
+                    .map(|(h, m)| format!("{h:02}:{m:02}")),
+                _ => k_sema::literals::parse_email(&text),
             }?;
             js::str(value)
         }
@@ -823,6 +830,7 @@ pub(crate) fn static_call(
         ("k.core.Decimal", "parse") => rt("parseDecimal", vec![a0]),
         ("k.core.Date", "parse") => rt("parseInstant", vec![a0]),
         ("k.time.TimeZone", "parse") => rt("parseTimeZone", vec![a0]),
+        ("k.time.TimeOfDay", "parse") => rt("parseTimeOfDay", vec![a0]),
         ("k.core.Url", "parse") => rt("parseUrl", vec![a0]),
         ("k.crypto.Uuid", "parse") => rt("parseUuid", vec![a0]),
         ("k.text.EmailAddress", "parse") => rt("parseEmail", vec![a0]),

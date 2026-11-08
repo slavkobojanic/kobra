@@ -11,6 +11,26 @@
 //! (`docs/compiler/sema.md`, "Styles"): CSS keywords are bare identifiers,
 //! literals must match a data type of [`DATA_TYPES`], and K values must
 //! have one of the property's [`CssProperty::types`].
+//!
+//! **Keywords are camel case**, like property names (`docs/design/06-styles.md`,
+//! "Keyword values"): the grammars say `spaceBetween` and `lineThrough`, and
+//! code generation prints [`keyword_css`] of each (`space-between`). A
+//! kebab-case keyword in a source is K3214 with the [`camel_case`] fix.
+//!
+//! # API for editors
+//!
+//! Completion and hover read the tables through these functions, which
+//! need no compilation:
+//!
+//! * [`property_names`]: every property's K name, sorted; [`property_named`]
+//!   gives a property's CSS name, grammar and K types (the types are what
+//!   implicit members such as `.md` complete against).
+//! * [`keywords`]: the camel-case keywords a property's value accepts, in
+//!   grammar order, including those of its data types (`<line-style>`,
+//!   `<line-width>`, named `<color>`s); [`WIDE_KEYWORDS`] are accepted by
+//!   every property alone and are not repeated there.
+//! * [`MEDIA_FEATURES`] and [`media_feature_keywords`]: the features of
+//!   `@media ( … )` and the keywords their values take.
 
 /// A CSS data type of the value grammars and the K types whose values
 /// satisfy it.
@@ -137,19 +157,19 @@ pub const PROPERTIES: &[CssProperty] = &[
     property(
         "alignContent",
         "align-content",
-        "normal | stretch | center | start | end | flex-start | flex-end | space-between | space-around | space-evenly",
+        "normal | stretch | center | start | end | flexStart | flexEnd | spaceBetween | spaceAround | spaceEvenly",
         NONE,
     ),
     property(
         "alignItems",
         "align-items",
-        "normal | stretch | center | start | end | flex-start | flex-end | baseline",
+        "normal | stretch | center | start | end | flexStart | flexEnd | baseline",
         NONE,
     ),
     property(
         "alignSelf",
         "align-self",
-        "auto | normal | stretch | center | start | end | flex-start | flex-end | baseline",
+        "auto | normal | stretch | center | start | end | flexStart | flexEnd | baseline",
         NONE,
     ),
     property(
@@ -161,7 +181,7 @@ pub const PROPERTIES: &[CssProperty] = &[
     property(
         "animationDirection",
         "animation-direction",
-        "[ normal | reverse | alternate | alternate-reverse ]#",
+        "[ normal | reverse | alternate | alternateReverse ]#",
         NONE,
     ),
     property(
@@ -191,7 +211,7 @@ pub const PROPERTIES: &[CssProperty] = &[
     property(
         "animationTimingFunction",
         "animation-timing-function",
-        "[ linear | ease | ease-in | ease-out | ease-in-out | step-start | step-end ]#",
+        "[ linear | ease | easeIn | easeOut | easeInOut | stepStart | stepEnd ]#",
         NONE,
     ),
     property(
@@ -274,13 +294,13 @@ pub const PROPERTIES: &[CssProperty] = &[
     property(
         "cursor",
         "cursor",
-        "auto | default | pointer | text | move | not-allowed | wait | progress | grab | grabbing",
+        "auto | default | pointer | text | move | notAllowed | wait | progress | grab | grabbing",
         NONE,
     ),
     property(
         "display",
         "display",
-        "none | block | inline | inline-block | flex | inline-flex | grid | inline-grid | contents",
+        "none | block | inline | inlineBlock | flex | inlineFlex | grid | inlineGrid | contents",
         NONE,
     ),
     property(
@@ -298,22 +318,17 @@ pub const PROPERTIES: &[CssProperty] = &[
     property(
         "flexDirection",
         "flex-direction",
-        "row | row-reverse | column | column-reverse",
+        "row | rowReverse | column | columnReverse",
         NONE,
     ),
     property("flexGrow", "flex-grow", "<number>", NONE),
     property("flexShrink", "flex-shrink", "<number>", NONE),
-    property(
-        "flexWrap",
-        "flex-wrap",
-        "nowrap | wrap | wrap-reverse",
-        NONE,
-    ),
+    property("flexWrap", "flex-wrap", "nowrap | wrap | wrapReverse", NONE),
     property("font", "font", "<font>", &["Font"]),
     property(
         "fontFamily",
         "font-family",
-        "[ <string> | serif | sans-serif | monospace | system-ui ]#",
+        "[ <string> | serif | sansSerif | monospace | systemUi ]#",
         NONE,
     ),
     property(
@@ -339,19 +354,19 @@ pub const PROPERTIES: &[CssProperty] = &[
     property(
         "gridTemplateColumns",
         "grid-template-columns",
-        "none | [ <length-percentage> | <flex> | auto | min-content | max-content | minmax( <length-percentage> , [ <length-percentage> | <flex> ] ) | repeat( [ <integer> | auto-fill | auto-fit ] , [ <length-percentage> | <flex> | auto | minmax( <length-percentage> , [ <length-percentage> | <flex> ] ) ]+ ) ]+",
+        "none | [ <length-percentage> | <flex> | auto | minContent | maxContent | minmax( <length-percentage> , [ <length-percentage> | <flex> ] ) | repeat( [ <integer> | autoFill | autoFit ] , [ <length-percentage> | <flex> | auto | minmax( <length-percentage> , [ <length-percentage> | <flex> ] ) ]+ ) ]+",
         LENGTH,
     ),
     property(
         "gridTemplateRows",
         "grid-template-rows",
-        "none | [ <length-percentage> | <flex> | auto | min-content | max-content ]+",
+        "none | [ <length-percentage> | <flex> | auto | minContent | maxContent ]+",
         LENGTH,
     ),
     property(
         "height",
         "height",
-        "auto | <length-percentage> | min-content | max-content | fit-content",
+        "auto | <length-percentage> | minContent | maxContent | fitContent",
         LENGTH,
     ),
     property(
@@ -363,7 +378,7 @@ pub const PROPERTIES: &[CssProperty] = &[
     property(
         "justifyContent",
         "justify-content",
-        "normal | center | start | end | flex-start | flex-end | space-between | space-around | space-evenly",
+        "normal | center | start | end | flexStart | flexEnd | spaceBetween | spaceAround | spaceEvenly",
         NONE,
     ),
     property(
@@ -454,7 +469,7 @@ pub const PROPERTIES: &[CssProperty] = &[
     property(
         "objectFit",
         "object-fit",
-        "fill | contain | cover | none | scale-down",
+        "fill | contain | cover | none | scaleDown",
         NONE,
     ),
     property(
@@ -515,7 +530,7 @@ pub const PROPERTIES: &[CssProperty] = &[
     property(
         "textDecoration",
         "text-decoration",
-        "none | underline | line-through | overline",
+        "none | underline | lineThrough | overline",
         NONE,
     ),
     property("textOverflow", "text-overflow", "clip | ellipsis", NONE),
@@ -535,13 +550,13 @@ pub const PROPERTIES: &[CssProperty] = &[
     property(
         "transition",
         "transition",
-        "[ none | all | <custom-ident> ] || <time> || [ linear | ease | ease-in | ease-out | ease-in-out ] || <time>",
+        "[ none | all | <custom-ident> ] || <time> || [ linear | ease | easeIn | easeOut | easeInOut ] || <time>",
         &["Duration"],
     ),
     property(
         "verticalAlign",
         "vertical-align",
-        "baseline | top | middle | bottom | text-top | text-bottom",
+        "baseline | top | middle | bottom | textTop | textBottom",
         NONE,
     ),
     property(
@@ -553,17 +568,65 @@ pub const PROPERTIES: &[CssProperty] = &[
     property(
         "whiteSpace",
         "white-space",
-        "normal | nowrap | pre | pre-wrap | pre-line",
+        "normal | nowrap | pre | preWrap | preLine",
         NONE,
     ),
     property(
         "width",
         "width",
-        "auto | <length-percentage> | min-content | max-content | fit-content",
+        "auto | <length-percentage> | minContent | maxContent | fitContent",
         LENGTH,
     ),
     property("zIndex", "z-index", "auto | <integer>", NONE),
 ];
+
+/// The CSS-wide keywords every property accepts as its whole value.
+pub const WIDE_KEYWORDS: &[&str] = &["inherit", "initial", "revert", "unset"];
+
+/// The named colors `<color>` accepts besides literals and `Color` values.
+/// `currentColor` is spelled as in CSS, which matches it case-insensitively.
+pub const NAMED_COLORS: &[&str] = &[
+    "aqua",
+    "black",
+    "blue",
+    "currentColor",
+    "fuchsia",
+    "gray",
+    "green",
+    "grey",
+    "lime",
+    "maroon",
+    "navy",
+    "olive",
+    "orange",
+    "purple",
+    "red",
+    "silver",
+    "teal",
+    "transparent",
+    "white",
+    "yellow",
+];
+
+/// The keywords of the `<line-style>` data type.
+pub const LINE_STYLES: &[&str] = &[
+    "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset",
+];
+
+/// The keywords of the `<line-width>` data type.
+pub const LINE_WIDTHS: &[&str] = &["thin", "medium", "thick"];
+
+/// The keywords data type `name` (with its angle brackets) accepts, such as
+/// [`LINE_STYLES`] for `<line-style>`; empty for most data types.
+#[must_use]
+pub fn data_type_keywords(name: &str) -> &'static [&'static str] {
+    match name {
+        "<line-style>" => LINE_STYLES,
+        "<line-width>" => LINE_WIDTHS,
+        "<color>" => NAMED_COLORS,
+        _ => &[],
+    }
+}
 
 /// The media features `@media (feature: value)` accepts, as K names with
 /// their CSS names. Range syntax is deferred (grammar RA-28).
@@ -577,6 +640,20 @@ pub const MEDIA_FEATURES: &[(&str, &str)] = &[
     ("prefersContrast", "prefers-contrast"),
     ("prefersReducedMotion", "prefers-reduced-motion"),
 ];
+
+/// The keywords the value of media feature `feature` (a K name of
+/// [`MEDIA_FEATURES`]) takes, in camel case; empty for the range features
+/// (`maxWidth`), whose values are lengths, and for unknown names.
+#[must_use]
+pub fn media_feature_keywords(feature: &str) -> &'static [&'static str] {
+    match feature {
+        "orientation" => &["portrait", "landscape"],
+        "prefersColorScheme" => &["light", "dark"],
+        "prefersContrast" => &["noPreference", "more", "less", "custom"],
+        "prefersReducedMotion" => &["noPreference", "reduce"],
+        _ => &[],
+    }
+}
 
 /// The at-rules a style block accepts besides `@keyframes`.
 pub const AT_RULES: &[&str] = &["container", "layer", "media"];
@@ -608,6 +685,93 @@ pub fn kebab_case(name: &str) -> String {
         if c.is_ascii_uppercase() {
             out.push('-');
             out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The K names of every supported property, sorted: what a completion
+/// engine offers at a declaration's name.
+pub fn property_names() -> impl Iterator<Item = &'static str> {
+    PROPERTIES.iter().map(|p| p.name)
+}
+
+/// The camel-case keywords the value of property `name` (a K name such as
+/// `justifyContent`) accepts, in the order its grammar lists them, without
+/// duplicates: the grammar's own keywords (`spaceBetween`) followed, at
+/// the place of each data type, by that type's keywords
+/// ([`data_type_keywords`]: `solid`, `thick`, `currentColor`, …). Function
+/// names (`repeat`, `minmax`) and data types are not keywords.
+/// [`WIDE_KEYWORDS`] are left out. An unknown property has none.
+///
+/// This is what a completion engine offers in a declaration's value, next
+/// to the implicit members of the property's [`CssProperty::types`].
+#[must_use]
+pub fn keywords(name: &str) -> Vec<&'static str> {
+    let Some(prop) = property_named(name) else {
+        return Vec::new();
+    };
+    let mut out: Vec<&'static str> = Vec::new();
+    let syntax = prop.syntax;
+    let bytes = syntax.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'<' {
+            let end = syntax[i..].find('>').map_or(bytes.len(), |e| i + e + 1);
+            for k in data_type_keywords(&syntax[i..end]) {
+                if !out.contains(k) {
+                    out.push(k);
+                }
+            }
+            i = end;
+        } else if b == b'{' {
+            i = syntax[i..].find('}').map_or(bytes.len(), |e| i + e + 1);
+        } else if b.is_ascii_alphabetic() {
+            let start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-') {
+                i += 1;
+            }
+            let word = &syntax[start..i];
+            if bytes.get(i) != Some(&b'(') && !out.contains(&word) {
+                out.push(word);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// The CSS spelling of a camel-case keyword: [`kebab_case`]
+/// (`lineThrough` → `line-through`, `backgroundColor` → `background-color`
+/// in `transition`), except for `currentColor`, which CSS spells that way.
+/// A word that doesn't start with a lower-case letter is returned as is.
+#[must_use]
+pub fn keyword_css(word: &str) -> std::borrow::Cow<'_, str> {
+    if word == "currentColor"
+        || !word.starts_with(|c: char| c.is_ascii_lowercase())
+        || !word.contains(|c: char| c.is_ascii_uppercase())
+    {
+        return std::borrow::Cow::Borrowed(word);
+    }
+    std::borrow::Cow::Owned(kebab_case(word))
+}
+
+/// The camel-case K spelling of a kebab-case CSS word (`line-through` →
+/// `lineThrough`), the fix of K3214.
+#[must_use]
+pub fn camel_case(word: &str) -> String {
+    let mut out = String::with_capacity(word.len());
+    let mut upper = false;
+    for c in word.chars() {
+        if c == '-' {
+            upper = !out.is_empty();
+        } else if upper {
+            out.push(c.to_ascii_uppercase());
+            upper = false;
         } else {
             out.push(c);
         }

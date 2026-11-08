@@ -774,7 +774,7 @@ Few, well-known crates. Adding one requires a line here.
 
 | `lsp-types` (with `url`) | the Language Server Protocol's data types in `k_lsp`; the transport is our own ([lsp.md §1](lsp.md#1-dependencies)) | in use (k_lsp, k_cli tests) |
 | `lsp-server`, `tower-lsp` | LSP transport | rejected: the first ends the connection on a malformed body, the second needs an async runtime the synchronous analysis doesn't want ([lsp.md §1](lsp.md#1-dependencies)) |
-| `regex` (dev) | evaluates the TextMate grammar's patterns against the lexer's keyword table (`k_lsp/tests/editors.rs`) | in use (k_lsp tests) |
+| `regex` (dev) | evaluates the TextMate grammar's patterns against the lexer's keyword table and token stream (`k_lsp/tests/editors.rs`, `k_lsp/tests/textmate.rs`) | in use (k_lsp tests) |
 
 No JavaScript package ecosystem is used, at build time or at runtime. The VS Code extension in
 `editors/vscode` depends on `vscode-languageclient` through npm; it is not part of the toolchain's build or

@@ -100,13 +100,18 @@ export function rpc(path, message, signal, options) {
   if (signal && signal.aborted) return new Promise(() => {});
   return new Promise((resolve) => {
     let done = false;
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const onAbort = () => controller?.abort();
+    // A settled call stops listening to the caller's signal, which (a
+    // component's lifetime) outlives it; an opened stream keeps listening,
+    // so leaving the page still closes it.
     const finish = (outcome) => {
+      if (!(stream && outcome.ok)) signal?.removeEventListener?.("abort", onAbort);
       if (done || (signal && signal.aborted)) return;
       done = true;
       resolve(outcome);
     };
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
-    if (signal) signal.addEventListener("abort", () => controller?.abort());
+    if (signal) signal.addEventListener("abort", onAbort);
     const timer = typeof setTimeout === "function"
       ? setTimeout(() => {
         controller?.abort();

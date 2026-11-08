@@ -1932,12 +1932,19 @@ pub(crate) fn server_entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)
     let client = g.client_rendered();
     let pages = if client {
         // Client rendering: every page answers the shell; matching still
-        // decides 404s.
+        // decides 404s, and the page's guards run before the shell is sent,
+        // as before a server render, so the router can leave the first
+        // page of the document unchecked (26-auth-and-sessions.md).
         let mut routes = Vec::new();
         for p in ordered_pages(g) {
             let template = crate::app::template(g, p);
             let m = matcher(&mut b, p, &template);
             let value = page_value(&mut b, p);
+            let name = g.name(p);
+            let gs = match g.decl_node(p) {
+                Some(n) => in_file(&mut b, p, |b| guards(b, &n, &format!("page:{name}"))),
+                None => Vec::new(),
+            };
             routes.push(Expr::Object(
                 vec![
                     Prop::KeyValue(
@@ -1948,7 +1955,7 @@ pub(crate) fn server_entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)
                     Prop::KeyValue("value".into(), value),
                     Prop::KeyValue("render".into(), Expr::Null),
                     Prop::KeyValue("layouts".into(), Expr::Array(Vec::new())),
-                    Prop::KeyValue("guards".into(), Expr::Array(Vec::new())),
+                    Prop::KeyValue("guards".into(), Expr::Array(gs)),
                 ],
                 true,
             ));

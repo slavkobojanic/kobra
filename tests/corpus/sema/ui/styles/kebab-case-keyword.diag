@@ -1,0 +1,18 @@
+error[K3214] 12:29-12:41
+  fix "Replace `line-through` with `lineThrough`"
+    edit 12:29-12:41 "lineThrough"
+error[K3214] 13:29-13:42
+  fix "Replace `space-between` with `spaceBetween`"
+    edit 13:29-13:42 "spaceBetween"
+error[K3214] 14:39-14:50
+  fix "Replace `ease-in-out` with `easeInOut`"
+    edit 14:39-14:50 "easeInOut"
+error[K3214] 15:41-15:50
+  fix "Replace `auto-fill` with `autoFill`"
+    edit 15:41-15:50 "autoFill"
+error[K3214] 16:34-16:44
+  fix "Replace `sans-serif` with `sansSerif`"
+    edit 16:34-16:44 "sansSerif"
+error[K3214] 18:43-18:56
+  fix "Replace `no-preference` with `noPreference`"
+    edit 18:43-18:56 "noPreference"

@@ -1,0 +1,1 @@
+returns [{"day":"monday","opens":"09:30","closes":"17:00"},{"day":"sunday","opens":"00:00","closes":null}]

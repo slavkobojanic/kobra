@@ -8,6 +8,7 @@
  */
 
 import { batch, getOwner, onCleanup, renderEffect, runWithOwner, scope, signal, untrack } from "./signals.js";
+import { CANCELLED } from "./values.js";
 
 /** Nothing has resolved yet: `loading` renders. */
 export const LOADING = 0;
@@ -120,7 +121,9 @@ export function createLoads(loads, serialized, failed) {
             }
           },
           (e) => {
-            if (gen !== generation || controller.signal.aborted) return;
+            // A run stopped by the cancellation (its own, or a disposed
+            // component's function called for a value) is not a failure.
+            if (gen !== generation || controller.signal.aborted || e === CANCELLED) return;
             // The inputs stay watched: a change starts over from FAILED.
             abort();
             generation++;

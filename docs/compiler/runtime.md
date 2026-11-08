@@ -47,7 +47,7 @@ No npm, no bundler, no transpiler: the files are shipped as written (compacted i
 | `k.drag`: `Draggable`, `DropTarget`, `ReorderableList` with pointer, touch and keyboard dragging | `runtime/drag.js` | **implemented** (part `Drag`, a chunk of its own, [§12.3](#123-drag-and-drop)) |
 | `k.device.BrowserFiles`: the file picker and downloads | `runtime/files.js` | **implemented** (part `Files`, a chunk of its own, [§12.4](#124-files)) |
 | `k.ui.KeyboardShortcut` | `runtime/keys.js` | **implemented** (part `Keys`, a chunk of its own, [§12.5](#125-keyboard-shortcuts)) |
-| Native stdlib bodies: collections, strings, numbers, `Instant`, `HashMap`/`HashSet`, typed text parsers (`Url`, `EmailAddress`, `Uuid`, `Color`), `TimeZone`, JSON codecs, route matching shared with the server (`route`, `routeParam`, `splitTarget`, `parseQuery`), streams, `Broadcast`, `Secret`, `$k.guard`, `runMain` | `runtime/std.js` | **implemented** (part `Stdlib`) |
+| Native stdlib bodies: collections, strings, numbers, `Instant`, `HashMap`/`HashSet`, typed text parsers (`Url`, `EmailAddress`, `Uuid`, `Color`), `TimeZone`, `TimeOfDay`, JSON codecs, route matching shared with the server (`route`, `routeParam`, `splitTarget`, `parseQuery`), streams, `Broadcast`, `Secret`, `$k.guard`, `runMain` | `runtime/std.js` | **implemented** (part `Stdlib`) |
 | SSR escaping and output buffer | `runtime/ssr.js` | **implemented** |
 | Server request loop, `env` | `runtime/server.js` | **implemented** (`serve` turns a broken handler into a `500` and keeps the loop) |
 | Persistence: column codecs `dbc`, the request's `Database` (transactions, savepoints, `ping`), `dbQuery`/`dbCount`/`dbWrite`/`dbInsertAll`, `dbInclude`, unloaded-relation stand-ins | `runtime/db.js` | **implemented** (part `Server`; [db.md §4–§9](db.md#4-the-query-ir-and-lowering)) |
@@ -103,12 +103,12 @@ parts never mention `Deno.core` or `k:testing` (tested).
 `prop`, `classList`, `style`, `on`, `when`, `branch`, `each`; `hydrate`, `isHydrating`, `readData`, `uid`,
 `textNode`, `separator`;
 `KPanic`, `panic`, `isPanic`, `checkInt`, `intDiv`, `intRem`, `equals`, `unitCase`, `textOf`; `startRouter`,
-`navigate`; `child`, `slotMarkers`, `title`, `loadsOf`, `lifetime`, `own`; `CANCELLED`, `live`, `guard`; `rpc`, `rpcError`, `DEFAULT_TIMEOUT_MS`;
+`navigate`; `child`, `slotMarkers`, `title`, `loadsOf`, `lifetime`, `own`, `bound`; `CANCELLED`, `live`, `guard`; `rpc`, `rpcError`, `DEFAULT_TIMEOUT_MS`;
 `createLoads`, `LOADING`, `READY`, `RELOADING`, `FAILED`; `claimRaw` (hydration of a native component that
 owns its subtree); from `services.js` `provide`, `afterHydration`, `clock`, `theme`, `browserStorage`,
 `fetchHttpClient`, `session`, `native`; and from `std.js` (among the stdlib bodies) `route`, `routeParam`, `NO`, `splitTarget`,
 `parseQuery`, `parseUrl`, `urlHost`, `urlPath`, `parseEmail`, `parseUuid`, `parseColor`, `colorHex`,
-`parseTimeZone`, `localTimeZone`, `PushStream`, `payloadFields`. The feature chunks export `LineChart`,
+`parseTimeZone`, `localTimeZone`, `parseTimeOfDay`, `timeOfDayHour`, `timeOfDayMinute`, `PushStream`, `payloadFields`. The feature chunks export `LineChart`,
 `lineChart`, `chartKey` and `chartProps` (`charts.js`), `Draggable`, `DropTarget`, `ReorderableList`,
 `DragKind$init` and `ATTRS` (`drag.js`), `BrowserFiles` and `acceptOf` (`files.js`), `KeyboardShortcut`
 (`keys.js`), `streamed` (`streams.js`), `createForm`, `fieldParser`, `lengthRule`, `rangeRule` and
@@ -220,13 +220,24 @@ row. API: `store(initial)` with `get(path)`,
   (design 03, "Async work is owned").
 - A promise the effect returns is only observed for rejection: a rejection after cancellation is ignored
   (cancellation is not an error), any other rejection goes to the error boundary. A load group likewise
-  ignores a run that rejects after its signal was aborted.
+  ignores a run that rejects after its signal was aborted. A run of either that stops with `CANCELLED`
+  while its own signal is live (it called a disposed component's function for a value, `bound` below),
+  and a synchronous effect that throws it, are as silent: the load stays where it was.
 - **Handlers and bound values are silent when stopped.** `on` drops its handler's rejection with
   `CANCELLED` (any other rejection is left unhandled, as before). **`own(f, c)`** (`view.js`) is the value
   generated code passes where an async function is called with its K arguments alone (a prop, an
   `@Emits` handler, `form.handle`'s action): `(...a) => f(c, ...a)`, where `c` is the owner's lifetime
   (`lifetime()`) or the creating run's signal, and a call stopped by `CANCELLED` never settles instead of
   rejecting, so a caller that drops the promise reports nothing and one that awaits it stops too.
+- **What a disposed component leaves behind runs nothing** (design 03, "What a component leaves
+  behind"). `on` (`dom.js`) remembers the owner current when it is called and ignores events once that
+  owner is disposed: a page the session gate disposed stays on screen until the full page load replaces
+  it. It also drops a synchronous throw of `CANCELLED`. **`bound(f, life, mode)`** (`view.js`) is a
+  function value a component passed to a service: while `life` is live it calls `f` (an async `f`
+  under a signal that the caller's context and `life` both abort, `AbortSignal.any` where there is
+  one); once `life` is aborted it calls nothing, and returns `undefined` (mode 0), throws `CANCELLED`
+  (mode 1), resolves (mode 2) or rejects with `CANCELLED` (mode 3). The bound value's `lifetime` is
+  `life`, and the browser `Clock` (`services.js`) cancels a timer whose action has one when it aborts.
 - Reads after the first `await` are not tracked: tracking is synchronous.
 
 ### 3.5 Owners, scopes and cleanup
@@ -321,6 +332,10 @@ A server-rendered page contains the HTML from the `$ssr` renderers and one data 
   `now` the server's render instant (the browser `Clock` returns it until hydration completes), `session`
   the `Session` mirror, `c` per component instance key (its path in the instance tree, `0.2.1`) the
   resolved `@Load` values and request-scoped state the client needs. Nothing is fetched twice.
+- **A client-rendered app's shell** (`@Rendering(.client)` with a server) carries `{"v":1,"session":{…},"c":{}}`:
+  the mirror only, with no `now` because nothing was rendered to match. The entry passes it to
+  `startRouter` as `session`, which seeds the mirror (`seedSession`) without hydrating
+  ([26-auth-and-sessions.md](../design/26-auth-and-sessions.md#in-the-browser)).
 - **Claiming**: `hydrate(container, render, data)` sets hydration mode, restarts `uid()` at `k1` (the
   server counts ids per request from `k1` too, `Out.uid`) and runs the client factories;
   `template()` claims the next unclaimed node of the expected shape instead of cloning, text bindings
@@ -406,7 +421,9 @@ outside `READY`/`RELOADING`.
   The generated stub maps outcomes to the rpc's error enum
   ([codegen.md §15](codegen.md#15-rpc-client-stubs-and-server-dispatch)), so `offline` and `timeout` are
   typed `RpcFailure` values, never panics.
-- An aborted signal (a superseded effect or load) makes the promise **never settle**.
+- An aborted signal (a superseded effect or load) makes the promise **never settle**. A call that settles
+  removes its abort listener from the caller's signal, which (a component's lifetime) outlives it; an
+  opened stream keeps it, so leaving the page still closes the stream.
 - No automatic retries: the runtime can't know whether the handler ran.
 - Responses that carry the session (`x-k-session` header with the mirror: a change, or a refusal by a
   session guard) update the `Session` mirror before the outcome is returned, an opened stream's
@@ -519,7 +536,9 @@ feature chunk (§1): only apps with a `@Form` ship it, and their generated code 
   `popstate`) sets `location.href` to the URL instead of pushing history and rendering. The server
   answers that load with its `303` to the `@SignInPage` (and `returnTo`) or `403`. From then on the
   router is *left*: `show` and `navigate` do nothing. The first page (`startRouter`'s) isn't checked,
-  because the server checked it when it answered the document.
+  because the server checked it when it answered the document, a client-rendered app's shell included.
+  The mirror starts from `options.data` (a server-rendered document) or `options.session` (a
+  client-rendered app's shell).
 - **Losing what the shown page requires.** `startRouter` registers a gate with the RPC client
   (`gateSession`, `rpc.js`), which runs with each `x-k-session` mirror before `sessionMirror.set`. When the
   new mirror refuses the mounted page, the gate disposes that page first, so no effect of a narrowed body
@@ -597,6 +616,7 @@ Declarations marked `@Native` in `crates/k_sema/stdlib` get their bodies from th
 | `LocalStorage` (`BrowserStorage`) | `browserStorage` over `localStorage` with typed keys ([36-local-storage.md](../design/36-local-storage.md)) |
 | `Theme` | `theme()` in the browser; `theme(st)` in `app.js` during server rendering |
 | `TimeZone` | its IANA name, as text: `parse` (`parseTimeZone` in `std.js`) asks `Intl.DateTimeFormat` and returns the canonical spelling (`europe/berlin` → `Europe/Berlin`) or `nil`; `identifier` and `name` are the text; `utc` is `"UTC"`; equal, hashable and encoded as the text (`codecs.timeZone`). `TimeZone.local` is `localTimeZone()` in the browser (the browser's zone); on the server it is `requestTimeZone(ctx)`, the `k_tz` cookie of the request a view is rendering, UTC on a first visit; read outside a view's body (a plain function, a service) the server has no request to ask and uses UTC. `Date.formatted` writes UTC in v0, on both sides, so hydration never changes the text |
+| `TimeOfDay` | its `HH:MM` text, on both sides: a literal is that text as a constant (checked by `k_sema::literals::time_of_day`, K2404); `parse` (`parseTimeOfDay` in `std.js`) accepts two ASCII digits, `:`, two ASCII digits, an hour below 24 and a minute below 60, the literal's rule exactly (`crates/k_server/tests/literals.rs` runs both on the same inputs); `hour` and `minute` are `timeOfDayHour` and `timeOfDayMinute`; printed, equal, hashable (a primitive `Map`/`Set` key) and encoded as the text (`codecs.timeOfDay`, which decodes only what `parse` accepts). Job schedules read the literal at compile time instead (`jobs.rs`) |
 | `Json`, `Uuid.random`, `SecureRandom`, `Hash`, `Hmac` | `JSON`, `crypto.getRandomValues`/`crypto.subtle` in the browser; Rust ops on the server |
 | `Database`, repositories | `runtime/db.js` over the database ops ([db.md §6](db.md#6-drivers-the-manifest-and-ops)) |
 | `EmailAddress` | its message-header text, `local@domain` or `Name <local@domain>`; `.address` and `.displayName` take it apart (`emailAddress`, `emailDisplayName`); `parse` trims, lower-cases the domain, collapses the name's spaces and quotes the name only when it holds a special character (`"Doe, Ana" <ana@example.com>`), refusing control characters, an unquoted name with specials, and an address with spaces, brackets, quotes or separators |

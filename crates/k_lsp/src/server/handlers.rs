@@ -508,7 +508,8 @@ pub fn workspace_symbols(
     Ok(out)
 }
 
-/// `textDocument/completion`.
+/// `textDocument/completion`; `trigger` is the character that triggered
+/// it, if one did.
 ///
 /// # Errors
 ///
@@ -517,11 +518,12 @@ pub fn completion(
     snap: &Snap,
     file: FileId,
     position: lsp::Position,
+    trigger: Option<char>,
 ) -> Result<Option<lsp::CompletionResponse>, Cancelled> {
     let Some(offset) = snap.offset(file, position) else {
         return Ok(None);
     };
-    let items = ide::completion::completions(&snap.analysis, file, offset)?;
+    let items = ide::completion::completions_triggered(&snap.analysis, file, offset, trigger)?;
     let items = items
         .into_iter()
         .map(|i| {
@@ -532,11 +534,26 @@ pub fn completion(
                     new_text: text.clone(),
                 }])
             });
+            // A token offered without its dot (`.md` after `gap: `) is
+            // filtered by its name.
+            let filter_text = i
+                .label
+                .strip_prefix('.')
+                .map(str::to_owned)
+                .or_else(|| i.label.strip_suffix(':').map(str::to_owned));
             lsp::CompletionItem {
                 label: i.label.clone(),
                 kind: Some(item_kind(i.kind)),
                 detail: i.detail,
+                documentation: i.documentation.map(|value| {
+                    lsp::Documentation::MarkupContent(lsp::MarkupContent {
+                        kind: lsp::MarkupKind::Markdown,
+                        value,
+                    })
+                }),
                 sort_text: Some(format!("{}{}", i.group, i.label)),
+                filter_text,
+                insert_text: i.insert_text,
                 additional_text_edits,
                 ..lsp::CompletionItem::default()
             }
@@ -565,6 +582,10 @@ fn item_kind(kind: ItemKind) -> lsp::CompletionItemKind {
         ItemKind::Keyword => lsp::CompletionItemKind::KEYWORD,
         ItemKind::Annotation => lsp::CompletionItemKind::PROPERTY,
         ItemKind::Element => lsp::CompletionItemKind::SNIPPET,
+        ItemKind::Property => lsp::CompletionItemKind::PROPERTY,
+        ItemKind::Value => lsp::CompletionItemKind::VALUE,
+        ItemKind::Event => lsp::CompletionItemKind::EVENT,
+        ItemKind::StyleClass => lsp::CompletionItemKind::CLASS,
     }
 }
 

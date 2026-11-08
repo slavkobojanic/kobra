@@ -752,3 +752,453 @@ fn half_typed_code_never_panics() {
         }
     }
 }
+
+// ----------------------------------------------------------- the kanban app
+//
+// Completion, hover and navigation in style blocks and `.on(…)` calls,
+// against `examples/kanban` with `src/pages/ColumnView.k` edited.
+
+const COLUMN_VIEW: &str = "src/pages/ColumnView.k";
+
+/// The kanban example, with `ColumnView.k` replaced by `edit` of it (which
+/// holds `$0`).
+fn kanban(edit: impl Fn(&str) -> String) -> Fixture {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/kanban");
+    let mut files: Vec<(String, String)> = Vec::new();
+    let mut stack = vec![root.clone()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            let rel = path
+                .strip_prefix(&root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            if path.is_dir() {
+                if rel == "src" || rel.starts_with("src/") {
+                    stack.push(path);
+                }
+            } else if rel.ends_with(".k") || rel == "k.toml" || rel.ends_with(".lock") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                let text = if rel == COLUMN_VIEW {
+                    edit(&text)
+                } else {
+                    text
+                };
+                files.push((rel, text));
+            }
+        }
+    }
+    let mut cursor = None;
+    let mut all = Vec::new();
+    for (path, text) in files {
+        let text = match text.find("$0") {
+            Some(i) => {
+                cursor = Some((path.clone(), i));
+                text.replacen("$0", "", 1)
+            }
+            None => text,
+        };
+        all.push((ProjectPath::new(&path).unwrap(), text));
+    }
+    let host = AnalysisHost::with_files(Options::new(), all);
+    let (path, offset) = cursor.unwrap_or_else(|| (COLUMN_VIEW.to_owned(), 0));
+    let file = host
+        .analysis()
+        .file_id(&ProjectPath::new(&path).unwrap())
+        .unwrap();
+    Fixture {
+        host,
+        file,
+        offset: TextSize::from(u32::try_from(offset).unwrap()),
+    }
+}
+
+/// `ColumnView.k` with `old` replaced by `new` (which holds `$0`).
+fn column_view(old: &'static str, new: &'static str) -> Fixture {
+    kanban(move |text| {
+        assert!(text.contains(old), "{old}");
+        text.replacen(old, new, 1)
+    })
+}
+
+fn complete(f: &Fixture) -> Vec<super::completion::CompletionItem> {
+    completions(&f.analysis(), f.file, f.offset).unwrap()
+}
+
+#[test]
+fn the_kanban_column_has_no_errors() {
+    let f = kanban(str::to_owned);
+    let errors: Vec<_> = f
+        .analysis()
+        .file_diagnostics(f.id(COLUMN_VIEW))
+        .unwrap()
+        .into_iter()
+        .filter(|d| d.is_error())
+        .collect();
+    assert!(errors.is_empty(), "{errors:#?}");
+}
+
+#[test]
+fn completion_of_component_events() {
+    let edit = ".on(edit: { edit.emit(card.id) })";
+    // In a closed call, as editors leave it.
+    let f = column_view(edit, ".on($0)");
+    let items = complete(&f);
+    let item = items.iter().find(|i| i.label == "edit:").expect("edit:");
+    assert_eq!(item.detail.as_deref(), Some("Void"), "{item:?}");
+    assert_eq!(
+        item.documentation.as_deref(),
+        Some("The user wants to edit the card.")
+    );
+    assert_eq!(item.insert_text.as_deref(), Some("edit: "));
+    assert_eq!(labels(&items), ["edit:"], "only the events");
+    // In an unclosed call with a prefix: the rest of the file is still
+    // there.
+    let f = column_view(edit, ".on(e$0");
+    assert_eq!(labels(&complete(&f)), ["edit:"]);
+    // A stdlib component's events.
+    let f = column_view(
+        ".on(moved: { move => boards.moveCard(board: board, move: move) })",
+        ".on($0)",
+    );
+    let items = complete(&f);
+    let moved = items.iter().find(|i| i.label == "moved:").expect("moved:");
+    assert!(
+        moved
+            .detail
+            .as_deref()
+            .is_some_and(|d| d.contains("ListMove<")),
+        "{moved:?}"
+    );
+    assert!(moved.documentation.is_some());
+    // Another `.on(` after the first offers the events not yet handled.
+    let f = column_view(
+        "{ closed.emit() })\n                    } else {",
+        "{ closed.emit() })\n                            .on($0)\n                    } else {",
+    );
+    let items = complete(&f);
+    let names = labels(&items).join(",");
+    assert!(!names.contains("closed:"), "{names}");
+    // After the first event of a call: none, since `.on(…)` takes one
+    // (K3108).
+    let f = column_view(edit, ".on(edit: { edit.emit(card.id) }, $0)");
+    let items = complete(&f);
+    let names = labels(&items).join(",");
+    assert!(!names.contains(':'), "{names}");
+    // In the handler: names in scope, not events.
+    let f = column_view(edit, ".on(edit: $0)");
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(names.contains(&"card"), "{names:?}");
+}
+
+/// Completion as the user types, with the call or rule left unfinished and
+/// the rest of `ColumnView.k` after it.
+#[test]
+fn completion_while_typing_in_the_kanban_column() {
+    let has = |f: &Fixture, want: &[&str], not: &[&str]| {
+        let items = complete(f);
+        let names = labels(&items);
+        for w in want {
+            assert!(names.contains(w), "{w}: {names:?}");
+        }
+        for n in not {
+            assert!(!names.contains(n), "{n}: {names:?}");
+        }
+    };
+    // `.on(` with nothing after it, on each kind of callee.
+    let f = column_view(".on(edit: { edit.emit(card.id) })", ".on($0");
+    has(&f, &["edit:"], &["click:", "card"]);
+    let f = column_view(
+        "CardEditor(board: board, card: card)\n                            .on(closed: { closed.emit() })",
+        "CardEditor(board: board, card: card)\n                            .on($0",
+    );
+    has(&f, &["closed:"], &["edit:", "card"]);
+    let f = column_view(
+        ".on(moved: { move => boards.moveCard(board: board, move: move) })",
+        ".on($0",
+    );
+    has(&f, &["moved:"], &["edit:", "card"]);
+    let f = column_view(".on(click: { add.emit() })", ".on($0");
+    has(&f, &["click:", "focus:"], &["edit:", "moved:"]);
+    // A new declaration with no value and no `;` yet.
+    let f = column_view(
+        "            justifyContent: spaceBetween;\n",
+        "            justifyContent: spaceBetween;\n            textDecoration: $0\n",
+    );
+    has(
+        &f,
+        &["lineThrough", "underline", "none", "inherit"],
+        &["line-through", "spaceBetween", "let"],
+    );
+    let f = column_view(
+        ".count { color: .muted;",
+        ".count { textDecoration: li$0 color: .muted;",
+    );
+    has(&f, &["lineThrough"], &["none", "inherit"]);
+    // `.class(.` unclosed, with the line ending there.
+    let f = column_view(".class(.count)", ".class(.$0");
+    has(&f, &["count", "header", "add"], &["let"]);
+    let f = column_view(
+        ".class([.column, .done when isDone])",
+        ".class([.column, .$0",
+    );
+    has(&f, &["done", "count"], &["let"]);
+}
+
+#[test]
+fn completion_of_element_events() {
+    let f = column_view(".on(click: { add.emit() })", ".on($0)");
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(
+        names.contains(&"click:") && names.contains(&"focus:"),
+        "{names:?}"
+    );
+    assert!(!names.contains(&"edit:"), "{names:?}");
+    let click = items.iter().find(|i| i.label == "click:").unwrap();
+    assert_eq!(click.detail.as_deref(), Some("Void"));
+}
+
+#[test]
+fn completion_of_css_property_names() {
+    let f = column_view(
+        ".count { color: .muted; fontSize: .sm; }",
+        ".count { color: .muted; fontSize: .sm; just$0 }",
+    );
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(
+        names.contains(&"justifyContent") && names.contains(&"justifySelf"),
+        "{names:?}"
+    );
+    assert!(!names.contains(&"let"), "no keywords: {names:?}");
+    assert!(items.iter().all(|i| i.kind == ItemKind::Property));
+    // At the start of a line, with no prefix.
+    let f = column_view(
+        "            display: flex;\n            alignItems",
+        "            $0\n            display: flex;\n            alignItems",
+    );
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(
+        names.contains(&"display") && names.contains(&"backgroundColor"),
+        "{names:?}"
+    );
+    assert!(!names.contains(&"count"), "{names:?}");
+}
+
+#[test]
+fn completion_of_css_values() {
+    // Keywords of the property.
+    let f = column_view("justifyContent: spaceBetween;", "justifyContent: $0;");
+    let items = complete(&f);
+    let names = labels(&items);
+    for k in ["spaceBetween", "center", "flexStart", "inherit"] {
+        assert!(names.contains(&k), "{k}: {names:?}");
+    }
+    assert!(!names.contains(&"let"), "{names:?}");
+    // With a prefix and no `;`.
+    let f = column_view("justifyContent: spaceBetween;", "justifyContent: spa$0");
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(
+        names.contains(&"spaceBetween") && names.contains(&"spaceAround"),
+        "{names:?}"
+    );
+    assert!(!names.contains(&"center"), "{names:?}");
+    // The theme's tokens of the property's kind, with their values.
+    let f = column_view("backgroundColor: .column;", "backgroundColor: $0;");
+    let items = complete(&f);
+    let names = labels(&items);
+    for k in [
+        ".column",
+        ".chartDone",
+        ".muted",
+        "transparent",
+        "currentColor",
+    ] {
+        assert!(names.contains(&k), "{k}: {names:?}");
+    }
+    assert!(!names.contains(&".lg"), "a spacing token: {names:?}");
+    let column = items.iter().find(|i| i.label == ".column").unwrap();
+    assert!(
+        column
+            .detail
+            .as_deref()
+            .is_some_and(|d| d.contains("#E2E8F0")),
+        "{column:?}"
+    );
+    // After the dot.
+    let f = column_view("backgroundColor: .column;", "backgroundColor: .$0;");
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(
+        names.contains(&"column") && names.contains(&"chartDone"),
+        "{names:?}"
+    );
+    // Spacing for gaps, radii for corners, sizes for fonts.
+    let f = column_view("gap: .sm;", "gap: $0;");
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(
+        names.contains(&".sm") && names.contains(&".lg"),
+        "{names:?}"
+    );
+    assert!(!names.contains(&".column"), "{names:?}");
+    let f = column_view("borderRadius: .md;", "borderRadius: .$0;");
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(names.contains(&"sm") && names.contains(&"md"), "{names:?}");
+    assert!(!names.contains(&"lg"), "no radius lg: {names:?}");
+    let f = column_view("fontSize: .sm;", "fontSize: .$0;");
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(names.contains(&"xl"), "{names:?}");
+    // A later part of a value.
+    let f = column_view(
+        ".done { border: 2px solid .chartDone; }",
+        ".done { border: 2px $0 }",
+    );
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(
+        names.contains(&"solid") && names.contains(&"dashed"),
+        "{names:?}"
+    );
+}
+
+#[test]
+fn completion_of_class_names() {
+    let classes = ["add", "column", "count", "done", "header"];
+    // In a selector.
+    let f = column_view(
+        "        .done { border",
+        "        .$0\n\n        .done { border",
+    );
+    let items = complete(&f);
+    let names = labels(&items);
+    for c in classes {
+        assert!(names.contains(&c), "{c}: {names:?}");
+    }
+    // In `.class(…)`.
+    let f = column_view(".class(.count)", ".class(.$0)");
+    let items = complete(&f);
+    let names = labels(&items);
+    assert_eq!(names, classes, "{items:?}");
+    let f = column_view(".class(.count)", ".class([.column, .$0])");
+    assert_eq!(labels(&complete(&f)), classes);
+    let f = column_view(".class(.count)", ".class(.co$0");
+    assert_eq!(labels(&complete(&f)), ["column", "count"]);
+    let f = column_view(".done when isDone", ".d$0 when isDone");
+    assert_eq!(labels(&complete(&f)), ["add", "done", "header"]);
+}
+
+#[test]
+fn hover_and_definition_of_tokens_and_classes() {
+    // A token in a style block: its declaration, with the value.
+    let f = column_view("solid .chartDone;", "solid .chart$0Done;");
+    let h = hover::hover(&f.analysis(), f.file, f.offset, &|_| None)
+        .unwrap()
+        .unwrap();
+    assert!(h.markdown.contains("#16A34A"), "{}", h.markdown);
+    assert!(h.markdown.contains("`dark`: `#4ADE80`"), "{}", h.markdown);
+    let defs = definition(&f.analysis(), f.file, f.offset).unwrap();
+    assert_eq!(defs, [f.span("src/ui/KanbanTheme.k", "chartDone", 0)]);
+    // A class reference: its rule.
+    let f = column_view(".class(.count)", ".class(.co$0unt)");
+    let h = hover::hover(&f.analysis(), f.file, f.offset, &|_| None)
+        .unwrap()
+        .unwrap();
+    assert!(
+        h.markdown
+            .contains(".count { color: .muted; fontSize: .sm; }"),
+        "{}",
+        h.markdown
+    );
+    let defs = definition(&f.analysis(), f.file, f.offset).unwrap();
+    let rule = f.span(COLUMN_VIEW, ".count {", 0);
+    let name = TextRange::at(rule.range.start() + TextSize::from(1), TextSize::from(5));
+    assert_eq!(defs, [Span::new(rule.file, name)]);
+}
+
+#[test]
+fn half_typed_styles_and_events_never_panic() {
+    let texts = [
+        "component C {\n    view {\n        button { \"x\" }\n            .on(\n    }\n    style {\n        .a {\n            gap: ;\n            just\n        }\n        .\n        .b { color: .; border: 2px solid  }\n    }\n}\n",
+        "component C {\n    style {\n        @media (prefersReducedMotion: ",
+        "component C {\n    view {\n        text { \"a\" }.class([.a, .",
+        "component C {\n    style {\n        .a:hover { col",
+    ];
+    for text in texts {
+        let f = fixture(&[("src/z/Z.k", text)]);
+        let analysis = f.analysis();
+        let len = u32::try_from(text.len()).unwrap();
+        for offset in 0..=len + 2 {
+            let offset = TextSize::from(offset);
+            let _ = completions(&analysis, f.file, offset).unwrap();
+            let _ = hover::hover(&analysis, f.file, offset, &|_| None).unwrap();
+            let _ = definition(&analysis, f.file, offset).unwrap();
+        }
+    }
+}
+
+#[test]
+fn completion_in_media_queries_and_after_a_missing_semicolon() {
+    let style = |body: &str| {
+        COUNTER.replace(
+            "    view {",
+            &format!("    style {{\n{body}\n    }}\n\n    view {{"),
+        )
+    };
+    let text = style("        @media (prefersReducedMotion: $0) {\n        }");
+    let f = fixture(&[("src/ui/Counter.k", &text)]);
+    let items = complete(&f);
+    assert_eq!(labels(&items), ["noPreference", "reduce"]);
+    let text = style("        @media (pre$0");
+    let f = fixture(&[("src/ui/Counter.k", &text)]);
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(names.contains(&"prefersColorScheme"), "{names:?}");
+    // A declaration on the next line of one missing its `;`.
+    let text = style("        .box {\n            display: flex\n            ali$0\n        }");
+    let f = fixture(&[("src/ui/Counter.k", &text)]);
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(names.contains(&"alignItems"), "{names:?}");
+    // Inside an interpolation: names in scope.
+    let text = style("        .box {\n            width: {dou$0}\n        }");
+    let f = fixture(&[("src/ui/Counter.k", &text)]);
+    let items = complete(&f);
+    let names = labels(&items);
+    assert!(names.contains(&"doubled"), "{names:?}");
+}
+
+#[test]
+fn parenthesis_and_colon_trigger_only_specific_completions() {
+    use super::completion::completions_triggered;
+    // `(` of an ordinary call: nothing.
+    let text = USES.replace("Square(side: 1.0)", "Square($0)");
+    let f = fixture(&[("src/use/Uses.k", &text)]);
+    assert!(
+        completions_triggered(&f.analysis(), f.file, f.offset, Some('('))
+            .unwrap()
+            .is_empty()
+    );
+    // Invoked there, names in scope.
+    assert!(!complete(&f).is_empty());
+    // `(` of `.on`: the events.
+    let text = COUNTER.replace(".on(click: { increment() })", ".on($0)");
+    let f = fixture(&[("src/ui/Counter.k", &text)]);
+    let items = completions_triggered(&f.analysis(), f.file, f.offset, Some('(')).unwrap();
+    assert!(labels(&items).contains(&"click:"), "{items:?}");
+    // `:` of a CSS property: its values.
+    let text = COUNTER.replace(
+        "    view {",
+        "    style {\n        .box {\n            display:$0\n        }\n    }\n\n    view {",
+    );
+    let f = fixture(&[("src/ui/Counter.k", &text)]);
+    let items = completions_triggered(&f.analysis(), f.file, f.offset, Some(':')).unwrap();
+    assert!(labels(&items).contains(&"grid"), "{items:?}");
+}

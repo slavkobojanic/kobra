@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use k_diagnostics::{Diagnostic, TextRange, codes};
+use k_diagnostics::{Diagnostic, TextRange, TextSize, codes};
 use k_syntax::ast::{self, AstNode};
 use k_syntax::{SyntaxKind, SyntaxNode};
 
@@ -395,6 +395,9 @@ fn compute_state_writers(cx: &Cx<'_, '_>, decl: DeclId) -> HashSet<MemberId> {
 /// Collects the classes and keyframes of a declaration's style blocks.
 fn collect_style(node: &SyntaxNode) -> StyleInfo {
     let mut info = StyleInfo::default();
+    if !has_style_block(node) {
+        return info;
+    }
     let Some(list) = node.children().find(|c| c.kind() == SyntaxKind::MemberList) else {
         return info;
     };
@@ -403,31 +406,76 @@ fn collect_style(node: &SyntaxNode) -> StyleInfo {
         .filter(|c| c.kind() == SyntaxKind::StyleBlock)
     {
         info.has_style = true;
-        for n in block.descendants() {
-            match n.kind() {
-                SyntaxKind::ClassSelector => {
-                    if let Some(name) = n
-                        .children_with_tokens()
-                        .filter_map(rowan::NodeOrToken::into_token)
-                        .find(|t| t.kind().is_name_like())
-                    {
-                        if !info.has_class(name.text()) {
-                            info.classes
-                                .push((name.text().to_owned(), name.text_range()));
-                        }
-                    }
-                }
-                SyntaxKind::KeyframesRule => {
-                    if let Some(name) = ast::KeyframesRule::cast(n.clone()).and_then(|k| k.name()) {
-                        info.keyframes
-                            .push((name.text().to_owned(), name.text_range()));
-                    }
-                }
-                _ => {}
-            }
-        }
+        collect_style_names(&block, &mut info);
     }
     info
+}
+
+/// Adds the class selectors' and keyframes rules' names below `block` to
+/// `info`, in source order, reading the green tree (an explicit preorder
+/// stack, so a deep tree can't exhaust the call stack): every revision
+/// collects the styles of every component, and a red walk allocated a node
+/// per element.
+fn collect_style_names(block: &SyntaxNode, info: &mut StyleInfo) {
+    let kind = <k_syntax::KLanguage as rowan::Language>::kind_from_raw;
+    let green = block.green();
+    let mut stack: Vec<(&rowan::GreenNodeData, TextSize)> =
+        vec![(green, block.text_range().start())];
+    while let Some((node, start)) = stack.pop() {
+        // A node's tokens, with their ranges.
+        let tokens = || {
+            let mut at = start;
+            node.children().filter_map(move |c| {
+                let range = TextRange::at(at, c.text_len());
+                at = range.end();
+                c.into_token().map(|t| (kind(t.kind()), t.text(), range))
+            })
+        };
+        match kind(node.kind()) {
+            SyntaxKind::ClassSelector => {
+                if let Some((_, text, range)) = tokens().find(|(k, _, _)| k.is_name_like()) {
+                    if !info.has_class(text) {
+                        info.classes.push((text.to_owned(), range));
+                    }
+                }
+            }
+            SyntaxKind::KeyframesRule => {
+                if let Some((_, text, range)) =
+                    tokens().filter(|(k, _, _)| *k == SyntaxKind::Ident).nth(1)
+                {
+                    info.keyframes.push((text.to_owned(), range));
+                }
+            }
+            _ => {}
+        }
+        let mut children = Vec::new();
+        let mut at = start;
+        for child in node.children() {
+            if let Some(n) = child.into_node() {
+                children.push((n, at));
+            }
+            at += child.text_len();
+        }
+        stack.extend(children.into_iter().rev());
+    }
+}
+
+/// `true` when declaration `node`'s member list holds a style block, read
+/// from the green tree: [`report_unused`] asks for the styles of every
+/// project declaration in every revision, and most have none, so no red
+/// node is allocated for their members.
+fn has_style_block(node: &SyntaxNode) -> bool {
+    let raw = |k: SyntaxKind| <k_syntax::KLanguage as rowan::Language>::kind_to_raw(k);
+    let (members, style) = (raw(SyntaxKind::MemberList), raw(SyntaxKind::StyleBlock));
+    node.green()
+        .children()
+        .filter_map(rowan::NodeOrToken::into_node)
+        .find(|n| n.kind() == members)
+        .is_some_and(|list| {
+            list.children()
+                .filter_map(rowan::NodeOrToken::into_node)
+                .any(|n| n.kind() == style)
+        })
 }
 
 /// Reports classes (K3204) and keyframes (K3206) nothing references, and
@@ -644,11 +692,11 @@ fn decl_targets(kind: Option<K>) -> Vec<Target> {
 }
 
 /// The offset after the spaces and tabs at `offset`.
-fn next_non_space(text: &str, offset: k_diagnostics::TextSize) -> k_diagnostics::TextSize {
+fn next_non_space(text: &str, offset: TextSize) -> TextSize {
     let start = usize::from(offset);
     let rest = &text[start.min(text.len())..];
     let n = rest.len() - rest.trim_start_matches([' ', '\t']).len();
-    offset + k_diagnostics::TextSize::from(u32::try_from(n).unwrap_or(0))
+    offset + TextSize::from(u32::try_from(n).unwrap_or(0))
 }
 
 /// K3002 for an annotation that doesn't apply where it is written.

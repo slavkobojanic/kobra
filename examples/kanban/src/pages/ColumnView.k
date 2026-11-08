@@ -96,7 +96,7 @@ component ColumnView {
         .header {
             display: flex;
             alignItems: baseline;
-            justifyContent: space-between;
+            justifyContent: spaceBetween;
         }
 
         .count { color: .muted; fontSize: .sm; }

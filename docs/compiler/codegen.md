@@ -194,6 +194,7 @@ summary.
 | `Length`, `Color`, token categories | CSS text (`"16px"`, `"calc(100px + 2rem)"`, `"#3B82F6"`) | Folded at compile time ([§6.5](#65-units-and-calc-folding)). |
 | `Date` | runtime `Instant` (epoch milliseconds + nanosecond remainder) | JSON RFC 3339. |
 | `Uuid`, `Url`, `EmailAddress` | `string` (validated at construction) | A literal (`Uuid("…")`) was checked by `k_sema` with a port of the same parser (K2404), so it is emitted as its normalized text, a string constant: a lower-case UUID, an address with its domain lower-cased and its name unquoted unless it needs quotes (`native.rs`, `construct`). Runtime text becomes one only through the runtime's parsers (`parseUuid`, `parseUrl`, `parseEmail`), which `T.parse` and the codecs share. **Decision:** a `Url` from runtime text is an absolute `http`, `https`, `ws` or `wss` URL with a host, never `javascript:` or another script scheme, so a parsed or decoded `Url` is always safe as a link target. |
+| `TimeZone`, `TimeOfDay` | `string`: the IANA name; `HH:MM` | A `TimeOfDay("…")` literal is its text as a constant, checked by K2404; `hour`/`minute` are `$k.timeOfDayHour`/`$k.timeOfDayMinute`, `parse` is `$k.parseTimeOfDay`, the same on both sides ([runtime.md §12](runtime.md#12-native-stdlib-bodies), `codegen/lang/time-of-day-is-text`). |
 | `Bytes` | `Uint8Array` | |
 | functions, lambdas | functions, arrow functions | An `async` K function is an `async` JS function with the hidden `$c` parameter. |
 | `Secret<T>` | `$k.Secret` wrapping the value | `toString`/`toJSON` give `Secret(•••)`; server-only. |
@@ -208,8 +209,8 @@ enum cases are their names, payload cases `{"case": "outOfStock", "available": 3
 fields are ignored) and returns a typed `DecodingError` instead of throwing a JS exception. Codecs are
 used by RPC, `@Load` serialization, jobs, `Json`, local storage and the execution corpus.
 
-- **Typed text values validate themselves** (15-forms-and-validation.md): `Uuid`, `Url`, `EmailAddress`
-  and `Color` decode with `$k.codecs.uuid`, `url`, `email` and `color`, which accept only what the type's
+- **Typed text values validate themselves** (15-forms-and-validation.md): `Uuid`, `Url`, `EmailAddress`,
+  `Color`, `TimeZone` and `TimeOfDay` decode with `$k.codecs.uuid`, `url`, `email`, `color`, `timeZone` and `timeOfDay`, which accept only what the type's
   parser accepts, so `"javascript:alert(1)"` is a `mismatch` (an rpc's `invalid_argument`) and never a
   `Url`, and `"red; background: url(…)"` never a `Color` (a decoded color reaches `style` attributes as a
   custom property value). `Color.hex(text)` panics for text that isn't a hex color.
@@ -447,7 +448,17 @@ export function Counter(props, ctx) {
   whose stopped call never settles, so the child that drops the promise of `emit` reports nothing. The
   work belongs to the component that wrote the function, not to the child that calls it. A lambda passed
   to a K function's parameter is not bound: that parameter is called with the caller's `$c` first
-  (`retry($c, async ($c) => { … })`).
+  (`retry($c, async ($c) => { … })`), and so is a component's async function named there, which is
+  passed as it is (`each($c, show)`), not as `$k.own(show, $life)`, whose call would take the caller's
+  `$c` for its first K argument.
+- **Function values handed to a service are bound to the component** ([design 03, "What a component
+  leaves behind"](../design/03-reactivity.md#what-a-component-leaves-behind)). In a component's client
+  renderer, an argument of function type to a method of a service, native ones such as `Clock`
+  included, is `$k.bound(f, $life, mode)`: `bus.listen($k.bound(async ($c) => { … }, $life, 2))`,
+  `clock.after(1000, $k.bound(() => { … }, $life, 0))`. `mode` is 0 for a synchronous `Void` function,
+  1 for one with a value, 2 and 3 for the async ones; it says what a call after the component is
+  disposed does ([runtime.md §3.4](runtime.md#34-async-effects-and-cancellation)). `f` keeps K's calling
+  convention, so the service calls it as it calls any function value.
 - **A method value keeps its receiver**: `todos.clearCompleted` used as a handler is
   `todos.clearCompleted.bind(todos)` (an arrow over a receiver that isn't a plain path).
 - **`@Load` and the members that read it.** On the server, `@Derived` values are computed after the
@@ -585,6 +596,10 @@ one lowered view, so they can't drift.
 - **Rules.** Each style block becomes rules in source order. Nesting is flattened (`.summary { &:hover {…}
   }` → `.summary_x:hover {…}`), `@media`/`@container`/`@layer` wrap the flattened rules, property names
   are converted to kebab case (`borderLeft` → `border-left`).
+- **Keywords** print in kebab case too (`stdlib::css::keyword_css`): `spaceBetween` → `space-between`,
+  also in function arguments and media feature values (`(prefers-reduced-motion: no-preference)`);
+  `currentColor` keeps its spelling. Function names print as written, and comma-separated values
+  (`fontFamily: "Inter", sansSerif`) print joined by `, `.
 - **Values.** Implicit members resolve to tokens and print as custom properties (`padding: .md` →
   `padding: var(--k-space-md)`); literals print as written; units fold as in §6.5.
 - **Readable names.** Under `Profile::Test` the scope suffix is replaced by the component's simple name:
@@ -662,8 +677,8 @@ generated code is plain construction.
   ```js
   import { CartService, CartProtocol$client, StorageReadError, StorageWriteError } from "./shared.[hash].js";
   class $App {
-    constructor(d) { this.$a = this; this.$d = d; }            // d: the k-data payload, null when client-rendered
-    get CartService() { return this.$a.$CartService ??= new CartService({ CartProtocol: this.$a.CartProtocol }); }
+    constructor(d) { this.$a = this; this.$d = d; }            // d: the k-data payload, null without one
+    get CartService() { return this.$a.$CartService ??= $k.runWithOwner(null, () => new CartService({ CartProtocol: this.$a.CartProtocol })); }
     get CartProtocol() { return this.$a.$CartProtocol ??= new CartProtocol$client(); }
     get LocalStorage() { return this.$a.BrowserStorage; }       // the stdlib default of the interface
     get BrowserStorage() { return this.$a.$BrowserStorage ??= $k.browserStorage(StorageReadError, StorageWriteError); }
@@ -674,14 +689,22 @@ generated code is plain construction.
     constructor(a) { super(a.$d); this.$a = a; }
     get Visit() { return this.$Visit ??= new Visit({ Serials: this.Serials }); }
   }
-  const data = $k.readData(document);                            // `null` under @Rendering(.client)
+  const data = $k.readData(document);                            // `null` for a static-only app's document
   const app = new $App(data);
   $k.startRouter(routes, container, { c: () => new $Route(app), data });  // `c: () => app` without $Route
   ```
 
+  Under `@Rendering(.client)` the payload is the shell's, which holds only the `Session` mirror, and
+  the router is given it as `session: data` instead of `data`: its guards start from the mirror, and
+  there is nothing to hydrate (`codegen/ui/hydration/client-rendered-app`).
+
   - **Scopes.** Every `$App` getter memoizes on `this.$a`, the app container, and resolves its
     dependencies there, so an app service read through a `$Route` (or a provided container) is still the
-    app's one instance; a route service is memoized on its `$Route` and lives while its page is mounted;
+    app's one instance, **built with no reactive owner** (`$k.runWithOwner(null, …)`), so the computeds and
+    effects its constructor creates live as long as the app even when a page's render is what first read
+    it (otherwise they would be disposed with that page, and an `@Derived` read on the next page would be
+    `undefined`; `a_client_rendered_app_leaves_a_guarded_page_for_the_server_on_sign_out` in
+    `crates/k_server/tests/browser.rs`); a route service is memoized on its `$Route` and lives while its page is mounted;
     a component-scoped getter constructs on every read, and **the component that injects it provides that
     instance to its subtree**: `const draft = ctx.c.Draft; ctx = $k.provide(ctx, "Draft", draft);`
     (`provide` wraps the container in a proxy answering that one name). The server's `$Request` does

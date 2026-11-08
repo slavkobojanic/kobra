@@ -4271,7 +4271,7 @@ component Card {
 ```
 
 ```text
-error[K3202]: this doesn't fit `display`: none | block | inline | inline-block | flex | inline-flex | grid | inline-grid | contents
+error[K3202]: this doesn't fit `display`: none | block | inline | inlineBlock | flex | inlineFlex | grid | inlineGrid | contents
  --> src/corpus/keyword-not-in-grammar.k:9:26
   |
 9 |         .card { display: flexx; position: center; cursor: pointer; }
@@ -4670,6 +4670,88 @@ error[K3213]: keyframes `fade` are declared twice
 ```
 
 **Fix:** Rename one of the keyframes.
+
+### K3214 `kebab-case-css-keyword`
+
+**Error.** A CSS keyword in a style value is written in kebab case; K spells keywords in camel case.
+
+Example (`tests/corpus/sema/ui/styles/kebab-case-keyword.k`):
+
+```k,ignore
+// CSS keywords are camel case like property names: a kebab-case keyword is K3214
+// with a machine-applicable fix to its camel-case form, also inside functions
+// and media features. Numbers, colors, tokens and strings are left alone.
+component Card {
+    view {
+        box { "x" }
+            .class(.card)
+    }
+
+    style {
+        .card {
+            textDecoration: line-through;
+            justifyContent: space-between;
+            transition: opacity 200ms ease-in-out;
+            gridTemplateColumns: repeat(auto-fill, 1fr);
+            fontFamily: "Inter", sans-serif;
+            border: 1px solid #E5E7EB;
+            @media (prefersReducedMotion: no-preference) { padding: 4px; }
+        }
+    }
+}
+```
+
+```text
+error[K3214]: CSS keywords are camel case in K: `line-through` is written `lineThrough`
+  --> src/corpus/kebab-case-keyword.k:12:29
+   |
+12 |             textDecoration: line-through;
+   |                             ^^^^^^^^^^^^
+   |
+   = fix: Replace `line-through` with `lineThrough`
+
+error[K3214]: CSS keywords are camel case in K: `space-between` is written `spaceBetween`
+  --> src/corpus/kebab-case-keyword.k:13:29
+   |
+13 |             justifyContent: space-between;
+   |                             ^^^^^^^^^^^^^
+   |
+   = fix: Replace `space-between` with `spaceBetween`
+
+error[K3214]: CSS keywords are camel case in K: `ease-in-out` is written `easeInOut`
+  --> src/corpus/kebab-case-keyword.k:14:39
+   |
+14 |             transition: opacity 200ms ease-in-out;
+   |                                       ^^^^^^^^^^^
+   |
+   = fix: Replace `ease-in-out` with `easeInOut`
+
+error[K3214]: CSS keywords are camel case in K: `auto-fill` is written `autoFill`
+  --> src/corpus/kebab-case-keyword.k:15:41
+   |
+15 |             gridTemplateColumns: repeat(auto-fill, 1fr);
+   |                                         ^^^^^^^^^
+   |
+   = fix: Replace `auto-fill` with `autoFill`
+
+error[K3214]: CSS keywords are camel case in K: `sans-serif` is written `sansSerif`
+  --> src/corpus/kebab-case-keyword.k:16:34
+   |
+16 |             fontFamily: "Inter", sans-serif;
+   |                                  ^^^^^^^^^^
+   |
+   = fix: Replace `sans-serif` with `sansSerif`
+
+error[K3214]: CSS keywords are camel case in K: `no-preference` is written `noPreference`
+  --> src/corpus/kebab-case-keyword.k:18:43
+   |
+18 |             @media (prefersReducedMotion: no-preference) { padding: 4px; }
+   |                                           ^^^^^^^^^^^^^
+   |
+   = fix: Replace `no-preference` with `noPreference`
+```
+
+**Fix:** Write the keyword in camelCase, like property names: `spaceBetween`, `lineThrough`, `sansSerif` (machine-applicable fix). The CSS gets the kebab-case spelling.
 
 ### K3301 `unknown-theme-token`
 

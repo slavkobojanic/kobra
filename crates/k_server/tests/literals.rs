@@ -1,9 +1,10 @@
 //! The compiler's literal checks and the runtime's parsers agree.
 //!
-//! `EmailAddress("…")`, `Url("…")` and `Uuid("…")` literals are validated
-//! and normalized when a program is compiled, by `k_sema::literals`
-//! (sema.md §9.7, K2404); text known only at run time goes through the
-//! runtime's `parseEmail`, `parseUrl` and `parseUuid` (`std.js`). A literal
+//! `EmailAddress("…")`, `Url("…")`, `Uuid("…")` and `TimeOfDay("…")`
+//! literals are validated and normalized when a program is compiled, by
+//! `k_sema::literals` (sema.md §9.7, K2404); text known only at run time
+//! goes through the runtime's `parseEmail`, `parseUrl`, `parseUuid` and
+//! `parseTimeOfDay` (`std.js`). A literal
 //! must be exactly the value `Type.parse` gives for the same text, so these
 //! tests run both on the same inputs, a fixed list of tricky ones and
 //! thousands generated from an alphabet of the characters the formats care
@@ -25,6 +26,8 @@ struct Parsed {
     url: Vec<Option<String>>,
     /// `parseUuid(text)`.
     uuid: Vec<Option<String>>,
+    /// `parseTimeOfDay(text)`.
+    time: Vec<Option<String>>,
 }
 
 /// Runs the runtime's parsers on every input in one isolate.
@@ -36,19 +39,20 @@ fn runtime_parse(inputs: &[String]) -> Parsed {
     .expect("engine");
     let json = serde_json::to_string(inputs).unwrap();
     let code = format!(
-        "import {{ parseEmail, parseUrl, parseUuid }} from \"k:runtime\";\n\
+        "import {{ parseEmail, parseTimeOfDay, parseUrl, parseUuid }} from \"k:runtime\";\n\
          const inputs = {json};\n\
          Deno.core.ops.op_k_set_result(JSON.stringify({{\n\
            email: inputs.map(parseEmail),\n\
            url: inputs.map(parseUrl),\n\
            uuid: inputs.map(parseUuid),\n\
+           time: inputs.map(parseTimeOfDay),\n\
          }}));\n"
     );
     let text = engine.run_main(&code).expect("runs").expect("a result");
     serde_json::from_str(&text).unwrap()
 }
 
-/// Inputs that exercise each rule of the three formats.
+/// Inputs that exercise each rule of the four formats.
 const FIXED: &[&str] = &[
     "",
     " ",
@@ -127,6 +131,25 @@ const FIXED: &[&str] = &[
     "{0b6f2c1e-4d1a-4f8e-9a3b-2c5d6e7f8a9b}",
     "0b6f2c1e-4d1a-4f8e-9a3b-2c5d6e7f8a9g",
     "0b6f2c1e-4d1a-4f8e-9a3b-2c5d6e7f8a9b-",
+    "03:00",
+    "00:00",
+    "23:59",
+    "24:00",
+    "12:60",
+    "3:00",
+    "03:0",
+    "003:00",
+    "03:00:00",
+    " 03:00",
+    "03:00 ",
+    "03:00\n",
+    "03-00",
+    "0x:00",
+    "+3:00",
+    "٣٣:٠٠",
+    "０３:００",
+    ":",
+    "noon",
 ];
 
 /// The characters generated inputs are made of: the ones the formats give
@@ -186,7 +209,7 @@ impl Gen {
 
     /// One input in one of the formats' shapes, or noise.
     fn input(&mut self) -> String {
-        let mut s = match self.below(6) {
+        let mut s = match self.below(7) {
             0 => self.chars(ALPHABET, 0, 24),
             1 => self.email(),
             2 => format!(
@@ -216,6 +239,15 @@ impl Gen {
                 };
                 let path = self.chars(&['/', '?', '#', 'a', '@', ':', '['], 0, 4);
                 format!("{scheme}://{user}{host}{port}{path}")
+            }
+            5 => {
+                let digits = ['0', '1', '2', '3', '5', '6', '9'];
+                format!(
+                    "{}{}{}",
+                    self.chars(&digits, 1, 3),
+                    self.pick(&[':', ':', ':', '.']),
+                    self.chars(&digits, 1, 3)
+                )
             }
             _ => [8, 4, 4, 4, 12]
                 .iter()
@@ -268,6 +300,15 @@ fn compare(inputs: &[String]) {
             problems.push(format!(
                 "uuid {text:?}: compiler {uuid:?}, runtime {:?}",
                 js.uuid[i]
+            ));
+        }
+        let time = k_sema::literals::time_of_day(text)
+            .ok()
+            .map(|(h, m)| format!("{h:02}:{m:02}"));
+        if time != js.time[i] {
+            problems.push(format!(
+                "time of day {text:?}: compiler {time:?}, runtime {:?}",
+                js.time[i]
             ));
         }
         // A literal check refuses exactly what the parser refuses, and

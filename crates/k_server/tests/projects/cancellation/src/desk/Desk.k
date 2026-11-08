@@ -15,4 +15,8 @@ public service Desk {
     func lookup(id: Int) async throws RpcOnlyError -> String {
         return try await api.lookup(id: id)
     }
+
+    func each(_ f: (Int) async -> Void) async {
+        await f(5)
+    }
 }

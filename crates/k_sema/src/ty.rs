@@ -91,6 +91,13 @@ impl NameTable {
     }
 }
 
+impl NameTable {
+    /// The rendered name of `decl` ([`Program::decl_name`]).
+    pub(crate) fn decl(&self, decl: DeclId) -> &str {
+        self.decls.get(decl.0 as usize).map_or("{error}", |n| n)
+    }
+}
+
 impl Names for NameTable {
     fn write_decl_name(&self, decl: DeclId, out: &mut String) {
         out.push_str(self.decls.get(decl.0 as usize).map_or("{error}", |n| n));

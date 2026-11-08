@@ -125,7 +125,7 @@ public page Home at "/" {
         .header {
             display: flex;
             alignItems: center;
-            justifyContent: space-between;
+            justifyContent: spaceBetween;
             gap: .md;
             flexWrap: wrap;
         }
@@ -140,7 +140,7 @@ public page Home at "/" {
 
         .board {
             display: flex;
-            justifyContent: space-between;
+            justifyContent: spaceBetween;
             padding: .md;
             borderRadius: .md;
             backgroundColor: .surface;

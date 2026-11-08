@@ -77,7 +77,7 @@ public component Panel {
             display: flex;
             flexWrap: wrap;
             alignItems: center;
-            justifyContent: space-between;
+            justifyContent: spaceBetween;
             gap: .sm;
         }
 

@@ -89,6 +89,9 @@ pub(crate) struct Builtins {
     pub font_size: Option<DeclId>,
     /// `k.time.TimeZone`: its value is its IANA name, with a builtin codec.
     pub time_zone: Option<DeclId>,
+    /// `k.time.TimeOfDay`: its value is its `HH:MM` text, with a builtin
+    /// codec.
+    pub time_of_day: Option<DeclId>,
 }
 
 impl Builtins {
@@ -127,6 +130,7 @@ impl Builtins {
             radius: core("Radius"),
             font_size: core("FontSize"),
             time_zone: view.lookup("k.time.TimeZone"),
+            time_of_day: view.lookup("k.time.TimeOfDay"),
         }
     }
 }
@@ -703,7 +707,7 @@ impl<'a> Gen<'a> {
             || self.is_bool(t)
             || self.is_css_text(t)
             || self.is_simple_enum(t)
-            || [self.b.uuid, self.b.url, self.b.email]
+            || [self.b.uuid, self.b.url, self.b.email, self.b.time_of_day]
                 .iter()
                 .any(|d| self.is(t, *d))
     }

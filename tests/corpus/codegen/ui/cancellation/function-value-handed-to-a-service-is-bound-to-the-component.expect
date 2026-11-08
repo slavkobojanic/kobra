@@ -1,0 +1,12 @@
+# The mode says what a stale call does: 0 a `Void` function, 1 one with a value, 2 and 3 async.
+client contains const $life = $k.lifetime();
+client contains bus.listen($k.bound(async ($c) => {
+client contains }, $life, 2))
+client contains bus.listen($k.bound(heard, $life, 2))
+client contains bus.listenPlain($k.bound(() => {
+client contains }, $life, 0))
+client contains bus.ask($k.bound(() => 7, $life, 1))
+client contains clock.after(1000, $k.bound(() => {
+# The service's own code is untouched: it calls what it keeps with its caller's context.
+client contains listen(f) {
+client lacks $k.own(heard

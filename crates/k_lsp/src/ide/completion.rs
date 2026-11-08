@@ -14,6 +14,10 @@
 //!   an assignment's target, the other side of a comparison, a `let` or
 //!   field's declared type, an argument's parameter, a `return`'s function,
 //!   a `case` pattern's scrutinee;
+//! * after `.on(`: the receiver's **events** (`completion/events.rs`);
+//! * in a `style` block: **CSS properties**, **keyword values**, theme
+//!   **tokens** and **classes** (`completion/style.rs`); after `.` in a selector or a
+//!   class reference (`.class(.`), the component's classes;
 //! * anywhere else: **names in scope**: locals and parameters bound before
 //!   the cursor, the enclosing declaration's members, the module's
 //!   declarations, imports, the prelude, keywords and, inside a `view`,
@@ -67,6 +71,14 @@ pub enum ItemKind {
     Annotation,
     /// A built-in element.
     Element,
+    /// A CSS property name in a style block.
+    Property,
+    /// A CSS keyword value (`spaceBetween`).
+    Value,
+    /// An event in `.on(…)`.
+    Event,
+    /// A class of the component's style block.
+    StyleClass,
 }
 
 /// One completion item.
@@ -83,6 +95,11 @@ pub struct CompletionItem {
     /// The sort group: lower sorts first (locals, members, the module,
     /// imports, the prelude, other modules, keywords).
     pub group: u8,
+    /// The documentation, as Markdown (an event's doc comment).
+    pub documentation: Option<String>,
+    /// The text inserted, when it isn't the label (`edit: ` for the label
+    /// `edit:`).
+    pub insert_text: Option<String>,
 }
 
 /// The hard and contextual keywords offered in code.
@@ -120,6 +137,11 @@ const KEYWORDS: &[&str] = &[
     "untracked",
 ];
 
+mod events;
+mod style;
+
+pub use style::token_source;
+
 /// The completions at `offset` in `file`.
 ///
 /// # Errors
@@ -129,6 +151,24 @@ pub fn completions(
     analysis: &Analysis,
     file: FileId,
     offset: TextSize,
+) -> Result<Vec<CompletionItem>, Cancelled> {
+    completions_triggered(analysis, file, offset, None)
+}
+
+/// The completions at `offset` in `file` when typing `trigger` asked for
+/// them. `(` and `:` trigger completion only where they start something
+/// specific (`.on(` events, a CSS property's values); elsewhere they give
+/// nothing, so typing a call or a type annotation doesn't open a list of
+/// every name in scope.
+///
+/// # Errors
+///
+/// [`Cancelled`] if the snapshot is stale.
+pub fn completions_triggered(
+    analysis: &Analysis,
+    file: FileId,
+    offset: TextSize,
+    trigger: Option<char>,
 ) -> Result<Vec<CompletionItem>, Cancelled> {
     let Some(text) = analysis.text(file) else {
         return Ok(Vec::new());
@@ -151,12 +191,28 @@ pub fn completions(
     };
     let view = analysis.program()?;
     let start = TextSize::from(u32::try_from(prefix_start).unwrap_or(u32::MAX));
-    let mut items = match before {
-        Some('@') => annotation_items(),
-        Some('.') => dot_items(analysis, view, &root, file, start)?,
-        _ => scope_items(analysis, view, &root, file, offset)?,
+    // An offset past the end of the text is at its end.
+    let offset = TextSize::from(u32::try_from(at).unwrap_or(u32::MAX)).min(root.text_range().end());
+    if start > offset {
+        return Ok(Vec::new());
+    }
+    let special = match before {
+        Some('@' | '.') => None,
+        _ => match events::on_items(analysis, view, &root, text, file, start)? {
+            Some(items) => Some(items),
+            None => style::style_items(analysis, view, &root, text, start)?,
+        },
     };
-    items.retain(|i| fuzzy(prefix, &i.label).is_some());
+    let mut items = match special {
+        Some(items) => items,
+        None if matches!(trigger, Some('(' | ':')) => return Ok(Vec::new()),
+        None => match before {
+            Some('@') => annotation_items(),
+            Some('.') => dot_items(analysis, view, &root, file, start)?,
+            _ => scope_items(analysis, view, &root, file, offset)?,
+        },
+    };
+    items.retain(|i| fuzzy(prefix, i.label.trim_start_matches('.')).is_some());
     let mut seen = HashSet::new();
     items.retain(|i| seen.insert((i.label.clone(), i.group)));
     items.sort_by(|a, b| a.group.cmp(&b.group).then_with(|| a.label.cmp(&b.label)));
@@ -175,6 +231,8 @@ fn annotation_items() -> Vec<CompletionItem> {
                 detail: Some(format!("{} ({})", a.name, a.design)),
                 import: None,
                 group: 0,
+                documentation: None,
+                insert_text: None,
             }
         })
         .collect()
@@ -199,6 +257,10 @@ fn dot_items(
     }) else {
         return Ok(Vec::new());
     };
+    // `.` starting a class selector in a style block: the classes.
+    if style::in_selector(&dot) {
+        return Ok(style::class_items(root, dot_end, true, false));
+    }
     let inside = decl_containing(view, file, dot_end);
     // `receiver.`: the receiver is the expression the dot follows.
     if let Some(receiver) = receiver_of(&dot) {
@@ -226,15 +288,19 @@ fn dot_items(
         let Some(ty) = ty else {
             return Ok(Vec::new());
         };
-        return Ok(type_members(view, &ty, inside));
+        return Ok(type_members(analysis, view, &ty, inside));
     }
     // `.name` with no receiver: the expected type's static members.
     let implicit = dot
         .parent()
         .filter(|p| p.kind() == SyntaxKind::ImplicitMemberExpr);
     if let Some(node) = &implicit {
+        // A class reference: the style block's classes.
+        if style::expects_class(analysis, view, file, node)? {
+            return Ok(style::class_items(root, dot_end, false, false));
+        }
         if let Some(ty) = analysis.type_info_at(file, node.text_range())? {
-            let items = static_members(view, ty.unwrap_optional());
+            let items = static_members(analysis, view, ty.unwrap_optional());
             if !items.is_empty() {
                 return Ok(items);
             }
@@ -245,13 +311,13 @@ fn dot_items(
         let mut items = Vec::new();
         for name in types {
             if let Some(d) = view.lookup_display(name).or_else(|| view.lookup(name)) {
-                items.extend(static_members(view, &Type::Named(d, Vec::new())));
+                items.extend(static_members(analysis, view, &Type::Named(d, Vec::new())));
             }
         }
         return Ok(items);
     }
     match expected_type(analysis, view, file, &context)? {
-        Some(ty) => Ok(static_members(view, ty.unwrap_optional())),
+        Some(ty) => Ok(static_members(analysis, view, ty.unwrap_optional())),
         None => Ok(Vec::new()),
     }
 }
@@ -313,17 +379,22 @@ fn name_range_of(expr: &SyntaxNode) -> TextRange {
 /// The members of a value of type `ty` (instance members), or of the type
 /// itself for a metatype (static members and cases). Private members are
 /// offered only inside their declaration (`inside`).
-fn type_members(view: &ProgramView, ty: &Type, inside: Option<DeclId>) -> Vec<CompletionItem> {
+fn type_members(
+    analysis: &Analysis,
+    view: &ProgramView,
+    ty: &Type,
+    inside: Option<DeclId>,
+) -> Vec<CompletionItem> {
     match ty {
-        Type::Meta(inner) => static_members(view, inner),
-        Type::Optional(inner) => type_members(view, inner, inside),
+        Type::Meta(inner) => static_members(analysis, view, inner),
+        Type::Optional(inner) => type_members(analysis, view, inner, inside),
         Type::Param(g) => view
             .generics
             .get(g.0 as usize)
             .map(|info| {
                 info.constraints
                     .iter()
-                    .flat_map(|c| type_members(view, c, inside))
+                    .flat_map(|c| type_members(analysis, view, c, inside))
                     .collect()
             })
             .unwrap_or_default(),
@@ -375,13 +446,13 @@ fn member_owners(view: &ProgramView, d: DeclId) -> Vec<DeclId> {
 
 /// The static members of type `ty`: cases, static fields and functions,
 /// and the theme tokens of a token category (`Spacing`).
-fn static_members(view: &ProgramView, ty: &Type) -> Vec<CompletionItem> {
+fn static_members(analysis: &Analysis, view: &ProgramView, ty: &Type) -> Vec<CompletionItem> {
     let Some(d) = ty.unwrap_optional().decl() else {
         return Vec::new();
     };
-    let Some(decl) = view.decls.get(d.0 as usize) else {
+    if view.decls.get(d.0 as usize).is_none() {
         return Vec::new();
-    };
+    }
     let mut items = Vec::new();
     for owner in member_owners(view, d) {
         for &m in &view.decl(owner).members {
@@ -396,18 +467,7 @@ fn static_members(view: &ProgramView, ty: &Type) -> Vec<CompletionItem> {
         }
     }
     // Theme tokens are members of themes, typed by their category.
-    for member in &view.members {
-        if member.kind == MemberKind::Token && member.ty.as_ref().and_then(Type::decl) == Some(d) {
-            let owner = view.decl(member.owner);
-            items.push(CompletionItem {
-                label: member.name.clone(),
-                kind: ItemKind::Constant,
-                detail: Some(format!("{} token of {}", decl.name, owner.display_name)),
-                import: None,
-                group: if owner.stdlib { 2 } else { 1 },
-            });
-        }
-    }
+    items.extend(style::token_items(analysis, view, d, false));
     items
 }
 
@@ -432,6 +492,8 @@ fn member_item(view: &ProgramView, m: k_sema::view::MemberId, group: u8) -> Comp
         detail,
         import: None,
         group,
+        documentation: None,
+        insert_text: None,
     }
 }
 
@@ -629,6 +691,8 @@ fn scope_items(
                 detail,
                 import: None,
                 group: 0,
+                documentation: None,
+                insert_text: None,
             });
         }
     }
@@ -691,6 +755,8 @@ fn scope_items(
             }),
             import,
             group,
+            documentation: None,
+            insert_text: None,
         });
     }
     if in_view {
@@ -701,6 +767,8 @@ fn scope_items(
                 detail: Some(format!("<{}>", e.html)),
                 import: None,
                 group: 2,
+                documentation: None,
+                insert_text: None,
             });
         }
     }
@@ -711,6 +779,8 @@ fn scope_items(
             detail: None,
             import: None,
             group: 6,
+            documentation: None,
+            insert_text: None,
         });
     }
     Ok(items)

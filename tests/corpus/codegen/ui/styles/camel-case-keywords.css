@@ -1,0 +1,15 @@
+/* file: app.[hash].css */
+.Row__row {
+  display: inline-flex;
+  justify-content: space-between;
+  text-decoration: line-through;
+  transition: background-color 200ms ease-in-out;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  font-family: "Inter", sans-serif;
+  color: currentColor;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .Row__row {
+    white-space: pre-wrap;
+  }
+}

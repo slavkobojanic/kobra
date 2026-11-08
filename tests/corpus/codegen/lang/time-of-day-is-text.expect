@@ -1,0 +1,9 @@
+# The literal is its text on both sides, never a call to a TimeOfDay native.
+client contains "09:30"
+server contains "09:30"
+client lacks TimeOfDay$init
+server lacks TimeOfDay$init
+client lacks TimeOfDay$hour
+server lacks TimeOfDay$hour
+client contains $k.timeOfDayHour(
+server contains $k.timeOfDayMinute(

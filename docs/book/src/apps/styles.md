@@ -49,6 +49,9 @@ component CartSummary {
 - **At-rules**: `@media`, `@container` and `@layer`. Media feature names are camelCase like properties:
   `@media (maxWidth: 600px)`.
 - **Values**: lengths, keywords such as `solid` and `hidden`, functions, and commas between values.
+  Keywords are camelCase like properties: `justifyContent: spaceBetween`, `textDecoration: lineThrough`,
+  `fontFamily: "Inter", sansSerif`. The CSS gets the usual spelling (`space-between`); writing the
+  kebab-case form is an error (K3214) whose quick fix rewrites it.
 - Comments use `//` and `/* */`, as in K code.
 
 Declarations end with `;`, as in CSS. This is the one place in K where semicolons appear.
@@ -160,7 +163,7 @@ CartRow(item: item)
 ~
 ~    style {
 ~        .highlighted { backgroundColor: .surfaceHover; }
-~        .strikethrough { textDecoration: line-through; }
+~        .strikethrough { textDecoration: lineThrough; }
 ~    }
 ~}
 ```

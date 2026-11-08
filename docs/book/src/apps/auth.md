@@ -78,8 +78,9 @@ The server/client boundary is drawn per declaration, so the two faces of a sessi
 | `issueState() async -> String` | a random value bound to the current session, for an OAuth `state` parameter |
 | `consumeState(_ state: String) async -> Bool` | `true` once, if `state` was issued to this session |
 
-- **In the browser, `Session` is a read-only mirror.** Server rendering serializes `user` into the page,
-  and every rpc response that changes the session updates it, including one that ended elsewhere.
+- **In the browser, `Session` is a read-only mirror.** Server rendering serializes `user` into the page
+  (a client-rendered app's shell carries it too), and every rpc response that changes the session
+  updates it, including one that ended elsewhere.
   Client services read it to show account state, and the router reads it to evaluate page guards during
   client-side navigation without a round trip.
 - **`signIn` always issues a new session id,** which prevents session fixation.
@@ -197,6 +198,9 @@ for a handler moves the clause to the protocol's rpc.
   against the `Session` mirror. A page they refuse is never shown in the browser. The router loads that
   URL from the server instead, which answers with the redirect or the `403` above, so links and
   `Router.navigate(to:)` work the same as typing the address.
+- **A client-rendered app works the same way.** With `@Rendering(.client)` the server still checks a
+  page's guards before it sends the shell, and the shell carries the session mirror, so the first page,
+  `Session` and the router all start from who is signed in.
 - **Signing out on a guarded page leaves it the same way.** So does an expired session, or `endAll` from
   another device, which the browser learns on its next rpc. The page goes before anything in it can see
   a missing `session.user`. An app's own `Router.navigate(to: .signIn)` after signing out then changes
@@ -298,8 +302,9 @@ rpc signUp(request: SignUpRequest) async throws SignUpError {
 - **`Secure` follows the scheme of `K_PUBLIC_ORIGIN`,** not of the connection, so it is right behind a
   proxy that terminates TLS. With an `https` origin the cookie is named `__Host-k_session`; with an `http`
   origin (local development) it is `k_session`.
-- **Every rpc response, and every response whose rendering read `Session`, carries `Cache-Control:
-  private, no-store`,** because server-rendered HTML embeds the session mirror.
+- **Every rpc response, every response whose rendering read `Session`, and every page sent to a
+  signed-in user carries `Cache-Control: private, no-store`,** because server-rendered HTML, and a
+  client-rendered app's shell, embeds the session mirror.
 
 ## Request forgery
 

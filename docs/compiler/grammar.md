@@ -284,7 +284,9 @@ nothing changes. (`foo.style` and `.style(x)` therefore never enter style mode.)
 Style mode tokenizes a CSS-like language ([§16](#16-style-blocks)). It differs from code mode as follows:
 
 - **Identifiers** may contain `-` after the first character: `sans-serif`, `nth-child`, `space-between`.
-  They are always `Ident`; there are no keywords in style mode (`not`, `and` are `Ident`).
+  They are always `Ident`; there are no keywords in style mode (`not`, `and` are `Ident`). K spells
+  keyword values in camel case (`sansSerif`); a hyphenated keyword in a value still lexes as one `Ident`
+  so that the checker can report it (K3214, [06-styles.md](../design/06-styles.md#keyword-values)).
 - **Negative numbers**: `-` immediately followed by a digit, or by `.` and a digit, starts a numeric
   literal (`-4px` is one `UnitLit`, `-1` is one `IntLit`), as in CSS. `100% - 2px` (with spaces) is
   `UnitLit Minus UnitLit`. `-.5` is a `FloatLit` and `-.5em` a `UnitLit` (style mode only; `.5` alone
@@ -866,10 +868,10 @@ css_expr      ::= ImplicitMemberExpr ( ( '.' name ) | ArgList )*  (* a K postfix
   inside pseudo-class arguments.
 - **Declarations** must end with `;` unless they are the last item of their block (K0117 with a fix
   inserting `;`). A declaration directly in the style block, outside any rule, is K0133.
-- **Values.** Bare identifiers are CSS keywords (`solid`, `hidden`, `sans-serif`). K values start with
+- **Values.** Bare identifiers are CSS keywords (`solid`, `hidden`, `sansSerif`). K values start with
   `.` (implicit members and their chains: `.md`, `.primary.opacity(0.8)`) or are interpolated with `{ }`
   (reactive values: `{accent}`). Theme tokens and static values never need braces.
-- **Commas** separate the values of a declaration: `fontFamily: "Inter", sans-serif;` has two `CssValue`s.
+- **Commas** separate the values of a declaration: `fontFamily: "Inter", sansSerif;` has two `CssValue`s.
 - `!important` is K0118. `#id` selectors are K0132. Both are wrapped in an `ErrorNode`.
 - Media feature names are camelCase like properties: `@media (maxWidth: 600px)`.
 - **Keyframes.** `@keyframes fade { from { opacity: 0; } 50% { opacity: 0.5; } to { opacity: 1; } }` is a
@@ -1320,7 +1322,7 @@ style {
     .summary {
         padding: .md;
         borderLeft: 4px solid {accent};
-        fontFamily: "Inter", sans-serif;
+        fontFamily: "Inter", sansSerif;
 
         &:hover { backgroundColor: .surfaceHover; }
 
@@ -1334,7 +1336,7 @@ style {
   (StyleRule (Selector (CompoundSelector (ClassSelector summary)))
     (Declaration padding (CssValue (ImplicitMemberExpr md)))
     (Declaration borderLeft (CssValue (Literal 4px) solid (Interpolation (NameExpr accent))))
-    (Declaration fontFamily (CssValue (StringLit "Inter")) (CssValue sans-serif))
+    (Declaration fontFamily (CssValue (StringLit "Inter")) (CssValue sansSerif))
     (StyleRule (Selector (CompoundSelector (NestingSelector &) (PseudoClass hover)))
       (Declaration backgroundColor (CssValue (ImplicitMemberExpr surfaceHover))))
     (AtRule media (AtPrelude (MediaFeature maxWidth (CssValue (Literal 600px))))

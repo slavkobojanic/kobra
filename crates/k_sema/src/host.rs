@@ -476,7 +476,7 @@ impl Analysis {
     /// [`Cancelled`] if the inputs changed while the query ran.
     pub fn file_dependencies(&self, file: FileId) -> Result<Vec<FileId>, Cancelled> {
         let sema = self.sema()?;
-        let view = &sema.view;
+        let view = sema.view.get();
         let mut out: Vec<FileId> = sema
             .resolutions
             .values_in(file)
@@ -562,7 +562,7 @@ impl Analysis {
     ///
     /// [`Cancelled`] if the inputs changed.
     pub fn program(&self) -> Result<&crate::view::ProgramView, Cancelled> {
-        Ok(&self.sema()?.view)
+        Ok(self.sema()?.view.get())
     }
 
     /// Returns the type of the node whose range is exactly `range` in
@@ -636,7 +636,7 @@ impl Analysis {
     /// [`Cancelled`] if the inputs changed.
     pub fn definition(&self, target: &Resolution) -> Result<Option<Span>, Cancelled> {
         let sema = self.sema()?;
-        Ok(crate::tooling::definition(self, &sema.view, target))
+        Ok(crate::tooling::definition(self, sema.view.get(), target))
     }
 
     /// Returns every declaration that implements interface or protocol
@@ -651,7 +651,7 @@ impl Analysis {
         decl: crate::view::DeclId,
     ) -> Result<Vec<crate::view::DeclId>, Cancelled> {
         let sema = self.sema()?;
-        Ok(crate::tooling::implementations(&sema.view, decl))
+        Ok(crate::tooling::implementations(sema.view.get(), decl))
     }
 
     /// Returns the URL template of page `decl`: its `at` template, or the
@@ -664,7 +664,7 @@ impl Analysis {
     /// [`Cancelled`] if the inputs changed.
     pub fn page_url(&self, decl: crate::view::DeclId) -> Result<Option<String>, Cancelled> {
         let sema = self.sema()?;
-        Ok(crate::tooling::page_url(self, &sema.view, decl))
+        Ok(crate::tooling::page_url(self, sema.view.get(), decl))
     }
 
     /// Returns the text of `rpc.lock` as the program implies it: for an app

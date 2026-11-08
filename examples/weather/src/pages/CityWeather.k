@@ -140,7 +140,7 @@ public page CityWeather {
             display: flex;
             flexWrap: wrap;
             alignItems: baseline;
-            justifyContent: space-between;
+            justifyContent: spaceBetween;
             gap: .md;
         }
 

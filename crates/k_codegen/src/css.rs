@@ -5,8 +5,9 @@
 //!   (`hash::scope_suffix`), or `CartSummary__panel` under
 //!   `Profile::Test`; keyframes are scoped the same way.
 //! * Rules print in source order; nesting is flattened and `@media`,
-//!   `@container` and `@layer` wrap the flattened rules; property names are
-//!   kebab case.
+//!   `@container` and `@layer` wrap the flattened rules; property names and
+//!   keywords are kebab case (`justifyContent: spaceBetween` is
+//!   `justify-content: space-between`, `k_sema::stdlib::css::keyword_css`).
 //! * Implicit members are theme tokens, printed as custom properties
 //!   (`var(--k-space-md)`); `{value}` interpolations become
 //!   `var(--k-<scope>-<n>)`, set on the element by a style binding.
@@ -41,6 +42,32 @@ pub(crate) fn kebab(name: &str) -> String {
         }
     }
     out
+}
+
+/// The CSS text of a token of a value: a keyword in its CSS spelling
+/// (`spaceBetween` → `space-between`), anything else as written.
+fn token_text(t: &k_syntax::SyntaxToken) -> String {
+    if t.kind().is_name_like() {
+        k_sema::stdlib::css::keyword_css(t.text()).into_owned()
+    } else {
+        t.text().to_owned()
+    }
+}
+
+/// The name of a CSS function (`repeat`), as written, and its
+/// comma-separated arguments.
+fn function_parts(n: &SyntaxNode) -> (String, Vec<SyntaxNode>) {
+    let name = n
+        .children_with_tokens()
+        .filter_map(rowan::NodeOrToken::into_token)
+        .find(|t| t.kind().is_name_like())
+        .map(|t| t.text().to_owned())
+        .unwrap_or_default();
+    let args = n
+        .children()
+        .filter(|c| c.kind() == SyntaxKind::CssValue)
+        .collect();
+    (name, args)
 }
 
 /// `true` when scoped names are readable (`Card__panel`) rather than
@@ -661,11 +688,17 @@ impl Printer<'_, '_> {
             .find(|t| t.kind().is_name_like())
             .map(|t| t.text().to_owned())
             .unwrap_or_default();
-        let value = d.children().find(|c| c.kind() == SyntaxKind::CssValue);
-        let v = match value {
-            Some(v) => self.value_mut(&prop, &v),
-            None => String::new(),
-        };
+        // Comma-separated groups (`fontFamily: "Inter", sansSerif`) are
+        // sibling values.
+        let values: Vec<SyntaxNode> = d
+            .children()
+            .filter(|c| c.kind() == SyntaxKind::CssValue)
+            .collect();
+        let v = values
+            .iter()
+            .map(|v| self.value_mut(&prop, v))
+            .collect::<Vec<_>>()
+            .join(", ");
         let css_prop = k_sema::stdlib::css::property_named(&prop)
             .map_or_else(|| kebab(&prop), |p| p.css.to_owned());
         format!("{css_prop}: {v};")
@@ -685,6 +718,11 @@ impl Printer<'_, '_> {
                             reactive_property(self.g, self.owner, self.interpolation)
                         ));
                         self.interpolation += 1;
+                    } else if n.kind() == SyntaxKind::CssFunction {
+                        let (name, args) = function_parts(&n);
+                        let args: Vec<String> =
+                            args.iter().map(|a| self.value_mut(prop, a)).collect();
+                        parts.push(format!("{name}({})", args.join(", ")));
                     } else {
                         parts.push(self.expr_text(prop, &n));
                     }
@@ -695,7 +733,7 @@ impl Printer<'_, '_> {
                             last.push(',');
                         }
                     } else if !t.kind().is_trivia() {
-                        parts.push(t.text().to_owned());
+                        parts.push(token_text(&t));
                     }
                 }
             }
@@ -709,10 +747,13 @@ impl Printer<'_, '_> {
         let mut parts = Vec::new();
         for el in v.children_with_tokens() {
             match el {
-                rowan::NodeOrToken::Node(n) => parts.push(self.expr_text(prop, &n)),
-                rowan::NodeOrToken::Token(t) if !t.kind().is_trivia() => {
-                    parts.push(t.text().to_owned())
+                rowan::NodeOrToken::Node(n) if n.kind() == SyntaxKind::CssFunction => {
+                    let (name, args) = function_parts(&n);
+                    let args: Vec<String> = args.iter().map(|a| self.value_text(prop, a)).collect();
+                    parts.push(format!("{name}({})", args.join(", ")));
                 }
+                rowan::NodeOrToken::Node(n) => parts.push(self.expr_text(prop, &n)),
+                rowan::NodeOrToken::Token(t) if !t.kind().is_trivia() => parts.push(token_text(&t)),
                 rowan::NodeOrToken::Token(_) => {}
             }
         }

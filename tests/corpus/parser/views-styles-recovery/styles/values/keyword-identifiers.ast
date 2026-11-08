@@ -1,2 +1,11 @@
-; Bare identifiers are CSS keywords and may contain hyphens; style mode has no K keywords.
-(SourceFile (ComponentDecl component T (MemberList (StyleBlock style (StyleRule (Selector (CompoundSelector (ClassSelector a))) (Declaration borderStyle (CssValue solid)) (Declaration overflow (CssValue hidden)) (Declaration justifyContent (CssValue space-between)) (Declaration fontFamily (CssValue (StringLit "Inter")) (CssValue sans-serif)) (Declaration content (CssValue not)))))))
+(SourceFile
+  (ComponentDecl component T
+    (MemberList
+      (StyleBlock style
+        (StyleRule
+          (Selector (CompoundSelector (ClassSelector a)))
+          (Declaration borderStyle (CssValue solid))
+          (Declaration overflow (CssValue hidden))
+          (Declaration justifyContent (CssValue spaceBetween))
+          (Declaration fontFamily (CssValue (StringLit "Inter")) (CssValue sansSerif))
+          (Declaration content (CssValue not)))))))

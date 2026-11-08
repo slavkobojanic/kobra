@@ -623,6 +623,15 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
         && !g.own.iter().any(|&d| {
             let info = g.view.decl(d);
             !info.is_test && !info.in_test_module && info.side == Some(k_sema::Side::ServerOnly)
+        })
+        // A page's guards are checked by the server before it sends the
+        // shell (26-auth-and-sessions.md, "In the browser"): a static host
+        // would never run them.
+        && !app::pages(g).into_iter().any(|p| {
+            g.decl_node(p).is_some_and(|n| {
+                n.children()
+                    .any(|c| c.kind() == k_syntax::SyntaxKind::RequiresClause)
+            })
         });
     Ok(output)
 }

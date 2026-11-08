@@ -402,23 +402,48 @@ cubic behaviour it had before [§10.6](#106-changes-made-while-setting-up-the-be
 ### 10.4 Budget status
 
 Measured with `cargo test --release -p k_sema --test perf_budget -- --ignored --test-threads=1` (what
-`scripts/bench-check.sh` runs) on 2026-11-07, same machine as [§4](#4-budget-status), after the stage 4
+`scripts/bench-check.sh` runs) on 2026-11-09, same machine as [§4](#4-budget-status), after the stage 5
 changes below (expect ±10%; memory measured alone, as `bench-check.sh` runs it).
 
 | Check | Measured | Budget | Status |
 |---|---|---|---|
-| cold check, 100k lines, 8 threads | **0.102 s** | ≤ 1.0 s | met, 9.8x headroom |
-| cold check, 100k lines, 1 thread | **0.117 s** | ≤ 4.0 s | met, 34x headroom |
-| warm re-check after a body edit | **16.8 ms** | ≤ 30 ms | met, 1.8x headroom |
-| warm re-check after a signature edit | **79.9 ms** | ≤ 150 ms | met, 1.9x headroom |
-| resident memory, warm 100k lines | **125 MB** | ≤ 1.5 GB | met, 12x headroom |
-| realistic 10k → 100k | x9.38 for x10.19 bytes | ≤ x14 | met |
-| `deep-generics` 48 → 192 | x9.55 | ≤ x20 | met (quadratic, see above) |
-| `huge-match` 2,000 → 8,000 cases | x4.25 | ≤ x6 | met |
-| `import-chain` 1,000 → 4,000 modules | x4.09 | ≤ x6 | met |
-| `wide-di` 1,000 → 4,000 services | x4.27 | ≤ x6 | met |
+| cold check, 100k lines, 8 threads | **0.098 s** | ≤ 1.0 s | met, 10x headroom |
+| cold check, 100k lines, 1 thread | **0.114 s** | ≤ 4.0 s | met, 35x headroom |
+| warm re-check after a body edit | **15.1 ms** | ≤ 30 ms | met, 2.0x headroom |
+| warm re-check after a signature edit | **77.8 ms** | ≤ 150 ms | met, 1.9x headroom |
+| resident memory, warm 100k lines | **132 MB** | ≤ 1.5 GB | met, 11x headroom |
+| realistic 10k → 100k | x9.69 for x10.19 bytes | ≤ x14 | met |
+| `deep-generics` 48 → 192 | x9.98 | ≤ x20 | met (quadratic, see above) |
+| `huge-match` 2,000 → 8,000 cases | x4.23 | ≤ x6 | met |
+| `import-chain` 1,000 → 4,000 modules | x4.15 | ≤ x6 | met |
+| `wide-di` 1,000 → 4,000 services | x4.39 | ≤ x6 | met |
 
 No budget was changed. **Every budget is met.**
+
+**Stage 5: the warm body edit, 21.4 → 15.1 ms.** The checks added after stage 4 (literals, lockfiles,
+metadata, guards, K5507, `rpc.lock`) had brought the warm body edit from 16.8 ms to 21.4 ms on this
+machine (26.1 ms in a loaded run). Profiled with `sample` over the `warm_body/realistic/100k` benchmark,
+the new cost was the `rpc.lock` check (14% of a re-check: it scanned every declaration once per
+protocol to find the services implementing it, then rendered every served protocol, the types it
+carries and the whole lock), building the program view (10%), K4007's name table (2%), and two
+syntactic walks over every page and component, `metadata` (3%) and the style index behind K3204
+(4%). Each change is checked by the whole test suite; `crates/k_sema/tests/warm.rs` now also compares
+the implied `rpc.lock` and the program view of every warm re-check with a fresh check's, and covers
+`rpc.lock` facts across body, lock and manifest edits and the page passes across body edits:
+
+| Change | Warm body edit |
+|---|---|
+| `di::implementations` reads an index built once per revision (each declaration reachable through a non-test service's `implements` clauses → those services), instead of testing every declaration once per interface (quadratic in protocols × declarations); `Equatable`/`Hashable`, also declared implicitly, keep the direct test | 21.4 → 19.1 ms |
+| the style index reads only a component's style blocks, from the green tree (a declaration without one costs a scan of its member list's green children); K3028's walk skips function bodies, `view` and `style` blocks, where the parser never puts a `metadata` block or `failed` | 19.1 → 18.3 ms |
+| the `rpc.lock` check is **replayed** when its inputs didn't change (`warm::PassFacts`): same file list and signatures, same lockfile and manifest texts, and every position its diagnostics mention in an unchanged file | 18.3 → 16.9 ms |
+| the program view is built after the result is handed over (`view::ViewSlot`; only code generation and editor queries read it, and they wait for it). Function `where` clauses are now resolved with the other signatures, so the view records nothing the delivered result lacks (a debug assertion checks it) | 16.9 → 14.8 ms |
+| K4007 looks names up in the revision's `NameTable` (built once, kept by the result) instead of rendering every declaration's name again | 14.8 → 14.6 ms |
+
+Every diagnostic is kept: the replayed `rpc.lock` facts are the diagnostics the check reported for the
+same inputs, and the other changes compute the same results more cheaply. Building the view after
+delivery moves about 2 ms off the diagnostics' path rather than removing it: the next query that needs
+the view (hover, code generation) waits for it, so `hover after a body edit` (§12) still includes it,
+and on a machine with one core it competes with the caller as the deferred frees do.
 
 **Stage 4: the warm body edit, 27.1 → 16.8 ms.** At the end of stage 3 the warm body edit measured
 27.1 ms (0.9 of its budget). Profiled with macOS `sample` over a loop of warm re-checks (the same edit
@@ -455,9 +480,10 @@ signature is resolved eagerly before the bodies (about 6 ms at 100k lines), whic
 facts independent of which body first needs them.
 
 The next steps, in order of payoff: keep the `Program`'s item tree across
-revisions (it depends only on signatures, so an unchanged signature set could reuse it); make the
-project passes incremental (most read only signatures plus a few body facts); then parallelize the body
-phase, which needs `Send` syntax pointers (§3.5). A signature edit still re-checks everything; per
+revisions (it depends only on signatures, so an unchanged signature set could reuse it; with the eager
+signatures it is about half of a warm body edit since stage 5); replay more project passes the way the
+`rpc.lock` check is replayed (most read only signatures plus a few body facts); then parallelize the
+body phase, which needs `Send` syntax pointers (§3.5). A signature edit still re-checks everything; per
 declaration dependency tracking (early cutoff below the file level) would cut it.
 
 **Exhaustiveness.** A `match` whose arms share one constructor (`case .c(1)`, `case .c(2)`, …) used to be
@@ -540,6 +566,7 @@ Effect on the 100k-line project (budget check, best-of): cold on 1 thread 141 �
 | 2026-11-07 | benchmarks and budget check introduced | 141 ms | 125 ms | 686 ms | 50.7 ms |
 | 2026-11-07 | §10.6 changes | 120 ms | 102 ms | 34.0 ms | 11.9 ms |
 | 2026-11-07 | stage 4: green-tree token scans, K7503 walk, deferred frees (§10.4) | 117 ms | 16.8 ms | — | — |
+| 2026-11-09 | stage 5: implementation index, replayed `rpc.lock` facts, view after delivery (§10.4) | 114 ms | 15.1 ms | — | — |
 
 ---
 
@@ -613,9 +640,9 @@ Measured 2026-11-07, release build, 14-core Apple M-series:
 | Codegen linear in project size (10k → 100k ≤ 14×) | 10.7× | met (was 55×) |
 | Cold `k build` of 100k lines ≤ 2.5 s, codegen ≤ 0.6 s of it | 332 ms (codegen 230 ms) on 8 threads | met |
 | `k check`'s lockfile checks on 100k lines ≤ 100 ms (a tenth of the cold check budget) | 1.4 ms (136 pages compared with `routes.lock`; the project has no entities) | met |
-| Client runtime ≤ 5 KB core / ≤ 10 KB full (compressed) | core 42.1 KB raw, 15.0 KB compacted, **4,602 B** gzip; full 78.8 KB raw, 28.5 KB compacted, **9,123 B** gzip (budget 10,240; 9,022 B before the ownership of async work, `live`, `own` and `CANCELLED`, design 03 "Async work is owned"; 8,666 B before the router checked page guards against the `Session` mirror, 26-auth-and-sessions.md "In the browser"; was 10,123 before `@Form` support moved to the `forms` feature chunk, §11.4) | met, **1,117 B of headroom** (1,218 B before the async-ownership round, 1,574 B before the page-guard round, 117 B before the forms round). The cut: `forms.js` (`createForm`, the field parsers and constraint rules, 1,457 B of the full runtime) ships only to apps with a `@Form`, as `forms.[hash].js`; no budget changed. Earlier rounds (§11.4, "Runtime size"): the compactor drops the spaces and line breaks that separate no tokens, which saved 520 B on the full runtime and 495 B on the stdlib bodies; the budget measures the parts as the runtime chunk ships them, without the links between files that the bundler removes (`index.js`'s re-exports and every `import` line, 344 B); and server streams in the browser moved to a chunk of their own (`streams.js`), which only apps with a streaming rpc ship |
+| Client runtime ≤ 5 KB core / ≤ 10 KB full (compressed) | core 42.9 KB raw, 15.2 KB compacted, **4,651 B** gzip; full 82.5 KB raw, 29.4 KB compacted, **9,378 B** gzip (budget 10,240; 9,344 B before nothing a disposed component made could run, `bound`, `on`'s owner check and the rpc client releasing its abort listener, design 03 "What a component leaves behind"; 9,126 B as last recorded, before the previous round's cancellation on unmount; 9,123 B before the router took a client-rendered shell's session mirror, 26-auth-and-sessions.md; 9,022 B before the ownership of async work, `live`, `own` and `CANCELLED`, design 03 "Async work is owned"; 8,666 B before the router checked page guards against the `Session` mirror, 26-auth-and-sessions.md "In the browser"; was 10,123 before `@Form` support moved to the `forms` feature chunk, §11.4) | met, **862 B of headroom** (896 B before the "leaves behind" round, 1,114 B before the previous round, 1,117 B before the client-rendered session round, 1,218 B before the async-ownership round, 1,574 B before the page-guard round, 117 B before the forms round). The cut: `forms.js` (`createForm`, the field parsers and constraint rules, 1,457 B of the full runtime) ships only to apps with a `@Form`, as `forms.[hash].js`; no budget changed. Earlier rounds (§11.4, "Runtime size"): the compactor drops the spaces and line breaks that separate no tokens, which saved 520 B on the full runtime and 495 B on the stdlib bodies; the budget measures the parts as the runtime chunk ships them, without the links between files that the bundler removes (`index.js`'s re-exports and every `import` line, 344 B); and server streams in the browser moved to a chunk of their own (`streams.js`), which only apps with a streaming rpc ship |
 | Browser services ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | `services.js` 11.1 KB raw, 5.3 KB compacted, **2,340 B** gzip (was 2,124: the browser's `EmailAddress` natives and `FetchHttpClient`'s `HttpHeaders`) | met |
-| Stdlib bodies ≤ 10 KB | 61.7 KB raw, 25.7 KB compacted, **8,426 B** gzip (8,398 B before `live`, design 03 "Async work is owned"; was 10,159) | met, **1,814 B of headroom** (81 B before the money round). The cut: `Decimal`, `Money`, `Currency` and their three codecs (1,586 B of the stdlib bodies) moved from `std.js` to the `money` feature chunk (§11.4), which only apps whose client code builds, reads or decodes one ship; the unused `unNone` was dropped (8 B). No budget changed |
+| Stdlib bodies ≤ 10 KB | 62.8 KB raw, 26.2 KB compacted, **8,554 B** gzip (8,426 B before `TimeOfDay`'s parser, accessors and codec, 35-time.md; 8,398 B before `live`, design 03 "Async work is owned"; was 10,159) | met, **1,686 B of headroom** (1,814 B before the `TimeOfDay` round, 81 B before the money round). The cut: `Decimal`, `Money`, `Currency` and their three codecs (1,586 B of the stdlib bodies) moved from `std.js` to the `money` feature chunk (§11.4), which only apps whose client code builds, reads or decodes one ship; the unused `unNone` was dropped (8 B). No budget changed |
 | `k.charts` ≤ 3 KB (`CHARTS_SIZE_BUDGET`) | `charts.js` 8.9 KB raw, 5.1 KB compacted, **2,306 B** gzip | met. **New budget, justified:** `LineChart` (37-charts.md) is the first stdlib component the runtime draws, on both sides, and only apps that chart anything use it, so it ships as a chunk of its own (`charts.[hash].js`) to those apps only and counts against no existing budget; like the browser services it grows with the stdlib, not with the framework. 3 KB leaves room for the other chart kinds design 37 lists |
 | Server streams in the browser ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | `streams.js` 3.2 KB raw, 1.1 KB compacted, **569 B** gzip | met. **New budget, justified:** reading a server stream (29-server-streaming.md) is needed only by apps with a streaming rpc (notes, of the examples), so it ships as `streams.[hash].js` to those apps only; the budget is about twice what it is today |
 | `HttpResponse` in the browser ≤ 1.5 KB (`HTTP_SIZE_BUDGET`) | `http.js` 7.3 KB raw, 3.0 KB compacted, **1,175 B** gzip | met. **New budget, justified:** building and reading an `HttpResponse` alike on both sides (a test fake of `HttpClient` builds responses that the code under test reads, 32-http-client.md) first put these bodies in the stdlib bodies, which then measured 10,720 B against their 10,240 B budget. Instead of raising that budget they moved to a feature chunk of their own, like `charts` and `streams`: only apps whose client code builds or reads a response ship it (the examples' production builds don't; their test bundles do), so it counts against no other part, and the stdlib bodies are back at 9,837 B. The server has the same bodies in `$s.natives`
@@ -624,7 +651,7 @@ Measured 2026-11-07, release build, 14-core Apple M-series:
 | `KeyboardShortcut` ≤ 512 B (`KEYS_SIZE_BUDGET`) | `keys.js` 1.6 KB raw, 0.6 KB compacted, **384 B** gzip | met. **New budget, justified:** 43-keyboard-shortcuts.md; a chunk of its own (`keys.[hash].js`) for apps with shortcuts, rather than 384 B more in every client's runtime chunk |
 | `@Form` support ≤ 2 KB (`FORMS_SIZE_BUDGET`) | `forms.js` 11.0 KB raw, 4.6 KB compacted, **1,807 B** gzip (shipped `forms.[hash].js` 1,866 B: notes, shop, kanban) | met. **New budget, justified:** `forms.js` was 1,457 B of the full client runtime, which had 117 B of headroom left; only apps with a `@Form` need it, so instead of raising `FULL_SIZE_BUDGET` it moved to a feature chunk of its own (`forms.[hash].js`), like `streams` and `http`, and counts against no other part. 2 KB leaves about 240 B of room to grow |
 | `Decimal` and `Money` ≤ 2.5 KB (`MONEY_SIZE_BUDGET`) | `money.js` 14.4 KB raw, 6.2 KB compacted, **2,164 B** gzip (shop's shipped `money.[hash].js` 2,218 B) | met. **New budget, justified:** the exact types were 1,586 B of the stdlib bodies, which had 81 B of headroom; only apps whose client code builds, reads or decodes a `Decimal`, `Money` or `Currency` ship them (shop, of the examples), so they moved to `money.[hash].js` instead of raising `STDLIB_SIZE_BUDGET`. 2.5 KB leaves about 400 B of room to grow |
-| Shipped `runtime.<hash>.js` (full runtime + stdlib + browser services) ≤ 23 KB | 59,476 B raw, **18,858 B** gzip (18,730 B before the ownership of async work; 18,388 B before the router checked page guards; was 21,053 before `forms` and `money` became feature chunks) | met; the feature chunks are separate files (weather's `charts` 2,352 B gzip, notes' `streams` 597 B, `forms` 1,866 B for notes, shop and kanban, shop's `money` 2,218 B). **Budget change (stage 3b), justified:** the chunk's budget was defined as the sum of its parts' budgets (`FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET`, 20 KB) and the chunk gained a part, the browser's DI support and the client bodies of `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient` and `Session` (`services.js`). Without them every page that injects anything failed in the browser, so they are not optional, and like the stdlib bodies they grow with the stdlib, not the framework; they get their own 3 KB budget, and the chunk's budget stays the sum of its parts (23 KB). No existing part's budget was raised |
+| Shipped `runtime.<hash>.js` (full runtime + stdlib + browser services) ≤ 23 KB | 60,806 B raw, **19,223 B** gzip as todos ships it before the "leaves behind" round (18,858 B as last recorded; 18,730 B before the ownership of async work; 18,388 B before the router checked page guards; was 21,053 before `forms` and `money` became feature chunks) | met; the feature chunks are separate files (weather's `charts` 2,352 B gzip, notes' `streams` 597 B, `forms` 1,866 B for notes, shop and kanban, shop's `money` 2,218 B). **Budget change (stage 3b), justified:** the chunk's budget was defined as the sum of its parts' budgets (`FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET`, 20 KB) and the chunk gained a part, the browser's DI support and the client bodies of `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient` and `Session` (`services.js`). Without them every page that injects anything failed in the browser, so they are not optional, and like the stdlib bodies they grow with the stdlib, not the framework; they get their own 3 KB budget, and the chunk's budget stays the sum of its parts (23 KB). No existing part's budget was raised |
 | Signal write to DOM text update ≤ 1 µs per binding | 86 ns | met |
 | Signal propagation ≤ 1 µs per write (diamond of 3 computeds + effect) | 280 ns (3.6 M writes/s); a write without readers 4 ns | met |
 | Replacing a 1,000-row keyed list ≤ 20 ms | 1.65 ms (create 2.05, update every 10th 0.15, swap 0.05, remove 0.10, append 1,000 3.55, clear 0.50) | met |
@@ -706,7 +733,7 @@ executable, later ones 50–70 ms for the examples.
 
 ### 11.5 Open costs
 
-- The full client runtime has 1,574 B of gzip headroom and the stdlib bodies 1,842 B. The next
+- The full client runtime has 862 B of gzip headroom and the stdlib bodies 1,686 B. The next
   candidates for a cut: the release-build name shortener (deferred in codegen.md §1), and more runtime
   feature chunks through the same `$k_<stem>` routing (`load.js`, 631 B, for apps without `@Load`; the
   `streams` section of `std.js`, 480 B, for apps without a `Stream`).
@@ -763,6 +790,7 @@ edits.
 | go to definition, warm | p50 ≤ 2 ms, p95 ≤ 10 ms | this section |
 | find references (project-wide), warm | p50 ≤ 5 ms, p95 ≤ 20 ms | this section |
 | completion, warm | p95 ≤ 50 ms | architecture.md §12 |
+| completion in styles and events, warm | p95 ≤ 50 ms | architecture.md §12 |
 | hover as the first request after a body edit | ≤ 60 ms | this section: two warm body re-checks (30 ms each) |
 | diagnostics after a keystroke, end to end | p95 ≤ 100 ms | architecture.md §12 |
 
@@ -772,7 +800,8 @@ re-check budget, since it pays for that re-check.
 
 ### 12.3 Budget status
 
-Measured 2026-11-07, same machine as [§4](#4-budget-status), release build.
+Measured 2026-11-07, same machine as [§4](#4-budget-status), release build; the last two rows again on
+2026-11-09, after the stage 5 changes of §10.4.
 
 | Check | Measured | Budget | Status |
 |---|---|---|---|
@@ -780,15 +809,18 @@ Measured 2026-11-07, same machine as [§4](#4-budget-status), release build.
 | go to definition, warm | p50 **0.004 ms**, p95 **0.004 ms** | p50 ≤ 2 ms, p95 ≤ 10 ms | met |
 | find references, warm | p50 **0.025 ms**, p95 **13.2 ms** | p50 ≤ 5 ms, p95 ≤ 20 ms | met, 1.5x headroom at p95 |
 | completion, warm | p50 **0.33 ms**, p95 **0.38 ms** | p95 ≤ 50 ms | met |
-| hover after a body edit | **20.8 ms** | ≤ 60 ms | met, 2.9x headroom |
-| diagnostics after a keystroke | p50 **54.7 ms**, p95 **56.1 ms** (30 ms of it debounce) | p95 ≤ 100 ms | met, 1.8x headroom |
+| completion in styles and events, warm (2026-11-09) | p50 **0.016 ms**, p95 **0.35 ms** | p95 ≤ 50 ms | met |
+| hover after a body edit | **18.5 ms** | ≤ 60 ms | met, 3.2x headroom |
+| diagnostics after a keystroke | p50 **50.7 ms**, p95 **51.3 ms** (30 ms of it debounce) | p95 ≤ 100 ms | met, 1.9x headroom |
 
 **Why point queries are microseconds.** `symbol_at` reads the file's references from the reverse index (one
 hash probe per resolution chunk, 1,369 of them, about 4 µs) and binary-searches them; definitions and
-signatures come from the program view, which the check already built. The reverse index itself is built
+signatures come from the program view, which the semantic pass builds right after handing over the
+diagnostics (§10.4). The reverse index itself is built
 once per revision on the first tooling query (sema.md §17) and reuses the index of every file whose body
 facts were replayed, so after a body edit only the edited file and the live chunk are indexed again: that
-is most of the difference between the 16.8 ms warm re-check (§10.4) and the 20.8 ms first hover.
+and the program view are most of the difference between the 15.1 ms warm re-check (§10.4) and the 18.5 ms
+first hover.
 
 **The p95 of references** is the handful of positions naming symbols used everywhere (prelude types such
 as `Int` and `String`, thousands of references), where collecting and sorting the spans dominates. Results
@@ -799,3 +831,4 @@ that large would be capped or streamed (`partialResult`) if a budget ever needed
 | Date | Change | hover p50 | references p95 | completion p95 | keystroke p95 |
 |---|---|---|---|---|---|
 | 2026-11-07 | language server and budgets introduced | 0.004 ms | 13.2 ms | 0.38 ms | 56.1 ms |
+| 2026-11-09 | completion of events, CSS properties, values, tokens and classes; positions after every `:`, `(` and `.` of four component files' style blocks and views added (`warm_completion_in_styles_and_events`, p95 0.35 ms) | | | 0.35 ms | |

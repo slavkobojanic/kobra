@@ -23,7 +23,7 @@ public component Notice {
         .notice {
             display: flex;
             alignItems: center;
-            justifyContent: space-between;
+            justifyContent: spaceBetween;
             gap: .md;
             padding: .sm .md;
             borderRadius: .sm;

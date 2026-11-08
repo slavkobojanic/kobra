@@ -13,7 +13,7 @@ component Card {
           //^^^^^^^^^^ resolves: css borderLeft
             backgroundColor: #FFFFFF;
             display: flex;
-            justifyContent: space-between;
+            justifyContent: spaceBetween;
         }
     }
 }

@@ -159,6 +159,7 @@ K3210: Interpolate only props and state; compute other values into a `@Derived` 
 K3211: Use a known media feature, such as `maxWidth` or `prefersColorScheme`.
 K3212: Use `@media`, `@container`, `@layer` or `@keyframes`.
 K3213: Rename one of the keyframes.
+K3214: Write the keyword in camelCase, like property names: `spaceBetween`, `lineThrough`, `sansSerif` (machine-applicable fix). The CSS gets the kebab-case spelling.
 K3301: Declare the token in the theme (`color name: Color = …`), or correct its name.
 K3302: Override the library's token with the assignment form, `name = value` (the quick fix rewrites it).
 K3303: Move the override into the app's `theme`.

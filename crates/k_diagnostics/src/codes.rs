@@ -607,6 +607,9 @@ codes! {
     /// A style block declares two keyframes with the same name.
     DUPLICATE_KEYFRAMES = 3213, "duplicate-keyframes", Error,
         "A style block declares two keyframes with the same name.";
+    /// A CSS keyword in a style value is written in kebab case; K spells keywords in camel case.
+    KEBAB_CASE_CSS_KEYWORD = 3214, "kebab-case-css-keyword", Error,
+        "A CSS keyword in a style value is written in kebab case; K spells keywords in camel case.";
 
     // ---------------------------------------------------------------- themes
     /// An override or variant names a token no theme declares.

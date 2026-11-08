@@ -327,6 +327,7 @@ Messages and detail lines for this range that the corpus pins exactly:
 | K3211 | `unknown-media-feature` | error | The feature name. | The closest feature (maybe-incorrect). |
 | K3212 | `unknown-at-rule` | error | The at-rule's name after `@`. | — |
 | K3213 | `duplicate-keyframes` | error | The second keyframes name; label `first declared here` at the first. | — |
+| K3214 | `kebab-case-css-keyword` | error | The keyword token. | Its camel-case form (machine-applicable). |
 
 ### Themes (K3300–K3399)
 
@@ -357,6 +358,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K3106 | fix ``Insert ` key item.id` `` (maybe-incorrect), naming the loop variable |
 | K3111 | fix ``Remove the `key` clause`` |
 | K3201 | fix ``Replace `font-size` with `fontSize` `` (machine-applicable for the camel-case form, maybe-incorrect for the closest name) |
+| K3214 | fix ``Replace `space-between` with `spaceBetween` `` (machine-applicable) |
 | K3210 | fix `Remove the braces` |
 | K3302 | label `declared here` at the library's token; fix `Rewrite as an override`, one edit replacing the category, name and type with the name and a space |
 | K3110 | help ``use `nav` `` |

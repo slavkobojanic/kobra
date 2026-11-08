@@ -1360,6 +1360,43 @@ export function localTimeZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
+// -------------------------------------------------------------- TimeOfDay
+
+/**
+ * `TimeOfDay.parse`: `HH:MM` on a 24-hour clock, two ASCII digits each,
+ * or `null`. A `TimeOfDay` is that text, so it is equal, hashable, printed
+ * and encoded as itself (35-time.md); `k_sema::literals::time_of_day`
+ * checks a `TimeOfDay("…")` literal by the same rule.
+ * @param {unknown} text
+ * @returns {string | null}
+ */
+export function parseTimeOfDay(text) {
+  if (typeof text !== "string" || text.length !== 5 || text[2] !== ":") return null;
+  for (const i of [0, 1, 3, 4]) {
+    const c = text.charCodeAt(i);
+    if (c < 48 || c > 57) return null;
+  }
+  return Number(text.slice(0, 2)) < 24 && Number(text.slice(3)) < 60 ? text : null;
+}
+
+/**
+ * `TimeOfDay.hour`, `0...23`.
+ * @param {string} t
+ * @returns {number}
+ */
+export function timeOfDayHour(t) {
+  return Number(t.slice(0, 2));
+}
+
+/**
+ * `TimeOfDay.minute`, `0...59`.
+ * @param {string} t
+ * @returns {number}
+ */
+export function timeOfDayMinute(t) {
+  return Number(t.slice(3));
+}
+
 /**
  * `Date(unixSeconds:)`.
  * @param {number} s
@@ -1866,6 +1903,7 @@ export const codecs = {
   uuid: typedText(parseUuid, "a UUID"),
   color: typedText(parseColor, "a color"),
   timeZone: typedText(parseTimeZone, "an IANA time zone"),
+  timeOfDay: typedText(parseTimeOfDay, "a time of day as HH:MM"),
   bool: prim((j) => typeof j === "boolean", "a boolean"),
   duration: prim((j) => typeof j === "number", "a duration in milliseconds"),
   any: { encode: (v) => toJSON(v), decode: (j) => j },

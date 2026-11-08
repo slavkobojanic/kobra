@@ -409,16 +409,20 @@ fn the_client_entry_builds_the_browser_container() {
     // App-scoped services are memoized on the app container and get their
     // dependencies from it; an interface with no project implementation is
     // the stdlib's default; client-only stdlib services are runtime bodies.
+    // An app service is built with no reactive owner, so a page that first
+    // reads it never disposes its computeds. A client-rendered shell's
+    // `k-data` only starts the session mirror: the router gets it as
+    // `session`, never as `data`, so nothing hydrates.
     for needle in [
         "class $App {",
         // `test TodoService { }` beside the service leaves it its simple name.
         "get TodoService() {",
-        "return this.$a.$TodoService ??= new TodoService({ LocalStorage: this.$a.LocalStorage });",
+        "return this.$a.$TodoService ??= $k.runWithOwner(null, () => new TodoService({ LocalStorage: this.$a.LocalStorage }));",
         "get LocalStorage() {\n    return this.$a.BrowserStorage;",
         "$k.browserStorage(StorageReadError, StorageWriteError)",
         "get Theme() {\n    return this.$a.$Theme ??= $k.theme();",
-        "const data = null;",
-        "$k.startRouter(routes, container, { c: () => app });",
+        "const data = $k.readData(document);",
+        "$k.startRouter(routes, container, { c: () => app, session: data });",
     ] {
         assert!(entry.contains(needle), "missing {needle:?} in\n{entry}");
     }
@@ -807,7 +811,7 @@ fn example_build(name: &str) -> Output {
 
 /// docs/design/38-deployment.md, "Static-only apps": an app that renders
 /// on the client and has no server-only code (no rpc, endpoint page,
-/// configuration, job or entity) is static-only, so `k build` emits only
+/// configuration, job, entity or guarded page) is static-only, so `k build` emits only
 /// `dist/public`; every other app keeps `dist/app`.
 #[test]
 fn client_rendered_apps_without_server_code_are_static_only() {
@@ -823,4 +827,45 @@ fn client_rendered_apps_without_server_code_are_static_only() {
             "{name} renders on the server or has server-only code"
         );
     }
+}
+
+/// A page guard is checked by the server before it answers the page's
+/// shell (26-auth-and-sessions.md, "In the browser"), so a client-rendered
+/// app with a guarded page keeps `dist/app` even when nothing else needs a
+/// server: from a static host the guard would never run.
+#[test]
+fn a_client_rendered_app_with_a_guarded_page_is_not_static_only() {
+    let files = [
+        ("k.toml", "[package]\nname = \"guarded\"\nk = \"0.1\"\n"),
+        (
+            "App.k",
+            "@Rendering(.client)\n@SignInPage(.home)\npublic app Guarded {}\n",
+        ),
+        (
+            "src/guarded/Home.k",
+            "public page Home at \"/\" {\n    view {\n        text { \"home\" }\n    }\n}\n",
+        ),
+        (
+            "src/guarded/Account.k",
+            "import k.auth.Authenticated\n\npublic page Account requires Authenticated {\n    view {\n        text { \"account\" }\n    }\n}\n",
+        ),
+    ];
+    let host = AnalysisHost::with_files(
+        SemaOptions::new(),
+        files.map(|(p, t)| (ProjectPath::new(p).expect("path"), t.to_owned())),
+    );
+    let analysis = host.analysis();
+    let errors: Vec<String> = analysis
+        .diagnostics()
+        .expect("not cancelled")
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| format!("{}: {}", d.code, d.message))
+        .collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    let output = generate(&analysis, &Options::default()).expect("generates");
+    assert!(
+        !output.manifest.static_only,
+        "the server checks the guard before it sends the shell"
+    );
 }

@@ -128,6 +128,10 @@ pub(crate) struct Body<'g, 'a> {
     /// ([`Body::owned_lambda`]): the arguments of `form.handle(_:)`, which
     /// calls its action with no cancellation context.
     own_args: bool,
+    /// The function values lowered as call arguments are bound to the
+    /// component's lifetime ([`Body::bound_arg`]): the arguments of a
+    /// service's method, which the service may keep or call later.
+    bind_args: bool,
     /// Locals that are read through a signal accessor named after them
     /// (`row` reads as `row$()`): the item of a keyed list row, so every
     /// binding of the row tracks the item and an item that changes under
@@ -165,6 +169,7 @@ impl<'g, 'a> Body<'g, 'a> {
             force_sync: false,
             uses_life: false,
             own_args: false,
+            bind_args: false,
             signal_locals: HashSet::new(),
             overrides: HashMap::new(),
         }
@@ -3932,12 +3937,15 @@ impl<'g, 'a> Body<'g, 'a> {
         // Only this call's own arguments are bound, not those of calls
         // nested in them.
         let own = std::mem::take(&mut self.own_args);
+        let bind = std::mem::take(&mut self.bind_args);
         let x = if let ast::Expr::LambdaExpr(l) = e {
             if own {
                 self.owned_lambda(l)
             } else {
                 self.lambda(l, Some(param_ty))
             }
+        } else if let Some(f) = (!own).then(|| self.plain_method_value(e)).flatten() {
+            f
         } else if self.is_statementy(e) {
             let t = self.fresh("v");
             self.emit(Stmt::Let(t.clone(), None));
@@ -3947,8 +3955,70 @@ impl<'g, 'a> Body<'g, 'a> {
             self.expr(e)
         };
         self.own_args = own;
+        self.bind_args = bind;
         let from = self.ty(e.syntax());
-        self.coerce(x, &from, param_ty)
+        let x = self.coerce(x, &from, param_ty);
+        if bind && !own {
+            self.bound_arg(x, param_ty)
+        } else {
+            x
+        }
+    }
+
+    /// A component's async function named as a call argument, as the plain
+    /// function: the parameter is called the way K calls a function value,
+    /// with the caller's cancellation context first, so the value must not
+    /// be bound with its K arguments alone (`$k.own`), which would shift
+    /// them by one (codegen.md §8). `None` for any other argument.
+    fn plain_method_value(&mut self, e: &ast::Expr) -> Option<Expr> {
+        let ast::Expr::NameExpr(n) = e else {
+            return None;
+        };
+        let tok = n.name()?;
+        let r = self.resolution(tok.text_range())?;
+        let Some(Resolved::Member(m)) = self.g.view.resolve(&r) else {
+            return None;
+        };
+        let info = self.g.view.member(m);
+        if info.kind != MemberKind::Func
+            || self.self_mode != SelfMode::Component
+            || self.target != Target::Client
+            || self.ssr
+            || !info.signature.as_ref().is_some_and(|s| s.is_async)
+        {
+            return None;
+        }
+        match self.access.get(&m) {
+            Some(MemberAccess::Local(local)) => Some(id(local.clone())),
+            _ => None,
+        }
+    }
+
+    /// A function value a component passes to a service's method, bound to
+    /// the component's lifetime: `$k.bound(f, $life, mode)` (03-reactivity.md,
+    /// "What a component leaves behind"). The service may keep it (a
+    /// listener) or call it later (a `Clock` timer's action), after the
+    /// component is disposed, and then it runs nothing. `mode` is 0 for a
+    /// synchronous `Void` function, 1 for one with a value, and 2 and 3 for
+    /// the async ones. Anywhere but a component's client renderer, and for
+    /// an argument that isn't a function, it is `x`.
+    fn bound_arg(&mut self, x: Expr, param_ty: &Type) -> Expr {
+        let Type::Func(f) = param_ty else {
+            return x;
+        };
+        if self.self_mode != SelfMode::Component || self.target != Target::Client || self.ssr {
+            return x;
+        }
+        let void =
+            self.g.is(&f.ret, self.g.b.void) || matches!(&f.ret, Type::Tuple(v) if v.is_empty());
+        let mode = match (f.is_async, void) {
+            (false, true) => 0,
+            (false, false) => 1,
+            (true, true) => 2,
+            (true, false) => 3,
+        };
+        self.uses_life = true;
+        rt("bound", vec![x, id("$life"), Expr::Num(f64::from(mode))])
     }
 
     /// Lowers a call: functions, methods (native or not), initializers, enum
@@ -4470,8 +4540,14 @@ impl<'g, 'a> Body<'g, 'a> {
     ) -> Expr {
         let info = self.g.view.member(m).clone();
         let owner = self.g.view.decl(info.owner).clone();
+        // A service may keep a function value it is given, or call it
+        // later: a component's are bound to its lifetime.
+        let bind = owner.named_kind() == Some(DeclarationKind::Service);
         if owner.stdlib {
-            if let Some(e) = crate::native::method(self, recv.clone(), base, m, c, result_ty) {
+            self.bind_args = bind;
+            let native = crate::native::method(self, recv.clone(), base, m, c, result_ty);
+            self.bind_args = false;
+            if let Some(e) = native {
                 return e;
             }
         }
@@ -4518,6 +4594,7 @@ impl<'g, 'a> Body<'g, 'a> {
         // (forms.js), so an inline action is bound to its owner.
         self.own_args =
             info.name == "handle" && self.g.view.qualified_name(info.owner) == "k.validation.Form";
+        self.bind_args = bind;
         let user_args = self.call_args(c, sig.as_ref(), &move |t| {
             let t = subst_map(t, &st);
             subst(&t, &|g| {
@@ -4528,6 +4605,7 @@ impl<'g, 'a> Body<'g, 'a> {
             })
         });
         self.own_args = false;
+        self.bind_args = false;
         if info.kind == MemberKind::Generated && info.name == "copy" {
             return self.copy_call(recv, base, c);
         }

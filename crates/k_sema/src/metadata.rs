@@ -181,11 +181,7 @@ fn missing_title(cx: &Cx<'_, '_>, d: DeclId) {
 /// characters in a `metadata` block of `d`, `failed` included.
 fn long_descriptions(cx: &Cx<'_, '_>, d: DeclId) {
     let decl = cx.p.decl(d);
-    let blocks = decl
-        .node
-        .descendants()
-        .filter(|n| n.kind() == SyntaxKind::MetadataBlock || is_failed_metadata(n));
-    for block in blocks {
+    for block in metadata_and_failed_metadata(&decl.node) {
         for call in entry_calls(&block, "description") {
             let Some(ast::Expr::StringLit(lit)) = call
                 .arg_list()
@@ -213,6 +209,39 @@ fn long_descriptions(cx: &Cx<'_, '_>, d: DeclId) {
             }
         }
     }
+}
+
+/// The `metadata` blocks below `node`, in source order: member-level
+/// blocks and, inside `failed`, the statement form ([`is_failed_metadata`]).
+///
+/// Both forms exist only among a declaration's members (the parser reads
+/// `metadata { … }` and `failed` as member blocks, and no declaration
+/// nests inside a body or a view), so the walk skips the bodies of
+/// functions, initializers and rpcs, `view` blocks and `style` blocks,
+/// which are most of a page's tree and which this check visits on every
+/// revision.
+fn metadata_and_failed_metadata(node: &SyntaxNode) -> Vec<SyntaxNode> {
+    let mut out = Vec::new();
+    let mut walk = node.preorder();
+    while let Some(event) = walk.next() {
+        let rowan::WalkEvent::Enter(n) = event else {
+            continue;
+        };
+        let opaque = matches!(n.kind(), SyntaxKind::ViewBlock | SyntaxKind::StyleBlock)
+            || (n.kind() == SyntaxKind::Block
+                && n.parent().is_some_and(|p| {
+                    matches!(
+                        p.kind(),
+                        SyntaxKind::FuncDecl | SyntaxKind::InitDecl | SyntaxKind::RpcDecl
+                    )
+                }));
+        if opaque {
+            walk.skip_subtree();
+        } else if n.kind() == SyntaxKind::MetadataBlock || is_failed_metadata(&n) {
+            out.push(n);
+        }
+    }
+    out
 }
 
 /// `true` for the statement form of a metadata block inside `failed`

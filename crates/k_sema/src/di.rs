@@ -110,6 +110,12 @@ pub(crate) struct DiState {
     rules: std::cell::OnceCell<Vec<UseRule>>,
     /// The implementations of each interface, computed once.
     impls: std::cell::RefCell<HashMap<DeclId, Vec<DeclId>>>,
+    /// For every declaration, the non-test services that declare it
+    /// through their `implements` clauses (themselves included), in
+    /// declaration order: built once, by one walk of each service's
+    /// `implements` closure, so [`implementations`] costs no scan of the
+    /// declarations per interface.
+    declared_by: std::cell::OnceCell<HashMap<DeclId, Vec<DeclId>>>,
     /// The per-environment choices of each interface, computed once.
     choices: std::cell::RefCell<HashMap<DeclId, Vec<Choice>>>,
     /// The declarations each declaration's `@Inject` fields name, computed
@@ -288,25 +294,58 @@ pub(crate) fn implementations(cx: &Cx<'_, '_>, iface: DeclId) -> Vec<DeclId> {
 }
 
 /// Computes [`implementations`].
+///
+/// For any interface but `Equatable` and `Hashable`, [`Cx::declares`] is
+/// reachability through `implements` clauses, so the answer is read from
+/// the index of [`declared_by`]. Those two are also declared implicitly
+/// (payload-less enums, sema.md §9.2), so they keep the direct test of every
+/// service.
 fn compute_implementations(cx: &Cx<'_, '_>, iface: DeclId) -> Vec<DeclId> {
-    let mut out = Vec::new();
-    for (i, decl) in cx.p.decls.iter().enumerate() {
-        let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
+    if Some(iface) == cx.b.equatable || Some(iface) == cx.b.hashable {
+        return own_services(cx)
+            .filter(|&d| cx.declares(d, iface))
+            .collect();
+    }
+    declared_by(cx).get(&iface).cloned().unwrap_or_default()
+}
+
+/// The services of non-test files outside test-only modules, in
+/// declaration order: the candidates of [`implementations`].
+fn own_services<'c>(cx: &'c Cx<'_, '_>) -> impl Iterator<Item = DeclId> + 'c {
+    cx.p.decls.iter().enumerate().filter_map(|(i, decl)| {
         if decl.named_kind() != Some(K::Service) {
-            continue;
+            return None;
         }
         let file = cx.p.file(decl.file);
         let test_module = file
             .module
             .is_some_and(|m| cx.p.modules[m.0 as usize].test_only);
-        if file.is_test || test_module {
-            continue;
+        (!file.is_test && !test_module).then(|| DeclId(u32::try_from(i).unwrap_or(u32::MAX)))
+    })
+}
+
+/// The index behind [`compute_implementations`]: each declaration reachable
+/// from a candidate service through `implements` clauses (the service
+/// itself included), mapped to those services in declaration order.
+/// Linear in the services and their `implements` closures.
+fn declared_by<'c>(cx: &'c Cx<'_, '_>) -> &'c HashMap<DeclId, Vec<DeclId>> {
+    cx.di.declared_by.get_or_init(|| {
+        let mut out: HashMap<DeclId, Vec<DeclId>> = HashMap::new();
+        let mut seen: HashSet<DeclId> = HashSet::new();
+        let mut stack: Vec<DeclId> = Vec::new();
+        for service in own_services(cx).collect::<Vec<_>>() {
+            seen.clear();
+            stack.push(service);
+            while let Some(d) = stack.pop() {
+                if !seen.insert(d) {
+                    continue;
+                }
+                out.entry(d).or_default().push(service);
+                stack.extend(cx.implements_list(d).iter().filter_map(|(t, _)| t.decl()));
+            }
         }
-        if cx.declares(d, iface) {
-            out.push(d);
-        }
-    }
-    out
+        out
+    })
 }
 
 /// The app's `use` rules.
@@ -1386,14 +1425,17 @@ fn use_rules(cx: &Cx<'_, '_>) {
 /// K4007 for server-only declarations named in code that reaches the
 /// browser: imports in files that hold only such code, and type and name
 /// references inside it. Runs after every body recorded its resolutions.
-pub(crate) fn client_references(cx: &Cx<'_, '_>) {
+///
+/// `names` holds the program's declaration names, rendered once per
+/// revision (the result keeps them for rendering types).
+pub(crate) fn client_references(cx: &Cx<'_, '_>, names: &crate::ty::NameTable) {
     let p = cx.p;
-    let mut by_name: HashMap<String, DeclId> = HashMap::new();
+    let mut by_name: HashMap<&str, DeclId> = HashMap::new();
     for i in 0..p.decls.len() {
         let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
         let decl = p.decl(d);
         if decl.is_type() || decl.named_kind() == Some(K::Function) {
-            by_name.entry(p.decl_name(d)).or_insert(d);
+            by_name.entry(names.decl(d)).or_insert(d);
         }
     }
     // A use already reported (K3021 at a `@Load` type, …) isn't reported
@@ -1411,7 +1453,7 @@ pub(crate) fn client_references(cx: &Cx<'_, '_>) {
     let chunks = cx.body_resolutions.borrow();
     for ((f, r), res) in live.iter().chain(chunks.iter().flat_map(|c| c.iter())) {
         if let Resolution::Declaration { name } = res {
-            if let Some(d) = by_name.get(name) {
+            if let Some(d) = by_name.get(name.as_str()) {
                 refs_by_file.entry(*f).or_default().push((*r, *d));
             }
         }

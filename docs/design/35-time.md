@@ -52,7 +52,7 @@ await clock.sleep(300ms)                              // suspends the current as
 
 - **There is no `Date.now`, `.ago` or `.fromNow`.** "Ten minutes ago" is `clock.now - 10.minutes`, and "in three days" is `clock.now + 3.days`. Durations themselves need no clock: `10.minutes` is a `Duration` ([07-themes-and-units.md](07-themes-and-units.md#number-extensions)).
 - `every` and `after` return a `TimerHandle` with `cancel()`.
-- **Timers belong to their owner.** A timer started inside an `@Effect` should be cancelled in `onCleanup`. The compiler warns when a `TimerHandle` returned inside an effect is discarded, because the timer would outlive the component.
+- **Timers belong to their owner.** A timer started by a component (in an effect, a handler or a lambda) stops when the component is disposed: its action is bound to the component, and the browser `Clock` cancels the timer when the component goes away ([03-reactivity.md](03-reactivity.md#what-a-component-leaves-behind)). A timer started inside an `@Effect` should still be cancelled in `onCleanup`, so a re-run doesn't stack a second timer on the first. The compiler warns when a `TimerHandle` returned inside an effect is discarded.
 - **`clock.sleep` is cancellable.** When the async effect or `@Load` that is sleeping is cancelled, the sleep ends and the function never resumes. Debouncing is therefore an async effect that sleeps first, and that handles its own errors, as every effect must ([03-reactivity.md](03-reactivity.md#effects-handle-their-own-errors)):
 
   ```k
@@ -138,9 +138,30 @@ test CityWeather {
 - **`TimeZone.local` is the browser's time zone.** The browser runtime sends it in a `k_tz` cookie after the first load, so later server renders format dates in the user's zone. On a first visit, server rendering uses UTC, and the browser re-renders those text nodes after hydration as an expected update, not a hydration mismatch.
 - **Formatting uses the metadata locale** (`formatted(as: .dateTime)`), on the server, in the browser and in jobs, never the browser's language setting ([22-metadata.md](22-metadata.md)).
 
+## `TimeOfDay`
+
+`TimeOfDay("03:00")` is a time on a 24-hour clock: a job schedule's time ([30-background-jobs.md](30-background-jobs.md)), and an ordinary value everywhere else, on the server and in the browser.
+
+```k
+import k.time.TimeOfDay
+
+struct OpeningHours implements Codable {
+    let opens: TimeOfDay
+    let closes: TimeOfDay
+}
+
+let weekdays = OpeningHours(opens: TimeOfDay("09:30"), closes: TimeOfDay("17:00"))
+let summary = "Opens at {weekdays.opens}, {weekdays.opens.hour} hours after midnight"
+```
+
+- **A literal is checked when you compile** (`K2404`): `HH:MM`, two digits each, an hour `00` to `23` and a minute `00` to `59` ([20-standard-library.md](20-standard-library.md#literals-and-parsing)).
+- **`TimeOfDay.parse(_:)`** accepts exactly what a literal does and returns `nil` for anything else (`"24:00"`, `"7:05"`, `"07:05:00"`), so `K2403`'s quick fix for a non-literal argument switches to it.
+- **`hour` and `minute`** are its parts, `0...23` and `0...59`.
+- **It is its `HH:MM` text** on both sides: it prints as that text (`"{time}"` is `09:30`), is equal and hashable by it (a `Set` element, a `Map` key), and is encoded as it (`"09:30"`). Decoding accepts only what `parse` accepts, so other text is a `mismatch`, never a value.
+- It has no time zone and no date: it names a time on any day's clock. Job schedules read it in UTC.
+
 ## Other `k.time` types
 
-- **`TimeOfDay("03:00")`** is a time of day, a literal validated at compile time, used by job schedules.
 - Calendars, time zones and relative-time formatting complete the module ([20-standard-library.md](20-standard-library.md)).
 
 ## Why
@@ -149,3 +170,4 @@ test CityWeather {
 - Returning a handle and cancelling it in `onCleanup` reuses the cleanup mechanism the design already has, with no separate lifecycle hook.
 - Routing all time through one clock makes time-based behavior (debounce, refresh, relative dates) testable without flaky real-time waits.
 - Serializing the render instant and the time zone removes the most common hydration mismatches by construction.
+- `TimeOfDay` is a value on both sides, not a schedule-only token, because times of day appear in ordinary app data (opening hours, reminders, quiet hours) as often as in schedules. Representing it as its `HH:MM` text, as `TimeZone` is its name, makes printing, equality, hashing and the wire form the text with no conversion, and it is the form the literal is already written in.

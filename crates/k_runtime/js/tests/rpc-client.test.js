@@ -7,7 +7,7 @@
  * the case and its payload fields, as the server sends it (server.md §6).
  */
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
-import { payloadFields, rpcError, unitCase } from "k:runtime";
+import { payloadFields, rpc, rpcError, unitCase } from "k:runtime";
 
 const CheckoutError = {
   productNotFound: unitCase(0),
@@ -117,4 +117,30 @@ test("payloadFields of a Codable error is its codec's form without the case", ()
 
 test("payloadFields without a codec is the payload's structural JSON", () => {
   assertDeepEq(payloadFields(CheckoutError.outOfStock(3)), { available: 3 });
+});
+
+// ------------------------------------------------------- the caller's signal
+
+/** A caller's signal that counts the abort listeners it holds. */
+function countingSignal() {
+  const listeners = new Set();
+  return {
+    aborted: false,
+    listeners,
+    addEventListener: (type, f) => listeners.add(f),
+    removeEventListener: (type, f) => listeners.delete(f),
+  };
+}
+
+// A component's lifetime outlives each rpc it makes: once a unary call
+// settles, the call no longer listens to it, so a page that makes many
+// calls doesn't collect one listener per call until it unmounts.
+test("a settled unary rpc stops listening to the caller's signal", async () => {
+  const signal = countingSignal();
+  const ok = { ok: true, status: 200, headers: { get: () => null }, text: async () => "{}" };
+  for (let i = 0; i < 3; i++) {
+    await rpc("/a.B/C", {}, signal, { fetch: () => Promise.resolve(ok) });
+  }
+  await rpc("/a.B/C", {}, signal, { fetch: () => Promise.reject(new TypeError("Failed to fetch")) });
+  assertEq(signal.listeners.size, 0);
 });

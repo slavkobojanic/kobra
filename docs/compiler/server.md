@@ -320,8 +320,13 @@ server streaming.
   ([10-services.md](../design/10-services.md#serverclient-boundary)).
 - **Streaming**: v0 renders the whole document, then sends it with `Content-Length`. Flushing the shell
   and each loading boundary as it resolves is *deferred*.
-- With `@Rendering(.client)` the server sends one shell with the app-wide metadata, no body and no `k-data`
-  for every page the route table matches (other paths are still `404`).
+- With `@Rendering(.client)` the server sends one shell with the app-wide metadata and no body for every
+  page the route table matches (other paths are still `404`), after checking that page's guards as before
+  a server render (`303` to the `@SignInPage`, `403`). The shell's `k-data` is the session mirror alone,
+  `{"v":1,"session":{…},"c":{}}`, so the browser's `Session` and router start from who is signed in; a
+  shell for a signed-in user is `private, no-store`. An app with no rpc and no endpoint can't sign anyone
+  in, so its shell (a static-only app's `index.html`) has no `k-data` ([26-auth-and-sessions.md](../design/26-auth-and-sessions.md#in-the-browser)).
+  Tested by the `client-guards` project (`crates/k_server/tests/projects`) in `tests/browser.rs`.
 - Budget: SSR of a 1,000-node page with data loaded ≤ 3 ms; measured at 0.16 ms p50 for the whole
   loopback round trip ([§17](#17-performance-budgets)).
 

@@ -78,9 +78,11 @@ await clock.sleep(300ms)                              // suspends the current as
   "in three days" is `clock.now + 3.days`. Durations themselves need no clock: `10.minutes` is a
   `Duration` ([Units](../language/units.md)).
 - `every` and `after` return a `TimerHandle` with `cancel()`.
-- **Timers belong to their owner.** A timer started inside an `@Effect` should be cancelled in
-  `onCleanup`. The compiler warns when a `TimerHandle` returned inside an effect is discarded, because the
-  timer would outlive the component.
+- **Timers belong to their owner.** A timer a component starts, in an effect, a handler or a lambda,
+  stops when the component is disposed, so a page you leave stops its timers. A timer started inside an
+  `@Effect` should still be cancelled in `onCleanup`, so that a re-run of the effect doesn't add a
+  second timer to the first. The compiler warns when a `TimerHandle` returned inside an effect is
+  discarded.
 - **`clock.sleep` is cancellable.** When the async effect or `@Load` that is sleeping is cancelled, the
   sleep ends and the function never resumes. Debouncing is therefore an async effect that sleeps first,
   and that handles its own errors, as every effect must:
@@ -187,9 +189,33 @@ test "the forecast refreshes every ten minutes" {
 - **Formatting uses the metadata locale** (`formatted(as: .dateTime)`), on the server, in the browser and
   in jobs, never the browser's language setting.
 
+## Times of day
+
+`TimeOfDay("03:00")` is a time on a 24-hour clock. Job schedules use it, and it's an ordinary value
+anywhere else, on the server and in the browser:
+
+```k
+import k.time.TimeOfDay
+
+struct OpeningHours implements Codable {
+    let opens: TimeOfDay
+    let closes: TimeOfDay
+}
+
+let weekdays = OpeningHours(opens: TimeOfDay("09:30"), closes: TimeOfDay("17:00"))
+let summary = "Opens at {weekdays.opens}, {weekdays.opens.hour} hours after midnight"
+```
+
+- **A literal is checked when you compile:** `HH:MM`, two digits each, so `TimeOfDay("24:00")` and
+  `TimeOfDay("7:05")` don't compile (`K2404`).
+- **`TimeOfDay.parse(text)`** reads one at run time and returns `nil` for text a literal couldn't be.
+- **`hour` and `minute`** are its parts.
+- **It is its `HH:MM` text:** `"{time}"` prints `09:30`, two equal times are `==`, it can be a set
+  element or a map key, and it's encoded as `"09:30"`. Decoding anything else is a `mismatch`.
+- It has no date and no time zone. Job schedules read it in UTC.
+
 ## Other `k.time` types
 
-- **`TimeOfDay("03:00")`** is a time of day, a literal validated at compile time, used by job schedules.
 - Calendars, time zones and relative-time formatting complete the module.
 
 ## Why injection only

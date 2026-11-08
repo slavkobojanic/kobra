@@ -83,7 +83,7 @@ The API in `crates/k_sema/src/lib.rs` is final; later stages fill in its impleme
 | `Analysis::type_at(file, range)` | The type of the expression, pattern binding or declaration name whose range is exactly `range`, rendered as K type syntax. |
 | `Analysis::resolve_at(file, range)` | What the name, member, element, attribute, CSS property, class, keyframes or token reference at `range` refers to (`Resolution`). |
 | `Analysis::side_of(file, range)` | The server/client side of the top-level declaration whose name token is `range` (`Side`). |
-| `Analysis::program()` | The read-only **program view** (`k_sema::view::ProgramView`) code generation consumes: every declaration and extension (kind, module, file and syntax range, annotations, resolved `implements`, extended type, function signature, constant type, side), every member (kind, flags, field type, signature with labels, defaults and parameter ranges), every generic parameter with its constraints, and extensions by extended type. Ids (`DeclId`, `MemberId`, `GenId`) index its tables for one revision. `ProgramView::resolve` maps a `Resolution` back to ids (members of extensions through the extended type; a member of a test group that shares its qualified name with the declaration it tests, `test Checkout { }` beside `service Checkout`, by its labels first, so a group helper is never taken for the service's function of the same name). Built once per revision at the end of the semantic pass; signatures it resolves that no check needed report nothing. |
+| `Analysis::program()` | The read-only **program view** (`k_sema::view::ProgramView`) code generation consumes: every declaration and extension (kind, module, file and syntax range, annotations, resolved `implements`, extended type, function signature, constant type, side), every member (kind, flags, field type, signature with labels, defaults and parameter ranges), every generic parameter with its constraints, and extensions by extended type. Ids (`DeclId`, `MemberId`, `GenId`) index its tables for one revision. `ProgramView::resolve` maps a `Resolution` back to ids (members of extensions through the extended type; a member of a test group that shares its qualified name with the declaration it tests, `test Checkout { }` beside `service Checkout`, by its labels first, so a group helper is never taken for the service's function of the same name). Built once per revision at the end of the semantic pass, after the rest of the result is handed over (`view::ViewSlot`): the diagnostics don't wait for it, and a query that needs it before it is built waits. Signatures it resolves that no check needed report nothing. |
 | `Analysis::type_info_at(file, range)` | Like `type_at`, but the structured `view::Type` (ids into the program view); unresolved inference variables are `Type::Error`. |
 | `Cancelled` | Returned by every query once the host has moved to a newer revision. |
 | `ProjectPath`, `FileKind`, `ModulePath`, `LockfileKind` | The project model (§4). |
@@ -552,8 +552,8 @@ and set elements must be `Hashable` (K2009).
   `HttpStatus`; anything else is **K2403** at the argument, with a fix inserting `.parse` after the type
   name when the type has `static func parse(_:)`. A literal of the wrong kind is the type mismatch
   already reported. The literal is then validated by the type's parser in `crate::literals`, a port of
-  the runtime's `parseUrl`, `parseUuid` and `parseEmail` (`std.js`; JavaScript's `\s`, `trim` and `.`
-  semantics included) and of the `TimeOfDay` and status rules: a refusal is **K2404** at the literal,
+  the runtime's `parseUrl`, `parseUuid`, `parseEmail` and `parseTimeOfDay` (`std.js`; JavaScript's `\s`,
+  `trim` and `.` semantics included) and of the status rule: a refusal is **K2404** at the literal,
   with the reason. `crates/k_server/tests/literals.rs` runs the compiler's and the runtime's parsers on
   the same fixed and generated inputs and requires identical results, and `literals.rs`'s unit tests pin
   the currency table to `money.js`.
@@ -718,6 +718,11 @@ Accessibility lints beyond required accessible names are **deferred**.
   kebab-case names); its value is matched against the property's value grammar: CSS keywords are bare
   identifiers, literals must satisfy a data type, K values (implicit members, `{interpolations}`) must
   have one of the property's K types (**K3202**).
+- **Camel-case keywords:** a keyword in a value, a function argument or a media feature value that
+  contains `-` (`space-between`) is **K3214** with the machine-applicable camel-case fix (`spaceBetween`);
+  it is then matched in that spelling, so the grammar doesn't report it again. The tables of
+  `stdlib::css` spell keywords in camel case and expose them to tooling (`property_names`, `keywords`,
+  `media_feature_keywords`).
 - **Selectors** are built from classes, `&`, pseudo-classes and pseudo-elements, attribute selectors and
   `*`; element and id selectors are syntax errors (K0116, K0132; RA-8).
 - **Class references:** `.class(.name)` / `.class([.a, .b when c])` must name a class of the
@@ -1124,7 +1129,12 @@ in ≤ 1.0 s on 8 cores, a warm body edit in ≤ 30 ms.
   are unchanged; signatures are resolved eagerly before the bodies so their facts never depend on which
   body needed them first. A file's signature text is its tokens minus trivia and minus function,
   method, initializer and rpc bodies; facts that mention another file's positions (a label, an edit)
-  are replayed only while that file is unchanged too.
+  are replayed only while that file is unchanged too. A **project pass that reads no body** (today the
+  `rpc.lock` check, §12.16) is replayed the same way (`warm::PassFacts`): its diagnostics and its value
+  are kept and reused while the file list, every signature, and the lockfiles' and manifests' texts are
+  unchanged and every position its diagnostics mention is in an unchanged file. Function `where`
+  clauses are resolved eagerly with the other signatures, so the program view resolves nothing the
+  result lacks.
 - `benches/sema.rs` benchmarks the full pipeline over generated projects (cold, warm after a body or a
   signature edit, pathological families), and `tests/perf_budget.rs` enforces the budgets through
   `scripts/bench-check.sh`; regressions over 5% need a stated reason (testing.md §9). Baselines,
@@ -1161,7 +1171,7 @@ an open item for a later round):
   per revision, but since round 2 it replays the **body facts** of every file whose text didn't change
   when no signature in the project changed (`warm.rs`; a file-level early cutoff, §3.3): a cold check of
   the generated 100k-line benchmark project takes about 0.1 s in a release build, a warm body edit about
-  25 ms (performance.md §10). Per-declaration parallelism and cutoff below the file level (§3.3, §3.5)
+  15 ms (performance.md §10). Per-declaration parallelism and cutoff below the file level (§3.3, §3.5)
   need `Send` syntax pointers instead of rowan nodes.
 - **No HIR yet.** Bodies are checked directly over the typed syntax tree (§8 describes the target).
   Types are immutable structural values (`ty::Ty`, generic arguments shared through `Arc`); type
@@ -1365,7 +1375,9 @@ Decisions (each is the source of truth until a later round revises it):
 - **Cascades.** One K2002 for a nest of unannotated lambdas, at the outermost.
 - **Warm re-checks** replay unchanged files' body facts (§15, `warm.rs`); `tests/warm.rs` compares
   warm and fresh analyses (diagnostics and every `type_at`/`resolve_at` answer) over crafted edits and
-  edits to every example, and `host.rs` tests that unchanged files are replayed, not re-checked.
+  edits to every example, and `host.rs` tests that unchanged files are replayed, not re-checked. They
+  also compare the implied `rpc.lock` and the program view, and cover replayed `rpc.lock` facts (body,
+  lock and manifest edits) and the page passes (K3027, K3028, K3204) after body edits.
 
 Each step lands with its corpus cases turning from pending to regular.
 

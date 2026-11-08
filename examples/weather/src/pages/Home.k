@@ -64,7 +64,7 @@ public page Home at "/" {
         }
 
         .city {
-            display: inline-block;
+            display: inlineBlock;
             padding: .sm .md;
             borderRadius: .md;
             backgroundColor: .surfaceRaised;

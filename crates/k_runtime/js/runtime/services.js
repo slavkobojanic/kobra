@@ -48,9 +48,13 @@ export function afterHydration(f) {
  */
 export function clock(data) {
   const rendered = data && data.now ? parseInstant(data.now) : null;
+  // An action bound to a component's lifetime (`bound`, view.js) stops
+  // its timer when the component is disposed.
   const timer = (every, d, f) => {
     const id = (every ? setInterval : setTimeout)(f, d);
-    return { cancel: () => (every ? clearInterval : clearTimeout)(id) };
+    const cancel = () => (every ? clearInterval : clearTimeout)(id);
+    f?.lifetime?.addEventListener?.("abort", cancel, { once: true });
+    return { cancel };
   };
   return {
     /**

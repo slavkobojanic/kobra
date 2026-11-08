@@ -106,6 +106,18 @@ fn assert_same(host: &AnalysisHost, files: &Files, what: &str) {
         warm_diags, cold_diags,
         "{what}: warm diagnostics differ from a fresh check"
     );
+    assert_eq!(
+        warm.rpc_lock().unwrap(),
+        cold.rpc_lock().unwrap(),
+        "{what}: the warm rpc.lock differs from a fresh check's"
+    );
+    let (wp, cp) = (warm.program().unwrap(), cold.program().unwrap());
+    let view =
+        |p: &k_sema::view::ProgramView| format!("{:?}\n{:?}\n{:?}", p.decls, p.members, p.generics);
+    assert!(
+        view(wp) == view(cp),
+        "{what}: the warm program view differs from a fresh check's"
+    );
     let (wq, cq) = (queries(&warm), queries(&cold));
     if wq != cq {
         let first = wq
@@ -268,6 +280,191 @@ fn an_inject_field_of_a_migration_reports_once_after_a_replay() {
             ("src/m/a/A.k", other.to_owned()),
             ("src/m/a/A.k", edited),
             ("src/m/a/A.k", other.to_owned()),
+        ],
+    );
+}
+
+const CART_API: &str = "/// A helper above the protocol: growing its body moves the protocol.
+func helper() -> Int {
+    return 1
+}
+
+/// The cart, served to the browser.
+public protocol CartApi {
+    /// Adds an item; answers the new count.
+    rpc add(item: Int) throws CartError -> String
+}
+";
+
+const CART_SERVICE: &str = "/// The cart's implementation.
+public service CartService implements CartApi {
+    rpc add(item: Int) async throws CartError -> String {
+        return \"{item}\"
+    }
+}
+";
+
+const CART_ERROR: &str = "import k.rpc.RpcFailure
+
+/// Why a cart call failed.
+public enum CartError implements Error, Codable {
+    /// The call failed outside the handler.
+    case rpcFailure(RpcFailure)
+}
+";
+
+/// An `rpc.lock` recording an rpc `clear` the protocol no longer has, so
+/// the program breaks callers (K8001 at the protocol, labelled in the lock).
+const CART_LOCK: &str = "[protocols.\"cart.CartApi\"]
+
+[protocols.\"cart.CartApi\".rpcs.add]
+params = [{ name = \"item\", type = \"Int\" }]
+returns = \"String\"
+throws = \"cart.CartError\"
+
+[protocols.\"cart.CartApi\".rpcs.clear]
+params = []
+returns = \"Void\"
+throws = \"cart.CartError\"
+
+[types.\"cart.CartError\"]
+cases = [\"rpcFailure\"]
+";
+
+#[test]
+fn rpc_lock_facts_follow_body_edits_and_lock_edits() {
+    // The `rpc.lock` check reads only signatures, the lock and the
+    // manifests. A body edit that moves the protocol must move its K8001;
+    // a body edit elsewhere, an edit of the lock and an edit of the manifest
+    // must give what a fresh check gives, the lock it implies included.
+    let files = vec![
+        file("k.toml", "[package]\nname = \"shop\"\nk = \"0.1\"\n"),
+        file("App.k", "public app Shop {}\n"),
+        file("rpc.lock", CART_LOCK),
+        file("src/cart/CartApi.k", CART_API),
+        file("src/cart/CartService.k", CART_SERVICE),
+        file("src/cart/CartError.k", CART_ERROR),
+    ];
+    let host = fresh(&files);
+    let diags = soracle::check_analysis(&host.analysis(), &files);
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code == "K8001" && d.path == "src/cart/CartApi.k"),
+        "the case needs a K8001 at the protocol: {diags:#?}"
+    );
+    let grown = CART_API.replace(
+        "    return 1\n",
+        "    let x = 1\n    let y = x\n    return y\n",
+    );
+    let service = CART_SERVICE.replace("{item}", "item {item}");
+    let compatible = CART_LOCK.replace(
+        "[protocols.\"cart.CartApi\".rpcs.clear]\nparams = []\nreturns = \"Void\"\nthrows = \"cart.CartError\"\n\n",
+        "",
+    );
+    run(
+        files,
+        &[
+            ("src/cart/CartApi.k", grown),
+            ("src/cart/CartService.k", service),
+            ("src/cart/CartApi.k", CART_API.to_owned()),
+            ("rpc.lock", compatible),
+            ("src/cart/CartService.k", CART_SERVICE.to_owned()),
+            ("rpc.lock", CART_LOCK.to_owned()),
+            (
+                "k.toml",
+                "[package]\nname = \"store\"\nk = \"0.1\"\n".to_owned(),
+            ),
+            (
+                "src/cart/CartService.k",
+                CART_SERVICE.replace("{item}", "{item}!"),
+            ),
+        ],
+    );
+}
+
+#[test]
+fn page_facts_follow_body_edits() {
+    // Unused classes (K3204), long descriptions (K3028) and a missing
+    // title (K3027) are found by project passes over the declarations;
+    // a body edit above them moves them.
+    let long = "A".repeat(161);
+    let pages = format!(
+        "func helper() -> Int {{
+    return 1
+}}
+
+page About at \"/about\" {{
+    metadata {{
+        description(\"{long}\")
+    }}
+
+    func count() -> Int {{
+        return 2
+    }}
+
+    view {{
+        text {{ \"About\" }}
+    }}
+
+    style {{
+        .unused {{
+            color: red
+        }}
+    }}
+}}
+
+page Product at \"/product\" {{
+    @Load let name: String = try await fetchName()
+
+    view {{
+        text {{ name }}
+    }}
+
+    failed(let error) {{
+        metadata {{
+            description(\"{long}\")
+        }}
+
+        text {{ \"Missing\" }}
+    }}
+}}
+
+func fetchName() async throws LoadError -> String {{
+    return \"x\"
+}}
+"
+    );
+    let files = vec![
+        file("k.toml", MANIFEST),
+        file("App.k", "public app Site {}\n"),
+        file("src/site/Pages.k", &pages),
+    ];
+    let host = fresh(&files);
+    let codes: Vec<String> = soracle::check_analysis(&host.analysis(), &files)
+        .into_iter()
+        .map(|d| d.code)
+        .collect();
+    for code in ["K3027", "K3028", "K3204"] {
+        assert!(
+            codes.iter().any(|c| c == code),
+            "the case needs {code}: {codes:?}"
+        );
+    }
+    let grown = pages.replace(
+        "    return 1\n",
+        "    let x = 1\n    let y = x\n    return y\n",
+    );
+    let inner = pages.replace(
+        "        return 2\n",
+        "        let z = 2\n        return z\n",
+    );
+    run(
+        files,
+        &[
+            ("src/site/Pages.k", grown),
+            ("src/site/Pages.k", inner),
+            ("src/site/Pages.k", pages.clone()),
         ],
     );
 }

@@ -33,6 +33,7 @@
 //! | go to definition, warm, 100k lines | p50 ≤ 2 ms, p95 ≤ 10 ms | performance.md §12 |
 //! | find references (project-wide), warm, 100k lines | p50 ≤ 5 ms, p95 ≤ 20 ms | performance.md §12 |
 //! | completion, warm, 100k lines | p95 ≤ 50 ms | architecture.md §12 |
+//! | completion after every `:`, `(` and `.` of style blocks and views, warm, 100k lines | p95 ≤ 50 ms | architecture.md §12 |
 //! | hover on the first request after a body edit (re-check and re-index), 100k lines | ≤ 60 ms | performance.md §12 |
 //! | diagnostics after a keystroke, end to end, 100k lines | p95 ≤ 100 ms | architecture.md §12 |
 //!
@@ -210,6 +211,39 @@ fn warm_completion() {
         black_box(ide::completion::completions(&analysis, f, o).unwrap());
     });
     check("completion", completion, None, 50.0);
+}
+
+/// Positions in style blocks and modifier calls: after every `:`, `(` and
+/// `.` of the first component files' style blocks and views.
+fn style_and_event_positions(analysis: &Analysis) -> Vec<(FileId, TextSize)> {
+    let mut out = Vec::new();
+    let files = project_files();
+    for (path, text) in files
+        .iter()
+        .filter(|(_, t)| t.contains("style {") && t.contains(".on("))
+        .take(4)
+    {
+        let file = analysis.file_id(path).unwrap();
+        for (i, c) in text.char_indices() {
+            if matches!(c, ':' | '(' | '.') {
+                out.push((file, TextSize::from(u32::try_from(i + 1).unwrap())));
+            }
+        }
+    }
+    assert!(out.len() > 100, "only {} positions", out.len());
+    out
+}
+
+#[test]
+#[ignore = "performance budget; run with --release --ignored"]
+fn warm_completion_in_styles_and_events() {
+    let host = warm_host();
+    let analysis = host.analysis();
+    let positions = style_and_event_positions(&analysis);
+    let completion = percentiles(&positions, |f, o| {
+        black_box(ide::completion::completions(&analysis, f, o).unwrap());
+    });
+    check("completion in styles and events", completion, None, 50.0);
 }
 
 #[test]

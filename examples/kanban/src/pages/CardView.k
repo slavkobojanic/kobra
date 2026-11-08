@@ -51,7 +51,7 @@ component CardView {
             cursor: grab;
         }
 
-        .finished .title { textDecoration: line-through; }
+        .finished .title { textDecoration: lineThrough; }
 
         .title { margin: 0; fontSize: 1rem; }
 

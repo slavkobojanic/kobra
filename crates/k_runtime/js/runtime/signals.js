@@ -22,6 +22,8 @@
  * docs/compiler/runtime.md, "Signals".
  */
 
+import { CANCELLED } from "./values.js";
+
 /** Node state: the value is current. */
 const CLEAN = 0;
 /** Node state: a source further upstream changed, so the value may be stale. */
@@ -272,7 +274,9 @@ function run(node) {
     // A computed value rethrows to its reader and stays DIRTY, so the next
     // read retries; an effect reports to its error boundary.
     if (node.kind === 1) throw error;
-    handleError(node, error);
+    // A run stopped by the cancellation (a disposed component's function
+    // called for a value) is silent, like an async run's.
+    if (error !== CANCELLED) handleError(node, error);
     result = undefined;
   } finally {
     relink(node, newSources);
@@ -282,10 +286,11 @@ function run(node) {
   }
   if (node.kind >= 2) {
     if (result !== null && typeof result === "object" && typeof result.then === "function") {
-      // An async effect: report a failure, ignore cancellation.
+      // An async effect: report a failure, ignore cancellation (a run
+      // whose signal was aborted, or one stopped by `CANCELLED`).
       const signal = node.abort === null ? null : node.abort.signal;
       result.then(undefined, (error) => {
-        if (signal === null || !signal.aborted) handleError(node, error);
+        if (error !== CANCELLED && (signal === null || !signal.aborted)) handleError(node, error);
       });
     }
     return;

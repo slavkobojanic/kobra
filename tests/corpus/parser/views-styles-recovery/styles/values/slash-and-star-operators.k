@@ -2,7 +2,7 @@
 component T {
     style {
         .a {
-            font: .md / 1.5 sans-serif;
+            font: .md / 1.5 sansSerif;
             aspectRatio: 16 / 9;
         }
     }

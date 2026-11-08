@@ -43,6 +43,6 @@ component Cart {
 
     style {
         .highlighted { backgroundColor: #FEF3C7; }
-        .strikethrough { textDecoration: line-through; }
+        .strikethrough { textDecoration: lineThrough; }
     }
 }

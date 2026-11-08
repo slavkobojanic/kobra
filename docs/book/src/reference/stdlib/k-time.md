@@ -8,7 +8,7 @@ Import each declaration by name, for example `import k.time.Clock`.
 | Declaration | Summary |
 |---|---|
 | [`Clock`](#clock) | The current time, timers and sleeps (`docs/design/35-time.md`). |
-| [`TimeOfDay`](#timeofday) | A time of day such as `TimeOfDay("03:00")`, used by job schedules. |
+| [`TimeOfDay`](#timeofday) | A time of day such as `TimeOfDay("03:00")`: a job schedule's time, or any value that names a time on a 24-hour clock, such as opening hours. |
 | [`TimerHandle`](#timerhandle) | A running timer from [`Clock.every`](#clock) or [`Clock.after`](#clock). |
 | [`TimeZone`](#timezone) | A time zone, for formatting dates and chart axes. |
 | [`Weekday`](#weekday) | A day of the week, for weekly schedules. |
@@ -45,12 +45,22 @@ it in tests.
 public struct TimeOfDay implements Equatable, Hashable, Codable
 ```
 
-A time of day such as `TimeOfDay("03:00")`, used by job schedules.
+A time of day such as `TimeOfDay("03:00")`: a job schedule's time, or
+any value that names a time on a 24-hour clock, such as opening hours.
+
+It is its `HH:MM` text on both sides, so it is printed and encoded as
+that text, and equal and hashable by it.
 
 **Members**
 
 - `init(_ literal: String)`
   A literal `"HH:MM"` on a 24-hour clock, validated at compile time.
+- `static func parse(_ text: String) -> TimeOfDay?`
+  Parses `HH:MM` on a 24-hour clock, two digits each, by the rule a
+  `TimeOfDay("…")` literal is checked with.
+
+  - Returns: the time of day, or `nil` for any other text, such as
+    `"24:00"`, `"7:05"` or `"07:05:00"`.
 - `var hour: Int`
   The hour, `0...23`.
 - `var minute: Int`

@@ -594,3 +594,83 @@ fn css_table_is_sorted_and_consistent() {
     );
     assert!(css::property_named("potato").is_none());
 }
+
+#[test]
+fn css_keywords_are_camel_case() {
+    for property in PROPERTIES {
+        for keyword in css::keywords(property.name) {
+            assert!(
+                !keyword.contains('-')
+                    && keyword
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_ascii_lowercase()),
+                "{}: `{keyword}` is not camel case",
+                property.name
+            );
+        }
+    }
+    for (feature, _) in css::MEDIA_FEATURES {
+        for keyword in css::media_feature_keywords(feature) {
+            assert!(!keyword.contains('-'), "{feature}: `{keyword}`");
+        }
+    }
+}
+
+#[test]
+fn css_keyword_api_lists_properties_and_their_keywords() {
+    let names: Vec<&str> = css::property_names().collect();
+    assert!(names.contains(&"justifyContent") && names.contains(&"textDecoration"));
+    assert_eq!(names.len(), PROPERTIES.len());
+
+    let justify = css::keywords("justifyContent");
+    assert!(justify.contains(&"spaceBetween") && justify.contains(&"flexStart"));
+    assert!(!justify.contains(&"space-between"));
+    assert_eq!(
+        css::keywords("textDecoration"),
+        ["none", "underline", "lineThrough", "overline"]
+    );
+    // Keywords of data types are included: `<line-style>`, `<line-width>`, `<color>`.
+    let border = css::keywords("border");
+    assert!(
+        border.contains(&"solid") && border.contains(&"thick") && border.contains(&"currentColor")
+    );
+    // Function names and data types are not keywords.
+    let grid = css::keywords("gridTemplateColumns");
+    assert!(grid.contains(&"autoFill") && grid.contains(&"minContent"));
+    assert!(
+        !grid
+            .iter()
+            .any(|k| *k == "repeat" || *k == "minmax" || k.starts_with('<'))
+    );
+    // No duplicates, and nothing for unknown properties or keyword-free ones.
+    let mut sorted = border.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), border.len());
+    assert!(css::keywords("potato").is_empty());
+    assert!(
+        css::keywords("backgroundColor")
+            .iter()
+            .all(|k| css::NAMED_COLORS.contains(k))
+    );
+    assert_eq!(
+        css::media_feature_keywords("prefersColorScheme"),
+        ["light", "dark"]
+    );
+    assert!(css::media_feature_keywords("maxWidth").is_empty());
+    assert!(css::WIDE_KEYWORDS.contains(&"inherit"));
+}
+
+#[test]
+fn css_keywords_map_to_kebab_case() {
+    assert_eq!(css::keyword_css("lineThrough"), "line-through");
+    assert_eq!(css::keyword_css("spaceBetween"), "space-between");
+    assert_eq!(css::keyword_css("easeInOut"), "ease-in-out");
+    assert_eq!(css::keyword_css("solid"), "solid");
+    assert_eq!(css::keyword_css("currentColor"), "currentColor");
+    assert_eq!(css::keyword_css("backgroundColor"), "background-color");
+    assert_eq!(css::camel_case("line-through"), "lineThrough");
+    assert_eq!(css::camel_case("ease-in-out"), "easeInOut");
+    assert_eq!(css::camel_case("solid"), "solid");
+}

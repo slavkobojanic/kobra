@@ -1,0 +1,8 @@
+# A client-rendered app with a server and guarded pages
+# (docs/design/23-app-structure.md, "Rendering mode"; 26-auth-and-sessions.md,
+# "In the browser"): its shell carries the session mirror in `k-data`, so the
+# router checks the guards exactly as in a server-rendered app. Driven by
+# crates/k_server/tests/browser.rs.
+[package]
+name = "cg"
+k = "0.1"

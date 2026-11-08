@@ -68,11 +68,31 @@ fn collect(dir: &Path, root: &Path, out: &mut Vec<(ProjectPath, String)>) {
     }
 }
 
-/// The files of `examples/<name>`'s analysis. A `<workspace>/<member>`
-/// name (`shop/shop`) is that member of the workspace, with the libraries
-/// it depends on mounted.
+/// The prefix of a project name that names `tests/projects/<name>` instead
+/// of an example.
+const TEST_PROJECT: &str = "tests:";
+
+/// The directory of a project: `examples/<name>`, or for a
+/// `tests:<name>` name, `crates/k_server/tests/projects/<name>`.
+fn project_dir(name: &str) -> PathBuf {
+    match name.strip_prefix(TEST_PROJECT) {
+        Some(test) => PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/projects")
+            .join(test),
+        None => repo().join("examples").join(name),
+    }
+}
+
+/// The files of `examples/<name>`'s analysis, or of a test project's (a
+/// `tests:<name>` name). A `<workspace>/<member>` name (`shop/shop`) is
+/// that member of the workspace, with the libraries it depends on mounted.
 fn project_files(name: &str) -> Vec<(ProjectPath, String)> {
     let mut files = Vec::new();
+    if name.starts_with(TEST_PROJECT) {
+        let dir = project_dir(name);
+        collect(&dir, &dir, &mut files);
+        return files;
+    }
     match name.split_once('/') {
         Some((workspace, member)) => {
             let root = repo().join("examples").join(workspace);
@@ -86,14 +106,14 @@ fn project_files(name: &str) -> Vec<(ProjectPath, String)> {
             ws.analysis_files(m)
         }
         None => {
-            let dir = repo().join("examples").join(name);
+            let dir = project_dir(name);
             collect(&dir, &dir, &mut files);
             files
         }
     }
 }
 
-/// Compiles `examples/<name>` for development.
+/// Compiles `examples/<name>` (or a `tests:<name>` project) for development.
 fn build(name: &str) -> Output {
     let host = AnalysisHost::with_files(SemaOptions::new(), project_files(name));
     let analysis = host.analysis();
@@ -192,7 +212,7 @@ impl Site {
             })
             .collect();
         let dev = DevEnvironment {
-            root: repo().join("examples").join(name),
+            root: project_dir(name),
             dotenv: env
                 .iter()
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
@@ -1444,6 +1464,145 @@ fn notes_sends_a_guest_following_a_link_to_a_guarded_page_to_the_server() {
     // Another guarded page comes back after signing in.
     let location = redirected_to_sign_in(&mut site, "/new-note");
     assert_eq!(location, "/sign-in?returnTo=%2Fnew-note");
+}
+
+// ------------------------------------------------------ client rendering
+
+/// The `client-guards` test project, served with no database (sessions in
+/// memory), and the cookie jar of a browser that signed in as `name`
+/// (with the `admin` role when `admin`), or a guest's for `None`.
+fn client_guards(member: Option<(&str, bool)>) -> Site {
+    let mut site = Site::start("tests:client-guards", &[]);
+    if let Some((name, admin)) = member {
+        let r = site.rpc(
+            "/cg.members.MembersProtocol/SignIn",
+            &format!(r#"{{"name": "{name}", "admin": {admin}}}"#),
+        );
+        assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+    }
+    site
+}
+
+/// The `k-data` payload of a document, parsed.
+fn k_data(html: &str) -> serde_json::Value {
+    let start = r#"<script type="application/json" id="k-data">"#;
+    let at = html
+        .find(start)
+        .unwrap_or_else(|| panic!("the document has no k-data: {html}"));
+    let rest = &html[at + start.len()..];
+    let end = rest.find("</script>").expect("the script ends");
+    serde_json::from_str(&rest[..end]).expect("k-data is JSON")
+}
+
+// With `@Rendering(.client)` and a server (23-app-structure.md, "Rendering
+// mode"; 26-auth-and-sessions.md, "In the browser"): the shell embeds the
+// session mirror in `k-data`, as a server-rendered document does, without a
+// render instant (nothing was rendered to match). A guest's shell is
+// cacheable; a signed-in member's is private. The server checks a page's
+// guards before answering its shell, so the router can leave the first
+// page unchecked.
+#[test]
+fn a_client_rendered_shell_carries_the_session_mirror_and_its_guards_run_on_the_server() {
+    let mut site = client_guards(None);
+    let shell = site.page("/");
+    assert_eq!(shell.status, 200);
+    let html = String::from_utf8_lossy(&shell.body).into_owned();
+    contains(&html, r#"<div id="k-app"></div>"#, "the shell has no body");
+    let data = k_data(&html);
+    assert_eq!(data["session"], serde_json::json!({ "user": null }));
+    assert!(data.get("now").is_none(), "no render instant: {data}");
+    assert_eq!(shell.header("cache-control"), None, "a guest's shell");
+    let location = redirected_to_sign_in(&mut site, "/account");
+    assert_eq!(location, "/sign-in?returnTo=%2Faccount");
+    drop(site);
+
+    let mut site = client_guards(Some(("ada", false)));
+    let shell = site.page("/");
+    let html = String::from_utf8_lossy(&shell.body).into_owned();
+    assert_eq!(
+        k_data(&html)["session"],
+        serde_json::json!({ "user": { "id": { "name": "ada" }, "roles": [] } })
+    );
+    assert_eq!(
+        shell.header("cache-control"),
+        Some("private, no-store"),
+        "a signed-in member's shell"
+    );
+    assert_eq!(site.page("/account").status, 200);
+    assert_eq!(site.page("/admin").status, 403, "not an admin");
+}
+
+#[test]
+fn a_client_rendered_app_starts_its_session_from_the_shell() {
+    let mut site = client_guards(Some(("ada", false)));
+    let since = site.requests.len();
+    let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
+    contains(&tab.text(), "Signed in as ada", "the first render");
+    // The account page opens in the browser and loads its greeting once.
+    tab.run("sim.click(\"a\", \"Account\");");
+    assert_eq!(went(&mut tab), serde_json::json!([[], ["/account"]]));
+    contains(&tab.text(), "Account of ada", "the guarded page");
+    contains(&tab.text(), "hello ada", "its load");
+    assert_eq!(
+        tab.site
+            .count(since, "/cg.members.MembersProtocol/Greeting"),
+        1,
+        "{:?}",
+        tab.site.requests
+    );
+    // The mirror lists no `admin` role, so the admin page is the server's.
+    tab.run("sim.click(\"a\", \"Admin\");");
+    assert_eq!(
+        went(&mut tab),
+        serde_json::json!([["/admin"], ["/account"]])
+    );
+    lacks(
+        &tab.html(),
+        "<h1>Admin</h1>",
+        "the admin page never rendered",
+    );
+}
+
+#[test]
+fn a_client_rendered_app_sends_a_guest_to_the_server_for_a_guarded_page() {
+    let mut site = client_guards(None);
+    let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
+    contains(&tab.text(), "Signed out", "a guest");
+    let since = tab.site.requests.len();
+    tab.run("sim.click(\"a\", \"Account\");");
+    assert_eq!(went(&mut tab), serde_json::json!([["/account"], []]));
+    assert_eq!(
+        tab.site
+            .count(since, "/cg.members.MembersProtocol/Greeting"),
+        0,
+        "the guarded page never ran in the browser: {:?}",
+        tab.site.requests
+    );
+    drop(tab);
+    redirected_to_sign_in(&mut site, "/account");
+}
+
+#[test]
+fn a_client_rendered_app_leaves_a_guarded_page_for_the_server_on_sign_out() {
+    let mut site = client_guards(Some(("grace", true)));
+    let mut tab = Tab::open(&mut site, "/account", &serde_json::json!({}));
+    contains(&tab.text(), "Account of grace", "opened directly");
+    // An admin's mirror lists the role, so the admin page opens here.
+    tab.run("sim.click(\"a\", \"Admin\");");
+    assert_eq!(went(&mut tab), serde_json::json!([[], ["/admin"]]));
+    contains(&tab.html(), "<h1>Admin</h1>", "the admin page");
+    tab.run("sim.click(\"a\", \"Home\");");
+    tab.run("sim.click(\"a\", \"Account\");");
+    contains(&tab.text(), "Account of grace", "back on the account page");
+    // Signing out: the new mirror has no user, so the router disposes the
+    // account page and loads its URL from the server.
+    tab.run("sim.click(\"button\", \"Sign out\");");
+    assert_eq!(
+        went(&mut tab),
+        serde_json::json!([["/account"], ["/admin", "/", "/account"]])
+    );
+    drop(tab);
+    redirected_to_sign_in(&mut site, "/account");
 }
 
 // ---------------------------------------------------------------- weather

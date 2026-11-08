@@ -20,26 +20,21 @@
     "comments": {
       "patterns": [
         {
+          "comment": "A documentation section line: `/// - Parameter name: ...`. TextMate's `^` only matches at the start of the line, so the section word is part of the comment's begin.",
+          "name": "comment.line.documentation.k",
+          "begin": "///\\s*(-)\\s+(Parameters?|Returns|Throws)\\b",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.list.k" },
+            "2": { "name": "keyword.other.documentation.k" }
+          },
+          "end": "$",
+          "patterns": [{ "include": "#doc-comment-markup" }]
+        },
+        {
           "name": "comment.line.documentation.k",
           "begin": "///",
           "end": "$",
-          "patterns": [
-            {
-              "name": "markup.underline.link.k",
-              "match": "\\[`[^`\\]]+`\\]"
-            },
-            {
-              "name": "markup.inline.raw.k",
-              "match": "`[^`]+`"
-            },
-            {
-              "match": "^\\s*(-)\\s+(Parameters?|Returns|Throws)\\b",
-              "captures": {
-                "1": { "name": "punctuation.definition.list.k" },
-                "2": { "name": "keyword.other.documentation.k" }
-              }
-            }
-          ]
+          "patterns": [{ "include": "#doc-comment-markup" }]
         },
         {
           "name": "comment.line.double-slash.k",
@@ -51,6 +46,18 @@
           "begin": "/\\*",
           "end": "\\*/",
           "patterns": [{ "include": "#block-comment-nested" }]
+        }
+      ]
+    },
+    "doc-comment-markup": {
+      "patterns": [
+        {
+          "name": "markup.underline.link.k",
+          "match": "\\[`[^`\\]]+`\\]"
+        },
+        {
+          "name": "markup.inline.raw.k",
+          "match": "`[^`]+`"
         }
       ]
     },
@@ -78,11 +85,17 @@
           }
         },
         {
-          "match": "\\b(test)\\s+([A-Za-z_][A-Za-z0-9_]*|\")",
+          "comment": "A test suite named after a declaration. A test named by a string is the keyword followed by an ordinary string, so the string rule sees its opening quote.",
+          "match": "\\b(test)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "storage.type.test.k" },
             "2": { "name": "entity.name.type.k" }
           }
+        },
+        {
+          "comment": "A test named by a string: the string is left to the string rule.",
+          "name": "storage.type.test.k",
+          "match": "\\btest\\b"
         },
         {
           "comment": "A theme token: its category word and its name.",
@@ -110,9 +123,12 @@
       }
     },
     "strings": {
+      "comment": "A string cannot span lines: it ends at its closing quote or at the end of its line, as in the lexer.",
       "name": "string.quoted.double.k",
       "begin": "\"",
-      "end": "\"",
+      "end": "\"|$",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.k" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.k" } },
       "patterns": [
         {
           "name": "constant.character.escape.k",
@@ -121,12 +137,28 @@
         {
           "name": "meta.interpolation.k",
           "begin": "\\{",
-          "end": "\\}",
+          "end": "\\}|$",
           "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.k" } },
           "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.k" } },
-          "patterns": [{ "include": "$self" }]
+          "patterns": [{ "include": "#interpolation-blocks" }, { "include": "#interpolation-braces" }, { "include": "$self" }]
         }
       ]
+    },
+    "interpolation-blocks": {
+      "comment": "A `view`/`style` block inside an interpolation: its braces are balanced too.",
+      "begin": "\\b(view|style|metadata|loading|failed|variant)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.block.k" },
+        "2": { "name": "punctuation.section.block.begin.k" }
+      },
+      "end": "\\}|$",
+      "patterns": [{ "include": "#interpolation-blocks" }, { "include": "#interpolation-braces" }, { "include": "$self" }]
+    },
+    "interpolation-braces": {
+      "comment": "Braces inside an interpolation (a trailing lambda, a block) are balanced, so their `}` does not end the interpolation. Like the interpolation, they end with the line.",
+      "begin": "\\{",
+      "end": "\\}|$",
+      "patterns": [{ "include": "#interpolation-blocks" }, { "include": "#interpolation-braces" }, { "include": "$self" }]
     },
     "numbers": {
       "patterns": [

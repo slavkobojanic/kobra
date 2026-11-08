@@ -26,7 +26,7 @@ use crate::ty::Ty;
 /// One component of a declaration's value.
 #[derive(Clone, Debug)]
 enum Comp {
-    /// A CSS keyword (`solid`, `space-between`).
+    /// A CSS keyword (`solid`, `spaceBetween`), in its camel-case K spelling.
     Keyword(String),
     /// A literal: its data-type kind.
     Literal(LitKind),
@@ -302,38 +302,6 @@ struct Matcher<'m> {
     far: usize,
 }
 
-/// The CSS-wide keywords every property accepts alone.
-const WIDE_KEYWORDS: &[&str] = &["inherit", "initial", "revert", "unset"];
-
-/// The named colors `<color>` accepts besides literals and `Color` values.
-const NAMED_COLORS: &[&str] = &[
-    "aqua",
-    "black",
-    "blue",
-    "currentColor",
-    "fuchsia",
-    "gray",
-    "green",
-    "grey",
-    "lime",
-    "maroon",
-    "navy",
-    "olive",
-    "orange",
-    "purple",
-    "red",
-    "silver",
-    "teal",
-    "transparent",
-    "white",
-    "yellow",
-];
-
-/// The keywords of the `<line-style>` data type.
-const LINE_STYLES: &[&str] = &[
-    "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset",
-];
-
 impl Matcher<'_> {
     /// Every end position `g` can reach from `pos`.
     fn ends(&mut self, g: &Grammar, pos: usize) -> Vec<usize> {
@@ -492,10 +460,7 @@ fn satisfies(c: &Comp, t: &str) -> bool {
         Comp::Any => true,
         Comp::Keyword(k) => match t {
             "<custom-ident>" => true,
-            "<line-style>" => LINE_STYLES.contains(&k.as_str()),
-            "<line-width>" => matches!(k.as_str(), "thin" | "medium" | "thick"),
-            "<color>" => NAMED_COLORS.contains(&k.as_str()),
-            _ => false,
+            _ => css::data_type_keywords(t).contains(&k.as_str()),
         },
         Comp::Literal(kind) => match t {
             "<number>" => matches!(kind, L::Int | L::Zero | L::Number),
@@ -690,6 +655,20 @@ impl Checker<'_, '_, '_> {
             );
             return;
         }
+        // Keywords of feature values are camel case too (K3214).
+        for value in node
+            .descendants()
+            .filter(|c| c.kind() == SyntaxKind::MediaFeature)
+            .flat_map(|f| f.children().filter(|c| c.kind() == SyntaxKind::CssValue))
+        {
+            for t in value
+                .children_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .filter(|t| t.kind().is_name_like())
+            {
+                self.css_keyword(&t);
+            }
+        }
         if name.text() != "media" {
             return;
         }
@@ -829,7 +808,7 @@ impl Checker<'_, '_, '_> {
             }
         }
         if comps.is_empty()
-            || matches!(comps.as_slice(), [Comp::Keyword(k)] if WIDE_KEYWORDS.contains(&k.as_str()))
+            || matches!(comps.as_slice(), [Comp::Keyword(k)] if css::WIDE_KEYWORDS.contains(&k.as_str()))
         {
             return;
         }
@@ -898,7 +877,8 @@ impl Checker<'_, '_, '_> {
                     SyntaxKind::Slash => out.push((Comp::Slash, t.text_range())),
                     SyntaxKind::Comma => out.push((Comp::Comma, t.text_range())),
                     k if k.is_name_like() => {
-                        out.push((Comp::Keyword(t.text().to_owned()), t.text_range()))
+                        let word = self.css_keyword(&t);
+                        out.push((Comp::Keyword(word), t.text_range()));
                     }
                     _ => out.push((Comp::Any, t.text_range())),
                 },
@@ -949,6 +929,32 @@ impl Checker<'_, '_, '_> {
             }
         }
         out
+    }
+
+    /// A keyword of a value in its camel-case spelling: a kebab-case one
+    /// (`space-between`) is K3214 with the machine-applicable camel-case fix
+    /// and is matched as that spelling, so the grammar doesn't report it
+    /// again.
+    fn css_keyword(&mut self, t: &SyntaxToken) -> String {
+        let text = t.text();
+        if !text.contains('-') {
+            return text.to_owned();
+        }
+        let camel = css::camel_case(text);
+        let range = t.text_range();
+        self.report(
+            Diagnostic::new(
+                codes::KEBAB_CASE_CSS_KEYWORD,
+                self.span(range),
+                format!("CSS keywords are camel case in K: `{text}` is written `{camel}`"),
+            )
+            .with_fix(Fix::replace(
+                format!("Replace `{text}` with `{camel}`"),
+                self.span(range),
+                camel.clone(),
+            )),
+        );
+        camel
     }
 
     /// The head implicit member of a K value in a style (`.md`,

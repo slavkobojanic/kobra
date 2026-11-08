@@ -456,12 +456,21 @@ impl Server {
                     |p| p.text_document_position_params,
                     |snap, file, pos, _| handlers::highlights(snap, file, pos),
                 ),
-            "textDocument/completion" => self.position_request::<lsp::CompletionParams, _>(
-                id,
-                params,
-                |p| p.text_document_position,
-                |snap, file, pos, _| handlers::completion(snap, file, pos),
-            ),
+            "textDocument/completion" => {
+                // `(` and `:` trigger completion only where it has
+                // something specific to offer (`.on(`, a CSS value).
+                let trigger = params
+                    .get("context")
+                    .and_then(|c| c.get("triggerCharacter"))
+                    .and_then(Value::as_str)
+                    .and_then(|t| t.chars().next());
+                self.position_request::<lsp::CompletionParams, _>(
+                    id,
+                    params,
+                    |p| p.text_document_position,
+                    move |snap, file, pos, _| handlers::completion(snap, file, pos, trigger),
+                )
+            }
             "textDocument/signatureHelp" => self.position_request::<lsp::SignatureHelpParams, _>(
                 id,
                 params,
@@ -1011,7 +1020,12 @@ fn capabilities() -> lsp::ServerCapabilities {
         )),
         hover_provider: Some(lsp::HoverProviderCapability::Simple(true)),
         completion_provider: Some(lsp::CompletionOptions {
-            trigger_characters: Some(vec![".".to_owned(), "@".to_owned()]),
+            trigger_characters: Some(vec![
+                ".".to_owned(),
+                "@".to_owned(),
+                "(".to_owned(),
+                ":".to_owned(),
+            ]),
             ..lsp::CompletionOptions::default()
         }),
         signature_help_provider: Some(lsp::SignatureHelpOptions {

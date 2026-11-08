@@ -42,11 +42,23 @@ component CartSummary {
 ## Rules
 
 - **Property values are type-checked** against each property's CSS grammar. `borderLeft: 4px blue solid potato` is a compile error.
-- **Selectors, pseudo-classes, `@media`, `@container`, `@layer`, `@keyframes` and nesting are kept from CSS.** Only property names change.
+- **Selectors, pseudo-classes, `@media`, `@container`, `@layer`, `@keyframes` and nesting are kept from CSS.** Only property names and keyword values change.
+- **Keyword values are camel case, like property names:** `justifyContent: spaceBetween`, `textDecoration: lineThrough`, `fontFamily: "Inter", sansSerif`, `transition: backgroundColor 200ms easeInOut`, `@media (prefersReducedMotion: noPreference)`. Code generation prints the CSS spelling (`space-between`). See [Keyword values](#keyword-values).
 - **There are no element or id selectors** (grammar [RA-8](../compiler/grammar.md#ra-8-no-element-selectors)): `h1 { … }`, `td { … }` and `#main { … }` are compile errors. Elements are styled through classes, which are typed and scoped: `heading(level: 1) { title }.class(.title)` with `.title { … }`. A selector is built from classes, `&`, pseudo-classes and pseudo-elements, attribute selectors and `*`.
 - **Theme tokens and static values use implicit member syntax:** `padding: .md` resolves against the type the property expects. See [07-themes-and-units.md](07-themes-and-units.md).
 - **`{ }` is used only for reactive values** (props and state). `{accent}` compiles to a CSS custom property, updated through the signal system. No inline `style=` strings are needed.
 - **Position decides meaning:** at the rule level, `.summary` is a class selector; after `property:`, `.md` is a value.
+
+## Keyword values
+
+**Decision: CSS keywords in values are written in camel case, and the kebab-case CSS spelling is a compile error (`K3214`) whose machine-applicable fix rewrites it.**
+
+- **Why:** property names were already camel case (`justifyContent`), so `justifyContent: space-between` mixed two spellings in one declaration. Outside style blocks `space-between` reads as a subtraction, which is how editors without the compiler's style mode (TextMate grammars, diff viewers, Markdown renderers) colour it. One spelling, the K identifier spelling, everywhere.
+- **Mapping:** a keyword maps to CSS by inserting `-` before each upper-case letter and lower-casing it (`lineThrough` → `line-through`, `inlineBlock` → `inline-block`, `systemUi` → `system-ui`). Single-word keywords (`solid`, `nowrap`, `hidden`) are unchanged. `currentColor` is the one exception: CSS spells it that way (and matches keywords case-insensitively), so it prints as written.
+- **The same rule applies everywhere a keyword appears in a value:** inside functions (`repeat(autoFill, minmax(14rem, 1fr))`), in comma-separated values, in the property name of `transition` (`transition: backgroundColor 200ms`, which is a property name and so camel case anyway) and in media feature values (`prefersColorScheme: dark`, `prefersReducedMotion: noPreference`).
+- **Left alone:** numbers and units, colors, theme tokens and other K values (`.md`, `.muted`), strings (`"Inter"`), function names (`minmax`, `repeat`), and selectors. There are no vendor-prefixed keywords or custom properties in style blocks, so nothing else needs an exception.
+- **The tables are the source of truth:** `k_sema::stdlib::css` holds each property's grammar with camel-case keywords and exposes them to tooling (`property_names`, `keywords(property)`, `media_feature_keywords(feature)`, `WIDE_KEYWORDS`), so completion offers exactly the spellings the checker accepts.
+- **Rejected:** accepting both spellings (two ways to write the same thing, and the kebab form keeps rendering as a subtraction in editors); passing keywords through verbatim and requiring kebab case (inconsistent with property names, which are camel case for the same reason).
 
 ## Class references
 

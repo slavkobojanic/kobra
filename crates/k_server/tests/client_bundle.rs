@@ -323,3 +323,74 @@ await import({entry:?});
         ]
     );
 }
+
+// ------------------------------------------------------- time of day
+
+/// A component that reads a `TimeOfDay` outside a job schedule: the literal,
+/// its text, its hour and minute, a parsed one and equality (35-time.md,
+/// "TimeOfDay").
+const OPENING_HOURS: &str = r#"import k.time.TimeOfDay
+
+public component OpeningHours {
+    @Prop let opens: TimeOfDay = TimeOfDay("09:30")
+    @State var closes: TimeOfDay? = TimeOfDay.parse("17:05")
+
+    view {
+        paragraph { "opens {opens} ({opens.hour}h {opens.minute}m)" }
+        if let c = closes {
+            paragraph { "closes {c.hour}:{c.minute} {c == TimeOfDay("17:05")}" }
+        }
+    }
+}
+"#;
+
+#[test]
+fn a_time_of_day_renders_alike_in_the_browser_and_on_the_server() {
+    let host = AnalysisHost::with_files(
+        SemaOptions::new(),
+        [
+            (ProjectPath::new("k.toml").expect("path"), TOML.to_owned()),
+            (
+                ProjectPath::new("src/demo/OpeningHours.k").expect("path"),
+                OPENING_HOURS.to_owned(),
+            ),
+        ],
+    );
+    let analysis = host.analysis();
+    let output = generate(&analysis, &Options::default()).expect("generates");
+    let (modules, shared) = client_modules(&output);
+    let client = run(
+        modules,
+        &format!(
+            r#"import {{ installDom }} from "k:testing";
+installDom();
+const m = await import({shared:?});
+const root = document.createElement("div");
+root.appendChild(m.OpeningHours({{}}, {{ c: {{}} }}));
+Deno.core.ops.op_k_set_result(root.textContent);
+"#
+        ),
+    );
+    let modules = output
+        .server
+        .iter()
+        .map(|f| JsModule {
+            specifier: f.path.clone(),
+            source: f.contents.clone(),
+        })
+        .collect();
+    let server = run(
+        modules,
+        r#"import { Out } from "k:runtime/server";
+import { OpeningHours$ssr } from "k:/app/demo.js";
+const out = new Out();
+OpeningHours$ssr({}, { c: {} }, out);
+Deno.core.ops.op_k_set_result(out.html());
+"#,
+    );
+    assert_eq!(client, "opens 09:30 (9h 30m)closes 17:5 true");
+    assert!(
+        server.contains("opens 09:30 (9h 30m)") && server.contains("closes 17:5 true"),
+        "{server}"
+    );
+}

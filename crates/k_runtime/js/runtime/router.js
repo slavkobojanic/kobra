@@ -165,7 +165,9 @@ function linkOf(target, container) {
  * @param {Element} container
  * @param {object} [options] `notFound`: the route of the not-found page;
  * `data`: the `k-data` payload of a server-rendered document, whose first
- * page is hydrated instead of rendered; `c`: makes the dependency
+ * page is hydrated instead of rendered; `session`: the `k-data` payload of
+ * a client-rendered app's shell, which only starts the `Session` mirror;
+ * `c`: makes the dependency
  * container of a mounted page (codegen.md §13), read as `ctx.c`
  * @returns {Promise<void>} settles once the first page is shown
  */
@@ -174,7 +176,7 @@ export function startRouter(routes, container, options) {
   router = r;
   // The guards read who is signed in from the document's mirror, whether
   // or not anything has read `Session` yet.
-  seedSession(r.data);
+  seedSession(r.data ?? options?.session);
   // Before a new mirror is set: the shown page it refuses is disposed at
   // once, so its body never reads it, and the page being navigated to (or
   // still shown) is left for the server when the mirror refuses it.

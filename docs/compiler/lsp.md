@@ -30,7 +30,7 @@ Contents:
 |---|---|
 | `lsp-types` 0.95 | the protocol's request, notification and result types (serde); brings `url` for `file://` URIs |
 | `serde`, `serde_json` | JSON-RPC bodies |
-| `regex` (dev) | evaluates the TextMate grammar's patterns in `tests/editors.rs` |
+| `regex` (dev) | evaluates the TextMate grammar's patterns in `tests/editors.rs` and `tests/textmate.rs` |
 
 **Why not `lsp-server` or `tower-lsp`.** `tower-lsp` is async (tokio) and wants `Send` futures per request;
 the analysis is synchronous and already has its own cancellation (a snapshot answers `Cancelled` once a
@@ -129,7 +129,7 @@ shop finds paybox's handler. Tested by
 | `textDocument/references`, `documentHighlight` | project-wide reverse index |
 | `textDocument/prepareRename`, `rename` | project-wide; rejects invalid names and stdlib symbols |
 | `textDocument/hover` | [§7](#7-hover) |
-| `textDocument/completion` | triggers `.` and `@` ([§8](#8-completion-and-signature-help)) |
+| `textDocument/completion` | triggers `.`, `@`, `(` and `:`; `(` and `:` answer only in `.on(` and CSS values ([§8](#8-completion-and-signature-help)) |
 | `textDocument/signatureHelp` | triggers `(` and `,`, retrigger `:` |
 | `textDocument/documentSymbol` | hierarchical when the client supports it, flat otherwise |
 | `workspace/symbol` | fuzzy, every project, at most 256 per project |
@@ -219,7 +219,12 @@ The hover of a symbol is Markdown:
    link that doesn't resolve stays code.
 
 Built-in elements show the HTML they render, attributes their type and documentation from the element
-table, CSS properties their value grammar. Off a symbol, hover shows the type of the innermost typed
+table, CSS properties their value grammar. A **theme token** (`.muted` in a style block or a view) shows its
+declaration with its value (`color muted: Color = #475569 // in ui.KanbanTheme`), the values the theme's
+variants give it (``Variants: `dark`: `#94A3B8` ``) and its doc comment; a **class** (`.class(.count)` or a
+selector) shows its rule from the style block, dedented and cut at 24 lines. Go to definition goes from a
+token to its declaration in the theme (a project theme's before the stdlib's) and from a class to its rule's
+selector. Off a symbol, hover shows the type of the innermost typed
 expression.
 
 ## 8. Completion and signature help
@@ -230,11 +235,21 @@ The context is read from the text and the syntax before the cursor:
 |---|---|
 | after `@` | annotations, from the stdlib annotation table |
 | after `receiver.` / `receiver?.` | the members of the receiver's type (recorded by the checker even when the member name is missing), its extensions' and interfaces'; static members and cases when the receiver names a type; private members only inside their declaration |
+| after `.on(` (or `.on(` + prefix) | the receiver's events, labelled `edit:` (inserting `edit: `), with the payload type as detail and the doc comment as documentation: a component's `@Emits` fields (stdlib components such as `ReorderableList` too), a built-in element's events from the element table. The receiver is the base of the modifier chain the call ends (`CardView(…).class(.x).on(`), resolved by the checker or, in half-typed code, by name. Events another `.on(…)` of the chain handles are left out (K3104); after a first event's comma nothing is offered, since a call takes one event (K3108) |
+| in a `style` block | read by a scanner over the block's text up to the cursor, which tracks rules, groups (`@media`, `@container`, `@layer`), `@keyframes`, strings, comments and interpolations: at a declaration's start (or on the line after a declaration missing its `;`) every CSS property, with its CSS name as detail and its grammar as documentation; after `property:` the property's camel-case keywords (`css::keywords`, their CSS spelling as detail), the CSS-wide keywords, and the theme tokens of the property's value types labelled `.md`, with type, value and theme as detail (`Spacing = 16px (ui.KanbanTheme)`), a project theme's before the stdlib's of the same name; at a selector's start the component's classes (`.column`); in `@media (` the media features, after `feature:` their keywords; in `@keyframes`, `from` and `to`. Inside an interpolation (`{accent}`) the names in scope |
+| after `.` in a selector | the classes the component's style block declares and those its view references (marked "no rule yet") |
+| after `.` in a class reference | the classes the enclosing declaration's style block declares: arguments of `.class(…)`, alone, in a list or before `when`, and of a child component's `@Stylable` prop |
 | after `.` with no receiver | the implicit members of the expected type: the checker's type of the implicit member expression, else a CSS property's value types (`padding: .` lists `Spacing` tokens of the project's themes), an assignment target, the other operand of a comparison, a `let`'s or field's declared type, an argument's parameter, a `return`'s function result, a `case` pattern's scrutinee |
 | elsewhere | locals and parameters bound before the cursor, the enclosing declaration's members, the module's declarations, imports, the prelude, built-in elements inside a `view`, keywords; public declarations of other modules with an `additionalTextEdit` adding the import |
 
-Items are filtered by the identifier before the cursor (its characters in order, ignoring case) and sorted by
-group, then name; the list is complete for the prefix (`isIncomplete: false`).
+Items are filtered by the identifier before the cursor (its characters in order, ignoring case; a leading
+`.` of a token label is ignored, and `filterText` drops it and an event label's `:`) and sorted by group,
+then name; the list is complete for the prefix (`isIncomplete: false`).
+
+**Triggers.** `.` and `@` always complete. `(` and `:` are trigger characters too, but a completion they
+trigger answers only in the contexts above that they start (an `.on(` call, a CSS property's value, a
+media feature); anywhere else it answers nothing, so typing a call or a type annotation doesn't open a list
+of every name in scope. Invoking completion explicitly there gives the names in scope as before.
 
 **Signature help** finds the innermost call whose argument list contains the cursor (an unclosed list
 counts), resolves its callee through the checker's recorded resolution, and shows a function's signature, a
@@ -265,6 +280,7 @@ forms. The active parameter follows the argument's label, or its position.
 | `crates/k_lsp/tests/properties.rs` | random edit sequences and requests (some cancelled) through the server on example documents: one well-formed response per request, and the published diagnostics converge on a fresh `k check` of the edited text |
 | `crates/k_cli/tests/lsp.rs` | end to end: spawns `k lsp` and drives it over JSON-RPC against the examples (definition, type definition, implementation in shop and notes, references, rename with file rename, hover with reactive dependencies and URLs, completion, signature help, symbols, diagnostics and quick fixes, inlay hints, malformed input) |
 | `crates/k_lsp/tests/editors.rs` | the TextMate grammar compiles and highlights every lexer keyword; the Vim syntax files list them; the VS Code manifest is wired |
+| `crates/k_lsp/tests/textmate.rs` | the TextMate grammar run by a small TextMate engine (begin/end/match/captures/include, earliest match first, `end` winning ties, line by line): scopes asserted on fixtures in `tests/textmate/` (test names, apostrophes, interpolations with nested braces and strings, doc comments, annotations, generics, view and style blocks), and agreement with `k_syntax::lex` on which tokens are strings, comments and code over every lexer-clean `.k` file of the examples, the stdlib and `tests/corpus` |
 | `fuzz/fuzz_targets/lsp_edits.rs` | the property test's driver under libFuzzer, one server per process |
 | `crates/k_lsp/tests/perf_budget.rs` | the latency budgets below (ignored; `scripts/bench-check.sh --lsp`) |
 
@@ -276,6 +292,7 @@ Budgets ([performance.md §12](performance.md#12-language-server), 100k-line rea
 | go to definition, warm | p50 ≤ 2 ms, p95 ≤ 10 ms |
 | find references (project-wide), warm | p50 ≤ 5 ms, p95 ≤ 20 ms |
 | completion, warm | p95 ≤ 50 ms (architecture.md §12) |
+| completion after every `:`, `(` and `.` of style blocks and views, warm | p95 ≤ 50 ms (architecture.md §12) |
 | hover as the first request after a body edit (re-check and re-index included) | ≤ 60 ms |
 | diagnostics after a keystroke, end to end with the 30 ms debounce | p95 ≤ 100 ms (architecture.md §12) |
 
@@ -287,8 +304,11 @@ Budgets ([performance.md §12](performance.md#12-language-server), 100k-line rea
 | `editors/nvim` | `ftdetect/k.lua`, `ftplugin/k.lua`, `syntax/k.vim`, `lua/k/lsp.lua` (`require("k.lsp").setup()`: `vim.lsp.config` on 0.11+, nvim-lspconfig before) |
 | `editors/vim` | `ftdetect/k.vim`, `ftplugin/k.vim`, `syntax/k.vim` (identical to Neovim's), `plugin/k_lsp.vim` (vim-lsp registration) |
 
-The TextMate grammar's regexes avoid lookaround so the Rust test can evaluate them with the `regex` crate;
-the test fails when the lexer gains a keyword the grammar doesn't highlight. The book chapter
+The TextMate grammar's regexes avoid lookaround (and `\G`) so the Rust tests can evaluate them with the
+`regex` crate; `editors.rs` fails when the lexer gains a keyword the grammar doesn't highlight, and
+`textmate.rs` when the grammar's strings, interpolations or comments drift from the lexer's. A string ends at
+its closing quote or at the end of its line, as in the lexer, so an unterminated string never colours the
+rest of the file; an interpolation's `}` is found by balancing the braces inside it. The book chapter
 [Editor setup](../book/src/getting-started/editor-setup.md) is the user-facing guide.
 
 ## 12. Limits and next steps
