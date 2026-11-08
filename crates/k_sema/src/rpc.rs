@@ -8,9 +8,16 @@
 //! * A protocol is implemented by a service (K5504) whose handlers repeat
 //!   each rpc's signature, `throws` included (K5505); a missing handler is a
 //!   missing member (K2010).
+//! * Only a protocol's rpcs are served: an `rpc` member of anything else
+//!   that no protocol in its `implements` clause declares is K5508, with a
+//!   fix that makes it a `func`.
 //! * Guards are declared on the protocol and its rpcs, which is what the
 //!   server checks: a `requires` clause on any other rpc, a service's
-//!   handler above all, is K5507, with a fix that moves it to the protocol.
+//!   handler above all, is K5507, with a fix that moves it to the protocol
+//!   and removes the imports of the handler's file that only the clause
+//!   used.
+
+use std::collections::HashSet;
 
 use k_diagnostics::{Applicability, Diagnostic, Fix, Span, TextEdit, TextRange, TextSize, codes};
 use k_syntax::ast::{self, AstNode};
@@ -40,6 +47,7 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
         if decl.named_kind() != Some(K::Protocol) && !from_library(cx, d) {
             for &m in &decl.members {
                 if p.member(m).kind == MemberKind::Rpc {
+                    unserved_rpc(cx, d, m);
                     handler_guards(cx, d, m);
                 }
             }
@@ -108,6 +116,104 @@ fn and_list(items: &[String]) -> String {
     }
 }
 
+/// The protocols in `d`'s `implements` clause that declare an rpc named
+/// like member `m`, with that rpc, each protocol once.
+fn served_by(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) -> Vec<(DeclId, MemberId)> {
+    let p = cx.p;
+    let name = &p.member(m).name;
+    let mut served: Vec<(DeclId, MemberId)> = Vec::new();
+    for (ty, _) in cx.implements_list(d).iter() {
+        let Some(proto) = ty.decl() else { continue };
+        let pdecl = p.decl(proto);
+        if pdecl.named_kind() != Some(K::Protocol) {
+            continue;
+        }
+        if let Some(&r) = pdecl.member_names.get(name) {
+            if p.member(r).kind == MemberKind::Rpc && !served.iter().any(|s| s.0 == proto) {
+                served.push((proto, r));
+            }
+        }
+    }
+    served
+}
+
+/// K5508: rpc member `m` of `d`, which isn't a protocol, where no protocol
+/// in `d`'s `implements` clause declares it.
+///
+/// Only a protocol's rpcs are served (11-protocols-and-rpc.md), so such an
+/// rpc is never reachable over the wire: in a struct, a component or an
+/// extension it can't be, and in a service it needs a protocol the service
+/// implements. The diagnostic is at the `rpc` keyword. The fix makes the
+/// member a `func` (`maybe-incorrect`: the author may have meant to declare
+/// it in a protocol), offered only when that leaves valid code: not with a
+/// `requires` clause, which a `func` can't have (K5507 reports the clause),
+/// and not without a body outside an interface. A declaration that names a
+/// protocol declaring the rpc but can't implement one (a struct) is K5504
+/// instead, so it is not reported here.
+fn unserved_rpc(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) {
+    let p = cx.p;
+    let decl = p.decl(d);
+    let member = p.member(m);
+    let Some(node) = &member.node else { return };
+    if !served_by(cx, d, m).is_empty() {
+        return;
+    }
+    let Some(keyword) = node
+        .children_with_tokens()
+        .filter_map(rowan::NodeOrToken::into_token)
+        .find(|t| t.kind() == SyntaxKind::RpcKw)
+    else {
+        return;
+    };
+    let file = decl.file;
+    let range = keyword.text_range();
+    let clause = requires_clause(node).is_some();
+    let service = decl.named_kind() == Some(K::Service);
+    let help = match (service, clause) {
+        (true, false) => format!(
+            "only a protocol's rpcs are served: declare `{}` in a protocol that `{}` implements, or make it a `func`",
+            member.name, decl.name
+        ),
+        (true, true) => format!(
+            "only a protocol's rpcs are served: declare `{}` in a protocol that `{}` implements, or make it a `func` without the `requires` clause",
+            member.name, decl.name
+        ),
+        (false, false) => format!(
+            "only a protocol's rpcs are served, by a service that implements the protocol: make `{}` a `func`",
+            member.name
+        ),
+        (false, true) => format!(
+            "only a protocol's rpcs are served, by a service that implements the protocol: make `{}` a `func` without the `requires` clause",
+            member.name
+        ),
+    };
+    let message = if service {
+        format!(
+            "rpc `{}` is never served: no protocol that `{}` implements declares it",
+            member.name, decl.name
+        )
+    } else {
+        format!(
+            "rpc `{}` is never served: `{}` isn't a service, and only services serve rpcs",
+            member.name, decl.name
+        )
+    };
+    let mut diag =
+        Diagnostic::new(codes::RPC_OUTSIDE_PROTOCOL, p.span(file, range), message).with_help(help);
+    let has_body = node.children().any(|c| c.kind() == SyntaxKind::Block);
+    if !clause && (has_body || decl.named_kind() == Some(K::Interface)) {
+        diag = diag.with_fix(Fix {
+            message: format!("Make `{}` a `func`", member.name),
+            edits: vec![TextEdit {
+                span: p.span(file, range),
+                replacement: "func".to_owned(),
+            }],
+            applicability: Applicability::MaybeIncorrect,
+        });
+    }
+    cx.report(file, diag);
+}
+
 /// K5507: a `requires` clause on rpc `m` of `d`, which isn't a protocol.
 ///
 /// The server checks the guards of the protocol and of its rpc before any
@@ -115,7 +221,10 @@ fn and_list(items: &[String]) -> String {
 /// never checked. The fix moves the guards the protocol doesn't declare yet
 /// to every protocol rpc the handler serves, importing them where needed,
 /// and deletes the handler's clause; when the protocol declares them all,
-/// it only deletes the clause. A protocol from a library or the stdlib
+/// it only deletes the clause. Either way it also deletes the imports of
+/// the handler's file that only the clause used ([`Cx::imports_only_in`]),
+/// so applying it leaves no unused import (K1105), keeping those of guards
+/// it moves to a protocol in the same file. A protocol from a library or the stdlib
 /// can't be edited from the app, and an rpc no protocol declares has
 /// nowhere to move to: then a help explains.
 fn handler_guards(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) {
@@ -134,21 +243,11 @@ fn handler_guards(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) {
         "the server never checks a `requires` clause on a handler; it runs the guards the protocol declares",
     );
     // The protocol rpcs this handler serves.
-    let mut served: Vec<(DeclId, MemberId)> = Vec::new();
-    if decl.named_kind() == Some(K::Service) {
-        for (ty, _) in cx.implements_list(d).iter() {
-            let Some(proto) = ty.decl() else { continue };
-            let pdecl = p.decl(proto);
-            if pdecl.named_kind() != Some(K::Protocol) {
-                continue;
-            }
-            if let Some(&r) = pdecl.member_names.get(&member.name) {
-                if p.member(r).kind == MemberKind::Rpc && !served.iter().any(|s| s.0 == proto) {
-                    served.push((proto, r));
-                }
-            }
-        }
-    }
+    let served = if decl.named_kind() == Some(K::Service) {
+        served_by(cx, d, m)
+    } else {
+        Vec::new()
+    };
     if served.is_empty() {
         cx.report(
             file,
@@ -185,6 +284,9 @@ fn handler_guards(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) {
     let mut edits = Vec::new();
     let mut moved: Vec<String> = Vec::new();
     let mut targets: Vec<String> = Vec::new();
+    // The guards moved to a protocol of the handler's own file, whose
+    // imports that file still needs.
+    let mut moved_here: Vec<String> = Vec::new();
     for &(proto, r) in &served {
         let pdecl = p.decl(proto);
         let rpc = p.member(r);
@@ -229,6 +331,9 @@ fn handler_guards(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) {
             if !moved.contains(text) {
                 moved.push(text.clone());
             }
+            if pdecl.file == file && !moved_here.contains(text) {
+                moved_here.push(text.clone());
+            }
             if let Found::Decl(g) = cx.lookup(file, name) {
                 if let Some(edit) = cx.import_edit(pdecl.file, &qualified(cx, g)) {
                     if !edits.contains(&edit) {
@@ -238,6 +343,24 @@ fn handler_guards(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) {
             }
         }
     }
+    // The imports only the clause used, except those of the guards moved
+    // within the file.
+    let kept: HashSet<String> = clause
+        .children()
+        .filter(|g| g.kind() == SyntaxKind::Guard)
+        .filter(|g| {
+            let text = g.text().to_string();
+            moved_here.contains(&text.split_whitespace().collect::<Vec<_>>().join(" "))
+        })
+        .flat_map(|g| {
+            g.descendants_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .filter(|t| t.kind() == SyntaxKind::Ident)
+                .map(|t| t.text().to_owned())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    edits.extend(cx.imports_only_in(file, range, &kept));
     // The clause and the whitespace before it.
     let text = p.file(file).text;
     let start = usize::from(range.start()).min(text.len());

@@ -1,0 +1,3 @@
+# Two services and their contract library (docs/design/40-workspaces-and-services.md).
+[workspace]
+members = ["pay-contracts", "paybox", "shop"]

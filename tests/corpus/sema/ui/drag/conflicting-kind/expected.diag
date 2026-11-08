@@ -1,0 +1,4 @@
+error[K2406] src/columns/ColumnView.k:8:48-8:54
+  label src/board/cardDrag.k:4:54-4:60: the kind named `card` carries `board.Card`
+error[K2406] src/columns/ColumnView.k:12:61-12:67
+  label src/board/cardDrag.k:4:54-4:60: the kind named `card` carries `board.Card`

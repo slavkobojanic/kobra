@@ -121,6 +121,13 @@ pub(crate) struct Body<'g, 'a> {
     pub on_demand: Vec<crate::decl::OnDemand>,
     /// The next lambda is an event handler (no `$c`).
     force_sync: bool,
+    /// `true` once the body of a component's client renderer refers to the
+    /// component's lifetime `$life`, so the renderer declares it.
+    pub(crate) uses_life: bool,
+    /// The lambdas lowered as call arguments are bound to their owner
+    /// ([`Body::owned_lambda`]): the arguments of `form.handle(_:)`, which
+    /// calls its action with no cancellation context.
+    own_args: bool,
     /// Locals that are read through a signal accessor named after them
     /// (`row` reads as `row$()`): the item of a keyed list row, so every
     /// binding of the row tracks the item and an item that changes under
@@ -156,6 +163,8 @@ impl<'g, 'a> Body<'g, 'a> {
             prelude: Vec::new(),
             on_demand: Vec::new(),
             force_sync: false,
+            uses_life: false,
+            own_args: false,
             signal_locals: HashSet::new(),
             overrides: HashMap::new(),
         }
@@ -343,6 +352,36 @@ impl<'g, 'a> Body<'g, 'a> {
     /// `$c`, or `null` outside a cancellable body.
     pub(crate) fn c_expr(&self) -> Expr {
         if self.has_c { id("$c") } else { Expr::Null }
+    }
+
+    /// `await x` as a body prints it (codegen.md §8): guarded by `$c`
+    /// (`$k.guard`, unless `x` is a runtime primitive that honours `$c`
+    /// itself), and in a body with a cancellation context checked again
+    /// when the body resumes (`$k.live`), which stops the body when the
+    /// run was cancelled while `x` settled.
+    pub(crate) fn awaited(&self, x: Expr) -> Expr {
+        let a = if is_guarded_primitive(&x) {
+            Expr::Await(Box::new(x))
+        } else {
+            Expr::Await(Box::new(rt("guard", vec![self.c_expr(), x])))
+        };
+        if self.has_c {
+            rt("live", vec![id("$c"), a])
+        } else {
+            a
+        }
+    }
+
+    /// The check that starts a `catch` after its panic rethrow, and each
+    /// iteration of a `for await`, in a body with a cancellation context:
+    /// `$k.live($c);`, which stops the body when the run was cancelled
+    /// while the promise it resumed from settled. Empty without a context.
+    pub(crate) fn live_check(&self) -> Vec<Stmt> {
+        if self.has_c {
+            vec![Stmt::Expr(rt("live", vec![id("$c")]))]
+        } else {
+            Vec::new()
+        }
     }
 
     // ------------------------------------------------------- statements
@@ -1008,10 +1047,20 @@ impl<'g, 'a> Body<'g, 'a> {
             if *v == var {
                 let n = n.clone();
                 stmts.remove(0);
+                if is_await {
+                    let mut checked = self.live_check();
+                    checked.extend(stmts);
+                    stmts = checked;
+                }
                 self.emit(Stmt::ForOf(n, it, stmts, is_await));
                 self.pop_scope();
                 return;
             }
+        }
+        if is_await {
+            let mut checked = self.live_check();
+            checked.extend(stmts);
+            stmts = checked;
         }
         self.emit(Stmt::ForOf(var, it, stmts, is_await));
         self.pop_scope();
@@ -1050,6 +1099,7 @@ impl<'g, 'a> Body<'g, 'a> {
             vec![Stmt::Throw(id(&err))],
             None,
         )];
+        handler.extend(self.live_check());
         // Each clause: if (pattern) { body } else next; a final rethrow if
         // not exhaustive.
         let mut chain: Vec<(Option<Expr>, Vec<Stmt>, Vec<Stmt>)> = Vec::new();
@@ -1868,6 +1918,9 @@ impl<'g, 'a> Body<'g, 'a> {
         });
         let (handler, ()) = self.capture(|b| {
             b.emit(rethrow(&err));
+            for s in b.live_check() {
+                b.emit(s);
+            }
             if let Some(f) = &fallback {
                 b.value_block(f.syntax(), dest);
             }
@@ -2359,7 +2412,7 @@ impl<'g, 'a> Body<'g, 'a> {
                     Some(i) => {
                         // A repository query or write runs as SQL.
                         if let Some(q) = crate::db::awaited(self, &i) {
-                            return Expr::Await(Box::new(rt("guard", vec![self.c_expr(), q])));
+                            return self.awaited(q);
                         }
                         // `await` covers the whole expression to its right
                         // (grammar.md §"try and await"): in a compound one,
@@ -2370,11 +2423,7 @@ impl<'g, 'a> Body<'g, 'a> {
                             return self.expr(&i);
                         }
                         let x = self.expr(&i);
-                        if is_guarded_primitive(&x) {
-                            Expr::Await(Box::new(x))
-                        } else {
-                            Expr::Await(Box::new(rt("guard", vec![self.c_expr(), x])))
-                        }
+                        self.awaited(x)
                     }
                     None => Expr::Null,
                 }
@@ -2816,6 +2865,34 @@ impl<'g, 'a> Body<'g, 'a> {
         e
     }
 
+    /// Lowers a lambda that is called with its K arguments alone (a prop
+    /// or event handler of a component, `form.handle(_:)`'s action). An
+    /// async one is bound to its owner, so its work is owned by it
+    /// (03-reactivity.md, "Async work is owned"): `$k.own(L, ctx)`, where
+    /// `ctx` is the run that creates it (`$c`) or, outside one, the
+    /// component's lifetime `$life`. Anywhere but a component's client
+    /// renderer, and for a synchronous lambda, it is the plain lambda.
+    pub(crate) fn owned_lambda(&mut self, l: &ast::LambdaExpr) -> Expr {
+        let is_async = matches!(self.ty(l.syntax()), Type::Func(f) if f.is_async);
+        let saved = std::mem::take(&mut self.own_args);
+        let x = self.lambda(l, None);
+        self.own_args = saved;
+        if !is_async
+            || self.self_mode != SelfMode::Component
+            || self.target != Target::Client
+            || self.ssr
+        {
+            return x;
+        }
+        let ctx = if self.has_c {
+            id("$c")
+        } else {
+            self.uses_life = true;
+            id("$life")
+        };
+        rt("own", vec![x, ctx])
+    }
+
     /// Lowers a lambda; `expected` is the parameter's function type when
     /// known.
     pub(crate) fn lambda(&mut self, l: &ast::LambdaExpr, _expected: Option<&Type>) -> Expr {
@@ -3020,18 +3097,8 @@ impl<'g, 'a> Body<'g, 'a> {
                     && !self.ssr
                     && info.signature.as_ref().is_some_and(|s| s.is_async)
                 {
-                    let rest = Param {
-                        name: "a".into(),
-                        default: None,
-                        rest: true,
-                    };
-                    return js::arrow(
-                        vec![rest],
-                        call(
-                            id(n.clone()),
-                            vec![id("$life"), Expr::Spread(Box::new(id("a")))],
-                        ),
-                    );
+                    self.uses_life = true;
+                    return rt("own", vec![id(n.clone()), id("$life")]);
                 }
             }
             return self.read_access(&acc);
@@ -3295,11 +3362,7 @@ impl<'g, 'a> Body<'g, 'a> {
                 self.await_calls_in(&o);
             } else if matches!(o, ast::Expr::CallExpr(_)) {
                 let x = self.expr(&o);
-                let awaited = if is_guarded_primitive(&x) {
-                    Expr::Await(Box::new(x))
-                } else {
-                    Expr::Await(Box::new(rt("guard", vec![self.c_expr(), x])))
-                };
+                let awaited = self.awaited(x);
                 self.overrides.insert(o.syntax().text_range(), awaited);
             }
         }
@@ -3866,8 +3929,15 @@ impl<'g, 'a> Body<'g, 'a> {
     /// temporary, and the result coerced to the parameter type.
     fn arg(&mut self, e: &ast::Expr, param_ty: &Type) -> Expr {
         self.kill_aliases(e.syntax());
+        // Only this call's own arguments are bound, not those of calls
+        // nested in them.
+        let own = std::mem::take(&mut self.own_args);
         let x = if let ast::Expr::LambdaExpr(l) = e {
-            self.lambda(l, Some(param_ty))
+            if own {
+                self.owned_lambda(l)
+            } else {
+                self.lambda(l, Some(param_ty))
+            }
         } else if self.is_statementy(e) {
             let t = self.fresh("v");
             self.emit(Stmt::Let(t.clone(), None));
@@ -3876,6 +3946,7 @@ impl<'g, 'a> Body<'g, 'a> {
         } else {
             self.expr(e)
         };
+        self.own_args = own;
         let from = self.ty(e.syntax());
         self.coerce(x, &from, param_ty)
     }
@@ -4443,6 +4514,10 @@ impl<'g, 'a> Body<'g, 'a> {
         let base2 = base.clone();
         let this_owner_generics = self.g.view.decl(info.owner).generics.clone();
         let st = inferred.clone();
+        // `form.handle(_:)` calls its action with no cancellation context
+        // (forms.js), so an inline action is bound to its owner.
+        self.own_args =
+            info.name == "handle" && self.g.view.qualified_name(info.owner) == "k.validation.Form";
         let user_args = self.call_args(c, sig.as_ref(), &move |t| {
             let t = subst_map(t, &st);
             subst(&t, &|g| {
@@ -4452,6 +4527,7 @@ impl<'g, 'a> Body<'g, 'a> {
                     .and_then(|i| base2.args().get(i).cloned())
             })
         });
+        self.own_args = false;
         if info.kind == MemberKind::Generated && info.name == "copy" {
             return self.copy_call(recv, base, c);
         }

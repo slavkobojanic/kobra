@@ -5181,8 +5181,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         l: &Ty,
         r: &Ty,
         range: TextRange,
-        _rhs: &ast::Expr,
-        _lhs: &ast::Expr,
+        rhs: &ast::Expr,
+        lhs: &ast::Expr,
     ) -> Ty {
         let l = self.resolve(l);
         let r = self.resolve(r);
@@ -5244,6 +5244,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         let money = b.money;
         if l.decl().is_some() && l.decl() == money {
             if (op == '+' || op == '-') && r == l {
+                // Mixed literal currencies keep the type `Money`, so
+                // nothing cascades.
+                self.check_mixed_currencies(op, lhs, rhs, range);
                 return l;
             }
             // `Money * Int` scales by a quantity; a rate goes through

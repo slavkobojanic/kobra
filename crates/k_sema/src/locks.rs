@@ -30,6 +30,11 @@
 //! job that no longer exists, are not reported: when the compiler writes
 //! the lockfiles is open (`docs/design/13-tooling.md`, "Lockfiles").
 //!
+//! Two checks over the names those keys share live here too, since they
+//! find the keys the same way: a storage key named like an earlier one is
+//! **K2405**, and a `DragKind` named like an earlier one with another
+//! payload type is **K2406**.
+//!
 //! Types are compared by shape, not by name: a payload struct renamed with
 //! the same fields still decodes the queued jobs, so it is compatible.
 
@@ -78,6 +83,7 @@ pub(crate) fn job_payload(cx: &Cx<'_, '_>, decl: DeclId) -> Option<Ty> {
 /// Runs the lockfile checks.
 pub(crate) fn check(cx: &Cx<'_, '_>) {
     duplicate_keys(cx);
+    conflicting_drag_kinds(cx);
     for lock in &cx.p.lockfiles {
         if lock.kind == LockfileKind::Storage {
             storage(cx, lock);
@@ -412,7 +418,8 @@ fn storage(cx: &Cx<'_, '_>, lock: &Lockfile) {
 }
 
 /// One `StorageKey` of the program: a top-level constant or a field whose
-/// type is `StorageKey<T>`.
+/// type is `StorageKey<T>`. [`conflicting_drag_kinds`] uses the same shape
+/// for a `DragKind<T>`, with its payload type as `value`.
 struct Key {
     /// The qualified name of the constant or field,
     /// `cart.CartService.savedCart`.
@@ -483,15 +490,37 @@ fn program_keys(cx: &Cx<'_, '_>) -> Vec<Key> {
 
 /// [`program_keys`], with the diagnostics of the types it resolves.
 fn find_keys(cx: &Cx<'_, '_>) -> Vec<Key> {
+    find_named(cx, key_value, false)
+}
+
+/// The payload type of a `DragKind<T>`.
+fn drag_payload(cx: &Cx<'_, '_>, ty: &Ty) -> Option<Ty> {
+    match ty {
+        Ty::Named(d, args) if cx.p.decl_name(*d) == "k.drag.DragKind" => {
+            Some(args.first().cloned().unwrap_or(Ty::Error))
+        }
+        _ => None,
+    }
+}
+
+/// Every top-level constant and field of the program whose type
+/// `value_of` maps to a value type (a `StorageKey<T>` to `T`), with the
+/// `name:` literal of its initializer; test code too when `tests` is set.
+/// Like [`find_keys`], it resolves types and keeps their diagnostics.
+fn find_named(
+    cx: &Cx<'_, '_>,
+    value_of: fn(&Cx<'_, '_>, &Ty) -> Option<Ty>,
+    tests: bool,
+) -> Vec<Key> {
     let p = cx.p;
     let mut out = Vec::new();
     for (i, decl) in p.decls.iter().enumerate() {
         let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
-        if p.file(decl.file).stdlib || p.file(decl.file).is_test {
+        if p.file(decl.file).stdlib || (p.file(decl.file).is_test && !tests) {
             continue;
         }
         if decl.named_kind() == Some(K::Constant) {
-            if let Some(value) = key_value(cx, &cx.constant_ty(d)) {
+            if let Some(value) = value_of(cx, &cx.constant_ty(d)) {
                 let named = key_name(&decl.node);
                 out.push(Key {
                     declaration: p.decl_name(d),
@@ -510,7 +539,7 @@ fn find_keys(cx: &Cx<'_, '_>) -> Vec<Key> {
             if member.kind != MemberKind::Field {
                 continue;
             }
-            let Some(value) = key_value(cx, &cx.field_ty(m)) else {
+            let Some(value) = value_of(cx, &cx.field_ty(m)) else {
                 continue;
             };
             let node = member.node.clone();
@@ -552,6 +581,52 @@ fn duplicate_keys(cx: &Cx<'_, '_>) {
             ),
             None => {
                 first.insert(name.clone(), (key.file, literal));
+            }
+        }
+    }
+}
+
+/// K2406: a drag kind named like an earlier one (in file path order) but
+/// with another payload type, at its name literal, with a label at the
+/// earlier kind's. Kinds with the same name are the same kind
+/// (`docs/design/41-drag-and-drop.md`, "Kinds and payloads"), so a drop
+/// target of one would accept the other's drags and hand its handler a
+/// payload of the wrong type. Redeclaring a kind with the same payload type
+/// is allowed. Test code counts too: a test has no reason to give a kind
+/// another payload. Payload types that don't resolve aren't compared, and
+/// the diagnostics of resolving them are dropped as in [`program_keys`].
+fn conflicting_drag_kinds(cx: &Cx<'_, '_>) {
+    let reported = cx.diags.borrow().len();
+    let kinds = find_named(cx, drag_payload, true);
+    cx.diags.borrow_mut().truncate(reported);
+    let mut first: BTreeMap<String, (crate::program::FileIx, TextRange, Ty)> = BTreeMap::new();
+    for kind in kinds {
+        let (Some(name), Some(literal)) = (&kind.name, kind.literal) else {
+            continue;
+        };
+        if kind.value.contains_error() {
+            continue;
+        }
+        match first.get(name) {
+            Some((file, range, payload)) if *payload != kind.value => cx.report(
+                kind.file,
+                Diagnostic::new(
+                    codes::CONFLICTING_DRAG_KIND,
+                    cx.p.span(kind.file, literal),
+                    format!(
+                        "another drag kind is named `{name}` with the payload `{}`; kinds with the same name are the same kind, so this one can't carry `{}`",
+                        payload.render(cx.p),
+                        kind.value.render(cx.p)
+                    ),
+                )
+                .with_label(
+                    cx.p.span(*file, *range),
+                    format!("the kind named `{name}` carries `{}`", payload.render(cx.p)),
+                ),
+            ),
+            Some(_) => {}
+            None => {
+                first.insert(name.clone(), (kind.file, literal, kind.value.clone()));
             }
         }
     }

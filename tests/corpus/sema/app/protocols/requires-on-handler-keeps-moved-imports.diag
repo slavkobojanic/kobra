@@ -1,0 +1,5 @@
+error[K5507] 12:41-12:72
+  label 8:9-8:12: the server runs the guards declared here
+  fix "Move `RateLimit(5.perMinute)` to `Notes.add`" maybe-incorrect
+    edit 8:34-8:34 " requires RateLimit(5.perMinute)"
+    edit 12:40-12:72 ""

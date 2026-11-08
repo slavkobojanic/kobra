@@ -19,7 +19,7 @@
 |---|---|
 | `[package]` | `name` and `k` (the minimum toolchain version) are required. `title` and `description` are optional. Apps may set `version`; packages can't, because their git tag is their version. |
 | `[dependencies]` | `name = { workspace = true }` for a library of the same workspace; module path = git tag for a git package (**Planned**, as are `k add` and `k remove`, which will edit it) |
-| `[aliases]` | short name = module path, enabling `import charts.LineChart` (**Planned**, with git packages) |
+| `[aliases]` | short name = a git package's module path prefix, enabling `import charts.LineChart` (**Planned**, with git packages); workspace libraries need none, as their modules keep their own paths |
 
 The manifest never holds environment variables, secrets, per-environment settings, build scripts or tool
 options. See [Project layout](../getting-started/project-layout.md#ktoml).

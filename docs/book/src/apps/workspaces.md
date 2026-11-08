@@ -49,6 +49,10 @@ import pay.ChargeRequest
 import pay.Payments
 ```
 
+No prefix and no alias is needed: two packages of one build can't declare the same module (`K8106`), so
+`pay.Payments` names exactly one module. (Git packages, when they arrive, are different: their module paths
+start with their URL, and an alias in `k.toml` shortens it; see [Packages](packages.md).)
+
 What shop sees of the library is its `public` declarations. The library's tests, lockfiles and migrations
 stay its own.
 
@@ -205,7 +209,8 @@ caller sees `rpcFailure(.rejected(.unauthenticated))`. Mutual TLS, if you want i
 ### Addresses known at run time
 
 `RemoteClient.at` builds a client for a URL known only at run time, such as a callback address a merchant
-registered. The protocol is the type you use the result as:
+registered. K has no type arguments in expressions, so the protocol comes from the expected type: the
+type you use the result as. A result used as anything but a protocol is `K4026`:
 
 ```k
 // examples/shop/paybox/src/payments/RemoteNotifier.k
@@ -240,7 +245,8 @@ fields = [
 ]
 ```
 
-`k build` writes it and you commit it; `k check` compares the code with it on every run, CI included.
+`k build` writes it and you commit it; `k check` only reads it, comparing the code with it on every run,
+CI included, the way `schema.lock` is written by `k migrate` and checked by `k check`.
 
 - **Compatible:** adding an rpc, an optional field or parameter, or an error case.
 - **Breaking:** removing an rpc, a parameter, a field or an error case, changing any of their types, adding
@@ -280,8 +286,10 @@ paybox serving on http://localhost:8080
 shop serving on http://localhost:8081
 ```
 
-**Tests stay hermetic.** In `.test`, a `remote` rule binds a `TestRemote<P>` double, whose every call fails
-with `rpcFailure(.offline)`, so nothing leaves the process. Bind a fake to test the happy path:
+**Tests stay hermetic.** In `.test`, every `remote` rule binds an offline `TestRemote<P>` double by
+default, even when the serving app is in the same workspace: its every call fails with
+`rpcFailure(.offline)`, so nothing leaves the process and each service's tests run on their own. Bind
+your own fake with a `use` rule to test the happy path:
 
 ```k
 // examples/stack/shop/src/checkout/Checkout.test.k

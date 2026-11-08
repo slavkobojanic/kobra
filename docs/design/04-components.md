@@ -158,7 +158,8 @@ Counter()
 
 ### Handlers
 
-- **Handlers may be `async`.** The element or component doesn't wait for them. Leaving the page cancels a handler that is still running, as for effects ([03-reactivity.md](03-reactivity.md)).
+- **Handlers may be `async`.** The element or component doesn't wait for them. **An async handler is owned by the component that wrote it** ([03-reactivity.md](03-reactivity.md#async-work-is-owned)): its rpcs and `HttpClient` calls are aborted when that component unmounts or its page is left, and the handler stops at its next `await`, so no code after the `await` runs on the disposed component. The stop is silent: no `catch` clause runs and nothing is reported.
+  - This holds for every kind of handler: a function or lambda passed to an element's `.on(…)`, an async lambda handling a child's `@Emits` event (owned by the listening parent, not the child that fires it), a `form.handle(…)` action, and an async function or lambda given to a child as a prop (owned by the parent that wrote it, even though the child calls it).
 - **A handler can't be declared `throws`.** Nothing waits for it, so nothing could catch its error. It handles every error inside, usually by recording it in state. Passing a throwing function to `.on(…)` is a compile error, with a quick fix that wraps the function's body in `do`/`catch`. `@Effect` follows the same rule.
 - A form's submit handler is usually wrapped by `form.handle(…)`, which may receive an action that throws `ValidationError` ([15-forms-and-validation.md](15-forms-and-validation.md)). The handler `form.handle` returns doesn't throw.
 

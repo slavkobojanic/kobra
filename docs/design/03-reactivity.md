@@ -84,10 +84,22 @@ func track() {
 
 When a dependency changes while an async effect is still running, the previous run is **cancelled automatically**. This removes the race condition that `useEffect` plus `fetch` causes in React. Cancellation is not an error: a cancelled `await` (a request, a `clock.sleep`) never resumes, so there is nothing to catch.
 
+## Async work is owned
+
+**Decision:** work that a component or page starts is owned by it, and is cancelled when it unmounts, the way a Swift structured task is cancelled with its scope.
+
+- **Every async run has an owner.** An async handler (a function or a lambda passed to `.on(…)`, an event handler written by the listening component, a `form.handle(…)` action, an async function or lambda given to a child as a prop) runs under the component that wrote it. An `@Effect` run is owned by its effect and a `@Load` run by its load group, and both of those belong to the component. The owner is cancelled when the component unmounts or the page is left. A run is also cancelled when it is superseded: the effect re-runs, or the load group starts over.
+- **The owner's cancellation reaches the I/O.** Every rpc and every `HttpClient` call made from a run, directly or through services, carries the owner's `AbortSignal`, and is aborted when the owner is cancelled. So is `clock.sleep`.
+- **No code after an `await` runs on a cancelled owner.** A promise can settle while the owner is still live, and the owner can be cancelled before the body resumes. So after each `await`, and on entering each `catch`, the generated code checks the owner and stops the body if it was cancelled. Each iteration of a `for await` is checked the same way. A body therefore never writes the state of a disposed page, never navigates from it, and never reads its narrowed `session.user` after the session ended ([26-auth-and-sessions.md](26-auth-and-sessions.md#in-the-browser)).
+- **Cancellation is silent.** It is not an error that user code sees. A stopped body unwinds without running any `catch` clause, `try … else` fallback or other K code, and nothing reports it: an effect, a load, a handler and a dropped event handler all ignore it. K has no `defer` or `finally`. Cleanup that must run when an owner goes away is an `onCleanup` block, and those still run, before each re-run and on unmount.
+- **A lambda passed to a K function is not a new owner.** `retry { await api.save() }` runs the lambda under the caller's own run, which `retry` passes on, so cancelling the caller cancels the lambda.
+
+Why: a page that is left must not keep acting. Without ownership, a slow response arriving after navigation could write state nobody sees, navigate the user somewhere unexpected, or crash a page that `requires Authenticated` by reading a user who just signed out. Cooperative cancellation at each `await` needs no locks and adds no error case for the developer to handle, and ties the lifetime of async work to the lifetime of the UI that started it.
+
 ## Where effects run
 
 - **Effects run only in the browser,** after the component has mounted (after hydration, for a server-rendered page). **They never run during server rendering,** and neither do timers started in them. Server-side work on a schedule is a background job ([30-background-jobs.md](30-background-jobs.md)).
-- Leaving a page, or unmounting a component, cancels its running effects and runs their `onCleanup` blocks.
+- Leaving a page, or unmounting a component, cancels its running effects, handlers and loads ([above](#async-work-is-owned)) and runs their `onCleanup` blocks.
 
 ## Effects handle their own errors
 

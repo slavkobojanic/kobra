@@ -1,6 +1,8 @@
-error[K5507] src/notes/NotesApi.k:9:9-9:56
+error[K5507] src/notes/NotesApi.k:10:9-10:56
   label src/notes/NotesProtocol.k:7:9-7:14: the server runs the guards declared here
   fix "Move `RateLimit(10.perMinute)` to `NotesProtocol.count`" maybe-incorrect
-    edit src/notes/NotesApi.k:8:49-9:56 ""
+    edit src/notes/NotesApi.k:1:1-2:1 ""
+    edit src/notes/NotesApi.k:2:1-3:1 ""
+    edit src/notes/NotesApi.k:9:49-10:56 ""
     edit src/notes/NotesProtocol.k:2:1-2:1 "import k.auth.RateLimit\n"
     edit src/notes/NotesProtocol.k:7:43-7:43 " requires RateLimit(10.perMinute)"

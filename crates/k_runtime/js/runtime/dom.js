@@ -9,6 +9,7 @@
 
 import { batch, computed, getOwner, renderEffect, runWithOwner, scope, signal, untrack } from "./signals.js";
 import { claimRange, claimTemplate, isHydrating } from "./hydrate.js";
+import { CANCELLED } from "./values.js";
 
 /**
  * Prepares a static HTML fragment once and returns a factory that clones
@@ -109,7 +110,8 @@ function delegate(e) {
 /**
  * Listens to an event. The handler runs inside `batch`, so the DOM is
  * current when it returns; a promise it returns (an async handler) is not
- * awaited. Bubbling events (`click`, `input`, `submit`, `keydown`) on an
+ * awaited, and its rejection with {@link CANCELLED} (the handler stopped
+ * because its component was disposed) is dropped. Bubbling events (`click`, `input`, `submit`, `keydown`) on an
  * element already in the document are delegated: one listener per document
  * dispatches by a per-element handler table.
  * @param {EventTarget} target
@@ -117,7 +119,11 @@ function delegate(e) {
  * @param {(event: Event) => unknown} handler
  */
 export function on(target, event, handler) {
-  const run = (e) => batch(() => handler(e));
+  const run = (e) => {
+    batch(() => handler(e))?.then?.(undefined, (x) => {
+      if (x !== CANCELLED) throw x;
+    });
+  };
   if (DELEGATED.has(event) && target.nodeType === 1 && connected(target)) {
     const root = target.ownerDocument.documentElement;
     const installed = (root.$kd ??= new Set());

@@ -20,6 +20,10 @@ import k.drag.DragKind
 public let cardDrag: DragKind<Card> = DragKind(name: "card")
 ```
 
+Kinds with the same name are the same kind, so declare each kind once, next to its payload type, and
+import it where it is used. Declaring a kind again with the same name and another payload type is a
+compile error (`K2406`), since one kind's drop target would receive the other's payloads.
+
 A region accepts only drags of its own kind, and its handler receives the kind's payload type, so a
 drop can never deliver the wrong value. Both mistakes are compile errors:
 

@@ -17,7 +17,7 @@ use k_syntax::ast::{self, AstNode};
 use k_syntax::{SyntaxKind, SyntaxNode};
 
 use crate::body::{BodyOwner, Checker};
-use crate::cx::{Cx, ImportRes};
+use crate::cx::Cx;
 use crate::program::{DeclId, FileIx, MemberKind};
 use crate::stdlib::DeclarationKind as K;
 use crate::ty::Ty;
@@ -375,50 +375,12 @@ fn fakes(cx: &Cx<'_, '_>, d: DeclId) {
 }
 
 /// The K4014 fix: removes the `use` rule's line (`line`) and the imports
-/// that only the rule used, so applying it leaves no unused import (K1105).
-///
-/// An import is only the rule's when every identifier token of the file
-/// with its name (outside the imports) lies in the rule. Edits are in
-/// source order: the imports come before the rule.
+/// that only the rule used ([`Cx::imports_only_in`]), so applying it leaves
+/// no unused import (K1105). Edits are in source order: the imports come
+/// before the rule.
 fn remove_rule_fix(cx: &Cx<'_, '_>, file: FileIx, rule: &SyntaxNode, line: TextRange) -> Fix {
     let p = cx.p;
-    let info = p.file(file);
-    let rule_range = rule.text_range();
-    let mut edits = Vec::new();
-    for (i, import) in info.imports.iter().enumerate() {
-        let Some(ImportRes::Bound(name, _)) = cx.imports[file.0 as usize].get(i) else {
-            continue;
-        };
-        let mut in_rule = false;
-        let mut elsewhere = false;
-        for t in info
-            .root
-            .descendants_with_tokens()
-            .filter_map(rowan::NodeOrToken::into_token)
-            .filter(|t| t.kind() == SyntaxKind::Ident && t.text() == name)
-        {
-            let r = t.text_range();
-            if info
-                .imports
-                .iter()
-                .any(|im| im.node_range.contains_range(r))
-            {
-                continue;
-            }
-            if rule_range.contains_range(r) {
-                in_rule = true;
-            } else {
-                elsewhere = true;
-                break;
-            }
-        }
-        if in_rule && !elsewhere {
-            edits.push(TextEdit {
-                span: p.span(file, cx.line_range(file, import.node_range)),
-                replacement: String::new(),
-            });
-        }
-    }
+    let mut edits = cx.imports_only_in(file, rule.text_range(), &HashSet::new());
     edits.push(TextEdit {
         span: p.span(file, line),
         replacement: String::new(),

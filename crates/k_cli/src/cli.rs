@@ -29,7 +29,12 @@ pub enum Command {
     /// Print the route table: pages, endpoint pages and redirects.
     Routes(ProjectArgs),
     /// Run the language server on standard input and output (for editors).
-    Lsp,
+    Lsp {
+        /// Accepted and ignored: stdio is the only transport, but many LSP
+        /// clients (vscode-languageclient among them) pass `--stdio`.
+        #[arg(long, hide = true)]
+        stdio: bool,
+    },
     /// Manage database migrations.
     Migrate {
         /// The migration subcommand.

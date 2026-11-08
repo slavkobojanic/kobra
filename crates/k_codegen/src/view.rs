@@ -1628,6 +1628,7 @@ impl Client<'_, '_, '_> {
     /// The name of the cancellation context async handlers run under: the
     /// component's lifetime, or `$life`.
     fn lifetime_name(&mut self) -> String {
+        self.b.uses_life = true;
         if let Some(n) = &self.lifetime {
             return n.clone();
         }
@@ -2219,7 +2220,12 @@ pub(crate) fn props_object_inner(b: &mut Body<'_, '_>, c: &Comp, target: Target)
             }
         } else {
             let (pre, x) = b.capture(|b| {
-                let x = b.expr(v);
+                // A lambda for a prop of function type: the child calls it
+                // with its K arguments alone.
+                let x = match v {
+                    ast::Expr::LambdaExpr(l) if target == Target::Client => b.owned_lambda(l),
+                    other => b.expr(other),
+                };
                 let from = b.ty(v.syntax());
                 let to = member
                     .and_then(|m| b.g.view.member(m).ty.clone())
@@ -2238,7 +2244,16 @@ pub(crate) fn props_object_inner(b: &mut Body<'_, '_>, c: &Comp, target: Target)
     }
     if target == Target::Client {
         for (name, h) in &c.events {
+            // The child fires the event with its payload alone: a handler
+            // that awaits is bound to the listening component.
             let v = match h {
+                ast::Expr::LambdaExpr(l)
+                    if l.syntax()
+                        .descendants()
+                        .any(|n| n.kind() == SyntaxKind::AwaitExpr) =>
+                {
+                    b.owned_lambda(l)
+                }
                 ast::Expr::LambdaExpr(l) => b.sync_lambda(l),
                 other => b.expr(other),
             };

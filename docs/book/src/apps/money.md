@@ -49,7 +49,9 @@ A money literal is a number followed by a currency extension: `24.00.usd`, `10.e
 ## Arithmetic
 
 - **`Money + Money` and `Money - Money` need the same currency.** Mixing currencies is a compile error
-  when the compiler can see both, and a panic otherwise, like an index out of range.
+  (`K2407`) when the compiler can see both, and a panic otherwise, like an index out of range. The
+  compiler sees the currency of a literal, of a literal scaled by a quantity, and of sums of those:
+  `1.usd + 2.eur` and `2.usd * 3 + 1.jpy` don't compile, while `price + 1.eur` is checked when it runs.
 - **`Money * Int` scales by a quantity.**
 - **Scaling by a rate goes through `multiplied(by:rounding:)`**, and the rounding rule is required:
   `.halfEven`, `.halfUp`, `.down` or `.up`. Rounding is always a visible decision.

@@ -345,9 +345,24 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
   ([runtime.md §3.4](runtime.md#34-async-effects-and-cancellation)).
 - **A cancelled `await` never resumes.** Every `await e` in K is printed as `await $k.guard($c, e)`, which
   returns a promise that settles like `e` while `$c` is not aborted and never settles after it is.
-  Nothing after a cancelled await runs, so there is nothing to catch, as design 03 requires. (`guard` is
-  elided for awaits whose promise is produced by a runtime primitive that already honours `$c`: `rpc`,
-  `sleep`.)
+  (`guard` is elided for awaits whose promise is produced by a runtime primitive that already honours
+  `$c`: `rpc`, `sleep`.)
+- **A body stops at an `await` whose run was cancelled while it settled** ([design 03, "Async work is
+  owned"](../design/03-reactivity.md#async-work-is-owned)). A promise can settle while `$c` is live and
+  `$c` be aborted before the body resumes, one microtask later: a page left by a navigation, or by the
+  router's guard when another rpc's response ended the session. So in a body with a cancellation context,
+  the awaited value passes through `$k.live($c, …)`: `$k.live($c, await $k.guard($c, e))`, which returns
+  it while `$c` is live and otherwise throws `$k.CANCELLED`. Every `catch` that a `do`/`catch` or a
+  `try … else` prints starts with `if ($k.isPanic(e)) throw e;` followed by `$k.live($c);`, and so does
+  the body of each `for await` iteration (`$k.live($c);` first). `CANCELLED` is a panic, so it passes
+  every generated `catch` untouched: no K code runs once the run is cancelled, and there is nothing to
+  catch. K has no `defer` or `finally`; an owner's `onCleanup` blocks are its cleanup and still run.
+  Bodies without a cancellation context (`$c` is `null`) print `await $k.guard(null, e)` without the
+  check.
+- **Stopping is silent.** The runtime drops `CANCELLED` wherever a stopped run ends: an effect's and a
+  load's rejection after their signal was aborted, `$k.on`'s handler promise, and `$k.own`
+  ([§10](#10-components-on-the-client)), whose stopped call never settles instead of rejecting
+  ([runtime.md §3.4](runtime.md#34-async-effects-and-cancellation)).
 - `rpc`, `clock.sleep`, `HttpClient` and database calls take `$c` and abort their I/O.
 - Reads after the first `await` inside an effect are not tracked; the checker warns
   ([sema.md §12.3](sema.md#123-reactivity)), and the runtime simply doesn't see them.
@@ -421,8 +436,18 @@ export function Counter(props, ctx) {
 - Each component instance runs inside `$k.scope`, so unmounting disposes its effects, loads and handlers
   ([runtime.md §3.5](runtime.md#35-owners-scopes-and-cleanup)).
 - Handlers are wrapped by `$k.on`, which batches; async handlers get a `$c` that is aborted when the
-  component unmounts. An async function of the component used as a value (`form.handle(buy)`, a
-  closure) is `(...a) => buy($life, ...a)`, so it takes the arguments of its K function type alone.
+  component unmounts: the component's lifetime `$life` (`const $life = $k.lifetime();`, declared first in
+  the client renderer whenever its body refers to it). An async function handler is
+  `() => save($life)`, an inline one that awaits `() => (async ($c) => { … })($life)`.
+- **Async values called with their K arguments alone are bound to their owner.** A prop of function
+  type, an `@Emits` handler (`changed?.(v)`) and `form.handle(_:)`'s action are called without a
+  cancellation context, so an async function of the component used as such a value is
+  `$k.own(buy, $life)`, and an async lambda written for one is `$k.own(async ($c, v) => { … }, ctx)`,
+  where `ctx` is `$c` inside a run and `$life` elsewhere. `$k.own(f, c)` is `(...a) => f(c, ...a)`
+  whose stopped call never settles, so the child that drops the promise of `emit` reports nothing. The
+  work belongs to the component that wrote the function, not to the child that calls it. A lambda passed
+  to a K function's parameter is not bound: that parameter is called with the caller's `$c` first
+  (`retry($c, async ($c) => { … })`).
 - **A method value keeps its receiver**: `todos.clearCompleted` used as a handler is
   `todos.clearCompleted.bind(todos)` (an arrow over a receiver that isn't a plain path).
 - **`@Load` and the members that read it.** On the server, `@Derived` values are computed after the

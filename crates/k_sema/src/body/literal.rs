@@ -8,7 +8,8 @@
 //! has one. A literal its type's parser refuses is **K2404**, with the
 //! reason; the parsers are the runtime's, ported in [`crate::literals`]. A
 //! money amount such as `1.005.usd` with more significant decimal places
-//! than its currency is K2404 too.
+//! than its currency is K2404 too, and adding or subtracting amounts whose
+//! literal currencies differ (`1.usd + 2.eur`) is **K2407**.
 
 use k_diagnostics::{Diagnostic, Fix, Span, TextRange, codes};
 use k_syntax::SyntaxKind;
@@ -244,6 +245,83 @@ impl Checker<'_, '_, '_> {
             format!(
                 "`{written}` has {places} decimal place{}, and {code} has {has}",
                 plural(places)
+            ),
+        );
+    }
+
+    /// The currency code (`usd`) of `e` when the checker can see it from
+    /// literals alone: a money literal `amount.code` (negated or in
+    /// parentheses too), a `Money * Int` scaling of one, or a sum or
+    /// difference of such amounts (its left operand's currency, since a
+    /// mixed one is reported where it is written). `None` for anything
+    /// whose currency only the run time knows. Only called on operands
+    /// already typed `Money`, so a number extension named like a currency
+    /// is one.
+    fn visible_currency(e: &ast::Expr) -> Option<String> {
+        match e {
+            ast::Expr::ParenExpr(p) => {
+                Self::visible_currency(&p.syntax().children().find_map(ast::Expr::cast)?)
+            }
+            ast::Expr::PrefixExpr(p) => {
+                if p.op()?.kind() != SyntaxKind::Minus {
+                    return None;
+                }
+                Self::visible_currency(&p.operand()?)
+            }
+            ast::Expr::MemberExpr(m) => {
+                let recv = match m.receiver()? {
+                    ast::Expr::PrefixExpr(p) if p.op()?.kind() == SyntaxKind::Minus => {
+                        p.operand()?
+                    }
+                    other => other,
+                };
+                let ast::Expr::Literal(l) = recv else {
+                    return None;
+                };
+                l.token()
+                    .filter(|t| matches!(t.kind(), SyntaxKind::IntLit | SyntaxKind::FloatLit))?;
+                let name = m.name()?;
+                literals::currency_digits(name.text())?;
+                Some(name.text().to_owned())
+            }
+            ast::Expr::BinaryExpr(b) => match b.op()?.kind() {
+                SyntaxKind::Plus | SyntaxKind::Minus => {
+                    Self::visible_currency(&b.lhs()?).or_else(|| Self::visible_currency(&b.rhs()?))
+                }
+                SyntaxKind::Star => Self::visible_currency(&b.lhs()?),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// K2407 at `range` for `lhs op rhs` (`op` is `+` or `-`, both operands
+    /// `Money`) when both currencies are visible and differ: `1.usd +
+    /// 2.eur` would panic at run time (`docs/design/34-money.md`).
+    pub(super) fn check_mixed_currencies(
+        &mut self,
+        op: char,
+        lhs: &ast::Expr,
+        rhs: &ast::Expr,
+        range: TextRange,
+    ) {
+        let (Some(a), Some(b)) = (Self::visible_currency(lhs), Self::visible_currency(rhs)) else {
+            return;
+        };
+        if a == b {
+            return;
+        }
+        let (a, b) = (a.to_ascii_uppercase(), b.to_ascii_uppercase());
+        let (verb, to) = if op == '+' {
+            ("adds", "to")
+        } else {
+            ("subtracts", "from")
+        };
+        self.err(
+            codes::MIXED_CURRENCIES,
+            range,
+            format!(
+                "this {verb} {b} {to} {a}; `Money` never mixes currencies, so it would panic at run time"
             ),
         );
     }

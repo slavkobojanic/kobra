@@ -1,0 +1,3 @@
+client contains save: () => $k.own(async ($c, text) => {
+client contains }, $life)
+client contains props.save()?.("draft")

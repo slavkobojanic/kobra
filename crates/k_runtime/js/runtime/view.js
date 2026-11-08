@@ -11,6 +11,7 @@
 import { claimMarkers, claimRange, isHydrating } from "./hydrate.js";
 import { place } from "./dom.js";
 import { onCleanup, renderEffect } from "./signals.js";
+import { CANCELLED } from "./values.js";
 
 /**
  * Places the nodes `render()` returns between `start` and `end` (a child
@@ -105,6 +106,21 @@ export function lifetime() {
   const controller = new AbortController();
   onCleanup(() => controller.abort());
   return controller.signal;
+}
+
+/**
+ * An async function of a component, or an async lambda written in one,
+ * as a value that is called with its K arguments alone (a prop, an
+ * event's handler, `form.handle`'s action): calls `f(c, ...args)`, so it
+ * runs under `c`, the component's lifetime or the run that made it. A
+ * call that stops on its cancellation never settles instead of rejecting,
+ * so a caller that drops the promise (`emit`) reports nothing.
+ * @param {(c: AbortSignal|null, ...args: unknown[]) => Promise<unknown>} f
+ * @param {AbortSignal|null} c
+ * @returns {(...args: unknown[]) => Promise<unknown>}
+ */
+export function own(f, c) {
+  return (...a) => f(c, ...a).then(undefined, (e) => (e === CANCELLED ? new Promise(() => {}) : Promise.reject(e)));
 }
 
 /**

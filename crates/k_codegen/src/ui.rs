@@ -136,6 +136,9 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let mut effects = Vec::new();
     let mut derived = Vec::new();
     let mut async_handlers = false;
+    // Whether the client renderer refers to the lifetime `$life` is known
+    // once its body is lowered; the declaration then goes first.
+    b.uses_life = false;
     for &m in &info.members {
         let mi = g.view.member(m).clone();
         let n = mangle(&mi.name);
@@ -284,9 +287,6 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             _ => {}
         }
     }
-    if async_handlers && !ssr {
-        stmts.insert(0, Stmt::Const("$life".into(), rt("lifetime", vec![])));
-    }
     // `@Load`: the load group on the client, awaited values on the server.
     let loads = load_names(g, d);
     let loading = block_of(&node, k_syntax::SyntaxKind::LoadingBlock);
@@ -429,6 +429,9 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         };
         stmts.extend(effect_stmts);
         stmts.push(Stmt::Return(Some(root)));
+        if async_handlers || b.uses_life {
+            stmts.insert(0, Stmt::Const("$life".into(), rt("lifetime", vec![])));
+        }
         out.push(Stmt::Function(
             Function {
                 name: name.clone(),

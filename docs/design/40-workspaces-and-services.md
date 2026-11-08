@@ -56,25 +56,26 @@ public app Shop {
 - **Remote clients are server-only.** A browser never holds a service token, and calls between services never need CORS. When the browser needs data from another service, it calls its own app's server, which calls the other service.
 - **The wire format is the app's own RPC wire format** ([28-rpc-wire-format.md](28-rpc-wire-format.md)). Errors arrive typed, and network failures surface as `rpcFailure(.offline)` and `.timeout`, exactly as they do in the browser.
 - **Calls are authenticated with a signed service token.** The calling app signs a short-lived token from the shared secret in its `RemoteService` config: the caller's name, an expiry and an HMAC. The stdlib guard `ServiceAuthenticated` verifies it on the serving side, and an injected `ServiceCaller` gives the verified caller's name. Mutual TLS is left to the platform.
-- **`RemoteClient.at(url:token:)`** builds a client of protocol `P` for a URL known only at run time, such as a merchant's callback address that is registered with paybox. K has no explicit type arguments in expressions, so `P` is the type the result is used as: `let events: PaymentEvents = RemoteClient.at(url: hook, token: secret)`. It goes through the same codecs, timeouts and error mapping.
+- **`RemoteClient.at(url:token:)`** builds a client of protocol `P` for a URL known only at run time, such as a merchant's callback address that is registered with paybox. K has no explicit type arguments in expressions, so **`P` comes from the expected type**, the type the result is used as: `let events: PaymentEvents = RemoteClient.at(url: hook, token: secret)`. It goes through the same codecs, timeouts and error mapping.
 
 ## Compatibility between deploys
 
 - **A serving app records the shape of each protocol it implements in `rpc.lock`,** in the same way as `storage.lock` for stored data ([30-background-jobs.md](30-background-jobs.md)): the rpcs, the Protobuf field numbers, and the error cases.
+- **`k build` writes `rpc.lock` and `k check` checks the code against it,** like `schema.lock`, which `k migrate` (and `k build`) write and `k check` only compares ([13-tooling.md](13-tooling.md#lockfiles)), so CI catches a contract change nobody built.
 - **`k check` rejects a change that would break callers which are already deployed:** removing an rpc, a field or an error case, changing a field's type, or reusing a field number. The change compiles only when it is marked `@Breaking("reason")`. Adding an rpc, an optional field or an error case is always compatible.
 
 ## Tooling
 
 - **Commands run at the workspace root apply to every member:** `k check`, `k test`, `k build` (each app to `dist/<name>/`).
 - **`k dev` at the root starts every app member,** each on its own port. In `.development`, a `remote` rule resolves to the sibling member's dev server automatically, with a generated development secret, so no `PAYBOX_URL` needs to be set.
-- **Tests stay hermetic.** In `.test`, a `remote` rule binds a `TestRemote<P>` double, whose calls fail with `rpcFailure(.offline)`; a test that needs answers binds a fake with `use FakePayments for Payments`. No sockets are opened. Binding the serving member's own implementation in-process is planned (see "Decided while implementing").
+- **Tests stay hermetic.** In `.test`, a `remote` rule binds an offline `TestRemote<P>` double by default, whose calls fail with `rpcFailure(.offline)`, so each service's tests run without the others; a test that needs answers binds its own fake with a `use` rule, `use FakePayments for Payments`. No sockets are opened. Binding the serving member's own implementation in-process is planned (see "Decided while implementing").
 - **The language server indexes the whole workspace,** so go to implementation on `Payments.charge` jumps from shop's call into paybox's implementation.
 
 ## Decided while implementing
 
 **Projects and dependencies**
 
-- **A library's modules keep their own paths.** `pay-contracts/src/pay/Payments.k` is `pay.Payments` in every member that depends on it, imported as `import pay.Payments`; the package name is not a prefix. A module belongs to one package of a build: a member and a library (or two libraries) declaring the same module is `K8106`. Git packages ([18-packages.md](18-packages.md)) will mount the same way when they arrive.
+- **A library's modules keep their own paths.** `pay-contracts/src/pay/Payments.k` is `pay.Payments` in every member that depends on it, imported as `import pay.Payments`; the package name is not a prefix. A module belongs to one package of a build: a member and a library (or two libraries) declaring the same module is `K8106`, which keeps module paths unique. Git packages differ ([18-packages.md](18-packages.md)): their module paths are prefixed by their URL name, and an `[aliases]` entry gives them a short prefix; a workspace library needs neither.
 - **A dependency names the library's `[package] name`**: `pay-contracts = { workspace = true }`. That table is the only form a workspace dependency has; a git tag (`"v1.2.0"`) is reported as not resolvable yet (`K8102`).
 - **The root is not a package.** A root `k.toml` with `[workspace]` has no `[package]`; members are directories below the root, without `..` or hidden directories, never inside one another, and their package names are unique. A member's `k.toml` can't declare a workspace of its own.
 - **Diagnostics:** `K8101` malformed manifests, `K8102` unknown dependency, `K8103` a member without `k.toml`, `K8104` a cycle between members (reported at every edge of the cycle, with the cycle), `K8105` a dependency on an app, `K8106` a module in two packages. A reported edge is left out of the graph, so every member is still checked.

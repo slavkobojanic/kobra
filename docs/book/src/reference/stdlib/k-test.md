@@ -19,7 +19,7 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`TestClock`](#testclock) | Virtual time for tests, the default [`Clock`](k-time.md#clock) in `k test` (`docs/design/35-time.md`, "Testing with TestClock"). |
 | [`TestFiles`](#testfiles) | The default [`Files`](k-device.md#files) in `k test` (`docs/design/42-files.md`): no picker opens. |
 | [`TestHttpClient`](#testhttpclient) | The default [`HttpClient`](k-http.md#httpclient) in `k test`: it answers only requests it has a canned response for, and fails the test on any other. |
-| [`TestRemote`](#testremote) | The `.test` binding of a `remote` rule whose serving app is not a member of the workspace (`docs/design/40-workspaces-and-services.md`): an in-process double of protocol `P` whose every rpc fails with `rpcFailure(.offline)` ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so a test never opens a socket. |
+| [`TestRemote`](#testremote) | The `.test` binding of every `remote` rule, also when the serving app is a member of the same workspace (`docs/design/40-workspaces-and-services.md`): an in-process double of protocol `P` whose every rpc fails with `rpcFailure(.offline)` ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so each service's tests stay hermetic and never open a socket. |
 
 ## Element
 
@@ -416,10 +416,11 @@ canned response for, and fails the test on any other.
 public struct TestRemote<P>
 ```
 
-The `.test` binding of a `remote` rule whose serving app is not a member
-of the workspace (`docs/design/40-workspaces-and-services.md`): an
-in-process double of protocol `P` whose every rpc fails with
-`rpcFailure(.offline)` ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so a test never
-opens a socket. A test that
-needs answers binds a fake with `use FakePayments for Payments`.
+The `.test` binding of every `remote` rule, also when the serving app is
+a member of the same workspace
+(`docs/design/40-workspaces-and-services.md`): an in-process double of
+protocol `P` whose every rpc fails with `rpcFailure(.offline)`
+([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so each service's tests stay hermetic
+and never open a socket. A test that needs answers binds its own fake
+with a `use` rule: `use FakePayments for Payments`.
 

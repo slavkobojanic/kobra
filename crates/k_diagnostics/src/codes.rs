@@ -454,6 +454,12 @@ codes! {
     /// Two storage keys of the app have the same name.
     DUPLICATE_STORAGE_KEY = 2405, "duplicate-storage-key", Error,
         "Two storage keys of the app have the same name, so they would read and write each other's data.";
+    /// Two drag kinds have the same name but different payload types.
+    CONFLICTING_DRAG_KIND = 2406, "conflicting-drag-kind", Error,
+        "Two drag kinds with the same name are the same kind, so they must carry the same payload type.";
+    /// `Money + Money` or `Money - Money` over two different literal currencies.
+    MIXED_CURRENCIES = 2407, "mixed-currencies", Error,
+        "`+` and `-` on `Money` need one currency; two literal amounts in different currencies would panic at run time.";
 
     // ---------------------------------------------------------------- annotations, members and reactivity
     /// An annotated field must be declared `let` or `var` as its annotation requires.
@@ -771,6 +777,9 @@ codes! {
     /// A `requires` clause on an rpc outside a protocol, which the server never checks.
     REQUIRES_ON_HANDLER = 5507, "requires-on-handler", Error,
         "A `requires` clause on a service's rpc is never checked: the server runs the guards the protocol's rpc declares.";
+    /// An `rpc` member that no protocol its declaration implements declares.
+    RPC_OUTSIDE_PROTOCOL = 5508, "rpc-outside-protocol", Error,
+        "Only a protocol's rpcs are served: an `rpc` elsewhere is a `func`, or belongs in a protocol the service implements.";
 
     // ---------------------------------------------------------------- persistence
     /// A repository query lambda uses something that can't be translated to SQL.

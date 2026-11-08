@@ -150,8 +150,9 @@ import k.time.Clock
 - **Built-in elements and core types** (`String`, `List`, `Map`, `Color`, `Bytes`, `Url`, `Secret`,
   units and the rest) need no import either. Neither do the enums the compiler generates for the app
   (`Page`, `Endpoint`, `ThemeVariant`) or theme tokens.
-- Packages are imported by their module path: `import github.com/acme/charts.LineChart`, or
-  `import charts.LineChart` with an alias in `k.toml`. See [Packages](../apps/packages.md).
+- Git packages are imported by their URL-prefixed module path: `import github.com/acme/charts.LineChart`,
+  or `import charts.LineChart` with an alias in `k.toml`. A library of your own workspace keeps its
+  modules' own paths (`import pay.Payments`). See [Packages](../apps/packages.md).
 
 The language server manages imports as you write code: choosing a completion from another module adds
 its import, a missing import is a quick fix, and an unused import is greyed out with a quick fix that

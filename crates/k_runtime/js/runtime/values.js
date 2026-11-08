@@ -24,6 +24,16 @@ export class KPanic extends Error {
 }
 
 /**
+ * The cancellation: what a body throws to stop at an `await` once the run
+ * that owns it was cancelled (its component or page was disposed, its
+ * effect re-ran, its load started over; docs/design/03-reactivity.md,
+ * "Async work is owned"). It is a panic, so every generated `catch`
+ * rethrows it before any K code runs, and one value, so the runtime tells
+ * it from a failure: an effect, a load, `on` and `own` drop it silently.
+ */
+export const CANCELLED = new KPanic("cancelled");
+
+/**
  * Throws a {@link KPanic}.
  * @param {string} message
  * @returns {never}

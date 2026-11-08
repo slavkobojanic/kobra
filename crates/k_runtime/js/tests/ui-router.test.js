@@ -19,6 +19,7 @@
  * `x-k-session`; a full page load is a write of `location.href`.
  */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
+import * as k from "k:runtime";
 import { child, flush, navigate, onCleanup, renderEffect, root, rpc, sessionMirror, signal, startRouter, title } from "k:runtime";
 
 const ROUTER = "router (runtime.md §10)";
@@ -766,4 +767,58 @@ test("losing the user while leaving a guarded page for an open one stays on the 
   await tick();
   assertDeepEq(b.loads, []);
   assertEq(container.textContent, "pricing");
+});
+
+// A handler of a guarded page awaits an rpc, and while its answer comes
+// back another rpc's response ends the session (03-reactivity.md, "Async
+// work is owned"; 26-auth-and-sessions.md, "In the browser"). The page is
+// disposed before the mirror changes, and the handler, which runs under
+// the page's lifetime, stops at its `await`: the code after it, which
+// reads the narrowed `session.user` without a `nil` check, never runs.
+test("a guarded page's handler awaiting an rpc stops when the session ends", async () => {
+  sessionMirror.set({ user: ADA });
+  browser("/account");
+  const log = [];
+  const read = [];
+  let handler = null;
+  const routes = guardRoutes(log);
+  routes.account = {
+    name: "account",
+    guards: [["auth"]],
+    parse: parser(["account"]),
+    load: async () => ({
+      /** The page: its save handler awaits an rpc, then reads the user. */
+      render() {
+        onCleanup(() => log.push("leave account"));
+        const $life = k.lifetime();
+        handler = () => (async ($c) => {
+          k.live($c, await rpc("/t.Notes/Save", {}, $c, { fetch: () => save.promise }));
+          read.push(sessionMirror.peek().user.id);
+        })($life);
+        return globalThis.document.createElement("main");
+      },
+    }),
+  };
+  let answer = null;
+  const save = { promise: new Promise((r) => { answer = r; }) };
+  startGuarded(routes);
+  await tick();
+  const running = handler();
+  // Both responses arrive in the same task: the save's answer first, the
+  // sign-out's (its mirror has no user) right behind it.
+  const ok = (mirror) => ({
+    ok: true,
+    status: 200,
+    headers: { get: (n) => (n === "x-k-session" && mirror ? JSON.stringify(mirror) : null) },
+    text: async () => "{}",
+  });
+  let signOut = null;
+  const ended = rpc("/t.Auth/SignOut", {}, null, { fetch: () => new Promise((r) => { signOut = r; }) });
+  answer(ok(null));
+  signOut(ok({ user: null }));
+  await ended;
+  await running.then(() => {}, () => {});
+  await tick();
+  assert(log.includes("leave account"), "the page was disposed");
+  assertDeepEq(read, [], "nothing after the await ran on the disposed page");
 });

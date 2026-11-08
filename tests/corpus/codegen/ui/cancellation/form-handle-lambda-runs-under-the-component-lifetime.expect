@@ -1,0 +1,4 @@
+client contains const $life = $k.lifetime();
+client contains note.handle($k.own(async ($c) => {
+client contains $k.live($c, await $k.guard($c, notes.save($c, note.value())));
+client contains }, $life))

@@ -2829,6 +2829,129 @@ error[K2405]: another storage key is named `todos`; the two would read and write
 
 **Fix:** Give each storage key its own name; a test may reuse one to inspect what a service stored.
 
+### K2406 `conflicting-drag-kind`
+
+**Error.** Two drag kinds with the same name are the same kind, so they must carry the same payload type.
+
+Example (`tests/corpus/sema/ui/drag/conflicting-kind/`):
+
+```k,ignore
+// src/board/Card.k
+// Kinds with the same name are the same kind (41-drag-and-drop.md), so two kinds named alike must
+// carry the same payload type: a drop of one would deliver the other's payload. A kind named like an
+// earlier one (in file path order) with another payload type is K2406 at its name literal, with a
+// label at the earlier one. Redeclaring a kind with the same payload type is fine.
+
+/// A card on the board.
+public struct Card {
+    /// Its id.
+    let id: Int
+}
+```
+
+```k,ignore
+// src/board/cardDrag.k
+import k.drag.DragKind
+
+/// What a card drag carries.
+public let cardDrag: DragKind<Card> = DragKind(name: "card")
+```
+
+```k,ignore
+// src/columns/ColumnView.k
+import board.Card
+import k.drag.DragKind
+
+/// The same kind again.
+let sameCardDrag: DragKind<Card> = DragKind(name: "card")
+
+/// Another payload under the card kind's name.
+let columnDrag: DragKind<Int> = DragKind(name: "card")
+
+/// A column of the board.
+public component ColumnView {
+    private let listKind: DragKind<String> = DragKind(name: "card")
+
+    view {
+        text { "Column" }
+    }
+}
+```
+
+```text
+error[K2406]: another drag kind is named `card` with the payload `board.Card`; kinds with the same name are the same kind, so this one can't carry `Int`
+ --> src/columns/ColumnView.k:8:48
+  |
+8 | let columnDrag: DragKind<Int> = DragKind(name: "card")
+  |                                                ^^^^^^
+
+error[K2406]: another drag kind is named `card` with the payload `board.Card`; kinds with the same name are the same kind, so this one can't carry `String`
+  --> src/columns/ColumnView.k:12:61
+   |
+12 |     private let listKind: DragKind<String> = DragKind(name: "card")
+   |                                                             ^^^^^^
+```
+
+**Fix:** Give the kind its own name, or the payload type of the kind already named so; usually declare the kind once and import it.
+
+### K2407 `mixed-currencies`
+
+**Error.** `+` and `-` on `Money` need one currency; two literal amounts in different currencies would panic at run time.
+
+Example (`tests/corpus/sema/types/number-extensions/money-mixed-currencies.k`):
+
+```k,ignore
+// `Money + Money` and `Money - Money` need one currency (34-money.md): mixing two at run time panics,
+// so mixing two literal currencies the checker can see is K2407 at the whole expression, through
+// parentheses, negation, scaling and the sums inside. The result is still `Money`, so nothing
+// cascades. Amounts whose currency only the run time knows are not checked.
+let mixed = 1.usd + 2.eur
+  //^^^^^ type: Money
+let less = 3.gbp - 1.usd
+let grouped = (1.usd + 2.usd) - (-3.eur)
+let scaled = 2.usd * 3 + 1.jpy
+let nested = 1.usd + 2.usd + 3.chf
+let same = (1.usd + 2.usd) - 3.usd * 2
+
+func total(a: Money) -> Money {
+    return a + 1.eur
+}
+```
+
+```text
+error[K2407]: this adds EUR to USD; `Money` never mixes currencies, so it would panic at run time
+ --> src/corpus/money-mixed-currencies.k:5:13
+  |
+5 | let mixed = 1.usd + 2.eur
+  |             ^^^^^^^^^^^^^
+
+error[K2407]: this subtracts USD from GBP; `Money` never mixes currencies, so it would panic at run time
+ --> src/corpus/money-mixed-currencies.k:7:12
+  |
+7 | let less = 3.gbp - 1.usd
+  |            ^^^^^^^^^^^^^
+
+error[K2407]: this subtracts EUR from USD; `Money` never mixes currencies, so it would panic at run time
+ --> src/corpus/money-mixed-currencies.k:8:15
+  |
+8 | let grouped = (1.usd + 2.usd) - (-3.eur)
+  |               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[K2407]: this adds JPY to USD; `Money` never mixes currencies, so it would panic at run time
+ --> src/corpus/money-mixed-currencies.k:9:14
+  |
+9 | let scaled = 2.usd * 3 + 1.jpy
+  |              ^^^^^^^^^^^^^^^^^
+
+error[K2407]: this adds CHF to USD; `Money` never mixes currencies, so it would panic at run time
+  --> src/corpus/money-mixed-currencies.k:10:14
+   |
+10 | let nested = 1.usd + 2.usd + 3.chf
+   |              ^^^^^^^^^^^^^^^^^^^^^
+```
+
+**Fix:** Keep each sum in one currency; convert an amount explicitly before adding it to another currency's.
+
 ## K3000–K3999: Components, views, styles, themes, reactivity
 
 ### K3001 `annotation-mutability`
@@ -6553,32 +6676,135 @@ error[K5506]: only the runtime produces `rpcFailure`; a handler throws its own c
 
 **Error.** A `requires` clause on a service's rpc is never checked: the server runs the guards the protocol's rpc declares.
 
-Example (`tests/corpus/sema/app/protocols/requires-on-rpc-outside-a-protocol.k`):
+Example (`tests/corpus/sema/app/protocols/requires-on-handler-keeps-moved-imports.k`):
 
 ```k,ignore
-// Only a protocol's rpcs are served, so a `requires` clause on an rpc that no protocol declares
-// guards nothing (K5507). There is no protocol rpc to move it to.
-import k.auth.Authenticated
+// The K5507 fix removes the imports that only the handler's clause used, except those of a guard it
+// moves to a protocol in the same file: there `RateLimit` is still used once the fix has moved it, so
+// its import stays.
+import k.auth.RateLimit
 import k.rpc.RpcOnlyError
 
-service Lone {
-    rpc hello() async throws RpcOnlyError -> Bool requires Authenticated {
-        return true
+protocol Notes {
+    rpc add() throws RpcOnlyError
+}
+
+service NotesApi implements Notes {
+    rpc add() async throws RpcOnlyError requires RateLimit(5.perMinute) {
     }
 }
 ```
 
 ```text
 error[K5507]: the server never checks a `requires` clause on a handler; it runs the guards the protocol declares
- --> src/corpus/requires-on-rpc-outside-a-protocol.k:7:51
-  |
-7 |     rpc hello() async throws RpcOnlyError -> Bool requires Authenticated {
-  |                                                   ^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = help: only a protocol's rpcs are served: declare `hello` in a protocol that `Lone` implements, with the clause on its rpc
+  --> src/corpus/requires-on-handler-keeps-moved-imports.k:12:41
+   |
+ 8 |     rpc add() throws RpcOnlyError
+   |         --- the server runs the guards declared here
+12 |     rpc add() async throws RpcOnlyError requires RateLimit(5.perMinute) {
+   |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: Move `RateLimit(5.perMinute)` to `Notes.add`
 ```
 
 **Fix:** Move the clause to the protocol's rpc (the quick fix does it); for a library's protocol, check the caller in the handler instead.
+
+### K5508 `rpc-outside-protocol`
+
+**Error.** Only a protocol's rpcs are served: an `rpc` elsewhere is a `func`, or belongs in a protocol the service implements.
+
+Example (`tests/corpus/sema/app/protocols/rpc-outside-a-protocol.k`):
+
+```k,ignore
+// Only a protocol's rpcs are served (11-protocols-and-rpc.md), so an `rpc` member anywhere else is
+// K5508 at its keyword: in a struct, a component or a service that implements no protocol declaring
+// it. The fix makes it a `func`; serving it means declaring it in a protocol the service implements.
+// A handler of a protocol's rpc may be an `rpc` or a `func`, and a struct that implements a protocol
+// is K5504 instead.
+import k.rpc.RpcOnlyError
+
+protocol Notes {
+    rpc list() throws RpcOnlyError -> Int
+}
+
+service NotesApi implements Notes {
+    rpc list() async throws RpcOnlyError -> Int {
+        return 0
+    }
+
+    rpc count() async throws RpcOnlyError -> Int {
+        return 1
+    }
+}
+
+service Plain {
+    rpc ping() async throws RpcOnlyError {
+    }
+}
+
+struct Point {
+    let x: Int
+
+    rpc norm() async throws RpcOnlyError -> Int {
+        return x
+    }
+}
+
+component Counter {
+    rpc reset() async throws RpcOnlyError {
+    }
+
+    view {
+        text { "0" }
+    }
+}
+
+service FuncHandlers implements Notes {
+    func list() async throws RpcOnlyError -> Int {
+        return 2
+    }
+}
+```
+
+```text
+error[K5508]: rpc `count` is never served: no protocol that `NotesApi` implements declares it
+  --> src/corpus/rpc-outside-a-protocol.k:17:5
+   |
+17 |     rpc count() async throws RpcOnlyError -> Int {
+   |     ^^^
+   |
+   = help: only a protocol's rpcs are served: declare `count` in a protocol that `NotesApi` implements, or make it a `func`
+   = fix: Make `count` a `func`
+
+error[K5508]: rpc `ping` is never served: no protocol that `Plain` implements declares it
+  --> src/corpus/rpc-outside-a-protocol.k:23:5
+   |
+23 |     rpc ping() async throws RpcOnlyError {
+   |     ^^^
+   |
+   = help: only a protocol's rpcs are served: declare `ping` in a protocol that `Plain` implements, or make it a `func`
+   = fix: Make `ping` a `func`
+
+error[K5508]: rpc `norm` is never served: `Point` isn't a service, and only services serve rpcs
+  --> src/corpus/rpc-outside-a-protocol.k:30:5
+   |
+30 |     rpc norm() async throws RpcOnlyError -> Int {
+   |     ^^^
+   |
+   = help: only a protocol's rpcs are served, by a service that implements the protocol: make `norm` a `func`
+   = fix: Make `norm` a `func`
+
+error[K5508]: rpc `reset` is never served: `Counter` isn't a service, and only services serve rpcs
+  --> src/corpus/rpc-outside-a-protocol.k:36:5
+   |
+36 |     rpc reset() async throws RpcOnlyError {
+   |     ^^^
+   |
+   = help: only a protocol's rpcs are served, by a service that implements the protocol: make `reset` a `func`
+   = fix: Make `reset` a `func`
+```
+
+**Fix:** Make it a `func` (the quick fix does it), or declare the rpc in a protocol the service implements so it is served.
 
 ## K6000–K6999: Persistence
 

@@ -11,7 +11,7 @@
  * is not in 0..<1", "currency mismatch: USD and EUR").
  */
 
-import { KPanic, checkInt, equals, isPanic, panic } from "./values.js";
+import { CANCELLED, KPanic, checkInt, equals, isPanic, panic } from "./values.js";
 
 // ------------------------------------------------------------------ values
 
@@ -138,6 +138,24 @@ export function guard(signal, p) {
       (e) => { if (!signal.aborted) reject(e); },
     );
   });
+}
+
+/**
+ * The value an `await` resumed with, while `signal` is live; once it is
+ * aborted, throws {@link CANCELLED}, which stops the body. Generated code
+ * wraps every `await` of a body with a cancellation context in it, and
+ * calls it with no value first thing in each `catch`: a promise can settle
+ * while the run is live and the run be cancelled before the body resumes,
+ * so this check, not {@link guard}, is what keeps code after an `await`
+ * from running on a disposed page (docs/compiler/codegen.md §8).
+ * @template T
+ * @param {AbortSignal | null} signal
+ * @param {T} [v]
+ * @returns {T}
+ */
+export function live(signal, v) {
+  if (signal?.aborted) throw CANCELLED;
+  return v;
 }
 
 /**

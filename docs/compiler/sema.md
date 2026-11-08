@@ -539,8 +539,12 @@ and set elements must be `Hashable` (K2009).
   scales by a quantity; any other operator or operand (`/`, `Money * Money`, `Money * Double`) is
   **K2013**, because a rate goes through `multiplied(by:rounding:)`. A literal with more significant
   decimal places than its currency (`1.005.usd`, `1.5.jpy`; trailing zeros don't count) is **K2404** at
-  the whole `amount.code` expression. **Not yet checked:** mixing two currencies the checker can see
-  (`1.usd + 2.eur`).
+  the whole `amount.code` expression. Adding or subtracting two `Money` operands whose currencies the
+  checker can see and that differ (`1.usd + 2.eur`) is **K2407** at the whole binary expression; the
+  result is still `Money`, so nothing cascades. An operand's currency is visible when it is a money
+  literal (negated or parenthesized too), a `Money * Int` scaling of one, or a sum or difference of
+  such operands (its left operand's currency). Anything else, a variable or a call, is known only at run
+  time, where mixing panics (`body/literal.rs`, `check_mixed_currencies`).
 - **Checked literals** ([20-standard-library.md](../design/20-standard-library.md#literals-and-parsing);
   `body/literal.rs`): a call that selects an initializer marked `@Literal` (`Url`, `Uuid`, `EmailAddress`,
   `TimeOfDay`, `StorageKey(name:)`, and `HttpStatus(code:)`, an enum's initializer checked in the enum
@@ -556,6 +560,12 @@ and set elements must be `Hashable` (K2009).
 - **Storage keys** ([36-local-storage.md](../design/36-local-storage.md#keys)): a `StorageKey(name:)` in
   the app's non-test code whose name an earlier key (in file path order) already has is **K2405** at its
   name literal, with a label at the earlier one (`locks.rs`, `duplicate_keys`).
+- **Drag kinds** ([41-drag-and-drop.md](../design/41-drag-and-drop.md#kinds-and-payloads)): kinds with
+  the same name are the same kind, so a `DragKind(name:)` constant or field (test code included) whose
+  name an earlier kind (in file path order) has with another payload type is **K2406** at its name
+  literal, with a label at the earlier one naming its payload. The same name with the same payload type
+  is allowed; a payload type that doesn't resolve isn't compared (`locks.rs`,
+  `conflicting_drag_kinds`).
 - **Sums:** `List` has two `sum` overloads. `sum() -> T` adds the elements of a `List<Int>` or a
   `List<Double>` (the empty sum is `0` or `0.0`); `sum(in:_:)` sums `Money` in a currency. Because no
   interface expresses "Int or Double", `sum()` is declared unconstrained in `List.k` and the checker
@@ -815,15 +825,25 @@ Accessibility lints beyond required accessible names are **deferred**.
   case). The case is spelled `rpcFailure` because `rpc` is a hard keyword.
 - Parameters, results and error payloads are `Codable` (**K5503**).
 - A protocol is implemented by a `service … implements P`, always server-only (**K5504** otherwise);
-  handlers repeat the rpc's signature (`throws` included).
+  handlers repeat the rpc's signature (`throws` included), as an `rpc` or a `func`.
+- **Only a protocol's rpcs are served:** an `rpc` member of anything but a protocol (a struct, a
+  component, an extension, or a service) that no protocol in its declaration's `implements` clause
+  declares is **K5508** at the `rpc` keyword, with a maybe-incorrect fix replacing it with `func`. The fix
+  is left out when the rpc has a `requires` clause (a `func` can't have one, and K5507 reports the
+  clause) or no body outside an interface. A declaration that names a protocol declaring the rpc but
+  can't implement one (a struct) is K5504 instead (`rpc.rs`, `unserved_rpc`).
 - **Guards are the protocol's:** a `requires` clause on an rpc that isn't a protocol member (a service's
   handler, or an rpc no protocol declares) is **K5507** at the clause. A label marks each protocol rpc the
   handler serves. The fix appends the guards those rpcs (and their protocols' headers) don't declare yet,
   compared by source text with whitespace collapsed, to each rpc's `requires` clause or after its
   signature, adds their imports to the protocol's file, and deletes the clause with the whitespace before
-  it; it is maybe-incorrect, or machine-applicable when nothing moves. A protocol from a library or the
-  stdlib gets a help instead of a fix, and so does an rpc no protocol declares (`rpc.rs`,
-  `handler_guards`). Library files themselves aren't checked here.
+  it; it is maybe-incorrect, or machine-applicable when nothing moves. The fix also deletes the line of
+  every import of the handler's file that only the clause used (each identifier token with the import's
+  name, outside the imports, lies in the clause), so applying it leaves no K1105, except the imports of
+  guards it moves to a protocol in the same file (`Cx::imports_only_in`, shared with K4014's fix). A
+  protocol from a library or the stdlib gets a help instead of a fix, and so does an rpc no protocol
+  declares, which is K5508 too (`rpc.rs`, `handler_guards`). Library files themselves aren't checked
+  here.
 - A protocol is injectable only into services (K4005). `Stream<T>` results are server streams
   ([29-server-streaming.md](../design/29-server-streaming.md)); client and bidirectional streaming are
   deferred with the wire format.

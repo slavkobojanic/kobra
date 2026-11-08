@@ -1,0 +1,16 @@
+error[K5508] 17:5-17:8
+  help: only a protocol's rpcs are served: declare `count` in a protocol that `NotesApi` implements, or make it a `func`
+  fix "Make `count` a `func`" maybe-incorrect
+    edit 17:5-17:8 "func"
+error[K5508] 23:5-23:8
+  help: only a protocol's rpcs are served: declare `ping` in a protocol that `Plain` implements, or make it a `func`
+  fix "Make `ping` a `func`" maybe-incorrect
+    edit 23:5-23:8 "func"
+error[K5508] 30:5-30:8
+  help: only a protocol's rpcs are served, by a service that implements the protocol: make `norm` a `func`
+  fix "Make `norm` a `func`" maybe-incorrect
+    edit 30:5-30:8 "func"
+error[K5508] 36:5-36:8
+  help: only a protocol's rpcs are served, by a service that implements the protocol: make `reset` a `func`
+  fix "Make `reset` a `func`" maybe-incorrect
+    edit 36:5-36:8 "func"

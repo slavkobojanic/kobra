@@ -1,0 +1,3 @@
+client contains const $life = $k.lifetime();
+client contains $k.live($c, await $k.guard($c, store.put($c)));
+client contains })($life));

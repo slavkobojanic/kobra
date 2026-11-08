@@ -832,6 +832,63 @@ impl<'p, 'a> Cx<'p, 'a> {
         ))
     }
 
+    /// The edits removing the imports of `file` that only text inside
+    /// `removed` uses, for a fix that deletes that text, so applying the fix
+    /// leaves no unused import (K1105). Each edit deletes the import's whole
+    /// line.
+    ///
+    /// An import is only the removed text's when every identifier token of
+    /// the file with its name (outside the imports) lies in `removed`, and
+    /// at least one does. Names in `kept` are never removed: a fix that also
+    /// writes them elsewhere in the file still needs their import.
+    pub(crate) fn imports_only_in(
+        &self,
+        file: FileIx,
+        removed: TextRange,
+        kept: &HashSet<String>,
+    ) -> Vec<TextEdit> {
+        let info = self.p.file(file);
+        let mut edits = Vec::new();
+        for (i, import) in info.imports.iter().enumerate() {
+            let Some(ImportRes::Bound(name, _)) = self.imports[file.0 as usize].get(i) else {
+                continue;
+            };
+            if kept.contains(name) {
+                continue;
+            }
+            let mut inside = false;
+            let mut elsewhere = false;
+            for t in info
+                .root
+                .descendants_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .filter(|t| t.kind() == SyntaxKind::Ident && t.text() == name)
+            {
+                let r = t.text_range();
+                if info
+                    .imports
+                    .iter()
+                    .any(|im| im.node_range.contains_range(r))
+                {
+                    continue;
+                }
+                if removed.contains_range(r) {
+                    inside = true;
+                } else {
+                    elsewhere = true;
+                    break;
+                }
+            }
+            if inside && !elsewhere {
+                edits.push(TextEdit {
+                    span: self.p.span(file, self.line_range(file, import.node_range)),
+                    replacement: String::new(),
+                });
+            }
+        }
+        edits
+    }
+
     /// The edit importing the declaration with the qualified name `path`
     /// into `file`, for a fix that writes its simple name; `None` when the
     /// file already sees it (imported, in the file's module, or in the

@@ -302,6 +302,60 @@ func search() async {
 ~}
 ```
 
+## Async work belongs to the page
+
+Effects aren't the only async work a page starts. Every async run is **owned by the component or page
+that started it**, and is cancelled when that component unmounts or the page is left:
+
+- an async handler, whether a function or a lambda passed to `.on(…)`;
+- an async lambda handling a child's event, which belongs to the parent that listens;
+- a `form.handle(…)` action;
+- an async function or lambda given to a child as a prop, which belongs to the parent that wrote it;
+- every run of an `@Effect` and of a [`@Load`](async-data.md).
+
+Cancelling the owner aborts the run's requests: every rpc and `HttpClient` call made from it, through
+services or not, carries the owner's signal. And **no code after an `await` runs once the owner is
+gone**, even when the request answered a moment before the page was left. After each `await`, and on
+entering each `catch`, the compiled code checks the owner and stops the body if it was cancelled:
+
+```k
+~enum SaveError implements Error {
+~    case failed
+~}
+~
+~service Drafts {
+~    func save(text: String) async throws SaveError -> Int {
+~        return 1
+~    }
+~}
+~
+component DraftEditor {
+    @Inject let drafts: Drafts
+    @State var status: String = ""
+
+    func save() async {
+        do {
+            let revision = try await drafts.save(text: "draft")
+            status = "Saved revision {revision}."   // never runs once the editor is gone
+        } catch _ {
+            status = "Couldn't save."               // nor does this
+        }
+    }
+
+    view {
+        button { "Save" }
+            .on(click: save)
+        text { status }
+    }
+}
+```
+
+Stopping is silent, like an effect's cancellation: no `catch` clause runs and nothing is reported. K has
+no `defer` or `finally`; work that must happen when a component goes away belongs in `onCleanup`, which
+still runs. On a page that `requires Authenticated`, this is also what makes `session.user` safe after
+an `await`: when another tab signs out, the page is left, and its handlers stop before they could read
+the missing user ([Authentication](auth.md)).
+
 ## State in services
 
 `@State`, `@Derived` and `@Effect` work the same in [services](services.md), which is how K handles

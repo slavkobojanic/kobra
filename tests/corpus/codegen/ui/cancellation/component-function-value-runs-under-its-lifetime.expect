@@ -1,0 +1,2 @@
+client contains const $life = $k.lifetime();
+client contains save: () => $k.own(keep, $life)

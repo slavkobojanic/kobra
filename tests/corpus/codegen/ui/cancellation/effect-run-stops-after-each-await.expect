@@ -1,0 +1,5 @@
+client contains $k.effect(async ($c) => {
+client contains value.set($k.live($c, await $k.guard($c, feed.load($c, props.userId()))));
+client contains for await (const change of props.changes()) {
+client contains $k.live($c);
+client contains value.set(change);

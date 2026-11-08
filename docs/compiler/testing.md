@@ -68,6 +68,7 @@ cargo test -p k_corpus --test corpus -- codegen/   # the codegen golden suite (�
 cargo test -p k_server --test corpus_run        # the execution corpus, in V8 (§3.10)
 cargo test -p k_server --test runtime_js        # the runtime's JS unit tests, in V8 (§4.1)
 cargo test -p k_server --test client_bundle     # generated client bundles running in V8
+cargo test -p k_server --test cancellation      # generated pages stop their async work when left
 cargo test -p k_db                              # database tests on SQLite (§4.2)
 K_TEST_POSTGRES_URL=postgres://u:pw@127.0.0.1:5432/k_test cargo test -p k_db   # and on Postgres
 cargo test -p k_server --test e2e               # server end-to-end request scripts (§8.2)
@@ -631,6 +632,16 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
   server's markup and the browser claiming it), `files.test.js` (the picker, its errors, downloads over
   stubbed `URL` and `Blob`) and `keys.test.js` (`KeyboardShortcut`'s filters) test the chunks of
   [runtime.md §12.3–12.5](runtime.md#123-drag-and-drop).
+- **Cancellation**: `cancellation.test.js` pins the ownership of async work (design 03, "Async work is
+  owned"): `live` and `CANCELLED`, a body stopped at an `await` (and a `catch`) whose owner was disposed
+  after the promise settled, an effect re-run and a load stopping their superseded run, `on` keeping a
+  stopped handler silent, and `own`. `ui-router.test.js` adds a guarded page whose handler awaits an rpc
+  while another rpc's response ends the session. Generated pages are driven the same way by
+  `crates/k_server/tests/cancellation.rs`: the client of `tests/projects/cancellation` runs in V8 with
+  the fake DOM and a scripted `fetch`, and each case (the session ending while a guarded page's handler
+  awaits, at every gap between the two responses; leaving a page mid-await; an effect re-run; an async
+  `@Emits` handler and an inline `form.handle` action) checks that no code after an `await` ran on the
+  page that was left, that its requests were aborted, and that nothing was reported.
 - The driver protocol: it evaluates `import { list } from "k:testing"; import "k:/tests/<file>";` to get
   `[{name, pending}]`, then per test `run(name)`, which returns `{"outcome": "passed"}` or
   `{"outcome": "failed", "message": …}` through `op_k_set_result`.
@@ -697,7 +708,8 @@ async fn duplicates_map_to_the_unique_field() {
   client navigation to a city that keeps the shared layout mounted and updates `document.title`, and back;
   an unknown city's 404 hydrated into its `failed` block), `notes` (a wrong password, sign in, a new note
   from the toolbar link, a note created and then deleted elsewhere reaching the page through its open
-  `watch()` stream, the stream closed when the page is left, editing the server-rendered note) and `shop`
+  `watch()` stream, the stream closed when the page is left, editing the server-rendered note, and leaving
+  the edit page while its delete awaits the server, which stops the handler before its navigation) and `shop`
   (the `shop` member of the `examples/shop` workspace, with paybox stood in for by a `FakeHttp`:
   storefront hydration, a client navigation to a product with one `Product` rpc, the order form's
   validation without an rpc, placing an order, which registers the shop with paybox under a service

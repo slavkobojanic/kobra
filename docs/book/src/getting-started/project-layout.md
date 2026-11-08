@@ -28,7 +28,7 @@ The manifest holds only what can't be expressed in K code:
 
 ```toml
 [package]
-name = "weather"                           # the app's identity; a package's module path
+name = "weather"                           # the app's identity; a git package's module path prefix
 title = "Weather"                          # display name (optional)
 description = "A weather dashboard backed by the Open-Meteo APIs."
 k = "0.1"                                  # minimum toolchain version
@@ -38,12 +38,13 @@ version = "0.1.0"                          # apps only, optional
 "github.com/acme/charts" = "v1.2.0"        # module path = git tag
 
 [aliases]
-charts = "github.com/acme/charts"          # enables `import charts.LineChart`
+charts = "github.com/acme/charts"          # a short prefix: `import charts.LineChart`
 ```
 
 - **`name` and `k` are required.** For an app, `name` is lower-case ASCII letters, digits and hyphens,
-  starting with a letter (`shop`, `my-shop`). For a package, it is the module path
-  (`github.com/acme/charts`).
+  starting with a letter (`shop`, `my-shop`). For a git package, it is the URL that prefixes its module
+  paths (`github.com/acme/charts`). A library in your own [workspace](../apps/workspaces.md) keeps its
+  modules' own paths, so its name only identifies it in `[dependencies]`.
 - **`name` is the project's identity.** The namespace of the app's browser storage is derived from it
   once and recorded in `storage.lock`, so renaming the project doesn't orphan your users' stored data. The
   Protobuf package prefix of every protocol is derived from it too, and `rpc.lock` records the result, so

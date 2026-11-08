@@ -1,7 +1,7 @@
 # Packages
 
-Third-party K code is shared as **git-based packages**, like Go modules. A package's name is its module
-path, and its versions are git tags.
+Third-party K code is shared as **git-based packages**, like Go modules. A package's name is a URL that
+prefixes its module paths, and its versions are git tags.
 
 ```bash
 k add github.com/acme/charts@v1.2.0
@@ -21,7 +21,8 @@ import github.com/acme/charts.LineChart
   code. A package can't smuggle a database call into your client bundle.
 - **A package's `public` declarations, and their non-private members, are its API.** Module-private
   declarations and `private` members stay hidden.
-- **Package names are module paths.** A package's module path is the `name` in its `k.toml`.
+- **A git package's name prefixes its module paths.** The `name` in its `k.toml` is a URL, so the
+  modules of two authors' `charts` packages never collide: `github.com/acme/charts.LineChart`.
 - **The git tag is the only version.** A package's `k.toml` has no `version` key, so the version can't
   disagree with the tag.
 - `k remove` takes a dependency out again.
@@ -30,7 +31,7 @@ import github.com/acme/charts.LineChart
 
 ## Short imports with aliases
 
-Module paths can be long. An alias in `k.toml` allows short imports:
+URL prefixes are long. An alias in `k.toml` gives a git package a short prefix:
 
 ```toml
 [dependencies]
@@ -80,4 +81,6 @@ for protocols.
 
 Libraries you don't publish, such as the contracts between your own services, live in the same
 [workspace](workspaces.md) as the apps that use them and are depended on with `name = { workspace = true
-}`. That works today, without `k add`.
+}`. That works today, without `k add`. **Their modules keep their own paths,** with no prefix and no
+alias: `pay-contracts/src/pay/Payments.k` is imported as `import pay.Payments`. Two packages of one build
+can't declare the same module (`K8106`), so every module path still names exactly one module.

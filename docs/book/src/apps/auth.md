@@ -201,6 +201,11 @@ for a handler moves the clause to the protocol's rpc.
   another device, which the browser learns on its next rpc. The page goes before anything in it can see
   a missing `session.user`. An app's own `Router.navigate(to: .signIn)` after signing out then changes
   nothing, because the page load decides where the person lands.
+- **The page's async work goes with it.** A handler, effect or load that is still awaiting when the
+  session ends belongs to the page, so it stops at its `await`, even if its own request answered just
+  before, and its pending requests are aborted. Code after an `await` on a guarded page can read
+  `session.user.id` without a check ([Async work belongs to the
+  page](reactivity.md#async-work-belongs-to-the-page)).
 
 ### What a refused rpc throws
 

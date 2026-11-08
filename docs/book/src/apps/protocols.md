@@ -189,7 +189,11 @@ service CartApi implements CartProtocol {
 
 - **A service that implements a protocol is server-only.** The compiler keeps it, and everything it
   injects, out of the client bundle.
-- The compiler checks that every `rpc` is implemented, with matching types.
+- The compiler checks that every `rpc` is implemented, with matching types. A handler is written as an
+  `rpc` or a `func` of the same name.
+- **`rpc` is only for what a protocol serves.** An `rpc` in a struct, a component, or a service whose
+  protocols don't declare it could never be called over the wire, so it is a compile error (`K5508`). Its
+  quick fix makes it a `func`; if you meant it to be remote, declare it in the protocol.
 - An implementation may be `async` even though the contract doesn't say so: whether the server suspends
   is an implementation detail.
 - The protocol's `Authenticated` guard has already run inside `CartApi`, so `session.user` is a
@@ -263,7 +267,8 @@ Cross-cutting interceptors that never reject a call, such as logging and tracing
 
 **Guards go on the protocol, never on the service that implements it.** The server runs the protocol's
 guards before the handler, so a `requires` clause on a handler would never be checked. It is a compile
-error (`K5507`) instead, and its quick fix moves the clause to the protocol's rpc. If the protocol comes
+error (`K5507`) instead, and its quick fix moves the clause to the protocol's rpc, removing the imports
+that only the clause used, so no unused import is left behind. If the protocol comes
 from a library, its guards are the library's to declare: the handler checks the caller itself, for
 example through `session.user`. An `rpc` that no protocol declares is never served, so a clause on it is
 the same error.

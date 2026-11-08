@@ -1,0 +1,2 @@
+client contains run: async (v, $c) => {
+client contains return $k.live($c, await $k.guard($c, clock.now($c)));

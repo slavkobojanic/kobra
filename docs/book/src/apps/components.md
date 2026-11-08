@@ -280,8 +280,10 @@ Dialog(title: "Delete note?") {
 
 ### Handlers
 
-- **Handlers may be `async`.** The element or component doesn't wait for them, and leaving the page
-  cancels a handler that is still running.
+- **Handlers may be `async`.** The element or component doesn't wait for them. An async handler belongs
+  to the component that wrote it, even when a child calls it: when that component unmounts, or its page
+  is left, the handler's requests are aborted and it stops at its next `await`, silently
+  ([Async work belongs to the page](reactivity.md#async-work-belongs-to-the-page)).
 - **A handler can't be declared `throws`.** Nothing waits for it, so nothing could catch its error. It
   handles every error inside, usually by recording it in state. Passing a throwing function to `.on(…)`
   is a compile error, with a quick fix that wraps its body in `do`/`catch`.

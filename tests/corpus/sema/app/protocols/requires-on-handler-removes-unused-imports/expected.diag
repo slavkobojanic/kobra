@@ -1,0 +1,10 @@
+error[K5507] src/notes/NotesApi.k:9:50-9:82
+  label src/notes/NotesProtocol.k:8:9-8:14: the server runs the guards declared here
+  fix "Remove the clause: `NotesProtocol.count` already requires it"
+    edit 9:49-9:82 ""
+error[K5507] src/notes/NotesApi.k:13:51-13:98
+  label src/notes/NotesProtocol.k:11:9-11:15: the server runs the guards declared here
+  fix "Move `RateLimit(10.perMinute)` to `NotesProtocol.newest`" maybe-incorrect
+    edit 1:1-2:1 ""
+    edit 13:50-13:98 ""
+    edit src/notes/NotesProtocol.k:11:44-11:44 " requires RateLimit(10.perMinute)"

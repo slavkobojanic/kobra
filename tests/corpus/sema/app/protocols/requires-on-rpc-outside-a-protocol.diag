@@ -1,2 +1,4 @@
-error[K5507] 7:51-7:73
+error[K5508] 8:5-8:8
+  help: only a protocol's rpcs are served: declare `hello` in a protocol that `Lone` implements, or make it a `func` without the `requires` clause
+error[K5507] 8:51-8:73
   help: only a protocol's rpcs are served: declare `hello` in a protocol that `Lone` implements, with the clause on its rpc

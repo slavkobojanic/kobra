@@ -50,7 +50,7 @@ fn main() -> ExitCode {
         Command::Run(args) => build::run(&args),
         Command::Dev(args) => build::dev(&args),
         // The language server speaks JSON-RPC on stdin/stdout until `exit`.
-        Command::Lsp => ExitCode::from(u8::try_from(k_lsp::run_stdio()).unwrap_or(1)),
+        Command::Lsp { .. } => ExitCode::from(u8::try_from(k_lsp::run_stdio()).unwrap_or(1)),
         Command::Test(args) => test::run(&args),
         Command::Routes(args) => routes::run(&args),
         Command::Migrate { command } => match command {

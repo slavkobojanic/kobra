@@ -16,7 +16,7 @@ version = "0.1.0"                # apps only, optional
 "github.com/acme/charts" = "v1.2.0"     # module path = git tag (written by `k add`)
 
 [aliases]
-charts = "github.com/acme/charts"       # enables `import charts.LineChart`
+charts = "github.com/acme/charts"       # a short prefix: `import charts.LineChart`
 ```
 
 ## `k.toml`
@@ -25,7 +25,7 @@ charts = "github.com/acme/charts"       # enables `import charts.LineChart`
 |---|---|
 | `[package]` | `name` and `k` are required. `title` and `description` are optional. Apps may set `version`, which `dist/app` reports in its logs and metrics; packages can't, because their git tag is their version ([18-packages.md](18-packages.md)). |
 | `[dependencies]` | Module path → git tag. `k add` and `k remove` edit it; `k.lock` pins commits and hashes. |
-| `[aliases]` | Short name → module path ([18-packages.md](18-packages.md)). |
+| `[aliases]` | Short name → a git package's module path prefix, which is a URL ([18-packages.md](18-packages.md)). Workspace libraries need none: their modules keep their own paths. |
 
 ### `name` is the project's identity
 
@@ -49,7 +49,7 @@ migrations/      database migrations, NNNN_description.k; not a module (19-persi
 routes.lock      generated and committed
 schema.lock      generated and committed
 storage.lock     generated and committed
-rpc.lock         generated and committed by apps that serve protocols (40-workspaces-and-services.md)
+rpc.lock         written by `k build`, checked by `k check`, committed; apps that serve protocols (40)
 k.lock           package lock, generated and committed
 .env             optional, git-ignored; loaded by `k dev` only
 .env.example     committed; documents what .env may contain

@@ -103,7 +103,7 @@ parts never mention `Deno.core` or `k:testing` (tested).
 `prop`, `classList`, `style`, `on`, `when`, `branch`, `each`; `hydrate`, `isHydrating`, `readData`, `uid`,
 `textNode`, `separator`;
 `KPanic`, `panic`, `isPanic`, `checkInt`, `intDiv`, `intRem`, `equals`, `unitCase`, `textOf`; `startRouter`,
-`navigate`; `child`, `slotMarkers`, `title`, `loadsOf`; `rpc`, `rpcError`, `DEFAULT_TIMEOUT_MS`;
+`navigate`; `child`, `slotMarkers`, `title`, `loadsOf`, `lifetime`, `own`; `CANCELLED`, `live`, `guard`; `rpc`, `rpcError`, `DEFAULT_TIMEOUT_MS`;
 `createLoads`, `LOADING`, `READY`, `RELOADING`, `FAILED`; `claimRaw` (hydration of a native component that
 owns its subtree); from `services.js` `provide`, `afterHydration`, `clock`, `theme`, `browserStorage`,
 `fetchHttpClient`, `session`, `native`; and from `std.js` (among the stdlib bodies) `route`, `routeParam`, `NO`, `splitTarget`,
@@ -136,11 +136,11 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 
 | Bundle | Parts | Budget | Today |
 |---|---|---|---|
-| core | signals, values, hydration, DOM bindings and `when`/`branch` | ≤ 5 KB (`CORE_SIZE_BUDGET`) | 4,550 B |
-| full client | core + keyed lists, view helpers, path stores, router, RPC client, `@Load` + entry | ≤ 10 KB (`FULL_SIZE_BUDGET`) | 9,022 B (1,218 B headroom) |
-| stdlib bodies | `std.js` (part `Stdlib`), measured on its own because it grows with the stdlib | ≤ 10 KB (`STDLIB_SIZE_BUDGET`) | 8,398 B (1,842 B headroom) |
-| browser services | `services.js` (part `Services`): the client DI helpers and the browser bodies of the stdlib's platform services | ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | 2,340 B |
-| shipped `runtime.<hash>.js` | full client + stdlib bodies + browser services, as `k build` writes it | ≤ 23 KB (the sum of the three; `crates/k_cli/tests/perf_budget.rs`) | 18,730 B gzip |
+| core | signals, values, hydration, DOM bindings and `when`/`branch` | ≤ 5 KB (`CORE_SIZE_BUDGET`) | 4,602 B |
+| full client | core + keyed lists, view helpers, path stores, router, RPC client, `@Load` + entry | ≤ 10 KB (`FULL_SIZE_BUDGET`) | 9,123 B (1,117 B headroom) |
+| stdlib bodies | `std.js` (part `Stdlib`), measured on its own because it grows with the stdlib | ≤ 10 KB (`STDLIB_SIZE_BUDGET`) | 8,426 B (1,814 B headroom) |
+| browser services | `services.js` (part `Services`): the client DI helpers and the browser bodies of the stdlib's platform services | ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | 2,333 B |
+| shipped `runtime.<hash>.js` | full client + stdlib bodies + browser services, as `k build` writes it | ≤ 23 KB (the sum of the three; `crates/k_cli/tests/perf_budget.rs`) | 18,858 B gzip |
 | `charts.[hash].js` | `charts.js` (part `Charts`), shipped only to apps that chart | ≤ 3 KB (`CHARTS_SIZE_BUDGET`) | 2,306 B |
 | `drag.[hash].js` | `drag.js` (part `Drag`), shipped only to apps that drag and drop | ≤ 4 KB (`DRAG_SIZE_BUDGET`) | 3,493 B |
 | `files.[hash].js` | `files.js` (part `Files`), shipped only to apps whose client injects `Files` | ≤ 1 KB (`FILES_SIZE_BUDGET`) | 886 B |
@@ -212,8 +212,21 @@ row. API: `store(initial)` with `get(path)`,
 - Generated code passes that signal as `$c` to every async call in the run
   ([codegen.md §8](codegen.md#8-async-and-cancellation)); `rpc`, `sleep` and fetches abort their I/O, and
   `$k.guard` makes a cancelled `await` never resume.
+- **`live(signal, v)`** (`std.js`) is the value an `await` resumed with while `signal` is live, and
+  throws **`CANCELLED`** (`values.js`) once it is aborted; with no `v` it is the check that starts a
+  generated `catch` and each `for await` iteration. `CANCELLED` is one `KPanic` value, so generated
+  `catch` clauses rethrow it and the runtime tells it from a failure. It stops a body whose run was
+  cancelled after the awaited promise settled but before the body resumed, which `guard` alone can't
+  (design 03, "Async work is owned").
 - A promise the effect returns is only observed for rejection: a rejection after cancellation is ignored
-  (cancellation is not an error), any other rejection goes to the error boundary.
+  (cancellation is not an error), any other rejection goes to the error boundary. A load group likewise
+  ignores a run that rejects after its signal was aborted.
+- **Handlers and bound values are silent when stopped.** `on` drops its handler's rejection with
+  `CANCELLED` (any other rejection is left unhandled, as before). **`own(f, c)`** (`view.js`) is the value
+  generated code passes where an async function is called with its K arguments alone (a prop, an
+  `@Emits` handler, `form.handle`'s action): `(...a) => f(c, ...a)`, where `c` is the owner's lifetime
+  (`lifetime()`) or the creating run's signal, and a call stopped by `CANCELLED` never settles instead of
+  rejecting, so a caller that drops the promise reports nothing and one that awaits it stops too.
 - Reads after the first `await` are not tracked: tracking is synchronous.
 
 ### 3.5 Owners, scopes and cleanup

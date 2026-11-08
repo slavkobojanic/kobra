@@ -1359,6 +1359,65 @@ fn notes_signing_out_on_a_guarded_page_leaves_it_for_the_server() {
     assert_eq!(location, "/sign-in");
 }
 
+// Work a page starts is owned by it (03-reactivity.md, "Async work is
+// owned"): leaving the edit page while its delete awaits the server stops
+// the handler at its `await`. The request was already sent, so the note is
+// deleted, but the rest of the handler (its `Router.navigate(to: .notes)`)
+// never runs: the tab went to the notes once, through the layout's link,
+// and nothing is logged.
+#[test]
+fn notes_leaving_a_page_while_its_delete_awaits_never_runs_the_rest() {
+    let db = TempDb::new("notes_leave_mid_await");
+    let mut site = notes_with_ada(&db);
+    let signed_in = site.rpc(
+        "/notes.accounts.AuthProtocol/SignIn",
+        r#"{"credentials": {"email": "ada@example.com", "password": "correct horse"}}"#,
+    );
+    assert_eq!(
+        signed_in.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&signed_in.body)
+    );
+    let created = site.rpc(
+        "/notes.NotesProtocol/Create",
+        r#"{"draft": {"title": "Groceries", "body": "Milk and eggs", "tags": ""}}"#,
+    );
+    assert_eq!(
+        created.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&created.body)
+    );
+    let id = site.last_json("/notes.NotesProtocol/Create")["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let path = format!("/edit-note/{id}");
+    let mut tab = Tab::open(&mut site, &path, &serde_json::json!({}));
+    contains(&tab.text(), "Delete note", "the edit page");
+    let since = tab.site.requests.len();
+    // Both in one task: the delete is still waiting for the server when
+    // the layout's link leaves the page.
+    tab.run("sim.click(\"button\", \"Delete note\"); sim.click(\"a\", \"K Notes\");");
+    assert_eq!(
+        tab.site.count(since, "/notes.NotesProtocol/Delete"),
+        1,
+        "the delete was sent: {:?}",
+        tab.site.requests
+    );
+    assert_eq!(
+        went(&mut tab),
+        serde_json::json!([[], ["/"]]),
+        "the stopped handler never navigated to the notes again"
+    );
+    contains(&tab.text(), "New note", "the notes page the tab went to");
+    lacks(&tab.text(), "Delete note", "the edit page is gone");
+    drop(tab);
+    let gone = site.rpc("/notes.NotesProtocol/Get", &format!(r#"{{"id": "{id}"}}"#));
+    assert_ne!(gone.status, 200, "the note was deleted on the server");
+}
+
 #[test]
 fn notes_sends_a_guest_following_a_link_to_a_guarded_page_to_the_server() {
     let db = TempDb::new("notes_guest");

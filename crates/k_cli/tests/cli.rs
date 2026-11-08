@@ -46,6 +46,23 @@ fn version_and_help() {
     assert!(!text.contains("debug"), "debug is hidden");
 }
 
+/// vscode-languageclient (and other clients) launch the server as
+/// `k lsp --stdio`; the flag must not be a usage error.
+#[test]
+fn lsp_accepts_the_stdio_flag() {
+    let dir = TempDir::new("lsp_stdio");
+    for args in [&["lsp"][..], &["lsp", "--stdio"]] {
+        let out = k(args, &dir.0);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_ne!(
+            out.status.code(),
+            Some(2),
+            "`k {}` is not a usage error:\n{stderr}",
+            args.join(" ")
+        );
+    }
+}
+
 #[test]
 fn check_on_an_empty_directory_succeeds() {
     let dir = TempDir::new("empty");

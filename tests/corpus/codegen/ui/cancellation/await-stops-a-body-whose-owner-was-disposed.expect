@@ -1,0 +1,6 @@
+# The value an await resumes with passes through `$k.live`, which stops the body once `$c` is aborted.
+client contains $k.live($c, await $k.guard($c, store($c)));
+# A catch entered by a rejection stops the same way, after the panic check and before any K code.
+client contains if ($k.isPanic(e)) throw e;
+client contains $k.live($c);
+client contains saved.set(false);

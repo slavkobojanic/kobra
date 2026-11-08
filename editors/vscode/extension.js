@@ -9,7 +9,7 @@
 "use strict";
 
 const vscode = require("vscode");
-const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
+const { LanguageClient } = require("vscode-languageclient/node");
 
 /**
  * The running client; replaced by `k.restartServer`, `undefined` after
@@ -28,10 +28,11 @@ function createClient() {
   const config = vscode.workspace.getConfiguration("k");
   const command = config.get("server.path") || "k";
   const extraEnv = config.get("server.extraEnv") || {};
+  // No `transport` field: stdio is the default, and setting
+  // `TransportKind.stdio` would make the client append `--stdio`.
   const run = {
     command,
     args: ["lsp"],
-    transport: TransportKind.stdio,
     options: { env: { ...process.env, ...extraEnv } },
   };
   /** @type {import("vscode-languageclient/node").LanguageClientOptions} */
