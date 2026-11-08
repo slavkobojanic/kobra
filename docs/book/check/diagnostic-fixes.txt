@@ -107,6 +107,9 @@ K2310: Write `for await` (machine-applicable fix), inside an async function.
 K2311: Iterate a `Stream` with `for await`, and everything else with `for`.
 K2401: Use the named case, such as `.notFound` instead of `.other(404)`.
 K2402: Name the currency: `items.sum(in: .usd) { item => item.price }`.
+K2403: Write the value as a literal, `Url("https://api.example.com")`; text known only at run time goes through `Url.parse(text)`, which returns an optional.
+K2404: Correct the literal as the message says; the compiler checks it with the same parser `Type.parse` uses at run time.
+K2405: Give each storage key its own name; a test may reuse one to inspect what a service stored.
 K3001: Use the keyword the annotation requires (the quick fix changes it): `@State`, `@Binding`, `@Form` and `@Version` are `var`; the others `let`.
 K3002: Remove the annotation, or move it to a declaration or member it applies to.
 K3003: Add a `view { … }` block.
@@ -200,12 +203,14 @@ K5010: Remove the member; an endpoint page holds handlers and injected fields on
 K5011: Merge the handlers for one method into one.
 K5012: Give the handler the signature `func name(request: IncomingRequest) async -> HttpResponse`.
 K5013: Set the cookie through `Session` (`SessionManager`), never as a raw `set-cookie` header.
+K5014: Move the clause to each page that renders in the layout: `page Dashboard requires Authenticated`.
 K5501: Add `throws RpcOnlyError`, or an error enum with a `case rpcFailure(RpcFailure)` (the quick fix adds `throws RpcOnlyError`).
 K5502: Add exactly one `case rpcFailure(RpcFailure)` to the error enum.
 K5503: Make the type `Codable`.
 K5504: Implement the protocol in a service that is server-side (it may inject repositories).
 K5505: Repeat the rpc's parameters, return type and `throws` in the handler.
 K5506: Throw one of the error enum's own cases; `rpcFailure` is produced only by the runtime.
+K5507: Move the clause to the protocol's rpc (the quick fix does it); for a library's protocol, check the caller in the handler instead.
 K6001: Use only fields, literals, parameters and the query operators the compiler translates; filter in K after loading if needed.
 K6002: Use a column type (`String`, `Int`, `Bool`, `Double`, `Decimal`, `Money`, `Date`, `Uuid`, an enum without payloads, …) or a `@Relation`.
 K6003: Rename the entity, or set another table name.

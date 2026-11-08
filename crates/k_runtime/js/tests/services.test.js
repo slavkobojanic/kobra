@@ -290,6 +290,17 @@ test("Session mirrors k-data and later rpc updates", () => {
   assertEq(s.user, null);
 });
 
+// The mirror starts from a document's `k-data` once (the router or the
+// first `Session` reader takes it): a `Session` first read after an rpc
+// changed the session keeps the rpc's mirror, not the document's.
+test("a Session first read after an rpc changed the session keeps the newer mirror", () => {
+  const data = { session: { user: { id: "a1", roles: [] } } };
+  session(data);
+  sessionMirror.set({ user: null });
+  const later = session(data);
+  assertEq(later.user, null);
+});
+
 // ---------------------------------------------------------------- natives
 
 test("browser natives: StorageKey, Uuid.random", () => {

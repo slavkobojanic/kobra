@@ -19,6 +19,59 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
  */
 export const sessionMirror = signal({ user: null });
 
+/** The `k-data` payloads the mirror was started from. */
+const seeded = new WeakSet();
+
+/**
+ * Starts the mirror from a server-rendered document's `k-data` payload
+ * (its `session`), once per payload: the router does at start, so its
+ * guards see who is signed in, and so does the first `Session` reader; a
+ * later reader of the same document never undoes an rpc's newer mirror.
+ * @param {{session?: object}|null|undefined} data
+ */
+export function seedSession(data) {
+  if (data?.session && !seeded.has(data)) {
+    seeded.add(data);
+    sessionMirror.set(data.session);
+  }
+}
+
+/**
+ * Runs with each mirror an rpc response brings, before it is set: the
+ * router's check of the shown page's guards (router.js), so a page that
+ * requires a user is left before anything reads the mirror without one.
+ */
+let sessionGate = null;
+
+/**
+ * Makes `fn` the check that runs with each mirror an rpc response brings,
+ * before the mirror is set (the router's page guards).
+ * @param {(mirror: {user: object|null}) => void} fn
+ */
+export function gateSession(fn) {
+  sessionGate = fn;
+}
+
+/**
+ * Sets the `Session` mirror from an rpc response's `x-k-session` header,
+ * after the router's check of it ({@link gateSession}); a missing or
+ * malformed header changes nothing.
+ * @param {string|null|undefined} text the header's value
+ */
+function takeMirror(text) {
+  if (!text) return;
+  let mirror = null;
+  try {
+    mirror = JSON.parse(text);
+  } catch {
+    // A malformed mirror is ignored.
+  }
+  if (mirror) {
+    sessionGate?.(mirror);
+    sessionMirror.set(mirror);
+  }
+}
+
 /**
  * Calls `path` with `message` (already encoded by the stub's codec).
  *
@@ -81,8 +134,12 @@ export function rpc(path, message, signal, options) {
     }
     Promise.resolve(request).then(
       async (response) => {
+        const header = (n) => response.headers?.get?.(n);
         if (stream && response.ok) {
           stop();
+          // An opened stream can be the first response to learn of a dead
+          // session (its head clears the cookie): its mirror counts too.
+          takeMirror(header("x-k-session"));
           finish({ ok: true, message: stream.read(response, controller, signal) });
           return;
         }
@@ -94,15 +151,7 @@ export function rpc(path, message, signal, options) {
           return;
         }
         stop();
-        const header = (n) => response.headers?.get?.(n);
-        const sessionHeader = header("x-k-session");
-        if (sessionHeader) {
-          try {
-            sessionMirror.set(JSON.parse(sessionHeader));
-          } catch {
-            // A malformed mirror is ignored.
-          }
-        }
+        takeMirror(header("x-k-session"));
         if (response.ok) {
           finish({ ok: true, message: body });
         } else {

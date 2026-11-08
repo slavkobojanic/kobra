@@ -7,6 +7,7 @@ public struct StorageKey<T> where T implements Codable {
     ///
     /// - Parameter name: a string literal, unique in the app.
     @Native
+    @Literal
     init(name: String) {}
 
     /// The key's name.

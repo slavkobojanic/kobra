@@ -81,7 +81,7 @@ layout Shop {
 
     metadata {
         title("Acme Shop")              // the default for every page in this layout
-        icon(Url("/icon.svg"))
+        icon(Url("https://acme.example/icon.svg"))
     }
 
     view {

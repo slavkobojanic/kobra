@@ -27,7 +27,7 @@ Contents:
 | Integration | `crates/<crate>/tests/*.rs` | A crate's public API |
 | Golden corpus | `tests/corpus/<suite>/**/*.k` + expectation files | Exact output of a compiler stage for a K source |
 | Property | `crates/<crate>/tests/properties.rs`, `invariants.rs` | Invariants over generated inputs (proptest) |
-| Differential | `crates/k_server/tests/differential.rs`, `crates/k_db/tests/sql_properties.rs`, `crates/k_codegen/tests/persistence_properties.rs` | Generated programs compiled and run in V8 agree with a reference, across builds and between server and client rendering; SQL never holds a value (§5.6) |
+| Differential | `crates/k_server/tests/differential.rs`, `crates/k_db/tests/sql_properties.rs`, `crates/k_codegen/tests/persistence_properties.rs`, `crates/k_server/tests/literals.rs` | Generated programs compiled and run in V8 agree with a reference, across builds and between server and client rendering; SQL never holds a value (§5.6); the compiler's checked-literal parsers (`k_sema::literals`) give exactly what the runtime's `parseEmail`, `parseUrl` and `parseUuid` give, on fixed and generated inputs |
 | Fuzz | `fuzz/fuzz_targets/*.rs` | No panics, no invariant violations on arbitrary and generated inputs (libFuzzer) |
 | Regression | `tests/corpus/<suite>/regressions/` | A fixed bug stays fixed |
 | Codegen golden | `tests/corpus/codegen/**` | Generated client JS, server JS and CSS, or assertions about them (§3.9) |
@@ -721,6 +721,17 @@ async fn duplicates_map_to_the_unique_field() {
   product's 404 rendered by its `failed` branch, the sign-in page, and no secret value, service token
   header or server-only or production-unbound service name in any client file or response). `dist/app`
   must exit 0 on `SIGTERM` and log no errors.
+- **The client guards in the shipped build**: the tab records full page loads (`location.href`) and
+  pushed history apart, and `sim.traverse(path)` stands in for Back and Forward (the URL changes, then
+  `popstate`). `notes`: a guest's `Router.navigate` (the runtime's `navigate`, by path and with the origin)
+  and Back or Forward to a guarded entry are each one full load of exactly that URL with nothing rendered,
+  and the router renders nothing after leaving; signing out on a guarded page, and a session that
+  expires while one is shown (found by its next rpc), load the URL shown, which the server answers with
+  the `303` and the return URL; a guarded document is `private, no-store`. `shop` (with an Argon2id
+  admin hash made by the runtime's own op): a guest's navigation to `/admin`, signing in and continuing
+  there on the client, then signing out, an expired session and a role taken away while the page is
+  shown, each leaving for the server (`303` without a user, `403` without the role), the page's own
+  `Router.navigate(to: .home)` ignored.
 - **A shop order through a real paybox**
   (`shop_dist_app_places_and_pays_an_order_through_a_paybox_dist_app`): both apps of the `examples/shop`
   workspace built with `k build` and run as two `dist/app` processes with different service secrets, as

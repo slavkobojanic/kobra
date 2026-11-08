@@ -65,6 +65,7 @@ mod doclinks;
 mod framework;
 mod fx;
 mod host;
+pub mod literals;
 mod locks;
 mod lookup;
 mod metadata;

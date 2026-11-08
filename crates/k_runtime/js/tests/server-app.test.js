@@ -349,6 +349,91 @@ test("signIn issues a fresh id with the documented cookie; signOut clears and re
   assertEq(after.json.value, "guest");
 });
 
+// A session the server no longer has (signed out elsewhere, ended with
+// `endAll`, expired) changes the browser's session too: the rpc response
+// carries the guest mirror, so the router can leave a guarded page
+// (26-auth-and-sessions.md), and the dead cookie is cleared.
+test("an rpc with a session the server no longer has tells the browser it ended", async () => {
+  const rpcs = {
+    "/t.P/Echo": {
+      ...spec().rpcs["/t.P/Echo"],
+      call: async (c, $c, [t]) => {
+        const m = sessionManager(c.$r);
+        if (t === "in") await m.signIn($c, { name: "ada" });
+        if (t === "out") await m.signOut($c);
+        return c.$r.user()?.id.name ?? "guest";
+      },
+    },
+  };
+  const app = createApp(spec({ rpcs }));
+  const signed = await call(app, '{"text":"in"}');
+  const cookie = header(signed.r, "set-cookie").split(";")[0];
+  // Another tab signs out with the same cookie; this one learns on its
+  // next call.
+  await call(app, '{"text":"out"}', [["content-type", "application/json"], ["cookie", cookie]]);
+  const stale = await call(app, '{"text":"who"}', [["content-type", "application/json"], ["cookie", cookie]]);
+  assertEq(stale.json.value, "guest");
+  assertDeepEq(JSON.parse(header(stale.r, "x-k-session")), { user: null });
+  assert(header(stale.r, "set-cookie").includes("Max-Age=0"), "the dead cookie is cleared");
+  // A browser with no session cookie has nothing to learn.
+  const guest = await call(app, '{"text":"who"}');
+  assertEq(header(guest.r, "x-k-session"), undefined);
+  assertEq(header(guest.r, "set-cookie"), undefined);
+});
+
+// A refused guard is the moment the browser's mirror is most likely stale
+// (a role taken away, a cookie an earlier response cleared), so every
+// `Authenticated` or `Role` refusal carries the mirror, and the router
+// leaves a page the server no longer allows (26-auth-and-sessions.md).
+test("an rpc refused by a session guard carries the session mirror", async () => {
+  const rpcs = {
+    "/t.P/Echo": {
+      ...spec().rpcs["/t.P/Echo"],
+      call: async (c, $c) => {
+        await sessionManager(c.$r).signIn($c, { name: "ada" });
+        return "in";
+      },
+    },
+    "/t.P/Admin": { ...spec().rpcs["/t.P/Echo"], guards: [["auth"], ["role", "admin"]] },
+  };
+  const app = createApp(spec({ rpcs }));
+  const admin = (headers) => app(req("POST", "/t.P/Admin", { headers: [["content-type", "application/json"], ...headers], body: '{"text":"x"}' }));
+  const guest = await admin([]);
+  assertEq(guest.status, 401);
+  assertDeepEq(JSON.parse(header(guest, "x-k-session")), { user: null });
+  const signed = await call(app, '{"text":"in"}');
+  const cookie = header(signed.r, "set-cookie").split(";")[0];
+  const forbidden = await admin([["cookie", cookie]]);
+  assertEq(forbidden.status, 403);
+  assertDeepEq(JSON.parse(header(forbidden, "x-k-session")), { user: { id: { name: "ada" }, roles: [] } });
+});
+
+// Every server-rendered document embeds the `Session` mirror in `k-data`,
+// so one rendered for a signed-in user is private even when nothing on it
+// read `Session`: a shared cache must never hand that user's id and roles
+// to someone else.
+test("a document rendered for a signed-in user is never shared", async () => {
+  const rpcs = {
+    "/t.P/Echo": {
+      ...spec().rpcs["/t.P/Echo"],
+      call: async (c, $c) => {
+        await sessionManager(c.$r).signIn($c, { name: "ada" });
+        return "in";
+      },
+    },
+  };
+  const app = createApp(spec({ rpcs }));
+  const guest = await app(req("GET", "/product/1"));
+  assertEq(guest.status, 200);
+  assertEq(header(guest, "cache-control"), undefined, "a guest's document may be cached");
+  const signed = await call(app, '{"text":"in"}');
+  const cookie = header(signed.r, "set-cookie").split(";")[0];
+  const r = await app(req("GET", "/product/1", { headers: [["cookie", cookie]] }));
+  assertEq(r.status, 200);
+  assert(text(r).includes('"name":"ada"'), "the document carries the mirror");
+  assertEq(header(r, "cache-control"), "private, no-store");
+});
+
 test("a forged session cookie is a guest", async () => {
   const pages = [{ ...spec().pages[0], guards: [["auth"]] }];
   const r = await createApp(spec({ pages }))(req("GET", "/product/1", { headers: [["cookie", "k_session=forged"]] }));

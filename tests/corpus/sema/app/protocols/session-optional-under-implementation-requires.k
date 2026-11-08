@@ -1,5 +1,5 @@
 // The server enforces the guards the protocol declares, not a `requires` clause on the
-// implementation's rpc, so `requires Authenticated` written there doesn't narrow `session.user`.
+// implementation's rpc: such a clause is K5507, and it doesn't narrow `session.user` either.
 import k.auth.Authenticated
 import k.auth.AuthUserId
 import k.auth.Session

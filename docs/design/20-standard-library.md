@@ -17,7 +17,14 @@ The stdlib is **batteries-included**. With no JavaScript interop (see [17-javasc
 
 Types whose values can be written as text follow one convention:
 
-- **`Type("literal")` takes only a string literal.** It is validated at compile time and is never optional: `Url("https://api.stripe.com")`, `Uuid("0b6f2c1e-…")`, `EmailAddress("orders@shop.example")`, `TimeOfDay("03:00")`. Passing anything other than a literal is a compile error, with a quick fix to `.parse`.
+- **`Type("literal")` takes only a string literal.** It is validated at compile time and is never optional: `Url("https://api.stripe.com")`, `Uuid("0b6f2c1e-…")`, `EmailAddress("orders@shop.example")`, `TimeOfDay("03:00")`. Passing anything other than a literal is a compile error (`K2403`), with a quick fix to `.parse` when the type has one. An interpolated string isn't a literal. `StorageKey(name: "…")` takes a string literal too ([36-local-storage.md](36-local-storage.md#keys)), and `HttpStatus(code: 418)` an integer literal ([32-http-client.md](32-http-client.md)).
+- **A literal is checked by the same parser `Type.parse` runs,** so a literal compiles exactly when `parse` would accept its text at run time, and it is the value `parse` would give. A literal the parser refuses is a compile error (`K2404`) whose message gives the reason (`not an email address: it has no @`), never a panic when the code runs. The compiler's parsers are ports of the runtime's, and a differential test runs both on the same tens of thousands of inputs. The bundle holds a literal's normalized value as a constant, so it costs nothing at run time.
+  - `Url`: an absolute `http`, `https`, `ws` or `wss` URL with a host. A relative URL or a script scheme (`javascript:`) is an error.
+  - `Uuid`: 32 hexadecimal digits in groups of 8-4-4-4-12, in either case, held in lower case.
+  - `EmailAddress`: a bare address or a display name with the address in angle brackets, normalized as [31-email.md](31-email.md) describes.
+  - `TimeOfDay`: `HH:MM` on a 24-hour clock, two digits each.
+  - `HttpStatus(code:)`: `100...599`.
+  - A money amount (`24.00.usd`) has no more decimal places than its currency, not counting trailing zeros ([34-money.md](34-money.md)).
 - **`Type.parse(_ text: String) -> Type?` is the only runtime parse.** When a type has several text forms, the label names the form: `Bytes.parse(hex:)`, `Bytes.parse(base64:)`, `Currency.parse(code:)`.
 - There are no failable initializers, so the same spelling never means "checked literal" for one type and "may fail" for another.
 

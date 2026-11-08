@@ -1,0 +1,5 @@
+error[K5507] 20:51-20:73
+  label 14:9-14:14: the server runs the guards declared here
+  fix "Move `Authenticated` to `OpenProtocol.hello`" maybe-incorrect
+    edit 14:44-14:44 " requires Authenticated"
+    edit 20:50-20:73 ""

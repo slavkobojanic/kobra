@@ -136,7 +136,8 @@ A key's name and its value's shape are part of the app's stored format, which ou
 
 > **Planned.** The first compiler releases compare a committed `storage.lock`'s keys and job payloads with
 > the code (`K8008` for a key, `K8003` for a job), but don't write the file, don't namespace keys per app
-> (a key's name is the browser's storage key as written), and don't report two keys with the same name.
+> (a key's name is the browser's storage key as written). Two keys with the same name are reported
+> (`K2405`), and a name that isn't a string literal (`K2403`).
 
 #### File format
 

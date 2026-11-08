@@ -30,6 +30,7 @@ export { child, joinClasses, lifetime, loadsOf, markers, paramProps, slotMarkers
 export { hydrate, isHydrating, readData, separator, textNode, uid } from "./hydrate.js";
 export { KPanic, checkInt, equals, intDiv, intRem, isPanic, panic, textOf, unitCase } from "./values.js";
 export * from "./std.js";
+export * from "./money.js";
 export { Store, store } from "./store.js";
 export { navigate, startRouter } from "./router.js";
 export { DEFAULT_TIMEOUT_MS, rpc, rpcError, sessionMirror } from "./rpc.js";

@@ -14,9 +14,12 @@
  * with `globalThis.addEventListener`, intercepts clicks on `a` elements
  * inside `container` with an `href` attribute, and renders a route by
  * calling `(await route.load()).render(params, ctx)` inside a fresh scope.
+ * A route's `guards` (codegen.md §14) are checked against the `Session`
+ * mirror (`sessionMirror`), which rpc responses change through
+ * `x-k-session`; a full page load is a write of `location.href`.
  */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
-import { child, flush, navigate, onCleanup, root, signal, startRouter, title } from "k:runtime";
+import { child, flush, navigate, onCleanup, renderEffect, root, rpc, sessionMirror, signal, startRouter, title } from "k:runtime";
 
 const ROUTER = "router (runtime.md §10)";
 const ORIGIN = "https://shop.example";
@@ -25,9 +28,12 @@ const ORIGIN = "https://shop.example";
 function browser(path) {
   const listeners = new Map();
   const pushed = [];
+  /** Full page loads (`location.href = …`). */
+  const loads = [];
   const location = {
     origin: ORIGIN,
     get href() { return ORIGIN + this.pathname + this.search; },
+    set href(url) { loads.push(String(url)); },
     pathname: "/",
     search: "",
   };
@@ -52,7 +58,7 @@ function browser(path) {
     go(url);
     for (const fn of listeners.get("popstate") ?? []) fn({ type: "popstate", state: null });
   };
-  return { location, pushed, back };
+  return { location, pushed, loads, back };
 }
 
 /** Parses `/segment/{param}` paths and `?a=b` queries without `URL`. */
@@ -452,4 +458,312 @@ test("a reactive title updates, and an empty one falls back to the layer below",
   ready.set(false);
   flush();
   assertEq(globalThis.document.title, "Weather", "a title that isn't ready yet");
+});
+
+// ---------------------------------------------------------------- guards
+
+const ADA = { id: "ada", roles: [] };
+const ADMIN = { id: "grace", roles: ["admin"] };
+
+/**
+ * A guarded route, as codegen.md §14 emits it: `guards` beside `parse` and
+ * `load`. Its page reads the signed-in user's id as a body narrowed by
+ * `requires Authenticated` does (26-auth-and-sessions.md), recording each
+ * read in `seen`; `loaded` counts its chunk loads.
+ */
+function guarded(name, segments, log, guards, options = {}) {
+  const r = {
+    name,
+    guards,
+    parse: parser(segments),
+    loaded: 0,
+    seen: [],
+    load: async () => {
+      r.loaded++;
+      if (options.gate) await options.gate;
+      return {
+        /** Renders the page, reading `session.user.id` reactively. */
+        render() {
+          log.push(`render ${name}`);
+          onCleanup(() => log.push(`leave ${name}`));
+          const main = globalThis.document.createElement("main");
+          const t = globalThis.document.createTextNode("");
+          renderEffect(() => {
+            const user = sessionMirror.get().user;
+            // A narrowed body has no `nil` check, so it would throw here;
+            // the probe records the read instead (pages of earlier tests
+            // stay mounted in their own containers).
+            r.seen.push(user === null ? "NO USER" : user.id);
+            t.data = `${name} for ${user?.id}`;
+          });
+          main.appendChild(t);
+          return main;
+        },
+      };
+    },
+  };
+  return r;
+}
+
+/** The guard routes: home links to the account and admin pages. */
+function guardRoutes(log, options = {}) {
+  return {
+    home: route("home", [], log, { links: ["/account", "/admin"] }),
+    account: guarded("account", ["account"], log, [["auth"]], options),
+    admin: guarded("admin", ["admin"], log, [["auth"], ["role", "admin"]]),
+    pricing: route("pricing", ["pricing"], log),
+  };
+}
+
+/** Starts the router over `routes` (from {@link guardRoutes}). */
+function startGuarded(routes) {
+  const { container } = app();
+  startRouter([routes.home, routes.account, routes.admin, routes.pricing], container);
+  return container;
+}
+
+/**
+ * An rpc whose response carries the `Session` mirror `mirror` in
+ * `x-k-session`, as the server sends it when a call changed the session
+ * (sign-out, `endAll`, an expired session).
+ */
+function rpcChangingSession(mirror) {
+  const response = {
+    ok: true,
+    status: 200,
+    headers: { get: (n) => (n === "x-k-session" ? JSON.stringify(mirror) : null) },
+    text: async () => "{}",
+  };
+  return rpc("/t.Auth/SignOut", {}, null, { fetch: () => Promise.resolve(response) });
+}
+
+// A guest following a link to a page that requires `Authenticated` is sent
+// to the server, which answers with its 303 to the sign-in page and the
+// return URL (26-auth-and-sessions.md, "What a refused page does"). The
+// page's chunk is never loaded and nothing is rendered with no user.
+test("a guest following a link to a guarded page gets a full page load", async () => {
+  sessionMirror.set({ user: null });
+  const b = browser("/");
+  const log = [];
+  const routes = guardRoutes(log);
+  const container = startGuarded(routes);
+  await tick();
+  const e = click(linkTo(container, "/account"));
+  await tick();
+  assert(e.defaultPrevented, "the router decides, not the browser");
+  assertDeepEq(b.loads, ["/account"]);
+  assertDeepEq(b.pushed, [], "the load makes the history entry");
+  assertEq(routes.account.loaded, 0, "the guarded page's chunk is not loaded");
+  assertDeepEq(routes.account.seen, []);
+  assertEq(log.includes("render account"), false);
+});
+
+// A signed-in user stays on the client: no round trip.
+test("a signed-in user navigates to a guarded page on the client", async () => {
+  sessionMirror.set({ user: ADA });
+  const b = browser("/");
+  const log = [];
+  const routes = guardRoutes(log);
+  const container = startGuarded(routes);
+  await tick();
+  click(linkTo(container, "/account"));
+  await tick();
+  assertDeepEq(b.loads, []);
+  assertDeepEq(b.pushed, ["/account"]);
+  assertEq(container.textContent, "account for ada");
+});
+
+// `navigate` and back/forward check the guards like a link does.
+test("navigate and popstate to a guarded page as a guest load it from the server", async () => {
+  sessionMirror.set({ user: null });
+  const b = browser("/");
+  const log = [];
+  const routes = guardRoutes(log);
+  startGuarded(routes);
+  await tick();
+  b.back("/account");
+  await tick();
+  assertDeepEq(b.loads, ["/account"]);
+  assertEq(routes.account.loaded, 0);
+  sessionMirror.set({ user: null });
+  const c = browser("/");
+  const again = guardRoutes([]);
+  startGuarded(again);
+  await tick();
+  navigate("/account?tab=security");
+  await tick();
+  assertDeepEq(c.loads, ["/account?tab=security"], "the query is kept, so the return URL is the whole page");
+  assertEq(again.account.loaded, 0);
+});
+
+// The server answered the document of the first page after checking its
+// guards, so the router doesn't check them again (and can't loop).
+test("the first page is not checked again", async () => {
+  sessionMirror.set({ user: ADA });
+  const b = browser("/account");
+  const log = [];
+  const routes = guardRoutes(log);
+  const container = startGuarded(routes);
+  await tick();
+  assertDeepEq(b.loads, []);
+  assertEq(container.textContent, "account for ada");
+});
+
+// `Role` is checked against the roles the mirror lists (their case names);
+// a refusal goes to the server, which answers 403. A mirror that doesn't
+// list roles can't tell, so the server decides.
+test("a role guard checks the mirrored roles and otherwise defers to the server", async () => {
+  for (const [user, loads] of [
+    [null, ["/admin"]],
+    [ADA, ["/admin"]],
+    [{ id: "lin" }, ["/admin"]],
+    [ADMIN, []],
+  ]) {
+    sessionMirror.set({ user });
+    const b = browser("/");
+    const routes = guardRoutes([]);
+    const container = startGuarded(routes);
+    await tick();
+    click(linkTo(container, "/admin"));
+    await tick();
+    assertDeepEq(b.loads, loads, JSON.stringify(user));
+    if (loads.length === 0) assertEq(container.textContent, "admin for grace");
+    else assertEq(routes.admin.loaded, 0, JSON.stringify(user));
+  }
+});
+
+// Signing out on a guarded page (or `endAll`, or the session expiring: any
+// rpc response whose mirror has no user) leaves the page the same way: it
+// is disposed before the mirror changes, so its narrowed body never runs
+// with no user, and the server is asked for the page again.
+test("losing the user on a guarded page leaves it without rendering it for a guest", async () => {
+  sessionMirror.set({ user: ADA });
+  const b = browser("/account?tab=security");
+  const log = [];
+  const routes = guardRoutes(log);
+  startGuarded(routes);
+  await tick();
+  assertDeepEq(routes.account.seen, ["ada"]);
+  await rpcChangingSession({ user: null });
+  flush();
+  await tick();
+  assertDeepEq(routes.account.seen, ["ada"], "the narrowed body never ran with no user");
+  assert(log.includes("leave account"), "the page was disposed");
+  assertEq(sessionMirror.peek().user, null, "the mirror still follows the server");
+  assertDeepEq(b.loads, ["/account?tab=security"]);
+  // The page is being left: what the app does next (its own
+  // `Router.navigate(to: .signIn)`) no longer renders anything.
+  navigate("/pricing");
+  await tick();
+  assertDeepEq(b.pushed, []);
+  assertEq(log.includes("render pricing {}"), false);
+});
+
+// Losing a role the page requires leaves it too.
+test("losing a required role on a guarded page leaves it", async () => {
+  sessionMirror.set({ user: ADMIN });
+  const b = browser("/admin");
+  const routes = guardRoutes([]);
+  startGuarded(routes);
+  await tick();
+  await rpcChangingSession({ user: { id: "grace", roles: [] } });
+  flush();
+  await tick();
+  assertDeepEq(b.loads, ["/admin"]);
+  assertDeepEq(routes.admin.seen, ["grace"]);
+});
+
+// A server-streaming rpc that opens is the first response to learn of a
+// dead session as often as a unary one (its head clears the cookie, so no
+// later response could tell): its mirror is checked before the stream is
+// handed to the caller.
+test("an opened stream's session mirror leaves a guarded page too", async () => {
+  sessionMirror.set({ user: ADA });
+  const b = browser("/account");
+  const routes = guardRoutes([]);
+  startGuarded(routes);
+  await tick();
+  const reader = { read: () => new Promise(() => {}), cancel: async () => {} };
+  const response = {
+    ok: true,
+    status: 200,
+    headers: { get: (n) => (n === "x-k-session" ? JSON.stringify({ user: null }) : null) },
+    body: { getReader: () => reader },
+  };
+  const stream = { body: () => new Uint8Array(5), read: () => ({ opened: true }) };
+  const r = await rpc("/t.Feed/Watch", {}, null, { fetch: () => Promise.resolve(response), stream });
+  flush();
+  await tick();
+  assertDeepEq(r, { ok: true, message: { opened: true } });
+  assertEq(sessionMirror.peek().user, null);
+  assertDeepEq(b.loads, ["/account"]);
+});
+
+// A session change the page's guards still accept, or one on a page with
+// no guards, changes nothing about the page.
+test("a session change the shown page allows keeps it", async () => {
+  sessionMirror.set({ user: ADA });
+  const b = browser("/account");
+  const routes = guardRoutes([]);
+  const container = startGuarded(routes);
+  await tick();
+  await rpcChangingSession({ user: { id: "ada", roles: ["admin"] } });
+  flush();
+  await tick();
+  assertDeepEq(b.loads, []);
+  assertEq(container.textContent, "account for ada");
+  sessionMirror.set({ user: ADA });
+  const c = browser("/pricing");
+  const log = [];
+  startGuarded(guardRoutes(log));
+  await tick();
+  await rpcChangingSession({ user: null });
+  await tick();
+  assertDeepEq(c.loads, []);
+  assertEq(log.includes("leave pricing"), false);
+});
+
+// A navigation to a guarded page that is still loading its chunk when the
+// user is lost never renders it: the server is asked for it instead.
+test("losing the user while a guarded page loads sends it to the server", async () => {
+  sessionMirror.set({ user: ADA });
+  const b = browser("/");
+  const log = [];
+  let release = null;
+  const gate = new Promise((r) => { release = r; });
+  const routes = guardRoutes(log, { gate });
+  startGuarded(routes);
+  await tick();
+  navigate("/account");
+  await tick();
+  await rpcChangingSession({ user: null });
+  release();
+  await tick();
+  assertDeepEq(b.loads, ["/account"]);
+  assertDeepEq(routes.account.seen, []);
+  assertEq(log.includes("render account"), false);
+});
+
+// Leaving a guarded page for an open one while the user is lost: the
+// guarded page goes at once and the navigation goes on, on the client.
+test("losing the user while leaving a guarded page for an open one stays on the client", async () => {
+  sessionMirror.set({ user: ADA });
+  const b = browser("/account");
+  const log = [];
+  let release = null;
+  const gate = new Promise((r) => { release = r; });
+  const routes = guardRoutes(log);
+  routes.pricing = route("pricing", ["pricing"], log, { gate });
+  const container = startGuarded(routes);
+  await tick();
+  navigate("/pricing");
+  await tick();
+  await rpcChangingSession({ user: null });
+  flush();
+  assertDeepEq(routes.account.seen, ["ada"]);
+  assert(log.includes("leave account"));
+  release();
+  await tick();
+  assertDeepEq(b.loads, []);
+  assertEq(container.textContent, "pricing");
 });

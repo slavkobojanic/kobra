@@ -1,0 +1,4 @@
+error[K2404] 8:30-8:37: not a time of day: the hour is `00` to `23`
+error[K2404] 9:30-9:37: not a time of day: the minute is `00` to `59`
+error[K2404] 10:26-10:32: not a time of day: write it as `HH:MM` on a 24-hour clock, such as `03:00`
+error[K2404] 11:22-11:28: not a time of day: write it as `HH:MM` on a 24-hour clock, such as `03:00`

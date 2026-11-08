@@ -441,6 +441,55 @@ fn a_server_rendered_entry_starts_clock_session_and_rpc_clients_from_k_data() {
     }
 }
 
+/// The client route table's entry for the page whose case name is `name`
+/// in `entry`: the text from its `name:` to the next route's.
+///
+/// # Panics
+///
+/// If the table has no such route.
+fn client_route<'a>(entry: &'a str, name: &str) -> &'a str {
+    let start = entry.find(&format!("name: \"{name}\""));
+    assert!(start.is_some(), "no route {name} in\n{entry}");
+    let start = start.unwrap_or_default();
+    let rest = &entry[start..];
+    let end = rest[1..].find("name: \"").map_or(rest.len(), |i| i + 1);
+    &rest[..end]
+}
+
+#[test]
+fn the_client_route_table_carries_the_guards_the_browser_can_check() {
+    // Notes: every notes page requires `Authenticated`; the account pages
+    // are open (12-routing.md, "Guards: `requires`").
+    let files = example_client("notes");
+    let entry = entry_of(&files);
+    for page in ["notes", "newNote", "editNote"] {
+        let r = client_route(entry, page);
+        assert!(r.contains("guards: [[\"auth\"]]"), "{page}: {r}");
+    }
+    for page in ["signIn", "signUp"] {
+        let r = client_route(entry, page);
+        assert!(!r.contains("guards"), "{page} is open: {r}");
+    }
+    // Shop: `Role(.admin)` is the role's case name, as the `Session`
+    // mirror lists roles; `RateLimit` is the server's alone, so no client
+    // table has one.
+    let files = shop_client();
+    let entry = entry_of(&files);
+    let admin = client_route(entry, "admin");
+    assert!(
+        admin.contains("guards: [[\"auth\"], [\"role\", \"admin\"]]"),
+        "{admin}"
+    );
+    assert!(!client_route(entry, "home").contains("guards"));
+    for f in &files {
+        assert!(
+            !f.contents.contains("[\"rate\""),
+            "{} has a rate guard",
+            f.path
+        );
+    }
+}
+
 #[test]
 fn test_only_modules_never_ship_or_bind_outside_tests() {
     let files = example_client("weather");
@@ -456,6 +505,86 @@ fn test_only_modules_never_ship_or_bind_outside_tests() {
             f.path
         );
     }
+}
+
+/// The generated client files of the shop member for development.
+fn shop_client() -> Vec<OutputFile> {
+    let host = AnalysisHost::with_files(SemaOptions::new(), shop_files());
+    generate(
+        &host.analysis(),
+        &Options {
+            profile: k_codegen::Profile::Development,
+            entry: k_codegen::Entry::App,
+            ..Options::default()
+        },
+    )
+    .expect("generates")
+    .client
+}
+
+/// The client file of `files` whose name starts with `stem`, if any.
+fn chunk<'a>(files: &'a [OutputFile], stem: &str) -> Option<&'a OutputFile> {
+    files.iter().find(|f| f.path.starts_with(stem))
+}
+
+#[test]
+fn forms_and_money_ship_only_to_clients_that_use_them() {
+    // `@Form` support and `Money`/`Decimal` are feature chunks
+    // (runtime.md §2): the runtime chunk has neither, and a client that
+    // uses one reaches it through a namespace import of its chunk.
+    let weather = example_client("weather");
+    for stem in ["forms.", "money."] {
+        assert!(chunk(&weather, stem).is_none(), "weather ships {stem}");
+    }
+    let runtime = chunk(&weather, "runtime.").expect("a runtime chunk");
+    for gone in ["function createForm(", "class Money", "class Decimal"] {
+        assert!(
+            !runtime.contents.contains(gone),
+            "the runtime chunk has {gone}"
+        );
+    }
+
+    let kanban = example_client("kanban");
+    let forms = chunk(&kanban, "forms.").expect("kanban ships the forms chunk");
+    assert!(forms.contents.contains("export function createForm("));
+    assert!(chunk(&kanban, "money.").is_none(), "kanban has no money");
+    let mut reached = false;
+    for f in &kanban {
+        assert!(
+            !f.contents.contains("$k.createForm"),
+            "{} calls $k.createForm",
+            f.path
+        );
+        if f.contents.contains("$k_forms.createForm(") {
+            reached = true;
+            let prefix = if f.path.starts_with("pages/") {
+                "../"
+            } else {
+                "./"
+            };
+            let import = format!("import * as $k_forms from \"{prefix}{}\";", forms.path);
+            assert!(
+                f.contents.contains(&import),
+                "missing {import:?} in {}",
+                f.path
+            );
+        }
+    }
+    assert!(reached, "no kanban file creates a form");
+
+    let shop = shop_client();
+    let money = chunk(&shop, "money.").expect("shop ships the money chunk");
+    assert!(money.contents.contains("export class Money"));
+    for f in &shop {
+        for gone in ["$k.money", "$k.decimal", "$k.parseDecimal"] {
+            assert!(!f.contents.contains(gone), "{} uses {gone}", f.path);
+        }
+    }
+    assert!(
+        shop.iter()
+            .any(|f| f.contents.contains("$k_money.moneyCodecs.money")),
+        "shop decodes its prices with the money chunk's codec"
+    );
 }
 
 #[test]

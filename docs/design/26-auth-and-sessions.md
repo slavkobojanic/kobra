@@ -66,7 +66,7 @@ The boundary is drawn per declaration ([10-services.md](10-services.md#servercli
 | `issueState() async -> String` | a random value bound to the current session (creating a guest session if needed), for an OAuth `state` parameter |
 | `consumeState(_ state: String) async -> Bool` | `true` once, if `state` was issued to this session; it can't be used again |
 
-- **In the browser, `Session` is a read-only mirror.** Server rendering serializes `user` into the page, and every rpc response that changes the session (sign-in, sign-out, expiry) updates it. Client services read it to show account state, and the router reads it to evaluate page guards during client-side navigation without a round trip.
+- **In the browser, `Session` is a read-only mirror.** Server rendering serializes `user` (with its roles, by case name) into the page, and every rpc response that changes the session (sign-in, sign-out, expiry) updates it. A session that ended without this browser's help (signed out in another tab, `endAll` from another device, expired) counts as a change: the next rpc response that arrives with its dead cookie carries the guest mirror and clears the cookie. Client services read the mirror to show account state, and the router reads it to evaluate page guards during client-side navigation without a round trip ([below](#in-the-browser)).
 - **`signIn` always issues a new session id,** which prevents session fixation.
 
 ### `SessionUser` is generated
@@ -98,11 +98,33 @@ private func ownerOf(user: SessionUser) -> AccountId { … }
 
 - **Rate-limit counters live in the app's database** (a stdlib table `k_rate_limit`, like `k_session`), so a limit holds across every replica instead of multiplying by the replica count.
 
+### Where guards are written
+
+A guard is written only where the server checks it, so a declaration never looks protected without being protected:
+
+- **`page … requires`**, checked on every request for the page (and by the router in the browser, [below](#in-the-browser)).
+- **`protocol … requires`** and **`rpc … requires` in a protocol**, checked before the handler runs, for in-process calls too ([11-protocols-and-rpc.md](11-protocols-and-rpc.md#rules)).
+
+Anywhere else a clause is an error, never silently accepted:
+
+- **On a service's handler** (`rpc` with a body), or on an `rpc` no protocol declares: `K5507`. The handler serves the protocol's rpc, and the protocol's guards are what runs. The quick fix moves the clause to the protocol's rpc; for a protocol from a library, which the app can't change, the message says the library declares its guards and the handler must check the caller itself. A clause on the handler never narrows `session.user` either ([above](#narrowing-under-authenticated)).
+- **On a layout:** `K5014`, with a help to put the clause on each page that renders in it ([12-routing.md](12-routing.md)).
+- **After a function's signature, or in a component or service header:** a syntax error, as the grammar has no clause there.
+
 ### What a refused page does
 
 - **`Authenticated` refusing a page redirects with `303 See Other` to the app's sign-in page,** named once with `@SignInPage(.signIn)` on the `app` ([23-app-structure.md](23-app-structure.md)). When the sign-in page declares `@Param let returnTo: Page`, the redirect fills it with the refused page, encoded as a path within the app, so the person comes back after signing in and the parameter can't send them to another site.
 - `Role` refusing a page responds `403 Forbidden`, rendered by the nearest `ErrorBoundary`.
 - With no `@SignInPage`, a page that `requires Authenticated` is a compile error, because there would be nowhere to send the visitor.
+
+#### In the browser
+
+The server checks a page's guards on every request for it. The router checks the ones it can against the mirror, so a page it can't show is never rendered in the browser:
+
+- **The client route table carries each page's `Authenticated` and `Role` guards.** `RateLimit` stays with the server, which counts the requests it sees.
+- **A navigation to a page the mirror refuses is a full page load of its URL,** instead of a client-side render. A link, `Router.navigate(to:)` and Back/Forward all go this way. The server then answers as it does for any request: the `303` to the sign-in page with `returnTo`, or `403`. The browser never has to build the sign-in URL itself, so the return URL is exactly the server's. `Authenticated` is refused when the mirror has no user. `Role` is refused when the mirror's roles don't include the case. A mirror that doesn't list roles can't tell, so the page is loaded and the server decides.
+- **Losing the user while a guarded page is shown leaves it the same way.** This covers `signOut`, `endAll`, an expired session, or a lost role. The router checks each new mirror an rpc response brings before setting it. The server sends the mirror with every response that finds the session changed, an opened stream's head included, and with every rpc an `Authenticated` or `Role` guard refuses: the server can't know what the browser's copy says, and a refusal is when that copy is likeliest to be stale (a role taken away has no response of its own, and a cookie cleared by an earlier non-rpc response leaves nothing to find). A page the new mirror refuses is disposed first, so its narrowed body never runs with `session.user` absent. Then the router does a full page load of the URL being shown, or of the one being navigated to. After that the router renders nothing more, so an app's own `Router.navigate(to: .signIn)` after signing out is ignored, and the load decides where the person lands.
+- **The first page of a document isn't checked again.** The server checked its guards when it answered the request, and a recheck could only loop.
 
 ### What a refused rpc throws
 
@@ -129,7 +151,7 @@ Every caller decides what a refusal means, usually `Router.navigate(to: .signIn.
 
 - **The cookie holds only a random, unguessable session id.** It is `HttpOnly`, `SameSite=Lax`, `Path=/`.
 - **`Secure` follows the scheme of `K_PUBLIC_ORIGIN`,** not of the connection, so it is right behind a proxy that terminates TLS. With an `https` origin, the cookie is named **`__Host-k_session`**, which browsers refuse to accept from a subdomain or without `Secure`; with an `http` origin (local development) it is `k_session`.
-- **Every rpc response, and every response whose rendering read `Session`, carries `Cache-Control: private, no-store`,** because server-rendered HTML embeds the session mirror. A shared cache never serves one user's page to another.
+- **Every rpc response, every response whose rendering read `Session`, and every document rendered for a signed-in user carries `Cache-Control: private, no-store`,** because server-rendered HTML embeds the session mirror in `k-data`, whether or not the page reads it. A shared cache never serves one user's page, or their id and roles, to another. A guest's document carries the guest mirror and may be cached; a browser handed one while signed in only defers more to the server, whose guards decide.
 
 ## Request forgery
 
@@ -164,6 +186,7 @@ An OAuth provider sends the user back to a fixed URL, so the callback is an endp
 - Narrowing only syntactically guarded bodies turns the guard into a type fact without making a helper's types depend on the whole call graph.
 - Typed rejections follow [09-errors.md](09-errors.md): every point where a call can fail is visible in its signature and handled exhaustively.
 - Server-side session storage avoids a signing secret, which removes the most common auth misconfiguration, and makes sign-out and `endAll` mean what they say.
+- When the browser refuses a page, it asks the server for that page rather than redirecting on its own. That keeps one implementation of the redirect and its `returnTo` encoding (the server's), lets the server decide whatever the mirror can't (roles it doesn't list), and costs a round trip only for the person who was going to be sent away anyway. A client-side redirect would have needed the sign-in page's `returnTo` parameter and its default in the client bundle, and a second, separately tested rule for building the URL.
 
 ## Open questions
 

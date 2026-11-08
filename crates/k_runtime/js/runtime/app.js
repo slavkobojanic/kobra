@@ -29,7 +29,8 @@
 
 import { SERVICE_TOKEN_HEADER, verifyServiceToken } from "./remote.js";
 import { KPanic, isPanic, panic } from "./values.js";
-import { DecodeFailure, Instant, NO, Secret, currencyCode, parseEmail, parseQuery, parseTimeZone, parseUuid, route, routeParam, splitTarget, stringify, toJSON } from "./std.js";
+import { currencyCode } from "./money.js";
+import { DecodeFailure, Instant, NO, Secret, parseEmail, parseQuery, parseTimeZone, parseUuid, route, routeParam, splitTarget, stringify, toJSON } from "./std.js";
 import { Out, escapeAttribute, escapeText, serializeData } from "./ssr.js";
 import { httpStatus, received, runJobBody, wireRequest } from "./outbound.js";
 import * as http from "./http.js";
@@ -189,7 +190,7 @@ export class RequestState {
     this.loaded = undefined;
     /** `true` once K code read `Session` (the response is then private). */
     this.sessionRead = false;
-    /** `true` once `signIn`, `signOut` or `endAll` changed this browser's session. */
+    /** `true` once `signIn`, `signOut` or `endAll` changed this browser's session, or the one it sent had ended. */
     this.sessionChanged = false;
     /** @type {string|null} a `Set-Cookie` value to send */
     this.setCookie = null;
@@ -230,8 +231,13 @@ export class RequestState {
     }
     const row = await ops.op_k_session_get(this.sessionId);
     if (row === null) {
+      // Signed out elsewhere, ended by `endAll`, or expired: the browser's
+      // mirror learns it on this response (`x-k-session`), so the router
+      // leaves a page that requires the user, and the dead cookie goes.
       this.sessionId = null;
       this.loaded = null;
+      this.setCookie = this.cookie("");
+      this.sessionChanged = true;
     } else {
       this.loaded = row.user === null ? null : { id: this.decodeUser(row.user), roles: new Set(row.roles.map((r) => this.decodeRole(r))) };
     }
@@ -612,7 +618,14 @@ async function handleRpc(st, rpc) {
     }
   }
   const refused = await checkGuards(st, rpc.guards);
-  if (refused !== null) return rpcRefusal(refused);
+  if (refused !== null) {
+    // The browser's mirror is likeliest to be stale when a session guard
+    // refuses (a role taken away, a cookie an earlier response cleared),
+    // so the refusal carries it and the router can leave a page the
+    // server no longer allows.
+    if (refused.kind !== "rate" && !rpc.guards.some((g) => g[0] === "service")) st.sessionChanged = true;
+    return rpcRefusal(refused);
+  }
   let result;
   try {
     result = await rpc.call(st.c, st.signal, args);
@@ -711,7 +724,13 @@ async function pumpStream(st, s) {
   };
   sink.start({
     status: 200,
-    headers: [["content-type", "application/connect+json"], ["cache-control", PRIVATE], ...(st.setCookie ? [["set-cookie", st.setCookie]] : [])],
+    headers: [
+      ["content-type", "application/connect+json"],
+      ["cache-control", PRIVATE],
+      ...(st.setCookie ? [["set-cookie", st.setCookie]] : []),
+      // As a unary response does: the stream may be what found the session dead.
+      ...(st.sessionChanged ? [["x-k-session", JSON.stringify(st.mirror())]] : []),
+    ],
   });
   // A stream opened under a session ends when the session does (signOut,
   // endAll, expiry), on whichever worker that happens.
@@ -1126,6 +1145,9 @@ async function renderPage(st, r, params) {
   spec.appMeta?.(appMeta);
   const meta = mergeMeta([appMeta, ...layoutMetas, pageMeta]);
   data.session = st.mirror();
+  // The document carries the mirror, so one rendered for a signed-in user
+  // is private even when nothing on it read `Session`.
+  if (data.session.user !== null) st.sessionRead = true;
   const status = typeof meta.status === "number" ? meta.status : 200;
   return respond(status, HTML, documentHtml(spec, st, meta, html, data));
 }

@@ -1,4 +1,5 @@
-client contains $k.createForm(
+client contains $k_forms.createForm(
+client lacks $k.createForm(
 client contains name: "name"
 client contains name: "age"
 client contains name: "newsletter"

@@ -537,9 +537,25 @@ and set elements must be `Hashable` (K2009).
 - `Clock.now` is a plain read, not reactive (§12.3).
 - `Money` ([34-money.md](../design/34-money.md)): `+` and `-` take two `Money` values and `Money * Int`
   scales by a quantity; any other operator or operand (`/`, `Money * Money`, `Money * Double`) is
-  **K2013**, because a rate goes through `multiplied(by:rounding:)`. **Not yet checked:** a literal with
-  more decimal places than its currency (`1.005.usd`) and mixing two currencies the checker can see
+  **K2013**, because a rate goes through `multiplied(by:rounding:)`. A literal with more significant
+  decimal places than its currency (`1.005.usd`, `1.5.jpy`; trailing zeros don't count) is **K2404** at
+  the whole `amount.code` expression. **Not yet checked:** mixing two currencies the checker can see
   (`1.usd + 2.eur`).
+- **Checked literals** ([20-standard-library.md](../design/20-standard-library.md#literals-and-parsing);
+  `body/literal.rs`): a call that selects an initializer marked `@Literal` (`Url`, `Uuid`, `EmailAddress`,
+  `TimeOfDay`, `StorageKey(name:)`, and `HttpStatus(code:)`, an enum's initializer checked in the enum
+  branch of construction) must pass a plain string literal, or an integer literal (`-n` included) for
+  `HttpStatus`; anything else is **K2403** at the argument, with a fix inserting `.parse` after the type
+  name when the type has `static func parse(_:)`. A literal of the wrong kind is the type mismatch
+  already reported. The literal is then validated by the type's parser in `crate::literals`, a port of
+  the runtime's `parseUrl`, `parseUuid` and `parseEmail` (`std.js`; JavaScript's `\s`, `trim` and `.`
+  semantics included) and of the `TimeOfDay` and status rules: a refusal is **K2404** at the literal,
+  with the reason. `crates/k_server/tests/literals.rs` runs the compiler's and the runtime's parsers on
+  the same fixed and generated inputs and requires identical results, and `literals.rs`'s unit tests pin
+  the currency table to `money.js`.
+- **Storage keys** ([36-local-storage.md](../design/36-local-storage.md#keys)): a `StorageKey(name:)` in
+  the app's non-test code whose name an earlier key (in file path order) already has is **K2405** at its
+  name literal, with a label at the earlier one (`locks.rs`, `duplicate_keys`).
 - **Sums:** `List` has two `sum` overloads. `sum() -> T` adds the elements of a `List<Int>` or a
   `List<Double>` (the empty sum is `0` or `0.0`); `sum(in:_:)` sums `Money` in a currency. Because no
   interface expresses "Int or Double", `sum()` is declared unconstrained in `List.k` and the checker
@@ -780,6 +796,9 @@ Accessibility lints beyond required accessible names are **deferred**.
 - **Endpoint pages** (pages with `@Get`/`@Post`/`@Put`/`@Patch`/`@Delete` handlers and no view) require
   an `at` clause (**K5004**); `requires Authenticated` or `Role` on them → **K5005**.
 - **`requires` guards** must implement the stdlib `Guard` interface (**K5006**).
+- **A layout's `requires` clause** is never checked by the server, so it is **K5014** at the clause, with
+  a help to put it on each page that renders in the layout; its guards aren't resolved
+  (`routing.rs`, `guard_on_layout`).
 - **Layouts and app attributes:** `@Layout(X)`, `@NoLayout`, `@SignInPage(.signIn)` (a `Page` value),
   `@Rendering(...)` are type-checked like any annotation.
 - **`routes.lock`** (the URL of every page and endpoint, and the redirects) is written by `k build` and
@@ -797,6 +816,14 @@ Accessibility lints beyond required accessible names are **deferred**.
 - Parameters, results and error payloads are `Codable` (**K5503**).
 - A protocol is implemented by a `service … implements P`, always server-only (**K5504** otherwise);
   handlers repeat the rpc's signature (`throws` included).
+- **Guards are the protocol's:** a `requires` clause on an rpc that isn't a protocol member (a service's
+  handler, or an rpc no protocol declares) is **K5507** at the clause. A label marks each protocol rpc the
+  handler serves. The fix appends the guards those rpcs (and their protocols' headers) don't declare yet,
+  compared by source text with whitespace collapsed, to each rpc's `requires` clause or after its
+  signature, adds their imports to the protocol's file, and deletes the clause with the whitespace before
+  it; it is maybe-incorrect, or machine-applicable when nothing moves. A protocol from a library or the
+  stdlib gets a help instead of a fix, and so does an rpc no protocol declares (`rpc.rs`,
+  `handler_guards`). Library files themselves aren't checked here.
 - A protocol is injectable only into services (K4005). `Stream<T>` results are server streams
   ([29-server-streaming.md](../design/29-server-streaming.md)); client and bidirectional streaming are
   deferred with the wire format.

@@ -183,13 +183,13 @@ pub(crate) fn duration_ms(text: &str) -> Option<u64> {
     (0.0..1e15).contains(&ms).then(|| ms.round() as u64)
 }
 
-/// Minutes after midnight of `TimeOfDay("03:00")`.
+/// Minutes after midnight of `TimeOfDay("03:00")`, read as the checked
+/// literal it is (`k_sema::literals::time_of_day`, K2404).
 fn time_of_day(text: &str) -> Option<u32> {
     let inner = text.trim().strip_prefix("TimeOfDay(")?.strip_suffix(')')?;
     let lit = string_literal(inner)?;
-    let (h, m) = lit.split_once(':')?;
-    let (h, m): (u32, u32) = (h.parse().ok()?, m.get(..2).unwrap_or(m).parse().ok()?);
-    (h < 24 && m < 60).then_some(h * 60 + m)
+    let (h, m) = k_sema::literals::time_of_day(&lit).ok()?;
+    Some(h * 60 + m)
 }
 
 /// A `ScheduleTime` value: `.every(1.hour)`, `.daily(at: TimeOfDay("03:00"))`,

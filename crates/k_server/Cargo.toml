@@ -88,3 +88,7 @@ path = "tests/sessions.rs"
 [[test]]
 name = "shop_production"
 path = "tests/shop_production.rs"
+
+[[test]]
+name = "literals"
+path = "tests/literals.rs"

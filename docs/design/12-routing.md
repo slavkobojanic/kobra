@@ -30,6 +30,7 @@ layout Shop {
 - `page` and `layout` are declaration keywords.
 - Pages and layouts follow the same injection rules as components: they inject services only.
 - **Layouts:** `@Layout(Shop)` on a page attaches a layout. `@Layout` on the `app` sets the default for every view page, and `@NoLayout` on a page opts out of it ([23-app-structure.md](23-app-structure.md)). `@Layout` always takes a layout's type name.
+- **A layout has no guards.** The server checks the `requires` clause of the page it answers, never of the layout the page renders in, so `layout Admin requires Authenticated` would protect nothing; it is a compile error (`K5014`) that asks for the clause on each page. Guarding every page of a layout through the layout would make a page's protection depend on an annotation far from it, and on the app's default layout, so it isn't done ([26-auth-and-sessions.md](26-auth-and-sessions.md#guards)).
 
 ## Navigation
 
@@ -60,6 +61,7 @@ page Admin requires Authenticated, Role(.admin) { ... }
 - Guards are the same middleware types used on protocols (see [11-protocols-and-rpc.md](11-protocols-and-rpc.md)), so `Authenticated` is one type everywhere.
 - `requires` reads as prose. The word `validation` is reserved for form validation.
 - A refused `Authenticated` redirects to the app's sign-in page with `303 See Other`, and a refused `Role` answers `403`. See [26-auth-and-sessions.md](26-auth-and-sessions.md#what-a-refused-page-does).
+- In the browser the router checks `Authenticated` and `Role` against the `Session` mirror before showing a page. A page they refuse is loaded from the server instead, which answers as above. The same happens when the mirror loses the user while a guarded page is shown ([26-auth-and-sessions.md](26-auth-and-sessions.md#in-the-browser)).
 
 ## URLs
 

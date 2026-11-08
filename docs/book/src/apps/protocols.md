@@ -261,6 +261,13 @@ do {
 Cross-cutting interceptors that never reject a call, such as logging and tracing, are configured once in
 `App.k`.
 
+**Guards go on the protocol, never on the service that implements it.** The server runs the protocol's
+guards before the handler, so a `requires` clause on a handler would never be checked. It is a compile
+error (`K5507`) instead, and its quick fix moves the clause to the protocol's rpc. If the protocol comes
+from a library, its guards are the library's to declare: the handler checks the caller itself, for
+example through `session.user`. An `rpc` that no protocol declares is never served, so a clause on it is
+the same error.
+
 ```k
 ~import k.auth.Authenticated
 ~import k.auth.RateLimit

@@ -297,6 +297,51 @@ pub(crate) fn guards(b: &mut Body<'_, '_>, node: &SyntaxNode, key: &str) -> Vec<
     out
 }
 
+/// The guards of a page's `requires` clause (a direct child of `node`)
+/// that the browser can check against the `Session` mirror, for the
+/// client route table (codegen.md §14): `["auth"]` for `Authenticated`
+/// and `["role", "admin"]` for `Role(.admin)`, the role by its case name
+/// as the mirror lists roles. `RateLimit` counts requests only the server
+/// sees, so it is left out; the server checks every guard when it answers
+/// the page.
+pub(crate) fn client_guards(node: &SyntaxNode) -> Vec<Expr> {
+    let Some(clause) = node
+        .children()
+        .find(|c| c.kind() == SyntaxKind::RequiresClause)
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for g in clause.children().filter(|c| c.kind() == SyntaxKind::Guard) {
+        let name = g
+            .children_with_tokens()
+            .filter_map(rowan::NodeOrToken::into_token)
+            .find(|t| t.kind().is_name_like())
+            .map(|t| t.text().to_owned())
+            .unwrap_or_default();
+        match name.as_str() {
+            "Authenticated" => out.push(Expr::Array(vec![js::str("auth")])),
+            "Role" => {
+                let role = g
+                    .children()
+                    .find_map(ast::ArgList::cast)
+                    .and_then(|l| l.args().next())
+                    .and_then(|a| a.value())
+                    .as_ref()
+                    .and_then(implicit_name);
+                // Without a case (a program the checker refused) the
+                // browser can't tell, so the server decides.
+                out.push(Expr::Array(vec![
+                    js::str("role"),
+                    role.map_or(Expr::Null, js::str),
+                ]));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// `4.perMinute` → (4, 60000).
 fn rate_of(e: &ast::Expr) -> Option<(f64, f64)> {
     let ast::Expr::MemberExpr(m) = e else {

@@ -1,0 +1,4 @@
+# Payments comes from the contracts library, so its guards are the library's to declare: a
+# `requires` clause on paybox's handler is K5507 with no fix, only an explanation.
+[workspace]
+members = ["contracts", "paybox"]

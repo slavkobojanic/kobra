@@ -8,12 +8,15 @@
 //! * A protocol is implemented by a service (K5504) whose handlers repeat
 //!   each rpc's signature, `throws` included (K5505); a missing handler is a
 //!   missing member (K2010).
+//! * Guards are declared on the protocol and its rpcs, which is what the
+//!   server checks: a `requires` clause on any other rpc, a service's
+//!   handler above all, is K5507, with a fix that moves it to the protocol.
 
-use k_diagnostics::{Diagnostic, Fix, Span, TextRange, codes};
+use k_diagnostics::{Applicability, Diagnostic, Fix, Span, TextEdit, TextRange, TextSize, codes};
 use k_syntax::ast::{self, AstNode};
 use k_syntax::{SyntaxKind, SyntaxNode};
 
-use crate::cx::{Cx, SigKey};
+use crate::cx::{Cx, Found, SigKey};
 use crate::program::{DeclId, FileIx, MemberId, MemberKind};
 use crate::stdlib::DeclarationKind as K;
 use crate::ty::Ty;
@@ -34,7 +37,240 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
             }
         }
         implementations(cx, d);
+        if decl.named_kind() != Some(K::Protocol) && !from_library(cx, d) {
+            for &m in &decl.members {
+                if p.member(m).kind == MemberKind::Rpc {
+                    handler_guards(cx, d, m);
+                }
+            }
+        }
     }
+}
+
+/// `true` when declaration `d` comes from the stdlib or from a library the
+/// project depends on, whose source the project doesn't edit.
+fn from_library(cx: &Cx<'_, '_>, d: DeclId) -> bool {
+    cx.p.is_stdlib(d) || crate::di::from_dependency(cx, d)
+}
+
+/// The qualified name of declaration `d` (`k.auth.RateLimit`), also for a
+/// prelude type, which `decl_name` renders by its simple name.
+fn qualified(cx: &Cx<'_, '_>, d: DeclId) -> String {
+    let name = &cx.p.decl(d).name;
+    match cx.p.decl_module(d) {
+        Some(m) => format!("{}.{name}", cx.p.modules[m.0 as usize].path),
+        None => name.clone(),
+    }
+}
+
+/// The `requires` clause that is a direct child of `node`.
+fn requires_clause(node: &SyntaxNode) -> Option<SyntaxNode> {
+    node.children()
+        .find(|c| c.kind() == SyntaxKind::RequiresClause)
+}
+
+/// The guards of a `requires` clause: each as its source text with runs of
+/// whitespace collapsed (`RateLimit(10.perMinute)`), with its name.
+fn clause_guards(clause: &SyntaxNode) -> Vec<(String, String)> {
+    clause
+        .children()
+        .filter(|g| g.kind() == SyntaxKind::Guard)
+        .map(|g| {
+            let text = g.text().to_string();
+            let name = g
+                .children_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .find(|t| t.kind() == SyntaxKind::Ident)
+                .map(|t| t.text().to_owned())
+                .unwrap_or_default();
+            (text.split_whitespace().collect::<Vec<_>>().join(" "), name)
+        })
+        .collect()
+}
+
+/// The end of the last non-trivia token of `node`: where a clause is
+/// appended to a declaration without a body.
+fn signature_end(node: &SyntaxNode) -> TextSize {
+    node.descendants_with_tokens()
+        .filter_map(rowan::NodeOrToken::into_token)
+        .filter(|t| !t.kind().is_trivia())
+        .last()
+        .map_or(node.text_range().end(), |t| t.text_range().end())
+}
+
+/// Joins names for a message: `` `a` ``, `` `a` and `b` ``,
+/// `` `a`, `b` and `c` ``.
+fn and_list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [init @ .., last] => format!("{} and {last}", init.join(", ")),
+    }
+}
+
+/// K5507: a `requires` clause on rpc `m` of `d`, which isn't a protocol.
+///
+/// The server checks the guards of the protocol and of its rpc before any
+/// handler runs (11-protocols-and-rpc.md), so a clause on the handler is
+/// never checked. The fix moves the guards the protocol doesn't declare yet
+/// to every protocol rpc the handler serves, importing them where needed,
+/// and deletes the handler's clause; when the protocol declares them all,
+/// it only deletes the clause. A protocol from a library or the stdlib
+/// can't be edited from the app, and an rpc no protocol declares has
+/// nowhere to move to: then a help explains.
+fn handler_guards(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) {
+    let p = cx.p;
+    let decl = p.decl(d);
+    let member = p.member(m);
+    let Some(node) = &member.node else { return };
+    let Some(clause) = requires_clause(node) else {
+        return;
+    };
+    let file = decl.file;
+    let range = clause.text_range();
+    let mut diag = Diagnostic::new(
+        codes::REQUIRES_ON_HANDLER,
+        p.span(file, range),
+        "the server never checks a `requires` clause on a handler; it runs the guards the protocol declares",
+    );
+    // The protocol rpcs this handler serves.
+    let mut served: Vec<(DeclId, MemberId)> = Vec::new();
+    if decl.named_kind() == Some(K::Service) {
+        for (ty, _) in cx.implements_list(d).iter() {
+            let Some(proto) = ty.decl() else { continue };
+            let pdecl = p.decl(proto);
+            if pdecl.named_kind() != Some(K::Protocol) {
+                continue;
+            }
+            if let Some(&r) = pdecl.member_names.get(&member.name) {
+                if p.member(r).kind == MemberKind::Rpc && !served.iter().any(|s| s.0 == proto) {
+                    served.push((proto, r));
+                }
+            }
+        }
+    }
+    if served.is_empty() {
+        cx.report(
+            file,
+            diag.with_help(format!(
+                "only a protocol's rpcs are served: declare `{}` in a protocol that `{}` implements, with the clause on its rpc",
+                member.name, decl.name
+            )),
+        );
+        return;
+    }
+    if let Some(&(proto, r)) = served.iter().find(|(proto, _)| from_library(cx, *proto)) {
+        let origin = if p.is_stdlib(proto) {
+            "the standard library".to_owned()
+        } else {
+            let library = p
+                .file(p.decl(proto).file)
+                .path
+                .and_then(|path| path.dependency())
+                .map(|(dir, _)| dir)
+                .unwrap_or_default();
+            format!("the library `{library}`")
+        };
+        cx.report(
+            file,
+            diag.with_help(format!(
+                "`{}` comes from {origin}, which declares its guards: add the guard to its rpc `{}` there, or check the caller in the handler",
+                qualified(cx, proto),
+                p.member(r).name
+            )),
+        );
+        return;
+    }
+    let guards = clause_guards(&clause);
+    let mut edits = Vec::new();
+    let mut moved: Vec<String> = Vec::new();
+    let mut targets: Vec<String> = Vec::new();
+    for &(proto, r) in &served {
+        let pdecl = p.decl(proto);
+        let rpc = p.member(r);
+        diag = diag.with_label(
+            p.span(pdecl.file, rpc.name_range),
+            "the server runs the guards declared here",
+        );
+        let target = format!("`{}.{}`", pdecl.name, rpc.name);
+        targets.push(target);
+        let Some(rnode) = &rpc.node else { continue };
+        let rclause = requires_clause(rnode);
+        let declared: Vec<String> = rclause
+            .iter()
+            .chain(requires_clause(&pdecl.node).iter())
+            .flat_map(clause_guards)
+            .map(|(text, _)| text)
+            .collect();
+        let missing: Vec<&(String, String)> = guards
+            .iter()
+            .filter(|(text, _)| !declared.contains(text))
+            .collect();
+        if missing.is_empty() {
+            continue;
+        }
+        let list = missing
+            .iter()
+            .map(|(text, _)| text.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let pid = p.file(pdecl.file).id;
+        edits.push(match &rclause {
+            Some(c) => TextEdit {
+                span: Span::new(pid, TextRange::empty(c.text_range().end())),
+                replacement: format!(", {list}"),
+            },
+            None => TextEdit {
+                span: Span::new(pid, TextRange::empty(signature_end(rnode))),
+                replacement: format!(" requires {list}"),
+            },
+        });
+        for (text, name) in missing {
+            if !moved.contains(text) {
+                moved.push(text.clone());
+            }
+            if let Found::Decl(g) = cx.lookup(file, name) {
+                if let Some(edit) = cx.import_edit(pdecl.file, &qualified(cx, g)) {
+                    if !edits.contains(&edit) {
+                        edits.push(edit);
+                    }
+                }
+            }
+        }
+    }
+    // The clause and the whitespace before it.
+    let text = p.file(file).text;
+    let start = usize::from(range.start()).min(text.len());
+    let from = text[..start].trim_end().len();
+    let from = TextSize::try_from(from).unwrap_or(range.start());
+    edits.push(TextEdit {
+        span: p.span(file, TextRange::new(from, range.end())),
+        replacement: String::new(),
+    });
+    edits.sort_by_key(|e| (e.span.file, e.span.range.start(), e.span.range.end()));
+    let fix = if moved.is_empty() {
+        let verb = if targets.len() == 1 {
+            "requires"
+        } else {
+            "require"
+        };
+        Fix {
+            message: format!(
+                "Remove the clause: {} already {verb} it",
+                and_list(&targets)
+            ),
+            edits,
+            applicability: Applicability::MachineApplicable,
+        }
+    } else {
+        let moved: Vec<String> = moved.iter().map(|g| format!("`{g}`")).collect();
+        Fix {
+            message: format!("Move {} to {}", moved.join(", "), and_list(&targets)),
+            edits,
+            applicability: Applicability::MaybeIncorrect,
+        }
+    };
+    cx.report(file, diag.with_fix(fix));
 }
 
 /// The type node of a `throws` clause.

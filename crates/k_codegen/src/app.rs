@@ -350,7 +350,8 @@ pub(crate) fn theme_variant_enum(b: &mut Body<'_, '_>) -> Vec<Stmt> {
     )]
 }
 
-/// The route table: `[{ name, segments, load }]` (codegen.md §14).
+/// The route table: `[{ name, guards?, parse, value, load }]`
+/// (codegen.md §14), with the guards the browser checks on the client.
 fn route_table(g: &Gen<'_>, b: &mut Body<'_, '_>, target: Target) -> Expr {
     let mut routes = Vec::new();
     let mut ordered = pages(g);
@@ -428,15 +429,22 @@ fn route_table(g: &Gen<'_>, b: &mut Body<'_, '_>, target: Target) -> Expr {
         let parse = crate::server::matcher(b, p, &tpl);
         let value = crate::server::page_value(b, p);
         b.file = file;
-        routes.push(Expr::Object(
-            vec![
-                Prop::KeyValue("name".into(), js::str(cname.clone())),
-                Prop::KeyValue("parse".into(), parse),
-                Prop::KeyValue("value".into(), value),
-                Prop::KeyValue("load".into(), load),
-            ],
-            false,
-        ));
+        let mut props = vec![Prop::KeyValue("name".into(), js::str(cname.clone()))];
+        // The guards the browser checks before showing the page
+        // (runtime.md §10); an open page has none.
+        let guards = match (target, g.decl_node(p)) {
+            (Target::Client, Some(n)) => crate::server::client_guards(&n),
+            _ => Vec::new(),
+        };
+        if !guards.is_empty() {
+            props.push(Prop::KeyValue("guards".into(), Expr::Array(guards)));
+        }
+        props.extend([
+            Prop::KeyValue("parse".into(), parse),
+            Prop::KeyValue("value".into(), value),
+            Prop::KeyValue("load".into(), load),
+        ]);
+        routes.push(Expr::Object(props, false));
     }
     Expr::Array(routes)
 }

@@ -595,7 +595,15 @@ fn exchange(
         if n == "set-cookie" {
             if let Some((name, value)) = v.split(';').next().and_then(|p| p.split_once('=')) {
                 cookies.retain(|(c, _)| c != name.trim());
-                cookies.push((name.trim().to_owned(), value.trim().to_owned()));
+                // As a browser does, `Max-Age=0` (or an empty value, how the
+                // server clears a dead session's cookie) deletes the cookie.
+                let deleted = value.trim().is_empty()
+                    || v.split(';')
+                        .skip(1)
+                        .any(|a| a.trim().eq_ignore_ascii_case("max-age=0"));
+                if !deleted {
+                    cookies.push((name.trim().to_owned(), value.trim().to_owned()));
+                }
             }
         }
     }

@@ -2708,6 +2708,127 @@ error[K2402]: a sum over `Money` needs a currency: use `sum(in:_:)`, which is `M
 
 **Fix:** Name the currency: `items.sum(in: .usd) { item => item.price }`.
 
+### K2403 `literal-required`
+
+**Error.** A checked literal's initializer, such as `Url("…")` or `HttpStatus(code:)`, takes a literal; text known only at run time goes through `Type.parse`.
+
+Example (`tests/corpus/sema/types/literals/drag-kind-name.k`):
+
+```k,ignore
+// A drag kind's name is a string literal (41-drag-and-drop.md), like a storage key's: anything else is
+// K2403, with no fix, as `DragKind` has no `parse`.
+import k.drag.DragKind
+
+struct Card {
+    let id: Int
+}
+
+let cards: DragKind<Card> = DragKind(name: "card")
+
+func kind(named name: String) -> DragKind<Card> {
+    return DragKind(name: name)
+}
+```
+
+```text
+error[K2403]: `DragKind(name:)` takes a string literal, checked when you compile
+  --> src/corpus/drag-kind-name.k:12:27
+   |
+12 |     return DragKind(name: name)
+   |                           ^^^^
+```
+
+**Fix:** Write the value as a literal, `Url("https://api.example.com")`; text known only at run time goes through `Url.parse(text)`, which returns an optional.
+
+### K2404 `invalid-literal`
+
+**Error.** A checked literal (`Url`, `Uuid`, `EmailAddress`, `TimeOfDay`, `HttpStatus(code:)` or a money amount) is not a valid value of its type.
+
+Example (`tests/corpus/sema/types/literals/money-literal-precision.k`):
+
+```k,ignore
+// A money literal can't have more decimal places than its currency (34-money.md): `1.005.usd` is
+// K2404. Trailing zeros don't count, as the amount is the same.
+let price = 24.00.usd
+let trailing = 1.500.usd
+let yen = 1500.jpy
+let wholeYen = 1500.0.jpy
+
+let tooFine = 1.005.usd
+let fractionalYen = 1.5.jpy
+```
+
+```text
+error[K2404]: `1.005.usd` has 3 decimal places, and USD has 2
+ --> src/corpus/money-literal-precision.k:8:15
+  |
+8 | let tooFine = 1.005.usd
+  |               ^^^^^^^^^
+
+error[K2404]: `1.5.jpy` has 1 decimal place, and JPY has none
+ --> src/corpus/money-literal-precision.k:9:21
+  |
+9 | let fractionalYen = 1.5.jpy
+  |                     ^^^^^^^
+```
+
+**Fix:** Correct the literal as the message says; the compiler checks it with the same parser `Type.parse` uses at run time.
+
+### K2405 `duplicate-storage-key`
+
+**Error.** Two storage keys of the app have the same name, so they would read and write each other's data.
+
+Example (`tests/corpus/sema/app/storage/duplicate-key-name/`):
+
+```k,ignore
+// src/drafts/DraftService.k
+import k.storage.LocalStorage
+import k.storage.StorageKey
+
+/// Keeps a draft across visits.
+public service DraftService {
+    @Inject let storage: LocalStorage
+
+    private let draft: StorageKey<String> = StorageKey(name: "todos")
+}
+```
+
+```k,ignore
+// src/todos/keys.k
+// Each storage key name is declared once in the app (36-local-storage.md), so two services can't
+// read each other's data as their own: a second key with the same name is K2405 at its name, with a
+// label at the first. Test code may reuse a name to inspect what a service stored.
+import k.storage.StorageKey
+
+/// The visitor's todos.
+let savedTodos: StorageKey<List<String>> = StorageKey(name: "todos")
+
+/// The visitor's archived todos.
+let archivedTodos: StorageKey<List<String>> = StorageKey(name: "archive")
+```
+
+```k,ignore
+// src/todos/keys.test.k
+import k.storage.StorageKey
+
+test Keys {
+    test "a test may name an existing key" {
+        let stored: StorageKey<List<String>> = StorageKey(name: "todos")
+        expect stored.name == "todos"
+    }
+}
+```
+
+```text
+error[K2405]: another storage key is named `todos`; the two would read and write each other's values
+ --> src/todos/keys.k:7:61
+  |
+7 | let savedTodos: StorageKey<List<String>> = StorageKey(name: "todos")
+  |                                                             ^^^^^^^
+```
+
+**Fix:** Give each storage key its own name; a test may reuse one to inspect what a service stored.
+
 ## K3000–K3999: Components, views, styles, themes, reactivity
 
 ### K3001 `annotation-mutability`
@@ -6141,6 +6262,61 @@ error[K5013]: a response can't set `set-cookie`: cookies are set only through `S
 
 **Fix:** Set the cookie through `Session` (`SessionManager`), never as a raw `set-cookie` header.
 
+### K5014 `guard-on-layout`
+
+**Error.** A layout has a `requires` clause, which the server never checks: guards go on the pages.
+
+Example (`tests/corpus/sema/app/pages/layouts/guard-on-layout.k`):
+
+```k,ignore
+// The server checks the guards of the page it answers, never of its layout, so a `requires` clause
+// on a layout is K5014, whatever it names. A page's own clause is fine.
+import k.auth.RateLimit
+
+layout Shop requires RateLimit(10.perMinute) {
+    @Slot let content: View
+
+    view {
+        content
+    }
+}
+
+layout Plain requires Missing {
+    @Slot let content: View
+
+    view {
+        content
+    }
+}
+
+@Layout(Shop)
+page Home requires RateLimit(10.perMinute) {
+    view {
+        text { "home" }
+    }
+}
+```
+
+```text
+error[K5014]: the server never checks a layout's `requires` clause
+ --> src/corpus/guard-on-layout.k:5:13
+  |
+5 | layout Shop requires RateLimit(10.perMinute) {
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: the server checks the guards of the page it answers: put the clause on each page that renders in `Shop`
+
+error[K5014]: the server never checks a layout's `requires` clause
+  --> src/corpus/guard-on-layout.k:13:14
+   |
+13 | layout Plain requires Missing {
+   |              ^^^^^^^^^^^^^^^^
+   |
+   = help: the server checks the guards of the page it answers: put the clause on each page that renders in `Plain`
+```
+
+**Fix:** Move the clause to each page that renders in the layout: `page Dashboard requires Authenticated`.
+
 ## K5500–K5999: Protocols and RPC
 
 ### K5501 `rpc-without-throws`
@@ -6372,6 +6548,37 @@ error[K5506]: only the runtime produces `rpcFailure`; a handler throws its own c
 ```
 
 **Fix:** Throw one of the error enum's own cases; `rpcFailure` is produced only by the runtime.
+
+### K5507 `requires-on-handler`
+
+**Error.** A `requires` clause on a service's rpc is never checked: the server runs the guards the protocol's rpc declares.
+
+Example (`tests/corpus/sema/app/protocols/requires-on-rpc-outside-a-protocol.k`):
+
+```k,ignore
+// Only a protocol's rpcs are served, so a `requires` clause on an rpc that no protocol declares
+// guards nothing (K5507). There is no protocol rpc to move it to.
+import k.auth.Authenticated
+import k.rpc.RpcOnlyError
+
+service Lone {
+    rpc hello() async throws RpcOnlyError -> Bool requires Authenticated {
+        return true
+    }
+}
+```
+
+```text
+error[K5507]: the server never checks a `requires` clause on a handler; it runs the guards the protocol declares
+ --> src/corpus/requires-on-rpc-outside-a-protocol.k:7:51
+  |
+7 |     rpc hello() async throws RpcOnlyError -> Bool requires Authenticated {
+  |                                                   ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: only a protocol's rpcs are served: declare `hello` in a protocol that `Lone` implements, with the clause on its rpc
+```
+
+**Fix:** Move the clause to the protocol's rpc (the quick fix does it); for a library's protocol, check the caller in the handler instead.
 
 ## K6000–K6999: Persistence
 

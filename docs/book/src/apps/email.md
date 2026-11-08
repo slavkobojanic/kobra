@@ -31,7 +31,7 @@ try await mailer.send(email: email)
 
 | Member | Meaning |
 |---|---|
-| `EmailAddress("orders@shop.example")` | a literal, validated at compile time |
+| `EmailAddress("orders@shop.example")` | a literal, validated at compile time by the same parser as `parse`, display names included; a bad one is a compile error that says why |
 | `EmailAddress.parse(text) -> EmailAddress?` | parses runtime text; `nil` if it isn't an address, or contains a line break. Normalizes as described below. |
 | `address.address`, `address.displayName` | the parts |
 | `"{address}"` | the address in message-header form |

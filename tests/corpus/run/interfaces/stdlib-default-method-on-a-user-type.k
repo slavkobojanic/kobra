@@ -22,7 +22,7 @@ class Canned implements HttpClient {
 
 func fetch(_ client: HttpClient, path: String) async -> String {
     do {
-        let p: Point = try await client.fetchJson(request: HttpRequest(method: .get, url: Url("https://example.com{path}")))
+        let p: Point = try await client.fetchJson(request: HttpRequest(method: .get, url: Url("https://example.com").appending(path: path)))
         return "{p.x},{p.y}"
     } catch .status(_, let body) {
         return "status: {body}"

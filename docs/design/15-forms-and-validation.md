@@ -109,3 +109,7 @@ page Checkout {
 - **Prefilled fields:** `.empty(productSlug: slug, quantity: 1)` takes optional named arguments for any subset of the struct's fields, typed as the fields are. Fields not named start blank.
 - **`form.value` is the parsed struct,** available only inside the action passed to `handle` (`submit` in the sign-up example), which runs after validation passes. Reading `value` anywhere else is a compile error, because outside `handle` the fields may not parse.
 - **A struct's memberwise initializer may omit only fields that have a default value.** A field declared with a default (`var quantity: Int = 1`, `var tags: List<String> = []`, `var note: String? = nil`) takes it when omitted. Omitting a field without a default is a compile error: `OrderRequest(productSlug: slug)` doesn't compile while `email` has no default. A partly filled struct never exists as a value; partial input exists only inside a form ([08-types.md](08-types.md#structs-and-classes)).
+
+## Shipping
+
+- **`@Form` support ships only to apps with a `@Form`,** as a chunk of its own (the form state, the field parsers and the constraint rules). Apps without forms do not pay for them ([02-compilation.md](02-compilation.md#consequences)).

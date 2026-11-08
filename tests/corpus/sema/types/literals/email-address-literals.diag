@@ -1,0 +1,10 @@
+error[K2404] 12:25-12:33: not an email address: it has no `@`
+error[K2404] 13:27-13:41: not an email address: it has more than one `@`
+error[K2404] 14:26-14:41: not an email address: the domain `localhost` has no `.`
+error[K2404] 15:26-15:47: not an email address: it contains a space
+error[K2404] 16:27-16:62: not an email address: it contains a line break or another control character
+error[K2404] 17:25-17:58: not an email address: it holds a `,`, which separates addresses, and an `EmailAddress` is one address
+error[K2404] 18:29-18:57: not an email address: a display name with `,`, `@` or another special character is quoted, as in `"Doe, Ana" <ana@example.com>`
+error[K2404] 19:29-19:48: not an email address: the display name before `<` is empty; write the address alone
+error[K2404] 20:29-20:51: not an email address: `<` and `>` enclose the address after a display name, as in `Ana <ana@example.com>`
+error[K2404] 21:26-21:28: not an email address: it is empty

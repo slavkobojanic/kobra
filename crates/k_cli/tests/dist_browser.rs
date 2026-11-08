@@ -382,6 +382,17 @@ impl Site {
         serde_json::from_str(&body).unwrap_or_else(|e| panic!("{path}: {e}: {body}"))
     }
 
+    /// The specifier of the shipped client runtime (`runtime.<hash>.js`),
+    /// whose exports the generated code calls (`navigate` is
+    /// `Router.navigate(to:)`).
+    fn runtime(&self) -> String {
+        self.client
+            .iter()
+            .find(|m| m.specifier.starts_with("k:/client/runtime."))
+            .map(|m| m.specifier.clone())
+            .unwrap_or_else(|| panic!("{}: a client runtime in dist/public/assets", self.name))
+    }
+
     fn count(&self, since: usize, path: &str) -> usize {
         self.requests[since..]
             .iter()
@@ -846,6 +857,314 @@ fn notes_dist_app_signs_in_creates_and_edits_a_note_in_the_browser() {
     contains(&tab.text(), "Saved.", "after saving");
     let updated = tab.site.last_json("/notes.NotesProtocol/Update");
     assert_eq!(updated["title"], serde_json::json!("Groceries for Sunday"));
+}
+
+// The shipped router checks page guards against the `Session` mirror
+// (26-auth-and-sessions.md; runtime.md §10): signing out on a guarded page
+// and a guest's link to one are both full page loads, which the server
+// answers with its 303 to the sign-in page and the return URL.
+#[test]
+fn notes_dist_app_leaves_guarded_pages_for_the_server_in_the_browser() {
+    let dir = TempDir::new("notes_guards");
+    let url = format!("sqlite:{}", dir.0.join("app.db").display());
+    let mut site = Site::start("notes", &dir.0, &[("DATABASE_URL", url.as_str())]);
+    let signed_up = site.rpc(
+        "/notes.accounts.AuthProtocol/SignUp",
+        r#"{"request": {"email": "ada@example.com", "password": "correct horse", "confirmPassword": "correct horse"}}"#,
+    );
+    assert_eq!(
+        signed_up.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&signed_up.body)
+    );
+    // (Not `assert_hydrated`: the page's `watch()` stream opens while the
+    // tab settles and replaces the server's "Loading notes…" on purpose.)
+    let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
+    contains(&tab.text(), "Sign out", "signed in on the notes page");
+    tab.run("sim.click(\"button\", \"Sign out\");");
+    let went = tab.run("done([sim.state().loads, sim.state().pushed]);");
+    assert_eq!(went, serde_json::json!([["/"], []]));
+    drop(tab);
+    let r = site.page("/");
+    assert_eq!(r.status, 303);
+    let location = r.header("location").expect("a location").to_owned();
+    // `returnTo` defaults to `.notes`, so the server leaves it out.
+    assert_eq!(location, "/sign-in");
+    let since = site.requests.len();
+    let mut tab = Tab::open(&mut site, &location, &serde_json::json!({}));
+    tab.assert_hydrated();
+    tab.run("sim.click(\"a\", \"K Notes\");");
+    let went = tab.run("done([sim.state().loads, sim.state().pushed]);");
+    assert_eq!(went, serde_json::json!([["/"], []]));
+    assert_eq!(
+        tab.site.count(since, "/notes.NotesProtocol/Watch"),
+        0,
+        "the guarded page never ran in the browser: {:?}",
+        tab.site.requests
+    );
+}
+
+/// Where the tab has gone: its full page loads and its pushed history
+/// entries, in order.
+fn went(tab: &mut Tab<'_>) -> serde_json::Value {
+    tab.run("done([sim.state().loads, sim.state().pushed]);")
+}
+
+/// Calls the shipped runtime's `navigate` (what `Router.navigate(to:)`
+/// compiles to) with `url` in the tab.
+fn navigate_js(tab: &Tab<'_>, url: &str) -> String {
+    let runtime = tab.site.runtime();
+    format!("const k = await import({runtime:?});\nawait k.navigate({url:?});\n")
+}
+
+// A guest never gets a guarded page rendered in the browser, however the
+// navigation starts: `Router.navigate`, a link with the origin, Back or
+// Forward to an entry pushed while signed in. Each is a full page load of
+// exactly the URL asked for, which the server answers with its 303 and the
+// return URL.
+#[test]
+fn notes_dist_app_keeps_guests_off_guarded_pages_by_navigate_and_history() {
+    let dir = TempDir::new("notes_guest_history");
+    let url = format!("sqlite:{}", dir.0.join("app.db").display());
+    let mut site = Site::start("notes", &dir.0, &[("DATABASE_URL", url.as_str())]);
+    let signed_up = site.rpc(
+        "/notes.accounts.AuthProtocol/SignUp",
+        r#"{"request": {"email": "ada@example.com", "password": "correct horse", "confirmPassword": "correct horse"}}"#,
+    );
+    assert_eq!(signed_up.status, 200);
+    // Signed in on the notes page, the person goes to the (unguarded)
+    // sign-up page, and signs out there: nothing guarded is shown, so the
+    // router stays, and the layout's navigation to sign-in is pushed.
+    let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
+    let go = navigate_js(&tab, "/sign-up");
+    tab.run(&go);
+    contains(&tab.text(), "Create an account", "the sign-up page");
+    tab.run("sim.click(\"button\", \"Sign out\");");
+    assert_eq!(
+        went(&mut tab),
+        serde_json::json!([[], ["/sign-up", "/sign-in"]])
+    );
+    // Back to sign-up renders it; Back again reaches the notes page's
+    // entry, which the guest may not see: a full page load, no render.
+    tab.run("sim.traverse(\"/sign-up\");");
+    contains(&tab.text(), "Create an account", "Back to sign-up");
+    let before = tab.html();
+    tab.run("sim.traverse(\"/\");");
+    assert_eq!(
+        went(&mut tab),
+        serde_json::json!([["/"], ["/sign-up", "/sign-in"]])
+    );
+    assert_eq!(tab.html(), before, "nothing rendered after leaving");
+    // Once left, the router renders nothing more.
+    let go = navigate_js(&tab, "/sign-up");
+    tab.run(&format!("{go}sim.traverse(\"/sign-in\");"));
+    assert_eq!(
+        went(&mut tab),
+        serde_json::json!([["/"], ["/sign-up", "/sign-in"]])
+    );
+    assert_eq!(tab.html(), before, "nothing rendered after leaving");
+    drop(tab);
+    let since = site.requests.len();
+    // A guest's `Router.navigate` to a guarded page with parameters, and
+    // one written with the origin, load exactly that URL.
+    let mut tab = Tab::open(&mut site, "/sign-in", &serde_json::json!({}));
+    tab.assert_hydrated();
+    let go = navigate_js(&tab, "/edit-note/0e7c5a3e-0000-4000-8000-000000000001");
+    tab.run(&go);
+    assert_eq!(
+        went(&mut tab),
+        serde_json::json!([["/edit-note/0e7c5a3e-0000-4000-8000-000000000001"], []])
+    );
+    drop(tab);
+    let mut tab = Tab::open(&mut site, "/sign-in", &serde_json::json!({}));
+    let go = navigate_js(&tab, "http://localhost/new-note");
+    tab.run(&go);
+    assert_eq!(went(&mut tab), serde_json::json!([["/new-note"], []]));
+    drop(tab);
+    // Forward to a guarded entry, from a fresh document.
+    let mut tab = Tab::open(&mut site, "/sign-in", &serde_json::json!({}));
+    tab.run("sim.traverse(\"/new-note\");");
+    assert_eq!(went(&mut tab), serde_json::json!([["/new-note"], []]));
+    drop(tab);
+    // The server answers those loads with the return URL.
+    let r = site.page("/edit-note/0e7c5a3e-0000-4000-8000-000000000001");
+    assert_eq!(r.status, 303);
+    assert_eq!(
+        r.header("location"),
+        Some("/sign-in?returnTo=%2Fedit-note%2F0e7c5a3e-0000-4000-8000-000000000001")
+    );
+    let r = site.page("/new-note");
+    assert_eq!(r.status, 303);
+    assert_eq!(r.header("location"), Some("/sign-in?returnTo=%2Fnew-note"));
+    for rpc in ["/notes.NotesProtocol/Get", "/notes.NotesProtocol/Watch"] {
+        assert_eq!(
+            site.count(since, rpc),
+            0,
+            "a guarded page ran in the browser: {:?}",
+            site.requests
+        );
+    }
+}
+
+// A session that expires while a guarded page is shown: the next rpc's
+// refusal brings the empty mirror, the page is disposed before it can read
+// it and the router loads the URL shown, so the server sends the person
+// to sign in and back to the same page. The page's own
+// `Router.navigate(to: .signIn…)` in its catch is ignored.
+#[test]
+fn notes_dist_app_leaves_a_guarded_page_when_its_session_expires_in_the_browser() {
+    let dir = TempDir::new("notes_expiry");
+    let url = format!("sqlite:{}", dir.0.join("app.db").display());
+    let mut site = Site::start("notes", &dir.0, &[("DATABASE_URL", url.as_str())]);
+    let signed_up = site.rpc(
+        "/notes.accounts.AuthProtocol/SignUp",
+        r#"{"request": {"email": "ada@example.com", "password": "correct horse", "confirmPassword": "correct horse"}}"#,
+    );
+    assert_eq!(signed_up.status, 200);
+    let created = site.rpc(
+        "/notes.NotesProtocol/Create",
+        r#"{"draft": {"title": "Groceries", "body": "Milk", "tags": ""}}"#,
+    );
+    assert_eq!(created.status, 200);
+    let id = site.last_json("/notes.NotesProtocol/Create")["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let path = format!("/edit-note/{id}");
+    // The guarded document carries the user's mirror: no cache keeps it,
+    // so Back after signing out can't show it from a cache.
+    let doc = site.page(&path);
+    assert_eq!(doc.status, 200);
+    assert_eq!(doc.header("cache-control"), Some("private, no-store"));
+    let mut tab = Tab::open(&mut site, &path, &serde_json::json!({}));
+    tab.assert_hydrated();
+    // The session outlives its idle timeout.
+    execute(&url, "UPDATE k_session SET last_seen = 0");
+    tab.run(&format!(
+        "{}sim.submit(sim.find(\"form\"));",
+        fill("Title", "Groceries for Sunday")
+    ));
+    assert_eq!(went(&mut tab), serde_json::json!([[path.clone()], []]));
+    lacks(&tab.text(), "Saved.", "the refused edit");
+    assert!(
+        !tab.site.cookies.iter().any(|(k, _)| k.contains("session")),
+        "the dead cookie is cleared: {:?}",
+        tab.site.cookies
+    );
+    drop(tab);
+    let r = site.page(&path);
+    assert_eq!(r.status, 303);
+    assert_eq!(
+        r.header("location").map(str::to_owned),
+        Some(format!("/sign-in?returnTo=%2Fedit-note%2F{id}"))
+    );
+}
+
+/// An Argon2id hash of `password`, as `scripts/init-secrets.sh` writes for
+/// `SHOP_ADMIN_PASSWORD_HASH`, made by the runtime's own password op.
+fn password_hash(password: &str) -> String {
+    let mut engine = Engine::new(EngineOptions::default()).expect("engine");
+    let hash = engine
+        .run_main(&format!(
+            "const h = await Deno.core.ops.op_k_password_hash({password:?});\nDeno.core.ops.op_k_set_result(h);\n"
+        ))
+        .expect("hashes")
+        .expect("a hash");
+    assert!(hash.starts_with("$argon2id$"), "{hash}");
+    hash
+}
+
+/// The shop's configuration for the browser tests, with the admin's
+/// password hash and SQLite database at `url`.
+fn shop_env<'a>(url: &'a str, hash: &'a str) -> Vec<(&'a str, &'a str)> {
+    vec![
+        ("DATABASE_URL", url),
+        ("SHOP_ADMIN_EMAIL", "admin@example.com"),
+        ("SHOP_ADMIN_PASSWORD_HASH", hash),
+        ("K_SERVICE_TOKEN", "shop_SERVICE_SECRET"),
+        ("PAYBOX_URL", "http://127.0.0.1:9"),
+        ("PAYBOX_TOKEN", "paybox_SERVICE_SECRET"),
+        ("PAYBOX_CALLBACK_URL", "http://127.0.0.1:{port}"),
+        ("SMTP_HOST", "localhost"),
+        ("MAIL_FROM", "K Shop <orders@shop.example>"),
+    ]
+}
+
+/// Opens the shop's sign-in page and signs in as its admin; the sign-in
+/// page then navigates to `/admin` in the browser.
+fn sign_in_to_shop<'a>(site: &'a mut Site) -> Tab<'a> {
+    let mut tab = Tab::open(site, "/sign-in", &serde_json::json!({}));
+    tab.assert_hydrated();
+    tab.run(&format!(
+        "{}{}sim.submit(sim.find(\"form\"));",
+        fill("Email", "admin@example.com"),
+        fill("Password", "correct horse")
+    ));
+    assert_eq!(went(&mut tab), serde_json::json!([[], ["/admin"]]));
+    contains(&tab.text(), "No orders yet.", "the admin page");
+    tab
+}
+
+// The shop's `Admin` page requires `Authenticated, Role(.admin)`: a guest's
+// navigation to it is a full page load, and a signed-in admin who signs
+// out, whose session expires or who loses the role while it is shown
+// leaves it for the server, which sends the guest to sign in and answers
+// the user without the role with 403.
+#[test]
+fn shop_dist_app_guards_the_admin_page_in_the_browser() {
+    let dir = TempDir::new("shop_guards");
+    let url = format!("sqlite:{}", dir.0.join("app.db").display());
+    let hash = password_hash("correct horse");
+    let env = shop_env(&url, &hash);
+    let mut site = Site::start("shop/shop", &dir.0, &env);
+    let since = site.requests.len();
+    let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
+    tab.assert_hydrated();
+    let before = tab.html();
+    let go = navigate_js(&tab, "/admin");
+    tab.run(&go);
+    assert_eq!(went(&mut tab), serde_json::json!([["/admin"], []]));
+    assert_eq!(tab.html(), before, "nothing rendered after leaving");
+    drop(tab);
+    let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
+    tab.run("sim.traverse(\"/admin\");");
+    assert_eq!(went(&mut tab), serde_json::json!([["/admin"], []]));
+    drop(tab);
+    assert_eq!(
+        site.count(since, "/shop.admin.AdminProtocol/RecentOrders"),
+        0,
+        "the admin page ran for a guest: {:?}",
+        site.requests
+    );
+    let r = site.page("/admin");
+    assert_eq!(r.status, 303);
+    assert_eq!(r.header("location"), Some("/sign-in"));
+
+    // Signing out: the page's `Router.navigate(to: .home)` is ignored.
+    let mut tab = sign_in_to_shop(&mut site);
+    tab.run("sim.click(\"button\", \"Sign out\");");
+    assert_eq!(went(&mut tab), serde_json::json!([["/admin"], ["/admin"]]));
+    drop(tab);
+
+    // An expired session, found by the page's next rpc.
+    let mut tab = sign_in_to_shop(&mut site);
+    execute(&url, "UPDATE k_session SET last_seen = 0");
+    tab.run("sim.click(\"button\", \"Refresh\");");
+    assert_eq!(went(&mut tab), serde_json::json!([["/admin"], ["/admin"]]));
+    drop(tab);
+    let r = site.page("/admin");
+    assert_eq!(r.status, 303);
+
+    // A role taken away while the page is shown: the refused rpc brings
+    // the mirror without it, and the server answers the load with 403.
+    let mut tab = sign_in_to_shop(&mut site);
+    execute(&url, "UPDATE k_session SET roles = '[]'");
+    tab.run("sim.click(\"button\", \"Refresh\");");
+    assert_eq!(went(&mut tab), serde_json::json!([["/admin"], ["/admin"]]));
+    drop(tab);
+    let r = site.page("/admin");
+    assert_eq!(r.status, 403);
 }
 
 #[test]

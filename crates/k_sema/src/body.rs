@@ -36,6 +36,7 @@ use crate::stdlib::DeclarationKind;
 use crate::ty::{FnTy, Ty};
 
 mod annotate;
+mod literal;
 mod style;
 mod view;
 
@@ -5328,6 +5329,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         let t = self
             .member_access(m.syntax(), &recv, &recv_ty, &name, optional_chain, false)
             .0;
+        self.check_money_literal(m, &recv, &t);
         self.client_state_read(m, &name);
         self.form_value(&name);
         t
@@ -6582,6 +6584,8 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             )
         {
             self.args_unchecked(args);
+            // `HttpStatus(code: 418)`: an enum's `@Literal` initializer.
+            self.check_literal_call(d, name_range, args);
             return if self.cx.is_interface(d) {
                 Ty::Error
             } else {
@@ -6635,6 +6639,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             let mut sig = (*sig).clone();
             sig.ret = self_ty.clone();
             self.apply_sig(node, &sig, &subst, args, None, CallKind::Plain);
+            self.check_literal_call(d, name_range, args);
             return self.resolve(&self_ty);
         }
         if decl.named_kind() == Some(DeclarationKind::Config) && !self.in_test_code() {

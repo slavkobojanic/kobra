@@ -36,7 +36,13 @@ Types whose values can be written as text follow one convention:
 
 - **`Type("literal")` takes only a string literal**, validated at compile time, and is never optional:
   `Url("https://api.stripe.com")`, `Uuid("0b6f2c1e-…")`, `EmailAddress("orders@shop.example")`,
-  `TimeOfDay("03:00")`. Passing anything else is a compile error, with a quick fix to `.parse`.
+  `TimeOfDay("03:00")`. Passing anything else, an interpolated string included, is a compile error
+  (`K2403`), with a quick fix to `.parse`.
+- **A literal is checked by the parser `Type.parse` runs,** so it compiles exactly when `parse` would
+  accept the same text, and holds the same normalized value. A literal the parser refuses is a compile
+  error that gives the reason (`K2404`, `not a URL: it needs a scheme and ://`), never a crash when the
+  code runs. A `Url` is an absolute `http`, `https`, `ws` or `wss` URL, so `Url("/icon.svg")` and
+  `Url("javascript:…")` don't compile.
 - **`Type.parse(_ text: String) -> Type?` is the only runtime parse.** When a type has several text
   forms, the label names the form: `Bytes.parse(hex:)`, `Bytes.parse(base64:)`, `Currency.parse(code:)`.
 

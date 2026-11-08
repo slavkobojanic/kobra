@@ -50,7 +50,7 @@ pub use compact::{CompactError, compact};
 pub const CORE_SIZE_BUDGET: usize = 5 * 1024;
 
 /// The largest the whole client runtime (the core plus router, RPC client,
-/// forms and `@Load`) may be, in bytes, measured like
+/// `@Load`, stores, keyed lists and view helpers) may be, in bytes, measured like
 /// [`CORE_SIZE_BUDGET`] (10 KB).
 pub const FULL_SIZE_BUDGET: usize = 10 * 1024;
 
@@ -105,6 +105,20 @@ pub const FILES_SIZE_BUDGET: usize = 1024;
 /// (`docs/compiler/performance.md` §11.3).
 pub const KEYS_SIZE_BUDGET: usize = 512;
 
+/// The largest `@Form` support in the browser ([`Part::Forms`]:
+/// `createForm`, field parsers and the constraint rules) may be, measured
+/// like [`CORE_SIZE_BUDGET`] (2 KB). It ships in its own chunk, only to
+/// apps with a `@Form`, so it counts against no other budget
+/// (`docs/compiler/performance.md` §11.3).
+pub const FORMS_SIZE_BUDGET: usize = 2 * 1024;
+
+/// The largest `Decimal`, `Money` and `Currency` ([`Part::Money`]: the
+/// types and their codecs) may be, measured like [`CORE_SIZE_BUDGET`]
+/// (2.5 KB). It ships in its own chunk, only to apps whose client code
+/// builds, reads or decodes one, so it counts against no other budget
+/// (`docs/compiler/performance.md` §11.3).
+pub const MONEY_SIZE_BUDGET: usize = 2560;
+
 /// The part of the runtime a module belongs to, which decides the bundles
 /// it ships in and the size budget it counts against.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -112,14 +126,25 @@ pub enum Part {
     /// Signals, the DOM renderer, hydration and values: every client page
     /// needs them. Counts against [`CORE_SIZE_BUDGET`].
     Core,
-    /// The router, the RPC client, forms and `@Load`: shipped when the app
-    /// uses them. Counts against [`FULL_SIZE_BUDGET`] with the core.
+    /// The router, the RPC client, `@Load`, stores, keyed lists and view
+    /// helpers: shipped with every client in the runtime chunk. Counts
+    /// against [`FULL_SIZE_BUDGET`] with the core.
     Extended,
-    /// Native bodies of the stdlib (collections, strings, `Money`,
-    /// `Decimal`, dates, JSON codecs): shipped with every client, measured
+    /// `@Form` state in the browser (`createForm`, field parsers,
+    /// constraint rules): shipped as its own client chunk, only to apps
+    /// with a `@Form`, and measured on its own ([`FORMS_SIZE_BUDGET`]).
+    /// Generated code reaches it as `$k_forms`, not `$k`.
+    Forms,
+    /// Native bodies of the stdlib (collections, strings, dates, JSON
+    /// codecs): shipped with every client, measured
     /// on its own (`STDLIB_SIZE_BUDGET`), because its size grows with the
     /// stdlib rather than with the framework.
     Stdlib,
+    /// `Decimal`, `Money` and `Currency` with their codecs: shipped as its
+    /// own client chunk, only to apps whose client code uses them, and
+    /// measured on its own ([`MONEY_SIZE_BUDGET`]). Generated code reaches
+    /// it as `$k_money`, not `$k`.
+    Money,
     /// `k.charts` in the browser and on the server (`LineChart`): shipped
     /// as its own client chunk, only to apps that use it, and measured on
     /// its own ([`CHARTS_SIZE_BUDGET`]).
@@ -204,7 +229,6 @@ const MODULES: &[Module] = modules![
     Core "runtime/dom.js",
     Extended "runtime/router.js",
     Extended "runtime/rpc.js",
-    Extended "runtime/forms.js",
     Extended "runtime/load.js",
     Extended "runtime/store.js",
     Extended "runtime/list.js",
@@ -217,6 +241,8 @@ const MODULES: &[Module] = modules![
     Keys "runtime/keys.js",
     Streams "runtime/streams.js",
     Http "runtime/http.js",
+    Forms "runtime/forms.js",
+    Money "runtime/money.js",
     ClientEntry "runtime/index.js",
     Server "runtime/ssr.js",
     Server "runtime/server.js",

@@ -9,9 +9,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use k_runtime::{
-    CHARTS_SIZE_BUDGET, CORE_SIZE_BUDGET, DRAG_SIZE_BUDGET, FILES_SIZE_BUDGET, FULL_SIZE_BUDGET,
-    HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, Part, SERVICES_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
-    STREAMS_SIZE_BUDGET, compact, compacted_sources, modules, resolve,
+    CHARTS_SIZE_BUDGET, CORE_SIZE_BUDGET, DRAG_SIZE_BUDGET, FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET,
+    FULL_SIZE_BUDGET, HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, MONEY_SIZE_BUDGET, Part,
+    SERVICES_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET, compact, compacted_sources,
+    module, modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -174,6 +175,8 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Keys
                 | Part::Streams
                 | Part::Http
+                | Part::Forms
+                | Part::Money
         ) {
             assert!(
                 !m.source.contains("Deno.core"),
@@ -387,6 +390,90 @@ fn the_http_responses_meet_their_size_budget() {
     );
 }
 
+#[test]
+fn the_forms_meet_their_size_budget() {
+    let forms = compacted_sources(&[Part::Forms]).expect("compacts");
+    let size = gzip_len(&forms);
+    eprintln!(
+        "forms: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {FORMS_SIZE_BUDGET})",
+        raw_len(&[Part::Forms]),
+        forms.len()
+    );
+    assert!(
+        size <= FORMS_SIZE_BUDGET,
+        "the forms are {size} bytes gzip, over the {FORMS_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn money_and_decimal_meet_their_size_budget() {
+    let money = compacted_sources(&[Part::Money]).expect("compacts");
+    let size = gzip_len(&money);
+    eprintln!(
+        "money: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {MONEY_SIZE_BUDGET})",
+        raw_len(&[Part::Money]),
+        money.len()
+    );
+    assert!(
+        size <= MONEY_SIZE_BUDGET,
+        "Money and Decimal are {size} bytes gzip, over the {MONEY_SIZE_BUDGET}-byte budget"
+    );
+}
+
+/// `@Form` support and `Money`/`Decimal` are feature chunks: only the
+/// apps that use them ship them, so neither counts against the full
+/// client runtime or the stdlib bodies (performance.md §11.4).
+#[test]
+fn forms_and_money_are_feature_parts() {
+    let forms = module("k:/runtime/forms.js").expect("embedded");
+    assert_eq!(forms.part, Part::Forms);
+    let money = module("k:/runtime/money.js").expect("embedded");
+    assert_eq!(money.part, Part::Money);
+    let full =
+        compacted_sources(&[Part::Core, Part::Extended, Part::ClientEntry]).expect("compacts");
+    assert!(
+        !full.contains("function createForm("),
+        "forms are not in the full runtime"
+    );
+    let std = compacted_sources(&[Part::Stdlib]).expect("compacts");
+    for gone in [
+        "class Money",
+        "class Decimal",
+        "function parseDecimal(",
+        "money:{",
+    ] {
+        assert!(!std.contains(gone), "{gone} is not in the stdlib bodies");
+    }
+}
+
+/// The runtime chunk (core, extended, stdlib, services) is complete on its
+/// own: none of its files imports a feature chunk's file, which an app may
+/// not ship. Feature files import the runtime chunk, never the reverse.
+#[test]
+fn the_runtime_chunk_imports_no_feature_file() {
+    let chunk = [Part::Core, Part::Extended, Part::Stdlib, Part::Services];
+    for m in modules().iter().filter(|m| chunk.contains(&m.part)) {
+        for line in m.source.lines() {
+            let Some(from) = line.split(" from \"").nth(1) else {
+                continue;
+            };
+            let Some(spec) = from.split('"').next() else {
+                continue;
+            };
+            let Some(target) = resolve(spec, Some(m.specifier)).and_then(module) else {
+                continue;
+            };
+            assert!(
+                chunk.contains(&target.part),
+                "{} (in the runtime chunk) imports {}, a {:?} file",
+                m.path,
+                target.path,
+                target.part
+            );
+        }
+    }
+}
+
 /// The client runtime ships as one module (the runtime chunk), so the
 /// top-level names of its files must not collide.
 #[test]
@@ -404,6 +491,8 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::Files
                 | Part::Keys
                 | Part::Streams
+                | Part::Forms
+                | Part::Money
         ) {
             continue;
         }

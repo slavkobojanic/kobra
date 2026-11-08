@@ -36,7 +36,8 @@ text { total.formatted(as: .currency) }                               // "$48.00
 A money literal is a number followed by a currency extension: `24.00.usd`, `10.eur`, `1500.jpy`.
 
 - **An amount always holds exactly its currency's minor-unit digits.** A literal with more decimal
-  places than the currency has, such as `1.005.usd`, is a compile error.
+  places than the currency has, such as `1.005.usd` or `1.5.jpy`, is a compile error (`K2404`).
+  Trailing zeros don't count: `1.500.usd` is `1.50.usd`.
 - `Money(minorUnits: 2400, currency: .usd)` builds the same amount as `24.00.usd` from minor units, the
   representation payment APIs use, and `24.00.usd.minorUnits` is `2400`.
 - `Currency.parse(code: "USD")` parses an upper-case ISO 4217 code and returns `Currency?`;

@@ -445,6 +445,15 @@ codes! {
     /// A sum over `Money` needs a currency: `sum(in:_:)`, not `sum()`.
     MONEY_SUM_WITHOUT_CURRENCY = 2402, "money-sum-without-currency", Error,
         "A sum over `Money` needs a currency: `sum(in:_:)`, not `sum()`.";
+    /// A checked literal's initializer (`Url("…")`, `HttpStatus(code:)`) is given something other than a literal.
+    LITERAL_REQUIRED = 2403, "literal-required", Error,
+        "A checked literal's initializer, such as `Url(\"…\")` or `HttpStatus(code:)`, takes a literal; text known only at run time goes through `Type.parse`.";
+    /// A checked literal is not a valid value of its type.
+    INVALID_LITERAL = 2404, "invalid-literal", Error,
+        "A checked literal (`Url`, `Uuid`, `EmailAddress`, `TimeOfDay`, `HttpStatus(code:)` or a money amount) is not a valid value of its type.";
+    /// Two storage keys of the app have the same name.
+    DUPLICATE_STORAGE_KEY = 2405, "duplicate-storage-key", Error,
+        "Two storage keys of the app have the same name, so they would read and write each other's data.";
 
     // ---------------------------------------------------------------- annotations, members and reactivity
     /// An annotated field must be declared `let` or `var` as its annotation requires.
@@ -736,6 +745,9 @@ codes! {
     /// A response sets a literal `set-cookie` header; cookies are set only through `Session`.
     SET_COOKIE_HEADER = 5013, "set-cookie-header", Error,
         "A response sets a literal `set-cookie` header; cookies are set only through `Session`.";
+    /// A layout has a `requires` clause, which the server never checks.
+    GUARD_ON_LAYOUT = 5014, "guard-on-layout", Error,
+        "A layout has a `requires` clause, which the server never checks: guards go on the pages.";
 
     // ---------------------------------------------------------------- protocols and rpc
     /// Every `rpc` declares `throws`: an error enum with a `rpcFailure(RpcFailure)` case, or `RpcOnlyError`.
@@ -756,6 +768,9 @@ codes! {
     /// A protocol handler throws the `rpcFailure` case, which only the runtime produces.
     HANDLER_THROWS_RPC_FAILURE = 5506, "handler-throws-rpc-failure", Error,
         "Only the runtime produces `rpcFailure`: a handler throws its error enum's own cases.";
+    /// A `requires` clause on an rpc outside a protocol, which the server never checks.
+    REQUIRES_ON_HANDLER = 5507, "requires-on-handler", Error,
+        "A `requires` clause on a service's rpc is never checked: the server runs the guards the protocol's rpc declares.";
 
     // ---------------------------------------------------------------- persistence
     /// A repository query lambda uses something that can't be translated to SQL.

@@ -121,6 +121,30 @@ test("a streamed rpc writes its envelopes to the request's sink", async () => {
   assertEq(new TextDecoder().decode(seen.chunks[0].subarray(5)), '{"value":1}');
 });
 
+// A stream opened with a session the server no longer has clears the dead
+// cookie in its head, so the head must also carry the guest mirror: no
+// later response could tell the browser (26-auth-and-sessions.md, "In the
+// browser").
+test("a streamed rpc with a dead session tells the browser in its head", async () => {
+  const st = new RequestState(spec(), req("GET", "/"));
+  await st.load();
+  await sessionManager(st).signIn(null, "ada");
+  const cookie = st.setCookie.split(";")[0];
+  const out = new RequestState(spec(), req("GET", "/", { headers: [["cookie", cookie]] }));
+  await out.load();
+  await sessionManager(out).signOut(null);
+  let head = null;
+  let done;
+  const ended = new Promise((r) => (done = r));
+  const sink = { start: (h) => (head = h), chunk: () => true, end: () => done() };
+  const app = createApp(spec());
+  await app(req("POST", "/t.P/Count", { headers: [["content-type", "application/connect+json"], ["cookie", cookie]], body: "\u0000\u0000\u0000\u0000\u0002{}", sink }));
+  await ended;
+  const h = (n) => head.headers.find(([k]) => k === n)?.[1];
+  assert(h("set-cookie")?.includes("Max-Age=0"), "the dead cookie is cleared");
+  assertDeepEq(JSON.parse(h("x-k-session") ?? "null"), { user: null });
+});
+
 test("TestClient sends a request through the app with the test's exchange", async () => {
   const HttpError = { offline: unitCase(0), timeout: unitCase(1), status: (_0, body) => ({ $: 2, _0, body }), decoding: (message) => ({ $: 3, message }) };
   const HttpStatus = { ok: unitCase(0), notFound: unitCase(1), other: (_0) => ({ $: 2, _0 }) };

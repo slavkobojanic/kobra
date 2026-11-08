@@ -13,7 +13,7 @@
 import { isHydrating } from "./hydrate.js";
 import { signal } from "./signals.js";
 import { KPanic, panic } from "./values.js";
-import { sessionMirror } from "./rpc.js";
+import { seedSession, sessionMirror } from "./rpc.js";
 import { HTTP_CODES, Instant, parseEmail, parseInstant, parseUuid } from "./std.js";
 
 /**
@@ -321,13 +321,13 @@ function headerView(pairs) {
 
 /**
  * The browser's `k.auth.Session`: a read-only mirror of the server's
- * session, started from `k-data` and updated by rpc responses that change
- * it (`x-k-session`).
+ * session, started from `k-data` (once per document, `seedSession`) and
+ * updated by rpc responses that change it (`x-k-session`).
  * @param {{session?: object}|null} data the `k-data` payload
  * @returns {{user: object|null}}
  */
 export function session(data) {
-  if (data && data.session) sessionMirror.set(data.session);
+  seedSession(data);
   return {
     /**
      * The signed-in user mirrored from the server (`{ id, roles }`), or

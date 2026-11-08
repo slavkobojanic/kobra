@@ -1,0 +1,2 @@
+error[K2404] 8:31-8:33: not an HTTP status: a status code is `100` to `599`
+error[K2404] 9:32-9:35: not an HTTP status: a status code is `100` to `599`

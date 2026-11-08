@@ -193,7 +193,7 @@ summary.
 | `Angle` | degrees (`number`); `Percent`: the number (`50%` → `50`) | |
 | `Length`, `Color`, token categories | CSS text (`"16px"`, `"calc(100px + 2rem)"`, `"#3B82F6"`) | Folded at compile time ([§6.5](#65-units-and-calc-folding)). |
 | `Date` | runtime `Instant` (epoch milliseconds + nanosecond remainder) | JSON RFC 3339. |
-| `Uuid`, `Url`, `EmailAddress` | `string` (validated at construction) | Runtime text becomes one only through the runtime's parsers (`parseUuid`, `parseUrl`, `parseEmail`), which `T.parse` and the codecs share. **Decision:** a `Url` from runtime text is an absolute `http`, `https`, `ws` or `wss` URL with a host, never `javascript:` or another script scheme, so a parsed or decoded `Url` is always safe as a link target. |
+| `Uuid`, `Url`, `EmailAddress` | `string` (validated at construction) | A literal (`Uuid("…")`) was checked by `k_sema` with a port of the same parser (K2404), so it is emitted as its normalized text, a string constant: a lower-case UUID, an address with its domain lower-cased and its name unquoted unless it needs quotes (`native.rs`, `construct`). Runtime text becomes one only through the runtime's parsers (`parseUuid`, `parseUrl`, `parseEmail`), which `T.parse` and the codecs share. **Decision:** a `Url` from runtime text is an absolute `http`, `https`, `ws` or `wss` URL with a host, never `javascript:` or another script scheme, so a parsed or decoded `Url` is always safe as a link target. |
 | `Bytes` | `Uint8Array` | |
 | functions, lambdas | functions, arrow functions | An `async` K function is an `async` JS function with the hidden `$c` parameter. |
 | `Secret<T>` | `$k.Secret` wrapping the value | `toString`/`toJSON` give `Secret(•••)`; server-only. |
@@ -792,9 +792,13 @@ implementing `k.server.Job<Payload>`:
   the client bundle. Each function of the page is a module function `Page$fn($e, …)` taking the
   request's `$e` (its `@Param`s and container) first; a handler calling the page's own function calls it
   with the same `$e` (`tests/e2e/endpoints`, `/helper`).
-- Guards (`requires`) are compiled into the table entry as `["auth"]`, `["role", Role.case]` and
-  `["rate", key, count, windowMs]` (from the literal `N.perMinute`): the server evaluates them for every
-  request, the client only to decide navigation ([runtime.md §10](runtime.md#10-router)).
+- Guards (`requires`) are compiled into the server's table entry as `["auth"]`, `["role", Role.case]`
+  and `["rate", key, count, windowMs]` (from the literal `N.perMinute`); the server evaluates them for
+  every request. The client route table gets the ones the browser can check against the `Session`
+  mirror, as `guards: [["auth"], ["role", "admin"]]` after `name`. The role is its case name, as the
+  mirror lists roles. `RateLimit` is left out, and an open page has no `guards`
+  (`server::client_guards`). The router uses them only to decide navigation: a page they refuse is a
+  full page load, which the server answers ([runtime.md §10](runtime.md#10-router)).
 - **The spec.** The server entry passes `{ pages, redirects, rpcs, endpoints, container, appMeta,
   signIn, session: {roles, decodeUser}, httpStatus, httpBody, assets, rendering }` to `$s.createApp`
   (documented on `createApp` in `app.js`); `assets` is filled with the hashed client file names after
@@ -941,6 +945,17 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   `import { BrowserFiles } from "./files.[hash].js";`) instead of binding `$k.native`
   ([runtime.md §1](runtime.md#1-status-and-scope)). The `k.drag` components and `KeyboardShortcut`
   render on the server through `$s.natives["k.drag.…$ssr"]` and `$s.natives["k.ui.KeyboardShortcut$ssr"]`.
+- **Runtime feature chunks**: `forms.[hash].js` (`runtime/forms.js`) and `money.[hash].js`
+  (`runtime/money.js`) hold runtime functions that lowering calls as members of `$k` (`$k.createForm`,
+  `$k.fieldParser`, `$k.decimal`, `$k.money`, `$k.moneyCodecs.money`; the codecs of `Decimal`, `Currency`
+  and `Money` are `$k.moneyCodecs.*`, not `$k.codecs.*`). Before printing a shared, page or entry chunk
+  the bundler walks its statements (`js::walk_exprs_mut`) and rewrites each `$k.<name>` that a feature
+  file exports to `$k_<stem>.<name>`, then imports `* as $k_<stem>` from the chunk right after the
+  chunk's other imports (`import * as $k_forms from "../forms.[hash].js";` in a page). A feature chunk is
+  emitted when some client chunk uses it; its name is known before any chunk is printed, since it hashes
+  only the chunk's own text. Server code is unchanged: `k:runtime` re-exports both files, so
+  `$k.createForm` keeps working there. **Decision:** route through a namespace import rather than named
+  imports, so a rewritten member never collides with a generated name and the printed call keeps its shape.
 - **Stdlib declarations** the client or server code references are emitted like project code when they
   are non-native enums or structs (`HttpError`, `HttpStatus`, `HttpRequest`). A stdlib struct's memberwise
   initializer fills in the defaults its fields declare, lowered from the stdlib's own source

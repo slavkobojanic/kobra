@@ -39,13 +39,15 @@ No npm, no bundler, no transpiler: the files are shipped as written (compacted i
 | View helpers (`child`, `slotMarkers`, `markers`, `lifetime`, `paramProps`, `withQuery`, `loadsOf`, `joinClasses`, `title`) | `runtime/view.js` | **implemented** (extended) |
 | Path stores for `@State` structs | `runtime/store.js` | **implemented** (extended) |
 | Services in the browser: `provide` (component scope), `afterHydration` (client-only `init()`), `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session` mirror, browser `@Native` members (`native`) | `runtime/services.js` | **implemented** (part `Services`, [§12.1](#121-services-in-the-browser)) |
-| Router (layouts kept across navigations, `document.title`), RPC client, forms, `@Load` (hydrating a failed render too) | `router.js`, `rpc.js`, `forms.js`, `load.js` | **implemented** (extended) |
+| Router (layouts kept across navigations, `document.title`, page guards against the `Session` mirror), RPC client, `@Load` (hydrating a failed render too) | `router.js`, `rpc.js`, `load.js` | **implemented** (extended) |
+| `@Form` state: `createForm`, field parsers, constraint rules | `runtime/forms.js` | **implemented** (part `Forms`, a chunk of its own reached as `$k_forms`, [§9](#9-forms)) |
+| `Decimal`, `Money`, `Currency` and their codecs (`moneyCodecs`) | `runtime/money.js` | **implemented** (part `Money`, a chunk of its own reached as `$k_money`, [§12](#12-native-stdlib-bodies)) |
 | Server streams in the browser (`streamed`: the request envelope, the response read as it arrives) | `runtime/streams.js` | **implemented** (part `Streams`, a chunk of its own, [§8](#8-rpc-client)) |
 | `k.charts.LineChart`, one drawing for the server and the browser | `runtime/charts.js` | **implemented** (part `Charts`, a chunk of its own, [§12.2](#122-charts)) |
 | `k.drag`: `Draggable`, `DropTarget`, `ReorderableList` with pointer, touch and keyboard dragging | `runtime/drag.js` | **implemented** (part `Drag`, a chunk of its own, [§12.3](#123-drag-and-drop)) |
 | `k.device.BrowserFiles`: the file picker and downloads | `runtime/files.js` | **implemented** (part `Files`, a chunk of its own, [§12.4](#124-files)) |
 | `k.ui.KeyboardShortcut` | `runtime/keys.js` | **implemented** (part `Keys`, a chunk of its own, [§12.5](#125-keyboard-shortcuts)) |
-| Native stdlib bodies: collections, strings, numbers, `Decimal`, `Money`, `Currency`, `Instant`, `HashMap`/`HashSet`, typed text parsers (`Url`, `EmailAddress`, `Uuid`, `Color`), `TimeZone`, JSON codecs, route matching shared with the server (`route`, `routeParam`, `splitTarget`, `parseQuery`), streams, `Broadcast`, `Secret`, `$k.guard`, `runMain` | `runtime/std.js` | **implemented** (part `Stdlib`) |
+| Native stdlib bodies: collections, strings, numbers, `Instant`, `HashMap`/`HashSet`, typed text parsers (`Url`, `EmailAddress`, `Uuid`, `Color`), `TimeZone`, JSON codecs, route matching shared with the server (`route`, `routeParam`, `splitTarget`, `parseQuery`), streams, `Broadcast`, `Secret`, `$k.guard`, `runMain` | `runtime/std.js` | **implemented** (part `Stdlib`) |
 | SSR escaping and output buffer | `runtime/ssr.js` | **implemented** |
 | Server request loop, `env` | `runtime/server.js` | **implemented** (`serve` turns a broken handler into a `500` and keeps the loop) |
 | Persistence: column codecs `dbc`, the request's `Database` (transactions, savepoints, `ping`), `dbQuery`/`dbCount`/`dbWrite`/`dbInsertAll`, `dbInclude`, unloaded-relation stand-ins | `runtime/db.js` | **implemented** (part `Server`; [db.md §4–§9](db.md#4-the-query-ir-and-lowering)) |
@@ -65,7 +67,18 @@ emits a feature chunk when a client chunk, or the client entry's containers, ref
 file exports (`k.charts.LineChart`; `k.drag.ReorderableList`; `k.device.BrowserFiles`, which the `$App`
 container constructs for `Files`; `k.ui.KeyboardShortcut`; `streamed`, which generated stubs of
 server-streaming rpcs call), and that chunk imports it instead of binding `$k.native(…)`. A feature chunk's imports of other runtime files point at the runtime chunk, which exports
-every name they use ([codegen.md §16](codegen.md#16-the-clientserver-split)). *Deferred*: HMR state
+every name they use ([codegen.md §16](codegen.md#16-the-clientserver-split)).
+
+**Runtime feature chunks.** `forms.js` (part `Forms`) and `money.js` (part `Money`) hold runtime
+functions that generated code calls through `$k` (`$k.createForm(…)`, `$k.money("1.50", …)`,
+`$k.moneyCodecs.money`) rather than stdlib symbols. They ship as `forms.[hash].js` and `money.[hash].js`,
+only to apps with a client file that uses one of their exports: the bundler rewrites each such member of
+`$k` to the chunk's namespace (`$k_forms.createForm`, `$k_money.moneyCodecs`) and imports the chunk as
+`import * as $k_forms from "./forms.[hash].js";` ([codegen.md §17](codegen.md#17-bundling-chunks-and-printing)).
+The server and the JS tests keep reaching them through `k:runtime`, which re-exports them. No file of
+the runtime chunk imports a feature chunk's file (tested), so the runtime chunk is complete without them.
+**Decision:** move code that only some apps use out of the runtime chunk rather than raise the full
+runtime's or the stdlib bodies' budget; a `@Form` and the exact money types are the largest such code. *Deferred*: HMR state
 transfer, streaming SSR of loading boundaries (v0 renders the whole page, then sends it),
 transitions/animation, shipping only the runtime modules an app uses beyond the two feature chunks.
 
@@ -90,7 +103,7 @@ parts never mention `Deno.core` or `k:testing` (tested).
 `prop`, `classList`, `style`, `on`, `when`, `branch`, `each`; `hydrate`, `isHydrating`, `readData`, `uid`,
 `textNode`, `separator`;
 `KPanic`, `panic`, `isPanic`, `checkInt`, `intDiv`, `intRem`, `equals`, `unitCase`, `textOf`; `startRouter`,
-`navigate`; `child`, `slotMarkers`, `title`, `loadsOf`; `rpc`, `rpcError`, `DEFAULT_TIMEOUT_MS`; `createForm`;
+`navigate`; `child`, `slotMarkers`, `title`, `loadsOf`; `rpc`, `rpcError`, `DEFAULT_TIMEOUT_MS`;
 `createLoads`, `LOADING`, `READY`, `RELOADING`, `FAILED`; `claimRaw` (hydration of a native component that
 owns its subtree); from `services.js` `provide`, `afterHydration`, `clock`, `theme`, `browserStorage`,
 `fetchHttpClient`, `session`, `native`; and from `std.js` (among the stdlib bodies) `route`, `routeParam`, `NO`, `splitTarget`,
@@ -98,7 +111,10 @@ owns its subtree); from `services.js` `provide`, `afterHydration`, `clock`, `the
 `parseTimeZone`, `localTimeZone`, `PushStream`, `payloadFields`. The feature chunks export `LineChart`,
 `lineChart`, `chartKey` and `chartProps` (`charts.js`), `Draggable`, `DropTarget`, `ReorderableList`,
 `DragKind$init` and `ATTRS` (`drag.js`), `BrowserFiles` and `acceptOf` (`files.js`), `KeyboardShortcut`
-(`keys.js`) and `streamed` (`streams.js`). **`k:runtime/server` exports**: `serve`, `Out`, `escapeText`, `escapeAttribute`,
+(`keys.js`), `streamed` (`streams.js`), `createForm`, `fieldParser`, `lengthRule`, `rangeRule` and
+`requiredRule` (`forms.js`), and `Decimal`, `Money`, `Currency`, `moneyCodecs` and the constructors
+`decimal`, `parseDecimal`, `money`, `moneyFromMinor`, `moneyZero`, `sumMoney` (`money.js`); `k:runtime`
+re-exports all of them for the server and the tests. **`k:runtime/server` exports**: `serve`, `Out`, `escapeText`, `escapeAttribute`,
 `serializeData`, `OPEN`, `CLOSE`, `SEPARATOR`, `KPanic`, `isPanic`, and from `app.js`: `createApp` (the
 request handler of a generated spec), `route` and `param` (typed route matching), `splitTarget`,
 `parseQuery`, `parseCookies`, `RequestState`, `session`, `sessionManager`, `checkGuards`, `Metadata`,
@@ -120,16 +136,19 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 
 | Bundle | Parts | Budget | Today |
 |---|---|---|---|
-| core | signals, values, hydration, DOM bindings and `when`/`branch` | ≤ 5 KB (`CORE_SIZE_BUDGET`) | 4,527 B |
-| full client | core + keyed lists, view helpers, path stores, router, RPC client, forms, `@Load` + entry | ≤ 10 KB (`FULL_SIZE_BUDGET`) | 9,778 B (462 B headroom) |
-| stdlib bodies | `std.js` (part `Stdlib`), measured on its own because it grows with the stdlib | ≤ 10 KB (`STDLIB_SIZE_BUDGET`) | 9,837 B (403 B headroom) |
-| browser services | `services.js` (part `Services`): the client DI helpers and the browser bodies of the stdlib's platform services | ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | 2,124 B |
-| shipped `runtime.<hash>.js` | full client + stdlib bodies + browser services, as `k build` writes it | ≤ 23 KB (the sum of the three; `crates/k_cli/tests/perf_budget.rs`) | 20,795 B gzip |
+| core | signals, values, hydration, DOM bindings and `when`/`branch` | ≤ 5 KB (`CORE_SIZE_BUDGET`) | 4,550 B |
+| full client | core + keyed lists, view helpers, path stores, router, RPC client, `@Load` + entry | ≤ 10 KB (`FULL_SIZE_BUDGET`) | 9,022 B (1,218 B headroom) |
+| stdlib bodies | `std.js` (part `Stdlib`), measured on its own because it grows with the stdlib | ≤ 10 KB (`STDLIB_SIZE_BUDGET`) | 8,398 B (1,842 B headroom) |
+| browser services | `services.js` (part `Services`): the client DI helpers and the browser bodies of the stdlib's platform services | ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | 2,340 B |
+| shipped `runtime.<hash>.js` | full client + stdlib bodies + browser services, as `k build` writes it | ≤ 23 KB (the sum of the three; `crates/k_cli/tests/perf_budget.rs`) | 18,730 B gzip |
 | `charts.[hash].js` | `charts.js` (part `Charts`), shipped only to apps that chart | ≤ 3 KB (`CHARTS_SIZE_BUDGET`) | 2,306 B |
 | `drag.[hash].js` | `drag.js` (part `Drag`), shipped only to apps that drag and drop | ≤ 4 KB (`DRAG_SIZE_BUDGET`) | 3,493 B |
 | `files.[hash].js` | `files.js` (part `Files`), shipped only to apps whose client injects `Files` | ≤ 1 KB (`FILES_SIZE_BUDGET`) | 886 B |
 | `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
 | `streams.[hash].js` | `streams.js` (part `Streams`), shipped only to apps with a streaming rpc | ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | 569 B |
+| `http.[hash].js` | `http.js` (part `Http`), shipped only to apps whose client builds or reads an `HttpResponse` | ≤ 1.5 KB (`HTTP_SIZE_BUDGET`) | 1,175 B |
+| `forms.[hash].js` | `forms.js` (part `Forms`), shipped only to apps with a `@Form` | ≤ 2 KB (`FORMS_SIZE_BUDGET`) | 1,807 B |
+| `money.[hash].js` | `money.js` (part `Money`), shipped only to apps whose client uses `Decimal`, `Money` or `Currency` | ≤ 2.5 KB (`MONEY_SIZE_BUDGET`) | 2,164 B |
 
 The test fails the build when a budget is exceeded. **Decision:** the browser's service support is its own part with its own budget, like the stdlib
 bodies: it grows with the stdlib's platform services, not with the framework, and the shipped chunk's
@@ -376,8 +395,10 @@ outside `READY`/`RELOADING`.
   typed `RpcFailure` values, never panics.
 - An aborted signal (a superseded effect or load) makes the promise **never settle**.
 - No automatic retries: the runtime can't know whether the handler ran.
-- Responses that change the session (`x-k-session` header with the new mirror) update the `Session`
-  mirror before the outcome is returned.
+- Responses that carry the session (`x-k-session` header with the mirror: a change, or a refusal by a
+  session guard) update the `Session` mirror before the outcome is returned, an opened stream's
+  included. The router's gate (`gateSession`) sees each new mirror first
+  ([§10](#10-router)).
 - `rpcError(o, E, codec)` maps a failed outcome to the rpc's error enum `E`: a `failed_precondition` with a
   detail `{"type": "k.TypedError", "debug": {"error", "case", "fields"}}` (as the server sends it,
   [server.md §6](server.md#6-rpc-dispatch)) is the case it names, decoded with `codec` (the error's, when
@@ -436,7 +457,9 @@ outside `READY`/`RELOADING`.
 ## 9. Forms
 
 `createForm(fields, initial, validate, clock?)` backs a `@Form`
-([15-forms-and-validation.md](../design/15-forms-and-validation.md)):
+([15-forms-and-validation.md](../design/15-forms-and-validation.md)). It lives in `forms.js`, a runtime
+feature chunk (§1): only apps with a `@Form` ship it, and their generated code calls it as
+`$k_forms.createForm`.
 
 - Each field keeps its **raw text** as typed; typed fields parse on validation (`FieldSpec.parse`), and a
   parse failure shows only the `@Format` message.
@@ -472,16 +495,36 @@ outside `READY`/`RELOADING`.
 
 - Intercepts clicks on internal links (same origin, no modifier keys, no `target`), and `popstate`.
 - On navigation: match the URL (no match → the app's not-found page), evaluate guards against the
-  `Session` mirror (a refusal redirects to the sign-in page with `returnTo`; the server enforces guards
-  for data, the client only decides navigation), `import()` the page chunk, create the page's route
-  scope, run its `@Load` group, keep mounted layouts that both pages share, swap the page, update
-  `document.title` and metadata, restore or reset scroll.
+  `Session` mirror (below), `import()` the page chunk, create the page's route scope, run its `@Load`
+  group, keep mounted layouts that both pages share, swap the page, update `document.title` and
+  metadata, restore or reset scroll.
 - `navigate(url)` pushes history and navigates; `Router.navigate(url:)` to another origin is a full load.
+- **Guards** ([26-auth-and-sessions.md](../design/26-auth-and-sessions.md#in-the-browser)). A route's
+  `guards` are `["auth"]` and `["role", caseName]` (codegen.md §14). The mirror allows a page when it has
+  a user and, for each role guard, the user's mirrored `roles` include the case name. A user without a
+  `roles` list is refused, so the server decides. A navigation the mirror refuses (a link, `navigate`,
+  `popstate`) sets `location.href` to the URL instead of pushing history and rendering. The server
+  answers that load with its `303` to the `@SignInPage` (and `returnTo`) or `403`. From then on the
+  router is *left*: `show` and `navigate` do nothing. The first page (`startRouter`'s) isn't checked,
+  because the server checked it when it answered the document.
+- **Losing what the shown page requires.** `startRouter` registers a gate with the RPC client
+  (`gateSession`, `rpc.js`), which runs with each `x-k-session` mirror before `sessionMirror.set`. When the
+  new mirror refuses the mounted page, the gate disposes that page first, so no effect of a narrowed body
+  reads `session.user` as `null`. When it refuses the latest navigation's page (the shown one, or one
+  whose chunk is still loading), it leaves for a full load of that URL. A navigation in flight to an open
+  page goes on. The server sends the guest mirror (and clears the cookie) on any response to a request
+  whose session cookie names a session it no longer has (`RequestState.load`), so a sign-out elsewhere,
+  `endAll` or expiry reaches the gate on the next rpc (a streamed one's head included). A refusal by
+  `Authenticated` or `Role` carries the mirror too, so a role taken away, or a session whose cookie an
+  earlier non-rpc response already cleared, reaches the gate on the page's next guarded rpc.
+- **The mirror starts from `k-data` once per document** (`seedSession`). The router does this at start,
+  so its guards see who is signed in even when nothing has read `Session`, and so does the first
+  `session(data)` reader. A later reader never puts back the document's mirror after an rpc changed it.
 - Navigations run inside `batch`.
-- A route is `{ name, parse(url) → params | null, load() → Promise<{ layouts, render(params, ctx) }> }`,
+- A route is `{ name, guards?, parse(url) → params | null, load() → Promise<{ layouts, render(params, ctx) }> }`,
   `layouts` the page's layout components, outermost first; the router reads `globalThis.location`, pushes
   with `globalThis.history.pushState`, listens for `popstate` and intercepts clicks on `a` elements with an
-  `href` inside the container. Client-side guards and scroll restoration are *not yet written*.
+  `href` inside the container. Scroll restoration is *not yet written*.
 - **Layouts stay mounted.** The router renders each layout (layout `i` with `k-data` key `"L{i}"`) and the
   page (`"0"`) in a root of its own. A layout's slot records its markers when it renders (`slotMarkers()`,
   set by `child` while a child range renders). On a navigation the layouts the new page shares with the
@@ -533,7 +576,8 @@ Declarations marked `@Native` in `crates/k_sema/stdlib` get their bodies from th
 | Area | Implementation |
 |---|---|
 | `List`, `Map`, `Set`, `String`, `Int`, `Double` methods | inlined JS or `values.js` helpers ([codegen.md §6.6](codegen.md#66-collections-and-the-stdlib)) |
-| `Decimal`, `Money`, `Date`, `Duration` formatting | `values.js` (v0); formatting uses `Intl` with the metadata locale |
+| `Decimal`, `Money`, `Currency` | `money.js` (the `money` feature chunk); `Money.formatted` uses `Intl` with the metadata locale |
+| `Date`, `Duration` formatting | `std.js`; formatting uses `Intl` with the metadata locale |
 | `Log` | `console.*` in the browser; `op_k_log` (JSON lines) on the server |
 | `Clock` | `clock(data)` in `services.js` in the browser ([§12.1](#121-services-in-the-browser)); on the server `clock()` in `app.js`: `now` from `op_k_now`; `sleep`, `every` and `after` panic with their name until the server has timers |
 | `HttpClient` (`FetchHttpClient`) | `fetchHttpClient` over `fetch` in the browser; not provided on the server yet (`missingNative`) |
@@ -562,7 +606,7 @@ generate ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
 | `theme()` | `k.ui.Theme`: `current` is reactive and starts as the `k_theme` cookie's variant or `base`; `apply(v)` replaces the `k-theme-*` classes on `<html>` with `k-theme-set` and `k-theme-<v in kebab case>` (none for `base`) and sets the cookie for a year; `followSystem()` removes them and the cookie |
 | `browserStorage(R, W)` | `k.storage.BrowserStorage` over `localStorage`: values JSON-encoded with their codec under `key.name`; throws `R.unavailable` (no storage), `R.unreadable` (bad JSON or a value its codec refuses), `W.quotaExceeded` (a `QuotaExceededError`), `W.unavailable`; `remove` never throws |
 | `fetchHttpClient(E, S)` | `k.http.FetchHttpClient` over `fetch`: the request's `query` appended form-encoded, `headers`, revealed `secretHeaders` and `bearerToken`, the body by its case (JSON, text, form, bytes); `send` resolves to an `HttpResponse` (`status` as an `HttpStatus` case, `isSuccess`, `body`, `bodyBytes`, `headers.get/all`, `json(codec)`) whatever the status and rejects with `E.offline` or, after the request's `timeout` (30 s by default), `E.timeout`; `fetchJson(c, codec, r)` also requires a 2xx (`E.status(status, body)`) and decodes the body (`E.decoding(message)`) |
-| `session(data)` | `k.auth.Session`: `user` reads the `Session` mirror, started from `data.session` and updated by rpc responses (`x-k-session`) |
+| `session(data)` | `k.auth.Session`: `user` reads the `Session` mirror, started from `data.session` (once per document, `seedSession`) and updated by rpc responses (`x-k-session`) |
 | `native(name)` | the browser's implementation of the `@Native` stdlib member `module.Owner$member` (`k.crypto.Uuid$random`, `Uuid$init`, `Uuid$parse`, `k.storage.StorageKey$init`), else a stand-in that loads and panics with the name when called, constructed or read from; client chunks bind every stdlib symbol they use that no item defines with it (`const Uuid$random = $k.native("k.crypto.Uuid$random")`) |
 
 ### 12.2 Charts
@@ -714,7 +758,7 @@ and is prevented, unless it was prevented already, Control, Alt or Meta is held,
 
 | Area | Budget | Measured (release, Apple M-series) |
 |---|---|---|
-| Client runtime size, compacted + compressed | ≤ 5 KB core, ≤ 10 KB full, ≤ 3 KB browser services, ≤ 3 KB charts, ≤ 1 KB streams, ≤ 1.5 KB http, ≤ 4 KB drag, ≤ 1 KB files, ≤ 512 B keys | 4,550 B / 9,863 B / 2,340 B / 2,306 B / 569 B / 1,175 B / 3,493 B / 886 B / 384 B gzip |
+| Client runtime size, compacted + compressed | ≤ 5 KB core, ≤ 10 KB full, ≤ 10 KB stdlib bodies, ≤ 3 KB browser services, ≤ 3 KB charts, ≤ 1 KB streams, ≤ 1.5 KB http, ≤ 4 KB drag, ≤ 1 KB files, ≤ 512 B keys, ≤ 2 KB forms, ≤ 2.5 KB money | 4,550 B / 9,022 B / 8,398 B / 2,340 B / 2,306 B / 569 B / 1,175 B / 3,493 B / 886 B / 384 B / 1,807 B / 2,164 B gzip |
 | Signal write to DOM text update | ≤ 1 µs per binding | 86 ns (1,000 bindings, test DOM in V8) |
 | Signal write through a diamond of three computeds to an effect | ≤ 1 µs | 280 ns |
 | Hydration of a 1,000-node page | ≤ 10 ms | 0.10 ms (1,008 nodes, test DOM) |

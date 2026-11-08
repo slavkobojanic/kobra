@@ -18,7 +18,16 @@ use crate::lower::Body;
 /// The codec of type `t`, as an expression.
 pub(crate) fn codec_expr(b: &mut Body<'_, '_>, t: &Type) -> Expr {
     let g = b.g;
-    let builtin = |n: &str| member(member(id("$k"), "codecs"), n.to_owned());
+    // `Decimal`, `Currency` and `Money` live in the `money` feature chunk
+    // (runtime.md §2), whose codecs are `$k.moneyCodecs`.
+    let builtin = |n: &str| {
+        let table = if matches!(n, "decimal" | "currency" | "money") {
+            "moneyCodecs"
+        } else {
+            "codecs"
+        };
+        member(member(id("$k"), table), n.to_owned())
+    };
     match t {
         Type::Optional(inner) => {
             let c = codec_expr(b, inner);

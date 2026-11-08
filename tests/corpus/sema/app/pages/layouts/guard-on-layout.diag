@@ -1,0 +1,4 @@
+error[K5014] 5:13-5:45
+  help: the server checks the guards of the page it answers: put the clause on each page that renders in `Shop`
+error[K5014] 13:14-13:30
+  help: the server checks the guards of the page it answers: put the clause on each page that renders in `Plain`

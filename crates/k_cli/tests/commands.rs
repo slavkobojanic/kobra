@@ -1181,14 +1181,16 @@ fn check_and_build_the_kanban_example_to_static_files() {
     assert_eq!(built.status.code(), Some(0), "{}", stderr(&built));
     assert!(!out.join("app").exists(), "kanban is static-only");
     let assets = files_below(&out.join("public/assets"));
-    for chunk in ["drag.", "files.", "keys.", "charts."] {
+    for chunk in ["drag.", "files.", "keys.", "charts.", "forms."] {
         assert!(
             assets.iter().any(|a| a.starts_with(chunk)),
             "kanban ships the {chunk}… feature chunk: {assets:?}"
         );
     }
     assert!(
-        !assets.iter().any(|a| a.starts_with("streams.")),
+        !assets
+            .iter()
+            .any(|a| a.starts_with("streams.") || a.starts_with("money.")),
         "{assets:?}"
     );
 }

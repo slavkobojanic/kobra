@@ -211,7 +211,8 @@ hyper request
   within `front::BODY_READ_TIMEOUT` (20 s), or it is closed (a stalled body gets `408` and
   `Connection: close`); no client holds a connection, a task or a worker forever.
 - **Every response** carries `X-Content-Type-Options: nosniff`; rpc responses also
-  `Cache-Control: private, no-store`, as does every response whose rendering read `Session`.
+  `Cache-Control: private, no-store`, as does every response whose rendering read `Session` and every
+  document rendered for a signed-in user (its `k-data` carries the mirror).
 - **Request scope.** Each request gets a fresh request container ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
   `.app`, `.request` and `.route` services, the server-side instances of client services, and the
   `Session` mirror. It is dropped with the response; nothing leaks to the next request.
@@ -396,7 +397,15 @@ server streaming.
   it, another browser's cookie can't use it, and a replay fails. A guest session reads as no user;
   `signIn` replaces it with a new id like any session (no fixation), and `endAll` never ends it.
 - **The mirror**: SSR serializes `Session.user` into `k-data`; an rpc that changes the session returns the
-  new mirror in `x-k-session` so the browser's `Session` follows.
+  new mirror in `x-k-session` so the browser's `Session` follows. A request whose session cookie names a
+  session the server no longer has counts as a change: it was signed out elsewhere, ended by `endAll`, or
+  expired. `RequestState.load` then clears the cookie and marks the session changed, so the next rpc tells
+  the browser `{"user": null}`, and the router leaves a page that requires the user
+  ([runtime.md §10](runtime.md#10-router)). A server-streaming rpc's response head carries it the same
+  way, since its head is what clears the cookie. An rpc refused by `Authenticated` or `Role` also
+  carries the mirror, changed or not: a refusal is when the browser's copy is likeliest to be stale (a
+  role taken away, or a cookie an earlier non-rpc response cleared), and the router then leaves a page
+  the server no longer allows. A `RateLimit` or `ServiceAuthenticated` refusal doesn't.
 - **Guards** run on the server for every request: `Authenticated`, `Role(…)` (`Authenticated` first, so a
   guest is `401`/redirected rather than `403`), `RateLimit(…)` (a sliding window per guard, counted per
   live session when signed in and per client address otherwise; a refusal carries `Retry-After` in
@@ -405,9 +414,9 @@ server streaming.
   by the time elapsed, `k_db::stdlib::rate_decision`), so every replica counts against the same limit;
   the read-then-increment isn't atomic across replicas, so a burst racing on several replicas can pass
   a few extra calls. Without a database it is an exact sliding log in memory.
-- **Responses**: a response whose handling read `Session` (or changed it) is `Cache-Control: private,
-  no-store`; one that signed in or out carries `Set-Cookie`; an rpc that changed the session also
-  `x-k-session` with the new mirror (`{"user": {"id": …, "roles": […]}}` or `{"user": null}`).
+- **Responses**: a response whose handling read `Session` (or changed it), and a document rendered for a
+  signed-in user, is `Cache-Control: private, no-store`; one that signed in or out, or arrived with a dead session cookie, carries `Set-Cookie`; an rpc that changed the session (a streamed one in its head), or that a session
+  guard refused, also `x-k-session` with the mirror (`{"user": {"id": …, "roles": […]}}` or `{"user": null}`).
 - **Request forgery**: the front's checks of [§5](#5-request-lifecycle) are always on: rpc content types
   and the Connect header, and the `Origin`/`Sec-Fetch-Site` check for any state-changing request carrying
   the session cookie. CORS is never granted for rpc routes.

@@ -1,0 +1,2 @@
+error[K5507] 7:51-7:73
+  help: only a protocol's rpcs are served: declare `hello` in a protocol that `Lone` implements, with the clause on its rpc

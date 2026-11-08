@@ -260,6 +260,9 @@ Messages and detail lines for this range that the corpus pins exactly:
 |---|---|---|---|---|
 | K2401 | `named-status-as-other` | error | The integer literal. | Replace with the named case (machine-applicable). |
 | K2402 | `money-sum-without-currency` | error | From the name `sum` to the end of the call `sum()` on a `List<Money>`. | Replace with `sum(in: .usd) { amount => amount }` (maybe-incorrect: the currency is a placeholder to choose). `sum()` on a list of any element type other than `Int`, `Double` or `Money` is K2009 at the same span. |
+| K2403 | `literal-required` | error | The argument of an initializer marked `@Literal` (`Url(…)`, `Uuid(…)`, `EmailAddress(…)`, `TimeOfDay(…)`, `StorageKey(name:)`, `HttpStatus(code:)`) that isn't a plain string literal (an interpolated string isn't one) or, for `HttpStatus(code:)`, an integer literal. | Insert `.parse` after the type name (maybe-incorrect: `parse` returns an optional), when the type has a static `parse(_:)`; none otherwise. |
+| K2404 | `invalid-literal` | error | The string or integer literal a checked initializer rejects, with the reason in the message; for a money amount, the whole `1.005.usd` expression. The formats are those of the runtime's parsers (`k_sema::literals`): `EmailAddress.parse` with display names, `Url.parse`, `Uuid.parse`, `TimeOfDay` as `HH:MM`, a status code `100...599`, and a money amount with no more significant decimal places than its currency. | — |
+| K2405 | `duplicate-storage-key` | error | The name literal of every `StorageKey(name:)` constant or field, in the app's non-test code, whose name an earlier key (in file path order) already has, with a label at that key's literal. | — |
 
 ### Annotations, members and reactivity (K3000–K3099)
 
@@ -407,6 +410,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K5011 | `duplicate-handler-method` | error | The later handler's method annotation, from `@` to the end of its name; label: the first. | — |
 | K5012 | `invalid-handler-signature` | error | The handler function's name token. | — |
 | K5013 | `set-cookie-header` | error | The string literal key `set-cookie` (in any case) of a map literal passed to `HttpResponse.headers(…)`. A computed name panics at run time instead. | — |
+| K5014 | `guard-on-layout` | error | The `requires` clause of a layout, whatever its guards name (they aren't resolved). The server checks the guards of the page it answers, never its layout's. | — (a help names the layout: put the clause on each page that renders in it) |
 
 ### Protocols and RPC (K5500–K5999)
 
@@ -418,6 +422,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K5504 | `rpc-implementation-not-server` | error | The protocol's name in the `implements` clause. | — |
 | K5505 | `rpc-handler-mismatch` | error | The handler's name token; label: the protocol's rpc. | — |
 | K5506 | `handler-throws-rpc-failure` | error | The `throw` statement, in the body of a protocol handler, whose value constructs a `rpcFailure` case ([28-rpc-wire-format.md](../design/28-rpc-wire-format.md): only the runtime produces it). Client code rethrowing it is fine. | — |
+| K5507 | `requires-on-handler` | error | The `requires` clause of an rpc outside a protocol: a service's handler, or an rpc no protocol declares. Only the protocol's clauses (on the protocol and on its rpc) are checked by the server. A label marks each protocol rpc the handler serves. | Move the guards the protocol doesn't already declare to every protocol rpc the handler serves (appended to its `requires` clause, or a new clause after its signature), importing them where needed, and delete the handler's clause (maybe-incorrect: it changes the protocol's contract for every implementation and caller). When the protocol already declares every guard: delete the clause (machine-applicable). No fix when a protocol comes from a library or the stdlib (a help says so), or when no protocol declares the rpc (a help says to declare it in one). |
 
 ### Persistence (K6000–K6999)
 

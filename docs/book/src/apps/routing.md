@@ -240,8 +240,13 @@ page Admin requires Authenticated, Role(.admin) {
   sign-in page, named once with `@SignInPage(.signIn)` on the `app`. If the sign-in page declares
   `@Param let returnTo: Page`, the redirect fills it in, so the visitor comes back after signing in.
 - `Role` refusing a page responds with `403 Forbidden`.
+- The browser checks the same guards before it shows a page. A page they refuse is loaded from the
+  server, which answers as above (see [What a refused page does](auth.md#what-a-refused-page-does)).
 - Inside a page that `requires Authenticated`, including its `@Load` initializers, `session.user` is
   known to be present and needs no unwrapping.
+- **Layouts take no guards.** The server checks the guards of the page it answers, never of its layout,
+  so `layout Admin requires Authenticated` is a compile error (`K5014`): put the clause on each page that
+  renders in the layout.
 
 See [Authentication and sessions](auth.md).
 

@@ -161,6 +161,7 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
                     requires_auth = true;
                 }
             }
+            Some(K::Layout) => guard_on_layout(cx, d),
             Some(K::Protocol) => {
                 check_guards(cx, d, &decl.node);
                 for &m in &decl.members {
@@ -173,6 +174,33 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
         }
     }
     sign_in(cx, requires_auth);
+}
+
+/// K5014: a layout's `requires` clause. The server checks the guards of
+/// the page it answers, never of the layout it renders in, so the clause
+/// would guard nothing; its guards aren't resolved either.
+fn guard_on_layout(cx: &Cx<'_, '_>, d: DeclId) {
+    let p = cx.p;
+    let decl = p.decl(d);
+    let Some(clause) = decl
+        .node
+        .children()
+        .find(|c| c.kind() == SyntaxKind::RequiresClause)
+    else {
+        return;
+    };
+    cx.report(
+        decl.file,
+        Diagnostic::new(
+            codes::GUARD_ON_LAYOUT,
+            p.span(decl.file, clause.text_range()),
+            "the server never checks a layout's `requires` clause",
+        )
+        .with_help(format!(
+            "the server checks the guards of the page it answers: put the clause on each page that renders in `{}`",
+            decl.name
+        )),
+    );
 }
 
 /// The guards of a declaration's `requires` clause: names and nodes.

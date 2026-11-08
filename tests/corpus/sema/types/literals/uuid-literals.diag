@@ -1,0 +1,4 @@
+error[K2404] 8:18-8:28: not a UUID: a UUID is 32 hexadecimal digits in groups of 8-4-4-4-12, such as `0b6f2c1e-4d1a-4f8e-9a3b-2c5d6e7f8a9b`
+error[K2404] 9:19-9:57: not a UUID: a UUID is 32 hexadecimal digits in groups of 8-4-4-4-12, such as `0b6f2c1e-4d1a-4f8e-9a3b-2c5d6e7f8a9b`
+error[K2404] 10:19-10:60: not a UUID: a UUID is 32 hexadecimal digits in groups of 8-4-4-4-12, such as `0b6f2c1e-4d1a-4f8e-9a3b-2c5d6e7f8a9b`
+error[K2404] 11:21-11:55: not a UUID: a UUID is 32 hexadecimal digits in groups of 8-4-4-4-12, such as `0b6f2c1e-4d1a-4f8e-9a3b-2c5d6e7f8a9b`

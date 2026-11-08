@@ -77,6 +77,7 @@ pub(crate) fn job_payload(cx: &Cx<'_, '_>, decl: DeclId) -> Option<Ty> {
 
 /// Runs the lockfile checks.
 pub(crate) fn check(cx: &Cx<'_, '_>) {
+    duplicate_keys(cx);
     for lock in &cx.p.lockfiles {
         if lock.kind == LockfileKind::Storage {
             storage(cx, lock);
@@ -418,6 +419,8 @@ struct Key {
     declaration: String,
     /// The name its initializer gives, `StorageKey(name: "cart")`.
     name: Option<String>,
+    /// The range of that name's string literal.
+    literal: Option<TextRange>,
     /// The value type `T`.
     value: Ty,
     /// Where diagnostics point: the constant's or field's name.
@@ -439,8 +442,8 @@ pub(crate) fn key_value(cx: &Cx<'_, '_>, ty: &Ty) -> Option<Ty> {
 }
 
 /// The `name:` literal of a `StorageKey(name: "…")` initializer below
-/// `node`.
-fn key_name(node: &k_syntax::SyntaxNode) -> Option<String> {
+/// `node`, with the literal's range.
+fn key_name(node: &k_syntax::SyntaxNode) -> Option<(String, TextRange)> {
     node.descendants()
         .filter_map(ast::CallExpr::cast)
         .find_map(|c| {
@@ -449,7 +452,7 @@ fn key_name(node: &k_syntax::SyntaxNode) -> Option<String> {
                     return None;
                 }
                 match a.value()? {
-                    ast::Expr::StringLit(s) => s.plain_value(),
+                    ast::Expr::StringLit(s) => Some((s.plain_value()?, s.syntax().text_range())),
                     _ => None,
                 }
             })
@@ -464,7 +467,22 @@ fn node_has_breaking(node: &k_syntax::SyntaxNode) -> bool {
 }
 
 /// Every `StorageKey` of the program's non-test code.
+///
+/// Finding them resolves the type of every constant and field. A type that
+/// doesn't resolve is reported where it is written, by the check of its
+/// declaration; when that file's facts were replayed by an incremental
+/// re-check, resolving it here would report it a second time, so the
+/// diagnostics this function causes are dropped (as `view::build` drops
+/// those of the signatures it resolves).
 fn program_keys(cx: &Cx<'_, '_>) -> Vec<Key> {
+    let reported = cx.diags.borrow().len();
+    let out = find_keys(cx);
+    cx.diags.borrow_mut().truncate(reported);
+    out
+}
+
+/// [`program_keys`], with the diagnostics of the types it resolves.
+fn find_keys(cx: &Cx<'_, '_>) -> Vec<Key> {
     let p = cx.p;
     let mut out = Vec::new();
     for (i, decl) in p.decls.iter().enumerate() {
@@ -474,9 +492,11 @@ fn program_keys(cx: &Cx<'_, '_>) -> Vec<Key> {
         }
         if decl.named_kind() == Some(K::Constant) {
             if let Some(value) = key_value(cx, &cx.constant_ty(d)) {
+                let named = key_name(&decl.node);
                 out.push(Key {
                     declaration: p.decl_name(d),
-                    name: key_name(&decl.node),
+                    name: named.as_ref().map(|n| n.0.clone()),
+                    literal: named.map(|n| n.1),
                     value,
                     file: decl.file,
                     range: decl.name_range,
@@ -494,9 +514,11 @@ fn program_keys(cx: &Cx<'_, '_>) -> Vec<Key> {
                 continue;
             };
             let node = member.node.clone();
+            let named = node.as_ref().and_then(key_name);
             out.push(Key {
                 declaration: format!("{}.{}", p.decl_name(d), member.name),
-                name: node.as_ref().and_then(key_name),
+                name: named.as_ref().map(|n| n.0.clone()),
+                literal: named.map(|n| n.1),
                 value,
                 file: decl.file,
                 range: member.name_range,
@@ -505,6 +527,34 @@ fn program_keys(cx: &Cx<'_, '_>) -> Vec<Key> {
         }
     }
     out
+}
+
+/// K2405: a storage key named like an earlier one (in file path order) of
+/// the app's non-test code, at its name literal, with a label at the
+/// earlier key's. Two such keys read and write the same stored value as
+/// different types (`docs/design/36-local-storage.md`, "Keys"); a test may
+/// reuse a name to inspect what a service stored, so tests aren't counted.
+fn duplicate_keys(cx: &Cx<'_, '_>) {
+    let mut first: BTreeMap<String, (crate::program::FileIx, TextRange)> = BTreeMap::new();
+    for key in program_keys(cx) {
+        let (Some(name), Some(literal)) = (&key.name, key.literal) else {
+            continue;
+        };
+        match first.get(name) {
+            Some(&(file, range)) => cx.report(
+                key.file,
+                Diagnostic::new(
+                    codes::DUPLICATE_STORAGE_KEY,
+                    cx.p.span(key.file, literal),
+                    format!("another storage key is named `{name}`; the two would read and write each other's values"),
+                )
+                .with_label(cx.p.span(file, range), format!("the key named `{name}` is declared here")),
+            ),
+            None => {
+                first.insert(name.clone(), (key.file, literal));
+            }
+        }
+    }
 }
 
 /// Compares `storage.lock`'s keys with the program's (K8008): a recorded

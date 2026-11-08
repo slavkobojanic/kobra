@@ -379,6 +379,17 @@ export function text() {
   return textOf(document.getElementById("k-app"));
 }
 
+/**
+ * Goes to the history entry at `path` as Back or Forward does: the URL
+ * changes, then `popstate` is dispatched. Nothing is pushed or loaded by
+ * the tab itself; what happens next is the page's to decide.
+ * @param {string} path
+ */
+export function traverse(path) {
+  setUrl(String(path));
+  for (const fn of tab.listeners.get("popstate") ?? []) fn({ type: "popstate", state: null });
+}
+
 /** Advances the fake clock by `ms`, firing the timers that fall due. */
 export function advance(ms) {
   const end = tab.now + ms;

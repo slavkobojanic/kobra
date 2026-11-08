@@ -1,0 +1,2 @@
+error[K5507] paybox/src/payments/PaymentsApi.k:7:63-7:94
+  help: `pay.Payments` comes from the library `contracts`, which declares its guards: add the guard to its rpc `charge` there, or check the caller in the handler

@@ -1,0 +1,2 @@
+error[K2404] 8:15-8:24: `1.005.usd` has 3 decimal places, and USD has 2
+error[K2404] 9:21-9:28: `1.5.jpy` has 1 decimal place, and JPY has none

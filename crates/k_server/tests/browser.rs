@@ -850,7 +850,11 @@ fn shop(paybox: &k_server::fakes::FakeHttp) -> (Site, TempDb) {
         &[
             ("DATABASE_URL", url.as_str()),
             ("SHOP_ADMIN_EMAIL", "admin@example.com"),
-            ("SHOP_ADMIN_PASSWORD_HASH", "placeholder"),
+            // The hash of `change-me-admin-password` (`Samples.k`).
+            (
+                "SHOP_ADMIN_PASSWORD_HASH",
+                "$argon2id$v=19$m=65536,t=3,p=4$aLYLgjk75OnGzmfOgi+w+g$6DSzMJriTe+IRcfo7YcTibzOSpaPcEMeYxWRXNtBCFY",
+            ),
             ("K_SERVICE_TOKEN", "shop_service_SECRET"),
             ("PAYBOX_URL", origin.as_str()),
             ("PAYBOX_TOKEN", "paybox_service_SECRET"),
@@ -907,6 +911,66 @@ fn shop_hydrates_the_storefront_and_navigates_to_a_product_without_refetching() 
         0,
         "a client navigation loads no document"
     );
+}
+
+/// Adds a link to `/admin` to the tab's page and clicks it, as a link
+/// the app rendered would be clicked.
+const CLICK_ADMIN_LINK: &str = "const a = document.createElement(\"a\");\n\
+     a.setAttribute(\"href\", \"/admin\");\n\
+     a.textContent = \"Staff\";\n\
+     document.getElementById(\"k-app\").appendChild(a);\n\
+     sim.click(\"a\", \"Staff\");";
+
+#[test]
+fn shop_checks_the_admin_guards_in_the_browser() {
+    let paybox = fake_paybox();
+    let (mut site, _db) = shop(&paybox);
+    // A guest following a link to the dashboard (`requires Authenticated,
+    // Role(.admin)`) is sent to the server, which redirects to sign in.
+    let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
+    tab.assert_hydrated();
+    let since = tab.site.requests.len();
+    tab.run(CLICK_ADMIN_LINK);
+    assert_eq!(went(&mut tab), serde_json::json!([["/admin"], []]));
+    assert_eq!(
+        tab.site
+            .count(since, "/shop.admin.AdminProtocol/RecentOrders"),
+        0,
+        "{:?}",
+        tab.site.requests
+    );
+    drop(tab);
+    redirected_to_sign_in(&mut site, "/admin");
+    // The admin's mirror lists the `admin` role, so the dashboard opens on
+    // the client and loads its orders once.
+    let signed_in = site.rpc(
+        "/shop.admin.AdminProtocol/SignIn",
+        r#"{"request": {"email": "admin@example.com", "password": "change-me-admin-password"}}"#,
+    );
+    assert_eq!(
+        signed_in.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&signed_in.body)
+    );
+    let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
+    tab.assert_hydrated();
+    let since = tab.site.requests.len();
+    tab.run(CLICK_ADMIN_LINK);
+    assert_eq!(went(&mut tab), serde_json::json!([[], ["/admin"]]));
+    contains(&tab.text(), "No orders yet.", "the dashboard");
+    assert_eq!(
+        tab.site
+            .count(since, "/shop.admin.AdminProtocol/RecentOrders"),
+        1,
+        "{:?}",
+        tab.site.requests
+    );
+    // Signing out on the dashboard leaves it for the server.
+    tab.run("sim.click(\"button\", \"Sign out\");");
+    assert_eq!(went(&mut tab), serde_json::json!([["/admin"], ["/admin"]]));
+    drop(tab);
+    redirected_to_sign_in(&mut site, "/admin");
 }
 
 #[test]
@@ -1213,6 +1277,114 @@ fn notes_signs_in_creates_a_note_and_edits_it() {
         serde_json::json!("Milk and eggs"),
         "{updated}"
     );
+}
+
+/// Signs `ada@example.com` up on the notes site and leaves the jar
+/// signed out.
+fn notes_with_ada(db: &TempDb) -> Site {
+    let url = db.url();
+    let mut site = Site::start("notes", &[("DATABASE_URL", url.as_str())]);
+    let signed_up = site.rpc(
+        "/notes.accounts.AuthProtocol/SignUp",
+        r#"{"request": {"email": "ada@example.com", "password": "correct horse", "confirmPassword": "correct horse"}}"#,
+    );
+    assert_eq!(
+        signed_up.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&signed_up.body)
+    );
+    site.cookies.clear();
+    site
+}
+
+/// The full page loads (`location.href = …`) and pushed history entries
+/// of the tab, as `[loads, pushed]`.
+fn went(tab: &mut Tab<'_>) -> serde_json::Value {
+    tab.run("done([sim.state().loads, sim.state().pushed]);")
+}
+
+/// Asserts that the server answers a guarded `path` for the jar's
+/// session with its `303` to the sign-in page, and returns that location
+/// (its `returnTo` is the refused page, left out when it is the
+/// parameter's default).
+fn redirected_to_sign_in(site: &mut Site, path: &str) -> String {
+    let r = site.page(path);
+    assert_eq!(r.status, 303, "{} GET {path}", site.name);
+    let location = r.header("location").expect("a location").to_owned();
+    assert!(
+        location == "/sign-in" || location.starts_with("/sign-in?returnTo="),
+        "{} GET {path}: {location}",
+        site.name
+    );
+    location
+}
+
+// Client-side guards (26-auth-and-sessions.md; runtime.md §10): the router
+// checks a page's `requires` against the `Session` mirror, and a page the
+// browser can't show is loaded from the server, which answers with its 303
+// to the sign-in page and the return URL.
+#[test]
+fn notes_signing_out_on_a_guarded_page_leaves_it_for_the_server() {
+    let db = TempDb::new("notes_sign_out");
+    let mut site = notes_with_ada(&db);
+    let signed_in = site.rpc(
+        "/notes.accounts.AuthProtocol/SignIn",
+        r#"{"credentials": {"email": "ada@example.com", "password": "correct horse"}}"#,
+    );
+    assert_eq!(
+        signed_in.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&signed_in.body)
+    );
+    // (Not `assert_hydrated`: the page's `watch()` stream opens while the
+    // tab settles and replaces the server's "Loading notes…" on purpose.)
+    let mut tab = Tab::open(&mut site, "/", &serde_json::json!({}));
+    contains(&tab.text(), "Sign out", "signed in on the notes page");
+    // The layout's button signs out; the rpc response's mirror has no user,
+    // so the router leaves `Notes` (which requires `Authenticated`) with a
+    // full page load instead of showing it to a guest. The layout's own
+    // `Router.navigate(to: .signIn)` afterwards renders nothing.
+    tab.run("sim.click(\"button\", \"Sign out\");");
+    assert_eq!(went(&mut tab), serde_json::json!([["/"], []]));
+    assert!(
+        !tab.site.cookies.iter().any(|(k, _)| k.contains("session")),
+        "signed out: {:?}",
+        tab.site.cookies
+    );
+    drop(tab);
+    // `returnTo` defaults to `.notes`, so the server leaves it out.
+    let location = redirected_to_sign_in(&mut site, "/");
+    assert_eq!(location, "/sign-in");
+}
+
+#[test]
+fn notes_sends_a_guest_following_a_link_to_a_guarded_page_to_the_server() {
+    let db = TempDb::new("notes_guest");
+    let mut site = notes_with_ada(&db);
+    let mut tab = Tab::open(&mut site, "/sign-in", &serde_json::json!({}));
+    tab.assert_hydrated();
+    let since = tab.site.requests.len();
+    // The brand link goes to `Notes`, which requires `Authenticated`.
+    tab.run("sim.click(\"a\", \"K Notes\");");
+    assert_eq!(went(&mut tab), serde_json::json!([["/"], []]));
+    contains(
+        &tab.text(),
+        "Sign in",
+        "the sign-in page stays until the load",
+    );
+    assert_eq!(
+        tab.site.count(since, "/notes.NotesProtocol/Watch"),
+        0,
+        "the guarded page never ran in the browser: {:?}",
+        tab.site.requests
+    );
+    drop(tab);
+    redirected_to_sign_in(&mut site, "/");
+    // Another guarded page comes back after signing in.
+    let location = redirected_to_sign_in(&mut site, "/new-note");
+    assert_eq!(location, "/sign-in?returnTo=%2Fnew-note");
 }
 
 // ---------------------------------------------------------------- weather

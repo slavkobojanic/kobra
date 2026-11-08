@@ -299,6 +299,147 @@ pub fn arrow_block(params: Vec<Param>, body: Vec<Stmt>, is_async: bool) -> Expr 
     }))
 }
 
+// ---------------------------------------------------------------- walking
+
+/// Calls `f` on every expression of `stmts`, an expression before the
+/// expressions inside it, and descends into nested statements, functions,
+/// classes, object properties, template parts and parameter defaults. `f`
+/// may rewrite the expression it is given; the walk then descends into the
+/// result. Linear in the size of the tree.
+pub fn walk_exprs_mut(stmts: &mut [Stmt], f: &mut impl FnMut(&mut Expr)) {
+    for s in stmts {
+        walk_stmt(s, f);
+    }
+}
+
+/// [`walk_exprs_mut`] for one statement.
+fn walk_stmt(s: &mut Stmt, f: &mut impl FnMut(&mut Expr)) {
+    match s {
+        Stmt::Expr(e) | Stmt::Const(_, e) | Stmt::Throw(e) | Stmt::ExportConst(_, e) => {
+            walk_expr(e, f);
+        }
+        Stmt::Let(_, e) | Stmt::Return(e) => {
+            if let Some(e) = e {
+                walk_expr(e, f);
+            }
+        }
+        Stmt::If(c, then, otherwise) => {
+            walk_expr(c, f);
+            walk_exprs_mut(then, f);
+            if let Some(otherwise) = otherwise {
+                walk_exprs_mut(otherwise, f);
+            }
+        }
+        Stmt::Switch(e, cases) => {
+            walk_expr(e, f);
+            for case in cases {
+                for t in &mut case.tests {
+                    walk_expr(t, f);
+                }
+                walk_exprs_mut(&mut case.body, f);
+            }
+        }
+        Stmt::For(init, test, update, body) => {
+            walk_stmt(init, f);
+            walk_expr(test, f);
+            walk_expr(update, f);
+            walk_exprs_mut(body, f);
+        }
+        Stmt::ForOf(_, e, body, _) | Stmt::While(e, body) => {
+            walk_expr(e, f);
+            walk_exprs_mut(body, f);
+        }
+        Stmt::Labeled(_, s) => walk_stmt(s, f),
+        Stmt::Try(body, _, handler) => {
+            walk_exprs_mut(body, f);
+            walk_exprs_mut(handler, f);
+        }
+        Stmt::Block(body) => walk_exprs_mut(body, f),
+        Stmt::Function(func, _) => walk_function(func, f),
+        Stmt::Class(class, _) => walk_class(class, f),
+        Stmt::Break(_) | Stmt::Continue(_) | Stmt::ImportAll(..) | Stmt::Import(..) => {}
+    }
+}
+
+/// [`walk_exprs_mut`] for a function: its parameter defaults and body.
+fn walk_function(func: &mut Function, f: &mut impl FnMut(&mut Expr)) {
+    for p in &mut func.params {
+        if let Some(d) = &mut p.default {
+            walk_expr(d, f);
+        }
+    }
+    match &mut func.body {
+        Body::Block(body) => walk_exprs_mut(body, f),
+        Body::Expr(e) => walk_expr(e, f),
+    }
+}
+
+/// [`walk_exprs_mut`] for a class: its `extends` clause and methods.
+fn walk_class(class: &mut Class, f: &mut impl FnMut(&mut Expr)) {
+    if let Some(e) = &mut class.extends {
+        walk_expr(e, f);
+    }
+    for m in &mut class.methods {
+        walk_function(m, f);
+    }
+}
+
+/// [`walk_exprs_mut`] for one expression: `e` itself, then what is inside.
+fn walk_expr(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
+    f(e);
+    match e {
+        Expr::Ident(_)
+        | Expr::Num(_)
+        | Expr::Str(_)
+        | Expr::Html(_)
+        | Expr::Bool(_)
+        | Expr::Null
+        | Expr::Undefined
+        | Expr::This => {}
+        Expr::Template(parts) => {
+            for p in parts {
+                if let TemplatePart::Expr(e) = p {
+                    walk_expr(e, f);
+                }
+            }
+        }
+        Expr::Array(es) => {
+            for e in es {
+                walk_expr(e, f);
+            }
+        }
+        Expr::Object(props, _) => {
+            for p in props {
+                match p {
+                    Prop::KeyValue(_, e) | Prop::Spread(e) => walk_expr(e, f),
+                }
+            }
+        }
+        Expr::Spread(e)
+        | Expr::Member(e, _)
+        | Expr::OptMember(e, _)
+        | Expr::Unary(_, e)
+        | Expr::Await(e)
+        | Expr::Import(e) => walk_expr(e, f),
+        Expr::Index(a, b) | Expr::Binary(_, a, b) | Expr::Assign(_, a, b) => {
+            walk_expr(a, f);
+            walk_expr(b, f);
+        }
+        Expr::Call(callee, args) | Expr::OptCall(callee, args) | Expr::New(callee, args) => {
+            walk_expr(callee, f);
+            for a in args {
+                walk_expr(a, f);
+            }
+        }
+        Expr::Cond(c, a, b) => {
+            walk_expr(c, f);
+            walk_expr(a, f);
+            walk_expr(b, f);
+        }
+        Expr::Arrow(func) => walk_function(func, f),
+    }
+}
+
 // --------------------------------------------------------------- printing
 
 /// How [`print_module`] lays out its output.
@@ -1328,6 +1469,71 @@ pub fn print_template_text(out: &mut String, s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn walk_exprs_mut_reaches_every_nested_expression() {
+        // `$k.a` in a const, a call argument, an arrow body, a class
+        // method, a template, an object, a switch case, a parameter
+        // default and a `for` header; each becomes `$x.a`.
+        let ka = || member(id("$k"), "a");
+        let method = Function {
+            name: "m".into(),
+            params: vec![Param {
+                name: "p".into(),
+                default: Some(ka()),
+                rest: false,
+            }],
+            body: Body::Block(vec![Stmt::Return(Some(Expr::Template(vec![
+                TemplatePart::Text("t".into()),
+                TemplatePart::Expr(ka()),
+            ])))]),
+            ..Function::default()
+        };
+        let mut stmts = vec![
+            Stmt::Const("c".into(), call(id("f"), vec![ka(), arrow(vec![], ka())])),
+            Stmt::Class(
+                Class {
+                    name: "C".into(),
+                    extends: Some(ka()),
+                    methods: vec![method],
+                },
+                false,
+            ),
+            Stmt::Switch(
+                Expr::Object(
+                    vec![Prop::KeyValue("k".into(), ka()), Prop::Spread(ka())],
+                    false,
+                ),
+                vec![Case {
+                    tests: vec![ka()],
+                    body: vec![Stmt::Throw(ka())],
+                }],
+            ),
+            Stmt::For(
+                Box::new(Stmt::Let("i".into(), Some(ka()))),
+                ka(),
+                ka(),
+                vec![Stmt::If(
+                    ka(),
+                    vec![Stmt::Expr(ka())],
+                    Some(vec![Stmt::Expr(ka())]),
+                )],
+            ),
+        ];
+        let mut seen = 0;
+        walk_exprs_mut(&mut stmts, &mut |e| {
+            if let Expr::Member(base, _) = e
+                && **base == id("$k")
+            {
+                seen += 1;
+                **base = id("$x");
+            }
+        });
+        assert_eq!(seen, 15);
+        let text = print_module(&stmts, PrintOptions { compact: false });
+        assert!(!text.contains("$k"), "{text}");
+        assert_eq!(text.matches("$x.a").count(), 15, "{text}");
+    }
 
     #[test]
     fn strings_are_safe_to_inline() {

@@ -28,7 +28,8 @@
  */
 
 import { KPanic } from "./values.js";
-import { currencyCode, currencyParse, money, parseDecimal, parseInstant, stringify } from "./std.js";
+import { currencyCode, currencyParse, money, parseDecimal } from "./money.js";
+import { parseInstant, stringify } from "./std.js";
 
 /** The ops the Rust server exposes to this isolate; empty outside it. */
 const ops = globalThis.Deno?.core?.ops ?? {};

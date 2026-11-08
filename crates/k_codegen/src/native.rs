@@ -111,8 +111,11 @@ const DURATIONS: &[(&str, f64)] = &[
     ("week", 604_800_000.0),
 ];
 
-/// The currency number extensions (`0.50.usd`) that build `Money`.
-const CURRENCIES: &[&str] = &["usd", "eur", "gbp", "jpy", "chf"];
+/// `true` for a currency number extension (`0.50.usd`) that builds
+/// `Money`: one of the stdlib's [`k_sema::literals::CURRENCIES`].
+fn is_currency(name: &str) -> bool {
+    k_sema::literals::currency_digits(name).is_some()
+}
 
 /// Folds a number extension on a literal: `10.minutes` → `600000`,
 /// `0.50.usd` → a Money constant.
@@ -140,7 +143,7 @@ pub(crate) fn fold_number_member(
         "megabytes" => return Some(Expr::Num(n * 1_000_000.0)),
         _ => {}
     }
-    if CURRENCIES.contains(&name) && (b.g.is_int(base) || b.g.is_double(base)) {
+    if is_currency(name) && (b.g.is_int(base) || b.g.is_double(base)) {
         return Some(rt(
             "money",
             vec![
@@ -214,7 +217,7 @@ pub(crate) fn property(
         ("k.core.Int", "bytes") => recv,
         ("k.core.Int", "kilobytes") => rt("checkInt", vec![bin("*", recv, Expr::Num(1000.0))]),
         ("k.core.Int", "megabytes") => rt("checkInt", vec![bin("*", recv, Expr::Num(1_000_000.0))]),
-        ("k.core.Int" | "k.core.Double", c) if CURRENCIES.contains(&c) => rt(
+        ("k.core.Int" | "k.core.Double", c) if is_currency(c) => rt(
             "money",
             vec![
                 call(id("String"), vec![recv]),
@@ -744,6 +747,24 @@ pub(crate) fn construct(
             false,
         ),
         "k.core.Url" => a0,
+        // Checked literals are normalized when compiled (sema K2404), so the
+        // bundle holds the value `Type.parse` would give, as a constant.
+        "k.crypto.Uuid" | "k.text.EmailAddress" => {
+            let text = c
+                .arg_list()
+                .and_then(|l| l.args().next())
+                .and_then(|a| a.value())
+                .and_then(|v| match v {
+                    ast::Expr::StringLit(s) => s.plain_value(),
+                    _ => None,
+                })?;
+            let value = if name == "k.crypto.Uuid" {
+                k_sema::literals::parse_uuid(&text)
+            } else {
+                k_sema::literals::parse_email(&text)
+            }?;
+            js::str(value)
+        }
         "k.core.Angle" => a0,
         // `Double(n)` of an `Int`: both are JavaScript numbers.
         "k.core.Double" => a0,

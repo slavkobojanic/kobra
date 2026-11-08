@@ -367,6 +367,19 @@ pub(crate) fn client_files(
             features.push((i, name));
         }
     }
+    // Runtime features generated code reaches through `$k` but that ship
+    // as chunks of their own (`forms`, `money`): their names are known up
+    // front, and each ships when a client file uses one of its exports.
+    let runtime_features: Vec<(String, String)> = RUNTIME_FEATURES
+        .iter()
+        .map(|(stem, specifier)| {
+            let text = crate::feature_chunk(specifier, profile, &runtime_name, &g.options.entry);
+            let name = hashed(stem, "js", &text, profile);
+            (text, name)
+        })
+        .collect();
+    let feature_names: Vec<&str> = runtime_features.iter().map(|(_, n)| n.as_str()).collect();
+    let mut used_features = BTreeSet::new();
     let mut shared_decls: Vec<DeclId> = items
         .keys()
         .copied()
@@ -396,6 +409,7 @@ pub(crate) fn client_files(
         for d in &shared_decls {
             stmts.extend(items[d].stmts.iter().cloned());
         }
+        route_runtime_features(&mut stmts, &feature_names, "./", &mut used_features);
         let text = print(&stmts, profile);
         let name = hashed("shared", "js", &text, profile);
         shared_name = Some(name.clone());
@@ -425,6 +439,7 @@ pub(crate) fn client_files(
         stmts.extend(client_natives(g, items, item.uses.iter(), &features, "../"));
         stmts.extend(item.prelude.iter().cloned());
         stmts.extend(item.stmts.iter().cloned());
+        route_runtime_features(&mut stmts, &feature_names, "../", &mut used_features);
         let text = print(&stmts, profile);
         let stem = format!("pages/{}", crate::css::kebab(&g.view.decl(p).name));
         let name = hashed(&stem, "js", &text, profile);
@@ -453,6 +468,7 @@ pub(crate) fn client_files(
             ));
         }
         stmts.extend(entry);
+        route_runtime_features(&mut stmts, &feature_names, "./", &mut used_features);
         let mut text = print(&stmts, profile);
         for (p, name) in &page_names {
             text = text.replace(&format!("$page:{}", p.0), &format!("./{name}"));
@@ -467,8 +483,96 @@ pub(crate) fn client_files(
             kind: FileKind::JavaScript,
         });
     }
+    for (i, (text, name)) in runtime_features.into_iter().enumerate() {
+        if used_features.contains(&i) {
+            out.push(OutputFile {
+                path: name,
+                contents: text,
+                kind: FileKind::JavaScript,
+            });
+        }
+    }
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
+}
+
+/// Runtime files that generated code calls through `$k` but that ship as
+/// client chunks of their own, only to clients with a file that uses one
+/// of their exports: `(chunk stem, runtime specifier)` (runtime.md §2).
+/// A client file reaches the chunk as `$k_<stem>`
+/// ([`route_runtime_features`]); the server keeps reaching them through
+/// `k:runtime`, which re-exports them.
+const RUNTIME_FEATURES: &[(&str, &str)] = &[
+    ("forms", "k:/runtime/forms.js"),
+    ("money", "k:/runtime/money.js"),
+];
+
+/// The index in [`RUNTIME_FEATURES`] of the file exporting each name,
+/// built once from the embedded sources.
+fn runtime_feature_exports() -> &'static BTreeMap<String, usize> {
+    static EXPORTS: std::sync::OnceLock<BTreeMap<String, usize>> = std::sync::OnceLock::new();
+    EXPORTS.get_or_init(|| {
+        let mut names = BTreeMap::new();
+        for (i, (_, specifier)) in RUNTIME_FEATURES.iter().enumerate() {
+            let source = k_runtime::module(specifier).map_or("", |m| m.source);
+            for line in source.lines() {
+                let Some(rest) = line.strip_prefix("export ") else {
+                    continue;
+                };
+                let rest = rest.strip_prefix("async ").unwrap_or(rest);
+                let name: String = ["function ", "class ", "const ", "let "]
+                    .iter()
+                    .find_map(|k| rest.strip_prefix(k))
+                    .unwrap_or("")
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+                    .collect();
+                if !name.is_empty() {
+                    names.insert(name, i);
+                }
+            }
+        }
+        names
+    })
+}
+
+/// Points `stmts`' uses of a runtime feature's exports at the feature's
+/// chunk: `$k.createForm` becomes `$k_forms.createForm`, and the file
+/// imports `* as $k_forms` from `prefix` followed by the chunk's name
+/// (`names`, by index of [`RUNTIME_FEATURES`]) right after its import of
+/// the runtime chunk. Adds the index of every feature used to `used`.
+fn route_runtime_features(
+    stmts: &mut Vec<Stmt>,
+    names: &[&str],
+    prefix: &str,
+    used: &mut BTreeSet<usize>,
+) {
+    let exports = runtime_feature_exports();
+    let mut here = BTreeSet::new();
+    js::walk_exprs_mut(stmts, &mut |e| {
+        if let js::Expr::Member(base, name) = e
+            && matches!(&**base, js::Expr::Ident(k) if k == "$k")
+            && let Some(&i) = exports.get(name.as_str())
+        {
+            **base = js::id(format!("$k_{}", RUNTIME_FEATURES[i].0));
+            here.insert(i);
+        }
+    });
+    let at = stmts
+        .iter()
+        .position(|s| !matches!(s, Stmt::ImportAll(..) | Stmt::Import(..)))
+        .unwrap_or(stmts.len());
+    for &i in here.iter().rev() {
+        let Some(name) = names.get(i) else { continue };
+        stmts.insert(
+            at,
+            Stmt::ImportAll(
+                format!("$k_{}", RUNTIME_FEATURES[i].0),
+                format!("{prefix}{name}"),
+            ),
+        );
+    }
+    used.extend(here);
 }
 
 /// Runtime files shipped as client chunks of their own, only to clients

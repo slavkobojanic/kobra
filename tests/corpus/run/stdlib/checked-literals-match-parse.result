@@ -1,0 +1,1 @@
+returns ["true Ana@example.com", "true K Shop <orders@shop.example>", "true Ana <ana@example.com>", "true \"Doe, Ana\" <ana@example.com>", "true \"Ana \\\"the\\\" Doe\" <ana@example.com>", "true J. Doe <j@doe.example>", "true", "true"]

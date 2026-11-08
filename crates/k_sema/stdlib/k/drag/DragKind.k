@@ -11,6 +11,7 @@ public struct DragKind<T> {
     /// - Parameter name: a string literal; kinds with the same name are the
     ///   same kind.
     @Native
+    @Literal
     init(name: String) {}
 
     /// The kind's name.

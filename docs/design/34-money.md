@@ -15,7 +15,7 @@ text { total.formatted(as: .currency) }                               // "$48.00
 
 ## Rules
 
-- **Literals are number extensions per ISO 4217 code:** `24.00.usd`, `10.eur`, `1500.jpy`. An amount with more decimal places than the currency has (`1.005.usd`) is a compile error.
+- **Literals are number extensions per ISO 4217 code:** `24.00.usd`, `10.eur`, `1500.jpy`. An amount with more decimal places than the currency has (`1.005.usd`, `1.5.jpy`) is a compile error (`K2404`). Trailing zeros don't count, as they don't change the amount: `1.500.usd` is `1.50.usd`, the same rule the runtime applies to amounts it parses.
 - **An amount always holds exactly its currency's minor-unit digits.** Only `multiplied(by:rounding:)` can produce more, and it rounds back before returning.
 - **Arithmetic:**
   - `Money + Money` and `Money - Money` require the same currency. Mixing currencies panics at runtime (a programmer error, like an index out of range), and is a compile error when the compiler can see both currencies.
@@ -38,3 +38,4 @@ text { total.formatted(as: .currency) }                               // "$48.00
 - Exact decimals with an attached currency rule out the two classic money bugs: float rounding and adding dollars to euros.
 - Requiring a rounding rule and a currency for sums turns the remaining silent decisions into explicit ones.
 - Minor units are the representation every payment provider uses, so conversion is a named property rather than a `* 100` scattered through the code.
+- `Decimal`, `Money` and `Currency` ship to the browser as a chunk of their own, only to apps whose client code uses them, so exact arithmetic costs nothing in apps that never show a price ([02-compilation.md](02-compilation.md#consequences)).
