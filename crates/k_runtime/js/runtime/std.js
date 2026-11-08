@@ -1163,14 +1163,16 @@ export function colorOpacity(color, alpha) {
 }
 
 /**
- * Mixes two colors.
+ * `a.mix(b, percent)`: `percent` of `b` mixed into `a`, so
+ * `.primary.mix(.white, 20%)` is the primary color lightened by 20% white
+ * (07-themes-and-units.md, "Colors").
  * @param {string} a
  * @param {string} b
- * @param {number} percent
+ * @param {number} percent the share of `b`, `0...100`
  * @returns {string}
  */
 export function colorMix(a, b, percent) {
-  return `color-mix(in srgb, ${a} ${percent}%, ${b})`;
+  return `color-mix(in srgb, ${a}, ${b} ${percent}%)`;
 }
 
 /**
@@ -2086,17 +2088,82 @@ export function route(url, segments, params) {
 const EMAIL_RE = new RegExp('^[^\\s@<>()\\[\\]\\\\,;:"]+@[^\\s@<>()\\[\\]\\\\,;:"]+\\.[^\\s@<>()\\[\\]\\\\,;:".]+$');
 
 /**
- * `EmailAddress.parse`: trims surrounding whitespace and lower-cases the
- * domain; `null` if it isn't an address (31-email.md).
- * @param {unknown} text
+ * Characters a display name needs quotes for: RFC 5322's specials, less
+ * the `.` its obsolete phrase syntax allows (`J. Doe <j@doe.example>`).
+ */
+const SPECIALS = new RegExp('[()<>\\[\\]:;@\\\\,"]');
+/** `Name <address>`: the name as written and the address. */
+const NAMED_EMAIL = new RegExp("^(.*?)\\s*<([^<>]*)>$");
+/** A quoted display name, with `\"` and `\\` escapes. */
+const QUOTED_NAME = new RegExp('^"((?:[^"\\\\]|\\\\.)*)"$');
+/** An escape in a quoted name. */
+const ESCAPE = new RegExp("\\\\(.)", "g");
+/** What quoting a name escapes. */
+const QUOTED = new RegExp('["\\\\]', "g");
+/** Runs of whitespace, one space in a display name. */
+const SPACES = new RegExp("\\s+", "g");
+/** Line breaks and other control characters, never part of an address. */
+const CONTROLS = new RegExp("[\\u0000-\\u001f\\u007f]");
+
+/**
+ * A bare address with its domain lower-cased, or `null`.
+ * @param {string} t trimmed text
  * @returns {string | null}
  */
-export function parseEmail(text) {
-  if (typeof text !== "string") return null;
-  const t = text.trim();
+function bareEmail(t) {
   if (!EMAIL_RE.test(t)) return null;
   const at = t.lastIndexOf("@");
   return t.slice(0, at + 1) + t.slice(at + 1).toLowerCase();
+}
+
+/**
+ * A display name as written, quoted or plain words without specials:
+ * unquoted, its spaces collapsed; `null` if it isn't one or is empty.
+ * @param {string} t
+ * @returns {string | null}
+ */
+function nameOf(t) {
+  const q = QUOTED_NAME.exec(t);
+  return (q ? q[1].replace(ESCAPE, "$1") : SPECIALS.test(t) ? "" : t).replace(SPACES, " ").trim() || null;
+}
+
+/**
+ * `EmailAddress.parse` (31-email.md): a bare address, or a display name and
+ * an address in angle brackets (`K Shop <orders@shop.example>`). Trims
+ * surrounding whitespace and lower-cases the domain; the name is kept
+ * unquoted unless it holds a special. `null` if it isn't an address, or
+ * contains a line break or another control character.
+ * @param {unknown} text
+ * @returns {string | null} the normalized message-header form
+ */
+export function parseEmail(text) {
+  if (typeof text !== "string" || CONTROLS.test(text)) return null;
+  const t = text.trim();
+  const m = NAMED_EMAIL.exec(t);
+  if (!m) return bareEmail(t);
+  const a = bareEmail(m[2]);
+  const n = nameOf(m[1]);
+  return a && n ? `${SPECIALS.test(n) ? `"${n.replace(QUOTED, "\\$&")}"` : n} <${a}>` : null;
+}
+
+/**
+ * `address.address`: the `local@domain` part of a parsed address.
+ * @param {string} email a parsed `EmailAddress`
+ * @returns {string}
+ */
+export function emailAddress(email) {
+  return NAMED_EMAIL.exec(email)?.[2] ?? email;
+}
+
+/**
+ * `address.displayName`: the display name of a parsed address, unquoted,
+ * or `null` for a bare address.
+ * @param {string} email a parsed `EmailAddress`
+ * @returns {string | null}
+ */
+export function emailDisplayName(email) {
+  const m = NAMED_EMAIL.exec(email);
+  return m ? nameOf(m[1]) : null;
 }
 
 /** A UUID in its hyphenated form, any case. */

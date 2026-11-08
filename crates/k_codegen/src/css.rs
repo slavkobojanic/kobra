@@ -721,7 +721,8 @@ impl Printer<'_, '_> {
 
     /// The CSS text of one value expression of property `prop`: a theme token
     /// reference, a scoped keyframes name (`animation`, `animationName`),
-    /// `.token.opacity(x)` as `color-mix(…)`, or a literal.
+    /// `.token.opacity(x)` and `.token.mix(other, amount)` as
+    /// `color-mix(…)`, or a literal.
     fn expr_text(&self, prop: &str, n: &SyntaxNode) -> String {
         match n.kind() {
             SyntaxKind::ImplicitMemberExpr => {
@@ -740,13 +741,29 @@ impl Printer<'_, '_> {
                         .receiver()
                         .map(|r| self.expr_text(prop, r.syntax()))
                         .unwrap_or_default();
-                    let arg = c
+                    let args: Vec<SyntaxNode> = c
                         .as_ref()
                         .and_then(ast::CallExpr::arg_list)
-                        .and_then(|l| l.args().next())
-                        .and_then(|a| a.value())
-                        .map(|v| v.syntax().text().to_string())
+                        .map(|l| {
+                            l.args()
+                                .filter_map(|a| a.value())
+                                .map(|v| v.syntax().clone())
+                                .collect()
+                        })
                         .unwrap_or_default();
+                    let arg = args
+                        .first()
+                        .map(|v| v.text().to_string())
+                        .unwrap_or_default();
+                    // `.primary.mix(.white, 20%)`: 20% white mixed into
+                    // the color (07-themes-and-units.md, "Colors").
+                    if method == "mix" {
+                        if let [other, amount] = args.as_slice() {
+                            let other = self.expr_text(prop, other);
+                            let amount = self.expr_text(prop, amount);
+                            return format!("color-mix(in srgb, {recv}, {other} {amount})");
+                        }
+                    }
                     if method == "opacity" {
                         let pct = arg
                             .trim()

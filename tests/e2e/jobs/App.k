@@ -1,2 +1,6 @@
 /// Runs background jobs.
-public app Jobs {}
+public app Jobs {
+    metadata {
+        title("Jobs")
+    }
+}

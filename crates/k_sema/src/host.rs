@@ -848,7 +848,22 @@ fn run_sema(state: &State, deliver: impl FnOnce(SemaResult)) {
             _ => None,
         })
         .collect();
-    crate::check::analyze(inputs, lockfiles, state.prev_cache.as_deref(), deliver);
+    // The project's manifest and those of mounted libraries, for the
+    // names of their packages (protocols' wire names in `rpc.lock`).
+    let manifests: Vec<(String, Arc<str>)> = state
+        .files
+        .iter()
+        .flatten()
+        .filter(|f| f.path.as_str() == "k.toml" || f.path.as_str().ends_with("/k.toml"))
+        .map(|f| (f.path.as_str().to_owned(), Arc::clone(&f.text)))
+        .collect();
+    crate::check::analyze(
+        inputs,
+        lockfiles,
+        manifests,
+        state.prev_cache.as_deref(),
+        deliver,
+    );
 }
 
 /// Drops `value` on a background thread, so freeing a large structure

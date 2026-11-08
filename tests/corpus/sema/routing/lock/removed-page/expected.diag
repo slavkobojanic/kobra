@@ -1,0 +1,2 @@
+error[K8007] routes.lock:9:1-9:16: `/pricing` (page `pricing`) is no longer served: `site.Pricing` was removed or renamed
+  help: keep the URL with `at "/pricing"`, add a redirect under `[redirects]` in routes.lock (`"/pricing" = "<page case>"`), or delete the entry once no link to it needs to work

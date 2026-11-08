@@ -1,0 +1,3 @@
+error[K6006] migrations/0002_drop_title.k:6:13-6:44: `0002_drop_title` drops the column `note.title`, which the previous release still reads during a rolling deploy
+  note: `@Breaking("titles are gone")` allows dropping what an earlier migration retired; only `@Breaking("single instance")` allows this
+  help: retire it first (`retireColumn` or `retireTable`, which `k migrate new` writes for a removed field), ship that, and drop it in a later release with `k migrate new --drop-retired`; a single-instance app can mark the migration `@Breaking("single instance")`

@@ -2,6 +2,7 @@
 # this app serves (docs/design/40-workspaces-and-services.md).
 
 [protocols."accounts.AuthProtocol"]
+service = "notes.accounts.AuthProtocol"
 
 [protocols."accounts.AuthProtocol".rpcs.isEmailAvailable]
 params = [{ name = "email", type = "EmailAddress" }]
@@ -24,6 +25,7 @@ returns = "Void"
 throws = "accounts.SignUpError"
 
 [protocols."notes.NotesProtocol"]
+service = "notes.NotesProtocol"
 
 [protocols."notes.NotesProtocol".rpcs.create]
 params = [{ name = "draft", type = "notes.NoteDraft" }]

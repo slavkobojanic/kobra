@@ -867,6 +867,23 @@ impl Workspace {
         analyses: &[(usize, Analysis)],
         display: impl Fn(&str) -> String,
     ) -> Result<(SourceMap, Vec<Diagnostic>), Cancelled> {
+        self.report_with(analyses, |_| Vec::new(), display)
+    }
+
+    /// [`Workspace::report`], with the diagnostics `extra` adds for each
+    /// member analysis (in that analysis's file ids) merged in: the
+    /// lockfile checks the driver runs beside the semantic pass
+    /// (`k_codegen::project_diagnostics`).
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if an analysis is stale.
+    pub fn report_with(
+        &self,
+        analyses: &[(usize, Analysis)],
+        extra: impl Fn(&Analysis) -> Vec<Diagnostic>,
+        display: impl Fn(&str) -> String,
+    ) -> Result<(SourceMap, Vec<Diagnostic>), Cancelled> {
         let mut map = SourceMap::new();
         for file in Stdlib::get().files() {
             map.add(format!("<stdlib>/{}", file.path), file.text);
@@ -895,7 +912,9 @@ impl Workspace {
                     }
                 }
             }
-            pending.push((*member, analysis, analysis.diagnostics()?));
+            let mut diagnostics = analysis.diagnostics()?;
+            diagnostics.extend(extra(analysis));
+            pending.push((*member, analysis, diagnostics));
         }
         for (path, text) in &texts {
             ids.insert(path.clone(), map.add(display(path), text.clone()));

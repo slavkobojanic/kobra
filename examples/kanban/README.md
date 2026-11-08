@@ -17,13 +17,13 @@ From this directory:
 | Command | What it does |
 |---|---|
 | `k test` | Runs the 41 tests of `*.test.k`: the board service, import and export, the pages with their drags, shortcuts and forms. |
-| `k check` | Type checks, verifies formatting and checks `storage.lock`, as CI and the image build do. |
+| `k check` | Type checks, checks `storage.lock` and runs the tests, as CI and the image build do (`--no-tests` skips them). |
 | `k dev` | Serves the app on <http://localhost:8080> and rebuilds on every change. |
 | `k build` | Writes `dist/public`: `index.html` and the hashed assets. There is no `dist/app`. |
 | `docker compose up --build` | Checks, builds and serves the app with nginx on <http://localhost:8080>. |
 
 The image is two stages: the `k` toolchain, built from this repository's source (or a published
-toolchain image passed as `--build-arg K_TOOLCHAIN=...`), runs `k check`, `k test` and `k build`, then
+toolchain image passed as `--build-arg K_TOOLCHAIN=...`), runs `k check` (tests included) and `k build`, then
 `nginxinc/nginx-unprivileged` serves `dist/public` as a non-root user on port 8080, read-only, with a
 health check. [`nginx.conf`](nginx.conf) answers `index.html` for every URL that isn't a file, so a link
 to `/boards/<id>` reaches the client router; the document is sent with `Cache-Control: no-cache`, so a

@@ -189,9 +189,12 @@ fn money_operations_expand_to_both_halves() {
             }],
         }])
         .expect("drops");
+    // The index created before the rename keeps its name, and SQLite
+    // refuses to drop a column an index covers, so it is dropped first.
     assert_eq!(
         &r.sqlite[2..],
         [
+            "DROP INDEX IF EXISTS \"product_price_idx\"",
             "ALTER TABLE \"product\" DROP COLUMN \"list_price_amount\"",
             "ALTER TABLE \"product\" DROP COLUMN \"list_price_currency\"",
         ]
@@ -340,12 +343,12 @@ fn mistakes_are_errors_naming_the_problem() {
         (
             SchemaOp::AlterTable {
                 name: "note".into(),
-                ops: vec![AlterOp::EnumCase {
-                    method: "addEnumCase".into(),
+                ops: vec![AlterOp::AddEnumCase {
                     column: "status".into(),
+                    case: "archived".into(),
                 }],
             },
-            "isn't supported by v0",
+            "no column `status`",
         ),
         (
             SchemaOp::DropTable {

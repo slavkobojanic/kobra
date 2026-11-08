@@ -143,7 +143,7 @@ To run one app alone, run `k dev` in `paybox/`, then `k dev --port 8081` in `sho
 
 ```bash
 k test           # every member's *.test.k files, against in-memory SQLite
-k check          # types, layering and every lockfile, in every member
+k check          # types, layering, every lockfile and the tests, in every member
 ```
 
 Tests never touch the network, a mail server or the environment. In the shop's tests `Payments` is a
@@ -167,7 +167,7 @@ Then open http://localhost:8080 (the shop, through Caddy) and http://localhost:8
 
 - The **Dockerfile** builds the `k` toolchain from this repository (no published image or registry
   account is needed; pass `--build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0` to use a published one), runs
-  `k check` and `k test` at the workspace root, and copies only `dist/<app>/app` into
+  `k check` (which runs the tests) at the workspace root, and copies only `dist/<app>/app` into
   `gcr.io/distroless/cc`. The same Dockerfile builds both images, `k-paybox:local` and `k-shop:local`,
   with `APP=paybox` or `APP=shop`. The first build compiles the toolchain and takes a few minutes; later
   ones reuse it.

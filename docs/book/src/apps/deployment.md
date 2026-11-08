@@ -86,6 +86,11 @@ app at. It is required in production. It is:
   Only then is `X-Forwarded-For` used to find the client's address; with the list empty, the socket
   address is used. `serve` logs a warning when requests arrive with `X-Forwarded-For` while the list is
   empty, because every user would otherwise share one address and one rate limit.
+- **The client is the right-most `X-Forwarded-For` hop that isn't a trusted proxy,** and only when the
+  request comes from a trusted proxy, so a client can't pick its own address. List every proxy in the
+  chain, and only those: a range that also holds other machines lets them claim any address. An entry
+  that isn't an address or a CIDR range stops `serve` with exit status 78. `Forwarded` and
+  `X-Forwarded-Proto` aren't read; whether the session cookie is `Secure` follows `K_PUBLIC_ORIGIN`.
 - **Serve HTTP/2 at the proxy.** Each open [server stream](streaming.md) holds a request, and browsers
   allow only six HTTP/1.1 connections per origin.
 
@@ -114,9 +119,8 @@ With the toolchain image, a multi-stage build looks like this:
 FROM ghcr.io/k-lang/k:0.1.0 AS build
 WORKDIR /src
 COPY . .
-# k check fails on any type error or lockfile drift (schema.lock included); k test on a failing test.
+# k check fails on any type error, lockfile drift (schema.lock included) or failing test.
 RUN k check
-RUN k test
 RUN k build
 
 FROM gcr.io/distroless/cc-debian12:nonroot
@@ -148,7 +152,7 @@ image when there is one. Nothing in the build needs an account.
 `examples/shop` deploys a [workspace](workspaces.md) of two apps, the shop and paybox, its payment
 service, with no account anywhere. It is the worked example for everything on this page.
 
-**One Dockerfile, one image per app.** The build stage runs `k check`, `k test` and `k build` at the
+**One Dockerfile, one image per app.** The build stage runs `k check` (which runs the tests) and `k build` at the
 workspace root, which builds every app into `dist/<name>/app`. The runtime stage copies one of them,
 chosen by a build argument:
 
@@ -157,7 +161,6 @@ FROM toolchain AS build
 WORKDIR /src
 COPY examples/shop .
 RUN k check
-RUN k test
 RUN k build --out /dist           # /dist/paybox/app, /dist/shop/app
 
 FROM gcr.io/distroless/cc-debian12:nonroot
@@ -276,5 +279,5 @@ location / {
 
 Until the toolchain image is published, `examples/kanban/Dockerfile` builds `k` from this repository in
 a first stage, as the shop's does (its build context is the repository root;
-`--build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0` switches to the published image), and also runs
-`k test` before `k build`.
+`--build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0` switches to the published image). Its `k check` runs
+the tests too.

@@ -3427,6 +3427,189 @@ error[K3026]: the `@Derived` field `second` depends on itself through a cycle of
 
 **Fix:** Compute the value from inputs that don't depend on it.
 
+### K3027 `page-without-title`
+
+**Warning.** A view page has no `title`: neither its `metadata`, nor its layout's, nor the app's sets one.
+
+Example (`tests/corpus/sema/app/metadata/page-without-title/`):
+
+```k,ignore
+// App.k
+// The app's metadata sets no title, so a page without one of its own, or
+// from its layout, is K3027 (22-metadata.md, "Rules").
+import site.Plain
+
+@Layout(Plain)
+public app Site {
+    metadata {
+        locale(.english)
+    }
+}
+```
+
+```k,ignore
+// src/site/Pages.k
+import k.http.HttpResponse
+import k.http.IncomingRequest
+
+// No metadata at all, under the app's default layout: K3027, and the fix
+// adds a `metadata` block.
+page Home at "/" {
+    view {
+        text { "Home" }
+    }
+}
+
+// A metadata block without a title: K3027, and the fix adds the title to it.
+page OrderHistory {
+    metadata {
+        description("Your orders")
+    }
+
+    view {
+        text { "Orders" }
+    }
+}
+
+// Its own title: nothing.
+page About {
+    metadata {
+        title("About us")
+    }
+
+    view {
+        text { "About" }
+    }
+}
+
+// The title comes from its layout: nothing.
+@Layout(Shop)
+page Catalog {
+    view {
+        text { "Catalog" }
+    }
+}
+
+// Out of every layout, with no title: K3027.
+@NoLayout
+page Bare {
+    view {
+        text { "Bare" }
+    }
+}
+
+// A title only inside `failed` is the failure's, not the page's: K3027.
+page Product {
+    @Load let name: String = try await fetchName()
+
+    view {
+        text { name }
+    }
+
+    loading {
+        text { "…" }
+    }
+
+    failed(let error) {
+        metadata {
+            title("Not found")
+        }
+
+        text { "Missing" }
+    }
+}
+
+// An endpoint page has no metadata: nothing.
+page Ping at "/ping" {
+    @Get
+    func run(request: IncomingRequest) async -> HttpResponse {
+        return HttpResponse(status: .ok)
+    }
+}
+
+func fetchName() async throws LoadError -> String {
+    return "x"
+}
+
+enum LoadError implements Error, Codable {
+    case missing
+}
+```
+
+```k,ignore
+// src/site/Plain.k
+/// The default layout: no title of its own.
+public layout Plain {
+    @Slot let content: View
+
+    view {
+        content
+    }
+}
+```
+
+```k,ignore
+// src/site/Shop.k
+/// A layout with a default title for its pages.
+public layout Shop {
+    @Slot let content: View
+
+    metadata {
+        title("Acme Shop")
+    }
+
+    view {
+        content
+    }
+}
+```
+
+```text
+warning[K3027]: the page `Home` has no `title`
+ --> src/site/Pages.k:6:6
+  |
+6 | page Home at "/" {
+  |      ^^^^
+  |
+  = note: neither its `metadata`, nor its layout's, nor the app's sets one
+  = fix: Add `title("Home")`
+
+warning[K3027]: the page `OrderHistory` has no `title`
+  --> src/site/Pages.k:13:6
+   |
+13 | page OrderHistory {
+   |      ^^^^^^^^^^^^
+   |
+   = note: neither its `metadata`, nor its layout's, nor the app's sets one
+   = fix: Add `title("Order history")`
+
+warning[K3027]: the page `Bare` has no `title`
+  --> src/site/Pages.k:44:6
+   |
+44 | page Bare {
+   |      ^^^^
+   |
+   = note: neither its `metadata`, nor its layout's, nor the app's sets one
+   = fix: Add `title("Bare")`
+
+warning[K3027]: the page `Product` has no `title`
+  --> src/site/Pages.k:51:6
+   |
+51 | page Product {
+   |      ^^^^^^^
+   |
+   = note: neither its `metadata`, nor its layout's, nor the app's sets one
+   = fix: Add `title("Product")`
+```
+
+**Fix:** Add `title("…")` to the page's `metadata` block (the quick fix does this), or give its layout or the app a default `title`.
+
+### K3028 `long-description`
+
+**Warning.** A literal `description(…)` is longer than 160 characters, which search results cut off.
+
+**Fix:** Shorten the description to 160 characters or fewer; search results cut off the rest.
+
 ### K3101 `unknown-element`
 
 **Error.** A lowercase call in a view is not a built-in element; an HTML name gets a hint (`a` is `link`).
@@ -4898,7 +5081,11 @@ Example (`tests/corpus/sema/app/boundary/client-state-in-server-render/`):
 // App.k
 // A server-rendered app (the default): reading a client-only service's state from a page is a
 // warning, with a fix that switches the app to client rendering.
-public app Todos {}
+public app Todos {
+    metadata {
+        title("Todos")
+    }
+}
 ```
 
 ```k,ignore
@@ -5633,7 +5820,11 @@ Example (`tests/corpus/sema/app/pages/guards/missing-sign-in-page/`):
 ```k,ignore
 // App.k
 // A page `requires Authenticated`, but the app names no `@SignInPage` to redirect to.
-public app Shop {}
+public app Shop {
+    metadata {
+        title("Shop")
+    }
+}
 ```
 
 ```k,ignore
@@ -5662,7 +5853,7 @@ public page SignIn {
 error[K5007]: pages require a signed-in user, but the app names no `@SignInPage`
  --> App.k:2:12
   |
-2 | public app Shop {}
+2 | public app Shop {
   |            ^^^^
 ```
 
@@ -5678,7 +5869,11 @@ Example (`tests/corpus/sema/app/pages/guards/sign-in-page-requires-authenticated
 // App.k
 // Names the sign-in page.
 @SignInPage(.signIn)
-public app Shop {}
+public app Shop {
+    metadata {
+        title("Shop")
+    }
+}
 ```
 
 ```k,ignore
@@ -5899,6 +6094,52 @@ error[K5012]: a handler is `func name(request: IncomingRequest) async -> HttpRes
 ```
 
 **Fix:** Give the handler the signature `func name(request: IncomingRequest) async -> HttpResponse`.
+
+### K5013 `set-cookie-header`
+
+**Error.** A response sets a literal `set-cookie` header; cookies are set only through `Session`.
+
+Example (`tests/corpus/sema/app/pages/endpoints/set-cookie-header.k`):
+
+```k,ignore
+// Cookies are set only through `Session` (27-endpoint-pages.md): a literal
+// `set-cookie` header name, in any case, is K5013 at the key. Other headers
+// and a computed name (which panics at run time instead) are not.
+import k.http.HttpResponse
+import k.http.IncomingRequest
+
+page Hook at "/hook" {
+    @Post
+    func run(request: IncomingRequest) async -> HttpResponse {
+        let name = request.headers["x-name"] ?? "x-other"
+        let other = HttpResponse(status: .ok).headers([name: "a=b", "cache-control": "no-store"])
+
+        return HttpResponse(status: .ok)
+            .headers(["set-cookie": "id=1", "x-trace": "abc"])
+            .headers(["Set-Cookie": "id=2"])
+    }
+}
+```
+
+```text
+error[K5013]: a response can't set `set-cookie`: cookies are set only through `Session`
+  --> src/corpus/set-cookie-header.k:14:23
+   |
+14 |             .headers(["set-cookie": "id=1", "x-trace": "abc"])
+   |                       ^^^^^^^^^^^^
+   |
+   = help: sign the user in or out with `SessionManager`, which sets the session cookie
+
+error[K5013]: a response can't set `set-cookie`: cookies are set only through `Session`
+  --> src/corpus/set-cookie-header.k:15:23
+   |
+15 |             .headers(["Set-Cookie": "id=2"])
+   |                       ^^^^^^^^^^^^
+   |
+   = help: sign the user in or out with `SessionManager`, which sets the session cookie
+```
+
+**Fix:** Set the cookie through `Session` (`SessionManager`), never as a raw `set-cookie` header.
 
 ## K5500–K5999: Protocols and RPC
 
@@ -6237,6 +6478,223 @@ error[K6003]: `KCache` would be the table `k_cache`; the `k_` prefix is reserved
 ```
 
 **Fix:** Rename the entity, or set another table name.
+
+### K6004 `invalid-migration`
+
+**Error.** A migration doesn't replay against the schema the earlier migrations leave.
+
+Example (`tests/corpus/sema/app/persistence/lock/migration-does-not-replay/`):
+
+```k,ignore
+// App.k
+// A migration that names a missing table: K6004 at the call.
+public app Demo {}
+```
+
+```k,ignore
+// migrations/0001_create_notes.k
+/// Creates `note`.
+migration CreateNotes {
+    func up(schema: Schema) {
+        schema.createTable(name: "note") { table =>
+            table.column(name: "id", type: .uuid).primaryKey(true)
+            table.column(name: "title", type: .text)
+            table.column(name: "status", type: .enumeration(cases: ["draft", "published"]))
+        }
+    }
+}
+```
+
+```k,ignore
+// migrations/0002_typo.k
+/// Names a table that doesn't exist.
+@Breaking("single instance")
+migration Typo {
+    func up(schema: Schema) {
+        schema.alterTable(name: "notes") { table =>
+            table.dropColumn(name: "title")
+        }
+    }
+}
+```
+
+```k,ignore
+// src/notes/Note.k
+import k.crypto.Uuid
+
+/// A note.
+public entity Note {
+    @Id let id: Uuid
+
+    var title: String
+
+    var status: NoteStatus = .draft
+}
+```
+
+```k,ignore
+// src/notes/NoteStatus.k
+/// Where a note is in its life.
+public enum NoteStatus {
+    case draft
+    case published
+}
+```
+
+```text
+error[K6004]: `0002_typo` doesn't replay: there is no table `notes` at this point of the migrations
+ --> migrations/0002_typo.k:6:13
+  |
+6 |             table.dropColumn(name: "title")
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+```
+
+**Fix:** Name only the tables, columns and cases the earlier migrations leave, with the schema builder's calls and literal arguments.
+
+### K6005 `destructive-migration`
+
+**Error.** A migration that drops a table or column, or renames or removes an enum case, needs `@Breaking("reason")`.
+
+Example (`tests/corpus/sema/app/persistence/lock/enum-case-removed-without-breaking/`):
+
+```k,ignore
+// App.k
+// Removing a case rewrites stored values: K6005 without `@Breaking`.
+public app Demo {}
+```
+
+```k,ignore
+// migrations/0001_create_notes.k
+/// Creates `note`.
+migration CreateNotes {
+    func up(schema: Schema) {
+        schema.createTable(name: "note") { table =>
+            table.column(name: "id", type: .uuid).primaryKey(true)
+            table.column(name: "title", type: .text)
+            table.column(name: "status", type: .enumeration(cases: ["draft", "published"]))
+        }
+    }
+}
+```
+
+```k,ignore
+// migrations/0002_remove_published.k
+/// Drops publishing.
+migration RemovePublished {
+    func up(schema: Schema) {
+        schema.alterTable(name: "note") { table =>
+            table.removeEnumCase(column: "status", case: "published", replacement: "draft")
+        }
+    }
+}
+```
+
+```k,ignore
+// src/notes/Note.k
+import k.crypto.Uuid
+
+/// A note.
+public entity Note {
+    @Id let id: Uuid
+
+    var title: String
+
+    var status: NoteStatus = .draft
+}
+```
+
+```k,ignore
+// src/notes/NoteStatus.k
+/// Where a note is in its life.
+public enum NoteStatus {
+    case draft
+}
+```
+
+```text
+error[K6005]: `0002_remove_published` removes the case `published` of `note.status` without `@Breaking`, which loses data
+ --> migrations/0002_remove_published.k:5:13
+  |
+5 |             table.removeEnumCase(column: "status", case: "published", replacement: "draft")
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: mark the migration `@Breaking("reason")`, saying why the loss is acceptable
+```
+
+**Fix:** Mark the migration `@Breaking("reason")`, saying why losing the data is acceptable.
+
+### K6006 `live-schema-change`
+
+**Error.** A migration drops or renames a table or column that no earlier migration retired; only `@Breaking("single instance")` allows it.
+
+Example (`tests/corpus/sema/app/persistence/lock/rename-live-column/`):
+
+```k,ignore
+// App.k
+// A physical rename is a live change: K6006 without `@Breaking("single instance")`.
+public app Demo {}
+```
+
+```k,ignore
+// migrations/0001_create_notes.k
+/// Creates `note`.
+migration CreateNotes {
+    func up(schema: Schema) {
+        schema.createTable(name: "note") { table =>
+            table.column(name: "id", type: .uuid).primaryKey(true)
+            table.column(name: "title", type: .text)
+            table.column(name: "status", type: .enumeration(cases: ["draft", "published"]))
+        }
+    }
+}
+```
+
+```k,ignore
+// migrations/0002_rename_title.k
+/// Renames the column.
+migration RenameTitle {
+    func up(schema: Schema) {
+        schema.alterTable(name: "note") { table =>
+            table.renameColumn(from: "title", to: "heading")
+        }
+    }
+}
+```
+
+```k,ignore
+// src/notes/Note.k
+import k.crypto.Uuid
+
+/// A note.
+public entity Note {
+    @Id let id: Uuid
+
+    var heading: String
+
+    var status: NoteStatus = .draft
+}
+```
+
+```k,ignore
+// src/notes/NoteStatus.k
+/// Where a note is in its life.
+public enum NoteStatus {
+    case draft
+    case published
+}
+```
+
+```text
+error[K6006]: `0002_rename_title` renames the column `note.title`, which the previous release still reads during a rolling deploy
+ --> migrations/0002_rename_title.k:5:13
+  |
+5 |             table.renameColumn(from: "title", to: "heading")
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: rename across two releases instead (add the new column, backfill it and retire the old one; drop it later with `k migrate new --drop-retired`), or rename only the field and keep the column (`k migrate rename`); a single-instance app can mark the migration `@Breaking("single instance")`
+```
+
+**Fix:** Retire the table or column first and drop it in a later release (`k migrate new --drop-retired`); a single-instance app marks the migration `@Breaking("single instance")`.
 
 ## K7000–K7499: Forms and validation
 
@@ -6589,7 +7047,7 @@ error[K7503]: tests never read the environment: bind `MailConfig` with `use … 
 
 ### K7510 `test-failed`
 
-**Error.** A test failed when `k test` ran it.
+**Error.** A test failed when `k test` or `k check` ran it.
 
 **Fix:** Fix the code or the expectation; the notes show the value of each part of the failed expression.
 
@@ -6731,6 +7189,313 @@ error[K8003]: the payload of job `order-confirmation` changed incompatibly with 
 
 **Fix:** Keep the payload compatible (add optional fields only), or give the job a new `@JobName` and drain the old queue.
 
+### K8004 `schema-drift`
+
+**Error.** The entities differ from `schema.lock`; `k migrate new` writes the migration.
+
+Example (`tests/corpus/sema/app/persistence/lock/no-lock/`):
+
+```k,ignore
+// App.k
+// An entity in an app without migrations or schema.lock: K8004, run `k migrate new`.
+public app Demo {}
+```
+
+```k,ignore
+// src/notes/Note.k
+import k.crypto.Uuid
+
+/// A note.
+public entity Note {
+    @Id let id: Uuid
+
+    var title: String
+
+    var status: NoteStatus = .draft
+}
+```
+
+```k,ignore
+// src/notes/NoteStatus.k
+/// Where a note is in its life.
+public enum NoteStatus {
+    case draft
+    case published
+}
+```
+
+```text
+error[K8004]: `notes.Note` has no table in schema.lock
+ --> src/notes/Note.k:4:15
+  |
+4 | public entity Note {
+  |               ^^^^
+  |
+  = help: run `k migrate new "description"`: it writes the migration and records it in schema.lock
+```
+
+**Fix:** Run `k migrate new "description"`; for a renamed entity or field, `k migrate rename old new` keeps its table or column.
+
+### K8005 `schema-lock-mismatch`
+
+**Error.** Replaying `migrations/` doesn't produce the schema `schema.lock` records.
+
+Example (`tests/corpus/sema/app/persistence/lock/lock-out-of-date/`):
+
+```k,ignore
+// App.k
+// A migration whose change schema.lock doesn't record: K8005 at the lock's table.
+public app Demo {}
+```
+
+```k,ignore
+// migrations/0001_create_notes.k
+/// Creates `note`.
+migration CreateNotes {
+    func up(schema: Schema) {
+        schema.createTable(name: "note") { table =>
+            table.column(name: "id", type: .uuid).primaryKey(true)
+            table.column(name: "title", type: .text)
+            table.column(name: "status", type: .enumeration(cases: ["draft", "published"]))
+        }
+    }
+}
+```
+
+```k,ignore
+// migrations/0002_add_body.k
+/// Adds a body.
+migration AddBody {
+    func up(schema: Schema) {
+        schema.alterTable(name: "note") { table =>
+            table.addColumn(name: "body", type: .text).nullable(true)
+        }
+    }
+}
+```
+
+```k,ignore
+// src/notes/Note.k
+import k.crypto.Uuid
+
+/// A note.
+public entity Note {
+    @Id let id: Uuid
+
+    var title: String
+
+    var status: NoteStatus = .draft
+}
+```
+
+```k,ignore
+// src/notes/NoteStatus.k
+/// Where a note is in its life.
+public enum NoteStatus {
+    case draft
+    case published
+}
+```
+
+```text
+error[K8005]: schema.lock doesn't record the table `note` as the migrations leave it
+ --> schema.lock:4:1
+  |
+4 | [tables.note]
+  | ^^^^^^^^^^^^^
+  |
+  = note: the migrations create the column `body`, which schema.lock doesn't record
+  = help: run `k build`, which records the schema the migrations produce in schema.lock, and review the change; if the lock was right, a migration changed after it was recorded
+```
+
+**Fix:** Run `k build` to record the schema the migrations produce in `schema.lock`, and review the change.
+
+### K8006 `migration-order`
+
+**Error.** A migration file's number doesn't match its position in `schema.lock`'s `migrations` list.
+
+Example (`tests/corpus/sema/app/persistence/lock/listed-migration-missing/`):
+
+```k,ignore
+// App.k
+// The lock lists a migration whose file is gone: K8006 at the entry.
+public app Demo {}
+```
+
+```k,ignore
+// migrations/0001_create_notes.k
+/// Creates `note`.
+migration CreateNotes {
+    func up(schema: Schema) {
+        schema.createTable(name: "note") { table =>
+            table.column(name: "id", type: .uuid).primaryKey(true)
+            table.column(name: "title", type: .text)
+            table.column(name: "status", type: .enumeration(cases: ["draft", "published"]))
+        }
+    }
+}
+```
+
+```k,ignore
+// src/notes/Note.k
+import k.crypto.Uuid
+
+/// A note.
+public entity Note {
+    @Id let id: Uuid
+
+    var title: String
+
+    var status: NoteStatus = .draft
+}
+```
+
+```k,ignore
+// src/notes/NoteStatus.k
+/// Where a note is in its life.
+public enum NoteStatus {
+    case draft
+    case published
+}
+```
+
+```text
+error[K8006]: schema.lock lists the migration `0002_lost`, but `migrations/0002_lost.k` doesn't exist
+ --> schema.lock:2:36
+  |
+2 | migrations = ["0001_create_notes", "0002_lost"]
+  |                                    ^^^^^^^^^^^
+  |
+  = help: restore the file: a migration is history, and databases that applied it expect it
+```
+
+**Fix:** Number each migration file by its position in `schema.lock`'s `migrations` list, and keep every listed file.
+
+### K8007 `removed-url`
+
+**Error.** A URL `routes.lock` records is no longer served, and no redirect keeps it working.
+
+Example (`tests/corpus/sema/routing/lock/removed-page/`):
+
+```k,ignore
+// App.k
+// A removed page whose URL nothing serves and no redirect keeps: K8007 at the
+// lock's entry.
+public app Demo {
+    metadata {
+        title("Demo")
+    }
+}
+```
+
+```k,ignore
+// src/site/About.k
+/// The About page.
+public page About at "/about" {
+    view {
+        paragraph { "About" }
+    }
+}
+```
+
+```k,ignore
+// src/site/Health.k
+import k.http.HttpResponse
+import k.http.IncomingRequest
+
+/// Answers load balancers.
+public page Health at "/health" {
+    @Get
+    func check(request: IncomingRequest) async -> HttpResponse {
+        return HttpResponse(status: .ok)
+    }
+}
+```
+
+```k,ignore
+// src/site/Product.k
+import k.crypto.Uuid
+
+/// The Product page.
+public page Product {
+    @Param let id: Uuid
+
+    view {
+        paragraph { "Product" }
+    }
+}
+```
+
+```text
+error[K8007]: `/pricing` (page `pricing`) is no longer served: `site.Pricing` was removed or renamed
+ --> routes.lock:9:1
+  |
+9 | [pages.pricing]
+  | ^^^^^^^^^^^^^^^
+  |
+  = help: keep the URL with `at "/pricing"`, add a redirect under `[redirects]` in routes.lock (`"/pricing" = "<page case>"`), or delete the entry once no link to it needs to work
+```
+
+**Fix:** Name the old URL with `at`, add a redirect under `[redirects]` in `routes.lock` (`k build` adds one for a renamed page), or delete the entry once nothing needs the URL.
+
+### K8008 `incompatible-storage-key`
+
+**Error.** A storage key changed incompatibly with `storage.lock`; stored values would no longer decode.
+
+Example (`tests/corpus/sema/app/storage/case-removed/`):
+
+```k,ignore
+// src/appearance/ColorScheme.k
+/// Light only.
+public enum ColorScheme implements Codable {
+    case light
+}
+```
+
+```k,ignore
+// src/appearance/keys.k
+import k.storage.StorageKey
+
+/// The colour scheme the visitor chose.
+let savedScheme: StorageKey<ColorScheme> = StorageKey(name: "colorScheme")
+```
+
+```k,ignore
+// src/cart/CartService.k
+// A case removed from a top-level key's enum: K8008.
+import k.storage.LocalStorage
+import k.storage.StorageKey
+
+/// Keeps the cart across visits.
+public service CartService {
+    @Inject let storage: LocalStorage
+
+    private let savedCart: StorageKey<List<SavedItem>> = StorageKey(name: "cart")
+}
+```
+
+```k,ignore
+// src/cart/SavedItem.k
+/// A saved cart item.
+public struct SavedItem implements Codable {
+    let productId: Int
+    let quantity: Int
+}
+```
+
+```text
+error[K8008]: the storage key `colorScheme` changed incompatibly with storage.lock; values users' browsers already hold would read as `.unreadable`
+ --> src/appearance/keys.k:4:5
+  |
+4 | let savedScheme: StorageKey<ColorScheme> = StorageKey(name: "colorScheme")
+  |     ^^^^^^^^^^^
+  |
+  = note: case `dark` of `appearance.ColorScheme` was removed or renamed
+  = note: keep the recorded name and shape (only optional fields and new enum cases are compatible), or mark the key `@Breaking("reason")` once the service handles `.unreadable`
+```
+
+**Fix:** Keep the key's name and value shape (add optional fields only), or mark the key `@Breaking("reason")` once its service handles `.unreadable`.
+
 ### K8101 `invalid-manifest`
 
 **Error.** `k.toml` is malformed or lacks a required key.
@@ -6780,4 +7545,10 @@ error[K8003]: the payload of job `order-confirmation` changed incompatibly with 
 **Error.** A file or directory could not be read.
 
 **Fix:** Check that the path exists and is readable.
+
+### K9003 `tests-not-run`
+
+**Error.** `k check` couldn't build or run the project's tests.
+
+**Fix:** Run `k test` to see why the tests couldn't be built or run; the message names the cause. `--no-tests` checks without them.
 

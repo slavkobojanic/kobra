@@ -16,7 +16,7 @@ pub struct Cli {
 /// The subcommands of `k`.
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Check the project: syntax, types, layering and lockfiles. Fails on any problem.
+    /// Check the project: syntax, types, layering, lockfiles and tests. Fails on any problem.
     Check(CheckArgs),
     /// Build the server executable and the client assets into `dist/`.
     Build(BuildArgs),
@@ -46,6 +46,8 @@ pub enum Command {
 pub enum MigrateCommand {
     /// Write the next migration from the difference between the entities and `schema.lock`.
     New(MigrateNewArgs),
+    /// Record in `schema.lock` that an entity or field was renamed, keeping its table or column.
+    Rename(MigrateRenameArgs),
     /// Apply pending migrations to the development database (`DATABASE_URL`).
     Apply(ProjectArgs),
     /// Show which migrations the development database has applied and which are pending.
@@ -69,8 +71,27 @@ pub struct MigrateNewArgs {
     #[arg(long, default_value = ".")]
     pub project: PathBuf,
     /// Write an empty migration (for data changes) instead of the schema difference.
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["drop_retired", "rename"])]
     pub empty: bool,
+    /// Drop the tables and columns that earlier migrations retired.
+    #[arg(long, conflicts_with = "rename")]
+    pub drop_retired: bool,
+    /// Rename the table of an entity (`notes.Note`) or the column of a field
+    /// (`notes.Note.heading`) to follow its current name; repeatable.
+    #[arg(long, value_name = "NAME")]
+    pub rename: Vec<String>,
+}
+
+/// Arguments of `k migrate rename`.
+#[derive(Debug, Args)]
+pub struct MigrateRenameArgs {
+    /// The name `schema.lock` records: `notes.Note` or `notes.Note.title`.
+    pub old: String,
+    /// The new name: `notes.Memo`, or the field's new name (`heading`).
+    pub new: String,
+    /// The project directory (the one with `k.toml`).
+    #[arg(long, default_value = ".")]
+    pub project: PathBuf,
 }
 
 /// Arguments of `k test`.
@@ -122,6 +143,9 @@ pub struct CheckArgs {
     /// When to use colors in human-readable output.
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
+    /// Don't run the project's tests (they run by default, for a program without errors).
+    #[arg(long)]
+    pub no_tests: bool,
 }
 
 /// Arguments of `k build`.

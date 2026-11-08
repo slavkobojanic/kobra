@@ -1,0 +1,2 @@
+error[K8004] src/notes/Note.k:4:15-4:19: `notes.Note` has no table in schema.lock
+  help: run `k migrate new "description"`: it writes the migration and records it in schema.lock

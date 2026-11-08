@@ -65,8 +65,9 @@ public page StripeWebhook at "/webhooks/stripe" {
   a crafted `?returnTo=stripeWebhook` can't decode to one. `Endpoint.stripeWebhook.url` is the path, and
   `urls.absolute(endpoint: .stripeWebhook)` the absolute URL, from
   [`PublicUrls`](routing.md#absolute-urls-publicurls).
-- Endpoint URLs are recorded in `routes.lock` (**Planned**, see [Project files](../reference/project-files.md#lockfiles))
-  and listed by `k routes`, like every page.
+- Endpoint URLs are recorded in `routes.lock` (see [Project files](../reference/project-files.md#lockfiles))
+  and listed by `k routes`, like every page. An endpoint whose recorded URL is no longer served fails
+  `k check`.
 
 ### Injection and guards
 
@@ -152,10 +153,7 @@ HttpResponse.redirect(url: providerAuthorizeUrl)
 - Statuses are a typed `HttpStatus` with implicit members for the standard codes (`.ok`, `.badRequest`,
   `.notFound`, `.serviceUnavailable`, …), never a bare number.
 - **Cookies are set only through `Session`,** never as raw headers. Setting `set-cookie` on a response is
-  a compile error for a literal header name, and a panic otherwise.
-
-> **Planned.** The compile error for a literal `set-cookie` header isn't in the first compiler releases.
-> Setting the header panics at run time, whatever its spelling.
+  a compile error for a literal header name, in any case (`K5013`), and a panic otherwise.
 
 ## Health checks
 

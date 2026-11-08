@@ -398,8 +398,9 @@ end-to-end test, can call an rpc without reading generated files:
 | URL | `POST /shop.store.StoreProtocol/PlaceOrder` |
 
 - The project prefix is the Protobuf form of `k.toml`'s `name`: lower case, with `-`, `/` and `.` mapped to
-  `_`. The names are recorded in `protocol.lock` when first derived, so renaming the project, the
-  protocol, an rpc or its module keeps the wire names.
+  `_`. The names are always derived, and the serving app's `rpc.lock` records them, so renaming the
+  project, the protocol, an rpc or its module fails `k check` (`K8001`): callers already deployed still
+  use the old path. Mark the protocol `@Breaking("reason")` when that is acceptable.
 - **Each rpc has a request message whose fields are its parameters,** named by each parameter's internal
   name: `func reviews(for product: ProductId)` takes `{"product": …}`. Changing an external label is
   source-breaking but wire-compatible.
@@ -435,23 +436,25 @@ type or carries a third party's response body, with a hint to wrap the error wit
 > export` (which emits `.proto` files for non-K consumers) and `import proto "billing/v1/invoice.proto"`
 > (which turns existing Protobuf definitions into K types) come later.
 
-## Field numbers and `protocol.lock`
+## Field numbers and `rpc.lock`
 
 Protobuf compatibility depends on names and field numbers never changing. The compiler manages them for
 you:
 
 - Struct source stays clean. There are no `@Field(1)` annotations.
-- The compiler assigns numbers and records them, with each protocol's package, service and method names,
-  in **`protocol.lock`**.
+- The compiler assigns numbers and records them, with each protocol's wire service name and its rpcs, in
+  the serving app's **`rpc.lock`**.
 - **Breaking-change detection runs on every build.** A removed field, a changed type, a reused number or
   a changed wire name fails `k check`.
 - A removed field's number is reserved automatically.
-- A deliberate breaking change requires `@Breaking("reason")` on the protocol, which bumps its version
-  (`CartProtocol.v2`).
+- A deliberate breaking change requires `@Breaking("reason")` on the protocol; `k build` then records
+  the new shape. See [Workspaces and services](workspaces.md#rpclock-deploys-that-dont-break-callers).
 
-> **Planned.** The first compiler releases don't compare `protocol.lock` yet. An app that serves
-> protocols records their shape in `rpc.lock`, which `k check` does compare: see
-> [Workspaces and services](workspaces.md#rpclock-deploys-that-dont-break-callers).
+> **Planned.** Bumping a protocol's version on a deliberate break (`CartProtocol.v2`, served next to the
+> old one) isn't in the first compiler releases.
+
+There is no separate `protocol.lock`: an earlier design kept the wire names in one, and `rpc.lock` now
+records everything it would have.
 
 Because K servers speak Connect, Go, Java and mobile clients can call them with ordinary gRPC or Connect
 tooling.

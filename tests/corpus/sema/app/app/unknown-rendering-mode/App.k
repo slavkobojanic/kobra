@@ -1,3 +1,7 @@
 // `@Rendering` takes `.server` or `.client`.
 @Rendering(.hybrid)
-public app Shop {}
+public app Shop {
+    metadata {
+        title("Shop")
+    }
+}

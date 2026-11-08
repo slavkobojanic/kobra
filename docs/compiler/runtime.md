@@ -435,7 +435,7 @@ outside `READY`/`RELOADING`.
 
 ## 9. Forms
 
-`createForm(fields, initial, validate)` backs a `@Form`
+`createForm(fields, initial, validate, clock?)` backs a `@Form`
 ([15-forms-and-validation.md](../design/15-forms-and-validation.md)):
 
 - Each field keeps its **raw text** as typed; typed fields parse on validation (`FieldSpec.parse`), and a
@@ -451,8 +451,13 @@ outside `READY`/`RELOADING`.
   element (the generated views pass none, so the server's markup has none to claim) it creates a
   `<p role="alert">` right under the input when the field first shows an error.
 - Raw values are text; a number field's `Number(…)` is accepted and parsed as its text.
-- `@Check` async rules run debounced on blur, through the service function codegen passes (*not yet
-  written*).
+- `@Check` async rules: a field spec's `checks` (`[{ run(signal, value) → Promise<Bool>, message }]`)
+  run 300 ms after the field's `blur` (`CHECK_DELAY`), on the `clock` passed as `createForm`'s fourth
+  argument (the container's `Clock`, a `TestClock` in tests), and only for text that parses and passes
+  its constraints. Each run aborts the previous run's `AbortController`; an answer for text the field no
+  longer holds, or from an aborted run, is dropped; a throw is no answer. A `false` sets the field's
+  error and adds it to `errors()`, and `check()` (so `handle`) keeps refusing that same text until a
+  check of new text passes, which clears it.
 - The returned object: `field(name)` → `{ value(), set(raw), error(), isTouched(), touch(),
   attach(input, message?) }`; `isValid()`, `isSubmitting()`, `isTouched()`, `errors()` (reactive);
   `value()` while the action runs; `handle(action)`. `fieldParser`, `lengthRule`, `rangeRule` and
@@ -537,7 +542,7 @@ Declarations marked `@Native` in `crates/k_sema/stdlib` get their bodies from th
 | `TimeZone` | its IANA name, as text: `parse` (`parseTimeZone` in `std.js`) asks `Intl.DateTimeFormat` and returns the canonical spelling (`europe/berlin` → `Europe/Berlin`) or `nil`; `identifier` and `name` are the text; `utc` is `"UTC"`; equal, hashable and encoded as the text (`codecs.timeZone`). `TimeZone.local` is `localTimeZone()` in the browser (the browser's zone); on the server it is `requestTimeZone(ctx)`, the `k_tz` cookie of the request a view is rendering, UTC on a first visit; read outside a view's body (a plain function, a service) the server has no request to ask and uses UTC. `Date.formatted` writes UTC in v0, on both sides, so hydration never changes the text |
 | `Json`, `Uuid.random`, `SecureRandom`, `Hash`, `Hmac` | `JSON`, `crypto.getRandomValues`/`crypto.subtle` in the browser; Rust ops on the server |
 | `Database`, repositories | `runtime/db.js` over the database ops ([db.md §6](db.md#6-drivers-the-manifest-and-ops)) |
-| `EmailAddress` | its text; `.address` is the value itself (`displayName` is `nil` in v0); `parse` trims and lower-cases the domain, refusing spaces, brackets, quotes and separators |
+| `EmailAddress` | its message-header text, `local@domain` or `Name <local@domain>`; `.address` and `.displayName` take it apart (`emailAddress`, `emailDisplayName`); `parse` trims, lower-cases the domain, collapses the name's spaces and quotes the name only when it holds a special character (`"Doe, Ana" <ana@example.com>`), refusing control characters, an unquoted name with specials, and an address with spaces, brackets, quotes or separators |
 | `Url`, `Uuid`, `Color` | text, parsed by `std.js` on both sides without the `URL` class (which the server's isolate lacks): a `Url` is an absolute `http(s)`/`ws(s)` URL with a host; `host`, `path` read the text; a decoded `Color` is a hex color, keyword or color-function call with nothing that ends a declaration |
 | `Bytes.base64` | written in `std.js` (no `btoa`, which the server's isolate lacks) |
 | `Money.formatted(as:)` | `Intl.NumberFormat` given the exact decimal text (never a double), in the requested `NumberStyle` (`.currency` by default) |

@@ -1,0 +1,3 @@
+error[K8007] src/site/Plans.k:2:13-2:18: `site.Plans` was renamed from `site.Pricing`, so its URL moved from `/pricing` to `/plans`, but routes.lock doesn't record the redirect from the old URL yet
+  label routes.lock:9:1-9:16: recorded here
+  help: run `k build`, which records the redirect, and commit routes.lock

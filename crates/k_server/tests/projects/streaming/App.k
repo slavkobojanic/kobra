@@ -1,3 +1,7 @@
 /// Streaming rpcs over a keyed broadcast.
 @SignInPage(.signIn)
-public app Streams {}
+public app Streams {
+    metadata {
+        title("Streams")
+    }
+}

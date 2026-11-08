@@ -174,8 +174,8 @@ The compiler also runs a static pass, for tooling:
 
 - A warning appears when an effect reads no reactive values, because it would never re-run.
 - A warning appears when state is read after an `await`, because those reads aren't tracked.
-- The language server shows an effect's dependencies on hover (**Planned**: the language server isn't in
-  the first compiler releases).
+- The language server shows an effect's dependencies on hover, and a `@Derived` field's too (see
+  [Editor setup](../getting-started/editor-setup.md)).
 
 ### Where effects run
 

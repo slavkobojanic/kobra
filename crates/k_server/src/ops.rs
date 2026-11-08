@@ -66,8 +66,10 @@ pub struct JsRequest {
     pub headers: Vec<(String, String)>,
     /// The request body bytes (a `Uint8Array` in JavaScript).
     pub body: ToJsBuffer,
-    /// The peer's IP address (the socket's; `K_TRUSTED_PROXIES` handling
-    /// is the generated handler's).
+    /// The client's IP address: the socket peer's, or behind a trusted
+    /// proxy the client `X-Forwarded-For` names
+    /// ([`crate::proxy::TrustedProxies::client_address`]). The HTTP front
+    /// decides it; the runtime uses it as `clientAddress`.
     pub remote: String,
     /// For a background job's run (never an HTTP request): which job and
     /// attempt. The body is then the payload JSON.
@@ -133,7 +135,8 @@ pub struct PendingRequest {
     pub headers: Vec<(String, String)>,
     /// The request body bytes, read whole by the HTTP front.
     pub body: Vec<u8>,
-    /// The peer's IP address.
+    /// The client's IP address, as the HTTP front decided it from the
+    /// socket peer and `K_TRUSTED_PROXIES` ([`crate::proxy`]).
     pub remote: String,
     /// A job run instead of an HTTP request ([`JobRun`]).
     pub job: Option<JobRun>,

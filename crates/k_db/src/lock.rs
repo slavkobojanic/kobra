@@ -78,6 +78,10 @@ fn scalar_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>,
 pub struct LockedTable {
     /// The qualified entity name.
     pub entity: String,
+    /// `retired = true`: the entity was removed; the table is dropped by a
+    /// later migration.
+    #[serde(default)]
+    pub retired: bool,
     /// The columns, in order.
     #[serde(default)]
     pub columns: Vec<LockedColumn>,
@@ -100,6 +104,11 @@ pub struct SchemaLock {
 pub struct LockError {
     /// What is wrong, with the TOML parser's location when it has one.
     pub message: String,
+    /// What is wrong, without the location: for a diagnostic that points
+    /// at [`LockError::span`].
+    pub reason: String,
+    /// The byte range of the offending text, when the parser knows it.
+    pub span: Option<std::ops::Range<usize>>,
 }
 
 impl std::fmt::Display for LockError {
@@ -151,8 +160,10 @@ impl SchemaLock {
     ///
     /// Invalid TOML, unknown keys or wrongly typed values.
     pub fn parse(text: &str) -> Result<SchemaLock, LockError> {
-        toml::from_str(text).map_err(|e| LockError {
+        toml::from_str(text).map_err(|e: toml::de::Error| LockError {
             message: e.to_string(),
+            reason: e.message().to_owned(),
+            span: e.span(),
         })
     }
 
@@ -168,9 +179,14 @@ impl SchemaLock {
         for (name, table) in &self.tables {
             let _ = write!(
                 out,
-                "\n[tables.{}]\nentity = {}\ncolumns = [\n",
+                "\n[tables.{}]\nentity = {}\n{}columns = [\n",
                 key(name),
-                quote(&table.entity)
+                quote(&table.entity),
+                if table.retired {
+                    "retired = true\n"
+                } else {
+                    ""
+                }
             );
             for c in &table.columns {
                 let mut parts = Vec::new();

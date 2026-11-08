@@ -1,8 +1,9 @@
-//! `k migrate new`: the next migration from the difference between the
-//! entities and `schema.lock` (`docs/design/19-persistence.md`,
-//! "Migrations"; `docs/compiler/db.md`, "Migrations").
+//! `k migrate new` and `k migrate rename`: the next migration from the
+//! difference between the entities and `schema.lock`, and the lock
+//! changes that need no migration (`docs/design/19-persistence.md`,
+//! "Migrations" and "Renames"; `docs/compiler/db.md`, "Migrations").
 //!
-//! [`plan_migration`] compares the persistence model of the checked
+//! [`plan_migration_with`] compares the persistence model of the checked
 //! program (the same [`crate::db`] model the repositories are lowered
 //! from, so table and column names follow the lock) with the recorded
 //! lock, and either reports that they match or drafts
@@ -11,37 +12,47 @@
 //!   `createTable` per new entity (referenced tables first), one
 //!   `alterTable` per changed table with `addColumn` for each new field
 //!   (its default as `defaultValue`, or `nullable(true)` for an optional
-//!   field), `createIndex` for a new `@Index`, and a comment for each
-//!   retired column;
+//!   field) and `retireColumn` for each removed one, and `createIndex` for
+//!   a new `@Index`;
 //! * the updated lock, in [`k_db::lock::SchemaLock::to_toml`]'s canonical
 //!   layout, with the migration appended to `migrations`, new tables and
 //!   columns recorded, and the columns of removed fields marked `retired`
 //!   (their names stay reserved; expand, then contract).
 //!
-//! A change the builder can't express safely in v0 is refused with an
-//! explanation instead of being written: a column type or option that
-//! changed, an enum case added or removed (the builder's case operations
-//! need a table rebuild on SQLite), a required field added to an existing
-//! table without a default, a removed field whose column is `NOT NULL`
-//! without a default (the next release's inserts would fail), and a removed
-//! entity. Renames are never inferred: a renamed field reads as a removal
-//! and an addition, which the explanation of the removal names.
+//! It only writes what is safe without reviewing data. A change it can't
+//! write is refused with an explanation, and nothing is written: a column
+//! type or option that changed, an enum case added or removed, a required
+//! field added to an existing table without a default, and a removed
+//! entity. Those are written by hand in a `--empty` migration. Renames are
+//! never inferred: a renamed field reads as a removal and an addition,
+//! which the explanation names together with the `k migrate rename` that
+//! keeps the column.
+//!
+//! The other requests ([`MigrationRequest`]) write the contract half of a
+//! change: `--drop-retired` drops every table and column the lock marks
+//! retired, and `--rename` renames a table or column physically so it
+//! follows its entity's or field's current name. Both are destructive, so
+//! the migration is written with the `@Breaking` it needs.
+//! [`record_rename`] is `k migrate rename`: a renamed entity or field keeps
+//! its table or column, so only the lock changes.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
 use k_db::lock::{LockedColumn, LockedTable, SchemaLock};
 use k_db::schema::ColumnType;
+use k_sema::view::DeclId;
 use k_syntax::ast::{self, AstNode};
 
 use crate::cx::Gen;
-use crate::db::{EntityModel, FieldKind, FieldModel};
+use crate::db::{EntityModel, FieldKind, FieldModel, snake};
 use crate::{CodegenError, Options};
 
-/// What [`plan_migration`] decided.
+/// What [`plan_migration_with`] decided.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum MigrationPlan {
-    /// The entities match `schema.lock`: there is nothing to write.
+    /// The entities match `schema.lock` (or, for `--drop-retired`, the
+    /// lock records nothing retired): there is nothing to write.
     UpToDate,
     /// The files to write.
     Draft(MigrationDraft),
@@ -84,23 +95,31 @@ impl std::fmt::Display for MigrationError {
 
 impl std::error::Error for MigrationError {}
 
+/// What `k migrate new` is asked to write.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MigrationRequest<'a> {
+    /// The difference between the entities and `schema.lock`.
+    Diff,
+    /// An empty migration, for data changes written by hand (`--empty`).
+    Empty,
+    /// Drop every table and column `schema.lock` marks retired
+    /// (`--drop-retired`).
+    DropRetired,
+    /// Rename the tables and columns of these entities and fields
+    /// (`notes.Note`, `notes.Note.heading`) to follow their current names
+    /// (`--rename`).
+    Rename(&'a [String]),
+}
+
 /// Drafts the next migration of the analysed project, described by
 /// `description` (`"add note pinning"`). With `empty`, the migration has
 /// no schema changes (a data migration written by hand) and the entities
-/// are not compared.
-///
-/// The file is named after the description's words (runs of letters and
-/// digits, lower-cased, joined with `_`), numbered one past the larger of
-/// the lock's migration count and the highest `migrations/NNNN_*.k` file
-/// number. Nothing is written to disk: the caller (`k migrate new`)
-/// writes [`MigrationDraft::source`] and [`MigrationDraft::lock`].
+/// are not compared. The same as [`plan_migration_with`] with
+/// [`MigrationRequest::Diff`] or [`MigrationRequest::Empty`].
 ///
 /// # Errors
 ///
-/// [`MigrationError::Codegen`] for a program with errors or a cancelled
-/// analysis, [`MigrationError::BadDescription`] for a description without
-/// a word, and [`MigrationError::Refused`] for differences it doesn't
-/// write.
+/// As [`plan_migration_with`].
 ///
 /// # Examples
 ///
@@ -123,6 +142,30 @@ pub fn plan_migration(
     description: &str,
     empty: bool,
 ) -> Result<MigrationPlan, MigrationError> {
+    let request = if empty {
+        MigrationRequest::Empty
+    } else {
+        MigrationRequest::Diff
+    };
+    plan_migration_with(analysis, description, request)
+}
+
+/// The words of a description, lower-cased: runs of letters and digits.
+fn words_of(description: &str) -> Vec<String> {
+    description
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// Checks that the analysis has no errors and returns it as a [`Gen`]
+/// input.
+///
+/// # Errors
+///
+/// [`MigrationError::Codegen`] for errors or a cancelled analysis.
+fn checked(analysis: &k_sema::Analysis) -> Result<&k_sema::view::ProgramView, MigrationError> {
     let diagnostics = analysis
         .diagnostics()
         .map_err(|_| MigrationError::Codegen(CodegenError::Cancelled))?;
@@ -130,39 +173,82 @@ pub fn plan_migration(
     if count > 0 {
         return Err(MigrationError::Codegen(CodegenError::HasErrors { count }));
     }
-    let words: Vec<String> = description
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .map(str::to_lowercase)
-        .collect();
+    analysis
+        .program()
+        .map_err(|_| MigrationError::Codegen(CodegenError::Cancelled))
+}
+
+/// Drafts the next migration of the analysed project for `request`,
+/// described by `description` (`"add note pinning"`).
+///
+/// The file is named after the description's words (runs of letters and
+/// digits, lower-cased, joined with `_`), numbered one past the larger of
+/// the lock's migration count and the highest `migrations/NNNN_*.k` file
+/// number. Nothing is written to disk: the caller (`k migrate new`)
+/// writes [`MigrationDraft::source`] and [`MigrationDraft::lock`].
+///
+/// # Errors
+///
+/// [`MigrationError::Codegen`] for a program with errors or a cancelled
+/// analysis, [`MigrationError::BadDescription`] for a description without
+/// a word, and [`MigrationError::Refused`] for differences it doesn't
+/// write, or a `--rename` it can't make (an unknown entity or field, one
+/// the lock doesn't record, or one already stored under its name).
+pub fn plan_migration_with(
+    analysis: &k_sema::Analysis,
+    description: &str,
+    request: MigrationRequest<'_>,
+) -> Result<MigrationPlan, MigrationError> {
+    let view = checked(analysis)?;
+    let words = words_of(description);
     if words.is_empty() {
         return Err(MigrationError::BadDescription);
     }
-    let view = analysis
-        .program()
-        .map_err(|_| MigrationError::Codegen(CodegenError::Cancelled))?;
     let options = Options::default();
     let g = Gen::new(analysis, view, &options);
     let mut lock = crate::db::lock(&g).unwrap_or_default();
-    let changes = if empty {
-        Changes::default()
-    } else {
-        let changes = diff(&g, &mut lock)?;
-        if changes.is_empty() {
-            return Ok(MigrationPlan::UpToDate);
+    let (changes, breaking) = match request {
+        MigrationRequest::Empty => (Changes::default(), None),
+        MigrationRequest::Diff => {
+            let (changes, differences) = diff(&g, &mut lock);
+            let refused: Vec<String> = differences
+                .iter()
+                .filter(|d| !d.writable)
+                .map(|d| d.explanation())
+                .collect();
+            if !refused.is_empty() {
+                return Err(MigrationError::Refused(refused));
+            }
+            if changes.is_empty() {
+                return Ok(MigrationPlan::UpToDate);
+            }
+            (changes, None)
         }
-        changes
+        MigrationRequest::DropRetired => {
+            let changes = drop_retired(&mut lock)?;
+            if changes.is_empty() {
+                return Ok(MigrationPlan::UpToDate);
+            }
+            (changes, Some(DROP_REASON))
+        }
+        MigrationRequest::Rename(names) => {
+            let changes = renames(&g, &mut lock, names)?;
+            (changes, Some(crate::db::SINGLE_INSTANCE))
+        }
     };
     let number = next_number(&g, &lock);
     let stem = format!("{number:04}_{}", words.join("_"));
     lock.migrations.push(stem.clone());
-    let source = render(&words, description, empty, &changes);
+    let source = render(&words, description, request, breaking, &changes);
     Ok(MigrationPlan::Draft(MigrationDraft {
         file: format!("migrations/{stem}.k"),
         source,
         lock: lock.to_toml(),
     }))
 }
+
+/// The `@Breaking` reason of a `--drop-retired` migration.
+const DROP_REASON: &str = "drops what earlier migrations retired";
 
 /// The next migration number: one more than the lock's migrations and
 /// every `migrations/NNNN_*.k` file.
@@ -182,7 +268,7 @@ fn next_number(g: &Gen<'_>, lock: &SchemaLock) -> usize {
 
 /// The schema changes of one migration.
 #[derive(Default)]
-struct Changes {
+pub(crate) struct Changes {
     /// New tables, in creation order.
     creates: Vec<(String, Vec<LockedColumn>)>,
     /// New columns of existing tables, by table, with their `ColumnValue`
@@ -192,26 +278,105 @@ struct Changes {
     indexes: Vec<(String, String)>,
     /// Retired columns: (table, column, the removed field's qualified name).
     retires: Vec<(String, String, String)>,
+    /// Retired columns dropped: (table, column).
+    drops: Vec<(String, String)>,
+    /// Retired tables dropped, referencing tables first.
+    drop_tables: Vec<String>,
+    /// Physical column renames: (table, from, to).
+    column_renames: Vec<(String, String, String)>,
+    /// Physical table renames: (from, to).
+    table_renames: Vec<(String, String)>,
 }
 
 impl Changes {
-    /// `true` when the entities match the lock: no table, column, index or
-    /// retirement to write.
+    /// `true` when there is nothing to write.
     fn is_empty(&self) -> bool {
         self.creates.is_empty()
             && self.adds.is_empty()
             && self.indexes.is_empty()
             && self.retires.is_empty()
+            && self.drops.is_empty()
+            && self.drop_tables.is_empty()
+            && self.column_renames.is_empty()
+            && self.table_renames.is_empty()
     }
 }
 
-/// Compares the entities with `lock`, updating `lock` to match them.
-fn diff(g: &Gen<'_>, lock: &mut SchemaLock) -> Result<Changes, MigrationError> {
+/// One difference between the entities and `schema.lock`, for `k migrate
+/// new` (which writes it or refuses it) and `k check` (which reports it).
+#[derive(Clone, Debug)]
+pub(crate) struct Difference {
+    /// The entity it concerns, when the program still has it.
+    pub(crate) decl: Option<DeclId>,
+    /// The field it concerns, when the entity still has it.
+    pub(crate) field: Option<String>,
+    /// The locked table it concerns, for a difference without a
+    /// declaration (a removed entity).
+    pub(crate) table: Option<String>,
+    /// What differs.
+    pub(crate) message: String,
+    /// Why `k migrate new` doesn't write it; `None` when it does.
+    pub(crate) refusal: Option<String>,
+    /// `true` when `k migrate new` writes it.
+    pub(crate) writable: bool,
+    /// The `k migrate rename …` that records it as a name-preserving
+    /// rename, when the difference looks like one.
+    pub(crate) rename: Option<String>,
+}
+
+impl Difference {
+    /// A difference `k migrate new` writes.
+    fn writable(decl: Option<DeclId>, field: Option<&str>, message: String) -> Difference {
+        Difference {
+            decl,
+            field: field.map(str::to_owned),
+            table: None,
+            message,
+            refusal: None,
+            writable: true,
+            rename: None,
+        }
+    }
+
+    /// A difference `k migrate new` refuses, with why.
+    fn refused(
+        decl: Option<DeclId>,
+        field: Option<&str>,
+        message: String,
+        why: String,
+    ) -> Difference {
+        Difference {
+            refusal: Some(why),
+            writable: false,
+            ..Difference::writable(decl, field, message)
+        }
+    }
+
+    /// The difference and why it isn't written, as `k migrate new` prints
+    /// a refusal.
+    pub(crate) fn explanation(&self) -> String {
+        let mut out = match &self.refusal {
+            Some(why) => format!("{}; {why}", self.message),
+            None => self.message.clone(),
+        };
+        if let Some(r) = &self.rename {
+            let _ = write!(out, " (if it was renamed, keep its storage: `{r}`)");
+        }
+        out
+    }
+}
+
+/// Compares the entities with `lock`, updating `lock` to match the
+/// changes `k migrate new` writes, and returns those changes with every
+/// difference found (writable or not).
+#[allow(clippy::too_many_lines)]
+pub(crate) fn diff(g: &Gen<'_>, lock: &mut SchemaLock) -> (Changes, Vec<Difference>) {
     let model = crate::db::model(g);
-    let mut problems = Vec::new();
+    let mut differences = Vec::new();
     let mut changes = Changes::default();
     let mut live: BTreeSet<String> = BTreeSet::new();
     let mut created: Vec<(String, Vec<LockedColumn>)> = Vec::new();
+    let mut new_entities: Vec<DeclId> = Vec::new();
     for e in model.entities() {
         let qualified = g.view.qualified_name(e.decl);
         live.insert(qualified.clone());
@@ -219,16 +384,27 @@ fn diff(g: &Gen<'_>, lock: &mut SchemaLock) -> Result<Changes, MigrationError> {
         let recorded = lock
             .tables
             .iter()
-            .find(|(_, t)| t.entity == qualified)
+            .find(|(_, t)| t.entity == qualified && !t.retired)
             .map(|(n, _)| n.clone());
         let Some(table) = recorded else {
             if let Some(other) = lock.tables.get(&e.table) {
-                problems.push(format!(
-                    "`{qualified}` would be stored in table `{}`, which schema.lock records for `{}`",
-                    e.table, other.entity
+                differences.push(Difference::refused(
+                    Some(e.decl),
+                    None,
+                    format!(
+                        "`{qualified}` would be stored in table `{}`, which schema.lock records for `{}`",
+                        e.table, other.entity
+                    ),
+                    "rename the entity, or keep the old one's table with `k migrate rename`".to_owned(),
                 ));
                 continue;
             }
+            differences.push(Difference::writable(
+                Some(e.decl),
+                None,
+                format!("`{qualified}` has no table in schema.lock"),
+            ));
+            new_entities.push(e.decl);
             created.push((
                 e.table.clone(),
                 desired.iter().map(|(c, _)| c.clone()).collect(),
@@ -238,6 +414,7 @@ fn diff(g: &Gen<'_>, lock: &mut SchemaLock) -> Result<Changes, MigrationError> {
         let Some(entry) = lock.tables.get_mut(&table) else {
             continue;
         };
+        let mut added: Vec<(String, String)> = Vec::new();
         for (want, default) in &desired {
             let field = want.field.clone().unwrap_or_default();
             let path = format!("{qualified}.{field}");
@@ -248,18 +425,33 @@ fn diff(g: &Gen<'_>, lock: &mut SchemaLock) -> Result<Changes, MigrationError> {
             match existing {
                 None => {
                     if !want.nullable && default.is_none() {
-                        problems.push(format!(
-                            "`{path}` is added to the existing table `{table}`, so it needs a default value or an optional type: existing rows need a value, and so do the previous release's inserts"
+                        differences.push(Difference::refused(
+                            Some(e.decl),
+                            Some(&field),
+                            format!("`{path}` is added to the existing table `{table}`, so it needs a default value or an optional type"),
+                            "existing rows need a value, and so do the previous release's inserts".to_owned(),
                         ));
+                        added.push((field.clone(), want.ty.clone()));
                         continue;
                     }
                     if entry.columns.iter().any(|c| c.name == want.name) {
-                        problems.push(format!(
-                            "`{path}` would be stored in column `{table}.{}`, which schema.lock already records (retired columns keep their names)",
-                            want.name
+                        differences.push(Difference::refused(
+                            Some(e.decl),
+                            Some(&field),
+                            format!(
+                                "`{path}` would be stored in column `{table}.{}`, which schema.lock already records",
+                                want.name
+                            ),
+                            "retired columns keep their names until they are dropped".to_owned(),
                         ));
                         continue;
                     }
+                    differences.push(Difference::writable(
+                        Some(e.decl),
+                        Some(&field),
+                        format!("`{path}` has no column in schema.lock"),
+                    ));
+                    added.push((field.clone(), want.ty.clone()));
                     let mut column = want.clone();
                     column.default = default.as_ref().map(|(_, text)| text.clone());
                     entry.columns.push(column.clone());
@@ -271,21 +463,29 @@ fn diff(g: &Gen<'_>, lock: &mut SchemaLock) -> Result<Changes, MigrationError> {
                 }
                 Some(have) => {
                     if have.ty != want.ty {
-                        problems.push(format!(
-                            "`{path}` changed from `{}` to `{}`; write a migration for it by hand (`k migrate new --empty`), with `@Breaking(\"reason\")` if it narrows the column",
-                            have.ty, want.ty
+                        differences.push(Difference::refused(
+                            Some(e.decl),
+                            Some(&field),
+                            format!("`{path}` changed from `{}` to `{}`", have.ty, want.ty),
+                            "write a migration for it by hand (`k migrate new --empty`), with `@Breaking(\"reason\")` if it narrows the column".to_owned(),
                         ));
                         continue;
                     }
                     if have.cases != want.cases {
                         for case in want.cases.iter().filter(|c| !have.cases.contains(c)) {
-                            problems.push(format!(
-                                "`{path}` gained the case `{case}`; adding an enum case to a column needs a table rebuild on SQLite, which the v0 builder doesn't do: write it with `schema.execute(postgres:sqlite:)` in a `k migrate new --empty` migration"
+                            differences.push(Difference::refused(
+                                Some(e.decl),
+                                Some(&field),
+                                format!("`{path}` gained the case `{case}`"),
+                                format!("the previous release can't read rows that hold it, so write it by hand after review: `table.addEnumCase(column: \"{}\", case: \"{case}\")` in a `k migrate new --empty` migration", have.name),
                             ));
                         }
                         for case in have.cases.iter().filter(|c| !want.cases.contains(c)) {
-                            problems.push(format!(
-                                "`{path}` lost the case `{case}`; removing an enum case rewrites stored values and needs `@Breaking(\"reason\")`: write it by hand in a `k migrate new --empty` migration"
+                            differences.push(Difference::refused(
+                                Some(e.decl),
+                                Some(&field),
+                                format!("`{path}` lost the case `{case}`"),
+                                format!("removing a case rewrites the rows that hold it, so write it by hand: `table.removeEnumCase(column: \"{}\", case: \"{case}\", replacement: …)` (or `renameEnumCase`) in a `k migrate new --empty` migration marked `@Breaking(\"reason\")`", have.name),
                             ));
                         }
                         continue;
@@ -301,12 +501,20 @@ fn diff(g: &Gen<'_>, lock: &mut SchemaLock) -> Result<Changes, MigrationError> {
                         want.primary_key,
                         &want.references,
                     ) {
-                        problems.push(format!(
-                            "the column options of `{path}` changed (optional, `@Unique`, `@Id` or relation); write a migration for it by hand (`k migrate new --empty`)"
+                        differences.push(Difference::refused(
+                            Some(e.decl),
+                            Some(&field),
+                            format!("the column options of `{path}` changed (optional, `@Unique`, `@Id` or relation)"),
+                            "write a migration for it by hand (`k migrate new --empty`)".to_owned(),
                         ));
                         continue;
                     }
                     if want.indexed && !have.indexed {
+                        differences.push(Difference::writable(
+                            Some(e.decl),
+                            Some(&field),
+                            format!("`{path}` is `@Index`, which schema.lock doesn't record"),
+                        ));
                         have.indexed = true;
                         changes.indexes.push((table.clone(), have.name.clone()));
                     }
@@ -315,18 +523,26 @@ fn diff(g: &Gen<'_>, lock: &mut SchemaLock) -> Result<Changes, MigrationError> {
         }
         let fields: BTreeSet<Option<String>> =
             desired.iter().map(|(c, _)| c.field.clone()).collect();
+        let mut removed: Vec<(String, String)> = Vec::new();
         for c in &mut entry.columns {
             if c.retired || fields.contains(&c.field) {
                 continue;
             }
-            let field = c.field.clone().unwrap_or_default();
-            if !c.nullable && c.default.is_none() && !c.primary_key {
-                problems.push(format!(
-                    "`{qualified}.{field}` was removed (or renamed), but its column `{table}.{}` is `NOT NULL` without a default, so the next release's inserts would fail; keep the field, or write the migration by hand (`k migrate new --empty`) that relaxes the column with `schema.execute(postgres:sqlite:)`",
+            let message = match &c.field {
+                Some(field) => {
+                    removed.push((field.clone(), c.ty.clone()));
+                    format!(
+                        "`{qualified}.{field}` was removed, but schema.lock still stores it in `{table}.{}`",
+                        c.name
+                    )
+                }
+                None => format!(
+                    "schema.lock records the column `{table}.{}`, which no field of `{qualified}` is stored in",
                     c.name
-                ));
-                continue;
-            }
+                ),
+            };
+            differences.push(Difference::writable(Some(e.decl), None, message));
+            let field = c.field.clone().unwrap_or_default();
             changes.retires.push((
                 table.clone(),
                 c.name.clone(),
@@ -334,18 +550,58 @@ fn diff(g: &Gen<'_>, lock: &mut SchemaLock) -> Result<Changes, MigrationError> {
             ));
             c.retired = true;
             c.field = None;
+            if c.default.is_none() {
+                // `retireColumn` relaxes it, so the next release's inserts
+                // can leave it out.
+                c.nullable = true;
+            }
+        }
+        // One field removed and one added with the same type reads as a
+        // rename, which `k migrate rename` records without a migration.
+        if let ([(old, old_ty)], [(new, new_ty)]) = (removed.as_slice(), added.as_slice()) {
+            if old_ty == new_ty {
+                let hint = format!("k migrate rename {qualified}.{old} {new}");
+                for d in differences.iter_mut().filter(|d| {
+                    d.decl == Some(e.decl)
+                        && (d.field.as_deref() == Some(new.as_str())
+                            || (d.field.is_none() && d.message.contains(&format!(".{old}`"))))
+                }) {
+                    d.rename = Some(hint.clone());
+                }
+            }
         }
     }
-    for (name, t) in &lock.tables {
-        if !live.contains(&t.entity) {
-            problems.push(format!(
-                "entity `{}` (table `{name}`) was removed or renamed; `k migrate new` doesn't retire or drop tables in v0",
-                t.entity
-            ));
-        }
+    let gone: Vec<(String, String)> = lock
+        .tables
+        .iter()
+        .filter(|(_, t)| !t.retired && !live.contains(&t.entity))
+        .map(|(n, t)| (n.clone(), t.entity.clone()))
+        .collect();
+    let entity_hint = match (gone.as_slice(), new_entities.as_slice()) {
+        ([(_, old)], [new]) => Some(format!(
+            "k migrate rename {old} {}",
+            g.view.qualified_name(*new)
+        )),
+        _ => None,
+    };
+    for (name, entity) in &gone {
+        differences.push(Difference {
+            table: Some(name.clone()),
+            rename: entity_hint.clone(),
+            ..Difference::refused(
+                None,
+                None,
+                format!("entity `{entity}` (table `{name}`) was removed"),
+                format!("`k migrate new` doesn't retire a table: retire it by hand with `schema.retireTable(name: \"{name}\")` in a `k migrate new --empty` migration"),
+            )
+        });
     }
-    if !problems.is_empty() {
-        return Err(MigrationError::Refused(problems));
+    if let Some(hint) = &entity_hint {
+        for d in differences.iter_mut().filter(|d| {
+            d.decl.is_some() && d.decl == new_entities.first().copied() && d.field.is_none()
+        }) {
+            d.rename = Some(hint.clone());
+        }
     }
     // Referenced tables first, then by name.
     created.sort_by(|a, b| a.0.cmp(&b.0));
@@ -378,12 +634,337 @@ fn diff(g: &Gen<'_>, lock: &mut SchemaLock) -> Result<Changes, MigrationError> {
             name.clone(),
             LockedTable {
                 entity,
+                retired: false,
                 columns: cols.clone(),
             },
         );
     }
     changes.creates = ordered;
+    (changes, differences)
+}
+
+/// `--drop-retired`: every retired column of a live table and every
+/// retired table, removed from `lock`.
+///
+/// # Errors
+///
+/// [`MigrationError::Refused`] when a retired table is still referenced by
+/// a column that isn't being dropped.
+fn drop_retired(lock: &mut SchemaLock) -> Result<Changes, MigrationError> {
+    let mut changes = Changes::default();
+    let tables: Vec<String> = lock
+        .tables
+        .iter()
+        .filter(|(_, t)| t.retired)
+        .map(|(n, _)| n.clone())
+        .collect();
+    for (name, t) in &lock.tables {
+        if t.retired {
+            continue;
+        }
+        for c in t.columns.iter().filter(|c| c.retired) {
+            changes.drops.push((name.clone(), c.name.clone()));
+        }
+    }
+    let mut problems = Vec::new();
+    for dropped in &tables {
+        for (name, t) in &lock.tables {
+            if tables.contains(name) {
+                continue;
+            }
+            for c in t.columns.iter().filter(|c| !c.retired) {
+                if c.references.as_deref().and_then(|r| r.split('.').next()) == Some(dropped) {
+                    problems.push(format!(
+                        "the retired table `{dropped}` is still referenced by the live column `{name}.{}`; retire that column first",
+                        c.name
+                    ));
+                }
+            }
+        }
+    }
+    if !problems.is_empty() {
+        return Err(MigrationError::Refused(problems));
+    }
+    // A table that references another retired table is dropped first.
+    let mut remaining = tables;
+    while !remaining.is_empty() {
+        let next = remaining
+            .iter()
+            .position(|t| {
+                !remaining.iter().any(|other| {
+                    other != t
+                        && lock.tables.get(other).is_some_and(|o| {
+                            o.columns.iter().any(|c| {
+                                c.references.as_deref().and_then(|r| r.split('.').next())
+                                    == Some(t.as_str())
+                            })
+                        })
+                })
+            })
+            .unwrap_or(0);
+        changes.drop_tables.push(remaining.remove(next));
+    }
+    for t in &changes.drop_tables {
+        lock.tables.remove(t);
+    }
+    for (table, column) in &changes.drops {
+        if let Some(t) = lock.tables.get_mut(table) {
+            t.columns.retain(|c| &c.name != column);
+        }
+    }
     Ok(changes)
+}
+
+/// The column name a field would get without a lock: `is_pinned`, or
+/// `note_id` for a to-one relation.
+fn derived_column(f: &FieldModel) -> String {
+    match f.kind {
+        FieldKind::ToOne { .. } => format!("{}_id", snake(&f.name)),
+        _ => snake(&f.name),
+    }
+}
+
+/// `--rename`: the physical renames that make each named entity's table and
+/// each named field's column follow its current name, applied to `lock`.
+///
+/// # Errors
+///
+/// [`MigrationError::Refused`] naming each name that isn't a recorded
+/// entity or field of one, or is already stored under its own name, or
+/// whose new name is taken.
+fn renames(
+    g: &Gen<'_>,
+    lock: &mut SchemaLock,
+    names: &[String],
+) -> Result<Changes, MigrationError> {
+    let model = crate::db::model(g);
+    let mut changes = Changes::default();
+    let mut problems = Vec::new();
+    for name in names {
+        let entity = model
+            .entities()
+            .into_iter()
+            .find(|e| g.view.qualified_name(e.decl) == *name);
+        if let Some(e) = entity {
+            let Some(old) = lock
+                .tables
+                .iter()
+                .find(|(_, t)| t.entity == *name && !t.retired)
+                .map(|(n, _)| n.clone())
+            else {
+                problems.push(format!(
+                    "`{name}` has no table in schema.lock yet; `k migrate new` creates it under its current name"
+                ));
+                continue;
+            };
+            let new = snake(&g.view.decl(e.decl).name);
+            if new == old {
+                problems.push(format!("`{name}` is already stored in table `{old}`"));
+                continue;
+            }
+            if lock.tables.contains_key(&new) {
+                problems.push(format!(
+                    "`{name}` can't move to table `{new}`, which schema.lock already records"
+                ));
+                continue;
+            }
+            if let Some(t) = lock.tables.remove(&old) {
+                lock.tables.insert(new.clone(), t);
+            }
+            for t in lock.tables.values_mut() {
+                for c in &mut t.columns {
+                    if c.references.as_deref() == Some(format!("{old}.id").as_str()) {
+                        c.references = Some(format!("{new}.id"));
+                    }
+                }
+            }
+            changes.table_renames.push((old, new));
+            continue;
+        }
+        let field = name.rsplit_once('.').and_then(|(owner, field)| {
+            let e = model
+                .entities()
+                .into_iter()
+                .find(|e| g.view.qualified_name(e.decl) == owner)?;
+            let f = e.fields.iter().find(|f| f.name == field)?;
+            Some((owner.to_owned(), f.clone()))
+        });
+        let Some((owner, f)) = field else {
+            problems.push(format!(
+                "`{name}` is neither an entity nor a stored field of one (write `module.Entity` or `module.Entity.field`)"
+            ));
+            continue;
+        };
+        if matches!(f.kind, FieldKind::ToMany { .. }) {
+            problems.push(format!(
+                "`{name}` is a to-many relation, which has no column"
+            ));
+            continue;
+        }
+        let Some((table, entry)) = lock
+            .tables
+            .iter_mut()
+            .find(|(_, t)| t.entity == owner && !t.retired)
+        else {
+            problems.push(format!("`{owner}` has no table in schema.lock yet"));
+            continue;
+        };
+        let table = table.clone();
+        let new = derived_column(&f);
+        if entry.columns.iter().any(|c| c.name == new) {
+            problems.push(format!(
+                "`{name}` can't move to column `{table}.{new}`, which schema.lock already records"
+            ));
+            continue;
+        }
+        let Some(column) = entry
+            .columns
+            .iter_mut()
+            .find(|c| c.field.as_deref() == Some(f.name.as_str()) && !c.retired)
+        else {
+            problems.push(format!(
+                "`{name}` has no column in schema.lock yet; `k migrate new` adds it under its current name"
+            ));
+            continue;
+        };
+        let old = std::mem::replace(&mut column.name, new.clone());
+        changes.column_renames.push((table, old, new));
+    }
+    if !problems.is_empty() {
+        return Err(MigrationError::Refused(problems));
+    }
+    Ok(changes)
+}
+
+/// `k migrate rename <old> <new>`: records that the entity or field `old`
+/// is now called `new`, keeping its table or column, and returns the new
+/// text of `schema.lock`. No migration is needed: the database doesn't
+/// change (`docs/design/19-persistence.md`, "Renames").
+///
+/// `old` is the name schema.lock records (`notes.Note` or
+/// `notes.Note.title`); `new` is the entity's new qualified name
+/// (`notes.Memo`), or the field's new name, alone (`heading`) or
+/// qualified (`notes.Note.heading`). After an entity rename, the lock's
+/// fields keep their names; rename those separately if they changed too.
+///
+/// # Errors
+///
+/// [`MigrationError::Codegen`] for a program with errors, and
+/// [`MigrationError::Refused`] when `old` isn't recorded, `new` isn't an
+/// entity or a stored field of `old`'s entity, or `new` is recorded
+/// already.
+///
+/// # Examples
+///
+/// ```
+/// use k_codegen::record_rename;
+/// use k_sema::{AnalysisHost, Options, ProjectPath};
+///
+/// let file = |p: &str, t: &str| (ProjectPath::new(p).unwrap(), t.to_owned());
+/// let files = vec![
+///     file("k.toml", "[package]\nname = \"demo\"\nk = \"0.1\"\n"),
+///     file("App.k", "public app Demo {}\n"),
+///     file(
+///         "src/notes/Note.k",
+///         "import k.crypto.Uuid\n\npublic entity Note {\n    @Id let id: Uuid\n    var heading: String\n}\n",
+///     ),
+///     file(
+///         "schema.lock",
+///         "migrations = []\n\n[tables.note]\nentity = \"notes.Note\"\ncolumns = [\n    { field = \"id\", name = \"id\", type = \"uuid\", primaryKey = true },\n    { field = \"title\", name = \"title\", type = \"text\" },\n]\n",
+///     ),
+/// ];
+/// let host = AnalysisHost::with_files(Options::new(), files);
+/// let lock = record_rename(&host.analysis(), "notes.Note.title", "heading").expect("renames");
+/// assert!(lock.contains(r#"{ field = "heading", name = "title", type = "text" }"#));
+/// ```
+pub fn record_rename(
+    analysis: &k_sema::Analysis,
+    old: &str,
+    new: &str,
+) -> Result<String, MigrationError> {
+    let view = checked(analysis)?;
+    let options = Options::default();
+    let g = Gen::new(analysis, view, &options);
+    let mut lock = crate::db::lock(&g).unwrap_or_default();
+    let refuse = |m: String| Err(MigrationError::Refused(vec![m]));
+    let model = crate::db::model(&g);
+    let entity_named = |name: &str| -> Option<&EntityModel> {
+        model
+            .entities()
+            .into_iter()
+            .find(|e| g.view.qualified_name(e.decl) == name)
+    };
+    let recorded_entity = |lock: &SchemaLock, name: &str| -> Option<String> {
+        lock.tables
+            .iter()
+            .find(|(_, t)| t.entity == name && !t.retired)
+            .map(|(n, _)| n.clone())
+    };
+    if let Some(table) = recorded_entity(&lock, old) {
+        // An entity.
+        if entity_named(new).is_none() {
+            return refuse(format!("`{new}` is not an entity of the program"));
+        }
+        if let Some(t) = recorded_entity(&lock, new) {
+            return refuse(format!(
+                "`{new}` is already recorded in schema.lock, with table `{t}`"
+            ));
+        }
+        if let Some(t) = lock.tables.get_mut(&table) {
+            t.entity = new.to_owned();
+        }
+        return Ok(lock.to_toml());
+    }
+    let Some((owner, field)) = old.rsplit_once('.') else {
+        return refuse(format!(
+            "schema.lock records no entity `{old}` (write `module.Entity` or `module.Entity.field`)"
+        ));
+    };
+    let Some(table) = recorded_entity(&lock, owner) else {
+        return refuse(format!(
+            "schema.lock records no entity `{old}` or `{owner}`"
+        ));
+    };
+    let new_field = new
+        .strip_prefix(owner)
+        .and_then(|r| r.strip_prefix('.'))
+        .unwrap_or(new);
+    if new_field.contains('.') {
+        return refuse(format!(
+            "a field keeps its entity: `{new}` isn't a field of `{owner}`"
+        ));
+    }
+    let stored = entity_named(owner).is_some_and(|e| {
+        e.fields
+            .iter()
+            .any(|f| f.name == new_field && !matches!(f.kind, FieldKind::ToMany { .. }))
+    });
+    if !stored {
+        return refuse(format!(
+            "`{owner}.{new_field}` is not a stored field of the program"
+        ));
+    }
+    let Some(entry) = lock.tables.get_mut(&table) else {
+        return refuse(format!("schema.lock records no entity `{owner}`"));
+    };
+    if entry
+        .columns
+        .iter()
+        .any(|c| c.field.as_deref() == Some(new_field) && !c.retired)
+    {
+        return refuse(format!(
+            "`{owner}.{new_field}` is already recorded in schema.lock"
+        ));
+    }
+    let Some(column) = entry
+        .columns
+        .iter_mut()
+        .find(|c| c.field.as_deref() == Some(field) && !c.retired)
+    else {
+        return refuse(format!("schema.lock records no field `{old}`"));
+    };
+    column.field = Some(new_field.to_owned());
+    Ok(lock.to_toml())
 }
 
 /// The locked columns an entity's fields need, in field order, each with
@@ -522,8 +1103,17 @@ fn quote(s: &str) -> String {
     out
 }
 
-/// The migration file.
-fn render(words: &[String], description: &str, empty: bool, changes: &Changes) -> String {
+/// The migration file: a header saying how it was generated, the doc
+/// comment, `@Breaking` when the request needs it, and the builder calls,
+/// one group per table.
+#[allow(clippy::too_many_lines)]
+fn render(
+    words: &[String],
+    description: &str,
+    request: MigrationRequest<'_>,
+    breaking: Option<&str>,
+    changes: &Changes,
+) -> String {
     let name: String = {
         let pascal: String = words
             .iter()
@@ -552,18 +1142,38 @@ fn render(words: &[String], description: &str, empty: bool, changes: &Changes) -
     }
     let mut out = String::new();
     let quoted = quote(description);
-    if empty {
-        let _ = writeln!(
-            out,
-            "// Generated by `k migrate new --empty {quoted}`: write its data\n// changes with the schema builder (19-persistence.md, \"Data migrations\").\n"
-        );
-    } else {
-        let _ = writeln!(
-            out,
-            "// Generated by `k migrate new {quoted}` from the difference between\n// the entities and schema.lock. Review it before committing.\n"
-        );
+    match request {
+        MigrationRequest::Empty => {
+            let _ = writeln!(
+                out,
+                "// Generated by `k migrate new --empty {quoted}`: write its data\n// changes with the schema builder (19-persistence.md, \"Data migrations\").\n"
+            );
+        }
+        MigrationRequest::Diff => {
+            let _ = writeln!(
+                out,
+                "// Generated by `k migrate new {quoted}` from the difference between\n// the entities and schema.lock. Review it before committing.\n"
+            );
+        }
+        MigrationRequest::DropRetired => {
+            let _ = writeln!(
+                out,
+                "// Generated by `k migrate new --drop-retired {quoted}`: drops the tables\n// and columns earlier migrations retired. Ship it only once no running\n// release reads them (19-persistence.md, \"Rolling deploys\").\n"
+            );
+        }
+        MigrationRequest::Rename(names) => {
+            let list: Vec<String> = names.iter().map(|n| format!("`{n}`")).collect();
+            let _ = writeln!(
+                out,
+                "// Generated by `k migrate new --rename` for {}: renames their\n// storage to follow their names. The previous release still reads the old\n// names, so a rolling deploy needs add, backfill, retire and drop instead\n// (19-persistence.md, \"Rolling deploys\"); `@Breaking(\"single instance\")`\n// says this app runs one instance.\n",
+                list.join(", ")
+            );
+        }
     }
     let _ = writeln!(out, "/// {doc}");
+    if let Some(reason) = breaking {
+        let _ = writeln!(out, "@Breaking({})", quote(reason));
+    }
     let _ = writeln!(out, "migration {name} {{");
     out.push_str("    func up(schema: Schema) {\n");
     let mut groups: Vec<String> = Vec::new();
@@ -572,9 +1182,27 @@ fn render(words: &[String], description: &str, empty: bool, changes: &Changes) -
         .keys()
         .chain(changes.indexes.iter().map(|(t, _)| t))
         .chain(changes.retires.iter().map(|(t, _, _)| t))
+        .chain(changes.drops.iter().map(|(t, _)| t))
+        .chain(changes.column_renames.iter().map(|(t, _, _)| t))
         .collect();
     for table in tables {
-        if let Some(adds) = changes.adds.get(table) {
+        let adds = changes.adds.get(table).map_or(&[][..], Vec::as_slice);
+        let retires: Vec<_> = changes
+            .retires
+            .iter()
+            .filter(|(t, _, _)| t == table)
+            .collect();
+        let drops: Vec<_> = changes.drops.iter().filter(|(t, _)| t == table).collect();
+        let column_renames: Vec<_> = changes
+            .column_renames
+            .iter()
+            .filter(|(t, _, _)| t == table)
+            .collect();
+        if !adds.is_empty()
+            || !retires.is_empty()
+            || !drops.is_empty()
+            || !column_renames.is_empty()
+        {
             let mut g = format!(
                 "        schema.alterTable(name: {}) {{ table =>\n",
                 quote(table)
@@ -599,6 +1227,24 @@ fn render(words: &[String], description: &str, empty: bool, changes: &Changes) -
                     g.push_str("                .indexed(true)\n");
                 }
             }
+            for (_, column, field) in &retires {
+                let _ = writeln!(
+                    g,
+                    "            // `{field}` was removed. The previous release still\n            // reads it; drop it in a later release with\n            // `k migrate new --drop-retired`.\n            table.retireColumn(name: {})",
+                    quote(column)
+                );
+            }
+            for (_, from, to) in &column_renames {
+                let _ = writeln!(
+                    g,
+                    "            table.renameColumn(from: {}, to: {})",
+                    quote(from),
+                    quote(to)
+                );
+            }
+            for (_, column) in &drops {
+                let _ = writeln!(g, "            table.dropColumn(name: {})", quote(column));
+            }
             g.push_str("        }\n");
             groups.push(g);
         }
@@ -609,11 +1255,16 @@ fn render(words: &[String], description: &str, empty: bool, changes: &Changes) -
                 quote(column)
             ));
         }
-        for (t, column, field) in changes.retires.iter().filter(|(t, _, _)| t == table) {
-            groups.push(format!(
-                "        // `{field}` was removed: schema.lock now marks the column\n        // `{t}.{column}` retired. Drop it in a later release, once no running\n        // release reads it (19-persistence.md, \"Rolling deploys\").\n"
-            ));
-        }
+    }
+    for t in &changes.drop_tables {
+        groups.push(format!("        schema.dropTable(name: {})\n", quote(t)));
+    }
+    for (from, to) in &changes.table_renames {
+        groups.push(format!(
+            "        schema.renameTable(from: {}, to: {})\n",
+            quote(from),
+            quote(to)
+        ));
     }
     for (table, columns) in &changes.creates {
         let mut g = format!(

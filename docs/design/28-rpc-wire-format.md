@@ -14,13 +14,13 @@ Every protocol has **deterministic, locked Protobuf names**, so a non-K client (
 | URL | `POST /shop.store.StoreProtocol/PlaceOrder` |
 
 - **The project prefix is the Protobuf form of `k.toml`'s `name`:** lower case, with `-`, `/` and `.` mapped to `_`, and a package's host dropped (`my-shop` → `my_shop`).
-- **The names are recorded per protocol in `protocol.lock`** when first derived. From then on the lock is the source: renaming the project, renaming the protocol or an rpc, or moving the protocol's file to another module keeps the wire names, as a named URL does. Changing a recorded name requires `@Breaking` ([11-protocols-and-rpc.md](11-protocols-and-rpc.md#protocollock)).
+- **The names are always derived, and the serving app's `rpc.lock` records them** (each protocol's `service`, and its rpcs by name). Renaming the project, the protocol or an rpc, or moving the protocol's file to another module, changes a wire name, which deployed callers still use: `k check` reports it as a breaking change (`K8001`), allowed with `@Breaking("reason")` ([11-protocols-and-rpc.md](11-protocols-and-rpc.md#field-numbers-and-rpclock)). An earlier design kept the first-derived names in a `protocol.lock`; it was folded into `rpc.lock`.
 
 ## Messages
 
 - **Each rpc has a generated request message whose fields are its parameters.** The wire field is the parameter's **internal name**, which is never empty and never a keyword: `func reviews(for product: ProductId)` takes `{"product": …}`, and `get(_ id: Uuid)` takes `{"id": …}`. An rpc without parameters takes `{}`.
   - Changing a parameter's external label is source-breaking but wire-compatible.
-  - Changing its internal name renames the wire field, which `protocol.lock` records, so it needs `@Breaking`.
+  - Changing its internal name renames the wire field, which `rpc.lock` records, so it needs `@Breaking`.
 - **A struct return type is the response message itself:** `placeOrder` answers `{"orderId": "…", "paymentUrl": "…"}`. Other return types are wrapped as `{"value": …}`, and an rpc without a return type answers `{}`.
 - JSON field names are the K field names (lower camel case, which is also Protobuf's JSON mapping). Enums without payloads are their case names (`"awaitingPayment"`); `Uuid`, `Url` and `EmailAddress` are strings; `Date` is RFC 3339; `Money` is as in [34-money.md](34-money.md).
 - **Servers accept both encodings,** binary Protobuf (`application/proto`) and JSON (`application/json`), in every environment, and nothing else ([26-auth-and-sessions.md](26-auth-and-sessions.md#request-forgery)). K clients send binary in production and JSON in development; other clients choose.

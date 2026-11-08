@@ -406,7 +406,12 @@ export function Counter(props, ctx) {
 - **`@State`** → `signal` (or a path store for structs and collections), **`@Derived`** → `computed`,
   **`@Effect`** → `effect` (with `$c` when async), **`@Load`** → the load group of
   [runtime.md §7](runtime.md#7-load), **`@Form`** → `createForm`, **`@Inject`** → a lookup in `ctx.c`, the
-  scope's container ([§13](#13-services-and-dependency-injection)).
+  scope's container ([§13](#13-services-and-dependency-injection)). In the browser, a field's
+  `@Check(Service.f)` whose service isn't server-only becomes `checks: [{ run: ($c, x) =>
+  ctx.c.Service.f($c, x), message }]`, and the form gets `ctx.c.Clock` to debounce them
+  ([runtime.md §9](runtime.md#9-forms)); those services and `Clock` count as the declaration's
+  dependencies for the client's reach and containers (`app::form_dependencies`). The server's validator
+  resolves the same target (`server::check_target`).
 - **`@Emits`**: `.on(changed: f)` on a component sets `props.on$changed`; `emit` calls it inside the
   child's batch.
 - **`@Slot`**: an unscoped slot is a function returning nodes (`props.content()`), a scoped slot a function
@@ -778,10 +783,11 @@ implementing `k.server.Job<Payload>`:
   (`m.Home($k.paramProps(params), { ...ctx, key: "0" })`). The router renders the layouts around it with
   the keys the server used (`"L{i}"`), so a server-rendered document hydrates as a whole, and keeps the
   layouts the next page shares mounted ([runtime.md §10](runtime.md#10-router)).
-- **Redirects** recorded in `routes.lock` for renamed pages become `308 Permanent Redirect` entries on the
-  server (implemented: `redirect "/old/{id}" -> page` lines; the old template is parsed with the new
-  page's parameters, so the redirect keeps them and the query) and `history.replaceState` on the client
-  (planned).
+- **Redirects** become `308 Permanent Redirect` entries on the server: those `routes.lock` records under
+  `[redirects]` and the automatic one of each page renamed since it was written
+  (`routelock::redirects`, [sema.md §12.16](sema.md#1216-lockfiles)). The old template is parsed with
+  the new page's parameters, so the redirect keeps them and the query. `history.replaceState` on the
+  client is planned. `k build` writes `routes.lock` (`k_codegen::routes_lock`).
 - **Endpoint pages** are in a separate server-only table with their methods (`Endpoint` enum), never in
   the client bundle. Each function of the page is a module function `Page$fn($e, …)` taking the
   request's `$e` (its `@Param`s and container) first; a handler calling the page's own function calls it

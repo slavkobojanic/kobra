@@ -137,7 +137,11 @@ fn routes_lists_redirects_from_routes_lock_and_every_endpoint_method() {
         "src/hooks/Ping.k",
         "import k.auth.RateLimit\nimport k.http.HttpResponse\nimport k.http.IncomingRequest\n\npublic page Ping requires RateLimit(10.perMinute) at \"/webhooks/ping\" {\n    @Post\n    func receive(request: IncomingRequest) async -> HttpResponse {\n        return HttpResponse(status: .noContent)\n    }\n\n    @Put\n    func replace(request: IncomingRequest) async -> HttpResponse {\n        return HttpResponse(status: .noContent)\n    }\n}\n",
     );
-    write(&dir.0, "routes.lock", "redirect \"/old-home\" -> home\n");
+    write(
+        &dir.0,
+        "routes.lock",
+        "[redirects]\n\"/old-home\" = \"home\"\n",
+    );
     let out = k(&["routes"], &dir.0);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert_golden(&stdout(&out), "routes-fixture.txt");
@@ -281,9 +285,11 @@ fn copy_example(name: &str, dir: &Path) {
 }
 
 /// The fixture catalog of the `migrate` tests: `Product` (every column
-/// kind) and `Review` (a relation).
+/// kind) and `Review` (a relation), in an app, so `k check` compares its
+/// entities, migrations and `schema.lock`.
 fn catalog(dir: &Path) {
     write(dir, "k.toml", MANIFEST);
+    write(dir, "App.k", "public app Catalog {}\n");
     write(
         dir,
         "src/catalog/Product.k",
@@ -512,6 +518,414 @@ fn migrate_new_empty_writes_an_empty_migration() {
     assert_eq!(check.status.code(), Some(0), "{}", stderr(&check));
 }
 
+/// `k check` in `dir`, with its exit code and its plain diagnostics.
+fn check(dir: &Path) -> (Option<i32>, String) {
+    let out = k(&["check", "--color", "never"], dir);
+    (out.status.code(), stderr(&out))
+}
+
+/// The catalog after its first migration, `0001_create_catalog`.
+fn migrated_catalog(dir: &Path) {
+    catalog(dir);
+    let out = k(&["migrate", "new", "create catalog"], dir);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+}
+
+#[test]
+fn check_reports_entities_that_differ_from_schema_lock() {
+    let dir = TempDir::new("check_drift");
+    migrated_catalog(&dir.0);
+    let product = fs::read_to_string(dir.0.join("src/catalog/Product.k")).unwrap();
+    write(
+        &dir.0,
+        "src/catalog/Product.k",
+        &product.replace(
+            "    var note: String?\n",
+            "    var note: String?\n\n    var featured: Bool = false\n",
+        ),
+    );
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(1), "{err}");
+    assert!(
+        err.contains("error[K8004]: `catalog.Product.featured` has no column in schema.lock"),
+        "{err}"
+    );
+    assert!(
+        err.contains("help: run `k migrate new \"description\"`: it writes the migration and records it in schema.lock"),
+        "{err}"
+    );
+    // The suggested command resolves it.
+    let out = k(&["migrate", "new", "feature products"], &dir.0);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(0), "{err}");
+}
+
+#[test]
+fn migrate_new_drop_retired_drops_what_earlier_migrations_retired() {
+    let dir = TempDir::new("migrate_drop_retired");
+    migrated_catalog(&dir.0);
+    let nothing = k(
+        &["migrate", "new", "--drop-retired", "drop nothing"],
+        &dir.0,
+    );
+    assert_eq!(nothing.status.code(), Some(0), "{}", stderr(&nothing));
+    assert_eq!(
+        stdout(&nothing),
+        "nothing to drop: schema.lock records no retired table or column\n"
+    );
+    let product = fs::read_to_string(dir.0.join("src/catalog/Product.k")).unwrap();
+    write(
+        &dir.0,
+        "src/catalog/Product.k",
+        &product.replace("    var note: String?\n\n", ""),
+    );
+    let out = k(&["migrate", "new", "retire the note"], &dir.0);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(0), "the retirement replays to the lock: {err}");
+    let out = k(
+        &["migrate", "new", "--drop-retired", "drop the note column"],
+        &dir.0,
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "wrote migrations/0003_drop_the_note_column.k\nwrote schema.lock\n"
+    );
+    let migration =
+        fs::read_to_string(dir.0.join("migrations/0003_drop_the_note_column.k")).unwrap();
+    assert_golden(&migration, "migrate-drop-retired.k");
+    let lock =
+        k_db::lock::SchemaLock::parse(&fs::read_to_string(dir.0.join("schema.lock")).unwrap())
+            .unwrap();
+    assert!(
+        !lock.tables["product"]
+            .columns
+            .iter()
+            .any(|c| c.name == "note"),
+        "the dropped column leaves the lock"
+    );
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(0), "{err}");
+}
+
+#[test]
+fn a_drop_of_a_live_column_written_by_hand_fails_check() {
+    let dir = TempDir::new("check_live_drop");
+    migrated_catalog(&dir.0);
+    let out = k(&["migrate", "new", "--empty", "drop the slug"], &dir.0);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    write(
+        &dir.0,
+        "migrations/0002_drop_the_slug.k",
+        "/// Drops the slug.\nmigration DropTheSlug {\n    func up(schema: Schema) {\n        schema.alterTable(name: \"product\") { table =>\n            table.dropColumn(name: \"slug\")\n        }\n    }\n}\n",
+    );
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(1), "{err}");
+    assert!(
+        err.contains("error[K6006]: `0002_drop_the_slug` drops the column `product.slug`, which the previous release still reads during a rolling deploy"),
+        "{err}"
+    );
+    assert!(err.contains("k migrate new --drop-retired"), "{err}");
+    // The build refuses it too.
+    let build = k(&["build"], &dir.0);
+    assert_eq!(build.status.code(), Some(2), "{}", stderr(&build));
+    assert!(
+        stderr(&build).contains("drops the column `product.slug`"),
+        "{}",
+        stderr(&build)
+    );
+}
+
+#[test]
+fn migrate_rename_keeps_the_column_and_migrate_new_rename_renames_it() {
+    let dir = TempDir::new("migrate_rename_field");
+    migrated_catalog(&dir.0);
+    let product = fs::read_to_string(dir.0.join("src/catalog/Product.k")).unwrap();
+    write(
+        &dir.0,
+        "src/catalog/Product.k",
+        &product.replace("    var name: String\n", "    var title: String\n"),
+    );
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(1), "{err}");
+    assert!(
+        err.contains("keep its storage with `k migrate rename catalog.Product.name title`"),
+        "{err}"
+    );
+    let out = k(
+        &["migrate", "rename", "catalog.Product.name", "title"],
+        &dir.0,
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "recorded `catalog.Product.name` as `title`; its storage keeps its name, so no migration is needed\nwrote schema.lock\n"
+    );
+    assert!(!dir.0.join("migrations/0002_rename.k").exists());
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(0), "the field reads its old column: {err}");
+    // Renaming the column too is a physical, single-instance change.
+    let out = k(
+        &[
+            "migrate",
+            "new",
+            "--rename",
+            "catalog.Product.title",
+            "rename the title column",
+        ],
+        &dir.0,
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let migration =
+        fs::read_to_string(dir.0.join("migrations/0002_rename_the_title_column.k")).unwrap();
+    assert_golden(&migration, "migrate-rename-column.k");
+    let lock =
+        k_db::lock::SchemaLock::parse(&fs::read_to_string(dir.0.join("schema.lock")).unwrap())
+            .unwrap();
+    let title = lock.tables["product"]
+        .columns
+        .iter()
+        .find(|c| c.field.as_deref() == Some("title"))
+        .unwrap();
+    assert_eq!(title.name, "title");
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(0), "{err}");
+    // Nothing is left to rename.
+    let again = k(
+        &[
+            "migrate",
+            "new",
+            "--rename",
+            "catalog.Product.title",
+            "again",
+        ],
+        &dir.0,
+    );
+    assert_eq!(again.status.code(), Some(1));
+    assert!(
+        stderr(&again).contains("`catalog.Product.title` is already stored in column")
+            || stderr(&again).contains("can't move to column `product.title`"),
+        "{}",
+        stderr(&again)
+    );
+}
+
+#[test]
+fn migrate_rename_records_a_renamed_entity_and_its_table_can_follow() {
+    let dir = TempDir::new("migrate_rename_entity");
+    migrated_catalog(&dir.0);
+    let review = fs::read_to_string(dir.0.join("src/catalog/Review.k")).unwrap();
+    fs::remove_file(dir.0.join("src/catalog/Review.k")).unwrap();
+    write(
+        &dir.0,
+        "src/catalog/Rating.k",
+        &review
+            .replace("public entity Review", "public entity Rating")
+            .replace("A review of", "A rating of"),
+    );
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(1), "{err}");
+    assert!(
+        err.contains("`k migrate rename catalog.Review catalog.Rating`"),
+        "{err}"
+    );
+    let unknown = k(
+        &["migrate", "rename", "catalog.Revue", "catalog.Rating"],
+        &dir.0,
+    );
+    assert_eq!(unknown.status.code(), Some(1));
+    assert!(
+        stderr(&unknown).contains("schema.lock records no entity `catalog.Revue`"),
+        "{}",
+        stderr(&unknown)
+    );
+    let out = k(
+        &["migrate", "rename", "catalog.Review", "catalog.Rating"],
+        &dir.0,
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(0), "{err}");
+    let out = k(
+        &[
+            "migrate",
+            "new",
+            "--rename",
+            "catalog.Rating",
+            "rename the ratings table",
+        ],
+        &dir.0,
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let migration =
+        fs::read_to_string(dir.0.join("migrations/0002_rename_the_ratings_table.k")).unwrap();
+    assert_golden(&migration, "migrate-rename-table.k");
+    let lock =
+        k_db::lock::SchemaLock::parse(&fs::read_to_string(dir.0.join("schema.lock")).unwrap())
+            .unwrap();
+    assert_eq!(lock.tables["rating"].entity, "catalog.Rating");
+    assert!(!lock.tables.contains_key("review"));
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(0), "{err}");
+}
+
+#[test]
+fn build_records_a_hand_written_migration_in_schema_lock() {
+    let dir = TempDir::new("build_schema_lock");
+    migrated_catalog(&dir.0);
+    let out = k(&["migrate", "new", "--empty", "archive products"], &dir.0);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    write(
+        &dir.0,
+        "migrations/0002_archive_products.k",
+        "/// Products can be archived.\nmigration ArchiveProducts {\n    func up(schema: Schema) {\n        schema.alterTable(name: \"product\") { table =>\n            table.addEnumCase(column: \"status\", case: \"archived\")\n        }\n    }\n}\n",
+    );
+    write(
+        &dir.0,
+        "src/catalog/ProductStatus.k",
+        "/// Whether a product is for sale.\npublic enum ProductStatus {\n    case draft\n    case live\n    case archived\n}\n",
+    );
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(1), "{err}");
+    assert!(err.contains("error[K8005]"), "{err}");
+    assert!(err.contains("run `k build`"), "{err}");
+    let build = k(&["build"], &dir.0);
+    assert_eq!(build.status.code(), Some(0), "{}", stderr(&build));
+    assert!(
+        stderr(&build).contains("wrote schema.lock"),
+        "{}",
+        stderr(&build)
+    );
+    let lock =
+        k_db::lock::SchemaLock::parse(&fs::read_to_string(dir.0.join("schema.lock")).unwrap())
+            .unwrap();
+    let status = lock.tables["product"]
+        .columns
+        .iter()
+        .find(|c| c.name == "status")
+        .unwrap();
+    assert_eq!(status.cases, ["draft", "live", "archived"]);
+    assert_eq!(status.field.as_deref(), Some("status"));
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(0), "{err}");
+    // A second build has nothing to record.
+    let again = k(&["build"], &dir.0);
+    assert!(
+        !stderr(&again).contains("wrote schema.lock"),
+        "{}",
+        stderr(&again)
+    );
+}
+
+#[test]
+fn build_never_drops_a_listed_migration_whose_file_is_gone() {
+    let dir = TempDir::new("build_lost_migration");
+    migrated_catalog(&dir.0);
+    let out = k(&["migrate", "new", "--empty", "seed the catalog"], &dir.0);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let lock = fs::read_to_string(dir.0.join("schema.lock")).unwrap();
+    fs::remove_file(dir.0.join("migrations/0002_seed_the_catalog.k")).unwrap();
+    let build = k(&["build"], &dir.0);
+    assert_eq!(build.status.code(), Some(0), "{}", stderr(&build));
+    assert_eq!(
+        fs::read_to_string(dir.0.join("schema.lock")).unwrap(),
+        lock,
+        "the lost migration stays listed"
+    );
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(1), "{err}");
+    assert!(
+        err.contains("schema.lock lists the migration `0002_seed_the_catalog`, but `migrations/0002_seed_the_catalog.k` doesn't exist"),
+        "{err}"
+    );
+}
+
+/// A site with a named home page, `Pricing`, `Product` and an endpoint.
+fn site(dir: &Path) {
+    write(dir, "k.toml", MANIFEST);
+    write(
+        dir,
+        "App.k",
+        "public app Site {\n    metadata {\n        title(\"Site\")\n    }\n}\n",
+    );
+    write(
+        dir,
+        "src/site/Home.k",
+        "public page Home at \"/\" {\n    view {\n        heading(level: 1) { \"Home\" }\n    }\n}\n",
+    );
+    write(
+        dir,
+        "src/site/Pricing.k",
+        "public page Pricing {\n    view {\n        heading(level: 1) { \"Pricing\" }\n    }\n}\n",
+    );
+    write(
+        dir,
+        "src/site/Product.k",
+        "import k.crypto.Uuid\n\npublic page Product {\n    @Param let id: Uuid\n\n    view {\n        heading(level: 1) { \"Product\" }\n    }\n}\n",
+    );
+    write(
+        dir,
+        "src/site/Health.k",
+        "import k.http.HttpResponse\nimport k.http.IncomingRequest\n\npublic page Health at \"/health\" {\n    @Get\n    func check(request: IncomingRequest) async -> HttpResponse {\n        return HttpResponse(status: .ok)\n    }\n}\n",
+    );
+}
+
+#[test]
+fn build_writes_routes_lock_and_the_redirect_of_a_renamed_page() {
+    let dir = TempDir::new("build_routes_lock");
+    site(&dir.0);
+    let build = k(&["build"], &dir.0);
+    assert_eq!(build.status.code(), Some(0), "{}", stderr(&build));
+    assert!(
+        stderr(&build).contains("wrote routes.lock"),
+        "{}",
+        stderr(&build)
+    );
+    let lock = fs::read_to_string(dir.0.join("routes.lock")).unwrap();
+    assert!(
+        lock.contains("[pages.pricing]\ndeclaration = \"site.Pricing\"\nurl = \"/pricing\"\n"),
+        "{lock}"
+    );
+    assert_eq!(check(&dir.0).0, Some(0));
+    // Rename `Pricing` to `Plans`: its URL moves to `/plans`.
+    fs::remove_file(dir.0.join("src/site/Pricing.k")).unwrap();
+    write(
+        &dir.0,
+        "src/site/Plans.k",
+        "public page Plans {\n    view {\n        heading(level: 1) { \"Plans\" }\n    }\n}\n",
+    );
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(1), "{err}");
+    assert!(
+        err.contains("error[K8007]: `site.Plans` was renamed from `site.Pricing`, so its URL moved from `/pricing` to `/plans`"),
+        "{err}"
+    );
+    let build = k(&["build"], &dir.0);
+    assert_eq!(build.status.code(), Some(0), "{}", stderr(&build));
+    let lock = fs::read_to_string(dir.0.join("routes.lock")).unwrap();
+    assert_golden(&lock, "routes-lock-renamed.lock");
+    assert_eq!(check(&dir.0).0, Some(0));
+    let routes = k(&["routes"], &dir.0);
+    assert!(
+        stdout(&routes).contains("GET     /pricing       Plans (redirect)"),
+        "{}",
+        stdout(&routes)
+    );
+    // Removing a page keeps its entry, so `k check` keeps failing until a
+    // redirect is added or the entry is deleted.
+    fs::remove_file(dir.0.join("src/site/Plans.k")).unwrap();
+    let build = k(&["build"], &dir.0);
+    assert_eq!(build.status.code(), Some(0), "{}", stderr(&build));
+    let (code, err) = check(&dir.0);
+    assert_eq!(code, Some(1), "{err}");
+    assert!(
+        err.contains("`/plans` (page `plans`) is no longer served"),
+        "{err}"
+    );
+}
+
 #[test]
 fn migrate_status_and_apply_use_the_development_database() {
     let dir = TempDir::new("migrate_apply");
@@ -629,6 +1043,85 @@ fn test_refuses_a_project_with_errors_and_a_non_project() {
         stderr(&out).contains("error[K7501]"),
         "the errors are printed: {}",
         stderr(&out)
+    );
+}
+
+// ------------------------------------------------------- check runs tests
+
+/// `k check` runs the project's tests (13-tooling.md, "Commands"): each
+/// failure is a `K7510` diagnostic like `k test`'s, and the summary counts
+/// the tests that ran.
+#[test]
+fn check_runs_the_tests_and_reports_each_failure() {
+    let out = k(&["check", "--color", "never"], &counter());
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert_eq!(err.matches("error[K7510]").count(), 3, "{err}");
+    assert!(
+        err.contains("in test `CounterView › a missing element fails the test with the query`"),
+        "{err}"
+    );
+    assert!(
+        err.trim_end()
+            .ends_with("checked 5 files, ran 9 tests: 3 error(s), 0 warning(s)"),
+        "{err}"
+    );
+}
+
+/// `--no-tests` skips them: the check is the semantic pass and the
+/// lockfiles only.
+#[test]
+fn check_no_tests_skips_the_tests() {
+    let out = k(&["check", "--color", "never", "--no-tests"], &counter());
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "checked 5 files: no problems\n");
+}
+
+/// In JSON Lines, a failed test is one more diagnostic.
+#[test]
+fn check_json_reports_failed_tests_as_diagnostics() {
+    let out = k(&["check", "--format", "json"], &counter());
+    assert_eq!(out.status.code(), Some(1));
+    let text = stdout(&out);
+    let failures = text
+        .lines()
+        .filter(|l| l.contains("\"code\":\"K7510\""))
+        .count();
+    assert_eq!(failures, 3, "{text}");
+}
+
+/// Tests run only for a program without errors, as in `k test`.
+#[test]
+fn check_runs_no_tests_for_a_project_with_errors() {
+    let dir = TempDir::new("check_tests_errors");
+    write(&dir.0, "k.toml", MANIFEST);
+    write(
+        &dir.0,
+        "src/a/A.k",
+        "func one() -> Int {\n    return \"x\"\n}\n",
+    );
+    write(
+        &dir.0,
+        "src/a/A.test.k",
+        "test A {\n    test \"fails\" {\n        expect 1 == 2\n    }\n}\n",
+    );
+    let out = k(&["check", "--color", "never"], &dir.0);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(err.contains("error[K2001]"), "{err}");
+    assert!(!err.contains("K7510") && !err.contains("ran "), "{err}");
+}
+
+/// A passing suite: the summary says how many ran.
+#[test]
+fn check_passes_the_todos_example_with_its_tests() {
+    let out = k(&["check", "--color", "never", "examples/todos"], &repo());
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    let last = err.lines().last().unwrap_or_default();
+    assert!(
+        last.starts_with("checked ") && last.contains(" tests: no problems"),
+        "{err}"
     );
 }
 

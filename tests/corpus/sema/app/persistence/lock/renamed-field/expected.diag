@@ -1,0 +1,5 @@
+error[K8004] src/notes/Note.k:4:15-4:19: `notes.Note.title` was removed, but schema.lock still stores it in `note.title`
+  help: if it was renamed, keep its storage with `k migrate rename notes.Note.title heading`; otherwise run `k migrate new "description"`: it writes the migration and records it in schema.lock
+error[K8004] src/notes/Note.k:7:9-7:16: `notes.Note.heading` is added to the existing table `note`, so it needs a default value or an optional type
+  note: `k migrate new` doesn't write it: existing rows need a value, and so do the previous release's inserts
+  help: if it was renamed, keep its storage with `k migrate rename notes.Note.title heading`; otherwise write the migration by hand (`k migrate new --empty "description"`), then `k build` records it in schema.lock

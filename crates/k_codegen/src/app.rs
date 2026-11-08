@@ -465,6 +465,7 @@ pub(crate) fn client_reach(g: &Gen<'_>, items: &BTreeMap<DeclId, Item>) -> BTree
             continue;
         }
         let mut next: Vec<DeclId> = crate::server::injected(g, d);
+        next.extend(form_dependencies(g, d));
         if let Some(item) = items.get(&d) {
             next.extend(item.uses.iter().map(|(u, _)| *u));
         }
@@ -645,7 +646,7 @@ pub(crate) fn client_containers(
         if !reach.contains(&d) || !crate::bundle::allowed(g, d, Target::Client) {
             continue;
         }
-        for t in injected(g, d) {
+        for t in injected(g, d).into_iter().chain(form_dependencies(g, d)) {
             if !wanted.contains(&t) {
                 wanted.push(t);
             }
@@ -1075,6 +1076,9 @@ pub(crate) fn form(b: &mut Body<'_, '_>, m: MemberId, init: Option<&ast::Expr>) 
         return Expr::Null;
     };
     let mut fields = Vec::new();
+    // Whether a field has a `@Check` the browser runs, debounced on the
+    // app's `Clock`.
+    let mut debounced = false;
     for f in g.stored_fields(d) {
         let fi = g.view.member(f).clone();
         let ft = fi.ty.clone().unwrap_or(Type::Error);
@@ -1104,14 +1108,36 @@ pub(crate) fn form(b: &mut Body<'_, '_>, m: MemberId, init: Option<&ast::Expr>) 
                 constraints.push(c);
             }
         }
-        fields.push(Expr::Object(
-            vec![
-                Prop::KeyValue("name".into(), js::str(fi.name.clone())),
-                Prop::KeyValue("parse".into(), parse),
-                Prop::KeyValue("constraints".into(), Expr::Array(constraints)),
-            ],
-            false,
-        ));
+        let mut props = vec![
+            Prop::KeyValue("name".into(), js::str(fi.name.clone())),
+            Prop::KeyValue("parse".into(), parse),
+            Prop::KeyValue("constraints".into(), Expr::Array(constraints)),
+        ];
+        // `@Check` rules the browser can run: the service's function in
+        // the component's container, with the form's signal (`$c`).
+        let checks: Vec<Expr> = anns
+            .iter()
+            .filter(|(n, _)| n == "Check" && b.target == Target::Client)
+            .filter_map(|(_, args)| browser_check(g, d, args.as_ref()))
+            .map(|(service, m, message)| {
+                let run = crate::server::check_call(g, member(id("ctx"), "c"), service, m);
+                Expr::Object(
+                    vec![
+                        Prop::KeyValue(
+                            "run".into(),
+                            js::arrow(vec![Param::new("$c"), Param::new("x")], run),
+                        ),
+                        Prop::KeyValue("message".into(), js::str(message)),
+                    ],
+                    false,
+                )
+            })
+            .collect();
+        if !checks.is_empty() {
+            debounced = true;
+            props.push(Prop::KeyValue("checks".into(), Expr::Array(checks)));
+        }
+        fields.push(Expr::Object(props, false));
     }
     // Initial raw text: `.empty(name: x, age: 18)`.
     let mut initial = Vec::new();
@@ -1147,10 +1173,58 @@ pub(crate) fn form(b: &mut Body<'_, '_>, m: MemberId, init: Option<&ast::Expr>) 
         }
         _ => Expr::Null,
     };
-    rt(
-        "createForm",
-        vec![Expr::Array(fields), Expr::Object(initial, false), validate],
-    )
+    let mut args = vec![Expr::Array(fields), Expr::Object(initial, false), validate];
+    if debounced {
+        args.push(member(member(id("ctx"), "c"), "Clock"));
+    }
+    rt("createForm", args)
+}
+
+/// The target of a `@Check` rule on a field of struct `d` that the browser
+/// can run: its service is one the browser's containers may hold (not
+/// server-only). A server-only service's rule runs on the server alone.
+fn browser_check(
+    g: &Gen<'_>,
+    d: DeclId,
+    args: Option<&ast::ArgList>,
+) -> Option<(DeclId, MemberId, String)> {
+    crate::server::check_target(g, d, args)
+        .filter(|(service, _, _)| crate::bundle::allowed(g, *service, Target::Client))
+}
+
+/// What the `@Form` fields of declaration `d` reach in the browser beyond
+/// its `@Inject`s: the services of the `@Check` rules the browser runs and
+/// `Clock`, which debounces them (15-forms-and-validation.md). The
+/// containers get a getter for each, as for an injected type.
+pub(crate) fn form_dependencies(g: &Gen<'_>, d: DeclId) -> Vec<DeclId> {
+    let mut out = Vec::new();
+    for &m in &g.view.decl(d).members {
+        let info = g.view.member(m);
+        if !info.has_annotation("Form") {
+            continue;
+        }
+        let Some(s) = info.ty.as_ref().and_then(Type::decl) else {
+            continue;
+        };
+        for f in g.stored_fields(s) {
+            let Some(node) = g.member_node(f) else {
+                continue;
+            };
+            for a in node.children().filter_map(ast::Annotation::cast) {
+                if a.name().is_some_and(|n| n.text() == "Check") {
+                    if let Some((service, _, _)) = browser_check(g, s, a.arg_list().as_ref()) {
+                        if !out.contains(&service) {
+                            out.push(service);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if !out.is_empty() {
+        out.extend(g.view.lookup("k.time.Clock"));
+    }
+    out
 }
 
 /// The plain string of a validation annotation's `message:` argument
@@ -1315,9 +1389,10 @@ pub(crate) fn constraint(
                 ),
             ))
         }
-        // `@Check` is asynchronous and runs a service: the server's
-        // validator generates it (`server::validator`); the browser's
-        // debounced run is not written yet (runtime.md §9).
+        // `@Check` is asynchronous and runs a service, so it isn't a
+        // constraint: the server's validator runs it (`server::validator`),
+        // and the browser's form gets it as a field's `checks`, run
+        // debounced on blur (`form`, runtime.md §9).
         _ => {
             let _ = b;
             None

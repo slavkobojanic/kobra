@@ -133,6 +133,18 @@ test("click toggles a checkbox and fires change; a disabled control ignores clic
   assertEq(clicks, 0);
 });
 
+test("blur fires blur on the field and a bubbling focusout", () => {
+  const s = screenOf('<form><label for="f">Email</label><input id="f"></form>');
+  const form = document.body.firstChild.firstChild;
+  const input = form.lastChild;
+  const seen = [];
+  input.addEventListener("blur", () => seen.push("blur"));
+  form.addEventListener("blur", () => seen.push("blur on the form"));
+  form.addEventListener("focusout", () => seen.push("focusout"));
+  s.textField("Email").blur();
+  assertDeepEq(seen, ["blur", "focusout"]);
+});
+
 test("fill replaces the value and fires input; Enter and a submit button submit the form", () => {
   const s = screenOf('<form><label for="f">Todo</label><input id="f"><button type="submit">Add</button><button type="button">Cancel</button></form>');
   const form = document.body.firstChild.firstChild;
@@ -284,6 +296,17 @@ test("the recording doubles keep what they were given", async () => {
     threw = e;
   }
   assertEq(threw, "down");
+});
+
+test("the recording job queue keeps payloads given a null codec", async () => {
+  // A caller with no codec in hand (`InlineJobQueue` accepts one too)
+  // passes `null`: the payload is kept as it is, never `null.encode`.
+  const q = kit.recordingJobQueue();
+  const kind = { name: "ping" };
+  await q.enqueue(null, null, kind, { id: 7 }, 0);
+  assertDeepEq(q.payloads(null, kind), [{ id: 7 }]);
+  // A codec given to `payloads` alone still decodes what was kept.
+  assertDeepEq(q.payloads(codec, kind), [{ id: 7 }].map((p) => codec.decode(codec.encode(p))));
 });
 
 test("fail throws a panic carrying the expectation and the values", () => {

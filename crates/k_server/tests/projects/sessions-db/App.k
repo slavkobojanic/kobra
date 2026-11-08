@@ -1,2 +1,6 @@
 /// Sessions in the database.
-public app SessionsDb {}
+public app SessionsDb {
+    metadata {
+        title("SessionsDb")
+    }
+}

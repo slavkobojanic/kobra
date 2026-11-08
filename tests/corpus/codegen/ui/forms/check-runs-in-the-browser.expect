@@ -1,0 +1,4 @@
+client contains checks: [
+client contains ctx.c.Accounts.emailAvailable(
+client contains That address is taken
+client contains ctx.c.Clock

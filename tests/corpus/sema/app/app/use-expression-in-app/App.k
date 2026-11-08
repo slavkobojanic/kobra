@@ -3,4 +3,8 @@ import mail.MailConfig
 
 public app Shop {
     use MailConfig(host: "localhost") for MailConfig
+
+    metadata {
+        title("Shop")
+    }
 }

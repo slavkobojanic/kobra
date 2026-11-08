@@ -1,0 +1,4 @@
+error[K8001] src/cart/CartApi.k:2:17-2:24: `cart.CartApi` changed in a way that breaks callers already deployed, without `@Breaking`
+  label rpc.lock:4:1-4:27: recorded here
+  note: its wire name changed from `oldshop.cart.CartApi` to `shop.cart.CartApi` (the project's name and the protocol's module are part of it), so deployed callers' paths no longer match
+  note: keep the recorded shape (adding an rpc, an optional field or an error case is compatible), or mark the protocol `@Breaking("reason")` once no deployed caller relies on it

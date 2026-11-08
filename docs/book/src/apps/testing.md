@@ -350,7 +350,7 @@ the view it checks:
   `screen.item(containing: "Buy milk").button(named: "Delete")`. This finds one of many identically named
   controls without test ids.
 - **Element state:** `exists`, `isVisible`, `isChecked`, `isPressed`, `isDisabled`, `value`, `text`,
-  `level`. **Actions:** `click()`, `fill(text)`, `press(.enter)`, `press(.escape)` and the other `Key`
+  `level`. **Actions:** `click()`, `fill(text)`, `blur()` (leaves a field, which starts its `@Check`), `press(.enter)`, `press(.escape)` and the other `Key`
   cases. Pressing Enter in a form field submits the form, as in a browser.
 - **Synchronous updates are flushed by every action,** so a test can `click()` and then `expect` with no
   `settle()`. `settle()` is needed only for async work. It doesn't wait for work that is waiting on the

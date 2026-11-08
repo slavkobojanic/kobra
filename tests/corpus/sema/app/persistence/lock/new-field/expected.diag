@@ -1,0 +1,2 @@
+error[K8004] src/notes/Note.k:11:9-11:15: `notes.Note.pinned` has no column in schema.lock
+  help: run `k migrate new "description"`: it writes the migration and records it in schema.lock

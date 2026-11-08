@@ -1,0 +1,4 @@
+warning[K3028] App.k:8:21-8:184: the description has 161 characters; search results show 160
+warning[K3028] src/site/Pages.k:5:21-5:184: the description has 161 characters; search results show 160
+warning[K3028] src/site/Pages.k:30:21-30:184: the description has 161 characters; search results show 160
+warning[K3028] src/site/Pages.k:63:25-63:188: the description has 161 characters; search results show 160

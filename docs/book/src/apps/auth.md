@@ -126,7 +126,9 @@ await sessions.signIn(userId: StaffId(email: config.email), roles: Set([StaffRol
 **`session.user` has type `SessionUser`, not `SessionUser?`, only in bodies that are syntactically
 guarded:**
 
-- the body of an rpc whose own `requires` clause, or whose protocol's, includes `Authenticated`;
+- the body of an rpc whose own `requires` clause in the protocol, or the protocol's, includes
+  `Authenticated`; when the service implements several protocols that declare the rpc, one handler
+  serves them all, so every one of them must guard it;
 - a page that `requires Authenticated`, including its `@Load` initializers.
 
 ```k
@@ -149,8 +151,9 @@ public service NotesApi implements NotesProtocol {
 }
 ```
 
-Nothing else is narrowed, including private helpers called only from guarded rpcs. A helper takes the
-user explicitly, so its types never depend on who calls it:
+Nothing else is narrowed, including bodies behind only `RateLimit` or `Role`, and private helpers
+called only from guarded rpcs. A helper takes the user explicitly, so its types never depend on who
+calls it:
 
 ```k
 ~import k.auth.AuthUserId

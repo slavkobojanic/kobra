@@ -1,1 +1,5 @@
-public app Paybox {}
+public app Paybox {
+    metadata {
+        title("Paybox")
+    }
+}

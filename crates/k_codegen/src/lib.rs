@@ -22,6 +22,13 @@
 //! bundle by construction (`docs/compiler/codegen.md`, "Client/server
 //! split"), and [`check_client_bundle`] verifies the invariant on the output.
 //!
+//! The crate also answers the project commands that need its models:
+//! [`route_table`] (`k routes`), [`plan_migration_with`] and
+//! [`record_rename`] (`k migrate new`, `k migrate rename`), the lockfile
+//! checks `k check` adds to the semantic pass ([`project_diagnostics`]:
+//! `schema.lock` with the migrations, and `routes.lock`), and the lockfiles
+//! `k build` writes ([`schema_lock`], [`routes_lock`]).
+//!
 //! # Status
 //!
 //! The API is final. The core language, components, views, styles, DI
@@ -43,16 +50,22 @@ pub mod dist;
 pub mod hash;
 mod jobs;
 mod js;
+mod lockfiles;
 mod lower;
 mod migration;
 mod native;
+mod routelock;
 mod routes;
 mod server;
 mod suite;
 mod ui;
 mod view;
 
-pub use migration::{MigrationDraft, MigrationError, MigrationPlan, plan_migration};
+pub use lockfiles::{project_diagnostics, routes_lock, schema_lock};
+pub use migration::{
+    MigrationDraft, MigrationError, MigrationPlan, MigrationRequest, plan_migration,
+    plan_migration_with, record_rename,
+};
 pub use routes::{Route, RouteKind, RouteParam, route_table};
 
 use serde::{Deserialize, Serialize};
@@ -489,8 +502,15 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
             }
         }
         // `@Inject` is reached through the container, not a symbol.
-        let injects: BTreeMap<k_sema::view::DeclId, Vec<k_sema::view::DeclId>> =
-            g.own.iter().map(|&d| (d, server::injected(g, d))).collect();
+        let injects: BTreeMap<k_sema::view::DeclId, Vec<k_sema::view::DeclId>> = g
+            .own
+            .iter()
+            .map(|&d| {
+                let mut deps = server::injected(g, d);
+                deps.extend(app::form_dependencies(g, d));
+                (d, deps)
+            })
+            .collect();
         bundle::keep_reachable(&mut client, &roots, &injects);
         // A test bundle is loaded at once: its pages are in the shared
         // chunk, which the entry imports.

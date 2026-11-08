@@ -348,6 +348,20 @@ fn an_appended_app_serves_probes_and_stops_on_sigterm() {
         Some(78),
         "invalid configuration exits with EX_CONFIG"
     );
+    let proxies = Command::new(&app)
+        .env("K_TRUSTED_PROXIES", "10.0.0.0/8,caddy")
+        .output()
+        .unwrap();
+    assert_eq!(
+        proxies.status.code(),
+        Some(78),
+        "a trusted proxy that isn't a CIDR range exits with EX_CONFIG"
+    );
+    let report = String::from_utf8_lossy(&proxies.stderr);
+    assert!(
+        report.contains("K_TRUSTED_PROXIES") && report.contains("caddy"),
+        "{report}"
+    );
 }
 
 /// One `GET` over HTTP/1.1 with `Connection: close`; `None` when the
@@ -486,6 +500,66 @@ fn dev_rebuilds_on_change_and_keeps_the_last_good_build_on_errors() {
     #[cfg(unix)]
     assert_eq!(status.code(), Some(0), "SIGTERM shuts k dev down cleanly");
     let _ = status;
+}
+
+/// `k dev` names the `.env` keys the process environment shadows, before it
+/// serves (25-config-and-secrets.md, "Per environment"): only the keys set
+/// in both with different values, never a value.
+#[test]
+fn dev_names_the_env_keys_the_process_environment_shadows() {
+    use std::io::BufRead;
+    let dir = TempDir::new("dev_shadowed");
+    write(
+        &dir.0,
+        "k.toml",
+        "[package]\nname = \"hello\"\nk = \"0.1\"\n",
+    );
+    write(&dir.0, "App.k", DEV_APP);
+    write(&dir.0, "src/home/Home.k", &dev_page("Hello"));
+    write(
+        &dir.0,
+        ".env",
+        "K_SHADOW_GREETING=from-the-file\nK_SHADOW_SAME=equal\nK_SHADOW_ONLY_FILE=x\nK_SHADOW_TOKEN=file-secret\n",
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
+        .args(["dev", "--port", "0"])
+        .current_dir(&dir.0)
+        .env("K_SHADOW_GREETING", "from-the-process")
+        .env("K_SHADOW_SAME", "equal")
+        .env("K_SHADOW_TOKEN", "process-secret")
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let mut log = Vec::new();
+    for line in std::io::BufReader::new(stderr).lines() {
+        let Ok(line) = line else { break };
+        let done = line.starts_with("serving on ");
+        log.push(line);
+        if done {
+            break;
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let text = log.join("\n");
+    assert!(text.contains("serving on "), "k dev started: {text}");
+    let line = log
+        .iter()
+        .find(|l| l.contains("shadow"))
+        .unwrap_or_else(|| panic!("no shadowing note: {text}"));
+    assert!(
+        line.contains("K_SHADOW_GREETING") && line.contains("K_SHADOW_TOKEN"),
+        "{line}"
+    );
+    assert!(
+        !line.contains("K_SHADOW_SAME") && !line.contains("K_SHADOW_ONLY_FILE"),
+        "{line}"
+    );
+    assert!(
+        !text.contains("secret") && !text.contains("from-the"),
+        "no value is printed: {text}"
+    );
 }
 
 /// Runs `app` with `args` and `DATABASE_URL=db`.

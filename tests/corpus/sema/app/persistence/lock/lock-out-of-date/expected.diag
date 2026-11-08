@@ -1,0 +1,3 @@
+error[K8005] schema.lock:4:1-4:14: schema.lock doesn't record the table `note` as the migrations leave it
+  note: the migrations create the column `body`, which schema.lock doesn't record
+  help: run `k build`, which records the schema the migrations produce in schema.lock, and review the change; if the lock was right, a migration changed after it was recorded

@@ -61,6 +61,7 @@ pub(crate) struct SemaResult {
 pub(crate) fn analyze(
     inputs: Vec<InputFile<'_>>,
     lockfiles: Vec<crate::locks::Lockfile>,
+    manifests: Vec<(String, Arc<str>)>,
     prev: Option<&BodyCache>,
     deliver: impl FnOnce(SemaResult),
 ) {
@@ -70,6 +71,7 @@ pub(crate) fn analyze(
         .collect();
     let mut program = Program::build(inputs);
     program.lockfiles = lockfiles;
+    program.manifests = manifests;
     generate(&mut program);
     let cx = Cx::new(&program);
     cx.set_hooks(
@@ -150,6 +152,7 @@ pub(crate) fn analyze(
         facts_by_file.insert(id, facts);
     }
     crate::routing::check(&cx);
+    crate::metadata::check(&cx);
     crate::rpc::check(&cx);
     crate::app::check(&cx);
     crate::di::check(&cx);

@@ -15,7 +15,9 @@
 //! program implies, which `k build` writes:
 //!
 //! * removing an rpc, a parameter, a field or an error case, changing the
-//!   type of any of them, adding a required parameter or field, or a
+//!   type of any of them, adding a required parameter or field, changing
+//!   the protocol's wire name (`service`: the Protobuf package from the
+//!   project's name and the module, and the protocol's name), or a
 //!   recorded protocol the app no longer serves breaks callers: **K8001**
 //!   at the protocol (at the app for one it no longer serves), with one note
 //!   per change and a label at the lock, unless the protocol is marked
@@ -46,6 +48,10 @@ use crate::ty::Ty;
 struct Lock {
     /// Protocols by qualified name.
     protocols: BTreeMap<String, BTreeMap<String, Rpc>>,
+    /// The wire name of each protocol's service, `shop.store.StoreProtocol`
+    /// (`docs/design/28-rpc-wire-format.md`, "Names"); absent from locks
+    /// written before it was recorded.
+    services: BTreeMap<String, String>,
     /// App and library types by qualified name.
     types: BTreeMap<String, Shape>,
 }
@@ -157,12 +163,67 @@ fn text(cx: &Cx<'_, '_>, t: &Ty) -> String {
     }
 }
 
+/// The `[package] name` of the `k.toml` text `manifest`.
+fn manifest_name(manifest: &str) -> Option<String> {
+    let table: toml::Table = toml::from_str(manifest).ok()?;
+    table
+        .get("package")?
+        .get("name")?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// The wire name of protocol `d`'s service: the Protobuf package (the
+/// Protobuf form of the declaring package's name, then the module) and the
+/// protocol's name (`docs/design/28-rpc-wire-format.md`, "Names"). A
+/// library's protocol takes the library's name, as code generation does.
+fn wire_service(cx: &Cx<'_, '_>, d: DeclId) -> String {
+    let p = cx.p;
+    let decl = p.decl(d);
+    let file = p.file(decl.file);
+    let manifest = match (
+        file.path.and_then(crate::ProjectPath::dependency),
+        crate::ProjectPath::new("k.toml"),
+    ) {
+        (Some((dir, _)), Ok(own)) => crate::ProjectPath::mounted(&dir, &own).as_str().to_owned(),
+        _ => "k.toml".to_owned(),
+    };
+    let project = p
+        .manifests
+        .iter()
+        .find(|(path, _)| *path == manifest)
+        .and_then(|(_, text)| manifest_name(text))
+        .unwrap_or_default();
+    // As code generation derives it (`k_codegen::server::package_of`), so
+    // the lock records the path the server answers.
+    let prefix = project.replace('-', "_");
+    let module = file
+        .module
+        .and_then(|m| p.modules.get(usize::try_from(m.0).unwrap_or(usize::MAX)))
+        .map(|m| m.path.clone())
+        .unwrap_or_default();
+    let package =
+        if prefix.is_empty() || module == prefix || module.starts_with(&format!("{prefix}.")) {
+            module
+        } else if module.is_empty() {
+            prefix
+        } else {
+            format!("{prefix}.{module}")
+        };
+    if package.is_empty() {
+        decl.name.clone()
+    } else {
+        format!("{package}.{}", decl.name)
+    }
+}
+
 /// The program's shape of the served protocols and the types they carry.
 fn current(cx: &Cx<'_, '_>, served: &[(String, DeclId)]) -> Lock {
     let p = cx.p;
     let mut out = Lock::default();
     let mut pending: Vec<Ty> = Vec::new();
     for (name, d) in served {
+        out.services.insert(name.clone(), wire_service(cx, *d));
         let mut rpcs = BTreeMap::new();
         for &m in &p.decl(*d).members {
             let member = p.member(m);
@@ -326,6 +387,9 @@ fn write(lock: &Lock) -> String {
     );
     for (name, rpcs) in &lock.protocols {
         let _ = write!(out, "\n[protocols.{}]\n", quote(name));
+        if let Some(service) = lock.services.get(name) {
+            let _ = writeln!(out, "service = {}", quote(service));
+        }
         for (rpc, r) in rpcs {
             let _ = writeln!(out, "\n[protocols.{}.rpcs.{}]", quote(name), key(rpc));
             let params: Vec<String> = r
@@ -389,6 +453,10 @@ fn read(text: &str) -> Result<Lock, Invalid> {
         for (name, proto) in protocols {
             let bad = || at(name, &format!("`{name}` {structure}"));
             let proto = proto.as_table().ok_or_else(bad)?;
+            if let Some(service) = proto.get("service") {
+                let service = service.as_str().ok_or_else(bad)?;
+                out.services.insert(name.clone(), service.to_owned());
+            }
             let mut rpcs = BTreeMap::new();
             if let Some(list) = proto.get("rpcs") {
                 for (rpc, r) in list.as_table().ok_or_else(bad)? {
@@ -564,6 +632,13 @@ fn compare(
         };
         let new_rpcs = now.protocols.get(name).cloned().unwrap_or_default();
         let mut changes = Vec::new();
+        if let (Some(old), Some(new)) = (recorded.services.get(name), now.services.get(name)) {
+            if old != new {
+                changes.push(format!(
+                    "its wire name changed from `{old}` to `{new}` (the project's name and the protocol's module are part of it), so deployed callers' paths no longer match"
+                ));
+            }
+        }
         let mut types: BTreeSet<String> = BTreeSet::new();
         for (rpc, old) in old_rpcs {
             let Some(new) = new_rpcs.get(rpc) else {

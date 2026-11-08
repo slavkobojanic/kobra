@@ -1,2 +1,6 @@
 /// Request scope: counters in each service scope.
-public app Scopes {}
+public app Scopes {
+    metadata {
+        title("Scopes")
+    }
+}

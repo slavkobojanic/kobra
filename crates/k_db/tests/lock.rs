@@ -11,6 +11,7 @@ fn sample() -> SchemaLock {
         "order".into(),
         LockedTable {
             entity: "store.Order".into(),
+            retired: false,
             columns: vec![
                 LockedColumn {
                     field: Some("id".into()),
@@ -63,6 +64,7 @@ fn odd_names_are_quoted() {
         "we.ird \"t\"".into(),
         LockedTable {
             entity: "a.B".into(),
+            retired: false,
             columns: vec![],
         },
     );

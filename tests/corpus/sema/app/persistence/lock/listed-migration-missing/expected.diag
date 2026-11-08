@@ -1,0 +1,2 @@
+error[K8006] schema.lock:2:36-2:47: schema.lock lists the migration `0002_lost`, but `migrations/0002_lost.k` doesn't exist
+  help: restore the file: a migration is history, and databases that applied it expect it

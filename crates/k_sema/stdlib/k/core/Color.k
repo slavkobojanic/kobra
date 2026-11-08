@@ -17,11 +17,13 @@ public struct Color implements Equatable, Codable {
     /// Returns the color with its alpha multiplied by `alpha`
     /// (`0.0...1.0`).
     func opacity(_ alpha: Double) -> Color
-    /// Returns the color mixed with `other`.
+    /// Returns the color with `amount` of `other` mixed in:
+    /// `.primary.mix(.white, 20%)` is the primary color lightened by 20%
+    /// white.
     ///
     /// - Parameters:
     ///   - other: the color mixed in.
-    ///   - amount: the share of this color in the result, the rest being
-    ///     `other` (CSS `color-mix(in srgb, self amount, other)`).
+    ///   - amount: the share of `other` in the result, the rest being this
+    ///     color (CSS `color-mix(in srgb, self, other amount)`).
     func mix(_ other: Color, _ amount: Percent) -> Color
 }

@@ -262,9 +262,15 @@ columns as strings.
     - name: the table name.
     - build: adds, renames and drops columns with [`TableBuilder`](#tablebuilder).
 - `func renameTable(from: String, to: String)`
-  Renames a table.
+  Renames a table; requires `@Breaking("single instance")`, since the
+  previous release still reads the old name.
 - `func dropTable(name: String)`
-  Drops a table; requires [`k.core.Breaking`](k-core.md#breaking).
+  Drops a table; requires [`k.core.Breaking`](k-core.md#breaking), and
+  `@Breaking("single instance")` unless an earlier migration retired
+  it.
+- `func retireTable(name: String)`
+  Retires a table: the app stops reading and writing it, and a later
+  migration drops it.
 - `func createIndex(table: String, columns: List<String>)`
   Adds an index over `columns` of `table`, in order.
 - `func insert(into table: String, rows: List<Map<String, ColumnValue>>)`
@@ -288,12 +294,10 @@ public class TableBuilder
 
 The columns of a table being created or changed in a migration.
 
-The first compiler releases don't yet enforce the
-[`k.core.Breaking`](k-core.md#breaking) requirement on destructive operations, and refuse
-the enum case operations (`addEnumCase`, `renameEnumCase`,
-`removeEnumCase`) when the migrations are replayed, because they need
-a table rebuild on SQLite; write such a change with
-[`Schema.execute`](#schema) instead.
+A migration with a destructive operation (dropping or renaming a
+column, renaming or removing an enum case) needs [`k.core.Breaking`](k-core.md#breaking);
+dropping or renaming a column no earlier migration retired needs
+`@Breaking("single instance")`.
 
 **Members**
 
@@ -308,9 +312,16 @@ a table rebuild on SQLite; write such a change with
 
   - Returns: the column's options, chained.
 - `func renameColumn(from: String, to: String)`
-  Renames a column.
+  Renames a column; requires `@Breaking("single instance")`, since
+  the previous release still reads the old name.
 - `func dropColumn(name: String)`
-  Drops a column; requires [`k.core.Breaking`](k-core.md#breaking).
+  Drops a column; requires [`k.core.Breaking`](k-core.md#breaking), and
+  `@Breaking("single instance")` unless an earlier migration retired
+  it.
+- `func retireColumn(name: String)`
+  Retires a column: the app stops reading and writing it, and a
+  later migration drops it. A `NOT NULL` column without a default
+  becomes nullable, so the next release's inserts can leave it out.
 - `func addEnumCase(column: String, case name: String)`
   Adds the case `name` to the enumeration column `column`.
 - `func renameEnumCase(column: String, from: String, to: String)`

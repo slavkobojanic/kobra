@@ -1,2 +1,6 @@
 /// Password hashing.
-public app Passwords {}
+public app Passwords {
+    metadata {
+        title("Passwords")
+    }
+}

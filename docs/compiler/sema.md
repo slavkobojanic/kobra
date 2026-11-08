@@ -57,15 +57,15 @@ stage or milestone that picks it up. A deferred rule's code is assigned when it 
 | Views | element table, attributes, events, `key`, content rules, components' props/slots/bindings | accessibility lints beyond required names |
 | Styles and themes | property table, value grammar, classes, keyframes, tokens, overrides, variants | `@container`/`@layer` value checks |
 | DI, layering, boundary | DI graph, scopes, layering table, state ownership, server/client classification | — |
-| Routing | `Page`/`Endpoint` enums, `@Param`, `at`, URL conflicts, `requires`, endpoint pages | `routes.lock` comparison (stage 3 with lockfiles) |
-| Protocols | rpc `throws` rules, Codable payloads, server-only implementations; `remote` rules and `RemoteClient.at` (§12.8) | `protocol.lock`; streaming restrictions beyond `Stream` returns; streaming between services |
-| Persistence | entity column types | query lambda lowering to `k_db`'s query IR (stage 3), `schema.lock`, migrations |
+| Routing | `Page`/`Endpoint` enums, `@Param`, `at`, URL conflicts, `requires`, endpoint pages; `routes.lock` (K8007, in `k_codegen`, §12.16) | — |
+| Protocols | rpc `throws` rules, Codable payloads, server-only implementations; `remote` rules and `RemoteClient.at` (§12.8); wire names and field numbers in `rpc.lock` | streaming restrictions beyond `Stream` returns; streaming between services |
+| Persistence | entity column types; migrations and `schema.lock` (K6004–K6006, K8004–K8006, in `k_codegen`, §12.12) | — |
 | Forms | `.empty`, `form.value`, `@Format`, `@Email`, `@Matches` | — |
 | Config | `@Env`, `Secret<T>` server-only, constraints on config fields | startup validation (runtime) |
 | Jobs | `Job` services server-only, Codable payloads, no session in the graph, payloads vs `storage.lock` (§12.16) | — |
 | Tests | `expect`, `expect throws`, `use` in tests, test-only visibility | — |
 | Doc comments | intra-doc links | type-checking fenced `k` examples |
-| Lockfiles | `storage.lock` job payloads (K8002, K8003), `rpc.lock` (K8001, K8002; §12.16) | `routes.lock`, `protocol.lock`, `schema.lock`, `storage.lock` keys |
+| Lockfiles | `storage.lock` keys and job payloads (K8002, K8003, K8008), `rpc.lock` (K8001, K8002); `schema.lock` and `routes.lock` in `k_codegen` (§12.16) | when `storage.lock` is written |
 
 ---
 
@@ -194,7 +194,7 @@ Implemented in `crates/k_sema/src/project.rs`. The layout is fixed ([24-projects
 | `src/<dirs>/<Name>.k` | `Source { module, is_test }` | the module is the dot-joined directories |
 | `src/<dirs>/<Name>.test.k` | `Source { is_test: true }` | same module; see test files below |
 | `migrations/<name>.k` | `Migration` | not a module; holds one `migration` |
-| `protocol.lock`, `routes.lock`, `schema.lock`, `storage.lock`, `rpc.lock`, `k.lock` | `Lockfile` | inputs to the lockfile checks (§12.16; `storage.lock` job payloads and `rpc.lock` in v0) |
+| `routes.lock`, `schema.lock`, `storage.lock`, `rpc.lock`, `k.lock`; `protocol.lock` (recognized, never read: folded into `rpc.lock`) | `Lockfile` | inputs to the lockfile checks (§12.16) |
 | `.deps/<dir>/<path>` | the kind of `<path>`, sources only | a library mounted by the workspace layer (§4.1); its `k.toml` is mounted as an inert `Other` file |
 | any other `.k` file | `Stray` | parsed, then K1001 **v0** |
 | anything else | `Other` | ignored |
@@ -782,12 +782,13 @@ Accessibility lints beyond required accessible names are **deferred**.
 - **`requires` guards** must implement the stdlib `Guard` interface (**K5006**).
 - **Layouts and app attributes:** `@Layout(X)`, `@NoLayout`, `@SignInPage(.signIn)` (a `Page` value),
   `@Rendering(...)` are type-checked like any annotation.
-- **`routes.lock` inputs** (the URL of every page and endpoint, redirects from renames) are computed in
-  the route table; comparing them with the lockfile is **deferred** (stage 3, lockfiles).
+- **`routes.lock`** (the URL of every page and endpoint, and the redirects) is written by `k build` and
+  compared by `k check`; both live in `k_codegen` (`routelock.rs`), next to the route table the server
+  uses (§12.16).
 
 ### 12.8 Protocols and RPC
 
-**v0** except `protocol.lock`. Design [11-protocols-and-rpc.md](../design/11-protocols-and-rpc.md),
+**v0**. Design [11-protocols-and-rpc.md](../design/11-protocols-and-rpc.md),
 [28-rpc-wire-format.md](../design/28-rpc-wire-format.md).
 
 - **Every rpc declares `throws`** (**K5501**, fix inserts `throws RpcOnlyError`); its error type is an
@@ -799,8 +800,8 @@ Accessibility lints beyond required accessible names are **deferred**.
 - A protocol is injectable only into services (K4005). `Stream<T>` results are server streams
   ([29-server-streaming.md](../design/29-server-streaming.md)); client and bidirectional streaming are
   deferred with the wire format.
-- `protocol.lock` (Protobuf names and field numbers) is **deferred** (stage 3); `rpc.lock` (§12.16)
-  records what deployed callers rely on.
+- There is no `protocol.lock`: `rpc.lock` (§12.16) records what deployed callers rely on, the wire
+  names and field numbers included ([13-tooling.md](../design/13-tooling.md#lockfiles)).
 - **`RemoteClient.at(url:token:timeout:)`** (`k.rpc`, server-only) returns a client of its generic result
   `P`, the type it is used as (K has no explicit type arguments in expressions). A result that resolves
   to anything but a protocol is **K4026**; one that can't be inferred is K2002
@@ -852,11 +853,14 @@ Design [19-persistence.md](../design/19-persistence.md).
 
 - **v0:** entity fields must have column-representable types (**K6002**); `@Id`, `@Index`, `@Unique`,
   `@Relation`, `@Version` check their targets (K3002); entities and repositories are server-only;
-  queries must be awaited (K2204); repository writes are only in repositories.
-- **Deferred to stage 3** (with `k_db`): lowering repository query lambdas
-  (`notes.filter { note => note.owner == id }.sortedBy { … }`) into `k_db`'s query IR, reporting what can't be translated (**K6001**, its code
-  is reserved now), relation loading rules, migrations and `schema.lock`. v0 type-checks query lambdas
-  as ordinary lambdas over the entity type, so stage 3 only adds the translation.
+  queries must be awaited (K2204); repository writes are only in repositories. Calls SQL can't express
+  in a query lambda are **K6001**; `k_codegen` lowers the rest to `k_db`'s query IR
+  ([db.md §4](db.md#4-the-query-ir-and-lowering)).
+- **Migrations and `schema.lock`** are checked by `k_codegen::project_diagnostics` (§12.16), which
+  replays the migrations with `k_db::builder::Replay` and compares the result with the lock and the
+  entities: a migration that doesn't replay (**K6004**, at the call or the step of `alterTable`), a
+  destructive one without `@Breaking` (**K6005**), a drop or rename of something live without
+  `@Breaking("single instance")` (**K6006**), and the lock checks K8004–K8006.
 
 ### 12.13 Jobs
 
@@ -880,18 +884,53 @@ is injectable everywhere a service is (§12.6). Plain functions take `now: Date`
 
 ### 12.16 Lockfiles
 
-**v0 for job payloads**, design [30-background-jobs.md](../design/30-background-jobs.md#stored-payloads) and
-[36-local-storage.md](../design/36-local-storage.md#file-format); `locks.rs`. The host passes the project's
-lockfiles to the semantic pass beside the K sources. `storage.lock` must be TOML of the documented structure
-(**K8002** at the offending line). Each recorded `[jobs.<name>]` is matched with the program's job of that
-name (`@JobName`, else the job whose qualified name the entry's `declaration` records), and its recorded
-payload shape (`[types."…"]`) is compared with the payload type **by shape, not by name**: a removed or
-renamed field, a changed field type, a new required field, a removed enum case or an optional made required
-is **K8003** at the payload type argument of `implements Job<…>`, one note per change, unless the job
-service is marked `@Breaking("reason")` (a job service accepts `@Breaking`). An optional field, a new enum
-case and a required field made optional are compatible. New jobs and recorded jobs that no longer exist are
-not reported: when the compiler writes lockfiles is open (13-tooling.md). The `[keys.*]` entries
-(`StorageKey` shapes), `protocol.lock` and `routes.lock` checks are still deferred.
+Design [13-tooling.md](../design/13-tooling.md#lockfiles). The host passes the project's lockfiles (and
+the `k.toml` of the project and of each mounted library) to the semantic pass beside the K sources.
+`storage.lock` and `rpc.lock` are checked here (`locks.rs`, `rpclock.rs`), so the language server
+reports them; `schema.lock` and `routes.lock` need code generation's persistence model and route table,
+so `k_codegen::project_diagnostics` checks them, and `k check` (and the corpus) add its diagnostics for
+an app (a project with `App.k`) without other errors. The language server doesn't run those.
+
+**`storage.lock`** (design [30-background-jobs.md](../design/30-background-jobs.md#stored-payloads) and
+[36-local-storage.md](../design/36-local-storage.md#file-format)) must be TOML of the documented
+structure (**K8002** at the offending line). Each recorded `[jobs.<name>]` is matched with the program's
+job of that name (`@JobName`, else the job whose qualified name the entry's `declaration` records), and
+its recorded payload shape (`[types."…"]`) is compared with the payload type **by shape, not by name**: a
+removed or renamed field, a changed field type, a new required field, a removed enum case or an optional
+made required is **K8003** at the payload type argument of `implements Job<…>`, one note per change,
+unless the job service is marked `@Breaking("reason")` (a job service accepts `@Breaking`). An optional
+field, a new enum case and a required field made optional are compatible. Each recorded `[keys.<name>]`
+is matched with the program's `StorageKey<T>` constant or field whose `StorageKey(name: "…")` literal is
+that name, else with the one whose qualified name the entry's `declaration` records (then the key was
+renamed, which is a change too), and its value type `T` is compared with the recorded `type` by the same
+rules: **K8008** at the key's name, unless the constant or field is marked `@Breaking("reason")` (a
+storage key accepts `@Breaking`). New jobs and keys, and recorded ones that no longer exist, are not
+reported, and nothing writes `storage.lock` yet (13-tooling.md).
+
+**`schema.lock`** (`k_codegen`, `lockfiles.rs`; [db.md §11](db.md#11-schemalock)). In an app with
+entities, migrations or a lock: an unreadable lock is **K8002**; the migrations are replayed in the lock's
+order and every problem of the replay is reported (K6004–K6006, §12.12); a listed migration without its
+file, a file whose `NNNN` isn't its position in the list, or a file the list doesn't name is **K8006**;
+when the replay succeeds, every table and column it leaves must be what the lock records, ignoring entity
+and field names (**K8005** per table at the lock's line, one note per difference; migrations without a
+lock are one K8005); and the entities must match the lock (**K8004**, one per difference, at the field or
+the entity, or at the lock's table for a removed entity), with the help naming `k migrate new`, or the
+`k migrate rename` that records a rename when exactly one recorded field (or entity) is gone and one new
+one of the same type appeared. `k_codegen::schema_lock` is what `k build` writes.
+
+**`routes.lock`** (`k_codegen`, `routelock.rs`; design
+[12-routing.md](../design/12-routing.md#routeslock-and-redirects)): TOML with `[pages.<case>]`,
+`[endpoints.<case>]` (each `declaration` and `url`) and `[redirects]` (old URL template to `Page` case);
+unreadable is **K8002**. A recorded page whose declaration and case are both gone is renamed when exactly
+one unrecorded page of its module has the same path parameters (and matches no other entry). **K8007**: a
+recorded URL nothing serves and no redirect keeps (at the lock's entry; at the page, with a label at the
+entry, when the page still exists with another URL); a detected rename whose redirect isn't recorded (at
+the new page, "run `k build`"); a redirect to a case that is no longer a page; a redirect whose old URL
+lacks a path parameter the page needs, or has one the page doesn't. `k_codegen::routes_lock` is what
+`k build` writes: the current pages and endpoints, the redirects (retargeted after renames, without those
+a page now serves), one per detected rename, and the entries of removed URLs, kept until resolved. The
+server's redirect table and `k routes` use the same redirects, so a rename is redirected before the lock
+is rewritten.
 
 **`rpc.lock`** (**v0**, `rpclock.rs`, design
 [40-workspaces-and-services.md](../design/40-workspaces-and-services.md#compatibility-between-deploys)).
@@ -899,6 +938,9 @@ For an app, the protocols it *serves* are the non-stdlib protocols its own non-t
 The lock is TOML:
 
 ```toml
+[protocols."pay.Payments"]
+service = "pay_contracts.pay.Payments"
+
 [protocols."pay.Payments".rpcs.charge]
 params = [{ name = "request", type = "pay.ChargeRequest" }]
 returns = "pay.Charge"
@@ -918,8 +960,10 @@ cases = ["declined", "rpcFailure"]
 Types are written like `storage.lock`'s (stdlib types by simple name); `[types]` holds every app or
 library struct and enum reachable from the served signatures. Malformed TOML, a field number that isn't a
 positive integer, a number used twice in one type or both used and reserved → **K8002** at the line. The
-comparison, per recorded protocol: an rpc, parameter, field or case removed; a parameter, field, result
-or error type changed (by written type); a new required parameter or field (not optional, no default) →
+comparison, per recorded protocol: the wire `service` changed (the Protobuf package, from the declaring
+package's name and the module, and the protocol's name; a lock without `service` isn't compared); an
+rpc, parameter, field or case removed; a parameter, field, result or error type changed (by written
+type); a new required parameter or field (not optional, no default) →
 **K8001** at the protocol's name, one note per change, a label at the protocol's line in the lock, unless
 the protocol is `@Breaking("reason")`. A recorded protocol the app no longer serves → K8001 at the app's
 name. New rpcs, optional fields and parameters and new cases are compatible. **Writing:**
@@ -1008,7 +1052,8 @@ planned here or explicitly deferred:
 | Whether a `@Check` function may throw | deferred to the forms phase; v0 requires `async -> Bool` (K2001) |
 | Whether a complete struct value is a valid `@Form` initializer | v0: no, only `.empty(...)` (K7002 names the fix) |
 | Theme cookie in client-rendered apps; `render(...)` argument reactivity | runtime, not checked |
-| `routes.lock`, `protocol.lock`, `schema.lock` checks, `storage.lock` keys | deferred (`storage.lock` job payloads: §12.16) |
+| `routes.lock`, `schema.lock` checks | in `k_codegen` (`project_diagnostics`), which has the route table and the persistence model; `k check` runs them for an app without other errors (§12.16) |
+| `protocol.lock` | folded into `rpc.lock` (§12.16) |
 
 ---
 
@@ -1084,8 +1129,13 @@ an open item for a later round):
   - Components, pages and layouts are values of `View`.
   - A `@Form var f: S` field reads as `Form<S>` (`f.value`, `f.handle(…)`); its initializer is
     checked against `S`, where `.empty` and `.empty(…)` are accepted for `Validatable` structs.
-  - `session.user` (`k.auth.Session`) is `SessionUser`, not optional, in declarations with a
-    `requires` clause and in services implementing a protocol that has one.
+  - `session.user` (`k.auth.Session`) is `SessionUser`, not optional, only where the server has
+    already run an `Authenticated` guard: every body of a page whose `requires` clause names
+    `Authenticated`, and the handler of an rpc whose protocol, or whose rpc in that protocol, does.
+    One handler serves the rpc of every implemented protocol that declares it, so each of them must
+    guard it; one that leaves it open lets guests run the body. Other guards (`RateLimit`, `Role`, `ServiceAuthenticated`), a `requires` written on the
+    implementation's rpc (the server reads the protocol's) and private helpers of a guarded service
+    leave it `SessionUser?` (`Checker::guarded`).
   - A `@Builder` struct's trailing block is its content, and its fields with defaults are chained
     setters (`HttpRequest(method: .get, url: u).query(q)`).
   - Functions of one type may be overloaded by labels and parameter types (`Hmac.sha256(key:)` with
@@ -1202,7 +1252,15 @@ round revises it):
   `Bool` (K7501). A fake (`service F implements S` in test code) provides every non-private function and
   field of `S`. A test group's `use` rule restating a stdlib `@TestDefault` is K4014.
 - **Metadata.** Metadata statements call `k.ui.MetadataEntries`; `status(_:)` is valid only in a
-  `metadata` block inside `failed` (K3025).
+  `metadata` block inside `failed` (K3025). After the bodies, `metadata.rs` walks the `metadata` blocks
+  of pages, layouts and the app: a literal `description(…)` over 160 characters is the warning K3028,
+  and, in a program with an `app`, a view page with no `title` from its own page-level block, the layout
+  it renders in (its `@Layout`, else the app's, none with `@NoLayout`) or the app's is the warning K3027,
+  with a maybe-incorrect fix that adds `title("…")` from the page's name.
+- **Responses.** `HttpResponse.headers([...])` with a string-literal key `set-cookie` (in any case) is
+  K5013 at the key; cookies are set only through `Session`. A computed name panics at run time.
+- **Jobs.** A job service's generated `static let kind` is typed `JobKind<Payload>` from its
+  `Job<Payload>`, so generic calls such as `payloads(of:)` infer the payload (and its codec).
 - **Closest names** use the optimal-string-alignment distance (a transposition costs 1, so `titel`
   suggests `title`); HTML attribute spellings (`src`, `alt`, `href`) suggest their K labels.
 - **Remaining leniencies** (open items): a repository's members seen from outside it stay open (its inherited writes and generated queries

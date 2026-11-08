@@ -111,6 +111,16 @@ impl Drop for TempDb {
 }
 
 fn start(output: &Output, db: &TempDb) -> Server {
+    start_with(output, db, &[])
+}
+
+/// [`start`] with extra configuration, as `.env` lines would give it.
+fn start_with(output: &Output, db: &TempDb, extra: &[(&str, &str)]) -> Server {
+    try_start_with(output, db, extra).expect("starts")
+}
+
+/// [`start_with`], returning why the server didn't start.
+fn try_start_with(output: &Output, db: &TempDb, extra: &[(&str, &str)]) -> Result<Server, String> {
     let bundle = ServerBundle {
         modules: output
             .server
@@ -149,6 +159,11 @@ fn start(output: &Output, db: &TempDb) -> Server {
         root: project(),
         dotenv: [("DATABASE_URL".to_owned(), db.url())]
             .into_iter()
+            .chain(
+                extra
+                    .iter()
+                    .map(|(k, v)| ((*k).to_owned(), (*v).to_owned())),
+            )
             .collect(),
         with_process: false,
     };
@@ -159,13 +174,15 @@ fn start(output: &Output, db: &TempDb) -> Server {
     ));
     o.database = k_server::db::DatabaseSetup::from_config(output.database.clone(), &o.config);
     assert!(o.database.is_some(), "the project has a database");
-    Server::start(o).expect("starts")
+    Server::start(o).map_err(|e| e.to_string())
 }
 
-/// A browser: its cookie jar, against one server or another.
+/// A browser: its cookie jar, against one server or another, and the
+/// `X-Forwarded-For` header the proxy in front of it adds, if any.
 #[derive(Default)]
 struct Browser {
     cookie: Option<String>,
+    forwarded_for: Option<String>,
 }
 
 impl Browser {
@@ -177,6 +194,9 @@ impl Browser {
         ];
         if let Some(c) = &self.cookie {
             headers.push(("cookie".to_owned(), format!("k_session={c}")));
+        }
+        if let Some(f) = &self.forwarded_for {
+            headers.push(("x-forwarded-for".to_owned(), f.clone()));
         }
         let r = send(
             server.local_addr(),
@@ -252,6 +272,7 @@ fn replicas_share_sessions_and_revocation() {
     bob.value(&b, "SignOut", "{}");
     let mut replay = Browser {
         cookie: Some(token),
+        ..Browser::default()
     };
     assert_eq!(
         replay.value(&a, "Status", "{}"),
@@ -301,6 +322,79 @@ fn rate_limits_count_across_replicas() {
     b.shutdown().expect("stops");
 }
 
+/// A browser behind a proxy that names it `client` in `X-Forwarded-For`.
+fn behind_proxy(client: &str) -> Browser {
+    Browser {
+        forwarded_for: Some(client.to_owned()),
+        ..Browser::default()
+    }
+}
+
+#[test]
+fn clients_behind_a_trusted_proxy_get_their_own_rate_limits() {
+    // The test connects from 127.0.0.1, which plays the trusted proxy.
+    let output = build();
+    let db = TempDb::new("proxy_trusted");
+    let server = start_with(
+        &output,
+        &db,
+        &[("K_TRUSTED_PROXIES", "127.0.0.1/32,::1/128")],
+    );
+    // A client that forges a first hop is still counted by the hop the
+    // proxy appended.
+    let mut alice = behind_proxy("6.6.6.6, 203.0.113.1");
+    let mut bob = behind_proxy("203.0.113.2");
+    for _ in 0..4 {
+        assert_eq!(alice.value(&server, "Limited", "{}"), "ok");
+    }
+    assert_eq!(alice.rpc(&server, "Limited", "{}").status, 429);
+    // Changing the forged hop doesn't give alice a new bucket.
+    let mut alice_again = behind_proxy("7.7.7.7, 203.0.113.1");
+    assert_eq!(alice_again.rpc(&server, "Limited", "{}").status, 429);
+    // Bob, behind the same proxy, has his own limit.
+    for _ in 0..4 {
+        assert_eq!(bob.value(&server, "Limited", "{}"), "ok");
+    }
+    assert_eq!(bob.rpc(&server, "Limited", "{}").status, 429);
+    server.shutdown().expect("stops");
+}
+
+#[test]
+fn forwarding_headers_from_an_untrusted_peer_are_ignored() {
+    for trusted in [None, Some("10.0.0.0/8")] {
+        let output = build();
+        let db = TempDb::new("proxy_untrusted");
+        let extra: Vec<(&str, &str)> = trusted
+            .map(|t| ("K_TRUSTED_PROXIES", t))
+            .into_iter()
+            .collect();
+        let server = start_with(&output, &db, &extra);
+        // Every request claims another address; all share the socket's.
+        for i in 0..4 {
+            let mut spoofer = behind_proxy(&format!("203.0.113.{i}"));
+            assert_eq!(spoofer.value(&server, "Limited", "{}"), "ok", "{trusted:?}");
+        }
+        let mut spoofer = behind_proxy("198.51.100.99");
+        assert_eq!(
+            spoofer.rpc(&server, "Limited", "{}").status,
+            429,
+            "{trusted:?}: a forged X-Forwarded-For doesn't open a new bucket"
+        );
+        server.shutdown().expect("stops");
+    }
+}
+
+#[test]
+fn invalid_trusted_proxies_stop_the_server_from_starting() {
+    let output = build();
+    let db = TempDb::new("proxy_invalid");
+    let Err(err) = try_start_with(&output, &db, &[("K_TRUSTED_PROXIES", "caddy")]) else {
+        panic!("a proxy list it can't read must stop the server");
+    };
+    assert!(err.contains("K_TRUSTED_PROXIES"), "{err}");
+    assert!(err.contains("caddy"), "{err}");
+}
+
 #[test]
 fn oauth_state_is_bound_to_the_session_and_single_use() {
     let output = build();
@@ -337,6 +431,7 @@ fn oauth_state_is_bound_to_the_session_and_single_use() {
     assert_ne!(visitor.cookie.as_deref(), Some(guest.as_str()));
     let mut planted = Browser {
         cookie: Some(guest),
+        ..Browser::default()
     };
     assert_eq!(planted.value(&b, "Status", "{}"), "guest");
     assert_eq!(planted.value(&b, "FinishOAuth", &body), false);

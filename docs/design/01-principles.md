@@ -86,12 +86,12 @@ Whatever can be resolved statically is: dependency injection, URLs, class refere
 
 When something outside the codebase depends on a generated value, the compiler records it in a committed lockfile and detects breaking changes:
 
-- `protocol.lock` records Protobuf package, service and method names and field numbers ([11-protocols-and-rpc.md](11-protocols-and-rpc.md), [28-rpc-wire-format.md](28-rpc-wire-format.md))
+- `rpc.lock` records the wire name, rpcs and Protobuf field numbers of every protocol an app serves ([11-protocols-and-rpc.md](11-protocols-and-rpc.md), [28-rpc-wire-format.md](28-rpc-wire-format.md), [40-workspaces-and-services.md](40-workspaces-and-services.md))
 - `routes.lock` records URLs ([12-routing.md](12-routing.md))
 - `schema.lock` records the database schema, including the table and column name of every entity and field ([19-persistence.md](19-persistence.md))
 - `storage.lock` records formats the app stores outside a request: browser storage keys and background job payloads ([36-local-storage.md](36-local-storage.md), [30-background-jobs.md](30-background-jobs.md))
 
-A name that something outside depends on is recorded once and then kept: renaming the declaration it came from never silently changes it. Changing a recorded value requires `@Breaking("reason")`.
+A name that something outside depends on is recorded, and renaming the declaration it came from never silently changes it: table and column names and storage keys are kept, a renamed page's old URL gets a redirect, and a changed wire name fails `k check`. Changing a recorded value requires `@Breaking("reason")`.
 
 ## Errors for machines and humans
 

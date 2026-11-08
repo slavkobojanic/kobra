@@ -97,8 +97,11 @@ services:
       replicas: 2
     environment:
       K_PUBLIC_ORIGIN: http://localhost:8080
-      # Only Caddy, on this network, may set X-Forwarded-For.
-      K_TRUSTED_PROXIES: 172.29.89.0/24
+      # Only Caddy (its fixed address below) may name the client in
+      # X-Forwarded-For; a request from paybox or another container is
+      # counted by its own address, whatever header it sends. Caddy replaces
+      # any X-Forwarded-For a browser sends with the address it saw.
+      K_TRUSTED_PROXIES: 172.29.89.10/32
       DATABASE_URL: postgres://shop@db:5432/shop
       DATABASE_PASSWORD_FILE: /run/secrets/db_password
       SMTP_HOST: mail

@@ -1,0 +1,2 @@
+error[K6005] migrations/0002_remove_published.k:5:13-5:92: `0002_remove_published` removes the case `published` of `note.status` without `@Breaking`, which loses data
+  help: mark the migration `@Breaking("reason")`, saying why the loss is acceptable

@@ -2,6 +2,7 @@
 # this app serves (docs/design/40-workspaces-and-services.md).
 
 [protocols."checkout.CheckoutApi"]
+service = "shop.checkout.CheckoutApi"
 
 [protocols."checkout.CheckoutApi".rpcs.paidCount]
 params = []
@@ -14,6 +15,7 @@ returns = "checkout.Receipt"
 throws = "checkout.CheckoutError"
 
 [protocols."pay.PaymentEvents"]
+service = "pay_contracts.pay.PaymentEvents"
 
 [protocols."pay.PaymentEvents".rpcs.paid]
 params = [{ name = "charge", type = "pay.Charge" }]

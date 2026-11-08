@@ -316,7 +316,7 @@ fn workspace_entries(
         })
         .collect();
     let (map, diagnostics) = ws
-        .report(&analyses, str::to_owned)
+        .report_with(&analyses, k_codegen::project_diagnostics, str::to_owned)
         .map_err(|e| e.to_string())?;
     let lookup = |file: FileId| map.get(file).map(|f| (f.path(), f.text()));
     Ok((
@@ -353,7 +353,11 @@ fn actual_entries(
     analysis: &Analysis,
     home: Option<&ProjectPath>,
 ) -> Result<Vec<DiagEntry>, String> {
-    let diagnostics = analysis.diagnostics().map_err(|e| e.to_string())?;
+    let mut diagnostics = analysis.diagnostics().map_err(|e| e.to_string())?;
+    // The lockfile checks `k check` adds for an app (`schema.lock`,
+    // `routes.lock`), which need code generation's models.
+    diagnostics.extend(k_codegen::project_diagnostics(analysis));
+    diagnostics.sort_by_key(|d| (d.span, d.code));
     let mut names: HashMap<FileId, String> = HashMap::new();
     for (id, path) in analysis.files() {
         names.insert(id, path.to_string());

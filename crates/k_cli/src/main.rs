@@ -55,6 +55,7 @@ fn main() -> ExitCode {
         Command::Routes(args) => routes::run(&args),
         Command::Migrate { command } => match command {
             MigrateCommand::New(args) => migrate::new(&args),
+            MigrateCommand::Rename(args) => migrate::rename(&args),
             MigrateCommand::Apply(args) => migrate::apply(&args),
             MigrateCommand::Status(args) => migrate::status(&args),
         },

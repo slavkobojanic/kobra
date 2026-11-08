@@ -26,8 +26,29 @@ fn compile(project: &Path, options: &Options, command: &str) -> Result<Output, E
     compile_member(&loaded, member, project, options).map(|(o, _)| o)
 }
 
+/// The lockfiles a build writes, by file name, with the text each
+/// program implies; a lock that doesn't change is left out.
+type Locks = Vec<(&'static str, String)>;
+
+/// The locks `k build` writes for `analysis`: `rpc.lock`
+/// (`k_sema::Analysis::rpc_lock`), `schema.lock` and `routes.lock`
+/// (`k_codegen::schema_lock`, `k_codegen::routes_lock`).
+fn locks(analysis: &k_sema::Analysis) -> Locks {
+    let mut out = Vec::new();
+    if let Ok(Some(rpc)) = analysis.rpc_lock() {
+        out.push(("rpc.lock", rpc));
+    }
+    if let Ok(Some(schema)) = k_codegen::schema_lock(analysis) {
+        out.push(("schema.lock", schema));
+    }
+    if let Ok(Some(routes)) = k_codegen::routes_lock(analysis) {
+        out.push(("routes.lock", routes));
+    }
+    out
+}
+
 /// Generates member `m`'s bundles, shown as `project`; also returns the
-/// `rpc.lock` its program implies (`k_sema::Analysis::rpc_lock`).
+/// lockfiles its program implies ([`locks`]).
 ///
 /// # Errors
 ///
@@ -38,7 +59,7 @@ fn compile_member(
     m: usize,
     project: &Path,
     options: &Options,
-) -> Result<(Output, Option<String>), ExitCode> {
+) -> Result<(Output, Locks), ExitCode> {
     let host = loaded.host(m);
     let analysis = host.analysis();
     match generate(&analysis, options) {
@@ -49,7 +70,7 @@ fn compile_member(
             );
             Err(ExitCode::from(2))
         }
-        Ok(output) => Ok((output, analysis.rpc_lock().ok().flatten())),
+        Ok(output) => Ok((output, locks(&analysis))),
         Err(CodegenError::HasErrors { count }) => {
             eprintln!(
                 "error: the project has {count} error(s); run `k check {}` to see them",
@@ -64,38 +85,35 @@ fn compile_member(
     }
 }
 
-/// Writes `lock` to `dir/rpc.lock` when it differs from what is there
-/// (`docs/design/40-workspaces-and-services.md`, "Compatibility between
-/// deploys"): `k build` records the shape of every protocol the app
-/// serves, after `k check` accepted the change.
+/// Writes each of `locks` to `dir` when it differs from what is there
+/// (`docs/design/13-tooling.md`, "Lockfiles"): `k build` records the shape
+/// of every protocol the app serves (`rpc.lock`), the schema its migrations
+/// produce (`schema.lock`) and its URLs and redirects (`routes.lock`), after
+/// `k check` accepted the change. `k check` only reads them.
 ///
 /// # Errors
 ///
-/// Exit status 2, after printing the problem, when the file can't be
+/// Exit status 2, after printing the problem, when a file can't be
 /// written.
-fn write_rpc_lock(dir: &Path, lock: Option<&str>) -> Result<(), ExitCode> {
-    let Some(lock) = lock else {
-        return Ok(());
-    };
-    let path = dir.join("rpc.lock");
-    if std::fs::read_to_string(&path).is_ok_and(|old| old == lock) {
-        return Ok(());
-    }
-    match std::fs::write(&path, lock) {
-        Ok(()) => {
-            eprintln!("wrote {}", sources::display(&path));
-            Ok(())
+fn write_locks(dir: &Path, locks: &[(&str, String)]) -> Result<(), ExitCode> {
+    for (name, lock) in locks {
+        let path = dir.join(name);
+        if std::fs::read_to_string(&path).is_ok_and(|old| old == *lock) {
+            continue;
         }
-        Err(e) => {
+        if let Err(e) = std::fs::write(&path, lock) {
             eprintln!("error: cannot write `{}`: {e}", sources::display(&path));
-            Err(ExitCode::from(2))
+            return Err(ExitCode::from(2));
         }
+        eprintln!("wrote {}", sources::display(&path));
     }
+    Ok(())
 }
 
 /// Runs `k build`: one project into its `dist/` (or `--out`), or, at a
 /// workspace root, every app member into `dist/<name>/` below the root (or
-/// `--out`). Each app's `rpc.lock` is updated.
+/// `--out`). Each app's `rpc.lock`, `schema.lock` and `routes.lock` are
+/// updated.
 pub fn build(args: &BuildArgs) -> ExitCode {
     let options = Options {
         profile: Profile::Release,
@@ -118,7 +136,7 @@ pub fn build(args: &BuildArgs) -> ExitCode {
                 Ok(o) => o,
                 Err(code) => return code,
             };
-            if let Err(code) = write_rpc_lock(&dir, lock.as_deref()) {
+            if let Err(code) = write_locks(&dir, &lock) {
                 return code;
             }
             let target = out.join(&loaded.workspace.members[m].name);
@@ -142,7 +160,7 @@ pub fn build(args: &BuildArgs) -> ExitCode {
         Ok(o) => o,
         Err(code) => return code,
     };
-    if let Err(code) = write_rpc_lock(&args.project, lock.as_deref()) {
+    if let Err(code) = write_locks(&args.project, &lock) {
         return code;
     }
     let out = args
@@ -376,7 +394,8 @@ pub(crate) struct Wiring {
 /// from the process environment and the project's `.env` (the process
 /// wins; 25-config-and-secrets.md, "Per environment"), with `wiring`'s
 /// variables over the `.env`, and is validated first: every problem is
-/// printed and the error is exit status 78.
+/// printed and the error is exit status 78. The `.env` keys the process
+/// environment shadows are named first, without their values.
 ///
 /// # Errors
 ///
@@ -411,6 +430,14 @@ fn start(
         })
         .collect();
     let mut env = DevEnvironment::load(project, true);
+    // Names only: a value may be a secret.
+    let shadowed = env.shadowed();
+    if !shadowed.is_empty() {
+        eprintln!(
+            "note: the process environment shadows these `.env` keys: {}",
+            shadowed.join(", ")
+        );
+    }
     env.dotenv.extend(wiring.vars.clone());
     let values = match resolve(&fields, &env) {
         Ok(v) => v,

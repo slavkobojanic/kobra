@@ -24,16 +24,17 @@ lowercases the domain part only.
 - `init(_ literal: String)`
   A literal, validated and normalized at compile time.
 - `static func parse(_ text: String) -> EmailAddress?`
-  Parses runtime text, such as `" ana@Example.COM "` (which becomes
-  `ana@example.com`). The first compiler releases accept a bare
-  address only: text with a display name, such as
-  `"Ana <ana@example.com>"`, is `nil`.
+  Parses runtime text: a bare address, such as `" ana@Example.COM "`
+  (which becomes `ana@example.com`), or a display name and an address
+  in angle brackets, such as `"Ana Doe <ana@Example.COM>"` (which
+  becomes `Ana Doe <ana@example.com>`). A name with a comma or another
+  special character is quoted: `"\"Doe, Ana\" <ana@example.com>"`.
 
   - Returns: the address, or `nil` if `text` isn't one or contains a
     line break.
 - `var address: String`
   The address part, `local@domain`.
 - `var displayName: String?`
-  The display name, if any. Always `nil` in the first compiler
-  releases, which don't parse display names.
+  The display name, if any, unquoted: `Doe, Ana` for
+  `"Doe, Ana" <ana@example.com>`.
 

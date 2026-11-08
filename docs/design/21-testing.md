@@ -45,7 +45,7 @@ test AddToCart {
 - **`expect` is a keyword that takes any boolean expression.** There is no matcher library (`toEqual`, `toHaveLength`). On failure, the compiler shows the value of each sub-expression, for example: `cart.items.count` was `0`, expected `== 1`. Absence is checked with `not` (`expect not x.exists`); comparing a `Bool` with `true` or `false` is a lint ([08-types.md](08-types.md#booleans)).
 - **`expect throws` takes a pattern,** as `catch` does: `expect throws WeatherError.upstream(.serviceUnavailable) { … }`. A case written without its payload (`WeatherError.upstream`) matches any payload.
 - **Components are tested through accessibility queries:** `button(named:)`, `textField(labeled:)`, `text(...)`. An element a test can't find by role and name isn't accessible either.
-- **Gestures are actions too:** `click()`, `fill(_:)`, `press(_:)` (Enter, Escape, Tab, Space, the arrow keys, or `.character("n")`) and `drag(to:)`, which drags an element onto another with the mouse ([41-drag-and-drop.md](41-drag-and-drop.md#tests)).
+- **Gestures are actions too:** `click()`, `fill(_:)`, `blur()` (leaving a field, which starts its `@Check` rules), `press(_:)` (Enter, Escape, Tab, Space, the arrow keys, or `.character("n")`) and `drag(to:)`, which drags an element onto another with the mouse ([41-drag-and-drop.md](41-drag-and-drop.md#tests)).
 - **Every `test "…"` gets a fresh container,** so no service, fake, session or theme state leaks between tests.
 - **There are no snapshot tests.** They encourage accepting changes without reviewing them.
 - `k test` runs tests. **`k test --watch`** runs them, then re-runs the affected ones whenever a source file is saved; "affected" comes from the compiler's incremental queries. `k check` runs every test in CI and has no watch mode.
@@ -123,7 +123,7 @@ A test is one browser talking to one server, in one process:
 - **A singular query returns a handle even when nothing matches.** `exists` and `isVisible` are then `false`. An action on a handle that matches nothing, or more than one element, fails the test with the query and what it found.
 - **Every handle supports the same queries, scoped to its subtree:** `screen.item(containing: "Buy milk").button(named: "Delete")`. This finds one of many identically named controls without test ids.
 - **Element state:** `exists`, `isVisible`, `isChecked`, `isPressed`, `isDisabled`, `value` (a field's current text), `text` (the element's text content), `level` (a heading's level).
-- **Actions:** `click()`, `fill(text)` (replaces a field's value and fires input events), `press(.enter)`, `press(.escape)` and the other `Key` cases. Pressing Enter in a form field submits the form, as in a browser.
+- **Actions:** `click()`, `fill(text)` (replaces a field's value and fires input events), `blur()` (moves the focus away, firing `blur` and `focusout`), `press(.enter)`, `press(.escape)` and the other `Key` cases. Pressing Enter in a form field submits the form, as in a browser.
 - **Synchronous updates are flushed by every action,** so a test can `click()` and then `expect` with no `settle()`. `settle()` is needed only for async work.
 - **Streams don't block `settle()`.** An async effect waiting for the next element of an open stream counts as idle once every element already delivered has been processed ([29-server-streaming.md](29-server-streaming.md#tests)).
 

@@ -244,7 +244,8 @@ fields = [
 
 - **Compatible:** adding an rpc, an optional field or parameter, or an error case.
 - **Breaking:** removing an rpc, a parameter, a field or an error case, changing any of their types, adding
-  a required field or parameter, or no longer serving a recorded protocol. Each is `K8001`, with one note
+  a required field or parameter, changing the protocol's wire name (recorded as `service`, from the
+  project's name, the module and the protocol), or no longer serving a recorded protocol. Each is `K8001`, with one note
   per change:
 
   ```text

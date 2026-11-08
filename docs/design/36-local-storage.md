@@ -68,10 +68,10 @@ try storage.write(key: savedTodos, value: items)        // value must be a List<
 
 ### `storage.lock`
 
-A key's name and its value's shape are part of the app's stored format, which outlives every deploy. `storage.lock` records the namespace and, for each key, its name and its value type's `Codable` shape, with the rules of `protocol.lock` ([11-protocols-and-rpc.md](11-protocols-and-rpc.md#protocollock)). Its file format is [below](#file-format):
+A key's name and its value's shape are part of the app's stored format, which outlives every deploy. `storage.lock` records the namespace and, for each key, its name and its value type's `Codable` shape, with the compatibility rules of `rpc.lock` ([11-protocols-and-rpc.md](11-protocols-and-rpc.md#field-numbers-and-rpclock)). Its file format is [below](#file-format):
 
 - Adding an optional field to the value type is compatible.
-- Removing or renaming a field, changing its type, adding a required field, or renaming the key is a `k check` error unless the key's declaration is marked `@Breaking("reason")`. Users' existing values would then read as `.unreadable`, which the service must handle.
+- Removing or renaming a field, changing its type, adding a required field, or renaming the key is a `k check` error (`K8008`, at the key) unless the key's declaration (the constant or field) is marked `@Breaking("reason")`. Users' existing values would then read as `.unreadable`, which the service must handle. A key is matched with its entry by name, else by the recorded `declaration`, which is how a renamed key is recognized.
 - Test code isn't recorded, so a test may declare a key with an existing name to inspect what the service stored.
 - The same file records each background job's name and payload shape, because queued jobs are stored data too ([30-background-jobs.md](30-background-jobs.md#stored-payloads)).
 

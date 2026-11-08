@@ -1,0 +1,2 @@
+error[K6005] migrations/0003_drop_title.k:5:13-5:44: `0003_drop_title` drops the retired column `note.title` without `@Breaking`, which loses data
+  help: mark the migration `@Breaking("reason")`, saying why the loss is acceptable

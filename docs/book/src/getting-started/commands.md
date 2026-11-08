@@ -28,13 +28,13 @@ it rebuilds what changed and reports compile errors in the terminal.
 - **At a workspace root** `k dev` builds and serves every app member, each on its own port (`8080`,
   `8081`, … in dependency order), and wires each `remote` rule to the sibling that serves it. See
   [Workspaces and services](../apps/workspaces.md).
+- **The process environment wins over `.env`,** and `k dev` says so at every start: ``note: the process
+  environment shadows these `.env` keys: DATABASE_URL``. Only keys set in both, to different values, are
+  named, and never a value.
 - `--port` changes the port. `k run` is the same without the rebuilding.
 
 > **Planned.** State-preserving hot module replacement isn't in the first compiler releases. Until it
 > lands, refresh the browser after a rebuild.
-
-> **Planned.** The design has `k dev` print which `.env` keys the process environment shadowed. The
-> first compiler releases apply the precedence silently.
 
 ## `k test`
 
@@ -88,6 +88,7 @@ so they behave the same on every machine. See [Testing](../apps/testing.md).
 ```bash
 k check
 k check --format json
+k check --no-tests
 ```
 
 `k check` is the gate. It fails, with exit status `1`, on any problem:
@@ -97,18 +98,24 @@ k check --format json
 2. **Documentation.** References in `///` comments must resolve; one that doesn't is a warning.
 3. **Lockfiles.** A breaking change to a protocol, a URL, the database schema or a stored format fails
    unless it is deliberate and marked with `@Breaking("reason")`.
+4. **Tests.** Once the program has no errors, `k check` runs every test, as `k test` does. Each failed
+   test is a `K7510` error, rendered like `k test`'s, and the summary counts the tests that ran:
+   `checked 24 files, ran 53 tests: no problems`. `--no-tests` skips them, for a quick type check.
 
-> **Planned.** In the first compiler releases, `k check` compares two lockfiles: `rpc.lock` (the rpcs an
-> app serves) and the job payloads in `storage.lock`. Comparing `protocol.lock`, `routes.lock`,
-> `schema.lock` and the `storage.lock` keys comes later; the build already checks that the migrations
-> create what the entities store (see [Persistence](../apps/persistence.md#schemalock)).
+The lockfiles are `rpc.lock` (the protocols an app serves), `routes.lock` (URLs and redirects),
+`schema.lock` (the database schema and the migrations) and `storage.lock` (stored keys and job payloads);
+see [Project files](../reference/project-files.md#lockfiles). `k check` only reads them; `k build` writes
+`rpc.lock`, `routes.lock` and `schema.lock`. The `routes.lock` and `schema.lock` comparisons run once the
+program has no other errors, and the language server doesn't show them.
 
 `k check` takes files or directories (the project by default). Run at a workspace root, it checks every
 member, each with the libraries it depends on. It has no watch mode; it is the one-shot gate.
 
-> **Planned.** The design adds three more steps to `k check`: the formatting check, running every test,
-> and type-checking the `k` code blocks inside `///` comments. None of them is part of `k check` yet, so
-> CI runs `k test` as well.
+Only `k check` runs the tests. The language server never does, so the editor's diagnostics stay
+instant however large the test suite grows.
+
+> **Planned.** The design adds two more steps to `k check`: the formatting check and type-checking the
+> `k` code blocks inside `///` comments. Neither is part of `k check` yet.
 
 Run it in CI. With `--format json`, diagnostics are machine-readable, including their quick fixes,
 which is how agents apply fixes directly.

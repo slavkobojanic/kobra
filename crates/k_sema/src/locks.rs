@@ -1,5 +1,5 @@
-//! Lockfile checks (sema.md §12.16): the job payloads recorded in
-//! `storage.lock` against the program's jobs.
+//! Lockfile checks (sema.md §12.16): the storage keys and job payloads
+//! recorded in `storage.lock` against the program's keys and jobs.
 //!
 //! Jobs queued by one release are run by the next, so a job's payload is
 //! stored data: `storage.lock` records each job's name and the `Codable`
@@ -16,6 +16,14 @@
 //!   `@Breaking("reason")`;
 //! * an optional field added, a case added, or a required field made
 //!   optional is compatible.
+//!
+//! The `[keys.<name>]` entries are compared the same way with each
+//! `StorageKey<T>` constant or field (matched by its `name:` literal, else
+//! by the recorded `declaration`): an incompatible value type, or a key
+//! whose declaration is recorded under another name (a renamed key), is
+//! **K8008** at the key's name, unless the key is marked
+//! `@Breaking("reason")` (`docs/design/36-local-storage.md`,
+//! "`storage.lock`").
 //!
 //! A `storage.lock` that isn't valid TOML of that structure is **K8002** at
 //! the offending line. A job the lock doesn't record yet, and a recorded
@@ -55,7 +63,7 @@ pub(crate) fn is_job(cx: &Cx<'_, '_>, decl: DeclId) -> bool {
 }
 
 /// The payload type of a job service: the argument of its `Job<…>`.
-fn job_payload(cx: &Cx<'_, '_>, decl: DeclId) -> Option<Ty> {
+pub(crate) fn job_payload(cx: &Cx<'_, '_>, decl: DeclId) -> Option<Ty> {
     if cx.p.decl(decl).named_kind() != Some(K::Service) {
         return None;
     }
@@ -192,9 +200,11 @@ enum Shape {
     Enum(Vec<(String, Vec<WrittenField>)>),
 }
 
-/// What `storage.lock` records about jobs.
+/// What `storage.lock` records about keys and jobs.
 #[derive(Debug, Default)]
 struct StorageLock {
+    /// Storage keys by name: (declaration, value type).
+    keys: BTreeMap<String, (String, Written)>,
     /// Jobs by name: (declaration, payload).
     jobs: BTreeMap<String, (String, Written)>,
     /// The shapes of app types by qualified name.
@@ -224,6 +234,22 @@ fn read_storage(text: &str) -> Result<StorageLock, Invalid> {
         offset: find_key(text, key),
     };
     let mut out = StorageLock::default();
+    if let Some(keys) = table.get("keys") {
+        let keys = keys.as_table().ok_or_else(|| at("keys"))?;
+        for (name, key) in keys {
+            let key = key.as_table().ok_or_else(|| at(name))?;
+            let declaration = key
+                .get("declaration")
+                .and_then(toml::Value::as_str)
+                .ok_or_else(|| at(name))?;
+            let ty = key
+                .get("type")
+                .and_then(toml::Value::as_str)
+                .and_then(Written::parse)
+                .ok_or_else(|| at(name))?;
+            out.keys.insert(name.clone(), (declaration.to_owned(), ty));
+        }
+    }
     if let Some(jobs) = table.get("jobs") {
         let jobs = jobs.as_table().ok_or_else(|| at("jobs"))?;
         for (name, job) in jobs {
@@ -331,6 +357,7 @@ fn storage(cx: &Cx<'_, '_>, lock: &Lockfile) {
             return;
         }
     };
+    keys(cx, &recorded);
     let p = cx.p;
     for (i, decl) in p.decls.iter().enumerate() {
         let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
@@ -380,6 +407,160 @@ fn storage(cx: &Cx<'_, '_>, lock: &Lockfile) {
             "keep the recorded shape (only optional fields and new enum cases are compatible), or mark the job `@Breaking(\"reason\")` once no such job can be queued",
         );
         cx.report(decl.file, diag);
+    }
+}
+
+/// One `StorageKey` of the program: a top-level constant or a field whose
+/// type is `StorageKey<T>`.
+struct Key {
+    /// The qualified name of the constant or field,
+    /// `cart.CartService.savedCart`.
+    declaration: String,
+    /// The name its initializer gives, `StorageKey(name: "cart")`.
+    name: Option<String>,
+    /// The value type `T`.
+    value: Ty,
+    /// Where diagnostics point: the constant's or field's name.
+    file: crate::program::FileIx,
+    /// Its range.
+    range: TextRange,
+    /// `true` when it is marked `@Breaking("reason")`.
+    breaking: bool,
+}
+
+/// The value type of a `StorageKey<T>`.
+pub(crate) fn key_value(cx: &Cx<'_, '_>, ty: &Ty) -> Option<Ty> {
+    match ty {
+        Ty::Named(d, args) if cx.p.decl_name(*d) == "k.storage.StorageKey" => {
+            Some(args.first().cloned().unwrap_or(Ty::Error))
+        }
+        _ => None,
+    }
+}
+
+/// The `name:` literal of a `StorageKey(name: "…")` initializer below
+/// `node`.
+fn key_name(node: &k_syntax::SyntaxNode) -> Option<String> {
+    node.descendants()
+        .filter_map(ast::CallExpr::cast)
+        .find_map(|c| {
+            c.arg_list()?.args().find_map(|a| {
+                if a.label()?.text() != "name" {
+                    return None;
+                }
+                match a.value()? {
+                    ast::Expr::StringLit(s) => s.plain_value(),
+                    _ => None,
+                }
+            })
+        })
+}
+
+/// `true` when `node` carries `@Breaking`.
+fn node_has_breaking(node: &k_syntax::SyntaxNode) -> bool {
+    node.children()
+        .filter_map(ast::Annotation::cast)
+        .any(|a| a.name().is_some_and(|t| t.text() == "Breaking"))
+}
+
+/// Every `StorageKey` of the program's non-test code.
+fn program_keys(cx: &Cx<'_, '_>) -> Vec<Key> {
+    let p = cx.p;
+    let mut out = Vec::new();
+    for (i, decl) in p.decls.iter().enumerate() {
+        let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
+        if p.file(decl.file).stdlib || p.file(decl.file).is_test {
+            continue;
+        }
+        if decl.named_kind() == Some(K::Constant) {
+            if let Some(value) = key_value(cx, &cx.constant_ty(d)) {
+                out.push(Key {
+                    declaration: p.decl_name(d),
+                    name: key_name(&decl.node),
+                    value,
+                    file: decl.file,
+                    range: decl.name_range,
+                    breaking: node_has_breaking(&decl.node),
+                });
+            }
+            continue;
+        }
+        for &m in &decl.members {
+            let member = p.member(m);
+            if member.kind != MemberKind::Field {
+                continue;
+            }
+            let Some(value) = key_value(cx, &cx.field_ty(m)) else {
+                continue;
+            };
+            let node = member.node.clone();
+            out.push(Key {
+                declaration: format!("{}.{}", p.decl_name(d), member.name),
+                name: node.as_ref().and_then(key_name),
+                value,
+                file: decl.file,
+                range: member.name_range,
+                breaking: node.as_ref().is_some_and(node_has_breaking),
+            });
+        }
+    }
+    out
+}
+
+/// Compares `storage.lock`'s keys with the program's (K8008): a recorded
+/// key's value type must still decode what users' browsers hold, and a key
+/// whose declaration is recorded under another name was renamed, which
+/// orphans their data. `@Breaking("reason")` on the key allows both. New
+/// keys and recorded keys the program no longer declares aren't reported.
+fn keys(cx: &Cx<'_, '_>, recorded: &StorageLock) {
+    for key in program_keys(cx) {
+        if key.breaking || key.value.contains_error() {
+            continue;
+        }
+        let by_name = key
+            .name
+            .as_ref()
+            .and_then(|n| recorded.keys.get_key_value(n));
+        let entry = by_name.or_else(|| {
+            recorded
+                .keys
+                .iter()
+                .find(|(_, (declaration, _))| *declaration == key.declaration)
+        });
+        let Some((name, (_, written))) = entry else {
+            continue;
+        };
+        let mut changes = Vec::new();
+        if by_name.is_none() {
+            changes.push(format!(
+                "the key was renamed from `{name}` to `{}`; values stored under `{name}` are no longer read",
+                key.name.as_deref().unwrap_or("?")
+            ));
+        }
+        let mut cmp = Compare {
+            cx,
+            lock: recorded,
+            seen: HashSet::new(),
+            changes: &mut changes,
+        };
+        cmp.ty(written, &key.value, "the value");
+        if changes.is_empty() {
+            continue;
+        }
+        let mut diag = Diagnostic::new(
+            codes::INCOMPATIBLE_STORAGE_KEY,
+            cx.p.span(key.file, key.range),
+            format!(
+                "the storage key `{name}` changed incompatibly with storage.lock; values users' browsers already hold would read as `.unreadable`"
+            ),
+        );
+        for change in changes {
+            diag = diag.with_note(change);
+        }
+        diag = diag.with_note(
+            "keep the recorded name and shape (only optional fields and new enum cases are compatible), or mark the key `@Breaking(\"reason\")` once the service handles `.unreadable`",
+        );
+        cx.report(key.file, diag);
     }
 }
 

@@ -18,7 +18,7 @@
 use std::collections::BTreeSet;
 
 use k_sema::stdlib::DeclarationKind;
-use k_sema::view::{DeclId, MemberKind, Type};
+use k_sema::view::{DeclId, MemberId, MemberKind, Type};
 use k_syntax::ast::{self, AstNode};
 use k_syntax::{SyntaxKind, SyntaxNode};
 
@@ -1463,14 +1463,17 @@ fn nested_checks(
     ))))]
 }
 
-/// A `@Check(Service.function, message:)` rule on the server: an async
-/// function of the field's value that calls the named service function
-/// through the request container `c` and returns the message when it
-/// answers `false` (15-forms-and-validation.md: "On the server it always
-/// runs in full"). `None` when the name doesn't resolve to a member of a
-/// service of this program that the server has (sema reports that).
-fn check_rule(b: &mut Body<'_, '_>, d: DeclId, args: Option<&ast::ArgList>) -> Option<Expr> {
-    let g = b.g;
+/// The target of a `@Check(Service.function, message:)` rule on a field of
+/// struct `d`: the service (one of this program's, the struct's own module
+/// first), its function and the failure message (the rule's literal, else
+/// the stdlib's default). `None` when the name doesn't resolve (sema
+/// reports that). Shared by the server's validator and the browser's form
+/// (`crate::app::form`).
+pub(crate) fn check_target(
+    g: &Gen<'_>,
+    d: DeclId,
+    args: Option<&ast::ArgList>,
+) -> Option<(DeclId, MemberId, String)> {
     let list = args?;
     let target = list.args().find(|a| a.label().is_none())?.value()?;
     let text = target
@@ -1493,10 +1496,6 @@ fn check_rule(b: &mut Body<'_, '_>, d: DeclId, args: Option<&ast::ArgList>) -> O
     // A service of the struct's own module wins over one of another module.
     candidates.sort_by_key(|&s| g.view.decl(s).module != module);
     let service = *candidates.first()?;
-    // Only a service the server's request container has can be called.
-    if !crate::bundle::allowed(g, service, Target::Server) {
-        return None;
-    }
     let m = g.find_member(service, func)?;
     let message = list
         .args()
@@ -1507,8 +1506,13 @@ fn check_rule(b: &mut Body<'_, '_>, d: DeclId, args: Option<&ast::ArgList>) -> O
             _ => None,
         })
         .unwrap_or_else(|| "Check this field".to_owned());
-    let method = g.member_name(m);
-    let callee = member(member(id("c"), g.name(service)), method);
+    Some((service, m, message))
+}
+
+/// The call of a `@Check` target's function on `x` through container `c`
+/// (`c.Service.f($c, x)`, the signal only for an async function).
+pub(crate) fn check_call(g: &Gen<'_>, c: Expr, service: DeclId, m: MemberId) -> Expr {
+    let callee = member(member(c, g.name(service)), g.member_name(m));
     let mut call_args = Vec::new();
     if g.view
         .member(m)
@@ -1519,11 +1523,26 @@ fn check_rule(b: &mut Body<'_, '_>, d: DeclId, args: Option<&ast::ArgList>) -> O
         call_args.push(id("$c"));
     }
     call_args.push(id("x"));
-    let _ = b;
+    call(callee, call_args)
+}
+
+/// A `@Check(Service.function, message:)` rule on the server: an async
+/// function of the field's value that calls the named service function
+/// through the request container `c` and returns the message when it
+/// answers `false` (15-forms-and-validation.md: "On the server it always
+/// runs in full"). `None` when the name doesn't resolve to a member of a
+/// service of this program that the server has (sema reports that).
+fn check_rule(b: &mut Body<'_, '_>, d: DeclId, args: Option<&ast::ArgList>) -> Option<Expr> {
+    let g = b.g;
+    let (service, m, message) = check_target(g, d, args)?;
+    // Only a service the server's request container has can be called.
+    if !crate::bundle::allowed(g, service, Target::Server) {
+        return None;
+    }
     Some(js::arrow_block(
         vec![Param::new("x")],
         vec![Stmt::Return(Some(Expr::Cond(
-            Box::new(Expr::Await(Box::new(call(callee, call_args)))),
+            Box::new(Expr::Await(Box::new(check_call(g, id("c"), service, m)))),
             Box::new(Expr::Null),
             Box::new(js::str(message)),
         )))],
@@ -1699,32 +1718,11 @@ fn rpc_table(b: &mut Body<'_, '_>, helpers: &mut Vec<Stmt>) -> Expr {
 
 // ---------------------------------------------------------------- routes
 
-/// The redirects recorded in `routes.lock`: `redirect "/old/{id}" -> page`
-/// lines (the v0 lockfile format, 12-routing.md "Renaming pages").
+/// The redirects the server answers, as (old URL template, `Page` case):
+/// those `routes.lock` records and the automatic one of each page renamed
+/// since ([`crate::routelock::redirects`]).
 pub(crate) fn lock_redirects(g: &Gen<'_>) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for (file, path) in g.analysis.files() {
-        if path.as_str() != "routes.lock" {
-            continue;
-        }
-        let Some(text) = g.analysis.text(file) else {
-            continue;
-        };
-        for line in text.lines() {
-            let Some(rest) = line.trim().strip_prefix("redirect ") else {
-                continue;
-            };
-            let Some((from, to)) = rest.split_once("->") else {
-                continue;
-            };
-            let from = from.trim().trim_matches('"').to_owned();
-            let to = to.trim().to_owned();
-            if from.starts_with('/') && !to.is_empty() {
-                out.push((from, to));
-            }
-        }
-    }
-    out
+    crate::routelock::redirects(g)
 }
 
 /// The view pages in route-table order (codegen.md §14).

@@ -2,4 +2,8 @@
 import accounts.SignIn
 
 @SignInPage(SignIn)
-public app Shop {}
+public app Shop {
+    metadata {
+        title("Shop")
+    }
+}

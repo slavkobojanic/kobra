@@ -1,0 +1,3 @@
+error[K8007] routes.lock:22:1-22:24: the redirect from `/products` can't build the URL of `product` (`/product/{id}`)
+  note: `product` needs `{id}`, which the old URL doesn't have
+  help: redirect to a page whose required parameters the old URL has

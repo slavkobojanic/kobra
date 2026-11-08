@@ -1,0 +1,2 @@
+error[K8007] routes.lock:17:1-17:19: `/health` (endpoint `health`) is no longer served, and something outside the app calls it
+  help: keep the endpoint's `at "/health"`, or delete the entry from routes.lock once no external system calls it

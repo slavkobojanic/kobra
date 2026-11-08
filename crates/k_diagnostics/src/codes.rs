@@ -510,6 +510,12 @@ codes! {
     /// A `@Derived` field depends on itself, directly or through other `@Derived` fields.
     DERIVED_CYCLE = 3026, "derived-cycle", Error,
         "A `@Derived` field's initializer reads the field itself, directly or through other `@Derived` fields.";
+    /// A view page of an app has no `title`, from its own `metadata`, its layout's or the app's.
+    PAGE_WITHOUT_TITLE = 3027, "page-without-title", Warning,
+        "A view page has no `title`: neither its `metadata`, nor its layout's, nor the app's sets one.";
+    /// A literal `description(…)` is longer than 160 characters, which search results cut off.
+    LONG_DESCRIPTION = 3028, "long-description", Warning,
+        "A literal `description(…)` is longer than 160 characters, which search results cut off.";
 
     // ---------------------------------------------------------------- views
     /// A lowercase call in a view is not a built-in element; an HTML name gets a hint (`a` is `link`).
@@ -727,6 +733,9 @@ codes! {
     /// An endpoint handler is `func name(request: IncomingRequest) async -> HttpResponse`.
     INVALID_HANDLER_SIGNATURE = 5012, "invalid-handler-signature", Error,
         "An endpoint handler is `func name(request: IncomingRequest) async -> HttpResponse`.";
+    /// A response sets a literal `set-cookie` header; cookies are set only through `Session`.
+    SET_COOKIE_HEADER = 5013, "set-cookie-header", Error,
+        "A response sets a literal `set-cookie` header; cookies are set only through `Session`.";
 
     // ---------------------------------------------------------------- protocols and rpc
     /// Every `rpc` declares `throws`: an error enum with a `rpcFailure(RpcFailure)` case, or `RpcOnlyError`.
@@ -758,6 +767,15 @@ codes! {
     /// An entity's table name starts with `k_`, which is reserved for the stdlib.
     RESERVED_TABLE_PREFIX = 6003, "reserved-table-prefix", Error,
         "An entity's table name starts with `k_`, which is reserved for the stdlib.";
+    /// A migration doesn't replay: it names a table, column or case that the earlier migrations don't leave, or calls something the schema builder doesn't have.
+    INVALID_MIGRATION = 6004, "invalid-migration", Error,
+        "A migration doesn't replay against the schema the earlier migrations leave.";
+    /// A migration destroys data without `@Breaking("reason")`.
+    DESTRUCTIVE_MIGRATION = 6005, "destructive-migration", Error,
+        "A migration that drops a table or column, or renames or removes an enum case, needs `@Breaking(\"reason\")`.";
+    /// A migration drops or renames something the previous release still reads.
+    LIVE_SCHEMA_CHANGE = 6006, "live-schema-change", Error,
+        "A migration drops or renames a table or column that no earlier migration retired; only `@Breaking(\"single instance\")` allows it.";
 
     // ---------------------------------------------------------------- forms and validation
     /// `form.value` is readable only inside the action passed to `form.handle(...)`.
@@ -789,9 +807,9 @@ codes! {
     /// A test group's dependency graph reaches an app config that no `use` rule binds.
     UNBOUND_TEST_CONFIG = 7503, "unbound-test-config", Error,
         "A test group's dependency graph reaches an app config that no `use` rule binds.";
-    /// A test failed when `k test` ran it: an `expect` was false, an `expect throws` block didn't throw a matching error, or the test panicked, threw or never finished.
+    /// A test failed when `k test` or `k check` ran it: an `expect` was false, an `expect throws` block didn't throw a matching error, or the test panicked, threw or never finished.
     TEST_FAILED = 7510, "test-failed", Error,
-        "A test failed when `k test` ran it.";
+        "A test failed when `k test` or `k check` ran it.";
 
     // ---------------------------------------------------------------- lockfiles, manifest and packages
     /// A change breaks a lockfile's recorded contract without `@Breaking`.
@@ -803,6 +821,21 @@ codes! {
     /// A job's payload changed incompatibly with the shape `storage.lock` records, without `@Breaking`.
     INCOMPATIBLE_JOB_PAYLOAD = 8003, "incompatible-job-payload", Error,
         "A job's payload changed incompatibly with `storage.lock`; queued jobs couldn't be decoded.";
+    /// The entities differ from `schema.lock`.
+    SCHEMA_DRIFT = 8004, "schema-drift", Error,
+        "The entities differ from `schema.lock`; `k migrate new` writes the migration.";
+    /// Replaying `migrations/` doesn't produce `schema.lock`.
+    SCHEMA_LOCK_MISMATCH = 8005, "schema-lock-mismatch", Error,
+        "Replaying `migrations/` doesn't produce the schema `schema.lock` records.";
+    /// A migration file doesn't match its place in `schema.lock`'s `migrations` list.
+    MIGRATION_ORDER = 8006, "migration-order", Error,
+        "A migration file's number doesn't match its position in `schema.lock`'s `migrations` list.";
+    /// A URL that `routes.lock` records is no longer served and has no redirect.
+    REMOVED_URL = 8007, "removed-url", Error,
+        "A URL `routes.lock` records is no longer served, and no redirect keeps it working.";
+    /// A storage key's value type changed incompatibly with `storage.lock`, without `@Breaking`.
+    INCOMPATIBLE_STORAGE_KEY = 8008, "incompatible-storage-key", Error,
+        "A storage key changed incompatibly with `storage.lock`; stored values would no longer decode.";
     /// `k.toml` is malformed or lacks a required key.
     INVALID_MANIFEST = 8101, "invalid-manifest", Error,
         "`k.toml` is malformed or lacks a required key.";
@@ -829,6 +862,9 @@ codes! {
     /// A source file that could not be read.
     IO_ERROR = 9002, "io-error", Error,
         "A file or directory could not be read.";
+    /// `k check` couldn't build or run the project's tests.
+    TESTS_NOT_RUN = 9003, "tests-not-run", Error,
+        "`k check` couldn't build or run the project's tests.";
 }
 
 /// Looks up the registry entry for `code`.

@@ -29,6 +29,10 @@ public class Element {
     /// Presses `key` ([`Key`]); [`Key.enter`] in a form field submits the
     /// form.
     func press(_ key: Key)
+    /// Moves the focus away from the element, firing `blur` and
+    /// `focusout`, as leaving a form field does (it starts the field's
+    /// `@Check` rules, `docs/design/15-forms-and-validation.md`).
+    func blur()
     /// Drags the element onto `target` with the mouse: presses it, moves
     /// onto `target` and releases there (`docs/design/41-drag-and-drop.md`,
     /// "Tests").

@@ -1,0 +1,3 @@
+css contains   border-left: 4px solid color-mix(in srgb, var(--k-color-primary), white 20%);
+client contains $k.colorMix(
+client contains , 30)

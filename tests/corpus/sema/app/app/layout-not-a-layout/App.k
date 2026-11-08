@@ -2,4 +2,8 @@
 import home.Home
 
 @Layout(Home)
-public app Shop {}
+public app Shop {
+    metadata {
+        title("Shop")
+    }
+}

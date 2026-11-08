@@ -204,12 +204,8 @@ fn report(analysis: &Analysis, project: &project::Project, run: &Run, color: boo
         out.push_str(&format!("{label}  {}\n", o.full));
     }
     out.push('\n');
-    let failed: Vec<&Outcome> = run
-        .outcomes
-        .iter()
-        .filter(|o| o.failure.is_some())
-        .collect();
-    if !failed.is_empty() {
+    let failures = failure_diagnostics(analysis, run);
+    if !failures.is_empty() {
         out.push_str("failures:\n\n");
         let map = analysis.source_map(|p| project.display(p));
         let options = if color {
@@ -217,22 +213,16 @@ fn report(analysis: &Analysis, project: &project::Project, run: &Run, color: boo
         } else {
             render::HumanOptions::plain()
         };
-        for o in &failed {
-            let Some(f) = &o.failure else { continue };
-            let file = ProjectPath::new(&o.file)
-                .ok()
-                .and_then(|p| analysis.file_id(&p))
-                .unwrap_or_else(|| FileId::new(0));
-            let range = TextRange::new(TextSize::from(f.start), TextSize::from(f.end.max(f.start)));
-            let mut d = Diagnostic::new(codes::TEST_FAILED, Span::new(file, range), &f.message);
-            for (text, value) in &f.values {
-                d = d.with_note(format!("`{text}` was {value}"));
-            }
-            d = d.with_note(format!("in test `{}`", o.full));
-            out.push_str(&render::human(&d, &map, &options));
+        for d in &failures {
+            out.push_str(&render::human(d, &map, &options));
             out.push('\n');
         }
     }
+    let failed: Vec<&Outcome> = run
+        .outcomes
+        .iter()
+        .filter(|o| o.failure.is_some())
+        .collect();
     let passed = run.outcomes.len() - failed.len();
     let verdict = if failed.is_empty() {
         paint("32", "ok")
@@ -245,6 +235,71 @@ fn report(analysis: &Analysis, project: &project::Project, run: &Run, color: boo
         run.total - run.outcomes.len()
     ));
     out
+}
+
+/// One `K7510` diagnostic per failed test of `run`, in run order: at the
+/// failing expectation in `analysis`'s file ids, with a note per operand
+/// value and one naming the test.
+fn failure_diagnostics(analysis: &Analysis, run: &Run) -> Vec<Diagnostic> {
+    let mut out = Vec::new();
+    for o in &run.outcomes {
+        let Some(f) = &o.failure else { continue };
+        let file = ProjectPath::new(&o.file)
+            .ok()
+            .and_then(|p| analysis.file_id(&p))
+            .unwrap_or_else(|| FileId::new(0));
+        let range = TextRange::new(TextSize::from(f.start), TextSize::from(f.end.max(f.start)));
+        let mut d = Diagnostic::new(codes::TEST_FAILED, Span::new(file, range), &f.message);
+        for (text, value) in &f.values {
+            d = d.with_note(format!("`{text}` was {value}"));
+        }
+        d = d.with_note(format!("in test `{}`", o.full));
+        out.push(d);
+    }
+    out
+}
+
+/// What `k check` learns from running a project's tests.
+pub(crate) struct Checked {
+    /// How many tests ran.
+    pub(crate) ran: usize,
+    /// A `K7510` per failed test, or one `K9003` when the tests couldn't be
+    /// built or run, in `analysis`'s file ids.
+    pub(crate) diagnostics: Vec<Diagnostic>,
+}
+
+/// Runs every test of `analysis`, a program without errors, for `k check`
+/// (13-tooling.md, "Commands"). `None` when the project has no tests, or
+/// this `k` has no server runtime to run them in.
+pub(crate) fn check_tests(analysis: &Analysis) -> Option<Checked> {
+    let has_tests = analysis
+        .files()
+        .iter()
+        .any(|(_, p)| p.as_str().ends_with(".test.k"));
+    if !has_tests || !cfg!(feature = "server") {
+        return None;
+    }
+    match execute(analysis, &[], None) {
+        Ok(run) => Some(Checked {
+            ran: run.outcomes.len(),
+            diagnostics: failure_diagnostics(analysis, &run),
+        }),
+        Err(message) => {
+            let file = analysis
+                .files()
+                .into_iter()
+                .find(|(_, p)| p.as_str() == "k.toml")
+                .map_or_else(|| FileId::new(0), |(id, _)| id);
+            Some(Checked {
+                ran: 0,
+                diagnostics: vec![Diagnostic::new(
+                    codes::TESTS_NOT_RUN,
+                    Span::empty(file, TextSize::from(0)),
+                    format!("the tests couldn't run: {message}"),
+                )],
+            })
+        }
+    }
 }
 
 /// Builds the test bundle of `analysis` and runs the selected tests.

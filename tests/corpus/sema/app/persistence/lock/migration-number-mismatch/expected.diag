@@ -1,0 +1,3 @@
+error[K8006] migrations/0003_add_body.k:2:11-2:18: `migrations/0003_add_body.k` is number 3, but it is migration 2 in schema.lock's `migrations` list
+  label schema.lock:2:36-2:51: listed here
+  help: rename the file to `migrations/0002_…`, and its entry in schema.lock; when two branches each added a migration, renumber the one merged last

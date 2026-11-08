@@ -106,7 +106,7 @@ service PurgeExpiredCarts implements Job<Void> { … }
 
 ## Stored payloads
 
-Jobs queued during a rolling deploy are run by the next release, so the queue's format is recorded in **`storage.lock`** with the rules of `protocol.lock` ([11-protocols-and-rpc.md](11-protocols-and-rpc.md#protocollock)). The file's format is specified in [36-local-storage.md](36-local-storage.md#storagelock):
+Jobs queued during a rolling deploy are run by the next release, so the queue's format is recorded in **`storage.lock`** with the compatibility rules of `rpc.lock` ([11-protocols-and-rpc.md](11-protocols-and-rpc.md#field-numbers-and-rpclock)). The file's format is specified in [36-local-storage.md](36-local-storage.md#storagelock):
 
 - Each job's name and payload shape are recorded.
 - Adding an optional field to a payload is compatible. Removing or renaming a field, changing its type, or adding a required field is a `k check` error unless the job is marked `@Breaking("reason")`.

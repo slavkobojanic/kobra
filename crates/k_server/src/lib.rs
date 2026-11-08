@@ -18,6 +18,8 @@
 //!   appended to the runtime executable.
 //! * [`outbound`]: outgoing HTTP (`HttpClient`) and SMTP (`EmailProvider`)
 //!   on behalf of K code.
+//! * [`proxy`]: the client address behind the proxies `K_TRUSTED_PROXIES`
+//!   trusts (`X-Forwarded-For`).
 //! * [`fakes`]: fake third parties for tests (an HTTP API, an SMTP server).
 //! * [`testing`]: the HTTP request scripts of the server end-to-end tests.
 //!
@@ -86,6 +88,7 @@ pub mod jobs;
 pub mod ops;
 pub mod outbound;
 pub mod process;
+pub mod proxy;
 pub mod testing;
 
 pub use engine::{Engine, EngineError, EngineOptions, JsModule, LogLine, Output};

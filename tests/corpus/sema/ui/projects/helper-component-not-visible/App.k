@@ -1,1 +1,5 @@
-public app Demo {}
+public app Demo {
+    metadata {
+        title("Demo")
+    }
+}

@@ -1,0 +1,2 @@
+error[K6005] migrations/0002_rename_published.k:5:13-5:82: `0002_rename_published` renames the case `published` of `note.status` without `@Breaking`, which loses data
+  help: mark the migration `@Breaking("reason")`, saying why the loss is acceptable

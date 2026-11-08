@@ -1,0 +1,1 @@
+error[K8002] schema.lock:5:56-5:62: schema.lock can't be read: unknown field `colour`, expected one of `field`, `name`, `type`, `primaryKey`, `nullable`, `unique`, `indexed`, `references`, `cases`, `default`, `retired`

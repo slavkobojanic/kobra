@@ -339,7 +339,11 @@ error[K0104] 1:12-1:14
 ### 3.8 The `sema` suite
 
 The `sema` suite checks **everything `k check` reports** for a project, syntax and semantic diagnostics
-together, plus assertions about inferred types and resolved names. The design of the stage is
+together, with the lockfile checks of `k_codegen::project_diagnostics` (`schema.lock` and the
+migrations, `routes.lock`; [sema.md §12.16](sema.md#1216-lockfiles)) for an app without other errors,
+plus assertions about inferred types and resolved names. The lockfile cases are project cases in
+`app/persistence/lock/` (migrations and `schema.lock`), `routing/lock/` (`routes.lock`),
+`app/storage/` (`storage.lock` keys), `app/jobs/` (job payloads) and `rpc/lock/` (`rpc.lock`). The design of the stage is
 [sema.md](sema.md); every semantic code, with its primary span and fix, is in
 [diagnostics.md](diagnostics.md#semantic-codes).
 
@@ -1394,6 +1398,9 @@ format change is a reviewed diff):
   (exit 1), a project without tests (exit 0), a project with errors (exit 1, the errors printed), every
   test of `examples/todos`, and `--watch` re-running only the test files a change affects (an edit of
   `CounterView.k` re-runs `CounterView.test.k` only; of `Counter.k`, both).
+- **`k check` runs the tests:** on the counter fixture each failure is a `K7510` among the diagnostics,
+  human-readable and in JSON Lines, and the summary counts the tests that ran; `--no-tests` skips them;
+  a project with errors runs none; `examples/todos` passes with its tests.
 - **Every example's own tests** (`test_runs_the_{todos,weather,notes,shop,kanban}_example`; kanban's
   drags with `drag(to:)` and the keyboard, its shortcuts, forms, files through `TestFiles` and progress on
   the `TestClock`), and `k check` plus a static `k build` of kanban with its feature chunks: all must pass, the

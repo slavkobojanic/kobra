@@ -687,6 +687,10 @@ pub(crate) fn check_declaration(cx: &Cx<'_, '_>, decl: DeclId, owner: &BodyOwner
     if kind == Some(K::Service) && crate::locks::is_job(cx, decl) {
         targets.push(Target::Locked);
     }
+    // So is a storage key's name and value (`storage.lock`).
+    if kind == Some(K::Constant) && crate::locks::key_value(cx, &cx.constant_ty(decl)).is_some() {
+        targets.push(Target::Locked);
+    }
     for a in annotations_of(cx, file, &d.node) {
         if a.def.targets.iter().any(|t| targets.contains(t)) {
             check_annotation_args(cx, owner, &a);
@@ -699,11 +703,16 @@ pub(crate) fn check_declaration(cx: &Cx<'_, '_>, decl: DeclId, owner: &BodyOwner
         let Some(node) = &member.node else { continue };
         let field = matches!(member.kind, MemberKind::Field | MemberKind::Computed);
         let is_func = member.kind == MemberKind::Func;
-        let targets = if field || is_func {
+        let mut targets = if field || is_func {
             member_targets(cx, decl, field)
         } else {
             Vec::new()
         };
+        if member.kind == MemberKind::Field
+            && crate::locks::key_value(cx, &cx.field_ty(m)).is_some()
+        {
+            targets.push(Target::Locked);
+        }
         for a in annotations_of(cx, file, node) {
             if !a.def.targets.iter().any(|t| targets.contains(t)) {
                 not_allowed(cx, file, &a);

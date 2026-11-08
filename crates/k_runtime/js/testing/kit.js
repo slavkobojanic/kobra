@@ -882,6 +882,17 @@ class Handle extends Queries {
   }
 
   /**
+   * Moves the focus away from the element: fires `blur`, then a bubbling
+   * `focusout`, as leaving a form field does.
+   */
+  blur() {
+    const el = this.one();
+    el.dispatchEvent(new globalThis.Event("blur"));
+    el.dispatchEvent(event("focusout"));
+    flush();
+  }
+
+  /**
    * Presses `key` on the element (`keydown`, then `keyup`); an unprevented
    * Enter outside a text area submits the enclosing form.
    * @param {{$: number, _0?: string}} [key] a `Key` case; Enter by default
@@ -1285,13 +1296,23 @@ export function testHttpClient(E, S) {
 export function recordingJobQueue() {
   const jobs = [];
   return {
-    /** Records the job with its JSON-encoded payload, without running it. */
+    /**
+     * Records the job without running it: its payload JSON-encoded with
+     * `codec`, as the worker would receive it, or as it is when the caller
+     * has no codec (`null`, which `InlineJobQueue` accepts too).
+     */
     async enqueue(_c, codec, kind, payload, delay) {
-      jobs.push({ name: kind.name, json: JSON.stringify(codec.encode(payload)), delay: delay ?? 0 });
+      const json = codec ? JSON.stringify(codec.encode(payload)) : null;
+      jobs.push({ name: String(kind.name), json, payload, delay: delay ?? 0 });
     },
-    /** The decoded payloads of the jobs of `kind`, in enqueue order. */
+    /**
+     * The payloads of the jobs of `kind`, in enqueue order: decoded with
+     * `codec`, or as enqueued when either side had no codec.
+     */
     payloads(codec, kind) {
-      return jobs.filter((j) => j.name === kind.name).map((j) => codec.decode(JSON.parse(j.json), ""));
+      return jobs
+        .filter((j) => j.name === String(kind.name))
+        .map((j) => (codec && j.json !== null ? codec.decode(JSON.parse(j.json), "") : j.payload));
     },
   };
 }

@@ -13,9 +13,8 @@ The design includes these, but the first compiler releases don't. The book marks
 |---|---|
 | `k new`, the project skeleton | [Your first app](../getting-started/first-app.md#creating-a-project) |
 | State-preserving hot module replacement in `k dev` | [Everyday commands](../getting-started/commands.md#k-dev) |
-| `k dev` naming the `.env` keys the process environment shadows | [Everyday commands](../getting-started/commands.md#k-dev), [Configuration and secrets](../apps/config.md#per-environment) |
 | The formatter, `k fmt` | [Everyday commands](../getting-started/commands.md#k-check), [Views](../apps/views.md#formatting) |
-| Tests, formatting and doc-comment `k` blocks as part of `k check` | [Everyday commands](../getting-started/commands.md#k-check) |
+| Formatting and doc-comment `k` blocks as part of `k check` | [Everyday commands](../getting-started/commands.md#k-check) |
 | `k doc`, and warnings for undocumented package API | [Documentation comments](../language/doc-comments.md) |
 | `k explain` | [The k command](cli.md) |
 | Custom id types (a `ProductId` struct) as page parameters | [Pages and routing](../apps/routing.md#parameters) |
@@ -24,12 +23,8 @@ The design includes these, but the first compiler releases don't. The book marks
 | The accessible widgets of `k.ui`, and `k.i18n`, `k.collections`, `k.animation`, `k.graphics` | [Standard library](stdlib.md#modules) |
 | The binary Protobuf encoding, `k proto export` and `import proto` | [Protocols and RPC](../apps/protocols.md#the-wire-format) |
 | Packages and `k add` | [Packages](../apps/packages.md) |
-| Writing `routes.lock`, and the automatic redirect when a page is renamed | [Pages and routing](../apps/routing.md#routeslock-and-redirects) |
-| The browser's debounced run of `@Check` rules | [Forms and validation](../apps/forms.md#async-rules) |
-| The compile error for a literal `set-cookie` header on an endpoint response | [Endpoint pages](../apps/endpoints.md#responses) |
-| The warnings for a page without a `title` and a description over 160 characters | [Document metadata](../apps/metadata.md#rules) |
-| `k check` comparing `protocol.lock`, `routes.lock`, `schema.lock` and `storage.lock` keys (job payloads and `rpc.lock` are checked) | [Everyday commands](../getting-started/commands.md#k-check), [Project files](project-files.md#lockfiles) |
-| Name-preserving entity and field renames, `k migrate new --rename` and `--drop-retired`, `@Breaking` on destructive migrations, the enum case operations | [Persistence](../apps/persistence.md#renames-and-rolling-deploys) |
+| Writing `storage.lock` (its entries are compared once recorded), per-app storage namespaces, and the error for two storage keys with one name | [Project files](project-files.md#lockfiles), [Local storage](../apps/local-storage.md#storagelock) |
+| A protocol version bump on a deliberate break (`CartProtocol.v2`) | [Protocols and RPC](../apps/protocols.md#field-numbers-and-rpclock) |
 
 ## Open questions
 

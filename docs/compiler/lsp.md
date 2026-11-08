@@ -154,6 +154,11 @@ helps are appended to the message as `note: …` and `help: …` lines; **labels
 with their own locations (in any file); codes whose registry name starts with `unused-` get the
 `Unnecessary` tag, which editors render faded.
 
+The server publishes the semantic pass's diagnostics, the `rpc.lock` and `storage.lock` checks included.
+The `schema.lock`, migration and `routes.lock` checks (K6004–K6006, K8004–K8007) need code generation's
+persistence model and route table, so they come from `k check` and `k build` only
+([sema.md §12.16](sema.md#1216-lockfiles)); `k_lsp` doesn't depend on `k_codegen`.
+
 `textDocument/codeAction` recomputes the file's diagnostics (memoized in the snapshot) and offers every
 structured fix of every diagnostic whose span overlaps the requested range, as a `quickfix` with a
 `WorkspaceEdit` (a fix may edit several files). A diagnostic's only machine-applicable fix is

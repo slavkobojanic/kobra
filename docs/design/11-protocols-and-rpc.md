@@ -71,12 +71,14 @@ service CartService {
 - `k proto export` emits `.proto` files for non-K consumers.
 - `import proto "billing/v1/invoice.proto"` turns existing protos into K types.
 
-## `protocol.lock`
+## Field numbers and `rpc.lock`
 
 Protobuf compatibility depends on names and field numbers never changing. The compiler manages them:
 
 - Struct source stays clean: no `@Field(1)` annotations.
-- The compiler assigns field numbers and records them, together with each protocol's Protobuf package, service and method names ([28-rpc-wire-format.md](28-rpc-wire-format.md#names)), in **`protocol.lock`**.
-- **Breaking-change detection runs on every build:** a removed field, a changed type, a reused number or a changed wire name fails `k check`.
+- The compiler assigns field numbers and records them, together with each protocol's wire service name ([28-rpc-wire-format.md](28-rpc-wire-format.md#names)), its rpcs and their error cases, in the serving app's **`rpc.lock`** ([40-workspaces-and-services.md](40-workspaces-and-services.md#compatibility-between-deploys)).
+- **Breaking-change detection runs on every check:** a removed field, rpc or case, a changed type, a reused number or a changed wire name fails `k check` (`K8001`).
 - A removed field's number is reserved automatically.
-- A deliberate breaking change requires `@Breaking("reason")` on the protocol, which bumps its version (`CartProtocol.v2`).
+- A deliberate breaking change requires `@Breaking("reason")` on the protocol; `k build` then records the new shape. Bumping the protocol's version on such a change (`CartProtocol.v2`, served beside the old one) is designed but not built.
+
+**Decision: there is no separate `protocol.lock`.** The design first gave the wire names and field numbers a `protocol.lock` of their own, in which the names, once derived, would be kept across renames. `rpc.lock` now records everything that lock was to protect, so it replaces it ([13-tooling.md](13-tooling.md#lockfiles)). Wire names are always derived from the current names, and a rename that changes one is reported like any other breaking change, rather than silently kept.

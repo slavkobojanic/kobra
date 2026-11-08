@@ -211,7 +211,9 @@ fn example(candidate: &Candidate, code: &str) -> Option<Example> {
         .map(|(p, t)| (p.as_str().to_owned(), t.clone()))
         .collect();
     let analysis = AnalysisHost::with_files(Options::new(), loaded.files).analysis();
-    let diagnostics = analysis.diagnostics().ok()?;
+    let mut diagnostics = analysis.diagnostics().ok()?;
+    // `k check` adds the lockfile checks that need code generation.
+    diagnostics.extend(k_codegen::project_diagnostics(&analysis));
     let map = analysis.source_map(ToString::to_string);
     let rendered: Vec<String> = diagnostics
         .iter()

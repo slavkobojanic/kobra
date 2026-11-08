@@ -1,0 +1,5 @@
+migrations = ["0001_create_notes"]
+
+[tables.note]
+entity = "notes.Note"
+columns = [{ field = "id", name = "id", type = "uuid", colour = "red" }]

@@ -132,6 +132,66 @@ pub async fn apply(db: &Database, migrations: &[Migration]) -> Result<Vec<String
     apply_unlocked(db, migrations).await
 }
 
+/// Runs one migration and its `k_migrations` row in one transaction,
+/// rolled back on any failure. On SQLite, which runs migrations with
+/// foreign key enforcement off, `PRAGMA foreign_key_check` must find no
+/// broken reference before the migration commits.
+///
+/// # Errors
+///
+/// The first statement's failure, or a broken foreign key.
+async fn run_one(db: &Database, m: &Migration) -> Result<(), DbError> {
+    db.execute("BEGIN", &[]).await?;
+    let mut result = Ok(());
+    for statement in m.statements(db.dialect()) {
+        if let Err(e) = db.execute(statement, &[]).await {
+            result = Err(e);
+            break;
+        }
+    }
+    if result.is_ok() && db.dialect() == Dialect::Sqlite {
+        result = match db.query("PRAGMA foreign_key_check", &[]).await {
+            Ok(rows) if rows.is_empty() => Ok(()),
+            Ok(rows) => {
+                let table = rows
+                    .first()
+                    .and_then(|r| r.values.first())
+                    .and_then(|v| match v {
+                        Value::Text(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                Err(DbError::Statement(format!(
+                    "the migration leaves rows of `{table}` referencing rows that don't exist"
+                )))
+            }
+            Err(e) => Err(e),
+        };
+    }
+    if result.is_ok() {
+        let insert = format!(
+            "INSERT INTO {} ({}) VALUES ({})",
+            quote_identifier(MIGRATIONS_TABLE),
+            quote_identifier("name"),
+            match db.dialect() {
+                Dialect::Sqlite => "?1",
+                Dialect::Postgres => "$1",
+            }
+        );
+        result = db
+            .execute(&insert, &[Value::Text(m.name.clone())])
+            .await
+            .map(|_| ());
+    }
+    match result {
+        Ok(()) => db.execute("COMMIT", &[]).await.map(|_| ()),
+        Err(e) => {
+            let _ = db.execute("ROLLBACK", &[]).await;
+            Err(e)
+        }
+    }
+}
+
 /// The `pg_advisory_lock` key migrators serialize on: `k_migrations` as
 /// ASCII digits, so it is recognizable in `pg_locks`.
 pub const ADVISORY_LOCK_KEY: i64 = 0x6b5f_6d69_6772;
@@ -168,41 +228,28 @@ async fn apply_unlocked(db: &Database, migrations: &[Migration]) -> Result<Vec<S
         }
     }
     let mut ran = Vec::new();
+    let sqlite = db.dialect() == Dialect::Sqlite;
     for m in migrations.iter().skip(done.len()) {
         let fail = |e: DbError| DbError::Migration {
             name: m.name.clone(),
             message: e.to_string(),
         };
-        db.execute("BEGIN", &[]).await.map_err(fail)?;
-        let mut result = Ok(());
-        for statement in m.statements(db.dialect()) {
-            if let Err(e) = db.execute(statement, &[]).await {
-                result = Err(e);
-                break;
-            }
-        }
-        if result.is_ok() {
-            let insert = format!(
-                "INSERT INTO {} ({}) VALUES ({})",
-                quote_identifier(MIGRATIONS_TABLE),
-                quote_identifier("name"),
-                match db.dialect() {
-                    Dialect::Sqlite => "?1",
-                    Dialect::Postgres => "$1",
-                }
-            );
-            result = db
-                .execute(&insert, &[Value::Text(m.name.clone())])
+        // A table rebuilt on SQLite is dropped and replaced while other
+        // tables still reference it, which foreign key enforcement would
+        // refuse; the pragma only takes effect outside a transaction. The
+        // keys are checked before the migration commits instead.
+        if sqlite {
+            db.execute("PRAGMA foreign_keys = OFF", &[])
                 .await
-                .map(|_| ());
+                .map_err(fail)?;
         }
-        match result {
-            Ok(()) => db.execute("COMMIT", &[]).await.map_err(fail)?,
-            Err(e) => {
-                let _ = db.execute("ROLLBACK", &[]).await;
-                return Err(fail(e));
-            }
-        };
+        let result = run_one(db, m).await;
+        if sqlite {
+            db.execute("PRAGMA foreign_keys = ON", &[])
+                .await
+                .map_err(fail)?;
+        }
+        result.map_err(fail)?;
         ran.push(m.name.clone());
     }
     Ok(ran)

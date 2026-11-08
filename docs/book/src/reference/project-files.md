@@ -32,40 +32,39 @@ systems fails `k check`, unless it is marked as deliberate.
 
 | Lockfile | Records | Protects | Deliberate break |
 |---|---|---|---|
-| `protocol.lock` | Protobuf package, service and method names and field numbers of every protocol | deployed clients, other-language clients | `@Breaking("reason")` on the protocol, which bumps its version |
-| `routes.lock` | every page's URL, endpoint pages included, and redirects from old URLs | bookmarks, search engines, links in emails, webhook senders | renaming adds a permanent redirect automatically; conflicts are errors |
+| `routes.lock` | every page's URL, endpoint pages included, and redirects from old URLs | bookmarks, search engines, links in emails, webhook senders | renaming adds a permanent redirect automatically; a removed URL needs a redirect, or its entry deleted |
 | `schema.lock` | the database schema the migrations produce, with every table and column name, and the migration order | production data | `@Breaking("reason")` on a destructive migration |
 | `storage.lock` | the browser storage namespace, `StorageKey` names and value shapes, and job names and payload shapes | users' stored data, jobs queued during a deploy | `@Breaking("reason")` on the key or job |
-| `rpc.lock` | the rpcs, field numbers and error cases of every protocol an app serves | callers already deployed: other services, open browser tabs | `@Breaking("reason")` on the protocol |
+| `rpc.lock` | the wire names, rpcs, field numbers and error cases of every protocol an app serves | callers already deployed: other services, open browser tabs, other-language clients | `@Breaking("reason")` on the protocol |
 | `k.lock` | the exact commit and content hash of every package (**Planned**, with git packages) | reproducible builds | `k add` with a new version |
 
-**A name that something outside depends on is recorded once and then kept.** Renaming the declaration it
-came from, or the project, never silently changes it.
+**Renaming the declaration a recorded name came from never silently changes it:** a renamed entity or
+field keeps its table or column, a renamed page's old URL gets a redirect, a renamed storage key or a
+changed wire name fails the check.
 
-> **Planned.** In the first compiler releases, `k check` compares `rpc.lock` and the job payloads of
-> `storage.lock`. The comparisons of `protocol.lock`, `routes.lock`, `schema.lock` and the `storage.lock`
-> keys come later. The toolchain doesn't write `routes.lock` or `protocol.lock` yet either: a hand-written
-> `routes.lock` is read only for its `redirect "/old" -> page` lines. See [Design status](design-status.md).
-
-### `protocol.lock`
-
-The compiler assigns Protobuf field numbers so struct source stays clean, and derives each protocol's
-wire names from the project name, module, protocol and rpc names. A removed field, a changed type, a
-reused number or a changed wire name fails the check; a removed field's number is reserved automatically.
+**Who writes them.** `k check` only reads lockfiles, so CI catches a lock nobody rebuilt. `k build` writes
+`rpc.lock`, `routes.lock` and `schema.lock` when they differ from what the program implies; `k migrate
+new` and `k migrate rename` write `schema.lock` with their change. `storage.lock` is compared once it
+records a key or a job, but the toolchain doesn't write it yet (**Planned**).
 
 ### `rpc.lock`
 
-An app that implements protocols records their shape in `rpc.lock`: each rpc's parameters, result and
-error type, and the fields (with their Protobuf numbers) and cases of the types they carry. `k build`
-writes it; `k check` compares the code with it. Removing an rpc, a field or an error case, changing a
-type, or adding a required field fails the check until the protocol is marked `@Breaking("reason")`.
-See [Workspaces and services](../apps/workspaces.md#rpclock-deploys-that-dont-break-callers).
+An app that implements protocols records their shape in `rpc.lock`: each protocol's wire service name,
+each rpc's parameters, result and error type, and the fields (with their Protobuf numbers) and cases of
+the types they carry. The compiler assigns Protobuf field numbers so struct source stays clean, and
+reserves a removed field's number. Removing an rpc, a field or an error case, changing a type, adding a
+required field or changing a wire name fails the check until the protocol is marked
+`@Breaking("reason")`. See
+[Workspaces and services](../apps/workspaces.md#rpclock-deploys-that-dont-break-callers). (An earlier
+design gave the wire names a `protocol.lock` of their own; `rpc.lock` records everything it would have.)
 
 ### `routes.lock`
 
 Pages without a named URL get URLs derived from their names. When a page is renamed, its URL changes,
-and the lock lets the compiler add a permanent redirect from the old one. Duplicate or conflicting URLs
-are compile errors. `k routes` prints the table.
+and the lock lets the compiler add a permanent redirect from the old one; a URL nothing serves any more
+fails the check until it is redirected or its entry deleted. Duplicate or conflicting URLs are compile
+errors. `k routes` prints the table. The format is in
+[Pages and routing](../apps/routing.md#routeslock-and-redirects).
 
 ### `schema.lock`
 

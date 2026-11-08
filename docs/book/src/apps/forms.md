@@ -242,8 +242,20 @@ referenced with `@Check`:
 ~import k.rpc.RpcOnlyError
 ~import k.validation.Validatable
 ~
-~protocol UserService {
+~protocol UserProtocol {
 ~    rpc emailAvailable(email: EmailAddress) throws RpcOnlyError -> Bool
+~}
+~
+~service UserService {
+~    @Inject let api: UserProtocol
+~
+~    func emailAvailable(email: EmailAddress) async -> Bool {
+~        do {
+~            return try await api.emailAvailable(email: email)
+~        } catch .rpcFailure {
+~            return true
+~        }
+~    }
 ~}
 ~
 ~struct SignupRequest implements Codable, Validatable {
@@ -252,11 +264,31 @@ var email: EmailAddress
 ~}
 ```
 
-In the browser, the check runs debounced when the field loses focus. On the server, it always runs in
-full. A server-side `@Check` that fails appears under its field.
+The function takes the field's parsed value and answers `true` when it is acceptable. On the server it
+always runs in full, before the rpc's handler, and a failure appears under its field. In the browser it
+runs as the person leaves the field:
 
-> **Planned.** The browser's debounced run of `@Check` isn't in the first compiler releases. The rule runs
-> on the server, and its failure reaches the field through the `ValidationError` the rpc returns.
+- **Debounced on blur:** 300 ms after the field loses focus, on the app's `Clock`, so leaving and
+  re-entering the field quickly runs it once. Typing alone never runs it.
+- **After the field's other rules:** only text that parses and passes the field's constraints is sent.
+- **The newest answer wins.** An answer for text the field no longer holds is dropped, and the earlier
+  call's cancellation signal fires.
+- **A refusal shows under the field** until a later check of new text passes, and submitting the same
+  text again is refused without a round trip. A check that throws, or a service the browser doesn't
+  have (a server-only one), flags nothing there: the server's check decides.
+
+In a test, leave the field with `blur()` and move the `TestClock` past the debounce:
+
+```k,ignore
+let email = screen.textField(labeled: "Email")
+
+email.fill("ada@example.com")
+email.blur()
+clock.advance(by: 300.milliseconds)
+await screen.settle()
+
+expect screen.text("An account with this email already exists").isVisible
+```
 
 ## The last line of defence
 

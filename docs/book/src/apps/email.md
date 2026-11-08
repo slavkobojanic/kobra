@@ -39,6 +39,11 @@ try await mailer.send(email: email)
 - **`parse` trims surrounding whitespace and lowercases the domain part only.** `"  Ana@Example.COM "`
   parses to `Ana@example.com`. The local part (before the `@`) keeps its case, because mail servers may
   treat it as case-sensitive. A literal is normalized the same way at compile time.
+- **A display name comes before the address, in angle brackets:** `EmailAddress.parse("Ana  Doe
+  <ana@Example.COM>")` is `Ana Doe <ana@example.com>`, with `address` `ana@example.com` and
+  `displayName` `Ana Doe`. Runs of spaces in the name become one. A name with a comma or another special
+  character must be quoted, `"Doe, Ana" <ana@example.com>`, and keeps its quotes; a quoted name that
+  doesn't need them loses them. `displayName` is always unquoted, and `nil` for a bare address.
 - It implements `Codable` (as a string), `Equatable`, `Hashable` and `ConfigValue`, so it works in rpc
   messages, entities and configs. Decoding and config values go through `parse`, so they are normalized
   too, and equality compares normalized addresses.

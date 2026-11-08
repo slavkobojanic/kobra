@@ -18,7 +18,7 @@
  *   validate(value, rules)    → rules.check(ok, fieldName, message), fieldName a string
  */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
-import { batch, createForm, renderEffect, root } from "k:runtime";
+import { batch, createForm, fieldParser, renderEffect, root } from "k:runtime";
 
 const FORMS = "forms (runtime.md §9)";
 
@@ -387,4 +387,208 @@ test("typing into an attached input updates the field", () => {
   input.value = "4";
   input.dispatchEvent(new globalThis.Event("input", { bubbles: true }));
   assertEq(form.field("age").value(), "4");
+});
+
+// ---------------------------------------------------------------- @Check
+
+/**
+ * A clock whose `after` timers fire on `advance(ms)`, like `TestClock`.
+ * @returns {{after: Function, advance: (ms: number) => void, pending: () => number}}
+ */
+function manualClock() {
+  let now = 0;
+  const timers = [];
+  return {
+    after(d, f) {
+      const t = { due: now + d, f, live: true };
+      timers.push(t);
+      return { cancel: () => { t.live = false; } };
+    },
+    advance(ms) {
+      now += ms;
+      for (const t of timers) {
+        if (t.live && t.due <= now) {
+          t.live = false;
+          t.f();
+        }
+      }
+    },
+    pending: () => timers.filter((t) => t.live).length,
+  };
+}
+
+/** Waits for the promises a check started. */
+async function drain() {
+  for (let i = 0; i < 20; i++) await null;
+}
+
+/**
+ * A form with one `email` field checked by `available` (an async
+ * `(signal, value) => Promise<boolean>`), debounced on `clock`.
+ */
+function checked(available, clock, constraints = []) {
+  const spec = {
+    name: "email",
+    parse: (raw) => (raw.includes("@") ? { ok: true, value: raw.trim() } : { ok: false, message: "Enter an email address" }),
+    constraints,
+    checks: [{ run: available, message: "That address is taken" }],
+  };
+  return root(() => createForm([spec, textField("name")], {}, noRules, clock));
+}
+
+/** Attaches the form's email field to a fresh input, typed with `text`. */
+function typed(form, text) {
+  const { input, message } = control();
+  root(() => form.field("email").attach(input, message));
+  input.value = text;
+  input.dispatchEvent(new globalThis.Event("input", { bubbles: true }));
+  return { input, message };
+}
+
+/** Blurs `input`, as leaving the field does. */
+function blur(input) {
+  input.dispatchEvent(new globalThis.Event("blur"));
+}
+
+// The check runs on blur, debounced: nothing runs until 300 ms after the
+// field lost focus, and then it gets the parsed value and a signal.
+test("@Check runs debounced after the field loses focus", async () => {
+  const calls = [];
+  const clock = manualClock();
+  const form = checked(async (signal, v) => { calls.push([signal, v]); return true; }, clock);
+  const { input } = typed(form, " ada@example.com ");
+  assertEq(calls.length, 0, "typing runs no check");
+  blur(input);
+  clock.advance(299);
+  assertEq(calls.length, 0, "not before the debounce");
+  clock.advance(1);
+  assertEq(calls.length, 1);
+  assertEq(calls[0][1], "ada@example.com", "the parsed value");
+  assert(calls[0][0] && typeof calls[0][0].aborted === "boolean", "a cancellation signal");
+});
+
+// Leaving and re-entering the field quickly restarts the debounce: one check.
+test("@Check's debounce restarts on every blur", async () => {
+  let n = 0;
+  const clock = manualClock();
+  const form = checked(async () => { n++; return true; }, clock);
+  const { input } = typed(form, "ada@example.com");
+  blur(input);
+  clock.advance(200);
+  blur(input);
+  clock.advance(200);
+  assertEq(n, 0);
+  clock.advance(100);
+  assertEq(n, 1);
+});
+
+// A failing check shows its message under the field, with `aria-invalid`,
+// and makes the form invalid; a passing check after an edit clears it.
+test("a failing @Check shows its message under the field until it passes", async () => {
+  let taken = true;
+  const clock = manualClock();
+  const form = checked(async () => !taken, clock);
+  const { input, message } = typed(form, "ada@example.com");
+  blur(input);
+  clock.advance(300);
+  await drain();
+  assertEq(form.field("email").error(), "That address is taken");
+  assertEq(message.textContent, "That address is taken");
+  assertEq(input.getAttribute("aria-invalid"), "true");
+  assertDeepEq(form.errors(), [{ path: "email", message: "That address is taken" }]);
+  taken = false;
+  input.value = "grace@example.com";
+  input.dispatchEvent(new globalThis.Event("input", { bubbles: true }));
+  blur(input);
+  clock.advance(300);
+  await drain();
+  assertEq(form.field("email").error(), null);
+  assertEq(input.hasAttribute("aria-invalid"), false);
+  assertDeepEq(form.errors(), []);
+});
+
+// Text that doesn't parse, or fails a constraint, isn't sent to the check:
+// the synchronous rules come first.
+test("@Check waits until the field parses and passes its constraints", async () => {
+  let n = 0;
+  const clock = manualClock();
+  const form = checked(async () => { n++; return true; }, clock, [minLength(8)]);
+  const { input } = typed(form, "nobody");
+  blur(input);
+  clock.advance(300);
+  input.value = "a@b.cd";
+  input.dispatchEvent(new globalThis.Event("input", { bubbles: true }));
+  blur(input);
+  clock.advance(300);
+  await drain();
+  assertEq(n, 0);
+});
+
+// An answer for text the field no longer holds is dropped, and the
+// superseded check's signal is aborted.
+test("a stale @Check answer is ignored and its signal aborted", async () => {
+  const answers = [];
+  const clock = manualClock();
+  const form = checked((signal) => new Promise((resolve) => answers.push({ signal, resolve })), clock);
+  const { input } = typed(form, "ada@example.com");
+  blur(input);
+  clock.advance(300);
+  input.value = "grace@example.com";
+  input.dispatchEvent(new globalThis.Event("input", { bubbles: true }));
+  blur(input);
+  clock.advance(300);
+  assertEq(answers.length, 2);
+  assert(answers[0].signal.aborted, "the first check is cancelled");
+  answers[0].resolve(false);
+  answers[1].resolve(true);
+  await drain();
+  assertEq(form.field("email").error(), null, "the stale `false` is dropped");
+});
+
+// A known failure blocks submitting the same text: the action isn't
+// called, and the message stays.
+test("a failed @Check blocks the submit of the same text", async () => {
+  const clock = manualClock();
+  const form = checked(async () => false, clock);
+  const { input } = typed(form, "ada@example.com");
+  blur(input);
+  clock.advance(300);
+  await drain();
+  let called = false;
+  await form.handle(async () => { called = true; })();
+  assertEq(called, false);
+  assertEq(form.field("email").error(), "That address is taken");
+});
+
+// A field without checks schedules nothing on blur.
+test("a field without @Check starts no timer", () => {
+  const clock = manualClock();
+  const form = checked(async () => true, clock);
+  const { input, message } = control();
+  root(() => form.field("name").attach(input, message));
+  blur(input);
+  assertEq(clock.pending(), 0);
+});
+
+// An `EmailAddress` field parses as `EmailAddress.parse` does (31-email.md):
+// the form's value is the normalized address, display name and all.
+test("an email field parses like EmailAddress.parse", () => {
+  const parse = fieldParser("email", "Enter a valid email address", false);
+  assertDeepEq(parse("  Ana@Example.COM "), { ok: true, value: "Ana@example.com" });
+  assertDeepEq(parse("Ana  Doe <ana@Example.COM>"), { ok: true, value: "Ana Doe <ana@example.com>" });
+  for (const bad of ["nobody", "a@b", "Doe, Ana <ana@example.com>"]) {
+    assertDeepEq(parse(bad), { ok: false, message: "Enter a valid email address" }, bad);
+  }
+});
+
+// A check that throws gives no answer: the field isn't flagged, and the
+// server's own check decides on submit.
+test("a @Check that throws flags nothing", async () => {
+  const clock = manualClock();
+  const form = checked(async () => { throw new Error("offline"); }, clock);
+  const { input } = typed(form, "ada@example.com");
+  blur(input);
+  clock.advance(300);
+  await drain();
+  assertEq(form.field("email").error(), null);
 });

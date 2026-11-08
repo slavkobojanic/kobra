@@ -220,9 +220,17 @@ hyper request
 - **Broken handlers.** A handler that throws a non-`Error`, rejects, or returns something that isn't a
   response costs that request a `500` whose body says nothing about the failure; the worker's loop goes
   on (`http/broken-handlers`).
-- **Client address**: the socket address, or the right-most `X-Forwarded-For` hop that isn't in
-  `K_TRUSTED_PROXIES` ([27-endpoint-pages.md](../design/27-endpoint-pages.md#client-address-and-proxies)).
-  v0 uses the socket address (`X-Forwarded-For` is ignored until trusted proxies are read).
+- **Client address** (`k_server::proxy`): the socket address, or, when the socket peer is in
+  `K_TRUSTED_PROXIES`, the right-most `X-Forwarded-For` hop that isn't
+  ([27-endpoint-pages.md](../design/27-endpoint-pages.md#client-address-and-proxies)). The HTTP front
+  decides it before the request reaches a worker (`JsRequest.remote`), so `RateLimit` counts guests
+  by it and `IncomingRequest.clientAddress` reports it. Every `X-Forwarded-For` header counts, in
+  order, as one list; IPv6 hops may be bracketed and hops may carry a port; IPv4-mapped IPv6 addresses
+  count as IPv4. A malformed hop ends the walk at the last trusted address, and with the list empty
+  the header is never read. `Forwarded` and `X-Forwarded-Proto` are not read: the session cookie's
+  `Secure` attribute follows `K_PUBLIC_ORIGIN`. An entry that isn't an address or a CIDR range stops
+  the server before it starts (`ServerError::Config`; `dist/app` exits 78). The first request with
+  `X-Forwarded-For` while the list is empty logs one warning.
 
 ---
 
@@ -231,7 +239,7 @@ hyper request
 Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md). v0 is JSON only: unary rpcs and
 server streaming.
 
-- **Path**: `POST /{package}.{Service}/{Method}`, names from `protocol.lock` (`/shop.store.StoreProtocol/PlaceOrder`).
+- **Path**: `POST /{package}.{Service}/{Method}`, names derived from the project, module, protocol and rpc and recorded in `rpc.lock` (`/shop.store.StoreProtocol/PlaceOrder`).
 - **Request**: a generated message whose fields are the parameters' internal names (`{"request": {...}}`);
   `{}` for no parameters. **Response**: a struct return is the message itself, other types
   `{"value": …}`, no return type `{}`.
@@ -342,7 +350,9 @@ server streaming.
 - **Where values come from.** `dist/app serve` resolves the archive's config table against the process
   environment; `k run` (and the e2e harness) against the **development environment**,
   `config::DevEnvironment`: an optional `.env` at the project root under the process environment (which
-  wins; the harness leaves the process out), `NAME_FILE` paths relative to the project root. The stdlib's
+  wins; the harness leaves the process out), `NAME_FILE` paths relative to the project root. Before it
+  serves, `k run` and `k dev` print the `.env` keys the process environment shadows
+  (`DevEnvironment::shadowed`: set in both, to different values), names only. The stdlib's
   server variables are always read; `K_PUBLIC_ORIGIN` falls back to `http://localhost:{PORT}`. A
   relative `sqlite:` path in `DATABASE_URL` is relative to the project root too, and its directory is
   created (`DatabaseSetup::rooted_at`), for `k run`, `k dev` and `k migrate` alike, so each member that

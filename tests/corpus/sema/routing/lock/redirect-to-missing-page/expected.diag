@@ -1,0 +1,2 @@
+error[K8007] routes.lock:22:1-22:16: the redirect from `/old` goes to `gone`, which is no longer a page
+  help: point it at the page that answers the URL now, or delete it once no link to it needs to work

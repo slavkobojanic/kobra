@@ -64,7 +64,7 @@ An `entity` declares a table. Its fields are columns, annotated where they need 
   quotes identifiers, so an entity named `Order` or `User` works on both databases.
 - **The names are recorded in `schema.lock`** the first time a migration creates them, and then kept.
   Renaming an entity or a field keeps its table or column, so a rename never becomes a drop and a create
-  (**Planned**; see [Renames, and rolling deploys](#renames-and-rolling-deploys)).
+  (see [Renames, and rolling deploys](#renames-and-rolling-deploys)).
 - **A to-one `@Relation` stores a foreign key** named after the field with `_id`: `@Relation let note:
   Note` → `note_id`. Foreign keys are always indexed.
 - **A to-many `@Relation`** (`@Relation var tags: List<Tag> = []`) has no column. It is the other side of
@@ -266,7 +266,12 @@ migration AddNotePinning {
 
 - **`k migrate new "description"`** writes the next file from the difference between the entities and
   `schema.lock`, and updates the lock. `k migrate new --empty "description"` writes an empty migration
-  for data changes. Review the file and commit both.
+  for data changes, or for a change you write by hand. Review the file and commit both.
+- **`k migrate new` only writes what is safe without reviewing data:** new tables, new optional or
+  defaulted columns, new indexes, and the retirement of a removed field. It refuses, explaining each
+  change and writing nothing, a required column added to an existing table without a default, a changed
+  column type or option, an added or removed enum case, and a removed entity. Write those in a `--empty`
+  migration; `k build` then records what it does in `schema.lock`.
 - **The order comes from the `migrations` list in `schema.lock`.** File numbers must match their position
   in it, so two branches that both add `0003_…` conflict visibly in review.
 - **`migrations/` is not a module.** Migration files can't import anything, and nothing can import them.
@@ -281,8 +286,8 @@ migration AddNotePinning {
 | Call | Meaning |
 |---|---|
 | `schema.createTable(name:) { table => … }` | creates a table; columns with `table.column(name:type:)` |
-| `schema.alterTable(name:) { table => … }` | `addColumn(name:type:)`, `renameColumn(from:to:)`, `dropColumn(name:)`, `addEnumCase(column:case:)`, `renameEnumCase(column:from:to:)`, `removeEnumCase(column:case:replacement:)` |
-| `schema.renameTable(from:to:)`, `schema.dropTable(name:)` | renames or drops a table |
+| `schema.alterTable(name:) { table => … }` | `addColumn(name:type:)`, `renameColumn(from:to:)`, `dropColumn(name:)`, `retireColumn(name:)`, `addEnumCase(column:case:)`, `renameEnumCase(column:from:to:)`, `removeEnumCase(column:case:replacement:)` |
+| `schema.renameTable(from:to:)`, `schema.dropTable(name:)`, `schema.retireTable(name:)` | renames, drops or retires a table |
 | `schema.createIndex(table:columns:)` | an index over one or more columns |
 | `schema.insert(into:rows:)` | inserts data rows, each a `Map<String, ColumnValue>` |
 | `schema.execute(postgres:sqlite:)` | raw SQL, written for both databases |
@@ -320,30 +325,56 @@ migration CreateCatalogAndOrders {
   column; the builder expands it to its two halves for every operation.
 - **A column added to an existing table must be nullable or have a default,** because existing rows need
   a value.
-- **Destructive changes** (dropping a column or table, narrowing a type, removing or renaming an enum
-  case) require `@Breaking("reason")` on the migration. Adding an enum case doesn't.
+- **Destructive changes** (dropping a column or table, renaming one, removing or renaming an enum case)
+  require `@Breaking("reason")` on the migration, and `k check` fails without it. Adding an enum case
+  doesn't. Narrowing a type is written with `execute`, which the compiler can't see into, so mark it
+  yourself.
+- **The enum case operations rewrite the stored values.** `removeEnumCase` moves the rows holding the
+  removed case to `replacement`, another of the column's cases, and `renameEnumCase` moves them to the
+  new name; a column default of the old case moves with it. On SQLite, which can't change a constraint,
+  the table is rebuilt with its rows and every index the migrations created; an index or constraint you
+  added with `execute` has to be added again after such a migration.
 
-> **Planned.** The first compiler releases don't require `@Breaking` on a destructive migration yet, and
-> refuse the enum case operations (`addEnumCase`, `renameEnumCase`, `removeEnumCase`), which need a table
-> rebuild on SQLite: write the change with `schema.execute(postgres:sqlite:)` instead. Replaying the
-> migrations still rejects a drop of a table that another table references.
+```k
+// migrations/0003_rename_order_statuses.k (written by hand after `k migrate new --empty`)
+/// Orders that were `needsReview` are `onHold` now, and `lost` ones are cancelled.
+@Breaking("support confirmed no client shows `lost`")
+migration RenameOrderStatuses {
+    func up(schema: Schema) {
+        schema.alterTable(name: "order") { table =>
+            table.renameEnumCase(column: "status", from: "needsReview", to: "onHold")
+            table.removeEnumCase(column: "status", case: "lost", replacement: "cancelled")
+        }
+    }
+}
+```
 
 ### Renames, and rolling deploys
 
 - **Renaming an entity or a field changes no names in the database.** `schema.lock` maps the new name to
-  the old table or column, so no migration is needed and no data moves. A physical rename is written only
-  when asked for (`k migrate new --rename …`).
-- **During a rolling deploy, the previous release runs against the new schema,** so migrations follow
-  expand, then contract. Removing a field *retires* its column: `schema.lock` marks it `retired`, and the
-  app stops reading and writing it. A retired column is dropped by a later migration
-  (`k migrate new --drop-retired "description"`), and `k check` fails on a drop of anything still live.
-- Single-instance apps can opt out with `@Breaking("single instance")` on the migration.
+  the old table or column, so no migration is needed and no data moves. Record the rename with
+  `k migrate rename`, which changes only the lock:
 
-> **Planned.** Name-preserving renames, `k migrate new --rename` and `k migrate new --drop-retired` aren't
-> in the first compiler releases, and neither is the `k check` failure on dropping a live column. Until they
-> land, `k migrate new` reads a renamed field as a removal and an addition (it retires the old column and
-> adds a new one, or refuses when the old column is `NOT NULL` without a default), and refuses a removed or
-> renamed entity. Write a rename or a drop by hand in a `k migrate new --empty` migration.
+  ```sh
+  k migrate rename notes.Note.title heading     # a field: `heading` keeps the column `note.title`
+  k migrate rename notes.Note notes.Memo        # an entity: `Memo` keeps the table `note`
+  ```
+
+  Until you do, `k check` reports the renamed entity or field as a removal and an addition, and names the
+  command when it looks like a rename.
+- **A physical rename is written only when asked for:** `k migrate new --rename notes.Note.heading
+  "rename the heading column"` renames the column so it follows the field's current name (`--rename
+  notes.Memo` renames the table), and marks the migration `@Breaking("single instance")`, because the
+  previous release still reads the old name.
+- **During a rolling deploy, the previous release runs against the new schema,** so migrations follow
+  expand, then contract. Removing a field *retires* its column: the generated migration calls
+  `table.retireColumn(name:)`, which makes the column nullable if it is `NOT NULL` without a default,
+  `schema.lock` marks it `retired`, and the app stops reading and writing it. A table is retired with
+  `schema.retireTable(name:)`. A retired column or table is dropped by a later migration
+  (`k migrate new --drop-retired "description"`, marked `@Breaking`), and `k check` fails on a drop or
+  rename of anything still live, explaining the two-release sequence.
+- **Single-instance apps can opt out** with `@Breaking("single instance")` on the migration, which allows
+  dropping or renaming a live column in one step.
 
 ### Data migrations
 
@@ -371,13 +402,17 @@ columns = [
 ]
 ```
 
-- Each column records the field it belongs to and its locked name. A retired column has no field.
+- Each column records the field it belongs to and its locked name. A retired column has no field; a
+  retired table has `retired = true`.
 - `k check` fails when the entities differ from the lock ("run `k migrate new`"), when replaying
-  `migrations/` doesn't produce the lock, or when file numbers don't match the `migrations` list.
-
-> **Planned.** In the first compiler releases `k check` doesn't read `schema.lock`. The build (`k build`,
-> `k run`, `k dev`, `k test`) replays `migrations/` in the lock's `migrations` order, fails on a migration
-> that names a missing table or column, and fails when an entity's table or a stored column isn't what the
-> migrations create ("run `k migrate new`").
+  `migrations/` doesn't produce the lock, when file numbers don't match the `migrations` list, when a
+  migration doesn't replay, and when a destructive migration lacks its `@Breaking`. It compares without a
+  database, for an app whose program has no other errors.
+- `k migrate new` and `k migrate rename` write the lock with their change. `k build` records what the
+  migrations produce, so a migration you wrote or edited by hand gets into the lock, keeping the entity
+  and field names. `k check` never writes it, so CI catches a lock nobody rebuilt.
+- The build (`k build`, `k run`, `k dev`, `k test`) replays `migrations/` in the lock's order, and fails on
+  a migration that doesn't replay or lacks its `@Breaking`, and when an entity's table or a stored column
+  isn't what the migrations create.
 - Tables managed by the standard library (`k_session`, `k_job`, `k_rate_limit`) aren't recorded; the
   standard library migrates them itself.

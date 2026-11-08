@@ -286,6 +286,8 @@ Messages and detail lines for this range that the corpus pins exactly:
 | K3024 | `load-error-not-codable` | error | The `@Load` field's initializer expression (the error type is declared elsewhere). | — |
 | K3025 | `status-outside-failed` | error | The `status(…)` call expression, in a page-level `metadata` block or directly in `failed`. | — |
 | K3026 | `derived-cycle` | error | The name token of each `@Derived` field in the cycle, one diagnostic per field. The graph has an edge for every read of another `@Derived` field of the same declaration (`b` or `self.b`) in an initializer, `untracked { … }` included. | — |
+| K3027 | `page-without-title` | warning | The page's name token. Only in a program with an `app`; a page has a title when its page-level `metadata` block, the layout it renders in (its own `@Layout`, else the app's, none with `@NoLayout`) or the app's `metadata` calls `title(…)`. Endpoint pages have no metadata and are skipped. | Insert `title("…")` from the page's name, in its `metadata` block or a new one (maybe-incorrect). |
+| K3028 | `long-description` | warning | The string literal of a `description(…)` in any `metadata` block (page, layout, app or inside `failed`) whose plain text is over 160 characters. Interpolated descriptions are not measured. | — |
 
 ### Views (K3100–K3199)
 
@@ -404,6 +406,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K5010 | `endpoint-member-not-allowed` | error | The keyword of the `view`, `metadata`, `loading`, `failed` or `style` block. | — |
 | K5011 | `duplicate-handler-method` | error | The later handler's method annotation, from `@` to the end of its name; label: the first. | — |
 | K5012 | `invalid-handler-signature` | error | The handler function's name token. | — |
+| K5013 | `set-cookie-header` | error | The string literal key `set-cookie` (in any case) of a map literal passed to `HttpResponse.headers(…)`. A computed name panics at run time instead. | — |
 
 ### Protocols and RPC (K5500–K5999)
 
@@ -423,6 +426,9 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K6001 | `untranslatable-query` | error | The smallest untranslatable expression. | — |
 | K6002 | `unsupported-column-type` | error | The field's type. | — |
 | K6003 | `reserved-table-prefix` | error | The entity's name token. | — |
+| K6004 | `invalid-migration` | error | The builder call that doesn't replay (the step inside `alterTable` when it is one), or the statement that isn't a builder call; reported by `k_codegen::project_diagnostics` and the build. | — |
+| K6005 | `destructive-migration` | error | The destructive call (`dropColumn` of a retired column, `dropTable` of a retired table, `renameEnumCase`, `removeEnumCase`) in a migration without `@Breaking`; help: add it. | — |
+| K6006 | `live-schema-change` | error | The `dropColumn`, `dropTable`, `renameColumn` or `renameTable` of something no earlier migration retired, without `@Breaking("single instance")`; a note when another reason is given; help: the two-release sequence. | — |
 
 ### Forms and validation (K7000–K7499)
 
@@ -442,7 +448,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K7501 | `expect-not-bool` | error | The condition. | — |
 | K7502 | `expect-throws-cannot-throw` | error | The `expect` keyword. | — |
 | K7503 | `unbound-test-config` | error | The test group's name token; a note names the config and the injection path. | — |
-| K7510 | `test-failed` | error | Reported by `k test`, not `k check`: the condition of the failed `expect`, the pattern of the failed `expect throws`, or the test's name when it panicked, threw, never finished or a query action failed; notes give each operand's value and the test's full name. | — |
+| K7510 | `test-failed` | error | Reported by `k test`, and by `k check`, which runs the tests of a program without errors (`--no-tests` skips them): the condition of the failed `expect`, the pattern of the failed `expect throws`, or the test's name when it panicked, threw, never finished or a query action failed; notes give each operand's value and the test's full name. | — |
 
 ### Lockfiles, manifest and packages (K8000–K8999)
 
@@ -451,6 +457,11 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K8001 | `breaking-change` | error | The declaration or member that changed; a note names the lockfile entry. For `rpc.lock`: the protocol's name (the app's name for a protocol no longer served), one note per change, a label at the protocol's line in the lock. | — |
 | K8002 | `invalid-lockfile` | error | The offending line, or offset 0. | — |
 | K8003 | `incompatible-job-payload` | error | The payload type argument of the job's `implements Job<…>`; one note per incompatible change, then a note on how to proceed. | — |
+| K8004 | `schema-drift` | error | The field (its name token) or entity (its name token) that differs from `schema.lock`, or the lock's `[tables.<name>]` line for a removed entity; a note says why `k migrate new` doesn't write it; help: `k migrate new`, or the `k migrate rename` of a detected rename. | — |
+| K8005 | `schema-lock-mismatch` | error | The lock's `[tables.<name>]` line (the first differing column's line when there is one), one note per difference; the first migration's name when there is no lock; help: `k build`. | — |
+| K8006 | `migration-order` | error | The migration's name token (label: its entry in the lock), or the lock's entry for a listed migration without its file. | — |
+| K8007 | `removed-url` | error | The lock's `[pages.<case>]` or `[endpoints.<case>]` line, or its redirect line; the page's name token (label: the lock's entry) when the page still exists with another URL or was renamed. | — |
+| K8008 | `incompatible-storage-key` | error | The key's constant or field name token; one note per incompatible change (a renamed key is one), then a note on how to proceed. | — |
 | K8101 | `invalid-manifest` | error | The offending key or line, or offset 0: unreadable TOML, `[package]` without `name` or `k`, a dependency that is neither a git tag nor `{ workspace = true }`, a bad or duplicate `members` entry, a nested workspace, a `[package]` at a workspace root, a package name used twice. | — |
 | K8102 | `unknown-dependency` | error | The `[dependencies]` line of `{ workspace = true }` naming no member (a note lists the members), used outside a workspace, or of a git tag (not resolved yet). | — |
 | K8103 | `missing-workspace-member` | error | The string in the root's `members` naming a directory without `k.toml`; a note says what to create. | — |
@@ -464,6 +475,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 |---|---|---|---|
 | K9001 | `invalid-utf8` | Empty span at the byte offset of the first invalid byte. | — |
 | K9002 | `io-error` | Empty span at offset 0 of a placeholder file named after the path. | — |
+| K9003 | `tests-not-run` | Empty span at offset 0 of the project's `k.toml`: `k check` couldn't build the test bundle or run it; the message gives the reason. | — |
 
 ## Adding a code
 

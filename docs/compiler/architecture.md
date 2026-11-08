@@ -279,7 +279,7 @@ design calls for them.
 | Layering | who may inject what; components never inject protocols (10) |
 | Server/client | classification and boundary violations ([§7.4](#74-clientserver-split)) (10, 11) |
 | Routing | page enum, `@Param` types, `at` templates, URL conflicts, `routes.lock` (12) |
-| Protocols | message shapes, streaming restrictions, `protocol.lock` (11) |
+| Protocols | message shapes, streaming restrictions, `rpc.lock` (11, 40) |
 | Async data | `@Load` dependency graph, `loading` required, `failed` error union (14) |
 | Forms | constraint annotations, `@Form`, `Validatable` (15) |
 | Persistence | translatable queries, relation loading, `schema.lock` (19) |
@@ -288,9 +288,13 @@ design calls for them.
 
 ### 5.6 Lockfiles
 
-`protocol.lock`, `routes.lock`, `schema.lock`, `storage.lock` and `rpc.lock` are read as inputs and
-compared with what the program declares. `k check` reports breaking changes; `k build` updates `rpc.lock`
-(the protocols an app serves, [sema.md §12.16](sema.md#1216-lockfiles)) and `k migrate new` updates
+`routes.lock`, `schema.lock`, `storage.lock` and `rpc.lock` are read as inputs and compared with what
+the program declares ([sema.md §12.16](sema.md#1216-lockfiles)). The semantic pass checks `storage.lock`
+and `rpc.lock`; `k_codegen::project_diagnostics` checks `schema.lock` (with the migrations) and
+`routes.lock`, which need the persistence model and the route table, and `k check` runs it for an app
+without other errors. `k check` only reads lockfiles. `k build` updates `rpc.lock` (the protocols an app
+serves, their wire names included: there is no separate `protocol.lock`), `routes.lock` and
+`schema.lock` (the schema the migrations produce); `k migrate new` and `k migrate rename` update
 `schema.lock`. Lockfiles are deterministic, sorted, line-oriented TOML so diffs review well.
 
 ---
@@ -707,7 +711,7 @@ All test kinds, their commands and their file formats are documented in [testing
 my-app/
   k.toml               name, version, dependencies, aliases, secrets, database
   k.lock               package versions and hashes
-  protocol.lock routes.lock schema.lock
+  routes.lock schema.lock storage.lock rpc.lock
   App.k                `public app Name { ... }`
   src/
     shop/cart/CartService.k        module shop.cart
@@ -721,12 +725,12 @@ my-app/
 | Command | v0 behavior |
 |---|---|
 | `k check [paths]` | parse, check, lockfile comparison, tests in CI mode; `--format human\|json` |
-| `k build [project] [--out dir]` | check, then emit `dist/` ([codegen.md §19](codegen.md#19-output-layout-of-dist)); hashed assets of earlier builds are removed from `public/assets/` |
+| `k build [project] [--out dir]` | check, then emit `dist/` ([codegen.md §19](codegen.md#19-output-layout-of-dist)) and update `rpc.lock`, `routes.lock` and `schema.lock`; hashed assets of earlier builds are removed from `public/assets/` |
 | `k run [project] [--port n]` | build for development and serve in-process |
 | `k dev` | build and serve with rebuild on change (HMR deferred) |
 | `k test [project] [--filter text]… [--watch]` | run `test` declarations in one isolate over the fake DOM, ([codegen.md §21.1](codegen.md#211-the-test-bundle-k-test), [runtime.md §13](runtime.md#13-testing)); one browser and one server per test (rpcs in-process through the wire format, a fresh in-memory database, the test's one session); failures are K7510 diagnostics; `--watch` re-runs the tests a change affects (`Analysis::file_dependencies`); `K_TEST_BUNDLE_DIR` writes the bundle ([testing.md §8.4](testing.md#84-k-test-and-the-project-commands)) |
 | `k routes [project]` | print the route table: pages, each endpoint handler, `routes.lock` redirects, with parameters and guards (`k_codegen::route_table`) |
-| `k migrate new "description" [--empty]`, `k migrate apply\|status [project]` | migrations ([§10](#10-persistence), [db.md §10](db.md#10-migrations)) |
+| `k migrate new "description" [--empty \| --drop-retired \| --rename name…]`, `k migrate rename old new`, `k migrate apply\|status [project]` | migrations ([§10](#10-persistence), [db.md §10](db.md#10-migrations)) |
 | `k debug tokens\|ast\|diag <file>` | hidden; print golden-file formats |
 
 Exit status: 0 success, 1 problems found, 2 usage or internal error.

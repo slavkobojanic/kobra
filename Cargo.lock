@@ -1489,6 +1489,7 @@ dependencies = [
  "rowan",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]

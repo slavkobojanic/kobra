@@ -15,6 +15,9 @@ import {
   bytesBase64,
   codecs,
   colorHex,
+  colorMix,
+  emailAddress,
+  emailDisplayName,
   hydrate,
   markers,
   parseColor,
@@ -70,6 +73,37 @@ test("EmailAddress.parse trims, lower-cases the domain and refuses markup", () =
   for (const bad of ["nobody", "<script>alert(1)</script>", "a@b", "a b@c.de", "a@b.c\nBcc: x@y.z", "<a@b.cd>", "a@@b.cd", "", "a@b.cd,c@d.ef"]) {
     assertEq(parseEmail(bad), null, JSON.stringify(bad));
   }
+});
+
+test("EmailAddress.parse accepts a display name and normalizes it (31-email.md)", () => {
+  // The name keeps its case and inner spacing collapses; the domain is
+  // lower-cased as for a bare address.
+  assertEq(parseEmail("  K Shop   <orders@Shop.EXAMPLE> "), "K Shop <orders@shop.example>");
+  // A quoted name keeps its quotes only when it needs them.
+  assertEq(parseEmail('"Ana" <ana@example.com>'), "Ana <ana@example.com>");
+  assertEq(parseEmail("J. Doe <j@doe.example>"), "J. Doe <j@doe.example>");
+  assertEq(parseEmail('"Doe, Ana" <ana@example.com>'), '"Doe, Ana" <ana@example.com>');
+  assertEq(parseEmail('"Ana \\"the\\" Doe" <ana@example.com>'), '"Ana \\"the\\" Doe" <ana@example.com>');
+  for (const bad of ["Doe, Ana <ana@example.com>", "Ana <ana@example.com", "Ana <nobody>", "Ana\nBcc: x@y.z <a@b.cd>", "Ana <a@b.cd> x", '"Ana <a@b.cd>', "<a@b.cd>", "Ana <a@b.cd>, Bo <b@c.de>", "A<n>a <a@b.cd>"]) {
+    assertEq(parseEmail(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("an EmailAddress's address and displayName are its parts", () => {
+  assertEq(emailAddress("K Shop <orders@shop.example>"), "orders@shop.example");
+  assertEq(emailDisplayName("K Shop <orders@shop.example>"), "K Shop");
+  assertEq(emailDisplayName('"Doe, Ana" <ana@example.com>'), "Doe, Ana");
+  assertEq(emailDisplayName('"Ana \\"the\\" Doe" <ana@example.com>'), 'Ana "the" Doe');
+  assertEq(emailAddress("ana@example.com"), "ana@example.com");
+  assertEq(emailDisplayName("ana@example.com"), null);
+  // The codec decodes the display form too, normalized.
+  assertEq(codecs.email.decode("Ana  <ana@Example.com>", "$"), "Ana <ana@example.com>");
+});
+
+test("Color.mix puts the amount on the color mixed in (07-themes-and-units.md)", () => {
+  // `.primary.mix(.white, 20%)` is the primary color with 20% white.
+  assertEq(colorMix("var(--k-color-primary)", "#FFFFFF", 20), "color-mix(in srgb, var(--k-color-primary), #FFFFFF 20%)");
+  assertEq(parseColor(colorMix("#000000", "#FFFFFF", 50)), "color-mix(in srgb, #000000, #FFFFFF 50%)");
 });
 
 test("Uuid.parse accepts the canonical form in either case only", () => {

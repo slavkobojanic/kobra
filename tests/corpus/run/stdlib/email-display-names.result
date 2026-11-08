@@ -1,0 +1,1 @@
+returns ["Ana Doe <ana@example.com> | ana@example.com | Ana Doe", "\"Doe, Ana\" <ana@example.com> | ana@example.com | Doe, Ana", "ana@example.com | ana@example.com | nil", "nil", "K Shop <orders@shop.example> | orders@shop.example | K Shop", "true"]

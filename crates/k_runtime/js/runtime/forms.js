@@ -14,14 +14,19 @@
 
 import { attr, on } from "./dom.js";
 import { batch, renderEffect, signal, untrack } from "./signals.js";
-import { graphemeCount } from "./std.js";
+import { graphemeCount, parseEmail } from "./std.js";
 
 /**
  * @typedef {object} FieldSpec
  * @property {string} name the struct field
  * @property {(raw: string) => {ok: true, value: unknown}|{ok: false, message: string}} parse
  * @property {Array<(value: unknown) => string|null>} constraints each returns a message or `null`
+ * @property {Array<{run: (signal: AbortSignal, value: unknown) => Promise<boolean>, message: string}>} [checks]
+ *   the field's `@Check` rules: run debounced on blur, `false` is a failure
  */
+
+/** How long after a field loses focus its `@Check` rules run, in ms. */
+const CHECK_DELAY = 300;
 
 /**
  * The number of forms created in this document, for the ids of their
@@ -36,9 +41,11 @@ let formIds = 0;
  * @param {FieldSpec[]} fields generated from the struct's constraint annotations
  * @param {Record<string, string>} initial raw text per field (`.empty(…)`)
  * @param {(value: object, rules: object) => void} validate the struct's `validate(rules:)`, or a no-op
+ * @param {{after: (ms: number, f: () => void) => {cancel(): void}}} [clock] the `Clock` that
+ *   debounces `@Check` rules; given when a field has some
  * @returns {object}
  */
-export function createForm(fields, initial, validate) {
+export function createForm(fields, initial, validate, clock) {
   const id = ++formIds;
   const state = new Map();
   const order = [];
@@ -49,6 +56,10 @@ export function createForm(fields, initial, validate) {
       raw: signal(initial && initial[spec.name] !== undefined ? String(initial[spec.name]) : ""),
       error: signal(null),
       touched: signal(false),
+      // `@Check`: the pending timer and run, and the text a check refused.
+      timer: null,
+      run: null,
+      refused: null,
     });
   }
   const errors = signal([]);
@@ -81,6 +92,54 @@ export function createForm(fields, initial, validate) {
     });
   };
 
+  /**
+   * The message of the field's sync rule that `r`, its parse, fails, or
+   * `null`.
+   */
+  const failure = (f, r) => {
+    if (!r.ok) return r.message;
+    for (const c of f.spec.constraints) {
+      const m = c(r.value);
+      if (m != null) return m;
+    }
+    return null;
+  };
+
+  /**
+   * Runs the `@Check` rules of field `name` on its text once it parses and
+   * passes its constraints. An answer for text the field no longer holds,
+   * or from a run a later one replaced (whose signal is aborted), is
+   * dropped; a refusal shows under the field until a check passes.
+   */
+  const runChecks = async (name) => {
+    const f = state.get(name);
+    const raw = f.raw.peek();
+    const r = f.spec.parse(raw);
+    f.run?.abort();
+    if (failure(f, r) !== null) return;
+    const run = (f.run = new AbortController());
+    let message = null;
+    try {
+      for (const c of f.spec.checks) {
+        if (!(await c.run(run.signal, r.value))) {
+          message = c.message;
+          break;
+        }
+      }
+    } catch {
+      // No answer (the service threw): the server's check decides.
+      return;
+    }
+    if (run.signal.aborted || f.raw.peek() !== raw) return;
+    f.refused = message === null ? null : raw;
+    batch(() => {
+      const rest = errors.peek().filter((e) => fieldOf(e.path) !== name);
+      errors.set(message === null ? rest : [...rest, { path: name, message }]);
+      if (message !== null || f.error.peek() === f.message) f.error.set(message);
+      f.message = message;
+    });
+  };
+
   /** Validates: parse, constraints, then the cross-field rules. */
   const check = () => {
     const list = [];
@@ -89,19 +148,11 @@ export function createForm(fields, initial, validate) {
     for (const name of order) {
       const f = state.get(name);
       const r = f.spec.parse(f.raw.peek());
-      if (!r.ok) {
-        parsed = false;
-        list.push({ path: name, message: r.message });
-        continue;
-      }
-      value[name] = r.value;
-      for (const c of f.spec.constraints) {
-        const m = c(r.value);
-        if (m !== null && m !== undefined) {
-          list.push({ path: name, message: m });
-          break;
-        }
-      }
+      // A `@Check` that refused this very text still holds.
+      const m = failure(f, r) ?? (f.refused === f.raw.peek() ? f.message : null);
+      if (!r.ok) parsed = false;
+      else value[name] = r.value;
+      if (m !== null) list.push({ path: name, message: m });
     }
     if (parsed && list.length === 0 && validate) {
       validate(value, {
@@ -155,7 +206,12 @@ export function createForm(fields, initial, validate) {
           });
         });
         on(input, "input", () => field(name).set(input.value));
-        input.addEventListener("blur", () => f.touched.set(true));
+        input.addEventListener("blur", () => {
+          f.touched.set(true);
+          if (!f.spec.checks?.length || !clock) return;
+          f.timer?.cancel();
+          f.timer = clock.after(CHECK_DELAY, () => runChecks(name));
+        });
       },
     };
   };
@@ -218,8 +274,8 @@ export function fieldParser(kind, message, optional) {
     }
     if (kind === "bool") return { ok: true, value: raw === "true" };
     if (kind === "email") {
-      const at = t.indexOf("@");
-      return at > 0 && at < t.length - 1 && t.indexOf(".", at) > at + 1 ? { ok: true, value: t } : { ok: false, message };
+      const e = parseEmail(t);
+      return e === null ? { ok: false, message } : { ok: true, value: e };
     }
     return { ok: true, value: raw };
   };

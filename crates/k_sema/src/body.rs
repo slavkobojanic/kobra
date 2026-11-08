@@ -3313,24 +3313,71 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         member.name == "user" && self.cx.p.lookup_qualified("k.auth.Session") == Some(member.owner)
     }
 
-    /// Returns `true` if the body runs behind a `requires` guard: the
-    /// owner, or a protocol it implements, has a `requires` clause, so
-    /// `session.user` is not optional there (`docs/design/26-auth-and-sessions.md`).
+    /// Returns `true` if the body runs only after an `Authenticated` guard
+    /// passed, so `session.user` is a `SessionUser` there rather than a
+    /// `SessionUser?` (`docs/design/26-auth-and-sessions.md`, "Narrowing
+    /// under `Authenticated`").
+    ///
+    /// Two kinds of body qualify, and nothing else does:
+    ///
+    /// - any body of a page whose own `requires` clause includes
+    ///   `Authenticated` (its view, `@Load` initializers and functions);
+    /// - the handler of an rpc whose protocol's `requires` clause, or whose
+    ///   own `requires` clause in that protocol, includes `Authenticated`.
+    ///   One handler serves the rpc of every implemented protocol that
+    ///   declares it, so each of those protocols must guard it: a second
+    ///   protocol that leaves the same rpc open lets guests run the body.
+    ///
+    /// These are exactly the clauses the server enforces before running the
+    /// body (`k_codegen::server::guards`). Other guards don't narrow, even
+    /// though `RateLimit` lets guests through and `Role` happens to refuse
+    /// them; a `requires` clause written on the implementation's rpc
+    /// doesn't either, because the server reads only the protocol's.
+    /// Private helpers of a guarded service are never narrowed: they take
+    /// the user as a parameter.
     fn guarded(&self) -> bool {
         let Some(d) = self.owner.decl else {
             return false;
         };
-        let has = |n: &SyntaxNode| {
-            n.descendants()
-                .any(|c| c.kind() == SyntaxKind::RequiresClause)
-        };
-        if has(&self.cx.p.decl(d).node) {
-            return true;
+        let decl = self.cx.p.decl(d);
+        match decl.named_kind() {
+            Some(DeclarationKind::Page) => requires_authenticated(&decl.node),
+            Some(DeclarationKind::Service) => {
+                let Some(m) = self.current_fn.filter(|_| self.in_rpc_handler()) else {
+                    return false;
+                };
+                let name = &self.cx.p.member(m).name;
+                // Whether each implemented protocol that declares the rpc
+                // guards it with `Authenticated`.
+                let served: Vec<bool> = self
+                    .cx
+                    .implements_list(d)
+                    .iter()
+                    .filter_map(|(t, _)| {
+                        let pd = self.cx.p.decl(t.decl()?);
+                        if pd.named_kind() != Some(DeclarationKind::Protocol) {
+                            return None;
+                        }
+                        let rpc = pd.members.iter().copied().find(|&pm| {
+                            let pm = self.cx.p.member(pm);
+                            pm.kind == MemberKind::Rpc && pm.name == *name
+                        })?;
+                        Some(
+                            requires_authenticated(&pd.node)
+                                || self
+                                    .cx
+                                    .p
+                                    .member(rpc)
+                                    .node
+                                    .as_ref()
+                                    .is_some_and(requires_authenticated),
+                        )
+                    })
+                    .collect();
+                !served.is_empty() && served.iter().all(|&g| g)
+            }
+            _ => false,
         }
-        self.cx
-            .implements_list(d)
-            .iter()
-            .any(|(t, _)| t.decl().is_some_and(|i| has(&self.cx.p.decl(i).node)))
     }
 
     /// Returns `true` if the body's owner has `@Load` fields (and so a
@@ -5672,6 +5719,19 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 if matches!(target, Ty::Var(_) | Ty::Error) {
                     return (Ty::Error, None, false);
                 }
+                // A job's generated `static let kind: JobKind<Payload>`
+                // (30-background-jobs.md), typed by its `Job<…>` payload.
+                if let Some(kind) = target
+                    .decl()
+                    .filter(|_| statics && name.text() == "kind")
+                    .and_then(|d| crate::locks::job_payload(self.cx, d))
+                    .and_then(|payload| {
+                        let k = self.cx.p.lookup_qualified("k.server.JobKind")?;
+                        Some(Ty::Named(k, vec![payload].into()))
+                    })
+                {
+                    return (kind, None, false);
+                }
                 if target.decl().is_some_and(|d| self.cx.is_open(d, statics)) {
                     return (Ty::Error, None, false);
                 }
@@ -5874,6 +5934,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                         if let Some(mm) = member {
                             self.check_numeric_sum(mm, &sig, &recv_ty, &name, &node);
                             self.check_remote_client(mm, &ret, &name, &node);
+                            self.check_set_cookie(mm, &args);
                         }
                         self.query_update_depth -= u32::from(update);
                         self.query_lambda_depth -= u32::from(query);
@@ -6208,6 +6269,46 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             range,
             format!("`sum()` adds `Int` or `Double` elements, and `{rendered}` is neither"),
         );
+    }
+
+    /// K5013: `HttpResponse.headers([...])` with a literal `set-cookie`
+    /// key, in any case (27-endpoint-pages.md: cookies are set only through
+    /// `Session`). A computed name panics at run time instead.
+    fn check_set_cookie(&mut self, member: MemberId, args: &[Arg]) {
+        let m = self.cx.p.member(member);
+        if m.name != "headers" || self.cx.p.lookup_qualified("k.http.HttpResponse") != Some(m.owner)
+        {
+            return;
+        }
+        let Some(ast::Expr::MapExpr(map)) = args.first().and_then(|a| a.expr.as_ref()) else {
+            return;
+        };
+        let keys: Vec<ast::Expr> = map
+            .syntax()
+            .children()
+            .filter(|c| c.kind() == SyntaxKind::MapEntry)
+            .filter_map(|e| e.children().find_map(ast::Expr::cast))
+            .collect();
+        for key in keys {
+            let ast::Expr::StringLit(lit) = &key else {
+                continue;
+            };
+            if !lit
+                .plain_value()
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case("set-cookie"))
+            {
+                continue;
+            }
+            let d = Diagnostic::new(
+                codes::SET_COOKIE_HEADER,
+                self.span(key.syntax().text_range()),
+                "a response can't set `set-cookie`: cookies are set only through `Session`",
+            )
+            .with_help(
+                "sign the user in or out with `SessionManager`, which sets the session cookie",
+            );
+            self.report(d);
+        }
     }
 
     /// K4026: `RemoteClient.at(url:token:)` returns a client of the
@@ -6927,4 +7028,21 @@ fn unused(_: FnTy, _: DeclKind) {}
 /// An empty range at `at`.
 fn at_range(at: TextSize) -> TextRange {
     TextRange::empty(at)
+}
+
+/// Returns `true` if a `requires` clause that is a direct child of `node`
+/// (a page, protocol or protocol rpc) names the `Authenticated` guard.
+///
+/// Guards are matched by name, as the server code generator lowers them, so
+/// the narrowing holds exactly where the server checks for a session.
+fn requires_authenticated(node: &SyntaxNode) -> bool {
+    node.children()
+        .filter(|c| c.kind() == SyntaxKind::RequiresClause)
+        .flat_map(|c| c.children().filter(|g| g.kind() == SyntaxKind::Guard))
+        .any(|g| {
+            g.children_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .find(|t| t.kind().is_name_like())
+                .is_some_and(|t| t.text() == "Authenticated")
+        })
 }

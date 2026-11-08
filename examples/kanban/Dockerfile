@@ -43,11 +43,10 @@ WORKDIR /src
 
 COPY examples/kanban .
 
-# `k check` fails the build on a type error, unformatted code or a breaking
-# change against storage.lock; `k test` on a failing test. The tests run in
-# the fake DOM, so no browser is needed.
+# `k check` fails the build on a type error, a breaking change against
+# storage.lock or a failing test. The tests run in the fake DOM, so no
+# browser is needed.
 RUN k check
-RUN k test
 
 # `k build` writes dist/public: index.html and the hashed assets.
 RUN k build

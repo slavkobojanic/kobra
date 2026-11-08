@@ -1,0 +1,5 @@
+error[K8006] migrations/0002_add_body.k:2:11-2:18: `migrations/0002_add_body.k` isn't in schema.lock's `migrations` list
+  help: `k migrate new` writes a migration and the lock together; run `k build` to record a migration written by hand
+error[K8005] schema.lock:4:1-4:14: schema.lock doesn't record the table `note` as the migrations leave it
+  note: the migrations create the column `body`, which schema.lock doesn't record
+  help: run `k build`, which records the schema the migrations produce in schema.lock, and review the change; if the lock was right, a migration changed after it was recorded

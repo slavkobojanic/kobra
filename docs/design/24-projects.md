@@ -30,7 +30,7 @@ charts = "github.com/acme/charts"       # enables `import charts.LineChart`
 ### `name` is the project's identity
 
 - **For an app,** `name` is lower case ASCII letters, digits and hyphens, starting with a letter (`shop`, `my-shop`). **For a package,** it is the module path (`github.com/acme/charts`).
-- **Things outside the codebase are derived from it, once:** the Protobuf package prefix of every protocol ([28-rpc-wire-format.md](28-rpc-wire-format.md#names)) and the namespace of the app's browser storage ([36-local-storage.md](36-local-storage.md#keys)). Each is recorded in its lockfile when first derived (`protocol.lock`, `storage.lock`), and the lockfile, not `k.toml`, is read from then on. Renaming the project therefore changes neither, and `k check` fails if a recorded value would change without `@Breaking`.
+- **Things outside the codebase are derived from it:** the Protobuf package prefix of every protocol ([28-rpc-wire-format.md](28-rpc-wire-format.md#names)) and the namespace of the app's browser storage ([36-local-storage.md](36-local-storage.md#keys)). The storage namespace is recorded in `storage.lock` when first derived and read from the lock afterwards, so renaming the project doesn't change it. Wire names are always derived and recorded in `rpc.lock`, so renaming a project that serves protocols fails `k check` (`K8001`) unless its protocols are marked `@Breaking` ([13-tooling.md](13-tooling.md#lockfiles)).
 - **Mapping to Protobuf:** lower case; `-`, `/` and `.` become `_`; a package's host is dropped. `my-shop` → `my_shop`, `github.com/acme/charts` → `acme_charts`.
 - `title` is what people see (the default `manifest` name, for example). Changing it changes nothing else.
 
@@ -46,7 +46,6 @@ k.toml           manifest
 App.k            the app declaration (apps only)
 src/             source; each directory is a module (src/weather/Place.k → weather.Place)
 migrations/      database migrations, NNNN_description.k; not a module (19-persistence.md)
-protocol.lock    generated and committed
 routes.lock      generated and committed
 schema.lock      generated and committed
 storage.lock     generated and committed

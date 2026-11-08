@@ -1,0 +1,1 @@
+error[K8002] storage.lock:6:1-6:12: storage.lock can't be read: `cart` doesn't have the structure of 36-local-storage.md, "File format"

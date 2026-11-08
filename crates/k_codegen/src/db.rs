@@ -32,6 +32,7 @@ use k_db::manifest::{DbManifest, StatementSql, UniqueIndex};
 use k_db::migrate::Migration;
 use k_db::schema::ColumnType;
 use k_db::sql::{Dialect, render};
+use k_diagnostics::{Code, Diagnostic, FileId, Span, TextRange, codes};
 use k_sema::Resolution;
 use k_sema::stdlib::DeclarationKind;
 use k_sema::view::{DeclId, MemberKind, Type};
@@ -700,7 +701,7 @@ struct Query<'m> {
     /// The next parameter number.
     next: u32,
     /// The row parameter's binding name range, per lambda being lowered.
-    row: Option<rowan::TextRange>,
+    row: Option<TextRange>,
 }
 
 impl Query<'_> {
@@ -2305,9 +2306,22 @@ fn schema_op(c: &ast::CallExpr) -> Result<SchemaOp, String> {
                     "dropColumn" => AlterOp::DropColumn {
                         name: sarg("name")?,
                     },
-                    "addEnumCase" | "renameEnumCase" | "removeEnumCase" => AlterOp::EnumCase {
-                        method: base.clone(),
+                    "retireColumn" => AlterOp::RetireColumn {
+                        name: sarg("name")?,
+                    },
+                    "addEnumCase" => AlterOp::AddEnumCase {
                         column: sarg("column")?,
+                        case: sarg("case")?,
+                    },
+                    "renameEnumCase" => AlterOp::RenameEnumCase {
+                        column: sarg("column")?,
+                        from: sarg("from")?,
+                        to: sarg("to")?,
+                    },
+                    "removeEnumCase" => AlterOp::RemoveEnumCase {
+                        column: sarg("column")?,
+                        case: sarg("case")?,
+                        replacement: sarg("replacement")?,
                     },
                     other => return Err(format!("`{other}` is not an `alterTable` operation")),
                 });
@@ -2322,6 +2336,7 @@ fn schema_op(c: &ast::CallExpr) -> Result<SchemaOp, String> {
             to: s("to")?,
         },
         "dropTable" => SchemaOp::DropTable { name: s("name")? },
+        "retireTable" => SchemaOp::RetireTable { name: s("name")? },
         "createIndex" => SchemaOp::CreateIndex {
             table: s("table")?,
             columns: arg(c, "columns")
@@ -2366,8 +2381,26 @@ fn schema_op(c: &ast::CallExpr) -> Result<SchemaOp, String> {
     })
 }
 
-/// The `up(schema:)` operations of a migration file.
-fn migration_ops(root: &SyntaxNode) -> Result<Vec<SchemaOp>, String> {
+/// One builder call of a migration, with where it is: the call's range
+/// and, for `alterTable`, the range of each step of its lambda.
+type LocatedOp = (SchemaOp, TextRange, Vec<TextRange>);
+
+/// The ranges of the steps of an `alterTable { table => … }` call.
+fn step_ranges(c: &ast::CallExpr) -> Vec<TextRange> {
+    c.trailing_lambda()
+        .and_then(|l| table_steps(&l).ok())
+        .map(|steps| steps.iter().map(|s| s.syntax().text_range()).collect())
+        .unwrap_or_default()
+}
+
+/// The `up(schema:)` operations of a migration file, each with where it
+/// is.
+///
+/// # Errors
+///
+/// What can't be read, with the range of the offending call or statement
+/// (or of the migration's name when it declares no `up`).
+fn migration_ops(root: &SyntaxNode) -> Result<Vec<LocatedOp>, (String, TextRange)> {
     let up = root
         .descendants()
         .find(|n| {
@@ -2376,21 +2409,33 @@ fn migration_ops(root: &SyntaxNode) -> Result<Vec<SchemaOp>, String> {
                     .filter_map(rowan::NodeOrToken::into_token)
                     .any(|t| t.kind() == SyntaxKind::Ident && t.text() == "up")
         })
-        .ok_or("a migration declares `func up(schema: Schema)`")?;
+        .ok_or((
+            "a migration declares `func up(schema: Schema)`".to_owned(),
+            migration_name_range(root),
+        ))?;
     let block = up
         .children()
         .find_map(ast::Block::cast)
-        .ok_or("`up` has no body")?;
+        .ok_or(("`up` has no body".to_owned(), up.text_range()))?;
     let mut ops = Vec::new();
     for s in block.statements() {
         match s {
             ast::Stmt::Expr(ast::Expr::CallExpr(c)) => {
-                ops.push(schema_op(&c).map_err(|e| format!("{e} (at `{}`)", excerpt(c.syntax())))?);
+                let range = c.syntax().text_range();
+                ops.push((
+                    schema_op(&c)
+                        .map_err(|e| (format!("{e} (at `{}`)", excerpt(c.syntax())), range))?,
+                    range,
+                    step_ranges(&c),
+                ));
             }
             other => {
-                return Err(format!(
-                    "a migration's `up` only calls the schema builder; `{}` can't run at migration time",
-                    excerpt(other.syntax())
+                return Err((
+                    format!(
+                        "a migration's `up` only calls the schema builder; `{}` can't run at migration time",
+                        excerpt(other.syntax())
+                    ),
+                    other.syntax().text_range(),
                 ));
             }
         }
@@ -2398,11 +2443,137 @@ fn migration_ops(root: &SyntaxNode) -> Result<Vec<SchemaOp>, String> {
     Ok(ops)
 }
 
-/// The project's migrations, replayed and rendered, in application order:
-/// the order of `schema.lock`'s `migrations` list when the lock has one,
-/// file-name order otherwise.
-pub(crate) fn migrations(g: &Gen<'_>) -> Result<Vec<Migration>, Vec<String>> {
-    let mut files: Vec<(String, SyntaxNode)> = Vec::new();
+/// The range of the migration's name, or of the whole file when it
+/// declares no migration.
+pub(crate) fn migration_name_range(root: &SyntaxNode) -> TextRange {
+    root.descendants()
+        .find(|n| n.kind() == SyntaxKind::MigrationDecl)
+        .and_then(|d| {
+            d.children_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .find(|t| t.kind() == SyntaxKind::Ident)
+                .map(|t| t.text_range())
+        })
+        .unwrap_or_else(|| TextRange::empty(0.into()))
+}
+
+/// The reason of the migration's `@Breaking("reason")`: `None` without the
+/// annotation, `Some("")` when its argument isn't a plain string.
+fn breaking_reason(root: &SyntaxNode) -> Option<String> {
+    let decl = root
+        .descendants()
+        .find(|n| n.kind() == SyntaxKind::MigrationDecl)?;
+    let a = decl
+        .children()
+        .filter_map(ast::Annotation::cast)
+        .find(|a| a.name().is_some_and(|t| t.text() == "Breaking"))?;
+    Some(
+        a.arg_list()
+            .and_then(|l| l.args().next())
+            .and_then(|arg| arg.value())
+            .and_then(|v| string_arg(&v))
+            .unwrap_or_default(),
+    )
+}
+
+/// The `@Breaking` reason that allows dropping or renaming something the
+/// previous release still reads (`docs/design/19-persistence.md`,
+/// "Rolling deploys").
+pub(crate) const SINGLE_INSTANCE: &str = "single instance";
+
+/// A persistence problem with its place: a migration that doesn't replay,
+/// a destructive one without `@Breaking`, or a difference between the
+/// entities, the migrations and `schema.lock`.
+#[derive(Clone, Debug)]
+pub(crate) struct Problem {
+    /// The file it is in.
+    pub(crate) file: FileId,
+    /// Its range there.
+    pub(crate) range: TextRange,
+    /// The diagnostic code.
+    pub(crate) code: Code,
+    /// What is wrong.
+    pub(crate) message: String,
+    /// Further facts, one per note.
+    pub(crate) notes: Vec<String>,
+    /// How to resolve it.
+    pub(crate) help: Option<String>,
+}
+
+impl Problem {
+    /// A problem without notes or help.
+    pub(crate) fn new(file: FileId, range: TextRange, code: Code, message: String) -> Problem {
+        Problem {
+            file,
+            range,
+            code,
+            message,
+            notes: Vec::new(),
+            help: None,
+        }
+    }
+
+    /// This problem with `help`.
+    pub(crate) fn help(mut self, help: impl Into<String>) -> Problem {
+        self.help = Some(help.into());
+        self
+    }
+
+    /// This problem with one more note.
+    pub(crate) fn note(mut self, note: impl Into<String>) -> Problem {
+        self.notes.push(note.into());
+        self
+    }
+
+    /// The problem as a build error line, `migrations/0002_x.k:3: message`,
+    /// with its help after a semicolon.
+    pub(crate) fn line(&self, g: &Gen<'_>) -> String {
+        let path = g
+            .analysis
+            .files()
+            .into_iter()
+            .find(|(f, _)| *f == self.file)
+            .map(|(_, p)| p.as_str().to_owned())
+            .unwrap_or_default();
+        let line = g.analysis.text(self.file).map_or(1, |t| {
+            let at = usize::from(self.range.start()).min(t.len());
+            t[..at].matches('\n').count() + 1
+        });
+        match &self.help {
+            Some(h) => format!("{path}:{line}: {}; {h}", self.message),
+            None => format!("{path}:{line}: {}", self.message),
+        }
+    }
+
+    /// The problem as a diagnostic.
+    pub(crate) fn diagnostic(&self) -> Diagnostic {
+        let mut d = Diagnostic::new(self.code, Span::new(self.file, self.range), &self.message);
+        for n in &self.notes {
+            d = d.with_note(n);
+        }
+        if let Some(h) = &self.help {
+            d = d.with_help(h);
+        }
+        d
+    }
+}
+
+/// One file of `migrations/`.
+#[derive(Clone, Debug)]
+pub(crate) struct MigrationFile {
+    /// The file stem, `0002_add_note_pinning`.
+    pub(crate) stem: String,
+    /// The file.
+    pub(crate) file: FileId,
+    /// Its syntax tree.
+    pub(crate) root: SyntaxNode,
+}
+
+/// The project's migration files in application order: the order of
+/// `schema.lock`'s `migrations` list, then the files the list doesn't name,
+/// by file name.
+pub(crate) fn migration_files(g: &Gen<'_>) -> Vec<MigrationFile> {
+    let mut files: Vec<MigrationFile> = Vec::new();
     for (file, path) in g.analysis.files() {
         let p = path.as_str();
         let Some(stem) = p
@@ -2415,32 +2586,152 @@ pub(crate) fn migrations(g: &Gen<'_>) -> Result<Vec<Migration>, Vec<String>> {
             continue;
         }
         if let Ok(Some(parse)) = g.analysis.parse(file) {
-            files.push((stem.to_owned(), parse.syntax()));
+            files.push(MigrationFile {
+                stem: stem.to_owned(),
+                file,
+                root: parse.syntax(),
+            });
         }
     }
-    files.sort_by(|a, b| a.0.cmp(&b.0));
+    files.sort_by(|a, b| a.stem.cmp(&b.stem));
     if let Some(order) = lock(g).map(|l| l.migrations).filter(|m| !m.is_empty()) {
-        files.sort_by_key(|(name, _)| order.iter().position(|o| o == name).unwrap_or(usize::MAX));
+        files.sort_by_key(|f| {
+            order
+                .iter()
+                .position(|o| *o == f.stem)
+                .unwrap_or(usize::MAX)
+        });
     }
-    let mut replay = Replay::new();
-    let mut out = Vec::new();
-    let mut errors = Vec::new();
-    let any = !files.is_empty();
-    for (name, root) in files {
-        match migration_ops(&root).and_then(|ops| replay.apply(&ops)) {
-            Ok(r) => out.push(Migration {
-                name,
-                sqlite: r.sqlite,
-                postgres: r.postgres,
-            }),
-            Err(e) => errors.push(format!("migrations/{name}.k: {e}")),
+    files
+}
+
+/// The migrations replayed in order: what they render, the schema they
+/// leave, and the problems found on the way.
+#[derive(Debug, Default)]
+pub(crate) struct History {
+    /// The migration files, in application order.
+    pub(crate) files: Vec<MigrationFile>,
+    /// Each migration that replayed, rendered.
+    pub(crate) migrations: Vec<Migration>,
+    /// The schema they leave (up to the first migration that doesn't
+    /// replay).
+    pub(crate) replay: Replay,
+    /// Migrations that don't replay, and destructive ones without the
+    /// `@Breaking` they need.
+    pub(crate) problems: Vec<Problem>,
+}
+
+/// Replays the project's migrations in order (`docs/compiler/db.md` §10),
+/// checking every name against the schema the earlier ones leave, and that
+/// a migration with a destructive operation is marked `@Breaking`: with any
+/// reason for dropping what an earlier migration retired and for the enum
+/// case rewrites, and with `@Breaking("single instance")` for dropping or
+/// renaming anything still live. A migration that doesn't replay stops the
+/// replay, so later ones aren't checked against a schema that is wrong.
+pub(crate) fn history(g: &Gen<'_>) -> History {
+    let mut h = History {
+        files: migration_files(g),
+        ..History::default()
+    };
+    for f in &h.files {
+        let ops = match migration_ops(&f.root) {
+            Ok(ops) => ops,
+            Err((message, range)) => {
+                h.problems.push(Problem::new(
+                    f.file,
+                    range,
+                    codes::INVALID_MIGRATION,
+                    message,
+                ));
+                break;
+            }
+        };
+        let mut schema_ops = Vec::new();
+        let mut ranges = Vec::new();
+        for (op, range, steps) in ops {
+            schema_ops.push(op);
+            ranges.push((range, steps));
         }
+        // The step of an `alterTable` when there is one, else the call.
+        let at = |op: usize, step: Option<usize>| -> TextRange {
+            ranges
+                .get(op)
+                .map_or_else(TextRange::default, |(range, steps)| {
+                    step.and_then(|s| steps.get(s).copied()).unwrap_or(*range)
+                })
+        };
+        let rendered = match h.replay.try_apply(&schema_ops) {
+            Ok(r) => r,
+            Err(e) => {
+                h.problems.push(Problem::new(
+                    f.file,
+                    at(e.op, e.step),
+                    codes::INVALID_MIGRATION,
+                    format!("`{}` doesn't replay: {}", f.stem, e.message),
+                ));
+                break;
+            }
+        };
+        let reason = breaking_reason(&f.root);
+        for d in &rendered.destructive {
+            let range = at(d.op, d.step);
+            if d.live && reason.as_deref() != Some(SINGLE_INSTANCE) {
+                let renames = d.what.starts_with("renames");
+                let mut p = Problem::new(
+                    f.file,
+                    range,
+                    codes::LIVE_SCHEMA_CHANGE,
+                    format!(
+                        "`{}` {}, which the previous release still reads during a rolling deploy",
+                        f.stem, d.what
+                    ),
+                );
+                if let Some(r) = reason.as_deref().filter(|r| !r.is_empty()) {
+                    p = p.note(format!(
+                        "`@Breaking(\"{r}\")` allows dropping what an earlier migration retired; only `@Breaking(\"single instance\")` allows this"
+                    ));
+                }
+                p = p.help(if renames {
+                    "rename across two releases instead (add the new column, backfill it and retire the old one; drop it later with `k migrate new --drop-retired`), or rename only the field and keep the column (`k migrate rename`); a single-instance app can mark the migration `@Breaking(\"single instance\")`"
+                } else {
+                    "retire it first (`retireColumn` or `retireTable`, which `k migrate new` writes for a removed field), ship that, and drop it in a later release with `k migrate new --drop-retired`; a single-instance app can mark the migration `@Breaking(\"single instance\")`"
+                });
+                h.problems.push(p);
+            } else if !d.live && reason.is_none() {
+                h.problems.push(
+                    Problem::new(
+                        f.file,
+                        range,
+                        codes::DESTRUCTIVE_MIGRATION,
+                        format!(
+                            "`{}` {} without `@Breaking`, which loses data",
+                            f.stem, d.what
+                        ),
+                    )
+                    .help("mark the migration `@Breaking(\"reason\")`, saying why the loss is acceptable"),
+                );
+            }
+        }
+        h.migrations.push(Migration {
+            name: f.stem.clone(),
+            sqlite: rendered.sqlite,
+            postgres: rendered.postgres,
+        });
     }
-    if errors.is_empty() && any {
-        errors.extend(check_entities(g, &replay));
+    h
+}
+
+/// The project's migrations, replayed and rendered, in application order:
+/// the order of `schema.lock`'s `migrations` list when the lock has one,
+/// file-name order otherwise.
+pub(crate) fn migrations(g: &Gen<'_>) -> Result<Vec<Migration>, Vec<String>> {
+    let h = history(g);
+    let mut errors: Vec<String> = h.problems.iter().map(|p| p.line(g)).collect();
+    if errors.is_empty() && !h.files.is_empty() {
+        errors.extend(check_entities(g, &h.replay));
     }
     if errors.is_empty() {
-        Ok(out)
+        Ok(h.migrations)
     } else {
         Err(errors)
     }

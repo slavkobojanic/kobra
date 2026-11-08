@@ -2,6 +2,7 @@
 # this app serves (docs/design/40-workspaces-and-services.md).
 
 [protocols."admin.AdminProtocol"]
+service = "shop.admin.AdminProtocol"
 
 [protocols."admin.AdminProtocol".rpcs.recentOrders]
 params = []
@@ -19,6 +20,7 @@ returns = "Void"
 throws = "RpcOnlyError"
 
 [protocols."pay.PaymentEvents"]
+service = "pay_contracts.pay.PaymentEvents"
 
 [protocols."pay.PaymentEvents".rpcs.chargeRefunded]
 params = [{ name = "refund", type = "pay.Refund" }]
@@ -31,6 +33,7 @@ returns = "Void"
 throws = "RpcOnlyError"
 
 [protocols."paybox.CardProtocol"]
+service = "shop.paybox.CardProtocol"
 
 [protocols."paybox.CardProtocol".rpcs.pay]
 params = [{ name = "orderId", type = "Uuid" }, { name = "card", type = "paybox.CardForm" }]
@@ -38,6 +41,7 @@ returns = "Void"
 throws = "paybox.CardPaymentError"
 
 [protocols."store.StoreProtocol"]
+service = "shop.store.StoreProtocol"
 
 [protocols."store.StoreProtocol".rpcs.order]
 params = [{ name = "id", type = "Uuid" }]

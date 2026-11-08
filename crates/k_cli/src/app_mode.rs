@@ -130,6 +130,19 @@ fn serve(payload: AppPayload) -> ExitCode {
             return ExitCode::from(u8::try_from(EXIT_CONFIG).unwrap_or(78));
         }
     };
+    // An unreadable proxy list is a configuration problem too: trusting
+    // fewer proxies than meant would merge clients' rate limits, more would
+    // let clients choose their address.
+    if let Err(message) = k_server::proxy::TrustedProxies::from_config(&values) {
+        eprint!(
+            "{}",
+            config::report(&[config::Problem {
+                env: k_server::proxy::TRUSTED_PROXIES_ENV.into(),
+                message,
+            }])
+        );
+        return ExitCode::from(u8::try_from(EXIT_CONFIG).unwrap_or(78));
+    }
     let port = match values.get("PORT") {
         Some(ConfigValue::Int(n)) => u16::try_from(*n).ok(),
         _ => Some(8080),

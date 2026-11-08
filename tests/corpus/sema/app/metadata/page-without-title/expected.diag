@@ -1,0 +1,16 @@
+warning[K3027] src/site/Pages.k:6:6-6:10: the page `Home` has no `title`
+  note: neither its `metadata`, nor its layout's, nor the app's sets one
+  fix "Add `title(\"Home\")`" maybe-incorrect
+    edit 6:19-6:19 "\n    metadata {\n        title(\"Home\")\n    }\n"
+warning[K3027] src/site/Pages.k:13:6-13:18: the page `OrderHistory` has no `title`
+  note: neither its `metadata`, nor its layout's, nor the app's sets one
+  fix "Add `title(\"Order history\")`" maybe-incorrect
+    edit 14:15-14:15 "\n        title(\"Order history\")"
+warning[K3027] src/site/Pages.k:44:6-44:10: the page `Bare` has no `title`
+  note: neither its `metadata`, nor its layout's, nor the app's sets one
+  fix "Add `title(\"Bare\")`" maybe-incorrect
+    edit 44:12-44:12 "\n    metadata {\n        title(\"Bare\")\n    }\n"
+warning[K3027] src/site/Pages.k:51:6-51:13: the page `Product` has no `title`
+  note: neither its `metadata`, nor its layout's, nor the app's sets one
+  fix "Add `title(\"Product\")`" maybe-incorrect
+    edit 51:15-51:15 "\n    metadata {\n        title(\"Product\")\n    }\n"

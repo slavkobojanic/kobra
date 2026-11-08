@@ -15,9 +15,9 @@
 //! `serve()` returns and its thread exits.
 
 use std::collections::{BTreeSet, HashMap};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -36,6 +36,7 @@ use crate::engine::{Engine, EngineOptions, JsModule, Output};
 use crate::front::{self, FrontPolicy};
 use crate::ops::{PendingRequest, RequestQueue, WorkerResponse};
 use crate::process::ProcessState;
+use crate::proxy::{TRUSTED_PROXIES_ENV, TrustedProxies};
 
 /// The body of every response: in memory, or streamed from a worker.
 type Body = BoxBody<Bytes, std::convert::Infallible>;
@@ -171,6 +172,10 @@ pub enum ServerError {
     Internal(String),
     /// The database couldn't be opened or a migration failed.
     Database(String),
+    /// A configuration value the server itself reads is unusable
+    /// (`K_TRUSTED_PROXIES` that isn't a list of CIDR ranges). `dist/app`
+    /// reports these before starting, with exit status 78.
+    Config(String),
 }
 
 impl std::fmt::Display for ServerError {
@@ -180,6 +185,7 @@ impl std::fmt::Display for ServerError {
             ServerError::Worker(m) => write!(f, "worker failed: {m}"),
             ServerError::Internal(m) => write!(f, "server failure: {m}"),
             ServerError::Database(m) => write!(f, "database: {m}"),
+            ServerError::Config(m) => write!(f, "configuration: {m}"),
         }
     }
 }
@@ -208,6 +214,13 @@ struct Shared {
     workers: std::sync::RwLock<Vec<mpsc::UnboundedSender<PendingRequest>>>,
     /// Round-robin counter picking the worker for the next request.
     next: AtomicUsize,
+    /// `K_TRUSTED_PROXIES`: whose `X-Forwarded-For` names the client.
+    proxies: TrustedProxies,
+    /// Set once the warning about an ignored `X-Forwarded-For` (no trusted
+    /// proxies configured) was logged, so it is logged only once.
+    warned_forwarding: AtomicBool,
+    /// Where the front's own log lines go.
+    log: Output,
 }
 
 /// The body of one worker thread: creates its isolate, reports on `started`
@@ -254,6 +267,27 @@ fn worker_thread(
         println!("{line}");
     }
     outcome
+}
+
+/// The client address of a request from socket `remote`: the socket's,
+/// or behind a trusted proxy the right-most untrusted `X-Forwarded-For`
+/// hop ([`TrustedProxies::client_address`]). The first request that
+/// carries `X-Forwarded-For` while no proxy is trusted logs a warning,
+/// because every client behind that proxy then shares one address and one
+/// rate limit (`docs/design/27-endpoint-pages.md`).
+fn client_address(shared: &Shared, remote: SocketAddr, headers: &[(String, String)]) -> IpAddr {
+    if shared.proxies.ignores_forwarding(headers)
+        && !shared.warned_forwarding.swap(true, Ordering::Relaxed)
+    {
+        log_line(
+            shared.log,
+            "warning",
+            "a request carries X-Forwarded-For, but K_TRUSTED_PROXIES is empty: \
+             the header is ignored and every client behind the proxy shares one address \
+             and one rate limit; set K_TRUSTED_PROXIES to the proxy's CIDR range",
+        );
+    }
+    shared.proxies.client_address(remote.ip(), headers)
 }
 
 /// Writes a server log line the way workers do.
@@ -422,6 +456,7 @@ async fn handle(
             return Ok(finish(r, rpc));
         }
     };
+    let client = client_address(&shared, remote, &headers);
     let (reply, response) = oneshot::channel::<WorkerResponse>();
     let sent = match shared.workers.read() {
         Ok(workers) if !workers.is_empty() => {
@@ -432,7 +467,7 @@ async fn handle(
                     path,
                     headers,
                     body,
-                    remote: remote.ip().to_string(),
+                    remote: client.to_string(),
                     job: None,
                     reply,
                 })
@@ -481,9 +516,14 @@ impl Server {
     ///
     /// # Errors
     ///
-    /// [`ServerError::Bind`] if the address can't be bound,
-    /// [`ServerError::Worker`] if an isolate can't be created.
+    /// [`ServerError::Config`] if `K_TRUSTED_PROXIES` in
+    /// [`ServerOptions::config`] isn't a list of CIDR ranges (checked before
+    /// anything starts), [`ServerError::Database`] if the database can't be
+    /// opened or migrated, [`ServerError::Bind`] if the address can't be
+    /// bound, [`ServerError::Worker`] if an isolate can't be created.
     pub fn start(options: ServerOptions) -> Result<Server, ServerError> {
+        let proxies = TrustedProxies::from_config(&options.config)
+            .map_err(|e| ServerError::Config(format!("{TRUSTED_PROXIES_ENV} {e}")))?;
         let workers = options.workers.max(1);
         let mut process = ProcessState::new(options.public_origin.clone(), options.config.clone())
             .with_fetch_origins(options.fetch_origins.clone());
@@ -541,6 +581,9 @@ impl Server {
                 .collect(),
             workers: std::sync::RwLock::new(senders),
             next: AtomicUsize::new(0),
+            proxies,
+            warned_forwarding: AtomicBool::new(false),
+            log: options.log,
         });
         // The jobs worker: with jobs and a database, after every isolate
         // started (it hands runs to them like requests).

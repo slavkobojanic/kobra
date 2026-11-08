@@ -102,9 +102,16 @@ layout Shop {
 - **Stylesheets, scripts and fonts never appear in metadata.** The compiler emits CSS from `style` blocks,
   there is no third-party JavaScript, and theme `font` tokens produce preload tags automatically.
 
-The compiler warns about a page with no `title`, and about a description longer than 160 characters.
+The compiler warns about a page with no `title` (`K3027`), and about a description longer than 160
+characters (`K3028`):
 
-> **Planned.** The first compiler releases don't give these two warnings yet.
+- **A page has a title when any declaration it renders under sets one:** its own `metadata`, the layout
+  it renders in (its `@Layout`, or the app's, none with `@NoLayout`), or the app's `metadata`. A `title`
+  inside `failed` is the failure's own and doesn't count. A program without an `app` renders no document
+  and gets no warning, and endpoint pages have no metadata. The quick fix adds `title("…")` made from the
+  page's name (`OrderHistory` gets `title("Order history")`).
+- **Only literal descriptions are measured,** in characters, in every `metadata` block. An interpolated
+  description's length is known only at run time.
 
 ## Status codes
 

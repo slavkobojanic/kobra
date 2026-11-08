@@ -25,8 +25,11 @@ metadata:
   namespace: k-shop
 data:
   K_PUBLIC_ORIGIN: http://localhost:8080
-  # The pods' network in kind: only the ingress controller sets
-  # X-Forwarded-For.
+  # The pods' network in kind (kindnet's default pod CIDR), where the
+  # ingress controller's pod gets an address that isn't known in advance.
+  # ingress-nginx sets X-Forwarded-For to the client it saw. Other pods in
+  # the namespace (paybox) are inside this range too, so on a real cluster
+  # name the ingress controller's own range instead, as README.md says.
   K_TRUSTED_PROXIES: 10.244.0.0/16
   DATABASE_URL: postgres://shop@db:5432/shop
   DATABASE_PASSWORD_FILE: /run/secrets/db_password

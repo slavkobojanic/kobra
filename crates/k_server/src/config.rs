@@ -212,6 +212,29 @@ impl DevEnvironment {
             with_process,
         }
     }
+
+    /// The `.env` keys the process environment shadows: those it also sets,
+    /// to another value, in name order (`k dev` names them;
+    /// 25-config-and-secrets.md, "Per environment"). Empty without
+    /// [`DevEnvironment::with_process`].
+    #[must_use]
+    pub fn shadowed(&self) -> Vec<String> {
+        self.shadowed_by(|name| std::env::var(name).ok())
+    }
+
+    /// [`DevEnvironment::shadowed`], with `process` standing for the
+    /// process environment.
+    #[must_use]
+    pub fn shadowed_by(&self, process: impl Fn(&str) -> Option<String>) -> Vec<String> {
+        if !self.with_process {
+            return Vec::new();
+        }
+        self.dotenv
+            .iter()
+            .filter(|(name, value)| process(name).is_some_and(|p| &p != *value))
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
 }
 
 /// Parses `.env` text into its variables, by name.
@@ -500,6 +523,26 @@ pub const EXIT_CONFIG: i32 = 78;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shadowed_names_the_dotenv_keys_the_process_overrides_with_another_value() {
+        let env = DevEnvironment {
+            root: std::path::PathBuf::new(),
+            dotenv: parse_dotenv("B=file\nA=file\nSAME=v\nONLY=x\n"),
+            with_process: true,
+        };
+        let process = |name: &str| match name {
+            "A" | "B" => Some("process".to_owned()),
+            "SAME" => Some("v".to_owned()),
+            _ => None,
+        };
+        assert_eq!(env.shadowed_by(process), vec!["A", "B"]);
+        let file_only = DevEnvironment {
+            with_process: false,
+            ..env
+        };
+        assert!(file_only.shadowed_by(process).is_empty());
+    }
 
     #[test]
     fn manifest_types_map_to_kinds() {

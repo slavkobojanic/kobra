@@ -120,7 +120,7 @@ The stdlib's own settings are ordinary `config` declarations, with documented va
 | Environment | Values come from |
 |---|---|
 | `.production` (`dist/app`) | the process environment only |
-| `.development` (`k dev`) | the process environment, plus an optional `.env` file at the project root. **The process environment wins on a conflict,** and `k dev` prints which `.env` keys were shadowed. `.env` is git-ignored; a project commits `.env.example` instead. `_FILE` variables may point at paths relative to the project root. |
+| `.development` (`k dev`) | the process environment, plus an optional `.env` file at the project root. **The process environment wins on a conflict,** and `k dev` prints which `.env` keys were shadowed: before each start, one note naming the keys set in both places to different values, never a value. `.env` is git-ignored; a project commits `.env.example` instead. `_FILE` variables may point at paths relative to the project root. |
 | `.test` (`k test`) | **never the environment.** Stdlib configs have built-in test values (an in-memory SQLite database, the origin `http://localhost`); the app's own configs are bound per test group (below). |
 
 **Committed example files hold placeholders, never working values.** A `.env.example` or `secrets/*.example` file that someone copies into place must fail validation until a real value is set (for example a password hash that isn't a PHC string), so a documented sample password can never become a deployed one. Scripts that need real values (an end-to-end test) generate them.

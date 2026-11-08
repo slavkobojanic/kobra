@@ -143,7 +143,7 @@ Some generated values are depended on by things outside your codebase: URLs are 
 field numbers are baked into deployed clients, and database columns hold production data. The compiler
 records each of them in a committed lockfile and detects breaking changes:
 
-- `protocol.lock` records Protobuf names and field numbers.
+- `rpc.lock` records the wire names, rpcs and Protobuf field numbers of the protocols an app serves.
 - `routes.lock` records page URLs.
 - `schema.lock` records the database schema, including every table and column name.
 - `storage.lock` records formats stored outside a request: browser storage keys and background job

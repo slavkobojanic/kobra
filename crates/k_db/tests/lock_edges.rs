@@ -11,6 +11,7 @@ use k_db::schema::{ColumnType, Schema};
 fn table(entity: &str, columns: Vec<LockedColumn>) -> LockedTable {
     LockedTable {
         entity: entity.into(),
+        retired: false,
         columns,
     }
 }

@@ -2,6 +2,7 @@
 # this app serves (docs/design/40-workspaces-and-services.md).
 
 [protocols."pay.Payments"]
+service = "pay_contracts.pay.Payments"
 
 [protocols."pay.Payments".rpcs.charge]
 params = [{ name = "request", type = "pay.ChargeRequest" }]

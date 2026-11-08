@@ -9,10 +9,10 @@ k.toml           the manifest
 App.k            the app declaration (apps only)
 src/             source code; every directory is a module
 migrations/      database migrations, NNNN_description.k; not a module
-protocol.lock    Protobuf names and field numbers (generated, committed)
 routes.lock      page URLs and redirects (generated, committed)
 schema.lock      the database schema (generated, committed)
 storage.lock     browser storage keys and job payloads (generated, committed)
+rpc.lock         wire names, rpcs and field numbers of the protocols an app serves (generated, committed)
 k.lock           exact versions of packages (generated, committed)
 .env             local development configuration (optional, git-ignored)
 .env.example     documents what .env may contain (committed)
@@ -44,10 +44,10 @@ charts = "github.com/acme/charts"          # enables `import charts.LineChart`
 - **`name` and `k` are required.** For an app, `name` is lower-case ASCII letters, digits and hyphens,
   starting with a letter (`shop`, `my-shop`). For a package, it is the module path
   (`github.com/acme/charts`).
-- **`name` is the project's identity.** The Protobuf package prefix of every protocol and the namespace
-  of the app's browser storage are derived from it once, and recorded in `protocol.lock` and
-  `storage.lock`. From then on the lockfiles are read, so renaming the project doesn't change your rpc
-  URLs or orphan your users' stored data.
+- **`name` is the project's identity.** The namespace of the app's browser storage is derived from it
+  once and recorded in `storage.lock`, so renaming the project doesn't orphan your users' stored data. The
+  Protobuf package prefix of every protocol is derived from it too, and `rpc.lock` records the result, so
+  renaming a project that serves protocols fails `k check` until the change is marked `@Breaking`.
 - **`title`** is what people see, for example the default name in the web manifest. Changing it changes
   nothing else.
 - **`version`** is for apps only, and `dist/app` reports it in its logs and metrics. A package can't set

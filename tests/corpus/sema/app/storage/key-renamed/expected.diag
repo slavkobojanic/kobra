@@ -1,0 +1,3 @@
+error[K8008] src/cart/CartService.k:9:17-9:26: the storage key `cart` changed incompatibly with storage.lock; values users' browsers already hold would read as `.unreadable`
+  note: the key was renamed from `cart` to `basket`; values stored under `cart` are no longer read
+  note: keep the recorded name and shape (only optional fields and new enum cases are compatible), or mark the key `@Breaking("reason")` once the service handles `.unreadable`

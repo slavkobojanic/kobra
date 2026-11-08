@@ -1,0 +1,1 @@
+error[K6004] migrations/0002_typo.k:6:13-6:44: `0002_typo` doesn't replay: there is no table `notes` at this point of the migrations

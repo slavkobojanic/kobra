@@ -9,11 +9,11 @@ migration EvolveCatalog {
                 .defaultValue(.integer(0))
             table.addColumn(name: "subtitle", type: .text)
                 .nullable(true)
+            // `catalog.Product.note` was removed. The previous release still
+            // reads it; drop it in a later release with
+            // `k migrate new --drop-retired`.
+            table.retireColumn(name: "note")
         }
-
-        // `catalog.Product.note` was removed: schema.lock now marks the column
-        // `product.note` retired. Drop it in a later release, once no running
-        // release reads it (19-persistence.md, "Rolling deploys").
 
         schema.createTable(name: "tag") { table =>
             table.column(name: "id", type: .uuid).primaryKey(true)

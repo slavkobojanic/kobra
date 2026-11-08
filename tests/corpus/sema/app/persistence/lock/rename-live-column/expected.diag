@@ -1,0 +1,2 @@
+error[K6006] migrations/0002_rename_title.k:5:13-5:61: `0002_rename_title` renames the column `note.title`, which the previous release still reads during a rolling deploy
+  help: rename across two releases instead (add the new column, backfill it and retire the old one; drop it later with `k migrate new --drop-retired`), or rename only the field and keep the column (`k migrate rename`); a single-instance app can mark the migration `@Breaking("single instance")`

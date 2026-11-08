@@ -67,6 +67,7 @@ mod fx;
 mod host;
 mod locks;
 mod lookup;
+mod metadata;
 mod pattern;
 mod program;
 mod project;

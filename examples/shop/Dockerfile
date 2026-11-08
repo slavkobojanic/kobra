@@ -43,15 +43,12 @@ WORKDIR /src
 COPY examples/shop .
 
 # `k check` at the workspace root fails the build on a type error in any
-# member, or on a breaking change against the committed lockfiles:
-# schema.lock, storage.lock and rpc.lock (a contract change that would break
-# the other service, already deployed).
+# member, on a breaking change against the committed lockfiles (schema.lock,
+# storage.lock and rpc.lock: a contract change that would break the other
+# service, already deployed), or on a failing test. It runs every member's
+# tests, against in-memory SQLite and without opening a socket (paybox is a
+# TestRemote double), so no database or service is needed.
 RUN k check
-
-# Every member's tests. They run against in-memory SQLite and never open a
-# socket (paybox is a TestRemote double), so no database or service is
-# needed.
-RUN k test
 
 # `k build` at the root compiles every app of the workspace, each into one
 # self-contained executable with the JavaScript runtime, its client assets

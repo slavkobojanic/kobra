@@ -15,10 +15,16 @@ public class Schema {
     ///   - name: the table name.
     ///   - build: adds, renames and drops columns with [`TableBuilder`].
     func alterTable(name: String, _ build: (TableBuilder) -> Void)
-    /// Renames a table.
+    /// Renames a table; requires `@Breaking("single instance")`, since the
+    /// previous release still reads the old name.
     func renameTable(from: String, to: String)
-    /// Drops a table; requires [`k.core.Breaking`].
+    /// Drops a table; requires [`k.core.Breaking`], and
+    /// `@Breaking("single instance")` unless an earlier migration retired
+    /// it.
     func dropTable(name: String)
+    /// Retires a table: the app stops reading and writing it, and a later
+    /// migration drops it.
+    func retireTable(name: String)
     /// Adds an index over `columns` of `table`, in order.
     func createIndex(table: String, columns: List<String>)
     /// Inserts data rows into `table`.

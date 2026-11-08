@@ -2,6 +2,7 @@
 # this app serves (docs/design/40-workspaces-and-services.md).
 
 [protocols."ops.SmokeProtocol"]
+service = "smoke.ops.SmokeProtocol"
 
 [protocols."ops.SmokeProtocol".rpcs.add]
 params = [{ name = "left", type = "Int" }, { name = "right", type = "Int" }]

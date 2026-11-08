@@ -32,7 +32,7 @@ Contents:
 | Query IR | `k_db::ir` | **implemented** |
 | SQL rendering, both dialects | `k_db::sql` | **implemented**, golden-tested |
 | Schema model and DDL | `k_db::schema` | **implemented**: tables, unique and plain indexes, foreign keys, enum checks, money columns |
-| `Schema` builder replay | `k_db::builder` | **implemented**: `createTable`, `alterTable` (`addColumn`, `renameColumn`, `dropColumn`), `renameTable`, `dropTable`, `createIndex`, `insert`, `execute` |
+| `Schema` builder replay | `k_db::builder` | **implemented**: every builder call, the enum case operations (a table rebuild on SQLite), retirement, destructive-operation reporting, the lock a replay produces (§10) |
 | Database manifest | `k_db::manifest` | **implemented** |
 | Drivers: SQLite (`rusqlite`, bundled), Postgres (`tokio-postgres`) | `k_db::driver` | **implemented**, one connection per `Database` |
 | Migrations runner, `k_migrations`, Postgres advisory lock | `k_db::migrate` | **implemented** |
@@ -40,11 +40,13 @@ Contents:
 | Lowering repository queries and writes to the IR | `k_codegen::db` | **implemented** (§4, §7, §8) |
 | Process database, ops, request-bound transactions, savepoints | `k_server::db`, `k_server::ops` | **implemented** (§6, §9) |
 | Column codecs, `Database`, repository helpers | `k_runtime` `runtime/db.js` | **implemented** |
-| Entity/migration consistency | `k_codegen::db` | **implemented** as a build error (§10); the `k check` diagnostic in `k_sema` is planned |
+| Entity/migration consistency | `k_codegen::db` | **implemented** as a build error (§10) |
+| `k check` of the migrations and `schema.lock` (K6004–K6006, K8002, K8004–K8006) | `k_codegen::lockfiles` | **implemented** (§11) |
+| `schema.lock` written by `k build` | `k_codegen::schema_lock` | **implemented** (§11) |
 | Connection pool | `k_server::db` | **planned**: v0 leases its one connection (§9) |
 | The stdlib's tables: `k_job`, `k_job_schedule`, `k_session`, `k_rate_limit` | `k_db::stdlib`, `k_server::db` | **implemented** (§12) |
 | Commit hooks | runtime `Database.afterCommit` | **implemented** for `InlineJobQueue`; broadcasts still publish immediately in v0 |
-| `k migrate new`, enum case operations | `k_sema`/`k_db` | **planned** (§10) |
+| `k migrate new` (`--empty`, `--drop-retired`, `--rename`), `k migrate rename` | `k_codegen::migration`, `k_cli` | **implemented** (§10) |
 
 **Deferred:** Postgres TLS (v0 connects without TLS, for a database on a private network or the same
 host), online migrations, seed data, connection pooling.
@@ -58,14 +60,14 @@ host), online migrations, seed data, connection pooling.
 | `ir::{Statement, Select, Predicate, Operand, ArithOp, CmpOp, Like, Order, Count}` | The query IR (§4). |
 | `sql::{render, Dialect, Sql, quote_identifier, like_pattern}` | SQL text for a statement (§5). |
 | `schema::{Schema, Table, Column, ColumnType}`; `Column::{definitions, stored_names}`, `Table::{create_sql, index_sql}` | The schema and its DDL (§3). |
-| `builder::{Replay, SchemaOp, AlterOp, ColumnDef, Literal, Rendered}` | Migrations replayed into both dialects (§10). |
+| `builder::{Replay, SchemaOp, AlterOp, ColumnDef, Literal, Rendered, Destructive, ReplayError, Rename}` | Migrations replayed into both dialects, with their destructive operations and renames (§10). |
 | `manifest::{DbManifest, StatementSql, UniqueIndex}` | The build's statements, migrations and unique indexes (§6). |
 | `decimal::{compare, COLLATION}` | SQLite's `k_decimal` collation (§3). |
 | `driver::{Database, DatabaseOptions}`; `Database::{connect, dialect, execute, query, ping}` | The drivers (§6). |
 | `value::{Value, Row}` | Parameters and results. |
 | `error::DbError::{InvalidUrl, Connection, UniqueViolation, Statement, UnsupportedType, Migration}` | Only `UniqueViolation` is a domain outcome; the rest become panics. Messages never contain a password or a bound value. |
 | `migrate::{apply, applied, Migration, MIGRATIONS_TABLE, ADVISORY_LOCK_KEY}` | §10. |
-| `lock::{SchemaLock, LockedTable, LockedColumn, HEADER}` | §11. |
+| `lock::{SchemaLock, LockedTable, LockedColumn, LockError, HEADER}` | §11. |
 | `testing::{test_databases, TestDatabase, POSTGRES_URL_ENV}` | §12. |
 
 `k_server::db::{ProcessDatabase, DatabaseSetup, WriteOutcome, Savepoint}` run the manifest's statements for
@@ -297,18 +299,42 @@ Reading an unloaded relation panics with the relation's name ("`Note.tags` was n
   list (file-name order without a lock), and `builder::Replay` applies them to its model of the schema,
   checking every name against what the earlier migrations created, and renders each migration's
   statements for both dialects (`migrate::Migration { name, sqlite, postgres }`).
-- **Replay checks** (a build error naming the migration): an unknown or duplicate table or column, the
-  `k_` prefix, a reference to a missing table, a non-null column added without a default, a primary key or
-  unique column added to an existing table, a default or row value of the wrong type, a missing value for
-  a required column in `insert`, dropping a table still referenced, an empty `execute`. The enum case
-  operations (`addEnumCase`, …) rewrite a `CHECK`, which SQLite can only do by rebuilding the table: they
-  are refused in v0 ("use `execute(postgres:sqlite:)`").
+- **Replay checks** (a build error naming the migration, and **K6004** in `k check` at the call or the
+  `alterTable` step): an unknown or duplicate table, column or enum case, the `k_` prefix, a reference to
+  a missing table, a non-null column added without a default, a primary key or unique column added to an
+  existing table, a default or row value of the wrong type, a missing value for a required column in
+  `insert`, dropping a table still referenced, retiring a primary key or something already retired, a
+  `removeEnumCase` replacement that isn't another case, an empty `execute`.
+- **The enum case operations** (`addEnumCase`, `renameEnumCase`, `removeEnumCase`) give the column a new
+  case list; a rename or removal also rewrites the stored values, and a default of the old case follows
+  it. Postgres drops the column's single-column `CHECK` constraint (found in `pg_constraint` by the
+  column, since a constraint keeps the name it was created with across renames), runs the `UPDATE`, sets
+  the new default, and adds `CONSTRAINT "<table>_<column>_check"`. SQLite can't alter a constraint, so the
+  table is **rebuilt**: `CREATE TABLE "k_rebuild" (…)` with the new definitions, `INSERT INTO "k_rebuild"
+  (…) SELECT …` mapping the values with a `CASE`, `DROP TABLE`, `ALTER TABLE "k_rebuild" RENAME TO …`, and
+  every index the replay created on the table again, under its own name (the replay tracks indexes by
+  name through renames; one added with `execute` isn't known and must be recreated by hand).
+- **Foreign keys during a rebuild.** `migrate::apply` runs each SQLite migration with `PRAGMA foreign_keys
+  = OFF` (it only takes effect outside a transaction), runs `PRAGMA foreign_key_check` before committing,
+  and fails the migration, rolled back, if any reference is broken; enforcement is back on afterwards.
+  Tables that reference a rebuilt table keep referencing it by name.
+- **Retirement:** `retireColumn(name:)` and `retireTable(name:)` mark a column or table retired in the
+  replay (and so in the lock it produces). Retiring a `NOT NULL` column without a default makes it
+  nullable: `ALTER COLUMN … DROP NOT NULL` on Postgres, a rebuild on SQLite. Otherwise retiring renders no
+  SQL.
+- **Destructive operations** are reported per migration (`Rendered::destructive`): `dropColumn`,
+  `dropTable`, `renameEnumCase` and `removeEnumCase`, each with whether it is **live** (a drop of
+  something no earlier migration retired, and every `renameColumn` and `renameTable`). `k_codegen`
+  requires `@Breaking` on the migration (**K6005**) and `@Breaking("single instance")` for a live one
+  (**K6006**), in the build and in `k check`.
+- **Renames are logged** (`Replay::renames`; `current_table`, `current_column`), so the lock `k build`
+  writes carries entity and field names through physical renames.
 - **Money** columns are one logical column: `renameColumn`, `dropColumn` and `createIndex` act on both
   stored halves. A money column has no single default or row value in v0.
 - **Entities against migrations**: after the replay, every entity's table must exist with every stored
   column of the right type, or the build fails ("`notes.Note.revision` is stored in column
   `note.revision`, which the migrations don't create; run `k migrate new`"). Skipped for a program without
-  migrations. The `k check` diagnostic (and comparing with `schema.lock`) is `k_sema`'s, planned.
+  migrations. `k check` compares the entities with `schema.lock` instead (§11).
 - **Applying** (`migrate::apply`): create `k_migrations ("name" TEXT PRIMARY KEY, "applied_at")` if
   missing; refuse if the database records a migration the build doesn't contain, or if the applied ones are
   not the build's first ones in order (a migration inserted before an applied one would otherwise run last);
@@ -317,21 +343,34 @@ Reading an unloaded relation panics with the relation's name ("`Note.tags` was n
   message }`; `dist/app` reports it and exits 1 before opening its port.
 - **Concurrency** on Postgres: `apply` holds `pg_advisory_lock(ADVISORY_LOCK_KEY)` while migrating, so
   replicas starting together apply each migration once (tested with four).
-- **`k migrate new "description"`** (`k_codegen::plan_migration`, `migration.rs`): compares the persistence
-  model (the same one the repositories use, so names follow the lock) with `schema.lock` and writes
-  `migrations/NNNN_<words>.k` (the next number after the lock's list and the existing files) and the
-  updated lock in `SchemaLock::to_toml`'s canonical layout. It writes `createTable` for a new entity
+- **`k migrate new "description"`** (`k_codegen::plan_migration_with`, `migration.rs`): compares the
+  persistence model (the same one the repositories use, so names follow the lock) with `schema.lock` and
+  writes `migrations/NNNN_<words>.k` (the next number after the lock's list and the existing files) and
+  the updated lock in `SchemaLock::to_toml`'s canonical layout. It writes `createTable` for a new entity
   (referenced tables first; `references` implies the index), `alterTable { addColumn … }` for a new field
   with its literal default as `defaultValue` or `.nullable(true)` for an optional one, `createIndex` for a
-  new `@Index`, and records a removed field's column as `retired` (field dropped, name kept) with a comment
-  in the migration. It refuses, writing nothing and explaining each change (exit 1): a required field
-  added to an existing table without a default, a removed field whose column is `NOT NULL` without a
-  default (the next release's inserts would fail), a changed column type or option, an enum case added or
-  removed (the builder's case operations need a table rebuild on SQLite), and a removed entity. Renames are
-  never inferred (a renamed field reads as a removal and an addition). Matching entities print `nothing to
-  migrate`. `--empty` writes a migration with an empty `up` for data changes. Dropping retired columns
-  (`--drop-retired`) and physical renames (`--rename`) are not implemented yet
-  ([19-persistence.md](../design/19-persistence.md#rolling-deploys-expand-then-contract)).
+  new `@Index`, and `retireColumn` for a removed field, whose column the lock then marks `retired` (field
+  dropped, name kept; nullable unless it has a default). It refuses, writing nothing and explaining each
+  change (exit 1): a required field added to an existing table without a default, a changed column type
+  or option, an enum case added or removed (written by hand with the case operations; the previous
+  release can't read a new case), and a removed entity (retired by hand with `retireTable`). Renames are
+  never inferred: a renamed field reads as a removal and an addition, and the explanation names the
+  `k migrate rename` that keeps the column. Matching entities print `nothing to migrate`.
+  - `--empty` writes a migration with an empty `up` for data changes.
+  - `--drop-retired` writes `dropColumn` for every retired column of a live table and `dropTable` for every
+    retired table (referencing tables first), marked `@Breaking("drops what earlier migrations
+    retired")`, and removes them from the lock; it refuses a retired table a live column still
+    references, and prints `nothing to drop` when nothing is retired.
+  - `--rename NAME` (repeatable) writes the physical rename that makes an entity's table (`notes.Note`)
+    or a field's column (`notes.Note.heading`, `<field>_id` for a to-one relation) follow its current
+    name: `renameTable` or `renameColumn`, marked `@Breaking("single instance")`, with the lock's table
+    key, column name and references updated. It refuses a name that isn't a recorded entity or stored
+    field, one already stored under its name, and a target name already taken.
+- **`k migrate rename OLD NEW`** (`k_codegen::record_rename`): the name-preserving rename. It records in
+  `schema.lock` that the entity `OLD` is now `NEW` (`notes.Note notes.Memo`), or that the field `OLD`
+  (`notes.Note.title`) is now `NEW` (`heading` or `notes.Note.heading`), keeping the table or column;
+  no migration is written. It refuses an `OLD` the lock doesn't record, a `NEW` that isn't an entity or a
+  stored field of the same entity, and a `NEW` already recorded.
 - **`k migrate status` / `k migrate apply`** build the project for development and open the database of
   `DATABASE_URL` (and `DATABASE_PASSWORD`) from the environment or the project's `.env`, as `k run` would:
   `status` prints `applied  <name>` or `pending  <name>` for each migration of the build without changing
@@ -358,10 +397,24 @@ columns = [
 ]
 ```
 
-Tables are sorted by name; column keys appear in the fixed order `field, name, type, primaryKey,
-nullable, unique, indexed, references, cases, default, retired`, and false or empty keys are omitted. A
-`default` written as a TOML boolean or number (`default = false`) reads as its text. `parse(to_toml(lock))
-== lock` for every lock (tested).
+Tables are sorted by name; a retired table has `retired = true` after its `entity`; column keys appear in
+the fixed order `field, name, type, primaryKey, nullable, unique, indexed, references, cases, default,
+retired`, and false or empty keys are omitted. A `default` written as a TOML boolean or number (`default =
+false`) reads as its text. `parse(to_toml(lock)) == lock` for every lock (tested). A parse error keeps
+the parser's location in `LockError::message` and its byte range in `LockError::span`.
+
+**Checked by `k check`** (`k_codegen::project_diagnostics`, `lockfiles.rs`; the codes are in
+[sema.md §12.16](sema.md#1216-lockfiles)) for an app with entities, migrations or a lock, once the
+program has no other errors: an unreadable lock (K8002), the replay (K6004–K6006, §10), the files against
+the `migrations` list (K8006), the replay against the lock (`Replay::lock_tables`, ignoring entity and
+field names: K8005), and the entities against the lock (the same difference `k migrate new` computes:
+K8004).
+
+**Written by `k build`** (`k_codegen::schema_lock`): the replay's tables and columns, the files in their
+order, each table's `entity` and each column's `field` carried over from the recorded lock, following the
+replay's renames, or taken from the entity and field the model stores there for anything new. The file is
+written only when the parsed lock differs, so a lock that doesn't change keeps its comments; an unreadable
+lock or a migration that doesn't replay is never overwritten.
 
 ---
 
@@ -401,6 +454,14 @@ the app's statements.
 - **SQL golden tests** (`crates/k_db/tests/sql.rs`): the exact text of every construct in both dialects.
 - **Builder tests** (`crates/k_db/tests/builder.rs`): the SQL of every builder operation, every replay
   check, and rendered migrations applied to each test database.
+- **Schema changes** (`crates/k_db/tests/schema_changes.rs`): the enum case operations, retirement and the
+  SQLite rebuild applied to each test database with rows, indexes and a referencing table in place;
+  destructive-operation reporting, rename logging, the lock a replay produces, and a migration that
+  breaks a foreign key being rolled back.
+- **Lockfile checks** (`tests/corpus/sema/app/persistence/lock`): one project case per K6004–K6006 and
+  K8002–K8006 rule, and the clean cases (a recorded rename, a retirement, the case operations).
+- **CLI** (`crates/k_cli/tests/commands.rs`): `k migrate new` with each request, `k migrate rename`, and
+  `k build` recording a hand-written migration, against golden migrations in `tests/golden/`.
 - **Lock tests** (`lock.rs`, `lock_edges.rs`): the canonical layout, round trips, quoting, errors.
 - **Driver tests** (`drivers.rs`, `errors.rs`, `queries.rs`, `values.rs`, `writes.rs`, …): every test runs
   against each database of `testing::test_databases()`: **SQLite always** (in memory), **Postgres when

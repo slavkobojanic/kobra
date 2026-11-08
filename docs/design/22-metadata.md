@@ -38,7 +38,7 @@ layout Shop {
 - **`status(_:)` sets the HTTP status of a server-rendered page.** It is allowed only in a `metadata` block inside `failed`, for example `status(.notFound)` for a missing product ([14-async-data.md](14-async-data.md#server-rendering-and-hydration)). When `failed` renders, the page-level block isn't evaluated ([below](#metadata-when-a-load-fails)).
 - **Metadata belongs to view pages.** Endpoint pages have no `metadata`, and app and layout defaults don't apply to them ([27-endpoint-pages.md](27-endpoint-pages.md)).
 - **Every response whose rendering read `Session` carries `Cache-Control: private, no-store`,** so a shared cache never serves one user's page to another ([26-auth-and-sessions.md](26-auth-and-sessions.md#cookies-and-caching)).
-- **Compile-time warnings:** a page with no `title`, a description over 160 characters.
+- **Compile-time warnings:** a page with no `title`, a description over 160 characters. A page has a title when its own `metadata`, the layout it renders in or the app's sets one, so a default in `App.k` or a layout covers every page under it; a `title` inside `failed` doesn't count. Only a program with an `app` is checked, since only an app renders documents. The description is measured in characters, and only when it is a literal.
 - **App-wide entries go in `App.k`:** web manifest, theme color, default locale ([23-app-structure.md](23-app-structure.md)).
 - **The `locale` in effect is the only locale.** Number, date and money formatting use the app's or page's `metadata` locale on the server, in the browser and in background jobs alike, never the browser's `navigator.language`, so server-rendered text and hydrated text agree ([34-money.md](34-money.md), [35-time.md](35-time.md)).
 

@@ -2,6 +2,7 @@
 # this app serves (docs/design/40-workspaces-and-services.md).
 
 [protocols."work.WorkProtocol"]
+service = "jobs.work.WorkProtocol"
 
 [protocols."work.WorkProtocol".rpcs.doomed]
 params = [{ name = "text", type = "String" }]

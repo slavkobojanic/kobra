@@ -50,6 +50,8 @@ When an app renders on the client and has no server-only code ([23-app-structure
 ## Behind a proxy
 
 - **Trusted proxies are configured, never assumed.** `K_TRUSTED_PROXIES` lists the proxies' CIDR ranges. Only then is `X-Forwarded-For` used to find the client's address; with the list empty, the socket address is used ([27-endpoint-pages.md](27-endpoint-pages.md#client-address-and-proxies)). `serve` logs a warning when requests arrive with `X-Forwarded-For` while the list is empty.
+- **The client is the right-most `X-Forwarded-For` hop that isn't a trusted proxy,** and the header is read only on a request whose socket peer is a trusted proxy. Repeated headers form one list; a malformed hop ends the walk at the last trusted address. An entry of `K_TRUSTED_PROXIES` that isn't an address or a CIDR range is a configuration problem (exit 78), never silently dropped.
+- **`Forwarded` and `X-Forwarded-Proto` are not read.** The scheme, and with it the session cookie's `Secure` attribute, comes from `K_PUBLIC_ORIGIN` ([Public origin](#public-origin)), never from a request header.
 - **Serve HTTP/2 at the proxy.** Each open server stream holds a request, and browsers allow only six HTTP/1.1 connections per origin ([29-server-streaming.md](29-server-streaming.md)).
 
 ## Several replicas

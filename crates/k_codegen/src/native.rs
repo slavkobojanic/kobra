@@ -226,9 +226,10 @@ pub(crate) fn property(
             vec![bin("/", recv, Expr::Num(1000.0))],
         ),
         ("k.core.Duration", "inMilliseconds") => call(member(id("Math"), "trunc"), vec![recv]),
-        // An `EmailAddress` is its text at run time (k_runtime natives).
-        ("k.text.EmailAddress", "address") => recv,
-        ("k.text.EmailAddress", "displayName") => Expr::Null,
+        // An `EmailAddress` is its message-header text at run time
+        // (`Name <local@domain>` or `local@domain`; k_runtime natives).
+        ("k.text.EmailAddress", "address") => rt("emailAddress", vec![recv]),
+        ("k.text.EmailAddress", "displayName") => rt("emailDisplayName", vec![recv]),
         ("k.core.Money", "minorUnits") => call(member(recv, "minorUnits"), vec![]),
         ("k.core.Money", "currency") => member(recv, "currency"),
         ("k.core.Currency", "code") => rt("currencyCode", vec![recv]),

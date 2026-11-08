@@ -5,8 +5,17 @@
 //! is parsed, then checked by the semantic stages of
 //! `docs/compiler/sema.md`) and prints every diagnostic, human-readable on
 //! standard error or as JSON Lines on standard output. It exits with 1 when
-//! anything is reported. The formatting check, tests and lockfile checks
-//! join it as those stages land (`docs/compiler/architecture.md`).
+//! anything is reported. An app without errors also gets the lockfile
+//! checks that need code generation's models
+//! ([`k_codegen::project_diagnostics`]: `schema.lock` and the migrations,
+//! `routes.lock`), then has its tests run (`docs/design/13-tooling.md`,
+//! "Commands"): a program with no errors, lockfiles included, runs every
+//! test of its `*.test.k` files as `k test` does ([`crate::test::check_tests`]),
+//! and each failed test is a `K7510` diagnostic among the others.
+//! `--no-tests` skips them. Only `k check` runs tests: the language server
+//! and the warm re-check never do, so their latency doesn't depend on a
+//! test suite. The formatting check joins it when the formatter lands
+//! (`docs/compiler/architecture.md`).
 
 use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
@@ -23,6 +32,8 @@ struct Report {
     map: SourceMap,
     /// The group's diagnostics, in the order they are printed.
     diagnostics: Vec<Diagnostic>,
+    /// How many tests ran.
+    ran: usize,
 }
 
 /// Runs `k check`.
@@ -41,7 +52,11 @@ pub fn run(args: &CheckArgs) -> ExitCode {
                 format!("`{path}` does not exist"),
             ));
         }
-        reports.push(Report { map, diagnostics });
+        reports.push(Report {
+            map,
+            diagnostics,
+            ran: 0,
+        });
     }
     for group in sources.groups {
         files += group
@@ -50,7 +65,7 @@ pub fn run(args: &CheckArgs) -> ExitCode {
             .filter(|(path, _)| path.kind().is_k_source())
             .count()
             + group.problems.len();
-        reports.push(check_group(group));
+        reports.push(check_group(group, !args.no_tests));
     }
 
     let color = match args.color {
@@ -70,6 +85,7 @@ pub fn run(args: &CheckArgs) -> ExitCode {
         .filter(|d| d.is_error())
         .count();
     let warnings = total - errors;
+    let ran: usize = reports.iter().map(|r| r.ran).sum();
 
     match args.format {
         Format::Json => {
@@ -88,12 +104,17 @@ pub fn run(args: &CheckArgs) -> ExitCode {
                 }
             }
             let noun = if files == 1 { "file" } else { "files" };
+            let tests = match ran {
+                0 => String::new(),
+                1 => ", ran 1 test".to_owned(),
+                n => format!(", ran {n} tests"),
+            };
             if total == 0 {
-                let _ = writeln!(err, "checked {files} {noun}: no problems");
+                let _ = writeln!(err, "checked {files} {noun}{tests}: no problems");
             } else {
                 let _ = writeln!(
                     err,
-                    "checked {files} {noun}: {errors} error(s), {warnings} warning(s)"
+                    "checked {files} {noun}{tests}: {errors} error(s), {warnings} warning(s)"
                 );
             }
         }
@@ -109,12 +130,15 @@ pub fn run(args: &CheckArgs) -> ExitCode {
 /// Checks the members `members` (every member for `None`) of the
 /// workspace whose files are `files`, each with the libraries it depends
 /// on, and merges their diagnostics with the manifests' problems
-/// (`k_sema::Workspace::report`). The members are analysed in parallel.
+/// (`k_sema::Workspace::report`). The members are analysed in parallel;
+/// with `tests`, each member without errors then runs its tests, one after
+/// another. Returns the merged map, the diagnostics and how many tests ran.
 fn check_workspace(
     root: &std::path::Path,
     files: Vec<(k_sema::ProjectPath, String)>,
     members: Option<&std::collections::BTreeSet<String>>,
-) -> (SourceMap, Vec<Diagnostic>) {
+    tests: bool,
+) -> (SourceMap, Vec<Diagnostic>, usize) {
     let ws = Workspace::from_files(files.into_iter().map(|(p, t)| (p.as_str().to_owned(), t)));
     let wanted: Vec<usize> = (0..ws.members.len())
         .filter(|&i| members.is_none_or(|m| m.contains(&ws.members[i].dir)))
@@ -137,24 +161,59 @@ fn check_workspace(
             .collect();
         handles.into_iter().filter_map(|h| h.join().ok()).collect()
     });
-    ws.report(&analyses, |path| sources::display(&root.join(path)))
-        .unwrap_or_else(|_| (SourceMap::new(), Vec::new()))
+    let ran = std::cell::Cell::new(0);
+    let extra = |analysis: &k_sema::Analysis| {
+        let (diagnostics, n) = lockfiles_and_tests(analysis, tests);
+        ran.set(ran.get() + n);
+        diagnostics
+    };
+    let (map, diagnostics) = ws
+        .report_with(&analyses, extra, |path| sources::display(&root.join(path)))
+        .unwrap_or_else(|_| (SourceMap::new(), Vec::new()));
+    (map, diagnostics, ran.get())
 }
 
-/// Analyses one group and adds the driver's own diagnostics for files that
-/// could not be loaded.
-fn check_group(group: Group) -> Report {
+/// What a project adds to its semantic diagnostics: the lockfile checks
+/// that need code generation's models ([`k_codegen::project_diagnostics`]:
+/// `schema.lock`, `routes.lock`), then, with `tests` and no error so far,
+/// the failures of its tests. Returns them and how many tests ran.
+fn lockfiles_and_tests(analysis: &k_sema::Analysis, tests: bool) -> (Vec<Diagnostic>, usize) {
+    let mut diagnostics = k_codegen::project_diagnostics(analysis);
+    if !tests || diagnostics.iter().any(Diagnostic::is_error) {
+        return (diagnostics, 0);
+    }
+    let clean = analysis
+        .diagnostics()
+        .is_ok_and(|d| !d.iter().any(Diagnostic::is_error));
+    if !clean || !analysis.files().iter().any(|(_, p)| p.as_str() == "k.toml") {
+        return (diagnostics, 0);
+    }
+    match crate::test::check_tests(analysis) {
+        Some(checked) => {
+            diagnostics.extend(checked.diagnostics);
+            (diagnostics, checked.ran)
+        }
+        None => (diagnostics, 0),
+    }
+}
+
+/// Analyses one group, runs its tests with `tests`, and adds the driver's
+/// own diagnostics for files that could not be loaded.
+fn check_group(group: Group, tests: bool) -> Report {
     let root = group.root;
-    let (mut map, mut diagnostics) = match group.scope {
+    let (mut map, mut diagnostics, ran) = match group.scope {
         Scope::Project => {
             let host = AnalysisHost::with_files(Options::new(), group.files);
             let analysis = host.analysis();
             let map = analysis.source_map(|path| sources::display(&root.join(path.as_str())));
             // The host is never changed while it is queried, so the
             // analysis can't be cancelled.
-            (map, analysis.diagnostics().unwrap_or_default())
+            let mut diagnostics = analysis.diagnostics().unwrap_or_default();
+            let (more, ran) = lockfiles_and_tests(&analysis, tests);
+            diagnostics.extend(more);
+            (map, diagnostics, ran)
         }
-        Scope::Workspace(members) => check_workspace(&root, group.files, members.as_ref()),
+        Scope::Workspace(members) => check_workspace(&root, group.files, members.as_ref(), tests),
     };
     for (path, problem) in group.problems {
         let diagnostic = match problem {
@@ -188,5 +247,9 @@ fn check_group(group: Group) -> Report {
         diagnostics.push(diagnostic);
     }
     diagnostics.sort_by_key(|d| (d.span, d.code));
-    Report { map, diagnostics }
+    Report {
+        map,
+        diagnostics,
+        ran,
+    }
 }

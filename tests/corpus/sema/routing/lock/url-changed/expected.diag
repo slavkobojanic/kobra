@@ -1,0 +1,4 @@
+error[K8007] src/site/Product.k:4:13-4:20: the URL of `site.Product` changed from `/product/{id}` to `/product/{id}/{variant}`, and nothing serves the old one
+  label routes.lock:13:1-13:16: recorded here
+  note: a page without `at` takes its URL from its name and its required parameters
+  help: keep the URL with `at "/product/{id}"`, add a redirect under `[redirects]` in routes.lock (`"/product/{id}" = "<page case>"`), or delete the entry once no link to it needs to work

@@ -1,12 +1,18 @@
-//! `k migrate new`, `k migrate apply` and `k migrate status`
-//! (`docs/design/19-persistence.md`, "Migrations").
+//! `k migrate new`, `k migrate rename`, `k migrate apply` and `k migrate
+//! status` (`docs/design/19-persistence.md`, "Migrations" and "Renames").
 //!
 //! * `new "description"` writes the next migration from the difference
 //!   between the entities and `schema.lock`, and the updated lock
-//!   ([`k_codegen::plan_migration`]); `--empty` writes a migration without
-//!   schema changes, for data. It changes nothing when the entities match
-//!   the lock, and writes nothing when it refuses a change (exit 1, one
-//!   explanation per change).
+//!   ([`k_codegen::plan_migration_with`]); `--empty` writes a migration
+//!   without schema changes, for data; `--drop-retired` drops the tables
+//!   and columns earlier migrations retired; `--rename NAME` renames the
+//!   table of an entity or the column of a field to follow its current
+//!   name. It changes nothing when there is nothing to write, and writes
+//!   nothing when it refuses a change (exit 1, one explanation per
+//!   change).
+//! * `rename OLD NEW` records that an entity or field was renamed in the
+//!   code, keeping its table or column: only `schema.lock` changes
+//!   ([`k_codegen::record_rename`]).
 //! * `apply` applies the pending migrations to the development database,
 //!   `DATABASE_URL` from the environment or the project's `.env` (the
 //!   environment wins), as `k run` would at startup.
@@ -16,9 +22,9 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use k_codegen::{MigrationError, MigrationPlan, plan_migration};
+use k_codegen::{MigrationError, MigrationPlan, MigrationRequest, plan_migration_with};
 
-use crate::cli::{MigrateNewArgs, ProjectArgs};
+use crate::cli::{MigrateNewArgs, MigrateRenameArgs, ProjectArgs};
 use crate::{project, sources};
 
 /// Runs `k migrate new`.
@@ -28,9 +34,22 @@ pub fn new(args: &MigrateNewArgs) -> ExitCode {
         Err(code) => return code,
     };
     let analysis = project.host.analysis();
-    match plan_migration(&analysis, &args.description, args.empty) {
+    let request = if args.empty {
+        MigrationRequest::Empty
+    } else if args.drop_retired {
+        MigrationRequest::DropRetired
+    } else if !args.rename.is_empty() {
+        MigrationRequest::Rename(&args.rename)
+    } else {
+        MigrationRequest::Diff
+    };
+    match plan_migration_with(&analysis, &args.description, request) {
         Ok(MigrationPlan::UpToDate) => {
-            println!("nothing to migrate: the entities match schema.lock");
+            if args.drop_retired {
+                println!("nothing to drop: schema.lock records no retired table or column");
+            } else {
+                println!("nothing to migrate: the entities match schema.lock");
+            }
             ExitCode::SUCCESS
         }
         Ok(MigrationPlan::Draft(draft)) => {
@@ -47,21 +66,56 @@ pub fn new(args: &MigrateNewArgs) -> ExitCode {
             println!("wrote {}", sources::display(&lock));
             ExitCode::SUCCESS
         }
-        Err(MigrationError::Codegen(k_codegen::CodegenError::HasErrors { count })) => {
+        Err(e) => refused(&project, e, "k migrate new", "this migration"),
+    }
+}
+
+/// Reports why a `k migrate` command wrote nothing: the compiler's code
+/// for a program with errors, 1 with one line per problem for a refusal,
+/// 2 otherwise.
+fn refused(project: &project::Project, e: MigrationError, command: &str, what: &str) -> ExitCode {
+    match e {
+        MigrationError::Codegen(k_codegen::CodegenError::HasErrors { count }) => {
             project.report_errors(count)
         }
-        Err(MigrationError::Refused(problems)) => {
-            eprintln!("error: `k migrate new` can't write this migration:");
+        MigrationError::Refused(problems) => {
+            eprintln!("error: `{command}` can't write {what}:");
             for p in problems {
                 eprintln!("  - {p}");
             }
             eprintln!("nothing was written");
             ExitCode::from(1)
         }
-        Err(e) => {
+        e => {
             eprintln!("error: {e}");
             ExitCode::from(2)
         }
+    }
+}
+
+/// Runs `k migrate rename`: updates `schema.lock` so the entity or field
+/// `old` is recorded under its new name, keeping its table or column.
+pub fn rename(args: &MigrateRenameArgs) -> ExitCode {
+    let project = match project::load(&args.project, "migrate") {
+        Ok(p) => p,
+        Err(code) => return code,
+    };
+    let analysis = project.host.analysis();
+    match k_codegen::record_rename(&analysis, &args.old, &args.new) {
+        Ok(lock) => {
+            let path = project.root.join("schema.lock");
+            if let Err(e) = std::fs::write(&path, lock) {
+                eprintln!("error: cannot write `{}`: {e}", sources::display(&path));
+                return ExitCode::from(2);
+            }
+            println!(
+                "recorded `{}` as `{}`; its storage keeps its name, so no migration is needed",
+                args.old, args.new
+            );
+            println!("wrote {}", sources::display(&path));
+            ExitCode::SUCCESS
+        }
+        Err(e) => refused(&project, e, "k migrate rename", "this rename"),
     }
 }
 

@@ -79,10 +79,10 @@ The boundary is drawn per declaration ([10-services.md](10-services.md#servercli
 
 **`session.user` has type `SessionUser`, not `SessionUser?`, only in bodies that are syntactically guarded:**
 
-- the body of an rpc whose own `requires` clause, or whose protocol's, includes `Authenticated`;
+- the body of an rpc whose own `requires` clause in the protocol, or the protocol's, includes `Authenticated`; when the service implements several protocols that declare the rpc, one handler serves them all, so every one of them must guard it;
 - a page that `requires Authenticated`, including its `@Load` initializers.
 
-This is what lets handlers write `session.user.id` with no unwrapping; the guard has already run, so the narrowing is sound. **Nothing else is narrowed,** including private helpers called only from guarded rpcs. A helper takes the user explicitly, so its types never depend on who calls it:
+This is what lets handlers write `session.user.id` with no unwrapping; the guard has already run, so the narrowing is sound. **Nothing else is narrowed,** including bodies behind only `RateLimit` or `Role`, and private helpers called only from guarded rpcs. A helper takes the user explicitly, so its types never depend on who calls it:
 
 ```k
 private func ownerOf(user: SessionUser) -> AccountId { … }

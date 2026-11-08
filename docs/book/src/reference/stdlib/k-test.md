@@ -58,6 +58,10 @@ Every handle supports the queries of [`Screen`](#screen), scoped to its subtree.
 - `func press(_ key: Key)`
   Presses `key` ([`Key`](#key)); [`Key.enter`](#key) in a form field submits the
   form.
+- `func blur()`
+  Moves the focus away from the element, firing `blur` and
+  `focusout`, as leaving a form field does (it starts the field's
+  `@Check` rules, `docs/design/15-forms-and-validation.md`).
 - `func drag(to target: Element)`
   Drags the element onto `target` with the mouse: presses it, moves
   onto `target` and releases there (`docs/design/41-drag-and-drop.md`,

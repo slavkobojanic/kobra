@@ -104,11 +104,11 @@ Setting both `NAME` and `NAME_FILE` is a startup error, so it is never ambiguous
 | Environment | Values come from |
 |---|---|
 | `.production` (`dist/app`) | the process environment only |
-| `.development` (`k dev`) | the process environment, plus an optional `.env` file at the project root. The process environment wins on a conflict. `_FILE` variables may point at paths relative to the project root. |
+| `.development` (`k dev`) | the process environment, plus an optional `.env` file at the project root. The process environment wins on a conflict, and `k dev` names the `.env` keys it shadowed. `_FILE` variables may point at paths relative to the project root. |
 | `.test` (`k test`) | never the environment; see [Tests](#tests) |
 
-> **Planned.** The design has `k dev` print which `.env` keys the process environment shadowed. The
-> first compiler releases apply the precedence without saying so.
+`k dev` (and `k run`) names the `.env` keys the process environment shadows when it starts, the keys set
+in both places to different values, without printing any value.
 
 ### Example files hold placeholders
 

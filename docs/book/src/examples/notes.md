@@ -18,7 +18,7 @@ DATABASE_URL=sqlite:.k/dev.db k dev examples/notes
 notes/
 ├── App.k                   @Layout(AppLayout), @SignInPage(.signIn)
 ├── migrations/             0001_create_accounts_and_notes.k, 0002_add_note_pinning.k
-├── schema.lock  protocol.lock  routes.lock  storage.lock
+├── schema.lock  routes.lock  rpc.lock
 └── src/
     ├── accounts/           AccountId, Account, AccountRepository, AuthProtocol, AuthApi,
     │                       AuthService, Credentials, SignUpRequest, SignIn, SignUp
