@@ -11,6 +11,9 @@ public component KeyboardShortcut {
     /// What the shortcut does ("New card"), for the page's list of
     /// shortcuts.
     @Prop let label: String
-    /// Fires when the key is pressed.
+    /// Fires when the key is pressed. It is a user's action, so its
+    /// handler may open a file picker or a prompt
+    /// ([`k.core.UserAction`]).
+    @UserAction
     @Emits let pressed: Event<Void>
 }

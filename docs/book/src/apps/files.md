@@ -73,6 +73,10 @@ public service BoardTransfer {
   it is read; `openAll(accepting:)` allows several. An empty list accepts any file.
 - **Call it from the user's action,** before any other `await`: browsers show a picker only in response
   to a click or a key press. `button { "Import…" }.on(click: transfer.importBoard)` does that.
+- **The compiler checks this.** `open` and `openAll` are `@UserAction`, and so is every function that
+  calls one before its first `await`, like `importBoard`. Calling one from an `@Effect`, a `@Load`, a
+  timer or after another `await`, or passing one anywhere but straight to `.on(click: …)`, `.on(submit:
+  …)` or `form.handle(…)`, is [K4030](../reference/diagnostics.md#k4030-user-action-required).
 - The result is a **`File` value**, read whole: `name`, `mediaType`, `bytes` (`Bytes`), `text` (the
   bytes as UTF-8, or `nil`) and `size`. Decode it into your own types with `Json.decode(file.bytes)`.
 - It throws a **`FileOpenError`**: `.cancelled` when the picker is closed, `.tooLarge(limit:)` for a

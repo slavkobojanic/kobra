@@ -32,8 +32,9 @@
 //!
 //! Two checks over the names those keys share live here too, since they
 //! find the keys the same way: a storage key named like an earlier one is
-//! **K2405**, and a `DragKind` named like an earlier one with another
-//! payload type is **K2406**.
+//! **K2405**, a `DragKind` named like an earlier one with another
+//! payload type is **K2406**, and a `TabChannel` or `DataChannelKind` named
+//! like an earlier one of its type with another message type is **K2408**.
 //!
 //! Types are compared by shape, not by name: a payload struct renamed with
 //! the same fields still decodes the queued jobs, so it is compatible.
@@ -84,6 +85,8 @@ pub(crate) fn job_payload(cx: &Cx<'_, '_>, decl: DeclId) -> Option<Ty> {
 pub(crate) fn check(cx: &Cx<'_, '_>) {
     duplicate_keys(cx);
     conflicting_drag_kinds(cx);
+    conflicting_channels(cx, tab_message, "tab channel");
+    conflicting_channels(cx, data_channel_message, "data channel kind");
     for lock in &cx.p.lockfiles {
         if lock.kind == LockfileKind::Storage {
             storage(cx, lock);
@@ -629,6 +632,71 @@ fn conflicting_drag_kinds(cx: &Cx<'_, '_>) {
                 first.insert(name.clone(), (kind.file, literal, kind.value.clone()));
             }
         }
+    }
+}
+
+/// K2408: a channel whose message type `value_of` finds (`TabChannel<T>`,
+/// `DataChannelKind<T>`) named like an earlier one (in file path order)
+/// but with another message type, at its name literal, with a label at the
+/// earlier one's. Channels with the same name are the same channel
+/// (`docs/design/45-web-platform.md`, "Messages between tabs";
+/// `docs/design/46-media-and-rtc.md`, "Typed data channels"), so one side
+/// would decode the other's messages as the wrong type. Test code counts,
+/// as for drag kinds; message types that don't resolve aren't compared.
+fn conflicting_channels(cx: &Cx<'_, '_>, value_of: fn(&Cx<'_, '_>, &Ty) -> Option<Ty>, what: &str) {
+    let reported = cx.diags.borrow().len();
+    let channels = find_named(cx, value_of, true);
+    cx.diags.borrow_mut().truncate(reported);
+    let mut first: BTreeMap<String, (crate::program::FileIx, TextRange, Ty)> = BTreeMap::new();
+    for channel in channels {
+        let (Some(name), Some(literal)) = (&channel.name, channel.literal) else {
+            continue;
+        };
+        if channel.value.contains_error() {
+            continue;
+        }
+        match first.get(name) {
+            Some((file, range, message)) if *message != channel.value => cx.report(
+                channel.file,
+                Diagnostic::new(
+                    codes::CONFLICTING_CHANNEL,
+                    cx.p.span(channel.file, literal),
+                    format!(
+                        "another {what} is named `{name}` with the message type `{}`; channels with the same name are the same channel, so this one can't carry `{}`",
+                        message.render(cx.p),
+                        channel.value.render(cx.p)
+                    ),
+                )
+                .with_label(
+                    cx.p.span(*file, *range),
+                    format!("the {what} named `{name}` carries `{}`", message.render(cx.p)),
+                ),
+            ),
+            Some(_) => {}
+            None => {
+                first.insert(name.clone(), (channel.file, literal, channel.value.clone()));
+            }
+        }
+    }
+}
+
+/// The message type of a `TabChannel<T>`.
+fn tab_message(cx: &Cx<'_, '_>, ty: &Ty) -> Option<Ty> {
+    type_argument(cx, ty, "k.device.TabChannel")
+}
+
+/// The message type of a `DataChannelKind<T>`.
+fn data_channel_message(cx: &Cx<'_, '_>, ty: &Ty) -> Option<Ty> {
+    type_argument(cx, ty, "k.rtc.DataChannelKind")
+}
+
+/// The type argument of `ty` when it is the stdlib generic `qualified`.
+fn type_argument(cx: &Cx<'_, '_>, ty: &Ty, qualified: &str) -> Option<Ty> {
+    match ty {
+        Ty::Named(d, args) if cx.p.decl_name(*d) == qualified => {
+            Some(args.first().cloned().unwrap_or(Ty::Error))
+        }
+        _ => None,
     }
 }
 

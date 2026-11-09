@@ -560,30 +560,48 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
     }
 
     /// K3013: an effect that discards the `TimerHandle` of `clock.every`
-    /// or `clock.after` can't cancel the timer.
+    /// or `clock.after` can't cancel the timer, nor one that discards a
+    /// `Subscription` its callbacks (45-web-platform.md, "Ownership and
+    /// lifetime").
     fn discarded_timer(&mut self, e: &ast::Expr, t: &Ty) {
-        let handle = self.cx.p.lookup_qualified("k.time.TimerHandle");
-        if handle.is_none() || t.decl() != handle {
+        let handle = ["k.time.TimerHandle", "k.device.Subscription"]
+            .into_iter()
+            .filter_map(|q| self.cx.p.lookup_qualified(q))
+            .find(|d| t.decl() == Some(*d));
+        let Some(handle) = handle else {
             return;
-        }
+        };
         let effect = self
             .current_fn
             .is_some_and(|m| self.cx.p.member(m).has_annotation("Effect"));
         if !effect || self.fcx_ref().is_lambda {
             return;
         }
+        let (message, fix, name) = if self.cx.p.decl(handle).name == "Subscription" {
+            (
+                "the subscription is never cancelled: keep its `Subscription` and cancel it in `onCleanup`",
+                "Bind the subscription and cancel it in `onCleanup`",
+                "subscription",
+            )
+        } else {
+            (
+                "the timer is never cancelled: keep its `TimerHandle` and cancel it in `onCleanup`",
+                "Bind the handle and cancel it in `onCleanup`",
+                "timer",
+            )
+        };
         self.report(
             Diagnostic::new(
                 codes::DISCARDED_TIMER_HANDLE,
                 self.span(e.syntax().text_range()),
-                "the timer is never cancelled: keep its `TimerHandle` and cancel it in `onCleanup`",
+                message,
             )
             .with_fix(
                 Fix::replace(
-                    "Bind the handle and cancel it in `onCleanup`",
+                    fix,
                     self.span(e.syntax().text_range()),
                     format!(
-                        "let timer = {}\n        onCleanup {{ timer.cancel() }}",
+                        "let {name} = {}\n        onCleanup {{ {name}.cancel() }}",
                         self.text(e.syntax().text_range())
                     ),
                 )
@@ -5405,8 +5423,48 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             }
         }
         self.client_state_read(m, &name);
+        self.client_only_read(m, &name);
         self.form_value(&name);
         t
+    }
+
+    /// K4012: a member of a client-only platform interface read while the
+    /// server renders. `isSupported` and `permission` are the exceptions:
+    /// they read `false` and `.prompt` there, and their real values after
+    /// hydration (45-web-platform.md, "Server rendering and the server").
+    fn client_only_read(&mut self, m: &ast::MemberExpr, name: &SyntaxToken) {
+        if !self.ssr {
+            return;
+        }
+        let Some(Target::Member(field)) = self.targets.get(&name.text_range()).copied() else {
+            return;
+        };
+        let member = self.cx.p.member(field);
+        if !matches!(member.kind, MemberKind::Field | MemberKind::Computed)
+            || member.is_static
+            || crate::di::SERVER_READABLE.contains(&member.name.as_str())
+        {
+            return;
+        }
+        let owner = member.owner;
+        let decl = self.cx.p.decl(owner);
+        if !self.cx.p.is_stdlib(owner)
+            || !decl.has_annotation("Platform")
+            || crate::di::client_rendered(self.cx)
+        {
+            return;
+        }
+        let side = crate::di::side(self.cx, owner);
+        if side.client && !side.server && !self.renders_in_browser_only(m.syntax().text_range()) {
+            self.err(
+                codes::CLIENT_ONLY_DURING_SSR,
+                m.syntax().text_range(),
+                format!(
+                    "`{}` is client-only, but this code may run while the server renders",
+                    self.cx.p.decl_name(owner)
+                ),
+            );
+        }
     }
 
     /// `.product(id: 1).tab(.reviews)`: a query `@Param` of a page, chained
@@ -5469,6 +5527,12 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         if self.cx.p.decl(owner).named_kind() != Some(DeclarationKind::Service)
             || self.cx.p.is_stdlib(owner)
         {
+            return;
+        }
+        // A `@Derived` value computed only from platform interfaces'
+        // `isSupported` and `permission` has a server value too: a control
+        // it shows after hydration is progressive enhancement.
+        if crate::di::server_readable_derived(self.cx, field) {
             return;
         }
         let side = crate::di::side(self.cx, owner);

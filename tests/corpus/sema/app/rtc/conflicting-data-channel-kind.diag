@@ -1,0 +1,2 @@
+error[K2408] 11:61-11:67
+  label 10:61-10:67: the data channel kind named `chat` carries `corpus.ChatLine`

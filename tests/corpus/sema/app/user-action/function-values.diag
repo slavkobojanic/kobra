@@ -1,0 +1,6 @@
+error[K4030] 25:22-25:28: `Importer.choose()` needs a user's action, so it can only be passed directly to `.on(…)` or `form.handle(…)`, where the compiler sees it is called
+  note: the path to the user's action: `Importer.choose()` → `Files.open(accepting:)`
+error[K4030] 26:15-26:21: `Importer.choose()` needs a user's action, so it can only be passed directly to `.on(…)` or `form.handle(…)`, where the compiler sees it is called
+  note: the path to the user's action: `Importer.choose()` → `Files.open(accepting:)`
+error[K4030] 33:42-33:57: `Importer.choose()` needs a user's action, so it can only be passed directly to `.on(…)` or `form.handle(…)`, where the compiler sees it is called
+  note: the path to the user's action: `Importer.choose()` → `Files.open(accepting:)`

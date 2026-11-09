@@ -390,6 +390,8 @@ export const native_k_text_EmailAddress$init = (t) => parseEmail(String(t)) ?? p
 export const native_k_text_EmailAddress$parse = (t) => parseEmail(String(t));
 /** `StorageKey(name)`: the key, `{ name }`. */
 export const native_k_storage_StorageKey$init = (name) => ({ name });
+/** `TabChannel(name)`: the channel, `{ name }`, like a storage key. */
+export const native_k_device_TabChannel$init = (name) => ({ name: String(name) });
 
 /**
  * The client natives by `module.Owner$member`, as on the server (`natives`
@@ -402,6 +404,7 @@ const NATIVES = {
   "k.text.EmailAddress$init": native_k_text_EmailAddress$init,
   "k.text.EmailAddress$parse": native_k_text_EmailAddress$parse,
   "k.storage.StorageKey$init": native_k_storage_StorageKey$init,
+  "k.device.TabChannel$init": native_k_device_TabChannel$init,
 };
 
 /**

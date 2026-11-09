@@ -22,6 +22,7 @@ comments come before annotations.
 | `@Emits` | `let` | an event, of type `Event<T>`; the parent listens with `.on(name: handler)` |
 | `@Slot` | `let` | content from the parent, of type `View` or `(T) -> View` |
 | `@Stylable` | `let` | a class hook the parent may style, of type `Classes` |
+| `@UserAction` | `let`, with `@Emits` | the event is a user's action, like a click: its handler may open a file picker or a prompt; the component fires it only from one |
 
 ## Services and injection
 
@@ -29,6 +30,7 @@ comments come before annotations.
 |---|---|---|
 | `@Inject` | `let` field | injected dependency, resolved at compile time; always private |
 | `@Scope(.app / .request / .route / .component / .server)` | service | lifetime of instances; `.app` is the default, `.server` is one per process |
+| `@UserAction`, `@UserAction(consuming: true)` | interface function | callable only during a user's action, as its stdlib implementations are (`Files.open`); `consuming` uses the action up, so one click allows one such call |
 
 ## Pages and routing
 

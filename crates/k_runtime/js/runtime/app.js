@@ -1688,6 +1688,7 @@ export const natives = {
   "k.text.EmailAddress$parse": (text) => parseEmail(String(text)),
   // A plain value on both sides (`services.js` reads and writes with it).
   "k.storage.StorageKey$init": (name) => ({ name: String(name) }),
+  "k.device.TabChannel$init": (name) => ({ name: String(name) }),
   // `HttpResponse` and `HttpHeaders`, built and read alike on both sides.
   ...Object.fromEntries(Object.entries(http).filter(([k]) => k.includes("$")).map(([k, f]) => [`k.http.${k}`, f])),
 };

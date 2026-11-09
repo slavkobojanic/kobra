@@ -1,0 +1,22 @@
+error[K4030] 29:9-29:26: `Prompter.prompt()` needs a user's action, such as a click, but `init()` isn't one
+  help: call it from a click, submit or key handler, before the handler's first `await`
+error[K4030] 31:13-31:30: `Prompter.prompt()` needs a user's action, such as a click, but a timer callback isn't one
+  help: call it from a click, submit or key handler, before the handler's first `await`
+error[K4030] 50:30-50:55: `Files.open(accepting:)` needs a user's action, which may have expired by the time this `await` finishes
+  label 48:9-48:14: the user's action can expire while this waits
+  help: call it before the first `await`; load what it needs before the click, in `@Load`
+error[K4030] 64:38-64:46: `Importer.choose()` needs a user's action, which may have expired by the time this `await` finishes
+  label 61:13-61:18: the user's action can expire while this waits
+  note: the path to the user's action: `Importer.choose()` → `Files.open(accepting:)`
+  help: call it before the first `await`; load what it needs before the click, in `@Load`
+error[K4030] 86:34-86:56: `Importer.chooseCount()` needs a user's action, such as a click, but a `@Load` initializer isn't one
+  note: the path to the user's action: `Importer.chooseCount()` → `Files.openAll(accepting:)`
+  help: call it from a click, submit or key handler, before the handler's first `await`
+error[K4030] 91:34-91:51: `Importer.choose()` needs a user's action, such as a click, but an `@Effect` isn't one
+  note: the path to the user's action: `Importer.choose()` → `Files.open(accepting:)`
+  help: call it from a click, submit or key handler, before the handler's first `await`
+error[K4030] 111:32-111:38: `Picker.pick()` needs a user's action, such as a click, but a `focus` handler isn't one
+  note: the path to the user's action: `Picker.pick()` → `Importer.choose()` → `Files.open(accepting:)`
+  help: call it from a click, submit or key handler, before the handler's first `await`
+error[K4030] 113:25-113:29: `Picker.pick()` needs a user's action, and `closed` isn't one: only click, submit and key events and component events declared `@UserAction` are
+  note: the path to the user's action: `Picker.pick()` → `Importer.choose()` → `Files.open(accepting:)`

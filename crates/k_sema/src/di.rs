@@ -686,6 +686,79 @@ fn injected_side(cx: &Cx<'_, '_>, ty: &Ty) -> Sides {
     }
 }
 
+/// The members of a client-only platform interface that code may read
+/// while the server renders, which reads `false` and `.prompt` from them
+/// (45-web-platform.md, "Server rendering and the server").
+pub(crate) const SERVER_READABLE: &[&str] = &["isSupported", "permission"];
+
+/// Returns `true` when `field` is a `@Derived` field whose initializer
+/// reads nothing client-only but [`SERVER_READABLE`] members of the
+/// client-only platform interfaces its declaration injects: of the
+/// declaration's own members it reads only such `@Inject` fields (as the
+/// receiver of `isSupported` or `permission`), other such `@Derived`
+/// fields, and plain `let` fields. Its value during server rendering is
+/// then the one the browser starts from, so reading it isn't K4013.
+pub(crate) fn server_readable_derived(cx: &Cx<'_, '_>, field: MemberId) -> bool {
+    server_readable_inner(cx, field, &mut HashSet::new())
+}
+
+/// The recursion of [`server_readable_derived`]; `seen` stops cycles.
+fn server_readable_inner(cx: &Cx<'_, '_>, field: MemberId, seen: &mut HashSet<MemberId>) -> bool {
+    let p = cx.p;
+    let m = p.member(field);
+    if !m.has_annotation("Derived") || !seen.insert(field) {
+        return m.has_annotation("Derived");
+    }
+    let Some(node) = &m.node else { return false };
+    let decl = p.decl(m.owner);
+    let mut reads_platform = false;
+    for n in node.descendants() {
+        if n.kind() != SyntaxKind::NameExpr
+            || n.ancestors().any(|a| a.kind() == SyntaxKind::Annotation)
+        {
+            continue;
+        }
+        let Some(tok) = n.first_token() else { continue };
+        // `self.x`: the member is the parent's name.
+        let (name, expr) = if tok.kind() == SyntaxKind::SelfKw {
+            let Some(parent) = n.parent().and_then(ast::MemberExpr::cast) else {
+                continue;
+            };
+            let Some(name) = parent.name() else { continue };
+            (name.text().to_owned(), parent.syntax().clone())
+        } else {
+            (tok.text().to_owned(), n.clone())
+        };
+        let Some(&other) = decl.member_names.get(&name) else {
+            continue;
+        };
+        let om = p.member(other);
+        if om.has_annotation("Inject") {
+            let platform = cx.field_ty(other).decl().is_some_and(|t| {
+                let s = side(cx, t);
+                p.is_stdlib(t) && p.decl(t).has_annotation("Platform") && s.client && !s.server
+            });
+            let readable = expr
+                .parent()
+                .and_then(ast::MemberExpr::cast)
+                .and_then(|r| r.name())
+                .is_some_and(|n| SERVER_READABLE.contains(&n.text()));
+            if !(platform && readable) {
+                return false;
+            }
+            reads_platform = true;
+        } else if om.has_annotation("Derived") {
+            if !server_readable_inner(cx, other, seen) {
+                return false;
+            }
+            reads_platform = true;
+        } else if om.kind != MemberKind::Field || om.is_var || !om.annotations.is_empty() {
+            return false;
+        }
+    }
+    reads_platform
+}
+
 /// Returns `true` when the project's app renders in the browser only
 /// (`@Rendering(.client)`).
 pub(crate) fn client_rendered(cx: &Cx<'_, '_>) -> bool {

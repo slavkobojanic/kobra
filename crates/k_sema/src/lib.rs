@@ -58,6 +58,7 @@
 
 #![warn(clippy::missing_docs_in_private_items)]
 
+mod activation;
 mod app;
 mod body;
 mod check;

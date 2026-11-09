@@ -168,7 +168,9 @@ test StripeWebhook {
   one the test asked for; bindings, slots and handlers stay live. A test that wants a view to follow changing
   state renders a host component that holds the state.
 - **Ids are deterministic in tests:** `Uuid.random()` in the browser container counts up from
-  `00000000-0000-4000-8000-000000000001` in every test, so failures reproduce.
+  `00000000-0000-4000-8000-000000000001` in every test, so failures reproduce. Other randomness there
+  (`crypto.getRandomValues`, `Math.random`) draws from a ChaCha20 stream seeded from the test's full name
+  ([45-web-platform.md](45-web-platform.md#tests)), so it repeats on every run and differs between tests.
 - **`--watch` re-runs the tests of every test file that changed, or that refers, directly or through other
   files, to a file that changed**, from the compiler's record of what each file's names resolve to.
 

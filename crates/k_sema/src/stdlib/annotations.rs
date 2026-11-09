@@ -49,6 +49,8 @@ pub enum Target {
     StructField,
     /// A function of a component, page, layout or service.
     ViewFunction,
+    /// A function of an interface.
+    InterfaceFunction,
     /// A handler function of an endpoint page.
     EndpointHandler,
     /// A `page` declaration.
@@ -200,6 +202,12 @@ pub const ANNOTATIONS: &[AnnotationDef] = &[
         "03-reactivity.md",
     ),
     def("k.core.Stylable", &[T::ComponentField], Let, "06-styles.md"),
+    def(
+        "k.core.UserAction",
+        &[T::ComponentField, T::InterfaceFunction],
+        Any,
+        "45-web-platform.md",
+    ),
     def("k.db.Id", &[T::EntityField], Let, "19-persistence.md"),
     def("k.db.Index", &[T::EntityField], Any, "19-persistence.md"),
     def("k.db.Relation", &[T::EntityField], Any, "19-persistence.md"),

@@ -355,23 +355,123 @@ globalThis.queueMicrotask = (f) =>
     }
   });
 
+// ------------------------------------------------------------ randomness
+
+/**
+ * One ChaCha20 block (RFC 8439, section 2.3): 64 bytes of keystream for
+ * `key` (8 words), block `counter` and `nonce` (3 words).
+ * @param {Uint32Array} key
+ * @param {number} counter
+ * @param {Uint32Array} nonce
+ * @returns {Uint8Array}
+ */
+export function chacha20Block(key, counter, nonce) {
+  const s = new Uint32Array(16);
+  s.set([0x61707865, 0x3320646e, 0x79622d32, 0x6b206574]);
+  s.set(key, 4);
+  s[12] = counter >>> 0;
+  s.set(nonce, 13);
+  const x = s.slice();
+  const rotl = (v, c) => (v << c) | (v >>> (32 - c));
+  const quarter = (a, b, c, d) => {
+    x[a] = (x[a] + x[b]) >>> 0; x[d] = rotl(x[d] ^ x[a], 16);
+    x[c] = (x[c] + x[d]) >>> 0; x[b] = rotl(x[b] ^ x[c], 12);
+    x[a] = (x[a] + x[b]) >>> 0; x[d] = rotl(x[d] ^ x[a], 8);
+    x[c] = (x[c] + x[d]) >>> 0; x[b] = rotl(x[b] ^ x[c], 7);
+  };
+  for (let i = 0; i < 10; i++) {
+    quarter(0, 4, 8, 12); quarter(1, 5, 9, 13); quarter(2, 6, 10, 14); quarter(3, 7, 11, 15);
+    quarter(0, 5, 10, 15); quarter(1, 6, 11, 12); quarter(2, 7, 8, 13); quarter(3, 4, 9, 14);
+  }
+  const out = new Uint8Array(64);
+  for (let i = 0; i < 16; i++) {
+    const v = (x[i] + s[i]) >>> 0;
+    out[4 * i] = v & 255;
+    out[4 * i + 1] = (v >>> 8) & 255;
+    out[4 * i + 2] = (v >>> 16) & 255;
+    out[4 * i + 3] = v >>> 24;
+  }
+  return out;
+}
+
+/**
+ * A test's random source (docs/design/33-crypto.md, "Testing";
+ * 44-channels.md, "Reconnecting"): a ChaCha20 keystream whose key is
+ * derived from `seed`, the test's full name, so every run of a test draws
+ * the same values and two tests draw different ones. The key's eight words
+ * are 32-bit FNV-1a hashes of the name's UTF-8 bytes, each started from a
+ * different offset; the nonce is zero.
+ *
+ * `bytes(array)` fills an integer typed array, as `crypto.getRandomValues`
+ * does; `double()` is uniform in [0, 1) with 53 random bits, as
+ * `Math.random` is.
+ * @param {string} seed
+ */
+export function seededRandom(seed) {
+  const utf8 = new TextEncoder().encode(String(seed));
+  const key = new Uint32Array(8);
+  for (let w = 0; w < 8; w++) {
+    let h = (0x811c9dc5 ^ Math.imul(w + 1, 0x9e3779b9)) >>> 0;
+    for (const b of utf8) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+    key[w] = h;
+  }
+  const nonce = new Uint32Array(3);
+  let counter = 0;
+  let block = new Uint8Array(0);
+  let at = 0;
+  const byte = () => {
+    if (at === block.length) {
+      block = chacha20Block(key, counter++, nonce);
+      at = 0;
+    }
+    return block[at++];
+  };
+  return {
+    bytes(a) {
+      const view = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+      for (let i = 0; i < view.length; i++) view[i] = byte();
+      return a;
+    },
+    double() {
+      // 53 bits: 7 bytes, the top 5 bits of the last dropped.
+      let v = 0;
+      for (let i = 0; i < 6; i++) v = v * 256 + byte();
+      v = v * 32 + (byte() >>> 3);
+      return v / 2 ** 53;
+    },
+  };
+}
+
+/** The running test's random source ({@link installBrowser}). */
+let random = seededRandom("");
+
+/**
+ * The running test's random source, for doubles that draw (a reconnect's
+ * jitter): the same stream `crypto.getRandomValues` and `Math.random` draw
+ * from.
+ */
+export function testRandom() {
+  return random;
+}
+
 /**
  * Installs what a client reads from the browser besides the DOM: a
  * deterministic `crypto.randomUUID` (each test's ids start again from
- * `00000000-0000-4000-8000-000000000001`), `location` at `/`, `history`,
- * `matchMedia` (nothing matches) and an empty `document.title`.
+ * `00000000-0000-4000-8000-000000000001`), `crypto.getRandomValues` and
+ * `Math.random` drawing from the test's random source seeded with `seed`
+ * ({@link seededRandom}), `location` at `/`, `history`, `matchMedia`
+ * (nothing matches) and an empty `document.title`.
+ * @param {string} [seed] the test's full name
  */
-export function installBrowser() {
+export function installBrowser(seed = "") {
   let n = 0;
   const hex = (v, w) => v.toString(16).padStart(w, "0");
+  random = seededRandom(seed);
   globalThis.crypto = {
     randomUUID: () => `00000000-0000-4000-8000-${hex(++n, 12)}`,
-    getRandomValues: (a) => {
-      for (let i = 0; i < a.length; i++) a[i] = (n * 31 + i * 17) & 255;
-      n++;
-      return a;
-    },
+    getRandomValues: (a) => random.bytes(a),
   };
+  Math.random = () => random.double();
   const location = { origin: "http://localhost", pathname: "/", search: "", hash: "" };
   Object.defineProperty(location, "href", {
     get: () => location.origin + location.pathname + location.search,
@@ -1399,7 +1499,7 @@ export async function run(groups, selected, server = null, routes = []) {
       const full = `${g.name} › ${t.name}`;
       if (!wanted.has(full)) continue;
       installDom();
-      installBrowser();
+      installBrowser(full);
       let outcome = "pass";
       let fault = null;
       try {

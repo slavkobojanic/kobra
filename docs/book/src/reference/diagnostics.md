@@ -2952,6 +2952,43 @@ error[K2407]: this adds CHF to USD; `Money` never mixes currencies, so it would 
 
 **Fix:** Keep each sum in one currency; convert an amount explicitly before adding it to another currency's.
 
+### K2408 `conflicting-channel`
+
+**Error.** Two `TabChannel`s, or two `DataChannelKind`s, with the same name are the same channel, so they must carry the same message type.
+
+Example (`tests/corpus/sema/app/tabs/conflicting-tab-channel.k`):
+
+```k,ignore
+// A `TabChannel<T>` pairs a name with its message type (45-web-platform.md, "Messages between tabs"):
+// channels with the same name are the same channel, so two named alike must carry the same message
+// type, or one tab would post a type another decodes as a different one. A channel named like an
+// earlier one with another message type is K2408 at its name literal, with a label at the earlier
+// one; redeclaring one with the same type is fine.
+import k.device.TabChannel
+
+enum CartChange implements Codable {
+    case added(id: Int)
+    case cleared
+}
+
+let cartChanges: TabChannel<CartChange> = TabChannel(name: "cart")
+let sameChanges: TabChannel<CartChange> = TabChannel(name: "cart")
+let cartCounts: TabChannel<Int> = TabChannel(name: "cart")
+let themeChanges: TabChannel<String> = TabChannel(name: "theme")
+```
+
+```text
+error[K2408]: another tab channel is named `cart` with the message type `corpus.CartChange`; channels with the same name are the same channel, so this one can't carry `Int`
+  --> src/corpus/conflicting-tab-channel.k:15:52
+   |
+13 | let cartChanges: TabChannel<CartChange> = TabChannel(name: "cart")
+   |                                                            ------ the tab channel named `cart` carries `corpus.CartChange`
+15 | let cartCounts: TabChannel<Int> = TabChannel(name: "cart")
+   |                                                    ^^^^^^
+```
+
+**Fix:** Give the channel its own name, or the message type of the channel already named so; usually declare the channel once and import it.
+
 ## K3000–K3999: Components, views, styles, themes, reactivity
 
 ### K3001 `annotation-mutability`
@@ -3190,7 +3227,7 @@ error[K3012]: an `@Effect` can't throw: nothing could catch its error
 
 ### K3013 `discarded-timer-handle`
 
-**Warning.** The `TimerHandle` returned by `clock.every` or `clock.after` in an effect is discarded, so the timer outlives the component.
+**Warning.** The `TimerHandle` returned by `clock.every` or `clock.after`, or a `Subscription`, is discarded in an effect, so the timer or the callbacks outlive the component.
 
 Example (`tests/corpus/sema/components/discarded-timer-handle.k`):
 
@@ -6112,6 +6149,52 @@ warning[K4029]: the app is `@Rendering(.client)`, so `Cart` already renders in t
 ```
 
 **Fix:** Remove the annotation: the whole app already renders in the browser.
+
+### K4030 `user-action-required`
+
+**Error.** A member the browser allows only during a user's action (`@UserAction`) is called outside the synchronous part of a click, submit or key handler.
+
+Example (`tests/corpus/sema/app/user-action/interface-member.k`):
+
+```k,ignore
+// An interface member whose implementation is user-action-only must be declared `@UserAction`, so
+// calls through the interface are checked too (45-web-platform.md, "Function values"). The fix adds
+// the annotation to the requirement.
+import k.device.Files
+
+interface Picking {
+    func pick() async
+}
+
+service FilePicker implements Picking {
+    @Inject let files: Files
+
+    @State var name: String = ""
+
+    func pick() async {
+        do {
+            name = try await files.open(accepting: []).name
+        } catch _ {
+            name = ""
+        }
+    }
+}
+```
+
+```text
+error[K4030]: `FilePicker.pick()` needs a user's action, so `Picking.pick()` must be declared `@UserAction`, or calls through `Picking` go unchecked
+  --> src/corpus/interface-member.k:15:10
+   |
+ 7 |     func pick() async
+   |          ---- declared here without `@UserAction`
+15 |     func pick() async {
+   |          ^^^^
+   |
+   = note: the path to the user's action: `FilePicker.pick()` → `Files.open(accepting:)`
+   = fix: Declare the requirement `@UserAction`
+```
+
+**Fix:** Call it from a click, submit or key handler, before the handler's first `await`, directly or through functions it calls; load what it needs earlier, in `@Load`.
 
 ## K5000–K5499: Pages and routing
 

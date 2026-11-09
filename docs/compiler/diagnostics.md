@@ -265,6 +265,7 @@ Messages and detail lines for this range that the corpus pins exactly:
 | K2405 | `duplicate-storage-key` | error | The name literal of every `StorageKey(name:)` constant or field, in the app's non-test code, whose name an earlier key (in file path order) already has, with a label at that key's literal. | — |
 | K2406 | `conflicting-drag-kind` | error | The name literal of every `DragKind(name:)` constant or field (test code included) whose name an earlier kind (in file path order) has with another payload type, with a label at that kind's literal naming its payload. | — |
 | K2407 | `mixed-currencies` | error | The whole `+` or `-` expression whose two `Money` operands have visible, different currencies: a money literal (negated or parenthesized too), a `Money * Int` scaling of one, or a sum or difference of such operands. | — |
+| K2408 | `conflicting-channel` | error | The name literal of every `TabChannel(name:)` (or `DataChannelKind(name:)`) constant or field (test code included) whose name an earlier one of the same type (in file path order) has with another message type, with a label at that one's literal naming its message type. | — |
 
 ### Annotations, members and reactivity (K3000–K3099)
 
@@ -278,7 +279,7 @@ Messages and detail lines for this range that the corpus pins exactly:
 | K3010 | `write-to-derived` | error | The assigned place; label: the `@Derived` field. | — |
 | K3011 | `state-write-in-derived` | error | The assignment or mutating call. | — |
 | K3012 | `throwing-effect-or-handler` | error | The `throws` clause, from `throws` to the end of its type. | — |
-| K3013 | `discarded-timer-handle` | warning | The call expression. | Bind it and cancel it in `onCleanup` (maybe-incorrect). |
+| K3013 | `discarded-timer-handle` | warning | The call expression whose `TimerHandle` or `k.device.Subscription` an `@Effect` discards. | Bind it and cancel it in `onCleanup` (maybe-incorrect). |
 | K3014 | `write-to-prop` | error | The assigned place (left side of `=` or a compound assignment, or the receiver of a mutating call); label `declared `@Prop` here` at the field's name. Not reported when the field already has K3001. | Change `@Prop let` to `@Binding var`: two edits, the annotation and the `let` token (maybe-incorrect). |
 | K3015 | `not-bindable` | error | The operand of `bind`. Bindable places are `@State`, `@Binding` and `@Form` fields, paths into them, and loop variables over a bindable list (`bind item.quantity`). | — |
 | K3016 | `missing-bind` | error | The argument expression passed to a `@Binding` prop or a `Binding<T>` element argument. | Insert `bind ` before it (machine-applicable) when the expression is a bindable place; no fix otherwise. |
@@ -381,7 +382,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K4009 | `job-reaches-session` | error | The job's name token; a note names the path. | — |
 | K4010 | `use-target-mismatch` | error | The operand before `for`. | — |
 | K4011 | `use-expression-not-allowed` | error | The operand expression. | — |
-| K4012 | `client-only-during-ssr` | error | The call. Not reported inside a client-rendered component's subtree (47-client-rendered-components.md). | — |
+| K4012 | `client-only-during-ssr` | error | The call, or the member expression reading a member of a client-only platform interface other than `isSupported` and `permission` (45-web-platform.md, "Server rendering and the server"). Not reported inside a client-rendered component's subtree (47-client-rendered-components.md). | — |
 | K4013 | `client-state-in-server-render` | warning | The read. Not reported inside a client-rendered component's subtree (47-client-rendered-components.md). | In a component, first: add `@Rendering(.client)` to the component, with an empty `loading { }` when it has none (maybe-incorrect); then add `@Rendering(.client)` to the app (maybe-incorrect). |
 | K4014 | `use-restates-default` | warning | The whole `use` rule, from `use` to the end of its target type. | Remove the rule and its line, and the imports only the rule used, so no K1105 follows (machine-applicable). |
 | K4015 | `environment-not-covered` | error | The target type (after `for`) of the interface's first `use` rule in `App.k`; a note names each uncovered environment. | — |
@@ -399,6 +400,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K4027 | `server-rendering-on-component` | error | The `@Rendering(.server)` annotation on a component. | Remove the annotation (maybe-incorrect). |
 | K4028 | `loading-reads-component-state` | error | The read (a name, `self.name` or a call) of a member that isn't a `@Prop` or static, in a `@Rendering(.client)` component's `loading`; a label at the member. | — |
 | K4029 | `redundant-client-rendering` | warning | `@Rendering(.client)` on a component of a `@Rendering(.client)` app. | Remove the annotation (machine-applicable). |
+| K4030 | `user-action-required` | error | The call of a `@UserAction` member, or of a function inferred user-action-only (it calls one before its first `await`), in a context that isn't a user's action (an `@Effect`, `init()`, a field, `@Load` or `@Derived` initializer, a view, a timer callback, a lambda passed as a value, a handler of an event that isn't activation-triggering), with help; or such a call after an `await` in a function or user's action, with a label at the `await`; or a second call of a consuming member (`@UserAction(consuming: true)`) on one path, with a label at the first; or a user-action-only function used as a value anywhere but directly in `.on(…)` of an activation-triggering event or `form.handle(…)`: the reference; or a user-action-only function implementing an interface member not declared `@UserAction`: its name, with a label at the requirement. A note gives the path to the `@UserAction` member when it goes through other functions. Test suites aren't checked. | On the last form, declare the requirement `@UserAction` (maybe-incorrect). |
 
 ### Pages and routing (K5000–K5499)
 

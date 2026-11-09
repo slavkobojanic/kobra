@@ -13,6 +13,9 @@ Import each declaration by name, for example `import k.device.BrowserFiles`.
 | [`Files`](#files) | Opening files the user chooses, and saving files the app generates as downloads (`docs/design/42-files.md`). |
 | [`FileSaveError`](#filesaveerror) | Why [`Files.save`](#files) couldn't start a download (`docs/design/42-files.md`). |
 | [`FileType`](#filetype) | A kind of file the picker offers (`docs/design/42-files.md`): its media type and file name extension. |
+| [`PermissionState`](#permissionstate) | Whether the app may use a permissioned browser feature (`docs/design/45-web-platform.md`, "Permissions"). |
+| [`Subscription`](#subscription) | A running callback subscription, such as a handler listening for messages from the app's other tabs (`docs/design/45-web-platform.md`, "Ownership and lifetime"). |
+| [`TabChannel`](#tabchannel) | A channel between the app's tabs, paired with the type of its messages: `TabChannel<CartChange> = TabChannel(name: "cart")` (`docs/design/45-web-platform.md`, "Messages between tabs"). |
 
 ## BrowserFiles
 
@@ -26,10 +29,10 @@ The standard [`Files`](#files): the browser's file picker (an `input` of type
 
 **Members**
 
-- `func open(accepting types: List<FileType>) async throws FileOpenError -> File`
+- `@UserAction func open(accepting types: List<FileType>) async throws FileOpenError -> File`
   Opens the browser's file picker for one file; see
   [`Files.open(accepting:)`](#files).
-- `func openAll(accepting types: List<FileType>) async throws FileOpenError -> List<File>`
+- `@UserAction func openAll(accepting types: List<FileType>) async throws FileOpenError -> List<File>`
   Opens the browser's file picker for several files; see
   [`Files.openAll(accepting:)`](#files).
 - `func save(_ file: File) throws FileSaveError`
@@ -105,7 +108,7 @@ a file picker only in response to one.
 
 **Members**
 
-- `func open(accepting types: List<FileType>) async throws FileOpenError -> File`
+- `@UserAction func open(accepting types: List<FileType>) async throws FileOpenError -> File`
   Asks the user to choose one file and reads it.
 
   - Parameter types: the kinds of file offered; any file when empty.
@@ -114,7 +117,7 @@ a file picker only in response to one.
     without a choice, [`FileOpenError.tooLarge`](#fileopenerror) for a file over
     [`File.maximumSize`](#file) and [`FileOpenError.unreadable`](#fileopenerror) when the
     file can't be read.
-- `func openAll(accepting types: List<FileType>) async throws FileOpenError -> List<File>`
+- `@UserAction func openAll(accepting types: List<FileType>) async throws FileOpenError -> List<File>`
   Asks the user to choose any number of files and reads them.
 
   - Parameter types: the kinds of file offered; any file when empty.
@@ -175,4 +178,65 @@ type and file name extension.
   `docs/design/42-files.md` gives it.
 - `var fileExtension: String`
   The file name extension, without the dot ("json").
+
+## PermissionState
+
+```k,ignore
+public enum PermissionState implements Equatable
+```
+
+Whether the app may use a permissioned browser feature
+(`docs/design/45-web-platform.md`, "Permissions"). A permissioned
+interface exposes it as a reactive `permission` member; only its
+`request…` member shows a prompt, and returns the new state.
+
+**Members**
+
+- `case prompt`
+  The next request will ask the user, or the browser can't say.
+- `case granted`
+  The user allowed it.
+- `case denied`
+  The user, a browser setting or a policy refused it; only the
+  browser's site settings can change it now.
+
+## Subscription
+
+```k,ignore
+public class Subscription
+```
+
+A running callback subscription, such as a handler listening for
+messages from the app's other tabs
+(`docs/design/45-web-platform.md`, "Ownership and lifetime"). Discarding
+one returned inside an [`k.core.Effect`](k-core.md#effect) is a warning, as for a
+[`k.time.TimerHandle`](k-time.md#timerhandle).
+
+**Members**
+
+- `func cancel()`
+  Stops the callbacks; cancelling a cancelled subscription does
+  nothing.
+
+## TabChannel
+
+```k,ignore
+public struct TabChannel<T> where T implements Codable
+```
+
+A channel between the app's tabs, paired with the type of its messages:
+`TabChannel<CartChange> = TabChannel(name: "cart")`
+(`docs/design/45-web-platform.md`, "Messages between tabs"). A tab
+can't post one type and another read a different one: channels with
+the same name must carry the same message type.
+
+**Members**
+
+- `init(name: String)`
+  Creates the channel named `name`.
+
+  - Parameter name: a string literal; channels with the same name are
+    the same channel.
+- `var name: String`
+  The channel's name.
 

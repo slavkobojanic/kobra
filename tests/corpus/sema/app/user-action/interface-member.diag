@@ -1,0 +1,5 @@
+error[K4030] 15:10-15:14: `FilePicker.pick()` needs a user's action, so `Picking.pick()` must be declared `@UserAction`, or calls through `Picking` go unchecked
+  label 7:10-7:14: declared here without `@UserAction`
+  note: the path to the user's action: `FilePicker.pick()` → `Files.open(accepting:)`
+  fix "Declare the requirement `@UserAction`" maybe-incorrect
+    edit 7:5-7:5 "@UserAction\n    "

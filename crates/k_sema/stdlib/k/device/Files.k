@@ -16,12 +16,14 @@ public interface Files {
     ///   without a choice, [`FileOpenError.tooLarge`] for a file over
     ///   [`File.maximumSize`] and [`FileOpenError.unreadable`] when the
     ///   file can't be read.
+    @UserAction
     func open(accepting types: List<FileType>) async throws FileOpenError -> File
     /// Asks the user to choose any number of files and reads them.
     ///
     /// - Parameter types: the kinds of file offered; any file when empty.
     /// - Returns: the chosen files, in the order chosen.
     /// - Throws: as [`open(accepting:)`], for any of the files.
+    @UserAction
     func openAll(accepting types: List<FileType>) async throws FileOpenError -> List<File>
     /// Saves `file` as a download named after its [`File.name`].
     ///

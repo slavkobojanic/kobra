@@ -166,6 +166,7 @@ pub(crate) fn analyze(
     crate::di::check(&cx);
     crate::di::remote_services(&cx);
     crate::locks::check(&cx);
+    crate::activation::check(&cx);
     // The `rpc.lock` check reads no body: replayed while its inputs are
     // unchanged (`warm::PassFacts`).
     let same_side_inputs = prev.is_some_and(|c| c.side_inputs == side_inputs);

@@ -678,6 +678,7 @@ fn member_targets(cx: &Cx<'_, '_>, decl: DeclId, field: bool) -> Vec<Target> {
         (Some(K::Struct), true) => vec![Target::StructField],
         (Some(K::Component | K::Layout | K::Service), false) => vec![Target::ViewFunction],
         (Some(K::Page), false) => vec![Target::ViewFunction, Target::EndpointHandler],
+        (Some(K::Interface), false) => vec![Target::InterfaceFunction],
         _ => Vec::new(),
     }
 }
@@ -1555,6 +1556,8 @@ fn constraint(
         "Range" => [b.int, b.double, b.decimal].contains(&inner.decl()) && inner.decl().is_some(),
         "Matches" | "NotBlank" => text,
         "Email" => text || is("k.text.EmailAddress"),
+        // A user's action is an event's property (45-web-platform.md).
+        "UserAction" => is("k.core.Event"),
         _ => true,
     };
     if !fits {

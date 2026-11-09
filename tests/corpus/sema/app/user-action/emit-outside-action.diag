@@ -1,0 +1,8 @@
+error[K3002] 8:5-8:16: `@UserAction` doesn't apply here
+  fix "Remove the annotation" maybe-incorrect
+    edit 8:5-8:16 ""
+error[K4030] 15:9-15:23: `Prompting.pressed` needs a user's action, such as a click, but an `@Effect` isn't one
+  help: call it from a click, submit or key handler, before the handler's first `await`
+error[K3002] 18:5-18:16: `@UserAction` doesn't apply here
+  fix "Remove the annotation" maybe-incorrect
+    edit 18:5-18:16 ""

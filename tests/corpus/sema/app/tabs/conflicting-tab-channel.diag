@@ -1,0 +1,2 @@
+error[K2408] 15:52-15:58: another tab channel is named `cart` with the message type `corpus.CartChange`; channels with the same name are the same channel, so this one can't carry `Int`
+  label 13:60-13:66: the tab channel named `cart` carries `corpus.CartChange`

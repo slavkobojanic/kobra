@@ -432,6 +432,60 @@ test("native answers the browser's members first, then the server's", async () =
   assertEq(kit.native("k.crypto.Uuid$random")(), "00000000-0000-4000-8000-000000000001");
 });
 
+// ------------------------------------------------------------ randomness
+
+test("chacha20Block matches RFC 8439's block test vector", () => {
+  const key = new Uint32Array(8);
+  for (let i = 0; i < 8; i++) key[i] = (4 * i) | ((4 * i + 1) << 8) | ((4 * i + 2) << 16) | ((4 * i + 3) << 24);
+  const nonce = new Uint32Array([0x09000000, 0x4a000000, 0]);
+  const hex = [...kit.chacha20Block(key, 1, nonce)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  assertEq(
+    hex,
+    "10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4e" +
+      "d2826446079faa0914c2d705d98b02a2b5129cd1de164eb9cbd083e8a2503c4e",
+  );
+});
+
+test("a seeded random source repeats for one seed and differs between seeds", () => {
+  const draw = (seed) => {
+    const r = kit.seededRandom(seed);
+    return [...r.bytes(new Uint8Array(80))].concat([r.double(), r.double()]);
+  };
+  assertDeepEq(draw("Cart › adds"), draw("Cart › adds"));
+  assert(JSON.stringify(draw("Cart › adds")) !== JSON.stringify(draw("Cart › removes")));
+  const r = kit.seededRandom("doubles");
+  for (let i = 0; i < 1000; i++) {
+    const d = r.double();
+    assert(d >= 0 && d < 1, `${d} is in [0, 1)`);
+  }
+  // Wider arrays are filled byte by byte from the same stream.
+  const words = kit.seededRandom("x").bytes(new Uint32Array(2));
+  const bytes = kit.seededRandom("x").bytes(new Uint8Array(8));
+  assertDeepEq([...new Uint8Array(words.buffer)], [...bytes]);
+});
+
+test("each test draws getRandomValues and Math.random from its own name's stream", async () => {
+  const seen = [];
+  /** A test group whose tests record what they draw. */
+  class Group {
+    /** Draws from both sources. */
+    async $t0() {
+      seen.push([...crypto.getRandomValues(new Uint8Array(4)), Math.random(), kit.testRandom().double()]);
+    }
+  }
+  const groups = [{ name: "G", file: "src/a/A.test.k", container: () => ({}), group: Group, tests: [
+    { name: "one", method: "$t0", start: 0, end: 1 },
+    { name: "two", method: "$t0", start: 0, end: 1 },
+  ] }];
+  await kit.run(groups, ["G › one", "G › two"]);
+  await kit.run(groups, ["G › one"]);
+  assertEq(seen.length, 3);
+  assertDeepEq(seen[2], seen[0], "a test draws the same values on every run");
+  assert(JSON.stringify(seen[0]) !== JSON.stringify(seen[1]), "two tests draw different values");
+  const expected = kit.seededRandom("G › one");
+  assertDeepEq(seen[0].slice(0, 4), [...expected.bytes(new Uint8Array(4))]);
+});
+
 // ------------------------------------------------------- k.drag and k.device
 
 test("TestFiles answers the chosen files in order, else .cancelled, and records saves", async () => {

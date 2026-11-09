@@ -460,6 +460,9 @@ codes! {
     /// `Money + Money` or `Money - Money` over two different literal currencies.
     MIXED_CURRENCIES = 2407, "mixed-currencies", Error,
         "`+` and `-` on `Money` need one currency; two literal amounts in different currencies would panic at run time.";
+    /// Two tab channels, or two data channel kinds, have the same name but different message types.
+    CONFLICTING_CHANNEL = 2408, "conflicting-channel", Error,
+        "Two `TabChannel`s, or two `DataChannelKind`s, with the same name are the same channel, so they must carry the same message type.";
 
     // ---------------------------------------------------------------- annotations, members and reactivity
     /// An annotated field must be declared `let` or `var` as its annotation requires.
@@ -486,9 +489,9 @@ codes! {
     /// `@Effect` functions and event handlers handle their own errors, so they can't be `throws`.
     THROWING_EFFECT_OR_HANDLER = 3012, "throwing-effect-or-handler", Error,
         "`@Effect` functions and event handlers handle their own errors, so they can't be `throws`.";
-    /// The `TimerHandle` returned by `clock.every` or `clock.after` in an effect is discarded, so the timer outlives the component.
+    /// A `TimerHandle` or a `Subscription` is discarded in an effect, so the timer or the callbacks outlive the component.
     DISCARDED_TIMER_HANDLE = 3013, "discarded-timer-handle", Warning,
-        "The `TimerHandle` returned by `clock.every` or `clock.after` in an effect is discarded, so the timer outlives the component.";
+        "The `TimerHandle` returned by `clock.every` or `clock.after`, or a `Subscription`, is discarded in an effect, so the timer or the callbacks outlive the component.";
     /// A component writes to its own `@Prop`, a one-way input; make it a `@Binding`.
     WRITE_TO_PROP = 3014, "write-to-prop", Error,
         "A component writes to its own `@Prop`, a one-way input; make it a `@Binding`.";
@@ -722,6 +725,9 @@ codes! {
     /// `@Rendering(.client)` on a component of an app that is already client-rendered.
     REDUNDANT_CLIENT_RENDERING = 4029, "redundant-client-rendering", Warning,
         "`@Rendering(.client)` on a component has no effect in an app that is already client-rendered.";
+    /// A member that needs a user's action (`@UserAction`) is called, or passed, where there is none.
+    USER_ACTION_REQUIRED = 4030, "user-action-required", Error,
+        "A member the browser allows only during a user's action (`@UserAction`) is called outside the synchronous part of a click, submit or key handler.";
 
     // ---------------------------------------------------------------- pages and routing
     /// Two pages or endpoints have the same URL.

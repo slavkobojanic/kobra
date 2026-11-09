@@ -812,8 +812,9 @@ and is prevented, unless it was prevented already, Control, Alt or Meta is held,
   URL), `testFiles` (chosen files queued for the next `open`, `.cancelled` with none, `failOpen`,
   `failSaves`, `saved`, `requests`), `recordingJobQueue`, `recordingEmailProvider`. `fail`/`failThrows` throw a panic carrying the
   expectation's source range and operand values. `run(groups, selected, server, pages)` gives each test a
-  fresh fake DOM, fresh browser globals (a deterministic `crypto.randomUUID`, `location`, `history`,
-  `matchMedia`) and a fresh container, captures errors thrown by effects flushed in microtasks (and a
+  fresh fake DOM, fresh browser globals (a deterministic `crypto.randomUUID`; `crypto.getRandomValues` and
+  `Math.random` drawing from `seededRandom(full name)`, a ChaCha20 keystream that `testRandom()` hands to
+  doubles that draw; `location`, `history`, `matchMedia`) and a fresh container, captures errors thrown by effects flushed in microtasks (and a
   page that fails to render) as the test's failure, and reports a test that stops making progress as
   "never finished" instead of hanging the run. Its JS tests are `js/tests/kit.test.js`.
 - **The server half of a test.** With `server` (the server entry's `$test`), each test first gets a fresh
