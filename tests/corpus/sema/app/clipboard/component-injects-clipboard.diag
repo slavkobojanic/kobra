@@ -1,0 +1,2 @@
+error[K4005] 7:28-7:37: a component can't inject a platform interface
+error[K4005] 8:24-8:29: a component can't inject a platform interface

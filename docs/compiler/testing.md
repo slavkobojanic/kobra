@@ -791,8 +791,12 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
 - **Feature chunks**: `drag.test.js` (pointer, touch with stubbed timers, the keyboard path and its
   announcements, the indicator, hydration, a fresh document per `k test` test), `drag-ssr.test.js` (the
   server's markup and the browser claiming it), `files.test.js` (the picker, its errors, downloads over
-  stubbed `URL` and `Blob`) and `keys.test.js` (`KeyboardShortcut`'s filters) test the chunks of
-  [runtime.md §12.3–12.5](runtime.md#123-drag-and-drop).
+  stubbed `URL` and `Blob`), `keys.test.js` (`KeyboardShortcut`'s filters), and `clipboard.test.js`
+  and `share.test.js` (`BrowserClipboard` and `BrowserShare` against scripted `navigator.clipboard`
+  and `navigator.share` fakes with each engine's documented rejections; `CopyButton` and `ShareButton`
+  with a recording container: the copy at the click, the two seconds on the clock, the events, the
+  fallback copy, the server's markup and hydration) test the chunks of
+  [runtime.md §12.3–12.6](runtime.md#123-drag-and-drop).
 - **Cancellation**: `cancellation.test.js` pins the ownership of async work (design 03, "Async work is
   owned"): `live` and `CANCELLED`, a body stopped at an `await` (and a `catch`) whose owner was disposed
   after the promise settled, an effect re-run and a load stopping their superseded run, `on` keeping a
@@ -977,7 +981,8 @@ timers).
 - **Cases**: each example's main README flow, green: `todos` (add, complete, the three filters with
   `aria-pressed`, clear, a reload), `kanban` (create a board, add cards, move one with Space, ArrowRight
   and Space keeping the focus, drop one onto another with the mouse, Escape closing the editor while
-  typing, a reload), `weather` (a debounced search, a client navigation to a result, °C/°F, home again;
+  typing, a reload, "Copy link" putting the card's absolute link on the real clipboard, with the
+  permission granted by `Browser.grantPermissions`, and the link opening the card's editor), `weather` (a debounced search, a client navigation to a result, °C/°F, home again;
   the recently viewed list, a client-rendered component, appearing after hydration without moving the
   server-rendered parts; a refresh after server rendering keeping the place),
   `notes` (one command, sign up, create, edit, delete, sign out and in; two apps on `localhost` keeping
@@ -1685,13 +1690,15 @@ format change is a reviewed diff):
   human-readable and in JSON Lines, and the summary counts the tests that ran; `--no-tests` skips them;
   a project with errors runs none; `examples/todos` passes with its tests.
 - **Every example's own tests** (`test_runs_the_{todos,weather,notes,shop,kanban}_example`; kanban's
-  drags with `drag(to:)` and the keyboard, its shortcuts, forms, files through `TestFiles` and progress on
-  the `TestClock`), and `k check` plus a static `k build` of kanban with its feature chunks: all must pass, the
+  drags with `drag(to:)` and the keyboard, its shortcuts, forms, files through `TestFiles`, the card
+  link through `TestClipboard` and progress on the `TestClock`), and `k check` plus a static `k build` of kanban with its feature chunks: all must pass, the
   server-side ones included (sessions, guards, repositories on a fresh database, server streams,
   `TestClient` through endpoint pages and server rendering, `InlineJobQueue` and `RecordingEmailProvider`,
   server-side `use` rules and configs bound by value).
 - **Regressions of the runner** (`crates/k_cli/tests/fixtures/regressions`, every test must pass; and
-  `fixtures/throws`, whose second test must fail with the case it threw): each bug of the test bundle or
+  `fixtures/throws`, whose second test must fail with the case it threw; and `fixtures/sharing`,
+  every test must pass: `Clipboard`, `Share`, `CopyButton` and `ShareButton` against `TestClipboard`
+  and `TestShare`): each bug of the test bundle or
   the kit that an example exposed, pinned before it was fixed: a chained enum page parameter given as an
   implicit member, `Page.x` with only optional parameters, a group helper named like the tested
   service's function, a labelled argument after a default, `expect throws` checking the case.

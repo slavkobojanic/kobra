@@ -1709,6 +1709,21 @@ impl<'p, 'a> Cx<'p, 'a> {
             .zip(args.iter().cloned())
             .collect();
         if let Some(&m) = d.member_names.get(name) {
+            // A function may share its name with a property of the other
+            // namespace (`ShareContent.text(_:)` and `content.text`, K2019's
+            // exemption): take the one of the namespace asked for.
+            let m = if self.p.member(m).is_static == statics {
+                m
+            } else {
+                d.members
+                    .iter()
+                    .copied()
+                    .find(|&o| {
+                        let x = self.p.member(o);
+                        x.name == name && x.is_static == statics && x.kind != MemberKind::Init
+                    })
+                    .unwrap_or(m)
+            };
             return self.check_member(m, body_owner, statics, subst);
         }
         if statics {

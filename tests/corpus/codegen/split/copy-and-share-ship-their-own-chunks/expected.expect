@@ -1,0 +1,17 @@
+# docs/design/45-web-platform.md, docs/compiler/codegen.md §16: `CopyButton` and `ShareButton` are the
+# clipboard and share chunks', which only an app whose client uses them ships. They read `Clipboard`,
+# `Share` and `Clock` from the container they render in, so the entry's container has them, bound to
+# `BrowserClipboard` and `BrowserShare` with no `use` rule. The server renders their buttons.
+client contains // file: clipboard.[hash].js
+client contains // file: share.[hash].js
+client contains import { BrowserClipboard } from "./clipboard.[hash].js";
+client contains import { BrowserShare } from "./share.[hash].js";
+client contains get Clipboard() {
+client contains get Share() {
+client contains get Clock() {
+client contains export function CopyButton(
+client contains export function ShareButton(
+client contains $k.pageUrl(
+client lacks $k.native("k.device.
+client lacks files.[hash].js
+server contains "k.device.CopyButton$ssr"

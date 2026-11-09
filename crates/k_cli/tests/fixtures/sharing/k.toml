@@ -1,0 +1,6 @@
+# `Clipboard`, `Share`, `CopyButton` and `ShareButton` with their test
+# doubles (docs/design/45-web-platform.md; docs/compiler/testing.md §8.4):
+# every test here must pass.
+[package]
+name = "sharing"
+k = "0.1"

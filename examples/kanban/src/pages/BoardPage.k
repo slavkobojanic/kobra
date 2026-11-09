@@ -19,16 +19,20 @@ import ui.ThemePicker
 /// button on the page.
 ///
 /// The URL is named (`/boards/<id>`), because exported links and
-/// bookmarks depend on it.
+/// bookmarks depend on it. A card's link (the editor's "Copy link") adds
+/// `?card=<id>`, which opens that card's editor.
 public page BoardPage at "/boards/{id}" {
     /// The board's id.
     @Param let id: Uuid
+    /// The card whose editor is open when the page opens, from a copied
+    /// card link; empty for none.
+    @Param let card: String = ""
 
     @Inject let boards: BoardService
     @Inject let transfer: BoardTransfer
 
     /// The card being edited, or `nil`.
-    @State var editing: CardId? = nil
+    @State var editing: CardId? = if let value = Uuid.parse(card) { CardId(value: value) } else { nil }
 
     /// The column whose new card form is open, or `nil`.
     @State var adding: ColumnId? = nil

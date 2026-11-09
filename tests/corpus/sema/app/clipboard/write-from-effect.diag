@@ -1,0 +1,6 @@
+error[K4030] 25:23-25:50: `Clipboard.write(text:)` needs a user's action, which may have expired by the time this `await` finishes
+  label 23:9-23:14: the user's action can expire while this waits
+  help: call it before the first `await`; load what it needs before the click, in `@Load`
+error[K4030] 45:15-45:35: `Copier.copy(_:)` needs a user's action, such as a click, but an `@Effect` isn't one
+  note: the path to the user's action: `Copier.copy(_:)` → `Clipboard.write(text:)`
+  help: call it from a click, submit or key handler, before the handler's first `await`

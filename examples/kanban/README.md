@@ -118,6 +118,11 @@ a button that does the same.
 `form.handle(_:)`, which runs the save only for a valid draft
 ([15-forms-and-validation.md](../../docs/design/15-forms-and-validation.md)).
 
+**A card's link is one `CopyButton`** ([45-web-platform.md](../../docs/design/45-web-platform.md#copybutton)).
+The editor's "Copy link" copies the board page's address with `?card=<id>`, made absolute by
+`ShareContent.page`, and says "Copied" for two seconds. `BoardPage`'s optional `card` parameter opens
+that card's editor, so the link works in another tab of the same browser, where the boards are.
+
 **Progress is history, stamped by the injected clock.** Whenever a board's done or total count changes,
 `BoardService` appends a `ProgressPoint` at `clock.now`; `ProgressChart` draws the history with
 `k.charts`' `LineChart`, colored by theme tokens, with the accessible data table every chart has.
@@ -134,11 +139,11 @@ picker. Closing the picker is `.cancelled`, which isn't a problem; a file that d
 |---|---|
 | `BoardService.test.k` | Creating boards and their default columns, title rules, adding cards, moves within and between columns, stale moves ignored, editing and removing, progress history on the `TestClock`, saving and restoring, unreadable and full storage. |
 | `BoardTransfer.test.k` | Export file name and content, an export imported back, a board from elsewhere, a closed picker, a file that isn't a board, a newer format, too large and unreadable files, blocked downloads. |
-| `BoardPage.test.k` | Columns as named lists; moving a card with Space, ArrowRight and Space; reordering with ArrowDown; Escape cancelling; mouse drags onto a column and onto a card; the editor's validation and save; deleting; the N, E and ? shortcuts and a shortcut key typed into a field; an unknown board. |
+| `BoardPage.test.k` | Columns as named lists; moving a card with Space, ArrowRight and Space; reordering with ArrowDown; Escape cancelling; mouse drags onto a column and onto a card; the editor's validation and save; "Copy link" putting the card's link on the `TestClipboard`, and the link opening the editor; deleting; the N, E and ? shortcuts and a shortcut key typed into a field; an unknown board. |
 | `Home.test.k` | The empty state, creating a board (which opens it), a blank name, the board list with progress, importing (which opens the board), an import problem dismissed, the theme buttons, boards kept across visits. |
 
-`k test` installs `MemoryStorage`, `TestFiles` and `TestClock` in place of the browser's storage, file
-picker and clock, so no test touches a real browser. Tests drag the way users do:
+`k test` installs `MemoryStorage`, `TestFiles`, `TestClipboard` and `TestClock` in place of the
+browser's storage, file picker, clipboard and clock, so no test touches a real browser. Tests drag the way users do:
 `item.drag(to: screen.list(named: "Done"))` for the mouse, `press(.space)` and the arrow keys for the
 keyboard, `press(.character("n"))` for a shortcut.
 

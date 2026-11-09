@@ -3,6 +3,8 @@ import board.BoardService
 import board.Card
 import board.CardDraft
 import board.Priority
+import k.device.CopyButton
+import k.device.ShareContent
 import k.validation.Form
 
 /// Edits a card in place: its title and notes through a `@Form` of
@@ -11,6 +13,11 @@ import k.validation.Form
 ///
 /// `form.handle(save)` runs `save` only for a valid draft, so a blank or
 /// too long title is shown under its field and nothing is saved.
+///
+/// "Copy link" (`CopyButton`, `docs/design/45-web-platform.md`) copies the
+/// card's link: the board page with this card's editor open. The boards
+/// are in this browser's storage, so the link opens the card here, in
+/// another tab or after a restart.
 component CardEditor {
     /// The board the card is on.
     @Prop let board: BoardId
@@ -25,6 +32,14 @@ component CardEditor {
     @Form var input: CardDraft = .empty(title: card.title, notes: card.notes)
 
     @State var priority: Priority = card.priority
+
+    /// The card's link, absolute: `ShareContent.page` makes a page's URL
+    /// absolute against the page's origin.
+    @Derived let link: String = if let url = ShareContent.page(.boardPage(id: board.value).card("{card.id.value}")).url {
+        "{url}"
+    } else {
+        ""
+    }
 
     func save() {
         boards.updateCard(board: board, card: card.id, draft: input.value, priority: priority)
@@ -68,6 +83,8 @@ component CardEditor {
                 button { "Cancel" }
                     .type(.button)
                     .on(click: { closed.emit() })
+
+                CopyButton(text: link, label: "Copy link to {card.title}")
 
                 button { "Delete card" }
                     .type(.button)

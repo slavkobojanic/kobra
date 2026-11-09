@@ -1467,6 +1467,18 @@ export function urlHost(url) {
 }
 
 /**
+ * `ShareContent.page`'s URL: the page's `href` made absolute against the
+ * page's origin in the browser, the path as is where there is no origin
+ * (the server).
+ * @param {string} href
+ * @returns {string}
+ */
+export function pageUrl(href) {
+  const o = globalThis.location?.origin;
+  return typeof o === "string" && o.includes("://") ? o + href : String(href);
+}
+
+/**
  * The codes of `HttpStatus`'s named cases, in declaration order (`other`
  * comes last and holds its own code). A codegen test keeps it equal to the
  * stdlib's enum.

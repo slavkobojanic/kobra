@@ -12,6 +12,7 @@ of K it uses fit together.
 | Editing a card with validation | `pages/CardEditor.k`, `board/CardDraft.k` | [Forms and validation](../apps/forms.md) |
 | The progress chart | `pages/ProgressChart.k` | [Charts](../apps/charts.md) |
 | Import and export as JSON | `board/BoardTransfer.k` | [Importing and exporting files](../apps/files.md) |
+| "Copy link" to a card, which opens its editor | `pages/CardEditor.k`, `pages/BoardPage.k` | [Copying and sharing](../apps/clipboard-and-sharing.md) |
 | Boards kept across reloads | `board/BoardService.k`, `storage.lock` | [Local storage](../apps/local-storage.md) |
 | Light, dark and high-contrast looks | `ui/KanbanTheme.k`, `ui/ThemePicker.k` | [Styles and themes](../apps/styles.md) |
 | Progress stamped by the injected clock | `board/BoardService.k` | [Time and timers](../apps/time.md) |
@@ -47,11 +48,12 @@ storage, and a change of the done or total count adds a point to the board's his
 ## Running it
 
 ```sh
-k test examples/kanban          # 41 tests: services, pages, drags, shortcuts, files
+k test examples/kanban          # 42 tests: services, pages, drags, shortcuts, files, the clipboard
 k dev examples/kanban           # the app on http://localhost:8080
 k build examples/kanban         # dist/public only: index.html and hashed assets
 docker compose -f examples/kanban/docker-compose.yml up --build   # nginx on :8080
 ```
 
-The tests never touch a real browser's storage or file picker: `k test` installs `MemoryStorage`,
-`TestFiles` and `TestClock`, and tests drag with `drag(to:)` and the keyboard with `press`.
+The tests never touch a real browser's storage, file picker or clipboard: `k test` installs
+`MemoryStorage`, `TestFiles`, `TestClipboard` and `TestClock`, and tests drag with `drag(to:)` and the
+keyboard with `press`.

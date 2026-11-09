@@ -804,6 +804,8 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("charts", "k:/runtime/charts.js", "k/charts"),
     ("drag", "k:/runtime/drag.js", "k/drag"),
     ("files", "k:/runtime/files.js", "k/device"),
+    ("clipboard", "k:/runtime/clipboard.js", "k/device"),
+    ("share", "k:/runtime/share.js", "k/device"),
     ("keys", "k:/runtime/keys.js", "k/ui"),
     ("streams", "k:/runtime/streams.js", "k/core"),
     ("http", "k:/runtime/http.js", "k/http"),

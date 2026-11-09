@@ -404,6 +404,14 @@ unpinned = [
 commit = "0dd7625"
 date = "2026-11-09"
 
+[pages."apps/clipboard-and-sharing.md"]
+commit = "37e714e"
+date = "2026-11-10"
+note = "new with Clipboard, Share, CopyButton and ShareButton; written against the working tree on top of 37e714e, the behaviour checked with `k test` on crates/k_cli/tests/fixtures/sharing and examples/kanban"
+unpinned = [
+    "screen readers announce \"Copied\" (the live region is pinned by clipboard.test.js; what a screen reader says isn't tested)",
+]
+
 [pages."apps/testing.md"]
 commit = "0dd7625"
 date = "2026-11-09"

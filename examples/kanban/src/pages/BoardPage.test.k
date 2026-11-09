@@ -3,11 +3,13 @@ import board.BoardId
 import board.BoardService
 import board.TitleError
 import k.crypto.Uuid
+import k.test.TestClipboard
 import k.test.TestFiles
 
 test BoardPage {
     @Inject let service: BoardService
     @Inject let files: TestFiles
+    @Inject let clipboard: TestClipboard
 
     /// A board named "Seed" with cards A and B in To do.
     func seeded() throws TitleError -> BoardId {
@@ -166,5 +168,22 @@ test BoardPage {
 
         expect screen.heading(named: "Board not found").exists
         expect screen.link(named: "All boards").exists
+    }
+
+    test "Copy link in the editor copies the card's link, which opens its editor" {
+        let id = try seeded()
+        let card = (service.board(id: id) ?? Board.sample).columns[0].cards[0]
+        let screen = render(BoardPage(id: id.value))
+
+        screen.button(named: "Edit A").click()
+        screen.button(named: "Copy link to A").click()
+        await screen.settle()
+
+        expect (clipboard.text ?? "").endsWith("/boards/{id.value}?card={card.id.value}")
+        expect screen.button(named: "Copy link to A").text == "Copied"
+
+        let opened = render(BoardPage(id: id.value).card("{card.id.value}"))
+
+        expect opened.textField(labeled: "Title of A").exists
     }
 }

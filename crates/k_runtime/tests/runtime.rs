@@ -9,10 +9,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use k_runtime::{
-    CHARTS_SIZE_BUDGET, CORE_SIZE_BUDGET, DRAG_SIZE_BUDGET, FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET,
-    FULL_SIZE_BUDGET, HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, MONEY_SIZE_BUDGET, Part,
-    SERVICES_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET, compact, compacted_sources,
-    module, modules, resolve,
+    CHARTS_SIZE_BUDGET, CLIPBOARD_SIZE_BUDGET, CORE_SIZE_BUDGET, DRAG_SIZE_BUDGET,
+    FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET,
+    MONEY_SIZE_BUDGET, Part, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
+    STREAMS_SIZE_BUDGET, compact, compacted_sources, module, modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -172,6 +172,8 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Charts
                 | Part::Drag
                 | Part::Files
+                | Part::Clipboard
+                | Part::Share
                 | Part::Keys
                 | Part::Streams
                 | Part::Http
@@ -347,6 +349,36 @@ fn the_files_meet_their_size_budget() {
 }
 
 #[test]
+fn the_clipboard_meets_its_size_budget() {
+    let clipboard = compacted_sources(&[Part::Clipboard]).expect("compacts");
+    let size = gzip_len(&clipboard);
+    eprintln!(
+        "clipboard: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {CLIPBOARD_SIZE_BUDGET})",
+        raw_len(&[Part::Clipboard]),
+        clipboard.len()
+    );
+    assert!(
+        size <= CLIPBOARD_SIZE_BUDGET,
+        "the clipboard is {size} bytes gzip, over the {CLIPBOARD_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn sharing_meets_its_size_budget() {
+    let share = compacted_sources(&[Part::Share]).expect("compacts");
+    let size = gzip_len(&share);
+    eprintln!(
+        "share: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {SHARE_SIZE_BUDGET})",
+        raw_len(&[Part::Share]),
+        share.len()
+    );
+    assert!(
+        size <= SHARE_SIZE_BUDGET,
+        "sharing is {size} bytes gzip, over the {SHARE_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
 fn keyboard_shortcuts_meet_their_size_budget() {
     let keys = compacted_sources(&[Part::Keys]).expect("compacts");
     let size = gzip_len(&keys);
@@ -490,6 +522,8 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::Charts
                 | Part::Drag
                 | Part::Files
+                | Part::Clipboard
+                | Part::Share
                 | Part::Keys
                 | Part::Streams
                 | Part::Forms

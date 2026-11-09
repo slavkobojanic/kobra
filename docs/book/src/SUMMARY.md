@@ -72,6 +72,7 @@
 - [Drag and drop](apps/drag-and-drop.md)
 - [Importing and exporting files](apps/files.md)
 - [Keyboard shortcuts](apps/keyboard-shortcuts.md)
+- [Copying and sharing](apps/clipboard-and-sharing.md)
 - [Testing](apps/testing.md)
 - [Packages](apps/packages.md)
 - [Workspaces and services](apps/workspaces.md)

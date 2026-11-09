@@ -318,6 +318,8 @@ CopyButton(text: invite.url.text, label: "Copy invite link")
 - **It renders a `button` whose name is `label`,** and after a successful copy shows "Copied" for two seconds (on the injected `Clock`) and announces it in a polite live region. The button keeps its size, so the layout doesn't move.
 - **It emits `copied: Event<Void>` and `failed: Event<ClipboardWriteError>`.** Listening is optional ([04-components.md](04-components.md#events)); a failure the app ignores shows "Couldn't copy" in place of "Copied", so the user knows to select the text.
 - **`text` is read at the click,** so it can be any reactive value; it can't be fetched after the click, by the [activation rule](#user-activation).
+- *As built* (`crates/k_runtime/js/runtime/clipboard.js`, the `clipboard` feature chunk): a `span` holding the `button` (`aria-label` = `label`, which stays its name while it shows "Copied") and a visually hidden `role="status"` region. It keeps its width by fixing its `min-width` to the width it had at the click. `CopyButton` has no `@Inject` fields, since a component can't inject a platform interface (`K4005`); it reads `Clipboard` and `Clock` from the container it renders in, and the compiler adds both to the containers of an app whose code uses it (`native_component_dependencies` in `k_codegen`). The server renders the same `span`, which the browser takes over while hydrating. `readText()` answers `nil` for an empty string too, since Chromium reads a clipboard holding an image as `""`, and for Gecko's `NotFoundError`.
+- *As built:* `TestClipboard` also has `calls: Int`, the writes and reads so far, failed ones included, which is the "a double records each call" rule of [tests](#tests) for a double whose doc table left it out.
 
 **Test double: `TestClipboard`.**
 
@@ -386,6 +388,14 @@ ShareButton(content: .page(.recipe(id: recipe.id), title: recipe.title), label: 
 - It emits `shared`, `copied` and `failed: Event<ShareButtonFailure>`. `.cancelled` is not a failure and emits nothing.
 
 **Test double: `TestShare`.** `shared: List<ShareContent>` records every share; `cancelNext()`, `failNext(error:)` and `setSupported(_:)` simulate the user and the browser. With `setSupported(false)`, `ShareButton` copies to `TestClipboard`, so a test can check both paths.
+
+*As built* (`crates/k_runtime/js/runtime/share.js`, the `share` feature chunk, and `ShareContent.k`):
+
+- **`ShareButtonFailure`** is `enum { case denied; case unsupported }`: `.denied` when the share or the copy was refused, `.unsupported` when the browser can neither share nor copy (an insecure context). A failure nothing listens to shows "Couldn't share", as `CopyButton` shows "Couldn't copy". Content the sheet refuses (`canShare` false, a `TypeError`) is copied instead, like a browser without a sheet.
+- **`ShareButton` renders as `CopyButton` does** and reads `Share`, `Clipboard` and `Clock` from its container. A share that worked shows nothing, since the sheet was the feedback; a copy shows "Link copied" for a `url`, "Copied" for text.
+- **`ShareContent` has a `@Native private init()`,** so `ShareContent(url:text:title:)` is `K1301`; its three factories are lowered inline to `{url, text, title}`. `page` makes the URL absolute with `location.origin` (`pageUrl` in `std.js`); during server rendering, where there is no origin, it is the page's path.
+- **A static function may share its name with a property** (`ShareContent.text(_:)` and `content.text`): K2019 already exempted functions, but member lookup took whichever member was declared first, so `.text("hi")` found the field. Lookup now takes the member of the namespace asked for (`lookup_in_decl` in `k_sema`).
+- **Kanban's "Copy link"** (the card editor, [implementation tests](#implementation-tests) item 4) copies `ShareContent.page(.boardPage(id:).card(id)).url`, the one way a client-only app has to make a page's link absolute (`PublicUrls` is server-only); the board page's optional `card` parameter opens that card's editor. A `CopyButton(page:label:)` or a client-side `absolute(_ page:)` would read better; it is an [open question](#open-questions).
 
 ## Notifications
 
@@ -764,4 +774,5 @@ Resolved while reconciling with 46: **camera and microphone follow the prompt ru
 - **WebKit in the real-engine suite.** The bindings also run in the planned real-browser suite shared with [33](33-crypto.md#testing) and [46](46-media-and-rtc.md#testing-the-stdlib-against-real-browsers), with permissions granted by launch flags; WebKit automation is the open part.
 - **Element references,** which fullscreen, pointer lock and focus management need: a handler naming an element of its own view.
 - **The visual viewport** (the on-screen keyboard), for sheets and toolbars on phones.
+- **An absolute page link in the browser.** `PublicUrls.absolute(_:)` is server-only; a client-rendered app gets one only through `ShareContent.page(_:).url`, as kanban's "Copy link" does. A client `absolute(_ page:)` (from `location.origin`) or `CopyButton(page:label:)` would say it directly.
 - **Localized texts** of `CopyButton` and `ShareButton` ("Copied", "Link copied") come from `k.i18n`, as drag announcements will ([41-drag-and-drop.md](41-drag-and-drop.md#open-questions)).

@@ -147,6 +147,8 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | `charts.[hash].js` | `charts.js` (part `Charts`), shipped only to apps that chart | ≤ 3 KB (`CHARTS_SIZE_BUDGET`) | 2,306 B |
 | `drag.[hash].js` | `drag.js` (part `Drag`), shipped only to apps that drag and drop | ≤ 4 KB (`DRAG_SIZE_BUDGET`) | 3,493 B |
 | `files.[hash].js` | `files.js` (part `Files`), shipped only to apps whose client injects `Files` | ≤ 1 KB (`FILES_SIZE_BUDGET`) | 886 B |
+| `clipboard.[hash].js` | `clipboard.js` (part `Clipboard`), shipped only to apps whose client copies (`Clipboard`, `CopyButton`) | ≤ 1.25 KB (`CLIPBOARD_SIZE_BUDGET`) | 1,010 B |
+| `share.[hash].js` | `share.js` (part `Share`), shipped only to apps whose client shares (`Share`, `ShareButton`) | ≤ 1.25 KB (`SHARE_SIZE_BUDGET`) | 1,139 B |
 | `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
 | `streams.[hash].js` | `streams.js` (part `Streams`), shipped only to apps with a streaming rpc | ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | 569 B |
 | `http.[hash].js` | `http.js` (part `Http`), shipped only to apps whose client builds or reads an `HttpResponse` | ≤ 1.5 KB (`HTTP_SIZE_BUDGET`) | 1,175 B |
@@ -775,6 +777,32 @@ listener on the document's root element, removed with its owner, and renders an 
 server renders nothing, `$s.natives["k.ui.KeyboardShortcut$ssr"]`). A key fires `on$pressed` in a batch,
 and is prevented, unless it was prevented already, Control, Alt or Meta is held, or the target is an
 `input`, `textarea`, `select` or editable element; a one-character key matches in either case.
+
+### 12.6 Clipboard and sharing
+
+`clipboard.js` (part `Clipboard`) and `share.js` (part `Share`), two feature chunks, are `k.device`'s
+clipboard and Web Share ([45-web-platform.md](../design/45-web-platform.md#clipboard)), constructed by the
+client entry's `$App` for `Clipboard` and `Share` like `BrowserFiles`:
+
+- `BrowserClipboard()`: `isSupported` is a secure context with `navigator.clipboard.writeText`;
+  `write(c, text)` and `readText(c)` throw `unitCase(0)` (`unsupported`) without it and `unitCase(1)`
+  (`denied`) on any rejection; `readText` answers `null` for `""` and for Gecko's `NotFoundError`.
+- `BrowserShare()`: `isSupported` is a secure context with `navigator.share`; `share(c, content)` passes
+  `shareData(content)` (the non-null `url`, `text`, `title`) and throws `unsupported` (0) without a sheet,
+  when `canShare` refuses or on a `TypeError`, `cancelled` (1) on an `AbortError`, `denied` (2) otherwise.
+- `CopyButton(props, ctx)` and `ShareButton(props, ctx)` render a `span.k-status-button` holding a
+  `button` (`type="button"`, `aria-label` = `label`) and a visually hidden `role="status"` region; while
+  hydrating they take the server's `span` (`claimRaw`) and redraw its content. A click reads `text` or
+  `content` untracked and calls `ctx.c.Clipboard` (or `ctx.c.Share`, falling back to copying the `url`, else
+  the `text`, when `isSupported` is false or the share throws `unsupported`); the events fire in a `batch`;
+  the message ("Copied", "Link copied", or "Couldn't copy"/"Couldn't share" when no `on$failed` listens)
+  replaces the button's text and fills the region for 2,000 ms on `ctx.c.Clock.after`, with the button's
+  `min-width` held at its width. The server writes the same markup (`$s.natives["k.device.CopyButton$ssr"]`).
+- Since a component can't inject a platform interface, the compiler gives the containers of an app whose
+  code names `CopyButton` or `ShareButton` the services they read (`native_component_dependencies`,
+  `app.rs`). `ShareContent`'s factories are lowered inline to `{url, text, title}`; `page` wraps the page's
+  `Page$href` in `$k.pageUrl` (`std.js`: `location.origin` + the path, the path alone on the server).
+  The test doubles are the kit's `testClipboard` and `testShare`.
 
 ---
 

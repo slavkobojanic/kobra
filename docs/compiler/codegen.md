@@ -1043,16 +1043,21 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
 - **Imports** between chunks use relative URLs with hashed names; the hash of a chunk covers its contents
   *and* the names it imports, so changing a dependency renames its dependents. The entry imports the
   services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
-- **Feature chunks**: `charts.[hash].js`, `drag.[hash].js`, `files.[hash].js`, `keys.[hash].js`,
-  `http.[hash].js` and `streams.[hash].js` (`runtime/charts.js`, …), emitted only when a client chunk or
-  the client entry uses a symbol they implement (`k.charts.LineChart`; `k.drag.ReorderableList`,
-  `Draggable`, `DropTarget`, `DragKind(name:)`; `k.ui.KeyboardShortcut`; `streamed`; and
-  `k.device.BrowserFiles`, which the entry's `$App` constructs for `Files`), with their imports of other
+- **Feature chunks**: `charts.[hash].js`, `drag.[hash].js`, `files.[hash].js`, `clipboard.[hash].js`,
+  `share.[hash].js`, `keys.[hash].js`, `http.[hash].js` and `streams.[hash].js` (`runtime/charts.js`, …),
+  emitted only when a client chunk or the client entry uses a symbol they implement
+  (`k.charts.LineChart`; `k.drag.ReorderableList`, `Draggable`, `DropTarget`, `DragKind(name:)`;
+  `k.ui.KeyboardShortcut`; `k.device.CopyButton` and `ShareButton`; `streamed`; and
+  `k.device.BrowserFiles`, `BrowserClipboard` and `BrowserShare`, which the entry's `$App` constructs for
+  `Files`, `Clipboard` and `Share`), with their imports of other
   runtime files pointing at the runtime chunk; the chunks that use them import those symbols from them
   (`import { LineChart } from "../charts.[hash].js";`, and from the entry
   `import { BrowserFiles } from "./files.[hash].js";`) instead of binding `$k.native`
   ([runtime.md §1](runtime.md#1-status-and-scope)). The `k.drag` components and `KeyboardShortcut`
-  render on the server through `$s.natives["k.drag.…$ssr"]` and `$s.natives["k.ui.KeyboardShortcut$ssr"]`.
+  render on the server through `$s.natives["k.drag.…$ssr"]` and `$s.natives["k.ui.KeyboardShortcut$ssr"]`,
+  `CopyButton` and `ShareButton` through `$s.natives["k.device.CopyButton$ssr"]` and `…ShareButton$ssr`.
+  Those two read `Clipboard`, `Share` and `Clock` from their render context's container, so an app whose
+  code names one gets those getters in its containers (`native_component_dependencies`).
 - **Runtime feature chunks**: `forms.[hash].js` (`runtime/forms.js`) and `money.[hash].js`
   (`runtime/money.js`) hold runtime functions that lowering calls as members of `$k` (`$k.createForm`,
   `$k.fieldParser`, `$k.decimal`, `$k.money`, `$k.moneyCodecs.money`; the codecs of `Decimal`, `Currency`

@@ -1,0 +1,1 @@
+error[K1301] 6:12-6:24: the initializer of `ShareContent` is private

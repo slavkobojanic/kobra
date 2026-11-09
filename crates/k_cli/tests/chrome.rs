@@ -658,6 +658,43 @@ fn kanban_chart_fills_its_width() {
     assert!(offset < 2.0, "the chart starts {offset}px inside its box");
 }
 
+/// The card editor's "Copy link" (`CopyButton`, 45-web-platform.md) puts
+/// the card's absolute link on the real clipboard, says "Copied", and the
+/// link opens the card's editor. The clipboard permission is granted over
+/// DevTools, as a user's earlier "Allow" would be.
+#[test]
+fn kanban_copies_a_card_link_to_the_clipboard() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("kanban-copy-link");
+    let (site, mut tab) = kanban(&dir, &["Ship it"]);
+    tab.cdp.call(
+        "Browser.grantPermissions",
+        json!({
+            "origin": site.origin,
+            "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"],
+        }),
+    );
+    let edit = tab.role("button", "Edit Ship it");
+    tab.click(&edit);
+    let copy = tab.role("button", "Copy link to Ship it");
+    tab.click(&copy);
+    tab.wait("the button says Copied", |t| {
+        let copy = t.role("button", "Copy link to Ship it");
+        (t.text_of(&copy) == "Copied").then_some(())
+    });
+    let copied = tab.eval("navigator.clipboard.readText()");
+    let link = copied.as_str().unwrap_or_default().to_owned();
+    let board = tab.path();
+    assert!(
+        link.starts_with(&format!("{}{board}?card=", site.origin)),
+        "the clipboard holds the card's absolute link, not {copied}"
+    );
+    tab.open(&link);
+    tab.role("textbox", "Title of Ship it");
+}
+
 // ================================================================= weather
 
 /// Berlin as Open-Meteo answers `GET /v1/get?id=2950159`.

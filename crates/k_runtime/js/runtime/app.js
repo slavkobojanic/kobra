@@ -36,6 +36,7 @@ import { httpStatus, received, runJobBody, wireRequest } from "./outbound.js";
 import * as http from "./http.js";
 import { chartKey, chartProps, lineChart } from "./charts.js";
 import { ATTRS as DRAG, DragKind$init } from "./drag.js";
+import { STATUS_HIDDEN } from "./clipboard.js";
 
 /** The ops the Rust server exposes to this isolate; `undefined` outside it. */
 const ops = globalThis.Deno?.core?.ops;
@@ -1663,6 +1664,19 @@ const dragSsr = {
 };
 
 /**
+ * The server's `CopyButton` and `ShareButton` (45-web-platform.md, "Server
+ * rendering"): the button named and labelled `label` and the empty live
+ * region, in the `span` the browser's `statusButton` takes over.
+ * @param {Record<string, () => unknown>} props
+ * @param {object} _ctx
+ * @param {Out} out
+ */
+function statusButtonSsr(props, _ctx, out) {
+  const label = String(props.label());
+  out.raw(`<span class="k-status-button"><button type="button" aria-label="${escapeAttribute(label)}">${escapeText(label)}</button><span role="status" style="${STATUS_HIDDEN}"></span></span>`);
+}
+
+/**
  * Server implementations of `@Native` stdlib members that have no
  * generated body, by `module.Owner$member` (the generated bundle falls
  * back to {@link missingNative}). A `Uuid` is its lowercase canonical text,
@@ -1676,6 +1690,9 @@ export const natives = {
   "k.drag.DragKind$init": DragKind$init,
   // A shortcut renders nothing; it listens once the browser runs.
   "k.ui.KeyboardShortcut$ssr": () => {},
+  // They render their button; it copies or shares once the browser runs.
+  "k.device.CopyButton$ssr": statusButtonSsr,
+  "k.device.ShareButton$ssr": statusButtonSsr,
   "k.crypto.Password": password,
   "k.crypto.Hmac": { sha256: hmacOf(256), sha512: hmacOf(512) },
   "k.crypto.Mac$matches": macMatches,

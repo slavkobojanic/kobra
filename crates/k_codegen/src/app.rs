@@ -479,6 +479,7 @@ pub(crate) fn client_reach(g: &Gen<'_>, items: &BTreeMap<DeclId, Item>) -> BTree
         }
         let mut next: Vec<DeclId> = crate::server::injected(g, d);
         next.extend(form_dependencies(g, d));
+        next.extend(native_component_dependencies(g, d));
         if let Some(item) = items.get(&d) {
             next.extend(item.uses.iter().map(|(u, _)| *u));
         }
@@ -660,7 +661,11 @@ pub(crate) fn client_containers(
         if !reach.contains(&d) || !crate::bundle::allowed(g, d, Target::Client) {
             continue;
         }
-        for t in injected(g, d).into_iter().chain(form_dependencies(g, d)) {
+        for t in injected(g, d)
+            .into_iter()
+            .chain(form_dependencies(g, d))
+            .chain(native_component_dependencies(g, d))
+        {
             if !wanted.contains(&t) {
                 wanted.push(t);
             }
@@ -715,6 +720,8 @@ pub(crate) fn client_containers(
                     "k.storage.LocalStorage" => "k.storage.BrowserStorage",
                     "k.http.HttpClient" => "k.http.FetchHttpClient",
                     "k.device.Files" => "k.device.BrowserFiles",
+                    "k.device.Clipboard" => "k.device.BrowserClipboard",
+                    "k.device.Share" => "k.device.BrowserShare",
                     _ => return None,
                 };
                 g.view.lookup(default)
@@ -825,13 +832,22 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
             rt("browserStorage", args)
         }
         // The files chunk's (runtime.md §12.4), imported by the entry.
-        "k.device.BrowserFiles" => match b.g.view.lookup(qualified) {
-            Some(d) => call(b.use_decl(d, "BrowserFiles".into()), vec![]),
-            None => rt("native", vec![js::str(qualified)]),
-        },
+        // The feature chunks' (runtime.md §12.4, §12.6), imported by the
+        // entry.
+        "k.device.BrowserFiles" | "k.device.BrowserClipboard" | "k.device.BrowserShare" => {
+            match b.g.view.lookup(qualified) {
+                Some(d) => {
+                    let name = b.g.name(d);
+                    call(b.use_decl(d, name), vec![])
+                }
+                None => rt("native", vec![js::str(qualified)]),
+            }
+        }
         // The test's one clock, shared with its server container.
         "k.test.TestClock" => crate::suite::kit_call("sharedClock", vec![]),
         "k.test.TestFiles" => crate::suite::kit_call("testFiles", vec![]),
+        "k.test.TestClipboard" => crate::suite::kit_call("testClipboard", vec![]),
+        "k.test.TestShare" => crate::suite::kit_call("testShare", vec![]),
         "k.test.MemoryStorage" => crate::suite::kit_call(
             "memoryStorage",
             enums(
@@ -1372,6 +1388,42 @@ pub(crate) fn form_dependencies(g: &Gen<'_>, d: DeclId) -> Vec<DeclId> {
     }
     if !out.is_empty() {
         out.extend(g.view.lookup("k.time.Clock"));
+    }
+    out
+}
+
+/// The services the stdlib's `@Native` components that `d`'s code uses
+/// read from the container they render in (`ctx.c`): `CopyButton` copies
+/// with the injected `Clipboard` and times its "Copied" on the `Clock`,
+/// `ShareButton` also shares with `Share` (45-web-platform.md). They have
+/// no `@Inject` fields, since a component can't inject a platform
+/// interface, so the containers learn them here.
+pub(crate) fn native_component_dependencies(g: &Gen<'_>, d: DeclId) -> Vec<DeclId> {
+    let Some(node) = g.decl_node(d) else {
+        return Vec::new();
+    };
+    let file = g.view.decl(d).file;
+    let mut out = Vec::new();
+    for n in node.descendants().filter_map(ast::NameExpr::cast) {
+        let Some(name) = n.name() else { continue };
+        if !matches!(name.text(), "CopyButton" | "ShareButton") {
+            continue;
+        }
+        let Some(Resolved::Decl(c)) = g.resolved(file, name.text_range()) else {
+            continue;
+        };
+        let services: &[&str] = match g.view.qualified_name(c).as_str() {
+            "k.device.CopyButton" => &["k.device.Clipboard", "k.time.Clock"],
+            "k.device.ShareButton" => &["k.device.Share", "k.device.Clipboard", "k.time.Clock"],
+            _ => continue,
+        };
+        for s in services {
+            if let Some(t) = g.view.lookup(s) {
+                if !out.contains(&t) {
+                    out.push(t);
+                }
+            }
+        }
     }
     out
 }

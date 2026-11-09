@@ -525,6 +525,45 @@ test("TestFiles answers the chosen files in order, else .cancelled, and records 
   assertEq(files.saved.length, 1, "a failed save keeps nothing");
 });
 
+test("TestClipboard holds text in memory, counts calls, and fails or is unsupported on request", async () => {
+  const clipboard = kit.testClipboard();
+  const settle = (p) => p.then((ok) => ({ ok }), (error) => ({ error }));
+  assertEq(clipboard.text, null, "empty at the start");
+  assert(clipboard.isSupported);
+  assertEq(await clipboard.readText(null), null);
+  await clipboard.write(null, "copied");
+  assertEq(clipboard.text, "copied");
+  clipboard.set("from elsewhere");
+  assertEq(await clipboard.readText(null), "from elsewhere");
+  clipboard.failWrites(unitCase(1));
+  assertEq((await settle(clipboard.write(null, "x"))).error, unitCase(1));
+  assertEq(clipboard.text, "from elsewhere");
+  clipboard.failReads(unitCase(1));
+  assertEq((await settle(clipboard.readText(null))).error, unitCase(1));
+  clipboard.setSupported(false);
+  assert(!clipboard.isSupported);
+  assertEq((await settle(clipboard.readText(null))).error, unitCase(0));
+  assertEq(clipboard.calls, 6);
+});
+
+test("TestShare records each share, and cancels, fails or is unsupported on request", async () => {
+  const share = kit.testShare();
+  const settle = (p) => p.then((ok) => ({ ok }), (error) => ({ error }));
+  const content = { url: "https://example.com/", text: null, title: null };
+  assert(share.isSupported);
+  await share.share(null, content);
+  assertDeepEq(share.shared, [content]);
+  share.cancelNext();
+  assertEq((await settle(share.share(null, content))).error, unitCase(1));
+  share.failNext(unitCase(2));
+  assertEq((await settle(share.share(null, content))).error, unitCase(2));
+  await share.share(null, content);
+  assertEq(share.shared.length, 2, "only the next share fails");
+  share.setSupported(false);
+  assertEq((await settle(share.share(null, content))).error, unitCase(0));
+  assertEq(share.shared.length, 2);
+});
+
 test("press knows the arrow keys left and right, and characters", () => {
   const s = screenOf("<button>Go</button>");
   const keys = [];

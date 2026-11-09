@@ -3,19 +3,52 @@
 
 # `k.device`
 
-Import each declaration by name, for example `import k.device.BrowserFiles`.
+Import each declaration by name, for example `import k.device.BrowserClipboard`.
 
 | Declaration | Summary |
 |---|---|
+| [`BrowserClipboard`](#browserclipboard) | The standard [`Clipboard`](#clipboard): the browser's asynchronous clipboard (`navigator.clipboard`). |
 | [`BrowserFiles`](#browserfiles) | The standard [`Files`](#files): the browser's file picker (an `input` of type `file`) and downloads through an object URL. |
+| [`BrowserShare`](#browsershare) | The standard [`Share`](#share): the browser's Web Share API (`navigator.share`). |
+| [`Clipboard`](#clipboard) | Plain text on the system clipboard (`docs/design/45-web-platform.md`, "Clipboard"). |
+| [`ClipboardReadError`](#clipboardreaderror) | Why [`Clipboard.readText()`](#clipboard) read nothing (`docs/design/45-web-platform.md`, "Clipboard"). |
+| [`ClipboardWriteError`](#clipboardwriteerror) | Why [`Clipboard.write(text:)`](#clipboard) didn't copy (`docs/design/45-web-platform.md`, "Clipboard"). |
+| [`CopyButton`](#copybutton) | A button that copies `text` to the clipboard (`docs/design/45-web-platform.md`, "CopyButton"): `CopyButton(text: invite.url, label: "Copy invite link")`. |
 | [`File`](#file) | A file the user chose, or one the app made to save (`docs/design/42-files.md`). |
 | [`FileOpenError`](#fileopenerror) | Why [`Files.open`](#files) or [`Files.openAll`](#files) returned no file (`docs/design/42-files.md`). |
 | [`Files`](#files) | Opening files the user chooses, and saving files the app generates as downloads (`docs/design/42-files.md`). |
 | [`FileSaveError`](#filesaveerror) | Why [`Files.save`](#files) couldn't start a download (`docs/design/42-files.md`). |
 | [`FileType`](#filetype) | A kind of file the picker offers (`docs/design/42-files.md`): its media type and file name extension. |
 | [`PermissionState`](#permissionstate) | Whether the app may use a permissioned browser feature (`docs/design/45-web-platform.md`, "Permissions"). |
+| [`Share`](#share) | The system share sheet (`docs/design/45-web-platform.md`, "Web Share"). |
+| [`ShareButton`](#sharebutton) | A button that shares `content` (`docs/design/45-web-platform.md`, "ShareButton"): `ShareButton(content: .page(.recipe(id: recipe.id), title: recipe.title), label: "Share recipe")`. |
+| [`ShareButtonFailure`](#sharebuttonfailure) | Why a [`ShareButton`](#sharebutton) neither shared nor copied (`docs/design/45-web-platform.md`, "ShareButton"). |
+| [`ShareContent`](#sharecontent) | What to share (`docs/design/45-web-platform.md`, "Web Share"): a page of the app, a link or text, with an optional title. |
+| [`ShareError`](#shareerror) | Why [`Share.share(_:)`](#share) didn't share (`docs/design/45-web-platform.md`, "Web Share"). |
 | [`Subscription`](#subscription) | A running callback subscription, such as a handler listening for messages from the app's other tabs (`docs/design/45-web-platform.md`, "Ownership and lifetime"). |
 | [`TabChannel`](#tabchannel) | A channel between the app's tabs, paired with the type of its messages: `TabChannel<CartChange> = TabChannel(name: "cart")` (`docs/design/45-web-platform.md`, "Messages between tabs"). |
+
+## BrowserClipboard
+
+```k,ignore
+@ClientOnly
+public service BrowserClipboard implements Clipboard
+```
+
+The standard [`Clipboard`](#clipboard): the browser's asynchronous clipboard
+(`navigator.clipboard`).
+
+**Members**
+
+- `var isSupported: Bool`
+  `true` in a secure context whose browser has the clipboard API; see
+  [`Clipboard.isSupported`](#clipboard).
+- `@UserAction func write(text: String) async throws ClipboardWriteError`
+  Writes `text` with the browser's clipboard; see
+  [`Clipboard.write(text:)`](#clipboard).
+- `@UserAction func readText() async throws ClipboardReadError -> String?`
+  Reads the browser's clipboard as text; see
+  [`Clipboard.readText()`](#clipboard).
 
 ## BrowserFiles
 
@@ -37,6 +70,113 @@ The standard [`Files`](#files): the browser's file picker (an `input` of type
   [`Files.openAll(accepting:)`](#files).
 - `func save(_ file: File) throws FileSaveError`
   Starts a download of `file`; see [`Files.save(_:)`](#files).
+
+## BrowserShare
+
+```k,ignore
+@ClientOnly
+public service BrowserShare implements Share
+```
+
+The standard [`Share`](#share): the browser's Web Share API
+(`navigator.share`).
+
+**Members**
+
+- `var isSupported: Bool`
+  `true` in a secure context whose browser can share; see
+  [`Share.isSupported`](#share).
+- `@UserAction(consuming: true) func share(_ content: ShareContent) async throws ShareError`
+  Opens the browser's share sheet; see [`Share.share(_:)`](#share).
+
+## Clipboard
+
+```k,ignore
+@Platform(side: .client)
+public interface Clipboard
+```
+
+Plain text on the system clipboard (`docs/design/45-web-platform.md`,
+"Clipboard"). A client-only platform interface: [`BrowserClipboard`](#browserclipboard) is
+injected with no `use` rule, and [`k.test.TestClipboard`](k-test.md#testclipboard) replaces it in
+tests. For the common "copy this" button a view needs no service:
+[`CopyButton`](#copybutton) does it.
+
+Both members must be called from a user's action (a click handler)
+before its first `await`: browsers allow clipboard access only then.
+
+**Members**
+
+- `var isSupported: Bool`
+  Whether this browser can use the clipboard here: `false` outside a
+  secure context (`http:` on a host other than `localhost`), and
+  during server rendering. It doesn't change while the page is open.
+- `@UserAction func write(text: String) async throws ClipboardWriteError`
+  Replaces the clipboard's content with `text`.
+
+  - Throws: [`ClipboardWriteError.unsupported`](#clipboardwriteerror) where
+    `isSupported` is `false`, [`ClipboardWriteError.denied`](#clipboardwriteerror) when
+    the browser refuses.
+- `@UserAction func readText() async throws ClipboardReadError -> String?`
+  Reads the clipboard's text. Some browsers show a "Paste"
+  confirmation for each read.
+
+  - Returns: the text, or `nil` when the clipboard holds no text (an
+    image, or nothing).
+  - Throws: [`ClipboardReadError.unsupported`](#clipboardreaderror) where `isSupported`
+    is `false`, [`ClipboardReadError.denied`](#clipboardreaderror) when the browser or the
+    user refuses.
+
+## ClipboardReadError
+
+```k,ignore
+public enum ClipboardReadError implements Error, Equatable
+```
+
+Why [`Clipboard.readText()`](#clipboard) read nothing
+(`docs/design/45-web-platform.md`, "Clipboard").
+
+**Members**
+
+- `case unsupported`
+  This browser or context has no clipboard ([`Clipboard.isSupported`](#clipboard)
+  is `false`).
+- `case denied`
+  The browser or the user refused, which may happen at each read.
+
+## ClipboardWriteError
+
+```k,ignore
+public enum ClipboardWriteError implements Error, Equatable
+```
+
+Why [`Clipboard.write(text:)`](#clipboard) didn't copy
+(`docs/design/45-web-platform.md`, "Clipboard").
+
+**Members**
+
+- `case unsupported`
+  This browser or context has no clipboard ([`Clipboard.isSupported`](#clipboard)
+  is `false`).
+- `case denied`
+  The browser refused: a policy, or no user's action.
+
+## CopyButton
+
+```k,ignore
+public component CopyButton
+```
+
+A button that copies `text` to the clipboard
+(`docs/design/45-web-platform.md`, "CopyButton"):
+`CopyButton(text: invite.url, label: "Copy invite link")`.
+
+Its accessible name is `label`. After a copy it shows "Copied" for two
+seconds (on the injected [`k.time.Clock`](k-time.md#clock)) and announces it in a polite
+live region; the button keeps its size. It uses the injected
+[`Clipboard`](#clipboard), so in `k test` it writes to [`k.test.TestClipboard`](k-test.md#testclipboard).
+It renders on the server as it will in the browser, and copies once
+the page has hydrated.
 
 ## File
 
@@ -199,6 +339,117 @@ interface exposes it as a reactive `permission` member; only its
 - `case denied`
   The user, a browser setting or a policy refused it; only the
   browser's site settings can change it now.
+
+## Share
+
+```k,ignore
+@Platform(side: .client)
+public interface Share
+```
+
+The system share sheet (`docs/design/45-web-platform.md`, "Web
+Share"). A client-only platform interface: [`BrowserShare`](#browsershare) is
+injected with no `use` rule, and [`k.test.TestShare`](k-test.md#testshare) replaces it in
+tests. For the common "share this" button a view needs no service:
+[`ShareButton`](#sharebutton) does it.
+
+**Members**
+
+- `var isSupported: Bool`
+  Whether this browser has a share sheet here: `false` on most desktop
+  browsers without one, outside a secure context and during server
+  rendering. It doesn't change while the page is open.
+- `@UserAction(consuming: true) func share(_ content: ShareContent) async throws ShareError`
+  Opens the share sheet with `content` and returns when the user has
+  picked a target. It uses up the user's action, so one click shares
+  once.
+
+  - Throws: [`ShareError.unsupported`](#shareerror) where `isSupported` is
+    `false` or the browser can't share `content`,
+    [`ShareError.cancelled`](#shareerror) when the user closes the sheet, and
+    [`ShareError.denied`](#shareerror) when a policy refuses.
+
+## ShareButton
+
+```k,ignore
+public component ShareButton
+```
+
+A button that shares `content` (`docs/design/45-web-platform.md`,
+"ShareButton"): `ShareButton(content: .page(.recipe(id: recipe.id),
+title: recipe.title), label: "Share recipe")`.
+
+Where the browser can share it opens the share sheet; where it can't,
+it copies the link (or the text) to the clipboard and says "Link
+copied" (or "Copied") for two seconds in a polite live region. It
+renders the same button either way, so server rendering and hydration
+agree. It uses the injected [`Share`](#share) and [`Clipboard`](#clipboard), so in `k test`
+it shares to [`k.test.TestShare`](k-test.md#testshare) and copies to
+[`k.test.TestClipboard`](k-test.md#testclipboard).
+
+## ShareButtonFailure
+
+```k,ignore
+public enum ShareButtonFailure implements Error, Equatable
+```
+
+Why a [`ShareButton`](#sharebutton) neither shared nor copied
+(`docs/design/45-web-platform.md`, "ShareButton"). Closing the share
+sheet isn't a failure.
+
+**Members**
+
+- `case denied`
+  The browser refused the share or the copy: a policy, or the user's
+  action was already used.
+- `case unsupported`
+  The browser can neither share nor copy here (an insecure context).
+
+## ShareContent
+
+```k,ignore
+public struct ShareContent implements Equatable
+```
+
+What to share (`docs/design/45-web-platform.md`, "Web Share"): a page
+of the app, a link or text, with an optional title. Built by
+`page(_:title:)`, `link(_:title:)` or `text(_:title:)`, so it
+always carries something to share.
+
+**Members**
+
+- `let url: Url?`
+  The link, absolute.
+- `let text: String?`
+  The text.
+- `let title: String?`
+  The title, which some share targets show.
+- `static func page(_ page: Page, title: String? = nil) -> ShareContent`
+  A page of the app, made absolute against the page's origin in the
+  browser (during server rendering its URL is the page's path).
+- `static func link(_ url: Url, title: String? = nil) -> ShareContent`
+  A link.
+- `static func text(_ text: String, title: String? = nil) -> ShareContent`
+  Text.
+
+## ShareError
+
+```k,ignore
+public enum ShareError implements Error, Equatable
+```
+
+Why [`Share.share(_:)`](#share) didn't share
+(`docs/design/45-web-platform.md`, "Web Share").
+
+**Members**
+
+- `case unsupported`
+  No share sheet here (desktop Firefox, Chromium on Linux, an insecure
+  context), or not for this content.
+- `case cancelled`
+  The user closed the sheet without choosing a target.
+- `case denied`
+  A policy refused, or the user's action was already used.
 
 ## Subscription
 

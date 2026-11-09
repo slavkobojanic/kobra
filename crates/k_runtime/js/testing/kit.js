@@ -11,7 +11,8 @@
  *   actions (`click`, `fill`, `press`, `drag(to:)`), each action flushing
  *   synchronous updates.
  * - The hermetic defaults of `k.test`: `TestClock` (virtual time),
- *   `MemoryStorage`, `TestHttpClient`, `TestFiles`, `RecordingJobQueue`
+ *   `MemoryStorage`, `TestHttpClient`, `TestFiles`, `TestClipboard`,
+ *   `TestShare`, `RecordingJobQueue`
  *   and `RecordingEmailProvider`.
  * - `fail` and `failThrows`: a failed `expect`, as a panic carrying the
  *   expectation's source range and the values of its sub-expressions.
@@ -1321,6 +1322,95 @@ export function testFiles() {
     /** Makes every later `save` throw `error`. */
     failSaves(error) {
       saveError = error;
+    },
+  };
+}
+
+/**
+ * `k.test.TestClipboard`: a clipboard in memory (45-web-platform.md,
+ * "Clipboard"), empty for every test. `write` and `readText` count in
+ * `calls`, throw the error given to `failWrites`/`failReads`, and throw
+ * `.unsupported` (`unitCase(0)`) after `setSupported(false)`. `set` puts
+ * text there as another application would.
+ */
+export function testClipboard() {
+  let text = null;
+  let supported = true;
+  let calls = 0;
+  let writeError = null;
+  let readError = null;
+  const check = (error) => {
+    calls++;
+    if (!supported) throw unitCase(0);
+    if (error !== null) throw error;
+  };
+  return {
+    get text() {
+      return text;
+    },
+    get isSupported() {
+      return supported;
+    },
+    get calls() {
+      return calls;
+    },
+    async write(_c, value) {
+      check(writeError);
+      text = String(value);
+    },
+    async readText(_c) {
+      check(readError);
+      return text === "" ? null : text;
+    },
+    /** Puts `value` on the clipboard, as if another application copied it. */
+    set(value) {
+      text = String(value);
+    },
+    failWrites(error) {
+      writeError = error;
+    },
+    failReads(error) {
+      readError = error;
+    },
+    setSupported(value) {
+      supported = value === true;
+    },
+  };
+}
+
+/**
+ * `k.test.TestShare`: no share sheet (45-web-platform.md, "Web Share").
+ * `share` records the content in `shared`, unless `cancelNext` (`.cancelled`,
+ * `unitCase(1)`) or `failNext` set what the next one throws, or
+ * `setSupported(false)` made every share `.unsupported` (`unitCase(0)`).
+ */
+export function testShare() {
+  const shared = [];
+  let supported = true;
+  let next = null;
+  return {
+    /** A copy of the contents shared so far, oldest first. */
+    get shared() {
+      return [...shared];
+    },
+    get isSupported() {
+      return supported;
+    },
+    async share(_c, content) {
+      if (!supported) throw unitCase(0);
+      const e = next;
+      next = null;
+      if (e !== null) throw e;
+      shared.push(content);
+    },
+    cancelNext() {
+      next = unitCase(1);
+    },
+    failNext(error) {
+      next = error;
+    },
+    setSupported(value) {
+      supported = value === true;
     },
   };
 }

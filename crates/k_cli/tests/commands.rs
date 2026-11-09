@@ -1229,6 +1229,24 @@ fn test_passes_every_regression_of_the_runner() {
 }
 
 #[test]
+fn test_copies_and_shares_through_the_clipboard_and_share_doubles() {
+    // `Clipboard`, `Share`, `CopyButton` and `ShareButton` against
+    // `TestClipboard` and `TestShare` (45-web-platform.md): the copy and
+    // its status on the `TestClock`, failures with and without a listener,
+    // the share sheet and the copy where the browser can't share.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sharing");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("0 failed"), "{text}");
+    assert!(
+        text.contains("PASS  ShareInvite › where the browser can't share, the button copies the link and says so"),
+        "{text}"
+    );
+}
+
+#[test]
 fn test_expect_throws_checks_the_case_it_names() {
     // A qualified case pattern (`Choice.second`) was read as its type's
     // name, which matched any error.

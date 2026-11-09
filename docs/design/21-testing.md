@@ -74,6 +74,8 @@ test AddToCart {
 | `EmailProvider` | `RecordingEmailProvider` | keeps sent messages in `sent`; `simulateFailure(error:)` ([31-email.md](31-email.md)) |
 | `HttpClient` | `TestHttpClient` | answers only requests it has a canned response for; any other request fails the test, naming the URL ([32-http-client.md](32-http-client.md)) |
 | `Files` | `TestFiles` | opens no picker and starts no download; `choose(_:)` says what the user picks, `saved` holds what was saved ([42-files.md](42-files.md#tests-testfiles)) |
+| `Clipboard` | `TestClipboard` | a clipboard in memory, empty for every test; `text` is what it holds, `set(text:)` copies as another application would, `failWrites(error:)`, `failReads(error:)`, `setSupported(_:)` ([45-web-platform.md](45-web-platform.md#copybutton)) |
+| `Share` | `TestShare` | opens no sheet; `shared` records every share, `cancelNext()`, `failNext(error:)`, `setSupported(_:)` ([45-web-platform.md](45-web-platform.md#sharebutton)) |
 
 - **A test reaches a default with `@Inject`,** by its concrete type: `@Inject let clock: TestClock`, `@Inject let mailer: RecordingEmailProvider`.
 - **`use` is written only to choose something else,** such as `use InlineJobQueue for JobQueue` or the app's own `use FakeHttpClient for HttpClient`. A `use` that restates the default is a warning with a quick fix that removes it, so there is one way to write a test.

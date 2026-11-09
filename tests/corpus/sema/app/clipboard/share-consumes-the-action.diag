@@ -1,0 +1,2 @@
+error[K4030] 11:23-11:73: `Share.share(_:)` uses up the user's action, and an earlier call already did; a second one needs another click
+  label 10:23-10:48: this call uses up the user's action

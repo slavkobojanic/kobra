@@ -99,6 +99,18 @@ pub const DRAG_SIZE_BUDGET: usize = 4 * 1024;
 /// §11.3).
 pub const FILES_SIZE_BUDGET: usize = 1024;
 
+/// The largest `k.device`'s clipboard in the browser ([`Part::Clipboard`]:
+/// `BrowserClipboard` and `CopyButton`) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (1.25 KB). It ships in its own chunk, only to apps
+/// whose client copies (`docs/compiler/performance.md` §11.3).
+pub const CLIPBOARD_SIZE_BUDGET: usize = 1280;
+
+/// The largest `k.device`'s sharing in the browser ([`Part::Share`]:
+/// `BrowserShare` and `ShareButton`) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (1.25 KB). It ships in its own chunk, only to apps
+/// whose client shares (`docs/compiler/performance.md` §11.3).
+pub const SHARE_SIZE_BUDGET: usize = 1280;
+
 /// The largest `k.ui.KeyboardShortcut` in the browser ([`Part::Keys`]) may
 /// be, measured like [`CORE_SIZE_BUDGET`] (512 B). It ships in its own
 /// chunk, only to apps that use keyboard shortcuts
@@ -157,6 +169,14 @@ pub enum Part {
     /// own client chunk, only to apps whose client opens or saves files,
     /// and measured on its own ([`FILES_SIZE_BUDGET`]).
     Files,
+    /// `k.device`'s clipboard in the browser (`BrowserClipboard`,
+    /// `CopyButton`): shipped as its own client chunk, only to apps whose
+    /// client copies, and measured on its own ([`CLIPBOARD_SIZE_BUDGET`]).
+    Clipboard,
+    /// `k.device`'s sharing in the browser (`BrowserShare`,
+    /// `ShareButton`): shipped as its own client chunk, only to apps whose
+    /// client shares, and measured on its own ([`SHARE_SIZE_BUDGET`]).
+    Share,
     /// `k.ui.KeyboardShortcut` in the browser: shipped as its own client
     /// chunk, only to apps that use it, and measured on its own
     /// ([`KEYS_SIZE_BUDGET`]).
@@ -242,6 +262,8 @@ const MODULES: &[Module] = modules![
     Charts "runtime/charts.js",
     Drag "runtime/drag.js",
     Files "runtime/files.js",
+    Clipboard "runtime/clipboard.js",
+    Share "runtime/share.js",
     Keys "runtime/keys.js",
     Streams "runtime/streams.js",
     Http "runtime/http.js",

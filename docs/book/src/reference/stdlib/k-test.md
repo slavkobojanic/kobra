@@ -16,10 +16,12 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`render`](#render) | Mounts `view` in the test's browser container (`docs/design/21-testing.md`, "Rendering and querying"). |
 | [`Screen`](#screen) | A rendered view, returned by `render(_:)`. |
 | [`TestClient`](#testclient) | Sends requests through the whole server stack in-process: routing, guards, server rendering and endpoint pages (`docs/design/21-testing.md`, "HTTP-level tests"). |
+| [`TestClipboard`](#testclipboard) | The default [`Clipboard`](k-device.md#clipboard) in `k test` (`docs/design/45-web-platform.md`, "Clipboard"): a clipboard in memory, empty for every test, never the machine's. |
 | [`TestClock`](#testclock) | Virtual time for tests, the default [`Clock`](k-time.md#clock) in `k test` (`docs/design/35-time.md`, "Testing with TestClock"). |
 | [`TestFiles`](#testfiles) | The default [`Files`](k-device.md#files) in `k test` (`docs/design/42-files.md`): no picker opens. |
 | [`TestHttpClient`](#testhttpclient) | The default [`HttpClient`](k-http.md#httpclient) in `k test`: it answers only requests it has a canned response for, and fails the test on any other. |
 | [`TestRemote`](#testremote) | The `.test` binding of every `remote` rule, also when the serving app is a member of the same workspace (`docs/design/40-workspaces-and-services.md`): an in-process double of protocol `P` whose every rpc fails with `rpcFailure(.offline)` ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so each service's tests stay hermetic and never open a socket. |
+| [`TestShare`](#testshare) | The default [`Share`](k-device.md#share) in `k test` (`docs/design/45-web-platform.md`, "Web Share"): no sheet opens; every share is recorded, and the user picks a target unless the test says otherwise. |
 
 ## Element
 
@@ -316,6 +318,41 @@ guards, server rendering and endpoint pages
 
   - Returns: the response the app produced, with any status.
 
+## TestClipboard
+
+```k,ignore
+@TestDefault(replaces: Clipboard)
+public service TestClipboard implements Clipboard
+```
+
+The default [`Clipboard`](k-device.md#clipboard) in `k test` (`docs/design/45-web-platform.md`,
+"Clipboard"): a clipboard in memory, empty for every test, never the
+machine's.
+
+**Members**
+
+- `var text: String?`
+  What the clipboard holds; `nil` until something is copied.
+- `var isSupported: Bool`
+  `true` unless `setSupported(_:)` said otherwise.
+- `var calls: Int`
+  The number of writes and reads so far, failed ones included.
+- `func write(text: String) async throws ClipboardWriteError`
+  Puts `text` on the clipboard, or throws the error set by
+  `failWrites(error:)` (`.unsupported` after `setSupported(false)`).
+- `func readText() async throws ClipboardReadError -> String?`
+  Answers `text`, or throws the error set by `failReads(error:)`
+  (`.unsupported` after `setSupported(false)`).
+- `func set(text: String)`
+  Puts `text` on the clipboard, as if another application copied it.
+- `func failWrites(error: ClipboardWriteError)`
+  Makes every following write throw `error`.
+- `func failReads(error: ClipboardReadError)`
+  Makes every following read throw `error`.
+- `func setSupported(_ value: Bool)`
+  Sets `isSupported`; while it is `false` every call throws
+  `.unsupported`.
+
 ## TestClock
 
 ```k,ignore
@@ -423,4 +460,34 @@ protocol `P` whose every rpc fails with `rpcFailure(.offline)`
 ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so each service's tests stay hermetic
 and never open a socket. A test that needs answers binds its own fake
 with a `use` rule: `use FakePayments for Payments`.
+
+## TestShare
+
+```k,ignore
+@TestDefault(replaces: Share)
+public service TestShare implements Share
+```
+
+The default [`Share`](k-device.md#share) in `k test` (`docs/design/45-web-platform.md`,
+"Web Share"): no sheet opens; every share is recorded, and the user
+picks a target unless the test says otherwise.
+
+**Members**
+
+- `var shared: List<ShareContent>`
+  Everything shared so far, oldest first.
+- `var isSupported: Bool`
+  `true` unless `setSupported(_:)` said otherwise.
+- `func share(_ content: ShareContent) async throws ShareError`
+  Records `content` in `shared`, or throws what `cancelNext()` or
+  `failNext(error:)` set (`.unsupported` after
+  `setSupported(false)`).
+- `func cancelNext()`
+  Makes the user close the next share sheet:
+  [`ShareError.cancelled`](k-device.md#shareerror).
+- `func failNext(error: ShareError)`
+  Makes the next share throw `error`.
+- `func setSupported(_ value: Bool)`
+  Sets `isSupported`; while it is `false` every share throws
+  `.unsupported`, and a [`k.device.ShareButton`](k-device.md#sharebutton) copies instead.
 

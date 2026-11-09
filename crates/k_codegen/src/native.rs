@@ -849,6 +849,33 @@ pub(crate) fn static_call(
                 false,
             )
         }
+        // A `ShareContent` is `{url, text, title}`; a page's URL is made
+        // absolute against the page's origin in the browser (45-web-platform.md).
+        ("k.device.ShareContent", which @ ("page" | "link" | "text")) => {
+            let title = args.get(1).cloned().unwrap_or(Expr::Null);
+            let (url, text) = match which {
+                "page" => {
+                    let href = match b.g.view.lookup("k.core.Page") {
+                        Some(p) => {
+                            let f = b.use_decl(p, "Page$href".into());
+                            call(f, vec![a0])
+                        }
+                        None => a0,
+                    };
+                    (rt("pageUrl", vec![href]), Expr::Null)
+                }
+                "link" => (a0, Expr::Null),
+                _ => (Expr::Null, a0),
+            };
+            Expr::Object(
+                vec![
+                    js::Prop::KeyValue("url".into(), url),
+                    js::Prop::KeyValue("text".into(), text),
+                    js::Prop::KeyValue("title".into(), title),
+                ],
+                false,
+            )
+        }
         ("k.core.Color", "rgb") => rt("colorRgb", args),
         ("k.observe.Log", level) => rt("log", vec![js::str(level), a0]),
         ("k.encoding.Json", "encode") => {
