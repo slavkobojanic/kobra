@@ -75,6 +75,9 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     if ssr && g.client_rendered() {
         return Vec::new();
     }
+    // `@Rendering(.client)`: the server renders only `loading`, from the
+    // props (47-client-rendered-components.md).
+    let client_only = g.client_component(d);
     b.ssr = ssr;
     b.self_mode = SelfMode::Component;
     b.owner = Some(d);
@@ -133,6 +136,7 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         b.access.insert(m, access);
     }
     // Pass 2: the members in source order.
+    let mut prop_defaults = Vec::new();
     let mut effects = Vec::new();
     let mut derived = Vec::new();
     let mut async_handlers = false;
@@ -154,6 +158,11 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             _ => None,
         };
         let init_loc = init.as_ref().and_then(|e| b.loc(e.syntax()));
+        // The server never constructs a client-rendered component: only its
+        // props' defaults, which `loading` may read.
+        if ssr && client_only && !(mi.kind == MemberKind::Field && mi.has_annotation("Prop")) {
+            continue;
+        }
         match mi.kind {
             MemberKind::Field => {
                 if mi.has_annotation("Prop") || mi.has_annotation("Param") {
@@ -167,11 +176,15 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                             member(id("props"), mi.name.clone()),
                             js::arrow(vec![], id(&v)),
                         )));
-                        stmts.push(Stmt::If(
+                        let st = Stmt::If(
                             bin("===", member(id("props"), mi.name.clone()), Expr::Undefined),
                             set,
                             None,
-                        ));
+                        );
+                        if client_only {
+                            prop_defaults.push(st.clone());
+                        }
+                        stmts.push(st);
                     }
                 } else if mi.has_annotation("Slot") && init.is_some() {
                     // An optional slot the parent doesn't fill takes its
@@ -308,7 +321,35 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let loads = load_names(g, d);
     let loading = block_of(&node, k_syntax::SyntaxKind::LoadingBlock);
     let failed = block_of(&node, k_syntax::SyntaxKind::FailedBlock);
+    if ssr && client_only {
+        let loading_nodes = loading.as_ref().map_or_else(Vec::new, |l| {
+            let st = block_stmts(l);
+            let mut t = Tree { b, owner: d };
+            t.nodes(&st)
+        });
+        let mut s = Ssr { b, owner: d };
+        let saved = std::mem::take(&mut s.b.stmts);
+        s.nodes(&loading_nodes);
+        let body = std::mem::replace(&mut s.b.stmts, saved);
+        stmts.push(ssr_marker("OPEN"));
+        stmts.extend(body);
+        stmts.push(ssr_marker("CLOSE"));
+        b.pop_fn_scope();
+        return vec![Stmt::Function(
+            Function {
+                name: format!("{name}$ssr"),
+                params: vec![Param::new("props"), Param::new("ctx"), Param::new("out")],
+                body: js::Body::Block(stmts),
+                is_async: crate::app::has_async_children(g, &loading_nodes),
+                kind: MethodKind::Plain,
+            },
+            true,
+        )];
+    }
     if !loads.is_empty() {
+        if crate::app::is_instance_keyed(g, d) && !client_only {
+            stmts.push(crate::app::load_key_init(b.target));
+        }
         if ssr {
             let awaited = crate::app::ssr_loads(b, d, &loads);
             match &failed {
@@ -318,7 +359,7 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             stmts.append(&mut derived);
         } else {
             let error = failed.as_ref().map(|f| failed_error_type(b, f));
-            let group = crate::app::client_loads(b, d, &loads, error.as_ref());
+            let group = crate::app::client_loads(b, d, &loads, error.as_ref(), !client_only);
             stmts.push(Stmt::Const("$loads".into(), group));
         }
     }
@@ -449,18 +490,105 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         if async_handlers || b.uses_life {
             stmts.insert(0, Stmt::Const("$life".into(), rt("lifetime", vec![])));
         }
-        out.push(Stmt::Function(
-            Function {
-                name: name.clone(),
-                params: vec![Param::new("props"), Param::new("ctx")],
-                body: js::Body::Block(stmts),
-                ..Function::default()
-            },
-            true,
-        ));
+        if client_only {
+            // The component's own factory becomes `Name$view`, and `Name`
+            // renders `loading` until the hydration pass is over: both
+            // sides render the same nodes during the pass, so the ids and
+            // instance keys after it match (runtime.md §6).
+            out.push(Stmt::Function(
+                Function {
+                    name: format!("{name}$view"),
+                    params: vec![Param::new("props"), Param::new("ctx")],
+                    body: js::Body::Block(stmts),
+                    ..Function::default()
+                },
+                false,
+            ));
+            out.push(client_swap(b, d, &name, loading.as_ref(), prop_defaults));
+        } else {
+            out.push(Stmt::Function(
+                Function {
+                    name: name.clone(),
+                    params: vec![Param::new("props"), Param::new("ctx")],
+                    body: js::Body::Block(stmts),
+                    ..Function::default()
+                },
+                true,
+            ));
+        }
     }
     b.pop_fn_scope();
     out
+}
+
+/// The browser factory of a client-rendered component: `loading` (from the
+/// props) while the hydration pass runs, then `Name$view` once the pass
+/// and the `init()`s of the client-only services it created are over
+/// (`$k.clientReady()`); on client navigation `view` at once.
+fn client_swap(
+    b: &mut Body<'_, '_>,
+    d: DeclId,
+    name: &str,
+    loading: Option<&SyntaxNode>,
+    prop_defaults: Vec<Stmt>,
+) -> Stmt {
+    let mut c = Client {
+        b,
+        owner: d,
+        lifetime: None,
+    };
+    let loading_nodes = loading.map_or_else(Vec::new, |l| {
+        let st = block_stmts(l);
+        let mut t = Tree { b: c.b, owner: d };
+        t.nodes(&st)
+    });
+    let saved = std::mem::take(&mut c.b.stmts);
+    let loading_fn = c.render_fn(&loading_nodes, Vec::new(), Vec::new());
+    // Nothing below the component was server-rendered: its subtree's loads
+    // run in the browser instead of reading `k-data`.
+    let view_ctx = Expr::Object(
+        vec![
+            Prop::Spread(id("ctx")),
+            Prop::KeyValue("data".into(), Expr::Null),
+        ],
+        false,
+    );
+    let view_fn = js::arrow(
+        vec![],
+        call(id(format!("{name}$view")), vec![id("props"), view_ctx]),
+    );
+    let m = c.b.fresh("m");
+    let ready = c.b.fresh("r");
+    let mut body = prop_defaults;
+    body.extend(std::mem::replace(&mut c.b.stmts, saved));
+    body.push(Stmt::Const(m.clone(), rt("markers", vec![])));
+    body.push(Stmt::Const(ready.clone(), rt("clientReady", vec![])));
+    body.push(Stmt::Expr(rt(
+        "branch",
+        vec![
+            member(id(&m), "start"),
+            member(id(&m), "end"),
+            js::arrow(
+                vec![],
+                Expr::Cond(
+                    Box::new(call(id(&ready), vec![])),
+                    Box::new(Expr::Num(1.0)),
+                    Box::new(Expr::Num(0.0)),
+                ),
+            ),
+            Expr::Array(vec![loading_fn, view_fn]),
+        ],
+    )));
+    body.push(Stmt::Return(Some(member(id(m), "node"))));
+    Stmt::Function(
+        Function {
+            name: name.to_owned(),
+            params: vec![Param::new("props"), Param::new("ctx")],
+            body: js::Body::Block(body),
+            ..Function::default()
+        },
+        true,
+    )
 }
 
 /// The name a `failed(let error)` block binds its error to.
@@ -534,7 +662,7 @@ fn ssr_failed(
     handler.push(Stmt::Expr(js::assign(
         Expr::Index(
             Box::new(member(id("out"), "data")),
-            Box::new(bin("??", member(id("ctx"), "key"), js::str("0"))),
+            Box::new(crate::app::load_key(g, d)),
         ),
         Expr::Object(vec![Prop::KeyValue("failed".into(), encoded)], false),
     )));

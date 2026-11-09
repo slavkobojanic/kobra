@@ -1,0 +1,3 @@
+error[K3022] src/ui/Cart.k:2:18-2:22: `Cart` is rendered in the browser only, so it needs a `loading` block for the server to render
+  fix "Add an empty `loading { }`" maybe-incorrect
+    edit 6:1-6:1 "\n    loading {\n    }\n"

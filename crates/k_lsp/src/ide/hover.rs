@@ -258,6 +258,12 @@ fn decl_hover(
             facts.push(format!("Side: {side}"));
         }
     }
+    // `@Rendering(.client)` on a component (`.server` there is K4027).
+    if info.named_kind() == Some(k_sema::stdlib::DeclarationKind::Component)
+        && info.has_annotation("Rendering")
+    {
+        facts.push("Rendered in the browser only; the server renders `loading`".to_owned());
+    }
     if !facts.is_empty() {
         md.push('\n');
         md.push_str(&facts.join(" · "));

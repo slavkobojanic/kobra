@@ -596,6 +596,41 @@ fn hover_shows_page_urls() {
     assert_eq!(hints[0].label, "at \"/sign-in\"");
 }
 
+const DRAFT: &str = "\
+/// The draft, from local storage.
+@Rendering(.client)
+public component Draft {
+    view {
+        text { \"draft\" }
+    }
+
+    loading {
+        text { \"…\" }
+    }
+}
+";
+
+// 47-client-rendered-components.md, "Interactions": hover over a
+// client-rendered component's name says where it renders.
+#[test]
+fn hover_says_a_client_rendered_component_renders_in_the_browser() {
+    let f = fixture(&[("src/web/Draft.k", &with_cursor(DRAFT, "Draft {", 0, 1))]);
+    let h = hover::hover(&f.analysis(), f.file, f.offset, &|_| None)
+        .unwrap()
+        .unwrap();
+    assert!(
+        h.markdown
+            .contains("Rendered in the browser only; the server renders `loading`"),
+        "{}",
+        h.markdown
+    );
+    assert!(
+        h.markdown.contains("The draft, from local storage."),
+        "{}",
+        h.markdown
+    );
+}
+
 #[test]
 fn outline_and_workspace_symbols() {
     let f = fixture(&[]);

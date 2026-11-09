@@ -1,6 +1,6 @@
 # Client-Rendered Components
 
-> **Status: proposal.** Not adopted. Nothing here is implemented, and the diagnostic codes are tentative.
+> **Status: adopted.** Implemented as described below, with the diagnostic codes `K4027`, `K4028` and `K4029`; the open questions at the end stay open.
 
 ## Decision
 
@@ -38,13 +38,14 @@ This is only the **client-only subtree** half of mixed rendering. The other half
 
 ## Rules
 
-- **The annotation is allowed on components only,** with `.client`. `@Rendering(.server)` on a component is an error, since the server is the default and a component can't opt back in inside a client-rendered parent (tentatively `K4027`). Per-page `@Rendering` stays an open question ([23-app-structure.md](23-app-structure.md#open-questions)).
+- **The annotation is allowed on components only,** with `.client`. `@Rendering(.server)` on a component is an error, since the server is the default and a component can't opt back in inside a client-rendered parent (`K4027`). Per-page `@Rendering` stays an open question ([23-app-structure.md](23-app-structure.md#open-questions)).
 - **`loading` is required,** as it is for `@Load` ([14-async-data.md](14-async-data.md#rules)). It is what the server renders and what the browser hydrates. `loading { }` renders nothing, which is the explicit choice to reserve no space.
-- **`loading` may read only the component's `@Prop`s,** plus constants and pure stdlib calls. On the server, the component isn't constructed: no field initializer, `@Derived`, `@Load`, `@Inject` or effect is evaluated. Reading any other member from `loading` is an error at the read, with a label at the member (tentatively `K4028`).
+- **`loading` may read only the component's `@Prop`s,** plus constants and pure stdlib calls (top-level functions of the project are allowed too: they can't reach the component's members). On the server, the component isn't constructed: no field initializer, `@Derived`, `@Load`, `@Inject` or effect is evaluated. Reading any other member from `loading` is an error at the read, with a label at the member (`K4028`).
 - **Everything except `loading` runs only in the browser.** So code in the component's `view`, `@Derived` and `@Load` initializers, and field initializers can call client-only interfaces. `K4012` doesn't apply there, and reading a client-only service's state isn't `K4013`.
 - **The subtree is client-rendered transitively.** Every component the `view` renders, and every slot it renders, renders in the browser. Their `@Load`s run in the browser, so their values don't need to be `Codable` because of this component: nothing is serialized for them. They still need to be `Codable` if the same component is also used in a server-rendered place.
+  - *Implementation note:* the compiler relaxes the `Codable` rule (`K3021`, `K3024`) for the client-rendered component's own `@Load`s only. A component below it is checked as everywhere, so its loads stay `Codable`; whether a component is used only below client-rendered components is known for `K4012` and `K4013` (a component every reference to which is in such a subtree), but not yet for this rule.
 - **Props are ordinary props.** The whole page hydrates, so the parent passes props from its own hydrated state, as it does for any child. Props don't need to be `Codable`, and handlers and bindings work as usual. This is the main difference from server components.
-- **In an app that already has `@Rendering(.client)`,** the annotation has no effect. That is a warning with a fix that removes it (tentatively `K4029`, machine-applicable).
+- **In an app that already has `@Rendering(.client)`,** the annotation has no effect. That is a warning with a fix that removes it (`K4029`, machine-applicable).
 
 ### Diagnostics that change
 
@@ -59,6 +60,8 @@ A client-rendered component works like **a component with one more load that res
 2. **During hydration,** the browser also renders `loading`, and claims the server's nodes like any other branch. Both sides render the same nodes in the same order, so the `uid()` counters and instance keys (`0.2.1`) of everything after the component match without any adjustment. Ids are counted per pass from `k1` on both sides, and the component's `view`, which only the browser renders, allocates its ids after the pass.
 3. **After the pass,** the branch switches to `view`. The switch is queued after the `init()` of every client-only service the pass created (`afterHydration`), so the first `view` sees the state those `init()`s loaded, for example from local storage. If the component also has `@Load`s, they start at that point, and `loading` stays until they resolve, as on any first load.
 4. **On client navigation,** nothing is server-rendered, so the component renders `view` at once (or `loading` while its own `@Load`s run), like any other component.
+
+In generated code ([codegen.md](../compiler/codegen.md)), the component's own factory becomes `Name$view`, and `Name` is a `branch` over `loading` and `Name$view` selected by `$k.clientReady()`. That is `false` while a hydration pass runs and turns `true` in a microtask queued when the pass ends (`afterPass`), after the `init()` microtasks that `afterHydration` queued during the pass. `Name$view` gets a context without `k-data`, so the loads below it run instead of reading another instance's serialized values. The server renderer `Name$ssr` evaluates only the props' defaults and writes `loading` between `OPEN` and `CLOSE`.
 
 ### What the user sees
 

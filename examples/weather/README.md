@@ -32,6 +32,9 @@ The code follows the decisions in [`docs/design`](../../docs/design/README.md) (
 | `metadata` blocks: defaults in a layout, overridden by pages, using `@Load` values | [`layouts/Dashboard.k`](src/layouts/Dashboard.k), [`pages/CityWeather.k`](src/pages/CityWeather.k), [`pages/Home.k`](src/pages/Home.k) |
 | Renamed HTML elements: `box`, `text`, `paragraph`, `heading`, `list` / `item`, `link`, `definitionList` / `term` / `definition`, `figure` / `caption` | throughout `components/` and `pages/` |
 | Typed navigation: `link(to: .cityWeather(placeId: id).units(.imperial))`, and a named URL (`page Home at "/"`) | [`pages/CityWeather.k`](src/pages/CityWeather.k), [`pages/Home.k`](src/pages/Home.k) |
+| A client-rendered component in a server-rendered page: the recently viewed places live in local storage, so `@Rendering(.client)` renders only that list in the browser, after `RecentPlaces.init()` has read it; the server renders its empty `loading` | [`components/RecentPlacesList.k`](src/components/RecentPlacesList.k), [`weather/RecentPlaces.k`](src/weather/RecentPlaces.k), [`pages/Home.k`](src/pages/Home.k) |
+| `@Load(keepOnReload: true)`: the periodic refresh keeps the place and fetches only the forecast and air quality | [`pages/CityWeather.k`](src/pages/CityWeather.k) |
+| Typed local storage: a `StorageKey` recorded in [`storage.lock`](storage.lock) | [`weather/RecentPlaces.k`](src/weather/RecentPlaces.k) |
 | `App.k`: the app-wide default layout and metadata | [`App.k`](App.k) |
 | Tests that inject fakes with `use X for Y`: an app-written `HttpClient` that can also simulate timeouts and dropped connections, and a fake `WeatherService` for pages and components | [`weather/WeatherService.test.k`](src/weather/WeatherService.test.k), [`pages/CityWeather.test.k`](src/pages/CityWeather.test.k), [`components/CitySearch.test.k`](src/components/CitySearch.test.k) |
 | Fixtures as static members of `public extend` blocks in a test-only module (`.berlin`, `Forecast.sample(units:)`) | [`testing/Samples.k`](src/testing/Samples.k) |
@@ -45,6 +48,7 @@ Each directory under `src/` is a module. Each file has at most one `public` decl
 ```
 weather/
 ├── k.toml                         manifest (24-projects.md)
+├── storage.lock                   the local-storage key and its shape (36-local-storage.md)
 ├── App.k                          the app: default layout, app-wide metadata
 └── src/
     ├── theme/
@@ -60,6 +64,8 @@ weather/
     │   ├── UnitSystem.k           metric / imperial, with formatting
     │   ├── WeatherError.k         the service's typed error (no upstream bodies)
     │   ├── WeatherService.k       Open-Meteo client: search, place, forecast, air quality
+    │   ├── RecentPlaces.k         recently viewed places, in local storage (client-only)
+    │   ├── RecentPlace.k
     │   ├── OpenMeteo.k            package-private wire format and conversion
     │   └── *.test.k
     ├── components/
@@ -67,11 +73,12 @@ weather/
     │   ├── CurrentConditionsCard.k
     │   ├── AirQualityPanel.k
     │   ├── TemperatureChart.k     k.charts line chart
+    │   ├── RecentPlacesList.k     @Rendering(.client): rendered in the browser only
     │   └── CitySearch.test.k
     ├── layouts/
     │   └── Dashboard.k            header, content, Open-Meteo attribution
     ├── pages/
-    │   ├── Home.k                 "/" — search + featured cities
+    │   ├── Home.k                 "/" — search, featured cities, recently viewed
     │   ├── CityWeather.k          the dashboard for one place
     │   └── *.test.k
     └── testing/                   test-only module (21-testing.md)
@@ -90,7 +97,7 @@ The layering follows [10-services.md](../../docs/design/10-services.md). Pages a
 @Load let airQuality: AirQuality = try await weather.airQuality(place: place)
 ```
 
-`forecast` and `airQuality` read `place`, so the compiler starts them when `place` resolves, and runs them in parallel with each other. `loading` renders until all three have resolved. `failed` receives a `WeatherError`, and the page matches on it exhaustively: not found (which also sets `status(.notFound)`), or one of offline, timeout, an upstream error status and an invalid response, each explained in its own sentence with a retry button. The page's own `metadata` block reads `place`, so it isn't evaluated when `failed` renders: the not-found case sets its own title, and the other failures keep the layout's. Every ten minutes `reload()` re-runs the graph; the refresh timer is created once, when the dashboard first has its values, and isn't recreated by each refresh. The cached place returns at once (except on the first refresh after a server-rendered page, whose place the browser's service hasn't cached yet), and the dashboard stays on screen until the new forecast arrives.
+`forecast` and `airQuality` read `place`, so the compiler starts them when `place` resolves, and runs them in parallel with each other. `loading` renders until all three have resolved. `failed` receives a `WeatherError`, and the page matches on it exhaustively: not found (which also sets `status(.notFound)`), or one of offline, timeout, an upstream error status and an invalid response, each explained in its own sentence with a retry button. The page's own `metadata` block reads `place`, so it isn't evaluated when `failed` renders: the not-found case sets its own title, and the other failures keep the layout's. Every ten minutes `reload()` re-runs the graph; the refresh timer is created once, when the dashboard first has its values, and isn't recreated by each refresh. `place` is marked `@Load(keepOnReload: true)`: a place never changes, so a reload keeps it while `placeId` is the same and fetches only the forecast and the air quality, also on the first refresh after a server-rendered page (whose place the browser's service hasn't cached). The dashboard stays on screen until the new forecast arrives.
 
 Switching between °C and °F is a navigation to the same page with another `units`, so the page stays mounted and only `forecast`, the one load that reads `units`, runs again: the place and the air quality are kept.
 
@@ -131,7 +138,8 @@ To run against a local fake instead, as the toolchain's real-browser tests do, s
 | `weather/Place.test.k` | `displayName` with repeated or missing parts |
 | `components/CitySearch.test.k` | The idle hint, the debounce (299 ms vs 300 ms, and restarting on new input), the one-letter minimum, the in-progress text, no matches, failure, and clearing the field |
 | `pages/CityWeather.test.k` | The loaded dashboard, the `loading` block, parallel loading after the place, imperial units from the parameter, not found (rendered, and as a server-rendered 404 with its title), a server-rendered 200, offline, timeout with a working retry, 5xx vs 4xx messages, an invalid response, refreshing every 10 minutes, keeping the view during a refresh, and stopping the timer on unmount |
-| `pages/Home.test.k` | The search field and featured links |
+| `weather/RecentPlaces.test.k` | An empty list at first, newest first without duplicates, and the limit |
+| `pages/Home.test.k` | The search field and featured links; the recently viewed list (rendered in the browser) and its absence |
 
 ## Design documents this example relies on
 
@@ -145,7 +153,9 @@ Besides the core topics (components, views, styles, reactivity, routing), the ex
 | [`16-modules.md`](../../docs/design/16-modules.md) | Members that follow their type's visibility, `public extend`, the test-only `testing` module |
 | [`32-http-client.md`](../../docs/design/32-http-client.md) | `HttpClient`, `HttpRequest`, `HttpResponse`, `HttpStatus` and its cases as patterns, `HttpError`, `fetchJson`, `@JsonKey` |
 | [`09-errors.md`](../../docs/design/09-errors.md) | Typed throws, exhaustive `catch`, translating errors at a layer boundary |
-| [`14-async-data.md`](../../docs/design/14-async-data.md) | `@Load`, `loading`, `failed`, `reload()`, keeping the view during a refresh, `status(.notFound)`, the page `metadata` skipped when `failed` renders |
+| [`14-async-data.md`](../../docs/design/14-async-data.md) | `@Load`, `loading`, `failed`, `reload()`, `keepOnReload`, keeping the view during a refresh, `status(.notFound)`, the page `metadata` skipped when `failed` renders |
+| [`47-client-rendered-components.md`](../../docs/design/47-client-rendered-components.md) | `@Rendering(.client)` on `RecentPlacesList`, its `loading` block |
+| [`36-local-storage.md`](../../docs/design/36-local-storage.md) | `LocalStorage`, `StorageKey`, `storage.lock`, `MemoryStorage` in tests |
 | [`07-themes-and-units.md`](../../docs/design/07-themes-and-units.md) | The theme, `variant dark matches .prefersDark`, overriding library tokens by assignment |
 | [`37-charts.md`](../../docs/design/37-charts.md) | `LineChart`, `LineSeries`, `ChartPoint`, chart tokens |
 | [`35-time.md`](../../docs/design/35-time.md) | The injected `Clock`: `clock.every`, `clock.sleep`, `clock.now` in relative times; `TimerHandle.cancel()`, `TestClock` |

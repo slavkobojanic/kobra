@@ -987,6 +987,39 @@ fn load_inputs(b: &mut Body<'_, '_>, init: &ast::Expr, loads: &[MemberId]) -> Ve
     out
 }
 
+/// The local holding a component instance's `k-data` key (`load_key_init`).
+pub(crate) const LOAD_KEY: &str = "$lk";
+
+/// `true` if `d`'s `@Load` values are serialized under a key of their own
+/// per instance: a component's. A page's and a layout's key is the one the
+/// router gives them (`"0"`, `"L{i}"`); every component below them shares
+/// that `ctx`, so each instance draws `"{key}.{n}"` in render order, which
+/// the server and the hydrating browser walk alike.
+pub(crate) fn is_instance_keyed(g: &Gen<'_>, d: DeclId) -> bool {
+    g.view.decl(d).named_kind() == Some(DeclarationKind::Component)
+}
+
+/// `const $lk = out.loadKey(ctx)` on the server, a component instance's
+/// `k-data` key, drawn before its loads run; `const $lk =
+/// $k.loadCtx(ctx)` in the browser, `ctx` with that key for `loadsOf`.
+pub(crate) fn load_key_init(target: Target) -> Stmt {
+    let x = match target {
+        Target::Server => call(member(id("out"), "loadKey"), vec![id("ctx")]),
+        Target::Client => rt("loadCtx", vec![id("ctx")]),
+    };
+    Stmt::Const(LOAD_KEY.into(), x)
+}
+
+/// Where `d`'s serialized loads go in `k-data`: its instance key, or the
+/// page's or layout's `ctx.key`.
+pub(crate) fn load_key(g: &Gen<'_>, d: DeclId) -> Expr {
+    if is_instance_keyed(g, d) {
+        id(LOAD_KEY)
+    } else {
+        bin("??", member(id("ctx"), "key"), js::str("0"))
+    }
+}
+
 /// The client load group: `$k.createLoads([{ name, after, run }],
 /// serialized, failed)`. With a `failed` block (`error`, the type it
 /// receives), a server render that failed serialized the error, which
@@ -994,9 +1027,10 @@ fn load_inputs(b: &mut Body<'_, '_>, init: &ast::Expr, loads: &[MemberId]) -> Ve
 /// and the block claims the server's markup (14-async-data.md).
 pub(crate) fn client_loads(
     b: &mut Body<'_, '_>,
-    _d: DeclId,
+    d: DeclId,
     loads: &[MemberId],
     error: Option<&Type>,
+    hydrates: bool,
 ) -> Expr {
     let mut specs = Vec::new();
     for &m in loads {
@@ -1049,6 +1083,22 @@ pub(crate) fn client_loads(
             ),
             Prop::KeyValue("run".into(), run),
         ];
+        // `@Load(keepOnReload: true)`: `reload()` keeps its value while
+        // its inputs are unchanged (14-async-data.md, "Reloading").
+        let keep = b.g.member_node(m).is_some_and(|n| {
+            n.children()
+                .filter_map(ast::Annotation::cast)
+                .filter(|a| a.name().is_some_and(|t| t.text() == "Load"))
+                .filter_map(|a| a.arg_list())
+                .flat_map(|l| l.args().collect::<Vec<_>>())
+                .any(|x| {
+                    x.label().is_some_and(|t| t.text() == "keepOnReload")
+                        && x.value().is_some_and(|v| v.syntax().text() == "true")
+                })
+        });
+        if keep {
+            spec.push(Prop::KeyValue("keep".into(), Expr::Bool(true)));
+        }
         // A hydrated group runs nothing, so it watches these reads to
         // know when the load's inputs change (runtime.md §7).
         let reads = load_inputs(b, &init, loads);
@@ -1059,6 +1109,11 @@ pub(crate) fn client_loads(
             ));
         }
         specs.push(Expr::Object(spec, false));
+    }
+    // A client-rendered component's loads never ran on the server
+    // (47-client-rendered-components.md).
+    if !hydrates {
+        return rt("createLoads", vec![Expr::Array(specs), Expr::Null]);
     }
     // The server serialized the values with their codecs (`ssr_loads`);
     // hydration decodes them back, so a `Money` is a `Money` again.
@@ -1075,12 +1130,20 @@ pub(crate) fn client_loads(
             ),
         ));
     }
+    let instance = is_instance_keyed(b.g, d);
+    let keyed = |which: &str| {
+        let mut args = vec![id(if instance { LOAD_KEY } else { "ctx" })];
+        if which != "loads" {
+            args.push(js::str(which));
+        }
+        rt("loadsOf", args)
+    };
     let serialized = call(
         js::arrow(
             vec![Param::new("$v")],
             bin("&&", id("$v"), Expr::Object(decoded, false)),
         ),
-        vec![rt("loadsOf", vec![id("ctx")])],
+        vec![keyed("loads")],
     );
     let Some(error) = error else {
         return rt("createLoads", vec![Expr::Array(specs), serialized]);
@@ -1103,14 +1166,14 @@ pub(crate) fn client_loads(
                 Box::new(decoded),
             ),
         ),
-        vec![rt("loadsOf", vec![id("ctx"), js::str("failed")])],
+        vec![keyed("failed")],
     );
     rt("createLoads", vec![Expr::Array(specs), serialized, failed])
 }
 
 /// The server's loads: awaited in order before rendering, and serialized
 /// into `k-data` with their codecs.
-pub(crate) fn ssr_loads(b: &mut Body<'_, '_>, _d: DeclId, loads: &[MemberId]) -> Vec<Stmt> {
+pub(crate) fn ssr_loads(b: &mut Body<'_, '_>, d: DeclId, loads: &[MemberId]) -> Vec<Stmt> {
     let mut out = Vec::new();
     let mut data = Vec::new();
     for &m in loads {
@@ -1129,7 +1192,7 @@ pub(crate) fn ssr_loads(b: &mut Body<'_, '_>, _d: DeclId, loads: &[MemberId]) ->
     out.push(Stmt::Expr(js::assign(
         Expr::Index(
             Box::new(member(id("out"), "data")),
-            Box::new(bin("??", member(id("ctx"), "key"), js::str("0"))),
+            Box::new(load_key(b.g, d)),
         ),
         Expr::Object(
             vec![Prop::KeyValue("loads".into(), Expr::Object(data, false))],

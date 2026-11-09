@@ -285,6 +285,48 @@ test("reload cancels the run in flight", async () => {
   assert(!a.runs[2].signal.aborted);
 });
 
+// `@Load(keepOnReload: true)` (14-async-data.md, "Reloading"): a reload keeps
+// a marked load whose inputs are unchanged, also after hydration, and runs
+// the loads that read it with the kept value (weather-E3).
+test("a reload keeps a load marked keep", async () => {
+  const place = controlled("place");
+  place.spec.keep = true;
+  const forecast = controlled("forecast", ["place"], (v) => v.place);
+  const loads = root(() => createLoads([place.spec, forecast.spec], { place: "Berlin", forecast: 1 }));
+  loads.reload();
+  assertEq(loads.state(), RELOADING);
+  await tick();
+  assertEq(place.runs.length, 0, "the place is kept");
+  assertEq(forecast.runs.length, 1);
+  assertEq(forecast.runs[0].input, "Berlin", "the forecast reads the kept place");
+  forecast.runs[0].resolve(2);
+  await tick();
+  assertEq(loads.state(), READY);
+  assertDeepEq(loads.values(), { place: "Berlin", forecast: 2 });
+});
+
+// A kept load that reads a load that isn't kept runs again; a group whose
+// loads are all kept stays READY.
+test("keeping follows the dependencies", async () => {
+  const a = controlled("a");
+  const b = controlled("b", ["a"], (v) => v.a);
+  b.spec.keep = true;
+  const loads = root(() => createLoads([a.spec, b.spec], { a: 1, b: 2 }));
+  loads.reload();
+  await tick();
+  assertEq(a.runs.length, 1);
+  a.runs[0].resolve(3);
+  await tick();
+  assertEq(b.runs.length, 1, "b reads a, which ran again");
+  const c = controlled("c");
+  c.spec.keep = true;
+  const kept = root(() => createLoads([c.spec], { c: 1 }));
+  kept.reload();
+  await tick();
+  assertEq(c.runs.length, 0);
+  assertEq(kept.state(), READY);
+});
+
 // A reload that fails moves to FAILED.
 test("a failed reload moves to FAILED", async () => {
   const a = controlled("a");

@@ -939,11 +939,10 @@ fn fast_refresh(ms: u32) -> String {
     )
 }
 
-/// The place a server-rendered dashboard was loaded with is in the
-/// service's cache, so the periodic refresh doesn't look it up again
-/// (weather-E3).
+/// The place a server-rendered dashboard was loaded with is kept by the
+/// periodic refresh (`@Load(keepOnReload: true)`), so it isn't looked up
+/// again (weather-E3).
 #[test]
-#[ignore = "red: weather-E3 hydrated loads don't seed the place cache"]
 fn weather_refresh_after_server_rendering_uses_the_cached_place() {
     let dir = Scratch::new("weather-cache");
     let mut tab = tab!(dir);
@@ -974,6 +973,55 @@ fn weather_creates_the_refresh_timer_once() {
         (meteo_requests(t, "/v1/forecast") >= 2).then_some(())
     });
     assert_eq!(tab.eval("window.__kRefreshTimers"), json!(1));
+    drop(tab);
+}
+
+/// The start page's recently viewed list is a client-rendered component
+/// (47-client-rendered-components.md): the server's HTML has its empty
+/// `loading` in its place, the browser shows the list from local storage
+/// right after hydration, nothing the server rendered moves, and there are
+/// no console errors (every tab fails its test on one).
+#[test]
+fn weather_shows_recent_places_after_hydration_without_moving_the_server_parts() {
+    let dir = Scratch::new("weather-recent");
+    let mut tab = tab!(dir);
+    let w = weather(&dir, &mut tab);
+    let home = format!("{}/", w.origin);
+    // The server parts, with nothing stored: the list renders nothing.
+    tab.open(&home);
+    tab.wait_text("Featured cities");
+    let server_parts = |tab: &mut Tab| {
+        let parts = [
+            tab.role("heading", "Weather"),
+            tab.role("textbox", "City"),
+            tab.role("heading", "Featured cities"),
+            tab.role("link", "Berlin"),
+            tab.role("link", "São Paulo"),
+        ];
+        parts.iter().map(|el| tab.rect(el)).collect::<Vec<_>>()
+    };
+    let before = server_parts(&mut tab);
+    assert!(
+        !tab.has_role("heading", "Recently viewed"),
+        "nothing stored yet"
+    );
+    // Opening a city remembers it in local storage.
+    open_berlin(&mut tab, &w);
+    tab.open(&home);
+    let html = tab.eval("fetch('/').then((r) => r.text())");
+    let html = html.as_str().unwrap_or_default();
+    assert!(
+        html.contains("Featured cities"),
+        "the server renders the page"
+    );
+    assert!(
+        !html.contains("Recently viewed"),
+        "the server renders the list's `loading`, not its view"
+    );
+    tab.role("heading", "Recently viewed");
+    tab.role("link", "Berlin, Land Berlin, Germany");
+    let after = server_parts(&mut tab);
+    assert_eq!(before, after, "the server-rendered parts moved");
     drop(tab);
 }
 

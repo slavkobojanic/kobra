@@ -1,0 +1,15 @@
+error[K4028] src/ui/Cart.k:27:18-27:23: the server renders `loading` without constructing the component, so it can't read `count`
+  label 13:16-13:21: this member isn't a `@Prop`
+  help: `loading` may read the component's `@Prop`s, constants and pure functions
+error[K4028] src/ui/Cart.k:28:23-28:30: the server renders `loading` without constructing the component, so it can't read `doubled`
+  label 15:18-15:25: this member isn't a `@Prop`
+  help: `loading` may read the component's `@Prop`s, constants and pure functions
+error[K4028] src/ui/Cart.k:29:16-29:23: the server renders `loading` without constructing the component, so it can't read `summary`
+  label 17:10-17:17: this function isn't a `@Prop`
+  help: `loading` may read the component's `@Prop`s, constants and pure functions
+error[K4028] src/ui/Cart.k:30:21-30:28: the server renders `loading` without constructing the component, so it can't read `summary`
+  label 17:10-17:17: this function isn't a `@Prop`
+  help: `loading` may read the component's `@Prop`s, constants and pure functions
+error[K4028] src/ui/Cart.k:31:9-31:14: the server renders `loading` without constructing the component, so it can't read `empty`
+  label 11:15-11:20: this slot isn't a `@Prop`
+  help: `loading` may read the component's `@Prop`s, constants and pure functions

@@ -1262,6 +1262,11 @@ fn check_decl(cx: &Cx<'_, '_>, decl: DeclId) {
                             let error = crate::framework::load_error(cx, decl);
                             checker.bind_names_typed(&pattern, &error);
                         }
+                        if child.kind() == SyntaxKind::LoadingBlock
+                            && crate::di::client_component(cx, decl)
+                        {
+                            checker.props_only();
+                        }
                         if child.kind() == SyntaxKind::MetadataBlock {
                             checker.check_metadata_block(&block);
                         } else {

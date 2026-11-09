@@ -93,6 +93,23 @@ export class Out {
     /** @type {Record<string, unknown>} */
     this.data = {};
     this.ids = ids;
+    /** @type {Map<string, number>} instances with loads per base key (`loadKey`) */
+    this.loadKeys = new Map();
+  }
+
+  /**
+   * The `k-data` key of a component instance's `@Load` values:
+   * `"{key}.{n}"` for the `n`-th instance with loads rendered under the
+   * page's or layout's `ctx.key`, as the hydrating client counts them
+   * (`loadKey` in `hydrate.js`).
+   * @param {{key?: string}} ctx
+   * @returns {string}
+   */
+  loadKey(ctx) {
+    const base = ctx.key ?? "0";
+    const n = (this.loadKeys.get(base) ?? 0) + 1;
+    this.loadKeys.set(base, n);
+    return `${base}.${n}`;
   }
 
   /**

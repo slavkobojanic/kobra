@@ -23,6 +23,7 @@ export const FAILED = 3;
  * @typedef {object} LoadSpec
  * @property {string} name the field
  * @property {string[]} after the names of the loads it reads (its dependencies)
+ * @property {boolean} [keep] `reload()` keeps its value while its inputs are unchanged
  * @property {(values: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>} run
  *   its synchronous reads are the load's inputs: changing one starts over
  * @property {() => unknown} [inputs] the same reads without the request, so a
@@ -36,7 +37,7 @@ export const FAILED = 3;
  * Each load watches its own inputs: a change re-runs that load and the
  * loads that read it, and keeps the others' values (14-async-data.md,
  * "Rules"); the group renders `loading` until the re-run ones resolve.
- * `reload()` re-runs every load.
+ * `reload()` re-runs every load except those marked `keep` whose inputs are unchanged.
  * @param {LoadSpec[]} loads in dependency order
  * @param {Record<string, unknown>|null} serialized values from `k-data` during hydration
  * @param {unknown} [failed] the error a server render failed with (from
@@ -162,12 +163,24 @@ export function createLoads(loads, serialized, failed) {
     }
   };
 
-  /** Re-runs every load: the values stay while `reloading`. */
+  /**
+   * Re-runs every load: the values stay while `reloading`. A reload keeps
+   * the value of a load marked `keep` (`@Load(keepOnReload: true)`) whose
+   * inputs haven't changed, when the loads it reads are kept too (an input
+   * change already re-ran it; 14-async-data.md, "Reloading").
+   */
   const start = (reloading) => {
     for (const c of running.values()) c.abort();
     running.clear();
     const ep = ++epoch;
     got = {};
+    const previous = reloading ? values.peek() : null;
+    if (previous !== null) {
+      for (const spec of loads) {
+        if (spec.keep && spec.name in previous && spec.after.every((a) => a in got)) got[spec.name] = previous[spec.name];
+      }
+      if (loads.every((l) => l.name in got)) return;
+    }
     batch(() => {
       state.set(reloading ? RELOADING : LOADING);
       if (!reloading) values.set(null);

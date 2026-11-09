@@ -478,7 +478,11 @@ export function Counter(props, ctx) {
   its server render failed with: `(($f) => $f == null ? undefined : LookupError$codec.decode($f,
   "failed"))($k.loadsOf(ctx, "failed"))` (the raw JSON for an error that isn't `Codable`), so hydration
   starts the group `FAILED` and the `failed` block claims the server's markup
-  ([runtime.md §7](runtime.md#7-load)). Each load spec whose initializer reads `@Param`, `@Prop`, `@State`
+  ([runtime.md §7](runtime.md#7-load)). A page or layout serializes its loads under its `ctx.key`. A
+  component instance first draws a key of its own (`"{ctx.key}.{n}"`, the `n`-th instance with loads in
+  render order): `const $lk = out.loadKey(ctx)` on the server, and `const $lk = $k.loadCtx(ctx)` in the
+  browser, `ctx` with that key, which it reads with (`$k.loadsOf($lk)`), so sibling instances don't read
+  each other's values. Each load spec whose initializer reads `@Param`, `@Prop`, `@State`
   or `@Derived` members has `inputs: () => [props.units(), …]`, those reads without the request, which a
   hydrated group watches so that a change re-runs that load alone.
 - **Titles and descriptions in the browser.** A page's or layout's `metadata` block contributes its
@@ -598,6 +602,18 @@ block's marker pair, with its content) take the server's node while hydrating an
 mismatch handling are in [runtime.md §6](runtime.md#6-hydration-protocol). Codegen guarantees that the
 client factory and the server renderer walk the same structure in the same order: both are printed from
 one lowered view, so they can't drift.
+
+**A client-rendered component** (`@Rendering(.client)` on a component of a server-rendered app,
+[47-client-rendered-components.md](../design/47-client-rendered-components.md)) is lowered in two parts on
+the client: its usual factory, renamed `Name$view` (not exported; its load group is created with `null`
+instead of the serialized values), and an exported `Name(props, ctx)` that applies the props' defaults
+and renders `$k.branch(m.start, m.end, () => ready() ? 1 : 0, [loading, () => Name$view(props, { ...ctx,
+data: null })])` with `const ready = $k.clientReady()`. The server renderer `Name$ssr` applies the props'
+defaults and writes the `loading` block between `OPEN` and `CLOSE`: no other member, load, effect,
+metadata or view of the component is lowered on the server, and nothing is written to `out.data`. Its
+`async` follows the `loading` block's children. A `@Load(keepOnReload: true)` spec gets `keep: true`
+([runtime.md §7](runtime.md#7-load)). Golden cases: `tests/corpus/codegen/ui/hydration/client-rendered-component.k`,
+`tests/corpus/codegen/ui/load/keep-on-reload.k`.
 
 ---
 

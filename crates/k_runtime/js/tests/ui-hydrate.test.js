@@ -12,7 +12,7 @@
  */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import {
-  READY, batch, createLoads, each, effect, hydrate, isHydrating, on, readData, renderEffect, signal, template, text, when,
+  READY, afterHydration, afterPass, batch, branch, clientReady, createLoads, markers, each, effect, hydrate, isHydrating, loadCtx, loadsOf, on, readData, renderEffect, signal, template, text, when,
 } from "k:runtime";
 import { CLOSE, OPEN, Out, SEPARATOR, serializeData } from "k:runtime/server";
 
@@ -326,4 +326,75 @@ test("hydration keeps a textarea's server text", () => {
   hydrate(container, () => editor(), null);
   assertEq(container.firstChild.firstChild, server);
   assertEq(server.textContent, "Milk and eggs");
+});
+
+// ------------------------------------------------- client-rendered components
+
+// A client-rendered component (47-client-rendered-components.md): during the
+// pass it claims the `loading` the server rendered; after the pass, and after
+// the `init()`s the pass queued with `afterHydration`, it swaps to `view`.
+test("a client-rendered component swaps to its view after the pass and the service inits", async () => {
+  const loadingTemplate = template("<p>Loading</p>");
+  const viewTemplate = template("<p> </p>");
+  const out = new Out();
+  out.raw(OPEN);
+  out.raw("<p>Loading</p>");
+  out.raw(CLOSE);
+  const container = page(out.html());
+  const server = container.childNodes[1];
+  const draft = signal("");
+  let readyDuringPass = null;
+  hydrate(container, () => {
+    const m = markers();
+    const ready = clientReady();
+    readyDuringPass = ready();
+    branch(m.start, m.end, () => (ready() ? 1 : 0), [
+      () => loadingTemplate(),
+      () => {
+        const root = viewTemplate();
+        renderEffect(() => text(root.firstChild, `Draft: ${draft.get()}`));
+        return root;
+      },
+    ]);
+    // A client-only service created during the pass: its init runs later.
+    afterHydration(() => draft.set("Buy bread"));
+    return m.node;
+  }, null);
+  assertEq(readyDuringPass, false);
+  assertEq(container.childNodes[1], server, "the loading was claimed");
+  assertEq(container.textContent, "Loading");
+  await tick();
+  assertEq(container.textContent, "Draft: Buy bread", "the view sees what init() loaded");
+});
+
+// Outside a pass (client navigation, tests), the view renders at once.
+test("a client-rendered component renders its view at once outside a pass", () => {
+  assertEq(clientReady()(), true);
+  let ran = false;
+  afterPass(() => (ran = true));
+  assert(ran, "afterPass runs now outside a pass");
+});
+
+test("each component instance with loads reads its own k-data entry, as the server keyed it", () => {
+  // Two sibling instances under the page's key: the server and the
+  // hydration pass count them in the same order.
+  const out = new Out();
+  const ctx = { key: "0" };
+  out.data[out.loadKey(ctx)] = { loads: { n: 1 } };
+  out.data[out.loadKey(ctx)] = { loads: { n: 2 } };
+  out.data[out.loadKey({ key: "L0" })] = { loads: { n: 3 } };
+  const data = { c: out.data };
+  const seen = [];
+  const host = page("<p>x</p>");
+  hydrate(host, (c) => {
+    for (const key of ["0", "0", "L0"]) {
+      const ctx = { ...c, key };
+      seen.push(loadsOf(loadCtx(ctx)));
+    }
+    return host.firstChild;
+  }, data);
+  assertDeepEq(seen, [{ n: 1 }, { n: 2 }, { n: 3 }], HYDRATE);
+  // An instance created after the pass draws a key the server never
+  // wrote, so it reads nothing and runs its loads.
+  assertEq(loadsOf(loadCtx({ key: "0", data })), null, HYDRATE);
 });

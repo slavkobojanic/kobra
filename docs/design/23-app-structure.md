@@ -70,6 +70,7 @@ public app Todos {
 ```
 
 - **Use it when pages render from data only the browser has,** such as local storage ([36-local-storage.md](36-local-storage.md)). In a server-rendered app, reading a client-only service from a page is a warning with a quick fix that adds this annotation ([10-services.md](10-services.md#serverclient-boundary)).
+- **When only part of a page needs the browser,** put `@Rendering(.client)` on that component instead: the server renders its `loading` block and the rest of the page as usual ([47-client-rendered-components.md](47-client-rendered-components.md)).
 - With client rendering, the server sends one HTML shell holding the app-wide `metadata`. Pages render in the browser, and page `metadata` is applied there.
 - **The shell carries the session mirror,** in the same `k-data` payload a server-rendered document has, without a render instant or loads. Before sending it, the server checks the page's guards as it does before a server render. So `Session` reads who is signed in from the first render, and page guards work in the browser exactly as in a server-rendered app ([26-auth-and-sessions.md](26-auth-and-sessions.md#in-the-browser)). A static-only app (below) has no server and so no sessions, and its document has no `k-data`.
 - **When an app renders on the client and has no server-only code** (no protocol implementations, repositories, configs, jobs, endpoint pages, guarded pages or `.request`/`.server` services), `k build` emits only static files in `dist/public`, which any static host can serve ([38-deployment.md](38-deployment.md#static-only-apps)). Adding server-only code later brings `dist/app` back with no other change.
@@ -84,5 +85,5 @@ public app Todos {
 ## Open questions
 
 - Interceptor syntax.
-- Per-page `@Rendering`: mixing modes raises hydration and navigation questions that no example has needed yet. Per-component `@Rendering(.client)` is proposed in [47-client-rendered-components.md](47-client-rendered-components.md).
+- Per-page `@Rendering`: mixing modes raises hydration and navigation questions that no example has needed yet. Per-component `@Rendering(.client)` is adopted: [47-client-rendered-components.md](47-client-rendered-components.md).
 - Security headers (content security policy, CORS for anything other than RPC, which never grants it) would most naturally be configured here.

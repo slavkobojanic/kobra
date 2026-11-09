@@ -713,6 +713,15 @@ codes! {
     /// `RemoteClient.at` builds a client of a protocol, given by the type its result is used as.
     REMOTE_CLIENT_NOT_A_PROTOCOL = 4026, "remote-client-not-a-protocol", Error,
         "`RemoteClient.at` builds a client of a protocol: use it where a protocol type is expected.";
+    /// `@Rendering(.server)` on a component: components render on the server by default.
+    SERVER_RENDERING_ON_COMPONENT = 4027, "server-rendering-on-component", Error,
+        "Only `@Rendering(.client)` applies to a component; the server is the default.";
+    /// A client-rendered component's `loading` block reads a member other than a `@Prop`.
+    LOADING_READS_COMPONENT_STATE = 4028, "loading-reads-component-state", Error,
+        "A client-rendered component's `loading` block is rendered by the server, so it reads only `@Prop`s.";
+    /// `@Rendering(.client)` on a component of an app that is already client-rendered.
+    REDUNDANT_CLIENT_RENDERING = 4029, "redundant-client-rendering", Warning,
+        "`@Rendering(.client)` on a component has no effect in an app that is already client-rendered.";
 
     // ---------------------------------------------------------------- pages and routing
     /// Two pages or endpoints have the same URL.

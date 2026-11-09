@@ -83,8 +83,9 @@ public page CityWeather {
 
     @Inject let weather: WeatherService
     @Inject let clock: Clock
+    @Inject let recent: RecentPlaces
 
-    @Load let place: Place = try await weather.place(id: placeId)
+    @Load(keepOnReload: true) let place: Place = try await weather.place(id: placeId)
     @Load let forecast: Forecast = try await weather.forecast(place: place, units: units)
     @Load let airQuality: AirQuality = try await weather.airQuality(place: place)
     // ...
@@ -108,7 +109,9 @@ func refreshPeriodically() {
 }
 ```
 
-`reload()` is generated for every declaration with `@Load` fields.
+`reload()` is generated for every declaration with `@Load` fields. `place` is marked
+`@Load(keepOnReload: true)`: a place never changes, so a refresh keeps it and fetches only the forecast and
+the air quality, even right after the server rendered the page.
 
 ### Failures are part of the page
 
@@ -185,6 +188,26 @@ case .loaded(let places) where places.isEmpty {
         .class(.hint)
 }
 ```
+
+## A list only the browser knows
+
+The start page lists the places opened recently. They are kept in local storage by `RecentPlaces`, a
+client-only service, so the server can't render them. Only that list renders in the browser; the rest of
+the start page is still rendered on the server:
+
+```k
+// examples/weather/src/components/RecentPlacesList.k
+@Rendering(.client)
+public component RecentPlacesList {
+    @Inject let recent: RecentPlaces
+// ...
+    loading {
+    }
+```
+
+The server renders the empty `loading` block in its place, and the browser swaps in the list right after
+hydration, once the service's `init()` has read local storage. The list is the last thing on the page, so
+nothing the server rendered moves when it appears ([Components](../apps/components.md#rendering-in-the-browser-only)).
 
 ## The theme and the chart
 

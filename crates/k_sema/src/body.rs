@@ -436,6 +436,9 @@ pub(crate) struct Checker<'c, 'p, 'a> {
     /// `true` while code that may run during server rendering is checked:
     /// views and field initializers (K4012, K4013), not event handlers.
     ssr: bool,
+    /// `true` while a client-rendered component's `loading` block is
+    /// checked: it reads only `@Prop`s (K4028).
+    props_only: bool,
     /// `true` while a `@Form` field's initializer is checked (`.empty` is
     /// valid only there, K7002).
     form_init: bool,
@@ -484,6 +487,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             bindable_locals: std::collections::HashSet::new(),
             in_derived: false,
             ssr: false,
+            props_only: false,
             form_init: false,
             current_fn: None,
             handle_depth: 0,
@@ -672,7 +676,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             return;
         }
         let side = crate::di::side(self.cx, owner);
-        if side.client && !side.server {
+        if side.client && !side.server && !self.renders_in_browser_only(call.text_range()) {
             self.err(
                 codes::CLIENT_ONLY_DURING_SSR,
                 call.text_range(),
@@ -682,6 +686,20 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 ),
             );
         }
+    }
+
+    /// Returns `true` when the code at `range` renders only in the browser:
+    /// it belongs to a client-rendered component's subtree (outside its
+    /// `loading` block), so K4012 and K4013 don't apply
+    /// (47-client-rendered-components.md).
+    fn renders_in_browser_only(&self, range: TextRange) -> bool {
+        let Some(d) = self.owner.decl else {
+            return false;
+        };
+        crate::di::browser_only_components(self.cx).contains(&d)
+            || crate::di::browser_regions(self.cx, d)
+                .iter()
+                .any(|r| r.contains_range(range))
     }
 
     /// Records what the name at `range` resolves to (declaration-level
@@ -695,6 +713,47 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         self.quiet += 1;
         f(self);
         self.quiet -= 1;
+    }
+
+    /// Marks the body as a client-rendered component's `loading` block,
+    /// which reads only the component's `@Prop`s (K4028).
+    pub(crate) fn props_only(&mut self) {
+        self.props_only = true;
+    }
+
+    /// K4028: a client-rendered component's `loading` block reads member
+    /// `m` of the component, which the server never constructs; only
+    /// `@Prop`s and static members are available there.
+    fn loading_read(&mut self, m: MemberId, range: TextRange) {
+        if !self.props_only {
+            return;
+        }
+        let member = self.cx.p.member(m);
+        if Some(member.owner) != self.owner.decl
+            || member.is_static
+            || (member.kind == MemberKind::Field && member.has_annotation("Prop"))
+        {
+            return;
+        }
+        let what = match member.kind {
+            MemberKind::Func => "function",
+            _ if member.has_annotation("Slot") => "slot",
+            _ => "member",
+        };
+        let d = Diagnostic::new(
+            codes::LOADING_READS_COMPONENT_STATE,
+            self.span(range),
+            format!(
+                "the server renders `loading` without constructing the component, so it can't read `{}`",
+                member.name
+            ),
+        )
+        .with_label(
+            self.cx.p.span(self.cx.p.decl(member.owner).file, member.name_range),
+            format!("this {what} isn't a `@Prop`"),
+        )
+        .with_help("`loading` may read the component's `@Prop`s, constants and pure functions");
+        self.report(d);
     }
 
     /// Marks the body as a `@Derived` initializer (K3011 for state
@@ -3197,6 +3256,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     MemberFound::Member(m, subst) => {
                         self.note_res(range, self.cx.member_resolution(m));
                         self.targets.insert(range, Target::Member(m));
+                        self.loading_read(m, range);
                         if self.in_bind && self.cx.p.member(m).has_annotation("Form") {
                             return self.cx.field_ty(m);
                         }
@@ -5333,6 +5393,17 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             .member_access(m.syntax(), &recv, &recv_ty, &name, optional_chain, false)
             .0;
         self.check_money_literal(m, &recv, &t);
+        if self.props_only
+            && recv
+                .syntax()
+                .first_token()
+                .is_some_and(|t| t.kind() == SyntaxKind::SelfKw)
+            && recv.syntax().text_range().len() == TextSize::from(4)
+        {
+            if let Some(Target::Member(field)) = self.targets.get(&name.text_range()).copied() {
+                self.loading_read(field, name.text_range());
+            }
+        }
         self.client_state_read(m, &name);
         self.form_value(&name);
         t
@@ -5401,7 +5472,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             return;
         }
         let side = crate::di::side(self.cx, owner);
-        if !side.client || side.server {
+        if !side.client || side.server || self.renders_in_browser_only(m.syntax().text_range()) {
             return;
         }
         if !self
@@ -5415,15 +5486,37 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             return;
         };
         let app_file = self.cx.p.decl(app).file;
-        let d = Diagnostic::new(
+        let mut d = Diagnostic::new(
             codes::CLIENT_STATE_IN_SERVER_RENDER,
             self.span(m.syntax().text_range()),
             format!(
                 "`{}` is client-only: the server renders this page without its state",
                 self.cx.p.decl_name(owner)
             ),
-        )
-        .with_fix(
+        );
+        // In a component, the narrower fix comes first: render only that
+        // component in the browser (47-client-rendered-components.md).
+        if let Some(component) = self.owner.decl.filter(|c| {
+            self.cx.p.decl(*c).named_kind() == Some(DeclarationKind::Component)
+                && !crate::di::client_component(self.cx, *c)
+        }) {
+            let decl = self.cx.p.decl(component);
+            let file_id = self.cx.p.file(decl.file).id;
+            let at = crate::program::first_token_range(&decl.node).start();
+            let mut edits = vec![k_diagnostics::TextEdit {
+                span: Span::empty(file_id, at),
+                replacement: "@Rendering(.client)\n".into(),
+            }];
+            if !crate::framework::has_loading_block(self.cx, component) {
+                edits.extend(crate::framework::loading_insertion(self.cx, component));
+            }
+            d = d.with_fix(Fix {
+                message: "Add `@Rendering(.client)` to the component".into(),
+                edits,
+                applicability: k_diagnostics::Applicability::MaybeIncorrect,
+            });
+        }
+        let d = d.with_fix(
             Fix::replace(
                 "Add `@Rendering(.client)` to the app",
                 Span::empty(self.cx.p.file(app_file).id, at),
@@ -5923,6 +6016,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                         let self_recv = matches!(&recv, ast::Expr::NameExpr(r)
                             if r.syntax().first_token().is_some_and(|t| t.kind() == SyntaxKind::SelfKw));
                         if let (true, Some(mm)) = (self_recv, member) {
+                            self.loading_read(mm, name.text_range());
                             self.derived_call(mm, node.text_range());
                         }
                         self.handle_depth += u32::from(handle);
@@ -6016,6 +6110,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                                 let kind = self.cx.p.member(m).kind;
                                 if matches!(kind, MemberKind::Func | MemberKind::Rpc) {
                                     self.note_res(name.text_range(), self.cx.member_resolution(m));
+                                    self.loading_read(m, name.text_range());
                                     self.derived_call(m, node.text_range());
                                     let sig = self.cx.sig(SigKey::Member(m));
                                     return self.apply_sig(

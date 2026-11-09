@@ -1,0 +1,8 @@
+# Edge cases of client-rendered components
+# (docs/design/47-client-rendered-components.md): one between server-rendered
+# siblings with their own `@Load`s and ids, client-rendered components nested
+# in each other, and a panic in a client-rendered `view` caught by an
+# `ErrorBoundary`. Driven by crates/k_server/tests/browser.rs.
+[package]
+name = "edges"
+k = "0.1"

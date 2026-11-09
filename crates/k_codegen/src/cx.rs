@@ -440,6 +440,23 @@ impl<'a> Gen<'a> {
         })
     }
 
+    /// `true` for a component marked `@Rendering(.client)` in an app that
+    /// renders on the server: the server renders its `loading` block and
+    /// the browser swaps in its `view` after hydration
+    /// (47-client-rendered-components.md).
+    pub(crate) fn client_component(&self, d: DeclId) -> bool {
+        self.view.decl(d).named_kind() == Some(DeclarationKind::Component)
+            && !self.client_rendered()
+            && self.decl_node(d).is_some_and(|n| {
+                n.children()
+                    .filter(|c| c.kind() == SyntaxKind::Annotation)
+                    .any(|a| {
+                        let t = a.text().to_string();
+                        t.starts_with("@Rendering") && t.contains(".client")
+                    })
+            })
+    }
+
     /// The project name from `k.toml` (`name = "…"` under `[package]`).
     pub(crate) fn project_name(&self) -> String {
         self.project

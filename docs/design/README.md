@@ -64,7 +64,7 @@ K borrows ideas, not syntax. Where another language does something well, K adapt
 | 44 | Channels: typed realtime | [44-channels.md](44-channels.md) |
 | 45 | The web platform | [45-web-platform.md](45-web-platform.md) |
 | 46 | Media capture, recording and calls | [46-media-and-rtc.md](46-media-and-rtc.md) |
-| 47 | Client-rendered components (*proposal*) | [47-client-rendered-components.md](47-client-rendered-components.md) |
+| 47 | Client-rendered components | [47-client-rendered-components.md](47-client-rendered-components.md) |
 | 48 | Releases, versioning and upgrades | [48-releases-and-versioning.md](48-releases-and-versioning.md) |
 | 49 | Documentation and the docs site | [49-documentation.md](49-documentation.md) |
 
@@ -72,6 +72,8 @@ K borrows ideas, not syntax. Where another language does something well, K adapt
 
 No cross-cutting decision is open. The most recent ones:
 
+- **A component can render in the browser only:** `@Rendering(.client)` on a component makes the server render its `loading` block, and the browser swaps in `view` right after hydration, once the client-only services' `init()`s have run. Its subtree may read client-only services without `K4012`/`K4013`, and `K4013` now offers this fix first. See [47-client-rendered-components.md](47-client-rendered-components.md).
+- **`reload()` can keep a load:** `@Load(keepOnReload: true)` keeps a value whose inputs haven't changed, so a refresh after server rendering doesn't look up the weather dashboard's place again (weather-E3). See [14-async-data.md](14-async-data.md#reloading-reload).
 - **K has one version for everything it ships, and a project pins it:** semver with Cargo's pre-1.0 meaning (a minor may break, always with a migration; a patch adds no diagnostics), `k = "0.6"` as a caret requirement with the exact toolchain in `k.lock`, delegation to an installed matching toolchain and never an implicit download, `k fix` and `k upgrade`, a `format` key in every lockfile, adjacent minors compatible on the wire, changelog fragments in `changes/` that name the book pages they change, and docs built from each release tag at `/0.N/`. Hosting, CI, signing and the name need the owner's sign-off, listed once in the topic. See [48-releases-and-versioning.md](48-releases-and-versioning.md).
 - **The book gets two front doors, Learn and Reference:** a ten-minute quick start, a ten-step full-stack tutorial whose every step is a tested project, concept pages, then the guides; a Reference generated from the compiler's registries, with a symbol index for search. It stays on mdBook for now, and the docs are drift-proofed by tests (runnable samples, command transcripts, links, coverage, Planned notes tied to probes) and every user-visible changelog fragment names the book pages it changes. Hosting, Pagefind and CI need the owner's sign-off. See [49-documentation.md](49-documentation.md).
 - **A client-rendered app with a server gets the session mirror:** its shell embeds the same `k-data` session payload a server-rendered document does, and the server checks a page's guards before sending it, so client-side guards work exactly as in server-rendered apps. A guarded page keeps an app from being static-only. See [23-app-structure.md](23-app-structure.md#rendering-mode) and [26-auth-and-sessions.md](26-auth-and-sessions.md#in-the-browser).

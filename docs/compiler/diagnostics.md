@@ -286,7 +286,7 @@ Messages and detail lines for this range that the corpus pins exactly:
 | K3018 | `unexpected-bind` | error | From `bind` to the start of its operand (the keyword and the space after it). | Remove `bind ` (machine-applicable). |
 | K3020 | `load-cycle` | error | The name token of each `@Load` field in the cycle, one diagnostic per field; labels: the reads. | — |
 | K3021 | `load-not-codable` | error | The field's type. | — |
-| K3022 | `missing-loading-block` | error | The declaration's name token. | Insert an empty `loading { }` (maybe-incorrect). |
+| K3022 | `missing-loading-block` | error | The declaration's name token: one with `@Load` fields, or a `@Rendering(.client)` component (47-client-rendered-components.md). | Insert an empty `loading { }` (maybe-incorrect). |
 | K3023 | `reserved-reload` | error | The name token of the member named `reload` in a declaration with `@Load` fields. | — |
 | K3024 | `load-error-not-codable` | error | The `@Load` field's initializer expression (the error type is declared elsewhere). | — |
 | K3025 | `status-outside-failed` | error | The `status(…)` call expression, in a page-level `metadata` block or directly in `failed`. | — |
@@ -381,8 +381,8 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K4009 | `job-reaches-session` | error | The job's name token; a note names the path. | — |
 | K4010 | `use-target-mismatch` | error | The operand before `for`. | — |
 | K4011 | `use-expression-not-allowed` | error | The operand expression. | — |
-| K4012 | `client-only-during-ssr` | error | The call. | — |
-| K4013 | `client-state-in-server-render` | warning | The read. | Add `@Rendering(.client)` to the app (maybe-incorrect). |
+| K4012 | `client-only-during-ssr` | error | The call. Not reported inside a client-rendered component's subtree (47-client-rendered-components.md). | — |
+| K4013 | `client-state-in-server-render` | warning | The read. Not reported inside a client-rendered component's subtree (47-client-rendered-components.md). | In a component, first: add `@Rendering(.client)` to the component, with an empty `loading { }` when it has none (maybe-incorrect); then add `@Rendering(.client)` to the app (maybe-incorrect). |
 | K4014 | `use-restates-default` | warning | The whole `use` rule, from `use` to the end of its target type. | Remove the rule and its line, and the imports only the rule used, so no K1105 follows (machine-applicable). |
 | K4015 | `environment-not-covered` | error | The target type (after `for`) of the interface's first `use` rule in `App.k`; a note names each uncovered environment. | — |
 | K4016 | `invalid-service-init` | error | The parameter list of an `init` with parameters; the throws clause (from `throws` to the end of its type) of a throwing one; the `init` keyword of a second `init`. | — |
@@ -396,6 +396,9 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K4024 | `remote-rule-not-allowed` | error | The target type of a `remote` rule that isn't a protocol, is implemented by the app (the message names the implementation) or is declared in the app itself (a note says to move it into a library). | — |
 | K4025 | `not-a-remote-service` | error | The argument of `remote(…)` that isn't a config implementing `RemoteService` (or the whole call when it isn't one name); for a `RemoteService` config, its name when `url: Url` or `token: Secret<String>` is missing, or the type of a `url`, `token` or `timeout` field of the wrong type. | — |
 | K4026 | `remote-client-not-a-protocol` | error | `at(…)` of a `RemoteClient.at` call whose result type resolves to a declaration that isn't a protocol. | — |
+| K4027 | `server-rendering-on-component` | error | The `@Rendering(.server)` annotation on a component. | Remove the annotation (maybe-incorrect). |
+| K4028 | `loading-reads-component-state` | error | The read (a name, `self.name` or a call) of a member that isn't a `@Prop` or static, in a `@Rendering(.client)` component's `loading`; a label at the member. | — |
+| K4029 | `redundant-client-rendering` | warning | `@Rendering(.client)` on a component of a `@Rendering(.client)` app. | Remove the annotation (machine-applicable). |
 
 ### Pages and routing (K5000–K5499)
 

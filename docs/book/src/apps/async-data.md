@@ -258,11 +258,35 @@ failed {
 | Any load throws | `failed` |
 
 - `reload()` is synchronous. It starts the re-run and returns; any run still in flight is cancelled first.
-- It re-runs every load, not a chosen subset. Loads that are cheap to repeat should be cached in their
-  service.
+- It re-runs every load, except one marked **`@Load(keepOnReload: true)`** whose inputs haven't changed.
+  Use it for values that don't change on their own, such as a place looked up by its id: the reload keeps
+  the value and runs the loads that read it with it. An input change still runs it again.
+- Otherwise, loads that are cheap to repeat should be cached in their service. A service's cache starts
+  empty in the browser after a server-rendered page, so `keepOnReload` is what avoids fetching such a value
+  again on the first refresh.
 - **The swap is atomic:** during a reload, the view keeps every `@Load` value from the previous run until
   all loads have finished, and then all are replaced at once, so dependent values stay consistent.
 - Declaring your own member named `reload` next to `@Load` fields is a compile error.
+
+```k
+~import k.crypto.Uuid
+~
+~component Dashboard {
+~    @Prop let id: Uuid
+~    @Inject let products: ProductService
+~    @Inject let orders: OrderService
+@Load(keepOnReload: true) let product: Product = try await products.find(id)
+@Load let recent: List<OrderSummary> = await orders.recent()
+~
+~    view {
+~        text { "{product.name}: {recent.count} orders" }
+~    }
+~
+~    loading {
+~        text { "Loading…" }
+~    }
+~}
+```
 
 To refresh periodically, start a timer in an effect and cancel it on cleanup:
 

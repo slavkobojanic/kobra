@@ -1504,6 +1504,184 @@ fn k_data(html: &str) -> serde_json::Value {
     serde_json::from_str(&rest[..end]).expect("k-data is JSON")
 }
 
+// A client-rendered component in a server-rendered page
+// (47-client-rendered-components.md): the server renders its `loading`
+// in a block range and serializes nothing for it; hydration claims that
+// `loading` and every server node around it, so the labelled control after
+// it keeps the id the server gave it; after the pass the component swaps
+// to its `view`, which sees the draft the service's `init()` read from
+// local storage.
+#[test]
+fn a_client_rendered_component_hydrates_its_loading_and_swaps_to_its_view() {
+    let mut site = Site::start("tests:client-component", &[]);
+    let page = site.page("/");
+    assert_eq!(page.status, 200);
+    let html = String::from_utf8_lossy(&page.body).into_owned();
+    contains(&html, "Loading the draft…", "the server renders `loading`");
+    lacks(&html, "Draft:", "the server renders no `view`");
+    lacks(&html, "Draft text", "the server renders no `view`");
+    let data = k_data(&html);
+    assert_eq!(
+        data["c"],
+        serde_json::json!({}),
+        "nothing is serialized for the component: {data}"
+    );
+    let mut tab = Tab::open(
+        &mut site,
+        "/",
+        &serde_json::json!({ "cc:draft": "\"Buy bread\"" }),
+    );
+    // Every server node outside the component's range is still the one
+    // the server sent, and the ids the server gave the labelled controls
+    // are unchanged.
+    let report = tab.run(
+        r#"const r = sim.hydrationReport();
+// As of the end of the pass, nothing was replaced; the swap afterwards
+// replaced only the `loading` nodes.
+const outside = r.replaced;
+const ids = (html) => [...html.matchAll(/<input[^>]*id="(k\d+)"/g)].map((m) => m[1]);
+const label = (text) => sim.find("label", text).getAttribute("for");
+done({ outside, serverIds: ids(r.before), search: label("Search"), note: label("New note"), draft: label("Draft text") });"#,
+    );
+    assert_eq!(report["outside"], serde_json::json!([]), "{report}");
+    tab.assert_hydrated();
+    assert_eq!(
+        report["serverIds"],
+        serde_json::json!(["k1", "k2"]),
+        "the server's ids: {report}"
+    );
+    assert_eq!(report["search"], serde_json::json!("k1"), "{report}");
+    assert_eq!(
+        report["note"],
+        serde_json::json!("k2"),
+        "kept after the component: {report}"
+    );
+    assert_eq!(
+        report["draft"],
+        serde_json::json!("k3"),
+        "allocated after the pass: {report}"
+    );
+    let text = tab.text();
+    contains(
+        &text,
+        "Draft: Buy bread",
+        "the view, after init() read storage",
+    );
+    lacks(&text, "Loading the draft", "loading is gone");
+    // The server-rendered part is interactive.
+    tab.run("sim.type(sim.find(\"input\", null, { id: \"k2\" }), \"Hello\");");
+    contains(
+        &tab.text(),
+        "Typed: Hello",
+        "the sibling after the component",
+    );
+}
+
+/// The `for` of each label on the tab, by its text.
+fn label_ids(tab: &mut Tab<'_>) -> serde_json::Value {
+    tab.run(
+        r#"const out = {};
+for (const l of sim.all("label", null)) out[sim.textOf(l)] = l.getAttribute("for");
+done(out);"#,
+    )
+}
+
+// A client-rendered component between server-rendered siblings that have
+// their own `@Load`s and labelled controls (47-client-rendered-components.md):
+// the siblings hydrate from their serialized loads without being
+// re-rendered, the ids the server gave them stay, and the component's own
+// load runs in the browser after the swap.
+#[test]
+fn a_client_rendered_component_between_loading_siblings_keeps_their_loads_and_ids() {
+    let mut site = Site::start("tests:client-component-edges", &[]);
+    let page = site.page("/siblings");
+    assert_eq!(page.status, 200);
+    let html = String::from_utf8_lossy(&page.body).into_owned();
+    contains(&html, "Apples in stock: 60", "the first sibling's load");
+    contains(&html, "Pears in stock: 50", "the second sibling's load");
+    contains(&html, "Loading the basket…", "the server renders `loading`");
+    lacks(&html, "Basket total", "the server renders no `view`");
+    let mut tab = Tab::open(&mut site, "/siblings", &serde_json::json!({}));
+    tab.assert_hydrated();
+    let text = tab.text();
+    contains(&text, "Apples in stock: 60", "after hydration");
+    contains(&text, "Pears in stock: 50", "after hydration");
+    contains(&text, "Basket total: 7", "the component's own load ran");
+    lacks(&text, "Loading the basket", "loading is gone");
+    let ids = label_ids(&mut tab);
+    assert_eq!(
+        ids,
+        serde_json::json!({
+            "Search": "k1",
+            "Apples note": "k2",
+            "Pears note": "k3",
+            "Basket note": "k4",
+        }),
+        "the server's ids stay; the view's control is allocated after the pass"
+    );
+}
+
+// Client-rendered components nested in each other: one in the outer
+// component's `loading`, which the server renders and hydration claims,
+// and one in its `view`, created after the pass, which renders its `view`
+// at once.
+#[test]
+fn nested_client_rendered_components_hydrate_and_swap() {
+    let mut site = Site::start("tests:client-component-edges", &[]);
+    let page = site.page("/nested");
+    assert_eq!(page.status, 200);
+    let html = String::from_utf8_lossy(&page.body).into_owned();
+    contains(&html, "Outer loading", "the outer `loading`");
+    contains(&html, "Inner loading in loading", "the inner `loading`");
+    lacks(&html, "Outer view", "no outer `view` on the server");
+    lacks(&html, "Inner view", "no inner `view` on the server");
+    let mut tab = Tab::open(&mut site, "/nested", &serde_json::json!({}));
+    tab.assert_hydrated();
+    let text = tab.text();
+    contains(&text, "Outer view", "the outer component swapped");
+    contains(
+        &text,
+        "Inner view in view",
+        "the inner one renders its view",
+    );
+    lacks(&text, "loading", "no `loading` is left");
+    let ids = label_ids(&mut tab);
+    assert_eq!(
+        ids,
+        serde_json::json!({ "After": "k1", "Inner note in view": "k2" }),
+        "{ids}"
+    );
+    tab.run("sim.type(sim.labeled(\"Inner note in view\"), \"x\");");
+    assert_eq!(
+        tab.run("done(sim.labeled(\"Inner note in view\").value);"),
+        "x"
+    );
+}
+
+// A panic in a client-rendered component's `view`, which first runs in the
+// browser after the hydration pass, reaches the `ErrorBoundary` around the
+// component, and the rest of the page stays hydrated and interactive.
+#[test]
+fn a_panic_in_a_client_rendered_view_reaches_its_error_boundary() {
+    let mut site = Site::start("tests:client-component-edges", &[]);
+    let page = site.page("/guarded");
+    assert_eq!(page.status, 200);
+    let html = String::from_utf8_lossy(&page.body).into_owned();
+    contains(
+        &html,
+        "Loading the broken part…",
+        "the server renders `loading`",
+    );
+    lacks(&html, "Something broke", "nothing panics on the server");
+    let mut tab = Tab::open(&mut site, "/guarded", &serde_json::json!({}));
+    tab.assert_hydrated();
+    let text = tab.text();
+    contains(&text, "Something broke", "the boundary's fallback");
+    lacks(&text, "Loading the broken part", "loading is gone");
+    tab.run("sim.type(sim.labeled(\"After\"), \"Hi\");");
+    contains(&tab.text(), "Typed: Hi", "the rest of the page works");
+}
+
 // With `@Rendering(.client)` and a server (23-app-structure.md, "Rendering
 // mode"; 26-auth-and-sessions.md, "In the browser"): the shell embeds the
 // session mirror in `k-data`, as a server-rendered document does, without a

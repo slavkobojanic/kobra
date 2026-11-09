@@ -74,6 +74,9 @@ pub(crate) struct FwState {
     state_writers: RefCell<HashMap<DeclId, Rc<HashSet<MemberId>>>>,
     /// The error each `@Load` initializer throws (if any) and its range.
     pub(crate) loads: RefCell<HashMap<MemberId, (Option<Ty>, TextRange)>>,
+    /// The components that render only in the browser, computed once
+    /// (`di::browser_only_components`).
+    pub(crate) browser_only: RefCell<Option<Rc<HashSet<DeclId>>>>,
 }
 
 impl FwState {
@@ -684,6 +687,7 @@ fn decl_targets(kind: Option<K>) -> Vec<Target> {
     match kind {
         Some(K::Page) => vec![Target::Page],
         Some(K::App) => vec![Target::App],
+        Some(K::Component) => vec![Target::Component],
         Some(K::Service) => vec![Target::Service],
         Some(K::Struct) => vec![Target::Struct],
         Some(K::Protocol | K::Entity | K::Migration | K::Enum) => vec![Target::Locked],
@@ -782,6 +786,9 @@ pub(crate) fn check_declaration(cx: &Cx<'_, '_>, decl: DeclId, owner: &BodyOwner
         }
     }
     blocks(cx, decl);
+    if kind == Some(K::Component) {
+        client_rendering(cx, decl);
+    }
     derived_cycles(cx, decl);
     check_entity(cx, decl);
     if kind == Some(K::Service) {
@@ -1659,6 +1666,119 @@ pub(crate) fn record_load(cx: &Cx<'_, '_>, m: MemberId, escaped: Vec<Ty>, range:
         .insert(m, (escaped.into_iter().next(), range));
 }
 
+/// Returns `true` when `decl` declares a `loading` block.
+pub(crate) fn has_loading_block(cx: &Cx<'_, '_>, decl: DeclId) -> bool {
+    cx.p.decl(decl)
+        .node
+        .children()
+        .find(|c| c.kind() == SyntaxKind::MemberList)
+        .is_some_and(|l| l.children().any(|c| c.kind() == SyntaxKind::LoadingBlock))
+}
+
+/// The edit that inserts an empty `loading { }` block before the closing
+/// brace of `decl`'s member list (the fix of K3022, and part of K4013's
+/// "Add `@Rendering(.client)` to the component").
+pub(crate) fn loading_insertion(cx: &Cx<'_, '_>, decl: DeclId) -> Option<k_diagnostics::TextEdit> {
+    let d = cx.p.decl(decl);
+    let list = d
+        .node
+        .children()
+        .find(|c| c.kind() == SyntaxKind::MemberList)?;
+    let close = list
+        .children_with_tokens()
+        .filter_map(rowan::NodeOrToken::into_token)
+        .filter(|t| t.kind() == SyntaxKind::RBrace)
+        .last()?;
+    Some(k_diagnostics::TextEdit {
+        span: k_diagnostics::Span::empty(cx.p.file(d.file).id, close.text_range().start()),
+        replacement: "\n    loading {\n    }\n".into(),
+    })
+}
+
+/// The rules of `@Rendering` on a component
+/// (47-client-rendered-components.md): `.server` is K4027; `.client` in an
+/// app that is already client-rendered is K4029, with a fix that removes
+/// it; otherwise the component needs a `loading` block (K3022, as for
+/// `@Load`).
+fn client_rendering(cx: &Cx<'_, '_>, decl: DeclId) {
+    let p = cx.p;
+    let d = p.decl(decl);
+    let file = d.file;
+    let Some((annotation, client)) = crate::di::rendering_annotation(&d.node) else {
+        return;
+    };
+    let text = p.file(file).text;
+    let range = annotation.syntax().text_range();
+    // The annotation and the line break or spaces after it.
+    let mut end = usize::from(range.end());
+    let rest = &text[end..];
+    let spaces = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+    end += spaces;
+    if text[end..].starts_with("\r\n") {
+        end += 2;
+    } else if text[end..].starts_with('\n') {
+        end += 1;
+    }
+    let removal = TextRange::new(
+        range.start(),
+        TextSize::from(u32::try_from(end).unwrap_or(u32::MAX)),
+    );
+    if !client {
+        cx.report(
+            file,
+            Diagnostic::new(
+                codes::SERVER_RENDERING_ON_COMPONENT,
+                p.span(file, range),
+                "components render on the server by default; only `@Rendering(.client)` applies to a component",
+            )
+            .with_fix(
+                Fix::replace("Remove the annotation", p.span(file, removal), "")
+                    .maybe_incorrect(),
+            ),
+        );
+        return;
+    }
+    if crate::di::client_rendered(cx) {
+        cx.report(
+            file,
+            Diagnostic::new(
+                codes::REDUNDANT_CLIENT_RENDERING,
+                p.span(file, range),
+                format!(
+                    "the app is `@Rendering(.client)`, so `{}` already renders in the browser only",
+                    d.name
+                ),
+            )
+            .with_fix(Fix::replace(
+                "Remove the annotation",
+                p.span(file, removal),
+                "",
+            )),
+        );
+        return;
+    }
+    // A component with `@Load` fields gets K3022 from `load_rules`.
+    if has_loading_block(cx, decl) || !load_fields(cx, decl).is_empty() {
+        return;
+    }
+    let mut diag = Diagnostic::new(
+        codes::MISSING_LOADING_BLOCK,
+        p.span(file, d.name_range),
+        format!(
+            "`{}` is rendered in the browser only, so it needs a `loading` block for the server to render",
+            d.name
+        ),
+    );
+    if let Some(edit) = loading_insertion(cx, decl) {
+        diag = diag.with_fix(Fix {
+            message: "Add an empty `loading { }`".into(),
+            edits: vec![edit],
+            applicability: k_diagnostics::Applicability::MaybeIncorrect,
+        });
+    }
+    cx.report(file, diag);
+}
+
 /// The `@Load` fields of a declaration.
 fn load_fields(cx: &Cx<'_, '_>, decl: DeclId) -> Vec<MemberId> {
     cx.p.decl(decl)
@@ -1711,25 +1831,21 @@ pub(crate) fn load_rules(cx: &Cx<'_, '_>, decl: DeclId) {
                 d.name
             ),
         );
-        if let Some(close) = list.as_ref().and_then(|l| {
-            l.children_with_tokens()
-                .filter_map(rowan::NodeOrToken::into_token)
-                .filter(|t| t.kind() == SyntaxKind::RBrace)
-                .last()
-        }) {
-            diag = diag.with_fix(
-                Fix::replace(
-                    "Add an empty `loading { }`",
-                    k_diagnostics::Span::empty(p.file(file).id, close.text_range().start()),
-                    "\n    loading {\n    }\n",
-                )
-                .maybe_incorrect(),
-            );
+        if let Some(edit) = loading_insertion(cx, decl) {
+            diag = diag.with_fix(Fix {
+                message: "Add an empty `loading { }`".into(),
+                edits: vec![edit],
+                applicability: k_diagnostics::Applicability::MaybeIncorrect,
+            });
         }
         cx.report(file, diag);
     }
     let codable = cx.b.codable;
-    let is_codable = |t: &Ty| t.contains_error() || codable.is_none_or(|c| cx.implements(t, c));
+    // A client-rendered component's loads run only in the browser: nothing
+    // is serialized (47-client-rendered-components.md).
+    let browser = crate::di::client_component(cx, decl) && !crate::di::client_rendered(cx);
+    let is_codable =
+        |t: &Ty| browser || t.contains_error() || codable.is_none_or(|c| cx.implements(t, c));
     for &m in &loads {
         let ty = cx.field_ty(m);
         if !is_codable(&ty) {

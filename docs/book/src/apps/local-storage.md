@@ -79,8 +79,9 @@ public interface LocalStorage {
   browser, `init()` runs after hydration. Calling `LocalStorage` from code that can run during server
   rendering is a compile error.
 - **A server-rendered page that reads such a service is a warning (`K4013`),** because its first paint would show
-  the initial state and then jump. The quick fix adds `@Rendering(.client)` to the app
-  ([The app declaration](app.md#rendering-on-the-client)).
+  the initial state and then jump. When the read is in a component, the first quick fix renders just that
+  component in the browser with `@Rendering(.client)` ([Components](components.md#rendering-in-the-browser-only));
+  the other adds `@Rendering(.client)` to the app ([The app declaration](app.md#rendering-on-the-client)).
 
 ## Keys
 

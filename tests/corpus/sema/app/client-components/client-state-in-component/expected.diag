@@ -1,0 +1,11 @@
+warning[K4013] src/ui/CartBadge.k:6:18-6:28: `ui.CartService` is client-only: the server renders this page without its state
+  fix "Add `@Rendering(.client)` to the component" maybe-incorrect
+    edit 2:1-2:1 "@Rendering(.client)\n"
+    edit 8:1-8:1 "\n    loading {\n    }\n"
+  fix "Add `@Rendering(.client)` to the app" maybe-incorrect
+    edit App.k:4:1-4:1 "@Rendering(.client)\n"
+warning[K4013] src/ui/CartTotal.k:6:18-6:28: `ui.CartService` is client-only: the server renders this page without its state
+  fix "Add `@Rendering(.client)` to the component" maybe-incorrect
+    edit 2:1-2:1 "@Rendering(.client)\n"
+  fix "Add `@Rendering(.client)` to the app" maybe-incorrect
+    edit App.k:4:1-4:1 "@Rendering(.client)\n"

@@ -179,7 +179,7 @@ K4009: Pass what the job needs in its payload instead of reading the session.
 K4010: Use an implementation of the interface in the `use` rule.
 K4011: Bind a config value only inside a test, with `use Config.sample for Config`.
 K4012: Call it from an effect or a handler, which run only in the browser, or check the side first.
-K4013: Render the value only in the browser, or turn server rendering off with `@Rendering(.client)`.
+K4013: Render the component that reads it only in the browser with `@Rendering(.client)` on the component, or turn server rendering off for the whole app.
 K4014: Remove the `use` rule (machine-applicable fix).
 K4015: Add a `use … in` rule for the uncovered environment, or drop the environment restriction from one rule.
 K4016: Declare one `init()` without parameters and without `throws`; take inputs through injection.
@@ -193,6 +193,9 @@ K4023: Add `use remote(SomeConfig) for Protocol` to `App.k`.
 K4024: Remove the rule; the protocol is implemented by the app, or isn't from a library dependency.
 K4025: Pass a config that implements `RemoteService`, with `url: Url` and `token: Secret<String>`.
 K4026: Give the binding a protocol type: `let events: PaymentEvents = RemoteClient.at(…)`.
+K4027: Remove the annotation: components render on the server by default. Use `@Rendering(.client)` to render one in the browser only.
+K4028: Read only `@Prop`s, constants and pure functions in `loading`; pass what it needs as a prop, or move the read to `view`.
+K4029: Remove the annotation: the whole app already renders in the browser.
 K5001: Give one of the pages or endpoints another URL, or another name.
 K5002: Use `String`, `Int`, `Uuid`, `Page`, a payload-free enum or an optional of these.
 K5003: Name every path parameter once in the template, as `{name}`, and declare a `@Param` for each.

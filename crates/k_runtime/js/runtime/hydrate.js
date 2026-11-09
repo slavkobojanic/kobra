@@ -87,7 +87,29 @@ export function hydrate(container, render, data) {
   });
   if (node && node.parentNode !== container) container.appendChild(node);
   if (data !== null && data !== undefined) rememberTimeZone(container.ownerDocument);
+  if (afterPassQueue.length > 0) {
+    // Queued after the `init()`s the pass queued (`afterHydration`), so
+    // what runs here sees the state they loaded.
+    const queued = afterPassQueue;
+    afterPassQueue = [];
+    queueMicrotask(() => batch(() => queued.forEach((f) => f())));
+  }
   return node;
+}
+
+/** What runs once the current hydration pass is over (`afterPass`). */
+let afterPassQueue = [];
+
+/**
+ * Runs `f` once the hydration pass is over and the client-only services'
+ * `init()`s it queued have run, or now when no pass is running: the swap
+ * of a client-rendered component from `loading` to `view`
+ * (47-client-rendered-components.md).
+ * @param {() => void} f
+ */
+export function afterPass(f) {
+  if (hydrating) afterPassQueue.push(f);
+  else f();
 }
 
 /** Sets the `k_tz` cookie so later server renders use the browser's zone. */

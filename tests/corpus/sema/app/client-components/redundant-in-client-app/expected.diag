@@ -1,0 +1,3 @@
+warning[K4029] src/ui/Cart.k:2:1-2:20: the app is `@Rendering(.client)`, so `Cart` already renders in the browser only
+  fix "Remove the annotation"
+    edit 2:1-3:1 ""

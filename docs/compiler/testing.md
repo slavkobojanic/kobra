@@ -830,7 +830,9 @@ async fn duplicates_map_to_the_unique_field() {
   zone, air quality; or a 404 for an unknown place), so a page that loads through the server's
   `HttpClient` renders on the server and hydrates in the tab.
 - **Assertions**: `assert_hydrated` fails when hydration replaced any server node (a mismatch) or changed
-  the markup; the driver's request log shows that `@Load` data isn't fetched again on hydration; the
+  the markup, as of the end of the pass (the sim snapshots the page when the runtime sets `k_tz`, right
+  after the pass, so a client-rendered component's later swap to its `view` doesn't count; the
+  `tests:client-component` project checks that swap and the ids after it); the driver's request log shows that `@Load` data isn't fetched again on hydration; the
   container's text and markup after each interaction; no `console.error` and no uncaught exception.
 - **Cases**: `todos` (client rendering: add, a refused blank title, toggle, the three filters, delete,
   the theme switch with its root class and cookie, a reload from local storage), `weather` (hydration,
@@ -945,7 +947,9 @@ timers).
 - **Cases**: each example's main README flow, green: `todos` (add, complete, the three filters with
   `aria-pressed`, clear, a reload), `kanban` (create a board, add cards, move one with Space, ArrowRight
   and Space keeping the focus, drop one onto another with the mouse, Escape closing the editor while
-  typing, a reload), `weather` (a debounced search, a client navigation to a result, °C/°F, home again),
+  typing, a reload), `weather` (a debounced search, a client navigation to a result, °C/°F, home again;
+  the recently viewed list, a client-rendered component, appearing after hydration without moving the
+  server-rendered parts; a refresh after server rendering keeping the place),
   `notes` (one command, sign up, create, edit, delete, sign out and in; two apps on `localhost` keeping
   their own sessions; `k dev` stopping promptly with a `watch()` stream open), `stack` (pay from the
   shop page through paybox) and `shop` (buy a mug, pay through paybox on non-default ports, the receipt
@@ -989,7 +993,7 @@ are those of the real-browser diagnosis of the examples:
 | weather-D | **Fixed** (`css_value_of`): a reactive `Angle` style value has no unit | `weather_rotates_the_wind_arrow` |
 | weather-E1 | **Fixed** (per-load invalidation, same-page navigations keep the page; runtime.md §7, §10): a units change re-runs every load | `weather_switching_units_fetches_only_the_forecast_again` |
 | weather-E2 | **Fixed** (`$loads.ready()`): the refresh timer is recreated on every reload | `weather_creates_the_refresh_timer_once` |
-| weather-E3 | **Open, red** (needs a design choice: either service state crosses hydration or `reload()` can keep a load whose inputs are unchanged; the weather README says so): hydrated loads don't seed the service's place cache | `weather_refresh_after_server_rendering_uses_the_cached_place` |
+| weather-E3 | **Fixed** (`@Load(keepOnReload: true)`: `reload()` keeps a marked load whose inputs are unchanged; 14-async-data.md, "Reloading"): hydrated loads don't seed the service's place cache, so the first refresh looked the place up again | `weather_refresh_after_server_rendering_uses_the_cached_place` |
 | shop-D5 | **Resolved** (the behaviour is the designed one, 26-auth-and-sessions.md: a guarded page whose session ends is left for the server; the example no longer navigates after the `await`, and its doc comment and README say where sign-out lands): signing out of Admin lands on `/sign-in`, not home | `shop_admin_signs_out_to_the_sign_in_page` |
 | docs-stale | **Fixed** (READMEs updated): example READMEs say the compiler doesn't exist | `example_checks.rs` `example_readmes_do_not_say_the_compiler_is_missing` |
 

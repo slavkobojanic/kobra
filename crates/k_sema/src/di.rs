@@ -1770,3 +1770,165 @@ pub(crate) fn sides(cx: &Cx<'_, '_>) -> HashMap<(FileId, TextRange), Side> {
     }
     out
 }
+
+// ------------------------------------------------------------ client-rendered components
+
+/// The `@Rendering` annotation written on `node`, with `true` when its mode
+/// is `.client` (47-client-rendered-components.md).
+pub(crate) fn rendering_annotation(node: &k_syntax::SyntaxNode) -> Option<(ast::Annotation, bool)> {
+    node.children()
+        .filter_map(ast::Annotation::cast)
+        .find(|a| a.name().is_some_and(|n| n.text() == "Rendering"))
+        .map(|a| {
+            let client = a
+                .syntax()
+                .descendants_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .any(|t| t.text() == "client");
+            (a, client)
+        })
+}
+
+/// Returns `true` for a component marked `@Rendering(.client)`: the server
+/// renders its `loading` block and the browser its `view`
+/// (47-client-rendered-components.md).
+pub(crate) fn client_component(cx: &Cx<'_, '_>, d: DeclId) -> bool {
+    let decl = cx.p.decl(d);
+    decl.named_kind() == Some(K::Component)
+        && rendering_annotation(&decl.node).is_some_and(|(_, client)| client)
+}
+
+/// The ranges of `node` that render in the browser only: for a
+/// client-rendered component everything but its `loading` block, and in
+/// any view the slot content (lambdas) passed to a client-rendered
+/// component.
+pub(crate) fn browser_regions(cx: &Cx<'_, '_>, d: DeclId) -> Vec<TextRange> {
+    let decl = cx.p.decl(d);
+    let mut out = Vec::new();
+    if client_component(cx, d) {
+        let loading = decl
+            .node
+            .descendants()
+            .find(|n| {
+                n.kind() == SyntaxKind::LoadingBlock
+                    && n.parent()
+                        .is_some_and(|p| p.kind() == SyntaxKind::MemberList)
+            })
+            .map(|n| n.text_range());
+        let whole = decl.node.text_range();
+        match loading {
+            Some(l) => {
+                out.push(TextRange::new(whole.start(), l.start()));
+                out.push(TextRange::new(l.end(), whole.end()));
+            }
+            None => out.push(whole),
+        }
+    }
+    for call in decl.node.descendants().filter_map(ast::CallExpr::cast) {
+        let Some(ast::Expr::NameExpr(callee)) = call.callee() else {
+            continue;
+        };
+        let Some(name) = callee
+            .syntax()
+            .descendants_with_tokens()
+            .filter_map(rowan::NodeOrToken::into_token)
+            .find(|t| t.kind() == SyntaxKind::Ident)
+        else {
+            continue;
+        };
+        if !name.text().starts_with(|c: char| c.is_ascii_uppercase()) {
+            continue;
+        }
+        let crate::cx::Found::Decl(target) = cx.lookup(decl.file, name.text()) else {
+            continue;
+        };
+        if !client_component(cx, target) {
+            continue;
+        }
+        for lambda in call
+            .syntax()
+            .children()
+            .flat_map(|c| {
+                if c.kind() == SyntaxKind::ArgList {
+                    c.descendants().collect::<Vec<_>>()
+                } else {
+                    vec![c]
+                }
+            })
+            .filter(|n| n.kind() == SyntaxKind::LambdaExpr)
+        {
+            out.push(lambda.text_range());
+        }
+    }
+    out
+}
+
+/// The components that render only in the browser: those whose every
+/// use is inside a client-rendered component's subtree, transitively
+/// (47-client-rendered-components.md, "Rules"). A client-rendered
+/// component itself is not in the set; its `loading` block is
+/// server-rendered.
+pub(crate) fn browser_only_components(cx: &Cx<'_, '_>) -> std::rc::Rc<HashSet<DeclId>> {
+    if let Some(set) = cx.fw.browser_only.borrow().as_ref() {
+        return std::rc::Rc::clone(set);
+    }
+    let p = cx.p;
+    let ids = || (0..p.decls.len()).map(|i| DeclId(u32::try_from(i).unwrap_or(u32::MAX)));
+    let user = |d: DeclId| !p.file(p.decl(d).file).stdlib;
+    let is_component = |d: DeclId| p.decl(d).named_kind() == Some(K::Component);
+    // Each user declaration's references to components, split into the
+    // server-rendered ones and those in a browser-only region.
+    let mut server_refs: HashMap<DeclId, Vec<DeclId>> = HashMap::new();
+    let mut referenced: HashSet<DeclId> = HashSet::new();
+    for d in ids().filter(|d| user(*d)) {
+        let decl = p.decl(d);
+        let regions = browser_regions(cx, d);
+        let mut refs = Vec::new();
+        for t in decl
+            .node
+            .descendants_with_tokens()
+            .filter_map(rowan::NodeOrToken::into_token)
+        {
+            if t.kind() != SyntaxKind::Ident
+                || !t.text().starts_with(|c: char| c.is_ascii_uppercase())
+            {
+                continue;
+            }
+            let crate::cx::Found::Decl(target) = cx.lookup(decl.file, t.text()) else {
+                continue;
+            };
+            if target == d || !is_component(target) {
+                continue;
+            }
+            referenced.insert(target);
+            let at = t.text_range();
+            if !regions.iter().any(|r| r.contains_range(at)) {
+                refs.push(target);
+            }
+        }
+        server_refs.insert(d, refs);
+    }
+    // Server-rendered: every user declaration that isn't a component,
+    // every component nothing references, and what they reach.
+    let mut server: HashSet<DeclId> = HashSet::new();
+    let mut stack: Vec<DeclId> = ids()
+        .filter(|d| user(*d) && (!is_component(*d) || !referenced.contains(d)))
+        .collect();
+    // A client-rendered component's `loading` is server-rendered wherever
+    // the component is.
+    stack.extend(ids().filter(|d| user(*d) && client_component(cx, *d)));
+    while let Some(d) = stack.pop() {
+        if !server.insert(d) {
+            continue;
+        }
+        if let Some(refs) = server_refs.get(&d) {
+            stack.extend(refs.iter().copied());
+        }
+    }
+    let set: HashSet<DeclId> = ids()
+        .filter(|d| user(*d) && is_component(*d) && !server.contains(d))
+        .collect();
+    let set = std::rc::Rc::new(set);
+    *cx.fw.browser_only.borrow_mut() = Some(std::rc::Rc::clone(&set));
+    set
+}

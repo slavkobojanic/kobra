@@ -55,6 +55,8 @@ pub enum Target {
     Page,
     /// The `app` declaration.
     App,
+    /// A `component` declaration.
+    Component,
     /// A `service` declaration.
     Service,
     /// A `struct` declaration.
@@ -172,7 +174,12 @@ pub const ANNOTATIONS: &[AnnotationDef] = &[
         Any,
         "27-endpoint-pages.md",
     ),
-    def("k.core.Rendering", &[T::App], Any, "23-app-structure.md"),
+    def(
+        "k.core.Rendering",
+        &[T::App, T::Component],
+        Any,
+        "47-client-rendered-components.md",
+    ),
     def("k.core.Scope", &[T::Service], Any, "10-services.md"),
     def(
         "k.core.SignInPage",

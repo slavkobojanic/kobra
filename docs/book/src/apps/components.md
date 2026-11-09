@@ -402,3 +402,92 @@ service.
 
 A component can load its own async data with `@Load`, which makes it its own loading boundary, so a slow
 sidebar doesn't hold up the page. See [Async data loading](async-data.md).
+
+## Rendering in the browser only
+
+Some parts of a page can only be rendered in the browser, because they show data the server never sees,
+such as [local storage](local-storage.md). Mark such a component `@Rendering(.client)`. The rest of the
+page is still rendered on the server; for this component the server renders its **`loading` block**, and
+the browser swaps in its `view` right after the page has hydrated:
+
+```k,standalone
+import k.storage.LocalStorage
+import k.storage.StorageKey
+
+/// The recently viewed products, kept in the browser.
+service RecentlyViewed {
+    @Inject let storage: LocalStorage
+
+    private let saved: StorageKey<List<String>> = StorageKey(name: "recent")
+
+    @State var names: List<String> = []
+
+    init() {
+        do {
+            names = try storage.read(key: saved) ?? []
+        } catch .unreadable, .unavailable {
+            names = []
+        }
+    }
+}
+
+/// Only this list needs the browser; the page around it is server-rendered.
+@Rendering(.client)
+component RecentProducts {
+    @Prop let title: String
+
+    @Inject let recent: RecentlyViewed
+
+    view {
+        section {
+            heading(level: 2) { title }
+            for name in recent.names key name {
+                paragraph { name }
+            }
+        }
+    }
+
+    loading {
+        section {
+            heading(level: 2) { title }
+            paragraph { "…" }
+        }
+    }
+}
+```
+
+- **`loading` is required.** It is what the server renders and what the browser shows while the page
+  hydrates. `loading { }` renders nothing; a skeleton of the same size as the `view` keeps the layout from
+  shifting.
+- **`loading` reads only the component's `@Prop`s**, constants and functions outside the component: the
+  server renders it without constructing the component, so no field, `@Inject`, `@Load` or effect exists
+  there. Reading anything else is an error (`K4028`).
+- **Everything else runs only in the browser.** The `view`, field initializers, `@Derived` and `@Load`
+  values of the component, the components its `view` renders and the content passed to its slots may read
+  client-only services and call client-only interfaces: the warnings and errors about server rendering
+  (`K4012`, `K4013`) don't apply there. The `view` first renders after the client-only services' `init()`
+  has run, so it shows what they loaded.
+- **Props are ordinary props.** The page passes them from its own state, handlers and bindings work, and
+  nothing is serialized for the component.
+- On a client-side navigation nothing is server-rendered, so the component renders its `view` at once.
+- When a component reads a client-only service and the page is server-rendered, the warning `K4013` offers
+  this annotation as its first quick fix, and adds `loading { }` when the component has none.
+- `@Rendering(.server)` on a component is an error (`K4027`): components render on the server by default.
+  In an app that is already `@Rendering(.client)`, the annotation has no effect, and the warning `K4029`
+  offers to remove it.
+
+```k,standalone,fails=K4028
+@Rendering(.client)
+component Greeting {
+    @Prop let name: String
+    @State var visits: Int = 0
+
+    view {
+        text { "Hello {name}, visit {visits}" }
+    }
+
+    loading {
+        text { "Hello {name}, visit {visits}" }
+    }
+}
+```

@@ -5448,7 +5448,7 @@ warning[K4013]: `todos.TodoService` is client-only: the server renders this page
   = fix: Add `@Rendering(.client)` to the app
 ```
 
-**Fix:** Render the value only in the browser, or turn server rendering off with `@Rendering(.client)`.
+**Fix:** Render the component that reads it only in the browser with `@Rendering(.client)` on the component, or turn server rendering off for the whole app.
 
 ### K4014 `use-restates-default`
 
@@ -5922,6 +5922,196 @@ error[K4026]: `RemoteClient.at` builds a client of a protocol, and `corpus.Hook`
 ```
 
 **Fix:** Give the binding a protocol type: `let events: PaymentEvents = RemoteClient.at(…)`.
+
+### K4027 `server-rendering-on-component`
+
+**Error.** Only `@Rendering(.client)` applies to a component; the server is the default.
+
+Example (`tests/corpus/sema/app/client-components/server-rendering-on-component/`):
+
+```k,ignore
+// App.k
+// `@Rendering(.server)` on a component is an error: the server is the default, and a component
+// can't opt back in inside a client-rendered parent.
+public app Shop {
+    metadata {
+        title("Shop")
+    }
+}
+```
+
+```k,ignore
+// src/ui/Price.k
+@Rendering(.server)
+public component Price {
+    @Prop let cents: Int
+
+    view {
+        text { "{cents}" }
+    }
+}
+```
+
+```text
+error[K4027]: components render on the server by default; only `@Rendering(.client)` applies to a component
+ --> src/ui/Price.k:1:1
+  |
+1 | @Rendering(.server)
+  | ^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: Remove the annotation
+```
+
+**Fix:** Remove the annotation: components render on the server by default. Use `@Rendering(.client)` to render one in the browser only.
+
+### K4028 `loading-reads-component-state`
+
+**Error.** A client-rendered component's `loading` block is rendered by the server, so it reads only `@Prop`s.
+
+Example (`tests/corpus/sema/app/client-components/loading-reads-props-only/`):
+
+```k,ignore
+// App.k
+// A client-rendered component's `loading` reads only its `@Prop`s, constants and pure functions:
+// the server renders it without constructing the component.
+public app Shop {
+    metadata {
+        title("Shop")
+    }
+}
+```
+
+```k,ignore
+// src/ui/Cart.k
+let rows: Int = 2
+
+func label(_ n: Int) -> String {
+    return "{n} rows"
+}
+
+@Rendering(.client)
+public component Cart {
+    @Prop let owner: String
+
+    @Slot let empty: View
+
+    @State var count: Int = 0
+
+    @Derived let doubled: Int = count * 2
+
+    func summary() -> String {
+        return "{count} items"
+    }
+
+    view {
+        text { "{owner}: {count}" }
+    }
+
+    loading {
+        text { "{owner}, {label(rows)}" }
+        text { "{count}" }
+        text { "{self.doubled}" }
+        text { summary() }
+        text { self.summary() }
+        empty
+    }
+}
+```
+
+```text
+error[K4028]: the server renders `loading` without constructing the component, so it can't read `count`
+  --> src/ui/Cart.k:27:18
+   |
+13 |     @State var count: Int = 0
+   |                ----- this member isn't a `@Prop`
+27 |         text { "{count}" }
+   |                  ^^^^^
+   |
+   = help: `loading` may read the component's `@Prop`s, constants and pure functions
+
+error[K4028]: the server renders `loading` without constructing the component, so it can't read `doubled`
+  --> src/ui/Cart.k:28:23
+   |
+15 |     @Derived let doubled: Int = count * 2
+   |                  ------- this member isn't a `@Prop`
+28 |         text { "{self.doubled}" }
+   |                       ^^^^^^^
+   |
+   = help: `loading` may read the component's `@Prop`s, constants and pure functions
+
+error[K4028]: the server renders `loading` without constructing the component, so it can't read `summary`
+  --> src/ui/Cart.k:29:16
+   |
+17 |     func summary() -> String {
+   |          ------- this function isn't a `@Prop`
+29 |         text { summary() }
+   |                ^^^^^^^
+   |
+   = help: `loading` may read the component's `@Prop`s, constants and pure functions
+
+error[K4028]: the server renders `loading` without constructing the component, so it can't read `summary`
+  --> src/ui/Cart.k:30:21
+   |
+17 |     func summary() -> String {
+   |          ------- this function isn't a `@Prop`
+30 |         text { self.summary() }
+   |                     ^^^^^^^
+   |
+   = help: `loading` may read the component's `@Prop`s, constants and pure functions
+
+error[K4028]: the server renders `loading` without constructing the component, so it can't read `empty`
+  --> src/ui/Cart.k:31:9
+   |
+11 |     @Slot let empty: View
+   |               ----- this slot isn't a `@Prop`
+31 |         empty
+   |         ^^^^^
+   |
+   = help: `loading` may read the component's `@Prop`s, constants and pure functions
+```
+
+**Fix:** Read only `@Prop`s, constants and pure functions in `loading`; pass what it needs as a prop, or move the read to `view`.
+
+### K4029 `redundant-client-rendering`
+
+**Warning.** `@Rendering(.client)` on a component has no effect in an app that is already client-rendered.
+
+Example (`tests/corpus/sema/app/client-components/redundant-in-client-app/`):
+
+```k,ignore
+// App.k
+// In an app that is already client-rendered, `@Rendering(.client)` on a component has no
+// effect: a warning whose fix removes it.
+@Rendering(.client)
+public app Shop {
+    metadata {
+        title("Shop")
+    }
+}
+```
+
+```k,ignore
+// src/ui/Cart.k
+/// The cart.
+@Rendering(.client)
+public component Cart {
+    view {
+        text { "Cart" }
+    }
+}
+```
+
+```text
+warning[K4029]: the app is `@Rendering(.client)`, so `Cart` already renders in the browser only
+ --> src/ui/Cart.k:2:1
+  |
+2 | @Rendering(.client)
+  | ^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: Remove the annotation
+```
+
+**Fix:** Remove the annotation: the whole app already renders in the browser.
 
 ## K5000–K5499: Pages and routing
 

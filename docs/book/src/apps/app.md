@@ -112,7 +112,7 @@ Each annotation takes exactly one kind of argument:
 |---|---|---|
 | `@Layout(Dashboard)` | a layout's type name | wraps every view page in `Dashboard`, unless the page declares its own `@Layout`, or `@NoLayout` |
 | `@SignInPage(.signIn)` | a `Page` value | where the `Authenticated` guard sends visitors who aren't signed in. Required as soon as any page `requires Authenticated`. |
-| `@Rendering(.client)` | `.server` or `.client` | turns server rendering off for every page. The default is `.server`. |
+| `@Rendering(.client)` | `.server` or `.client` | turns server rendering off for every page. The default is `.server`. On a component, renders only that component in the browser ([Components](components.md#rendering-in-the-browser-only)). |
 
 - **`@NoLayout`** on a page opts out of the app's default layout. It takes no argument.
 - **App-level `@Layout` and `metadata` apply only to view pages.** `@Layout` or `@NoLayout` on an
@@ -161,7 +161,8 @@ public app Todos {
   `Session` and page guards work exactly as in a server-rendered app ([Authentication and
   sessions](auth.md)).
 - In a server-rendered app, a page that reads a client-only service is a warning (`K4013`) with a quick fix
-  that adds this annotation.
+  that adds this annotation. When only part of a page needs the browser, put `@Rendering(.client)` on that
+  component instead ([Components](components.md#rendering-in-the-browser-only)).
 - **When an app renders on the client and has no server-only code** (no protocol implementations,
   repositories, configs, jobs, endpoint pages, guarded pages or `.request`/`.server` services), `k build` emits only
   static files in `dist/public`, which any static host can serve. Adding server-only code later brings

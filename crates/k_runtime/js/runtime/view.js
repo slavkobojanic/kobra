@@ -8,9 +8,9 @@
  * with the server (`route` in `std.js`); `uid` is in `hydrate.js`.
  */
 
-import { claimMarkers, claimRange, isHydrating } from "./hydrate.js";
+import { afterPass, claimMarkers, claimRange, isHydrating } from "./hydrate.js";
 import { place } from "./dom.js";
-import { onCleanup, renderEffect } from "./signals.js";
+import { onCleanup, renderEffect, signal } from "./signals.js";
 import { CANCELLED } from "./values.js";
 
 /**
@@ -246,9 +246,28 @@ export function withQuery(path, entries) {
 }
 
 /**
+ * What a component instance reads its `@Load` values with (`loadsOf`):
+ * `ctx` with the instance's own `k-data` key, `"{key}.{n}"` for the
+ * `n`-th instance with loads under the page's or layout's `ctx.key`
+ * (which the router always sets), counted per `k-data` payload (so per hydration pass) in render order as
+ * each server render counts them (`Out.loadKey`), so sibling instances
+ * don't read each other's values. The count goes on after the pass, so an
+ * instance created later draws a key the server never wrote and runs its
+ * loads.
+ * @param {{key?: string, data?: any}} ctx
+ * @returns {{key: string, data: any}}
+ */
+export function loadCtx(ctx) {
+  const k = ctx.key, data = ctx.data || {}, n = (data.n ??= {});
+  // `-~n[k]` is `n[k] + 1`, and 1 for the first instance.
+  return { data, key: k + "." + (n[k] = -~n[k]) };
+}
+
+/**
  * The serialized `@Load` values of the instance rendered with `ctx`
  * (hydration), or `null`; with `key` `"failed"`, the error its server
- * render failed with instead (`undefined` when it didn't).
+ * render failed with instead (`undefined` when it didn't). A component
+ * instance passes what `loadCtx` gave it.
  * @param {{data?: any, key?: string}|null} ctx
  * @param {string} [key]
  * @returns {unknown}
@@ -257,6 +276,20 @@ export function loadsOf(ctx, key = "loads") {
   const c = ctx && ctx.data && ctx.data.c;
   const entry = c ? c[ctx.key ?? "0"] : null;
   return entry ? entry[key] : null;
+}
+
+/**
+ * Whether a client-rendered component shows its `view`: `false` while the
+ * hydration pass claims its `loading` (the server rendered that), `true`
+ * once the pass is over (`afterPass`), and at once outside a pass
+ * (47-client-rendered-components.md).
+ * @returns {() => boolean}
+ */
+export function clientReady() {
+  const ready = signal(!isHydrating());
+  // Outside a pass `afterPass` runs this now, which changes nothing.
+  afterPass(() => ready.set(true));
+  return () => ready.get();
 }
 
 /**

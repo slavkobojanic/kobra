@@ -35,8 +35,8 @@ No npm, no bundler, no transpiler: the files are shipped as written (compacted i
 | DOM binding helpers (`template`, `text`, `attr`, `prop`, `classList`, `style`, `on` with delegation) | `runtime/dom.js` | **implemented** (core) |
 | Blocks `when`, `branch` | `runtime/dom.js` | **implemented** (core) |
 | Keyed lists `each` (LIS moves) | `runtime/list.js` | **implemented** (extended) |
-| Hydration, label ids (`uid`), claiming root texts, separators and marker pairs (`textNode`, `separator`, `claimMarkers`) | `runtime/hydrate.js` | **implemented** (core) |
-| View helpers (`child`, `slotMarkers`, `markers`, `lifetime`, `paramProps`, `withQuery`, `loadsOf`, `joinClasses`, `title`) | `runtime/view.js` | **implemented** (extended) |
+| Hydration, label ids (`uid`), claiming root texts, separators and marker pairs (`textNode`, `separator`, `claimMarkers`), what runs after the pass (`afterPass`), component instances' `k-data` keys (`loadCtx`) | `runtime/hydrate.js` | **implemented** (core) |
+| View helpers (`child`, `slotMarkers`, `markers`, `lifetime`, `paramProps`, `withQuery`, `loadsOf`, `clientReady`, `joinClasses`, `title`) | `runtime/view.js` | **implemented** (extended) |
 | Path stores for `@State` structs | `runtime/store.js` | **implemented** (extended) |
 | Services in the browser: `provide` (component scope), `afterHydration` (client-only `init()`), `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session` mirror, browser `@Native` members (`native`, `native_<name>`, `missingNative`) | `runtime/services.js` | **implemented** (part `Services`, [§12.1](#121-services-in-the-browser)) |
 | Router (layouts kept across navigations, `document.title`, page guards against the `Session` mirror), RPC client, `@Load` (hydrating a failed render too) | `router.js`, `rpc.js`, `load.js` | **implemented** (extended) |
@@ -103,9 +103,9 @@ parts never mention `Deno.core` or `k:testing` (tested).
 `prop`, `classList`, `style`, `on`, `when`, `branch`, `each`, `walk` (a template node by a path of
 `f`/`n` steps, which release builds use instead of `.firstChild`/`.nextSibling` chains,
 [codegen.md §17.4](codegen.md#174-walking-to-template-nodes)); `hydrate`, `isHydrating`, `readData`, `uid`,
-`textNode`, `separator`;
+`textNode`, `separator`, `afterPass`, `loadCtx`;
 `KPanic`, `panic`, `isPanic`, `checkInt`, `intDiv`, `intRem`, `equals`, `unitCase`, `textOf`; `startRouter`,
-`navigate`; `child`, `slotMarkers`, `title`, `loadsOf`, `lifetime`, `own`, `bound`; `CANCELLED`, `live`, `guard`; `rpc`, `rpcError`, `DEFAULT_TIMEOUT_MS`;
+`navigate`; `child`, `slotMarkers`, `title`, `loadsOf`, `clientReady`, `lifetime`, `own`, `bound`; `CANCELLED`, `live`, `guard`; `rpc`, `rpcError`, `DEFAULT_TIMEOUT_MS`;
 `createLoads`, `LOADING`, `READY`, `RELOADING`, `FAILED`; `claimRaw` (hydration of a native component that
 owns its subtree); from `services.js` `provide`, `afterHydration`, `clock`, `theme`, `browserStorage`,
 `fetchHttpClient`, `session`, `native`, `missingNative` and one `native_<name>` per browser native
@@ -369,6 +369,15 @@ A server-rendered page contains the HTML from the `$ssr` renderers and one data 
   navigations render.
 - **A `@Load` branch is a block range on both sides**: the server frames the view (or the `failed` block)
   it rendered with `<!--[-->…<!--]-->`, which the client's `branch` over the group's state claims.
+- **A client-rendered component** (`@Rendering(.client)`, [47-client-rendered-components.md](../design/47-client-rendered-components.md))
+  is a block range on both sides too: the server writes its `loading` between the markers and nothing in
+  `k-data`; the client's `branch` over `clientReady()` (in `view.js`) renders and claims the same
+  `loading` during the pass, so `uid()` and instance keys after it match. `clientReady()` is `false` during
+  a pass and turns `true` through `afterPass(f)` (in `hydrate.js`), which queues `f` until the pass ends
+  and then runs the queued functions in one microtask, after the `afterHydration` microtasks (the
+  client-only services' `init()`s) queued during the pass. The branch then renders `Name$view` with a
+  context whose `data` is `null`, so the loads below it run. Outside a pass, `clientReady()` is `true` at
+  once and `afterPass` runs `f` now.
 - **Labeled controls**: a control's `<label>` precedes it in the document and in the template, so it is
   claimed first; both get one `uid()`, in the order the server allocated them.
 - **A `<textarea>`'s text** is its initial value, owned by its binding: claiming keeps the server's text
@@ -409,6 +418,10 @@ between the two, so an effect waiting for the loads isn't re-run by a reload's n
 - **`reload()` swaps atomically**: during `RELOADING` the view keeps every previous value; when every load
   of the new run has resolved, all values are replaced in one batch, so dependent values stay consistent.
   A failure moves to `FAILED`. `reload()` from `FAILED` goes through `LOADING`.
+- **A spec with `keep: true`** (`@Load(keepOnReload: true)`) keeps its previous value on `reload()` when
+  every load it reads is kept too: the value is seeded into the new run, the load isn't run, and the loads
+  that read it run with it. If every load is kept, `reload()` changes nothing. An input change re-runs a
+  kept load as usual.
 - **An input change** (a read signal, such as a `@Param`, changes) cancels the run of the load that read
   it and of every load that reads that one, directly or not, and starts them again in `LOADING`, because
   old values describe something else; the other loads keep their values and aren't run again. Each load
@@ -421,6 +434,12 @@ between the two, so an effect waiting for the loads isn't re-run by a reload's n
   with `loadsOf(ctx)` and `loadsOf(ctx, "failed")` and decodes the error with its codec (the server wrote
   it with the same codec; an error that isn't `Codable` crosses as its structural JSON;
   [codegen.md §11](codegen.md)).
+- A page's or layout's values are under its `ctx.key` (`"0"`, `"L{i}"`). A component instance's are under
+  the key it draws with `loadCtx(ctx)` (which returns `ctx` with that key, for `loadsOf`):
+  `"{ctx.key}.{n}"` for the `n`-th instance with loads under that key, counted in render order from each
+  hydration pass, as the server's `Out.loadKey` counts them. The count goes on after the pass, so a
+  component created later (a branch that opens after hydration) draws a key the server never wrote,
+  reads nothing and runs its loads.
 
 ---
 

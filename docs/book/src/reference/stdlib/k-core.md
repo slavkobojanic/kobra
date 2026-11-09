@@ -918,6 +918,13 @@ Marks an asynchronous [`Derived`](#derived) value loaded before `view` renders
 (`docs/design/14-async-data.md`). Requires `let`, a `loading` block and a
 [`Codable`](#codable) type; its errors go to the `failed` block.
 
+**Members**
+
+- `let keepOnReload: Bool = false`
+  `true` keeps the value on `reload()` while the load's inputs are
+  unchanged: for values that don't change on their own, such as a place
+  looked up by its id. An input change still runs it again.
+
 ## LoadState
 
 ```k,ignore
@@ -1175,12 +1182,15 @@ public struct Rendering
 ```
 
 Sets where pages render, on the `app`: `@Rendering(.client)`
-(`docs/design/23-app-structure.md`).
+(`docs/design/23-app-structure.md`). On a component, `@Rendering(.client)`
+renders only that component in the browser: the server renders its
+`loading` block (`docs/design/47-client-rendered-components.md`).
 
 **Members**
 
 - `init(_ mode: RenderingMode)`
-  Renders the app's pages as `mode` says ([`RenderingMode`](#renderingmode)).
+  Renders the app's pages, or the component, as `mode` says
+  ([`RenderingMode`](#renderingmode)).
 
 ## RenderingMode
 

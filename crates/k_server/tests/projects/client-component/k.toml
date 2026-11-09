@@ -1,0 +1,8 @@
+# A server-rendered app with one client-rendered component
+# (docs/design/47-client-rendered-components.md): the server renders the
+# component's `loading`, the browser claims it while hydrating and swaps in
+# `view` after the pass, once the client-only service's `init()` has read
+# local storage. Driven by crates/k_server/tests/browser.rs.
+[package]
+name = "cc"
+k = "0.1"

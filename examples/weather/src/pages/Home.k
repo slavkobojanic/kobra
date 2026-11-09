@@ -1,7 +1,12 @@
 import components.CitySearch
+import components.RecentPlacesList
 
-/// The start page: search for any place, or jump to one of a few featured
-/// cities.
+/// The start page: search for any place, jump to one of a few featured
+/// cities, or reopen a place viewed recently.
+///
+/// The page is rendered on the server. The recently viewed places come from
+/// the browser's local storage, so only `RecentPlacesList` renders in the
+/// browser (`@Rendering(.client)`).
 ///
 /// `Home` has a named URL because it is the site root, which a default URL
 /// derived from the page name (`/home`) can't express.
@@ -44,6 +49,8 @@ public page Home at "/" {
             }
             .class(.cities)
         }
+
+        RecentPlacesList()
     }
 
     style {

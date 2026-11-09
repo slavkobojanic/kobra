@@ -284,7 +284,10 @@ its declared initial state, so pages can render. Its `init()` doesn't run.
   are fine, because they run only in the browser.
 - A server-rendered page that reads a client-only service's state is a warning (`K4013`), with a quick fix
   that adds `@Rendering(.client)` to the app, because the first paint would show the initial state and then
-  jump. See [The app declaration](app.md#rendering-on-the-client).
+  jump. See [The app declaration](app.md#rendering-on-the-client). When the read is in a component, the
+  first quick fix adds `@Rendering(.client)` to that component instead, so only it renders in the browser
+  ([Components](components.md#rendering-in-the-browser-only)). Neither rule applies inside such a
+  component.
 
 ## Injecting interfaces
 

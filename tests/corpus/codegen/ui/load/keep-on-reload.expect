@@ -1,0 +1,4 @@
+client contains name: "place", after: [], run:
+client contains keep: true
+client contains name: "forecast", after: ["place"]
+client lacks keep: false

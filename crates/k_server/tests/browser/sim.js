@@ -42,6 +42,8 @@ const tab = {
   /** The container's element nodes before the client ran. */
   server: [],
   serverHtml: null,
+  /** The markup and the replaced server nodes right after the hydration pass. */
+  hydrated: null,
 };
 
 /** The tab's state, for assertions. */
@@ -105,6 +107,16 @@ export function boot(o) {
       const name = pair.slice(0, eq).trim();
       if (attrs.some((a) => a.trim().toLowerCase() === "max-age=0")) tab.cookies.delete(name);
       else tab.cookies.set(name, pair.slice(eq + 1).trim());
+      // The runtime sets `k_tz` right after a hydration pass, before
+      // anything runs after it (a client-rendered component's swap to its
+      // view, 47-client-rendered-components.md): the page as hydrated.
+      if (name === "k_tz" && tab.hydrated === null) {
+        const app = doc.getElementById("k-app");
+        tab.hydrated = {
+          html: app.innerHTML,
+          replaced: tab.server.filter((n) => !connected(n)).map((n) => n.outerHTML.slice(0, 120)),
+        };
+      }
     },
   });
   globalThis.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
@@ -141,6 +153,7 @@ export function boot(o) {
   const app = doc.getElementById("k-app");
   tab.server = elements(app);
   tab.serverHtml = app.innerHTML;
+  tab.hydrated = null;
 }
 
 /** The element nodes under `root`, in tree order. */
@@ -165,14 +178,17 @@ function connected(node) {
 /**
  * Hydration report: the server's element nodes the client replaced
  * (a mismatch drops a range's server nodes), and whether the markup
- * changed.
+ * changed, both as of the end of the hydration pass when the runtime
+ * set `k_tz` then (a server-rendered page), so a client-rendered
+ * component's later swap to its view doesn't count.
  * @returns {{replaced: string[], same: boolean, before: string, after: string}}
  */
 export function hydrationReport() {
   const app = document.getElementById("k-app");
-  const replaced = tab.server.filter((n) => !connected(n)).map((n) => n.outerHTML.slice(0, 120));
-  const after = app.innerHTML;
-  return { replaced, same: after === tab.serverHtml, before: tab.serverHtml, after };
+  // Right after the pass when the runtime marked it (`k_tz`), else now.
+  const replaced = tab.hydrated?.replaced ?? tab.server.filter((n) => !connected(n)).map((n) => n.outerHTML.slice(0, 120));
+  const after = tab.hydrated?.html ?? app.innerHTML;
+  return { replaced, same: after === tab.serverHtml, before: tab.serverHtml, after, now: app.innerHTML };
 }
 
 function headersOf(h) {

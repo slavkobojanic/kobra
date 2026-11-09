@@ -60,7 +60,10 @@ page Product {
 Every page, layout or component that declares `@Load` fields gets a generated method **`reload()`**. It re-runs all of the declaration's loads in dependency order: a retry button in `failed`, or a periodic refresh ([35-time.md](35-time.md)).
 
 - `reload()` is synchronous. It starts the re-run and returns. Any run still in flight is cancelled first, as for an input change.
-- It re-runs every load, not a chosen subset. Loads that are cheap to repeat should be cached in their service.
+- It re-runs every load, except a load marked **`@Load(keepOnReload: true)`** whose inputs haven't changed: `reload()` keeps its value, and the loads that read it run with that value. It is for values that don't change on their own, such as a place looked up by its id. A kept load still re-runs when an input changes, and it is kept only when the loads it reads are kept too. If every load is kept, `reload()` does nothing.
+- Otherwise, loads that are cheap to repeat should be cached in their service. A service's cache doesn't cross hydration: the browser's service starts empty after a server-rendered page, so the first refresh would fetch what the server already loaded. That is why keeping is a property of the load, not of the service.
+
+*(Decided for weather-E3: after a server-rendered dashboard, the ten-minute refresh looked the place up again because the browser's `WeatherService` had never cached it. The direction chosen is that `reload()` keeps a load whose inputs haven't changed. Keeping every such load would make a page with one load never refresh, and the weather dashboard's forecast and air quality have unchanged inputs too, yet must be fetched again. So the keeping is opt-in per load, and the default `reload()` is unchanged. The other option, carrying service state across hydration, was rejected: it would serialize service internals into `k-data` and make every cache `Codable`.)*
 - Declaring a member named `reload` in a declaration with `@Load` fields is a compile error.
 
 ### What renders during a re-run
@@ -69,7 +72,7 @@ Every page, layout or component that declares `@Load` fields gets a generated me
 |---|---|
 | First load, nothing resolved yet | `loading` |
 | An **input changed** (for example a different `@Param`) | `loading`, because the old values describe something else |
-| **`reload()`** with every load previously resolved | `view`, with the previous values, until all new values resolve |
+| **`reload()`** with every load previously resolved | `view`, with the previous values, until all new values resolve (a kept load keeps its value) |
 | `reload()` from `failed` | `loading` |
 | Any re-run throws | `failed` |
 

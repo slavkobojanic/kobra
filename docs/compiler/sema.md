@@ -775,8 +775,22 @@ Accessibility lints beyond required accessible names are **deferred**.
   server-only declaration from code that reaches the client → **K4007** with the path (this covers
   `config`, `@Env`, `Secret<T>` and `reveal()`). A client-only interface called from code that can run
   during server rendering (field initializers, `@Derived`/`@Load` initializers, views) → **K4012**; a
-  server-rendered page reading a client-only service's state → **K4013** (warning, fix
-  `@Rendering(.client)`).
+  server-rendered page reading a client-only service's state → **K4013** (warning; fixes
+  `@Rendering(.client)` on the component, first, when the read is in a component, then on the app).
+- **Client-rendered components** ([47-client-rendered-components.md](../design/47-client-rendered-components.md)):
+  `@Rendering` applies to the app and to components (K3002 elsewhere). `@Rendering(.server)` on a
+  component → **K4027**; `@Rendering(.client)` on a component of a `@Rendering(.client)` app → **K4029**
+  (warning, machine-applicable removal); otherwise the component needs a `loading` block (**K3022**, with
+  `@Load`'s message and fix, reported once). Its `loading` reads only `@Prop`s and static members of the
+  component (top-level constants and functions are allowed): any other member read by name,
+  `self.name` or a call → **K4028** at the read, labelled at the member. K4012 and K4013 don't apply in
+  the browser-only regions of a declaration (`di::browser_regions`: a client-rendered component outside
+  its `loading`, and the lambdas passed to a client-rendered component, i.e. its slot content) nor in a
+  component every reference to which is in such a region, transitively
+  (`di::browser_only_components`: references are found by name; every non-component declaration, every
+  unreferenced component and every client-rendered component's `loading` are server-rendered roots).
+  A client-rendered component's own `@Load` values and errors needn't be `Codable` (K3021, K3024);
+  those of the components below it still must.
 - **`use` operands:** `use <expression> for C` is allowed only in a `test` body and only when `C` is a
   `config` type (**K4011**); the `Type` form is allowed in `App.k`'s `app` and in `test` bodies
   ([grammar.md RA-35](grammar.md#ra-35-the-operand-of-use)).

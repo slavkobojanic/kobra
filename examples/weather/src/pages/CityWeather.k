@@ -5,6 +5,7 @@ import k.time.Clock
 import weather.AirQuality
 import weather.Forecast
 import weather.Place
+import weather.RecentPlaces
 import weather.UnitSystem
 import weather.WeatherError
 import weather.WeatherService
@@ -19,7 +20,10 @@ import weather.WeatherService
 /// only `forecast`, because it is the only load that reads `units`.
 ///
 /// While the page is open, the data is reloaded every ten minutes. A reload
-/// keeps the current values on screen until the new ones arrive.
+/// keeps the current values on screen until the new ones arrive. A place
+/// never changes, so `reload()` keeps it (`keepOnReload`) and fetches only
+/// the forecast and the air quality again, also on the first refresh after
+/// the server rendered the page.
 ///
 /// An unknown place id renders `failed` with `status(.notFound)`, so a
 /// server-rendered request for it answers 404 instead of a soft 200. When
@@ -37,8 +41,9 @@ public page CityWeather {
 
     @Inject let weather: WeatherService
     @Inject let clock: Clock
+    @Inject let recent: RecentPlaces
 
-    @Load let place: Place = try await weather.place(id: placeId)
+    @Load(keepOnReload: true) let place: Place = try await weather.place(id: placeId)
     @Load let forecast: Forecast = try await weather.forecast(place: place, units: units)
     @Load let airQuality: AirQuality = try await weather.airQuality(place: place)
 
@@ -51,6 +56,13 @@ public page CityWeather {
         let timer = clock.every(refreshInterval) { reload() }
 
         onCleanup { timer.cancel() }
+    }
+
+    /// Adds the place to the start page's recently viewed list once it has
+    /// loaded. Effects run only in the browser, where the list is kept.
+    @Effect(on: [place])
+    func rememberPlace() {
+        recent.remember(place: place)
     }
 
     /// A sentence explaining a failure to the person using the app.
