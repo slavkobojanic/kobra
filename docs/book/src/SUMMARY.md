@@ -3,13 +3,17 @@
 [Introduction](introduction.md)
 [Philosophy](philosophy.md)
 
+# Learn
+
+- [Quick start](learn/quick-start.md)
+- [Installation](getting-started/installation.md)
+- [Editor setup](getting-started/editor-setup.md)
+
 # Getting started
 
-- [Installation](getting-started/installation.md)
 - [Your first app](getting-started/first-app.md)
 - [Project layout](getting-started/project-layout.md)
 - [Everyday commands](getting-started/commands.md)
-- [Editor setup](getting-started/editor-setup.md)
 - [Debugging](getting-started/debugging.md)
 - [A tour of K](tour.md)
 

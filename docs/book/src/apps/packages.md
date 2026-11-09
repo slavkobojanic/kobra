@@ -53,6 +53,10 @@ A project without an `App.k` is a library package. Create one with:
 k new --library github.com/acme/charts   # planned
 ```
 
+> **Planned** (k-new-library). `k new --library` isn't built. Until it is, write the library's
+> `k.toml` by hand, with its module path as `name`, and put its modules under `src/`; a library has no
+> `App.k`.
+
 Publishing is pushing a git tag such as `v1.2.0`. Document every public declaration with `///` comments
 (see [doc comments](../language/doc-comments.md)); the design has `k check` warn about a package's API
 without one (**Planned** doc-coverage).

@@ -1,0 +1,8 @@
+# Format: docs/design/24-projects.md
+
+[package]
+name = "tip"
+title = "Tip"
+description = "A new K app."
+k = "0.1"
+version = "0.1.0"

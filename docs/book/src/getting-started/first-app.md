@@ -5,14 +5,11 @@ takes about five minutes.
 
 ## Creating a project
 
-> **Planned** (k-new). `k new hello` will create this skeleton for you. It isn't built yet, so for now you
-> write the five files by hand. They are short, and writing them once shows what every K app is made
-> of.
-
-A K app is a directory with a manifest, an app declaration and a `src/` directory. Create it:
+A K app is a directory with a manifest, an app declaration and a `src/` directory. `k new` creates
+one:
 
 ```bash
-mkdir -p hello/src/home hello/src/theme
+k new hello
 cd hello
 ```
 
@@ -34,6 +31,7 @@ The manifest, `k.toml`, names the app and the toolchain version it needs:
 [package]
 name = "hello"
 title = "Hello"
+description = "A new K app."
 k = "0.1"
 version = "0.1.0"
 ```
@@ -44,7 +42,9 @@ language and nothing else:
 ```k
 // App.k
 
-/// A first K app.
+/// Hello: the app-wide settings. Pages, services and the theme are
+/// found from their declarations, so this holds only the document
+/// entries every page shares.
 public app Hello {
     metadata {
         locale(.english)
@@ -57,7 +57,7 @@ public app Hello {
 ```k
 // src/theme/AppTheme.k
 
-/// The app's design tokens.
+/// The app's design tokens: colors, spacing and fonts.
 public theme AppTheme {
     color primary: Color = #2563EB
 
@@ -68,8 +68,8 @@ public theme AppTheme {
 ```
 
 The start page and its test follow below. The [project layout](project-layout.md) is fixed: every
-K project has this shape, and there is nothing to configure. Add a `.gitignore` that excludes `dist/`,
-`.k/` and `.env`.
+K project has this shape, and there is nothing to configure. The generated `.gitignore` excludes
+`dist/`, `.k/` and `.env`.
 
 ## Running it
 
@@ -92,7 +92,7 @@ last good build keeps serving.
 
 ## Reading the start page
 
-Create `src/home/Home.k`:
+Open `src/home/Home.k`:
 
 ```k
 // src/home/Home.k
@@ -164,7 +164,7 @@ Save and refresh the browser to see the change. Now make a mistake on purpose: c
 
 ## Testing it
 
-Tests sit next to the code they test. Create `src/home/Home.test.k`:
+Tests sit next to the code they test. `k new` wrote one for the start page, `src/home/Home.test.k`:
 
 ```k
 // src/home/Home.test.k

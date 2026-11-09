@@ -86,8 +86,8 @@ the language server are built, and the apps in `examples/` compile, pass their t
 book describes the language as designed and says where the toolchain doesn't follow yet. Two small
 markers tell you when something isn't settled:
 
-> **Planned** (k-new). The design includes this feature, here `k new`, but the first compiler releases
-> don't. It is described so you know where the language is going. The id in parentheses names the
+> **Planned** (k-fmt). The design includes this feature, here the formatter `k fmt`, but the first
+> compiler releases don't. It is described so you know where the language is going. The id in parentheses names the
 > feature, and a test checks it against the compiler's list of planned features.
 
 > **Open question.** The design records this as undecided. The book explains the options and what holds

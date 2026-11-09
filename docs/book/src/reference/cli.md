@@ -8,8 +8,8 @@ error.
 
 | Command | Purpose |
 |---|---|
-| `k new <name>` | create an app in a new directory `<name>/` (**Planned** k-new) |
-| `k new --library <module path>` | create a library package, in a directory named after the last path segment (**Planned** k-new) |
+| `k new <name>` | create an app in a new directory `<name>/` (an existing one only if it is empty): `k.toml`, `App.k`, `.gitignore`, a start page with one test and a theme, all passing `k check`; `<name>` is lower case letters, digits and hyphens, starting with a letter |
+| `k new --library <module path>` | create a library package, in a directory named after the last path segment (**Planned** k-new-library) |
 
 ## Development
 

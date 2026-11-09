@@ -1,0 +1,29 @@
+/// The app's start page.
+public page Home at "/" {
+    @State var count: Int = 0
+
+    metadata {
+        title("{{title}}")
+    }
+
+    view {
+        main {
+            heading(level: 1) { "Hello from K" }
+
+            paragraph { "Count: {count}" }
+
+            button { "Add one" }
+                .on(click: { count += 1 })
+        }
+        .class(.page)
+    }
+
+    style {
+        .page {
+            maxWidth: 40rem;
+            margin: 0 auto;
+            padding: .lg;
+            font: .body;
+        }
+    }
+}

@@ -9,6 +9,15 @@
 # against a `k` built from that tree; behavioural claims were checked by running `k` on scratch
 # projects and on the examples.
 
+[pages."learn/quick-start.md"]
+commit = "3d3fd6c"
+date = "2026-11-09"
+note = "new in round 1(b) with `k new`; written against the working tree on top of 3d3fd6c, every command and output taken from running `k` on examples/learn/quick-start and a fresh `k new tip`"
+unpinned = [
+    "the `k new`, `k check` and `k build` output shown (command transcripts aren't checked yet)",
+    "typing 50 as the bill shows that each person pays $28.75",
+]
+
 [pages."introduction.md"]
 commit = "0dd7625"
 date = "2026-11-09"

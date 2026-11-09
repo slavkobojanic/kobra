@@ -55,6 +55,8 @@ Learn and Guides are both teaching material, but they make different promises: L
 
 It uses `Int` percentages and `Money` only if the money literal stays as simple as `24.50.usd` by then; otherwise `Double` with a formatter. The page ends with "You've built …", a recap list, and two links: the tutorial, and Thinking in K.
 
+**As built (round 1(b)):** the project is `examples/learn/quick-start/` (named after its page rather than `tip/`, so every Learn page's project is found by its page's name), checked and built by `crates/k_cli/tests/examples.rs` like every example. The bill is a `textField` read with `Double.parse`, not a `numberField`, because `numberField` binds only an `Int`; the result is `Money`, built from cents and split with `allocated(into:)`. The app stays server-rendered, as `k new` makes it, so step 7 runs `dist/app`. Installation and editor setup are listed in the Learn part but keep their `getting-started/` paths until the redirects exist; `first-app.md` stays where it is, now using `k new`.
+
 **The quick start needs `k new`** ([24-projects.md](24-projects.md#creating-a-project-k-new)), which isn't built. Writing five files by hand is what `first-app.md` does today, and it is the wrong first impression. Building `k new` is the first item of round 1(b) of the [plan](#implementation-plan); the quick start ships with it.
 
 ### The tutorial

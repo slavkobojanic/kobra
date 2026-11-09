@@ -1,6 +1,6 @@
 //! The feature table: every named feature that isn't simply stable.
 //!
-//! Each row has an id (`k-new`), a [`Status`], the version it reached that
+//! Each row has an id (`k-fmt`), a [`Status`], the version it reached that
 //! status in, a one-line summary and the design topic that specifies it.
 //! The book's `> **Planned** (id).` and `> **Preview** (id).` notes name
 //! these ids, and the book test (`crates/k_sema/tests/book.rs`) fails when
@@ -16,8 +16,8 @@
 //! ```
 //! use k_sema::features::{self, Status};
 //!
-//! let new = features::lookup("k-new").unwrap();
-//! assert_eq!(new.status, Status::Planned);
+//! let fmt = features::lookup("k-fmt").unwrap();
+//! assert_eq!(fmt.status, Status::Planned);
 //! assert!(features::lookup("no-such-feature").is_none());
 //! ```
 
@@ -49,7 +49,7 @@ impl Status {
 /// One row of the feature table.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Feature {
-    /// The id: lowercase words joined with `-`, such as `k-new`.
+    /// The id: lowercase words joined with `-`, such as `k-fmt`.
     pub id: &'static str,
     /// How far it is built.
     pub status: Status,
@@ -77,7 +77,11 @@ const fn planned(id: &'static str, summary: &'static str, design: &'static str) 
 /// Every feature that isn't simply stable, in the order the design-status
 /// page lists them.
 pub const FEATURES: &[Feature] = &[
-    planned("k-new", "`k new`, the project skeleton", "24-projects.md"),
+    planned(
+        "k-new-library",
+        "`k new --library`, the library package skeleton",
+        "24-projects.md",
+    ),
     planned(
         "modifiers",
         "Modifiers (`.tooltip()`, `.animate()`, `.track()`), applied in the order written",

@@ -301,7 +301,7 @@ image(source: user.avatarUrl, description: "Profile photo of {user.name}")
 
 `input` is split into one element per kind of value, so a field's bound value always has the right type:
 a `textField` binds a `String` (or a type such as `EmailAddress` that parses from text), a `numberField`
-an `Int` or `Double`, a `checkbox` a `Bool`.
+an `Int` (read decimals from a `textField` with `Double.parse`), a `checkbox` a `Bool`.
 
 ```k
 ~component ProfileForm {

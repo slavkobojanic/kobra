@@ -593,3 +593,127 @@ fn kanban_image_serves_dist_public_like_the_static_host() {
         "a static-only image copies no dist/app: {dockerfile}"
     );
 }
+
+// --------------------------------------------------------------- learn
+
+/// The projects of the book's Learn pages: every directory with a `k.toml`
+/// below `examples/learn/` (`docs/design/49-documentation.md`, "Tutorial
+/// projects"), sorted.
+fn learn_projects() -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut stack = vec![repo().join("examples/learn")];
+    while let Some(dir) = stack.pop() {
+        if dir.join("k.toml").is_file() {
+            found.push(dir);
+            continue;
+        }
+        for entry in std::fs::read_dir(&dir).expect("examples/learn").flatten() {
+            if entry.path().is_dir() {
+                stack.push(entry.path());
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Copies the sources and lockfiles of `from` to `to`, leaving out build
+/// output and local state.
+fn copy_project(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("create the copy");
+    for entry in std::fs::read_dir(from).expect("read the project").flatten() {
+        let name = entry.file_name();
+        if matches!(name.to_str(), Some("dist" | ".k" | ".env")) {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            copy_project(&path, &to.join(&name));
+        } else {
+            std::fs::copy(&path, to.join(&name)).expect("copy a file");
+        }
+    }
+}
+
+/// The `*.lock` files of `dir`, by name, with their text.
+fn lockfiles(dir: &Path) -> Vec<(String, String)> {
+    let mut locks: Vec<(String, String)> = std::fs::read_dir(dir)
+        .expect("read the project")
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "lock"))
+        .map(|e| {
+            (
+                e.file_name().to_string_lossy().into_owned(),
+                std::fs::read_to_string(e.path()).expect("read a lockfile"),
+            )
+        })
+        .collect();
+    locks.sort();
+    locks
+}
+
+/// Every Learn project passes `k check` with at least one test run, and
+/// `k build` succeeds without changing its committed lockfiles.
+#[test]
+fn learn_projects_check_build_and_match_their_lockfiles() {
+    let projects = learn_projects();
+    assert!(
+        projects.iter().any(|p| p.ends_with("learn/quick-start")),
+        "{projects:?}"
+    );
+    for project in projects {
+        let shown = project.display().to_string();
+        let check = Command::new(env!("CARGO_BIN_EXE_k"))
+            .args(["check", "--color", "never"])
+            .arg(&project)
+            .env_remove("K_TEST_FILTER")
+            .output()
+            .expect("k check runs");
+        let err = String::from_utf8_lossy(&check.stderr);
+        assert!(check.status.success(), "k check {shown}:\n{err}");
+        assert!(
+            err.lines()
+                .last()
+                .is_some_and(|l| l.contains(", ran ") && l.ends_with(": no problems")),
+            "{shown}: its tests ran:\n{err}"
+        );
+
+        let dir = TempDir::new("learn");
+        let copy = dir.0.join("project");
+        copy_project(&project, &copy);
+        let built = Command::new(env!("CARGO_BIN_EXE_k"))
+            .arg("build")
+            .arg(&copy)
+            .output()
+            .expect("k build runs");
+        assert!(
+            built.status.success(),
+            "k build {shown}:\n{}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        assert_eq!(
+            lockfiles(&copy),
+            lockfiles(&project),
+            "{shown}: `k build` changed the lockfiles; commit what it writes"
+        );
+    }
+}
+
+/// The quick start's tip splitter (`learn/quick-start.md`) renders its
+/// page on the server, with the default tip selected.
+#[test]
+fn quick_start_tip_splitter_renders_its_page() {
+    let dir = TempDir::new("quick_start");
+    let app = App::start("learn/quick-start", &dir.0, &[]);
+    let home = app.get("/");
+    assert_eq!(home.status, 200);
+    assert!(home.body.contains("<title>Tip</title>"), "{}", home.body);
+    assert!(home.body.contains("Tip splitter"), "{}", home.body);
+    assert!(
+        home.body.contains("Each person pays $0.00"),
+        "{}",
+        home.body
+    );
+    app.serves_its_assets(&home);
+    app.stop();
+}

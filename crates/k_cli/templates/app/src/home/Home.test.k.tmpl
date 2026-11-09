@@ -1,0 +1,11 @@
+import k.test.render
+
+test Home {
+    test "the button counts clicks" {
+        let screen = render(Home())
+
+        screen.button(named: "Add one").click()
+
+        expect screen.text("Count: 1").isVisible
+    }
+}

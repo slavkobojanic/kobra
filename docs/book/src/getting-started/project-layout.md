@@ -127,7 +127,12 @@ it holds placeholders, never working values (see
 
 ## Creating a project
 
-> **Planned** (k-new). `k new hello` will create an app skeleton in `./hello`, and
-> `k new --library github.com/acme/charts` a library package in `./charts`. `k new` isn't built yet;
-> [Your first app](first-app.md#creating-a-project) shows the files to write by hand, and the apps in
-> `examples/` are complete projects to start from.
+`k new hello` creates an app in a new directory `./hello`, with `name = "hello"` in its `k.toml`:
+the manifest, `App.k`, a `.gitignore`, a start page with one test, and a small theme. Every file it
+writes already passes `k check`, the test included. The name is lower case letters, digits and hyphens,
+starting with a letter; the app declaration gets it in upper camel case (`my-shop` declares
+`app MyShop`). `k new` uses an existing directory only if it is empty, and writes no lockfiles: the
+first `k build` writes them.
+
+> **Planned** (k-new-library). `k new --library github.com/acme/charts` will create a library package
+> in `./charts`. Until then, a library is the same layout without `App.k`.

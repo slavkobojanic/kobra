@@ -16,6 +16,8 @@ pub struct Cli {
 /// The subcommands of `k`.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Create an app in a new directory `<name>/`, ready for `k dev`.
+    New(NewArgs),
     /// Check the project: syntax, types, layering, lockfiles and tests. Fails on any problem.
     Check(CheckArgs),
     /// Build the server executable and the client assets into `dist/`.
@@ -59,6 +61,14 @@ pub enum MigrateCommand {
     Apply(ProjectArgs),
     /// Show which migrations the development database has applied and which are pending.
     Status(ProjectArgs),
+}
+
+/// Arguments of `k new`.
+#[derive(Debug, Args)]
+pub struct NewArgs {
+    /// The project name, and the directory to create: lower case letters,
+    /// digits and hyphens, starting with a letter (`my-app`).
+    pub name: String,
 }
 
 /// Arguments of commands that work on one project.

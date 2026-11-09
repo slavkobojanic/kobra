@@ -114,7 +114,10 @@ hello/
       AppTheme.k         public theme AppTheme with a small set of tokens
 ```
 
-- **The `app` is named after the project in upper camel case** (`my-shop` → `MyShop`).
+- **The `app` is named after the project in upper camel case** (`my-shop` → `MyShop`), and `title` is the same words with spaces (`My Shop`). A name whose app would clash with a declaration of the skeleton gets an `App` suffix (`k new home` declares `HomeApp`, beside the page `Home`).
+- **A name is checked before anything is written:** lower case ASCII letters, digits and hyphens, starting with a letter, with no empty part between hyphens and no hyphen at the end (`my-shop`, `shop-2-go`; not `my--shop` or `shop-`). The argument is a name, not a path: `k new` creates the directory in the current one.
+- **The skeleton is embedded in the binary** (`crates/k_cli/templates/app/`, filled in by `crates/k_cli/src/new.rs`), and `crates/k_cli/tests/new.rs` checks that a new app passes `k check` (its test included), `k test` and `k build`. `k new` prints the two commands to run next (`cd <name>`, `k dev`).
+- **`k new --library` is built later** (Planned `k-new-library`); the app skeleton came first because the quick start needs it ([49-documentation.md](49-documentation.md#the-quick-start)).
 - `Home` uses a named URL because it is the site root, which a derived URL (`/home`) can't express ([12-routing.md](12-routing.md)).
 
 ```k

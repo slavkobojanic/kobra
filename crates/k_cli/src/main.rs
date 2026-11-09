@@ -26,6 +26,7 @@ mod debug;
 #[cfg(feature = "server")]
 mod devenv;
 mod migrate;
+mod new;
 mod project;
 mod routes;
 mod sources;
@@ -82,6 +83,7 @@ fn main() -> ExitCode {
     }
     let cli = Cli::parse();
     match cli.command {
+        Command::New(args) => new::run(&args),
         Command::Check(args) => check::run(&args),
         Command::Debug(args) => debug::run(&args),
         Command::Build(args) => build::build(&args),

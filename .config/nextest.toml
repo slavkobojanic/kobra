@@ -59,7 +59,7 @@ test-group = "chrome"
 [[profile.default.overrides]]
 filter = """
 package(k_cli) & (
-    binary(=commands) | binary(=cli) | binary(=examples) | binary(=workspaces)
+    binary(=commands) | binary(=cli) | binary(=examples) | binary(=workspaces) | binary(=new)
   | binary(=dist_browser) | binary(=deploy) | binary(=lsp)
 )
 """
