@@ -13,7 +13,8 @@ use k_runtime::{
     ENVIRONMENT_SIZE_BUDGET, FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET,
     GEOLOCATION_SIZE_BUDGET, HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, MONEY_SIZE_BUDGET,
     OBSERVE_SIZE_BUDGET, Part, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
-    STREAMS_SIZE_BUDGET, compact, compacted_sources, module, modules, resolve,
+    STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, compact, compacted_sources,
+    module, modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -176,6 +177,8 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Clipboard
                 | Part::Share
                 | Part::Geolocation
+                | Part::Tabs
+                | Part::WakeLock
                 | Part::Environment
                 | Part::Observe
                 | Part::Keys
@@ -398,6 +401,36 @@ fn geolocation_meets_its_size_budget() {
 }
 
 #[test]
+fn messages_between_tabs_meet_their_size_budget() {
+    let tabs = compacted_sources(&[Part::Tabs]).expect("compacts");
+    let size = gzip_len(&tabs);
+    eprintln!(
+        "tabs: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {TABS_SIZE_BUDGET})",
+        raw_len(&[Part::Tabs]),
+        tabs.len()
+    );
+    assert!(
+        size <= TABS_SIZE_BUDGET,
+        "tabs is {size} bytes gzip, over the {TABS_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn keep_screen_awake_meets_its_size_budget() {
+    let wake = compacted_sources(&[Part::WakeLock]).expect("compacts");
+    let size = gzip_len(&wake);
+    eprintln!(
+        "wakelock: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {WAKE_LOCK_SIZE_BUDGET})",
+        raw_len(&[Part::WakeLock]),
+        wake.len()
+    );
+    assert!(
+        size <= WAKE_LOCK_SIZE_BUDGET,
+        "wakelock is {size} bytes gzip, over the {WAKE_LOCK_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
 fn the_environment_services_meet_their_size_budget() {
     let environment = compacted_sources(&[Part::Environment]).expect("compacts");
     let size = gzip_len(&environment);
@@ -574,6 +607,8 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::Clipboard
                 | Part::Share
                 | Part::Geolocation
+                | Part::Tabs
+                | Part::WakeLock
                 | Part::Environment
                 | Part::Observe
                 | Part::Keys

@@ -117,6 +117,19 @@ pub const SHARE_SIZE_BUDGET: usize = 1280;
 /// whose client locates (`docs/compiler/performance.md` §11.3).
 pub const GEOLOCATION_SIZE_BUDGET: usize = 1280;
 
+/// The largest `k.device`'s messages between tabs in the browser
+/// ([`Part::Tabs`]: `BrowserTabMessaging`) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (640 B). It ships in its own chunk, only to apps
+/// whose client injects `TabMessaging` (`docs/compiler/performance.md`
+/// §11.3).
+pub const TABS_SIZE_BUDGET: usize = 640;
+
+/// The largest `k.device.KeepScreenAwake` in the browser
+/// ([`Part::WakeLock`]) may be, measured like [`CORE_SIZE_BUDGET`]
+/// (640 B). It ships in its own chunk, only to apps that use it
+/// (`docs/compiler/performance.md` §11.3).
+pub const WAKE_LOCK_SIZE_BUDGET: usize = 640;
+
 /// The largest `k.device`'s environment services in the browser
 /// ([`Part::Environment`]: `PageVisibility`, `Connectivity`, `Preferences`
 /// and `Viewport`) may be, measured like [`CORE_SIZE_BUDGET`] (1.25 KB).
@@ -200,6 +213,15 @@ pub enum Part {
     /// shipped as its own client chunk, only to apps whose client locates,
     /// and measured on its own ([`GEOLOCATION_SIZE_BUDGET`]).
     Geolocation,
+    /// `k.device`'s messages between tabs in the browser
+    /// (`BrowserTabMessaging`): shipped as its own client chunk, only to
+    /// apps whose client injects `TabMessaging`, and measured on its own
+    /// ([`TABS_SIZE_BUDGET`]).
+    Tabs,
+    /// `k.device.KeepScreenAwake` in the browser: shipped as its own client
+    /// chunk, only to apps that use it, and measured on its own
+    /// ([`WAKE_LOCK_SIZE_BUDGET`]).
+    WakeLock,
     /// `k.device`'s environment services in the browser (`PageVisibility`,
     /// `Connectivity`, `Preferences`, `Viewport`): shipped as one client
     /// chunk of their own, only to apps whose client injects one, and
@@ -298,6 +320,8 @@ const MODULES: &[Module] = modules![
     Clipboard "runtime/clipboard.js",
     Share "runtime/share.js",
     Geolocation "runtime/geolocation.js",
+    Tabs "runtime/tabs.js",
+    WakeLock "runtime/wakelock.js",
     Environment "runtime/environment.js",
     Observe "runtime/observe.js",
     Keys "runtime/keys.js",

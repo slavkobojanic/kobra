@@ -1,3 +1,4 @@
+import cart.AddToCart
 import k.validation.Form
 import k.validation.ValidationError
 import store.OrderRequest
@@ -102,6 +103,8 @@ public page ProductDetail at "/products/{slug}" {
                     }
                     .class(.form)
                     .on(submit: order.handle(buy))
+
+                    AddToCart(product: product)
                 } else {
                     paragraph { "Sold out" }
                         .class(.soldOut)

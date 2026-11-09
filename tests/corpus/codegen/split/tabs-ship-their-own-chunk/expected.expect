@@ -1,0 +1,12 @@
+# docs/design/45-web-platform.md, "Messages between tabs"; docs/compiler/codegen.md §16:
+# `BrowserTabMessaging` is the tabs chunk's, which only an app whose client injects `TabMessaging`
+# ships; the container binds it with no `use` rule, to the app's storage namespace and the entry's
+# URL, which names the build. A message's type crosses as its codec.
+client contains // file: tabs.[hash].js
+client contains import { BrowserTabMessaging } from "./tabs.[hash].js";
+client contains get TabMessaging() {
+client contains BrowserTabMessaging("shop", import.meta.url)
+client contains export function BrowserTabMessaging(
+client contains .post($k.codecs.int, cartChanges,
+client contains $k.native("k.device.TabChannel$init")
+client lacks wakelock.[hash].js

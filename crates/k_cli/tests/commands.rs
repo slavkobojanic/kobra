@@ -1291,6 +1291,28 @@ fn test_follows_the_environment_doubles_and_element_events() {
 }
 
 #[test]
+fn test_messages_tabs_and_keeps_the_screen_on_through_their_doubles() {
+    // `TabMessaging` against `TestTabMessaging` and `KeepScreenAwake`
+    // against `TestWakeLock` (45-web-platform.md): posts recorded and never
+    // heard by their own tab, deliveries reaching a service's `listen` and an
+    // effect's `messages`, the lock held only while the component is
+    // mounted, and a refusal firing `failed`.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tabs");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("0 failed"), "{text}");
+    for name in [
+        "PASS  CartBadge › a change another tab posts updates this one",
+        "PASS  CartFeed › an effect follows the other tabs' messages",
+        "PASS  Recipe › the screen stays on only while the step-by-step mode is shown",
+    ] {
+        assert!(text.contains(name), "{name}\n{text}");
+    }
+}
+
+#[test]
 fn test_expect_throws_checks_the_case_it_names() {
     // A qualified case pattern (`Choice.second`) was read as its type's
     // name, which matched any error.

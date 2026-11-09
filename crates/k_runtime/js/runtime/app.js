@@ -1697,6 +1697,8 @@ export const natives = {
   "k.drag.DragKind$init": DragKind$init,
   // A shortcut renders nothing; it listens once the browser runs.
   "k.ui.KeyboardShortcut$ssr": () => {},
+  // It renders nothing either; it holds the screen once the browser runs.
+  "k.device.KeepScreenAwake$ssr": () => {},
   // They render their button; it copies or shares once the browser runs.
   "k.device.CopyButton$ssr": statusButtonSsr,
   "k.device.ShareButton$ssr": statusButtonSsr,

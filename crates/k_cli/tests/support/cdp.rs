@@ -585,6 +585,26 @@ impl Chrome {
     }
 }
 
+/// The WebSocket URL of page target `id` of the browser at DevTools `port`,
+/// once it is listed.
+pub fn target_url(port: u16, id: &str) -> String {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Some(list) = http_get_json(port, "/json/list")
+            && let Some(url) = list.as_array().and_then(|targets| {
+                targets
+                    .iter()
+                    .find(|t| t["id"] == id)
+                    .and_then(|t| t["webSocketDebuggerUrl"].as_str())
+            })
+        {
+            return url.to_owned();
+        }
+        assert!(Instant::now() < deadline, "target {id} is listed");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 impl Drop for Chrome {
     fn drop(&mut self) {
         let _ = self.child.kill();

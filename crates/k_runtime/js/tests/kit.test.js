@@ -597,6 +597,56 @@ test("TestGeolocation: a refused prompt, and a watch that follows moves and ends
   assertEq(await owned.next(), null, "ended with its owner");
 });
 
+test("TestTabMessaging: posts are recorded, deliveries reach listeners and streams as decoded JSON", async () => {
+  const tabs = kit.testTabMessaging();
+  const cart = { name: "cart" };
+  const ints = {
+    encode: (v) => v,
+    decode: (j) => {
+      if (!Number.isInteger(j)) throw new Error("not an Int");
+      return j;
+    },
+  };
+  const heard = [];
+  const sub = tabs.listen(ints, cart, (v) => heard.push(v));
+  tabs.post(ints, cart, 1);
+  assertDeepEq(heard, [], "this tab's own posts aren't heard");
+  assertDeepEq(tabs.posted(ints, cart), [1]);
+  assertDeepEq(tabs.posted(ints, { name: "other" }), []);
+  tabs.deliver(ints, cart, 2);
+  assertDeepEq(heard, [2]);
+  sub.cancel();
+  sub.cancel();
+  tabs.deliver(ints, cart, 3);
+  assertDeepEq(heard, [2], "cancelled");
+  let stream = null;
+  const dispose = root((d) => {
+    stream = tabs.messages(ints, cart);
+    return d;
+  });
+  tabs.deliver(ints, cart, 4);
+  assertEq(await stream.next(), 4);
+  dispose();
+  tabs.deliver(ints, cart, 5);
+  assertEq(await stream.next(), null, "ended with its owner");
+});
+
+test("TestWakeLock: held while requested, refusing later requests with the failure", () => {
+  const lock = kit.testWakeLock();
+  assert(!lock.isHeld);
+  const a = lock.request();
+  const b = lock.request();
+  assert(lock.isHeld);
+  a.release();
+  a.release();
+  assert(lock.isHeld, "one still holds it");
+  b.release();
+  assert(!lock.isHeld);
+  lock.refuse(unitCase(0));
+  assertThrows(() => lock.request());
+  assert(!lock.isHeld);
+});
+
 test("Position.sample is measured at the test clock", () => {
   kit.begin({});
   const sample = kit.native("k.device.Position$sample");

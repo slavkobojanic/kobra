@@ -459,10 +459,8 @@ fn route_table(g: &Gen<'_>, b: &mut Body<'_, '_>, target: Target) -> Expr {
 /// runs on the server only, so what only it injects (the shop's
 /// `StripeWebhook` and its `StripeEvents` binding) never ships.
 pub(crate) fn client_reach(g: &Gen<'_>, items: &BTreeMap<DeclId, Item>) -> BTreeSet<DeclId> {
-    let rules = crate::server::use_rules(g);
     let server_only: BTreeSet<DeclId> = endpoints(g).into_iter().collect();
-    let mut reached: BTreeSet<DeclId> = BTreeSet::new();
-    let mut work: Vec<DeclId> = g
+    let roots: Vec<DeclId> = g
         .own
         .iter()
         .copied()
@@ -473,6 +471,19 @@ pub(crate) fn client_reach(g: &Gen<'_>, items: &BTreeMap<DeclId, Item>) -> BTree
             ) && !server_only.contains(&d)
         })
         .collect();
+    reach_from(g, items, roots)
+}
+
+/// What [`client_reach`] reaches from `roots` alone: a page and its
+/// layouts, or the `app` (the feature chunks a page needs, `bundle.rs`).
+pub(crate) fn reach_from(
+    g: &Gen<'_>,
+    items: &BTreeMap<DeclId, Item>,
+    roots: Vec<DeclId>,
+) -> BTreeSet<DeclId> {
+    let rules = crate::server::use_rules(g);
+    let mut reached: BTreeSet<DeclId> = BTreeSet::new();
+    let mut work = roots;
     while let Some(d) = work.pop() {
         if !reached.insert(d) {
             continue;
@@ -723,6 +734,7 @@ pub(crate) fn client_containers(
                     "k.device.Clipboard" => "k.device.BrowserClipboard",
                     "k.device.Share" => "k.device.BrowserShare",
                     "k.device.Geolocation" => "k.device.BrowserGeolocation",
+                    "k.device.TabMessaging" => "k.device.BrowserTabMessaging",
                     _ => return None,
                 };
                 g.view.lookup(default)
@@ -852,6 +864,20 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
             }
             None => rt("native", vec![js::str(qualified)]),
         },
+        // The tabs chunk's (runtime.md §12.10): channels are namespaced per
+        // app, as storage keys are, and a message carries the build that
+        // posted it, which the entry's URL names (it is hashed from the
+        // names of every other client file).
+        "k.device.BrowserTabMessaging" => match b.g.view.lookup(qualified) {
+            Some(d) => {
+                let name = b.g.name(d);
+                call(
+                    b.use_decl(d, name),
+                    vec![js::str(b.g.storage_namespace()), id("import.meta.url")],
+                )
+            }
+            None => rt("native", vec![js::str(qualified)]),
+        },
         // The environment chunk's (runtime.md §12.8): during hydration the
         // preferences the server rendered with (`k-data`'s `p`).
         "k.device.Preferences" => match b.g.view.lookup(qualified) {
@@ -867,6 +893,8 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         "k.test.TestClipboard" => crate::suite::kit_call("testClipboard", vec![]),
         "k.test.TestShare" => crate::suite::kit_call("testShare", vec![]),
         "k.test.TestGeolocation" => crate::suite::kit_call("testGeolocation", vec![]),
+        "k.test.TestTabMessaging" => crate::suite::kit_call("testTabMessaging", vec![]),
+        "k.test.TestWakeLock" => crate::suite::kit_call("testWakeLock", vec![]),
         "k.test.TestPageVisibility" => crate::suite::kit_call("testPageVisibility", vec![]),
         "k.test.TestConnectivity" => crate::suite::kit_call("testConnectivity", vec![]),
         "k.test.TestPreferences" => crate::suite::kit_call("testPreferences", vec![]),
@@ -1429,7 +1457,10 @@ pub(crate) fn native_component_dependencies(g: &Gen<'_>, d: DeclId) -> Vec<DeclI
     let mut out = Vec::new();
     for n in node.descendants().filter_map(ast::NameExpr::cast) {
         let Some(name) = n.name() else { continue };
-        if !matches!(name.text(), "CopyButton" | "ShareButton") {
+        if !matches!(
+            name.text(),
+            "CopyButton" | "ShareButton" | "KeepScreenAwake"
+        ) {
             continue;
         }
         let Some(Resolved::Decl(c)) = g.resolved(file, name.text_range()) else {
@@ -1438,6 +1469,11 @@ pub(crate) fn native_component_dependencies(g: &Gen<'_>, d: DeclId) -> Vec<DeclI
         let services: &[&str] = match g.view.qualified_name(c).as_str() {
             "k.device.CopyButton" => &["k.device.Clipboard", "k.time.Clock"],
             "k.device.ShareButton" => &["k.device.Share", "k.device.Clipboard", "k.time.Clock"],
+            // In the browser it holds the screen's lock itself; `k test`
+            // gives it `TestWakeLock` (45-web-platform.md, "KeepScreenAwake").
+            "k.device.KeepScreenAwake" if g.options.environment == crate::Environment::Test => {
+                &["k.internal.WakeLock"]
+            }
             _ => continue,
         };
         for s in services {

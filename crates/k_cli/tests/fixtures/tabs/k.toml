@@ -1,0 +1,6 @@
+# `TabMessaging` and `KeepScreenAwake` with their test doubles, `TestTabMessaging` and
+# `TestWakeLock` (docs/design/45-web-platform.md, "Messages between tabs" and "KeepScreenAwake";
+# docs/compiler/testing.md §8.4): every test here must pass.
+[package]
+name = "tabs"
+k = "0.1"

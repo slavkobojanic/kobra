@@ -526,6 +526,7 @@ pub(crate) fn client_files(
         })
         .collect();
     let feature_names: Vec<&str> = runtime_features.iter().map(|(_, n)| n.as_str()).collect();
+    let deferred = deferred_features(g, items, pages, entry.as_ref(), &features);
     let mut used_features = BTreeSet::new();
     let mut shared_decls: Vec<DeclId> = items
         .keys()
@@ -582,6 +583,18 @@ pub(crate) fn client_files(
             ));
         }
         stmts.extend(client_natives(g, items, item.uses.iter(), &features, "../"));
+        // The platform services of feature chunks the entry binds only once
+        // a page that reaches them loads (`deferred_features`): imported
+        // here, so the chunk is preloaded with this page, and re-exported
+        // for the entry.
+        for (sym, chunk, _) in deferred.iter().filter(|(_, _, ps)| ps.contains(&p)) {
+            let local = format!("$f_{sym}");
+            stmts.push(Stmt::Import(
+                vec![(sym.clone(), local.clone())],
+                format!("../{chunk}"),
+            ));
+            stmts.push(Stmt::ExportConst(format!("{sym}$feature"), js::id(local)));
+        }
         stmts.extend(item.prelude.iter().cloned());
         stmts.extend(item.stmts.iter().cloned());
         route_runtime_features(&mut stmts, &feature_names, "../", &mut used_features);
@@ -595,8 +608,19 @@ pub(crate) fn client_files(
     }
     if let Some((entry, uses)) = entry {
         let mut stmts = vec![Stmt::ImportAll("$k".into(), format!("./{runtime_name}"))];
-        // Platform services whose browser body is a feature chunk's.
-        stmts.extend(feature_imports(g, items, &uses, &features));
+        // Platform services whose browser body is a feature chunk's: those
+        // only some pages reach are bound when one of them loads.
+        let mut imports = feature_imports(g, items, &uses, &features);
+        for s in &mut imports {
+            if let Stmt::Import(syms, _) = s {
+                syms.retain(|(sym, _)| !deferred.iter().any(|(d, _, _)| d == sym));
+            }
+        }
+        imports.retain(|s| !matches!(s, Stmt::Import(syms, _) if syms.is_empty()));
+        stmts.extend(imports);
+        for (sym, _, _) in &deferred {
+            stmts.push(Stmt::Let(sym.clone(), None));
+        }
         // The containers construct services and RPC clients of the shared
         // chunk (`$shared` is replaced by its name below).
         let syms: BTreeSet<String> = uses
@@ -610,6 +634,8 @@ pub(crate) fn client_files(
                 "$shared".into(),
             ));
         }
+        let mut entry = entry;
+        bind_deferred(&mut entry, &deferred);
         stmts.extend(entry);
         route_runtime_features(&mut stmts, &feature_names, "./", &mut used_features);
         if release {
@@ -644,6 +670,153 @@ pub(crate) fn client_files(
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
+}
+
+/// A platform service whose browser body is a feature chunk's (`BrowserGeolocation`), the
+/// chunk's file name, and the pages that reach it: `(symbol, chunk, pages)`.
+type Deferred = (String, String, BTreeSet<DeclId>);
+
+/// The platform services of shipped feature chunks (`features`) that the
+/// entry's `$App` constructs but only some pages reach, through their
+/// views, layouts and the services those inject (weather's
+/// `BrowserGeolocation`, which only the start page's "Use my location"
+/// needs). The entry, which every page loads, doesn't import them: each
+/// page chunk that reaches one imports and re-exports it, and the route's
+/// `load` binds it before the page renders (`bind_deferred`), so the
+/// chunk is preloaded and loaded with those pages only (codegen.md §16).
+/// A service the `app` itself reaches, every page reaches, or a chunk the
+/// shared chunk already imports stays a static import of the entry. Only an
+/// app's client defers: a test bundle has no routes to load.
+fn deferred_features(
+    g: &Gen<'_>,
+    items: &BTreeMap<DeclId, Item>,
+    pages: &[DeclId],
+    entry: Option<&ClientEntry>,
+    features: &[(usize, String)],
+) -> Vec<Deferred> {
+    let Some((_, uses)) = entry else {
+        return Vec::new();
+    };
+    if g.options.entry != crate::Entry::App {
+        return Vec::new();
+    }
+    let shared_features: BTreeSet<usize> = items
+        .iter()
+        .filter(|(d, _)| !pages.contains(d))
+        .flat_map(|(_, it)| it.uses.iter())
+        .filter(|(d, _)| g.view.decl(*d).stdlib && !items.contains_key(d))
+        .filter_map(|(d, sym)| feature_of(&module_path(g, *d), sym))
+        .collect();
+    let file = pages
+        .first()
+        .map_or(k_diagnostics::FileId::new(0), |&d| g.view.decl(d).file);
+    let body = crate::lower::Body::new(g, file, Target::Client);
+    let rendered: Vec<DeclId> = pages
+        .iter()
+        .copied()
+        .filter(|p| items.contains_key(p))
+        .collect();
+    let mut page_reach: Vec<(DeclId, BTreeSet<DeclId>)> = Vec::new();
+    let mut app_reach: Option<BTreeSet<DeclId>> = None;
+    let mut out = Vec::new();
+    for (d, sym) in uses {
+        if items.contains_key(d) || !g.view.decl(*d).stdlib {
+            continue;
+        }
+        let Some(i) = feature_of(&module_path(g, *d), sym) else {
+            continue;
+        };
+        let Some((_, chunk)) = features.iter().find(|(f, _)| *f == i) else {
+            continue;
+        };
+        if shared_features.contains(&i) {
+            continue;
+        }
+        // The service, or an interface it implements (the container binds
+        // `Geolocation` to `BrowserGeolocation` with no `use` rule).
+        let names = |reach: &BTreeSet<DeclId>| {
+            reach.iter().any(|&x| {
+                x == *d
+                    || (g.view.decl(x).named_kind() == Some(DeclarationKind::Interface)
+                        && g.implements(*d, x))
+            })
+        };
+        let app = app_reach.get_or_insert_with(|| {
+            let roots = g
+                .own
+                .iter()
+                .copied()
+                .filter(|&x| g.view.decl(x).named_kind() == Some(DeclarationKind::App))
+                .collect();
+            crate::app::reach_from(g, items, roots)
+        });
+        if names(app) {
+            continue;
+        }
+        if page_reach.is_empty() {
+            for &p in &rendered {
+                let mut roots = vec![p];
+                roots.extend(crate::server::layouts_of(&body, p));
+                page_reach.push((p, crate::app::reach_from(g, items, roots)));
+            }
+        }
+        let reaching: BTreeSet<DeclId> = page_reach
+            .iter()
+            .filter(|(_, r)| names(r))
+            .map(|(p, _)| *p)
+            .collect();
+        if reaching.len() == rendered.len() {
+            continue;
+        }
+        out.push((sym.clone(), chunk.clone(), reaching));
+    }
+    out
+}
+
+/// Makes the route table's `import("$page:N")` of each page that reaches
+/// a deferred service bind it from the page chunk's re-export before the
+/// page renders: `import(…).then((m) => { Sym = m.Sym$feature; return m; })`.
+fn bind_deferred(stmts: &mut [Stmt], deferred: &[Deferred]) {
+    if deferred.is_empty() {
+        return;
+    }
+    let mut wrapped: Option<String> = None;
+    js::walk_exprs_mut(stmts, &mut |e| {
+        let js::Expr::Import(spec) = e else { return };
+        let js::Expr::Str(spec) = &**spec else { return };
+        let Some(page) = spec
+            .strip_prefix("$page:")
+            .and_then(|n| n.parse::<u32>().ok())
+            .map(DeclId)
+        else {
+            return;
+        };
+        // The walk goes on into the replacement, which holds this import.
+        if wrapped.as_deref() == Some(spec.as_str()) {
+            wrapped = None;
+            return;
+        }
+        let mut body: Vec<Stmt> = deferred
+            .iter()
+            .filter(|(_, _, ps)| ps.contains(&page))
+            .map(|(sym, _, _)| {
+                Stmt::Expr(js::assign(
+                    js::id(sym.clone()),
+                    js::member(js::id("m"), format!("{sym}$feature")),
+                ))
+            })
+            .collect();
+        if body.is_empty() {
+            return;
+        }
+        wrapped = Some(spec.clone());
+        body.push(Stmt::Return(Some(js::id("m"))));
+        let import = e.clone();
+        *e = js::call(
+            js::member(import, "then"),
+            vec![js::arrow_block(vec![js::Param::new("m")], body, false)],
+        );
+    });
 }
 
 /// `true` when the client of this build is linked and minified after
@@ -808,6 +981,8 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("clipboard", "k:/runtime/clipboard.js", "k/device"),
     ("share", "k:/runtime/share.js", "k/device"),
     ("geolocation", "k:/runtime/geolocation.js", "k/device"),
+    ("tabs", "k:/runtime/tabs.js", "k/device"),
+    ("wakelock", "k:/runtime/wakelock.js", "k/device"),
     ("environment", "k:/runtime/environment.js", "k/device"),
     ("keys", "k:/runtime/keys.js", "k/ui"),
     ("streams", "k:/runtime/streams.js", "k/core"),

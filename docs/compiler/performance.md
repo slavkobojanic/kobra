@@ -651,6 +651,8 @@ Measured 2026-11-07, release build, 14-core Apple M-series:
 | `k.device` clipboard ≤ 1.25 KB (`CLIPBOARD_SIZE_BUDGET`) | `clipboard.js` 5.4 KB raw, 2.3 KB compacted, **1,010 B** gzip | met. **New budget, justified:** `BrowserClipboard` and `CopyButton` (45-web-platform.md) are needed only by apps whose client copies (kanban); the `$App` container imports `BrowserClipboard` from `clipboard.[hash].js`, so no other app ships it. Each Tier 1 wrapper of 45 gets a chunk of its own rather than growing the browser services |
 | `k.device` sharing ≤ 1.25 KB (`SHARE_SIZE_BUDGET`) | `share.js` 5.6 KB raw, 2.6 KB compacted, **1,139 B** gzip | met. **New budget, justified:** as the clipboard's: `BrowserShare` and `ShareButton`, whose fallback copy goes through the container's `Clipboard`, so the two chunks don't import each other |
 | `k.device` geolocation ≤ 1.25 KB (`GEOLOCATION_SIZE_BUDGET`) | `geolocation.js` 5.8 KB raw, 2.3 KB compacted, **1,064 B** gzip | met. **New budget, justified:** as the clipboard's: `BrowserGeolocation` is needed only by apps whose client locates (weather); the `$App` container imports it from `geolocation.[hash].js` |
+| `k.device` messages between tabs ≤ 640 B (`TABS_SIZE_BUDGET`) | `tabs.js` 2.7 KB raw, 0.9 KB compacted, **516 B** gzip | met. **New budget, justified:** as the clipboard's: `BrowserTabMessaging` (45-web-platform.md) is needed only by apps whose client injects `TabMessaging` (the shop's cart); the `$App` container imports it from `tabs.[hash].js`. The full client runtime had about 2 B of headroom, so it couldn't go there |
+| `KeepScreenAwake` ≤ 640 B (`WAKE_LOCK_SIZE_BUDGET`) | `wakelock.js` 2.4 KB raw, 0.9 KB compacted, **485 B** gzip | met. **New budget, justified:** like `KeyboardShortcut`'s: a component that renders nothing, in a chunk of its own (`wakelock.[hash].js`) for the apps that use it |
 | `k.device` environment services ≤ 1.25 KB (`ENVIRONMENT_SIZE_BUDGET`) | `environment.js` 6.1 KB raw, 2.4 KB compacted, **1,016 B** gzip | met. **New budget, justified:** `PageVisibility`, `Connectivity`, `Preferences` and `Viewport` (45-web-platform.md) are needed only by apps whose client injects one (notes' offline banner); the full client runtime had 2 B of headroom, so they ship as one chunk of their own rather than four (each is a signal or three over the same hydration helper, too small to be worth a request each) |
 | Element events ≤ 1 KB (`OBSERVE_SIZE_BUDGET`) | `observe.js` 4.4 KB raw, 1.5 KB compacted, **728 B** gzip | met. **New budget, justified:** `appeared`, `disappeared` and `resized` (45-web-platform.md) are lowered to `$k.observeElement`, a runtime feature routed to `observe.[hash].js` like `forms`, so only clients that use one ship the shared observers |
 | `KeyboardShortcut` ≤ 512 B (`KEYS_SIZE_BUDGET`) | `keys.js` 1.6 KB raw, 0.6 KB compacted, **384 B** gzip | met. **New budget, justified:** 43-keyboard-shortcuts.md; a chunk of its own (`keys.[hash].js`) for apps with shortcuts, rather than 384 B more in every client's runtime chunk |
@@ -776,9 +778,9 @@ else). Each is the 2026-11-09 measurement plus about 10%, rounded:
 |---|---|---|
 | `todos` | 17,500 B | 15,872 B |
 | `kanban` | 32,500 B | 29,840 B |
-| `weather` | 33,000 B | 25,820 B (30,076 B on 2026-11-10) |
+| `weather` | 33,000 B | 25,820 B (30,076 B on 2026-11-10; 30,115 B once the geolocation chunk loads only with the start page) |
 | `notes` | 28,000 B | 25,440 B |
-| `shop/shop` | 30,500 B | 27,881 B |
+| `shop/shop` | 30,500 B | 27,881 B (30,342 B on 2026-11-10, with the cart and its `tabs` chunk, 531 B) |
 | `shop/paybox` | 5,500 B | 4,894 B |
 | `stack/shop` | 12,000 B | 10,644 B |
 | `stack/paybox` | 5,500 B | 4,894 B |

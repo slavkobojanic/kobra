@@ -1,0 +1,11 @@
+# docs/design/45-web-platform.md, "KeepScreenAwake"; docs/compiler/codegen.md §16: the component is
+# the wakelock chunk's, which only an app that uses it ships. In the browser it holds the screen's
+# wake lock itself, so the container gets no getter for it; `k test` binds `TestWakeLock`. The
+# server renders nothing for it.
+client contains // file: wakelock.[hash].js
+client contains import { KeepScreenAwake } from "../wakelock.[hash].js";
+client contains export function KeepScreenAwake(
+client lacks get WakeLock()
+client lacks $k.native("k.device.
+client lacks tabs.[hash].js
+server contains "k.device.KeepScreenAwake$ssr"

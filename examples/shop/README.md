@@ -105,6 +105,8 @@ shop/                         app: serves StoreProtocol, AdminProtocol, CardProt
     paybox/                   paying through paybox: PayboxCheckout, the Payment page, CardProtocol,
                               CardApi, CardService, PaymentEventsApi, PayboxService, PayboxCallbackConfig
     admin/                    staff sign-in and the order list
+    cart/                     the cart: CartService (local storage, kept in step across tabs with
+                              TabMessaging), CartBadge in the header, AddToCart on a product page
     webhooks/StripeWebhook.k  the endpoint Stripe calls when Stripe is enabled (404 otherwise)
     ops/HealthCheck.k         GET /health
     pages/                    Storefront layout, Home, ProductDetail, Receipt, SignIn, Admin, ProductCard
@@ -283,6 +285,8 @@ edit and runs a Stripe checkout and its webhook against a fake Stripe.
 | `shop/src/payments/StripeSignature.k` | `Bytes.parse(hex:)`, async `Hmac` keyed by a `Secret`, constant-time `Mac.matches` |
 | `shop/src/admin/AdminApi.k` | `SessionManager.signIn`, `Password.verify` against a `Secret` hash |
 | `*/src/ops/HealthCheck.k`, `shop/src/webhooks/StripeWebhook.k` | endpoint pages with fixed URLs, `@Get`/`@Post` handlers calling the page's own functions |
+| `shop/src/cart/CartService.k` | `TabMessaging` and a `TabChannel<CartChange>`: the cart stays in step across the shop's open tabs; `LocalStorage` with a `StorageKey` recorded in `storage.lock` |
+| `shop/src/cart/CartBadge.k`, `AddToCart.k` | `@Rendering(.client)` components with a `loading` block, for state that lives in the browser |
 | `shop/src/pages/*` | pages, a layout, a component, `metadata` with `canonical` and `structuredData`, `failed` with `status(.notFound)` |
 | `*.test.k` | `test` groups, `use` overrides (fakes of a library protocol, configs, interfaces), `expect throws`, `InlineJobQueue`, `RecordingEmailProvider`, `TestClient`, `render` |
 

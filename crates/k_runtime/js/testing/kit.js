@@ -12,8 +12,9 @@
  *   synchronous updates.
  * - The hermetic defaults of `k.test`: `TestClock` (virtual time),
  *   `MemoryStorage`, `TestHttpClient`, `TestFiles`, `TestClipboard`,
- *   `TestShare`, `TestGeolocation`, `TestPageVisibility`,
- *   `TestConnectivity`, `TestPreferences`, `TestViewport`,
+ *   `TestShare`, `TestGeolocation`, `TestTabMessaging`, `TestWakeLock`,
+ *   `TestPageVisibility`, `TestConnectivity`, `TestPreferences`,
+ *   `TestViewport`,
  *   `RecordingJobQueue` and `RecordingEmailProvider`.
  * - Fake `IntersectionObserver` and `ResizeObserver`, which report only
  *   what a handle's `appear`, `disappear` and `resize` say.
@@ -28,9 +29,9 @@
  * runtime instance.
  */
 
-import { flush, onCleanup, root, signal } from "../runtime/signals.js";
+import { batch, flush, onCleanup, root, signal } from "../runtime/signals.js";
 import { KPanic, isPanic, unitCase } from "../runtime/values.js";
-import { Instant, PushStream, httpCode } from "../runtime/std.js";
+import { Instant, PushStream, httpCode, stringify } from "../runtime/std.js";
 import { HttpResponse$isSuccess, HttpResponse$json, HttpResponse$text } from "../runtime/http.js";
 import { received } from "../runtime/outbound.js";
 import { hasNative, native as browserNative } from "../runtime/services.js";
@@ -1575,6 +1576,87 @@ export function testGeolocation() {
     },
     setSupported(value) {
       supported = value === true;
+    },
+  };
+}
+
+/**
+ * `k.test.TestTabMessaging`: a tab with no other tabs (45-web-platform.md,
+ * "Messages between tabs"). `post` records the message's JSON per channel
+ * name, which `posted` decodes again; `deliver` plays another tab posting:
+ * the message's JSON text, decoded for every listener and stream of the
+ * channel, then a flush. Every member takes the message type's codec first.
+ */
+export function testTabMessaging() {
+  const posted = new Map();
+  const subs = new Map();
+  const listeners = (c) => {
+    if (!subs.has(c.name)) subs.set(c.name, new Set());
+    return subs.get(c.name);
+  };
+  const sub = (codec, c, f) => {
+    const set = listeners(c);
+    const g = (text) => f(codec.decode(JSON.parse(text), ""));
+    set.add(g);
+    return () => set.delete(g);
+  };
+  return {
+    post(codec, c, message) {
+      if (!posted.has(c.name)) posted.set(c.name, []);
+      posted.get(c.name).push(stringify(codec.encode(message)));
+    },
+    listen(codec, c, handler) {
+      return { cancel: sub(codec, c, handler) };
+    },
+    messages(codec, c) {
+      const stream = new PushStream();
+      const off = sub(codec, c, (v) => stream.push(v));
+      stream.close = () => off() && stream.push(null);
+      onCleanup(stream.close);
+      return stream;
+    },
+    deliver(codec, c, message) {
+      const text = stringify(codec.encode(message));
+      batch(() => {
+        for (const f of [...listeners(c)]) f(text);
+      });
+      flush();
+    },
+    posted(codec, c) {
+      return (posted.get(c.name) ?? []).map((text) => codec.decode(JSON.parse(text), ""));
+    },
+  };
+}
+
+/**
+ * `k.test.TestWakeLock`: the screen's wake lock in `k test`
+ * (45-web-platform.md, "KeepScreenAwake"). `request` answers at once with
+ * a sentinel (`release()`, `onrelease`), or throws the case number of the
+ * failure `refuse` set; `isHeld` while a sentinel isn't released.
+ */
+export function testWakeLock() {
+  let held = 0;
+  let refusal = null;
+  return {
+    get isHeld() {
+      return held > 0;
+    },
+    refuse(failure) {
+      refusal = failure.$;
+    },
+    request() {
+      if (refusal !== null) throw refusal;
+      held++;
+      const s = {
+        onrelease: null,
+        release() {
+          if (s.released) return;
+          s.released = true;
+          held--;
+          s.onrelease?.();
+        },
+      };
+      return s;
     },
   };
 }

@@ -894,6 +894,42 @@ calls `$k.observeElement(el, "appeared" | "disappeared", handler, threshold, mar
 - The kit installs fake observer classes per test that report only what a handle's `appear()`,
   `disappear()` and `resize(width:height:)` say.
 
+### 12.10 Messages between tabs
+
+`tabs.js` (part `Tabs`), a feature chunk, is `k.device.BrowserTabMessaging`
+([45-web-platform.md](../design/45-web-platform.md#messages-between-tabs)), constructed by the client entry's
+`$App` for `TabMessaging` as `BrowserTabMessaging(namespace, import.meta.url)`: the app's storage namespace
+and the entry's URL, which names the build.
+
+- Each member takes the message type's codec first (`post(codec, channel, message)`, `listen(codec,
+  channel, handler)`, `messages(codec, channel)`); a channel is `{name}` (`TabChannel$init`).
+- One `BroadcastChannel` per channel name, `namespace:name`, opened on first use and shared by the tab's
+  posts and listeners; the standard never delivers to the object that posted. A message is `{b: build, m:
+  stringify(codec.encode(message))}`; a listener drops one whose `b` isn't its build or whose `m` doesn't
+  decode, and runs its handler in a `batch`.
+- `listen` returns `{cancel}` (a `Subscription`; cancelling twice does nothing). `messages` returns a
+  `PushStream` that ends (`push(null)`) when closed by a `for await` that left it or when its owner is
+  disposed (`onCleanup`).
+- Without `BroadcastChannel` nothing is posted or heard. The test double is the kit's `testTabMessaging`
+  (`post` records the JSON text, `posted(codec, channel)` decodes it, `deliver(codec, channel, message)`
+  decodes it for each listener and stream, then flushes).
+
+### 12.11 Keeping the screen on
+
+`wakelock.js` (part `WakeLock`), a feature chunk, is `k.device.KeepScreenAwake`
+([45-web-platform.md](../design/45-web-platform.md#keepscreenawake)), a native component that renders an
+empty comment.
+
+- It holds `ctx.c.WakeLock` when its container has one (`k test`'s `TestWakeLock`, whose `request()`
+  answers at once or throws the failure's case number), and otherwise the screen's lock: a secure context's
+  `navigator.wakeLock.request("screen")`, any rejection of which is `.unavailable` (`unitCase(1)`), and
+  without which it fires `.unsupported` (`0`) without asking.
+- It asks while mounted and the document isn't hidden, and again on `visibilitychange` while it holds no
+  lock (the browser releases it when the page is hidden; the sentinel's `release` event clears it). On
+  unmount it releases the lock, or the one a pending request brings. A refusal fires `failed` in a
+  `batch`.
+- On the server it renders nothing (`natives["k.device.KeepScreenAwake$ssr"]`).
+
 ---
 
 ## 13. Testing

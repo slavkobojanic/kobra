@@ -11,6 +11,7 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`BrowserFiles`](#browserfiles) | The standard [`Files`](#files): the browser's file picker (an `input` of type `file`) and downloads through an object URL. |
 | [`BrowserGeolocation`](#browsergeolocation) | The standard [`Geolocation`](#geolocation): the browser's Geolocation API (`navigator.geolocation`), with the permission read from the Permissions API. |
 | [`BrowserShare`](#browsershare) | The standard [`Share`](#share): the browser's Web Share API (`navigator.share`). |
+| [`BrowserTabMessaging`](#browsertabmessaging) | The standard [`TabMessaging`](#tabmessaging): the browser's `BroadcastChannel`, one per channel name, namespaced per app as storage keys are. |
 | [`Clipboard`](#clipboard) | Plain text on the system clipboard (`docs/design/45-web-platform.md`, "Clipboard"). |
 | [`ClipboardReadError`](#clipboardreaderror) | Why [`Clipboard.readText()`](#clipboard) read nothing (`docs/design/45-web-platform.md`, "Clipboard"). |
 | [`ClipboardWriteError`](#clipboardwriteerror) | Why [`Clipboard.write(text:)`](#clipboard) didn't copy (`docs/design/45-web-platform.md`, "Clipboard"). |
@@ -22,6 +23,7 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`FileSaveError`](#filesaveerror) | Why [`Files.save`](#files) couldn't start a download (`docs/design/42-files.md`). |
 | [`FileType`](#filetype) | A kind of file the picker offers (`docs/design/42-files.md`): its media type and file name extension. |
 | [`Geolocation`](#geolocation) | The device's position (`docs/design/45-web-platform.md`, "Geolocation"). |
+| [`KeepScreenAwake`](#keepscreenawake) | Keeps the screen on while it is mounted (`docs/design/45-web-platform.md`, "KeepScreenAwake"): `if cooking.isStepByStep { KeepScreenAwake() }`. |
 | [`LocationAccuracy`](#locationaccuracy) | How exact a position [`Geolocation`](#geolocation) asks for (`docs/design/45-web-platform.md`, "Geolocation"). |
 | [`LocationError`](#locationerror) | Why [`Geolocation`](#geolocation) has no position (`docs/design/45-web-platform.md`, "Geolocation"). |
 | [`PageVisibility`](#pagevisibility) | Whether the page is on screen (`docs/design/45-web-platform.md`, "Page visibility"). |
@@ -36,8 +38,10 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`ShareError`](#shareerror) | Why [`Share.share(_:)`](#share) didn't share (`docs/design/45-web-platform.md`, "Web Share"). |
 | [`Subscription`](#subscription) | A running callback subscription, such as a handler listening for messages from the app's other tabs (`docs/design/45-web-platform.md`, "Ownership and lifetime"). |
 | [`TabChannel`](#tabchannel) | A channel between the app's tabs, paired with the type of its messages: `TabChannel<CartChange> = TabChannel(name: "cart")` (`docs/design/45-web-platform.md`, "Messages between tabs"). |
+| [`TabMessaging`](#tabmessaging) | Messages between the app's tabs (`docs/design/45-web-platform.md`, "Messages between tabs"). |
 | [`Viewport`](#viewport) | The layout viewport and the primary pointer (`docs/design/45-web-platform.md`, "Viewport"), for decisions CSS can't make; layout by width belongs in style blocks' media and container queries. |
 | [`ViewportSize`](#viewportsize) | The size of the layout viewport, [`Viewport.size`](#viewport). |
+| [`WakeLockFailure`](#wakelockfailure) | Why a [`KeepScreenAwake`](#keepscreenawake) couldn't keep the screen on (`docs/design/45-web-platform.md`, "KeepScreenAwake"). |
 
 ## BrowserClipboard
 
@@ -125,6 +129,25 @@ The standard [`Share`](#share): the browser's Web Share API
   [`Share.isSupported`](#share).
 - `@UserAction(consuming: true) func share(_ content: ShareContent) async throws ShareError`
   Opens the browser's share sheet; see [`Share.share(_:)`](#share).
+
+## BrowserTabMessaging
+
+```k,ignore
+@ClientOnly
+public service BrowserTabMessaging implements TabMessaging
+```
+
+The standard [`TabMessaging`](#tabmessaging): the browser's `BroadcastChannel`, one per
+channel name, namespaced per app as storage keys are.
+
+**Members**
+
+- `func post<T>(on channel: TabChannel<T>, message: T) where T implements Codable`
+  Posts to the other tabs; see [`TabMessaging.post`](#tabmessaging).
+- `func listen<T>(on channel: TabChannel<T>, _ handler: (T) -> Void) -> Subscription where T implements Codable`
+  Listens to the other tabs; see [`TabMessaging.listen`](#tabmessaging).
+- `func messages<T>(on channel: TabChannel<T>) -> Stream<T> where T implements Codable`
+  Streams the other tabs' messages; see [`TabMessaging.messages`](#tabmessaging).
 
 ## Clipboard
 
@@ -431,6 +454,22 @@ throw [`LocationError.notAsked`](#locationerror).
   - Throws: [`LocationError.unsupported`](#locationerror) where `isSupported` is
     `false`, `.notAsked` or `.denied` when `permission` isn't
     `.granted`.
+
+## KeepScreenAwake
+
+```k,ignore
+public component KeepScreenAwake
+```
+
+Keeps the screen on while it is mounted (`docs/design/45-web-platform.md`,
+"KeepScreenAwake"): `if cooking.isStepByStep { KeepScreenAwake() }`.
+
+It renders nothing, so the condition that keeps the screen on is the
+`if` around it, and unmounting it lets the screen sleep again. The
+browser lets the screen sleep while the page is hidden; the component
+asks again when the page is shown. It needs no user's action. In
+`k test` it holds [`k.test.TestWakeLock`](k-test.md#testwakelock) instead of the device's
+screen.
 
 ## LocationAccuracy
 
@@ -740,6 +779,35 @@ the same name must carry the same message type.
 - `var name: String`
   The channel's name.
 
+## TabMessaging
+
+```k,ignore
+@Platform(side: .client)
+public interface TabMessaging
+```
+
+Messages between the app's tabs (`docs/design/45-web-platform.md`,
+"Messages between tabs"). A client-only platform interface:
+[`BrowserTabMessaging`](#browsertabmessaging) is injected with no `use` rule, and
+[`k.test.TestTabMessaging`](k-test.md#testtabmessaging) replaces it in tests.
+
+A message reaches the app's other tabs on the same origin and in the
+same browser profile, never the tab that posted it. Tabs running
+different builds of the app don't hear each other, since their message
+types may differ.
+
+**Members**
+
+- `func post<T>(on channel: TabChannel<T>, message: T) where T implements Codable`
+  Sends `message` to the app's other tabs listening on `channel`.
+- `func listen<T>(on channel: TabChannel<T>, _ handler: (T) -> Void) -> Subscription where T implements Codable`
+  Calls `handler` with every message another tab posts on `channel`,
+  until the returned subscription is cancelled. An `.app` service may
+  subscribe in `init()` and drop it, since it lives as long as the tab.
+- `func messages<T>(on channel: TabChannel<T>) -> Stream<T> where T implements Codable`
+  The messages other tabs post on `channel`, for an effect to follow
+  with `for await`. The stream ends when its owner is cancelled.
+
 ## Viewport
 
 ```k,ignore
@@ -780,4 +848,22 @@ The size of the layout viewport, [`Viewport.size`](#viewport).
   The width in CSS pixels.
 - `let height: Length`
   The height in CSS pixels.
+
+## WakeLockFailure
+
+```k,ignore
+public enum WakeLockFailure implements Error, Equatable
+```
+
+Why a [`KeepScreenAwake`](#keepscreenawake) couldn't keep the screen on
+(`docs/design/45-web-platform.md`, "KeepScreenAwake").
+
+**Members**
+
+- `case unsupported`
+  This browser or context has no screen wake lock (an insecure
+  context, an engine without the Screen Wake Lock API).
+- `case unavailable`
+  The browser refused it now: battery saver, a policy, or a page
+  that was hidden when it asked.
 

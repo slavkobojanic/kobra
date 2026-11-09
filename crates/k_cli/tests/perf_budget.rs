@@ -486,6 +486,8 @@ fn shipped_client_assets() {
         ("clipboard.", k_runtime::CLIPBOARD_SIZE_BUDGET),
         ("share.", k_runtime::SHARE_SIZE_BUDGET),
         ("geolocation.", k_runtime::GEOLOCATION_SIZE_BUDGET),
+        ("tabs.", k_runtime::TABS_SIZE_BUDGET),
+        ("wakelock.", k_runtime::WAKE_LOCK_SIZE_BUDGET),
         ("environment.", k_runtime::ENVIRONMENT_SIZE_BUDGET),
         ("observe.", k_runtime::OBSERVE_SIZE_BUDGET),
         ("keys.", k_runtime::KEYS_SIZE_BUDGET),

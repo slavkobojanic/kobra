@@ -3,9 +3,19 @@
 
 namespace = "shop"
 
+[keys.cart]
+declaration = "cart.CartService.savedCart"
+type = "List<cart.CartItem>"
+
 [jobs.order-confirmation]
 declaration = "store.OrderConfirmationJob"
 payload = "store.OrderConfirmation"
+
+[types."cart.CartItem"]
+fields = [
+    { name = "slug", type = "String" },
+    { name = "name", type = "String" },
+]
 
 [types."store.OrderConfirmation"]
 fields = [

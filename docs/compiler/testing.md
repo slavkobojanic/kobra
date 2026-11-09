@@ -802,7 +802,14 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
   `environment.test.js` (the environment services against a scripted `document.visibilityState`,
   `navigator.onLine`, `matchMedia`, `innerWidth` and `requestAnimationFrame`: each event, the back-forward
   cache's `pageshow`, a failed rpc taking the app offline until one succeeds or `online` fires, aborts and
-  other origins not counting, resizes coalesced per frame, and the server's values while hydrating) and
+  other origins not counting, resizes coalesced per frame, and the server's values while hydrating),
+  `tabs.test.js` (`BrowserTabMessaging` against a scripted `BroadcastChannel`: another tab hears a post
+  and the posting one doesn't, channels namespaced per app, another build's and undecodable messages
+  dropped, cancelling, `messages` ending with its owner or a `for await` left early, no
+  `BroadcastChannel`), `wakelock.test.js` (`KeepScreenAwake` against a scripted `navigator.wakeLock`: held
+  while mounted, released when hidden and asked again when shown, a request resolving after unmount
+  released, a refusal, no API or an insecure context, the container's `TestWakeLock`, the server's empty
+  markup) and
   `observe.test.js` (the element events against scripted observers: entries and exits, thresholds, one
   observer per option set, sizes, and disposal) test the chunks of
   [runtime.md §12.3–12.9](runtime.md#123-drag-and-drop).
@@ -1000,7 +1007,9 @@ timers).
   their own sessions; `k dev` stopping promptly with a `watch()` stream open; the offline banner appearing
   under `Network.emulateNetworkConditions` offline and going when the network is back), `stack` (pay from the
   shop page through paybox) and `shop` (buy a mug, pay through paybox on non-default ports, the receipt
-  turning paid, the confirmation in the mail catcher). And one red test per open defect (§4.5).
+  turning paid, the confirmation in the mail catcher; two tabs of one browser, the second opened with
+  `Target.createTarget` (`Tab::new_tab`), the cart added to in one updating the other's header in place,
+  and emptied from the other). And one red test per open defect (§4.5).
 
 `K_DEV_FETCH_ORIGINS` (comma-separated `from=to` origin pairs) is read by `k run` and `k dev` only: a
 server-side `HttpClient` request to `from`, or below it, goes to `to` instead
@@ -1713,7 +1722,9 @@ format change is a reviewed diff):
   and `TestShare`; and `fixtures/locating`, every test must pass: `Geolocation` against
   `TestGeolocation`, the prompt from a click, refusals, no fix, and a `watch` in an effect ending when
   the permission is revoked; and `fixtures/environment`, every test must pass: the environment services
-  against their doubles and the element events driven from handles): each bug of the test bundle or
+  against their doubles and the element events driven from handles; and `fixtures/tabs`, every test must
+  pass: `TabMessaging` against `TestTabMessaging` through a service's `listen` and an effect's
+  `messages`, and `KeepScreenAwake` against `TestWakeLock`): each bug of the test bundle or
   the kit that an example exposed, pinned before it was fixed: a chained enum page parameter given as an
   implicit member, `Page.x` with only optional parameters, a group helper named like the tested
   service's function, a labelled argument after a default, `expect throws` checking the case, a

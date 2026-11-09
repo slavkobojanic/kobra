@@ -26,7 +26,9 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`TestPreferences`](#testpreferences) | The default [`Preferences`](k-device.md#preferences) in `k test` (`docs/design/45-web-platform.md`, "Preferences"): no preference is set until the test sets one. |
 | [`TestRemote`](#testremote) | The `.test` binding of every `remote` rule, also when the serving app is a member of the same workspace (`docs/design/40-workspaces-and-services.md`): an in-process double of protocol `P` whose every rpc fails with `rpcFailure(.offline)` ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so each service's tests stay hermetic and never open a socket. |
 | [`TestShare`](#testshare) | The default [`Share`](k-device.md#share) in `k test` (`docs/design/45-web-platform.md`, "Web Share"): no sheet opens; every share is recorded, and the user picks a target unless the test says otherwise. |
+| [`TestTabMessaging`](#testtabmessaging) | The default [`TabMessaging`](k-device.md#tabmessaging) in `k test` (`docs/design/45-web-platform.md`, "Messages between tabs"): there are no other tabs. |
 | [`TestViewport`](#testviewport) | The default [`Viewport`](k-device.md#viewport) in `k test` (`docs/design/45-web-platform.md`, "Viewport"): a 1280×800 viewport with a fine pointer that can hover, until the test changes one. |
+| [`TestWakeLock`](#testwakelock) | The screen wake lock in `k test` (`docs/design/45-web-platform.md`, "KeepScreenAwake"): a mounted [`k.device.KeepScreenAwake`](k-device.md#keepscreenawake) holds it, never the machine's screen. |
 
 ## Element
 
@@ -628,6 +630,35 @@ picks a target unless the test says otherwise.
   Sets `isSupported`; while it is `false` every share throws
   `.unsupported`, and a [`k.device.ShareButton`](k-device.md#sharebutton) copies instead.
 
+## TestTabMessaging
+
+```k,ignore
+@TestDefault(replaces: TabMessaging)
+public service TestTabMessaging implements TabMessaging
+```
+
+The default [`TabMessaging`](k-device.md#tabmessaging) in `k test`
+(`docs/design/45-web-platform.md`, "Messages between tabs"): there are
+no other tabs. What this tab posts is recorded, and `deliver` plays
+another tab posting.
+
+**Members**
+
+- `func post<T>(on channel: TabChannel<T>, message: T) where T implements Codable`
+  Records `message` in `posted(on:)`; no listener of this tab hears
+  it, as in the browser.
+- `func listen<T>(on channel: TabChannel<T>, _ handler: (T) -> Void) -> Subscription where T implements Codable`
+  Calls `handler` with each message `deliver` plays on `channel`.
+- `func messages<T>(on channel: TabChannel<T>) -> Stream<T> where T implements Codable`
+  The messages `deliver` plays on `channel`; the stream ends with
+  its owner.
+- `func deliver<T>(on channel: TabChannel<T>, message: T) where T implements Codable`
+  Plays another tab posting `message` on `channel`: every listener and
+  stream of this tab gets it, encoded and decoded as it would cross
+  between tabs.
+- `func posted<T>(on channel: TabChannel<T>) -> List<T> where T implements Codable`
+  What this tab posted on `channel`, oldest first.
+
 ## TestViewport
 
 ```k,ignore
@@ -655,4 +686,24 @@ member is reactive, like the browser's.
   Sets the primary pointer.
 - `func set(canHover value: Bool)`
   Sets whether the primary pointer can hover.
+
+## TestWakeLock
+
+```k,ignore
+@TestDefault(replaces: WakeLock)
+public service TestWakeLock implements WakeLock
+```
+
+The screen wake lock in `k test` (`docs/design/45-web-platform.md`,
+"KeepScreenAwake"): a mounted [`k.device.KeepScreenAwake`](k-device.md#keepscreenawake) holds it,
+never the machine's screen.
+
+**Members**
+
+- `var isHeld: Bool`
+  `true` while a mounted `KeepScreenAwake` holds the lock.
+- `func refuse(with failure: WakeLockFailure)`
+  Refuses every later request with `failure`, as a browser without
+  the API (`.unsupported`) or in battery saver (`.unavailable`) does;
+  the component's `failed` event fires with it.
 

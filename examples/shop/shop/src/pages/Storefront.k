@@ -1,5 +1,7 @@
-/// The shell around every page: the shop's header, the page content, and a
-/// short footer.
+import cart.CartBadge
+
+/// The shell around every page: the shop's header with the cart, the page
+/// content, and a short footer.
 ///
 /// `App.k` applies this layout to every page. Its `metadata` entries are the
 /// defaults that each page overrides.
@@ -16,6 +18,8 @@ public layout Storefront {
         header {
             link(to: .home) { "K Shop" }
                 .class(.brand)
+
+            CartBadge()
         }
         .class(.header)
 
@@ -30,6 +34,9 @@ public layout Storefront {
 
     style {
         .header {
+            display: flex;
+            justifyContent: spaceBetween;
+            alignItems: center;
             padding: .md .lg;
             borderBottom: 1px solid .border;
         }

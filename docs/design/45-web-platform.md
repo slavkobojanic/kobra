@@ -722,6 +722,13 @@ view {
 
 **Test double: `TestWakeLock`:** `isHeld: Bool`, `refuse(with: WakeLockFailure)`.
 
+*As built* (`crates/k_runtime/js/runtime/wakelock.js`, the `wakelock` feature chunk; `TestWakeLock` in the test kit):
+
+- **`WakeLockFailure` has the two cases above** (`.unsupported`, `.unavailable`) and implements `Error` and `Equatable`. Without `navigator.wakeLock`, or outside a secure context, the component fires `.unsupported` without asking; any rejection of `request("screen")` is `.unavailable`. Browsers reject a permissions policy, battery saver and a hidden page alike with `NotAllowedError`, so a policy that disables the lock in a frame is `.unavailable` here, not `.unsupported` as [errors](#errors) would have it; telling them apart would need `document.featurePolicy`, which only Chromium has.
+- **It asks only while the page is visible,** and again on each `visibilitychange` while it holds no lock; a request still pending when it unmounts is released as soon as it resolves.
+- **`TestWakeLock` replaces `k.internal.WakeLock`,** an empty stdlib service only the standard library names: a `@TestDefault` needs something to replace, and the browser's lock has no members K code calls. In the browser the container has no `WakeLock` (the component holds the screen's lock itself); in `k test` the component reads `TestWakeLock` from its container (`native_component_dependencies`), whose request answers at once, so `expect wakeLock.isHeld` holds right after the click that mounts it. `refuse(with:)` refuses every later request. The double doesn't follow `TestPageVisibility`: hiding the page in a test doesn't release it.
+- **The server renders nothing** for it (`$s.natives["k.device.KeepScreenAwake$ssr"]`). The recipe-step example of [implementation tests](#implementation-tests) item 4 isn't built yet: no example has recipes; the `k test` fixture `crates/k_cli/tests/fixtures/tabs` has the step-by-step recipe instead.
+
 ## Messages between tabs
 
 ```k
@@ -771,6 +778,15 @@ public interface TabMessaging {
 
 **Test double: `TestTabMessaging`:** `deliver(on: channel, message:)` simulates another tab posting; `posted(on: channel) -> List<T>` lists what this tab posted.
 
+*As built* (`crates/k_runtime/js/runtime/tabs.js`, the `tabs` feature chunk; `TestTabMessaging` in the test kit):
+
+- **One `BroadcastChannel` per channel name and tab,** named `namespace:name` with the app's storage namespace (`storage.lock`), opened on first use and shared by every `post`, `listen` and `messages` of that channel in the tab. The standard already keeps a message from the object that posted it, so the sending tab never hears itself.
+- **A message is `{b, m}`:** `m` is the JSON text of the message type's codec form (the codec is the generic witness every member takes first), so `Double`s and the rest of the wire format cross exactly as in an rpc, and `b` is the build. **The build is the client entry's URL** (`import.meta.url`): its name is hashed from the names of every other client file, so any change to the client makes a new one. A tab drops another build's messages, and a message that doesn't decode as the channel's type (which only a hand-made name clash could cause) is dropped too.
+- **Handlers run in a `batch`.** `messages` returns a stream that ends when its owner is disposed or a `for await` leaves it; `Subscription.cancel()` is idempotent.
+- **Without `BroadcastChannel`** (no Baseline engine lacks it, but a test environment may) nothing is posted or heard and nothing throws.
+- **`TestTabMessaging` round-trips through the codec:** `post` records the JSON text and `posted(on:)` decodes it again, `deliver` decodes the text for each listener and stream and then flushes, so a message type that wouldn't cross between tabs fails in `k test` too. It also implements `listen` and `messages`, since it replaces the interface.
+- **The shop** ([implementation tests](#implementation-tests) item 4) keeps a cart: `CartService` (client-only, `.app` scope) stores it under the storage key `cart` and posts each `CartChange` on the tab channel `cart`; `CartBadge` in the header and `AddToCart` on a product page are `@Rendering(.client)`. Checkout still buys one product with "Buy now"; the cart doesn't feed it yet. The real-Chrome test opens two tabs of one browser on the shop (`chrome.rs`'s `shop_keeps_the_cart_in_step_across_tabs`).
+
 ## Server-only vs client-only
 
 | Declaration | Side | Shape | Test double |
@@ -807,6 +823,10 @@ Built tests first, in this order:
 2. **Typed detection and permissions:** `PermissionState`, the error conventions, and the server-render rule that `isSupported` and `permission` may be read during server rendering while every other member is `K4012`.
 3. **Each wrapper's double and binding:** a `k test` corpus per wrapper using its double, and a runtime test per binding against a scripted fake of the browser API.
 4. **Examples:** the weather app's "Use my location", a `CopyButton` in the kanban board's share panel, an offline banner in the notes app, cross-tab cart sync in the shop, `KeepScreenAwake` in a recipe step view.
+
+*As built (round 2d):* `TabMessaging` and `KeepScreenAwake`, with their doubles, are built tests first: `crates/k_cli/tests/fixtures/tabs` (`k test`), `tests/corpus/sema/app/tabs` and `app/screen`, the `split/tabs-ship-their-own-chunk` and `split/wake-lock-ships-its-own-chunk` codegen cases, then `tabs.test.js` and `wakelock.test.js` against scripted browsers, and the shop's cart, checked in Chrome with two tabs. No new diagnostic: a conflicting channel was already K2408.
+
+*As built (round 2d), loading a feature chunk only with its pages:* weather's release client grew about 3 KB with "Use my location", and its geolocation chunk was preloaded and loaded on every page, because the client entry, which every page loads, imported `BrowserGeolocation` for its `$App` container. Now a platform service whose browser body is a feature chunk's, which only some pages reach (through their views, layouts and the services those inject), is imported and re-exported by those pages' chunks, and the entry binds it when such a page loads, before anything on it can construct the service (`deferred_features` in `bundle.rs`; the `split/feature-chunks-load-with-the-pages-that-use-them` case). Weather's start page preloads `geolocation.[hash].js`; its city and local-weather pages don't.
 
 *As built (round 2c):* the environment services and element events, with their doubles, are built tests first: `crates/k_cli/tests/fixtures/environment` (`k test`), `tests/corpus/sema/app/environment` and the `split/environment-ships-its-own-chunk` and `split/element-events-ship-their-own-chunk` codegen cases, then `environment.test.js` and `observe.test.js` against scripted browsers, and the notes example's offline banner, checked in Chrome by `chrome.rs`'s `notes_shows_an_offline_banner_while_the_network_is_gone`.
 

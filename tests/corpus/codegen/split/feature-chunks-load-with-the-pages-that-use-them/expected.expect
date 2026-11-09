@@ -1,0 +1,12 @@
+# docs/compiler/codegen.md §16: a platform service whose browser body is a feature chunk's, which
+# only some pages reach (`Geolocation`, through `UseMyLocation` on `Home`), isn't imported by the
+# entry, which every page loads. The chunk of each page that reaches it imports it and re-exports
+# it, so it is preloaded with that page only, and the entry binds it when such a page loads, before
+# anything on it can construct the service.
+client contains // file: geolocation.[hash].js
+client lacks import { BrowserGeolocation } from "./geolocation.[hash].js";
+client contains let BrowserGeolocation;
+client contains import { BrowserGeolocation as $f_BrowserGeolocation } from "../geolocation.[hash].js";
+client contains export const BrowserGeolocation$feature = $f_BrowserGeolocation;
+client contains BrowserGeolocation = m.BrowserGeolocation$feature;
+client contains get Geolocation() {

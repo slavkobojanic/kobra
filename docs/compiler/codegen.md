@@ -1044,13 +1044,14 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   *and* the names it imports, so changing a dependency renames its dependents. The entry imports the
   services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
 - **Feature chunks**: `charts.[hash].js`, `drag.[hash].js`, `files.[hash].js`, `clipboard.[hash].js`,
-  `share.[hash].js`, `geolocation.[hash].js`, `environment.[hash].js`, `keys.[hash].js`, `http.[hash].js` and
-  `streams.[hash].js` (`runtime/charts.js`, …),
+  `share.[hash].js`, `geolocation.[hash].js`, `tabs.[hash].js`, `wakelock.[hash].js`, `environment.[hash].js`,
+  `keys.[hash].js`, `http.[hash].js` and `streams.[hash].js` (`runtime/charts.js`, …),
   emitted only when a client chunk or the client entry uses a symbol they implement
   (`k.charts.LineChart`; `k.drag.ReorderableList`, `Draggable`, `DropTarget`, `DragKind(name:)`;
-  `k.ui.KeyboardShortcut`; `k.device.CopyButton` and `ShareButton`; `streamed`; and
-  `k.device.BrowserFiles`, `BrowserClipboard`, `BrowserShare` and `BrowserGeolocation`, which the entry's
-  `$App` constructs for `Files`, `Clipboard`, `Share` and `Geolocation`, and the stdlib services
+  `k.ui.KeyboardShortcut`; `k.device.CopyButton`, `ShareButton` and `KeepScreenAwake`; `streamed`; and
+  `k.device.BrowserFiles`, `BrowserClipboard`, `BrowserShare`, `BrowserGeolocation` and `BrowserTabMessaging`,
+  which the entry's `$App` constructs for `Files`, `Clipboard`, `Share`, `Geolocation` and `TabMessaging`
+  (`BrowserTabMessaging("<storage namespace>", import.meta.url)`: the entry's URL names the build), and the stdlib services
   `PageVisibility`, `Connectivity`, `Preferences` and `Viewport`, which it constructs under their own
   names), with their imports of other
   runtime files pointing at the runtime chunk; the chunks that use them import those symbols from them
@@ -1060,7 +1061,20 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   render on the server through `$s.natives["k.drag.…$ssr"]` and `$s.natives["k.ui.KeyboardShortcut$ssr"]`,
   `CopyButton` and `ShareButton` through `$s.natives["k.device.CopyButton$ssr"]` and `…ShareButton$ssr`.
   Those two read `Clipboard`, `Share` and `Clock` from their render context's container, so an app whose
-  code names one gets those getters in its containers (`native_component_dependencies`).
+  code names one gets those getters in its containers (`native_component_dependencies`); in the `.test`
+  environment `KeepScreenAwake` reads `WakeLock` (`k.internal.WakeLock`, bound to `TestWakeLock`), and
+  in the browser nothing, holding the screen's lock itself. It renders nothing on the server
+  (`$s.natives["k.device.KeepScreenAwake$ssr"]`).
+- **A feature chunk only some pages need** (`deferred_features` and `bind_deferred` in `bundle.rs`): the
+  entry, which every page loads, doesn't import a platform service of a feature chunk (`BrowserGeolocation`)
+  when only some pages reach it, from the page and its layout through `client_reach`'s edges (uses,
+  injections, bindings), and neither the `app` reaches it nor the shared chunk imports the chunk. The
+  entry declares `let BrowserGeolocation;`, the chunk of each page that reaches it imports it and
+  re-exports it (`import { BrowserGeolocation as $f_BrowserGeolocation } from "../geolocation.[hash].js";
+  export const BrowserGeolocation$feature = $f_BrowserGeolocation;`), and the route's `load` binds it
+  before the page renders (`import("./pages/home.[hash].js").then((m) => { BrowserGeolocation =
+  m.BrowserGeolocation$feature; return m; })`). The chunk is then in that page's `modulepreload` links
+  only ([server.md §7](server.md)). A test bundle doesn't defer.
 - **A client-only platform interface on the server**: a client-only service that injects one (`Geolocation`,
   `Files`, …) is constructed while the server renders a view that reads its `@Derived` field, so the
   server's container binds the interface to `$s.clientPlatform("k.device.Geolocation")` (`bound_services`

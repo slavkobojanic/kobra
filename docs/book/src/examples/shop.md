@@ -183,6 +183,14 @@ public service PaymentEventsApi implements PaymentEvents {
 same transaction, so a repeated event changes nothing and the email is sent once per paid order
 ([Background jobs](../apps/jobs.md)).
 
+## The cart, in every tab
+
+A product page has "Add to cart" next to "Buy now", and the header shows the cart. `CartService` keeps
+the cart in the browser's local storage and tells the shop's other open tabs about each change with
+`TabMessaging`, so adding a mug in one tab shows it in the header of every other tab at once
+([Other tabs and the screen](../apps/tabs-and-screen.md)). The cart lives in the browser, so its
+components are `@Rendering(.client)`. Checkout still buys one product at a time.
+
 ## Test cards
 
 Paybox never moves money. Like a provider's test mode, the card number decides what happens:

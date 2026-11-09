@@ -1512,3 +1512,36 @@ fn shop_admin_signs_out_to_the_sign_in_page() {
     tab.role("button", "Sign in");
     drop(tab);
 }
+
+/// The cart stays in step across tabs (`TabMessaging`, 45-web-platform.md,
+/// "Messages between tabs"): two tabs of one browser (two DevTools targets
+/// in one browser context) on the shop; adding a mug in one shows it in the
+/// other's header at once, while it is in the background and in the same
+/// document, and emptying the cart in the second empties the first.
+#[test]
+fn shop_keeps_the_cart_in_step_across_tabs() {
+    let dir = Scratch::new("shop-tabs");
+    let mut first = tab!(dir);
+    let s = shop(&dir.0.join("shop"));
+    first.open(&format!("{}/", s.origin));
+    first.wait_text("Cart: 0 items");
+    let mut second = first.new_tab();
+    second.open(&format!("{}/", s.origin));
+    second.wait_text("Cart: 0 items");
+    let token = second.document_token();
+    first.bring_to_front();
+    let mug = first.by_text("K Mug");
+    first.click(&mug);
+    let add = first.role("button", "Add to cart");
+    first.click(&add);
+    first.wait_text("Cart: 1 item");
+    second.wait_text("Cart: 1 item");
+    second.assert_same_document(&token, "the other tab's cart updating");
+    second.bring_to_front();
+    let empty = second.role("button", "Empty cart");
+    second.click(&empty);
+    second.wait_text("Cart: 0 items");
+    first.wait_text("Cart: 0 items");
+    drop(second);
+    drop(first);
+}

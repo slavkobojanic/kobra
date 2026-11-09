@@ -107,7 +107,10 @@ fn key_def(name: &str) -> KeyDef {
 pub struct Tab {
     /// The connection (public for tests that need a raw command).
     pub cdp: Cdp,
-    _chrome: Chrome,
+    /// The browser, owned by the first tab ([`Tab::new_tab`]'s share it).
+    _chrome: Option<Chrome>,
+    /// The browser's DevTools port.
+    port: u16,
     /// Console errors already reported by [`Tab::allow_errors`].
     allowed: usize,
 }
@@ -133,7 +136,32 @@ impl Tab {
     fn start(binary: &Path, scratch: &Path) -> Tab {
         let mut chrome = Chrome::launch(binary, scratch);
         let url = chrome.page_url();
-        let mut cdp = Cdp::connect(&url).unwrap_or_else(|e| panic!("DevTools: {e}"));
+        let port = chrome.port;
+        Tab::attach(&url, Some(chrome), port)
+    }
+
+    /// Opens another tab in the same browser and browser context (the same
+    /// profile: storage, cookies and `BroadcastChannel`s are shared), as a
+    /// second CDP target. Drop it before the first tab, which owns the
+    /// browser.
+    pub fn new_tab(&mut self) -> Tab {
+        let r = self
+            .cdp
+            .call("Target.createTarget", json!({ "url": "about:blank" }));
+        let id = r["targetId"].as_str().expect("a target id").to_owned();
+        let url = super::cdp::target_url(self.port, &id);
+        Tab::attach(&url, None, self.port)
+    }
+
+    /// Makes this tab the browser's active one, as clicking its tab would:
+    /// a background tab still runs its scripts, but Chrome doesn't keep
+    /// its accessibility tree current.
+    pub fn bring_to_front(&mut self) {
+        self.cdp.call("Page.bringToFront", json!({}));
+    }
+
+    fn attach(url: &str, chrome: Option<Chrome>, port: u16) -> Tab {
+        let mut cdp = Cdp::connect(url).unwrap_or_else(|e| panic!("DevTools: {e}"));
         for domain in [
             "Page.enable",
             "Runtime.enable",
@@ -156,6 +184,7 @@ impl Tab {
         Tab {
             cdp,
             _chrome: chrome,
+            port,
             allowed: 0,
         }
     }

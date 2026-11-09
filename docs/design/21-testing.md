@@ -81,6 +81,8 @@ test AddToCart {
 | `Preferences` | `TestPreferences` | no preference set; `set(prefersDark:)`, `set(prefersReducedMotion:)`, `set(prefersMoreContrast:)`, `set(forcedColors:)` ([45-web-platform.md](45-web-platform.md#preferences)) |
 | `Viewport` | `TestViewport` | 1280×800, a fine pointer that can hover; `resize(width:height:)`, `set(pointer:)`, `set(canHover:)` ([45-web-platform.md](45-web-platform.md#viewport)) |
 | `Share` | `TestShare` | opens no sheet; `shared` records every share, `cancelNext()`, `failNext(error:)`, `setSupported(_:)` ([45-web-platform.md](45-web-platform.md#sharebutton)) |
+| `TabMessaging` | `TestTabMessaging` | there are no other tabs; `posted(on:)` lists what this tab posted, `deliver(on:message:)` plays another tab posting ([45-web-platform.md](45-web-platform.md#messages-between-tabs)) |
+| `KeepScreenAwake`'s wake lock | `TestWakeLock` | the device's screen is never held; `isHeld` while a `KeepScreenAwake` is mounted, `refuse(with:)` makes it fire `failed` ([45-web-platform.md](45-web-platform.md#keepscreenawake)) |
 
 - **A test reaches a default with `@Inject`,** by its concrete type: `@Inject let clock: TestClock`, `@Inject let mailer: RecordingEmailProvider`.
 - **`use` is written only to choose something else,** such as `use InlineJobQueue for JobQueue` or the app's own `use FakeHttpClient for HttpClient`. A `use` that restates the default is a warning with a quick fix that removes it, so there is one way to write a test.
