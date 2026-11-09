@@ -276,6 +276,9 @@ pub struct ProcessDatabase {
     /// The id the next `BEGIN` hands out; ids start at 1 because 0 means "no
     /// transaction" in the ops.
     next_transaction: AtomicU32,
+    /// `DATABASE_URL` and `DATABASE_PASSWORD` of a Postgres database, for
+    /// the listening connection of [`crate::replicas`]; `None` for SQLite.
+    postgres: Option<(String, Option<String>)>,
 }
 
 impl std::fmt::Debug for ProcessDatabase {
@@ -354,6 +357,8 @@ impl ProcessDatabase {
             manifest,
         } = setup;
         let migrations = manifest.migrations.clone();
+        let postgres = (url.starts_with("postgres://") || url.starts_with("postgresql://"))
+            .then(|| (url.clone(), password.clone()));
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         handle.spawn(async move {
             let result = async {
@@ -393,6 +398,7 @@ impl ProcessDatabase {
                 lease: Arc::new(tokio::sync::Mutex::new(())),
                 transactions: Arc::new(Mutex::new(HashMap::new())),
                 next_transaction: AtomicU32::new(1),
+                postgres,
             }),
             applied,
         ))
@@ -1007,6 +1013,414 @@ impl ProcessDatabase {
     pub fn open_transactions(&self) -> usize {
         lock(&self.transactions).len()
     }
+
+    // -------------------------------------------------------- replicas
+    //
+    // Broadcasts and presence between replicas (`crate::replicas`,
+    // 44-channels.md "Server isolates and replicas"). Postgres only: every
+    // statement below is Postgres SQL, and `crate::replicas` starts only
+    // for a Postgres database.
+
+    /// `true` when the database is Postgres, whose `LISTEN`/`NOTIFY`
+    /// carries broadcasts and presence between replicas.
+    #[must_use]
+    pub fn is_postgres(&self) -> bool {
+        self.postgres.is_some()
+    }
+
+    /// Runs `work` on the database runtime without waiting for it. Work
+    /// spawned from one thread starts in the order it was spawned, and
+    /// statements take the connection's lease in that order, so one
+    /// process's notifications go out in the order they were published.
+    pub fn spawn_detached(&self, work: impl Future<Output = ()> + Send + 'static) {
+        drop(self.handle.spawn(work));
+    }
+
+    /// Opens a listening connection on `channel` (`LISTEN`), on the database
+    /// runtime.
+    ///
+    /// # Errors
+    ///
+    /// Not Postgres, or connecting or `LISTEN` failed.
+    pub async fn listen(&self, channel: &str) -> Result<k_db::PostgresListener, DbError> {
+        let Some((url, password)) = self.postgres.clone() else {
+            return Err(DbError::Statement("LISTEN needs Postgres".to_owned()));
+        };
+        let channel = channel.to_owned();
+        self.on_db(async move {
+            k_db::PostgresListener::connect(&url, &DatabaseOptions { password }, &channel).await
+        })
+        .await
+    }
+
+    /// Runs `statements` (SQL with their parameters) in one transaction of
+    /// their own, holding the connection's lease, and returns each one's
+    /// rows. A failure rolls back.
+    ///
+    /// # Errors
+    ///
+    /// A lease timeout or a statement's failure.
+    async fn in_transaction(
+        &self,
+        work: Vec<(&'static str, Vec<Value>)>,
+    ) -> Result<Vec<Vec<Vec<Value>>>, DbError> {
+        let db = Arc::clone(&self.db);
+        let lease = Arc::clone(&self.lease);
+        self.on_db(async move {
+            let _held = Self::lease(lease).await?;
+            db.execute("BEGIN", &[]).await?;
+            let mut out = Vec::with_capacity(work.len());
+            for (sql, params) in work {
+                match db.query(sql, &params).await {
+                    Ok(rows) => out.push(rows.into_iter().map(|r| r.values).collect()),
+                    Err(e) => {
+                        let _ = db.execute("ROLLBACK", &[]).await;
+                        return Err(e);
+                    }
+                }
+            }
+            db.execute("COMMIT", &[]).await?;
+            Ok(out)
+        })
+        .await
+    }
+
+    /// Runs one statement outside any transaction (taking the lease for it)
+    /// and returns its rows.
+    ///
+    /// # Errors
+    ///
+    /// A lease timeout or the statement's failure.
+    async fn replica_query(
+        &self,
+        sql: &'static str,
+        params: Vec<Value>,
+    ) -> Result<Vec<Vec<Value>>, DbError> {
+        let db = Arc::clone(&self.db);
+        let lease = Arc::clone(&self.lease);
+        self.on_db(async move {
+            let _held = Self::lease(lease).await?;
+            Ok(db
+                .query(sql, &params)
+                .await?
+                .into_iter()
+                .map(|r| r.values)
+                .collect())
+        })
+        .await
+    }
+
+    /// `NOTIFY channel, payload`, after first storing `spill` (an id and
+    /// the full payload, which `payload` then names) in
+    /// `k_broadcast_spill` when the element was too large to notify.
+    ///
+    /// # Errors
+    ///
+    /// A lease timeout or a statement's failure.
+    pub async fn notify(
+        &self,
+        channel: &str,
+        payload: String,
+        spill: Option<(String, String)>,
+        now: i64,
+    ) -> Result<(), DbError> {
+        let db = Arc::clone(&self.db);
+        let lease = Arc::clone(&self.lease);
+        let channel = channel.to_owned();
+        self.on_db(async move {
+            let _held = Self::lease(lease).await?;
+            if let Some((id, full)) = spill {
+                db.execute(
+                    "INSERT INTO k_broadcast_spill (id, payload, created_at) VALUES ($1, $2, $3)",
+                    &[Value::Text(id), Value::Text(full), Value::Int(now)],
+                )
+                .await?;
+            }
+            db.query(
+                "SELECT 1 FROM (SELECT pg_notify($1, $2)) AS n",
+                &[Value::Text(channel), Value::Text(payload)],
+            )
+            .await?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// The payload stored as spill `id`, if it is still there.
+    ///
+    /// # Errors
+    ///
+    /// A lease timeout or the query's failure.
+    pub async fn spilled(&self, id: &str) -> Result<Option<String>, DbError> {
+        let rows = self
+            .replica_query(
+                "SELECT payload FROM k_broadcast_spill WHERE id = $1",
+                vec![Value::Text(id.to_owned())],
+            )
+            .await?;
+        Ok(rows
+            .into_iter()
+            .next()
+            .and_then(|r| match r.into_iter().next() {
+                Some(Value::Text(t)) => Some(t),
+                _ => None,
+            }))
+    }
+
+    /// Stores lease `lease` of `member` under `key`, held by process
+    /// `process` until `expires`; `true` when it is the member's only live
+    /// lease under the key (the member joined).
+    ///
+    /// # Errors
+    ///
+    /// A lease timeout or a statement's failure.
+    pub async fn presence_join(
+        &self,
+        lease: &str,
+        key: &str,
+        member: &str,
+        process: &str,
+        now: i64,
+        expires: i64,
+    ) -> Result<bool, DbError> {
+        let k = Value::Text(key.to_owned());
+        let m = Value::Text(member.to_owned());
+        let out = self
+            .in_transaction(vec![
+                (PRESENCE_LOCK, vec![k.clone()]),
+                (
+                    "INSERT INTO k_presence (lease, key, member, process, joined_at, expires_at) \
+                     VALUES ($1, $2, $3, $4, $5, $6) RETURNING 1",
+                    vec![
+                        Value::Text(lease.to_owned()),
+                        k.clone(),
+                        m.clone(),
+                        Value::Text(process.to_owned()),
+                        Value::Int(now),
+                        Value::Int(expires),
+                    ],
+                ),
+                (PRESENCE_COUNT, vec![k, m, Value::Int(now)]),
+            ])
+            .await?;
+        Ok(count(out.get(2)) == 1)
+    }
+
+    /// Replaces the member of lease `lease` with `member`: the lease's key
+    /// and old member, with how many live leases each member has after the
+    /// change (`None` for an unknown lease).
+    ///
+    /// # Errors
+    ///
+    /// A lease timeout or a statement's failure.
+    pub async fn presence_update(
+        &self,
+        lease: &str,
+        member: &str,
+        now: i64,
+    ) -> Result<Option<PresenceMove>, DbError> {
+        let Some((key, old)) = self.presence_lease(lease).await? else {
+            return Ok(None);
+        };
+        let k = Value::Text(key.clone());
+        let out = self
+            .in_transaction(vec![
+                (PRESENCE_LOCK, vec![k.clone()]),
+                (
+                    "UPDATE k_presence SET member = $2 WHERE lease = $1 RETURNING 1",
+                    vec![
+                        Value::Text(lease.to_owned()),
+                        Value::Text(member.to_owned()),
+                    ],
+                ),
+                (
+                    PRESENCE_COUNT,
+                    vec![k.clone(), Value::Text(old.clone()), Value::Int(now)],
+                ),
+                (
+                    PRESENCE_COUNT,
+                    vec![k, Value::Text(member.to_owned()), Value::Int(now)],
+                ),
+            ])
+            .await?;
+        if out.get(1).is_none_or(Vec::is_empty) {
+            return Ok(None);
+        }
+        Ok(Some(PresenceMove {
+            key,
+            old,
+            old_left: count(out.get(2)),
+            new_count: count(out.get(3)),
+        }))
+    }
+
+    /// Ends lease `lease`: its key and member when that was the member's
+    /// last live lease under the key (the member left).
+    ///
+    /// # Errors
+    ///
+    /// A lease timeout or a statement's failure.
+    pub async fn presence_leave(
+        &self,
+        lease: &str,
+        now: i64,
+    ) -> Result<Option<(String, String)>, DbError> {
+        let Some((key, member)) = self.presence_lease(lease).await? else {
+            return Ok(None);
+        };
+        let k = Value::Text(key.clone());
+        let m = Value::Text(member.clone());
+        let out = self
+            .in_transaction(vec![
+                (PRESENCE_LOCK, vec![k.clone()]),
+                (
+                    "DELETE FROM k_presence WHERE lease = $1 RETURNING 1",
+                    vec![Value::Text(lease.to_owned())],
+                ),
+                (PRESENCE_COUNT, vec![k, m, Value::Int(now)]),
+            ])
+            .await?;
+        let deleted = out.get(1).is_some_and(|r| !r.is_empty());
+        Ok((deleted && count(out.get(2)) == 0).then_some((key, member)))
+    }
+
+    /// The key and member of lease `lease`, if it exists.
+    async fn presence_lease(&self, lease: &str) -> Result<Option<(String, String)>, DbError> {
+        let rows = self
+            .replica_query(
+                "SELECT key, member FROM k_presence WHERE lease = $1",
+                vec![Value::Text(lease.to_owned())],
+            )
+            .await?;
+        Ok(rows.into_iter().next().and_then(|r| {
+            let mut it = r.into_iter();
+            match (it.next(), it.next()) {
+                (Some(Value::Text(k)), Some(Value::Text(m))) => Some((k, m)),
+                _ => None,
+            }
+        }))
+    }
+
+    /// The members with a live lease under `key`, each once, in the order
+    /// of their first lease.
+    ///
+    /// # Errors
+    ///
+    /// A lease timeout or the query's failure.
+    pub async fn presence_members(&self, key: &str, now: i64) -> Result<Vec<String>, DbError> {
+        let rows = self
+            .replica_query(
+                "SELECT member, MIN(joined_at) AS first FROM k_presence \
+                 WHERE key = $1 AND expires_at > $2 GROUP BY member ORDER BY first, member",
+                vec![Value::Text(key.to_owned()), Value::Int(now)],
+            )
+            .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| match r.into_iter().next() {
+                Some(Value::Text(m)) => Some(m),
+                _ => None,
+            })
+            .collect())
+    }
+
+    /// Renews every lease of process `process` until `expires`.
+    ///
+    /// # Errors
+    ///
+    /// A lease timeout or the statement's failure.
+    pub async fn presence_renew(&self, process: &str, expires: i64) -> Result<(), DbError> {
+        self.replica_query(
+            "UPDATE k_presence SET expires_at = $1 WHERE process = $2 RETURNING 1",
+            vec![Value::Int(expires), Value::Text(process.to_owned())],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Deletes the leases that expired by `now` (their process stopped
+    /// renewing them: it crashed) and the spilled payloads older than
+    /// `spill_before`; returns each key and member that has no live lease
+    /// left, so the caller announces that it left.
+    ///
+    /// # Errors
+    ///
+    /// A lease timeout or a statement's failure.
+    pub async fn presence_sweep(
+        &self,
+        now: i64,
+        spill_before: i64,
+    ) -> Result<Vec<(String, String)>, DbError> {
+        self.replica_query(
+            "DELETE FROM k_broadcast_spill WHERE created_at < $1 RETURNING 1",
+            vec![Value::Int(spill_before)],
+        )
+        .await?;
+        let rows = self
+            .replica_query(
+                "DELETE FROM k_presence WHERE expires_at <= $1 RETURNING key, member",
+                vec![Value::Int(now)],
+            )
+            .await?;
+        let mut gone: Vec<(String, String)> = Vec::new();
+        for r in rows {
+            let mut it = r.into_iter();
+            if let (Some(Value::Text(k)), Some(Value::Text(m))) = (it.next(), it.next()) {
+                if !gone.contains(&(k.clone(), m.clone())) {
+                    gone.push((k, m));
+                }
+            }
+        }
+        let mut left = Vec::new();
+        for (key, member) in gone {
+            let out = self
+                .in_transaction(vec![
+                    (PRESENCE_LOCK, vec![Value::Text(key.clone())]),
+                    (
+                        PRESENCE_COUNT,
+                        vec![
+                            Value::Text(key.clone()),
+                            Value::Text(member.clone()),
+                            Value::Int(now),
+                        ],
+                    ),
+                ])
+                .await?;
+            if count(out.get(1)) == 0 {
+                left.push((key, member));
+            }
+        }
+        Ok(left)
+    }
+}
+
+/// Serializes presence changes of one key across replicas, for the rest of
+/// the transaction.
+const PRESENCE_LOCK: &str = "SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext($1))) AS l";
+
+/// The live leases of one member under one key.
+const PRESENCE_COUNT: &str =
+    "SELECT COUNT(*) FROM k_presence WHERE key = $1 AND member = $2 AND expires_at > $3";
+
+/// The number in the first column of the first row of `rows` (a `COUNT`).
+fn count(rows: Option<&Vec<Vec<Value>>>) -> i64 {
+    match rows.and_then(|r| r.first()).and_then(|r| r.first()) {
+        Some(Value::Int(n)) => *n,
+        _ => 0,
+    }
+}
+
+/// What [`ProcessDatabase::presence_update`] changed.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct PresenceMove {
+    /// The lease's key.
+    pub key: String,
+    /// The member the lease had before.
+    pub old: String,
+    /// The old member's live leases after the change.
+    pub old_left: i64,
+    /// The new member's live leases after the change.
+    pub new_count: i64,
 }
 
 /// Converts a statement parameter from JavaScript to a [`Value`].

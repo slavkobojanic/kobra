@@ -29,10 +29,10 @@ throws = "chat.RoomError"
 cases = ["invalidName", "rpcFailure"]
 
 [types."chat.ChatCommand"]
-cases = ["post", "delete"]
+cases = ["post", "delete", "typing"]
 
 [types."chat.ChatEvent"]
-cases = ["snapshot", "posted", "deleted"]
+cases = ["snapshot", "posted", "deleted", "presence", "typing"]
 
 [types."chat.ChatMessage"]
 fields = [
@@ -45,6 +45,11 @@ fields = [
 
 [types."chat.CommandError"]
 cases = ["invalidText", "notYourMessage", "messageGone", "rpcFailure"]
+
+[types."chat.Member"]
+fields = [
+    { name = "name", type = "String", number = 1 },
+]
 
 [types."chat.RoomError"]
 cases = ["noSuchRoom", "rpcFailure"]

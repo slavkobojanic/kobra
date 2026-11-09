@@ -44,7 +44,7 @@ Contents:
 | `k check` of the migrations and `schema.lock` (K6004–K6006, K8002, K8004–K8006) | `k_codegen::lockfiles` | **implemented** (§11) |
 | `schema.lock` written by `k build` | `k_codegen::schema_lock` | **implemented** (§11) |
 | Connection pool | `k_server::db` | **planned**: v0 leases its one connection (§9) |
-| The stdlib's tables: `k_job`, `k_job_schedule`, `k_session`, `k_rate_limit` | `k_db::stdlib`, `k_server::db` | **implemented** (§12) |
+| The stdlib's tables: `k_job`, `k_job_schedule`, `k_session`, `k_rate_limit`, `k_presence`, `k_broadcast_spill` | `k_db::stdlib`, `k_server::db` | **implemented** (§12) |
 | Commit hooks | runtime `Database.afterCommit` | **implemented** for `InlineJobQueue`; broadcasts still publish immediately in v0 |
 | `k migrate new` (`--empty`, `--drop-retired`, `--rename`), `k migrate rename` | `k_codegen::migration`, `k_cli` | **implemented** (§10) |
 
@@ -430,6 +430,8 @@ the app's statements.
 | `k_job_schedule` | `name` (primary key), `last_due` | `@Schedule`: each due time enqueued once across replicas |
 | `k_session` | `id` (the SHA-256 of the cookie token), `user_json` (`NULL` for a guest), `user_key`, `roles` (JSON), `created_at`, `last_seen`, `oauth_state` (a hash), `oauth_state_expires`; index on `user_key` | sessions and OAuth state ([server.md §9](server.md#9-sessions-auth-and-request-forgery)) |
 | `k_rate_limit` | `key`, `window_start`, `hits`; primary key `(key, window_start)` | `RateLimit` guards: two fixed windows per key, weighted (`rate_decision`) |
+| `k_presence` | `lease`, `key`, `member` (the member's codec JSON), `process` (the replica's tag), `joined_at`, `expires_at`; indexes `(key, member)`, `(process)` | `Presence` leases with Postgres (44-channels.md): renewed by their process every 10 s, swept by every replica 30 s after the last renewal. Unused with SQLite |
+| `k_broadcast_spill` | `id`, `payload`, `created_at` | a `Broadcast` element over `NOTIFY`'s limit; the notification carries the id; swept after a minute. Unused with SQLite |
 
 - **Created idempotently**: `tables()` (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`) runs
   after the app's pending migrations whenever a process opens the database, and also when `dist/app

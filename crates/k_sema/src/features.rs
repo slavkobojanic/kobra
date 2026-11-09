@@ -224,16 +224,6 @@ pub const FEATURES: &[Feature] = &[
         "29-server-streaming.md",
     ),
     planned(
-        "broadcast-replicas",
-        "`Broadcast` delivery across server processes (Postgres `LISTEN`/`NOTIFY`)",
-        "29-server-streaming.md",
-    ),
-    planned(
-        "channel-presence",
-        "`Presence<Key, Member>`: who is connected to a channel's subject, with leases",
-        "44-channels.md",
-    ),
-    planned(
         "websocket-client",
         "`WebSocketClient`: raw WebSockets to third-party endpoints",
         "44-channels.md",

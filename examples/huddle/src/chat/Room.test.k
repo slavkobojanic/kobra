@@ -50,8 +50,8 @@ test Room {
         // The first event is the snapshot; leaving the loop closes that channel.
         for await event in channel.messages {
             match event {
-                case .snapshot(let all) { anas = all.first }
-                case .posted, .deleted { }
+                case .snapshot(let all, _) { anas = all.first }
+                case .posted, .deleted, .presence, .typing { }
             }
 
             break
@@ -132,6 +132,74 @@ test Room {
         await screen.settle()
 
         expect screen.list(named: "Messages").items().map { item => item.text } == ["ana Anyone?Delete “Anyone?”"]
+    }
+
+    test "the people in the room are listed, and leave when their channel closes" {
+        await sessions.signIn(userId: AccountId(name: "ana"))
+        let screen = render(Room(name: "general"))
+        await screen.settle()
+
+        expect screen.list(named: "In this room").items().map { item => item.text } == ["ana"]
+
+        // Bob, in two tabs: listed once.
+        let bob = await peers.signIn(userId: AccountId(name: "bob"))
+        let chat: ChatProtocol = bob.client()
+        let tab = try await chat.room(name: "general")
+        let other = try await chat.room(name: "general")
+        await screen.settle()
+
+        expect screen.list(named: "In this room").items().map { item => item.text } == ["ana", "bob"]
+
+        tab.close()
+        await screen.settle()
+
+        expect screen.list(named: "In this room").items().map { item => item.text } == ["ana", "bob"]
+
+        other.close()
+        await screen.settle()
+
+        expect screen.list(named: "In this room").items().map { item => item.text } == ["ana"]
+    }
+
+    test "someone typing shows for a few seconds after their last keystroke" {
+        await sessions.signIn(userId: AccountId(name: "ana"))
+        let screen = render(Room(name: "general"))
+        await screen.settle()
+
+        let bob = await peers.signIn(userId: AccountId(name: "bob"))
+        let chat: ChatProtocol = bob.client()
+        let channel = try await chat.room(name: "general")
+        try await channel.send(.typing)
+        await screen.settle()
+
+        expect screen.text(containing: "typing…").text == "bob is typing…"
+
+        clock.advance(by: 4.seconds)
+        try await channel.send(.typing)
+        await screen.settle()
+        clock.advance(by: 4.seconds)
+        await screen.settle()
+
+        expect screen.text(containing: "typing…").text == "bob is typing…"
+
+        clock.advance(by: 2.seconds)
+        await screen.settle()
+
+        expect not screen.text(containing: "typing…").exists
+
+        // Ana's own typing reaches Bob, but isn't shown to her.
+        screen.textField(labeled: "Message").fill("Hi")
+        await screen.settle()
+
+        expect not screen.text(containing: "typing…").exists
+
+        let events = channel.messages
+
+        expect await events.next() == .snapshot(messages: [], present: [Member(name: "ana"), Member(name: "bob")])
+        expect await events.next() == .presence(.joined(Member(name: "bob")))
+        expect await events.next() == .typing(name: "bob")
+        expect await events.next() == .typing(name: "bob")
+        expect await events.next() == .typing(name: "ana")
     }
 
     test "a room that doesn't exist says so" {

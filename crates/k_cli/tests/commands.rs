@@ -1328,19 +1328,25 @@ fn test_runs_channels_in_process_with_peers_and_scripted_channels() {
     // new snapshot, offline through `TestConnectivity`, heartbeats over
     // hours of virtual time), `TestPeers` adds a second browser with its
     // own session against the same server, and `TestChannel` scripts a
-    // channel for a client service alone.
+    // channel for a client service alone. `Presence` counts leases that
+    // end with their channel or rpc, survive a resume and leave when the
+    // server forgets a socket or its resume window passes.
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/realtime");
     let out = k(&["test", "--color", "never"], &dir);
     let text = stdout(&out);
     assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
     assert!(!text.contains("FAIL"), "{text}");
-    assert!(text.contains("17 passed; 0 failed"), "{text}");
+    assert!(text.contains("22 passed; 0 failed"), "{text}");
     for name in [
         "PASS  Lobby › a dropped connection shows a banner and resumes without losing a line",
         "PASS  Lobby › a channel the server forgot restarts with a new snapshot",
         "PASS  Peers › a line said by one person appears for another",
         "PASS  Peers › ending a person's sessions elsewhere closes their channels",
         "PASS  LobbyService › a dropped channel reconnects, and sends wait for it",
+        "PASS  Presence › the people in a hall are listed once each, in the order they arrived",
+        "PASS  Presence › a lease taken by an rpc ends with the call",
+        "PASS  Presence › a resumed channel never left; a forgotten one leaves at once",
+        "PASS  Presence › a channel that never comes back leaves when its resume window passes",
     ] {
         assert!(text.contains(name), "{name}\n{text}");
     }

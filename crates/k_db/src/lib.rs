@@ -81,7 +81,7 @@ pub mod stdlib;
 pub mod testing;
 pub mod value;
 
-pub use driver::{Database, DatabaseOptions};
+pub use driver::{Database, DatabaseOptions, PostgresListener};
 pub use error::DbError;
 pub use sql::{Dialect, Sql};
 pub use value::{Row, Value};

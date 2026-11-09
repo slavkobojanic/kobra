@@ -19,6 +19,7 @@
 //! | `op_k_rate_limit` | `(key, limit, windowMs, nowMs) => Promise<retryAfterSeconds>` (0: allowed; `nowMs` a test's virtual time, else negative) | `RateLimit` |
 //! | `op_k_shared_get` / `op_k_shared_set` | `(key) => json \| null`, `(key, json)` | `@Scope(.server)` state |
 //! | `op_k_broadcast_subscribe` / `_publish` / `_next` / `_close` | keyed broadcasts | `Broadcast` |
+//! | `op_k_presence_join` / `_update` / `_leave` / `_members` | presence leases (`_members` async) | `Presence` |
 //! | `op_k_channel_send` / `op_k_channel_close` | `(id, json) => boolean`, `(id, reason) => void` | channels (`k:runtime/app`) |
 //! | `op_k_db_query` | `(statement, params, tx) => Promise<row[]>`, a row a value list in select order | repositories |
 //! | `op_k_db_execute` | `(statement, params, tx) => Promise<{count} \| {unique: field}>` | repository writes |
@@ -738,6 +739,35 @@ fn op_k_broadcast_close(state: &mut OpState, id: f64) {
     process(state).unsubscribe(id as u64);
 }
 
+/// Adds `member` (its codec JSON) under presence key `key` and returns the
+/// lease's id ([`ProcessState::presence_join`]).
+#[op2(fast)]
+fn op_k_presence_join(state: &mut OpState, #[string] key: &str, #[string] member: &str) -> f64 {
+    // Ids stay far below 2^53.
+    process(state).presence_join(key, member) as f64
+}
+
+/// Replaces lease `id`'s member with `member` (codec JSON).
+#[op2(fast)]
+fn op_k_presence_update(state: &mut OpState, id: f64, #[string] member: &str) {
+    process(state).presence_update(id as u64, member);
+}
+
+/// Ends lease `id`; idempotent.
+#[op2(fast)]
+fn op_k_presence_leave(state: &mut OpState, id: f64) {
+    process(state).presence_leave(id as u64);
+}
+
+/// The members under presence key `key`, each as its codec JSON text, in
+/// arrival order.
+#[op2]
+#[serde]
+async fn op_k_presence_members(state: Rc<RefCell<OpState>>, #[string] key: String) -> Vec<String> {
+    let p = process(&state.borrow());
+    p.presence_members(&key).await
+}
+
 /// Sends server message `json` on channel `id` ([`crate::sockets::Hub::send`]):
 /// `false` once the channel is gone, or was dropped because its outgoing
 /// buffer overflowed, so the isolate ends it.
@@ -1177,6 +1207,10 @@ deno_core::extension!(
         op_k_broadcast_publish,
         op_k_broadcast_next,
         op_k_broadcast_close,
+        op_k_presence_join,
+        op_k_presence_update,
+        op_k_presence_leave,
+        op_k_presence_members,
         op_k_db_query,
         op_k_db_execute,
         op_k_db_begin,

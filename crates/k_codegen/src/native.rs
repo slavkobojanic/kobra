@@ -807,6 +807,27 @@ pub(crate) fn construct(
             )
         }
         "k.rpc.Broadcast" => Expr::New(Box::new(member(id("$k"), "Broadcast")), vec![]),
+        // Presence (44-channels.md, "Presence") lives in the process's Rust
+        // state, so every worker isolate (and, with Postgres, every
+        // replica) counts the same leases. Members cross in their codec's
+        // encoding, changes as `PresenceChange<Member>`'s.
+        "k.rpc.Presence" if b.target == crate::cx::Target::Server => {
+            let owner = b
+                .owner
+                .map(|o| b.g.view.qualified_name(o))
+                .unwrap_or_default();
+            let at = u32::from(ast::AstNode::syntax(c).text_range().start());
+            let element = result.args().get(1).cloned().unwrap_or(Type::Error);
+            let codec = crate::codec::codec_expr(b, &element);
+            let change = match b.g.view.lookup("k.rpc.PresenceChange") {
+                Some(d) => crate::codec::codec_expr(b, &Type::Named(d, vec![element])),
+                None => Expr::Null,
+            };
+            Expr::New(
+                Box::new(member(id("$s"), "ServerPresence")),
+                vec![js::str(format!("{owner}@{at}")), codec, change],
+            )
+        }
         // A channel rpc's handler builds the channel it returns: the server
         // runtime pumps `sending` and runs `receiving` for each client
         // message (`k:runtime/app`, "channels"). Only the handler builds

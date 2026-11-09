@@ -7,6 +7,8 @@
 //! | `k_job_schedule` | the last due time each `@Schedule` job was enqueued for | 30-background-jobs.md, "Schedules" |
 //! | `k_session` | sessions: user, roles, timestamps, OAuth state | 26-auth-and-sessions.md |
 //! | `k_rate_limit` | per-window hit counts of `RateLimit` guards | 26-auth-and-sessions.md |
+//! | `k_presence` | presence leases with Postgres: key, member, process, expiry | 44-channels.md, "Presence" |
+//! | `k_broadcast_spill` | broadcast payloads over `NOTIFY`'s limit, for a minute | 44-channels.md, "Server isolates and replicas" |
 //!
 //! [`tables`] creates them idempotently (`CREATE … IF NOT EXISTS`) after
 //! the app's migrations; they are never recorded in `k_migrations`, so the
@@ -60,6 +62,19 @@ pub fn tables() -> &'static [&'static str] {
          window_start BIGINT NOT NULL, \
          hits BIGINT NOT NULL, \
          PRIMARY KEY (key, window_start))",
+        "CREATE TABLE IF NOT EXISTS k_presence (\
+         lease TEXT PRIMARY KEY, \
+         key TEXT NOT NULL, \
+         member TEXT NOT NULL, \
+         process TEXT NOT NULL, \
+         joined_at BIGINT NOT NULL, \
+         expires_at BIGINT NOT NULL)",
+        "CREATE INDEX IF NOT EXISTS k_presence_member ON k_presence (key, member)",
+        "CREATE INDEX IF NOT EXISTS k_presence_process ON k_presence (process)",
+        "CREATE TABLE IF NOT EXISTS k_broadcast_spill (\
+         id TEXT PRIMARY KEY, \
+         payload TEXT NOT NULL, \
+         created_at BIGINT NOT NULL)",
     ]
 }
 

@@ -15,7 +15,10 @@
 //! * [`config`]: reading `config` declarations from the environment and
 //!   `NAME_FILE` secret files, validated all at once and redacted.
 //! * [`process`]: the state every worker of a server process shares
-//!   (sessions, rate limits, `.server` state, broadcasts, the database).
+//!   (sessions, rate limits, `.server` state, broadcasts, presence, the
+//!   database).
+//! * [`replicas`]: broadcasts, presence and session ends between replicas
+//!   over Postgres `LISTEN`/`NOTIFY`.
 //! * [`db`]: the process's database: migrations at startup, statements by
 //!   id, request-bound transactions.
 //! * [`jobs`]: the background jobs worker (claims, runs, retries, schedules).
@@ -96,6 +99,7 @@ pub mod ops;
 pub mod outbound;
 pub mod process;
 pub mod proxy;
+pub mod replicas;
 pub mod sockets;
 pub mod stack;
 pub mod testing;

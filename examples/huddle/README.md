@@ -1,8 +1,8 @@
 # Huddle
 
-A small team chat written in K: sign in with a name, pick a room, and talk. Messages arrive live in every tab over a **channel**, survive a dropped connection, and are stored in SQLite.
+A small team chat written in K: sign in with a name, pick a room, and talk. Messages arrive live in every tab over a **channel**, survive a dropped connection, and are stored in SQLite (Postgres in production). Each room shows who is in it and who is typing, across every replica of the app.
 
-It is a teaching example for channels ([`docs/design/44-channels.md`](../../docs/design/44-channels.md)), the typed, two-way connection between a browser tab and its server. It is deliberately small: who is in a room, typing indicators, moderators and running several replicas come with later steps of the design, so they aren't here yet.
+It is a teaching example for channels ([`docs/design/44-channels.md`](../../docs/design/44-channels.md)), the typed, two-way connection between a browser tab and its server. It is deliberately small: unread counts and moderators come with later steps, so they aren't here yet.
 
 ## Running it
 
@@ -12,6 +12,7 @@ It is a teaching example for channels ([`docs/design/44-channels.md`](../../docs
 | `k test` | Runs the tests: two people in one room, a dropped and a forgotten connection, offline sends, and the client service against a scripted channel. |
 | `k check` | Checks the code, runs the tests, and checks `rpc.lock` against the protocols. |
 | `k build` | Builds `dist/`, with a `dist/app` that serves the pages, the rpcs and the channels' WebSocket. |
+| `docker compose up --build --wait` | Runs it as in production: Postgres, two replicas (`app1`, `app2`) and nginx on `http://localhost:8080`. See [Two replicas](#two-replicas). |
 
 To see a reconnect, stop `k dev` while a room is open and start it again: the page shows **Reconnecting…**, then catches up from the new snapshot.
 
@@ -26,6 +27,10 @@ To see a reconnect, stop `k dev` while a room is open and start it again: the pa
 | A client service that follows a channel with `for await`, applies events idempotently, and shows `channel.state` as a banner | `src/chat/RoomService.k`, `src/chat/Room.k` |
 | Optimistic sends: a pending message with a client id, replaced by its echo, marked failed with **Retry** when it can't be delivered | `src/chat/RoomService.k`, `src/chat/PendingMessage.k`, `src/chat/Room.k` |
 | A page that opens the channel from an `@Effect`, so leaving the page closes it | `src/chat/Room.k` |
+| **Presence**: who is in a room, from a `Presence<String, Member>` whose leases end with the channel; two tabs of one person are one entry | `src/chat/RoomPresence.k`, `src/chat/ChatApi.k`, `src/chat/RoomService.k` |
+| `Stream.merge` of the room's events and its presence changes into one sending stream | `src/chat/ChatApi.k` |
+| **Typing indicators** as an ordinary command and event, shown for 5 seconds on the injected `Clock` | `src/chat/RoomService.k`, `src/chat/Room.k` |
+| Two replicas behind nginx sharing messages and presence over Postgres `LISTEN`/`NOTIFY` | `docker-compose.yml`, `deploy/nginx.conf`, `Dockerfile` |
 | Sign-in with `SessionManager` and the `Authenticated` guard on the whole protocol | `src/accounts/AuthApi.k`, `src/chat/ChatProtocol.k` |
 | Two-person tests with `TestPeers`, connection tests with `TestChannels` and `TestConnectivity`, and a scripted `TestChannel` | `src/chat/Room.test.k`, `src/chat/RoomService.test.k` |
 
@@ -45,6 +50,15 @@ To see a reconnect, stop `k dev` while a room is open and start it again: the pa
 3. Every channel of the room receives the echo, the sender's included. The sender replaces its pending copy, matched by the client id.
 4. A refused message (`invalidText`) throws from `send`; the page puts the text back in the field and says why. The channel stays open.
 
+### Who is here
+
+1. `ChatApi.room(name:)` watches `RoomPresence` and merges its changes into the channel's stream (`Stream.merge`), **then** joins the room with `Member(name:)` and reads who is present for the snapshot, so nobody arriving in between is missed.
+2. The lease belongs to the channel's request: when the channel closes (the page is left, the session ends, or a dropped connection doesn't come back within 30 seconds), the person leaves, with no cleanup code. A resumed channel never left, so a blip doesn't flicker.
+3. Ana in two tabs holds two leases of the same `Member`: the room sees one `joined` when the first opens and one `left` when the last closes.
+4. `RoomService` keeps `present` from the snapshot and the `joined`, `left` and `updated` events; the page lists it as "In this room".
+
+**Typing** isn't presence. The page sends `ChatCommand.typing` while the draft changes, at most once every 3 seconds; the server passes `ChatEvent.typing(name:)` to the room; `RoomService` shows a name until 5 seconds after its last event, or until that person's message arrives. Nothing is stored, so nothing needs cleaning up.
+
 ### Reconnecting
 
 The runtime owns the connection; the page only shows `RoomService.banner`, which is derived from `channel.state`.
@@ -53,11 +67,24 @@ The runtime owns the connection; the page only shows `RoomService.banner`, which
 - **A long drop or a restarted server** restarts the channel: the guard and the handler run again, and the new snapshot brings the room up to date.
 - **A message sent while disconnected** waits at most 10 seconds. If it couldn't be delivered, it stays in the list marked **Not sent.** with a **Retry** button, so the person decides whether to send it again: after a restart the runtime can't know whether the server handled it.
 
+## Two replicas
+
+`docker-compose.yml` runs Postgres, two replicas of the app and nginx with plain round robin; `deploy/nginx.conf` passes the WebSocket upgrade (`proxy_http_version 1.1`, `Upgrade`, `Connection "upgrade"`, `proxy_read_timeout 75s`). Nothing needs configuring for the replicas to talk:
+
+- every `Broadcast` publish is delivered on its own replica and sent to the others with Postgres `NOTIFY`, so a message posted through `app1` reaches a tab connected to `app2`;
+- presence leases live in the `k_presence` table, renewed by their replica every 10 seconds; a crashed replica's members leave 30 seconds later;
+- sessions are in the database, so a cookie issued by one replica works on the other.
+
+`docker compose restart app1` shows the rest: the tabs on `app1` show **Reconnecting…**, reconnect through nginx to `app2` and restart their channels there with a new snapshot. `crates/k_cli/tests/examples.rs` runs two replicas of `dist/app` against one Postgres and checks that a message and presence cross between them.
+
 ## Structure
 
 ```
 App.k                    the app: default layout, sign-in page, metadata
 k.toml                   project manifest
+Dockerfile               the image: k check, k build, dist/app on distroless
+docker-compose.yml       Postgres, two replicas, nginx
+deploy/nginx.conf        round robin with the WebSocket upgrade
 .env.example             optional overrides for `k dev`; copy to the git-ignored .env
 schema.lock              database schema, generated by `k migrate`
 migrations/
@@ -75,6 +102,8 @@ src/
     ChatApi.k              server implementation: the handler and its receiving function
     ChatCommand.k          enum: what the browser sends (C)
     ChatEvent.k            enum: what the server sends (S)
+    Member.k               struct: someone in a room
+    RoomPresence.k         @Scope(.server) Presence of each room's people
     CommandError.k         enum: why a message was refused (E)
     RoomError.k            enum: why a room can't be joined
     RoomEvents.k           @Scope(.server) Broadcast of each room's events
@@ -96,7 +125,7 @@ src/
 
 Channels run in `k test` in-process, through the real frames, guards, handlers and acknowledgements, with no socket and no second process:
 
-- **`TestPeers`** opens a second browser with its own session against the same server, database and clock: `let bob = await peers.signIn(userId: AccountId(name: "bob"))`, then `let chat: ChatProtocol = bob.client()`. `Room.test.k` uses it for "a message posted by one person appears for another" and "only a message's author can delete it".
+- **`TestPeers`** opens a second browser with its own session against the same server, database and clock: `let bob = await peers.signIn(userId: AccountId(name: "bob"))`, then `let chat: ChatProtocol = bob.client()`. `Room.test.k` uses it for "a message posted by one person appears for another", "only a message's author can delete it", presence ("the people in the room are listed, and leave when their channel closes") and typing.
 - **`TestChannels`** controls the test's own connection: `network.drop()` drops it (it resumes after its backoff on the `TestClock`), `network.drop(resumable: false)` makes the server forget it (it restarts with a new snapshot), and `network.open` lists the open channels.
 - **`TestConnectivity.goOffline()`** drops the connection and stops reconnecting until `goOnline()`.
 - **`TestChannel<C, S, E>`** is a scripted channel for testing `RoomService` without a server: `RoomService.test.k` delivers events, refuses the next message, drops and closes it.
@@ -105,5 +134,6 @@ Channels run in `k test` in-process, through the real frames, guards, handlers a
 
 - [44-channels.md](../../docs/design/44-channels.md): channels, reconnecting, limits and testing
 - [29-server-streaming.md](../../docs/design/29-server-streaming.md): `Broadcast` and snapshots
+- [38-deployment.md](../../docs/design/38-deployment.md): `dist/app`, images and replicas
 - [26-auth-and-sessions.md](../../docs/design/26-auth-and-sessions.md): `SessionManager` and guards
 - [21-testing.md](../../docs/design/21-testing.md): tests on the real stack in-process

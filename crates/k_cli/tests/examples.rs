@@ -148,6 +148,11 @@ impl App {
     /// Builds `examples/<name>` (a project, or a workspace member such as
     /// `shop/paybox`) into a temporary `dist/` and starts it.
     fn start(name: &str, out: &Path, env: &[(&str, &str)]) -> App {
+        App::serve(name, &App::build(name, out), env)
+    }
+
+    /// Builds `examples/<name>` into `out/dist` and returns its `dist/app`.
+    fn build(name: &str, out: &Path) -> PathBuf {
         let project = repo().join("examples").join(name);
         let dist = out.join("dist");
         let built = Command::new(env!("CARGO_BIN_EXE_k"))
@@ -164,11 +169,21 @@ impl App {
         );
         let app = dist.join("app");
         assert!(app.is_file(), "{name}: dist/app exists");
+        app
+    }
+
+    /// Starts the built `app` of `examples/<name>` on a free port.
+    fn serve(name: &str, app: &Path, env: &[(&str, &str)]) -> App {
         let port = std::net::TcpListener::bind("127.0.0.1:0")
             .and_then(|l| l.local_addr())
             .map(|a| a.port())
             .expect("a free port");
-        let mut cmd = Command::new(&app);
+        App::serve_on(name, app, env, port)
+    }
+
+    /// Starts the built `app` of `examples/<name>` on `port`.
+    fn serve_on(name: &str, app: &Path, env: &[(&str, &str)], port: u16) -> App {
+        let mut cmd = Command::new(app);
         cmd.arg("serve")
             .env_remove("DATABASE_URL")
             .env_remove("DATABASE_PASSWORD")
@@ -502,12 +517,20 @@ fn huddle_signs_in_and_talks_in_a_room_over_its_channel() {
     let post = serde_json::json!({"msg": {"ch": 1, "seq": 1, "value": {"case": "post", "text": "hello", "clientId": "6f1c2a2e-0000-4000-8000-000000000001"}}});
     ws.send(Message::text(post.to_string())).expect("sends");
     // The echo and the acknowledgement, in either order.
-    let (a, b) = (next(&mut ws), next(&mut ws));
-    let (ack, echo) = if a.get("ack").is_some() {
-        (a, b)
-    } else {
-        (b, a)
-    };
+    // Ana's own arrival in the room's presence comes first or in between.
+    let mut ack = None;
+    let mut echo = None;
+    while ack.is_none() || echo.is_none() {
+        let v = next(&mut ws);
+        if v.get("ack").is_some() {
+            ack = Some(v);
+        } else if v["msg"]["value"]["case"] == "posted" {
+            echo = Some(v);
+        } else {
+            assert_eq!(v["msg"]["value"]["case"], "presence", "{v}");
+        }
+    }
+    let (ack, echo) = (ack.unwrap_or_default(), echo.unwrap_or_default());
     assert_eq!(ack, serde_json::json!({"ack": {"ch": 1, "seq": 1}}));
     assert_eq!(echo["msg"]["value"]["case"], "posted", "{echo}");
     assert_eq!(echo["msg"]["value"]["message"]["author"], "ana", "{echo}");
@@ -521,6 +544,223 @@ fn huddle_signs_in_and_talks_in_a_room_over_its_channel() {
     );
     let _ = ws.close(None);
     app.stop();
+}
+
+/// A free port in 5200–5999, reserved for this process.
+fn port_in_range() -> u16 {
+    (5200..6000u16)
+        .find(|&port| {
+            crate::ports::reserve(port) && std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+        })
+        .expect("a free port in 5200–5999")
+}
+
+/// A raw channels socket (`/_k/channels`) to `port`, presenting `origin`
+/// and the session `cookie`.
+fn channels_socket(port: u16, origin: &str, cookie: &str) -> tungstenite::WebSocket<TcpStream> {
+    use tungstenite::client::IntoClientRequest;
+    let stream = TcpStream::connect(("127.0.0.1", port)).expect("connects");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(15)))
+        .expect("a timeout");
+    let mut request = format!("ws://127.0.0.1:{port}/_k/channels")
+        .into_client_request()
+        .expect("a request");
+    let h = request.headers_mut();
+    h.insert("origin", origin.parse().expect("a header"));
+    h.insert(
+        "sec-websocket-protocol",
+        "k.channel.v1".parse().expect("a header"),
+    );
+    h.insert("cookie", cookie.parse().expect("a header"));
+    tungstenite::client::client(request, stream)
+        .expect("upgrades")
+        .0
+}
+
+/// Reads frames from `ws`, skipping heartbeats, until one satisfies
+/// `want`, which it returns.
+fn frame_until(
+    ws: &mut tungstenite::WebSocket<TcpStream>,
+    what: &str,
+    want: impl Fn(&serde_json::Value) -> bool,
+) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut seen = Vec::new();
+    loop {
+        assert!(Instant::now() < deadline, "{what}; saw {seen:?}");
+        let read = ws.read();
+        assert!(
+            read.is_ok(),
+            "{what}: the socket failed: {:?}; saw {seen:?}",
+            read.as_ref().err()
+        );
+        if let Ok(tungstenite::Message::Text(t)) = read {
+            let v: serde_json::Value = serde_json::from_str(t.as_str()).expect("JSON");
+            if v.get("beat").is_some() {
+                continue;
+            }
+            if want(&v) {
+                return v;
+            }
+            seen.push(v);
+        }
+    }
+}
+
+/// Signs `name` in through the replica on `port` and returns the session
+/// cookie (`name=value`).
+fn huddle_sign_in(port: u16, name: &str) -> String {
+    let signed = rpc(
+        port,
+        "/huddle.accounts.AuthProtocol/SignIn",
+        &format!("{{\"name\": \"{name}\"}}"),
+    );
+    assert_eq!(signed.status, 200, "{}", signed.body);
+    signed
+        .header("set-cookie")
+        .and_then(|c| c.split(';').next())
+        .expect("a session cookie")
+        .to_owned()
+}
+
+#[test]
+fn huddle_replicas_share_messages_and_presence_over_postgres() {
+    // Two replicas of huddle's dist/app on one Postgres, as in its
+    // docker-compose.yml without nginx in front (44-channels.md, "Example
+    // app"): a person connected to replica A and one connected to replica
+    // B see each other in the room, and a message posted through A
+    // reaches B's socket.
+    use tungstenite::Message;
+
+    let Some(pg) = crate::postgres::TestPostgres::start("huddle") else {
+        return;
+    };
+    let url = pg.database("huddle");
+    let dir = TempDir::new("huddle-replicas");
+    let app = App::build("huddle", &dir.0);
+    let origin = "http://localhost:8080";
+    let env = [("DATABASE_URL", url.as_str()), ("K_PUBLIC_ORIGIN", origin)];
+    let a = App::serve_on("huddle", &app, &env, port_in_range());
+    let b = App::serve_on("huddle", &app, &env, port_in_range());
+
+    // Sessions live in the shared database: either replica may sign in.
+    let ana = huddle_sign_in(a.port, "ana");
+    let bob = huddle_sign_in(b.port, "bob");
+    let open = serde_json::json!({"open": {"ch": 1, "method": "/huddle.chat.ChatProtocol/Room", "request": {"name": "general"}}});
+    let is_msg =
+        |case: &'static str| move |v: &serde_json::Value| v["msg"]["value"]["case"] == case;
+    let presence = |case: &'static str, name: &'static str| {
+        move |v: &serde_json::Value| {
+            v["msg"]["value"]["case"] == "presence"
+                && v["msg"]["value"]["_0"]["case"] == case
+                && v["msg"]["value"]["_0"]["_0"]["name"] == name
+        }
+    };
+
+    let mut on_b = channels_socket(b.port, origin, &bob);
+    on_b.send(Message::text(open.to_string())).expect("sends");
+    let snapshot = frame_until(&mut on_b, "bob's snapshot", is_msg("snapshot"));
+    assert_eq!(
+        snapshot["msg"]["value"]["present"],
+        serde_json::json!([{"name": "bob"}]),
+        "{snapshot}"
+    );
+
+    let mut on_a = channels_socket(a.port, origin, &ana);
+    on_a.send(Message::text(open.to_string())).expect("sends");
+    let snapshot = frame_until(&mut on_a, "ana's snapshot", is_msg("snapshot"));
+    assert_eq!(
+        snapshot["msg"]["value"]["present"],
+        serde_json::json!([{"name": "bob"}, {"name": "ana"}]),
+        "presence spans both replicas: {snapshot}"
+    );
+    frame_until(
+        &mut on_b,
+        "ana's arrival reaches replica B",
+        presence("joined", "ana"),
+    );
+
+    let post = serde_json::json!({"msg": {"ch": 1, "seq": 1, "value": {"case": "post", "text": "across", "clientId": "6f1c2a2e-0000-4000-8000-000000000001"}}});
+    on_a.send(Message::text(post.to_string())).expect("sends");
+    let posted = frame_until(
+        &mut on_b,
+        "a message posted through A reaches B",
+        is_msg("posted"),
+    );
+    assert_eq!(
+        posted["msg"]["value"]["message"]["author"], "ana",
+        "{posted}"
+    );
+    assert_eq!(
+        posted["msg"]["value"]["message"]["text"], "across",
+        "{posted}"
+    );
+    frame_until(&mut on_a, "the acknowledgement on A", |v| {
+        v == &serde_json::json!({"ack": {"ch": 1, "seq": 1}})
+    });
+
+    let typing = serde_json::json!({"msg": {"ch": 1, "seq": 2, "value": "typing"}});
+    on_a.send(Message::text(typing.to_string())).expect("sends");
+    let typed = frame_until(&mut on_b, "typing reaches B", is_msg("typing"));
+    assert_eq!(typed["msg"]["value"]["name"], "ana", "{typed}");
+
+    // Ana leaves the room: her lease ends on A, and B hears it.
+    let close = serde_json::json!({"close": {"ch": 1, "reason": "byClient"}});
+    on_a.send(Message::text(close.to_string())).expect("sends");
+    frame_until(&mut on_b, "ana leaving reaches B", presence("left", "ana"));
+
+    let _ = on_a.close(None);
+    let _ = on_b.close(None);
+    a.stop();
+    b.stop();
+}
+
+#[test]
+fn huddle_deploys_two_replicas_behind_nginx_with_postgres() {
+    // The compose file and nginx configuration that 44-channels.md's
+    // "Example app" describes: Postgres, two separately restartable
+    // replicas, and nginx passing WebSocket upgrades with round robin.
+    let dir = repo().join("examples/huddle");
+    let compose = std::fs::read_to_string(dir.join("docker-compose.yml")).expect("compose");
+    for needle in [
+        "image: postgres:",
+        "  app1:\n",
+        "  app2:\n",
+        "DATABASE_URL: postgres://huddle@db:5432/huddle",
+        "K_PUBLIC_ORIGIN: http://localhost:8080",
+        "image: nginx:",
+        "./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro",
+        "dockerfile: examples/huddle/Dockerfile",
+    ] {
+        assert!(compose.contains(needle), "docker-compose.yml: {needle}");
+    }
+    let nginx = std::fs::read_to_string(dir.join("deploy/nginx.conf")).expect("nginx.conf");
+    for needle in [
+        "server app1:8080;",
+        "server app2:8080;",
+        "proxy_http_version 1.1;",
+        "proxy_set_header Upgrade $http_upgrade;",
+        "proxy_set_header Connection \"upgrade\";",
+        "proxy_read_timeout 75s;",
+    ] {
+        assert!(nginx.contains(needle), "nginx.conf: {needle}");
+    }
+    assert!(
+        !nginx.lines().any(|l| {
+            let l = l.trim_start();
+            l.starts_with("ip_hash") || l.starts_with("hash ") || l.starts_with("sticky")
+        }),
+        "no sticky sessions"
+    );
+    let dockerfile = std::fs::read_to_string(dir.join("Dockerfile")).expect("Dockerfile");
+    for needle in [
+        "RUN k check",
+        "RUN k build --out /dist",
+        "COPY --from=build /dist/app /app",
+    ] {
+        assert!(dockerfile.contains(needle), "Dockerfile: {needle}");
+    }
 }
 
 #[test]

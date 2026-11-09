@@ -12,6 +12,7 @@ import k.time.Clock
 public service ChatApi implements ChatProtocol {
     @Inject let messages: MessageRepository
     @Inject let events: RoomEvents
+    @Inject let presence: RoomPresence
     @Inject let session: Session
     @Inject let database: Database
     @Inject let clock: Clock
@@ -21,13 +22,22 @@ public service ChatApi implements ChatProtocol {
             throw RoomError.noSuchRoom
         }
 
-        // Subscribe before reading, so a message posted in between arrives
-        // after the snapshot instead of being lost.
-        let live = events.subscribe(room: name)
-        let stored = await messages.all(room: name)
+        // Subscribe before reading, so a message posted or a person arriving
+        // in between shows after the snapshot instead of being lost.
+        let live = Stream.merge(
+            events.subscribe(room: name),
+            presence.watch(room: name).map { change => ChatEvent.presence(change) }
+        )
         let me = session.user.id.name
 
-        return Channel(sending: live.startingWith(.snapshot(messages: stored.map(chatMessage)))) { command =>
+        // In the room until this channel closes: leaving the page, a
+        // dropped connection that doesn't come back, or signing out.
+        presence.join(room: name, member: Member(name: me))
+
+        let stored = await messages.all(room: name)
+        let present = await presence.members(room: name)
+
+        return Channel(sending: live.startingWith(.snapshot(messages: stored.map(chatMessage), present: present))) { command =>
             try await handle(command: command, room: name, author: me)
         }
     }
@@ -74,6 +84,10 @@ public service ChatApi implements ChatProtocol {
                     await messages.delete(message)
                     events.publish(room: room, event: .deleted(id: id))
                 }
+            }
+
+            case .typing {
+                events.publish(room: room, event: .typing(name: author))
             }
         }
     }

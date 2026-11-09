@@ -158,6 +158,10 @@ pub struct ServerOptions {
     /// reads them from [`ServerOptions::config`] (`ChannelConfig`), with the
     /// design's defaults for the rest. Tests shorten them.
     pub channels: Option<crate::sockets::ChannelLimits>,
+    /// The intervals of presence leases and the listening connection
+    /// between replicas ([`crate::replicas`]); used only with Postgres.
+    /// Tests shorten them.
+    pub replicas: crate::replicas::ReplicaTimings,
 }
 
 impl ServerOptions {
@@ -184,6 +188,7 @@ impl ServerOptions {
             inspect: None,
             dev_errors: false,
             channels: None,
+            replicas: crate::replicas::ReplicaTimings::default(),
         }
     }
 }
@@ -719,6 +724,9 @@ impl Server {
             process = process.with_database(db);
         }
         let process = Arc::new(process);
+        // With Postgres, broadcasts and presence reach the other replicas
+        // sharing the database (44-channels.md); otherwise they stay here.
+        process.start_replicas(options.replicas);
         let mut senders = Vec::with_capacity(workers);
         let mut worker_threads = Vec::with_capacity(workers);
         for i in 0..workers {

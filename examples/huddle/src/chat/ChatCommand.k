@@ -7,4 +7,6 @@ public enum ChatCommand implements Codable, Equatable {
     case post(text: String, clientId: Uuid)
     /// Deletes one of the sender's own messages.
     case delete(id: Uuid)
+    /// The sender is typing. Nothing stores it: it is passed on to the room.
+    case typing
 }

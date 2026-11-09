@@ -38,8 +38,8 @@ public protocol ChatProtocol requires Authenticated {
 ```
 
 - **`C` and `S` are `Codable`,** usually enums with one case per kind of message, so both sides `match`
-  them exhaustively. Huddle's are `ChatCommand` (`post`, `delete`) and `ChatEvent` (`snapshot`, `posted`,
-  `deleted`).
+  them exhaustively. Huddle's are `ChatCommand` (`post`, `delete`, `typing`) and `ChatEvent`
+  (`snapshot`, `posted`, `deleted`, `presence`, `typing`).
 - **`E` is an error enum with an `rpcFailure(RpcFailure)` case,** like every rpc error (K5502 without
   one); `RpcOnlyError` serves a channel that refuses nothing of its own.
 - **The rpc's own `throws` is for opening:** `RoomError.noSuchRoom` is thrown by the call that opens the
@@ -59,13 +59,22 @@ messages it will send and a function that receives the browser's:
             throw RoomError.noSuchRoom
         }
 
-        // Subscribe before reading, so a message posted in between arrives
-        // after the snapshot instead of being lost.
-        let live = events.subscribe(room: name)
-        let stored = await messages.all(room: name)
+        // Subscribe before reading, so a message posted or a person arriving
+        // in between shows after the snapshot instead of being lost.
+        let live = Stream.merge(
+            events.subscribe(room: name),
+            presence.watch(room: name).map { change => ChatEvent.presence(change) }
+        )
         let me = session.user.id.name
 
-        return Channel(sending: live.startingWith(.snapshot(messages: stored.map(chatMessage)))) { command =>
+        // In the room until this channel closes: leaving the page, a
+        // dropped connection that doesn't come back, or signing out.
+        presence.join(room: name, member: Member(name: me))
+
+        let stored = await messages.all(room: name)
+        let present = await presence.members(room: name)
+
+        return Channel(sending: live.startingWith(.snapshot(messages: stored.map(chatMessage), present: present))) { command =>
             try await handle(command: command, room: name, author: me)
         }
     }
@@ -73,8 +82,9 @@ messages it will send and a function that receives the browser's:
 
 - **`sending:` is every message the server sends,** usually a `Broadcast` subscription
   ([Server streaming](streaming.md#sharing-events-between-requests)) started with a snapshot. Rooms and
-  topics are `Broadcast` keys; channels add no fan-out of their own. When the stream ends, the server
-  has closed the channel.
+  topics are `Broadcast` keys; channels add no fan-out of their own. `Stream.merge(_:_:)` combines two
+  sources, here the room's events and its [presence](#presence-who-is-here). When the stream ends, the
+  server has closed the channel.
 - **The trailing function runs once per browser message, in order, one at a time per channel.** Its
   acknowledgement is sent when it returns, after any transaction in it has committed. Throwing `E`
   refuses that one message, and the channel stays open:
@@ -192,6 +202,64 @@ and the page only shows the state:
   when the session ended elsewhere), and a sign-in or sign-out in the tab moves its channels to a new
   socket under the new session.
 
+## Presence: who is here
+
+Who is in a room is the most-asked-for realtime feature and the easiest to get wrong: a crashed server
+leaves ghosts, two tabs of one person flicker, and a tab closed without a goodbye stays "online".
+**`Presence<Key, Member>`** in `k.rpc` does it once, held by a `@Scope(.server)` service like a
+`Broadcast`:
+
+```k
+// examples/huddle/src/chat/RoomPresence.k
+@Scope(.server)
+public service RoomPresence {
+    private let presence: Presence<String, Member> = Presence()
+
+    /// Adds `member` to `room` until the channel (the request) that called
+    /// this closes: nothing to clean up, even after a crash.
+    func join(room: String, member: Member) -> PresenceLease<Member> {
+        return presence.join(key: room, member: member)
+    }
+```
+
+| Member | Meaning |
+|---|---|
+| `join(key:member:) -> PresenceLease<Member>` | adds `member` under `key` for as long as the calling request lives; for a channel, until it closes |
+| `members(key:) async -> List<Member>` | everyone present, each `Member` once, in the order they arrived |
+| `watch(key:) -> Stream<PresenceChange<Member>>` | `.joined(m)`, `.left(m)` and `.updated(m)` from now on |
+| `lease.update(member:)` | replaces the lease's member (a status such as "away") and announces `.updated` |
+| `lease.leave()` | leaves early; calling it again does nothing |
+
+- **A lease belongs to the request that took it,** so the handler above writes no cleanup. The member
+  leaves when the channel closes: the page is left, the session ends, or a dropped connection isn't
+  back within the 30-second resume window. A resumed channel never left, so a blip doesn't flicker. A
+  lease taken by an ordinary rpc ends with that call.
+- **Members are counted, not listed:** two tabs of one person hold two leases with equal `Member`
+  values, and the room sees one `joined` when the first arrives and one `left` when the last goes.
+- **Watch before you join and read,** as the handler does, so no change between the two is missed. The
+  joining channel hears its own `joined`, as it hears its own echo.
+- **Typing isn't presence.** Huddle sends "typing" as an ordinary event and shows it for 5 seconds after
+  the last one, on the injected `Clock`; nothing stores it, so nothing has to clean it up.
+
+## Several replicas
+
+Replicas of an app behind a load balancer share its database and nothing else. With Postgres, every
+`Broadcast` and `Presence` reaches every replica with no configuration:
+
+- **A publish is delivered on its own replica at once,** and to the others over Postgres
+  `LISTEN`/`NOTIFY` on one channel per app. An element too large for a notification is stored for a
+  minute in the stdlib's `k_broadcast_spill` table, and the notification carries its id.
+- **Presence leases live in the `k_presence` table.** Each replica renews its own every 10 seconds;
+  a lease not renewed for 30 seconds, because its replica crashed, expires on every replica, and its
+  member leaves.
+- **Ending a session closes its channels and streams on every replica,** wherever its socket is.
+- **Sticky load balancing isn't needed.** A reconnect that lands on another replica restarts its
+  channels there with a new snapshot instead of resuming them; nothing is lost that the snapshot
+  doesn't bring back.
+
+With SQLite or no database, an app is one process, and both stay in it. Huddle's `docker-compose.yml`
+runs two replicas behind nginx on Postgres ([Huddle](../examples/huddle.md#two-replicas)).
+
 ## Limits
 
 | Limit | Default | When it's exceeded |
@@ -209,10 +277,8 @@ A file doesn't belong in a channel: send it with an rpc or an endpoint page, and
 changed on the channel. Behind a proxy, pass the `Upgrade` header through
 ([Deployment](deployment.md)).
 
-One process delivers every `Broadcast` itself, so run one replica of an app with channels until
-delivery between replicas is built (**Planned** broadcast-replicas). Who is in a room
-(**Planned** channel-presence), raw WebSockets to other services (**Planned** websocket-client) and
-channels in `k routes`, a `k dev` inspector and metrics (**Planned** channel-tooling) come later.
+Raw WebSockets to other services (**Planned** websocket-client) and channels in `k routes`, a `k dev`
+inspector and metrics (**Planned** channel-tooling) come later.
 
 ## Testing
 
@@ -273,3 +339,19 @@ its `channel` to the code under test, then `deliver` server messages, `refuseNex
 
 `screen.settle()` waits while channel traffic moves, and treats an effect waiting for a channel's next
 message as idle, as for a stream.
+
+**Presence runs in-process too,** and its leases end exactly as in production: with the channel, with
+an rpc's call, at `drop(resumable: false)`, or when the resume window passes on the `TestClock` after
+`TestConnectivity.goOffline()`. Huddle's room page lists Bob once though he has two tabs open:
+
+```k
+// examples/huddle/src/chat/Room.test.k
+        // Bob, in two tabs: listed once.
+        let bob = await peers.signIn(userId: AccountId(name: "bob"))
+        let chat: ChatProtocol = bob.client()
+        let tab = try await chat.room(name: "general")
+        let other = try await chat.room(name: "general")
+        await screen.settle()
+
+        expect screen.list(named: "In this room").items().map { item => item.text } == ["ana", "bob"]
+```

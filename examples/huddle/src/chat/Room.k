@@ -31,6 +31,17 @@ public page Room requires Authenticated {
         }
     }
 
+    /// Tells the room this person is typing while the draft changes.
+    @Effect(on: [draft])
+    func announceTyping() async {
+        if draft.isNotEmpty {
+            await room.typed()
+        }
+    }
+
+    /// Who else is typing, as a sentence, or `nil`.
+    @Derived let typingLine: String? = typingSentence(names: room.typing.filter { n => n != auth.user?.id.name })
+
     func post() async {
         let text = draft
 
@@ -71,6 +82,14 @@ public page Room requires Authenticated {
                 .class(.banner)
                 .role(.status)
         }
+
+        list {
+            for member in room.present key member.name {
+                item { member.name }
+            }
+        }
+        .label("In this room")
+        .class(.present)
 
         list {
             for message in room.messages key message.id {
@@ -115,6 +134,11 @@ public page Room requires Authenticated {
         }
         .label("Messages")
 
+        if let typingLine {
+            paragraph { typingLine }
+                .class(.typing)
+        }
+
         form {
             textField(value: bind draft)
                 .label("Message")
@@ -149,6 +173,17 @@ public page Room requires Authenticated {
         .failed   { color: .danger; }
         .sending  { color: .muted; }
         .composer { display: flex; gap: .sm; }
+        .present  { display: flex; gap: .sm; color: .muted; }
+        .typing   { color: .muted; }
         .problem  { color: .danger; }
+    }
+}
+
+/// "bob is typing…", "bob and cy are typing…", or `nil` for nobody.
+func typingSentence(names: List<String>) -> String? {
+    match names.count {
+        case 0 { return nil }
+        case 1 { return "{names.joined(separator: "")} is typing…" }
+        default { return "{names.joined(separator: " and ")} are typing…" }
     }
 }

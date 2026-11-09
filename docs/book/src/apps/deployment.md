@@ -113,10 +113,11 @@ Everything that must hold across replicas lives in the database, so replicas nee
 service:
 
 - sessions and rate-limit counters (`k_session`, `k_rate_limit`);
-- the job queue (`k_job`), claimed with `SKIP LOCKED`.
+- the job queue (`k_job`), claimed with `SKIP LOCKED`;
+- with Postgres, broadcasts between server streams and channels, over `LISTEN`/`NOTIFY`, and presence
+  leases (`k_presence`), so who is in a room spans every replica ([Channels](channels.md#several-replicas)).
 
-Broadcasts between server streams and channels are the exception: they reach only the subscribers of the publishing
-process until delivery over Postgres `LISTEN`/`NOTIFY` is built (**Planned** broadcast-replicas).
+With SQLite, an app runs as one replica, and its broadcasts and presence stay in that process.
 
 **Rolling deploys run the previous release against the new schema,** so migrations follow
 expand/contract: a column is retired in one release and dropped in a later one

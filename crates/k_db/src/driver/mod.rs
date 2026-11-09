@@ -15,6 +15,8 @@ mod pgcodec;
 mod postgres;
 mod sqlite;
 
+pub use postgres::PostgresListener;
+
 use crate::error::DbError;
 use crate::sql::Dialect;
 use crate::value::{Row, Value};

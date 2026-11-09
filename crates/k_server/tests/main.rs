@@ -22,6 +22,9 @@ mod exprgen;
 #[path = "support/horacle.rs"]
 mod horacle;
 #[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+#[path = "support/postgres.rs"]
+mod postgres;
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 #[path = "../../k_sema/tests/support/tgen.rs"]
 mod tgen;
 #[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
@@ -41,6 +44,7 @@ mod outbound;
 mod perf_budget;
 #[path = "regressions/main.rs"]
 mod regressions;
+mod replicas;
 mod server;
 mod sessions;
 mod shop_production;

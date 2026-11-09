@@ -198,6 +198,12 @@ export class RequestState {
     this.clientAddress = request.remote ?? "";
     /** The verified calling service of a `ServiceAuthenticated` rpc, or `null`. */
     this.serviceCaller = null;
+    /**
+     * The presence leases this request took (`ServerPresence.join`), left
+     * when it ends; `null` once it ended.
+     * @type {object[]|null|undefined}
+     */
+    this.leases = undefined;
     /** `[prefersDark, prefersReducedMotion]` once K code read `Preferences`, else `null`. */
     this.prefs = null;
     /**
@@ -783,6 +789,7 @@ async function pumpStream(st, s) {
   }
   closeStream(s.stream);
   if (watch !== null) ops.op_k_broadcast_close(watch);
+  endLeases(st);
   sink.chunk(envelope(2, end));
   sink.end();
 }
@@ -874,11 +881,15 @@ async function openChannel(spec, request, id) {
   if (!rpc || !rpc.channel) return { error: { code: "unimplemented", message: `${request.path} is not a channel rpc of this app` } };
   const st = new RequestState(spec, { ...request, method: "POST", channel: null });
   await st.load();
-  const r = await handleRpc(st, rpc);
-  if (!r.channel) return { error: refusalOf(r) };
+  const r = await inRequest(st, () => handleRpc(st, rpc));
+  if (!r.channel) {
+    endLeases(st);
+    return { error: refusalOf(r) };
+  }
   const value = r.channel;
   if (value === null || typeof value !== "object" || typeof value.sending?.next !== "function" || typeof value.receiving !== "function") {
     logPanic(st, "a channel", new KPanic("the handler didn't return a channel"));
+    endLeases(st);
     return { error: { code: "internal", message: "internal error" } };
   }
   /** @type {() => void} */
@@ -953,6 +964,8 @@ function endChannel(id, reason) {
   closeStream(entry.value.sending);
   if (entry.watch !== null) ops.op_k_broadcast_close(entry.watch);
   entry.st.abort();
+  // The channel's request ends with it, and so do its presence leases.
+  endLeases(entry.st);
   const closed = entry.value.closed;
   if (typeof closed === "function") {
     try {
@@ -991,7 +1004,7 @@ async function channelMessage(id, body) {
   }
   if (st.sessionId && ops?.op_k_session_get) await ops.op_k_session_get(st.sessionId);
   try {
-    await value.receiving(st.signal, message);
+    await inRequest(st, () => value.receiving(st.signal, message));
   } catch (e) {
     if (isTypedError(e) && ch.error) {
       const detail = { type: "k.TypedError", debug: { error: ch.error.name, case: ch.error.text(e), fields: ch.error.fields(e) } };
@@ -1525,8 +1538,12 @@ export function createApp(spec) {
     const st = new RequestState(spec, request);
     try {
       await st.load();
-      return await dispatch(st);
+      const r = await inRequest(st, () => dispatch(st));
+      // A streamed response's request lasts until the stream ends.
+      if (r !== STREAMED) endLeases(st);
+      return r;
     } catch (e) {
+      endLeases(st);
       logPanic(st, "a request", e);
       const rpc = Object.hasOwn(spec.rpcs, st.url.pathname);
       const stack = devStack(e);
@@ -1700,6 +1717,115 @@ export class ServerBroadcast {
         ops.op_k_broadcast_close(id);
       },
     };
+  }
+}
+
+// --------------------------------------------------------------- presence
+
+/**
+ * The request whose code is running (44-channels.md, "Presence": a lease
+ * belongs to the request that took it). V8 carries it across `await`s
+ * through the continuation-preserved embedder data deno_core exposes as
+ * `AsyncVariable`, so a `.server` service's synchronous `join` finds the
+ * request of whichever handler called it. `null` where there is none (a
+ * runtime without it): such a lease lasts until `leave()`.
+ */
+const CURRENT_REQUEST = typeof globalThis.Deno?.core?.AsyncVariable === "function" ? new globalThis.Deno.core.AsyncVariable() : null;
+
+/**
+ * Runs `run()` with `st` as the current request; what it starts (its
+ * awaits included) keeps seeing `st`.
+ * @template T
+ * @param {RequestState} st
+ * @param {() => T} run
+ * @returns {T}
+ */
+function inRequest(st, run) {
+  if (CURRENT_REQUEST === null) return run();
+  const previous = CURRENT_REQUEST.enter(st);
+  try {
+    return run();
+  } finally {
+    globalThis.Deno.core.setAsyncContext(previous);
+  }
+}
+
+/**
+ * Ends the presence leases `st` took: its request ended (a response sent,
+ * a stream or a channel closed). Idempotent.
+ * @param {RequestState} st
+ */
+function endLeases(st) {
+  const leases = st.leases;
+  if (!leases) return;
+  st.leases = null;
+  for (const lease of leases) lease.leave();
+}
+
+/**
+ * `Presence<Key, Member>`, backed by the process's Rust state
+ * (`op_k_presence_*`): leases are counted there for every worker isolate,
+ * and with Postgres in `k_presence` for every replica. Changes reach
+ * `watch` as elements of the key's broadcast, in `PresenceChange`'s codec
+ * encoding, which the Rust side writes (`{"case": "joined", "_0": member}`).
+ */
+export class ServerPresence {
+  /**
+   * @param {string} name a process-unique name
+   * @param {{encode: Function, decode: Function}} member the member type's codec
+   * @param {{encode: Function, decode: Function}} change `PresenceChange<Member>`'s codec
+   */
+  constructor(name, member, change) {
+    this.name = name;
+    this.member = member;
+    this.changes = new ServerBroadcast(name, change);
+  }
+  /** The process-wide text of `key`, as the broadcast names it. */
+  key(key) {
+    return `${this.name}|${stringify(toJSON(key))}`;
+  }
+  /** Adds `member` under `key` until the current request ends. */
+  join(key, member) {
+    const id = ops.op_k_presence_join(this.key(key), stringify(this.member.encode(member)));
+    const lease = new PresenceLease(this, id);
+    const st = CURRENT_REQUEST?.get();
+    if (st instanceof RequestState) {
+      if (st.leases === null) lease.leave();
+      else (st.leases ??= []).push(lease);
+    }
+    return lease;
+  }
+  /** Everyone present under `key`, each once, in arrival order. */
+  async members(_c, key) {
+    const list = await ops.op_k_presence_members(this.key(key));
+    return list.map((j) => this.member.decode(JSON.parse(j), ""));
+  }
+  /** The changes under `key` from now on. */
+  watch(key) {
+    return this.changes.subscribe(key);
+  }
+}
+
+/** `PresenceLease<Member>`: one member's presence under one key. */
+class PresenceLease {
+  /**
+   * @param {ServerPresence} presence
+   * @param {number} id the lease's id in the process's state
+   */
+  constructor(presence, id) {
+    this.presence = presence;
+    this.id = id;
+    this.done = false;
+  }
+  /** Replaces the member and announces `updated`. */
+  update(member) {
+    if (!this.done) ops.op_k_presence_update(this.id, stringify(this.presence.member.encode(member)));
+  }
+  /** Leaves now; idempotent. */
+  leave() {
+    if (this.done) return;
+    this.done = true;
+    ops.op_k_presence_leave(this.id);
   }
 }
 

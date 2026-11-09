@@ -770,8 +770,8 @@ over the protocol, calls the rpc and checks the paused `.k` line and the K local
 
 Design: [44-channels.md](../design/44-channels.md). The Rust half is `sockets.rs` (the front and the
 process's `Hub`) over the frame codec of `channels.rs`; the JavaScript half is the "channels" part of
-`k:runtime/app`. Everything runs in one process: a resume works only on the replica that has the
-channel, and `Broadcast` fans out in-process (Postgres `NOTIFY` between replicas is a later slice).
+`k:runtime/app`. A resume works only on the replica that has the channel; `Broadcast`, `Presence` and
+session ends reach the other replicas over Postgres (`replicas.rs`, [below](#presence-and-replicas)).
 
 ```text
 GET /_k/channels ── Origin = K_PUBLIC_ORIGIN? (403) ── upgrade + k.channel.v1? (400) ── 503 at shutdown ── 101
@@ -836,7 +836,45 @@ GET /_k/channels ── Origin = K_PUBLIC_ORIGIN? (403) ── upgrade + k.chann
   the reason `k.retry=<ms>`, a delay drawn from 0–5 s for the client's reconnect; every channel is ended
   in its isolate; then shutdown waits, within the grace, until no receiving function is running.
 
+### Presence and replicas
+
+- **`Presence<Key, Member>`** is `$s.ServerPresence(name, memberCodec, changeCodec)` (codegen, like
+  `ServerBroadcast`), over `op_k_presence_join` / `_update` / `_leave` (synchronous, returning or taking
+  a lease id) and `op_k_presence_members` (async). Keys are `"<name>|<key JSON>"`, the same text the
+  key's `Broadcast` uses, and members are their codec JSON, compared as text. A change is published on
+  the key's broadcast as `PresenceChange`'s encoding, written by Rust (`process::presence_change`,
+  `{"case":"joined","_0":member}`), so `watch` is a `ServerBroadcast` subscription with the change codec.
+- **A lease belongs to the request that took it.** `k:runtime/app` runs a request's code inside
+  `inRequest(st, …)`, which enters `st` into a deno_core `AsyncVariable` (V8's continuation-preserved
+  embedder data), so `ServerPresence.join`, called synchronously from a `.server` service, finds the
+  request of whichever handler called it, across its `await`s. The request's leases end in `endLeases`:
+  after a response (`createApp`), at the end of a stream (`pumpStream`), when a channel ends
+  (`endChannel`) or its open is refused, so a lease taken in a channel's handler or receiving function
+  lasts until the channel closes. Code with no request (a job, a timer) keeps its lease until `leave()`.
+- **Without Postgres** the leases live in `ProcessState`'s `PresenceTable`: per key the members in
+  arrival order with lease counts. `update` keeps a member's place when it changes in place.
+- **With Postgres** (`ProcessState::start_replicas`, called by `Server::start` after the database
+  opened; a no-op otherwise), `replicas.rs` takes over:
+  - `publish` delivers here, then `NOTIFY k_broadcast, {"p": tag, "k": key, "v": json}` on the statement
+    connection (detached on the `k-db` runtime, in call order). Over 7,000 bytes the payload goes to
+    `k_broadcast_spill` and the notification is `{"p", "s": id}`.
+  - A listening connection of its own (`k_db::PostgresListener`) delivers the other tags' elements in
+    arrival order, fetching spills inline so order holds; it reconnects after 1 s. `start` waits up to 5 s
+    for the first `LISTEN`, so a replica that serves already hears the others.
+  - Leases are rows of `k_presence` (`lease` = `<tag>.<id>`). Join, update and leave run in one
+    transaction under `pg_advisory_xact_lock(hashtext(key))` and count the member's live leases to decide
+    `joined`, `left` or `updated`; `members` groups by member, ordered by its first `joined_at`. Every
+    10 s a process renews its rows (expiry 30 s) and deletes expired rows of any process (and spills
+    older than a minute), announcing each member left with no live lease.
+  - Ending a session (`delete_session`, expiry, `endAll`) notifies `{"p", "ended": [token hashes]}`; the
+    others close the matching subscribers, which ends those streams and channels with `sessionEnded`.
+  - Failures are logged as warnings and dropped; `ServerOptions::replicas` shortens the intervals for
+    tests.
+
 Tests: `crates/k_server/tests/channel_server.rs` drives `tests/projects/channels` with a raw
 `tungstenite` client; the handshake checks and `ChannelLimits::from_config` have unit tests in
 `sockets.rs`. The browser's half is [runtime.md §8.2](runtime.md#82-channels); the same project, which has
-a `Room` page for it, runs in real Chrome in `crates/k_cli/tests/chrome.rs`.
+a `Room` page for it, runs in real Chrome in `crates/k_cli/tests/chrome.rs`. `crates/k_server/tests/replicas.rs`
+runs two process states against a real Postgres (Docker, or `K_TEST_POSTGRES_URL`; skipped without
+either unless `K_REQUIRE_DOCKER=1`): order, spills, presence counting and expiry, session ends.
+Presence in `k test` is `crates/k_cli/tests/fixtures/realtime/src/hall`.

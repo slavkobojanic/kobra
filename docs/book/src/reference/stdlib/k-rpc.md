@@ -12,6 +12,9 @@ Import each declaration by name, for example `import k.rpc.Broadcast`.
 | [`ChannelClose`](#channelclose) | Why a [`Channel`](#channel) closed for good (`docs/design/44-channels.md`, "The client"). |
 | [`ChannelConfig`](#channelconfig) | The limits of channels (`docs/design/44-channels.md`, "Limits and back-pressure"), read from the environment like every stdlib config. |
 | [`ChannelState`](#channelstate) | Where a [`Channel`](#channel) is, for a banner (`docs/design/44-channels.md`, "The client"). |
+| [`Presence`](#presence) | Who is connected to a subject, such as the people in a chat room (`docs/design/44-channels.md`, "Presence"), on top of [`Broadcast`](#broadcast). |
+| [`PresenceChange`](#presencechange) | A change of who is present under a key, from [`Presence.watch`](#presence) (`docs/design/44-channels.md`, "Presence"). |
+| [`PresenceLease`](#presencelease) | One member's presence under one key, from [`Presence.join`](#presence) (`docs/design/44-channels.md`, "Presence"). |
 | [`RemoteClient`](#remoteclient) | Builds a client of a protocol at an address known only at run time, such as a merchant's callback URL registered with the app (`docs/design/40-workspaces-and-services.md`). |
 | [`RemoteService`](#remoteservice) | Where another service of the same system runs, and the secret its calls are signed with (`docs/design/40-workspaces-and-services.md`). |
 | [`RpcFailure`](#rpcfailure) | A failure outside an rpc's handler, carried by the `rpcFailure` case every rpc error enum has (`docs/design/28-rpc-wire-format.md`, "Failures outside the handler"). |
@@ -138,6 +141,76 @@ Where a [`Channel`](#channel) is, for a banner (`docs/design/44-channels.md`,
   Dropped; the next attempt is due at `at`.
 - `case closed(ChannelClose)`
   Closed for good, and why.
+
+## Presence
+
+```k,ignore
+@ServerOnly
+public class Presence<Key, Member> where Key implements Hashable, Key implements Codable, Member implements Hashable, Member implements Codable
+```
+
+Who is connected to a subject, such as the people in a chat room
+(`docs/design/44-channels.md`, "Presence"), on top of [`Broadcast`](#broadcast).
+Held by a `@Scope(.server)` service ([`k.core.ServiceScope.server`](k-core.md#servicescope)).
+
+A member joins with a [`PresenceLease`](#presencelease) that belongs to the request that
+took it: for a channel, the member leaves when the channel closes, with
+nothing to clean up. Equal members are counted, not listed, so two tabs
+of one person are one member.
+
+**Members**
+
+- `init()`
+  Creates a presence with nobody present.
+- `func join(key: Key, member: Member) -> PresenceLease<Member>`
+  Adds `member` under `key` for as long as the calling request lives;
+  for a channel, until it closes. The first lease of a member
+  announces [`PresenceChange.joined`](#presencechange).
+
+  - Returns: the lease, to update the member or leave early.
+- `func members(key: Key) async -> List<Member>`
+  Everyone present under `key`, each member once, in the order they
+  arrived.
+- `func watch(key: Key) -> Stream<PresenceChange<Member>>`
+  The changes under `key` from now on: `joined`, `left` and `updated`.
+
+## PresenceChange
+
+```k,ignore
+public enum PresenceChange<Member> implements Codable, Equatable where Member implements Codable, Member implements Equatable
+```
+
+A change of who is present under a key, from [`Presence.watch`](#presence)
+(`docs/design/44-channels.md`, "Presence"). Crosses the wire, usually as
+a case of a channel's server message.
+
+**Members**
+
+- `case joined(Member)`
+  The member's first lease arrived.
+- `case left(Member)`
+  The member's last lease ended.
+- `case updated(Member)`
+  A lease replaced its member with this one.
+
+## PresenceLease
+
+```k,ignore
+@ServerOnly
+public class PresenceLease<Member>
+```
+
+One member's presence under one key, from [`Presence.join`](#presence)
+(`docs/design/44-channels.md`, "Presence"). It ends when the request
+that took it does, or at `leave`.
+
+**Members**
+
+- `func update(member: Member)`
+  Replaces this lease's member (a status such as "away") and announces
+  [`PresenceChange.updated`](#presencechange).
+- `func leave()`
+  Leaves now instead of when the request ends; idempotent.
 
 ## RemoteClient
 

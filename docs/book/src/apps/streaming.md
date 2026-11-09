@@ -154,9 +154,10 @@ for another without a deliberate shared object.
   - `Key` must be `Hashable` and `Codable`, and `T` must be `Codable`.
 - **Publishing inside a transaction is deferred to the outermost commit,** like enqueueing a job, and
   discarded on rollback. Other tabs never see a change that was rolled back.
-- **Delivery is in-process:** a `Broadcast` reaches the subscribers of the server process that
-  publishes. Delivery between replicas through Postgres `LISTEN`/`NOTIFY` is planned
-  (**Planned** broadcast-replicas), so run one replica of an app whose streams must see every write.
+- **Delivery spans replicas with Postgres:** a `Broadcast` reaches the subscribers of the publishing
+  process at once and those of the other replicas over `LISTEN`/`NOTIFY`
+  ([Channels](channels.md#several-replicas)). With SQLite or no database an app is one process, and
+  delivery stays in it.
 
 ## Tests
 

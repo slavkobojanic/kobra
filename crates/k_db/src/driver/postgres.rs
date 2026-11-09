@@ -322,3 +322,83 @@ impl PostgresDatabase {
         Ok(out)
     }
 }
+
+/// A connection of its own that `LISTEN`s on one channel and yields each
+/// notification's payload (`docs/design/44-channels.md`, "Server isolates
+/// and replicas": `Broadcast` and presence between replicas). It is not
+/// the statement connection: a listening connection must stay idle and
+/// polled, never leased to a transaction.
+pub struct PostgresListener {
+    /// Kept so the connection stays open; dropping the listener closes it.
+    _client: Client,
+    /// The payloads, in the order the server delivered them; closed when
+    /// the connection ends.
+    payloads: tokio::sync::mpsc::UnboundedReceiver<String>,
+}
+
+impl PostgresListener {
+    /// Connects to `url` (with [`DatabaseOptions::password`] as for
+    /// [`PostgresDatabase`]), spawns the connection's I/O task on the
+    /// current tokio runtime and runs `LISTEN channel`. `channel` must be a
+    /// plain identifier.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::InvalidUrl`], [`DbError::Connection`] as for
+    /// [`PostgresDatabase::connect`], or [`DbError::Statement`] for a channel
+    /// name that isn't a plain identifier or a failed `LISTEN`.
+    pub async fn connect(
+        url: &str,
+        options: &DatabaseOptions,
+        channel: &str,
+    ) -> Result<PostgresListener, DbError> {
+        if channel.is_empty()
+            || !channel
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        {
+            return Err(DbError::Statement(format!(
+                "`{channel}` is not a plain channel name"
+            )));
+        }
+        let mut config = tokio_postgres::Config::from_str(url)
+            .map_err(|_| DbError::InvalidUrl("not a valid Postgres connection URL".to_owned()))?;
+        if let Some(p) = &options.password {
+            config.password(p);
+        }
+        let (client, mut connection) = config
+            .connect(NoTls)
+            .await
+            .map_err(|e| DbError::Connection(e.to_string()))?;
+        let (tx, payloads) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            // Polling for messages also drives the connection's I/O, so the
+            // `LISTEN` below completes through this loop.
+            loop {
+                match std::future::poll_fn(|cx| connection.poll_message(cx)).await {
+                    Some(Ok(tokio_postgres::AsyncMessage::Notification(n))) => {
+                        if tx.send(n.payload().to_owned()).is_err() {
+                            break;
+                        }
+                    }
+                    Some(Ok(_)) => {}
+                    Some(Err(_)) | None => break,
+                }
+            }
+        });
+        client
+            .batch_execute(&format!("LISTEN {channel}"))
+            .await
+            .map_err(map_error)?;
+        Ok(PostgresListener {
+            _client: client,
+            payloads,
+        })
+    }
+
+    /// The next notification's payload, or `None` once the connection
+    /// ended (the server went away): connect again.
+    pub async fn next(&mut self) -> Option<String> {
+        self.payloads.recv().await
+    }
+}

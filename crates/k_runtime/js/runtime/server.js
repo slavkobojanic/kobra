@@ -15,6 +15,7 @@ export {
   RequestState,
   STREAMED,
   ServerBroadcast,
+  ServerPresence,
   callLocal,
   checkGuards,
   clientPlatform,

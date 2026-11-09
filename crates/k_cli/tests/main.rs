@@ -31,6 +31,9 @@ mod page;
 #[allow(clippy::panic, clippy::unwrap_used)]
 #[path = "support/ports.rs"]
 mod ports;
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used, dead_code)]
+#[path = "../../k_server/tests/support/postgres.rs"]
+mod postgres;
 #[allow(clippy::panic, clippy::unwrap_used, dead_code)]
 #[path = "support/static_host.rs"]
 mod static_host;

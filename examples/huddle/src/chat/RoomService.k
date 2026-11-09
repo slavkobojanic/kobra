@@ -1,6 +1,8 @@
 import k.crypto.Uuid
 import k.rpc.Channel
 import k.rpc.ChannelState
+import k.time.Clock
+import k.time.TimerHandle
 
 /// One room, followed live from the browser.
 ///
@@ -11,12 +13,27 @@ import k.rpc.ChannelState
 /// page only shows `banner`.
 public service RoomService {
     @Inject let chat: ChatProtocol
+    @Inject let clock: Clock
 
     /// The room's messages, oldest first.
     @State var messages: List<ChatMessage> = []
 
     /// What this tab sent that hasn't come back yet, oldest first.
     @State var pending: List<PendingMessage> = []
+
+    /// Who is in the room, in the order they arrived: this tab's person
+    /// included, once however many tabs they have open.
+    @State var present: List<Member> = []
+
+    /// Who is typing, in the order they started.
+    @State var typing: List<String> = []
+
+    /// When each name in `typing` stops showing.
+    private var typingTimers: Map<String, TimerHandle> = Map()
+
+    /// `true` for a few seconds after this tab said it is typing, so a
+    /// burst of keystrokes is one message.
+    private var typingSent: Bool = false
 
     @State var channel: Channel<ChatCommand, ChatEvent, CommandError>? = nil
 
@@ -84,6 +101,25 @@ public service RoomService {
         try await deliver(message: again)
     }
 
+    /// Tells the room this person is typing, at most once every 3 seconds.
+    /// Best-effort: nothing is shown if it doesn't arrive.
+    func typed() async {
+        guard let channel, not typingSent else {
+            return
+        }
+
+        typingSent = true
+        clock.after(3.seconds) {
+            typingSent = false
+        }
+
+        do {
+            try await channel.send(.typing)
+        } catch .invalidText, .notYourMessage, .messageGone, .rpcFailure {
+            // Typing is a hint, never worth an error.
+        }
+    }
+
     /// Deletes one of this person's messages.
     ///
     /// - Throws: `CommandError.notYourMessage`, `.messageGone`, `.rpcFailure`.
@@ -99,8 +135,9 @@ public service RoomService {
     /// and a snapshot that both carry a message agree.
     func apply(event: ChatEvent) {
         match event {
-            case .snapshot(let all) {
+            case .snapshot(let all, let people) {
                 messages = all
+                present = people
             }
 
             case .posted(let message, let clientId) {
@@ -108,12 +145,46 @@ public service RoomService {
 
                 messages = (others + [message]).sortedBy { m => m.number }
                 pending = pending.filter { p => p.clientId != clientId }
+                stopTyping(name: message.author)
             }
 
             case .deleted(let id) {
                 messages = messages.filter { m => m.id != id }
             }
+
+            case .presence(.joined(let member)) {
+                present = present.filter { p => p.name != member.name } + [member]
+            }
+
+            case .presence(.updated(let member)) {
+                present = present.map { p => if p.name == member.name { member } else { p } }
+            }
+
+            case .presence(.left(let member)) {
+                present = present.filter { p => p.name != member.name }
+                stopTyping(name: member.name)
+            }
+
+            case .typing(let name) {
+                // Shown for 5 seconds after the last one, on the injected
+                // clock, so a test advances it.
+                typingTimers.get(name)?.cancel()
+
+                if not typing.contains(name) {
+                    typing.append(name)
+                }
+
+                typingTimers.set(name, clock.after(5.seconds) {
+                    stopTyping(name: name)
+                })
+            }
         }
+    }
+
+    private func stopTyping(name: String) {
+        typingTimers.get(name)?.cancel()
+        typingTimers.remove(name)
+        typing = typing.filter { n => n != name }
     }
 
     private func deliver(message: PendingMessage) async throws CommandError {

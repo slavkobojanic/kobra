@@ -26,10 +26,10 @@ test RoomService {
         let first = message(number: 1, text: "one")
         let second = message(number: 2, text: "two")
 
-        rooms.apply(event: .snapshot(messages: [first]))
+        rooms.apply(event: .snapshot(messages: [first], present: []))
         rooms.apply(event: .posted(message: second, clientId: Uuid.random()))
         rooms.apply(event: .posted(message: second, clientId: Uuid.random()))
-        rooms.apply(event: .snapshot(messages: [first, second]))
+        rooms.apply(event: .snapshot(messages: [first, second], present: []))
 
         expect rooms.messages == [first, second]
 
@@ -80,6 +80,57 @@ test RoomService {
         clock.advance(by: 1.second)
 
         expect rooms.banner == nil
+    }
+
+    test "presence keeps one entry per person, in the order they came" {
+        let ana = Member(name: "ana")
+        let bob = Member(name: "bob")
+
+        rooms.apply(event: .snapshot(messages: [], present: [ana]))
+        rooms.apply(event: .presence(.joined(bob)))
+        rooms.apply(event: .presence(.joined(bob)))
+
+        expect rooms.present == [ana, bob]
+
+        rooms.apply(event: .presence(.left(ana)))
+
+        expect rooms.present == [bob]
+
+        rooms.apply(event: .snapshot(messages: [], present: [ana, bob]))
+
+        expect rooms.present == [ana, bob]
+    }
+
+    test "a message from someone typing ends their indicator" {
+        rooms.apply(event: .typing(name: "bob"))
+        rooms.apply(event: .typing(name: "cy"))
+
+        expect rooms.typing == ["bob", "cy"]
+
+        rooms.apply(event: .posted(message: message(number: 1, text: "done"), clientId: Uuid.random()))
+        rooms.apply(event: .typing(name: "ana"))
+        rooms.apply(event: .posted(message: message(number: 1, text: "done"), clientId: Uuid.random()))
+
+        expect rooms.typing == ["bob", "cy"]
+
+        clock.advance(by: 5.seconds)
+
+        expect rooms.typing.isEmpty
+    }
+
+    test "typing is sent once for a burst of keystrokes" {
+        let room: TestChannel<ChatCommand, ChatEvent, CommandError> = TestChannel()
+        rooms.attach(room.channel)
+
+        await rooms.typed()
+        await rooms.typed()
+
+        expect room.sent == [.typing]
+
+        clock.advance(by: 3.seconds)
+        await rooms.typed()
+
+        expect room.sent == [.typing, .typing]
     }
 
     /// A stored message of `ana`'s, numbered `number`.

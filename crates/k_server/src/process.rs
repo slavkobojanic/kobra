@@ -12,6 +12,13 @@
 //! | rate-limit windows: key → recent calls | `op_k_rate_limit` | 26-auth-and-sessions.md |
 //! | `@State` of `@Scope(.server)` services, as JSON | `op_k_shared_get` / `op_k_shared_set` | 10-services.md |
 //! | keyed broadcasts (`Broadcast<K, V>`) | `op_k_broadcast_*` | 29-server-streaming.md |
+//! | presence leases (`Presence<K, M>`) | `op_k_presence_*` | 44-channels.md |
+//!
+//! **Broadcasts and presence reach other replicas** through
+//! [`crate::replicas`] when the database is Postgres ([`ProcessState::start_replicas`]):
+//! a publish is delivered here at once and sent to the others with
+//! `NOTIFY`, and presence leases live in `k_presence` instead of
+//! [`PresenceTable`].
 //!
 //! **Sessions and rate-limit windows** live in the app's database when the
 //! process has one (the stdlib's `k_session` and `k_rate_limit` tables,
@@ -153,6 +160,107 @@ pub struct ProcessState {
     pub dev_errors: bool,
     /// The open channels and their sockets ([`crate::sockets`]).
     channels: Arc<crate::sockets::Hub>,
+    /// The presence leases of this process, when it has no Postgres.
+    presence: Mutex<PresenceTable>,
+    /// The last presence lease id this state handed out.
+    next_lease: std::sync::atomic::AtomicU64,
+    /// Fan-out to the other replicas, once [`ProcessState::start_replicas`]
+    /// found a Postgres database.
+    replicas: std::sync::OnceLock<Arc<crate::replicas::Replicas>>,
+}
+
+/// The presence leases of one process (44-channels.md, "Presence"), when
+/// they aren't in Postgres: per key, the members in the order they
+/// arrived, each with how many leases hold it.
+#[derive(Debug, Default)]
+struct PresenceTable {
+    /// Each lease's key and member (as its codec JSON).
+    leases: HashMap<u64, (String, String)>,
+    /// Per key, the members present and their lease counts, in arrival
+    /// order.
+    keys: HashMap<String, Vec<(String, usize)>>,
+}
+
+/// A change of presence, as `PresenceChange`'s codec writes it
+/// (`{"case": "joined", "_0": member}`); `member` is JSON text.
+#[must_use]
+pub fn presence_change(case: &str, member: &str) -> String {
+    format!("{{\"case\":\"{case}\",\"_0\":{member}}}")
+}
+
+impl PresenceTable {
+    /// Adds lease `id`; `true` when `member` wasn't present under `key`.
+    fn join(&mut self, id: u64, key: &str, member: &str) -> bool {
+        self.leases.insert(id, (key.to_owned(), member.to_owned()));
+        let members = self.keys.entry(key.to_owned()).or_default();
+        if let Some(m) = members.iter_mut().find(|(m, _)| m == member) {
+            m.1 += 1;
+            false
+        } else {
+            members.push((member.to_owned(), 1));
+            true
+        }
+    }
+
+    /// Ends lease `id`: its key and member when that was the member's last
+    /// lease under the key.
+    fn leave(&mut self, id: u64) -> Option<(String, String)> {
+        let (key, member) = self.leases.remove(&id)?;
+        let members = self.keys.get_mut(&key)?;
+        let i = members.iter().position(|(m, _)| *m == member)?;
+        members[i].1 -= 1;
+        if members[i].1 > 0 {
+            return None;
+        }
+        members.remove(i);
+        if members.is_empty() {
+            self.keys.remove(&key);
+        }
+        Some((key, member))
+    }
+
+    /// Replaces lease `id`'s member: the key and the change to announce,
+    /// as [`presence_change`] arguments.
+    fn update(&mut self, id: u64, member: &str) -> Option<(String, &'static str, String)> {
+        let (key, old) = self.leases.get(&id).cloned()?;
+        if old == member {
+            return None;
+        }
+        self.leases.insert(id, (key.clone(), member.to_owned()));
+        let members = self.keys.get_mut(&key)?;
+        let i = members.iter().position(|(m, _)| *m == old)?;
+        let exists = members.iter().position(|(m, _)| m == member);
+        members[i].1 -= 1;
+        let old_gone = members[i].1 == 0;
+        match (old_gone, exists) {
+            (true, None) => {
+                // The member changed in place: it keeps its arrival order.
+                members[i] = (member.to_owned(), 1);
+                Some((key, "updated", member.to_owned()))
+            }
+            (true, Some(j)) => {
+                members[j].1 += 1;
+                members.remove(i);
+                Some((key, "left", old))
+            }
+            (false, None) => {
+                members.push((member.to_owned(), 1));
+                Some((key, "joined", member.to_owned()))
+            }
+            (false, Some(j)) => {
+                members[j].1 += 1;
+                None
+            }
+        }
+    }
+
+    /// The members under `key` in arrival order.
+    fn members(&self, key: &str) -> Vec<String> {
+        self.keys
+            .get(key)
+            .map(|ms| ms.iter().map(|(m, _)| m.clone()).collect())
+            .unwrap_or_default()
+    }
 }
 
 impl Default for ProcessState {
@@ -235,7 +343,33 @@ impl ProcessState {
             fetch_origins: Vec::new(),
             dev_errors: false,
             channels: Arc::new(crate::sockets::Hub::default()),
+            presence: Mutex::new(PresenceTable::default()),
+            next_lease: std::sync::atomic::AtomicU64::new(1),
+            replicas: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Starts fan-out to the other replicas when the process's database is
+    /// Postgres ([`crate::replicas`]): broadcasts and presence then reach
+    /// every replica sharing the database. Without Postgres it does
+    /// nothing, and both stay in this process. Idempotent.
+    pub fn start_replicas(self: &Arc<Self>, timings: crate::replicas::ReplicaTimings) {
+        let Some(db) = self.database().filter(|d| d.is_postgres()) else {
+            return;
+        };
+        if self.replicas.get().is_some() {
+            return;
+        }
+        let replicas = crate::replicas::Replicas::new(db, Arc::downgrade(self), timings);
+        if self.replicas.set(Arc::clone(&replicas)).is_ok() {
+            replicas.start();
+        }
+    }
+
+    /// The fan-out to other replicas, once started.
+    #[must_use]
+    pub fn replicas(&self) -> Option<Arc<crate::replicas::Replicas>> {
+        self.replicas.get().cloned()
     }
 
     /// This state with `database` as the process's database.
@@ -523,15 +657,9 @@ impl ProcessState {
         db.session_statement(k_db::stdlib::session_sql::DELETE_USER, vec![key])
             .await
             .map_err(|e| e.to_string())?;
-        let mut subscribers = lock(&self.subscribers);
-        for s in subscribers.values_mut().filter(|s| {
-            s.session
-                .as_deref()
-                .is_some_and(|t| ids.contains(&token_hash(t)))
-        }) {
-            s.closed = true;
-            s.queue.clear();
-            s.notify.notify_one();
+        self.close_sessions_here(&ids);
+        if let Some(r) = self.replicas.get() {
+            r.sessions_ended(ids.iter().cloned().collect());
         }
         Ok(ids.len())
     }
@@ -756,9 +884,19 @@ impl ProcessState {
         (id, notify)
     }
 
-    /// Publishes `json` to every subscriber of `key`. A subscriber with
-    /// [`BROADCAST_BACKLOG`] undelivered elements is closed instead.
+    /// Publishes `json` to every subscriber of `key`: here at once, and on
+    /// the other replicas through [`crate::replicas`] when it runs.
     pub fn publish(&self, key: &str, json: &str) {
+        self.deliver(key, json);
+        if let Some(r) = self.replicas.get() {
+            r.publish(key, json);
+        }
+    }
+
+    /// Delivers `json` to every subscriber of `key` in this process. A
+    /// subscriber with [`BROADCAST_BACKLOG`] undelivered elements is
+    /// closed instead.
+    pub fn deliver(&self, key: &str, json: &str) {
         let mut subscribers = lock(&self.subscribers);
         for s in subscribers
             .values_mut()
@@ -802,7 +940,8 @@ impl ProcessState {
     }
 
     /// Closes every broadcast subscriber opened under `session` and wakes it,
-    /// so its stream ends (the session ended or expired).
+    /// so its stream ends (the session ended or expired), here and on the
+    /// other replicas.
     fn close_session_streams(&self, session: &str) {
         let mut subscribers = lock(&self.subscribers);
         for s in subscribers
@@ -813,6 +952,79 @@ impl ProcessState {
             s.queue.clear();
             s.notify.notify_one();
         }
+        drop(subscribers);
+        if let Some(r) = self.replicas.get() {
+            r.sessions_ended(vec![token_hash(session)]);
+        }
+    }
+
+    /// Closes the subscribers opened under the sessions whose token hashes
+    /// are `hashes`, in this process only: another replica ended them.
+    pub fn close_sessions_here(&self, hashes: &BTreeSet<String>) {
+        let mut subscribers = lock(&self.subscribers);
+        for s in subscribers.values_mut().filter(|s| {
+            s.session
+                .as_deref()
+                .is_some_and(|t| hashes.contains(&token_hash(t)))
+        }) {
+            s.closed = true;
+            s.queue.clear();
+            s.notify.notify_one();
+        }
+    }
+
+    // ------------------------------------------------------------ presence
+
+    /// Adds `member` (its codec JSON) under `key` and returns the lease's
+    /// id; the member's first lease announces `joined` on `key`'s
+    /// broadcast. With Postgres the lease is stored by the database task,
+    /// in the order of the calls, and announced from there.
+    pub fn presence_join(&self, key: &str, member: &str) -> u64 {
+        let id = self
+            .next_lease
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if let Some(r) = self.replicas.get() {
+            r.presence_join(id, key, member);
+            return id;
+        }
+        let joined = lock(&self.presence).join(id, key, member);
+        if joined {
+            self.publish(key, &presence_change("joined", member));
+        }
+        id
+    }
+
+    /// Replaces lease `id`'s member and announces the change.
+    pub fn presence_update(&self, id: u64, member: &str) {
+        if let Some(r) = self.replicas.get() {
+            r.presence_update(id, member);
+            return;
+        }
+        let change = lock(&self.presence).update(id, member);
+        if let Some((key, case, m)) = change {
+            self.publish(&key, &presence_change(case, &m));
+        }
+    }
+
+    /// Ends lease `id`; the member's last lease announces `left`.
+    /// Idempotent.
+    pub fn presence_leave(&self, id: u64) {
+        if let Some(r) = self.replicas.get() {
+            r.presence_leave(id);
+            return;
+        }
+        let left = lock(&self.presence).leave(id);
+        if let Some((key, member)) = left {
+            self.publish(&key, &presence_change("left", &member));
+        }
+    }
+
+    /// The members under `key` (codec JSON), each once, in arrival order.
+    pub async fn presence_members(&self, key: &str) -> Vec<String> {
+        if let Some(r) = self.replicas.get() {
+            return r.presence_members(key).await;
+        }
+        lock(&self.presence).members(key)
     }
 }
 
