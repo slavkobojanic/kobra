@@ -19,6 +19,7 @@
 //! | `op_k_rate_limit` | `(key, limit, windowMs, nowMs) => Promise<retryAfterSeconds>` (0: allowed; `nowMs` a test's virtual time, else negative) | `RateLimit` |
 //! | `op_k_shared_get` / `op_k_shared_set` | `(key) => json \| null`, `(key, json)` | `@Scope(.server)` state |
 //! | `op_k_broadcast_subscribe` / `_publish` / `_next` / `_close` | keyed broadcasts | `Broadcast` |
+//! | `op_k_channel_send` / `op_k_channel_close` | `(id, json) => boolean`, `(id, reason) => void` | channels (`k:runtime/app`) |
 //! | `op_k_db_query` | `(statement, params, tx) => Promise<row[]>`, a row a value list in select order | repositories |
 //! | `op_k_db_execute` | `(statement, params, tx) => Promise<{count} \| {unique: field}>` | repository writes |
 //! | `op_k_db_begin` / `op_k_db_finish` | `() => Promise<tx>`, `(tx, commit) => Promise<void>` | `Database.transaction` |
@@ -74,6 +75,10 @@ pub struct JsRequest {
     /// For a background job's run (never an HTTP request): which job and
     /// attempt. The body is then the payload JSON.
     pub job: Option<JobRun>,
+    /// For a channel event (never an HTTP request): what happened to which
+    /// channel ([`crate::sockets`]). The path is then the rpc's, and the
+    /// body the open's request or the message, as JSON.
+    pub channel: Option<crate::sockets::ChannelRun>,
 }
 
 /// A background job's run, delivered to a worker isolate like a request
@@ -140,6 +145,9 @@ pub struct PendingRequest {
     pub remote: String,
     /// A job run instead of an HTTP request ([`JobRun`]).
     pub job: Option<JobRun>,
+    /// A channel event instead of an HTTP request
+    /// ([`crate::sockets::ChannelRun`]).
+    pub channel: Option<crate::sockets::ChannelRun>,
     /// Where the response goes.
     pub reply: oneshot::Sender<WorkerResponse>,
 }
@@ -337,6 +345,7 @@ async fn op_k_next_request(state: Rc<RefCell<OpState>>) -> Result<Option<JsReque
         headers: request.headers,
         body: request.body.into(),
         job: request.job,
+        channel: request.channel,
         remote: request.remote,
     }))
 }
@@ -727,6 +736,23 @@ async fn op_k_broadcast_next(state: Rc<RefCell<OpState>>, id: f64) -> serde_json
 #[op2(fast)]
 fn op_k_broadcast_close(state: &mut OpState, id: f64) {
     process(state).unsubscribe(id as u64);
+}
+
+/// Sends server message `json` on channel `id` ([`crate::sockets::Hub::send`]):
+/// `false` once the channel is gone, or was dropped because its outgoing
+/// buffer overflowed, so the isolate ends it.
+#[op2(fast)]
+fn op_k_channel_send(state: &mut OpState, id: f64, #[string] json: &str) -> bool {
+    process(state).channels().send(id as u64, json)
+}
+
+/// Closes channel `id` from the server: `reason` is `byServer` (its sending
+/// stream ended) or `sessionEnded`.
+#[op2(fast)]
+fn op_k_channel_close(state: &mut OpState, id: f64, #[string] reason: &str) {
+    let reason = crate::channels::CloseReason::from_name(reason)
+        .unwrap_or(crate::channels::CloseReason::ByServer);
+    process(state).channels().close(id as u64, reason);
 }
 
 /// The head of a streamed response.
@@ -1130,6 +1156,8 @@ deno_core::extension!(
         op_k_respond_start,
         op_k_respond_chunk,
         op_k_respond_end,
+        op_k_channel_send,
+        op_k_channel_close,
         op_k_server_info,
         op_k_now,
         op_k_random_token,

@@ -154,6 +154,10 @@ pub struct ServerOptions {
     /// mapped to `.k` lines ([`crate::stack`]); `k run` and `k dev` set
     /// it, `dist/app` never does (server.md §15).
     pub dev_errors: bool,
+    /// The channels' limits ([`crate::sockets::ChannelLimits`]); `None`
+    /// reads them from [`ServerOptions::config`] (`ChannelConfig`), with the
+    /// design's defaults for the rest. Tests shorten them.
+    pub channels: Option<crate::sockets::ChannelLimits>,
 }
 
 impl ServerOptions {
@@ -179,6 +183,7 @@ impl ServerOptions {
             fetch_origins: Vec::new(),
             inspect: None,
             dev_errors: false,
+            channels: None,
         }
     }
 }
@@ -224,6 +229,23 @@ pub struct Server {
     thread: Option<std::thread::JoinHandle<Result<(), ServerError>>>,
 }
 
+/// The worker isolates' request queues; cleared at shutdown, which closes
+/// every queue.
+struct WorkerQueues(std::sync::RwLock<Vec<mpsc::UnboundedSender<PendingRequest>>>);
+
+impl crate::sockets::Workers for WorkerQueues {
+    fn send_to(&self, index: usize, request: PendingRequest) -> bool {
+        match self.0.read() {
+            Ok(workers) => workers.get(index).is_some_and(|w| w.send(request).is_ok()),
+            Err(_) => false,
+        }
+    }
+
+    fn count(&self) -> usize {
+        self.0.read().map_or(0, |w| w.len())
+    }
+}
+
 /// What every connection task of a [`Server`] shares.
 struct Shared {
     /// The front's checks ([`front::check`]).
@@ -233,7 +255,9 @@ struct Shared {
     /// The static assets, by request path.
     assets: HashMap<String, StaticAsset>,
     /// Cleared at shutdown, which closes every worker's queue.
-    workers: std::sync::RwLock<Vec<mpsc::UnboundedSender<PendingRequest>>>,
+    workers: Arc<WorkerQueues>,
+    /// The channels' WebSocket front ([`crate::sockets`]).
+    channels: Arc<crate::sockets::Front>,
     /// Round-robin counter picking the worker for the next request.
     next: AtomicUsize,
     /// `K_TRUSTED_PROXIES`: whose `X-Forwarded-For` names the client.
@@ -403,6 +427,9 @@ async fn handle(
     remote: SocketAddr,
     request: Request<Incoming>,
 ) -> Result<Response<Body>, std::convert::Infallible> {
+    if request.uri().path() == crate::channels::PATH {
+        return Ok(finish(channel_upgrade(&shared, remote, request), true));
+    }
     let method = request.method().as_str().to_owned();
     let path = request
         .uri()
@@ -513,7 +540,7 @@ async fn handle(
     };
     let client = client_address(&shared, remote, &headers);
     let (reply, response) = oneshot::channel::<WorkerResponse>();
-    let sent = match shared.workers.read() {
+    let sent = match shared.workers.0.read() {
         Ok(workers) if !workers.is_empty() => {
             let n = shared.next.fetch_add(1, Ordering::Relaxed) % workers.len();
             workers[n]
@@ -524,6 +551,7 @@ async fn handle(
                     body,
                     remote: client.to_string(),
                     job: None,
+                    channel: None,
                     reply,
                 })
                 .is_ok()
@@ -572,6 +600,79 @@ async fn handle(
     Ok(finish(r, rpc))
 }
 
+/// The handshake of the channels' WebSocket (`GET /_k/channels`,
+/// 44-channels.md): the checks of [`crate::sockets::check_handshake`]
+/// (`403` for another origin, `400` without an upgrade or the subprotocol),
+/// `503` while shutting down, then `101` and the socket served by
+/// [`crate::sockets::Front::serve`] once hyper hands the connection over.
+fn channel_upgrade(
+    shared: &Arc<Shared>,
+    remote: SocketAddr,
+    mut request: Request<Incoming>,
+) -> Response<Body> {
+    let headers: Vec<(String, String)> = request
+        .headers()
+        .iter()
+        .map(|(n, v)| {
+            let value = String::from_utf8_lossy(v.as_bytes()).into_owned();
+            let value = match &shared.session_cookie {
+                Some(public) if *n == hyper::header::COOKIE => {
+                    front::to_runtime_cookies(&value, public)
+                }
+                _ => value,
+            };
+            (n.as_str().to_ascii_lowercase(), value)
+        })
+        .collect();
+    let accept = match crate::sockets::check_handshake(
+        request.method().as_str(),
+        &headers,
+        &shared.policy.public_origin,
+    ) {
+        Ok(accept) => accept,
+        Err(refused) => return simple(refused.status, "text/plain; charset=utf-8", refused.body),
+    };
+    if shared.channels.stopping() {
+        return simple(
+            503,
+            "text/plain; charset=utf-8",
+            "the server is shutting down",
+        );
+    }
+    let client = client_address(shared, remote, &headers);
+    let accepted = crate::sockets::Accepted {
+        headers,
+        remote: client.to_string(),
+        public_origin: shared.policy.public_origin.clone(),
+    };
+    let upgrade = hyper::upgrade::on(&mut request);
+    let channels = Arc::clone(&shared.channels);
+    tokio::spawn(async move {
+        if let Ok(upgraded) = upgrade.await {
+            channels.serve(TokioIo::new(upgraded), accepted).await;
+        }
+    });
+    let mut r = Response::new(Full::new(Bytes::new()).boxed());
+    *r.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
+    let h = r.headers_mut();
+    h.insert(
+        hyper::header::UPGRADE,
+        hyper::header::HeaderValue::from_static("websocket"),
+    );
+    h.insert(
+        hyper::header::CONNECTION,
+        hyper::header::HeaderValue::from_static("Upgrade"),
+    );
+    if let Ok(v) = hyper::header::HeaderValue::try_from(accept) {
+        h.insert(hyper::header::SEC_WEBSOCKET_ACCEPT, v);
+    }
+    h.insert(
+        hyper::header::SEC_WEBSOCKET_PROTOCOL,
+        hyper::header::HeaderValue::from_static(crate::channels::SUBPROTOCOL),
+    );
+    r
+}
+
 impl Server {
     /// Starts the workers, binds the address and starts serving. Returns
     /// once the listener is bound and every worker isolate has started.
@@ -599,9 +700,14 @@ impl Server {
             ),
             None => None,
         };
+        let limits = options
+            .channels
+            .clone()
+            .unwrap_or_else(|| crate::sockets::ChannelLimits::from_config(&options.config));
         let mut process = ProcessState::new(options.public_origin.clone(), options.config.clone())
             .with_fetch_origins(options.fetch_origins.clone())
-            .with_dev_errors(options.dev_errors);
+            .with_dev_errors(options.dev_errors)
+            .with_channel_limits(limits);
         if let Some(setup) = options.database.clone() {
             // Migrations run before any worker starts or the port opens:
             // a failure leaves the previous release serving elsewhere.
@@ -639,6 +745,7 @@ impl Server {
             senders.push(tx);
             worker_threads.push(handle);
         }
+        let queues = Arc::new(WorkerQueues(std::sync::RwLock::new(senders)));
         let shared = Arc::new(Shared {
             policy: FrontPolicy {
                 rpc_paths: options.bundle.rpc_paths.clone(),
@@ -655,7 +762,11 @@ impl Server {
                 .iter()
                 .map(|a| (a.path.clone(), a.clone()))
                 .collect(),
-            workers: std::sync::RwLock::new(senders),
+            workers: Arc::clone(&queues),
+            channels: Arc::new(crate::sockets::Front {
+                hub: process.channels(),
+                workers: queues,
+            }),
             next: AtomicUsize::new(0),
             proxies,
             warned_forwarding: AtomicBool::new(false),
@@ -676,7 +787,7 @@ impl Server {
                 o.log = options.log;
                 let to = Arc::clone(&shared);
                 let dispatch: crate::jobs::Dispatch =
-                    Arc::new(move |request| match to.workers.read() {
+                    Arc::new(move |request| match to.workers.0.read() {
                         Ok(workers) if !workers.is_empty() => {
                             let n = to.next.fetch_add(1, Ordering::Relaxed) % workers.len();
                             workers[n].send(request).is_ok()
@@ -728,7 +839,7 @@ impl Server {
                 }
                 // Closing the queues ends every worker's `serve()` once the
                 // requests already queued are answered.
-                if let Ok(mut w) = shared.workers.write() {
+                if let Ok(mut w) = shared.workers.0.write() {
                     w.clear();
                 }
                 for w in worker_threads {
@@ -819,8 +930,11 @@ impl Drop for Server {
 }
 
 /// Accepts connections until `stop` fires, serving each over HTTP/1.1 with
-/// the header read timeout ([`front::HEADER_READ_TIMEOUT`]), then waits up
-/// to `grace` for open connections to finish.
+/// the header read timeout ([`front::HEADER_READ_TIMEOUT`]) and upgrades
+/// (the channels' socket), then shuts down within `grace`: the channels'
+/// sockets close with "going away" and their running receive functions
+/// finish ([`crate::sockets::Front::shut_down`]), open streams end, and
+/// open connections finish their requests.
 ///
 /// # Errors
 ///
@@ -834,35 +948,48 @@ async fn accept_loop(
 ) -> Result<(), ServerError> {
     let listener = tokio::net::TcpListener::from_std(listener)
         .map_err(|e| ServerError::Bind(e.to_string()))?;
-    let graceful = hyper_util::server::graceful::GracefulShutdown::new();
+    // hyper-util's `GracefulShutdown` can't watch a connection with
+    // upgrades, so each connection task watches this signal itself.
+    let (shutting_down, signal) = tokio::sync::watch::channel(false);
+    let mut connections = tokio::task::JoinSet::new();
     loop {
         tokio::select! {
             accepted = listener.accept() => {
                 let Ok((stream, peer)) = accepted else { continue };
                 let shared = Arc::clone(&shared);
                 let service = service_fn(move |req| handle(Arc::clone(&shared), peer, req));
-                // A timer gives the connection a header read timeout, so a
-                // client that never finishes its headers is dropped.
-                let connection = http1::Builder::new()
-                    .timer(TokioTimer::new())
-                    .header_read_timeout(front::HEADER_READ_TIMEOUT)
-                    .serve_connection(TokioIo::new(stream), service);
-                let watched = graceful.watch(connection);
-                tokio::spawn(async move {
-                    let _ = watched.await;
+                let mut signal = signal.clone();
+                connections.spawn(async move {
+                    // A timer gives the connection a header read timeout, so
+                    // a client that never finishes its headers is dropped.
+                    let connection = http1::Builder::new()
+                        .timer(TokioTimer::new())
+                        .header_read_timeout(front::HEADER_READ_TIMEOUT)
+                        .serve_connection(TokioIo::new(stream), service)
+                        .with_upgrades();
+                    tokio::pin!(connection);
+                    tokio::select! {
+                        _ = connection.as_mut() => return,
+                        _ = signal.changed() => connection.as_mut().graceful_shutdown(),
+                    }
+                    let _ = connection.await;
                 });
             }
+            Some(_) = connections.join_next(), if !connections.is_empty() => {}
             _ = &mut stop => break,
         }
     }
     drop(listener);
+    let deadline = tokio::time::Instant::now() + grace;
+    shared.channels.shut_down(grace).await;
     // A stream never finishes by itself: end them now, so the grace period
     // only waits for ordinary requests.
     shared.close_streams();
-    tokio::select! {
-        () = graceful.shutdown() => {}
-        () = tokio::time::sleep(grace) => {}
-    }
+    let _ = shutting_down.send(true);
+    let _ = tokio::time::timeout_at(deadline, async {
+        while connections.join_next().await.is_some() {}
+    })
+    .await;
     Ok(())
 }
 

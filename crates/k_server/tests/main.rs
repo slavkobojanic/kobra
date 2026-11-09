@@ -30,6 +30,7 @@ mod viewgen;
 
 mod browser;
 mod cancellation;
+mod channel_server;
 mod channels;
 mod client_bundle;
 mod config;

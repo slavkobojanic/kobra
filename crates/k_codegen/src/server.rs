@@ -1636,6 +1636,138 @@ pub(crate) fn rpc_paths(g: &Gen<'_>) -> Vec<String> {
     out.into_iter().collect()
 }
 
+/// The rpc table entry's `error`: how a thrown error of type `t` (the
+/// rpc's `throws`, or a channel's refusal) is described in a Connect error
+/// (`{name, text(e), fields(e)}`), or `null` for `RpcOnlyError` and no
+/// error type.
+fn error_info(b: &mut Body<'_, '_>, t: Option<&Type>, rpc_only: Option<DeclId>) -> Expr {
+    let g = b.g;
+    let Some(t) = t else { return Expr::Null };
+    let Some(d) = t.decl() else { return Expr::Null };
+    if Some(d) == rpc_only {
+        return Expr::Null;
+    }
+    let di = g.view.decl(d);
+    let name = format!("{}.{}", package_of(g, d), di.name);
+    let text = b.text_fn(t);
+    // A Codable error's fields are its codec's form, which the client stub
+    // decodes with the same codec.
+    let fields = if crate::codec::has_codec(g, d) {
+        let c = crate::codec::codec_expr(b, t);
+        js::arrow(
+            vec![Param::new("e")],
+            call(
+                member(id("$k"), "payloadFields"),
+                vec![id("e"), member(c, "encode")],
+            ),
+        )
+    } else {
+        member(id("$k"), "payloadFields")
+    };
+    Expr::Object(
+        vec![
+            Prop::KeyValue("name".into(), js::str(name)),
+            Prop::KeyValue("text".into(), text),
+            Prop::KeyValue("fields".into(), fields),
+        ],
+        false,
+    )
+}
+
+/// `(f) => E.rpcFailure(f)` for an error enum `t`, else `null`.
+fn failure_fn(b: &mut Body<'_, '_>, t: Option<&Type>) -> Expr {
+    match t.and_then(Type::decl) {
+        Some(e) if b.g.view.decl(e).named_kind() == Some(DeclarationKind::Enum) => {
+            let r = b.decl_ref(e);
+            js::arrow(
+                vec![Param::new("f")],
+                call(member(r, "rpcFailure"), vec![id("f")]),
+            )
+        }
+        _ => Expr::Null,
+    }
+}
+
+/// The client-message (`C`), server-message (`S`) and refusal (`E`) types of a
+/// `Channel<C, S, E>`, if `t` is one (44-channels.md).
+pub(crate) fn channel_types(g: &Gen<'_>, t: &Type) -> Option<(Type, Type, Type)> {
+    let c = g.view.lookup("k.rpc.Channel")?;
+    if t.decl() != Some(c) {
+        return None;
+    }
+    let a = t.args();
+    let at = |i: usize| a.get(i).cloned().unwrap_or(Type::Error);
+    Some((at(0), at(1), at(2)))
+}
+
+/// The `channel` part of a channel rpc's table entry (44-channels.md,
+/// `k:runtime/app` "channels"): `decode(j)` of a client message (`C`'s
+/// codec), `validate(m, c, $c)` of a `Validatable` one, `encode(v)` of a
+/// server message (`S`'s codec: a message's `value` in a frame is its
+/// codec's JSON), the refusal `E`'s `error` and `failure` as for an rpc's
+/// error, and `close(name)`, the `ChannelClose` case of a close reason, for
+/// the handler's `closed` function.
+fn channel_entry(
+    b: &mut Body<'_, '_>,
+    received: &Type,
+    sent: &Type,
+    refusal: &Type,
+    rpc_only: Option<DeclId>,
+    helpers: &mut Vec<Stmt>,
+    done: &mut BTreeSet<DeclId>,
+) -> Expr {
+    let g = b.g;
+    let decode_codec = crate::codec::codec_expr(b, received);
+    let decode = js::arrow(
+        vec![Param::new("j")],
+        call(
+            member(decode_codec, "decode"),
+            vec![id("j"), js::str("message")],
+        ),
+    );
+    let checks = nested_checks(b, received, id("m"), js::str("message"), helpers, done, 0);
+    let validate = if checks.is_empty() {
+        Expr::Null
+    } else {
+        let mut body = vec![Stmt::Const("f".into(), Expr::Array(Vec::new()))];
+        body.extend(checks);
+        body.push(Stmt::Return(Some(id("f"))));
+        js::arrow_block(
+            vec![Param::new("m"), Param::new("c"), Param::new("$c")],
+            body,
+            true,
+        )
+    };
+    let encode_codec = crate::codec::codec_expr(b, sent);
+    let encode = js::arrow(
+        vec![Param::new("v")],
+        call(member(encode_codec, "encode"), vec![id("v")]),
+    );
+    let error = error_info(b, Some(refusal), rpc_only);
+    let failure = failure_fn(b, Some(refusal));
+    let close = match g.view.lookup("k.rpc.ChannelClose") {
+        Some(cc) => {
+            let r = b.decl_ref(cc);
+            js::arrow(
+                vec![Param::new("n")],
+                Expr::Index(Box::new(r), Box::new(id("n"))),
+            )
+        }
+        None => js::arrow(vec![Param::new("n")], id("n")),
+    };
+    Expr::Object(
+        vec![
+            Prop::KeyValue("decode".into(), decode),
+            Prop::KeyValue("validate".into(), validate),
+            Prop::KeyValue("encode".into(), encode),
+            Prop::KeyValue("error".into(), error),
+            Prop::KeyValue("failure".into(), failure),
+            Prop::KeyValue("close".into(), close),
+        ],
+        true,
+    )
+}
+
 /// The rpc table: path → handler spec.
 fn rpc_table(b: &mut Body<'_, '_>, helpers: &mut Vec<Stmt>) -> Expr {
     let g = b.g;
@@ -1683,54 +1815,19 @@ fn rpc_table(b: &mut Body<'_, '_>, helpers: &mut Vec<Stmt>) -> Expr {
             let ret = sig.as_ref().map(|s| s.ret.clone()).unwrap_or(Type::Error);
             let (stream, encode) = match stream_element(g, &ret) {
                 Some(el) => (true, result_encoder(b, &el)),
+                None if channel_types(g, &ret).is_some() => (false, Expr::Null),
                 None => (false, result_encoder(b, &ret)),
             };
-            let error = match sig.as_ref().and_then(|s| s.throws.clone()) {
-                Some(t) if t.decl().is_some() && t.decl() != rpc_only => {
-                    let d = t.decl().unwrap_or(p);
-                    let di = g.view.decl(d);
-                    let name = format!("{}.{}", package_of(g, d), di.name);
-                    let text = b.text_fn(&t);
-                    // A Codable error's fields are its codec's form, which
-                    // the client stub decodes with the same codec.
-                    let fields = if crate::codec::has_codec(g, d) {
-                        let c = crate::codec::codec_expr(b, &t);
-                        js::arrow(
-                            vec![Param::new("e")],
-                            call(
-                                member(id("$k"), "payloadFields"),
-                                vec![id("e"), member(c, "encode")],
-                            ),
-                        )
-                    } else {
-                        member(id("$k"), "payloadFields")
-                    };
-                    Expr::Object(
-                        vec![
-                            Prop::KeyValue("name".into(), js::str(name)),
-                            Prop::KeyValue("text".into(), text),
-                            Prop::KeyValue("fields".into(), fields),
-                        ],
-                        false,
-                    )
-                }
-                _ => Expr::Null,
-            };
+            let throws = sig.as_ref().and_then(|s| s.throws.clone());
+            let error = error_info(b, throws.as_ref(), rpc_only);
             // `(f) => E.rpcFailure(f)`: an `RpcFailure` as the rpc's own
             // error, for in-process calls (`$s.callLocal`).
-            let failure = match sig
-                .as_ref()
-                .and_then(|s| s.throws.clone())
-                .and_then(|t| t.decl())
-            {
-                Some(e) if g.view.decl(e).named_kind() == Some(DeclarationKind::Enum) => {
-                    let r = b.decl_ref(e);
-                    js::arrow(
-                        vec![Param::new("f")],
-                        call(member(r, "rpcFailure"), vec![id("f")]),
-                    )
+            let failure = failure_fn(b, throws.as_ref());
+            let channel = match channel_types(g, &ret) {
+                Some((client, server, refusal)) => {
+                    channel_entry(b, &client, &server, &refusal, rpc_only, helpers, &mut done)
                 }
-                _ => Expr::Null,
+                None => Expr::Null,
             };
             let mut gs = match &pnode {
                 Some(n) => in_file(b, p, |b| guards(b, n, &format!("protocol:{}", info.name))),
@@ -1775,6 +1872,7 @@ fn rpc_table(b: &mut Body<'_, '_>, helpers: &mut Vec<Stmt>) -> Expr {
                         Prop::KeyValue("error".into(), error),
                         Prop::KeyValue("failure".into(), failure),
                         Prop::KeyValue("stream".into(), Expr::Bool(stream)),
+                        Prop::KeyValue("channel".into(), channel),
                     ],
                     true,
                 ),
@@ -2368,8 +2466,8 @@ pub(crate) fn stdlib_config_env(g: &Gen<'_>, d: DeclId, field: &str) -> Option<S
 
 /// The stdlib configs the production graph reads: the server's
 /// (`ServerConfig`), sessions' when the app signs users in, the database's
-/// when it has entities or repositories, and the job worker's when it has
-/// jobs.
+/// when it has entities or repositories, the job worker's when it has
+/// jobs, and the channels' when it serves a channel rpc.
 fn stdlib_configs(g: &Gen<'_>) -> Vec<&'static str> {
     let uses = |q: &str| {
         g.view
@@ -2424,6 +2522,24 @@ fn stdlib_configs(g: &Gen<'_>) -> Vec<&'static str> {
     });
     if guarded {
         out.push("k/rpc/ServiceConfig.k");
+    }
+    // The channels' limits when the app serves a channel rpc
+    // (44-channels.md, "Limits and back-pressure"): the server reads them.
+    let serves_channel = g.own.iter().any(|&p| {
+        let info = g.view.decl(p);
+        info.named_kind() == Some(DeclarationKind::Protocol)
+            && implementation(g, p).is_some()
+            && info.members.iter().any(|&m| {
+                let mi = g.view.member(m);
+                mi.kind == MemberKind::Rpc
+                    && mi
+                        .signature
+                        .as_ref()
+                        .is_some_and(|s| channel_types(g, &s.ret).is_some())
+            })
+    });
+    if serves_channel {
+        out.push("k/rpc/ChannelConfig.k");
     }
     // Any other stdlib config the app's code injects itself
     // (`@Inject let service: ServiceConfig`).

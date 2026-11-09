@@ -31,6 +31,9 @@ rustls.workspace = true
 regex.workspace = true
 # Stack traces mapped to `.k` lines through the bundle's maps (`stack.rs`).
 sourcemap.workspace = true
+# The channels' WebSocket front (`sockets.rs`).
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 
 [lints]
 workspace = true
@@ -44,6 +47,8 @@ k_codegen.workspace = true
 proptest.workspace = true
 arbitrary.workspace = true
 toml.workspace = true
+# The raw WebSocket client of the channel tests (`tests/channel_server.rs`).
+tungstenite.workspace = true
 
 [[test]]
 name = "it"

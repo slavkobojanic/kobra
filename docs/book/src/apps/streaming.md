@@ -71,6 +71,7 @@ public service NoteChanges {
 |---|---|
 | `filter { … }`, `map { … }` | lazily transformed streams |
 | `startingWith(value)` | a stream that yields `value` first, then the elements of this one |
+| `Stream.merge(first, second)` | a stream of the elements of both as they arrive, ending when both have (one handler following two broadcasts) |
 | `next() async -> T?` | the next element, or `nil` once the stream has ended |
 
 ## Reading a stream: `for await`

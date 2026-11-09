@@ -73,6 +73,13 @@ oxc_codegen = "=0.155.0"
 # tree through deno_core), k_server symbolicates logged traces, and the
 # codegen tests decode the generated maps with it as an independent check.
 sourcemap = "=9.3.2"
+# The channels' WebSocket (k_server `sockets.rs`, docs/design/44-channels.md):
+# the server's framing over hyper's upgraded connection, and the tests' raw
+# client. Pinned exactly, like every protocol implementation the wire
+# depends on.
+tungstenite = { version = "=0.29.0", default-features = false, features = ["handshake"] }
+tokio-tungstenite = { version = "=0.29.0", default-features = false, features = ["handshake"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 
 [workspace.lints.rust]
 missing_docs = "warn"

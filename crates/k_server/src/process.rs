@@ -151,6 +151,8 @@ pub struct ProcessState {
     /// [`crate::ServerOptions::dev_errors`]: a failed request's 500 shows
     /// its stack trace, mapped to `.k` lines.
     pub dev_errors: bool,
+    /// The open channels and their sockets ([`crate::sockets`]).
+    channels: Arc<crate::sockets::Hub>,
 }
 
 impl Default for ProcessState {
@@ -232,6 +234,7 @@ impl ProcessState {
             database: None,
             fetch_origins: Vec::new(),
             dev_errors: false,
+            channels: Arc::new(crate::sockets::Hub::default()),
         }
     }
 
@@ -248,6 +251,18 @@ impl ProcessState {
     pub fn with_fetch_origins(mut self, origins: Vec<(String, String)>) -> ProcessState {
         self.fetch_origins = origins;
         self
+    }
+
+    /// Enforces `limits` on channels ([`crate::sockets::ChannelLimits`]).
+    #[must_use]
+    pub fn with_channel_limits(mut self, limits: crate::sockets::ChannelLimits) -> ProcessState {
+        self.channels = Arc::new(crate::sockets::Hub::new(limits));
+        self
+    }
+
+    /// The process's channels ([`crate::sockets::Hub`]).
+    pub fn channels(&self) -> Arc<crate::sockets::Hub> {
+        Arc::clone(&self.channels)
     }
 
     /// Shows failed requests' stack traces on their 500 page

@@ -352,6 +352,7 @@ async fn run_one(dispatch: &Dispatch, job: &ClaimedJob) -> serde_json::Value {
             name: job.name.clone(),
             attempt: job.attempt,
         }),
+        channel: None,
         reply,
     });
     if !sent {

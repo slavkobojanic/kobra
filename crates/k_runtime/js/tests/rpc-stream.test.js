@@ -11,6 +11,7 @@
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import { rpc } from "k:runtime";
 import { streamed } from "k:/runtime/streams.js";
+import { PushStream, streamMerge } from "k:/runtime/std.js";
 
 /** One Connect envelope: flags, big-endian length, the JSON. */
 function envelope(flags, value) {
@@ -193,4 +194,27 @@ test("leaving a for await loop closes the stream", async () => {
   }
   await tick();
   assert(s.state.cancelled, "break closed the stream");
+});
+
+test("Stream.merge yields both streams' elements as they arrive and ends after both", async () => {
+  const a = new PushStream();
+  const b = new PushStream();
+  let closed = 0;
+  a.close = () => closed++;
+  b.close = () => closed++;
+  const merged = streamMerge(a, b);
+  const first = merged.next();
+  b.push("b1");
+  assertEq(await first, "b1");
+  a.push("a1");
+  a.push("a2");
+  assertEq(await merged.next(), "a1");
+  assertEq(await merged.next(), "a2");
+  a.push(null);
+  b.push("b2");
+  assertEq(await merged.next(), "b2");
+  b.push(null);
+  assertEq(await merged.next(), null);
+  merged.close();
+  assertEq(closed, 2, "closing the merge closes both sources");
 });

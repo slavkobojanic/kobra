@@ -796,6 +796,21 @@ pub(crate) fn construct(
             )
         }
         "k.rpc.Broadcast" => Expr::New(Box::new(member(id("$k"), "Broadcast")), vec![]),
+        // A channel rpc's handler builds the channel it returns: the server
+        // runtime pumps `sending` and runs `receiving` for each client
+        // message (`k:runtime/app`, "channels"). Only the handler builds
+        // one (K5512), so this is server code.
+        "k.rpc.Channel" => Expr::Object(
+            vec![
+                js::Prop::KeyValue("sending".into(), a0),
+                js::Prop::KeyValue("closed".into(), args.get(1).cloned().unwrap_or(Expr::Null)),
+                js::Prop::KeyValue(
+                    "receiving".into(),
+                    args.get(2).cloned().unwrap_or(Expr::Null),
+                ),
+            ],
+            false,
+        ),
         "k.http.HttpResponse" => http_native(b, "HttpResponse", "init", vec![a0]),
         "k.core.Secret" => Expr::New(Box::new(member(id("$k"), "Secret")), vec![a0]),
         _ => return None,
@@ -943,6 +958,7 @@ pub(crate) fn static_call(
                 vec![call(member(id("$s"), "remote"), parts)],
             )
         }
+        ("k.core.Stream", "merge") => rt("streamMerge", args),
         ("k.core.Result", "of") => {
             let r = b.g.b.result.map(|r| b.decl_ref(r)).unwrap_or(Expr::Null);
             rt("resultOf", vec![a0, r])

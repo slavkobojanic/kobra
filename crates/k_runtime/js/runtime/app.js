@@ -210,6 +210,8 @@ export class RequestState {
     const controller = typeof AbortController === "function" ? new AbortController() : null;
     /** The request's cancellation signal (`$c`). */
     this.signal = controller ? controller.signal : null;
+    /** Aborts {@link RequestState#signal}: a channel's request ends when the channel closes. */
+    this.abort = controller ? () => controller.abort() : () => {};
   }
 
   /** The request container, created on first use. */
@@ -657,6 +659,7 @@ async function handleRpc(st, rpc) {
     const stack = devStack(e);
     return connectError(500, "internal", stack === null ? "internal error" : `internal error: ${stack}`);
   }
+  if (rpc.channel) return { channel: result };
   if (rpc.stream) return { stream: result, encode: rpc.encode };
   return respond(200, JSON_TYPE, stringify(rpc.encode(result)));
 }
@@ -786,6 +789,217 @@ function closeStream(stream) {
   for (let s = stream, n = 0; s && n < 64; s = s.source, n++) {
     if (typeof s.close === "function") s.close();
   }
+}
+
+// ---------------------------------------------------------------- channels
+
+/** The path of the channels' WebSocket (44-channels.md); the Rust front serves it. */
+const CHANNELS_PATH = "/_k/channels";
+
+/**
+ * The channels open in this isolate, by the id the Rust front gave them:
+ * `{st, rpc, value, done, stop, watch}`, where `value` is what the handler
+ * returned (`{sending, closed, receiving}`), `done` is set once it closed
+ * and `stop()` wakes its sending pump.
+ * @type {Map<number, object>}
+ */
+const openChannels = new Map();
+
+/**
+ * Handles one channel event the Rust front hands over like a request
+ * (`request.channel`: `{kind, id, seq, reason}`; 44-channels.md, "The
+ * server: one handler run per channel"). The front pins a channel to this
+ * isolate, sends its events in order and waits for each `msg`'s answer
+ * before sending the next, so messages of one channel are handled one at a
+ * time. The answer is `{"ok": true}` or `{"error": refusal}`, a refusal
+ * being the Connect error body the same failure answers over HTTP (with
+ * `retryAfter` in seconds for a rate limit), which the browser decodes
+ * like an rpc's (`rpcError`).
+ * @param {object} spec
+ * @param {object} request
+ * @returns {Promise<object>} the response for the front
+ */
+async function runChannel(spec, request) {
+  const ev = request.channel;
+  let out;
+  try {
+    if (ev.kind === "open") out = await openChannel(spec, request, ev.id);
+    else if (ev.kind === "msg") out = await channelMessage(ev.id, request.body);
+    else {
+      endChannel(ev.id, ev.reason);
+      out = { ok: true };
+    }
+  } catch (e) {
+    ops?.op_k_log?.("error", `channel ${ev.id}: panic in the channel runtime: ${e && e.stack ? e.stack : String(e)}`);
+    out = { error: { code: "internal", message: "internal error" } };
+  }
+  return respond(200, JSON_TYPE, stringify(out));
+}
+
+/**
+ * The refusal carried by a Connect error response: its body, with the
+ * `Retry-After` header as `retryAfter` (seconds).
+ * @param {{headers: Array<[string, string]>, body: string|Uint8Array}} r
+ * @returns {object}
+ */
+function refusalOf(r) {
+  let body;
+  try {
+    body = JSON.parse(typeof r.body === "string" ? r.body : utf8(r.body));
+  } catch {
+    body = { code: "internal", message: "internal error" };
+  }
+  if (body === null || typeof body !== "object") body = { code: "unknown", message: String(r.body) };
+  const retry = r.headers.find(([n]) => n === "retry-after")?.[1];
+  if (retry !== undefined) body.retryAfter = Number(retry);
+  // A raw text refusal (a front check) as a Connect error.
+  if (typeof body.code !== "string") body = { code: "invalid_argument", message: String(r.body) };
+  return body;
+}
+
+/**
+ * Opens channel `id`: the rpc's decode, validation, guards and handler,
+ * exactly as for an rpc over HTTP, under the session of the socket's
+ * cookie. A refusal answers `{error}`; an opened channel starts pumping its
+ * `sending` stream.
+ * @param {object} spec
+ * @param {object} request the open event: `path` the method, `body` the request message
+ * @param {number} id
+ */
+async function openChannel(spec, request, id) {
+  const rpc = Object.hasOwn(spec.rpcs, request.path) ? spec.rpcs[request.path] : null;
+  if (!rpc || !rpc.channel) return { error: { code: "unimplemented", message: `${request.path} is not a channel rpc of this app` } };
+  const st = new RequestState(spec, { ...request, method: "POST", channel: null });
+  await st.load();
+  const r = await handleRpc(st, rpc);
+  if (!r.channel) return { error: refusalOf(r) };
+  const value = r.channel;
+  if (value === null || typeof value !== "object" || typeof value.sending?.next !== "function" || typeof value.receiving !== "function") {
+    logPanic(st, "a channel", new KPanic("the handler didn't return a channel"));
+    return { error: { code: "internal", message: "internal error" } };
+  }
+  /** @type {() => void} */
+  let stop = () => {};
+  const stopped = new Promise((resolve) => (stop = () => resolve(STOPPED)));
+  const entry = { st, rpc, value, done: false, stop, stopped, watch: null };
+  openChannels.set(id, entry);
+  pumpChannel(id, entry);
+  return { ok: true };
+}
+
+/** What a stopped channel's pump wakes up with. */
+const STOPPED = {};
+
+/**
+ * Sends a channel's `sending` stream to the front (`op_k_channel_send`)
+ * until it ends (`byServer`), the channel's session ends (`sessionEnded`,
+ * on whichever worker that happens), the front drops the channel (its
+ * outgoing buffer overflowed) or the channel is closed from outside.
+ * @param {number} id
+ * @param {object} entry
+ */
+async function pumpChannel(id, entry) {
+  const { st, rpc, value } = entry;
+  const sid = st.liveSessionId();
+  entry.watch = sid ? ops.op_k_broadcast_subscribe(`k.session|${sid}`, sid) : null;
+  const ENDED = {};
+  let ended = new Promise(() => {});
+  if (entry.watch !== null) {
+    const p = ops.op_k_broadcast_next(entry.watch);
+    unref(p);
+    ended = p.then(() => ENDED);
+  }
+  /** @type {string|null} the close reason to send; `null` when the front already dropped it */
+  let reason = "byServer";
+  try {
+    for (;;) {
+      const v = await Promise.race([value.sending.next(), ended, entry.stopped]);
+      if (entry.done || v === STOPPED) return;
+      if (v === ENDED) {
+        reason = "sessionEnded";
+        break;
+      }
+      if (v === null || v === undefined) break;
+      if (!ops.op_k_channel_send(id, stringify(rpc.channel.encode(v)))) {
+        reason = null;
+        break;
+      }
+    }
+  } catch (e) {
+    logPanic(st, "a channel's sending stream", e);
+  }
+  if (entry.done) return;
+  if (reason !== null) ops.op_k_channel_close(id, reason);
+  endChannel(id, reason ?? "byClient");
+}
+
+/**
+ * Ends channel `id` in this isolate: stops its pump, closes its streams and
+ * session watch, aborts its request (running receive functions stop at
+ * their next `await`) and runs the handler's `closed` function with
+ * `reason`, best-effort. Idempotent.
+ * @param {number} id
+ * @param {string} reason a `ChannelClose` case name
+ */
+function endChannel(id, reason) {
+  const entry = openChannels.get(id);
+  if (!entry || entry.done) return;
+  entry.done = true;
+  openChannels.delete(id);
+  entry.stop();
+  closeStream(entry.value.sending);
+  if (entry.watch !== null) ops.op_k_broadcast_close(entry.watch);
+  entry.st.abort();
+  const closed = entry.value.closed;
+  if (typeof closed === "function") {
+    try {
+      closed(entry.rpc.channel.close(reason));
+    } catch (e) {
+      logPanic(entry.st, "a channel's closed function", e);
+    }
+  }
+}
+
+/**
+ * Handles one client message of channel `id`: decode, validation, then
+ * the handler's receiving function in the channel's request container.
+ * Answers once it has returned, so the acknowledgement follows any
+ * transaction it committed. Sending a message slides the session's idle
+ * timeout, as an rpc does.
+ * @param {number} id
+ * @param {Uint8Array} body the message's JSON
+ * @returns {Promise<object>}
+ */
+async function channelMessage(id, body) {
+  const entry = openChannels.get(id);
+  if (!entry || entry.done) return { error: { code: "unavailable", message: "the channel is closed" } };
+  const { st, rpc, value } = entry;
+  const ch = rpc.channel;
+  let message;
+  try {
+    message = ch.decode(JSON.parse(utf8(body)));
+  } catch (e) {
+    if (e instanceof DecodeFailure) return { error: { code: "invalid_argument", message: `${e.path}: ${e.message}` } };
+    return { error: { code: "invalid_argument", message: "the message is not JSON" } };
+  }
+  if (ch.validate) {
+    const failures = await ch.validate(message, st.c, st.signal);
+    if (failures.length) return { error: { code: "invalid_argument", message: "the message is invalid", details: [{ type: "k.ValidationError", debug: { failures } }] } };
+  }
+  if (st.sessionId && ops?.op_k_session_get) await ops.op_k_session_get(st.sessionId);
+  try {
+    await value.receiving(st.signal, message);
+  } catch (e) {
+    if (isTypedError(e) && ch.error) {
+      const detail = { type: "k.TypedError", debug: { error: ch.error.name, case: ch.error.text(e), fields: ch.error.fields(e) } };
+      return { error: { code: "failed_precondition", message: `${ch.error.name}.${ch.error.text(e)}`, details: [detail] } };
+    }
+    if (entry.done) return { error: { code: "unavailable", message: "the channel is closed" } };
+    logPanic(st, "a channel's receiving function", e);
+    const stack = devStack(e);
+    return { error: { code: "internal", message: stack === null ? "internal error" : `internal error: ${stack}` } };
+  }
+  return { ok: true };
 }
 
 /**
@@ -1304,6 +1518,7 @@ async function handlePage(st, r, params) {
 export function createApp(spec) {
   return async (request) => {
     if (request.job) return runJob(spec, request);
+    if (request.channel) return runChannel(spec, request);
     const st = new RequestState(spec, request);
     try {
       await st.load();
@@ -1364,6 +1579,8 @@ async function dispatch(st) {
   const spec = st.spec;
   const path = st.url.pathname;
   if (Object.hasOwn(spec.rpcs, path)) {
+    // A channel opens on the channels' socket, never over HTTP.
+    if (spec.rpcs[path].channel) return finish(st, respond(415, TEXT, `a channel rpc opens on ${CHANNELS_PATH}`), true);
     const r = await handleRpc(st, spec.rpcs[path]);
     if (r.stream) {
       pumpStream(st, r);

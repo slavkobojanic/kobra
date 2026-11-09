@@ -1,0 +1,6 @@
+# Channels (docs/design/44-channels.md): channel rpcs served over the
+# `/_k/channels` WebSocket, driven from crates/k_server/tests/channel_server.rs
+# with a raw WebSocket client.
+[package]
+name = "chans"
+k = "0.1"

@@ -8,7 +8,10 @@
 //!   preconditions ([`front`]), and hands every other request to a worker
 //!   isolate running the app's server bundle.
 //! * [`channels`]: the frames of `k.channel.v1`, the channels' WebSocket
-//!   protocol, as pure JSON and Protobuf encode and decode (no socket yet).
+//!   protocol, as pure JSON and Protobuf encode and decode.
+//! * [`sockets`]: the channels' WebSocket front at `/_k/channels`: the
+//!   handshake checks, heartbeats, limits, resume and the hand-over of
+//!   channel events to the worker isolates.
 //! * [`config`]: reading `config` declarations from the environment and
 //!   `NAME_FILE` secret files, validated all at once and redacted.
 //! * [`process`]: the state every worker of a server process shares
@@ -93,6 +96,7 @@ pub mod ops;
 pub mod outbound;
 pub mod process;
 pub mod proxy;
+pub mod sockets;
 pub mod stack;
 pub mod testing;
 

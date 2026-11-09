@@ -26,6 +26,7 @@ Contents:
 17. [Performance budgets](#17-performance-budgets)
 18. [Outgoing HTTP and email](#18-outgoing-http-and-email)
 19. [Debugging the server](#19-debugging-the-server)
+20. [Channels](#20-channels)
 
 ---
 
@@ -45,6 +46,7 @@ Contents:
 | Background jobs: `DatabaseJobQueue`, the jobs worker, retries, schedules | `jobs`, `db`, `k_db::stdlib` | **implemented** ([§11](#11-background-jobs)) |
 | Outgoing HTTP (`FetchHttpClient`) and SMTP email (`SmtpEmailProvider`) | `outbound`, `ops` | **implemented** ([§18](#18-outgoing-http-and-email)) |
 | In-process rpc calls during SSR: guards and validation | `k:runtime/app` (`callLocal`) | **implemented** ([§6](#6-rpc-dispatch)) |
+| Channels: the WebSocket at `/_k/channels`, heartbeats, limits, resume, the channel runtime | `sockets`, `channels`, `k:runtime/app` | **implemented** in one process ([§20](#20-channels)); JSON frames only, no fan-out across replicas yet |
 | V8 snapshot | — | v0 target, not yet built (cold start is already within budget without it) |
 
 **Deferred:** binary Protobuf (`application/proto` is `415` in v0), client and bidirectional streaming,
@@ -113,6 +115,7 @@ compatibility check of `k check` (the compiler already reads job names from the 
 | `fakes::{FakeHttp, FakeRoute, RecordedRequest, FakeSmtp, SmtpBehavior, ReceivedMail}` | Fake third parties for tests ([testing.md §8.3](testing.md#83-fake-third-parties)). |
 | `db::ProcessDatabase::{open_with, enqueue_job, claim_jobs, finish_job, list_jobs, requeue_job, claim_schedule, …}` | The stdlib tables' operations; `open_with(setup, false)` opens without migrating (`jobs list`). |
 | `ops::hmac(bits, key, message)` | HMAC-SHA-256/512 (RFC 2104), behind `op_k_hmac`. |
+| `ServerOptions { channels }`, `sockets::{ChannelLimits, Hub, check_handshake, Refusal, ChannelRun, FRAME_ALLOWANCE}` | The channels' limits (`None`: `ChannelLimits::from_config`, the stdlib's `ChannelConfig`), the process's channels (`ProcessState::channels`), the handshake checks, the event a worker receives ([§20](#20-channels)). |
 
 **One engine per thread.** An `Engine` is not `Send`, and at most one may be alive on a thread (V8 enters
 one isolate per thread); servers and test drivers create one per thread.
@@ -166,6 +169,7 @@ Ops are the only way server JavaScript reaches Rust (`Deno.core.ops.*`):
 | `op_k_rate_limit` | `(key, limit, windowMs, nowMs) => Promise<retryAfterSeconds>` (`0` allowed) | implemented: sliding window per key, in `k_rate_limit` with a database; with `nowMs ≥ 0` (a test's virtual time) counted exactly in memory |
 | `op_k_shared_get` / `op_k_shared_set` | `(key) => json \| null`, `(key, json)` | implemented: `.server` service state |
 | `op_k_broadcast_subscribe` / `_publish` / `_next` / `_close` | keyed broadcasts | implemented: a subscriber with 1,000 undelivered elements, or whose session ends, is closed |
+| `op_k_channel_send` / `op_k_channel_close` | `(id, json) => boolean` (`false`: the channel is gone, or its outgoing buffer just overflowed), `(id, reason) => void` (`byServer`, `sessionEnded`) | implemented ([§20](#20-channels)) |
 | `op_k_sleep` | `(ms, signal) => Promise<void>` | v0: cancellable |
 | `op_k_db_query` | `(statement, params, tx) => Promise<row[]>` (a row: values in select order; `tx` 0: none) | implemented ([db.md §6](db.md#6-drivers-the-manifest-and-ops)) |
 | `op_k_db_execute` | `(statement, params, tx) => Promise<{count} \| {unique: field}>` | implemented |
@@ -180,8 +184,9 @@ Ops are the only way server JavaScript reaches Rust (`Deno.core.ops.*`):
 | `op_k_smtp_send` | `(settings, message) => Promise<outcome>` | implemented ([§18](#18-outgoing-http-and-email)) |
 
 The request handed to JavaScript is `{ id, method, path, headers: [[name, value]…] (lower case, in order),
-body: Uint8Array, remote, job }` (`remote` the peer's IP address; `job` is `null` for HTTP and
-`{name, attempt}` for a job run, whose body is the payload JSON, [§11](#11-background-jobs)); the response is `{ status, headers: [[name, value]…], body: string | Uint8Array }`.
+body: Uint8Array, remote, job, channel }` (`remote` the peer's IP address; `job` is `null` for HTTP and
+`{name, attempt}` for a job run, whose body is the payload JSON, [§11](#11-background-jobs); `channel` is
+`null` for HTTP and `{kind, id, seq, reason}` for a channel event, [§20](#20-channels)); the response is `{ status, headers: [[name, value]…], body: string | Uint8Array }`.
 
 ---
 
@@ -585,11 +590,14 @@ get `no-cache`. `HEAD` sends no body. Precompressed variants (brotli/gzip chosen
   listener.
   `Server::start` returns only after every isolate has started. Each applied migration is logged as
   `applied migration <name>`.
-- **Shutdown** (`SIGTERM`/`SIGINT` in `run_until_signal`, or `Server::shutdown`): stop accepting; **end
+- **Shutdown** (`SIGTERM`/`SIGINT` in `run_until_signal`, or `Server::shutdown`): stop accepting; close
+  every channel socket with "going away" and end every channel, waiting within the grace for the
+  receiving functions running now ([§20](#20-channels)); **end
   every open streamed response** (each `ChunkBody` also polls a closer that `Shared::close_streams`
   drops, and a stream opened after that ends at once), since a stream never finishes by itself and
   the client re-subscribes when one ends; let open connections finish their in-flight requests
-  through hyper's graceful shutdown, for at most `K_SHUTDOWN_GRACE` (default 25 s); then stop the jobs worker ([§11](#11-background-jobs)); then close
+  through hyper's graceful shutdown (each connection task watches a shutdown signal, since hyper-util's
+  `GracefulShutdown` can't watch a connection with upgrades), for at most `K_SHUTDOWN_GRACE` (default 25 s); then stop the jobs worker ([§11](#11-background-jobs)); then close
   the worker queues, so each `serve()` returns once the
   requests already queued are answered; join the workers; exit 0. A worker whose entry module failed is
   reported as `ServerError::Worker`.
@@ -756,3 +764,78 @@ and `Bytes.parse(base64:)` are server natives. The shop's Stripe webhook verific
 `.k` files through the maps (`k:/_k/src/<path>`); `k_cli/tests/debugging.rs` sets one in an rpc handler
 over the protocol, calls the rpc and checks the paused `.k` line and the K locals in scope.
 
+---
+
+## 20. Channels
+
+Design: [44-channels.md](../design/44-channels.md). The Rust half is `sockets.rs` (the front and the
+process's `Hub`) over the frame codec of `channels.rs`; the JavaScript half is the "channels" part of
+`k:runtime/app`. Everything runs in one process: a resume works only on the replica that has the
+channel, and `Broadcast` fans out in-process (Postgres `NOTIFY` between replicas is a later slice).
+
+```text
+GET /_k/channels ── Origin = K_PUBLIC_ORIGIN? (403) ── upgrade + k.channel.v1? (400) ── 503 at shutdown ── 101
+  socket task (tokio): frames ◀▶ Hub (sequence numbers, buffers, tokens, limits) ── pinned worker
+    open ─▶ worker: decode, validate, guards, handler ─▶ {"ok"} | {"error"} ─▶ opened | refused
+    msg  ─▶ the channel's pump ─▶ worker: decode, validate, receiving(m) ─▶ ack (after it returned)
+    the handler's sending stream ─▶ op_k_channel_send ─▶ buffer ─▶ msg frames
+```
+
+- **The handshake** (`sockets::check_handshake`, unit-tested): `Origin` must equal `K_PUBLIC_ORIGIN`,
+  checked first (`403`); then `GET` with `Upgrade: websocket`, `Connection: upgrade`,
+  `Sec-WebSocket-Version: 13` and a key, and `k.channel.v1` among the offered subprotocols (`400`).
+  The upgrade needs no session: guards run per open, under the session of the handshake's cookie, which
+  every open and message of the socket carries (the front's own cookie renaming applies). While shutting
+  down the handshake answers `503`.
+- **Pinning.** A socket is pinned to the worker with the fewest open channels (ties: fewest sockets,
+  then the lowest index). A channel lives on the worker it opened on; a resume on another socket keeps
+  it there. Channel events go through the worker's request queue as requests with
+  `channel: {kind, id, seq, reason}` (`ChannelRun`); `createApp` hands them to the channel runtime, which
+  keeps each open channel's `RequestState` (its container, session and signal) in a map by id.
+- **Open** (`kind: "open"`, the path the rpc's, the body the `request` JSON): `handleRpc` exactly as over
+  HTTP, which for a `channel` entry returns the handler's `{sending, closed, receiving}`. The answer is
+  `{"ok": true}`, or `{"error": e}` where `e` is the Connect error body the same refusal answers over
+  HTTP (`failed_precondition` with a `k.TypedError` detail, `unauthenticated`, `invalid_argument`, …),
+  plus `retryAfter` in seconds for a rate limit, so the browser decodes it with `rpcError`. The front
+  then sends `opened {ch, resume}` and the messages the handler already sent, or `refused {ch, error}`.
+  A channel rpc called over HTTP is `415`.
+- **Messages** (`kind: "msg"`): each channel has a pump task that sends its client messages to the
+  worker one at a time and acknowledges each with the answer (`ack {ch, seq}` or with `error`, a
+  refusal as above: `E` thrown by the receiving function, `invalid_argument` for a message that doesn't
+  decode or validate). The answer is sent after the receiving function returned, so after any
+  `database.transaction` in it committed. A message slides the session's idle timeout
+  (`op_k_session_get`). A message out of sequence closes the socket (`1002`); one at or below the
+  highest accepted is a re-send after a resume: its remembered acknowledgement (the last 64) is sent
+  again and it is not handled again.
+- **The sending pump** reads `sending` and calls `op_k_channel_send` per element (`S`'s codec JSON); the
+  front numbers it, keeps it in the channel's outgoing buffer until a `rcvd` confirms it, and sends it
+  while the channel is attached. The pump ends when the stream ends (`close {reason: byServer}`), when the
+  channel's session ends (the `k.session|<id>` broadcast, as for streams: `close {reason:
+  sessionEnded}` and, once per socket, `session {user: null}`), or when the front dropped the channel.
+- **Ending a channel** in the isolate closes its sending stream (and its sources), its session watch,
+  aborts its request signal and calls `closed(ChannelClose)` best-effort: `byClient` after the
+  client's `close` frame or when the resume window passed, `byServer` at shutdown.
+- **Resume.** A socket that drops (or goes silent) detaches its channels for the resume window. `resume
+  {ch, token, received}` on any socket of the same session cookie reattaches the channel under the new
+  number: the buffer is trimmed to `received`, `opened` is sent again and the rest replayed. A token
+  that is unknown, past its window, dropped by an overflow or another session's is `refused {ch,
+  error: {code: "not_found"}}`, so the client restarts the channel. Tokens are
+  `<process tag>.<worker>.<id>.<128 random bits>`; `sent` isn't used yet.
+- **Limits** (`ChannelLimits`, from `ChannelConfig` when the app serves a channel rpc, so `dist/app
+  config` lists `K_CHANNEL_*`): a text frame over `max_message` plus 1 KiB of envelope closes the socket
+  (`1009`) before decoding (tungstenite's own cap is 4 KiB above that); a binary frame closes it
+  (`1003`): v0 speaks JSON frames only, as rpcs are JSON only. A token bucket per channel (`rate` a
+  second, bursts of `burst`) refuses messages over it with `resource_exhausted` and `retryAfter`
+  without running the receiving function. Over 32 channels on a socket, or on a socket over the 16 of
+  its session, an open is refused the same way. An outgoing buffer over 1,000 messages or 4 MB drops
+  the channel (its token forgotten) and closes the socket (`1013 k.overflow`); the socket's other
+  channels resume.
+- **Heartbeats.** The socket task sends `{"beat":{}}` every `heartbeat` and closes a socket that sent
+  nothing for `silence` (`4000 k.silent`). Any frame, ping or pong counts.
+- **Shutdown** (`Front::shut_down`): new handshakes get `503`; every socket is closed with `1001` and
+  the reason `k.retry=<ms>`, a delay drawn from 0–5 s for the client's reconnect; every channel is ended
+  in its isolate; then shutdown waits, within the grace, until no receiving function is running.
+
+Tests: `crates/k_server/tests/channel_server.rs` drives `tests/projects/channels` with a raw
+`tungstenite` client; the handshake checks and `ChannelLimits::from_config` have unit tests in
+`sockets.rs`.

@@ -2169,6 +2169,76 @@ export function streamStartingWith(s, v) {
   return new MappedStream(s, (x) => ({ keep: true, value: x }), [v]);
 }
 
+/**
+ * `Stream.merge(_:_:)`: the elements of both streams as they arrive; ends
+ * once both have ended (44-channels.md). Closing it closes both sources.
+ */
+class MergedStream {
+  /**
+   * @param {{next: () => Promise<unknown>, close?: () => void}} first
+   * @param {{next: () => Promise<unknown>, close?: () => void}} second
+   */
+  constructor(first, second) {
+    this.sources = [first, second];
+    /** @type {Array<Promise<{i: number, v: unknown}>|null>} each source's pending read */
+    this.pending = [null, null];
+    this.ended = [false, false];
+  }
+  /**
+   * The next element of either source, in arrival order; `null` once both ended.
+   * @returns {Promise<unknown>}
+   */
+  async next() {
+    for (;;) {
+      const reads = [];
+      for (let i = 0; i < 2; i++) {
+        if (this.ended[i]) continue;
+        this.pending[i] ??= this.sources[i].next().then((v) => ({ i, v }));
+        reads.push(this.pending[i]);
+      }
+      if (reads.length === 0) return null;
+      const { i, v } = await Promise.race(reads);
+      this.pending[i] = null;
+      if (v === null || v === undefined) {
+        this.ended[i] = true;
+        continue;
+      }
+      return v;
+    }
+  }
+  /** Closes both sources. */
+  close() {
+    for (const s of this.sources) closeChain(s);
+  }
+  /**
+   * Iterates the stream with `for await`.
+   * @returns {AsyncIterator<unknown>}
+   */
+  [Symbol.asyncIterator]() {
+    return iterate(this);
+  }
+}
+
+/**
+ * Closes a stream and the streams it is mapped from (their `source`).
+ * @param {unknown} stream
+ */
+function closeChain(stream) {
+  for (let s = /** @type {any} */ (stream), n = 0; s && n < 64; s = s.source, n++) {
+    if (typeof s.close === "function") s.close();
+  }
+}
+
+/**
+ * `Stream.merge(_:_:)`.
+ * @param {{next: Function}} first
+ * @param {{next: Function}} second
+ * @returns {MergedStream}
+ */
+export function streamMerge(first, second) {
+  return new MergedStream(first, second);
+}
+
 /** `k.rpc.Broadcast`: publishes values to the subscribers of a key. */
 export class Broadcast {
   /** Creates a broadcast without subscribers. */

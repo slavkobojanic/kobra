@@ -1401,6 +1401,11 @@ An asynchronous sequence that is read once, with `for await`
 - `func startingWith(_ value: T) -> Stream<T>`
   Returns a stream that yields `value` first, then the elements of
   this one.
+- `static func merge(_ first: Stream<T>, _ second: Stream<T>) -> Stream<T>`
+  Returns a stream that yields the elements of `first` and `second`
+  as they arrive, and ends once both have ended: a channel's
+  `sending` stream from several broadcasts
+  (`docs/design/44-channels.md`).
 - `func next() async -> T?`
   Waits for the next element.
 

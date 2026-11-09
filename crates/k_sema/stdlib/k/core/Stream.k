@@ -10,6 +10,11 @@ public struct Stream<T> {
     /// Returns a stream that yields `value` first, then the elements of
     /// this one.
     func startingWith(_ value: T) -> Stream<T>
+    /// Returns a stream that yields the elements of `first` and `second`
+    /// as they arrive, and ends once both have ended: a channel's
+    /// `sending` stream from several broadcasts
+    /// (`docs/design/44-channels.md`).
+    static func merge(_ first: Stream<T>, _ second: Stream<T>) -> Stream<T>
     /// Waits for the next element.
     ///
     /// - Returns: the element, or `nil` once the stream has ended.

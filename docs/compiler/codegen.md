@@ -944,7 +944,7 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
   `unauthenticated`/`permission_denied`/`resource_exhausted` → `rpcFailure(.rejected(…))`; `offline` and
   `timeout` → the network cases; `internal`, `unimplemented`, an undecodable body → a panic (a server bug,
   not a domain outcome).
-- **Server dispatch.** One table `{ path → { guards, decode, validate, call, encode, error, failure, stream } }` in
+- **Server dispatch.** One table `{ path → { guards, decode, validate, call, encode, error, failure, stream, channel } }` in
   the server entry: `decode(j)` reads each parameter's internal name with its codec, `async validate(a, c,
   $c)` calls a generated `async X$check(value, path, failures, c, $c)` for every `Validatable` value in a
   parameter (the parameter itself, inside optionals, and each element of a list or set under
@@ -970,6 +970,16 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
   a `new $s.ServerBroadcast(name, T$codec)`, so a publish on any worker reaches every subscriber, and the
   element crosses isolates in its codec's encoding and comes out decoded, with its types (before, it
   crossed as structural JSON, and an element with a `Date` or a `Uuid` field broke the stream).
+- `Channel<C, S, E>` channel rpcs ([44-channels.md](../design/44-channels.md)): `encode: null` and
+  `channel: { decode, validate, encode, error, failure, close }`, where `decode(j)` is `C`'s codec on the
+  message (`"message"` as the path), `async validate(m, c, $c)` checks a `Validatable` `C` like a
+  parameter, `encode(v)` is `S`'s codec (a frame's `value` is the codec's JSON, `{"case": "posted",
+  "text": …}` for an enum, not wrapped in `{value}`), `error` and `failure` describe the refusal `E` as
+  for an rpc's error, and `close(name)` is the `ChannelClose` case of a reason name, for the handler's
+  `closed` function; other rpcs have `channel: null`. `Channel(sending:closed:receiving:)` in a handler
+  is the plain object `{ sending, closed, receiving }` (`closed` `undefined` when left out), which the
+  server runtime pumps ([server.md §20](server.md#20-channels)). `Stream.merge(a, b)` is
+  `$k.streamMerge(a, b)` on both sides.
 - **Remote clients** ([40-workspaces-and-services.md](../design/40-workspaces-and-services.md)). The
   server emits `P$remote` for every protocol the app calls in another service and doesn't implement
   (`Gen::remote_protocols`: the targets of `use remote(…) for P` rules and the result types of

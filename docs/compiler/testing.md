@@ -1698,6 +1698,13 @@ concurrent clients, graceful shutdown with a request in flight, and start-up fai
 fixation, `x-k-session`, `Retry-After`, `k-data` as JSON, streaming envelopes, body limits, the split on
 served assets, the config table, `dist/app` built by `k build` and run as a process); its harness
 serves projects like the e2e one. One test there is pending (stream back-pressure, see server.md §16).
+`crates/k_server/tests/channel_server.rs` drives the channels' WebSocket (server.md §20) with a raw
+`tungstenite` client (pinned exactly) against `tests/projects/channels` on two workers and a SQLite
+database: open and snapshot, acknowledgement after commit, refusals, in-order handling with
+per-channel state, resume without loss or duplicates, the handshake's `Origin` and subprotocol checks,
+the size, rate, socket and session limits, heartbeats and the silence close, buffer overflow, the
+resume window, `Stream.merge`, session end and shutdown. Each test shortens the limits it exercises
+through `ServerOptions::channels`.
 - **Real browser:** with a Chrome or Chromium executable available, `crates/k_cli/tests/chrome.rs` drives
   it through the DevTools protocol from Rust (§4.4); the tests skip with a message when no browser is
   found, unless `K_REQUIRE_CHROME=1`.
