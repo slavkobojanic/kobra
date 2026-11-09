@@ -33,7 +33,7 @@
 
 import { batch, flush, onCleanup, root, signal } from "../runtime/signals.js";
 import { KPanic, equals, isPanic, unitCase } from "../runtime/values.js";
-import { Instant, PushStream, httpCode, stringify } from "../runtime/std.js";
+import { Instant, PushStream, Secret, httpCode, stringify } from "../runtime/std.js";
 import { HttpResponse$isSuccess, HttpResponse$json, HttpResponse$text } from "../runtime/http.js";
 import { received } from "../runtime/outbound.js";
 import { hasNative, native as browserNative } from "../runtime/services.js";
@@ -1378,6 +1378,56 @@ export function memoryStorage(R, W) {
     stopFailing() {
       readError = null;
       writeError = null;
+    },
+  };
+}
+
+/**
+ * `k.test.MemoryKeyStore`: `KeyStore` in memory (33-crypto.md, "Testing"),
+ * empty for every test. Keys are kept as they are (the ops backend's
+ * values); `failAll` makes every `get`, `put` and `delete` throw its
+ * error until `stopFailing`. `requestPersistence` answers `persistence`,
+ * `.persistent` (`unitCase(0)`) unless set.
+ */
+export function memoryKeyStore() {
+  const keys = new Map();
+  let error = null;
+  let persistence = unitCase(0);
+  const check = () => {
+    if (error !== null) throw error;
+  };
+  /** The name of a `KeyName`, the call's last argument. */
+  const nameOf = (a) => String(a[a.length - 1].name);
+  return {
+    get names() {
+      return [...keys.keys()].sort();
+    },
+    get persistence() {
+      return persistence;
+    },
+    async get(...a) {
+      check();
+      return keys.get(nameOf(a)) ?? null;
+    },
+    async put(_c, key, name) {
+      check();
+      keys.set(String(name.name), key instanceof Secret ? key.reveal() : key);
+    },
+    async delete(...a) {
+      check();
+      keys.delete(nameOf(a));
+    },
+    async requestPersistence(_c) {
+      return persistence;
+    },
+    failAll(e) {
+      error = e;
+    },
+    stopFailing() {
+      error = null;
+    },
+    setPersistence(p) {
+      persistence = p;
     },
   };
 }

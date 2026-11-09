@@ -22,6 +22,7 @@ export {
   clock,
   config,
   configEnum,
+  configKey,
   configSecret,
   createApp,
   header,

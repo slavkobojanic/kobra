@@ -35,8 +35,9 @@ fn run(body: &str) -> String {
     .expect("engine");
     let code = format!(
         "import * as c from \"k:/runtime/crypto.js\";\n\
+         import {{ cryptoOps }} from \"k:/runtime/crypto-ops.js\";\n\
          import {{ codecs, utf8 }} from \"k:runtime\";\n\
-         c.useOps(Deno.core.ops);\n\
+         c.useOps(cryptoOps(Deno.core.ops));\n\
          let n = 0;\n\
          globalThis.crypto = {{ getRandomValues: (a) => {{ for (let i = 0; i < a.length; i++) a[i] = n++ & 255; return a; }} }};\n\
          const out = [];\n\

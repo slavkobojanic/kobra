@@ -731,6 +731,9 @@ codes! {
     /// A WebSocket handshake header is set in code that may run in the browser.
     HANDSHAKE_HEADER_ON_CLIENT = 4031, "handshake-header-on-client", Error,
         "A WebSocket handshake header (`WebSocketRequest`'s `headers`, `secretHeaders` or `bearerToken`) is set in code that may run in the browser, which can't send headers on a handshake.";
+    /// A config field holds a secret or private key without `Secret<…>`.
+    BARE_PRIVATE_KEY_IN_CONFIG = 4032, "bare-private-key-in-config", Error,
+        "A config field holds a secret or private key (`AesGcmKey`, `Ed25519PrivateKey`, `EcdsaP256PrivateKey`, `X25519PrivateKey`) that isn't wrapped in `Secret<…>`.";
 
     // ---------------------------------------------------------------- pages and routing
     /// Two pages or endpoints have the same URL.

@@ -8,12 +8,26 @@
  * wire formats, `OpenError`'s cases and the parsing rules.
  */
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
-import { DecodeFailure, Secret, codecs, utf8 } from "k:runtime";
+import { DecodeFailure, Instant, Secret, codecs, utf8 } from "k:runtime";
 import * as c from "k:/runtime/crypto.js";
+import { cryptoOps } from "k:/runtime/crypto-ops.js";
 import vectors from "k:/tests/crypto-vectors.json.js";
-import { checkVectors } from "k:/tests/crypto-vectors.js";
+import { checkJoseVectors, checkVectors } from "k:/tests/crypto-vectors.js";
 
-c.useOps(Deno.core.ops);
+c.useOps(cryptoOps(Deno.core.ops));
+
+/** Bytes as hex. */
+const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+
+/** Whether `f` throws. */
+const throws = (f) => {
+  try {
+    f();
+  } catch {
+    return true;
+  }
+  return false;
+};
 
 /** `OpenError.authenticationFailed`, as the generated enum makes it. */
 const AUTH = { $: 0 };
@@ -219,14 +233,14 @@ test("an ECDSA signature reads from DER", () => {
 });
 
 test("public keys parse by length, and X25519 refuses small-order points", () => {
-  assertEq(c.Ed25519PublicKey$parse(new Uint8Array(31)), null);
-  assert(c.Ed25519PublicKey$parse(new Uint8Array(32)));
-  assertEq(c.EcdsaP256PublicKey$parse(new Uint8Array(65)), null, "not uncompressed");
-  assertEq(c.X25519PublicKey$parse(new Uint8Array(32)), null, "zero");
+  assertEq(c.Ed25519PublicKey$parse$raw(new Uint8Array(31)), null);
+  assert(c.Ed25519PublicKey$parse$raw(new Uint8Array(32)));
+  assertEq(c.EcdsaP256PublicKey$parse$raw(new Uint8Array(65)), null, "not uncompressed");
+  assertEq(c.X25519PublicKey$parse$raw(new Uint8Array(32)), null, "zero");
   const order8 = Uint8Array.from("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b880".match(/../g), (x) => parseInt(x, 16));
-  assertEq(c.X25519PublicKey$parse(order8), null, "with the top bit set too");
+  assertEq(c.X25519PublicKey$parse$raw(order8), null, "with the top bit set too");
   const pub = c.X25519PrivateKey$publicKey(c.TestKeys.x25519(1));
-  assertEq(c.X25519PublicKey$parse(c.X25519PublicKey$raw(pub)), pub);
+  assertEq(c.X25519PublicKey$parse$raw(c.X25519PublicKey$raw(pub)), pub);
   assertEq(c.X25519PublicKey$codec.decode(pub, ""), pub);
 });
 
@@ -278,11 +292,130 @@ test("test keys are the same for the same number and differ between numbers", ()
 
 test("raw secret keys parse and export on the server", () => {
   const raw = new Uint8Array(32).fill(7);
-  const k = c.Ed25519PrivateKey$parse(new Secret(raw));
+  const k = c.Ed25519PrivateKey$parse$raw(new Secret(raw));
   assert(k);
-  assertEq(c.Ed25519PrivateKey$parse(new Secret(new Uint8Array(31))), null);
-  assertEq(c.AesGcmKey$parse(new Secret(new Uint8Array(16))), null, "AES keys are 256 bits");
-  assertEq(c.EcdsaP256PrivateKey$parse(new Secret(new Uint8Array(32))), null, "zero isn't a scalar");
+  assertEq(c.Ed25519PrivateKey$parse$raw(new Secret(new Uint8Array(31))), null);
+  assertEq(c.AesGcmKey$parse$raw(new Secret(new Uint8Array(16))), null, "AES keys are 256 bits");
+  assertEq(c.EcdsaP256PrivateKey$parse$raw(new Secret(new Uint8Array(32))), null, "zero isn't a scalar");
   const e = c.Exportable$exportRaw(c.TestKeys.x25519(1));
   assert(e instanceof Secret);
+});
+
+// ------------------------------------------------- key formats and JOSE
+
+test("the ops backend matches the key-format, RSA and JOSE vectors", async () => {
+  const failures = await checkJoseVectors(c, c.ops, vectors);
+  assertEq(failures.length, 0, failures.slice(0, 10).join("\n"));
+});
+
+test("every key type round-trips through JWK and PEM, and refuses another type's", () => {
+  for (const [kind, type] of [
+    ["ed25519", "Ed25519"],
+    ["x25519", "X25519"],
+    ["ecdsaP256", "EcdsaP256"],
+  ]) {
+    const pub = c[`${type}PrivateKey$publicKey`](c.TestKeys[kind](1));
+    const jwk = c[`${type}PublicKey$jwk`](pub);
+    const pem = c[`${type}PublicKey$pem`](pub);
+    assertEq(c[`${type}PublicKey$parse$jwk`](jwk), pub, jwk);
+    assertEq(c[`${type}PublicKey$parse$pem`](pem), pub, pem);
+    assert(pem.startsWith("-----BEGIN PUBLIC KEY-----\n") && pem.endsWith("-----END PUBLIC KEY-----\n"), pem);
+    for (const other of ["Ed25519", "X25519", "EcdsaP256"].filter((o) => o !== type)) {
+      assertEq(c[`${other}PublicKey$parse$jwk`](jwk), null, `${type} as ${other}`);
+      assertEq(c[`${other}PublicKey$parse$pem`](pem), null, `${type} as ${other}`);
+    }
+  }
+  // A private JWK isn't a public key.
+  assertEq(c.Ed25519PublicKey$parse$jwk(JSON.stringify({ kty: "OKP", crv: "Ed25519", x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo", d: "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A" })), null);
+  // `alg`, `use` and `key_ops` must fit the type when present.
+  const x = "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo";
+  assert(c.Ed25519PublicKey$parse$jwk(JSON.stringify({ kty: "OKP", crv: "Ed25519", x, alg: "EdDSA", use: "sig", key_ops: ["verify"] })));
+  assertEq(c.Ed25519PublicKey$parse$jwk(JSON.stringify({ kty: "OKP", crv: "Ed25519", x, alg: "ES256" })), null);
+  assertEq(c.Ed25519PublicKey$parse$jwk(JSON.stringify({ kty: "OKP", crv: "Ed25519", x, use: "enc" })), null);
+  assertEq(c.Ed25519PublicKey$parse$jwk(JSON.stringify({ kty: "OKP", crv: "Ed25519", x, key_ops: ["encrypt"] })), null);
+  assertEq(c.Ed25519PublicKey$parse$jwk("not json"), null);
+  assertEq(c.Ed25519PublicKey$parse$pem("-----BEGIN PUBLIC KEY-----\nnot base64!\n-----END PUBLIC KEY-----"), null);
+});
+
+test("secret keys import from JWK and PKCS #8, and export as exportable keys", async () => {
+  for (const [kind, type] of [
+    ["ed25519", "Ed25519PrivateKey"],
+    ["x25519", "X25519PrivateKey"],
+    ["ecdsaP256", "EcdsaP256PrivateKey"],
+    ["aesGcm", "AesGcmKey"],
+  ]) {
+    const raw = new Secret(c.ops.exportRaw(c.TestKeys[kind](1)));
+    const e = c.Exportable$parse$raw(type, raw);
+    assert(e && e.exportable, type);
+    const jwk = c.Exportable$exportJwk(e);
+    assert(jwk instanceof Secret, "a Secret");
+    const back = c.Exportable$parse$jwk(type, jwk);
+    assertEq(hex(c.ops.exportRaw(back)), hex(raw.reveal()), `${type} JWK`);
+    assertEq(c[`${type}$parse$jwk`](jwk).exportable, false, "a plain import isn't exportable");
+    if (type === "AesGcmKey") continue;
+    const pem = c.Exportable$exportPem(e);
+    assert(pem.reveal().startsWith("-----BEGIN PRIVATE KEY-----"), pem.reveal());
+    assertEq(hex(c.ops.exportRaw(c[`${type}$parse$pem`](pem))), hex(raw.reveal()), `${type} PEM`);
+    // A JWK whose public half isn't the key's own is refused.
+    const j = JSON.parse(jwk.reveal());
+    j.x = c.b64url(new Uint8Array(32).fill(9));
+    assertEq(c[`${type}$parse$jwk`](new Secret(JSON.stringify(j))), null, `${type} with another public half`);
+  }
+  // A P-256 PKCS #8 as OpenSSL writes it, with the curve and the public key
+  // (RFC 7515 A.3's key), and RFC 8410 §10.3's version 2 Ed25519 key.
+  const p256 = c.EcdsaP256PrivateKey$parse$pem(
+    new Secret("-----BEGIN PRIVATE KEY-----\nMIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQgjpsQnnGQmL+YBIff\nH1136cspYG6+0iY7X1fCE9+E9LKgCgYIKoZIzj0DAQehRANCAAR/zc4ncPbEXUGD\ny+5v20t7WAczNXvp7xO6z248e9FURcfxRM0bvZt+hyzf7bnuufSzaV1uqQskrYpG\nIyiFiOWt\n-----END PRIVATE KEY-----"),
+  );
+  assertEq(c.EcdsaP256PrivateKey$publicKey(p256), c.EcdsaP256PublicKey$parse$jwk(JSON.stringify({ kty: "EC", crv: "P-256", x: "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU", y: "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0" })));
+  const v2 = c.Ed25519PrivateKey$parse$pem(new Secret("-----BEGIN PRIVATE KEY-----\nMHICAQEwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC\noB8wHQYKKoZIhvcNAQkJFDEPDA1DdXJkbGUgQ2hhaXJzgSEAGb9ECWmEzf6FQbrB\nZ9w7lshQhqowtrbLDFw4rXAxZuE=\n-----END PRIVATE KEY-----"));
+  assertEq(c.Ed25519PrivateKey$publicKey(v2), "Gb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE");
+  assert(throws(() => c.Exportable$exportPem(c.Exportable$parse$raw("AesGcmKey", new Secret(new Uint8Array(32))))), "an AES key has no PEM");
+});
+
+test("configured keys parse from a JWK, a PEM or base64url, and never print", () => {
+  const seed = c.b64url(new Uint8Array(32).fill(7));
+  const k = c.keyFromConfig("Ed25519PrivateKey", seed);
+  assertEq(String(k), "Ed25519PrivateKey(•••)");
+  const pub = c.Ed25519PrivateKey$publicKey(k);
+  assertEq(c.keyFromConfig("Ed25519PublicKey", pub), pub);
+  assertEq(c.keyFromConfig("Ed25519PublicKey", c.Ed25519PublicKey$jwk(pub)), pub);
+  assertEq(c.keyFromConfig("Ed25519PublicKey", ` ${c.Ed25519PublicKey$pem(pub)} `), pub);
+  const jwk = c.Exportable$exportJwk(c.Exportable$parse$raw("Ed25519PrivateKey", new Secret(new Uint8Array(32).fill(7)))).reveal();
+  assertEq(c.Ed25519PrivateKey$publicKey(c.keyFromConfig("Ed25519PrivateKey", jwk)), pub);
+  const message = (() => {
+    try {
+      c.keyFromConfig("X25519PrivateKey", jwk);
+    } catch (e) {
+      return String(e?.message ?? e);
+    }
+    return "";
+  })();
+  assert(message.includes("X25519PrivateKey") && !message.includes(seed), message);
+});
+
+test("JWTs carry iat and exp, and verify only within their window", async () => {
+  const claims = { encode: (v) => ({ iss: v.iss, aud: v.aud, sub: v.sub }), decode: (j) => ({ iss: j.iss, aud: j.aud, sub: j.sub }) };
+  const now = new Instant(1_700_000_000_000);
+  const key = c.TestKeys.ed25519(3);
+  const pub = c.Ed25519PrivateKey$publicKey(key);
+  const token = await c.Jwt.sign(null, claims, { iss: "i", aud: "a", sub: "s" }, new Secret(key), "k1", 3_600_000, now);
+  const [head, body] = token.split(".").slice(0, 2).map((p) => JSON.parse(new TextDecoder().decode(c.fromB64url(p))));
+  assertDeepEq(head, { alg: "EdDSA", typ: "JWT", kid: "k1" });
+  assertDeepEq(body, { iss: "i", aud: "a", sub: "s", iat: 1_700_000_000, exp: 1_700_003_600 });
+  const verify = (at, opts = {}) => c.Jwt.verify(null, claims, token, opts.key ?? pub, opts.iss ?? "i", opts.aud ?? "a", new Instant(at));
+  assertDeepEq(await verify(1_700_000_000_000), { iss: "i", aud: "a", sub: "s" });
+  // A minute's leeway after `exp`, then `.expired`.
+  await verify(1_700_003_659_000);
+  assertDeepEq(await rejection(verify(1_700_003_661_000)), { $: 4 });
+  assertDeepEq(await rejection(verify(1_700_000_000_000, { iss: "j" })), { $: 6 });
+  assertDeepEq(await rejection(verify(1_700_000_000_000, { aud: "b" })), { $: 7 });
+  assertDeepEq(await rejection(verify(1_700_000_000_000, { key: c.Ed25519PrivateKey$publicKey(c.TestKeys.ed25519(4)) })), { $: 3 });
+  assertDeepEq(await rejection(verify(1_700_000_000_000, { key: c.EcdsaP256PrivateKey$publicKey(c.TestKeys.ecdsaP256(1)) })), { $: 1, _0: "EdDSA" });
+  // `alg: none` is never accepted, and a token without `exp` isn't a JWT here.
+  const none = `${c.b64url(utf8('{"alg":"none"}'))}.${token.split(".")[1]}.`;
+  assertDeepEq(await rejection(c.Jwt.verify(null, claims, none, pub, "i", "a", now)), { $: 1, _0: "none" });
+  const bare = await c.Jws.sign(null, utf8('{"iss":"i","aud":"a"}'), key);
+  assertDeepEq(await rejection(c.Jwt.verify(null, claims, bare, pub, "i", "a", now)), { $: 8 });
+  // A short HMAC secret is a panic, not a weak key.
+  assert(await rejection(c.Jws.sign(null, utf8("x"), new Secret("short"))) instanceof Error);
 });

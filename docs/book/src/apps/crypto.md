@@ -2,7 +2,8 @@
 
 `Bytes` is a core type, and `k.crypto` provides HMAC, hashing, secure random values, UUIDs and password
 hashing, and on top of them **authenticated encryption, key derivation, key wrapping, signatures, key
-agreement and sealing to a public key**. **Safety comes from types:** a MAC is a distinct `Mac` type that
+agreement, sealing to a public key, JWK and PEM key formats, keys in configuration, JWS and JWT, and a
+browser key store**. **Safety comes from types:** a MAC is a distinct `Mac` type that
 can't be compared with `==`, so the constant-time comparison is the only one that compiles, and every key
 is a type of its own, so the wrong key for an operation, a reused nonce or raw key-agreement output used as
 a key doesn't compile.
@@ -117,6 +118,7 @@ operations accept, so passing the wrong kind of key never compiles.
 | `Ed25519PrivateKey`, `Ed25519PublicKey` | Ed25519 | sign, verify | the public key only |
 | `EcdsaP256PrivateKey`, `EcdsaP256PublicKey` | ECDSA P-256 with SHA-256 | sign, verify, for interop | the public key only |
 | `X25519PrivateKey`, `X25519PublicKey` | X25519 | key agreement, `Envelope` | the public key only |
+| `RsaPublicKey` | RSASSA-PKCS1-v1_5 and PSS with SHA-256 | verify only, for interop | yes |
 | `SharedSecret` | the output of `agree` | input to a key derivation only | no: secret |
 
 - **Generating:** `AesGcmKey.generate()`, `Ed25519PrivateKey.generate()` and so on, each `async`. A private
@@ -145,8 +147,46 @@ return vault.exportRaw()        // `AesGcmKey` can't be exported; generate it wi
 ```
 
 - Server code imports a raw secret key with `AesGcmKey.parse(raw:)` and the private keys' `parse(raw:)`,
-  which take a `Secret<Bytes>`, so key material can't be a plain value by accident. JWK and PEM forms are
-  planned (below).
+  which take a `Secret<Bytes>`, so key material can't be a plain value by accident. JWK and PEM come
+  next.
+
+## Key formats: JWK and PEM
+
+Keys travel between systems as JWKs (RFC 7517) and PEM files. Every key type reads them, and the parsers
+follow the stdlib's `Type.parse(form: …) -> Type?` convention, with the label naming the form:
+
+| Form | Public keys | Secret and private keys |
+|---|---|---|
+| raw | `parse(raw: Bytes)` | `parse(raw: Secret<Bytes>)` |
+| JWK | `parse(jwk: String)` | `parse(jwk: Secret<String>)` |
+| PEM | `parse(pem: String)`, a `PUBLIC KEY` (SPKI) | `parse(pem: Secret<String>)`, a `PRIVATE KEY` (PKCS #8) |
+
+- **Parsing checks what it can, at once.** A JWK's `kty` and `crv` must be the type's, and so must its
+  `alg`, `use` and `key_ops` when it has them, so an X25519 JWK passed to `Ed25519PublicKey.parse(jwk:)`
+  is `nil`. A JWK with a private part (`d`) isn't a public key. A private JWK or PEM that carries a public
+  key must carry the key's own. An RSA key needs 2,048 to 8,192 bits and an odd exponent of at least 3.
+- **Public keys export as they are:** `publicKey.jwk` and `publicKey.pem`.
+- **A secret key exports only from an `Exportable`:** `exportJwk()` and `exportPem()` return a
+  `Secret<String>`, like `exportRaw()`. `Exportable.parse(raw:)`, `(jwk:)` and `(pem:)` import a key as
+  exportable, with the key type taken from the expected type, since a static member of a generic type is
+  called with its type inferred:
+
+```k
+~import k.crypto.Ed25519PrivateKey
+~import k.crypto.Exportable
+~
+/// Moves a signing key to a new server: the JWK of a key from the old one's PEM.
+func migrate(pem: Secret<String>) -> Secret<String>? {
+    let key: Exportable<Ed25519PrivateKey>? = Exportable.parse(pem: pem)
+    return key?.exportJwk()
+}
+```
+
+- **There are no literals for key types.** A key in source code is a key in git. Public keys come from
+  configuration, from rpcs or from a JWK set.
+- **`RsaPublicKey` verifies only:** `verify(_:of:)` for RSASSA-PKCS1-v1_5 (JWT `RS256`) and
+  `verifyPss(_:of:)` for RSASSA-PSS with a 32-byte salt (`PS256`), of an `RsaSignature`. It exists for
+  identity providers that still sign with RSA; K never signs with RSA.
 
 ## Authenticated encryption: `Sealed`
 
@@ -348,13 +388,145 @@ Types that hold secrets aren't `Equatable`: `Mac`, `Secret`, `AesGcmKey`, every 
 `SharedSecret`. `ConstantTime.equals(_:_:)` compares plain `Bytes`, such as a token's hash read from a
 database, in time that depends only on their lengths.
 
-## Keys held as `Secret`
+## Keys in configuration
 
-A `Secret<K>` of a key type has the key's operations (`seal`, `open`, `wrap`, `unwrap`, `sign`, `agree`,
-`publicKey`), the way `Hmac` accepts a `Secret<String>`, so a key held as a secret needs no `reveal()`.
-It forwards no export member. Reading keys from configuration (`@Env("SIGNING_KEY") let signingKey:
-Secret<Ed25519PrivateKey>`), with the compile error and fix for a bare private key field, is
-**Planned** (crypto-config-keys).
+Key types are `ConfigValue`s, so a server reads them from the environment like any other setting, checked
+at startup. The value is a JWK, a PEM, or base64url of the raw key:
+
+```k
+~import k.crypto.Ed25519PrivateKey
+~import k.crypto.Ed25519PublicKey
+~
+public config ExportSigningConfig {
+    /// Signs export manifests. A PKCS #8 PEM, a JWK or a base64url seed.
+    @Env("EXPORT_SIGNING_KEY") let signingKey: Secret<Ed25519PrivateKey>
+
+    /// Verifies tokens from the billing service.
+    @Env("BILLING_TOKEN_KEY") let billingKey: Ed25519PublicKey
+}
+```
+
+- **A secret or private key field is a `Secret<K>`.** Then the key may come from `NAME_FILE`, such as a
+  Docker or Kubernetes secret file, and the startup report never prints it. A bare one is K4032, whose
+  quick fix wraps the type:
+
+```k,fails=K4032
+~import k.crypto.Ed25519PrivateKey
+~
+config SigningConfig {
+    @Env("SIGNING_KEY") let signingKey: Ed25519PrivateKey     // must be `Secret<Ed25519PrivateKey>`
+}
+```
+
+- **A `Secret<K>` of a key type has the key's operations** (`seal`, `open`, `wrap`, `unwrap`, `sign`,
+  `agree`, `publicKey`), the way `Hmac` accepts a `Secret<String>`, so a configured key needs no
+  `reveal()`: `await config.signingKey.sign(manifest)`. It forwards no export member.
+- Public-key fields are plain values. They aren't secret, but like every config they are server-only.
+- **`k keys new ed25519`** (also `x25519`, `p256-ecdsa` and `aes-gcm`) prints a new private key as a JWK
+  for the environment, and its public JWK, so nobody needs another tool to make a key.
+- In tests, bind keys with `use`: `use ExportSigningConfig(signingKey: Secret(TestKeys.ed25519(1)),
+  billingKey: TestKeys.ed25519(1).publicKey) for ExportSigningConfig`.
+
+## JWS and JWT, for interop
+
+K's own sessions are cookies, and K services call each other with rpcs. JWTs are for **talking to systems
+outside K**: an identity provider's ID token, a webhook signed with JWS, or an API that wants a signed
+assertion.
+
+```k
+~import k.crypto.Ed25519PublicKey
+~import k.crypto.Jwt
+~import k.crypto.JwtError
+~
+public struct BillingClaims implements Codable {
+    let iss: String
+    let aud: String
+    let sub: String
+    let plan: String
+}
+
+func claims(of token: String, key: Ed25519PublicKey, now: Date) async throws JwtError -> BillingClaims {
+    return try await Jwt.verify(token, key: key, issuer: "https://billing.internal", audience: "notes", now: now)
+}
+```
+
+| Member | Meaning |
+|---|---|
+| `Jwt.verify(_:key:issuer:audience:now:leeway:)` | checks the signature, `exp` (required), `nbf`, `iss` and `aud`, with a minute's leeway unless given, then decodes the payload as the expected `Codable` type |
+| `Jwt.sign(_:key:keyId:expiresIn:now:)` | a compact JWT of the claims, with `iat` and `exp` set |
+| `Jws.verify(_:key:)`, `Jws.sign(_:key:)` | the signature layer alone, for JWS that isn't a JWT: the payload is `Bytes` |
+| `JwkSet.parse(_:)` | a JWKS document, such as an identity provider's `jwks_uri`; it keeps only the public signature keys K supports |
+
+**The algorithm comes from the key's type, never from the token:**
+
+| `key:` | Accepted `alg` |
+|---|---|
+| `Ed25519PublicKey`, and to sign an `Ed25519PrivateKey` or a `Secret` of one | `EdDSA` |
+| `EcdsaP256PublicKey`, and to sign an `EcdsaP256PrivateKey` or a `Secret` of one | `ES256` |
+| `RsaPublicKey` (verify only) | `RS256`, `PS256` |
+| `Secret<String>` or `Secret<Bytes>` of at least 32 bytes | `HS256` |
+| `JwkSet` (verify only) | the key whose `kid` matches the header, at that key's own algorithm |
+
+- **`alg: none` is never accepted,** and a header `alg` the key's type doesn't verify is
+  `.wrongAlgorithm`. The classic attack, an RS256 public key reused as an HS256 secret, can't happen: a
+  `JwkSet` holds no symmetric keys, and HMAC needs a `Secret`.
+- **`issuer`, `audience` and `now` are required.** `now` comes from the injected `Clock`, so tests control
+  expiry with `TestClock`. Since `Jwt.sign` adds only `iat` and `exp`, the claims type carries `iss` and
+  `aud` itself.
+- The errors are `JwtError`: `.malformed`, `.wrongAlgorithm(alg)`, `.unknownKeyId(kid)`, `.badSignature`,
+  `.expired`, `.notYetValid`, `.wrongIssuer`, `.wrongAudience`, `.missingExpiry` and `.claims(DecodingError)`.
+- Fetching and caching a JWKS is the app's own `HttpClient` call. JWE (encrypted JWTs) isn't provided;
+  `Envelope` encrypts to a recipient.
+
+## Keeping keys in the browser: `KeyStore`
+
+A browser key has to survive a reload without being written down as bytes. `KeyStore` keeps keys in the
+browser's IndexedDB as non-extractable Web Crypto keys:
+
+```k
+~import k.crypto.AesGcmKey
+~import k.crypto.KeyName
+~import k.crypto.KeyStore
+~import k.crypto.KeyStoreError
+~
+/// Keeps one device key in this browser.
+public service DeviceKeys {
+    @Inject let keys: KeyStore
+
+    private static let deviceKey: KeyName<AesGcmKey> = KeyName(name: "device")
+
+    /// The kept key, or a new one, kept for next time.
+    func key() async throws KeyStoreError -> AesGcmKey {
+        if let kept = try await keys.get(DeviceKeys.deviceKey) {
+            return kept
+        }
+        let fresh = await AesGcmKey.generate()
+        try await keys.put(fresh, as: DeviceKeys.deviceKey)
+        return fresh
+    }
+}
+```
+
+- **`KeyName(name:)` takes a string literal** and fixes the key type, so `get` returns the type `put`
+  stored. `put` of an exportable key stores it non-exportable.
+- **It is client-only,** like `Files`: a service that injects it is client-only. `BrowserKeyStore` is the
+  implementation, namespaced per app. Server code keeps keys in configuration, or wrapped in the database.
+- `KeyStoreError.unavailable` means IndexedDB is blocked, as in some private modes. An app can keep a key
+  for the tab only then, and ask for the passphrase again next visit.
+- **Eviction is the real risk.** A browser under storage pressure may delete the store, and a lost key
+  can't be recovered. `requestPersistence()` asks the browser to keep it and answers a
+  `StoragePersistence`, `.persistent` or `.bestEffort`; it is `@UserAction`, because Firefox asks the
+  person. Keep a recovery path, such as a passphrase-wrapped copy on the server, as the notes example
+  does.
+- Signing out doesn't clear the store by itself: the app calls `delete`.
+
+## A worked example: the notes vault
+
+The [notes example](../examples/notes.md#the-private-vault) puts these together. A private note's text is
+sealed in the browser with a vault key, which is wrapped with a key derived from a passphrase (never the
+sign-in password) and stored on the server, and kept in this browser's `KeyStore`. The server stores and
+syncs the sealed text but can't read it, and each ciphertext is bound to its note's id, so a server that
+moves one to another note produces an error, not the wrong note.
 
 ## Testing
 
@@ -368,6 +540,9 @@ both sides.
   600,000, and such salts decode only in tests.
 - **`TestKeys`** (from `k.test`) gives fixture keys by number, the same in every test:
   `TestKeys.ed25519(1)`, `TestKeys.x25519(2)`, `TestKeys.ecdsaP256(1)`, `TestKeys.aesGcm(1)`.
+- **`MemoryKeyStore`** (from `k.test`) replaces `KeyStore`: keys in memory, empty for every test. `names`
+  lists what is stored, `failAll(error:)` makes every call throw, and `setPersistence(_:)` sets what
+  `requestPersistence()` answers (`.persistent` unless set).
 
 ```k
 ~import k.crypto.OpenError
@@ -389,24 +564,12 @@ test PrivateText {
 ## Which side
 
 Everything in this chapter except `Password` works in the browser, on Web Crypto, and on the server, on
-the runtime's own implementation. The code that uses a `Secret` stays on the server, because a `Secret`
-does. The browser loads the cryptography code only on pages that use it. Ed25519 and X25519 need a browser
+the runtime's own implementation, except that `KeyStore` is the browser's only. The code that uses a
+`Secret` stays on the server, because a `Secret` does: that includes configured keys, `parse` of a
+secret key, and export. The browser loads the cryptography code only on pages that use it. Ed25519 and X25519 need a browser
 whose Web Crypto has them, as current Chrome, Firefox and Safari do.
 
 ## What's next
-
-> **Planned** (crypto-key-formats). JWK and PEM keys: `parse(jwk:)` and `parse(pem:)` on every key type,
-> `exportJwk()` and `exportPem()` on `Exportable<K>`, importing an exportable key, `RsaPublicKey` for
-> verifying RSA signatures from identity providers, and `k keys new ed25519`, which prints a new key.
-
-> **Planned** (jwt). `Jwt.verify` and `Jwt.sign`, `Jws` and `JwkSet`, with the accepted algorithm taken
-> from the key's type, never from the token.
-
-> **Planned** (key-store). `KeyStore`, which keeps non-extractable keys in the browser's IndexedDB across
-> reloads, with `requestPersistence()`, and `MemoryKeyStore` in tests.
-
-> **Planned** (notes-vault). The notes example's private vault: a note's text sealed in the browser with a
-> passphrase-protected `AesGcmKey`, which the server stores and syncs but can't read.
 
 > **Planned** (web-push). `WebPush`, which sends Web Push notifications with VAPID signatures and payload
 > encryption, with no third-party account.

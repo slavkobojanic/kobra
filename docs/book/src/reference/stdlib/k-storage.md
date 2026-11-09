@@ -10,6 +10,7 @@ Import each declaration by name, for example `import k.storage.BrowserStorage`.
 | [`BrowserStorage`](#browserstorage) | The standard [`LocalStorage`](#localstorage), built on `window.localStorage`. |
 | [`LocalStorage`](#localstorage) | Typed browser local storage (`docs/design/36-local-storage.md`). |
 | [`StorageKey`](#storagekey) | A name paired with the type stored under it: `StorageKey<List<Todo>> = StorageKey(name: "todos")`. |
+| [`StoragePersistence`](#storagepersistence) | Whether the browser may evict this origin's storage ([`k.crypto.KeyStore.requestPersistence()`](k-crypto.md#keystore)). |
 | [`StorageReadError`](#storagereaderror) | Why a local-storage read ([`LocalStorage.read`](#localstorage)) failed. |
 | [`StorageWriteError`](#storagewriteerror) | Why a local-storage write ([`LocalStorage.write`](#localstorage)) failed. |
 
@@ -80,6 +81,22 @@ string literal, declared once per app and recorded in `storage.lock`.
   - Parameter name: a string literal, unique in the app.
 - `var name: String`
   The key's name.
+
+## StoragePersistence
+
+```k,ignore
+public enum StoragePersistence implements Equatable
+```
+
+Whether the browser may evict this origin's storage
+([`k.crypto.KeyStore.requestPersistence()`](k-crypto.md#keystore)).
+
+**Members**
+
+- `case persistent`
+  The browser won't evict the origin's storage.
+- `case bestEffort`
+  It may, under storage pressure.
 
 ## StorageReadError
 

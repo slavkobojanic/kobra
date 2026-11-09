@@ -90,3 +90,103 @@ export async function checkVectors(c, b, v) {
   }
   return failures;
 }
+
+/**
+ * Checks the key-format, RSA and JOSE vectors of `v` through the K members
+ * of crypto module `c` (`RsaPublicKey$verify`, `Jws.verify`, `JwkSet$parse`,
+ * …), on whichever backend `c` picks, and the private-key formats through
+ * {@link c.privateRaw} and backend `b`.
+ * @returns {Promise<string[]>} one line per failed vector
+ */
+export async function checkJoseVectors(c, b, v) {
+  const failures = [];
+  const check = (what, actual, expected) => {
+    if (actual !== expected) failures.push(`${b.name} ${what}: expected ${expected}, got ${actual}`);
+  };
+  const run = async (what, f) => {
+    try {
+      await f();
+    } catch (e) {
+      failures.push(`${b.name} ${what}: threw ${e?.message ?? JSON.stringify(e)}`);
+    }
+  };
+  /** Whether `p` resolves (a verified JWS) rather than rejecting. */
+  const accepts = async (p) => {
+    try {
+      await p;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (const [g, group] of v.rsa.entries()) {
+    await run(`rsa group ${g}`, async () => {
+      const key = c.RsaPublicKey$parse$pem(group.pem);
+      check(`rsa group ${g} pem`, typeof key, "string");
+      check(`rsa group ${g} jwk`, c.RsaPublicKey$parse$jwk(group.jwk), key);
+      check(`rsa group ${g} pem round trip`, c.RsaPublicKey$parse$pem(c.RsaPublicKey$pem(key)), key);
+      const verify = group.pss ? c.RsaPublicKey$verifyPss : c.RsaPublicKey$verify;
+      for (const [i, t] of group.tests.entries()) {
+        const sig = c.b64url(bin(t.sig));
+        check(`rsa ${group.pss ? "pss" : "pkcs1"} ${g}/${i}`, await verify(key, null, sig, bin(t.msg)), t.valid);
+      }
+    });
+  }
+  /** The verification key of a JWS vector: a public JWK of the right type, or an HMAC secret. */
+  const keyOf = (t) => {
+    if (t.hmac !== undefined) return c.secretOf(c.fromB64url(t.hmac) ?? new Uint8Array(0));
+    for (const type of ["Ed25519PublicKey", "EcdsaP256PublicKey", "RsaPublicKey"]) {
+      const k = c[`${type}$parse$jwk`](t.jwk ?? t.public);
+      if (k !== null) return k;
+    }
+    return null;
+  };
+  for (const group of v.jws) {
+    const key = keyOf(group);
+    for (const t of group.tests) {
+      await run(`jws ${group.comment} ${t.id}`, async () => {
+        check(`jws ${group.comment} ${t.id}`, key !== null && (await accepts(c.Jws.verify(null, t.jws, key))), t.valid);
+      });
+    }
+  }
+  for (const t of v.jwkSet) {
+    await run(`jwk set ${t.id}`, async () => {
+      const key = t.hmac !== undefined ? keyOf(t) : c.JwkSet$parse(t.jwks);
+      check(`jwk set ${t.id}`, key !== null && (await accepts(c.Jws.verify(null, t.jws, key))), t.valid);
+    });
+  }
+  for (const [name, form] of [
+    ["x25519Jwk", "jwk"],
+    ["x25519Pem", "pem"],
+  ]) {
+    for (const t of v[name]) {
+      await run(`${name} ${t.id}`, async () => {
+        const pub = form === "jwk" ? c.X25519PublicKey$parse$jwk(t.public) : c.X25519PublicKey$parse$pem(t.public);
+        const priv = c.privateRaw("X25519PrivateKey", form, t.private);
+        let shared = null;
+        if (pub !== null && priv !== null) {
+          const key = await b.fromRaw("X25519PrivateKey", priv.raw, false);
+          if (!priv.x || hex(priv.x) === hex(key.pub)) shared = hex(await b.agree(key, c.fromB64url(pub)));
+        }
+        check(`${name} ${t.id}`, shared, t.valid ? t.shared : null);
+      });
+    }
+  }
+  for (const t of v.rfcJose) {
+    await run(`rfc ${t.rfc}`, async () => {
+      const key = keyOf(t);
+      check(`rfc ${t.rfc} verifies`, await accepts(c.Jws.verify(null, t.jws, key)), true);
+      if (t.private) {
+        const type = t.rfc === "8037 A.4" ? "Ed25519PrivateKey" : "EcdsaP256PrivateKey";
+        const priv = c.privateRaw(type, "jwk", t.private);
+        const k = await b.fromRaw(type, priv.raw, false);
+        check(`rfc ${t.rfc} public half`, c.b64url(k.pub), c.b64url(c.fromB64url(key) ?? new Uint8Array(0)));
+        const ours = await c.Jws.sign(null, t.payload ? bin(t.payload) : c.fromB64url(t.jws.split(".")[1]), k);
+        if (t.deterministic) check(`rfc ${t.rfc} signs`, ours, t.jws);
+        check(`rfc ${t.rfc} own signature verifies`, await accepts(c.Jws.verify(null, ours, key)), true);
+      }
+      if (t.raw) check(`rfc ${t.rfc} raw`, hex(c.fromB64url(key)), t.raw);
+    });
+  }
+  return failures;
+}

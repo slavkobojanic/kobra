@@ -10,6 +10,7 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`Element`](#element) | A handle to the elements a query matched. |
 | [`InlineJobQueue`](#inlinejobqueue) | A [`JobQueue`](k-server.md#jobqueue) for tests that runs each job when the enqueuing app-level transaction commits, or at once outside one: `use InlineJobQueue for JobQueue`. |
 | [`Key`](#key) | A key for [`Element.press`](#element). |
+| [`MemoryKeyStore`](#memorykeystore) | The default [`KeyStore`](k-crypto.md#keystore) in `k test` (`docs/design/33-crypto.md`, "Testing"): keys in memory, empty for every test. |
 | [`MemoryStorage`](#memorystorage) | The default [`LocalStorage`](k-storage.md#localstorage) in `k test`: empty for every test, able to simulate failures (`docs/design/36-local-storage.md`). |
 | [`OpenChannel`](#openchannel) | A channel open on the test's connection ([`TestChannels.open`](#testchannels)). |
 | [`RecordingEmailProvider`](#recordingemailprovider) | The default [`EmailProvider`](k-server.md#emailprovider) in `k test`: it keeps sent messages. |
@@ -182,6 +183,41 @@ A key for [`Element.press`](#element).
   The right arrow key.
 - `case character(String)`
   The key that types `text` ("n", "?"), for keyboard shortcuts.
+
+## MemoryKeyStore
+
+```k,ignore
+@TestDefault(replaces: KeyStore)
+public service MemoryKeyStore implements KeyStore
+```
+
+The default [`KeyStore`](k-crypto.md#keystore) in `k test` (`docs/design/33-crypto.md`,
+"Testing"): keys in memory, empty for every test.
+
+**Members**
+
+- `var names: List<String>`
+  The names stored now, in alphabetical order.
+- `var persistence: StoragePersistence`
+  What `requestPersistence()` answers: `.persistent` unless
+  `setPersistence(_:)` said otherwise.
+- `func get<K>(_ name: KeyName<K>) async throws KeyStoreError -> K?`
+  Reads the key under `name`, or throws the error set by
+  `failAll(error:)`.
+- `func put<K>(_ key: K, as name: KeyName<K>) async throws KeyStoreError`
+  Keeps `key` under `name`, or throws the error set by
+  `failAll(error:)`.
+- `func delete<K>(_ name: KeyName<K>) async throws KeyStoreError`
+  Forgets the key under `name`, or throws the error set by
+  `failAll(error:)`.
+- `func requestPersistence() async -> StoragePersistence`
+  Answers `persistence`.
+- `func failAll(error: KeyStoreError)`
+  Makes every following `get`, `put` and `delete` throw `error`.
+- `func stopFailing()`
+  Ends `failAll(error:)`.
+- `func setPersistence(_ value: StoragePersistence)`
+  Sets what `requestPersistence()` answers.
 
 ## MemoryStorage
 

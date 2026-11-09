@@ -1429,6 +1429,7 @@ deno_core::extension!(
         crate::crypto::op_k_crypto_x25519_public,
         crate::crypto::op_k_crypto_x25519_agree,
         crate::crypto::op_k_crypto_equals,
+        crate::crypto::op_k_crypto_rsa_verify,
         op_k_fetch,
         op_k_fetch_abort,
         op_k_ws_connect,

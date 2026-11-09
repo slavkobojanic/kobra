@@ -1,4 +1,5 @@
 import accounts.AccountId
+import k.crypto.Sealed
 import k.crypto.Uuid
 
 /// Queries for `Note`, always scoped to one owner.
@@ -62,6 +63,19 @@ public repository NoteRepository for Note {
         let changed = await notes
             .filter { note => note.id == id and note.ownerId == ownerId }
             .update { note => note.isPinned = isPinned }
+
+        return changed == 1
+    }
+
+    /// Replaces the sealed private text of one of an account's notes. Like
+    /// pinning, it isn't an edit: the revision and `updatedAt` stay.
+    ///
+    /// - Returns: `false` when there is no such note or it belongs to another
+    ///   account.
+    func setPrivateText(id: Uuid, ownerId: AccountId, text: Sealed<PrivateText>?) async -> Bool {
+        let changed = await notes
+            .filter { note => note.id == id and note.ownerId == ownerId }
+            .update { note => note.privateText = text }
 
         return changed == 1
     }

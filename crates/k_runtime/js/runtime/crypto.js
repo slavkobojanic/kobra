@@ -24,6 +24,12 @@
  * implements (codegen.md §16); in the browser this file is a chunk of its
  * own, shipped only to pages that use one of them, and the server has
  * them in `$s.natives`.
+ *
+ * Also here: JWK and PEM for every key type, `RsaPublicKey` (base64url of
+ * its SPKI DER), JWS and JWT with the algorithm taken from the key's type
+ * (`Jws`, `Jwt`, `JwkSet`), configured keys ({@link keyFromConfig}) and
+ * `BrowserKeyStore` (IndexedDB). DER and PEM are read and written here;
+ * every signature and digest is the backend's.
  */
 
 import { KPanic, unitCase } from "./values.js";
@@ -131,7 +137,7 @@ const fail = (message) => {
 export function random(count) {
   const c = globalThis.crypto;
   if (typeof c?.getRandomValues === "function") return c.getRandomValues(new Uint8Array(count));
-  return new Uint8Array(rawOps().op_k_crypto_random(count));
+  return new Uint8Array(rawOps().random(count));
 }
 
 /** Set by `kit.js`: `k test` is running (33-crypto.md, "Testing"). */
@@ -202,8 +208,10 @@ const AES = { name: "AES-GCM", length: 256 };
 let opsTable = null;
 
 /**
- * Hands the server's ops to the `ops` backend (`app.js` and the tests).
- * @param {object} o the isolate's ops table
+ * Hands the server's ops to the `ops` backend (`app.js` and the tests):
+ * the table of `crypto-ops.js`, which names the Rust ops, so no op name
+ * ships in this module's browser chunk.
+ * @param {object} o the table `crypto-ops.js` makes of the isolate's ops
  */
 export function useOps(o) {
   opsTable = o;
@@ -223,12 +231,12 @@ const orNull = (x) => (x === null || x === undefined ? null : new Uint8Array(x))
  */
 export const ops = {
   name: "ops",
-  digest: (bits, data) => new Uint8Array(rawOps().op_k_crypto_digest(bits, data)),
-  hmac: (bits, key, data) => new Uint8Array(rawOps().op_k_hmac(bits, key, data)),
-  hkdf: (ikm, salt, info, length) => orNull(rawOps().op_k_crypto_hkdf(ikm, salt, info, length)),
-  pbkdf2: async (passphrase, salt, iterations) => orNull(await rawOps().op_k_crypto_pbkdf2(passphrase, salt, iterations)),
-  aesSeal: (key, nonce, aad, plaintext) => orNull(rawOps().op_k_crypto_aes_seal(key.secret, nonce, aad, plaintext)) ?? fail("AES-GCM sealing failed"),
-  aesOpen: (key, nonce, aad, sealed) => orNull(rawOps().op_k_crypto_aes_open(key.secret, nonce, aad, sealed)),
+  digest: (bits, data) => new Uint8Array(rawOps().digest(bits, data)),
+  hmac: (bits, key, data) => new Uint8Array(rawOps().hmac(bits, key, data)),
+  hkdf: (ikm, salt, info, length) => orNull(rawOps().hkdf(ikm, salt, info, length)),
+  pbkdf2: async (passphrase, salt, iterations) => orNull(await rawOps().pbkdf2(passphrase, salt, iterations)),
+  aesSeal: (key, nonce, aad, plaintext) => orNull(rawOps().aesSeal(key.secret, nonce, aad, plaintext)) ?? fail("AES-GCM sealing failed"),
+  aesOpen: (key, nonce, aad, sealed) => orNull(rawOps().aesOpen(key.secret, nonce, aad, sealed)),
   /**
    * The key of `type` with raw secret `raw`, or `null` when `raw` isn't
    * one (a wrong length, a P-256 scalar out of range). A P-256 key is its
@@ -246,10 +254,10 @@ export const ops = {
     }
     const pub =
       type === "Ed25519PrivateKey"
-        ? o.op_k_crypto_ed25519_public(secret)
+        ? o.ed25519Public(secret)
         : type === "EcdsaP256PrivateKey"
-          ? o.op_k_crypto_p256_public(secret)
-          : o.op_k_crypto_x25519_public(secret);
+          ? o.p256Public(secret)
+          : o.x25519Public(secret);
     if (pub === null || pub === undefined) return null;
     if (point !== null && hex(point) !== hex(new Uint8Array(pub).subarray(1))) return null;
     return new Key(type, { secret, pub: new Uint8Array(pub), exportable });
@@ -265,14 +273,15 @@ export const ops = {
   exportWrap: (key) => (key.type === "EcdsaP256PrivateKey" ? concat(key.secret, key.pub.subarray(1)) : key.secret),
   sign(key, message) {
     const o = rawOps();
-    const s = key.type === "Ed25519PrivateKey" ? o.op_k_crypto_ed25519_sign(key.secret, message) : o.op_k_crypto_p256_sign(key.secret, message);
+    const s = key.type === "Ed25519PrivateKey" ? o.ed25519Sign(key.secret, message) : o.p256Sign(key.secret, message);
     return orNull(s) ?? fail("signing failed");
   },
   verify(type, pub, sig, message) {
     const o = rawOps();
-    return type === "Ed25519PublicKey" ? o.op_k_crypto_ed25519_verify(pub, sig, message) : o.op_k_crypto_p256_verify(pub, sig, message);
+    return type === "Ed25519PublicKey" ? o.ed25519Verify(pub, sig, message) : o.p256Verify(pub, sig, message);
   },
-  agree: (key, pub) => orNull(rawOps().op_k_crypto_x25519_agree(key.secret, pub)),
+  agree: (key, pub) => orNull(rawOps().x25519Agree(key.secret, pub)),
+  rsaVerify: (n, e, sig, message, pss) => rawOps().rsaVerify(n, e, sig, message, pss) === true,
 };
 
 /** The browser's `crypto.subtle`. */
@@ -390,6 +399,15 @@ export const subtle = {
       return shared.some((b) => b !== 0) ? shared : null;
     } catch {
       return null;
+    }
+  },
+  async rsaVerify(n, e, sig, message, pss) {
+    try {
+      const name = pss ? "RSA-PSS" : "RSASSA-PKCS1-v1_5";
+      const k = await S().importKey("jwk", { kty: "RSA", n: b64url(n), e: b64url(e) }, { name, hash: "SHA-256" }, false, ["verify"]);
+      return await S().verify(pss ? { name, saltLength: 32 } : name, k, sig, message);
+    } catch {
+      return false;
     }
   },
 };
@@ -628,7 +646,7 @@ export const Hmac = {
  * browser (33-crypto.md, "Comparing in constant time").
  */
 function equalBytes(a, b) {
-  if (backend() === ops) return rawOps().op_k_crypto_equals(a, b);
+  if (backend() === ops) return rawOps().equals(a, b);
   if (a.length !== b.length) return false;
   let d = 0;
   for (let i = 0; i < a.length; i++) d |= a[i] ^ b[i];
@@ -659,7 +677,7 @@ export const AesGcmKey$generate = async (_c) => backend().generate("AesGcmKey", 
 export const AesGcmKey$generateExportable = async (_c) => backend().generate("AesGcmKey", true);
 
 /** `AesGcmKey.parse(raw:)`: 32 secret bytes, non-exportable. */
-export const AesGcmKey$parse = (raw) => {
+export const AesGcmKey$parse$raw = (raw) => {
   const r = reveal(raw);
   return r instanceof Uint8Array && r.length === 32 ? syncBackend().fromRaw("AesGcmKey", r, false) : null;
 };
@@ -869,8 +887,8 @@ function publicMembers(type) {
 }
 
 const ed = publicMembers("Ed25519PublicKey");
-/** `Ed25519PublicKey.parse`. */
-export const Ed25519PublicKey$parse = ed.parse;
+/** `Ed25519PublicKey.parse(raw:)`. */
+export const Ed25519PublicKey$parse$raw = ed.parse;
 /** `Ed25519PublicKey.raw`. */
 export const Ed25519PublicKey$raw = ed.raw;
 /** `Ed25519PublicKey.fingerprint`. */
@@ -881,8 +899,8 @@ export const Ed25519PublicKey$codec = ed.codec;
 export const Ed25519PublicKey$verify = async (k, _c, sig, message) => verify("Ed25519PublicKey", k, sig, message);
 
 const p256 = publicMembers("EcdsaP256PublicKey");
-/** `EcdsaP256PublicKey.parse`. */
-export const EcdsaP256PublicKey$parse = p256.parse;
+/** `EcdsaP256PublicKey.parse(raw:)`. */
+export const EcdsaP256PublicKey$parse$raw = p256.parse;
 /** `EcdsaP256PublicKey.raw`. */
 export const EcdsaP256PublicKey$raw = p256.raw;
 /** `EcdsaP256PublicKey.fingerprint`. */
@@ -893,8 +911,8 @@ export const EcdsaP256PublicKey$codec = p256.codec;
 export const EcdsaP256PublicKey$verify = async (k, _c, sig, message) => verify("EcdsaP256PublicKey", k, sig, message);
 
 const x = publicMembers("X25519PublicKey");
-/** `X25519PublicKey.parse`. */
-export const X25519PublicKey$parse = x.parse;
+/** `X25519PublicKey.parse(raw:)`. */
+export const X25519PublicKey$parse$raw = x.parse;
 /** `X25519PublicKey.raw`. */
 export const X25519PublicKey$raw = x.raw;
 /** `X25519PublicKey.fingerprint`. */
@@ -991,8 +1009,8 @@ const edKey = privateMembers("Ed25519PrivateKey");
 export const Ed25519PrivateKey$generate = edKey.generate;
 /** `Ed25519PrivateKey.generateExportable`. */
 export const Ed25519PrivateKey$generateExportable = edKey.generateExportable;
-/** `Ed25519PrivateKey.parse`. */
-export const Ed25519PrivateKey$parse = edKey.parse;
+/** `Ed25519PrivateKey.parse(raw:)`. */
+export const Ed25519PrivateKey$parse$raw = edKey.parse;
 /** `Ed25519PrivateKey.publicKey`. */
 export const Ed25519PrivateKey$publicKey = edKey.publicKey;
 /** `privateKey.sign(_:)`: deterministic. */
@@ -1003,8 +1021,8 @@ const ecKey = privateMembers("EcdsaP256PrivateKey");
 export const EcdsaP256PrivateKey$generate = ecKey.generate;
 /** `EcdsaP256PrivateKey.generateExportable`. */
 export const EcdsaP256PrivateKey$generateExportable = ecKey.generateExportable;
-/** `EcdsaP256PrivateKey.parse`. */
-export const EcdsaP256PrivateKey$parse = ecKey.parse;
+/** `EcdsaP256PrivateKey.parse(raw:)`. */
+export const EcdsaP256PrivateKey$parse$raw = ecKey.parse;
 /** `EcdsaP256PrivateKey.publicKey`. */
 export const EcdsaP256PrivateKey$publicKey = ecKey.publicKey;
 /** `privateKey.sign(_:)`: `r ‖ s`, with a random nonce. */
@@ -1015,8 +1033,8 @@ const xKey = privateMembers("X25519PrivateKey");
 export const X25519PrivateKey$generate = xKey.generate;
 /** `X25519PrivateKey.generateExportable`. */
 export const X25519PrivateKey$generateExportable = xKey.generateExportable;
-/** `X25519PrivateKey.parse`. */
-export const X25519PrivateKey$parse = xKey.parse;
+/** `X25519PrivateKey.parse(raw:)`. */
+export const X25519PrivateKey$parse$raw = xKey.parse;
 /** `X25519PrivateKey.publicKey`. */
 export const X25519PrivateKey$publicKey = xKey.publicKey;
 
@@ -1081,3 +1099,727 @@ export const TestKeys = Object.fromEntries(
     },
   ]),
 );
+
+// ---------------------------------------------------- DER, PEM and JWK
+
+/**
+ * The DER element at `at` of `b`: its tag and the bounds of its content,
+ * or `null` when it isn't one (an indefinite or non-minimal length, or one
+ * running past the end).
+ * @returns {{tag: number, start: number, end: number}|null}
+ */
+function der(b, at) {
+  if (at + 2 > b.length) return null;
+  let len = b[at + 1];
+  let p = at + 2;
+  if (len & 0x80) {
+    const n = len & 0x7f;
+    if (n < 1 || n > 2 || p + n > b.length || b[p] === 0) return null;
+    len = n === 1 ? b[p] : b[p] * 256 + b[p + 1];
+    p += n;
+    if (len < 128) return null;
+  }
+  return p + len <= b.length ? { tag: b[at], start: p, end: p + len } : null;
+}
+
+/** The elements inside `node` (a SEQUENCE's), or `null` when they don't tile it. */
+function items(b, node) {
+  const out = [];
+  for (let at = node.start; at < node.end; ) {
+    const c = der(b, at);
+    if (c === null || c.end > node.end) return null;
+    out.push(c);
+    at = c.end;
+  }
+  return out;
+}
+
+/** The whole of `b` as one element with tag `tag`, or `null`. */
+function only(b, tag) {
+  const d = der(b, 0);
+  return d && d.tag === tag && d.end === b.length ? d : null;
+}
+
+/** A DER element: `tag`, its length and `body`. */
+function tlv(tag, body) {
+  const n = body.length;
+  return concat([tag], n < 128 ? [n] : n < 256 ? [0x81, n] : [0x82, n >> 8, n & 255], body);
+}
+
+/** Big-endian `b` without leading zeros (at least one byte). */
+function unsigned(b) {
+  let i = 0;
+  while (i < b.length - 1 && b[i] === 0) i++;
+  return b.subarray(i);
+}
+
+/** A DER INTEGER of the unsigned big-endian `b`. */
+const derInt = (b) => {
+  const u = unsigned(b);
+  return tlv(2, u[0] & 0x80 ? concat([0], u) : u);
+};
+
+/** The algorithm identifiers of SPKI and PKCS #8, as hex, by key type. */
+const ALG_IDS = {
+  Ed25519: "300506032b6570",
+  X25519: "300506032b656e",
+  EcdsaP256: "301306072a8648ce3d020106082a8648ce3d030107",
+  Rsa: "300d06092a864886f70d0101010500",
+};
+
+/** A key type name's role suffix. */
+const KEY_SUFFIX = new RegExp("(PublicKey|PrivateKey)$");
+
+/** The family of a key type: `Ed25519PrivateKey` and `Ed25519PublicKey` are `Ed25519`. */
+const family = (type) => type.replace(KEY_SUFFIX, "");
+
+/** The standard base64 alphabet's two characters that differ from base64url. */
+const fromStd = (t) => t.replaceAll("+", "-").replaceAll("/", "_");
+
+/** Whitespace, which PEM bodies break lines with. */
+const SPACE = new RegExp("\\s+", "g");
+
+/** Standard base64 and its padding. */
+const BASE64 = new RegExp("^([A-Za-z0-9+/]*)(=*)$");
+
+/**
+ * A line break, decoded at run time: a release chunk is one line, and a
+ * minifier writes a line break it can compute as a literal one.
+ */
+const NL = JSON.parse('"\\n"');
+
+/** At most 64 characters: one line of a PEM body. */
+const PEM_LINE = new RegExp(".{1,64}", "g");
+
+/**
+ * The DER inside PEM text with `label` (`PUBLIC KEY`, `PRIVATE KEY`), or
+ * `null`: one block, standard base64 with its padding, any line breaks.
+ */
+function pemBytes(text, label) {
+  if (typeof text !== "string") return null;
+  const t = text.trim();
+  const head = `-----BEGIN ${label}-----`;
+  const tail = `-----END ${label}-----`;
+  if (!t.startsWith(head) || !t.endsWith(tail)) return null;
+  const body = t.slice(head.length, t.length - tail.length).replace(SPACE, "");
+  const m = BASE64.exec(body);
+  if (!m || (m[1].length + m[2].length) % 4 !== 0 || m[2].length > 2) return null;
+  return fromB64url(fromStd(m[1]));
+}
+
+/** `b` as PEM with `label`: standard base64 in lines of 64. */
+function pemText(b, label) {
+  let t = b64url(b).replaceAll("-", "+").replaceAll("_", "/");
+  t += "=".repeat((4 - (t.length % 4)) % 4);
+  return [`-----BEGIN ${label}-----`, ...t.match(PEM_LINE), `-----END ${label}-----`, ""].join(NL);
+}
+
+/** A JSON object's text as an object, or `null`. */
+function jsonObject(text) {
+  try {
+    const j = JSON.parse(String(text));
+    return j && typeof j === "object" && !Array.isArray(j) ? j : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The JWK members of each key family: `kty`, `crv`, the `alg` values it
+ * may name, its `use`, and the `key_ops` of its private and public halves.
+ */
+const JWK = {
+  Ed25519: { kty: "OKP", crv: "Ed25519", algs: ["EdDSA"], use: "sig", ops: ["sign", "verify"] },
+  X25519: { kty: "OKP", crv: "X25519", algs: ["ECDH-ES"], use: "enc", ops: ["deriveBits", null] },
+  EcdsaP256: { kty: "EC", crv: "P-256", algs: ["ES256"], use: "sig", ops: ["sign", "verify"] },
+  Rsa: { kty: "RSA", algs: ["RS256", "PS256"], use: "sig", ops: [null, "verify"] },
+  AesGcm: { kty: "oct", algs: ["A256GCM"], use: "enc", ops: ["encrypt", null] },
+};
+
+/**
+ * Whether JWK `j` is a key of `fam` for operation `op`: its `kty` and
+ * `crv`, and its `alg`, `use` and `key_ops` when present.
+ */
+function jwkFits(j, fam, op) {
+  const f = JWK[fam];
+  if (!j || j.kty !== f.kty || (f.crv && j.crv !== f.crv)) return false;
+  if (j.alg !== undefined && !f.algs.includes(j.alg)) return false;
+  if (j.use !== undefined && j.use !== f.use) return false;
+  return j.key_ops === undefined || (Array.isArray(j.key_ops) && (op === null || j.key_ops.includes(op)));
+}
+
+/** A JWK member's bytes, `length` long when given, or `null`. */
+function member(j, name, length) {
+  const b = typeof j[name] === "string" ? fromB64url(j[name]) : null;
+  return b && (length === undefined || b.length === length) ? b : null;
+}
+
+/** The JWK text of `fields` and the members every key of `fam` names. */
+function jwkText(fam, fields, op) {
+  const f = JWK[fam];
+  const j = { kty: f.kty, ...(f.crv ? { crv: f.crv } : {}), ...fields };
+  if (fam !== "X25519") j.alg = f.algs[0];
+  j.use = f.use;
+  if (op) j.key_ops = [op];
+  return JSON.stringify(j);
+}
+
+// ------------------------------------------------------------ public keys
+
+/**
+ * The raw form of public key `type` in JWK text `text` (RSA: its SPKI
+ * DER), or `null`. A JWK with a private part (`d`) isn't a public key.
+ */
+function publicFromJwk(type, text) {
+  const j = jsonObject(text);
+  const fam = family(type);
+  if (!j || j.d !== undefined || !jwkFits(j, fam, JWK[fam].ops[1])) return null;
+  if (fam === "Rsa") {
+    const n = member(j, "n");
+    const e = member(j, "e");
+    // Through DER, so a JWK key meets the same checks as a PEM one.
+    return n && e ? publicFromSpki(type, rsaSpki(n, e)) : null;
+  }
+  if (fam === "EcdsaP256") {
+    const x = member(j, "x", 32);
+    const y = member(j, "y", 32);
+    return x && y ? concat([4], x, y) : null;
+  }
+  return member(j, "x", 32);
+}
+
+/** An RSA key's SPKI DER from its modulus and exponent. */
+const rsaSpki = (n, e) => tlv(0x30, concat(fromHex(ALG_IDS.Rsa), tlv(3, concat([0], tlv(0x30, concat(derInt(n), derInt(e)))))));
+
+/**
+ * The raw form of public key `type` in SPKI DER `b` (RSA: the DER
+ * itself), or `null`.
+ */
+function publicFromSpki(type, b) {
+  const top = b && only(b, 0x30);
+  const parts = top && items(b, top);
+  if (!parts || parts.length !== 2 || parts[1].tag !== 3) return null;
+  const fam = family(type);
+  const alg = hex(b.subarray(parts[0].start - 2, parts[0].end));
+  const bits = b.subarray(parts[1].start, parts[1].end);
+  if (bits[0] !== 0) return null;
+  if (fam === "Rsa") {
+    const ne = alg === ALG_IDS.Rsa || alg === "300b06092a864886f70d010101" ? rsaParts(bits.subarray(1)) : null;
+    return ne && rsaSpki(...ne);
+  }
+  return alg === ALG_IDS[fam] ? bits.slice(1) : null;
+}
+
+/**
+ * The modulus and exponent of an RSA `SEQUENCE { n, e }`, or `null`; the
+ * key is refused unless the modulus has 2,048 to 8,192 bits and the
+ * exponent is odd and at least 3.
+ */
+function rsaParts(b) {
+  const top = only(b, 0x30);
+  const parts = top && items(b, top);
+  if (!parts || parts.length !== 2 || parts.some((p) => p.tag !== 2)) return null;
+  const [n, e] = parts.map((p) => b.subarray(p.start, p.end));
+  if ([n, e].some((x) => x.length === 0 || x[0] & 0x80 || (x.length > 1 && x[0] === 0 && !(x[1] & 0x80)))) return null;
+  const un = unsigned(n);
+  const ue = unsigned(e);
+  const bits = (un.length - 1) * 8 + Math.floor(Math.log2(un[0])) + 1;
+  if (bits < 2048 || bits > 8192 || !(ue[ue.length - 1] & 1) || (ue.length === 1 && ue[0] < 3) || ue.length > 4) return null;
+  return [un, ue];
+}
+
+/** The modulus and exponent of `RsaPublicKey` text `k`. */
+function rsaOf(k) {
+  const b = fromB64url(k);
+  const top = b && only(b, 0x30);
+  const parts = top && items(b, top);
+  return (parts && rsaParts(b.subarray(parts[1].start + 1, parts[1].end))) ?? fail("not an RSA public key");
+}
+
+/** Public key text of `type` from its raw form (RSA: SPKI), or `null`. */
+const publicText = (type, raw) => (raw === null ? null : family(type) === "Rsa" ? b64url(raw) : parsePublic(type)(raw));
+
+/** The SPKI DER of public key text `k` of `type`. */
+function spkiOf(type, k) {
+  const raw = rawPublic(k);
+  return family(type) === "Rsa" ? raw : concat(tlv(0x30, concat(fromHex(ALG_IDS[family(type)]), tlv(3, concat([0], raw)))));
+}
+
+/** The JWK text of public key text `k` of `type`. */
+function publicJwk(type, k) {
+  const fam = family(type);
+  const op = JWK[fam].ops[1];
+  if (fam === "Rsa") {
+    const [n, e] = rsaOf(k);
+    return jwkText(fam, { n: b64url(n), e: b64url(e) }, op);
+  }
+  const raw = rawPublic(k);
+  if (fam === "EcdsaP256") return jwkText(fam, { x: b64url(raw.subarray(1, 33)), y: b64url(raw.subarray(33)) }, op);
+  return jwkText(fam, { x: b64url(raw) }, op);
+}
+
+/** `parse(jwk:)`, `parse(pem:)`, `jwk` and `pem` of public key `type`. */
+function publicFormats(type) {
+  return {
+    jwk: (text) => publicText(type, publicFromJwk(type, text)),
+    pem: (text) => publicText(type, publicFromSpki(type, pemBytes(text, "PUBLIC KEY"))),
+    toJwk: (k) => publicJwk(type, k),
+    toPem: (k) => pemText(spkiOf(type, k), "PUBLIC KEY"),
+  };
+}
+
+const edF = publicFormats("Ed25519PublicKey");
+/** `Ed25519PublicKey.parse(jwk:)`. */
+export const Ed25519PublicKey$parse$jwk = edF.jwk;
+/** `Ed25519PublicKey.parse(pem:)`: SPKI. */
+export const Ed25519PublicKey$parse$pem = edF.pem;
+/** `Ed25519PublicKey.jwk`. */
+export const Ed25519PublicKey$jwk = edF.toJwk;
+/** `Ed25519PublicKey.pem`. */
+export const Ed25519PublicKey$pem = edF.toPem;
+
+const ecF = publicFormats("EcdsaP256PublicKey");
+/** `EcdsaP256PublicKey.parse(jwk:)`. */
+export const EcdsaP256PublicKey$parse$jwk = ecF.jwk;
+/** `EcdsaP256PublicKey.parse(pem:)`: SPKI. */
+export const EcdsaP256PublicKey$parse$pem = ecF.pem;
+/** `EcdsaP256PublicKey.jwk`. */
+export const EcdsaP256PublicKey$jwk = ecF.toJwk;
+/** `EcdsaP256PublicKey.pem`. */
+export const EcdsaP256PublicKey$pem = ecF.toPem;
+
+const xF = publicFormats("X25519PublicKey");
+/** `X25519PublicKey.parse(jwk:)`. */
+export const X25519PublicKey$parse$jwk = xF.jwk;
+/** `X25519PublicKey.parse(pem:)`: SPKI. */
+export const X25519PublicKey$parse$pem = xF.pem;
+/** `X25519PublicKey.jwk`. */
+export const X25519PublicKey$jwk = xF.toJwk;
+/** `X25519PublicKey.pem`. */
+export const X25519PublicKey$pem = xF.toPem;
+
+const rsaF = publicFormats("RsaPublicKey");
+/** `RsaPublicKey.parse(jwk:)`: `kty` `RSA`, at least 2,048 bits. */
+export const RsaPublicKey$parse$jwk = rsaF.jwk;
+/** `RsaPublicKey.parse(pem:)`: SPKI. */
+export const RsaPublicKey$parse$pem = rsaF.pem;
+/** `RsaPublicKey.jwk`. */
+export const RsaPublicKey$jwk = rsaF.toJwk;
+/** `RsaPublicKey.pem`. */
+export const RsaPublicKey$pem = rsaF.toPem;
+/** `RsaPublicKey.fingerprint()`: the SHA-256 of its SPKI DER, as hex. */
+export const RsaPublicKey$fingerprint = fingerprint;
+/** The `Codable` codec of `RsaPublicKey`: base64url of its SPKI DER. */
+export const RsaPublicKey$codec = textCodec((t) => {
+  const b = fromB64url(t);
+  return b && publicFromSpki("RsaPublicKey", b) ? t : null;
+}, "an RSA public key");
+
+/** Verifies RSA signature text `sig` of `message` by key text `k`. */
+async function rsaVerify(k, sig, message, pss) {
+  const s = fromB64url(sig);
+  const [n, e] = rsaOf(k);
+  return s !== null && (await backend().rsaVerify(n, e, s, bytes(message), pss)) === true;
+}
+
+/** `RsaPublicKey.verify(_:of:)`: RSASSA-PKCS1-v1_5 with SHA-256 (JWT `RS256`). */
+export const RsaPublicKey$verify = async (k, _c, sig, message) => rsaVerify(k, sig, message, false);
+/** `RsaPublicKey.verifyPss(_:of:)`: RSASSA-PSS, SHA-256, MGF1-SHA-256, a 32-byte salt (JWT `PS256`). */
+export const RsaPublicKey$verifyPss = async (k, _c, sig, message) => rsaVerify(k, sig, message, true);
+
+/** `RsaSignature.bytes`. */
+export const RsaSignature$bytes = (s) => fromB64url(s) ?? fail("not a signature");
+/** `RsaSignature.parse(bytes:)`: 256 to 1,024 bytes. */
+export const RsaSignature$parse = (b) => (b instanceof Uint8Array && b.length >= 256 && b.length <= 1024 ? b64url(b) : null);
+/** The `Codable` codec of `RsaSignature`. */
+export const RsaSignature$codec = textCodec((t) => RsaSignature$parse(fromB64url(t)), "an RSA signature");
+
+// ------------------------------------------------------- secret keys
+
+/**
+ * The raw form of secret key `type` in JWK text `text`, as
+ * `backend.fromRaw` takes it (P-256: `d ‖ x ‖ y`), or `null`. The public
+ * half a JWK names must be the key's own, which `fromRaw` checks for
+ * P-256 and {@link privateFromJwk}'s callers for the others.
+ * @returns {{raw: Uint8Array, x: Uint8Array|null}|null}
+ */
+function privateFromJwk(type, text) {
+  const j = jsonObject(reveal(text));
+  const fam = family(type === "AesGcmKey" ? "AesGcm" : type);
+  if (!j || !jwkFits(j, fam, JWK[fam].ops[0])) return null;
+  if (fam === "AesGcm") {
+    const k = member(j, "k", 32);
+    return k && { raw: k, x: null };
+  }
+  const d = member(j, "d", 32);
+  if (!d) return null;
+  if (fam === "EcdsaP256") {
+    const x = member(j, "x", 32);
+    const y = member(j, "y", 32);
+    return x && y ? { raw: concat(d, x, y), x: null } : null;
+  }
+  const x = j.x === undefined ? null : member(j, "x", 32);
+  return j.x !== undefined && !x ? null : { raw: d, x };
+}
+
+/**
+ * The raw form of private key `type` in PKCS #8 DER `b` (`OneAsymmetricKey`
+ * v1 or v2, RFC 5958), or `null`; a public key it carries comes back as
+ * `x` (Ed25519, X25519) or inside the raw form (P-256's `d ‖ x ‖ y`).
+ * @returns {{raw: Uint8Array, x: Uint8Array|null}|null}
+ */
+function privateFromPkcs8(type, b) {
+  const top = b && only(b, 0x30);
+  const parts = top && items(b, top);
+  if (!parts || parts.length < 3 || parts[0].tag !== 2 || parts[2].tag !== 4) return null;
+  const version = b.subarray(parts[0].start, parts[0].end);
+  if (version.length !== 1 || version[0] > 1) return null;
+  const fam = family(type);
+  if (hex(b.subarray(parts[1].start - 2, parts[1].end)) !== ALG_IDS[fam]) return null;
+  const inner = b.subarray(parts[2].start, parts[2].end);
+  if (fam !== "EcdsaP256") {
+    const key = only(inner, 4);
+    if (!key || key.end - key.start !== 32) return null;
+    const pub = parts.find((p) => p.tag === 0x81);
+    const x = pub ? b.subarray(pub.start + 1, pub.end) : null;
+    return pub && (b[pub.start] !== 0 || x.length !== 32) ? null : { raw: inner.slice(2), x };
+  }
+  const ec = only(inner, 0x30);
+  const fields = ec && items(inner, ec);
+  if (!fields || fields.length < 2 || fields[1].tag !== 4 || fields[1].end - fields[1].start !== 32) return null;
+  const d = inner.subarray(fields[1].start, fields[1].end);
+  const pub = fields.find((f) => f.tag === 0xa1);
+  if (!pub) return { raw: d.slice(), x: null };
+  const bits = der(inner, pub.start);
+  const point = bits && bits.tag === 3 ? inner.subarray(bits.start, bits.end) : null;
+  return point && point.length === 66 && point[0] === 0 && point[1] === 4 ? { raw: concat(d, point.subarray(2)), x: null } : null;
+}
+
+/**
+ * The raw form of secret key `type` in `text` (`form` `jwk` or `pem`),
+ * for either backend's `fromRaw`, and the public half it names, if any;
+ * `null` when it isn't one. For the vector tests, which run in browsers
+ * too, where `parse` of a secret key (a `Secret`) can't.
+ */
+export const privateRaw = (type, form, text) => (form === "jwk" ? privateFromJwk(type, text) : privateFromPkcs8(type, pemBytes(text, "PRIVATE KEY")));
+
+/** `value` in a `Secret`, for the vector tests (which import nothing but this module). */
+export const secretOf = (value) => new Secret(value);
+
+/** The PKCS #8 DER of a private key on the server's backend (its raw secret and point). */
+function pkcs8Of(key) {
+  const fam = family(key.type);
+  if (fam !== "EcdsaP256") return concat(fromHex(PRIVATE[key.type].pkcs8), key.secret);
+  const ec = tlv(0x30, concat(fromHex("020101"), tlv(4, key.secret), tlv(0xa1, tlv(3, concat([0], key.pub)))));
+  return tlv(0x30, concat(fromHex("020100"), fromHex(ALG_IDS.EcdsaP256), tlv(4, ec)));
+}
+
+/**
+ * A secret key of `type` from a parsed JWK or PKCS #8 (`parsed`), on the
+ * server's backend, exportable or not; `null` when the public half it
+ * names isn't the key's own.
+ */
+function secretFrom(type, parsed, exportable) {
+  if (!parsed) return null;
+  const k = syncBackend().fromRaw(type, parsed.raw, exportable);
+  return k && (!parsed.x || hex(parsed.x) === hex(k.pub)) ? k : null;
+}
+
+/** `parse(raw:)`, `parse(jwk:)` and `parse(pem:)` of secret key `type`, exportable or not. */
+function secretParsers(type, exportable) {
+  return {
+    raw: (raw) => {
+      const r = reveal(raw);
+      return r instanceof Uint8Array && r.length === 32 ? syncBackend().fromRaw(type, r, exportable) : null;
+    },
+    jwk: (text) => secretFrom(type, privateFromJwk(type, text), exportable),
+    pem: (text) => (type === "AesGcmKey" ? null : secretFrom(type, privateFromPkcs8(type, pemBytes(reveal(text), "PRIVATE KEY")), exportable)),
+  };
+}
+
+const aesP = secretParsers("AesGcmKey", false);
+/** `AesGcmKey.parse(jwk:)`: `kty` `oct`, 32 bytes. */
+export const AesGcmKey$parse$jwk = aesP.jwk;
+const edP = secretParsers("Ed25519PrivateKey", false);
+/** `Ed25519PrivateKey.parse(jwk:)`. */
+export const Ed25519PrivateKey$parse$jwk = edP.jwk;
+/** `Ed25519PrivateKey.parse(pem:)`: PKCS #8. */
+export const Ed25519PrivateKey$parse$pem = edP.pem;
+const ecP = secretParsers("EcdsaP256PrivateKey", false);
+/** `EcdsaP256PrivateKey.parse(jwk:)`. */
+export const EcdsaP256PrivateKey$parse$jwk = ecP.jwk;
+/** `EcdsaP256PrivateKey.parse(pem:)`: PKCS #8. */
+export const EcdsaP256PrivateKey$parse$pem = ecP.pem;
+const xP = secretParsers("X25519PrivateKey", false);
+/** `X25519PrivateKey.parse(jwk:)`. */
+export const X25519PrivateKey$parse$jwk = xP.jwk;
+/** `X25519PrivateKey.parse(pem:)`: PKCS #8. */
+export const X25519PrivateKey$parse$pem = xP.pem;
+
+/** `Exportable<K>.parse(raw:)`: `type` is `K`'s name, from the call's static type. */
+export const Exportable$parse$raw = (type, raw) => secretParsers(type, true).raw(raw);
+/** `Exportable<K>.parse(jwk:)`. */
+export const Exportable$parse$jwk = (type, text) => secretParsers(type, true).jwk(text);
+/** `Exportable<K>.parse(pem:)` (private keys). */
+export const Exportable$parse$pem = (type, text) => secretParsers(type, true).pem(text);
+
+/** `exportable.exportJwk()`: the JWK, with `alg`, `use` and `key_ops`, as a `Secret<String>`. */
+export function Exportable$exportJwk(e) {
+  const k = reveal(e);
+  if (!k.secret) fail("a browser key's JWK is wrapped, not exported");
+  if (k.type === "AesGcmKey") return new Secret(jwkText("AesGcm", { k: b64url(k.secret) }, "encrypt"));
+  const fam = family(k.type);
+  const pub = k.pub;
+  const point = fam === "EcdsaP256" ? { x: b64url(pub.subarray(1, 33)), y: b64url(pub.subarray(33)) } : { x: b64url(pub) };
+  return new Secret(jwkText(fam, { ...point, d: b64url(k.secret) }, JWK[fam].ops[0]));
+}
+
+/** `exportable.exportPem()`: PKCS #8 PEM of a private key, as a `Secret<String>`. */
+export function Exportable$exportPem(e) {
+  const k = reveal(e);
+  if (!k.secret) fail("a browser key's PEM is wrapped, not exported");
+  if (k.type === "AesGcmKey") fail("an AesGcmKey has no PEM form; export it as raw bytes or a JWK");
+  return new Secret(pemText(pkcs8Of(k), "PRIVATE KEY"));
+}
+
+/**
+ * A key of `type` from configuration text (`docs/design/33-crypto.md`,
+ * "Keys in configuration"): a JWK, a PEM (SPKI or PKCS #8) or base64url
+ * of the raw form. Startup has checked the text's shape; a key that still
+ * doesn't parse is a panic naming the type, never the text.
+ */
+export function keyFromConfig(type, text) {
+  const t = String(text).trim();
+  const secret = !type.endsWith("PublicKey");
+  const f = secret ? secretParsers(type, false) : publicFormats(type);
+  const raw = secret ? f.raw : family(type) === "Rsa" ? () => null : parsePublic(type);
+  const key = t.startsWith("{") ? f.jwk(t) : t.startsWith("-----") ? f.pem(t) : raw(fromB64url(t));
+  return key ?? fail(`the configured ${type} isn't a valid key`);
+}
+
+// -------------------------------------------------------- JWS and JWT
+
+/** `JwtError`'s unit cases and payload cases, as the generated enum builds them. */
+const JWT = {
+  malformed: unitCase(0),
+  wrongAlgorithm: (alg) => ({ $: 1, _0: String(alg) }),
+  unknownKeyId: (kid) => ({ $: 2, _0: kid ?? null }),
+  badSignature: unitCase(3),
+  expired: unitCase(4),
+  notYetValid: unitCase(5),
+  wrongIssuer: unitCase(6),
+  wrongAudience: unitCase(7),
+  missingExpiry: unitCase(8),
+  claims: (e) => ({ $: 9, _0: e }),
+};
+
+/** The JWS signature algorithm each public key family verifies. */
+const ALG_OF = { Ed25519: "EdDSA", EcdsaP256: "ES256" };
+
+/** An HS256 key's bytes: a `Secret` of bytes or of text (UTF-8), at least 32 bytes (RFC 7518 §3.2). */
+function hmacKey(secret) {
+  const k = macKey(secret instanceof Secret && secret.reveal() instanceof Uint8Array ? secret.reveal() : secret);
+  return k.length >= 32 ? k : fail("an HS256 key is at least 32 bytes");
+}
+
+/**
+ * The verifier of `key` (a public key's text, a `Secret` of HMAC key
+ * material, or a `JwkSet`) for a JWS with `header`: the algorithms it
+ * accepts and its check of the signature; throws `JwtError`.
+ */
+function verifierOf(key, header) {
+  if (key && typeof key === "object" && Array.isArray(key.keys)) {
+    const kid = typeof header.kid === "string" ? header.kid : null;
+    const found = key.keys.filter((k) => (kid === null ? key.keys.length === 1 : k.kid === kid));
+    if (found.length !== 1) throw JWT.unknownKeyId(kid);
+    const v = verifierOf(found[0].key, header);
+    return { ...v, algs: v.algs.filter((a) => found[0].algs.includes(a)) };
+  }
+  if (key instanceof Secret) {
+    const k = hmacKey(key);
+    return {
+      algs: ["HS256"],
+      check: async (_alg, input, sig) => equalBytes((await backend().hmac(256, k, input)), sig),
+    };
+  }
+  const raw = rawPublic(key);
+  if (raw.length === 32 || raw.length === 65) {
+    const type = raw.length === 32 ? "Ed25519PublicKey" : "EcdsaP256PublicKey";
+    return { algs: [ALG_OF[family(type)]], check: (_alg, input, sig) => backend().verify(type, raw, sig, input) };
+  }
+  const [n, e] = rsaOf(key);
+  return { algs: ["RS256", "PS256"], check: (alg, input, sig) => backend().rsaVerify(n, e, sig, input, alg === "PS256") };
+}
+
+/** The parts of compact JWS `compact`: header, payload bytes, signing input and signature; throws `.malformed`. */
+function jwsParts(compact) {
+  const parts = typeof compact === "string" ? compact.split(".") : [];
+  if (parts.length !== 3) throw JWT.malformed;
+  const [h, p, s] = parts.map(fromB64url);
+  const header = h && jsonObject(bytesUtf8(h));
+  if (!header || p === null || s === null || typeof header.alg !== "string" || header.crit !== undefined) throw JWT.malformed;
+  return { header, payload: p, input: utf8(`${parts[0]}.${parts[1]}`), sig: s };
+}
+
+/** Verifies compact JWS `compact` with `key`; its payload, or throws `JwtError`. */
+async function jwsVerify(compact, key) {
+  const { header, payload, input, sig } = jwsParts(compact);
+  const v = verifierOf(key, header);
+  if (!v.algs.includes(header.alg)) throw JWT.wrongAlgorithm(header.alg);
+  if (!(await v.check(header.alg, input, sig))) throw JWT.badSignature;
+  return payload;
+}
+
+/** Signs `payload` with `key` (a private key, a `Secret` of one, or HMAC key material) as compact JWS. */
+async function jwsSign(payload, key, extra) {
+  const k = reveal(key);
+  const alg = k instanceof Key ? ALG_OF[family(k.type)] : "HS256";
+  const head = b64url(utf8(JSON.stringify({ alg, ...extra })));
+  const input = `${head}.${b64url(bytes(payload))}`;
+  const sig = k instanceof Key ? await backend().sign(k, utf8(input)) : await backend().hmac(256, hmacKey(key), utf8(input));
+  return `${input}.${b64url(sig)}`;
+}
+
+/** `Jws.verify(_:key:)` and `Jws.sign(_:key:)`: the signature layer alone. */
+export const Jws = {
+  verify: async (_c, compact, key) => jwsVerify(compact, key),
+  sign: async (_c, payload, key) => jwsSign(payload, key, {}),
+};
+
+/** A NumericDate claim (seconds, possibly fractional), or `undefined` when absent; throws `.malformed` otherwise. */
+function numericDate(claims, name) {
+  const v = claims[name];
+  if (v === undefined) return undefined;
+  if (typeof v !== "number" || !Number.isFinite(v)) throw JWT.malformed;
+  return v * 1000;
+}
+
+/**
+ * `Jwt.verify(_:key:issuer:audience:now:leeway:)`: the signature, `exp`
+ * (required), `nbf`, `iss` and `aud`, then the claims decoded by `codec`.
+ */
+async function jwtVerify(_c, codec, token, key, issuer, audience, now, leeway) {
+  const claims = jsonObject(bytesUtf8(await jwsVerify(token, key)) ?? "");
+  if (!claims) throw JWT.malformed;
+  const at = now.ms;
+  const slack = leeway ?? 60000;
+  const exp = numericDate(claims, "exp");
+  const nbf = numericDate(claims, "nbf");
+  if (exp === undefined) throw JWT.missingExpiry;
+  if (at > exp + slack) throw JWT.expired;
+  if (nbf !== undefined && at < nbf - slack) throw JWT.notYetValid;
+  if (claims.iss !== issuer) throw JWT.wrongIssuer;
+  const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!aud.includes(audience)) throw JWT.wrongAudience;
+  try {
+    return codec.decode(claims, "");
+  } catch (e) {
+    if (e instanceof DecodeFailure) throw JWT.claims({ $: 1, path: e.path || "$", message: e.message });
+    throw e;
+  }
+}
+
+/** `Jwt.sign(_:key:keyId:expiresIn:now:)`: a compact JWT with `iat` and `exp` set. */
+async function jwtSign(_c, codec, claims, key, keyId, expiresIn, now) {
+  const body = codec.encode(claims);
+  if (!body || typeof body !== "object" || Array.isArray(body)) fail("JWT claims encode as a JSON object");
+  const iat = Math.floor(now.ms / 1000);
+  const payload = { ...body, iat, exp: iat + Math.floor(expiresIn / 1000) };
+  return jwsSign(utf8(JSON.stringify(payload)), key, { typ: "JWT", ...(keyId === null || keyId === undefined ? {} : { kid: String(keyId) }) });
+}
+
+/** `Jwt.verify` and `Jwt.sign`. */
+export const Jwt = { verify: jwtVerify, sign: jwtSign };
+
+/**
+ * `JwkSet.parse(_:)`: a JWKS document's public signature keys that K
+ * supports, each with its `kid` and the algorithms it may verify (its
+ * `alg`, else its family's). Symmetric keys, private keys, encryption keys,
+ * other curves and RSA keys under 2,048 bits are left out; `nil` for text
+ * that isn't a JWKS.
+ */
+export function JwkSet$parse(text) {
+  const j = jsonObject(text);
+  if (!j || !Array.isArray(j.keys)) return null;
+  const keys = [];
+  for (const k of j.keys) {
+    for (const type of ["Ed25519PublicKey", "EcdsaP256PublicKey", "RsaPublicKey"]) {
+      const key = publicText(type, publicFromJwk(type, JSON.stringify(k)));
+      if (key === null) continue;
+      const algs = family(type) === "Rsa" ? (k.alg ? [k.alg] : JWK.Rsa.algs) : [ALG_OF[family(type)]];
+      keys.push({ kid: typeof k.kid === "string" ? k.kid : null, key, algs });
+    }
+  }
+  return { keys };
+}
+
+/** `jwkSet.keyIds`: the `kid` of each key kept, in order. */
+export const JwkSet$keyIds = (s) => s.keys.map((k) => k.kid).filter((k) => k !== null);
+
+// -------------------------------------------------------------- KeyStore
+
+/** `KeyName(name:)`: the name, which fixes the key type statically. */
+export const KeyName$init = (name) => ({ name: String(name) });
+/** `keyName.name`. */
+export const KeyName$name = (k) => k.name;
+
+/** `KeyStoreError.unavailable`. */
+const UNAVAILABLE = unitCase(0);
+
+/**
+ * `k.crypto.BrowserKeyStore`: keys as structured-cloned, non-extractable
+ * `CryptoKey`s in IndexedDB (`k-keys:<namespace>`, one object store), so
+ * a key survives a reload without being written down as bytes. An
+ * extractable key is re-imported non-extractable before it is stored.
+ * Every failure to reach IndexedDB is `KeyStoreError.unavailable`.
+ * @param {string} namespace the app's storage namespace
+ */
+export function BrowserKeyStore(namespace) {
+  let db = null;
+  const open = () =>
+    (db ??= new Promise((resolve, reject) => {
+      const r = globalThis.indexedDB.open(`k-keys:${namespace}`, 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("keys");
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    }).catch(() => {
+      db = null;
+      throw UNAVAILABLE;
+    }));
+  const run = async (mode, f) => {
+    const d = await open().catch(() => {
+      throw UNAVAILABLE;
+    });
+    return new Promise((resolve, reject) => {
+      try {
+        const t = d.transaction("keys", mode);
+        const req = f(t.objectStore("keys"));
+        t.oncomplete = () => resolve(req.result);
+        t.onerror = t.onabort = () => reject(UNAVAILABLE);
+      } catch {
+        reject(UNAVAILABLE);
+      }
+    });
+  };
+  return {
+    async get(_c, name) {
+      const r = await run("readonly", (s) => s.get(name.name));
+      return r ? new Key(r.type, { handle: r.handle, pub: r.pub ?? null }) : null;
+    },
+    async put(_c, key, name) {
+      const k = reveal(key);
+      const handle = k.handle.extractable ? (await subtle.fromRaw(k.type, await subtle.exportWrap(k), false)).handle : k.handle;
+      await run("readwrite", (s) => s.put({ type: k.type, handle, pub: k.pub }, name.name));
+    },
+    async delete(_c, name) {
+      await run("readwrite", (s) => s.delete(name.name));
+    },
+    async requestPersistence(_c) {
+      try {
+        return unitCase((await globalThis.navigator.storage.persist()) ? 0 : 1);
+      } catch {
+        return unitCase(1);
+      }
+    },
+  };
+}

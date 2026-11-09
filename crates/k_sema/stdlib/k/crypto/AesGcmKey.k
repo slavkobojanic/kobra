@@ -22,6 +22,11 @@ public struct AesGcmKey {
     /// - Parameter raw: 32 secret bytes.
     /// - Returns: the key, or `nil` for any other length.
     static func parse(raw: Secret<Bytes>) -> AesGcmKey?
+    /// Reads a JWK (`kty` `oct`, 32 bytes, `alg` `A256GCM` when present).
+    /// Non-exportable.
+    ///
+    /// - Returns: the key, or `nil` if `jwk` isn't one.
+    static func parse(jwk: Secret<String>) -> AesGcmKey?
     /// Derives a key from a key agreement with HKDF-SHA256 (RFC 5869).
     ///
     /// - Parameters:

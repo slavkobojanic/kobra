@@ -1,4 +1,5 @@
 import accounts.AccountId
+import k.crypto.Sealed
 import k.crypto.Uuid
 
 /// A note, stored in the `note` table and owned by exactly one account.
@@ -34,6 +35,11 @@ public entity Note {
 
     /// When the title, body or tags last changed. Pinning isn't an edit.
     var updatedAt: Date
+
+    /// The note's private text, sealed in the browser with the account's
+    /// vault key (`vault.VaultService`). The server stores it but can't open
+    /// it. Added by migration `0003_add_the_private_vault`.
+    var privateText: Sealed<PrivateText>? = nil
 
     /// The note's tags. Loaded only by queries that ask for them with
     /// `.including { note => note.tags }`; a new note starts with none.

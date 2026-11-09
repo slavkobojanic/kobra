@@ -68,6 +68,7 @@ mod di;
 mod doclinks;
 pub mod features;
 mod framework;
+pub use framework::CRYPTO_TEXT_COLUMNS;
 mod fx;
 mod host;
 pub mod literals;

@@ -6234,6 +6234,62 @@ error[K4031]: `headers` sets a WebSocket handshake header, which a browser can't
 
 **Fix:** Set handshake headers only in a server-only service (`@Scope(.server)`, or one a protocol's implementation injects), which can bridge the feed to the browser through a `Broadcast`; a browser's socket can carry a token in the URL's query or its first message instead.
 
+### K4032 `bare-private-key-in-config`
+
+**Error.** A config field holds a secret or private key (`AesGcmKey`, `Ed25519PrivateKey`, `EcdsaP256PrivateKey`, `X25519PrivateKey`) that isn't wrapped in `Secret<…>`.
+
+Example (`tests/corpus/sema/types/crypto/bare-private-key-in-config.k`):
+
+```k,ignore
+// A key in a config (33-crypto.md, "Keys in configuration"): a secret or private key is held as
+// `Secret<K>`, so it may come from `NAME_FILE` and is never printed. A bare one is K4032, with a
+// fix that wraps the type (keeping `?`); public keys are plain `ConfigValue`s.
+import k.crypto.AesGcmKey
+import k.crypto.Ed25519PrivateKey
+import k.crypto.Ed25519PublicKey
+import k.crypto.RsaPublicKey
+
+config SigningConfig {
+    @Env("SIGNING_KEY") let signingKey: Ed25519PrivateKey
+    @Env("BACKUP_KEY") let backupKey: AesGcmKey?
+    @Env("OLD_KEYS") let oldKeys: List<Ed25519PrivateKey>
+    @Env("WRAPPED_KEY") let wrapped: Secret<Ed25519PrivateKey>
+    @Env("PEER_KEY") let peerKey: Ed25519PublicKey
+    @Env("IDP_KEY") let idpKey: RsaPublicKey?
+}
+```
+
+```text
+error[K4032]: a secret key in a config is held as `Secret<Ed25519PrivateKey>`, so it may come from `SIGNING_KEY_FILE` and is never printed
+  --> src/corpus/bare-private-key-in-config.k:10:41
+   |
+10 |     @Env("SIGNING_KEY") let signingKey: Ed25519PrivateKey
+   |                                         ^^^^^^^^^^^^^^^^^
+   |
+   = help: `Secret<Ed25519PrivateKey>` has the key's operations: `config.signingKey.sign(…)` needs no `reveal()`
+   = fix: Wrap the type in `Secret<…>`: `Secret<Ed25519PrivateKey>`
+
+error[K4032]: a secret key in a config is held as `Secret<AesGcmKey>`, so it may come from `BACKUP_KEY_FILE` and is never printed
+  --> src/corpus/bare-private-key-in-config.k:11:39
+   |
+11 |     @Env("BACKUP_KEY") let backupKey: AesGcmKey?
+   |                                       ^^^^^^^^^^
+   |
+   = help: `Secret<AesGcmKey>` has the key's operations: `config.backupKey.seal(…)` needs no `reveal()`
+   = fix: Wrap the type in `Secret<…>`: `Secret<AesGcmKey>?`
+
+error[K4032]: a secret key in a config is held as `Secret<Ed25519PrivateKey>`, so it may come from `OLD_KEYS_FILE` and is never printed
+  --> src/corpus/bare-private-key-in-config.k:12:35
+   |
+12 |     @Env("OLD_KEYS") let oldKeys: List<Ed25519PrivateKey>
+   |                                   ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: `Secret<Ed25519PrivateKey>` has the key's operations: `config.oldKeys.sign(…)` needs no `reveal()`
+   = fix: Wrap the type in `Secret<…>`: `Secret<List<Ed25519PrivateKey>>`
+```
+
+**Fix:** Declare the field `Secret<Ed25519PrivateKey>` (the quick fix does this); `Secret<K>` has the key's operations, so the code that uses it needs no `reveal()`. A public key needs no `Secret`.
+
 ## K5000–K5499: Pages and routing
 
 ### K5001 `url-conflict`

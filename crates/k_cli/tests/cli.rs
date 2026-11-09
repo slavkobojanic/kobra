@@ -831,3 +831,53 @@ fn hash_password_prints_an_argon2id_phc_string() {
     );
     assert!(empty.stdout.is_empty());
 }
+
+// `k keys new <kind>` prints a new private key as a JWK, for a
+// `Secret<K>` config field, and its public JWK (33-crypto.md, "Keys in
+// configuration"), each after a comment line naming the K type.
+#[test]
+fn keys_new_prints_a_private_and_a_public_jwk() {
+    let run = |kind: &str| {
+        Command::new(env!("CARGO_BIN_EXE_k"))
+            .args(["keys", "new", kind])
+            .output()
+            .expect("run k")
+    };
+    for (kind, kty, public) in [
+        ("ed25519", "OKP", true),
+        ("x25519", "OKP", true),
+        ("p256-ecdsa", "EC", true),
+        ("aes-gcm", "oct", false),
+    ] {
+        let out = run(kind);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), if public { 4 } else { 2 }, "{text}");
+        assert!(
+            lines[0].starts_with("# The ") && lines[0].contains("Secret<"),
+            "{text}"
+        );
+        let private: serde_json::Value = serde_json::from_str(lines[1]).expect("a JWK");
+        assert_eq!(private["kty"], serde_json::json!(kty), "{text}");
+        assert!(
+            private.get("d").or_else(|| private.get("k")).is_some(),
+            "{text}"
+        );
+        if public {
+            let p: serde_json::Value = serde_json::from_str(lines[3]).expect("a JWK");
+            assert!(p.get("d").is_none(), "{text}");
+            assert_eq!(p["x"], private["x"]);
+        }
+        assert_ne!(
+            text,
+            String::from_utf8_lossy(&run(kind).stdout),
+            "a new key each time"
+        );
+    }
+    assert_eq!(run("rsa").status.code(), Some(2));
+}

@@ -1041,6 +1041,19 @@ pub(crate) fn static_call(
             )
         }
         ("k.core.Stream", "merge") => rt("streamMerge", args),
+        // An exportable import makes a key of the type the program expects
+        // (`let e: Exportable<AesGcmKey>? = Exportable.parse(jwk: …)`):
+        // the native gets `K`'s name first, as `unwrap` does.
+        ("k.crypto.Exportable", "parse") => {
+            let key = match result.unwrap_optional() {
+                Type::Named(_, targs) => targs.first().and_then(Type::decl),
+                _ => None,
+            }
+            .or_else(|| generic.and_then(|g| subst.get(&g)).and_then(Type::decl));
+            let key = key.map_or_else(String::new, |d| b.g.view.decl(d).name.clone());
+            let f = b.fn_ref(m);
+            call(f, vec![js::str(key), a0])
+        }
         ("k.core.Result", "of") => {
             let r = b.g.b.result.map(|r| b.decl_ref(r)).unwrap_or(Expr::Null);
             rt("resultOf", vec![a0, r])

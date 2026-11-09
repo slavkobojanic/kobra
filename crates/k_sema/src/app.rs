@@ -2,7 +2,8 @@
 //! §12.14).
 //!
 //! * A `config` holds only `@Env` fields (K4017) of `ConfigValue` types
-//!   (K4019); two fields never name the same variable (K4018).
+//!   (K4019), a secret or private key only as `Secret<K>` (K4032); two
+//!   fields never name the same variable (K4018).
 //! * A test group's `use` rules: expressions bind configs only (K4011), a
 //!   type operand is or implements its target (K4010), restating a test
 //!   default is a warning (K4014), and a group whose dependencies reach an
@@ -81,7 +82,45 @@ fn config(cx: &Cx<'_, '_>, d: DeclId, envs: &mut HashMap<String, (FileIx, TextRa
                     Ty::Optional(i) => (**i).clone(),
                     t => t.clone(),
                 };
-                if !inner.contains_error() && !is_config_value(cx, &inner, config_value) {
+                if let Some(key) = bare_private_key(cx, &inner) {
+                    // A secret or private key is held as `Secret<K>`, so it
+                    // may come from `NAME_FILE` and is never printed
+                    // (33-crypto.md, "Keys in configuration").
+                    let type_node = ast::FieldDecl::cast(node.clone()).and_then(|f| f.ty());
+                    let range = type_node
+                        .as_ref()
+                        .map_or(member.name_range, |t| t.syntax().text_range());
+                    let op = match key.as_str() {
+                        "AesGcmKey" => "seal(…)",
+                        "X25519PrivateKey" => "agree(with:)",
+                        _ => "sign(…)",
+                    };
+                    let mut diag = Diagnostic::new(
+                        codes::BARE_PRIVATE_KEY_IN_CONFIG,
+                        p.span(file, range),
+                        format!(
+                            "a secret key in a config is held as `Secret<{key}>`, so it may come from `{}_FILE` and is never printed",
+                            env_text(&env).unwrap_or_else(|| "NAME".to_owned())
+                        ),
+                    )
+                    .with_help(format!(
+                        "`Secret<{key}>` has the key's operations: `config.{}.{op}` needs no `reveal()`",
+                        member.name
+                    ));
+                    if let Some(t) = type_node {
+                        let text = t.syntax().text().to_string();
+                        let wrapped = match text.strip_suffix('?') {
+                            Some(base) => format!("Secret<{}>?", base.trim_end()),
+                            None => format!("Secret<{text}>"),
+                        };
+                        diag = diag.with_fix(Fix::replace(
+                            format!("Wrap the type in `Secret<…>`: `{wrapped}`"),
+                            p.span(file, t.syntax().text_range()),
+                            wrapped,
+                        ));
+                    }
+                    cx.report(file, diag);
+                } else if !inner.contains_error() && !is_config_value(cx, &inner, config_value) {
                     let range = ast::FieldDecl::cast(node.clone())
                         .and_then(|f| f.ty())
                         .map_or(member.name_range, |t| t.syntax().text_range());
@@ -128,6 +167,35 @@ fn config(cx: &Cx<'_, '_>, d: DeclId, envs: &mut HashMap<String, (FileIx, TextRa
             }
             _ => {}
         }
+    }
+}
+
+/// The name of the secret or private `k.crypto` key type `ty` holds bare
+/// (itself, or as a list's element), which a config field must wrap in
+/// `Secret<…>` (K4032); `None` otherwise.
+fn bare_private_key(cx: &Cx<'_, '_>, ty: &Ty) -> Option<String> {
+    let t = match ty {
+        Ty::Named(d, args) if Some(*d) == cx.b.list => args.first()?,
+        t => t,
+    };
+    let Ty::Named(d, _) = t else { return None };
+    let name = cx.p.decl_name(*d);
+    matches!(
+        name.as_str(),
+        "k.crypto.AesGcmKey"
+            | "k.crypto.Ed25519PrivateKey"
+            | "k.crypto.EcdsaP256PrivateKey"
+            | "k.crypto.X25519PrivateKey"
+    )
+    .then(|| cx.p.decl(*d).name.clone())
+}
+
+/// The variable an `@Env("NAME")` annotation names, when it is a plain
+/// string literal.
+fn env_text(env: &ast::Annotation) -> Option<String> {
+    match env.arg_list()?.args().next()?.value()? {
+        ast::Expr::StringLit(s) => s.plain_value(),
+        _ => None,
     }
 }
 

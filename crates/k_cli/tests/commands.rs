@@ -346,12 +346,19 @@ fn migrate_new_writes_the_first_migration_and_the_lock() {
 fn migrate_new_adds_a_column_with_the_fields_default() {
     let dir = TempDir::new("migrate_pinning");
     copy_example("notes", &dir.0);
-    // Back to the state before pinning was added.
+    // Back to a state without pinning. The vault's migration stays, as
+    // number 2, so pinning comes after it.
     fs::remove_file(dir.0.join("migrations/0002_add_note_pinning.k")).unwrap();
+    fs::rename(
+        dir.0.join("migrations/0003_add_the_private_vault.k"),
+        dir.0.join("migrations/0002_add_the_private_vault.k"),
+    )
+    .unwrap();
     let lock_path = dir.0.join("schema.lock");
     let lock = fs::read_to_string(&lock_path).unwrap();
     let lock = lock
         .replace("    \"0002_add_note_pinning\",\n", "")
+        .replace("0003_add_the_private_vault", "0002_add_the_private_vault")
         .replace(
             "    { field = \"isPinned\", name = \"is_pinned\", type = \"boolean\", default = false },\n",
             "",
@@ -361,14 +368,18 @@ fn migrate_new_adds_a_column_with_the_fields_default() {
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert_eq!(
         stdout(&out),
-        "wrote migrations/0002_add_note_pinning.k\nwrote schema.lock\n"
+        "wrote migrations/0003_add_note_pinning.k\nwrote schema.lock\n"
     );
-    let migration = fs::read_to_string(dir.0.join("migrations/0002_add_note_pinning.k")).unwrap();
+    let migration = fs::read_to_string(dir.0.join("migrations/0003_add_note_pinning.k")).unwrap();
     assert_golden(&migration, "migrate-add-note-pinning.k");
     let lock = k_db::lock::SchemaLock::parse(&fs::read_to_string(&lock_path).unwrap()).unwrap();
     assert_eq!(
         lock.migrations,
-        ["0001_create_accounts_and_notes", "0002_add_note_pinning"]
+        [
+            "0001_create_accounts_and_notes",
+            "0002_add_the_private_vault",
+            "0003_add_note_pinning"
+        ]
     );
     let pinned = lock.tables["note"]
         .columns
@@ -949,18 +960,18 @@ fn migrate_status_and_apply_use_the_development_database() {
     assert_eq!(status.status.code(), Some(0), "{}", stderr(&status));
     assert_eq!(
         stdout(&status),
-        "pending  0001_create_accounts_and_notes\npending  0002_add_note_pinning\n"
+        "pending  0001_create_accounts_and_notes\npending  0002_add_note_pinning\npending  0003_add_the_private_vault\n"
     );
     let apply = k(&["migrate", "apply"], &dir.0);
     assert_eq!(apply.status.code(), Some(0), "{}", stderr(&apply));
     assert_eq!(
         stdout(&apply),
-        "applied migration 0001_create_accounts_and_notes\napplied migration 0002_add_note_pinning\n"
+        "applied migration 0001_create_accounts_and_notes\napplied migration 0002_add_note_pinning\napplied migration 0003_add_the_private_vault\n"
     );
     let status = k(&["migrate", "status"], &dir.0);
     assert_eq!(
         stdout(&status),
-        "applied  0001_create_accounts_and_notes\napplied  0002_add_note_pinning\n"
+        "applied  0001_create_accounts_and_notes\napplied  0002_add_note_pinning\napplied  0003_add_the_private_vault\n"
     );
     let again = k(&["migrate", "apply"], &dir.0);
     assert_eq!(stdout(&again), "the database is up to date\n");
@@ -1270,13 +1281,15 @@ fn test_seals_signs_and_unwraps_with_the_key_types() {
     // passphrase vault with fast test salts, `OpenError` from a wrong
     // passphrase or a moved ciphertext, randomness seeded from the test's
     // name (a sealed value that is the same on every run), `TestKeys`,
-    // `Secret<K>`'s forwarded operations, envelopes and key agreement.
+    // `Secret<K>`'s forwarded operations, envelopes and key agreement; and
+    // keys bound into a config, JWT and JWS with the algorithm taken from
+    // the key, JWK sets, JWK and PEM, RSA and `MemoryKeyStore`.
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sealing");
     let out = k(&["test", "--color", "never"], &dir);
     let text = stdout(&out);
     assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
     assert!(!text.contains("FAIL"), "{text}");
-    assert!(text.contains("12 passed; 0 failed"), "{text}");
+    assert!(text.contains("20 passed; 0 failed"), "{text}");
     assert!(
         text.contains("PASS  Vault › randomness repeats in every run of a test"),
         "{text}"

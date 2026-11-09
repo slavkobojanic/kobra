@@ -1,6 +1,6 @@
 # K Notes
 
-A small full-stack notes app written entirely in K: accounts with email and password, notes with tags, a list that stays live across browser tabs, and editing that never silently overwrites a change made elsewhere. Data lives in SQLite.
+A small full-stack notes app written entirely in K: accounts with email and password, notes with tags, a list that stays live across browser tabs, editing that never silently overwrites a change made elsewhere, and a private vault whose text the server can't read. Data lives in SQLite.
 
 It is a teaching example. Every file is meant to show one part of the language the way the design documents in [`docs/design`](../../docs/design/README.md) intend it to be written, with the syntax of the compiler's [grammar](../../docs/compiler/grammar.md). [Design documents used](#design-documents-used) lists the documents each part relies on.
 
@@ -25,6 +25,7 @@ It is a teaching example. Every file is meant to show one part of the language t
 | An offline banner from the reactive `Connectivity` service, tested with `TestConnectivity.goOffline()`, which also fails the test's rpcs | `src/shell/OfflineBanner.k`, `src/shell/OfflineBanner.test.k`, `src/notes/NewNote.test.k` |
 | The injected `Clock` for timestamps and relative times, and `TestClock` in tests | `src/notes/NotesApi.k`, `src/accounts/AuthApi.k`, `src/notes/NoteCard.k`, `src/notes/NoteCard.test.k` |
 | `@Emits` events, function-typed props, typed scoped styles, theme tokens, ARIA attributes, `VisuallyHidden` | `src/notes/NoteCard.k`, `src/notes/NoteEditor.k`, `src/shell/NotesTheme.k` |
+| An end-to-end encrypted **private vault**: a note's text sealed in the browser with `AesGcmKey`, the vault key wrapped with a passphrase-derived key on the server and kept in the browser's `KeyStore`, ciphertexts bound to their note | `src/vault/VaultService.k`, `src/vault/VaultApi.k`, `src/vault/PrivateTextEditor.k`, `src/vault/VaultService.test.k`, `migrations/0003_add_the_private_vault.k` |
 | Integration tests on the real stack in-process, component and page tests, and fixtures in a test-only module | every `*.test.k`, `src/testing/Samples.k` |
 
 ## How it works

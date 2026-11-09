@@ -57,6 +57,29 @@ params = []
 returns = "Stream<notes.NoteChange>"
 throws = "RpcOnlyError"
 
+[protocols."vault.VaultProtocol"]
+service = "notes.vault.VaultProtocol"
+
+[protocols."vault.VaultProtocol".rpcs.create]
+params = [{ name = "vault", type = "vault.StoredVault" }]
+returns = "Void"
+throws = "vault.VaultError"
+
+[protocols."vault.VaultProtocol".rpcs.get]
+params = []
+returns = "vault.StoredVault?"
+throws = "vault.VaultError"
+
+[protocols."vault.VaultProtocol".rpcs.privateText]
+params = [{ name = "id", type = "Uuid" }]
+returns = "Sealed<notes.PrivateText>?"
+throws = "vault.VaultError"
+
+[protocols."vault.VaultProtocol".rpcs.setPrivateText]
+params = [{ name = "id", type = "Uuid" }, { name = "text", type = "Sealed<notes.PrivateText>?" }]
+returns = "Void"
+throws = "vault.VaultError"
+
 [types."accounts.Credentials"]
 fields = [
     { name = "email", type = "EmailAddress", number = 1 },
@@ -113,9 +136,31 @@ fields = [
     { name = "updatedAt", type = "Date", number = 7 },
 ]
 
+[types."notes.PrivateText"]
+fields = [
+    { name = "body", type = "String", number = 1 },
+]
+
 [types."notes.SaveError"]
 cases = [
     { name = "notFound" },
     { name = "conflict", fields = [{ name = "latest", type = "notes.NoteSummary" }] },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
+
+[types."vault.StoredVault"]
+fields = [
+    { name = "salt", type = "PassphraseSalt", number = 1 },
+    { name = "wrappedKey", type = "WrappedKey<AesGcmKey>", number = 2 },
+]
+
+[types."vault.VaultError"]
+cases = [
+    { name = "noVault" },
+    { name = "alreadyCreated" },
+    { name = "wrongPassphrase" },
+    { name = "locked" },
+    { name = "tampered" },
+    { name = "notFound" },
     { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
 ]

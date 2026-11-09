@@ -590,7 +590,7 @@ test VaultService {
 
 ## Decided while implementing
 
-**Round 1: the crypto core.** The key types, `Sealed`, HKDF and PBKDF2, key wrapping, Ed25519 and ECDSA P-256 signatures, X25519 agreement, `Envelope` and `EnvelopedKey`, `ConstantTime`, raw import and export, `Secret<K>`'s forwarded operations, both backends and the test support. JWK and PEM (`crypto-key-formats`, with `RsaPublicKey` and `k keys new`), key types as `ConfigValue`s (`crypto-config-keys`), JWS and JWT (`jwt`), `KeyStore` and `MemoryKeyStore` (`key-store`), the notes vault (`notes-vault`) and `WebPush` (`web-push`) are the next round, marked **Planned** in the book under those feature keys.
+**Round 1: the crypto core.** The key types, `Sealed`, HKDF and PBKDF2, key wrapping, Ed25519 and ECDSA P-256 signatures, X25519 agreement, `Envelope` and `EnvelopedKey`, `ConstantTime`, raw import and export, `Secret<K>`'s forwarded operations, both backends and the test support. JWK and PEM (`crypto-key-formats`, with `RsaPublicKey` and `k keys new`), key types as `ConfigValue`s (`crypto-config-keys`), JWS and JWT (`jwt`), `KeyStore` and `MemoryKeyStore` (`key-store`) and the notes vault (`notes-vault`) came in round 2 (below); `WebPush` (`web-push`) is still **Planned**.
 
 **Runtime values** (`crates/k_runtime/js/runtime/crypto.js`)
 
@@ -608,7 +608,7 @@ test VaultService {
 
 **Backends**
 
-- **`ops`** is fifteen Rust ops in `k_server`'s `crypto.rs`: `ring` for AES-GCM, HKDF, PBKDF2 (off the worker's thread), Ed25519 and ECDSA P-256, `x25519-dalek` (with `static_secrets`) for X25519, and a constant-time loop for `ConstantTime.equals` and `mac.matches`. `ring` builds a P-256 key pair only from PKCS #8 or from both halves, so the RustCrypto `p256` crate (arithmetic only) checks a raw scalar and computes its public point, and `ring` builds the pair from both halves. `app.js` hands the ops over with `useOps`; the client part of the runtime never names `Deno.core`.
+- **`ops`** is fifteen Rust ops in `k_server`'s `crypto.rs`: `ring` for AES-GCM, HKDF, PBKDF2 (off the worker's thread), Ed25519 and ECDSA P-256, `x25519-dalek` (with `static_secrets`) for X25519, and a constant-time loop for `ConstantTime.equals` and `mac.matches`. `ring` builds a P-256 key pair only from PKCS #8 or from both halves, so the RustCrypto `p256` crate (arithmetic only) checks a raw scalar and computes its public point, and `ring` builds the pair from both halves. `app.js` hands the ops over with `useOps` (through `crypto-ops.js` since round 2); the client part of the runtime never names `Deno.core` or an op.
 - **`subtle`** is Web Crypto. A raw Ed25519 or X25519 private key is imported as PKCS #8 (a fixed prefix and the 32 bytes), and its public key comes from an extractable copy's JWK before the non-extractable key is imported; a P-256 key is imported as a JWK from its wrapped form. HMAC with an empty key (HPKE's empty salts) uses 32 zero bytes, which HMAC treats the same and Web Crypto accepts. HKDF's expand step for HPKE's labeled expand is composed from HMAC, since Web Crypto's HKDF takes no PRK.
 - **Selection:** Web Crypto where `crypto.subtle` exists (browsers), the ops otherwise: the server, and both containers of `k test`, whose `crypto` stand-in has no `subtle`. Members that can't be async (`parse(raw:)` of a secret key, `TestKeys`) use `ops` and panic in a browser; they take a `Secret`, which is server-only, so client code can't reach them.
 - `Hash`, `Hmac`, `SecureRandom`, `ConstantTime` and `Mac.matches` moved into `crypto.js` too, so they work in the browser for the first time (`Hash` and `SecureRandom` had no implementation on either side before). `Password` and `Uuid` stay where they were.
@@ -617,7 +617,7 @@ test VaultService {
 **Language and checks**
 
 - **`Secret<K>` forwarding is a member-lookup rule** (`secret_key_forwarding` in `k_sema`'s `cx.rs`): a member missing on `Secret<K>` is looked up on `K` when `K` is `AesGcmKey` or a private key type and the name is one of `seal`, `open`, `wrap`, `unwrap`, `unwrapExportable`, `sign`, `agree` or `publicKey`. Never an export member. The runtime's natives accept a key or a `Secret` of one.
-- **No new diagnostic codes.** `==` on a secret key or `SharedSecret` is K2013 with a help naming what to compare instead (and `Mac`'s help names `matches`). An export member on a plain key is K1203 with the message "`AesGcmKey` can't be exported; generate it with `generateExportable()`". Keys in a `Codable` type, `Sealed<AesGcmKey>`, mismatched key and signature types and a `SharedSecret` used as a key are the existing conformance, constraint, mismatch and unknown-member errors (corpus `tests/corpus/sema/types/crypto/`). A bare private key in a config is today's non-`ConfigValue` field error; its dedicated message and fix come with `crypto-config-keys`.
+- **No new diagnostic codes.** `==` on a secret key or `SharedSecret` is K2013 with a help naming what to compare instead (and `Mac`'s help names `matches`). An export member on a plain key is K1203 with the message "`AesGcmKey` can't be exported; generate it with `generateExportable()`". Keys in a `Codable` type, `Sealed<AesGcmKey>`, mismatched key and signature types and a `SharedSecret` used as a key are the existing conformance, constraint, mismatch and unknown-member errors (corpus `tests/corpus/sema/types/crypto/`). A bare private key in a config was the non-`ConfigValue` field error until round 2 gave it K4032.
 
 **API as built, where it differs from the text above**
 
@@ -626,8 +626,7 @@ test VaultService {
 - **`EcdsaP256PublicKey.parse(raw:)` checks the length and the `0x04` prefix only,** synchronously; a point off the curve is refused at `verify`, which returns `false`. Checking the curve equation synchronously would need the curve's arithmetic in JavaScript in the browser.
 - **ECDSA signatures aren't deterministic in tests:** the signing nonce comes from the operating system on `ops`, as from the platform in browsers. Everything else `generate()`, `seal` and salts draw is seeded from the test's name, through the kit's existing ChaCha20 stream (`crypto.getRandomValues` in `k test`).
 - **`TestKeys` key `n` of a kind** is derived from the SHA-256 of `k.test.TestKeys/<kind>/<n>`. It is a `@Native class` of `k.test` with `aesGcm`, `ed25519`, `ecdsaP256` and `x25519`.
-- **`WrappedKey` and `EnvelopedKey` have `parse(_ text:)` but no `bytes`,** and `Exportable<K>.parse` waits for the key formats round. `Sealed` and `Envelope` have both forms.
-- **`RsaPublicKey` waits for `crypto-key-formats`:** RSA keys arrive as JWK or PEM, so there was nothing to import it from in this round.
+- **`WrappedKey` and `EnvelopedKey` have `parse(_ text:)` but no `bytes`.** `Sealed` and `Envelope` have both forms. (`Exportable.parse` came with round 2.)
 - **A static member of a generic type is called with the type inferred:** `let s: Sealed<Note>? = Sealed.parse(text)`; K has no `Sealed<Note>.parse(…)` syntax.
 - **`Exportable.exportRaw()` returns a `Secret<Bytes>`, so it is server-only** (as `Secret` is). In the browser a key leaves only wrapped.
 
@@ -637,6 +636,58 @@ test VaultService {
 - `crypto-vectors.json`, run by `crypto-vectors.js` on `ops` (`crypto.test.js`, `runtime_js`) and on `subtle` in one real-Chrome test (`k_cli` `chrome::crypto_subtle_matches_the_vectors_and_the_ops_backend`): AES-256-GCM, HKDF, Ed25519, X25519, P-256, and RFC 9180 base mode from the CFRG's `test-vectors.json` for DHKEM(X25519, HKDF-SHA256) and HKDF-SHA256 with AES-128-GCM and AES-256-GCM (the RFC's own appendix has no AES-256 vector for X25519; AES-128 is supported by the internal HPKE functions only for that vector). **Wycheproof subset:** AES-GCM with 256-bit keys and 96-bit nonces (every valid and invalid case), X25519 (40 valid cases and 20 low-order ones, whose all-zero result is refused), Ed25519 (every valid and invalid case), ECDSA P-256 SHA-256 in P1363 form (40 valid cases and every invalid one) and HKDF-SHA256 (40). **Left out:** Wycheproof's "acceptable" cases (behaviour the libraries may differ on), other nonce and key sizes K never uses, the DER ECDSA file, PBKDF2 (Wycheproof has none), and the RFC 9180 cases for other modes and suites.
 - The same Chrome test runs the differential: 400 random inputs each way, sealed, signed with Ed25519 and ECDSA, and enveloped by one side and opened and verified by the other (Web Crypto against an in-process isolate on `ops`).
 - Golden files for the wire formats (`crates/k_server/tests/crypto_wire.rs`), which also open each golden value again; a run corpus case (`tests/corpus/run/stdlib/crypto-key-types.k`) for RFC vectors through the K API; sema corpus cases for the type rules; and `k test` on `crates/k_cli/tests/fixtures/sealing` for seeded randomness, fast salts, `TestKeys`, `OpenError` and `Secret<K>`.
+
+**Round 2: key formats, configured keys, JOSE, `KeyStore` and the notes vault.** It finished the features left Planned above except `web-push` (`crypto-key-formats`, `crypto-config-keys`, `jwt`, `key-store` and `notes-vault` left the feature table).
+
+*Key formats* (`crypto.js`, "DER, PEM and JWK")
+
+- **One DER reader and writer in `crypto.js`, no primitive:** SPKI and PKCS #8 (`OneAsymmetricKey` version 1 or 2, RFC 5958) are parsed with a small TLV reader that refuses non-minimal lengths, and written with fixed algorithm identifiers. Ed25519 and X25519 PKCS #8 are the 48-byte form; a P-256 one is written as Web Crypto and OpenSSL write it (`ECPrivateKey` with the public key, without the curve parameters) and read with or without either.
+- **A public JWK with a private part (`d`) is `nil`,** and a private JWK or PKCS #8 v2 that names a public key must name the key's own (`x` for Ed25519 and X25519; P-256's point is checked by the wrapped form). `alg`, `use` and `key_ops` are checked when present; an X25519 public JWK may carry any `key_ops` (Web Crypto writes `[]`).
+- **`RsaPublicKey` is base64url of its SPKI DER,** so its `Codable`, `==` and `fingerprint()` (the SHA-256 of the DER) need nothing special. Parsing a JWK goes through DER, so both forms meet the same checks: 2,048 to 8,192 bits (`ring`'s range), an odd exponent of at least 3 and at most four bytes. It has `verify(_:of:)` (RSASSA-PKCS1-v1_5) and `verifyPss(_:of:)` (PSS, MGF1-SHA-256, a 32-byte salt) instead of one member with a padding argument: one call each in JWT terms (`RS256`, `PS256`). `RsaSignature` takes 256 to 1,024 bytes. The `ops` backend is one new op, `op_k_crypto_rsa_verify`, on `ring`'s `RsaPublicKeyComponents`; `subtle` imports the key as a JWK.
+- **Public keys have `jwk` and `pem` properties,** and secret keys import with `parse(jwk:)` and `parse(pem:)` (an `AesGcmKey` has no PEM). **`Exportable.parse(raw:/jwk:/pem:)`** gets `K`'s name from the expected type, as `unwrap` does (`native.rs`); `exportJwk()` and `exportPem()` return a `Secret<String>`. **`exportPem()` of an `Exportable<AesGcmKey>` panics** instead of not compiling: `Exportable<K>` has no conditional members in K.
+- **The new `parse` overloads renamed the natives:** `Ed25519PublicKey$parse` is now `$parse$raw`, next to `$parse$jwk` and `$parse$pem` (overloads carry their labels, codegen.md §16).
+
+*Runtime*
+
+- **The op names moved to a server-only module,** `runtime/crypto-ops.js`, which maps `crypto.js`'s calls (`digest`, `aesSeal`, `rsaVerify`, …) to `op_k_crypto_*`; `app.js` hands its table over with `useOps(cryptoOps(ops))`. The notes vault made notes the first app to ship the crypto chunk, and the client-split check (`check_client_bundle`) refuses `op_k_` and `Deno.core` in a browser file.
+- **Release chunks are one line,** and the minifier turns a line break it can compute into a literal one in a template string, so PEM's line break is decoded at run time (`JSON.parse`).
+- **Everything new is in the crypto chunk,** whose budget went from 8 KB to 13 KB (performance.md §11.3): a feature chunk can't import another, since its imports are rewritten to the runtime chunk.
+
+*Keys in configuration*
+
+- **Public key types implement `ConfigValue`; secret and private ones don't,** so a bare `Ed25519PrivateKey` field would be K4019. It is **K4032** (`bare-private-key-in-config`) instead, before K4019, with a machine-applicable fix that wraps the type (`Secret<K>?` for `K?`, `Secret<List<K>>` for a list) and a help naming the forwarded operation. `Secret<K>` was already a `ConfigValue` (every `Secret` is).
+- **Startup checks the shape, the runtime parses the key.** `ConfigKind::Key` in `k_server`'s `config.rs` checks, in Rust and without quoting the text, that the value is a JWK of the type's `kty` and `crv` with its private member exactly when the type is secret, a PEM with the right label, or base64url of the raw length; the config loader then calls `$s.configKey(name, type, secret)`, which parses it with `crypto.js` (`keyFromConfig`) and panics naming the type if it still isn't a key. Parsing in Rust too would have duplicated `crypto.js`'s JWK and DER code.
+- **A list of keys is comma-separated,** like every config list, so its items are PEM or base64url, never JWK (a JWK has commas).
+- **`k keys new <kind>`** prints a comment line naming the type, the private JWK (with `alg`, `use` and `key_ops`), and for the key pairs another comment and the public JWK; it is `k_server::crypto::new_key_jwks`, from the operating system's generator.
+
+*JWS and JWT*
+
+- **`Jws` and `Jwt` are `@Native` classes with one overload per key type,** all bodies of one runtime function that tells the key by its value: a `Key` or a `Secret` of one signs with its type's algorithm, a `Secret` of text or bytes is HMAC, a public key's text is Ed25519 (32 bytes), P-256 (65) or RSA (SPKI), and a `JwkSet` is an object with `keys`. Signing also takes a plain `Ed25519PrivateKey` or `EcdsaP256PrivateKey`, so a browser can sign with a key it holds.
+- **HMAC keys are at least 32 bytes (RFC 7518 §3.2); a shorter one panics,** on signing and verifying, rather than verifying with a weak key.
+- **`Jwt.sign` adds `iat` and `exp`, nothing else:** the claims type carries `iss` and `aud`, since `Jwt.verify` requires them. The header is `{"alg", "typ": "JWT", "kid"}`; `Jws.sign`'s is `{"alg"}`.
+- **A header with `crit` is `.malformed`** (K understands no extension), as is any part that isn't strict base64url. A `JwkSet` lookup without a `kid` succeeds only when the set has one key; two keys with the header's `kid` are `.unknownKeyId`, like none. A set keeps an RSA key's `alg` when it names one, so an `RS256` key never verifies `PS256`.
+- **`JwkSet` has `keyIds`** (the kept keys' `kid`s), and nothing else public.
+
+*`KeyStore`*
+
+- **`KeyName<K>` is written `let name: KeyName<AesGcmKey> = KeyName(name: "…")`;** K has no explicit type arguments in an initializer call. Names don't join `storage.lock` yet (`storage-lock-writing` is Planned).
+- **`StoragePersistence` is in `k.storage`,** where `requestPersistence()` is to move.
+- **`BrowserKeyStore`** is one IndexedDB database per app (`k-keys:<namespace>`, the storage namespace), one object store, records `{type, handle, pub}`. `put` of an extractable key stores a non-extractable copy, imported again from its wrapped form; the in-memory key of `generateExportable()` stays extractable for the life of the tab. It is in the crypto chunk, because a feature chunk can't import another.
+- **`MemoryKeyStore` has `setPersistence(_:)` and `stopFailing()`;** `persistence` is read-only, as the test doubles' state is.
+
+*The notes vault*
+
+- **Built as designed, with these changes:** `PrivateText` lives in the `notes` module, since `Note` holds it and `vault` imports `notes` (the other way round is an import cycle); `VaultError` isn't `Equatable` (its `rpcFailure(RpcFailure)` payload isn't) and has `alreadyCreated` and `notFound`; `VaultProtocol` has `privateText(note:)` and `setPrivateText(note:text:)`, and `VaultService` `exists()`, `read(note:)` and `write(_:note:)`. The note's sealed text is written with a bulk update like pinning, so it isn't an edit and never conflicts.
+- **The UI is a `PrivateNote` page with a `@Rendering(.client)` `PrivateTextEditor`,** which calls `restore()` from its `@Effect`: the vault exists only in the browser, so the server renders "Opening the vault…". Not the layout's effect, so only pages that use the vault ship the crypto chunk's work.
+- **Entities store the `k.crypto` text types as text columns** (`Sealed`, `Envelope`, `WrappedKey`, `EnvelopedKey`, `PassphraseSalt`, the public keys and signatures: `k_sema::CRYPTO_TEXT_COLUMNS`), so `Vault` holds a `PassphraseSalt` and a `WrappedKey<AesGcmKey>`, and `Note` a `Sealed<PrivateText>?` (migration `0003_add_the_private_vault`).
+- **A service's `static let` was never emitted** (the vault's `vaultKey` read as `undefined`); services now set their static fields after the class, as structs and classes do.
+- **Notes' shipped-size budget went from 28,000 B to 40,000 B,** and the crypto chunk's from 8 KB to 13 KB (performance.md §11.7 and §11.3 give the measurements): the vault is a feature the app didn't have, and feature chunks aren't shaken.
+
+*Tests*
+
+- `crypto-vectors.json` gained Wycheproof's RSASSA-PKCS1-v1_5 and RSASSA-PSS 2048-bit SHA-256 files (every valid and invalid case, through each group's PEM and JWK), its JWS file (HS256, ES256, RS256, PS256 and the RFC 7520 groups) and JWK-set file (the public-key sets and HS256 key sizes), 40 valid and every invalid case of its X25519 JWK and PEM files, and RFC 8037 A.1–A.5 and RFC 7515 A.1–A.3. **Left out:** Wycheproof's "acceptable" cases, other algorithms and key sizes, the JSON serialization, the ROCA key (K doesn't fingerprint ROCA moduli), two base64 cases Wycheproof calls valid that a strict base64url decoder refuses (372, 373) and two "invalid" ones whose token is the valid one (367, 370). `checkJoseVectors` runs them on `ops` (`crypto.test.js`) and is written to run on `subtle` too.
+- `crypto.test.js` covers JWK and PEM round trips and refusals, PKCS #8 versions 1 and 2, `Exportable` import and export, configured keys and JWT windows; `crypto.rs` unit tests RSA (RFC 7515 A.2), `base64url`, `new_key_jwks` and the config shape check; `k test` on the `sealing` fixture adds configured keys, JWT, JWS, JWK sets, JWK and PEM, RSA and `MemoryKeyStore` (20 tests); the notes example has six vault tests, the two above among them; the sema corpus pins K4032 and its fix; `k_codegen` checks the config loader; `cli.rs` checks `k keys new`.
+- Two Chrome tests: `crypto_key_store_keeps_a_non_extractable_key_across_a_reload` (`BrowserKeyStore` over a reload, the stored key non-extractable) and `notes_keeps_a_private_note_sealed_in_the_vault` (setting up the vault, the server holding only `k1.` text, the kept key after a reload, a wrong and a right passphrase).
 
 ## Why
 

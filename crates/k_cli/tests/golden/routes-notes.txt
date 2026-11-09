@@ -1,6 +1,7 @@
-METHOD  URL              PAGE      PARAMS                    GUARDS
-GET     /                Notes                               Authenticated
-GET     /edit-note/{id}  EditNote  id: Uuid                  Authenticated
-GET     /new-note        NewNote                             Authenticated
-GET     /sign-in         SignIn    ?returnTo: Page = .notes
-GET     /sign-up         SignUp
+METHOD  URL                 PAGE         PARAMS                    GUARDS
+GET     /                   Notes                                  Authenticated
+GET     /edit-note/{id}     EditNote     id: Uuid                  Authenticated
+GET     /new-note           NewNote                                Authenticated
+GET     /private-note/{id}  PrivateNote  id: Uuid                  Authenticated
+GET     /sign-in            SignIn       ?returnTo: Page = .notes
+GET     /sign-up            SignUp

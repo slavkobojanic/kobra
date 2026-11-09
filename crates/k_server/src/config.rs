@@ -31,6 +31,10 @@ pub enum ConfigKind {
     Enum(Vec<String>),
     /// `List<T>`, comma-separated.
     List(Box<ConfigKind>),
+    /// A `k.crypto` key type, by name (`Ed25519PrivateKey`): a JWK, a PEM
+    /// or base64url of the raw form, whose shape startup checks
+    /// ([`crate::crypto::config_key_problem`]); the runtime parses it.
+    Key(String),
     /// An `Int` constrained by `@Range(min...max)`: parsed as
     /// [`ConfigKind::Int`], then checked against the closed range.
     IntRange(i64, i64),
@@ -83,6 +87,9 @@ impl ConfigKind {
             "Bool" => ConfigKind::Bool,
             "Duration" => ConfigKind::Duration,
             _ if !cases.is_empty() => ConfigKind::Enum(cases.to_vec()),
+            _ if crate::crypto::is_config_key_type(t.rsplit('.').next().unwrap_or(t)) => {
+                ConfigKind::Key(t.rsplit('.').next().unwrap_or(t).to_owned())
+            }
             _ => return None,
         })
     }
@@ -434,6 +441,10 @@ fn parse(kind: &ConfigKind, text: &str) -> Result<ConfigValue, String> {
                 Err(format!("is not one of {}", cases.join(", ")))
             }
         }
+        ConfigKind::Key(ty) => match crate::crypto::config_key_problem(ty, text) {
+            None => Ok(ConfigValue::String(text.trim().to_owned())),
+            Some(problem) => Err(problem),
+        },
         ConfigKind::List(inner) => {
             if text.is_empty() {
                 return Ok(ConfigValue::List(Vec::new()));
@@ -612,6 +623,10 @@ mod tests {
             Some(ConfigKind::Enum(cases.clone()))
         );
         assert_eq!(ConfigKind::from_manifest("Mystery", none, None), None);
+        assert_eq!(
+            ConfigKind::from_manifest("Secret<Ed25519PrivateKey>", none, None),
+            Some(ConfigKind::Key("Ed25519PrivateKey".to_owned()))
+        );
         assert_eq!(ConfigKind::from_manifest("", none, None), None);
     }
 

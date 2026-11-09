@@ -1784,8 +1784,9 @@ fn crypto_on_ops(body: &str) -> Value {
     .expect("an isolate");
     let code = format!(
         "import * as c from \"k:/runtime/crypto.js\";\n\
+         import {{ cryptoOps }} from \"k:/runtime/crypto-ops.js\";\n\
          import {{ codecs }} from \"k:runtime\";\n\
-         c.useOps(Deno.core.ops);\n\
+         c.useOps(cryptoOps(Deno.core.ops));\n\
          const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, \"0\")).join(\"\");\n\
          const bin = (h) => Uint8Array.from(h.match(/../g) ?? [], (x) => parseInt(x, 16));\n\
          let out = null;\n\
@@ -1799,7 +1800,9 @@ fn crypto_on_ops(body: &str) -> Value {
 /// `k.crypto` in real Chrome (33-crypto.md, "Testing"): the `subtle`
 /// backend, Web Crypto, passes the same published vectors as the server's
 /// `ops` backend (`crypto-vectors.js` over `crypto-vectors.json`: NIST
-/// AES-GCM, RFC 5869, 8032, 7748 and 9180, and a Wycheproof subset), and
+/// AES-GCM, RFC 5869, 8032, 7748 and 9180, and a Wycheproof subset; and the
+/// key-format, RSA and JOSE vectors: RFC 7515 and 8037, Wycheproof RSA,
+/// JWS, JWK sets and X25519 JWK and PEM), and
 /// each side opens and verifies what the other sealed and signed on
 /// random inputs: `Sealed` under one AES key, Ed25519 and ECDSA P-256
 /// signatures, and `Envelope`s to each other's X25519 key. The runtime's
@@ -1836,9 +1839,9 @@ fn crypto_subtle_matches_the_vectors_and_the_ops_backend() {
     let failures = tab.eval(&format!(
         "(async () => {{ {prelude} \
            if (c.backend() !== c.subtle) return ['the browser picked ' + c.backend().name]; \
-           const {{ checkVectors }} = await import('/tests/crypto-vectors.js'); \
+           const {{ checkVectors, checkJoseVectors }} = await import('/tests/crypto-vectors.js'); \
            const v = await (await fetch('/tests/crypto-vectors.json')).json(); \
-           return checkVectors(c, c.subtle, v); }})()"
+           return [...(await checkVectors(c, c.subtle, v)), ...(await checkJoseVectors(c, c.subtle, v))]; }})()"
     ));
     let failures: Vec<&str> = failures
         .as_array()
@@ -1932,4 +1935,146 @@ fn crypto_subtle_matches_the_vectors_and_the_ops_backend() {
     );
     drop(tab);
     drop(host);
+}
+
+/// `BrowserKeyStore` in real Chrome (33-crypto.md, "Keeping keys in the
+/// browser"): a key put in the store survives a reload as a
+/// non-extractable `CryptoKey` in IndexedDB, even one generated
+/// exportable, and opens what it sealed before the reload; `delete`
+/// forgets it, and `requestPersistence` answers one of the two cases.
+#[test]
+fn crypto_key_store_keeps_a_non_extractable_key_across_a_reload() {
+    let dir = Scratch::new("key-store");
+    let site = dir.0.join("site");
+    let js = repo().join("crates/k_runtime/js");
+    std::fs::create_dir_all(site.join("runtime")).unwrap();
+    for entry in std::fs::read_dir(js.join("runtime")).unwrap().flatten() {
+        std::fs::copy(entry.path(), site.join("runtime").join(entry.file_name())).unwrap();
+    }
+    std::fs::write(
+        site.join("index.html"),
+        "<!doctype html><title>keys</title>",
+    )
+    .unwrap();
+    let host = crate::static_host::StaticHost::start(&site);
+    let mut tab = tab!(dir);
+    let url = format!("http://localhost:{}/index.html", host.addr.port());
+    tab.open(&url);
+    let prelude = "const c = await import('/runtime/crypto.js'); \
+                   const { codecs } = await import('/runtime/std.js'); \
+                   const store = c.BrowserKeyStore('keys-test'); \
+                   const name = c.KeyName$init('vault');";
+    let before = tab.eval(&format!(
+        "(async () => {{ {prelude} \
+           const key = await c.AesGcmKey$generateExportable(null); \
+           await store.put(null, key, name); \
+           return {{ sealed: await c.AesGcmKey$seal(key, null, codecs.string, 'kept', new Uint8Array(0)), \
+             extractable: key.handle.extractable }}; }})()"
+    ));
+    assert_eq!(before["extractable"], json!(true), "{before}");
+    let sealed = before["sealed"]
+        .as_str()
+        .expect("a sealed value")
+        .to_owned();
+    tab.reload();
+    let after = tab.eval(&format!(
+        "(async () => {{ {prelude} \
+           const kept = await store.get(null, name); \
+           const opened = await c.AesGcmKey$open(kept, null, codecs.string, {sealed:?}, new Uint8Array(0)); \
+           const raw = await new Promise((resolve) => {{ \
+             const r = indexedDB.open('k-keys:keys-test'); \
+             r.onsuccess = () => {{ const g = r.result.transaction('keys').objectStore('keys').get('vault'); \
+               g.onsuccess = () => resolve(g.result); }}; }}); \
+           const persistence = await store.requestPersistence(null); \
+           await store.delete(null, name); \
+           return {{ opened, type: kept.type, printed: String(kept), \
+             extractable: raw.handle.extractable, stored: Object.keys(raw).sort(), \
+             gone: (await store.get(null, name)) === null, persistence: persistence.$ }}; }})()"
+    ));
+    assert_eq!(after["opened"], json!("kept"), "{after}");
+    assert_eq!(after["type"], json!("AesGcmKey"));
+    assert_eq!(after["printed"], json!("AesGcmKey(•••)"));
+    assert_eq!(
+        after["extractable"],
+        json!(false),
+        "the stored key is non-extractable"
+    );
+    assert_eq!(after["stored"], json!(["handle", "pub", "type"]));
+    assert_eq!(after["gone"], json!(true), "{after}");
+    assert!(
+        after["persistence"] == json!(0) || after["persistence"] == json!(1),
+        "{after}"
+    );
+    drop(tab);
+    drop(host);
+}
+
+/// The notes vault in real Chrome (33-crypto.md, "Example: private
+/// notes"): a note's private text is sealed in the browser, so the server
+/// stores only `k1.` text; the key this browser kept in IndexedDB opens it
+/// again after a reload; once locked, a wrong passphrase is refused and the
+/// right one unlocks it again.
+#[test]
+fn notes_keeps_a_private_note_sealed_in_the_vault() {
+    let dir = Scratch::new("notes-vault");
+    let mut tab = tab!(dir);
+    let (_k, origin) = notes(&dir.0.join("notes"), true);
+    sign_up(&mut tab, &origin, "ada@example.com");
+    write_note(&mut tab, "Diary");
+    let link = tab.role("link", "Diary");
+    tab.click(&link);
+    let private = tab.role("link", "Private text");
+    tab.click(&private);
+    let set_up = tab.role("button", "Set up the vault");
+    let passphrase = tab.css("input[type=password]");
+    tab.fill(&passphrase, "a vault passphrase");
+    tab.wait_handles_click(&set_up);
+    tab.click(&set_up);
+    let text = tab.role("textbox", "Private text");
+    tab.fill(&text, "dear diary");
+    let save = tab.role("button", "Save");
+    tab.click(&save);
+    tab.wait_text("Saved, sealed in this browser.");
+    // What the server holds is sealed text.
+    let id = tab
+        .path()
+        .rsplit('/')
+        .next()
+        .expect("the note's id")
+        .to_owned();
+    let stored = tab.eval(&format!(
+        "fetch('/notes.vault.VaultProtocol/PrivateText', {{ method: 'POST', \
+           headers: {{ 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1' }}, \
+           body: JSON.stringify({{ id: {id:?} }}) }}).then((r) => r.text())"
+    ));
+    let stored = stored.as_str().expect("the rpc's answer");
+    assert!(
+        stored.contains("k1.") && !stored.contains("dear diary"),
+        "{stored}"
+    );
+    // The key this browser kept opens it after a reload.
+    tab.reload();
+    tab.wait("the private text opened again", |t| {
+        let v = t.eval("document.querySelector('textarea')?.value ?? null");
+        (v == json!("dear diary")).then_some(())
+    });
+    // Locked, a wrong passphrase is refused, and the right one opens it.
+    let lock = tab.role("button", "Lock the vault");
+    tab.click(&lock);
+    let unlock = tab.role("button", "Unlock");
+    let passphrase = tab.css("input[type=password]");
+    tab.fill(&passphrase, "not the passphrase");
+    tab.click(&unlock);
+    tab.wait_text("That passphrase doesn't open the vault.");
+    let passphrase = tab.css("input[type=password]");
+    tab.click(&passphrase);
+    tab.select_all();
+    tab.type_text("a vault passphrase");
+    let unlock = tab.role("button", "Unlock");
+    tab.click(&unlock);
+    tab.wait("the private text after unlocking", |t| {
+        let v = t.eval("document.querySelector('textarea')?.value ?? null");
+        (v == json!("dear diary")).then_some(())
+    });
+    drop(tab);
 }

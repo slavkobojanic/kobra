@@ -835,6 +835,7 @@ pub(crate) fn client_containers(
                     "k.device.Geolocation" => "k.device.BrowserGeolocation",
                     "k.device.TabMessaging" => "k.device.BrowserTabMessaging",
                     "k.device.Notifications" => "k.device.BrowserNotifications",
+                    "k.crypto.KeyStore" => "k.crypto.BrowserKeyStore",
                     _ => return None,
                 };
                 g.view.lookup(default)
@@ -1008,6 +1009,15 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
             }
             None => rt("native", vec![js::str(qualified)]),
         },
+        // The crypto chunk's (33-crypto.md, "Keeping keys in the browser"):
+        // its IndexedDB database is namespaced per app, as storage keys are.
+        "k.crypto.BrowserKeyStore" => match b.g.view.lookup(qualified) {
+            Some(d) => {
+                let name = b.g.name(d);
+                call(b.use_decl(d, name), vec![js::str(b.g.storage_namespace())])
+            }
+            None => rt("native", vec![js::str(qualified)]),
+        },
         // The environment chunk's (runtime.md §12.8): during hydration the
         // preferences the server rendered with (`k-data`'s `p`).
         "k.device.Preferences" => match b.g.view.lookup(qualified) {
@@ -1033,6 +1043,7 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
             crate::suite::kit_call("testNotifications", vec![href])
         }
         "k.test.TestWakeLock" => crate::suite::kit_call("testWakeLock", vec![]),
+        "k.test.MemoryKeyStore" => crate::suite::kit_call("memoryKeyStore", vec![]),
         "k.test.TestPageVisibility" => crate::suite::kit_call("testPageVisibility", vec![]),
         "k.test.TestConnectivity" => crate::suite::kit_call("testConnectivity", vec![]),
         // The test's in-process channel socket and its other browsers

@@ -39,6 +39,12 @@ pub enum Command {
     },
     /// Hash the password read from standard input with Argon2id, printing its PHC string.
     HashPassword,
+    /// Make keys for `k.crypto`'s key types.
+    Keys {
+        /// The keys subcommand.
+        #[command(subcommand)]
+        command: KeysCommand,
+    },
     /// Manage database migrations.
     Migrate {
         /// The migration subcommand.
@@ -48,6 +54,36 @@ pub enum Command {
     /// Inspect compiler internals (token streams, syntax trees).
     #[command(hide = true)]
     Debug(DebugArgs),
+}
+
+/// `k keys` subcommands.
+#[derive(Debug, Subcommand)]
+pub enum KeysCommand {
+    /// Print a new private key as a JWK for the environment, and its public JWK.
+    New(KeysNewArgs),
+}
+
+/// Arguments of `k keys new`.
+#[derive(Debug, Args)]
+pub struct KeysNewArgs {
+    /// The key type.
+    #[arg(value_enum)]
+    pub kind: KeyKind,
+}
+
+/// The key types `k keys new` makes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum KeyKind {
+    /// An Ed25519 signing key (`Ed25519PrivateKey`).
+    Ed25519,
+    /// An X25519 key-agreement key (`X25519PrivateKey`).
+    X25519,
+    /// An ECDSA P-256 signing key (`EcdsaP256PrivateKey`).
+    #[value(name = "p256-ecdsa")]
+    P256Ecdsa,
+    /// An AES-256-GCM key (`AesGcmKey`).
+    #[value(name = "aes-gcm")]
+    AesGcm,
 }
 
 /// `k migrate` subcommands.

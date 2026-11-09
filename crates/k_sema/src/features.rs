@@ -118,31 +118,6 @@ pub const FEATURES: &[Feature] = &[
         "33-crypto.md",
     ),
     planned(
-        "crypto-key-formats",
-        "JWK and PEM import and export of `k.crypto`'s keys (`parse(jwk:)`, `parse(pem:)`, `exportJwk()`, `exportPem()`), `Exportable<K>.parse`, `RsaPublicKey` and `k keys new`",
-        "33-crypto.md",
-    ),
-    planned(
-        "crypto-config-keys",
-        "Key types as `ConfigValue`s, read from configuration, and the fix that wraps a bare private key field in `Secret<K>`",
-        "33-crypto.md",
-    ),
-    planned(
-        "jwt",
-        "JWT verification and signing, JWS and JWK sets, with the algorithm taken from the key's type",
-        "33-crypto.md",
-    ),
-    planned(
-        "key-store",
-        "`KeyStore`, keeping non-extractable keys in the browser's IndexedDB, and `MemoryKeyStore` in tests",
-        "33-crypto.md",
-    ),
-    planned(
-        "notes-vault",
-        "The notes example's private vault, end-to-end encrypted with `AesGcmKey` and a passphrase",
-        "33-crypto.md",
-    ),
-    planned(
         "web-push",
         "`WebPush`: Web Push with VAPID and payload encryption, without a third-party account",
         "45-web-platform.md",

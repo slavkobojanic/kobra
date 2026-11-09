@@ -8,30 +8,40 @@ Import each declaration by name, for example `import k.crypto.AesGcmKey`.
 | Declaration | Summary |
 |---|---|
 | [`AesGcmKey`](#aesgcmkey) | An AES-256-GCM key (`docs/design/33-crypto.md`, "The key types"): it seals and opens values ([`Sealed`](#sealed)) and wraps other keys ([`WrappedKey`](#wrappedkey)). |
+| [`BrowserKeyStore`](#browserkeystore) | The standard [`KeyStore`](#keystore): the browser's IndexedDB, holding keys as structured-cloned, non-extractable `CryptoKey`s, namespaced per app. |
 | [`ConstantTime`](#constanttime) | Comparisons whose time doesn't reveal where values differ. |
 | [`EcdsaP256PrivateKey`](#ecdsap256privatekey) | An ECDSA P-256 signing key with SHA-256, for interop (JWT `ES256`, Web Push VAPID, platforms that only speak P-256). |
-| [`EcdsaP256PublicKey`](#ecdsap256publickey) | An ECDSA P-256 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url text of its 65-byte uncompressed point. |
+| [`EcdsaP256PublicKey`](#ecdsap256publickey) | An ECDSA P-256 public key: ordinary data, a `ConfigValue`, [`Codable`](k-core.md#codable) as base64url text of its 65-byte uncompressed point. |
 | [`EcdsaP256Signature`](#ecdsap256signature) | An ECDSA P-256 signature in the 64-byte `r‖s` form Web Crypto and JWS use: [`Codable`](k-core.md#codable) as base64url text. |
 | [`Ed25519PrivateKey`](#ed25519privatekey) | An Ed25519 signing key (`docs/design/33-crypto.md`, "Signatures"), the default signature algorithm. |
-| [`Ed25519PublicKey`](#ed25519publickey) | An Ed25519 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url text of its 32-byte raw form. |
+| [`Ed25519PublicKey`](#ed25519publickey) | An Ed25519 public key: ordinary data, a `ConfigValue`, [`Codable`](k-core.md#codable) as base64url text of its 32-byte raw form. |
 | [`Ed25519Signature`](#ed25519signature) | An Ed25519 signature, from [`Ed25519PrivateKey.sign(_:)`](#ed25519privatekey): [`Codable`](k-core.md#codable) as base64url text of its 64 bytes. |
 | [`Envelope`](#envelope) | A value sealed to an [`X25519PublicKey`](#x25519publickey) (`docs/design/33-crypto.md`, "Sealing to a public key"): HPKE base mode with DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM. |
 | [`EnvelopedKey`](#envelopedkey) | A key sealed to an [`X25519PublicKey`](#x25519publickey), the way [`WrappedKey`](#wrappedkey) seals one to an [`AesGcmKey`](#aesgcmkey): a key isn't [`Codable`](k-core.md#codable), so `Envelope<AesGcmKey>` doesn't compile and this is how to share one. |
-| [`Exportable`](#exportable) | A key that can leave the platform's key storage (`docs/design/33-crypto.md`, "Exportable keys"), from `generateExportable()` or `unwrapExportable(_:)`. |
+| [`Exportable`](#exportable) | A key that can leave the platform's key storage (`docs/design/33-crypto.md`, "Exportable keys"), from `generateExportable()`, `unwrapExportable(_:)` or `Exportable.parse`. |
 | [`Hash`](#hash) | Plain digests. |
 | [`Hkdf`](#hkdf) | HKDF-SHA256 (RFC 5869) with raw output, for implementing a protocol that specifies it. |
 | [`Hmac`](#hmac) | HMAC over Web Crypto. |
+| [`JwkSet`](#jwkset) | A JSON Web Key Set, such as an identity provider's `jwks_uri` document (`docs/design/33-crypto.md`, "JWS and JWT, for interop"). |
+| [`Jws`](#jws) | JSON Web Signatures in the compact serialization (RFC 7515), for JWS that isn't a JWT (`docs/design/33-crypto.md`, "JWS and JWT, for interop"). |
+| [`Jwt`](#jwt) | JSON Web Tokens (RFC 7519) for talking to systems outside K, such as an identity provider's ID token (`docs/design/33-crypto.md`, "JWS and JWT, for interop"). |
+| [`JwtError`](#jwterror) | Why verifying a JWS or a JWT failed (`docs/design/33-crypto.md`, "JWS and JWT, for interop"). |
+| [`KeyName`](#keyname) | The name a key is kept under in a [`KeyStore`](#keystore), paired with its type: `KeyName<AesGcmKey>(name: "notes-vault")`. |
+| [`KeyStore`](#keystore) | Keeps secret and private keys in the browser across reloads without writing them down as bytes (`docs/design/33-crypto.md`, "Keeping keys in the browser"): [`BrowserKeyStore`](#browserkeystore) stores them in IndexedDB as non-extractable Web Crypto keys. |
+| [`KeyStoreError`](#keystoreerror) | Why a [`KeyStore`](#keystore) call failed. |
 | [`Mac`](#mac) | A message authentication code, from [`Hmac`](#hmac). |
 | [`OpenError`](#openerror) | Why opening a [`Sealed`](#sealed), an [`Envelope`](#envelope) or a wrapped key failed. |
 | [`PassphraseSalt`](#passphrasesalt) | The salt and work factor of a passphrase-derived key (`AesGcmKey.derive(fromPassphrase:salt:)`). |
 | [`Password`](#password) | Password hashing with Argon2id. |
+| [`RsaPublicKey`](#rsapublickey) | An RSA public key, for verifying signatures from systems that still sign with RSA, such as identity providers (`docs/design/33-crypto.md`, "Signatures"). |
+| [`RsaSignature`](#rsasignature) | An RSA signature, checked with [`RsaPublicKey`](#rsapublickey): [`Codable`](k-core.md#codable) as base64url text of its bytes. |
 | [`Sealed`](#sealed) | A value encrypted with an [`AesGcmKey`](#aesgcmkey) (`docs/design/33-crypto.md`, "Authenticated encryption"). |
 | [`SecureRandom`](#securerandom) | Random values from a secure source; there is no non-secure source. |
 | [`SharedSecret`](#sharedsecret) | The output of [`X25519PrivateKey.agree(with:)`](#x25519privatekey): input to a key derivation only (`AesGcmKey.derive(from:salt:info:)`, `Hkdf.sha256(from:salt:info:count:)`). |
 | [`Uuid`](#uuid) | A UUID (`docs/design/33-crypto.md`, "Uuid"). |
 | [`WrappedKey`](#wrappedkey) | A key sealed with an [`AesGcmKey`](#aesgcmkey) (`docs/design/33-crypto.md`, "Key wrapping"): AES-GCM over the key's raw form, with the key type's name authenticated, so a wrapped X25519 key can't be unwrapped as an `AesGcmKey`. |
 | [`X25519PrivateKey`](#x25519privatekey) | An X25519 key-agreement key (`docs/design/33-crypto.md`, "Key agreement"): it agrees on a [`SharedSecret`](#sharedsecret) with another key and opens [`Envelope`](#envelope)s sealed to its public key. |
-| [`X25519PublicKey`](#x25519publickey) | An X25519 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url text of its 32-byte raw form. |
+| [`X25519PublicKey`](#x25519publickey) | An X25519 public key: ordinary data, a `ConfigValue`, [`Codable`](k-core.md#codable) as base64url text of its 32-byte raw form. |
 
 ## AesGcmKey
 
@@ -64,6 +74,11 @@ Web Crypto key.
 
   - Parameter raw: 32 secret bytes.
   - Returns: the key, or `nil` for any other length.
+- `static func parse(jwk: Secret<String>) -> AesGcmKey?`
+  Reads a JWK (`kty` `oct`, 32 bytes, `alg` `A256GCM` when present).
+  Non-exportable.
+
+  - Returns: the key, or `nil` if `jwk` isn't one.
 - `static func derive(from input: SharedSecret, salt: Bytes, info: String) async -> AesGcmKey`
   Derives a key from a key agreement with HKDF-SHA256 (RFC 5869).
 
@@ -129,6 +144,28 @@ Web Crypto key.
   - Returns: the key, exportable.
   - Throws: `.authenticationFailed` for the wrong wrapping key.
 
+## BrowserKeyStore
+
+```k,ignore
+@ClientOnly
+public service BrowserKeyStore implements KeyStore
+```
+
+The standard [`KeyStore`](#keystore): the browser's IndexedDB, holding keys as
+structured-cloned, non-extractable `CryptoKey`s, namespaced per app.
+
+**Members**
+
+- `func get<K>(_ name: KeyName<K>) async throws KeyStoreError -> K?`
+  Reads the key under `name`; see [`KeyStore.get(_:)`](#keystore).
+- `func put<K>(_ key: K, as name: KeyName<K>) async throws KeyStoreError`
+  Keeps `key` under `name`; see [`KeyStore.put(_:as:)`](#keystore).
+- `func delete<K>(_ name: KeyName<K>) async throws KeyStoreError`
+  Forgets the key under `name`; see [`KeyStore.delete(_:)`](#keystore).
+- `@UserAction func requestPersistence() async -> StoragePersistence`
+  Asks for persistent storage; see
+  [`KeyStore.requestPersistence()`](#keystore).
+
 ## ConstantTime
 
 ```k,ignore
@@ -172,6 +209,17 @@ agreement. Secret: not [`Codable`](k-core.md#codable), [`Equatable`](k-core.md#e
   Imports a raw key (the 32-byte big-endian scalar), non-exportable.
 
   - Returns: the key, or `nil` if `raw` isn't a valid scalar.
+- `static func parse(jwk: Secret<String>) -> EcdsaP256PrivateKey?`
+  Reads a private JWK (RFC 7517, RFC 8037): `kty`, `crv` and, when
+  present, `alg`, `use` and `key_ops` must be this type's, and a
+  public part it names must be the key's own. Non-exportable.
+
+  - Returns: the key, or `nil` if `jwk` isn't one.
+- `static func parse(pem: Secret<String>) -> EcdsaP256PrivateKey?`
+  Reads a `PRIVATE KEY` PEM (PKCS #8, version 1 or 2).
+  Non-exportable.
+
+  - Returns: the key, or `nil` if `pem` isn't one.
 - `func sign(_ message: Bytes) async -> EcdsaP256Signature`
   Signs `message`, with a random nonce from the platform.
 
@@ -180,21 +228,35 @@ agreement. Secret: not [`Codable`](k-core.md#codable), [`Equatable`](k-core.md#e
 ## EcdsaP256PublicKey
 
 ```k,ignore
-public struct EcdsaP256PublicKey implements Codable, Equatable, Hashable
+public struct EcdsaP256PublicKey implements Codable, Equatable, Hashable, ConfigValue
 ```
 
-An ECDSA P-256 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url
+An ECDSA P-256 public key: ordinary data, a `ConfigValue`, [`Codable`](k-core.md#codable) as base64url
 text of its 65-byte uncompressed point.
 
 **Members**
 
 - `var raw: Bytes`
   The uncompressed point, `0x04‖x‖y`.
+- `var jwk: String`
+  The public JWK, with `alg`, `use` and `key_ops` set for the type.
+- `var pem: String`
+  The `PUBLIC KEY` PEM (SPKI).
 - `static func parse(raw: Bytes) -> EcdsaP256PublicKey?`
   Reads an uncompressed point.
 
   - Returns: the key, or `nil` unless `raw` is 65 bytes starting
     with `0x04`. A point off the curve verifies nothing.
+- `static func parse(jwk: String) -> EcdsaP256PublicKey?`
+  Reads a JWK (RFC 7517): `kty`, `crv` and, when present, `alg`,
+  `use` and `key_ops` must be this type's. A JWK with a private part
+  (`d`) isn't a public key.
+
+  - Returns: the key, or `nil` if `jwk` isn't one.
+- `static func parse(pem: String) -> EcdsaP256PublicKey?`
+  Reads a `PUBLIC KEY` PEM (SPKI).
+
+  - Returns: the key, or `nil` if `pem` isn't one.
 - `func verify(_ signature: EcdsaP256Signature, of message: Bytes) async -> Bool`
   Checks that `signature` signs `message` with this key.
 
@@ -252,6 +314,17 @@ the default signature algorithm. Secret: not [`Codable`](k-core.md#codable),
   Imports a raw key (RFC 8032's 32-byte seed), non-exportable.
 
   - Returns: the key, or `nil` for any other length.
+- `static func parse(jwk: Secret<String>) -> Ed25519PrivateKey?`
+  Reads a private JWK (RFC 7517, RFC 8037): `kty`, `crv` and, when
+  present, `alg`, `use` and `key_ops` must be this type's, and a
+  public part it names must be the key's own. Non-exportable.
+
+  - Returns: the key, or `nil` if `jwk` isn't one.
+- `static func parse(pem: Secret<String>) -> Ed25519PrivateKey?`
+  Reads a `PRIVATE KEY` PEM (PKCS #8, version 1 or 2).
+  Non-exportable.
+
+  - Returns: the key, or `nil` if `pem` isn't one.
 - `func sign(_ message: Bytes) async -> Ed25519Signature`
   Signs `message`; Ed25519 signatures are deterministic.
 
@@ -260,20 +333,34 @@ the default signature algorithm. Secret: not [`Codable`](k-core.md#codable),
 ## Ed25519PublicKey
 
 ```k,ignore
-public struct Ed25519PublicKey implements Codable, Equatable, Hashable
+public struct Ed25519PublicKey implements Codable, Equatable, Hashable, ConfigValue
 ```
 
-An Ed25519 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url text
+An Ed25519 public key: ordinary data, a `ConfigValue`, [`Codable`](k-core.md#codable) as base64url text
 of its 32-byte raw form.
 
 **Members**
 
 - `var raw: Bytes`
   The 32-byte raw form.
+- `var jwk: String`
+  The public JWK, with `alg`, `use` and `key_ops` set for the type.
+- `var pem: String`
+  The `PUBLIC KEY` PEM (SPKI).
 - `static func parse(raw: Bytes) -> Ed25519PublicKey?`
   Reads the raw form.
 
   - Returns: the key, or `nil` unless `raw` is 32 bytes.
+- `static func parse(jwk: String) -> Ed25519PublicKey?`
+  Reads a JWK (RFC 7517): `kty`, `crv` and, when present, `alg`,
+  `use` and `key_ops` must be this type's. A JWK with a private part
+  (`d`) isn't a public key.
+
+  - Returns: the key, or `nil` if `jwk` isn't one.
+- `static func parse(pem: String) -> Ed25519PublicKey?`
+  Reads a `PUBLIC KEY` PEM (SPKI).
+
+  - Returns: the key, or `nil` if `pem` isn't one.
 - `func verify(_ signature: Ed25519Signature, of message: Bytes) async -> Bool`
   Checks that `signature` signs `message` with this key.
 
@@ -354,18 +441,43 @@ public struct Exportable<K>
 
 A key that can leave the platform's key storage
 (`docs/design/33-crypto.md`, "Exportable keys"), from
-`generateExportable()` or `unwrapExportable(_:)`. Whether a key can be
-exported is part of its type: a plain key has no export members.
+`generateExportable()`, `unwrapExportable(_:)` or `Exportable.parse`.
+Whether a key can be exported is part of its type: a plain key has no
+export members.
 
 **Members**
 
 - `var key: K`
   The key itself, for every ordinary operation.
+- `static func parse(raw: Secret<Bytes>) -> Exportable<K>?`
+  Imports a raw key as exportable: `K` comes from the expected type,
+  `let e: Exportable<AesGcmKey>? = Exportable.parse(raw: bytes)`.
+
+  - Returns: the key, or `nil` if `raw` isn't one of `K`.
+- `static func parse(jwk: Secret<String>) -> Exportable<K>?`
+  Imports a private JWK as exportable.
+
+  - Returns: the key, or `nil` if `jwk` isn't one of `K`.
+- `static func parse(pem: Secret<String>) -> Exportable<K>?`
+  Imports a `PRIVATE KEY` PEM (PKCS #8) as exportable.
+
+  - Returns: the key, or `nil` if `pem` isn't one of `K` (an
+    `AesGcmKey` has no PEM form).
 - `func exportRaw() -> Secret<Bytes>`
   The raw form: 32 bytes for AES, the Ed25519 seed and X25519, the
   scalar for P-256.
 
   - Returns: the bytes, as a [`Secret`](k-core.md#secret).
+- `func exportJwk() -> Secret<String>`
+  The private JWK, with `alg`, `use` and `key_ops` set for the type
+  (`kty` `oct` for an `AesGcmKey`).
+
+  - Returns: the JWK text, as a [`Secret`](k-core.md#secret).
+- `func exportPem() -> Secret<String>`
+  The `PRIVATE KEY` PEM (PKCS #8) of a private key. An `AesGcmKey`
+  has no PEM form: exporting one panics.
+
+  - Returns: the PEM text, as a [`Secret`](k-core.md#secret).
 
 ## Hash
 
@@ -447,6 +559,312 @@ UTF-8), so a configured secret needs no `reveal()`.
 
   - Returns: the code, compared with [`Mac.matches`](#mac).
 
+## JwkSet
+
+```k,ignore
+public struct JwkSet
+```
+
+A JSON Web Key Set, such as an identity provider's `jwks_uri`
+document (`docs/design/33-crypto.md`, "JWS and JWT, for interop"). It
+keeps only the public signature keys K supports (Ed25519, ECDSA P-256,
+RSA of 2,048 bits or more), so it never holds a symmetric key; a token
+verified with it uses the key whose `kid` matches its header, at that
+key's own algorithm. Fetching and caching the document is the app's own
+`HttpClient` call.
+
+**Members**
+
+- `var keyIds: List<String>`
+  The `kid` of each key kept, in the document's order.
+- `static func parse(_ json: String) -> JwkSet?`
+  Reads a JWKS document (`{"keys": [...]}`).
+
+  - Returns: the set, or `nil` if `json` isn't one.
+
+## Jws
+
+```k,ignore
+public class Jws
+```
+
+JSON Web Signatures in the compact serialization (RFC 7515), for JWS
+that isn't a JWT (`docs/design/33-crypto.md`, "JWS and JWT, for
+interop"). The algorithm comes from the key's type, never from the
+token: `alg: none` is never accepted, and a header `alg` that isn't the
+key's is `.wrongAlgorithm`.
+
+**Members**
+
+- `static func verify(_ compact: String, key: Ed25519PublicKey) async throws JwtError -> Bytes`
+  Verifies a compact JWS with an Ed25519 key: only `EdDSA` is accepted.
+
+  - Returns: the payload.
+  - Throws: [`JwtError`](#jwterror): `.malformed`, `.wrongAlgorithm`, `.unknownKeyId`
+    or `.badSignature`.
+- `static func verify(_ compact: String, key: EcdsaP256PublicKey) async throws JwtError -> Bytes`
+  Verifies a compact JWS with a P-256 key: only `ES256`.
+
+  - Returns: the payload.
+  - Throws: [`JwtError`](#jwterror): `.malformed`, `.wrongAlgorithm`, `.unknownKeyId`
+    or `.badSignature`.
+- `static func verify(_ compact: String, key: RsaPublicKey) async throws JwtError -> Bytes`
+  Verifies a compact JWS with an RSA key: `RS256` or `PS256`.
+
+  - Returns: the payload.
+  - Throws: [`JwtError`](#jwterror): `.malformed`, `.wrongAlgorithm`, `.unknownKeyId`
+    or `.badSignature`.
+- `static func verify(_ compact: String, key: Secret<String>) async throws JwtError -> Bytes`
+  Verifies a compact JWS with an HMAC secret, as UTF-8: only `HS256`.
+
+  - Returns: the payload.
+  - Throws: [`JwtError`](#jwterror): `.malformed`, `.wrongAlgorithm`, `.unknownKeyId`
+    or `.badSignature`.
+- `static func verify(_ compact: String, key: Secret<Bytes>) async throws JwtError -> Bytes`
+  Verifies a compact JWS with HMAC key bytes: only `HS256`.
+
+  - Returns: the payload.
+  - Throws: [`JwtError`](#jwterror): `.malformed`, `.wrongAlgorithm`, `.unknownKeyId`
+    or `.badSignature`.
+- `static func verify(_ compact: String, key: JwkSet) async throws JwtError -> Bytes`
+  Verifies a compact JWS with the key of a set whose `kid` matches the
+  header, at that key's algorithm.
+
+  - Returns: the payload.
+  - Throws: [`JwtError`](#jwterror): `.malformed`, `.wrongAlgorithm`, `.unknownKeyId`
+    or `.badSignature`.
+- `static func sign(_ payload: Bytes, key: Secret<Ed25519PrivateKey>) async -> String`
+  Signs `payload` with an Ed25519 key (`EdDSA`).
+
+  - Returns: the compact JWS, whose header names only `alg`.
+- `static func sign(_ payload: Bytes, key: Ed25519PrivateKey) async -> String`
+  Signs `payload` with an Ed25519 key held in a variable (`EdDSA`).
+
+  - Returns: the compact JWS, whose header names only `alg`.
+- `static func sign(_ payload: Bytes, key: Secret<EcdsaP256PrivateKey>) async -> String`
+  Signs `payload` with a P-256 key (`ES256`).
+
+  - Returns: the compact JWS, whose header names only `alg`.
+- `static func sign(_ payload: Bytes, key: EcdsaP256PrivateKey) async -> String`
+  Signs `payload` with a P-256 key held in a variable (`ES256`).
+
+  - Returns: the compact JWS, whose header names only `alg`.
+- `static func sign(_ payload: Bytes, key: Secret<String>) async -> String`
+  Signs `payload` with an HMAC secret of at least 32 bytes, as UTF-8
+  (`HS256`).
+
+  - Returns: the compact JWS, whose header names only `alg`.
+- `static func sign(_ payload: Bytes, key: Secret<Bytes>) async -> String`
+  Signs `payload` with HMAC key bytes, at least 32 (`HS256`).
+
+  - Returns: the compact JWS, whose header names only `alg`.
+
+## Jwt
+
+```k,ignore
+public class Jwt
+```
+
+JSON Web Tokens (RFC 7519) for talking to systems outside K, such as an
+identity provider's ID token (`docs/design/33-crypto.md`, "JWS and JWT,
+for interop"). K's own sessions are cookies. The algorithm comes from
+the key's type, never from the token, and `issuer`, `audience` and
+`now` are required; `now` comes from an injected `Clock`, so tests
+control expiry with `TestClock`.
+
+**Members**
+
+- `static func verify<Claims>(_ token: String, key: Ed25519PublicKey, issuer: String, audience: String, now: Date, leeway: Duration = 1.minutes) async throws JwtError -> Claims where Claims implements Codable`
+  Verifies a JWT's signature, `exp` (required), `nbf`, `iss` and `aud`,
+  with an Ed25519 key: only `EdDSA` is accepted.
+
+  - Returns: the claims, decoded as `Claims`.
+  - Throws: [`JwtError`](#jwterror): the signature's errors, `.missingExpiry`,
+    `.expired`, `.notYetValid`, `.wrongIssuer`, `.wrongAudience`, or
+    `.claims` when the payload isn't a `Claims`.
+- `static func verify<Claims>(_ token: String, key: EcdsaP256PublicKey, issuer: String, audience: String, now: Date, leeway: Duration = 1.minutes) async throws JwtError -> Claims where Claims implements Codable`
+  Verifies a JWT's signature, `exp` (required), `nbf`, `iss` and `aud`,
+  with a P-256 key: only `ES256`.
+
+  - Returns: the claims, decoded as `Claims`.
+  - Throws: [`JwtError`](#jwterror): the signature's errors, `.missingExpiry`,
+    `.expired`, `.notYetValid`, `.wrongIssuer`, `.wrongAudience`, or
+    `.claims` when the payload isn't a `Claims`.
+- `static func verify<Claims>(_ token: String, key: RsaPublicKey, issuer: String, audience: String, now: Date, leeway: Duration = 1.minutes) async throws JwtError -> Claims where Claims implements Codable`
+  Verifies a JWT's signature, `exp` (required), `nbf`, `iss` and `aud`,
+  with an RSA key: `RS256` or `PS256`.
+
+  - Returns: the claims, decoded as `Claims`.
+  - Throws: [`JwtError`](#jwterror): the signature's errors, `.missingExpiry`,
+    `.expired`, `.notYetValid`, `.wrongIssuer`, `.wrongAudience`, or
+    `.claims` when the payload isn't a `Claims`.
+- `static func verify<Claims>(_ token: String, key: Secret<String>, issuer: String, audience: String, now: Date, leeway: Duration = 1.minutes) async throws JwtError -> Claims where Claims implements Codable`
+  Verifies a JWT's signature, `exp` (required), `nbf`, `iss` and `aud`,
+  with an HMAC secret, as UTF-8: only `HS256`.
+
+  - Returns: the claims, decoded as `Claims`.
+  - Throws: [`JwtError`](#jwterror): the signature's errors, `.missingExpiry`,
+    `.expired`, `.notYetValid`, `.wrongIssuer`, `.wrongAudience`, or
+    `.claims` when the payload isn't a `Claims`.
+- `static func verify<Claims>(_ token: String, key: Secret<Bytes>, issuer: String, audience: String, now: Date, leeway: Duration = 1.minutes) async throws JwtError -> Claims where Claims implements Codable`
+  Verifies a JWT's signature, `exp` (required), `nbf`, `iss` and `aud`,
+  with HMAC key bytes: only `HS256`.
+
+  - Returns: the claims, decoded as `Claims`.
+  - Throws: [`JwtError`](#jwterror): the signature's errors, `.missingExpiry`,
+    `.expired`, `.notYetValid`, `.wrongIssuer`, `.wrongAudience`, or
+    `.claims` when the payload isn't a `Claims`.
+- `static func verify<Claims>(_ token: String, key: JwkSet, issuer: String, audience: String, now: Date, leeway: Duration = 1.minutes) async throws JwtError -> Claims where Claims implements Codable`
+  Verifies a JWT's signature, `exp` (required), `nbf`, `iss` and `aud`,
+  with the key of a set whose `kid` matches the header, at that key's
+  algorithm.
+
+  - Returns: the claims, decoded as `Claims`.
+  - Throws: [`JwtError`](#jwterror): the signature's errors, `.missingExpiry`,
+    `.expired`, `.notYetValid`, `.wrongIssuer`, `.wrongAudience`, or
+    `.claims` when the payload isn't a `Claims`.
+- `static func sign<Claims>(_ claims: Claims, key: Secret<Ed25519PrivateKey>, keyId: String? = nil, expiresIn: Duration, now: Date) async -> String where Claims implements Codable`
+  Issues a JWT of `claims` with an Ed25519 key (`EdDSA`).
+
+  - Returns: the compact JWT, with `typ` `JWT`, `kid` when given, and
+    `iat` and `exp` set.
+- `static func sign<Claims>(_ claims: Claims, key: Ed25519PrivateKey, keyId: String? = nil, expiresIn: Duration, now: Date) async -> String where Claims implements Codable`
+  Issues a JWT of `claims` with an Ed25519 key held in a variable
+  (`EdDSA`).
+
+  - Returns: the compact JWT, with `typ` `JWT`, `kid` when given, and
+    `iat` and `exp` set.
+- `static func sign<Claims>(_ claims: Claims, key: Secret<EcdsaP256PrivateKey>, keyId: String? = nil, expiresIn: Duration, now: Date) async -> String where Claims implements Codable`
+  Issues a JWT of `claims` with a P-256 key (`ES256`).
+
+  - Returns: the compact JWT, with `typ` `JWT`, `kid` when given, and
+    `iat` and `exp` set.
+- `static func sign<Claims>(_ claims: Claims, key: EcdsaP256PrivateKey, keyId: String? = nil, expiresIn: Duration, now: Date) async -> String where Claims implements Codable`
+  Issues a JWT of `claims` with a P-256 key held in a variable (`ES256`).
+
+  - Returns: the compact JWT, with `typ` `JWT`, `kid` when given, and
+    `iat` and `exp` set.
+- `static func sign<Claims>(_ claims: Claims, key: Secret<String>, keyId: String? = nil, expiresIn: Duration, now: Date) async -> String where Claims implements Codable`
+  Issues a JWT of `claims` with an HMAC secret of at least 32 bytes, as
+  UTF-8 (`HS256`).
+
+  - Returns: the compact JWT, with `typ` `JWT`, `kid` when given, and
+    `iat` and `exp` set.
+- `static func sign<Claims>(_ claims: Claims, key: Secret<Bytes>, keyId: String? = nil, expiresIn: Duration, now: Date) async -> String where Claims implements Codable`
+  Issues a JWT of `claims` with HMAC key bytes, at least 32 (`HS256`).
+
+  - Returns: the compact JWT, with `typ` `JWT`, `kid` when given, and
+    `iat` and `exp` set.
+
+## JwtError
+
+```k,ignore
+public enum JwtError implements Error, Equatable
+```
+
+Why verifying a JWS or a JWT failed (`docs/design/33-crypto.md`, "JWS
+and JWT, for interop").
+
+**Members**
+
+- `case malformed`
+  Not a compact JWS: three base64url parts, a JSON header with an
+  `alg`, no `crit`; or a JWT whose payload isn't a JSON object.
+- `case wrongAlgorithm(String)`
+  The header's `alg` isn't the one the key's type verifies (`none`
+  never is).
+- `case unknownKeyId(String?)`
+  No key of the [`JwkSet`](#jwkset) has the header's `kid`, or more than one.
+- `case badSignature`
+  The signature doesn't verify with the key.
+- `case expired`
+  `exp` has passed, beyond the leeway.
+- `case notYetValid`
+  `nbf` hasn't come yet, beyond the leeway.
+- `case wrongIssuer`
+  `iss` isn't the expected issuer.
+- `case wrongAudience`
+  `aud` doesn't name the expected audience.
+- `case missingExpiry`
+  The token has no `exp`.
+- `case claims(DecodingError)`
+  Authentic, but the claims don't decode as the expected type.
+
+## KeyName
+
+```k,ignore
+public struct KeyName<K>
+```
+
+The name a key is kept under in a [`KeyStore`](#keystore), paired with its type:
+`KeyName<AesGcmKey>(name: "notes-vault")`. The name is a string
+literal, declared once per app, and fixes the key type, so `get`
+returns the type `put` stored.
+
+**Members**
+
+- `init(name: String)`
+  Creates the name `name`.
+
+  - Parameter name: a string literal, unique in the app.
+- `var name: String`
+  The name.
+
+## KeyStore
+
+```k,ignore
+@Platform(side: .client)
+public interface KeyStore
+```
+
+Keeps secret and private keys in the browser across reloads without
+writing them down as bytes (`docs/design/33-crypto.md`, "Keeping keys
+in the browser"): [`BrowserKeyStore`](#browserkeystore) stores them in IndexedDB as
+non-extractable Web Crypto keys. A client-only platform interface,
+injected with no `use` rule; [`k.test.MemoryKeyStore`](k-test.md#memorykeystore) replaces it in
+tests. Server code holds keys in configuration, or wrapped in the
+database.
+
+A browser under storage pressure may delete the store, and a lost key
+can't be recovered: keep a recovery path, such as a passphrase-wrapped
+copy on the server, and ask for `requestPersistence()`.
+
+**Members**
+
+- `func get<K>(_ name: KeyName<K>) async throws KeyStoreError -> K?`
+  Reads the key kept under `name`.
+
+  - Returns: the key, or `nil` when none is kept.
+  - Throws: [`KeyStoreError.unavailable`](#keystoreerror) when IndexedDB is blocked.
+- `func put<K>(_ key: K, as name: KeyName<K>) async throws KeyStoreError`
+  Keeps `key` under `name`, replacing what was there. An exportable
+  key is stored non-exportable.
+
+  - Throws: [`KeyStoreError.unavailable`](#keystoreerror) when IndexedDB is blocked.
+- `func delete<K>(_ name: KeyName<K>) async throws KeyStoreError`
+  Forgets the key kept under `name`, such as at sign-out.
+
+  - Throws: [`KeyStoreError.unavailable`](#keystoreerror) when IndexedDB is blocked.
+- `@UserAction func requestPersistence() async -> StoragePersistence`
+  Asks the browser not to evict this origin's storage
+  (`navigator.storage.persist()`). Chromium and WebKit answer
+  silently; Firefox asks the person, so this needs a user's action.
+
+  - Returns: what the browser granted.
+
+## KeyStoreError
+
+```k,ignore
+public enum KeyStoreError implements Error, Equatable
+```
+
+Why a [`KeyStore`](#keystore) call failed.
+
+**Members**
+
+- `case unavailable`
+  The browser's IndexedDB is blocked, as in some private modes.
+
 ## Mac
 
 ```k,ignore
@@ -505,6 +923,11 @@ the default never breaks existing vaults.
   600,000 iterations (1,000 in `k test`).
 
   - Returns: the salt.
+- `static func parse(_ text: String) -> PassphraseSalt?`
+  Reads a salt's text, as `Codable` writes it.
+
+  - Returns: the salt, or `nil` unless `text` is one with at least
+    100,000 iterations (any count in `k test`).
 
 ## Password
 
@@ -537,6 +960,67 @@ Password hashing with Argon2id. Server-only and deliberately slow.
 - `static let unusableHash: String`
   A valid hash that no password matches: verifying against it when
   the user doesn't exist keeps sign-in timing equal.
+
+## RsaPublicKey
+
+```k,ignore
+public struct RsaPublicKey implements Codable, Equatable, Hashable, ConfigValue
+```
+
+An RSA public key, for verifying signatures from systems that still
+sign with RSA, such as identity providers (`docs/design/33-crypto.md`,
+"Signatures"). K never signs with RSA. Ordinary data: [`Codable`](k-core.md#codable) as
+base64url text of its SPKI DER, and a `ConfigValue`. Keys of 2,048 to
+8,192 bits only.
+
+**Members**
+
+- `var jwk: String`
+  The public JWK (`kty` `RSA`, `alg` `RS256`).
+- `var pem: String`
+  The `PUBLIC KEY` PEM (SPKI).
+- `static func parse(jwk: String) -> RsaPublicKey?`
+  Reads a JWK: `kty` `RSA`, `alg` `RS256` or `PS256` when present.
+
+  - Returns: the key, or `nil` if `jwk` isn't one, or the modulus has
+    fewer than 2,048 bits, or the exponent isn't odd and at least 3.
+- `static func parse(pem: String) -> RsaPublicKey?`
+  Reads a `PUBLIC KEY` PEM (SPKI, `rsaEncryption`).
+
+  - Returns: the key, or `nil` if `pem` isn't one, as for JWK.
+- `func verify(_ signature: RsaSignature, of message: Bytes) async -> Bool`
+  Checks an RSASSA-PKCS1-v1_5 signature with SHA-256 (JWT `RS256`).
+
+  - Returns: `true` if `signature` signs `message` with this key;
+    `false` for any invalid signature.
+- `func verifyPss(_ signature: RsaSignature, of message: Bytes) async -> Bool`
+  Checks an RSASSA-PSS signature with SHA-256, MGF1 with SHA-256 and
+  a 32-byte salt (JWT `PS256`).
+
+  - Returns: `true` if `signature` signs `message` with this key.
+- `func fingerprint() async -> String`
+  The SHA-256 of the SPKI DER as hex.
+
+  - Returns: 64 hex digits.
+
+## RsaSignature
+
+```k,ignore
+public struct RsaSignature implements Codable, Equatable, Hashable
+```
+
+An RSA signature, checked with [`RsaPublicKey`](#rsapublickey): [`Codable`](k-core.md#codable) as
+base64url text of its bytes.
+
+**Members**
+
+- `var bytes: Bytes`
+  The signature's bytes, as long as the key's modulus.
+- `static func parse(bytes: Bytes) -> RsaSignature?`
+  Reads a signature.
+
+  - Returns: the signature, or `nil` unless `bytes` is 256 to 1,024
+    bytes long.
 
 ## Sealed
 
@@ -658,6 +1142,17 @@ opens [`Envelope`](#envelope)s sealed to its public key. Secret: not
   Imports a raw key (32 bytes), non-exportable.
 
   - Returns: the key, or `nil` for any other length.
+- `static func parse(jwk: Secret<String>) -> X25519PrivateKey?`
+  Reads a private JWK (RFC 7517, RFC 8037): `kty`, `crv` and, when
+  present, `alg`, `use` and `key_ops` must be this type's, and a
+  public part it names must be the key's own. Non-exportable.
+
+  - Returns: the key, or `nil` if `jwk` isn't one.
+- `static func parse(pem: Secret<String>) -> X25519PrivateKey?`
+  Reads a `PRIVATE KEY` PEM (PKCS #8, version 1 or 2).
+  Non-exportable.
+
+  - Returns: the key, or `nil` if `pem` isn't one.
 - `func agree(with theirs: X25519PublicKey) async -> SharedSecret`
   Agrees on a secret with the holder of `theirs`.
 
@@ -678,21 +1173,35 @@ opens [`Envelope`](#envelope)s sealed to its public key. Secret: not
 ## X25519PublicKey
 
 ```k,ignore
-public struct X25519PublicKey implements Codable, Equatable, Hashable
+public struct X25519PublicKey implements Codable, Equatable, Hashable, ConfigValue
 ```
 
-An X25519 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url text of
+An X25519 public key: ordinary data, a `ConfigValue`, [`Codable`](k-core.md#codable) as base64url text of
 its 32-byte raw form. Values are sealed to it as [`Envelope`](#envelope)s.
 
 **Members**
 
 - `var raw: Bytes`
   The 32-byte raw form.
+- `var jwk: String`
+  The public JWK, with `alg`, `use` and `key_ops` set for the type.
+- `var pem: String`
+  The `PUBLIC KEY` PEM (SPKI).
 - `static func parse(raw: Bytes) -> X25519PublicKey?`
   Reads the raw form.
 
   - Returns: the key, or `nil` unless `raw` is 32 bytes and not a
     known small-order point.
+- `static func parse(jwk: String) -> X25519PublicKey?`
+  Reads a JWK (RFC 7517): `kty`, `crv` and, when present, `alg`,
+  `use` and `key_ops` must be this type's. A JWK with a private part
+  (`d`) isn't a public key.
+
+  - Returns: the key, or `nil` if `jwk` isn't one.
+- `static func parse(pem: String) -> X25519PublicKey?`
+  Reads a `PUBLIC KEY` PEM (SPKI).
+
+  - Returns: the key, or `nil` if `pem` isn't one.
 - `func seal<T>(_ value: T, context: Bytes = "".utf8) async -> Envelope<T> where T implements Codable`
   Encrypts `value` so only the holder of the private key can read it:
   HPKE base mode (RFC 9180) with a fresh ephemeral key. It isn't

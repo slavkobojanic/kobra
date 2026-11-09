@@ -110,12 +110,13 @@ pub const WEBSOCKET_SIZE_BUDGET: usize = 1536;
 
 /// The largest `k.crypto` in the browser ([`Part::Crypto`]: `Hash`, `Hmac`,
 /// `SecureRandom`, `ConstantTime`, the key types over Web Crypto, HPKE for
-/// `Envelope` and the wire formats) may be, measured like
-/// [`CORE_SIZE_BUDGET`] (8 KB; about 7 KB as built, and a release build
-/// links out what a page doesn't use). It ships in its own chunk, only to
-/// pages whose client code uses one of them (`docs/design/33-crypto.md`,
-/// "Implementation"; `docs/compiler/performance.md` §11.3).
-pub const CRYPTO_SIZE_BUDGET: usize = 8192;
+/// `Envelope`, the wire formats, JWK, PEM and DER, `RsaPublicKey`, JWS and
+/// JWT, and `BrowserKeyStore`) may be, measured like [`CORE_SIZE_BUDGET`]
+/// (13 KB; about 12.1 KB compacted, and a release build minifies it to
+/// about 6.9 KB). It ships in its own chunk, only to pages whose client
+/// code uses one of them (`docs/design/33-crypto.md`, "Implementation";
+/// `docs/compiler/performance.md` §11.3).
+pub const CRYPTO_SIZE_BUDGET: usize = 13312;
 
 /// The largest `k.drag` in the browser ([`Part::Drag`]: `Draggable`,
 /// `DropTarget` and `ReorderableList` with pointer, touch and keyboard
@@ -412,6 +413,7 @@ const MODULES: &[Module] = modules![
     Server "runtime/ssr.js",
     Server "runtime/server.js",
     Server "runtime/app.js",
+    Server "runtime/crypto-ops.js",
     Server "runtime/outbound.js",
     Server "runtime/remote.js",
     Server "runtime/db.js",

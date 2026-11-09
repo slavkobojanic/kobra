@@ -12,4 +12,9 @@ public struct PassphraseSalt implements Codable, Equatable {
     ///
     /// - Returns: the salt.
     static func generate() -> PassphraseSalt
+    /// Reads a salt's text, as `Codable` writes it.
+    ///
+    /// - Returns: the salt, or `nil` unless `text` is one with at least
+    ///   100,000 iterations (any count in `k test`).
+    static func parse(_ text: String) -> PassphraseSalt?
 }

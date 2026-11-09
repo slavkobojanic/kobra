@@ -75,6 +75,47 @@ fn hash_password() -> ExitCode {
     }
 }
 
+/// `k keys new <kind>`: prints a new key of `kind` as a private JWK, for a
+/// `Secret<K>` config field, and its public JWK, each after a comment
+/// line naming the K type (`docs/design/33-crypto.md`, "Keys in
+/// configuration"), so nobody needs an external tool to make a key.
+fn keys_new(kind: cli::KeyKind) -> ExitCode {
+    let (name, private, public) = match kind {
+        cli::KeyKind::Ed25519 => ("ed25519", "Ed25519PrivateKey", "Ed25519PublicKey"),
+        cli::KeyKind::X25519 => ("x25519", "X25519PrivateKey", "X25519PublicKey"),
+        cli::KeyKind::P256Ecdsa => ("p256-ecdsa", "EcdsaP256PrivateKey", "EcdsaP256PublicKey"),
+        cli::KeyKind::AesGcm => ("aes-gcm", "AesGcmKey", ""),
+    };
+    #[cfg(feature = "server")]
+    match k_server::crypto::new_key_jwks(name) {
+        Ok(Some((secret, public_jwk))) => {
+            println!(
+                "# The {private}, for a `Secret<{private}>` config field. Keep it out of git."
+            );
+            println!("{secret}");
+            if let Some(p) = public_jwk {
+                println!("# Its {public}, for an `{public}` field or for anyone who verifies.");
+                println!("{p}");
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(None) => {
+            eprintln!("error: no key type `{name}`");
+            ExitCode::from(2)
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(2)
+        }
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = (name, private, public);
+        eprintln!("error: this `k` was built without the server runtime (feature `server`)");
+        ExitCode::from(2)
+    }
+}
+
 fn main() -> ExitCode {
     // `dist/app` is this executable with an app appended: serve it.
     #[cfg(feature = "server")]
@@ -94,6 +135,9 @@ fn main() -> ExitCode {
         Command::Test(args) => test::run(&args),
         Command::Routes(args) => routes::run(&args),
         Command::HashPassword => hash_password(),
+        Command::Keys { command } => match command {
+            cli::KeysCommand::New(args) => keys_new(args.kind),
+        },
         Command::Migrate { command } => match command {
             MigrateCommand::New(args) => migrate::new(&args),
             MigrateCommand::Rename(args) => migrate::rename(&args),

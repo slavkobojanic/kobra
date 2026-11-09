@@ -785,6 +785,7 @@ pub(crate) fn service(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let name = g.name(d);
     let mut ctor = Vec::new();
     let mut methods = Vec::new();
+    let mut statics = Vec::new();
     for &m in &info.members {
         let mi = g.view.member(m).clone();
         let mnode = g.member_node(m);
@@ -868,6 +869,21 @@ pub(crate) fn service(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 f.kind = MethodKind::Getter;
                 methods.push(f);
             }
+            // `static let` fields: properties of the class, set once after
+            // it, as a struct's or class's are (`decl.rs`).
+            MemberKind::Field => {
+                b.self_mode = SelfMode::None;
+                let init = mnode
+                    .as_ref()
+                    .and_then(|x| x.children().find_map(ast::Expr::cast));
+                let (pre, e) = b.capture(|b| init.as_ref().map_or(Expr::Null, |e| b.expr(e)));
+                statics.extend(pre);
+                statics.push(Stmt::Expr(js::assign(
+                    member(id(name.clone()), mi.name.clone()),
+                    e,
+                )));
+                b.self_mode = SelfMode::This;
+            }
             _ => {}
         }
     }
@@ -884,14 +900,16 @@ pub(crate) fn service(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
     let defaults = crate::decl::stdlib_defaults(b, d, &methods);
     methods.extend(defaults);
     all.extend(methods);
-    vec![Stmt::Class(
+    let mut out = vec![Stmt::Class(
         Class {
             name,
             extends: None,
             methods: all,
         },
         true,
-    )]
+    )];
+    out.extend(statics);
+    out
 }
 
 /// A protocol: on the client, the RPC stub class `P$client` whose methods
@@ -1154,7 +1172,26 @@ pub(crate) fn config_object(b: &mut Body<'_, '_>, d: DeclId) -> Expr {
         let enum_cases = element
             .decl()
             .filter(|&e| g.view.decl(e).named_kind() == Some(DeclarationKind::Enum) && !secret);
-        let v = if secret {
+        // A key type (33-crypto.md, "Keys in configuration"), held as
+        // itself or in a `Secret`, alone or in a list: parsed by
+        // `k.crypto` from the text startup checked.
+        let mut key = t.unwrap_optional().clone();
+        if secret {
+            key = key.args().first().cloned().unwrap_or(Type::Error);
+        }
+        if g.is_list(&key) {
+            key = key.args().first().cloned().unwrap_or(Type::Error);
+        }
+        let key_type = key
+            .decl()
+            .map(|k| g.view.qualified_name(k))
+            .and_then(|q| crate::server::config_key_type(&q).map(str::to_owned));
+        let v = if let Some(key_type) = key_type {
+            call(
+                member(id("$s"), "configKey"),
+                vec![name, js::str(key_type), Expr::Bool(secret)],
+            )
+        } else if secret {
             call(member(id("$s"), "configSecret"), vec![name])
         } else if let Some(e) = enum_cases {
             let r = b.decl_ref(e);

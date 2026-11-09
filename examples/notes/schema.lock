@@ -7,6 +7,7 @@
 migrations = [
     "0001_create_accounts_and_notes",
     "0002_add_note_pinning",
+    "0003_add_the_private_vault",
 ]
 
 [tables.account]
@@ -29,6 +30,7 @@ columns = [
     { field = "createdAt", name = "created_at", type = "timestamp" },
     { field = "updatedAt", name = "updated_at", type = "timestamp" },
     { field = "isPinned", name = "is_pinned", type = "boolean", default = false },
+    { field = "privateText", name = "private_text", type = "text", nullable = true },
 ]
 
 [tables.tag]
@@ -37,4 +39,12 @@ columns = [
     { field = "id", name = "id", type = "uuid", primaryKey = true },
     { field = "note", name = "note_id", type = "uuid", references = "note.id", indexed = true },
     { field = "label", name = "label", type = "text" },
+]
+
+[tables.vault]
+entity = "vault.Vault"
+columns = [
+    { field = "ownerId", name = "owner_id", type = "uuid", primaryKey = true },
+    { field = "salt", name = "salt", type = "text" },
+    { field = "wrappedKey", name = "wrapped_key", type = "text" },
 ]

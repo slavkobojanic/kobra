@@ -1,8 +1,8 @@
 # Notes: a full-stack app with accounts
 
 `examples/notes` is a notes app with everything a real full-stack app needs: accounts with email and
-password, notes with tags in SQLite, a list that stays live across browser tabs, and editing that
-never silently overwrites a change made elsewhere.
+password, notes with tags in SQLite, a list that stays live across browser tabs, editing that
+never silently overwrites a change made elsewhere, and a private vault whose text the server can't read.
 
 Where the [weather example](weather.md) talks to someone else's API, this one owns both ends: a
 `protocol` between its browser and its server, entities and migrations, sessions and guards.
@@ -17,7 +17,8 @@ k dev examples/notes      # http://localhost:8080; the database is .k/notes.db, 
 ```text
 notes/
 ├── App.k                   @Layout(AppLayout), @SignInPage(.signIn)
-├── migrations/             0001_create_accounts_and_notes.k, 0002_add_note_pinning.k
+├── migrations/             0001_create_accounts_and_notes.k, 0002_add_note_pinning.k,
+│                           0003_add_the_private_vault.k
 ├── schema.lock  routes.lock  rpc.lock
 └── src/
     ├── accounts/           AccountId, Account, AccountRepository, AuthProtocol, AuthApi,
@@ -26,6 +27,8 @@ notes/
     │                       NotesService, NoteDraft, the Notes, NewNote and EditNote pages
     ├── search/             Searchable, an interface with a default method
     ├── shell/              AppLayout, OfflineBanner and NotesTheme
+    ├── vault/              Vault, VaultProtocol, VaultApi, VaultService, the PrivateNote page
+    │                       and its PrivateTextEditor
     └── testing/            Samples: AccountId.ada, NoteSummary fixtures
 ```
 
@@ -177,10 +180,53 @@ take the browser offline with `TestConnectivity.goOffline()`, which also makes t
 response time reveals nothing), and lets the unique index on the email decide a race between two
 sign-ups. [Authentication and sessions](../apps/auth.md) walks through it.
 
+## The private vault
+
+A note can have a **private text**, sealed in the browser. The server stores and syncs it but can't read
+it, and neither can a database dump or an operator. The title and tags stay plain, so the list and search
+keep working; the private text is the only private part ([Bytes and cryptography](../apps/crypto.md)).
+
+```k
+// examples/notes/src/vault/VaultService.k
+func create(passphrase: String) async throws VaultError {
+    let salt = PassphraseSalt.generate()
+    let wrapping = await AesGcmKey.derive(fromPassphrase: passphrase, salt: salt)
+    let vault = await AesGcmKey.generateExportable()
+
+    try await api.create(vault: StoredVault(salt: salt, wrappedKey: await wrapping.wrap(vault)))
+    await remember(vault.key)
+}
+// ...
+func open(_ sealed: Sealed<PrivateText>, note id: Uuid) async throws VaultError -> PrivateText {
+    let key = try unlockedKey()
+    do {
+        return try await key.open(sealed, context: "note:{id}".utf8)
+    } catch .authenticationFailed, .undecodable {
+        throw VaultError.tampered
+    }
+}
+```
+
+- **The vault key never leaves the browser in the clear.** It is generated there, sent to the server only
+  wrapped with a key derived from the vault passphrase (`StoredVault`), and kept in this browser's
+  `KeyStore` as a non-extractable key. `AesGcmKey` isn't `Codable`, so no rpc, `@Load` field or log can
+  carry it. A wrong passphrase is the `.authenticationFailed` of `unwrap`, so the server keeps no
+  password verifier.
+- **The vault has its own passphrase, never the sign-in password,** which the server receives at sign-in.
+- **Each ciphertext is bound to its note:** `"note:{id}"` is authenticated, so a server that moves a
+  ciphertext to another note produces `VaultError.tampered`, not the wrong note.
+- **The server's side is ordinary data.** `Vault` stores the salt and the wrapped key, and `Note` the
+  sealed text, as text columns (`migrations/0003_add_the_private_vault.k`); `VaultApi` checks only that
+  the note is the caller's.
+- `PrivateTextEditor` is `@Rendering(.client)`, because the key exists only in the browser: the server
+  renders "Opening the vault…" and the browser restores the kept key after hydration.
+- **What it doesn't protect against:** the server serves the JavaScript, so a malicious server could ship
+  code that reads the passphrase. That is true of every web end-to-end design.
+
 ## The tests
 
 Every test runs the browser and the server in one process, against a fresh in-memory SQLite database
-with both migrations applied. A test signs in without creating an account:
+with every migration applied. A test signs in without creating an account:
 
 ```k
 // examples/notes/src/notes/Notes.test.k
@@ -198,4 +244,18 @@ test "the list shows the account's notes and filters as you type" {
 ```
 
 `AccountId.ada` comes from `src/testing/Samples.k`, a test-only module that no production code can
-import.
+import. The vault's tests run on `MemoryKeyStore`, the test default for `KeyStore`, and the real
+cryptography with fast test salts:
+
+```k
+// examples/notes/src/vault/VaultService.test.k
+test "the server can't move a ciphertext to another note" {
+    await sessions.signIn(userId: AccountId.ada)
+    try await vault.create(passphrase: "correct horse")
+    let sealed = try await vault.seal(PrivateText(body: "hi"), note: Uuid("00000000-0000-4000-8000-000000000001"))
+
+    expect throws VaultError.tampered {
+        try await vault.open(sealed, note: Uuid("00000000-0000-4000-8000-000000000002"))
+    }
+}
+```

@@ -1,1 +1,12 @@
-error[K4019] 7:41-7:58: a config field is a `ConfigValue`; `k.crypto.Ed25519PrivateKey` isn't
+error[K4032] 10:41-10:58: a secret key in a config is held as `Secret<Ed25519PrivateKey>`, so it may come from `SIGNING_KEY_FILE` and is never printed
+  help: `Secret<Ed25519PrivateKey>` has the key's operations: `config.signingKey.sign(…)` needs no `reveal()`
+  fix "Wrap the type in `Secret<…>`: `Secret<Ed25519PrivateKey>`"
+    edit 10:41-10:58 "Secret<Ed25519PrivateKey>"
+error[K4032] 11:39-11:49: a secret key in a config is held as `Secret<AesGcmKey>`, so it may come from `BACKUP_KEY_FILE` and is never printed
+  help: `Secret<AesGcmKey>` has the key's operations: `config.backupKey.seal(…)` needs no `reveal()`
+  fix "Wrap the type in `Secret<…>`: `Secret<AesGcmKey>?`"
+    edit 11:39-11:49 "Secret<AesGcmKey>?"
+error[K4032] 12:35-12:58: a secret key in a config is held as `Secret<Ed25519PrivateKey>`, so it may come from `OLD_KEYS_FILE` and is never printed
+  help: `Secret<Ed25519PrivateKey>` has the key's operations: `config.oldKeys.sign(…)` needs no `reveal()`
+  fix "Wrap the type in `Secret<…>`: `Secret<List<Ed25519PrivateKey>>`"
+    edit 12:35-12:58 "Secret<List<Ed25519PrivateKey>>"

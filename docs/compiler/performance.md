@@ -659,7 +659,7 @@ Measured 2026-11-07, release build, 14-core Apple M-series:
 | Element events ≤ 1 KB (`OBSERVE_SIZE_BUDGET`) | `observe.js` 4.4 KB raw, 1.5 KB compacted, **728 B** gzip | met. **New budget, justified:** `appeared`, `disappeared` and `resized` (45-web-platform.md) are lowered to `$k.observeElement`, a runtime feature routed to `observe.[hash].js` like `forms`, so only clients that use one ship the shared observers |
 | `KeyboardShortcut` ≤ 512 B (`KEYS_SIZE_BUDGET`) | `keys.js` 1.6 KB raw, 0.6 KB compacted, **384 B** gzip | met. **New budget, justified:** 43-keyboard-shortcuts.md; a chunk of its own (`keys.[hash].js`) for apps with shortcuts, rather than 384 B more in every client's runtime chunk |
 | `@Form` support ≤ 2 KB (`FORMS_SIZE_BUDGET`) | `forms.js` 11.0 KB raw, 4.6 KB compacted, **1,807 B** gzip (shipped `forms.[hash].js` 1,866 B: notes, shop, kanban) | met. **New budget, justified:** `forms.js` was 1,457 B of the full client runtime, which had 117 B of headroom left; only apps with a `@Form` need it, so instead of raising `FULL_SIZE_BUDGET` it moved to a feature chunk of its own (`forms.[hash].js`), like `streams` and `http`, and counts against no other part. 2 KB leaves about 240 B of room to grow |
-| `k.crypto` in the browser ≤ 8 KB (`CRYPTO_SIZE_BUDGET`) | `crypto.js` 44 KB raw (half of it comments), 24.7 KB compacted, **7,149 B** gzip; a release page that seals and opens ships about 3.5 KB of it | met. **New budget, justified:** the key types, `Sealed`, HPKE for `Envelope`, both backends' glue and the codecs ([33-crypto.md](../design/33-crypto.md#decided-while-implementing)) are a feature chunk of their own, imported only by the page chunks that use them, so they count against no other part and the shipped runtime doesn't grow |
+| `k.crypto` in the browser ≤ 13 KB (`CRYPTO_SIZE_BUDGET`) | `crypto.js` 75 KB raw (half of it comments), 42.8 KB compacted, **12,384 B** gzip (7,149 B before JWK, PEM, RSA, JOSE and `KeyStore`); a release build minifies the chunk to about 6.9 KB, and a release page that seals and opens ships about 3.5 KB of the core | met. **New budget, justified:** the key types, `Sealed`, HPKE for `Envelope`, both backends' glue and the codecs ([33-crypto.md](../design/33-crypto.md#decided-while-implementing)) are a feature chunk of their own, imported only by the page chunks that use them, so they count against no other part and the shipped runtime doesn't grow. **Raised, justified** (8 KB to 13 KB, 2026-11-10): the second round of 33 (key formats, RSA verification, JWS and JWT, the browser key store) went into the same chunk, because a feature chunk can't import another, and it still ships only to pages that use `k.crypto` |
 | `Decimal` and `Money` ≤ 2.5 KB (`MONEY_SIZE_BUDGET`) | `money.js` 14.4 KB raw, 6.2 KB compacted, **2,164 B** gzip (shop's shipped `money.[hash].js` 2,218 B) | met. **New budget, justified:** the exact types were 1,586 B of the stdlib bodies, which had 81 B of headroom; only apps whose client code builds, reads or decodes a `Decimal`, `Money` or `Currency` ship them (shop, of the examples), so they moved to `money.[hash].js` instead of raising `STDLIB_SIZE_BUDGET`. 2.5 KB leaves about 400 B of room to grow |
 | Shipped `runtime.<hash>.js` (full runtime + stdlib + browser services) ≤ 23 KB | 60,806 B raw, **19,223 B** gzip as todos ships it before the "leaves behind" round (18,858 B as last recorded; 18,730 B before the ownership of async work; 18,388 B before the router checked page guards; was 21,053 before `forms` and `money` became feature chunks) | met; the feature chunks are separate files (weather's `charts` 2,352 B gzip, notes' `streams` 597 B, `forms` 1,866 B for notes, shop and kanban, shop's `money` 2,218 B). **Budget change (stage 3b), justified:** the chunk's budget was defined as the sum of its parts' budgets (`FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET`, 20 KB) and the chunk gained a part, the browser's DI support and the client bodies of `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient` and `Session` (`services.js`). Without them every page that injects anything failed in the browser, so they are not optional, and like the stdlib bodies they grow with the stdlib, not the framework; they get their own 3 KB budget, and the chunk's budget stays the sum of its parts (23 KB). No existing part's budget was raised |
 | Signal write to DOM text update ≤ 1 µs per binding | 86 ns | met |
@@ -782,7 +782,7 @@ else). Each is the 2026-11-09 measurement plus about 10%, rounded:
 | `todos` | 19,500 B | 15,872 B (17,853 B on 2026-11-10, with reminders and their `notifications` chunk) |
 | `kanban` | 32,500 B | 29,840 B |
 | `weather` | 33,000 B | 25,820 B (30,076 B on 2026-11-10; 30,115 B once the geolocation chunk loads only with the start page) |
-| `notes` | 28,000 B | 25,440 B |
+| `notes` | 40,000 B | 25,440 B (36,246 B on 2026-11-10, with the private vault and its `crypto` chunk) |
 | `huddle` | 23,000 B | 20,899 B (2026-11-10, new: the channels chunk included) |
 | `shop/shop` | 30,500 B | 27,881 B (30,342 B on 2026-11-10, with the cart and its `tabs` chunk, 531 B) |
 | `shop/paybox` | 5,500 B | 4,894 B |
@@ -799,6 +799,14 @@ not growth in what it already shipped, so the budget is the new measurement plus
 `ReminderService` and the row's "Remind me" add about 1,980 B to the 15,872 B it shipped. As for weather,
 it is a feature the app didn't have, so the budget is the new measurement plus about 10%. The service
 worker, `k-sw.js` (504 B), isn't counted: no page load fetches it, only the browser's worker updates.
+
+**Raised, justified:** notes' budget went from 28,000 B to 40,000 B on 2026-11-10 with the private vault
+(33-crypto.md, "Example: private notes"). The app shipped about 26,350 B just before; the vault adds about 9,900 B:
+the `crypto` feature chunk (6,909 B, within its own budget, raised in §11.3: the whole of `k.crypto` in the
+browser, since a feature chunk isn't shaken), the `PrivateNote` page and its client-rendered
+`PrivateTextEditor`, and `VaultService` in the shared chunk. As for weather and todos, it is a feature the
+app didn't have, so the budget is the new measurement plus about 10%. Shaking the feature chunks, which
+would leave out JWK, PEM, RSA and JOSE here, would take most of the chunk back.
 
 The part budgets of §11.3 still hold for the runtime's parts as written (they measure `compact`, not the
 linked output); a shipped runtime chunk is now well under the 23 KB of its parts (todos 9,895 B gzip,

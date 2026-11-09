@@ -112,6 +112,8 @@ public page EditNote requires Authenticated {
 
         NoteEditor(draft: loaded.draft(), save: save)
 
+        link(to: .privateNote(id: id)) { "Private text" }
+
         if isSaved {
             paragraph { "Saved." }
                 .class(.status)

@@ -1,5 +1,6 @@
 # `k.crypto`'s key types in `k test` (docs/design/33-crypto.md, "Testing"):
-# seeded randomness, fast passphrase salts, `TestKeys` and `Secret<K>`.
+# seeded randomness, fast passphrase salts, `TestKeys` and `Secret<K>`;
+# configured keys, JWS and JWT, JWK and PEM, and `MemoryKeyStore`.
 [package]
 name = "sealing"
 k = "0.1"

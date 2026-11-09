@@ -27,6 +27,9 @@
 //! | `op_k_crypto_x25519_public` | `(secret) => Uint8Array \| null` |
 //! | `op_k_crypto_x25519_agree` | `(secret, public) => Uint8Array \| null` (`null`: an all-zero result) |
 //! | `op_k_crypto_equals` | `(a, b) => boolean`, in time that depends only on the lengths |
+//! | `op_k_crypto_rsa_verify` | `(n, e, signature, message, pss) => boolean` (RSASSA-PKCS1-v1_5 or PSS, SHA-256) |
+//!
+//! [`new_key_jwks`] makes the keys `k keys new` prints.
 
 use std::num::NonZeroU32;
 
@@ -231,6 +234,266 @@ pub fn constant_time_equals(a: &[u8], b: &[u8]) -> bool {
     std::hint::black_box(diff) == 0
 }
 
+/// Whether `sig` is a valid RSA signature with SHA-256 of `message` by
+/// the public key with modulus `n` and exponent `e` (big-endian, no
+/// leading zeros): RSASSA-PSS with MGF1-SHA-256 and a 32-byte salt when
+/// `pss`, else RSASSA-PKCS1-v1_5. Verify only, for interop
+/// (`RsaPublicKey`); moduli of 2048 to 8192 bits, as `ring` accepts.
+#[must_use]
+pub fn rsa_verify(n: &[u8], e: &[u8], sig: &[u8], message: &[u8], pss: bool) -> bool {
+    let params = if pss {
+        &signature::RSA_PSS_2048_8192_SHA256
+    } else {
+        &signature::RSA_PKCS1_2048_8192_SHA256
+    };
+    signature::RsaPublicKeyComponents { n, e }
+        .verify(params, message, sig)
+        .is_ok()
+}
+
+/// `bytes` as unpadded base64url (RFC 4648 §5), as JWKs write them.
+#[must_use]
+pub fn base64url(bytes: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+        for i in 0..=chunk.len() {
+            out.push(char::from(A[(n >> (18 - 6 * i) & 63) as usize]));
+        }
+    }
+    out
+}
+
+/// A new key of `kind` (`ed25519`, `x25519`, `p256-ecdsa` or `aes-gcm`)
+/// from the operating system's generator, as `k keys new` prints it: the
+/// private JWK, with `alg`, `use` and `key_ops` set for the key's type
+/// (`docs/design/33-crypto.md`, "Keys in configuration"), and the public
+/// JWK, `None` for an AES key. `None` for another kind.
+///
+/// # Errors
+///
+/// The operating system refused randomness.
+pub fn new_key_jwks(kind: &str) -> Result<Option<(String, Option<String>)>, String> {
+    let random = || -> Result<[u8; 32], String> {
+        let mut b = [0u8; 32];
+        getrandom::fill(&mut b).map_err(|e| e.to_string())?;
+        Ok(b)
+    };
+    let jwk = |fields: &[(&str, serde_json::Value)]| {
+        let mut m = serde_json::Map::new();
+        for (k, v) in fields {
+            m.insert((*k).to_owned(), v.clone());
+        }
+        serde_json::Value::Object(m).to_string()
+    };
+    let s = |t: &str| serde_json::Value::String(t.to_owned());
+    let ops = |o: &[&str]| serde_json::Value::Array(o.iter().map(|x| s(x)).collect());
+    Ok(Some(match kind {
+        "aes-gcm" => {
+            let k = random()?;
+            let private = jwk(&[
+                ("kty", s("oct")),
+                ("k", s(&base64url(&k))),
+                ("alg", s("A256GCM")),
+                ("use", s("enc")),
+                ("key_ops", ops(&["encrypt", "decrypt"])),
+            ]);
+            (private, None)
+        }
+        "ed25519" | "x25519" => {
+            let d = random()?;
+            let (crv, x, alg, usage, private_ops, public_ops) = if kind == "ed25519" {
+                let x = ed25519_public(&d).ok_or("Ed25519 key generation failed")?;
+                (
+                    "Ed25519",
+                    x,
+                    Some("EdDSA"),
+                    "sig",
+                    vec!["sign"],
+                    vec!["verify"],
+                )
+            } else {
+                let x = x25519_public(&d).ok_or("X25519 key generation failed")?;
+                ("X25519", x, None, "enc", vec!["deriveBits"], vec![])
+            };
+            let mut private = vec![
+                ("kty", s("OKP")),
+                ("crv", s(crv)),
+                ("x", s(&base64url(&x))),
+                ("d", s(&base64url(&d))),
+            ];
+            let mut public = vec![("kty", s("OKP")), ("crv", s(crv)), ("x", s(&base64url(&x)))];
+            if let Some(alg) = alg {
+                private.push(("alg", s(alg)));
+                public.push(("alg", s(alg)));
+            }
+            private.push(("use", s(usage)));
+            public.push(("use", s(usage)));
+            private.push(("key_ops", ops(&private_ops)));
+            if !public_ops.is_empty() {
+                public.push(("key_ops", ops(&public_ops)));
+            }
+            (jwk(&private), Some(jwk(&public)))
+        }
+        "p256-ecdsa" => {
+            let (d, point) = loop {
+                let d = random()?;
+                if let Some(p) = p256_public(&d) {
+                    break (d, p);
+                }
+            };
+            let (x, y) = (base64url(&point[1..33]), base64url(&point[33..]));
+            let common = |extra: Vec<(&'static str, serde_json::Value)>| {
+                let mut f = vec![
+                    ("kty", s("EC")),
+                    ("crv", s("P-256")),
+                    ("x", s(&x)),
+                    ("y", s(&y)),
+                ];
+                f.extend(extra);
+                jwk(&f)
+            };
+            let private = common(vec![
+                ("d", s(&base64url(&d))),
+                ("alg", s("ES256")),
+                ("use", s("sig")),
+                ("key_ops", ops(&["sign"])),
+            ]);
+            let public = common(vec![
+                ("alg", s("ES256")),
+                ("use", s("sig")),
+                ("key_ops", ops(&["verify"])),
+            ]);
+            (private, Some(public))
+        }
+        _ => return Ok(None),
+    }))
+}
+
+/// `true` for the `k.crypto` key types a config field may hold.
+#[must_use]
+pub fn is_config_key_type(name: &str) -> bool {
+    matches!(
+        name,
+        "AesGcmKey"
+            | "Ed25519PrivateKey"
+            | "EcdsaP256PrivateKey"
+            | "X25519PrivateKey"
+            | "Ed25519PublicKey"
+            | "EcdsaP256PublicKey"
+            | "X25519PublicKey"
+            | "RsaPublicKey"
+    )
+}
+
+/// Base64 text as bytes: unpadded base64url when `url`, else standard
+/// base64 with optional padding; `None` for anything else.
+fn decode64(text: &str, url: bool) -> Option<Vec<u8>> {
+    let t = if url {
+        text
+    } else {
+        text.trim_end_matches('=')
+    };
+    let mut out = Vec::with_capacity(t.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in t.bytes() {
+        let d = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'-' if url => 62,
+            b'_' if url => 63,
+            b'+' if !url => 62,
+            b'/' if !url => 63,
+            _ => return None,
+        };
+        acc = (acc << 6) | u32::from(d);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(u8::try_from((acc >> bits) & 0xff).ok()?);
+        }
+    }
+    (t.len() % 4 != 1).then_some(out)
+}
+
+/// What is wrong with configuration text `text` for key type `ty`, checked
+/// at startup without parsing the key (`k.crypto` does that): a JWK of
+/// the type's `kty` and `crv` with its private member (`d`, or `k` for an
+/// AES key) exactly when the type is secret, a PEM with the right label
+/// (`PRIVATE KEY` or `PUBLIC KEY`), or base64url of the raw form's
+/// length. `None` when it has the shape; the message never quotes the
+/// text, which may be a secret.
+#[must_use]
+pub fn config_key_problem(ty: &str, text: &str) -> Option<String> {
+    let t = text.trim();
+    let public = ty.ends_with("PublicKey");
+    let (kty, crv) = match ty {
+        "AesGcmKey" => ("oct", None),
+        "Ed25519PrivateKey" | "Ed25519PublicKey" => ("OKP", Some("Ed25519")),
+        "X25519PrivateKey" | "X25519PublicKey" => ("OKP", Some("X25519")),
+        "EcdsaP256PrivateKey" | "EcdsaP256PublicKey" => ("EC", Some("P-256")),
+        _ => ("RSA", None),
+    };
+    let expected = format!("is not a {ty} (a JWK, a PEM, or base64url of the raw key)");
+    if t.starts_with('{') {
+        let Ok(serde_json::Value::Object(j)) = serde_json::from_str::<serde_json::Value>(t) else {
+            return Some(format!("is not a {ty} JWK: not a JSON object"));
+        };
+        let text_of = |k: &str| j.get(k).and_then(serde_json::Value::as_str);
+        if text_of("kty") != Some(kty) || crv.is_some_and(|c| text_of("crv") != Some(c)) {
+            return Some(format!("is a JWK of another key type, not a {ty}"));
+        }
+        let secret_member = if ty == "AesGcmKey" { "k" } else { "d" };
+        match (public, text_of(secret_member)) {
+            (true, Some(_)) => {
+                return Some(format!(
+                    "is a private JWK; a {ty} field takes the public key only"
+                ));
+            }
+            (false, None) => {
+                return Some(format!(
+                    "is a JWK without its private part (`{secret_member}`)"
+                ));
+            }
+            (false, Some(d)) if decode64(d, true).is_none_or(|b| b.len() != 32) => {
+                return Some(format!(
+                    "is a {ty} JWK whose `{secret_member}` isn't 32 bytes of base64url"
+                ));
+            }
+            _ => {}
+        }
+        return None;
+    }
+    if let Some(rest) = t.strip_prefix("-----BEGIN ") {
+        let label = if public { "PUBLIC KEY" } else { "PRIVATE KEY" };
+        let body = rest
+            .strip_prefix(label)
+            .and_then(|r| r.strip_prefix("-----"))
+            .and_then(|r| r.strip_suffix(&format!("-----END {label}-----")));
+        if ty == "AesGcmKey" {
+            return Some("is a PEM; an AesGcmKey is a JWK or base64url of its 32 bytes".to_owned());
+        }
+        return match body {
+            Some(b) if decode64(&b.split_whitespace().collect::<String>(), false).is_some() => None,
+            _ => Some(format!("is not a {label} PEM")),
+        };
+    }
+    let len = match ty {
+        "EcdsaP256PublicKey" => 65,
+        "RsaPublicKey" => return Some(format!("{expected}; an RsaPublicKey is a JWK or a PEM")),
+        _ => 32,
+    };
+    match decode64(t, true) {
+        Some(b) if b.len() == len => None,
+        _ => Some(expected),
+    }
+}
+
 /// `count` bytes from the operating system's generator.
 ///
 /// # Errors
@@ -378,6 +641,18 @@ pub(crate) fn op_k_crypto_x25519_agree(
 #[op2(fast)]
 pub(crate) fn op_k_crypto_equals(#[buffer] a: &[u8], #[buffer] b: &[u8]) -> bool {
     constant_time_equals(a, b)
+}
+
+/// [`rsa_verify`].
+#[op2(fast)]
+pub(crate) fn op_k_crypto_rsa_verify(
+    #[buffer] n: &[u8],
+    #[buffer] e: &[u8],
+    #[buffer] sig: &[u8],
+    #[buffer] message: &[u8],
+    pss: bool,
+) -> bool {
+    rsa_verify(n, e, sig, message, pss)
 }
 
 #[cfg(test)]
@@ -606,5 +881,70 @@ mod tests {
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         assert!(hex(&digest(512, b"abc")).starts_with("ddaf35a193617aba"));
+    }
+
+    #[test]
+    fn base64url_is_unpadded_rfc_4648() {
+        assert_eq!(base64url(b""), "");
+        assert_eq!(base64url(b"f"), "Zg");
+        assert_eq!(base64url(b"fo"), "Zm8");
+        assert_eq!(base64url(b"foo"), "Zm9v");
+        assert_eq!(base64url(&[0xfb, 0xff]), "-_8");
+    }
+
+    #[test]
+    fn new_keys_are_jwks_of_their_kind() {
+        for kind in ["ed25519", "x25519", "p256-ecdsa", "aes-gcm"] {
+            let (private, public) = new_key_jwks(kind).expect("random").expect("a kind");
+            let p: serde_json::Value = serde_json::from_str(&private).expect("JSON");
+            assert!(p.get("d").or_else(|| p.get("k")).is_some(), "{private}");
+            if let Some(public) = public {
+                let q: serde_json::Value = serde_json::from_str(&public).expect("JSON");
+                assert!(q.get("d").is_none(), "{public}");
+                assert_eq!(q["x"], p["x"]);
+            }
+        }
+        assert_eq!(new_key_jwks("rsa").expect("random"), None);
+        // Two calls never make the same key.
+        assert_ne!(
+            new_key_jwks("ed25519").unwrap(),
+            new_key_jwks("ed25519").unwrap()
+        );
+    }
+
+    #[test]
+    fn rsa_verifies_rfc_7515_a_2() {
+        // RFC 7515 A.2's RS256 example: the key's modulus and the signature
+        // of its signing input.
+        let n = "a1f8160ae2e3c9b465ce8d2d656263362b927dbe29e1f02477fc1625cc90a136e38bd93497c5b6ea63dd7711e67c7429f956b0fb8a8f089adc4b69893cc1333f53edd019b87784252fec914fe4857769594bea4280d32c0f55bf62944f130396bc6e9bdf6ebdd2bda3678eeca0c668f701b38dbffb38c8342ce2fe6d27fade4a5a4874979dd4b9cf9adec4c75b05852c2c0f5ef8a5c1750392f944e8ed64c110c6b647609aa4783aeb9c6c9ad755313050638b83665c6f6f7a82a396702a1f641b82d3ebf2392219491fb686872c5716f50af8358d9a8b9d17c340728f7f87d89a18d8fcab67ad84590c2ecf759339363c07034d6f606f9e21e05456cae5e9a1";
+        let sig = "702e218943e88fd11eb5d82dbf7845f34106ae1b81fff7731116add1717d83656d420afd3c96eedd73a2663e5166687b000b87226e0187ed1073f945e582adfcef16d85a798ee8c66ddb3db8975b17d09402beedd5d9d97007108db28160d5f8040ca7445762b81fbe7ff9d92e0ae76f24f25b33bbe6f44ae61eb1040acb20044d3ef9128ed40130795bd4bd3b41eecad066ab651981fde48df77f372dc38b9fafdd3befb18b5da3cc3c2eb02f9e3a41d612caad15911273a05f23b9e838faaf849d698429ef5a1e88798236c3d40e604522a544c8f27a7a2db80663d16cf7caea56de405cb2215a45b2c25566b55ac1a748a070dfc8a32a469543d019eefb47";
+        let input = b"eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ";
+        let e = [1, 0, 1];
+        assert!(rsa_verify(&bytes(n), &e, &bytes(sig), input, false));
+        assert!(!rsa_verify(&bytes(n), &e, &bytes(sig), input, true));
+        let mut changed = bytes(sig);
+        changed[10] ^= 1;
+        assert!(!rsa_verify(&bytes(n), &e, &changed, input, false));
+        assert!(!rsa_verify(&bytes(n), &e, &bytes(sig), b"other", false));
+    }
+
+    #[test]
+    fn configured_keys_are_checked_for_shape_without_quoting_them() {
+        let seed = base64url(&[7; 32]);
+        assert_eq!(config_key_problem("Ed25519PrivateKey", &seed), None);
+        assert_eq!(config_key_problem("AesGcmKey", &seed), None);
+        let private = format!(r#"{{"kty":"OKP","crv":"Ed25519","d":"{seed}","x":"{seed}"}}"#);
+        assert_eq!(config_key_problem("Ed25519PrivateKey", &private), None);
+        let problem = config_key_problem("Ed25519PublicKey", &private).expect("a problem");
+        assert!(problem.contains("private JWK"), "{problem}");
+        assert!(!problem.contains(&seed));
+        assert!(config_key_problem("X25519PrivateKey", &private).is_some());
+        assert!(config_key_problem("Ed25519PrivateKey", "not a key").is_some());
+        let pem = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC\n-----END PRIVATE KEY-----\n";
+        assert_eq!(config_key_problem("Ed25519PrivateKey", pem), None);
+        assert!(config_key_problem("Ed25519PublicKey", pem).is_some());
+        assert!(config_key_problem("RsaPublicKey", &seed).is_some());
+        assert!(is_config_key_type("RsaPublicKey"));
+        assert!(!is_config_key_type("Sealed"));
     }
 }

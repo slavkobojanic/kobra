@@ -2025,6 +2025,25 @@ fn table_name(entity: &str) -> String {
     out
 }
 
+/// The `k.crypto` types an entity stores as their text form, in a text
+/// column (`docs/design/33-crypto.md`: a server can hold a
+/// `Sealed<PrivateText>` it can't open, and public keys are ordinary
+/// data). Secret keys aren't `Codable` and aren't here.
+pub const CRYPTO_TEXT_COLUMNS: &[&str] = &[
+    "k.crypto.Sealed",
+    "k.crypto.Envelope",
+    "k.crypto.WrappedKey",
+    "k.crypto.EnvelopedKey",
+    "k.crypto.PassphraseSalt",
+    "k.crypto.Ed25519PublicKey",
+    "k.crypto.EcdsaP256PublicKey",
+    "k.crypto.X25519PublicKey",
+    "k.crypto.RsaPublicKey",
+    "k.crypto.Ed25519Signature",
+    "k.crypto.EcdsaP256Signature",
+    "k.crypto.RsaSignature",
+];
+
 /// Returns `true` for types an entity column can hold.
 fn column_type(cx: &Cx<'_, '_>, ty: &Ty) -> bool {
     let b = &cx.b;
@@ -2063,6 +2082,7 @@ fn column_type(cx: &Cx<'_, '_>, ty: &Ty) -> bool {
                     "k.core.Url",
                 ]
                 .iter()
+                .chain(CRYPTO_TEXT_COLUMNS)
                 .any(|q| cx.p.lookup_qualified(q) == Some(*d))
         }
         _ => false,

@@ -35,6 +35,7 @@ import { Out, escapeAttribute, escapeText, serializeData } from "./ssr.js";
 import { httpStatus, received, runJobBody, wireRequest } from "./outbound.js";
 import * as http from "./http.js";
 import * as crypto from "./crypto.js";
+import { cryptoOps } from "./crypto-ops.js";
 import { chartKey, chartProps, lineChart } from "./charts.js";
 import { ATTRS as DRAG, DragKind$init } from "./drag.js";
 import { STATUS_HIDDEN } from "./clipboard.js";
@@ -42,7 +43,7 @@ import { STATUS_HIDDEN } from "./clipboard.js";
 /** The ops the Rust server exposes to this isolate; `undefined` outside it. */
 const ops = globalThis.Deno?.core?.ops;
 // `k.crypto`'s `ops` backend (33-crypto.md, "Implementation").
-if (ops) crypto.useOps(ops);
+if (ops) crypto.useOps(cryptoOps(ops));
 
 /** Methods that can't change state, which skip the forgery check. */
 const SAFE = new Set(["GET", "HEAD"]);
@@ -97,6 +98,25 @@ export function configSecret(name) {
   const v = config(name);
   if (v === null) return null;
   return new Secret(v && typeof v === "object" && "$secret" in v ? v.$secret : v);
+}
+
+/**
+ * A configuration value of a key type (33-crypto.md, "Keys in
+ * configuration"): the text startup checked, parsed by `k.crypto` as a key
+ * of `type` (a JWK, a PEM or base64url of the raw form), wrapped in
+ * `Secret` when the field is one. A list holds one key per item.
+ * @param {string} name
+ * @param {string} type the key type's name, `Ed25519PrivateKey`
+ * @param {boolean} secret whether the field is a `Secret<K>`
+ * @returns {unknown}
+ */
+export function configKey(name, type, secret) {
+  const v = config(name);
+  if (v === null) return null;
+  const text = v && typeof v === "object" && "$secret" in v ? v.$secret : v;
+  const key = (t) => crypto.keyFromConfig(type, t);
+  const value = Array.isArray(text) ? text.map(key) : key(text);
+  return secret ? new Secret(value) : value;
 }
 
 /**

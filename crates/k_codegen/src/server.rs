@@ -2451,6 +2451,25 @@ fn matches_of(node: &SyntaxNode) -> (Option<String>, Option<String>) {
     (pattern, message)
 }
 
+/// The name of the `k.crypto` key type `qualified`, which a config field
+/// may hold (`docs/design/33-crypto.md`, "Keys in configuration"), or
+/// `None` for any other type.
+pub(crate) fn config_key_type(qualified: &str) -> Option<&str> {
+    let name = qualified.strip_prefix("k.crypto.")?;
+    matches!(
+        name,
+        "AesGcmKey"
+            | "Ed25519PrivateKey"
+            | "EcdsaP256PrivateKey"
+            | "X25519PrivateKey"
+            | "Ed25519PublicKey"
+            | "EcdsaP256PublicKey"
+            | "X25519PublicKey"
+            | "RsaPublicKey"
+    )
+    .then_some(name)
+}
+
 /// The `@Env` variable of a config field node.
 fn env_name(node: &SyntaxNode) -> Option<String> {
     let ann = node

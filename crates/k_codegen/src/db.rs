@@ -301,6 +301,10 @@ fn col_of(g: &Gen<'_>, t: &Type, depth: u32) -> Option<Col> {
         Col::Date
     } else if is(b.money) {
         Col::Money
+    } else if k_sema::CRYPTO_TEXT_COLUMNS.contains(&g.view.qualified_name(d).as_str()) {
+        // Held as their text form (`Sealed`'s `k1.…`, a public key's
+        // base64url), which is what the column stores.
+        Col::Text
     } else {
         let info = g.view.decl(d);
         match info.named_kind() {

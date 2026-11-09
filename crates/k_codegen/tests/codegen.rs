@@ -321,6 +321,56 @@ fn an_optional_secret_config_field_is_listed_as_a_secret() {
     }
 }
 
+/// A config field of a key type (33-crypto.md, "Keys in configuration")
+/// is read by `k.crypto` from the text startup checked: a private key in a
+/// `Secret`, a public key as itself; and its manifest entry is a secret
+/// exactly when the field is one.
+#[test]
+fn key_config_fields_are_parsed_as_keys() {
+    let host = analyse(&[
+        ("k.toml", TOML),
+        ("App.k", "public app Demo {}\n"),
+        (
+            "src/sign/SignConfig.k",
+            "import k.crypto.Ed25519PrivateKey\nimport k.crypto.Ed25519PublicKey\n\npublic config SignConfig {\n    @Env(\"SIGNING_KEY\") let signing: Secret<Ed25519PrivateKey>\n    @Env(\"PEER_KEY\") let peer: Ed25519PublicKey\n}\n",
+        ),
+        (
+            "src/sign/SignProtocol.k",
+            "import k.rpc.RpcOnlyError\n\npublic protocol SignProtocol {\n    rpc fingerprint() throws RpcOnlyError -> String\n}\n",
+        ),
+        (
+            "src/sign/SignApi.k",
+            "import k.rpc.RpcOnlyError\n\npublic service SignApi implements SignProtocol {\n    @Inject let config: SignConfig\n\n    rpc fingerprint() async throws RpcOnlyError -> String {\n        return await config.signing.publicKey.fingerprint() + (await config.peer.fingerprint())\n    }\n}\n",
+        ),
+    ]);
+    let out = generate(&host.analysis(), &Options::default()).expect("generates");
+    let entry = |env: &str| {
+        out.manifest
+            .config
+            .iter()
+            .find(|c| c.env == env)
+            .unwrap_or_else(|| panic!("{env} in {:?}", out.manifest.config))
+    };
+    assert!(entry("SIGNING_KEY").secret);
+    assert_eq!(entry("SIGNING_KEY").ty, "Secret<Ed25519PrivateKey>");
+    assert!(!entry("PEER_KEY").secret);
+    let loader = out
+        .server
+        .iter()
+        .find(|f| f.contents.contains("function SignConfig$load"))
+        .expect("the config loader");
+    for needle in [
+        "signing: $s.configKey(\"SIGNING_KEY\", \"Ed25519PrivateKey\", true)",
+        "peer: $s.configKey(\"PEER_KEY\", \"Ed25519PublicKey\", false)",
+    ] {
+        assert!(
+            loader.contents.contains(needle),
+            "{needle} in\n{}",
+            loader.contents
+        );
+    }
+}
+
 /// A stdlib `config` that app code injects (`k.rpc.ServiceConfig`) is
 /// built from the environment like the app's own configs, and its
 /// variables are listed, even when nothing else would require them.
