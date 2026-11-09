@@ -18,6 +18,38 @@ unpinned = [
     "typing 50 as the bill shows that each person pays $28.75",
 ]
 
+[pages."learn/tutorial/index.md"]
+commit = "8f94734"
+date = "2026-11-09"
+note = "new in round 1(b); written against the working tree on top of 8f94734, every command and output taken from running `k` on examples/learn/shelf and a fresh `k new shelf`"
+
+[pages."learn/tutorial/01-create.md"]
+commit = "8f94734"
+date = "2026-11-09"
+note = "new in round 1(b); written against the working tree on top of 8f94734, every command and output taken from running `k` on examples/learn/shelf and a fresh `k new shelf`"
+unpinned = [
+    "the `k new`, `k dev` and `k check` output shown (command transcripts aren't checked yet)",
+    "`k dev` keeps serving the last good build after an edit with an error",
+]
+
+[pages."learn/tutorial/02-list.md"]
+commit = "8f94734"
+date = "2026-11-09"
+note = "new in round 1(b); written against the working tree on top of 8f94734, every command and output taken from running `k` on examples/learn/shelf and a fresh `k new shelf`"
+unpinned = [
+    "the `k check` output and diagnostics shown (command transcripts aren't checked yet)",
+    "the titles show in italics",
+]
+
+[pages."learn/tutorial/03-form.md"]
+commit = "8f94734"
+date = "2026-11-09"
+note = "new in round 1(b); written against the working tree on top of 8f94734, every command and output taken from running `k` on examples/learn/shelf and a fresh `k new shelf`"
+unpinned = [
+    "the `k check` output and diagnostics shown (command transcripts aren't checked yet)",
+    "pressing Enter in a field submits the form, and the fields keep their text after a book is added",
+]
+
 [pages."introduction.md"]
 commit = "0dd7625"
 date = "2026-11-09"

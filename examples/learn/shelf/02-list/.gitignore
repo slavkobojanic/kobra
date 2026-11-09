@@ -1,0 +1,6 @@
+# Build output of `k build`.
+dist/
+# Local development state: databases, generated secrets, caught mail.
+.k/
+# Local configuration; never committed.
+.env

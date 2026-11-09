@@ -332,6 +332,7 @@ You've built a tip splitter, and on the way:
 
 ## Next steps
 
+- [Tutorial: build Shelf](tutorial/index.md) builds a larger app, one step at a time.
 - [A tour of K](../tour.md) builds a small full-stack feature, from the database to the button.
 - [Components](../apps/components.md), [Reactivity](../apps/reactivity.md) and
   [Styles and themes](../apps/styles.md) cover what this page used in full.

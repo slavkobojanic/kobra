@@ -8,6 +8,10 @@
 - [Quick start](learn/quick-start.md)
 - [Installation](getting-started/installation.md)
 - [Editor setup](getting-started/editor-setup.md)
+- [Tutorial: build Shelf](learn/tutorial/index.md)
+    - [1. Create the project](learn/tutorial/01-create.md)
+    - [2. Show a list of books](learn/tutorial/02-list.md)
+    - [3. Add books with a form](learn/tutorial/03-form.md)
 
 # Getting started
 
