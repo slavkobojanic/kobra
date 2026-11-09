@@ -34,8 +34,12 @@ whether you use it in a transition, a timer or a cache.
 - Lengths with the same unit are **folded at compile time**: `16px * 2` is `32px`.
 - Lengths with different units become CSS `calc()`: `100px + 2rem`.
 - Adding quantities of different kinds, such as a length and a duration, is a compile error.
-- **Comparing lengths with different units** (`100px > 2rem`) is a compile error outside a layout
-  context, because the answer depends on the root font size.
+- **Lengths can't be ordered.** `<`, `>`, `<=` and `>=` on two `Length`s are a compile error (`K2013`),
+  even with one unit, because the answer to `100px > 2rem` depends on the root font size. `==` works.
+
+```k,fails=K2013
+let isWide = 100px > 2rem          // compile error: `Length` and `Length` can't be ordered
+```
 
 Because `%` right after a number makes a `Percent` literal, the remainder operator on literals needs
 spaces: write `10 % 3`, not `10%3`.

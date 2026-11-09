@@ -106,7 +106,7 @@ is the table as a query collection. It is visible only inside the repository. Yo
 **A query is a description until it is awaited.** `notes.filter { … }.sortedBy { … }` builds SQL; nothing
 is sent until the expression is awaited. **Every query is awaited explicitly**, including one that is
 returned: `return await users.first { … }`. A query that is returned, assigned or passed without `await`
-is a compile error, with a quick fix that inserts it. So everything awaited on a collection is SQL, and
+is a compile error, because its type is `Query<Note>`, not the `List<Note>` or `Note?` that was expected. So everything awaited on a collection is SQL, and
 every suspension point is visible.
 
 ### Relations load only when asked
@@ -238,9 +238,9 @@ let recorded = await database.transaction {
 
 ## Tests and the database
 
-Every `k test` run uses a fresh in-memory SQLite database with every migration applied. **Each test runs
-inside a transaction the app can't see,** rolled back afterwards. The app's outermost transaction becomes
-a savepoint inside it, and its commit fires the commit hooks, exactly when they would fire in production.
+**Every test gets a fresh in-memory SQLite database** with every migration applied, so a test sees only
+what it wrote. The app's outermost transaction commits as in production, and its commit fires the commit
+hooks exactly when they would fire there.
 
 ## Migrations
 

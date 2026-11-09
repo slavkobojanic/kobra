@@ -84,11 +84,13 @@ pub mod engine;
 pub mod fakes;
 pub mod front;
 pub mod http;
+pub mod inspector;
 pub mod jobs;
 pub mod ops;
 pub mod outbound;
 pub mod process;
 pub mod proxy;
+pub mod stack;
 pub mod testing;
 
 pub use engine::{Engine, EngineError, EngineOptions, JsModule, LogLine, Output};

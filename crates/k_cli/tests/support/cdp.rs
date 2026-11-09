@@ -28,13 +28,16 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+#[path = "ports.rs"]
+mod ports;
+
 /// The ports the test suite may bind (the repository's rule for anything
 /// a test runs: 5200 to 5999).
 pub const PORTS: std::ops::Range<u16> = 5200..6000;
 
 /// `count` consecutive free loopback ports in [`PORTS`], bound so nobody
 /// else takes them before they are used. No port is handed out twice in
-/// one test process.
+/// one test process, nor to two live test processes ([`ports::reserve`]).
 pub fn listeners(count: u16) -> Vec<TcpListener> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let span = u64::from(PORTS.end - PORTS.start);
@@ -58,6 +61,10 @@ pub fn listeners(count: u16) -> Vec<TcpListener> {
             .is_ok()
         });
         if taken {
+            continue;
+        }
+        // Another test process may be probing the same ports right now.
+        if !(first..first + count).all(ports::reserve) {
             continue;
         }
         let bound: Vec<TcpListener> = (first..first + count)

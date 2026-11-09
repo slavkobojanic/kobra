@@ -417,7 +417,9 @@ impl<'g, 'a> Body<'g, 'a> {
         for (i, s) in stmts.iter().enumerate() {
             if i + 1 == n {
                 match s {
-                    ast::Stmt::Expr(e) => self.expr_into(e, dest),
+                    ast::Stmt::Expr(e) => {
+                        self.mapped(e.syntax(), |b| b.expr_into(e, dest));
+                    }
                     other => {
                         self.stmt(other);
                     }
@@ -434,9 +436,50 @@ impl<'g, 'a> Body<'g, 'a> {
         self.pop_scope();
     }
 
-    /// Lowers one statement.
-    #[allow(clippy::too_many_lines)]
+    /// The K location of `node` for source maps: where its first
+    /// non-trivia token starts.
+    pub(crate) fn loc(&self, node: &SyntaxNode) -> Option<js::Loc> {
+        let start = node
+            .descendants_with_tokens()
+            .filter_map(|e| e.into_token())
+            .find(|t| !t.kind().is_trivia())
+            .map_or_else(|| node.text_range().start(), |t| t.text_range().start());
+        Some(js::Loc {
+            file: self.file.raw(),
+            offset: u32::from(start),
+        })
+    }
+
+    /// `x`, mapped to `node` in the source map ([`Expr::At`]).
+    pub(crate) fn at(&self, node: &SyntaxNode, x: Expr) -> Expr {
+        js::at(self.loc(node), x)
+    }
+
+    /// Lowers one statement; every JavaScript statement it emits maps to it
+    /// in the source map ([`Stmt::At`]).
     pub(crate) fn stmt(&mut self, s: &ast::Stmt) {
+        let node = s.syntax().clone();
+        self.mapped(&node, |b| b.stmt_unmapped(s));
+    }
+
+    /// Runs `f`, mapping every statement it emits to `node`.
+    pub(crate) fn mapped<R>(&mut self, node: &SyntaxNode, f: impl FnOnce(&mut Self) -> R) -> R {
+        let start = self.stmts.len();
+        let r = f(self);
+        if let Some(loc) = self.loc(node) {
+            for st in self.stmts.iter_mut().skip(start) {
+                if !matches!(st, Stmt::At(..)) {
+                    let inner = std::mem::replace(st, Stmt::Break(None));
+                    *st = Stmt::At(loc, Box::new(inner));
+                }
+            }
+        }
+        r
+    }
+
+    /// [`Body::stmt`] without the source-map wrapping.
+    #[allow(clippy::too_many_lines)]
+    fn stmt_unmapped(&mut self, s: &ast::Stmt) {
         match s {
             ast::Stmt::Let(l) => self.let_stmt(l.syntax()),
             ast::Stmt::Assign(a) => self.assign_stmt(a.syntax()),
@@ -2967,9 +3010,9 @@ impl<'g, 'a> Body<'g, 'a> {
             if i + 1 == n {
                 if let ast::Stmt::Expr(e) = s {
                     if ret_void {
-                        self.expr_stmt(e);
+                        self.mapped(e.syntax(), |b| b.expr_stmt(e));
                     } else if self.is_statementy(e) {
-                        self.expr_into(e, &Dest::Return);
+                        self.mapped(e.syntax(), |b| b.expr_into(e, &Dest::Return));
                     } else {
                         let x = self.expr(e);
                         let from = self.ty(e.syntax());
@@ -2977,7 +3020,8 @@ impl<'g, 'a> Body<'g, 'a> {
                             Type::Func(f) => f.ret.clone(),
                             _ => Type::Error,
                         };
-                        tail = Some(self.coerce(x, &from, &to));
+                        let x = self.coerce(x, &from, &to);
+                        tail = Some(self.at(e.syntax(), x));
                     }
                     continue;
                 }
@@ -4968,7 +5012,9 @@ fn rethrow(e: &str) -> Stmt {
 /// handled.
 fn mark_handled(body: &mut Vec<Stmt>, flag: &str) {
     let set = Stmt::Expr(js::assign(id(flag), Expr::Bool(true)));
-    if let [Stmt::If(_, inner, _)] = body.as_mut_slice() {
+    if let [only] = body.as_mut_slice()
+        && let Stmt::If(_, inner, _) = only.peel_mut()
+    {
         inner.insert(0, set);
     } else {
         body.insert(0, set);
@@ -4977,7 +5023,7 @@ fn mark_handled(body: &mut Vec<Stmt>, flag: &str) {
 
 /// `true` when the statements end in a jump (no fall-through).
 pub(crate) fn ends_flow(stmts: &[Stmt]) -> bool {
-    match stmts.last() {
+    match stmts.last().map(Stmt::peel) {
         Some(Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break(_) | Stmt::Continue(_)) => true,
         Some(Stmt::If(_, a, Some(b))) => ends_flow(a) && ends_flow(b),
         Some(Stmt::Block(b)) => ends_flow(b),

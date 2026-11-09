@@ -618,6 +618,9 @@ fn library_rules(g: &Gen<'_>) -> String {
 /// component's rules.
 pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
     let mut css = String::new();
+    // Where each style rule and declaration came from (development source
+    // maps, codegen.md §18).
+    let mut marks: Vec<crate::js::Mark> = Vec::new();
     let all = tokens(g);
     let is_app = g
         .own
@@ -732,19 +735,55 @@ pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
             tokens: &all,
             out: String::new(),
             interpolation: 0,
+            marks: Vec::new(),
+            file: g.view.decl(d).file.raw(),
         };
         for item in block.children() {
             p.item(&item, &[], 0, &[]);
         }
+        let base = css.len();
+        marks.extend(p.marks.into_iter().map(|mut m| {
+            m.pos += base;
+            m
+        }));
         css.push_str(&p.out);
     }
     if is_app {
         // Every app links one stylesheet, so the document's shape doesn't
         // depend on whether the project has styles.
-        css.insert_str(0, &base_rules(&all));
+        let base = base_rules(&all);
+        for m in &mut marks {
+            m.pos += base.len();
+        }
+        css.insert_str(0, &base);
     }
     if css.is_empty() {
         return Vec::new();
+    }
+    if g.options.profile == Profile::Development {
+        // A development stylesheet maps its rules back to the style blocks,
+        // and is named after its text and its map, so an edit that moves a
+        // rule without changing the CSS still loads the new map.
+        let sources =
+            crate::sourcemap::Sources::new(g.analysis, crate::sourcemap::CLIENT_ROOT, true);
+        let map = crate::sourcemap::from_marks(&css, &marks, &sources);
+        let json = crate::sourcemap::to_json(&map, None);
+        let name = crate::hash::hashed_file_name("app", "css", format!("{css}{json}").as_bytes());
+        let base = name.rsplit('/').next().unwrap_or(&name).to_owned();
+        let mut contents = css;
+        contents.push_str(&format!("/*# sourceMappingURL={base}.map */\n"));
+        return vec![
+            OutputFile {
+                path: format!("{name}.map"),
+                contents: json,
+                kind: FileKind::SourceMap,
+            },
+            OutputFile {
+                path: name,
+                contents,
+                kind: FileKind::Css,
+            },
+        ];
     }
     let contents = if g.options.profile == Profile::Release {
         minify(&css)
@@ -783,6 +822,10 @@ struct Printer<'p, 'g> {
     /// The number of interpolations printed so far: the index of the next
     /// one's custom property, matching [`reactive_values`].
     interpolation: usize,
+    /// Source-map marks: where each printed rule and declaration came from.
+    marks: Vec<crate::js::Mark>,
+    /// The raw id of the file the style block is in.
+    file: u32,
 }
 
 impl Printer<'_, '_> {
@@ -799,13 +842,17 @@ impl Printer<'_, '_> {
                         mine.into_iter()
                     })
                     .collect();
-                let decls: Vec<String> = item
+                let decl_nodes: Vec<SyntaxNode> = item
                     .children()
                     .filter(|c| c.kind() == SyntaxKind::Declaration)
-                    .map(|d| self.declaration(&d))
                     .collect();
+                let decls: Vec<String> = decl_nodes.iter().map(|d| self.declaration(d)).collect();
                 if !decls.is_empty() {
-                    self.emit(&selectors.join(", "), &decls, wrappers);
+                    let locs = std::iter::once(item)
+                        .chain(decl_nodes.iter())
+                        .map(|n| self.loc(n))
+                        .collect::<Vec<_>>();
+                    self.emit_mapped(&selectors.join(", "), &decls, wrappers, &locs);
                 }
                 for child in item
                     .children()
@@ -823,13 +870,17 @@ impl Printer<'_, '_> {
                     .unwrap_or_default();
                 let mut w = wrappers.to_vec();
                 w.push(format!("@{name} {prelude}"));
-                let decls: Vec<String> = item
+                let decl_nodes: Vec<SyntaxNode> = item
                     .children()
                     .filter(|c| c.kind() == SyntaxKind::Declaration)
-                    .map(|d| self.declaration(&d))
                     .collect();
+                let decls: Vec<String> = decl_nodes.iter().map(|d| self.declaration(d)).collect();
                 if !decls.is_empty() && !parents.is_empty() {
-                    self.emit(&parents.join(", "), &decls, &w);
+                    let locs = std::iter::once(item)
+                        .chain(decl_nodes.iter())
+                        .map(|n| self.loc(n))
+                        .collect::<Vec<_>>();
+                    self.emit_mapped(&parents.join(", "), &decls, &w, &locs);
                 }
                 for child in item
                     .children()
@@ -874,17 +925,54 @@ impl Printer<'_, '_> {
         }
     }
 
+    /// The source-map location of `node`: its first non-trivia token.
+    fn loc(&self, node: &SyntaxNode) -> crate::js::Loc {
+        let start = node
+            .descendants_with_tokens()
+            .filter_map(rowan::NodeOrToken::into_token)
+            .find(|t| !t.kind().is_trivia())
+            .map_or_else(|| node.text_range().start(), |t| t.text_range().start());
+        crate::js::Loc {
+            file: self.file,
+            offset: u32::from(start),
+        }
+    }
+
+    /// Records that what is printed next came from `loc`.
+    fn mark(&mut self, loc: crate::js::Loc) {
+        self.marks.push(crate::js::Mark {
+            pos: self.out.len(),
+            loc,
+            name: None,
+        });
+    }
+
     /// Appends one rule, `selector { decls }`, nested inside each at-rule
-    /// prelude of `wrappers` (outermost first).
-    fn emit(&mut self, selector: &str, decls: &[String], wrappers: &[String]) {
+    /// prelude of `wrappers` (outermost first); `locs` are the rule's
+    /// location and then each declaration's.
+    fn emit_mapped(
+        &mut self,
+        selector: &str,
+        decls: &[String],
+        wrappers: &[String],
+        locs: &[crate::js::Loc],
+    ) {
         let mut indent = String::new();
         for w in wrappers {
             self.out.push_str(&format!("{indent}{w} {{\n"));
             indent.push_str("  ");
         }
-        self.out.push_str(&format!("{indent}{selector} {{\n"));
-        for d in decls {
-            self.out.push_str(&format!("{indent}  {d}\n"));
+        self.out.push_str(&indent);
+        if let Some(l) = locs.first() {
+            self.mark(*l);
+        }
+        self.out.push_str(&format!("{selector} {{\n"));
+        for (i, d) in decls.iter().enumerate() {
+            self.out.push_str(&format!("{indent}  "));
+            if let Some(l) = locs.get(i + 1) {
+                self.mark(*l);
+            }
+            self.out.push_str(&format!("{d}\n"));
         }
         self.out.push_str(&format!("{indent}}}\n"));
         for _ in wrappers {

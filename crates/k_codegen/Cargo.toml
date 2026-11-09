@@ -31,6 +31,7 @@ oxc_minifier.workspace = true
 oxc_codegen.workspace = true
 
 [dev-dependencies]
+sourcemap.workspace = true
 flate2.workspace = true
 criterion.workspace = true
 proptest.workspace = true

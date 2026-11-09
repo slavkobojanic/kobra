@@ -1,0 +1,6 @@
+# The app the debugging tests set breakpoints in (docs/book: Debugging;
+# crates/k_cli/tests/debugging.rs, crates/k_codegen/tests/sourcemaps.rs).
+# Its line numbers are part of those tests: edit both together.
+[package]
+name = "debugging"
+k = "0.1"

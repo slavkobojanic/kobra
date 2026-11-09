@@ -45,6 +45,9 @@ src/reference/stdlib/        generated: the standard library reference, one page
 src/reference/diagnostics.md generated: every diagnostic code
 check/BookTheme.k            the theme the samples are checked against
 check/diagnostic-fixes.txt   the fix for each diagnostic code
+check/stale.txt              phrases that must not appear in prose (stale claims, removed syntax)
+check/inline-names.txt       inline code that looks like a K name but deliberately isn't one
+check/audit.toml             the page-audit ledger: the commit each page was last audited at
 theme/k-highlight.js         the highlight.js language definition for K (```k code blocks)
 theme/k.css                  small style additions
 ```
@@ -56,9 +59,15 @@ theme/k.css                  small style additions
   highlight.js, plus `k`, are highlighted.
 - Every K sample must follow the design: `let`/`var`, `func`, named required arguments and chained
   options, K element names, typed classes, camelCase style properties, and the layering rules.
-- Mark a feature that the first compiler releases defer with a `> **Planned.**` note, and a question the
-  design records as still open with a `> **Open question.**` note naming the design file. Keep
-  [`src/reference/design-status.md`](src/reference/design-status.md) in step with both.
+- Mark a feature that the first compiler releases defer with a `> **Planned** (id).` note, or
+  `(**Planned** id)` inline, where `id` is the feature's row in `crates/k_sema/src/features.rs` (add one
+  if it's new; several ids are written `(a, b)`). Mark a question the design records as still open with a
+  `> **Open question.**` note naming the design file, and keep the Open questions table of
+  [`src/reference/design-status.md`](src/reference/design-status.md) in step. Its Planned table is
+  generated from the notes (below).
+- A command line for a planned command, in a `bash` or `console` block, ends with `# planned`.
+- Write a version as `{{k_version}}` where it should follow the release (`k = "{{k_version}}"`); the
+  site build and the snippet test replace it with the current minor.
 - Members of a public type are public by default, so samples never write `public` on a field, function,
   static member or `init`. Only top-level declarations (and `public extend`) carry `public`.
 - Link between chapters with relative `.md` links; mdBook rewrites them to `.html`. Refer to files outside
@@ -93,6 +102,29 @@ the same analysis `k check` runs. A block passes when it reports no error. The r
   excerpt is checked by being in the file. Prefer excerpts in the example chapters.
 - **The theme.** A project without a `theme` gets `check/BookTheme.k`, which declares the tokens the
   samples use (`.md`, `.muted`, `.lg`).
+
+## Prose checks
+
+The book's prose is checked too, by `cargo test -p k_sema --test book --test book_links` and
+`cargo test -p k_cli --test book_commands --test version`:
+
+- every relative link and `#anchor` resolves (in `docs/design` and `docs/compiler` as well), and a
+  chapter links only inside the book;
+- every `> **Planned** (id).` note names a planned row of `k_sema::features`, and every planned row is
+  named by a note. The Planned table of `reference/design-status.md` is generated from the notes:
+  `K_BLESS=1 cargo test -p k_sema --test book` rewrites it;
+- no pattern of `check/stale.txt` (one regular expression per line, then ` # ` and the reason) occurs in
+  prose or in `text`, `bash`, `console` and `toml` blocks. When a change makes a phrase false or removes
+  syntax, add the old form there;
+- inline code that reads as a qualified K name or an annotation (`RemoteClient.at`, `k.auth.Session`,
+  `@Load`) resolves in the standard library; `check/inline-names.txt` lists the deliberate exceptions;
+- a sentence that says a diagnostic has a quick fix names its code ("a compile error (`K2304`) with a
+  quick fix to `default`"), and a corpus `.diag` case pins that code's fix (a `fix` line);
+- every page of `SUMMARY.md` has an entry in `check/audit.toml`, the page-audit ledger: audit a new page
+  when you add it (`docs/compiler/documentation.md` §5);
+- every `k …` command line in `bash`, `sh` and `console` blocks, and inline `` `k …` `` code, parses with
+  the real command-line definitions, and the toolchain version is the current one everywhere it's
+  written.
 
 ## Generated reference pages
 

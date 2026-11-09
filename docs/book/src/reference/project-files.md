@@ -18,8 +18,8 @@
 | Section | Contents |
 |---|---|
 | `[package]` | `name` and `k` (the minimum toolchain version) are required. `title` and `description` are optional. Apps may set `version`; packages can't, because their git tag is their version. |
-| `[dependencies]` | `name = { workspace = true }` for a library of the same workspace; module path = git tag for a git package (**Planned**, as are `k add` and `k remove`, which will edit it) |
-| `[aliases]` | short name = a git package's module path prefix, enabling `import charts.LineChart` (**Planned**, with git packages); workspace libraries need none, as their modules keep their own paths |
+| `[dependencies]` | `name = { workspace = true }` for a library of the same workspace; module path = git tag for a git package (**Planned** packages, as are `k add` and `k remove`, which will edit it) |
+| `[aliases]` | short name = a git package's module path prefix, enabling `import charts.LineChart` (**Planned** packages, with git packages); workspace libraries need none, as their modules keep their own paths |
 | `[dev]` | development settings, read only by `k dev`, `k run` and `k migrate` ([below](#development-settings)) |
 
 The manifest never holds production configuration, secrets, build scripts or tool options. See
@@ -63,7 +63,7 @@ systems fails `k check`, unless it is marked as deliberate.
 | `schema.lock` | the database schema the migrations produce, with every table and column name, and the migration order | production data | `@Breaking("reason")` on a destructive migration |
 | `storage.lock` | the browser storage namespace, `StorageKey` names and value shapes, and job names and payload shapes | users' stored data, jobs queued during a deploy | `@Breaking("reason")` on the key or job |
 | `rpc.lock` | the wire names, rpcs, field numbers and error cases of every protocol an app serves | callers already deployed: other services, open browser tabs, other-language clients | `@Breaking("reason")` on the protocol |
-| `k.lock` | the exact commit and content hash of every package (**Planned**, with git packages) | reproducible builds | `k add` with a new version |
+| `k.lock` | the exact commit and content hash of every package (**Planned** packages) | reproducible builds | `k add` with a new version |
 
 **Renaming the declaration a recorded name came from never silently changes it:** a renamed entity or
 field keeps its table or column, a renamed page's old URL gets a redirect, a renamed storage key or a
@@ -72,7 +72,7 @@ changed wire name fails the check.
 **Who writes them.** `k check` only reads lockfiles, so CI catches a lock nobody rebuilt. `k build` writes
 `rpc.lock`, `routes.lock` and `schema.lock` when they differ from what the program implies; `k migrate
 new` and `k migrate rename` write `schema.lock` with their change. `storage.lock` is compared once it
-records a key or a job, but the toolchain doesn't write it yet (**Planned**).
+records a key or a job, but the toolchain doesn't write it yet (**Planned** storage-lock-writing).
 
 ### `rpc.lock`
 

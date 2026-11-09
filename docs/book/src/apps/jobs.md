@@ -71,8 +71,9 @@ public enum JobError implements Error {
 - **The payload is `Codable`,** because it is stored. Prefer ids over copies of data: the job then reads
   current data when it runs, and no personal data sits in the queue. A payload containing a `Secret` is a
   compile error. `Void` is `Codable` as `{}`.
-- **`run` is called only by the worker and by test code.** Calling it anywhere else is a compile error,
-  so the queue, its retries and its transactional guarantee can't be bypassed.
+- **`run` is called only by the worker and by test code,** so the queue, its retries and its
+  transactional guarantee aren't bypassed. The compiler doesn't reject another call yet
+  (**Planned** job-run-check).
 - **Each run gets a fresh container,** which works like a request's. A job has no session: if its
   dependency graph reaches `Session` or `SessionManager`, that is a compile error naming the path. A job
   that needs a user's id carries it in its payload.
@@ -118,7 +119,7 @@ public service PaymentRecorder {
 - A job that runs out of attempts, or fails permanently, is kept as **dead** with its last reason, and
   logged at error level. Dead jobs are never retried automatically.
 - `dist/app jobs list --dead` lists dead jobs and `dist/app jobs retry <id>` re-queues one. A dead-job
-  count is exposed as a metric for alerting.
+  count as a metric for alerting comes with metrics in `k.observe` (**Planned** observe-metrics).
 - **Delivery is at least once.** If the process dies after the work but before the job is acknowledged,
   it runs again, so a job must be idempotent or accept rare duplicates.
 

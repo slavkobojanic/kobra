@@ -216,7 +216,9 @@ let summary = "Opens at {weekdays.opens}, {weekdays.opens.hour} hours after midn
 
 ## Other `k.time` types
 
-- Calendars, time zones and relative-time formatting complete the module.
+- **`TimeZone`** is `.utc`, `.local` (the browser's zone) or `TimeZone.parse(name)` for an IANA name
+  such as `"Europe/Berlin"`, and **`Weekday`** names the days `.weekly(on:at:)` schedules take.
+  Calendars aren't part of `k.time` yet ([Standard library](../reference/stdlib.md)).
 
 ## Why injection only
 

@@ -263,12 +263,12 @@ let size = match count {
   tuples.
 - `default` is **allowed** on enums, as a deliberate trade-off: new cases will fall into it silently.
 - `default` is a **compile error when unreachable**, meaning every case is already covered.
-- **`default` is the only non-binding catch-all.** A top-level `case _` arm is a compile error with a
-  quick fix to `default`. `_` stays valid inside patterns: `.status(let code, _)`.
+- **`default` is the only non-binding catch-all.** A top-level `case _` arm is a compile error (`K2303`)
+  with a quick fix to `default`. `_` stays valid inside patterns: `.status(let code, _)`.
 
 `case let other { … }` binds the whole value and matches everything an earlier arm didn't handle. It is
-allowed only when the arm uses `other`; an unused binding is a compile error with a quick fix to
-`default`. Like `default`, it must be the last arm, and it is a compile error when unreachable:
+allowed only when the arm uses `other`; an unused binding is a compile error (`K2304`) with a
+quick fix to `default`. Like `default`, it must be the last arm, and it is a compile error when unreachable:
 
 ```k
 ~func example(error: NoteError) {
@@ -370,7 +370,7 @@ for await change in changes {
 - The loop ends when the stream ends. A dropped connection ends it the same way; ending isn't an error.
 - `break` closes the stream.
 - `for await` iterates only a `Stream`, and only inside an `async` function. A plain `for` over a stream
-  is a compile error with a quick fix that adds `await`. It takes no `key` clause.
+  is a compile error (`K2310`) with a quick fix that adds `await`. It takes no `key` clause.
 
 See [Server streaming](../apps/streaming.md).
 

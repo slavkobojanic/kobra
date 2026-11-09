@@ -231,7 +231,7 @@ production; under `k dev` the workspace wiring, each member's `[dev]` section an
 
 | Variable | Required | Read by |
 |---|---|---|
-| `K_PUBLIC_ORIGIN` | in production | stdlib `ServerConfig`: canonical links and `PublicUrls` (payment page, email links) |
+| `K_PUBLIC_ORIGIN` | no (`http://localhost:{PORT}`), but set it in every deployment | stdlib `ServerConfig`: canonical links and `PublicUrls` (payment page, email links) |
 | `PORT`, `K_TRUSTED_PROXIES` | no | stdlib `ServerConfig` |
 | `DATABASE_URL`, `DATABASE_PASSWORD[_FILE]` | yes | stdlib `DatabaseConfig` |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `MAIL_FROM` | yes | stdlib `SmtpConfig` |

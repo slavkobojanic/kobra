@@ -114,7 +114,7 @@ public struct Order implements Codable {
 ```
 
 Writing `public` on a member is redundant. It is a warning (`K1302`) with a machine-applicable fix, which
-`k fmt` will apply (**Planned**). See [Modules and visibility](modules.md#visibility-of-members).
+`k fmt` will apply (**Planned** k-fmt). See [Modules and visibility](modules.md#visibility-of-members).
 
 ### Value semantics
 

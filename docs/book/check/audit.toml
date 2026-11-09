@@ -1,0 +1,452 @@
+# The page-audit ledger (docs/compiler/documentation.md §5, docs/design/49-documentation.md).
+#
+# One entry per page of SUMMARY.md: the commit the page was last read against, every prose claim
+# checked against the compiler, CLI, stdlib and runtime; the date; and the claims that are true but no
+# test pins (`unpinned`). `cargo test -p k_sema --test book_links` fails when a SUMMARY page has no
+# entry, or an entry names a page SUMMARY doesn't list. `note` says why an entry is special.
+#
+# Round 1(a) audited 0dd7625 together with the working tree it had on 2026-11-09 (not yet committed),
+# against a `k` built from that tree; behavioural claims were checked by running `k` on scratch
+# projects and on the examples.
+
+[pages."introduction.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."philosophy.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."getting-started/installation.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "the language server's hover lists an effect's reactive dependencies",
+]
+
+[pages."getting-started/first-app.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "`k dev` reports a build with errors by its count and keeps serving the last good build",
+    "an unset `K_PUBLIC_ORIGIN` makes `dist/app` use `http://localhost:<port>`",
+]
+
+[pages."getting-started/project-layout.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."getting-started/commands.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "`k dev` at a workspace root serves the apps on consecutive ports in dependency order",
+    "`k test` exits 2 outside a project",
+]
+
+[pages."getting-started/editor-setup.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "renaming a public declaration renames its file",
+    "events an earlier `.on(…)` of the chain handles are left out of completion",
+]
+
+[pages."getting-started/debugging.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "added by the concurrent source-map change; read, not audited in round 1(a): its `K_PUBLIC_SOURCE_MAPS` is an environment variable outside any `config`, which deployment.md and config.md say the runtime never reads"
+
+[pages."tour.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "an rpc's `Validatable` request is validated before the handler runs",
+]
+
+[pages."language/basics.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."language/constants-and-variables.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."language/functions.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."language/types.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."language/strings.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "a revealed secret stored in a local binding isn't caught by K2001",
+]
+
+[pages."language/units.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "`1.kilobytes` is 1000 bytes",
+]
+
+[pages."language/collections.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."language/lambdas.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."language/control-flow.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."language/declarations.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."language/errors.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "on the server a panic becomes a 500 response with a trace in the logs",
+]
+
+[pages."language/modules.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."language/doc-comments.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."language/js-interop.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/components.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "a scoped slot's row updates in place under the same key, keeping focus",
+]
+
+[pages."apps/views.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "`.on(submit:)` prevents the browser's navigation even when the handler fails",
+    "a computed `.label` renders a visible `<label>`",
+]
+
+[pages."apps/styles.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "font tokens are followed by a generic fallback stack",
+    "the base stylesheet sets the body font and colors from the theme",
+]
+
+[pages."apps/reactivity.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "no code after an `await` runs once the owning component is disposed",
+]
+
+[pages."apps/services.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/routing.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/async-data.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/forms.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/protocols.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "`application/proto` is refused with 415",
+]
+
+[pages."apps/streaming.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "a subscriber 1,000 messages behind is closed",
+]
+
+[pages."apps/persistence.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/auth.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "the session cookie is `k_session_<port>` on an `http` origin with a port",
+]
+
+[pages."apps/config.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "`dist/app config` prints no values",
+]
+
+[pages."apps/endpoints.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/jobs.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "a job's `run` can be called from any server-side code (job-run-check is planned)",
+]
+
+[pages."apps/email.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/http.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/crypto.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/money.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/time.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/local-storage.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "an item stored under the bare key name moves under the namespace on first read",
+]
+
+[pages."apps/charts.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/drag-and-drop.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "a mouse drag starts after 4px, a touch drag after a 250ms press",
+]
+
+[pages."apps/files.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "`File.maximumSize` is 16 MiB",
+]
+
+[pages."apps/keyboard-shortcuts.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/testing.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "every test gets a fresh in-memory database",
+]
+
+[pages."apps/packages.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/workspaces.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/metadata.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/app.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."apps/deployment.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "`dist/app probe` gives up after 3 seconds",
+    "`serve` warns about `X-Forwarded-For` with no trusted proxies",
+]
+
+[pages."examples/todos.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."examples/weather.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."examples/notes.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."examples/shop.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "`k dev` prints the generated admin password at every start",
+]
+
+[pages."examples/stack.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+unpinned = [
+    "`k dev` at the root serves paybox on the first port and shop on the next",
+]
+
+[pages."examples/kanban.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."reference/keywords.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."reference/annotations.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."reference/operators.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."reference/cli.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."reference/diagnostics.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated by crates/k_corpus/tests/book_reference.rs from the code registry and the corpus"
+
+[pages."reference/project-files.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."reference/stdlib.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+
+[pages."reference/stdlib/k-core.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-auth.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-charts.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-crypto.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-db.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-device.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-drag.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-encoding.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-http.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-observe.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-rpc.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-server.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-storage.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-test.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-text.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-time.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-ui.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-validation.md"]
+commit = "0dd7625"
+date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/design-status.md"]
+commit = "0dd7625"
+date = "2026-11-09"

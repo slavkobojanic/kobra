@@ -1,0 +1,60 @@
+# Phrases that must not appear in the book's prose or in its text, bash, console and toml blocks,
+# nor in the example apps' README.md files. `k` blocks are compiled instead. Checked by `cargo test -p k_sema --test book` (no_stale_phrases).
+#
+# One regular expression (Rust `regex` syntax) per line, then ` # ` and why it is stale, with what to
+# write instead. When a change removes syntax or makes a claim false, add the old form here in the same
+# change, so the next mention anywhere fails.
+
+# CSS in K: properties and keyword values are camelCase (K3214)
+\b[a-z]+(?:[A-Z][a-z]+)+: *[a-z]+(?:-[a-z]+)+\b  # CSS keyword values are camelCase in K (K3214): `spaceBetween`, not `space-between`
+\b(?:font|background|border|max|min|line|text|justify|align|flex|grid|box|margin|padding)-[a-z]+(?:-[a-z]+)*: *[^ ]  # CSS properties are camelCase in K: `fontSize:`, not `font-size:`
+
+# The toolchain exists
+[Tt]he compiler is (?:still )?being written  # the compiler exists and runs
+hasn't been compiled  # every K sample in the book is compiled by the book test
+(?:isn't|is not) (?:yet )?(?:a )?(?:working|runnable) compiler  # the compiler exists and runs
+
+# `k check` runs the tests (`--no-tests` skips them)
+k check` (?:doesn't|does not|won't|will not) run (?:the )?tests  # `k check` runs the tests
+tests run with `k test`  # `k check` runs the tests; `k test` is for running them alone or with --watch
+[Rr]un `k test` (?:next to|alongside|as well as|after) (?:it|`k check`)  # `k check` runs the tests, so CI needs only `k check`
+folding the tests into `k check`  # `k check` runs the tests
+test run (?:as part of|into) `k check`  # `k check` runs the tests
+
+# Elements and attributes that don't exist
+\bfileField\b  # there is no `fileField` element: files are picked with the injected `Files` (`k.device.Files`)
+
+# `K_PUBLIC_ORIGIN` is optional: unset, `dist/app` uses `http://localhost:{PORT}`
+production builds require it  # `K_PUBLIC_ORIGIN` isn't required: unset, it is `http://localhost:{PORT}`; say to set it in every deployment
+K_PUBLIC_ORIGIN.{0,40}required in production|required in production.{0,40}K_PUBLIC_ORIGIN  # `K_PUBLIC_ORIGIN` isn't required: unset, it is `http://localhost:{PORT}`
+
+# Warnings the compiler doesn't report (each is a Planned row of `k_sema::features`)
+is a compile-time warning  # no such warning is built; name the Planned feature (`password-log-lint`, `safe-method-lint`) instead
+
+# Binary Protobuf is Planned (`protobuf`): rpc routes accept JSON only, `application/proto` is 415
+JSON or Protobuf|`application/json` and `application/proto`|and binary Protobuf \(`application/proto`\), and  # the server accepts only `application/json`; binary Protobuf is Planned (protobuf)
+the compiler warns when it would  # no such warning is built (Planned error-payload-lint)
+`k check` warns about API without one  # undocumented-API warnings are Planned (doc-coverage)
+broadcasts between server streams, over Postgres  # cross-replica broadcasts are Planned (broadcast-replicas)
+
+# Secret comparison is checked on the comparison's own expression (K2001), with no quick fix
+(?:tracks|tracked) (?:strings|values) (?:built|computed) from (?:a revealed value|`reveal\(\)`)  # the check reads the compared expression only (K2001); a local binding isn't tracked
+quick fix to (?:the constant-time )?`secret\.matches  # K2001 has no quick fix; say it points to `secret.matches`
+
+# Each test gets a fresh in-memory database (k_cli test.rs, `op_k_test_reset`); there is no per-test rollback
+(?:inside a transaction the app can't see|rolled[- ]back one|changes are rolled back after each test|each test in a transaction that is rolled back)  # every test gets a fresh in-memory database; nothing is rolled back
+
+# Guards go on pages, protocols and protocol rpcs only (K5014 on a layout, K5507 on a handler)
+guards on a page, layout|(?:page|protocol), layout,? (?:or|and) (?:protocol|rpc)  # a layout takes no `requires` (K5014)
+are recent additions to the design  # `config` and `migration` are built
+
+# Errors with no quick fix (round 1(a) audit): name the code and say what to write instead
+quick fix that (?:wraps (?:its|the) body in|adds the `use` line|adds the field|inserts it\b)  # K3012, K3017, K7503, K4022 and a returned `Query` have no quick fix; name the code and what to write
+is a compile warning  # name the diagnostic code, or the Planned feature (`password-log-lint`, `safe-method-lint`) when no warning is built
+
+# Tests run on a fresh database each, with nothing rolled back (round 1(a) audit)
+[Tt]he (?:app's )?outermost (?:`database\.)?transaction`? becomes a savepoint  # every test gets a fresh in-memory database; the app's transactions commit as in production
+
+# Streams and broadcasts (round 1(a) audit)
+identical streams [^.]*share one\s+connection  # stream sharing between tabs is Planned (stream-tab-sharing); each tab opens its own
+replicas behind a load balancer reach each other's subscribers  # Broadcast delivery is in-process; between replicas is Planned (broadcast-replicas)

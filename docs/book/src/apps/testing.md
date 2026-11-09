@@ -144,8 +144,8 @@ test CartService {
 - **`test "description" { }` declares a single test.**
 - **Every `test "…"` gets a fresh container,** so no service, fake, session or theme state leaks between
   tests.
-- `k test` runs them, and `k test --watch` re-runs the affected ones on every save. Run `k test` in CI
-  next to `k check` (folding the tests into `k check` is **Planned**).
+- `k check` runs them after its other checks, so CI needs only `k check`. `k test` runs them alone, and
+  `k test --watch` re-runs the affected ones on every save.
 
 ## `expect`
 
@@ -220,7 +220,7 @@ the real time:
   `@Inject let storage: MemoryStorage`.
 - **`use` is written only to choose something else,** such as `use InlineJobQueue for JobQueue` or the
   app's own `use FakeHttpClient for HttpClient`. A `use` that restates the default, such as
-  `use TestClock for Clock`, is a warning with a quick fix that removes it.
+  `use TestClock for Clock`, is a warning (`K4014`) with a quick fix that removes it.
 - **Precedence:** a test group's `use` rules override the `App.k` rules for `.test`, which override these
   defaults.
 
@@ -265,7 +265,7 @@ test StripeWebhookVerifier {
 
 The value may be a shared static member such as `StripeWebhookConfig.sample`, or the config's memberwise
 initializer, which exists only in test code. A test group whose graph reaches an unbound app config is a
-compile error, with a quick fix that adds the `use` line. See
+compile error (`K7503`) that names the path to it. See
 [Configuration and secrets](config.md#tests).
 
 ## Fakes, fixtures and test-only modules
@@ -441,12 +441,12 @@ test "the list shows the account's notes and filters as you type" {
 ## Integration tests and the database
 
 **Integration tests use the app's real services, repositories and in-process protocols; external I/O is
-always replaced** by the defaults above. Every `k test` run uses a fresh in-memory SQLite database with
-every migration applied, data migrations included.
+always replaced** by the defaults above. **Every test gets a fresh in-memory SQLite database** with every
+migration applied, data migrations included, so a test sees only what it wrote.
 
-**Each test runs inside a transaction the app can't see,** rolled back afterwards. The app's outermost
-`database.transaction` becomes a savepoint inside it, and its commit fires the commit hooks, so
-`InlineJobQueue` runs jobs, and `Broadcast` publishes, exactly when they would in production.
+The app's transactions commit as they do in production, and the outermost `database.transaction`'s commit
+fires the commit hooks, so `InlineJobQueue` runs jobs, and `Broadcast` publishes, exactly when they would
+in production.
 
 ## HTTP-level tests: `TestClient`
 
@@ -497,7 +497,7 @@ test StripeWebhook {
 - `send(request:)` takes an outgoing `HttpRequest`, which the runtime converts to the `IncomingRequest`
   a handler receives, as the wire would. It never throws. Response header names are lowercased.
 - Requests use the test's server container, so its `use` rules apply, and the database is the test's
-  rolled-back one. The client keeps cookies across requests in a test, like one browser.
+  own. The client keeps cookies across requests in a test, like one browser.
 - `TestClient` renders view pages too, which is how a test checks what crawlers receive (`<title>`, the
   canonical link, the status set by `status(.notFound)`), since `render()` doesn't produce document
   metadata.

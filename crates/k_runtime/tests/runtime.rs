@@ -177,6 +177,7 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Http
                 | Part::Forms
                 | Part::Money
+                | Part::DevTools
         ) {
             assert!(
                 !m.source.contains("Deno.core"),
@@ -493,6 +494,7 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::Streams
                 | Part::Forms
                 | Part::Money
+                | Part::DevTools
         ) {
             continue;
         }

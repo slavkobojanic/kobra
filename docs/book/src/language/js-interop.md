@@ -50,6 +50,6 @@ public service Clock {
 - **No raw DOM handles.** Views are declarative: state changes update the elements that read it, and
   events reach your code through `.on(…)`.
 
-> **Planned.** Typed npm interop, with bindings generated from `.d.ts` files, is deferred by the design
+> **Planned** (npm-interop). Typed npm interop, with bindings generated from `.d.ts` files, is deferred by the design
 > and may be added later. Any design for it would keep JavaScript calls behind services, as the layering
 > rules already do for protocols. Until then, a capability K lacks is a gap in the standard library.

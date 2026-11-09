@@ -50,7 +50,8 @@ try await mailer.send(email: email)
 - **A form field of type `EmailAddress`** binds to a `textField` as text and is validated as an email
   address when the form validates, so it needs no `@Email`, and the form's value holds the parsed address
   ([Forms and validation](forms.md#the-initial-value)).
-- **`@Email` on an `EmailAddress` field is redundant:** a warning, with a quick fix that removes it.
+- **`@Email` on an `EmailAddress` field is redundant:** a warning (`K7004`), with a quick fix that
+  removes it.
   `@Email` remains for `String` fields.
 - **The message for text that doesn't parse** is set with
   `@Format(message: "Enter a valid email address")` on the field

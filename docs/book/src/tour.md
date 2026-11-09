@@ -327,8 +327,8 @@ scoped: another component's `.card` can't collide with it.
 ## A test
 
 Tests live next to the code. With no fakes declared, a test group gets the **real stack in-process**:
-the real service, the protocol called through the real wire format, and a fresh SQLite database whose
-changes are rolled back after each test.
+the real service, the protocol called through the real wire format, and a fresh in-memory SQLite
+database for each test, with every migration applied.
 
 ```k
 // src/guestbook/GuestbookService.test.k
@@ -346,7 +346,7 @@ test GuestbookService {
 ```
 
 `expect` takes any boolean expression. When it fails, the test runner shows the value of each part, for
-example ``entries.count was 0, expected == 1``.
+example ``note: `entries.count` was 0``.
 
 ## Running it
 
@@ -357,7 +357,7 @@ start. To use another database, set `DATABASE_URL` in the environment or in a `.
 ```bash
 k dev       # creates the database, applies the migration and serves the app
 k test      # runs the test against an in-memory database
-k check     # types, every static rule and the lockfiles, as CI runs it
+k check     # types, every static rule, the lockfiles and the tests, as CI runs it
 ```
 
 ## What the compiler checked for you

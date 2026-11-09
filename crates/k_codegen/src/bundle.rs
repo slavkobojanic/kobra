@@ -127,13 +127,136 @@ pub(crate) fn keep_reachable(
 
 /// Prints a server module, importing the server runtime as `$s` only
 /// when the module uses it.
-fn print_server(mut stmts: Vec<Stmt>, profile: Profile) -> String {
-    let text = print(&stmts, profile);
-    if !text.contains("$s.") {
-        return text;
+fn print_server(mut stmts: Vec<Stmt>, profile: Profile) -> (String, Vec<js::Mark>) {
+    let printed = print_mapped(&stmts, profile);
+    if !printed.0.contains("$s.") {
+        return printed;
     }
     stmts.insert(1, Stmt::ImportAll("$s".into(), "k:runtime/server".into()));
-    print(&stmts, profile)
+    print_mapped(&stmts, profile)
+}
+
+/// [`print`], with the printer's source-map marks.
+pub(crate) fn print_mapped(stmts: &[Stmt], profile: Profile) -> (String, Vec<js::Mark>) {
+    js::print_module_mapped(
+        stmts,
+        PrintOptions {
+            compact: profile == Profile::Release,
+        },
+    )
+}
+
+/// The base name of a path: `pages/home.3f2a1b9c.js` → `home.3f2a1b9c.js`.
+fn base(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// Appends the inline source map of each server module that holds K code
+/// (`marks`, by specifier): `//# sourceMappingURL=data:…`, which the
+/// isolate's stack traces and the inspector read (codegen.md §18). The
+/// K text is embedded in development builds.
+fn add_server_maps(g: &Gen<'_>, out: &mut [OutputFile], marks: &BTreeMap<String, Vec<js::Mark>>) {
+    if g.options.profile == Profile::Test {
+        return;
+    }
+    let sources = crate::sourcemap::Sources::new(
+        g.analysis,
+        crate::sourcemap::SERVER_ROOT,
+        g.options.profile == Profile::Development,
+    );
+    for f in out.iter_mut() {
+        let Some(m) = marks.get(&f.path).filter(|m| !m.is_empty()) else {
+            continue;
+        };
+        let map = crate::sourcemap::from_marks(&f.contents, m, &sources);
+        let json = crate::sourcemap::to_json(&map, Some(&f.path));
+        if !f.contents.ends_with('\n') {
+            f.contents.push('\n');
+        }
+        f.contents
+            .push_str(&crate::sourcemap::js_comment(&crate::sourcemap::data_url(
+                &json,
+            )));
+    }
+}
+
+/// Prints a client chunk and adds it to `out` (with its source map, which
+/// maps it back to the `.k` files outside the test profile) under the name
+/// `stem.<hash>.js`, which it returns.
+///
+/// A development chunk is named after its text and its map, and ends with
+/// `//# sourceMappingURL=`; a release chunk (`linked`) is named after its
+/// text and its K map is left next to it (`<name>.map`, no K text) for
+/// [`crate::link`] to compose with the minifier's.
+fn client_chunk(
+    g: &Gen<'_>,
+    stem: &str,
+    text: String,
+    marks: &[js::Mark],
+    out: &mut Vec<OutputFile>,
+) -> String {
+    let profile = g.options.profile;
+    if profile == Profile::Test {
+        let name = hashed(stem, "js", &text, profile);
+        out.push(OutputFile {
+            path: name.clone(),
+            contents: text,
+            kind: FileKind::JavaScript,
+        });
+        return name;
+    }
+    let release = linked(g);
+    let sources =
+        crate::sourcemap::Sources::new(g.analysis, crate::sourcemap::CLIENT_ROOT, !release);
+    let map = crate::sourcemap::from_marks(&text, marks, &sources);
+    let json = crate::sourcemap::to_json(&map, None);
+    let (name, contents) = if release {
+        (hashed(stem, "js", &text, profile), text)
+    } else {
+        let name = crate::hash::hashed_file_name(stem, "js", format!("{text}{json}").as_bytes());
+        let mut contents = text;
+        contents.push_str(&crate::sourcemap::js_comment(&format!(
+            "{}.map",
+            base(&name)
+        )));
+        (name, contents)
+    };
+    out.push(OutputFile {
+        path: format!("{name}.map"),
+        contents: json,
+        kind: FileKind::SourceMap,
+    });
+    out.push(OutputFile {
+        path: name.clone(),
+        contents,
+        kind: FileKind::JavaScript,
+    });
+    name
+}
+
+/// Adds the development map of a chunk that holds no K code (the runtime,
+/// a feature chunk, the `app` entry): the chunk itself as one source below
+/// `/_k/runtime/`, on the `ignoreList`, so DevTools steps over it and
+/// leaves it out of stack traces. Release builds get theirs from
+/// [`crate::link`]; test builds none.
+fn glue_map(profile: Profile, release: bool, file: &mut OutputFile, out: &mut Vec<OutputFile>) {
+    if profile == Profile::Test || release {
+        return;
+    }
+    let stem = base(&file.path).split('.').next().unwrap_or("glue");
+    let url = format!("{}{stem}.js", crate::sourcemap::RUNTIME_ROOT);
+    let map = crate::sourcemap::identity(&file.contents, &url, true);
+    let json = crate::sourcemap::to_json(&map, None);
+    file.contents
+        .push_str(&crate::sourcemap::js_comment(&format!(
+            "{}.map",
+            base(&file.path)
+        )));
+    out.push(OutputFile {
+        path: format!("{}.map", file.path),
+        contents: json,
+        kind: FileKind::SourceMap,
+    });
 }
 
 /// Prints statements with the profile's options.
@@ -161,6 +284,7 @@ pub(crate) fn server_files(
         modules.entry(module_path(g, *d)).or_default().push(*d);
     }
     let mut out = Vec::new();
+    let mut marks: BTreeMap<String, Vec<js::Mark>> = BTreeMap::new();
     for (path, mut decls) in modules {
         decls.sort_by_key(|d| order_key(g, *d));
         let mut uses = BTreeSet::new();
@@ -176,9 +300,11 @@ pub(crate) fn server_files(
         stmts.extend(imports(g, &path, &uses, false));
         stmts.extend(prelude);
         stmts.extend(body);
+        let (contents, m) = print_server(stmts, g.options.profile);
+        marks.insert(server_specifier(&path), m);
         out.push(OutputFile {
             path: server_specifier(&path),
-            contents: print_server(stmts, g.options.profile),
+            contents,
             kind: FileKind::JavaScript,
         });
     }
@@ -201,13 +327,18 @@ pub(crate) fn server_files(
         let mut stmts = vec![Stmt::ImportAll("$k".into(), "k:runtime".into())];
         stmts.extend(imports(g, "$entry", &uses, false));
         stmts.extend(body);
+        let (contents, m) = print_server(stmts, g.options.profile);
+        // The entry gets its asset table spliced in later (`ASSETS_PLACEHOLDER`),
+        // which would move its columns: it is glue, and keeps no map.
+        let _ = m;
         out.push(OutputFile {
             path: spec,
-            contents: print_server(stmts, g.options.profile),
+            contents,
             kind: FileKind::JavaScript,
         });
     }
     provide_natives(&mut out, &wanted, g.options.profile);
+    add_server_maps(g, &mut out, &marks);
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
 }
@@ -341,14 +472,17 @@ pub(crate) fn client_files(
         profile
     };
     let print = |stmts: &[Stmt], _: Profile| print(stmts, printed);
+    let print_mapped = |stmts: &[Stmt]| print_mapped(stmts, printed);
     let mut out = Vec::new();
     let runtime = crate::runtime_chunk(profile, &g.options.entry);
     let runtime_name = hashed("runtime", "js", &runtime, profile);
-    out.push(OutputFile {
+    let mut runtime_file = OutputFile {
         path: runtime_name.clone(),
         contents: runtime,
         kind: FileKind::JavaScript,
-    });
+    };
+    glue_map(profile, release, &mut runtime_file, &mut out);
+    out.push(runtime_file);
     // Feature chunks ship only when the client uses one of their symbols:
     // its items, or the entry's containers (a platform service's browser
     // body, `BrowserFiles`).
@@ -370,11 +504,13 @@ pub(crate) fn client_files(
         if used {
             let text = crate::feature_chunk(specifier, profile, &runtime_name, &g.options.entry);
             let name = hashed(stem, "js", &text, profile);
-            out.push(OutputFile {
+            let mut file = OutputFile {
                 path: name.clone(),
                 contents: text,
                 kind: FileKind::JavaScript,
-            });
+            };
+            glue_map(profile, release, &mut file, &mut out);
+            out.push(file);
             features.push((i, name));
         }
     }
@@ -424,14 +560,9 @@ pub(crate) fn client_files(
         if release {
             named_runtime_imports(&mut stmts);
         }
-        let text = print(&stmts, profile);
-        let name = hashed("shared", "js", &text, profile);
-        shared_name = Some(name.clone());
-        out.push(OutputFile {
-            path: name,
-            contents: text,
-            kind: FileKind::JavaScript,
-        });
+        let (text, marks) = print_mapped(&stmts);
+        let name = client_chunk(g, "shared", text, &marks, &mut out);
+        shared_name = Some(name);
     }
     let mut page_names = BTreeMap::new();
     for &p in pages {
@@ -457,15 +588,10 @@ pub(crate) fn client_files(
         if release {
             named_runtime_imports(&mut stmts);
         }
-        let text = print(&stmts, profile);
+        let (text, marks) = print_mapped(&stmts);
         let stem = format!("pages/{}", crate::css::kebab(&g.view.decl(p).name));
-        let name = hashed(&stem, "js", &text, profile);
-        page_names.insert(p, name.clone());
-        out.push(OutputFile {
-            path: name,
-            contents: text,
-            kind: FileKind::JavaScript,
-        });
+        let name = client_chunk(g, &stem, text, &marks, &mut out);
+        page_names.insert(p, name);
     }
     if let Some((entry, uses)) = entry {
         let mut stmts = vec![Stmt::ImportAll("$k".into(), format!("./{runtime_name}"))];
@@ -497,19 +623,23 @@ pub(crate) fn client_files(
             text = text.replace("$shared", &format!("./{shared}"));
         }
         let name = hashed("app", "js", &text, profile);
-        out.push(OutputFile {
+        let mut file = OutputFile {
             path: name,
             contents: text,
             kind: FileKind::JavaScript,
-        });
+        };
+        glue_map(profile, release, &mut file, &mut out);
+        out.push(file);
     }
     for (i, (text, name)) in runtime_features.into_iter().enumerate() {
         if used_features.contains(&i) {
-            out.push(OutputFile {
+            let mut file = OutputFile {
                 path: name,
                 contents: text,
                 kind: FileKind::JavaScript,
-            });
+            };
+            glue_map(profile, release, &mut file, &mut out);
+            out.push(file);
         }
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));

@@ -180,6 +180,12 @@ pub struct RunArgs {
     /// wiring, to check the shipped code locally.
     #[arg(long)]
     pub release: bool,
+    /// Serve V8's inspector for the server's K code on this port (9229
+    /// when no port is given), for Chrome DevTools (`chrome://inspect`) and
+    /// VS Code; the server then runs one isolate. At a workspace root,
+    /// the first app gets it.
+    #[arg(long, value_name = "PORT", num_args = 0..=1, default_missing_value = "9229")]
+    pub inspect: Option<u16>,
 }
 
 /// Arguments of `k debug`.

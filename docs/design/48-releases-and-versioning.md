@@ -275,24 +275,24 @@ How the site is organised (Learn, Guides, Reference, the quick start and the tut
 
 ## Owner decisions
 
-Each needs the project owner's sign-off before anything is published. Everything else in this file, and in [49-documentation.md](49-documentation.md), can be built and tested before they are made. **This table is the one list for both topics**; 49 refers to it.
+Each needs the project owner's sign-off before anything is published. The owner decided several on 2026-11-09 (the last column); **nothing is published yet**, and nothing below publishes anything until the name is settled. Everything else in this file, and in [49-documentation.md](49-documentation.md), can be built and tested before they are made. **This table is the one list for both topics**; 49 refers to it.
 
-| Decision | Options | Recommendation |
-|---|---|---|
-| **Project name and namespace** (the org, `k-lang` is a placeholder) | the name "K" is already used by the APL-family language from Kx Systems, and short package names (`k` on Homebrew, crates.io) may be taken; a check is needed before any publication | decide before the first public release |
-| **Source hosting and CI** | GitHub with Actions; GitLab CI; sourcehut; Buildkite with self-hosted agents | GitHub Actions: native runners for all six targets, free for public repositories, keyless signing through its OIDC tokens |
-| **Release binaries host** | GitHub Releases; an object store behind the docs domain (S3, R2, GCS) | GitHub Releases for the archives; `index.json` on the docs site so the host can change without a toolchain release |
-| **Signing** | Sigstore keyless with build provenance; a minisign key held by maintainers; GPG | Sigstore keyless: no long-lived key to guard. **Apple notarization** and **Windows Authenticode** need paid developer accounts; without them, the install script (which avoids browser quarantine) is the supported path on macOS, and Windows shows a SmartScreen prompt |
-| **Required pull-request checks** | every "On pull requests" row of the gate; only tests and lints; none (advisory) | every row, docs ownership included, so a stale page blocks a merge rather than a release |
-| **Docs site host and domain** | GitHub Pages; Cloudflare Pages; Netlify; object storage behind a CDN | GitHub Pages if the source is on GitHub (no extra account, deployed by the same pipeline); the layout above is plain directories, so moving later is cheap ([49](49-documentation.md#hosting) compares them). The domain waits for the name |
-| **Docs pull-request previews** | none; the host's previews (Cloudflare Pages, Netlify); the built site as a CI artifact | the built site as a CI artifact at first: no second host |
-| **Pagefind for search** | keep mdBook's search; Pagefind at docs-build time | Pagefind, pinned to one version and checksum in `xtask`; it never reaches users' machines ([49](49-documentation.md#search)) |
-| **Container registry** | GHCR; Docker Hub; both | GHCR, alongside the source |
-| **Extension marketplaces** | VS Code Marketplace (an Azure DevOps publisher); Open VSX (an Eclipse account) for VSCodium and others; `.vsix` on the release only | both marketplaces once the name is settled; the `.vsix` until then |
-| **Package managers** | an own Homebrew tap, then homebrew-core; winget; Scoop; AUR; Nix; crates.io | an own Homebrew tap first; the rest on demand |
-| **Performance runner** | a self-hosted machine; a dedicated cloud instance; a maintainer's machine, by hand | a self-hosted runner |
-| **First public release and the train's start** | `0.1.0` now; after the quick start, the tutorial and toolchain pinning exist; after packages and `k fmt` | after rounds 1–4 of the [combined plan](49-documentation.md#implementation-plan) and a local `0.1.0-rc.1` dry run: a newcomer's first visit then has a quick start that works and a project they can pin |
-| **Publishing the internals** (`docs/design`, `docs/compiler`) | a second small mdBook; the code host's markdown rendering; not at all | the code host's rendering; revisit after 1.0 |
+| Decision | Options | Recommendation | Owner's decision |
+|---|---|---|---|
+| **Project name and namespace** (the org, `k-lang` is a placeholder) | the name "K" is already used by the APL-family language from Kx Systems, and short package names (`k` on Homebrew, crates.io) may be taken; a check is needed before any publication | decide before the first public release | **Open, decided in part (2026-11-09):** keep the name "K" for now; new tooling doesn't hard-code it where that can be avoided (tests take the tool's name from the built binary); the name is settled before anything is published |
+| **Source hosting and CI** | GitHub with Actions; GitLab CI; sourcehut; Buildkite with self-hosted agents | GitHub Actions: native runners for all six targets, free for public repositories, keyless signing through its OIDC tokens | **Decided (2026-11-09):** GitHub Actions |
+| **Release binaries host** | GitHub Releases; an object store behind the docs domain (S3, R2, GCS) | GitHub Releases for the archives; `index.json` on the docs site so the host can change without a toolchain release | **Decided (2026-11-09):** GitHub Releases, with `index.json` on the docs site |
+| **Signing** | Sigstore keyless with build provenance; a minisign key held by maintainers; GPG | Sigstore keyless: no long-lived key to guard. **Apple notarization** and **Windows Authenticode** need paid developer accounts; without them, the install script (which avoids browser quarantine) is the supported path on macOS, and Windows shows a SmartScreen prompt | **Decided (2026-11-09):** Sigstore keyless with build provenance; no notarization or Authenticode for now |
+| **Required pull-request checks** | every "On pull requests" row of the gate; only tests and lints; none (advisory) | every row, docs ownership included, so a stale page blocks a merge rather than a release | open |
+| **Docs site host and domain** | GitHub Pages; Cloudflare Pages; Netlify; object storage behind a CDN | GitHub Pages if the source is on GitHub (no extra account, deployed by the same pipeline); the layout above is plain directories, so moving later is cheap ([49](49-documentation.md#hosting) compares them). The domain waits for the name | **Decided (2026-11-09):** GitHub Pages; the domain waits for the name |
+| **Docs pull-request previews** | none; the host's previews (Cloudflare Pages, Netlify); the built site as a CI artifact | the built site as a CI artifact at first: no second host | open |
+| **Pagefind for search** | keep mdBook's search; Pagefind at docs-build time | Pagefind, pinned to one version and checksum in `xtask`; it never reaches users' machines ([49](49-documentation.md#search)) | open |
+| **Container registry** | GHCR; Docker Hub; both | GHCR, alongside the source | **Decided (2026-11-09):** GHCR |
+| **Extension marketplaces** | VS Code Marketplace (an Azure DevOps publisher); Open VSX (an Eclipse account) for VSCodium and others; `.vsix` on the release only | both marketplaces once the name is settled; the `.vsix` until then | **Decided (2026-11-09):** the `.vsix` attached to each release; the marketplaces wait for the name |
+| **Package managers** | an own Homebrew tap, then homebrew-core; winget; Scoop; AUR; Nix; crates.io | an own Homebrew tap first; the rest on demand | **Decided (2026-11-09):** an own Homebrew tap first |
+| **Performance runner** | a self-hosted machine; a dedicated cloud instance; a maintainer's machine, by hand | a self-hosted runner | open |
+| **First public release and the train's start** | `0.1.0` now; after the quick start, the tutorial and toolchain pinning exist; after packages and `k fmt` | after rounds 1–4 of the [combined plan](49-documentation.md#implementation-plan) and a local `0.1.0-rc.1` dry run: a newcomer's first visit then has a quick start that works and a project they can pin | open |
+| **Publishing the internals** (`docs/design`, `docs/compiler`) | a second small mdBook; the code host's markdown rendering; not at all | the code host's rendering; revisit after 1.0 | open |
 
 ## Why
 

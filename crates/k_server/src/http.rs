@@ -146,6 +146,14 @@ pub struct ServerOptions {
     /// the app hard-codes; `k run` and `dist/app` never set it, so it is
     /// empty in production.
     pub fetch_origins: Vec<(String, String)>,
+    /// Serve V8's inspector on this address (`k dev --inspect`,
+    /// [`crate::inspector`]): the server then runs one worker isolate, so
+    /// every request stops at the breakpoints a debugger sets.
+    pub inspect: Option<SocketAddr>,
+    /// Answer a failed request with a 500 page that shows its stack trace,
+    /// mapped to `.k` lines ([`crate::stack`]); `k run` and `k dev` set
+    /// it, `dist/app` never does (server.md §15).
+    pub dev_errors: bool,
 }
 
 impl ServerOptions {
@@ -169,6 +177,8 @@ impl ServerOptions {
             jobs: Vec::new(),
             job_poll: Duration::from_millis(250),
             fetch_origins: Vec::new(),
+            inspect: None,
+            dev_errors: false,
         }
     }
 }
@@ -278,12 +288,14 @@ fn worker_thread(
     process: Arc<ProcessState>,
     receiver: mpsc::UnboundedReceiver<PendingRequest>,
     started: std::sync::mpsc::Sender<Result<(), String>>,
+    inspect: Option<std::net::TcpListener>,
 ) -> Result<(), ServerError> {
     let mut engine = match Engine::new(EngineOptions {
         modules: bundle.modules,
         output: log,
         timeout: None,
         compact_runtime: false,
+        inspector: inspect.is_some(),
     }) {
         Ok(e) => e,
         Err(e) => {
@@ -293,6 +305,9 @@ fn worker_thread(
     };
     engine.install_requests(RequestQueue::new(receiver));
     engine.install_process(process);
+    if let (Some(listener), Some(sessions)) = (inspect, engine.inspector_sessions()) {
+        crate::inspector::serve(listener, sessions, "K server".to_owned());
+    }
     let _ = started.send(Ok(()));
     let entry =
         serde_json::to_string(&bundle.entry).map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -571,9 +586,22 @@ impl Server {
     pub fn start(options: ServerOptions) -> Result<Server, ServerError> {
         let proxies = TrustedProxies::from_config(&options.config)
             .map_err(|e| ServerError::Config(format!("{TRUSTED_PROXIES_ENV} {e}")))?;
-        let workers = options.workers.max(1);
+        // One isolate under a debugger, so every request reaches it.
+        let workers = if options.inspect.is_some() {
+            1
+        } else {
+            options.workers.max(1)
+        };
+        let mut inspect = match options.inspect {
+            Some(addr) => Some(
+                crate::inspector::bind(addr)
+                    .map_err(|e| ServerError::Bind(format!("inspector {addr}: {e}")))?,
+            ),
+            None => None,
+        };
         let mut process = ProcessState::new(options.public_origin.clone(), options.config.clone())
-            .with_fetch_origins(options.fetch_origins.clone());
+            .with_fetch_origins(options.fetch_origins.clone())
+            .with_dev_errors(options.dev_errors);
         if let Some(setup) = options.database.clone() {
             // Migrations run before any worker starts or the port opens:
             // a failure leaves the previous release serving elsewhere.
@@ -593,10 +621,11 @@ impl Server {
             let bundle = options.bundle.clone();
             let log = options.log;
             let process = Arc::clone(&process);
+            let inspect = inspect.take();
             let handle = std::thread::Builder::new()
                 .name(format!("k-worker-{i}"))
                 .stack_size(8 * 1024 * 1024)
-                .spawn(move || worker_thread(bundle, log, process, rx, started_tx))
+                .spawn(move || worker_thread(bundle, log, process, rx, started_tx, inspect))
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
             match started_rx.recv() {
                 Ok(Ok(())) => {}

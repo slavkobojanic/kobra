@@ -57,8 +57,8 @@ seems to: it tries to interpolate an expression. Write `{{` whenever you mean a 
 | `\u{1F44B}` | the Unicode scalar value with that hexadecimal code |
 | `{{` | `{` |
 
-Any other backslash sequence is a compile error. In particular, `\{` is an error with a quick fix to
-`{{`.
+Any other backslash sequence is a compile error. In particular, `\{` is an error (`K0007`) with a quick
+fix to `{{`.
 
 ## Strings in views
 
@@ -101,7 +101,7 @@ paragraph { "Total: {price.formatted(as: .currency)}" }    // Total: $48.00, dep
 
 `formatted(as:)` is available on numbers, [money](../apps/money.md) and [dates](../apps/time.md).
 
-> **Planned.** The design gives `k.text` regular expressions, slugs and Markdown rendering, and adds a
+> **Planned** (k-text, k-i18n). The design gives `k.text` regular expressions, slugs and Markdown rendering, and adds a
 > `k.i18n` module for localized strings and plurals. Neither is built yet: `k.text` holds only
 > `EmailAddress` today. See the [standard library overview](../reference/stdlib.md).
 
@@ -123,6 +123,15 @@ Log.info("verifying with {config.signingSecret}")      // verifying with Secret(
 ```
 
 Most code never needs the value: outgoing HTTP requests and `Hmac` take secrets directly. Code that
-really does calls `.reveal()`, which is easy to search for in a review. The compiler tracks strings built
-from a revealed value, so comparing one with `==` is a compile error with a quick fix to the
-constant-time `secret.matches(candidate)`.
+really does calls `.reveal()`, which is easy to search for in a review. Comparing a secret, or an
+expression that calls `.reveal()` (directly or inside an interpolation), with `==` or `!=` is a compile
+error (`K2001`) that points to the constant-time `secret.matches(candidate)`:
+
+```k,fails=K2001
+~func isAuthorized(token: Secret<String>, header: String) -> Bool {
+return header == "Bearer {token.reveal()}"      // compile error: compare with `token.matches(…)`
+~}
+```
+
+The check reads the comparison itself, so a revealed value stored in a local first isn't caught: compare
+with `matches` rather than revealing.

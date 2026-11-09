@@ -1588,6 +1588,7 @@ dependencies = [
  "k_syntax",
  "lsp-types",
  "serde_json",
+ "sourcemap",
  "tokio",
  "yaml-rust2",
 ]
@@ -1614,6 +1615,7 @@ dependencies = [
  "rowan",
  "serde",
  "serde_json",
+ "sourcemap",
  "toml",
 ]
 
@@ -1682,6 +1684,7 @@ dependencies = [
  "k_diagnostics",
  "k_syntax",
  "proptest",
+ "regex",
  "rowan",
  "toml",
 ]
@@ -1713,6 +1716,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sourcemap",
  "tokio",
  "toml",
 ]

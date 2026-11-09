@@ -93,7 +93,8 @@ let call = HttpRequest(method: .post, url: config.apiUrl.appending(path: "/v1/ch
 - `HttpStatus(code: 418)` takes an integer literal, validated at compile time to `100...599`. A code
   with a named case gives that case (`HttpStatus(code: 503)` is `.serviceUnavailable`), and any other
   gives `.other(418)`. The runtime does the same for received statuses, so `.other` never holds a code
-  that has a name. Writing `.other(503)` is a compile error, with a quick fix to `.serviceUnavailable`.
+  that has a name. Writing `.other(503)` is a compile error (`K2401`), with a quick fix to
+  `.serviceUnavailable`.
 - `status.code` is the number, and `status.isSuccess`, `status.isClientError` and `status.isServerError`
   classify it.
 
@@ -120,8 +121,8 @@ public enum HttpError implements Error, Codable {
 - **Cancellation isn't an error.** When the effect or `@Load` that started a request is cancelled, the
   request is aborted and the awaiting code never resumes.
 - **`.status` carries a third party's response body.** An error that crosses to the browser, such as a
-  `@Load` error or an rpc error, shouldn't include it, and the compiler warns when it would. Wrap the
-  status without the body, as below.
+  `@Load` error or an rpc error, shouldn't include it (a warning for one is **Planned**
+  error-payload-lint). Wrap the status without the body, as below.
 
 ### Wrapping at the service boundary
 

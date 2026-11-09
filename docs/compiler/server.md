@@ -25,6 +25,7 @@ Contents:
 16. [Testing](#16-testing)
 17. [Performance budgets](#17-performance-budgets)
 18. [Outgoing HTTP and email](#18-outgoing-http-and-email)
+19. [Debugging the server](#19-debugging-the-server)
 
 ---
 
@@ -481,7 +482,7 @@ panics. The handler's `$e` carries the parsed `@Param`s and the request containe
 
 [30-background-jobs.md](../design/30-background-jobs.md), `jobs`, `db`, `k_db::stdlib`:
 
-- **The build's jobs** are the manifest's `jobs` ([codegen.md §15.4](codegen.md#154-background-jobs)): each
+- **The build's jobs** are the manifest's `jobs` ([codegen.md §13.3](codegen.md#133-background-jobs)): each
   job's name (`@JobName`, else the name `storage.lock` records for its declaration, else its service
   name in kebab case), its `@Retry` attempts and first backoff (default 5 attempts from 10 s), and its
   `@Schedule`. They travel in `ServerOptions::jobs` and `AppPayload::jobs`.
@@ -602,9 +603,16 @@ Assets are served from memory by the Rust front: `GET`/`HEAD` of `/assets/<hashe
   `Output::write`. A panic is logged with the method, the path and the JavaScript stack; a
   worker whose entry module fails logs why at once (and answers `503` from then on). Fields named `password` and `Secret` values are redacted by the checker's
   warnings and by `Secret`'s text form.
-- **A panic in a handler** is a `500` with a request id and no details in production; in development the
-  page shows the K stack trace mapped through the source maps. The handler's error never reaches the
-  client otherwise (an e2e case asserts the message is absent).
+- **A panic in a handler** is a `500` with a request id and no details in production; in development
+  (`ServerOptions::dev_errors`, which `k run` and `k dev` set) the 500 page shows the stack trace in a
+  `<pre class="k-stack">`, and an rpc's `internal` error message carries it, both mapped to `.k` lines
+  (`op_k_dev_errors`, `op_k_symbolicate`). The handler's error never reaches the client otherwise (an
+  e2e case asserts the message is absent).
+- **Stack traces name `.k` lines.** Every generated server module that holds K code carries its source
+  map inline ([codegen.md §18](codegen.md#18-source-maps)); `stack::Symbolicator` decodes a module's map
+  the first time a trace names it and rewrites each `k:/app/….js:line:col` frame as
+  `src/home/GreeterApi.k:11:16 [k:/app/home.js:40:22]`. `op_k_log` applies it to every logged line that
+  names a module, so a panic's logged trace reads as K in `k dev` and in `dist/app` alike.
 - **Infrastructure failures** (a lost database connection) are panics ([09-errors.md](../design/09-errors.md#panics)).
 - **Never panic in Rust on input**: malformed HTTP is hyper's `400`, oversized bodies `413`, invalid
   headers are skipped when copying a response, and a response from JavaScript with an invalid status is
@@ -706,7 +714,7 @@ another implementation; a test build binds `TestHttpClient`.
 - **Configuration**: `SmtpConfig` (`SMTP_HOST`, `SMTP_PORT` 587, `SMTP_SECURITY` `startTls`/`tls`/`none`,
   `SMTP_USERNAME`, `SMTP_PASSWORD` (a secret, usually `_FILE`), `MAIL_FROM`) is in the manifest, and so
   required at startup, only when the reachable graph sends email through it
-  ([codegen.md §15.2](codegen.md#152-configuration)).
+  ([codegen.md §13](codegen.md#13-services-and-dependency-injection)).
 - **JavaScript** (`wireEmail`) refuses a subject with a carriage return or line feed as
   `invalidMessage` before anything is sent, defaults the sender to `MAIL_FROM`, and passes the
   addresses as text (`EmailAddress` values are validated already).
@@ -723,3 +731,27 @@ another implementation; a test build binds `TestHttpClient`.
 `Hmac.sha256`/`sha512` take a `Bytes` key or a `Secret<String>` (revealed only to the op) and return a
 `Mac` (`{bytes, hex}`) through `op_k_hmac`; `Mac.matches` compares in constant time. `Bytes.parse(hex:)`
 and `Bytes.parse(base64:)` are server natives. The shop's Stripe webhook verification runs on them.
+
+---
+
+## 19. Debugging the server
+
+`k run --inspect[=port]` and `k dev --inspect[=port]` (port 9229 by default) set
+`ServerOptions::inspect`. The server then:
+
+- runs **one worker isolate** (every request reaches the debugged one), created with V8's inspector on
+  (`EngineOptions::inspector`, deno_core's `JsRuntimeInspector`);
+- serves the inspector on the address the way Node does (`inspector.rs`): `GET /json/list` (and `/json`,
+  `/json/version`) describe one target whose `webSocketDebuggerUrl` is `ws://<addr>/ws/k`; each WebSocket
+  there is one inspector session (`InspectorSessionProxy`), its text frames passed both ways by two
+  threads per connection. Chrome's `chrome://inspect` ("Configure…" the port) and VS Code's `node`
+  attach connect unchanged;
+- gives the runtime's modules (`k:/runtime/…`) an inline map onto themselves with their source on the
+  `ignoreList`, so stepping stays in K code; the generated modules carry their K maps anyway;
+- when the isolate goes away (a `k dev` restart), closes the inspector's listener and its sessions, so
+  the debugger reconnects to the next server on the same port.
+
+`k dev --inspect` at a workspace root opens the inspector for the first app. Breakpoints are set in
+`.k` files through the maps (`k:/_k/src/<path>`); `k_cli/tests/debugging.rs` sets one in an rpc handler
+over the protocol, calls the rpc and checks the paused `.k` line and the K locals in scope.
+

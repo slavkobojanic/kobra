@@ -187,6 +187,9 @@ pub struct EngineState {
     /// every test. `None` outside tests, or for a build without
     /// persistence.
     pub test_database: Option<k_db::manifest::DbManifest>,
+    /// Maps the generated modules' stack frames to `.k` lines
+    /// (`crate::stack`), for logged traces and the development 500 page.
+    pub symbols: Rc<crate::stack::Symbolicator>,
 }
 
 impl EngineState {
@@ -200,6 +203,7 @@ impl EngineState {
             process: Arc::new(ProcessState::default()),
             fetches: HashMap::new(),
             test_database: None,
+            symbols: Rc::new(crate::stack::Symbolicator::default()),
         }
     }
 }
@@ -225,6 +229,14 @@ fn shared(state: &OpState) -> Shared {
 fn op_k_log(state: &mut OpState, #[string] level: &str, #[string] message: &str) {
     let s = shared(state);
     let mut s = s.borrow_mut();
+    // Stack traces name `.k` lines (server.md §15).
+    let mapped;
+    let message = if message.contains("k:/") {
+        mapped = s.symbols.symbolicate(message);
+        mapped.as_str()
+    } else {
+        message
+    };
     match s.mode {
         Output::Capture => s.output.push(LogLine {
             level: level.to_owned(),
@@ -232,6 +244,21 @@ fn op_k_log(state: &mut OpState, #[string] level: &str, #[string] message: &str)
         }),
         other => other.write(level, message),
     }
+}
+
+/// `text` with its stack-frame locations mapped to `.k` lines
+/// (`crate::stack`): the development 500 page shows it.
+#[op2]
+#[string]
+fn op_k_symbolicate(state: &mut OpState, #[string] text: &str) -> String {
+    shared(state).borrow().symbols.symbolicate(text)
+}
+
+/// `true` when a failed request's 500 shows the mapped stack trace
+/// (development servers: `k run`, `k dev`).
+#[op2(fast)]
+fn op_k_dev_errors(state: &mut OpState) -> bool {
+    process(state).dev_errors
 }
 
 /// Stores `text` as the result of the current [`crate::Engine::run_main`]
@@ -1093,6 +1120,8 @@ deno_core::extension!(
     k_engine,
     ops = [
         op_k_log,
+        op_k_symbolicate,
+        op_k_dev_errors,
         op_k_set_result,
         op_k_test_reset,
         op_k_test_tick,

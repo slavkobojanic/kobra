@@ -1,0 +1,22 @@
+{
+  // The task `launch.json` starts before debugging in Chrome: `k dev` with
+  // the server's inspector open. Copy it to `.vscode/tasks.json`.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "k: dev",
+      "type": "shell",
+      "command": "k dev --inspect",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "k",
+        "pattern": { "regexp": "^(error)\\[(K\\d+)\\]: (.*)$", "severity": 1, "code": 2, "message": 3 },
+        "background": {
+          "activatesBefore": true,
+          "beginsPattern": "^(building|rebuilding)",
+          "endsPattern": "serving on http://localhost:\\d+"
+        }
+      }
+    }
+  ]
+}

@@ -100,4 +100,5 @@ let matches = await Password.verify(password: typed, hash: stored)     // consta
   account has the email keeps sign-in timing the same whether or not the email is registered
   ([Authentication and sessions](auth.md)).
 - `hash` may also be a `Secret<String>`, for a hash held in configuration.
-- Logging a field named `password`, or one whose type is `Secret<…>`, is a compile-time warning.
+- Don't log a field named `password` (a warning for it is **Planned** password-log-lint). A
+  `Secret<…>` logs as `Secret(•••)`.

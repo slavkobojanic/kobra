@@ -1029,8 +1029,17 @@ pub(crate) fn client_loads(
                 }
             }
         }
-        let mut body = pre;
-        body.push(Stmt::Return(Some(x)));
+        // The load maps to its initializer: a breakpoint there stops each
+        // time the load runs (codegen.md §18).
+        let loc = b.loc(init.syntax());
+        let mut body: Vec<Stmt> = pre
+            .into_iter()
+            .map(|s| match loc {
+                Some(l) if !matches!(s, Stmt::At(..)) => Stmt::At(l, Box::new(s)),
+                _ => s,
+            })
+            .collect();
+        body.push(Stmt::Return(Some(js::at(loc, x))));
         let run = js::arrow_block(vec![Param::new("v"), Param::new("$c")], body, true);
         let mut spec = vec![
             Prop::KeyValue("name".into(), js::str(mi.name.clone())),

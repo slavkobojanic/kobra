@@ -134,12 +134,27 @@ fn release_chunks_import_the_runtime_by_name_and_carry_source_maps() {
         for m in out.client.iter().filter(|f| f.kind == FileKind::SourceMap) {
             let v: serde_json::Value = serde_json::from_str(&m.contents).expect("a JSON map");
             assert_eq!(v["version"], 3);
-            let content = v["sourcesContent"][0].as_str().unwrap_or("");
-            assert!(
-                content.contains('\n'),
-                "{name}: {} maps to readable code",
-                m.path
-            );
+            // A chunk with K code maps straight to the `.k` files (no K
+            // text shipped); the runtime and glue map to their readable
+            // text, ignore-listed (codegen.md §18).
+            if v["ignoreList"].is_array() {
+                let content = v["sourcesContent"][0].as_str().unwrap_or("");
+                assert!(
+                    content.contains('\n'),
+                    "{name}: {} maps to readable code",
+                    m.path
+                );
+            } else {
+                let sources = v["sources"].as_array().expect("sources");
+                assert!(
+                    sources
+                        .iter()
+                        .all(|s| s.as_str().is_some_and(|s| s.starts_with("/_k/src/"))),
+                    "{name}: {} maps to K: {sources:?}",
+                    m.path
+                );
+                assert!(v.get("sourcesContent").is_none(), "{name}: {}", m.path);
+            }
         }
     }
 }
@@ -227,7 +242,12 @@ fn development_and_test_builds_keep_readable_namespace_imports() {
         "{}",
         home.contents
     );
-    assert!(dev.client.iter().all(|f| f.kind != FileKind::SourceMap));
+    // Development chunks map back to the `.k` files (codegen.md §18).
+    assert!(
+        home.contents.contains("//# sourceMappingURL=home."),
+        "{}",
+        home.contents
+    );
     assert!(!home.contents.contains("$k.walk("), "{}", home.contents);
 }
 

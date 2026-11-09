@@ -127,9 +127,11 @@ and fills in when the first message arrives.
 ### One connection per stream, shared across tabs
 
 Each open stream holds an HTTP request, and browsers allow only six connections per origin over
-HTTP/1.1. So **identical streams (same rpc, same arguments, same session) opened in several tabs share one
-connection**: one tab holds it and relays the elements to the others, and another tab takes over when it
-closes. Deployments should still serve HTTP/2 at the proxy.
+HTTP/1.1, so serve HTTP/2 at the proxy ([Deployment](deployment.md#behind-a-proxy)).
+
+> **Planned** (stream-tab-sharing). Identical streams (same rpc, same arguments, same session) opened in
+> several tabs will share one connection: one tab holds it and relays the elements to the others, and
+> another tab takes over when it closes. Today each tab opens its own.
 
 ## Sharing events between requests
 
@@ -151,9 +153,9 @@ for another without a deliberate shared object.
   - `Key` must be `Hashable` and `Codable`, and `T` must be `Codable`.
 - **Publishing inside a transaction is deferred to the outermost commit,** like enqueueing a job, and
   discarded on rollback. Other tabs never see a change that was rolled back.
-- **Several server processes:** the default delivery is in-process with SQLite, and Postgres
-  `LISTEN`/`NOTIFY` with Postgres, so replicas behind a load balancer reach each other's subscribers with
-  no configuration.
+- **Delivery is in-process:** a `Broadcast` reaches the subscribers of the server process that
+  publishes. Delivery between replicas through Postgres `LISTEN`/`NOTIFY` is planned
+  (**Planned** broadcast-replicas), so run one replica of an app whose streams must see every write.
 
 ## Tests
 

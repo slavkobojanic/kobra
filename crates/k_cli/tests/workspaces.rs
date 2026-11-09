@@ -11,6 +11,9 @@
 // The helpers below fail the calling test with a message.
 #![allow(clippy::unwrap_used, clippy::panic)]
 
+#[path = "support/ports.rs"]
+mod ports;
+
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -308,7 +311,9 @@ fn free_pair() -> u16 {
         let p = 5200 + (start - 5200 + i * 3) % 798;
         let a = std::net::TcpListener::bind(("127.0.0.1", p));
         let b = std::net::TcpListener::bind(("127.0.0.1", p + 1));
-        if a.is_ok() && b.is_ok() {
+        // Other test processes (cargo-nextest runs one per test) may probe
+        // the same pair at the same time.
+        if a.is_ok() && b.is_ok() && ports::reserve(p) && ports::reserve(p + 1) {
             return p;
         }
     }

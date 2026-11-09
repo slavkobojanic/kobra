@@ -327,7 +327,7 @@ test Checkout {
 }
 ```
 
-> **Planned.** Binding the serving member's own implementation in-process in `.test`, and streaming rpcs
+> **Planned** (in-process-services, service-streaming). Binding the serving member's own implementation in-process in `.test`, and streaming rpcs
 > between services.
 
 **The editor** sees the whole workspace: go to definition from shop's `payments.charge(…)` opens the

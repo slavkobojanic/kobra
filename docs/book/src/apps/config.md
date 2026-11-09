@@ -77,9 +77,10 @@ public config AdminConfig {
 
 - **`Secret` doesn't implement `Codable`, `Equatable` or `Hashable`.** It can't be put in an rpc
   response, a `@Load` field, a job payload or an entity, and it can't be compared with `==`.
-- **Revealed values keep that rule.** Within a function, the compiler tracks values computed from
-  `reveal()`, directly or through interpolation, concatenation and local bindings. Comparing one with `==`
-  is a compile error with a quick fix to `secret.matches(candidate)`.
+- **Revealed values keep that rule where the compiler can see them.** Comparing an expression that calls
+  `reveal()`, directly or inside an interpolation or concatenation, with `==` is a compile error (`K2001`)
+  that points to `secret.matches(candidate)`. A revealed value stored in a local binding first isn't
+  tracked yet, so compare with `matches` rather than revealing.
 - **Most uses need no `reveal()`.** Outgoing HTTP requests take secrets directly
   (`.bearerToken(config.apiKey)`, see [Calling HTTP APIs](http.md)), and so do `Hmac` and `Password`
   ([Bytes and cryptography](crypto.md)).
@@ -165,7 +166,14 @@ is required by a production build and never by `k dev`. Adding an injection is w
 required; there is no list to keep in sync.
 
 `dist/app config` prints the table of every variable the build reads: its type, whether it is required,
-whether it is a secret, its default, and whether it is currently set. It never prints secret values.
+its default, and whether it is a secret. It prints no values, so it is safe to run anywhere:
+
+```text
+K_PUBLIC_ORIGIN    Url           optional
+K_SHUTDOWN_GRACE   Duration      optional  default "25s"
+K_TRUSTED_PROXIES  List<String>  optional  default ""
+PORT               Int           optional  default "8080"
+```
 
 ## Injection
 
@@ -186,7 +194,7 @@ everything a deployment can set:
 | Config (module) | Variable | Field | Default |
 |---|---|---|---|
 | `ServerConfig` (`k.server`) | `PORT` | `port: Int` | `8080` |
-| | `K_PUBLIC_ORIGIN` | `publicOrigin: Url` | required in production; `http://localhost:{PORT}` in development; `http://localhost` in tests |
+| | `K_PUBLIC_ORIGIN` | `publicOrigin: Url` | `http://localhost:{PORT}`, so set it in every deployment; `http://localhost` in tests |
 | | `K_SHUTDOWN_GRACE` | `shutdownGrace: Duration` | `25.seconds` |
 | | `K_TRUSTED_PROXIES` | `trustedProxies: List<String>` (CIDR ranges) | empty |
 | `DatabaseConfig` (`k.db`) | `DATABASE_URL` | `url: Url` (`postgres://…` or `sqlite:path`) | required in production; `sqlite:.k/<package>.db` in development |
@@ -228,8 +236,8 @@ test StripeWebhookVerifier {
 
 - **Outside test code, constructing a config is a compile error:** production values come only from the
   environment.
-- A test group whose graph reaches an unbound app config is a compile error, with a quick fix that adds
-  the `use` line. Standard configs have built-in test values, so they never need one.
+- A test group whose graph reaches an unbound app config is a compile error (`K7503`) that names the
+  path to the config; add the `use` line. Standard configs have built-in test values, so they never need one.
 
 > **Open question.** Reloading configuration without a restart, for example to rotate a secret, isn't
 > designed yet. Today secret rotation means a rolling restart.

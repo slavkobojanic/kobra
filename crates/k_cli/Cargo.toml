@@ -39,6 +39,8 @@ tokio.workspace = true
 # tests/deploy.rs reads the shop's docker-compose.yml and Kubernetes
 # manifests.
 yaml-rust2.workspace = true
+# tests/debugging.rs decodes the source maps Chrome is given.
+sourcemap.workspace = true
 
 [features]
 # The server runtime (V8). On by default; `--no-default-features` builds a

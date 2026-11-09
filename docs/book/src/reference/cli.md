@@ -8,8 +8,8 @@ error.
 
 | Command | Purpose |
 |---|---|
-| `k new <name>` | create an app in a new directory `<name>/` (**Planned**) |
-| `k new --library <module path>` | create a library package, in a directory named after the last path segment (**Planned**) |
+| `k new <name>` | create an app in a new directory `<name>/` (**Planned** k-new) |
+| `k new --library <module path>` | create a library package, in a directory named after the last path segment (**Planned** k-new) |
 
 ## Development
 
@@ -18,6 +18,7 @@ error.
 | `k dev` | build the `.development` environment, serve it on port 8080 (`--port` to change), rebuild and restart on every change, run the job worker and load `.env` and `[dev]`, with no setup (a SQLite database in `.k/`, a mail catcher); a build with errors keeps the last good one serving; at a workspace root, every app, wired together |
 | `k run` | the same as `k dev`, without rebuilding on change |
 | `k run --release`, `k dev --release` | the same, serving the client `k build` ships (minified, with short class names and source maps) instead of the readable development client |
+| `k run --inspect`, `k dev --inspect` | the same, with the server's debugger port open (9229, or `--inspect <port>`) for Chrome DevTools and VS Code; see [Debugging](../getting-started/debugging.md) |
 | `k hash-password` | print the Argon2id PHC string of the password read from standard input, as `Password` and an admin hash's `@Matches` expect |
 | `k test` | run every test: one browser and one server per test, a fresh database each; exit `0` when all passed, `1` on a failure or project errors |
 | `k test --filter <text>` | run only the tests whose full name (`Group › description`) contains the text; repeatable; matching nothing is an error |
@@ -27,13 +28,13 @@ error.
 | `k check --no-tests` | the same without running the tests |
 | `k check --format json` | the same, with one JSON object per diagnostic (code, span, message, quick fixes) on standard output |
 | `k check --color always\|never\|auto` | when to color human-readable output |
-| `k fmt` | format code canonically, removing redundant spellings such as `public` on members (**Planned**) |
+| `k fmt` | format code canonically, removing redundant spellings such as `public` on members (**Planned** k-fmt) |
 | `k routes` | print the route table: one row per URL and method (pages, endpoint handlers, `routes.lock` redirects) with parameters and guards |
-| `k doc` | render documentation from `///` comments (**Planned**) |
-| `k explain <code>` | describe a diagnostic code (**Planned**; see the [diagnostics reference](diagnostics.md)) |
+| `k doc` | render documentation from `///` comments (**Planned** k-doc) |
+| `k explain <code>` | describe a diagnostic code (**Planned** k-explain; see the [diagnostics reference](diagnostics.md)) |
 | `k lsp` | run the language server on standard input and output, for editors ([Editor setup](../getting-started/editor-setup.md)) |
 
-> **Planned.** The design adds the formatting check and the type-checking of `k` blocks in doc comments
+> **Planned** (k-fmt, doc-blocks). The design adds the formatting check and the type-checking of `k` blocks in doc comments
 > to `k check`.
 
 For end-to-end tests, `k run` and `k dev` read `K_DEV_FETCH_ORIGINS`: comma-separated `from=to` origin
@@ -49,7 +50,8 @@ API from a local fake. A built `dist/app` never reads it.
 
 The client `k build` writes is ready to ship as it is. Each app gets only the part of the runtime its
 pages use; every JavaScript file is minified, with a source map next to it (`app.3f2a1b9c.js.map`) that
-browser developer tools use to show the readable code; class names and theme variables are short
+maps the minified code straight back to your `.k` lines (the server built with the app serves the maps
+only when `K_PUBLIC_SOURCE_MAPS=true`; see [Debugging](../getting-started/debugging.md)); class names and theme variables are short
 (`_3`, `--k7`); and every page's document preloads the files it needs, so the browser fetches them all
 at once. `k dev` and `k run` serve readable code with the long names (`panel_k3x9a1`), which is easier
 to debug; select elements in tests by role or text, not by class name.
@@ -85,14 +87,14 @@ default, a changed type, a new enum case of a stored field, a removed entity) an
 
 | Command | Purpose |
 |---|---|
-| `k add <module path>@<tag>` | add a git-based package (**Planned**) |
-| `k remove <module path>` | remove a package (**Planned**) |
+| `k add <module path>@<tag>` | add a git-based package (**Planned** packages) |
+| `k remove <module path>` | remove a package (**Planned** packages) |
 
 ## Protobuf
 
 | Command | Purpose |
 |---|---|
-| `k proto export` | emit `.proto` files from K protocols (**Planned**) |
+| `k proto export` | emit `.proto` files from K protocols (**Planned** protobuf) |
 
 ## The built server
 

@@ -187,9 +187,16 @@ fn serve(payload: AppPayload) -> ExitCode {
     options.database = k_server::db::DatabaseSetup::from_config(payload.database, &options.config);
     // The jobs worker runs next to the listener (30-background-jobs.md).
     options.jobs = payload.jobs;
+    // Source maps ship in `dist/public` but `dist/app` serves them only
+    // when `K_PUBLIC_SOURCE_MAPS=true`: they reveal the code's structure
+    // and the `.k` file names (13-tooling.md, "Source maps in
+    // production"). The server's own maps are inline in its modules and
+    // always map its logged stack traces.
+    let public_maps = public_source_maps(std::env::var("K_PUBLIC_SOURCE_MAPS").ok().as_deref());
     options.assets = payload
         .assets
         .into_iter()
+        .filter(|f| public_maps || !f.path.ends_with(".map"))
         .map(|f| StaticAsset {
             content_type: content_type(&f.path).to_owned(),
             immutable: is_hashed(&f.path),
@@ -371,7 +378,16 @@ fn jobs_retry(payload: AppPayload, id: &str) -> ExitCode {
     }
 }
 
-/// `true` for a content-hashed file name (`app.3f2a1b9c.js`).
+/// Whether `K_PUBLIC_SOURCE_MAPS` (its value, if set) asks `dist/app` to
+/// serve the client's source maps: `true`, `1` or `yes`.
+pub fn public_source_maps(value: Option<&str>) -> bool {
+    matches!(
+        value.map(|v| v.trim().to_ascii_lowercase()).as_deref(),
+        Some("true" | "1" | "yes")
+    )
+}
+
+/// `true` for a content-hashed asset name (`app.3f2a1b9c.js`).
 pub fn is_hashed(path: &str) -> bool {
     path.rsplit('/')
         .next()

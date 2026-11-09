@@ -38,7 +38,8 @@ Symbols survive only where they are universal (`+`, `==`, `<`) or carry one of K
 - `.name` for implicit member expressions
 - `{ }` for "a K expression goes here", in strings and in styles
 
-Inside `style` blocks, CSS syntax is kept as it is, apart from camelCase property names.
+Inside `style` blocks, CSS syntax is kept as it is, apart from camelCase property names and keyword
+values (`justifyContent: spaceBetween`).
 
 ## One obvious way
 
@@ -46,7 +47,7 @@ Each thing has one way to do it. When a language offers several equivalent spell
 picks a different one, and agents produce inconsistent code. K's formatter has no options, imports
 have no wildcards, queries have one form, and the project layout is fixed. Two K codebases look alike.
 
-When a redundant second spelling still parses, the compiler reports it with a machine-applicable fix:
+When a redundant second spelling still parses, the compiler reports it with a machine-applicable fix (`K1302`, `K2012`, `K2303`, `K4014`):
 
 - `public` on a member, which is already public when its type is ([Modules and visibility](language/modules.md));
 - comparing a `Bool` with a literal (`x == false`) instead of writing `not x`;
@@ -131,8 +132,9 @@ references, Protobuf field numbers, reactive dependency hints. A mistake that wo
 another stack is a compile error in K. Linking to a page that doesn't exist, styling with a class that
 isn't defined, or injecting a database into browser code all fail the build.
 
-- **Validated literals are checked at compile time.** `Url("https://…")`, `Uuid("…")` and
-  `EmailAddress("…")` take only a string literal and are never optional. Text known only at runtime goes
+- **Validated literals are checked at compile time.** `Url("https://…")`, `Uuid("…")`,
+  `EmailAddress("…")` and `TimeOfDay("03:00")` take only a string literal, `HttpStatus(code: 404)` only
+  an integer literal, and none is optional; a money literal can't have more decimals than its currency. Text known only at runtime goes
   through `Type.parse(…)`, which returns an optional.
 - **A distinction the type system can make, it makes,** rather than a runtime check: a `Mac` can't be
   compared with `==`, and an email address can't be invalid once it is an `EmailAddress`.

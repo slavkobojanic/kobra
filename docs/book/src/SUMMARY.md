@@ -10,6 +10,7 @@
 - [Project layout](getting-started/project-layout.md)
 - [Everyday commands](getting-started/commands.md)
 - [Editor setup](getting-started/editor-setup.md)
+- [Debugging](getting-started/debugging.md)
 - [A tour of K](tour.md)
 
 # The language

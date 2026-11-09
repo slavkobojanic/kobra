@@ -45,14 +45,16 @@ charts = "github.com/acme/charts"          # a short prefix: `import charts.Line
   starting with a letter (`shop`, `my-shop`). For a git package, it is the URL that prefixes its module
   paths (`github.com/acme/charts`). A library in your own [workspace](../apps/workspaces.md) keeps its
   modules' own paths, so its name only identifies it in `[dependencies]`.
-- **`name` is the project's identity.** The namespace of the app's browser storage is derived from it
-  once and recorded in `storage.lock`, so renaming the project doesn't orphan your users' stored data. The
-  Protobuf package prefix of every protocol is derived from it too, and `rpc.lock` records the result, so
-  renaming a project that serves protocols fails `k check` until the change is marked `@Breaking`.
+- **`name` is the project's identity.** The namespace of the app's browser storage is derived from it,
+  and the design records it once in `storage.lock` so that renaming the project doesn't orphan your
+  users' stored data (**Planned** storage-lock-writing: today the namespace is the committed lock's, else
+  the current name). The Protobuf package prefix of every protocol is derived from it too, and `rpc.lock`
+  records the result, so renaming a project that serves protocols fails `k check` until the change is
+  marked `@Breaking`.
 - **`title`** is what people see, for example the default name in the web manifest. Changing it changes
   nothing else.
-- **`version`** is for apps only, and `dist/app` reports it in its logs and metrics. A package can't set
-  one: its git tag is its version.
+- **`version`** is for apps only. A package can't set one: its git tag is its version. The design has
+  `dist/app` report it in its logs and metrics (**Planned** app-version).
 
 What you won't find in `k.toml` is as important as what you will:
 
@@ -125,7 +127,7 @@ it holds placeholders, never working values (see
 
 ## Creating a project
 
-> **Planned.** `k new hello` will create an app skeleton in `./hello`, and
+> **Planned** (k-new). `k new hello` will create an app skeleton in `./hello`, and
 > `k new --library github.com/acme/charts` a library package in `./charts`. `k new` isn't built yet;
 > [Your first app](first-app.md#creating-a-project) shows the files to write by hand, and the apps in
 > `examples/` are complete projects to start from.

@@ -1,0 +1,31 @@
+# Inline code that reads as a qualified K name (`Type.member`, `k.module.Declaration`) or an annotation
+# (`@Name`) but deliberately doesn't resolve in the standard library or the annotation registry.
+# Checked by `cargo test -p k_sema --test book` (inline_names_resolve); an entry that resolves, or
+# that no page uses any more, fails the test.
+#
+# One name per line, without a call's arguments (`Type.parse` covers `Type.parse(text)`), then ` # ` and
+# the reason.
+
+# JavaScript names, on the interop and async pages
+Promise.all  # JavaScript's, compared with K's structured concurrency
+JSON.parse  # JavaScript's, which K's typed decoding replaces
+JSON.stringify  # JavaScript's, which K's typed encoding replaces
+
+# Editor settings, not K names
+k.server.path  # the VS Code extension's setting for the `k` binary
+k.trace.server  # the VS Code extension's language-server trace setting
+
+# Placeholders in prose
+Type.parse  # stands for any type's parse function
+Type.name  # stands for any type's member
+SomeJob.kind  # stands for any job's kind
+Service.function  # stands for any service function
+
+# Deliberately absent
+@Field  # the protocols page says K has no field-number annotations
+
+# Planned modules (the Planned note under the table on reference/stdlib.md)
+k.i18n  # planned: k-i18n
+k.collections  # planned: k-collections
+k.animation  # planned: k-animation
+k.graphics  # planned: k-graphics

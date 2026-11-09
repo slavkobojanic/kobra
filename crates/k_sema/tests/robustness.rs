@@ -87,16 +87,27 @@ fn every_corpus_source_analyses_without_panicking() {
     collect(&corpus_dir(), &mut files);
     files.sort();
     assert!(files.len() > 1000, "the corpus is missing");
-    for (i, file) in files.iter().enumerate() {
-        let text = fs::read_to_string(file).unwrap();
-        let path = match i % 4 {
-            0 => "src/r/Case.k",
-            1 => "src/r/Case.test.k",
-            2 => "App.k",
-            _ => "notes/Stray.k",
-        };
-        analyse(path, &text);
-    }
+    // The sources are independent, so they are spread over the cores: the
+    // thread with index `t` takes every `threads`-th file. A panic in any
+    // thread fails the test.
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
+    std::thread::scope(|scope| {
+        for t in 0..threads {
+            let files = &files;
+            scope.spawn(move || {
+                for (i, file) in files.iter().enumerate().skip(t).step_by(threads) {
+                    let text = fs::read_to_string(file).unwrap();
+                    let path = match i % 4 {
+                        0 => "src/r/Case.k",
+                        1 => "src/r/Case.test.k",
+                        2 => "App.k",
+                        _ => "notes/Stray.k",
+                    };
+                    analyse(path, &text);
+                }
+            });
+        }
+    });
 }
 
 #[test]

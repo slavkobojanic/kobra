@@ -165,9 +165,9 @@ Stepper(value: bind quantity)
 - The compiler generates the chained methods; you never write a builder.
 - Setting the same option twice is a compile error.
 - Optional settings are **order-independent**.
-- **Modifiers**, cross-cutting behaviors such as `.tooltip()`, `.animate()` and `.track()`, are chained
-  too, but **apply in the order written**.
-- A prop can't share a name with a registered modifier. That is a compile error at the prop declaration.
+- **Modifiers** (**Planned** modifiers), cross-cutting behaviors such as `.tooltip()`, `.animate()` and
+  `.track()`, will be chained too, but **apply in the order written**, and a prop won't be able to share a
+  modifier's name. The standard library declares no modifier yet.
 - **A `Bool` prop with a default is chained with its value:** `.dashed(true)`, `.disabled(isSubmitting)`.
   There are no zero-argument flag methods.
 - **The attributes of built-in elements are not modifiers.** `.label`, `.placeholder`, `.type`,
@@ -214,10 +214,10 @@ component Cart {
 
 The compiler checks both sides:
 
-- A child writing to a `@Prop` is an error, with a quick fix to change it to `@Binding`.
+- A child writing to a `@Prop` is an error (`K3014`), with a quick fix to change it to `@Binding`.
 - Passing `bind x` where `x` isn't `@State` or `@Binding` is an error. Literals and `@Derived` values
   can't be bound.
-- Passing `quantity` without `bind` to a `@Binding` is an error, with a quick fix to add `bind`.
+- Passing `quantity` without `bind` to a `@Binding` is an error (`K3016`), with a quick fix to add `bind`.
 
 Bindings work on nested fields: `bind user.address.city`. For a binding that converts values, build one
 with `Binding(get:set:)`:
@@ -286,7 +286,7 @@ Dialog(title: "Delete note?") {
   ([Async work belongs to the page](reactivity.md#async-work-belongs-to-the-page)).
 - **A handler can't be declared `throws`.** Nothing waits for it, so nothing could catch its error. It
   handles every error inside, usually by recording it in state. Passing a throwing function to `.on(…)`
-  is a compile error, with a quick fix that wraps its body in `do`/`catch`.
+  is a compile error (`K3017`).
 - A form's submit handler is usually wrapped by `form.handle(…)`, whose action may throw
   `ValidationError` ([Forms](forms.md)). The handler `form.handle` returns doesn't throw.
 

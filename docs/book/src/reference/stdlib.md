@@ -62,6 +62,9 @@ library's own doc comments (`crates/k_sema/stdlib`), so they list exactly what t
 | `k.animation` | | transitions, springs, enter and exit animations |
 | `k.graphics` | | Canvas 2D and SVG drawing |
 
+> **Planned** (ui-widgets, more-charts, k-text, k-i18n, k-collections, k-animation, k-graphics). The last
+> column lists what the design adds to each module; none of it is built yet.
+
 Each declaration is imported individually: `import k.ui.VisuallyHidden`, `import k.rpc.RpcFailure`.
 
 ## Test doubles

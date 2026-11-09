@@ -381,6 +381,8 @@ pub(crate) struct Wiring {
     vars: std::collections::BTreeMap<String, String>,
     /// The app's name, padded to the longest of the run.
     label: Option<&'static str>,
+    /// `--inspect`: the port of the server's V8 inspector.
+    inspect: Option<u16>,
 }
 
 /// Starts serving a development build on `port` (0 picks a free one) and
@@ -483,6 +485,12 @@ fn start(
         options.log = k_server::Output::Prefixed(l);
     }
     options.fetch_origins = dev_fetch_origins();
+    // A panic's 500 page shows its stack, mapped to `.k` lines, and with
+    // `--inspect` a debugger can attach (13-tooling.md, "Debugging").
+    options.dev_errors = true;
+    options.inspect = wiring
+        .inspect
+        .map(|p| std::net::SocketAddr::from(([127, 0, 0, 1], p)));
     // A relative SQLite path is the project's (each member's, at a
     // workspace root), and its directory is created.
     options.database =
@@ -523,12 +531,26 @@ fn start(
             immutable: true,
         })
         .collect();
+    // The `.k` files the source maps name (`/_k/src/<path>`), for the
+    // debuggers that fetch sources rather than read the embedded text
+    // (codegen.md §18).
+    options.assets.extend(k_sources(project));
+    let inspect = options.inspect;
     match Server::start(options) {
         Ok(server) => {
             crate::devenv::say(
                 label,
                 &format!("serving on http://localhost:{}", server.local_addr().port()),
             );
+            if let Some(addr) = inspect {
+                crate::devenv::say(
+                    label,
+                    &format!(
+                        "inspector on ws://{addr}/ws/k (chrome://inspect, or attach VS Code to port {})",
+                        addr.port()
+                    ),
+                );
+            }
             Ok(server)
         }
         Err(k_server::http::ServerError::Bind(e)) => {
@@ -546,6 +568,40 @@ fn start(
             Err(ExitCode::from(2))
         }
     }
+}
+
+/// Every `.k` file below `project` as a development asset at
+/// `/_k/src/<project-relative path>`, the URLs client source maps name.
+#[cfg(feature = "server")]
+fn k_sources(project: &Path) -> Vec<k_server::http::StaticAsset> {
+    fn walk(dir: &Path, root: &Path, out: &mut Vec<k_server::http::StaticAsset>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let path = e.path();
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                if !name.starts_with('.') && name != "dist" && name != "target" {
+                    walk(&path, root, out);
+                }
+            } else if name.ends_with(".k")
+                && let (Ok(rel), Ok(text)) = (path.strip_prefix(root), std::fs::read(&path))
+            {
+                let rel = rel.to_string_lossy().replace('\\', "/");
+                out.push(k_server::http::StaticAsset {
+                    path: format!("/_k/src/{rel}"),
+                    content_type: "text/plain; charset=utf-8".to_owned(),
+                    body: text.into(),
+                    immutable: false,
+                });
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(project, project, &mut out);
+    out
 }
 
 /// How long a development server waits for in-flight requests when it
@@ -743,10 +799,11 @@ fn serve_dev(args: &RunArgs, watch: bool) -> ExitCode {
             .map(|a| (a.output.manifest.serves.clone(), a.port))
             .collect();
         let mut failed = None;
-        for app in running.iter_mut() {
+        for (i, app) in running.iter_mut().enumerate() {
             let mut wiring = Wiring {
                 vars: std::collections::BTreeMap::new(),
                 label: app.label,
+                inspect: if i == 0 { args.inspect } else { None },
             };
             if let Some(secret) = &secret {
                 wiring

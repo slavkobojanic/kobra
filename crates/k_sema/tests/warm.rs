@@ -508,35 +508,45 @@ fn body_edits_across_the_examples_match_fresh_checks() {
         .filter(|p| p.join("k.toml").is_file())
         .collect();
     found.sort();
-    for example in found {
-        let mut files = Files::new();
-        collect(&example, &example, &mut files);
-        files.sort();
-        let mut edits: Vec<(String, String)> = Vec::new();
-        for (path, text) in &files {
-            if !path.ends_with(".k") {
-                continue;
-            }
-            // The first `func … {` line whose body starts on the next line.
-            let Some(at) = text
-                .match_indices("func ")
-                .find_map(|(i, _)| text[i..].find("{\n").map(|j| i + j + 2))
-            else {
-                continue;
-            };
-            let edited = format!(
-                "{}        let probe = unknownName\n{}",
-                &text[..at],
-                &text[at..]
-            );
-            edits.push((path.clone(), edited));
-            edits.push((path.clone(), text.clone()));
-            if edits.len() >= 24 {
-                break;
-            }
+    // The examples are independent: each is checked on a thread of its
+    // own, so the test takes as long as the largest example rather than
+    // the sum of all of them. A failure in any thread fails the test.
+    std::thread::scope(|scope| {
+        for example in &found {
+            scope.spawn(move || body_edits_match_fresh_checks(example));
         }
-        let edits: Vec<(&str, String)> =
-            edits.iter().map(|(p, t)| (p.as_str(), t.clone())).collect();
-        run(files, &edits);
+    });
+}
+
+/// The edits of `body_edits_across_the_examples_match_fresh_checks` for one
+/// example project.
+fn body_edits_match_fresh_checks(example: &Path) {
+    let mut files = Files::new();
+    collect(example, example, &mut files);
+    files.sort();
+    let mut edits: Vec<(String, String)> = Vec::new();
+    for (path, text) in &files {
+        if !path.ends_with(".k") {
+            continue;
+        }
+        // The first `func … {` line whose body starts on the next line.
+        let Some(at) = text
+            .match_indices("func ")
+            .find_map(|(i, _)| text[i..].find("{\n").map(|j| i + j + 2))
+        else {
+            continue;
+        };
+        let edited = format!(
+            "{}        let probe = unknownName\n{}",
+            &text[..at],
+            &text[at..]
+        );
+        edits.push((path.clone(), edited));
+        edits.push((path.clone(), text.clone()));
+        if edits.len() >= 24 {
+            break;
+        }
     }
+    let edits: Vec<(&str, String)> = edits.iter().map(|(p, t)| (p.as_str(), t.clone())).collect();
+    run(files, &edits);
 }

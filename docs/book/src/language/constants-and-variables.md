@@ -55,7 +55,7 @@ component Stepper {
 }
 ```
 
-Writing the wrong keyword is a compile error with a quick fix:
+Writing the wrong keyword is a compile error (`K3001`) with a quick fix:
 
 > `@Prop` is read-only; use `let`.
 

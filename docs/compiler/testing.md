@@ -49,6 +49,11 @@ Contents:
 
 Every command assumes `. "$HOME/.cargo/env"` has been run in the shell.
 
+**Day to day, run `scripts/affected-tests.sh`** (only what your change can break) **or `scripts/test.sh`**
+(everything, in about half a minute); see [§2.1](#21-running-tests-fast). Agents run affected tests only
+([§2.2](#22-affected-tests)). The `cargo test` commands below still work and are the way to pass a suite its
+own arguments (`K_BLESS=1`, `-- --exact`, `PROPTEST_CASES=…`).
+
 ```sh
 cargo test --workspace                          # everything that runs on stable
 cargo test -p k_syntax                          # one crate
@@ -94,6 +99,130 @@ cargo run -q -p k_cli -- debug diag   path/to/file.k   # .diag format
 cargo run -q -p k_cli -- debug sema   path/to/case     # .diag of a sema case (a .k file or a project directory)
 cargo run -q -p k_cli -- check        path/to/project  # every diagnostic, human-readable (or --format json)
 ```
+
+### 2.1 Running tests fast
+
+```sh
+cargo install cargo-nextest --version 0.9.111 --locked   # once; the version .config/nextest.toml expects
+scripts/test.sh                  # everything: nextest, the in-process suites and the doc tests, in parallel
+scripts/test.sh -p k_sema        # one package (its in-process suites and doc tests too)
+scripts/test.sh -E 'test(warm)'  # a nextest filterset on top
+QUICK=1 scripts/test.sh          # PROPTEST_CASES=16, K_STRESS_CASES=500 (not allowed with --ci)
+scripts/test.sh --ci             # nextest's `ci` profile: longer limits, JUnit in target/nextest/ci/junit.xml
+cargo nextest run -p k_server --test differential   # nextest directly (see the default filter below)
+```
+
+`scripts/test.sh` builds every test binary once, then runs three lanes at the same time and prints how long
+each took:
+
+| Lane | What | How |
+|---|---|---|
+| nextest | every test except the three suites below | [cargo-nextest](https://nexte.st): each test a process of its own, every binary at once, on every core |
+| in-process | `k_corpus::corpus`, `k_server::runtime_js`, `k_server::corpus_run` | each binary run directly, all its cases in one process |
+| doc | `cargo test --doc` | started once nextest is past its build, so the two cargo commands don't wait on each other's lock |
+
+The configuration is `.config/nextest.toml`:
+
+- **Default filter.** The three in-process suites have thousands of tiny cases; a process per case costs 0.05 s
+  (corpus) to 0.4 s (V8 start-up for `runtime_js`) each, about 900 CPU-seconds in all, against 6 s when each
+  binary runs its cases in one process. nextest leaves them out by default; `cargo nextest run
+  --ignore-default-filter` runs them too, as processes.
+- **Test groups.** `chrome` (the real-browser tests, at most 4 at once: each headless Chrome is several
+  processes, and more of them only slow each other down) and `processes` (k_cli tests that start `k`, a server
+  or a build, at most 8 at once).
+- **Priorities.** The dozen slowest tests and the Chrome tests start first, so no 20-second test starts last.
+  Add a test to that list when it becomes one of the slowest (`final-status-level = "slow"` reports them).
+- **Timeouts.** A test is reported slow after 30 s and killed after 2 minutes (`ci`: 60 s and 5 minutes), so a
+  hang fails the run instead of blocking it. No retries: a flaky test fails and gets fixed.
+- **Ports.** Every test process is separate, so tests that probe for a free port must reserve it across
+  processes: `crates/k_cli/tests/support/ports.rs` holds an advisory file lock per port in the temp dir until
+  the process exits.
+
+The build profile matters as much as the runner (`Cargo.toml`): third-party crates are built with
+`opt-level = 2` and the workspace's crates with `opt-level = 1`, both with full debug info. Unoptimized,
+argon2 alone made `k test examples/shop` take 14.5 s instead of 2.8 s, and the suite ran about 1.8x longer
+(45 s against 25 s of nextest). Third-party crates only rebuild when `Cargo.lock` changes; after an edit to a
+crate at the bottom of the graph (`k_diagnostics`), relinking every test binary takes about 10 s either way.
+
+Measured on the 14-core development Mac (other agents building at the same time, so ±30%):
+
+| | Before | After |
+|---|---|---|
+| Build every test binary, clean target | 36 s | 70 s (dependencies optimized, once) |
+| Rebuild after touching `k_diagnostics` | 10 s | 7–10 s |
+| Run every test | 285 s (`cargo test --workspace`, serial binaries) | 25–35 s (`scripts/test.sh`) |
+| Observed in the shared `target/` with several agents | 37 min | see [§2.3](#23-several-agents-at-once) |
+
+What was tried and not kept: `lld` (`rust-lld` as `ld64.lld`) fails to link the V8 binaries, and Apple's
+default linker (ld-prime) already links one in under a second; `debug = "line-tables-only"` changed no build
+time measurably.
+
+**macOS: the first run of a new binary is checked.** macOS assesses every newly linked executable the first
+time it runs (syspolicyd, about 0.7 s each, one at a time): 60–130 s for the first run after every test
+binary was relinked (the in-process corpus, which runs in 0.6 s, once waited 127 s to start), and about as
+much in a serial `cargo test`. Adding the terminal (or the app that runs the agents)
+under System Settings → Privacy & Security → Developer Tools exempts the processes it starts. `scripts/test.sh`
+can't avoid it; fewer test binaries would (§2.4).
+
+### 2.2 Affected tests
+
+```sh
+scripts/affected-tests.sh            # changes since HEAD: staged, unstaged and untracked files
+scripts/affected-tests.sh main       # changes since this branch left main
+scripts/affected-tests.sh --dry-run  # print the choice only
+scripts/affected-tests.sh --files "crates/k_sema/src/lib.rs examples/notes/k.toml"
+QUICK=1 scripts/affected-tests.sh    # fewer property-test cases while iterating
+```
+
+It lists the changed files, maps each to tests, prints every choice with its reason, and runs them through
+`scripts/test.sh`:
+
+| Changed | Runs |
+|---|---|
+| `Cargo.toml`, `Cargo.lock`, `.cargo/`, `.config/`, `rust-toolchain*`, `clippy.toml`, `rustfmt.toml` | everything |
+| `crates/<c>/src/**`, `Cargo.toml`, `build.rs`, `js/**` | every test of `<c>` and of every crate depending on it (`cargo metadata`; a dev-dependency adds the dependent's tests but goes no further), and their doc tests |
+| `crates/k_runtime/js/tests/**` | `k_server::runtime_js` and `k_runtime`'s tests (the JS test files are read from disk) |
+| `crates/<c>/tests/<name>.rs`, a test target's root | that test binary |
+| other files under `crates/<c>/tests/` | every test binary of `<c>`, and any other crate's test that includes the file with `#[path]` |
+| `examples/**`, `docs/book/**`, `docs/**`, `editors/**`, `tests/<dir>/**` | the test binaries and unit tests whose code has a string literal naming that directory (`"examples"`, `"book"`, `"docs"`, `"editors"`, `"corpus"`, `"e2e"`; `corpus_root()` counts for `tests/corpus`) |
+| anything else | nothing, and it says so |
+
+The literal scan keeps the choice current as tests are added: a new test that reads `examples/` is picked up
+by naming the directory as code does today. A test that finds its files some other way needs a rule in the
+script's `HELPERS`.
+
+**The rule for agents:** run `scripts/affected-tests.sh` (with `QUICK=1` while iterating, without before
+reporting), not `cargo test --workspace`. Run a single binary with `cargo nextest run -p <crate> --test <name>`
+while working on it. The full `scripts/test.sh` is for changes to the workspace configuration, which the
+script turns into a full run anyway, and for CI.
+
+### 2.3 Several agents at once
+
+Cargo lets one command at a time build in a target directory; every other `cargo` in the same checkout waits
+on its lock ("Blocking waiting for file lock on build directory"). That and macOS's first-run checks after
+every relink (§2.1), not the tests, are where most of the 37 minutes went: in a target directory of its own
+the same `cargo test --workspace` took under 6 minutes before any of the changes above, and a first attempt to
+measure in the shared one waited more than 10 minutes for the lock. Give each concurrent agent its own target
+directory:
+
+```sh
+CARGO_TARGET_DIR=target/agent-<name> scripts/affected-tests.sh
+```
+
+A full debug target is about 8–10 GB (dependencies included). Remove an agent's directory when it is done;
+`target/` itself had grown to 100 GB and about 950 000 files in `target/debug/deps`, which `cargo clean` (when
+no one is building) resets.
+
+### 2.4 Later: fewer test binaries
+
+The suite has about 90 test binaries, a third of them linking V8. Each costs a link (under a second), a
+first-run check on macOS (§2.1), a `--list` per nextest run, and its own copy of the dependencies' code in
+memory. Merging each crate's integration tests into one binary (`tests/it/main.rs` with a module per current
+file, as `k_server/tests/regressions/` already is) would cut that to about 10 binaries: an estimated 50 s less
+on a relinked run on macOS, a few seconds less listing per nextest run, and most of the 3 GB the test
+executables take in the target directory. It
+changes every test's path (`k_server::e2e` becomes `k_server::it e2e::…`) and the commands in this document,
+so it waits for a quiet moment in the repository.
 
 ---
 

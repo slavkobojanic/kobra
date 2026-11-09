@@ -102,7 +102,7 @@ Rules that hold for every part:
 `Profile::Test` prints like `Development` but uses placeholder hashes (`app.[hash].js`) and readable class
 names (`CartSummary__panel`), and omits source-map comments, so golden files change only when the code
 does. `Entry::Main("corpus.main")` makes the server entry module export `run()`, an async function that
-calls `main()` and returns the result line of the [execution corpus](testing.md#32-the-run-suite).
+calls `main()` and returns the result line of the [execution corpus](testing.md#310-the-run-suite).
 
 ---
 
@@ -1153,17 +1153,53 @@ document of `/`. Every profile emits them.
 
 ## 18. Source maps
 
-- **Implemented:** every JavaScript chunk of a linked release client has a v3 source map
-  (`stem.<hash>.js.map`, named after its own text and referenced with `//# sourceMappingURL=` at the
-  chunk's end, so the chunk's hash covers the comment too and every client file is named after its
-  bytes) from the minified chunk
-  back to the readable chunk the printer produced, which the map embeds (`sourcesContent`; its source is
-  named `<stem>.js`). Development builds ship the readable chunks themselves and no maps.
-- *Deferred:* mapping statements and call expressions back to `.k` spans (composing the K→JS map with
-  oxc's through `oxc_sourcemap`), with project-relative `sources`.
-- Server stack traces are mapped through the server bundle's maps by `k_server` when a panic is logged
-  or (in development) shown on the 500 page ([server.md §5](server.md#5-request-lifecycle)).
-- CSS source maps are *deferred*.
+Every generated JavaScript chunk, every server module that holds K code and the development stylesheet
+map back to the `.k` files (v3, ECMA-426). Decisions and the user-facing story:
+[13-tooling.md, "Debugging"](../design/13-tooling.md#debugging).
+
+- **Marks, not text.** Lowering wraps what it emits in `Stmt::At(loc, s)` / `Expr::At(loc, e)` (`js.rs`),
+  `loc` being a file id and byte offset (the start of the node's first non-trivia token). The printer
+  prints them transparently and records a `Mark` (output byte offset, `loc`, optional name) where each
+  starts (`print_module_mapped`); `sourcemap.rs` turns the marks into lines and UTF-16 columns in one pass
+  over the text, and K offsets into lines and columns through each file's line starts. Code that inspects
+  emitted statements looks through the wrappers (`Stmt::peel`, `js::peel`), so the printed text is
+  unchanged by them (the Test-profile corpus proves it).
+- **What maps:** every lowered K statement (`Body::stmt`, and through `Body::mapped` the last expression
+  of a value block or lambda); a lambda's tail expression; a view binding (`$k.renderEffect` and the
+  binding inside it: text, attributes, classes, styles); an event handler's `$k.on`; a component field
+  (its `$k.signal`/`$k.computed`/`let`); a `@Derived` initializer inside its `computed`; a `@Load`
+  initializer inside the load's `run`. Templates, imports, containers and the route table are glue and
+  stay unmapped.
+- **Sources** are project-relative paths below `/_k/src/` (client) or `k:/_k/src/` (server); stdlib K
+  code is below `$std/` and on the `ignoreList`. Development maps embed the K text (`sourcesContent`);
+  release maps don't.
+- **Names.** Where a local's JavaScript spelling differs from its K name (`arguments$`, `item$1`), the
+  printer records the K name (`js::k_name`) at the binding and each use, in the map's `names`. Names that
+  start with `$` are generated and never named. No `scopes` field yet (13-tooling.md).
+- **Development client:** each page chunk and `shared` is named after its text *and* its map
+  (`stem.<hash>.js`, so an edit that only moves lines still busts the cache), ends with
+  `//# sourceMappingURL=stem.<hash>.js.map` and ships the map next to it. The runtime chunk, feature
+  chunks and the `app` entry get an identity map whose one source (`/_k/runtime/<stem>.js`, embedded) is
+  on the `ignoreList` (and `x_google_ignoreList`). The stylesheet maps each rule's selector and each
+  declaration to the style block (`app.<hash>.css.map`, `/*# sourceMappingURL= */`).
+- **Release client:** `client_files` leaves each chunk's K map next to it; `link` minifies with oxc,
+  whose map points at the readable chunk, and **composes** the two (`sourcemap::compose`): each oxc
+  segment maps to what the K map says at its readable position, and takes the K name of the binding
+  oxc renamed. Chunks without K code keep oxc's map with its source ignore-listed. Every chunk ends with
+  `//# sourceMappingURL=<stem>.<hash>.js.map` and is named after its bytes (§17). Linking renames chunk
+  names in place (same length) and `shorten` shortens class names inside the readable chunks before
+  minifying, which can move a column on such a line; lines stay exact.
+- **Server modules** end with `//# sourceMappingURL=data:application/json;charset=utf-8;base64,…` (the
+  server entry, whose asset table is spliced in after printing, keeps none). V8's inspector reads them
+  (`k dev --inspect`), and `k_server`'s `stack::Symbolicator` maps every logged stack trace and the
+  development 500 page through them ([server.md §15](server.md#15-logging-panics-and-errors)).
+- **Development formatters:** a development app's runtime chunk ends with `runtime/devtools.js` (DevTools
+  custom formatters), and its client enums name their payload cases (`$k.devCase(obj, "case")`); release
+  and test builds have neither.
+- **Tests:** `tests/sourcemaps.rs` decodes the maps with the `sourcemap` crate (independent of
+  `sourcemap.rs`) and checks exact `.k` lines and columns for statements, handlers, async functions,
+  `match`, interpolation bindings, `@Derived`, style rules, server modules, names and release
+  composition; `k_cli/tests/debugging.rs` uses them in headless Chrome.
 
 ---
 

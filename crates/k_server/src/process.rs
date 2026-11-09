@@ -148,6 +148,9 @@ pub struct ProcessState {
     database: Option<Arc<ProcessDatabase>>,
     /// [`crate::ServerOptions::fetch_origins`].
     fetch_origins: Vec<(String, String)>,
+    /// [`crate::ServerOptions::dev_errors`]: a failed request's 500 shows
+    /// its stack trace, mapped to `.k` lines.
+    pub dev_errors: bool,
 }
 
 impl Default for ProcessState {
@@ -228,6 +231,7 @@ impl ProcessState {
             next_subscriber: Mutex::new(0),
             database: None,
             fetch_origins: Vec::new(),
+            dev_errors: false,
         }
     }
 
@@ -243,6 +247,14 @@ impl ProcessState {
     #[must_use]
     pub fn with_fetch_origins(mut self, origins: Vec<(String, String)>) -> ProcessState {
         self.fetch_origins = origins;
+        self
+    }
+
+    /// Shows failed requests' stack traces on their 500 page
+    /// ([`crate::ServerOptions::dev_errors`]).
+    #[must_use]
+    pub fn with_dev_errors(mut self, on: bool) -> ProcessState {
+        self.dev_errors = on;
         self
     }
 

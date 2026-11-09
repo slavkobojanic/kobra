@@ -11,7 +11,8 @@ k dev
 ```
 
 Builds the app and serves it, by default on `http://localhost:8080`. Leave it running: on every save
-it rebuilds what changed and reports compile errors in the terminal.
+it rebuilds, and when the build has errors it says how many and keeps serving the last good build;
+`k check` shows them.
 
 - `k dev` builds the **`.development` environment**. Any `use … in .development` rules in `App.k`
   apply, so you can use a fake payment provider locally and the real one in production.
@@ -42,7 +43,7 @@ it rebuilds what changed and reports compile errors in the terminal.
   named, and never a value.
 - `--port` changes the port. `k run` is the same without the rebuilding, at a workspace root too.
 
-> **Planned.** State-preserving hot module replacement isn't in the first compiler releases. Until it
+> **Planned** (hmr). State-preserving hot module replacement isn't in the first compiler releases. Until it
 > lands, refresh the browser after a rebuild.
 
 ## `k test`
@@ -123,16 +124,16 @@ member, each with the libraries it depends on. It has no watch mode; it is the o
 Only `k check` runs the tests. The language server never does, so the editor's diagnostics stay
 instant however large the test suite grows.
 
-> **Planned.** The design adds two more steps to `k check`: the formatting check and type-checking the
+> **Planned** (k-fmt, doc-blocks). The design adds two more steps to `k check`: the formatting check and type-checking the
 > `k` code blocks inside `///` comments. Neither is part of `k check` yet.
 
 Run it in CI. With `--format json`, diagnostics are machine-readable, including their quick fixes,
 which is how agents apply fixes directly.
 
-`k fmt` rewrites code into the canonical form, including removing redundant spellings that have a
+`k fmt` (**Planned** k-fmt) rewrites code into the canonical form, including removing redundant spellings that have a
 machine-applicable fix, such as `public` on a member.
 
-> **Planned.** The formatter, `k fmt`, isn't in the first compiler releases. Until it ships, the
+> **Planned** (k-fmt). The formatter, `k fmt`, isn't in the first compiler releases. Until it ships, the
 > formatting step of `k check` isn't enforced, but redundant spellings are still reported as warnings
 > with their fixes.
 

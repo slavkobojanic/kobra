@@ -43,7 +43,7 @@ A money literal is a number followed by a currency extension: `24.00.usd`, `10.e
 - `Currency.parse(code: "USD")` parses an upper-case ISO 4217 code and returns `Currency?`;
   `currency.code` is `"USD"` and `currency.minorUnitDigits` is `2` (`0` for the yen).
 
-> **Planned.** The design makes every ISO 4217 code a `Currency` case and a literal extension. Five are
+> **Planned** (iso-4217). The design makes every ISO 4217 code a `Currency` case and a literal extension. Five are
 > built today: `usd`, `eur`, `gbp`, `jpy` and `chf`.
 
 ## Arithmetic

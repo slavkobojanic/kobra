@@ -43,8 +43,8 @@ public page StripeWebhook at "/webhooks/stripe" {
 - **A page whose body has handler functions and no `view` is an endpoint page.** A handler is annotated
   with its HTTP method: `@Get`, `@Post`, `@Put`, `@Patch` or `@Delete`. A page has either a `view` or
   handlers, never both, and at most one handler per method.
-- **An endpoint page must have an `at` clause.** Without one, it is a compile error with a quick fix that
-  inserts `at "/<kebab-name>"`. A derived URL would move when the page is renamed.
+- **An endpoint page must have an `at` clause.** Without one, it is a compile error (`K5004`) with a quick
+  fix that inserts `at "/<kebab-name>"`. A derived URL would move when the page is renamed.
 - **Path parameters** are allowed in the template as typed `@Param` fields: `at "/webhooks/{tenant}"` with
   `@Param let tenant: TenantId`. A value that fails to parse gives `404`. Every `@Param` must appear in the
   template; query-string values are read from `request.query`.
@@ -89,8 +89,8 @@ public page StripeWebhook at "/webhooks/stripe" {
   [request-forgery checks](auth.md#request-forgery), with no exemption, and its responses carry
   `Cache-Control: private, no-store`.
 - If a page's dependency graph reaches `Session` or `SessionManager` without the page itself injecting
-  `Session`, it is a compile error with a quick fix that adds the field, so the use of cookies is visible
-  on the page.
+  `Session`, it is a compile error (`K4022`): add `@Inject let session: Session`, so the use of cookies is
+  visible on the page.
 
 ## The incoming request
 

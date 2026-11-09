@@ -569,6 +569,19 @@ function logPanic(st, where, e) {
   ops?.op_k_log?.("error", `${st.method} ${st.url.pathname}: panic in ${where}: ${text}`);
 }
 
+/**
+ * In development (`k run`, `k dev`), the stack trace of a panic with its
+ * frames mapped to `.k` lines, for the 500 page and the rpc's error
+ * message (server.md §15); `null` in production, which shows nothing.
+ * @param {unknown} e
+ * @returns {string|null}
+ */
+function devStack(e) {
+  if (!ops?.op_k_dev_errors?.()) return null;
+  const text = e && e.stack ? e.stack : String(e);
+  return ops.op_k_symbolicate ? ops.op_k_symbolicate(text) : text;
+}
+
 // --------------------------------------------------------------------- rpc
 
 /**
@@ -635,7 +648,8 @@ async function handleRpc(st, rpc) {
       return connectError(400, "failed_precondition", `${rpc.error.name}.${rpc.error.text(e)}`, [detail]);
     }
     logPanic(st, "an rpc", e);
-    return connectError(500, "internal", "internal error");
+    const stack = devStack(e);
+    return connectError(500, "internal", stack === null ? "internal error" : `internal error: ${stack}`);
   }
   if (rpc.stream) return { stream: result, encode: rpc.encode };
   return respond(200, JSON_TYPE, stringify(rpc.encode(result)));
@@ -1236,12 +1250,14 @@ async function renderPage(st, r, params) {
 }
 
 /** A small HTML page for a status without a page of its own. */
-function statusPage(spec, status, text) {
+function statusPage(spec, status, text, stack) {
   const meta = new Metadata();
   spec.appMeta?.(meta);
   const m = mergeMeta([meta]);
   m.title = text;
-  return respond(status, HTML, documentHtml({ ...spec, assets: { styles: spec.assets.styles, scripts: [] } }, null, m, `<p>${escapeText(text)}</p>`, null));
+  // A development 500 shows the panic's stack, mapped to `.k` lines.
+  const trace = stack ? `<pre class="k-stack">${escapeText(stack)}</pre>` : "";
+  return respond(status, HTML, documentHtml({ ...spec, assets: { styles: spec.assets.styles, scripts: [] } }, null, m, `<p>${escapeText(text)}</p>${trace}`, null));
 }
 
 /**
@@ -1287,6 +1303,11 @@ export function createApp(spec) {
     } catch (e) {
       logPanic(st, "a request", e);
       const rpc = Object.hasOwn(spec.rpcs, st.url.pathname);
+      const stack = devStack(e);
+      if (stack !== null) {
+        const page = rpc ? connectError(500, "internal", `internal error: ${stack}`) : statusPage(spec, 500, "Something went wrong", stack);
+        return finish(st, page, rpc);
+      }
       return finish(st, rpc ? connectError(500, "internal", "internal error") : statusPage(spec, 500, "Something went wrong"), rpc);
     }
   };

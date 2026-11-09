@@ -94,7 +94,7 @@ Documentation belongs wherever something is API:
 - stored fields of public structs, entities and configs, where the name and type don't already say
   enough. Injected fields are always private and never need documentation.
 
-> **Planned.** The design has `k check` warn about undocumented API in a package (and offer it as a lint
+> **Planned** (doc-coverage, doc-blocks, k-doc). The design has `k check` warn about undocumented API in a package (and offer it as a lint
 > in an app), type-check fenced `k` blocks inside doc comments, and render the comments with `k doc`.
 > None of these is built: today the compiler checks links (`K1901`) and the language server shows the
 > comments.

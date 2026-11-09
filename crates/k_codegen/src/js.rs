@@ -67,6 +67,74 @@ pub enum Expr {
     Await(Box<Expr>),
     /// `import(e)`.
     Import(Box<Expr>),
+    /// `e`, printed as is, whose code came from the K source at the
+    /// location: the printer records a source-map mark where it starts
+    /// (codegen.md §18).
+    At(Loc, Box<Expr>),
+}
+
+/// A position in a K source file: the file's id and a byte offset into its
+/// text. The printer turns it into a line and a column when it writes a
+/// source map (`crate::sourcemap`).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct Loc {
+    /// The raw [`k_diagnostics::FileId`].
+    pub file: u32,
+    /// The byte offset into the file's text.
+    pub offset: u32,
+}
+
+/// A source-map mark the printer recorded: at byte `pos` of the output,
+/// code from `loc` starts; `name` is the K name of the identifier printed
+/// there when its JavaScript spelling differs (`class$`, `item$1`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Mark {
+    /// The byte offset into the printed text.
+    pub pos: usize,
+    /// Where the code came from.
+    pub loc: Loc,
+    /// The original name, for the source map's `names`.
+    pub name: Option<String>,
+}
+
+/// The K name a JavaScript binding name spells, when it is a K local whose
+/// spelling the generator changed: a shadowing suffix (`item$1`) or the
+/// reserved-word `$` (`class$`). `None` for a generated name (`$c`,
+/// `$root3`) and for a name spelled as in K.
+#[must_use]
+pub fn k_name(js: &str) -> Option<&str> {
+    if js.starts_with('$') {
+        return None;
+    }
+    let mut k = js;
+    if let Some((base, n)) = k.rsplit_once('$')
+        && !n.is_empty()
+        && n.bytes().all(|b| b.is_ascii_digit())
+    {
+        k = base;
+    }
+    let k = k.strip_suffix('$').unwrap_or(k);
+    (k != js && !k.is_empty() && !k.contains('$')).then_some(k)
+}
+
+/// `e` without its [`Expr::At`] wrappers.
+#[must_use]
+pub fn peel(e: &Expr) -> &Expr {
+    let mut e = e;
+    while let Expr::At(_, inner) = e {
+        e = inner;
+    }
+    e
+}
+
+/// Wraps `e` in [`Expr::At`] at `loc` (once: an expression already wrapped
+/// keeps its own location).
+#[must_use]
+pub fn at(loc: Option<Loc>, e: Expr) -> Expr {
+    match (loc, &e) {
+        (Some(loc), e2) if !matches!(e2, Expr::At(..)) => Expr::At(loc, Box::new(e)),
+        _ => e,
+    }
 }
 
 /// One part of a template literal.
@@ -226,6 +294,29 @@ pub enum Stmt {
     ImportAll(String, String),
     /// `import { a, b as c } from "spec";`.
     Import(Vec<(String, String)>, String),
+    /// `s`, printed as is, whose code came from the K statement at the
+    /// location: the printer records a source-map mark where it starts.
+    At(Loc, Box<Stmt>),
+}
+
+impl Stmt {
+    /// The statement without its [`Stmt::At`] wrappers.
+    #[must_use]
+    pub fn peel(&self) -> &Stmt {
+        let mut s = self;
+        while let Stmt::At(_, inner) = s {
+            s = inner;
+        }
+        s
+    }
+
+    /// [`Stmt::peel`], mutably.
+    pub fn peel_mut(&mut self) -> &mut Stmt {
+        match self {
+            Stmt::At(_, inner) => inner.peel_mut(),
+            s => s,
+        }
+    }
 }
 
 // ------------------------------------------------------------ constructors
@@ -353,7 +444,7 @@ fn walk_stmt(s: &mut Stmt, f: &mut impl FnMut(&mut Expr)) {
             walk_expr(e, f);
             walk_exprs_mut(body, f);
         }
-        Stmt::Labeled(_, s) => walk_stmt(s, f),
+        Stmt::Labeled(_, s) | Stmt::At(_, s) => walk_stmt(s, f),
         Stmt::Try(body, _, handler) => {
             walk_exprs_mut(body, f);
             walk_exprs_mut(handler, f);
@@ -424,6 +515,7 @@ fn walk_expr(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
         | Expr::OptMember(e, _)
         | Expr::Unary(_, e)
         | Expr::Await(e)
+        | Expr::At(_, e)
         | Expr::Import(e) => walk_expr(e, f),
         Expr::Index(a, b) | Expr::Binary(_, a, b) | Expr::Assign(_, a, b) => {
             walk_expr(a, f);
@@ -457,10 +549,19 @@ pub struct PrintOptions {
 /// classes and multi-line constants are separated by a blank line.
 #[must_use]
 pub fn print_module(stmts: &[Stmt], options: PrintOptions) -> String {
+    print_module_mapped(stmts, options).0
+}
+
+/// [`print_module`], with the source-map marks the printer recorded, in
+/// output order.
+#[must_use]
+pub fn print_module_mapped(stmts: &[Stmt], options: PrintOptions) -> (String, Vec<Mark>) {
     let mut p = Printer {
         out: String::new(),
         indent: 0,
         compact: options.compact,
+        marks: Vec::new(),
+        loc: None,
     };
     let mut prev: Option<&Stmt> = None;
     for s in stmts {
@@ -477,14 +578,14 @@ pub fn print_module(stmts: &[Stmt], options: PrintOptions) -> String {
         p.stmt(s);
         prev = Some(s);
     }
-    p.out
+    (p.out, p.marks)
 }
 
 /// `true` for a top-level `const` (exported or not) whose value is not a
 /// multi-line object: [`print_module`] keeps runs of these together without
 /// blank lines between them.
 fn is_simple_const(s: &Stmt) -> bool {
-    match s {
+    match s.peel() {
         Stmt::Const(_, e) | Stmt::ExportConst(_, e) => !matches!(e, Expr::Object(_, true)),
         _ => false,
     }
@@ -498,6 +599,8 @@ pub fn print_expr(e: &Expr) -> String {
         out: String::new(),
         indent: 0,
         compact: false,
+        marks: Vec::new(),
+        loc: None,
     };
     p.expr(e, 0);
     p.out
@@ -516,6 +619,10 @@ struct Printer {
     /// `true` for release output: no indentation, line breaks or optional
     /// spaces.
     compact: bool,
+    /// The source-map marks recorded so far, in output order.
+    marks: Vec<Mark>,
+    /// The K location of the code being printed (the innermost `At`).
+    loc: Option<Loc>,
 }
 
 // Precedence levels (higher binds tighter), after ECMAScript's operator
@@ -600,6 +707,7 @@ fn prec(e: &Expr) -> u8 {
         | Expr::OptCall(..)
         | Expr::New(..)
         | Expr::Import(_) => P_CALL,
+        Expr::At(_, e) => prec(e),
         Expr::Unary(..) | Expr::Await(_) => P_UNARY,
         Expr::Binary(op, ..) => binary_prec(op),
         Expr::Cond(..) => P_COND,
@@ -608,6 +716,35 @@ fn prec(e: &Expr) -> u8 {
 }
 
 impl Printer {
+    /// Records that code from `loc` starts here.
+    fn mark(&mut self, loc: Loc) {
+        let pos = self.out.len();
+        if let Some(last) = self.marks.last()
+            && last.pos == pos
+            && last.loc == loc
+        {
+            return;
+        }
+        self.marks.push(Mark {
+            pos,
+            loc,
+            name: None,
+        });
+    }
+
+    /// Prints the binding or identifier `name`, recording its K name when
+    /// its spelling differs from it ([`k_name`]).
+    fn name(&mut self, name: &str) {
+        if let (Some(loc), Some(k)) = (self.loc, k_name(name)) {
+            self.marks.push(Mark {
+                pos: self.out.len(),
+                loc,
+                name: Some(k.to_owned()),
+            });
+        }
+        self.out.push_str(name);
+    }
+
     /// Appends a line break, except in compact output.
     fn nl(&mut self) {
         if self.compact {
@@ -690,6 +827,12 @@ impl Printer {
     #[allow(clippy::too_many_lines)]
     fn stmt_inline(&mut self, s: &Stmt) {
         match s {
+            Stmt::At(loc, inner) => {
+                let saved = self.loc.replace(*loc);
+                self.mark(*loc);
+                self.stmt_inline(inner);
+                self.loc = saved;
+            }
             Stmt::Expr(e) => {
                 let needs_paren = starts_ambiguously(e);
                 if needs_paren {
@@ -702,7 +845,8 @@ impl Printer {
                 self.out.push(';');
             }
             Stmt::Const(name, e) => {
-                let _ = write!(self.out, "const {name}");
+                self.out.push_str("const ");
+                self.name(name);
                 self.sp();
                 self.out.push('=');
                 self.sp();
@@ -710,7 +854,8 @@ impl Printer {
                 self.out.push(';');
             }
             Stmt::ExportConst(name, e) => {
-                let _ = write!(self.out, "export const {name}");
+                self.out.push_str("export const ");
+                self.name(name);
                 self.sp();
                 self.out.push('=');
                 self.sp();
@@ -718,7 +863,8 @@ impl Printer {
                 self.out.push(';');
             }
             Stmt::Let(name, e) => {
-                let _ = write!(self.out, "let {name}");
+                self.out.push_str("let ");
+                self.name(name);
                 if let Some(e) = e {
                     self.sp();
                     self.out.push('=');
@@ -747,7 +893,9 @@ impl Printer {
                 self.expr(c, P_SEQ);
                 self.out.push(')');
                 // `if (c) throw e;` — a lone rethrow stays on one line.
-                if let ([Stmt::Throw(_)], None) = (then.as_slice(), otherwise) {
+                if let ([t], None) = (then.as_slice(), otherwise)
+                    && matches!(t.peel(), Stmt::Throw(_))
+                {
                     self.out.push(' ');
                     self.stmt_inline(&then[0]);
                     return;
@@ -758,8 +906,16 @@ impl Printer {
                 while let Some(o) = otherwise {
                     self.sp();
                     self.out.push_str("else");
-                    if let [Stmt::If(c2, t2, o2)] = o.as_slice() {
-                        self.out.push_str(" if");
+                    if let [wrapped] = o.as_slice()
+                        && let Stmt::If(c2, t2, o2) = wrapped.peel()
+                    {
+                        self.out.push(' ');
+                        let mut w = wrapped;
+                        while let Stmt::At(loc, inner) = w {
+                            self.mark(*loc);
+                            w = inner;
+                        }
+                        self.out.push_str("if");
                         self.sp();
                         self.out.push('(');
                         self.expr(c2, P_SEQ);
@@ -837,7 +993,9 @@ impl Printer {
                     self.out.push_str(" await");
                 }
                 self.sp();
-                let _ = write!(self.out, "(const {name} of ");
+                self.out.push_str("(const ");
+                self.name(name);
+                self.out.push_str(" of ");
                 self.expr(e, P_ASSIGN);
                 self.out.push(')');
                 self.sp();
@@ -876,7 +1034,9 @@ impl Printer {
                 self.sp();
                 let _ = write!(self.out, "catch");
                 self.sp();
-                let _ = write!(self.out, "({name})");
+                self.out.push('(');
+                self.name(name);
+                self.out.push(')');
                 self.sp();
                 self.block(handler);
             }
@@ -997,7 +1157,7 @@ impl Printer {
             if p.rest {
                 self.out.push_str("...");
             }
-            self.out.push_str(&p.name);
+            self.name(&p.name);
             if let Some(d) = &p.default {
                 self.sp();
                 self.out.push('=');
@@ -1032,7 +1192,13 @@ impl Printer {
             self.out.push('(');
         }
         match e {
-            Expr::Ident(n) => self.out.push_str(n),
+            Expr::Ident(n) => self.name(n),
+            Expr::At(loc, inner) => {
+                let saved = self.loc.replace(*loc);
+                self.mark(*loc);
+                self.expr(inner, min);
+                self.loc = saved;
+            }
             Expr::Num(n) => print_number(&mut self.out, *n),
             Expr::Str(s) => print_string(&mut self.out, s),
             Expr::Html(s) => print_html_string(&mut self.out, s),
@@ -1103,8 +1269,8 @@ impl Printer {
             Expr::Unary(op, inner) => {
                 self.out.push_str(op);
                 // `- -x` and `-(-1)` must not print as `--`.
-                let clash = matches!(**inner, Expr::Unary(o, _) if o.starts_with(op.chars().next().unwrap_or(' ')))
-                    || (*op == "-" && matches!(**inner, Expr::Num(n) if n < 0.0));
+                let clash = matches!(peel(inner), Expr::Unary(o, _) if o.starts_with(op.chars().next().unwrap_or(' ')))
+                    || (*op == "-" && matches!(peel(inner), Expr::Num(n) if *n < 0.0));
                 if clash {
                     self.out.push('(');
                     self.expr(inner, P_SEQ);
@@ -1121,7 +1287,7 @@ impl Printer {
                 let p = binary_prec(op);
                 // `??` can't be mixed with `&&`/`||` without parentheses.
                 let mixes = |x: &Expr| {
-                    matches!(x, Expr::Binary(o, ..) if (*op == "??") != (*o == "??") && matches!(*o, "??" | "&&" | "||"))
+                    matches!(peel(x), Expr::Binary(o, ..) if (*op == "??") != (*o == "??") && matches!(*o, "??" | "&&" | "||"))
                         && matches!(*op, "??" | "&&" | "||")
                 };
                 if mixes(a) || mixes(b) {
@@ -1145,14 +1311,14 @@ impl Printer {
                 }
                 // Mixing `??` with `&&`/`||` requires parentheses.
                 let left_min =
-                    if *op == "**" || *op == "??" || matches!(**a, Expr::Binary("??", ..)) {
+                    if *op == "**" || *op == "??" || matches!(peel(a), Expr::Binary("??", ..)) {
                         p + 1
                     } else {
                         p
                     };
                 self.expr(a, left_min);
                 self.binary_op(op);
-                let right_min = if *op == "??" && !matches!(**b, Expr::Binary("??", ..)) {
+                let right_min = if *op == "??" && !matches!(peel(b), Expr::Binary("??", ..)) {
                     p + 1
                 } else if *op == "??" {
                     p
@@ -1166,6 +1332,12 @@ impl Printer {
                 for sign in ["-", "+"] {
                     if self.compact && op.ends_with(sign) && self.out[at..].starts_with(sign) {
                         self.out.insert(at, ' ');
+                        for m in self.marks.iter_mut().rev() {
+                            if m.pos < at {
+                                break;
+                            }
+                            m.pos += 1;
+                        }
                     }
                 }
             }
@@ -1191,7 +1363,7 @@ impl Printer {
                 match &f.body {
                     Body::Block(stmts) => self.block(stmts),
                     Body::Expr(body) => {
-                        if matches!(**body, Expr::Object(..)) {
+                        if matches!(peel(body), Expr::Object(..)) {
                             self.out.push('(');
                             self.expr(body, P_SEQ);
                             self.out.push(')');
@@ -1225,7 +1397,7 @@ impl Printer {
     fn receiver(&mut self, obj: &Expr) {
         // `1.toString()` would parse as a decimal point; numbers and
         // object/function literals are parenthesized as receivers.
-        let needs = matches!(obj, Expr::Num(_) | Expr::Object(..)) || prec(obj) < P_CALL;
+        let needs = matches!(peel(obj), Expr::Num(_) | Expr::Object(..)) || prec(obj) < P_CALL;
         if needs {
             self.out.push('(');
             self.expr(obj, P_SEQ);
@@ -1238,7 +1410,7 @@ impl Printer {
     /// Prints the callee of a call: parenthesized when it is an object literal,
     /// an arrow function, or binds looser than a call.
     fn callee(&mut self, f: &Expr) {
-        let needs = matches!(f, Expr::Object(..) | Expr::Arrow(_)) || prec(f) < P_CALL;
+        let needs = matches!(peel(f), Expr::Object(..) | Expr::Arrow(_)) || prec(f) < P_CALL;
         if needs {
             self.out.push('(');
             self.expr(f, P_SEQ);
@@ -1311,7 +1483,7 @@ impl Printer {
 /// class), which a `switch` case body must scope in braces.
 fn declares(s: &Stmt) -> bool {
     matches!(
-        s,
+        s.peel(),
         Stmt::Const(..) | Stmt::Let(..) | Stmt::Function(..) | Stmt::Class(..)
     )
 }
@@ -1321,6 +1493,7 @@ fn declares(s: &Stmt) -> bool {
 fn starts_ambiguously(e: &Expr) -> bool {
     match e {
         Expr::Object(..) => true,
+        Expr::At(_, e) => starts_ambiguously(e),
         Expr::Member(o, _)
         | Expr::OptMember(o, _)
         | Expr::Index(o, _)

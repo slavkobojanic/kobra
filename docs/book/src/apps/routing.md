@@ -108,7 +108,7 @@ the compiler decides, as described under [URLs](#urls).
 - **A URL can carry** `String`, `Int`, `Uuid`, `Page`, an enum whose cases have no payloads, and an
   optional of any of these. Any other type is `K5002`.
 
-> **Planned.** The design also lets an id type of your own, such as a `ProductId` struct, be a
+> **Planned** (custom-id-params). The design also lets an id type of your own, such as a `ProductId` struct, be a
 > parameter. The compiler doesn't accept one yet; use `Uuid` or `Int`.
 
 ## Navigation
@@ -367,7 +367,7 @@ public page HealthCheck at "/health" {
 ```
 
 - **An endpoint page must have a named URL**, because an external system depends on it. Without `at`,
-  it is a compile error with a quick fix that inserts one.
+  it is a compile error (`K5004`) with a quick fix that inserts one.
 - **Endpoint pages are not `Page` cases.** They are cases of a separate, server-only, generated
   **`Endpoint`** enum, so `link(to:)`, `Router.navigate(to:)` and `@SignInPage` can't name one, by type.
   `Endpoint.healthCheck.url` is its path.

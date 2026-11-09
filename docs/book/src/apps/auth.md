@@ -311,15 +311,14 @@ rpc signUp(request: SignUpRequest) async throws SignUpError {
 
 K's defences against cross-site request forgery are on by default and can't be turned off:
 
-- **RPC routes accept only `application/json` and `application/proto`, and require the
-  `Connect-Protocol-Version` header.** Anything else is refused with `415` before guards run. A
-  cross-site `<form>` can't send either, and a cross-site `fetch` that tries needs a CORS preflight,
+- **RPC routes accept only `application/json`, and require the `Connect-Protocol-Version` header.**
+  Anything else is refused with `415` before guards run. A cross-site `<form>` can't send either, and a cross-site `fetch` that tries needs a CORS preflight,
   which K never grants for rpc routes.
 - **Every request that carries the session cookie and isn't `GET` or `HEAD`** must have an `Origin`
   header matching `K_PUBLIC_ORIGIN`, or `Sec-Fetch-Site: same-origin`, or it is refused with `403`.
-- **A `GET` or `HEAD` handler on an endpoint page that uses the session must not change state.** Reaching
-  `SessionManager.signIn`, `signOut` or a repository write from one is a compile warning, except in an
-  OAuth callback that returns early unless `consumeState` succeeded.
+- **A `GET` or `HEAD` handler on an endpoint page that uses the session must not change state:** no
+  `SessionManager.signIn`, `signOut` or repository write, except in an OAuth callback that returns early
+  unless `consumeState` succeeded. The compiler doesn't check this yet (**Planned** safe-method-lint).
 - **Endpoint pages that don't use the session receive no cookie and need no check,** which is what
   webhooks want ([Endpoint pages](endpoints.md#sessions)).
 
@@ -336,8 +335,9 @@ OAuth providers and passkeys themselves are deferred by the design.
 ## Passwords
 
 `Password.hash(password:)` and `Password.verify(password:hash:)` (Argon2id, server-only, `async`) and
-`Password.unusableHash` are in `k.crypto` ([Bytes and cryptography](crypto.md#passwords)). Logging a field
-named `password`, or one whose type is `Secret<…>`, is a compile-time warning.
+`Password.unusableHash` are in `k.crypto` ([Bytes and cryptography](crypto.md#passwords)). Don't log a
+field named `password`; a warning for it is planned (**Planned** password-log-lint). A `Secret<…>` logs as
+`Secret(•••)`.
 
 ## Tests
 

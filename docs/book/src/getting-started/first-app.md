@@ -5,7 +5,7 @@ takes about five minutes.
 
 ## Creating a project
 
-> **Planned.** `k new hello` will create this skeleton for you. It isn't built yet, so for now you
+> **Planned** (k-new). `k new hello` will create this skeleton for you. It isn't built yet, so for now you
 > write the five files by hand. They are short, and writing them once shows what every K app is made
 > of.
 
@@ -80,10 +80,11 @@ k dev
 `k dev` compiles the app, starts the development server and prints its address, by default
 `http://localhost:8080`. Open it in a browser: you'll see a heading, a counter and a button.
 
-`k dev` keeps running. When you save a file it rebuilds what changed and reports any compile errors in
-the terminal.
+`k dev` keeps running. When you save a file it rebuilds the app. A build with errors is reported in the
+terminal with their count (``error: the project has 1 error(s); run `k check .` to see them``), and the
+last good build keeps serving.
 
-> **Planned.** State-preserving hot module replacement (HMR) isn't in the first compiler releases.
+> **Planned** (hmr). State-preserving hot module replacement (HMR) isn't in the first compiler releases.
 > Today `k dev` rebuilds and restarts the server on save, and you refresh the browser to see the change.
 > A build with errors is reported and the last good build keeps serving. With HMR, edits will apply
 > without a reload, and component state will be preserved, which is possible because K state is always
@@ -158,8 +159,8 @@ button { "Click me" }
 ```
 
 Save and refresh the browser to see the change. Now make a mistake on purpose: change `.class(.page)` to
-`.class(.pgae)`. `k dev` reports a compile error, because `.pgae` isn't a class in this page's
-`style` block. Class names, like page names, element names and property values, are checked.
+`.class(.pgae)`. `k dev` reports that the build has an error, and `k check` shows it: `K3203`, because
+`.pgae` isn't a class in this page's `style` block, with a fix that suggests `.page`. Class names, like page names, element names and property values, are checked.
 
 ## Testing it
 
@@ -199,11 +200,11 @@ k check
 
 `k check` is the gate CI runs. It parses and type-checks the whole project, applies every static
 rule of the language (layering, the server/client boundary, exhaustive matches, class and page
-references, doc links) and compares the lockfiles with the code to catch breaking changes. Run `k test`
-next to it in CI.
+references, doc links), compares the lockfiles with the code to catch breaking changes, and then runs
+every test, as `k test` does. `--no-tests` skips the tests for a quick type check. CI needs only
+`k check`.
 
-> **Planned.** The design folds the formatting check and the test run into `k check`. Neither is part
-> of it yet: there is no formatter, and tests run with `k test`.
+> **Planned** (k-fmt). The design adds the formatting check to `k check`. There is no formatter yet.
 
 ## Building for production
 
@@ -226,7 +227,8 @@ in production means running that one file:
 K_PUBLIC_ORIGIN=http://localhost:8080 dist/app
 ```
 
-`K_PUBLIC_ORIGIN` tells the server the address users reach it at; production builds require it. The
+`K_PUBLIC_ORIGIN` tells the server the address users reach it at. Without it, `dist/app` assumes
+`http://localhost:<port>`, which is right only on your own machine, so set it in every deployment. The
 [Configuration and deployment](../apps/deployment.md) chapter covers configuration, containers and
 health checks.
 

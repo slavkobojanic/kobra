@@ -186,7 +186,7 @@ See [Control flow](control-flow.md#for-loops).
 
 ## More collections
 
-> **Planned.** The design adds a `k.collections` module with specialized types: `Deque`,
+> **Planned** (k-collections). The design adds a `k.collections` module with specialized types: `Deque`,
 > `PriorityQueue`, `OrderedMap` and `LruCache`, imported like any other declaration
 > (`import k.collections.LruCache`). It isn't built yet; `List`, `Map` and `Set` are the collections
 > available today.

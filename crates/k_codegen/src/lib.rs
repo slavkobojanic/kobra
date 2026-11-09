@@ -61,6 +61,7 @@ mod routelock;
 mod routes;
 mod server;
 mod shorten;
+pub mod sourcemap;
 mod suite;
 mod ui;
 mod view;
@@ -780,6 +781,19 @@ pub(crate) fn runtime_chunk(profile: Profile, entry: &Entry) -> String {
         out.push_str(&text);
         if !out.ends_with('\n') {
             out.push('\n');
+        }
+    }
+    // Development clients show K values as K in DevTools (custom
+    // formatters, `runtime/devtools.js`); nothing else ships them.
+    if profile == Profile::Development && *entry == Entry::App {
+        for m in k_runtime::modules()
+            .iter()
+            .filter(|m| m.part == Part::DevTools)
+        {
+            out.push_str(&k_runtime::strip_links(m.source));
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
         }
     }
     out

@@ -101,6 +101,11 @@ pub struct EngineOptions {
     /// once each way, so a compaction that changes what a program means
     /// fails them (`docs/compiler/testing.md` §4.1).
     pub compact_runtime: bool,
+    /// Starts V8's inspector, so a debugger can attach through
+    /// [`Engine::inspector_sessions`] (`k dev --inspect`, server.md §19).
+    /// The runtime's modules then carry ignore-listed source maps, so
+    /// stepping stays in K code.
+    pub inspector: bool,
 }
 
 /// Why running JavaScript failed.
@@ -135,6 +140,8 @@ struct Loader {
     modules: HashMap<String, String>,
     /// [`EngineOptions::compact_runtime`].
     compact_runtime: bool,
+    /// [`EngineOptions::inspector`].
+    inspector: bool,
 }
 
 impl ModuleLoader for Loader {
@@ -180,6 +187,14 @@ impl ModuleLoader for Loader {
                     k_runtime::compact(m.source).unwrap_or_else(|_| m.source.to_owned())
                 } else {
                     m.source.to_owned()
+                }
+            })
+            .map(|text| {
+                if self.inspector {
+                    let comment = crate::stack::ignored_runtime_comment(specifier.as_str(), &text);
+                    format!("{text}{comment}")
+                } else {
+                    text
                 }
             })
             .or_else(|| self.modules.get(specifier.as_str()).cloned());
@@ -271,6 +286,8 @@ pub struct Engine {
     /// The number of the next [`Engine::run_main`] module; the first one is
     /// loaded as the main module, later ones as side modules.
     next_main: u32,
+    /// [`EngineOptions::inspector`].
+    inspector: bool,
 }
 
 impl Engine {
@@ -285,12 +302,19 @@ impl Engine {
             .enable_all()
             .build()
             .map_err(|e| EngineError::Internal(e.to_string()))?;
+        let symbols = crate::stack::Symbolicator::new(
+            options
+                .modules
+                .iter()
+                .map(|m| (m.specifier.as_str(), m.source.as_str())),
+        );
         let modules = options
             .modules
             .into_iter()
             .map(|m| (m.specifier, m.source))
             .collect();
         let state = Rc::new(RefCell::new(ops::EngineState::new(options.output)));
+        state.borrow_mut().symbols = Rc::new(symbols);
         // V8 posts delayed tasks to the tokio runtime the isolate is created
         // in, so it must exist and be entered first.
         let guard = tokio.enter();
@@ -298,8 +322,11 @@ impl Engine {
             module_loader: Some(Rc::new(Loader {
                 modules,
                 compact_runtime: options.compact_runtime,
+                inspector: options.inspector,
             })),
             extensions: vec![ops::k_engine::init()],
+            inspector: options.inspector,
+            is_main: true,
             ..Default::default()
         })
         .map_err(|e| EngineError::Internal(e.to_string()))?;
@@ -314,6 +341,7 @@ impl Engine {
             state,
             timeout: options.timeout,
             next_main: 0,
+            inspector: options.inspector,
         })
     }
 
@@ -382,6 +410,18 @@ impl Engine {
         }
         outcome?;
         Ok(self.state.borrow_mut().result.take())
+    }
+
+    /// The channel a debugger session connects through, when the engine
+    /// was created with [`EngineOptions::inspector`] (`crate::inspector`
+    /// bridges a DevTools WebSocket to it).
+    #[must_use]
+    pub fn inspector_sessions(
+        &mut self,
+    ) -> Option<deno_core::futures::channel::mpsc::UnboundedSender<deno_core::InspectorSessionProxy>>
+    {
+        self.inspector
+            .then(|| self.runtime.inspector().get_session_sender())
     }
 
     /// Returns and clears the captured log lines ([`Output::Capture`]).

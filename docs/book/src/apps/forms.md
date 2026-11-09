@@ -111,7 +111,7 @@ var title: String
 
 **Typed values validate themselves.** A field of type `EmailAddress` binds to a `textField` as text and
 is validated as an email address, so it needs no `@Email`, and the form's `value` holds the parsed
-address. `@Email` on an `EmailAddress` field is a warning, with a quick fix that removes it. `@Email` is
+address. `@Email` on an `EmailAddress` field is a warning (`K7004`), with a quick fix that removes it. `@Email` is
 for the rare field that must stay a `String`.
 
 **Cross-field rules** go in a `validate(rules:)` function, which reports each problem against a field.

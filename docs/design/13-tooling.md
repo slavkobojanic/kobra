@@ -23,7 +23,7 @@
 |---|---|
 | `k new <name>`, `k new --library <module path>` | Creates a project from the fixed skeleton ([24-projects.md](24-projects.md)) |
 | `k dev` | Dev server: builds `.development`, serves it and rebuilds and restarts on every change (hot module replacement is planned). Runs the background-job worker, loads `.env` and the project's `[dev]` settings, and needs no setup ([25-config-and-secrets.md](25-config-and-secrets.md#development-needs-no-setup)). At a workspace root it serves every app. |
-| `k run` | `k dev` without watching: builds once and serves until Ctrl-C, every app at a workspace root. `k run --release` and `k dev --release` serve the client `k build` ships (minified, tree-shaken, short class names, source maps) with the development wiring |
+| `k run` | `k dev` without watching: builds once and serves until Ctrl-C, every app at a workspace root. `k run --release` and `k dev --release` serve the client `k build` ships (minified, tree-shaken, short class names, source maps) with the development wiring; `--inspect[=port]` opens the server's V8 inspector ([Debugging](#debugging)) |
 | `k hash-password` | Prints the Argon2id PHC string of the password on standard input, with `k.crypto.Password`'s parameters, for scripts that make an admin password's hash |
 | `k build` | Ahead-of-time build of the `.production` environment into separate server and client bundles |
 | `k check` | Type checking, formatting check, tests, doc-comment checks, and lockfile breaking-change detection. Fails in CI on any problem. It has no watch mode. |
@@ -114,6 +114,103 @@ Decisions made with the server:
   token of the lexer is coloured as a string, each comment as a comment and every other token as code.
   An engine in Rust rather than `vscode-textmate` keeps npm out of the toolchain's tests.
 
+## Debugging
+
+**K is debugged as K, in the browser's DevTools and in VS Code, with no tool outside `k`.** Breakpoints
+are set in `.k` files, the paused line is the `.k` line, stack traces name `.k` lines, and the values in
+the Scope pane and the console read as K values. The mechanics are in
+[docs/compiler/codegen.md §18](../compiler/codegen.md#18-source-maps) (maps) and
+[docs/compiler/server.md §19](../compiler/server.md#19-debugging-the-server) (the server's inspector); the
+user guide is the book's Debugging chapter.
+
+- **Source maps from the printer, not from text.** Lowering marks the JS IR with the K location it came
+  from (`Stmt::At`, `Expr::At`: every lowered statement, the last expression of a block or lambda, view
+  bindings, event handlers, `@Derived` and `@Load` initializers, component fields, style rules and
+  declarations), and the printer records a mark where each starts. Every JavaScript chunk, every server
+  module that holds K code and the development stylesheet get a v3 map built from those marks.
+  **Decision:** line-and-statement granularity, plus the start of each binding and handler, is what
+  breakpoints and stack traces need; per-identifier mappings would double the maps for no visible gain.
+- **One virtual root for K sources.** **Decision:** a client map names `/_k/src/<project path>`
+  (`/_k/src/src/home/Home.k`), a server module's map `k:/_k/src/<project path>`. Rejected `k://`: Chrome
+  resolves a scheme it doesn't know as an opaque URL it never fetches, and VS Code's path overrides
+  match prefixes, which `/_k/src/` keeps the same on both sides. `k run` and `k dev` serve the `.k` files
+  at `/_k/src/`; development maps also embed them (`sourcesContent`), so a debugger needs neither.
+  Stdlib K code maps below `/_k/src/$std/` and is on the `ignoreList`.
+- **Release maps compose.** `k build` minifies with oxc, which maps minified code to the readable chunk;
+  the linker composes that map with the chunk's K map, so minified code maps straight to `.k` lines and
+  names. **Decision on publishing:** release maps are always written next to their chunks in
+  `dist/public/assets` (`stem.<hash>.js.map`, referenced by the chunk), without the K text. `dist/app`
+  serves them only when `K_PUBLIC_SOURCE_MAPS=true`: they reveal the code's structure and file names, so
+  they are opt-in in production, while a team that wants production debugging opts in or loads the map
+  files into DevTools by hand. A static host serves whatever `dist/public` holds: delete the `*.map` files
+  before uploading to keep them private. The server's modules carry their maps inline and always map
+  the server's logged stack traces. Symbolicating stack traces the browser reports to the server is
+  deferred (there is no client error report yet).
+- **Original names, not scopes.** Generated code keeps K's local names (`count`, `next`, `greeter`);
+  where it can't (a JavaScript reserved word, `arguments` → `arguments$`; a shadowed name, `item$1`) the
+  map's `names` gives the K name at the binding and its uses, and release maps carry the K name through
+  the minifier's renaming. Chrome's Scope pane renames from these. **Decision:** no ECMA-426 `scopes`
+  yet. The Scopes proposal is at Stage 3 of TC39-TG4 and the Chrome DevTools team publishes a codec
+  for it, but we found no browser release that applies it by default (checked November 2026), and its
+  encoding was still being revised; Firefox and Safari read only `names`. Generated names that remain
+  (`$c`, `$life`, `$root3`) are the runtime's plumbing and keep their `$` so they read as such. Revisit
+  when a browser ships Scopes by default.
+- **The runtime is ignore-listed.** The runtime chunk, the feature chunks and the `app` entry (glue only)
+  get a map whose one source is on the `ignoreList` (and Chrome's older `x_google_ignoreList`), so
+  stepping skips them and stack traces collapse their frames; under `--inspect` the server's runtime
+  modules carry the same. Async stack traces through `await` and rpc calls are V8's own and read as K
+  once the runtime's frames are hidden.
+- **Custom formatters, development only.** A development client appends `runtime/devtools.js` to its
+  runtime chunk: a `devtoolsFormatters` entry that shows a `@State` or `@Derived` value as its current
+  value (read without subscribing), `nil`, enum cases by name with their payloads, structs by field,
+  `Money`, `Decimal` and `Date` as text, `List`, `Map` and `Set` with their sizes. Payload enum cases are
+  named through a non-enumerable property only development clients set; payload-free cases are shared
+  singletons across enums and show as `.#tag`. **Release and test builds contain none of it.**
+- **The server's inspector.** **Decision:** `k run --inspect[=port]` and `k dev --inspect[=port]` (9229
+  by default) rather than a new `k debug` subcommand (`k debug` prints compiler internals). The server
+  then runs one worker isolate with V8's inspector on, served the way Node serves it (`/json/list`, a
+  WebSocket per session), so `chrome://inspect` and VS Code's `node` attach work unchanged. In
+  development a panic's 500 page and an rpc's `internal` error carry the stack trace mapped to `.k`
+  lines; every server log line with a stack is mapped the same way.
+- **VS Code without npm.** `editors/vscode/launch.json` holds launch configurations for VS Code's
+  built-in JavaScript debugger: the browser (`chrome`, with `/_k/src/*` mapped to the workspace) and the
+  server (`node` attach to the inspector, `k:/_k/src/*` mapped likewise), and a compound of both.
+- **Tested in a real browser.** `k_codegen/tests/sourcemaps.rs` decodes the maps with the `sourcemap`
+  crate and checks exact lines and columns; `k_cli/tests/debugging.rs` sets breakpoints at `.k` lines in
+  headless Chrome and in the server's inspector, triggers them, and checks the paused `.k` line, the K
+  names in scope, a mapped exception, the formatters and the mapped server traces.
+
 ## Compiler errors
 
 Errors are structured and machine-readable, with quick fixes that agents can apply directly.
+
+## The toolchain's own tests
+
+**The suite runs under cargo-nextest, through `scripts/test.sh`, and agents run only the affected tests**
+(`scripts/affected-tests.sh`). Details and measurements are in
+[docs/compiler/testing.md §2.1–2.4](../compiler/testing.md#21-running-tests-fast).
+
+- **nextest, pinned** (`cargo install cargo-nextest --version 0.9.111 --locked`; `.config/nextest.toml` names
+  the minimum). Every test is a process and every binary runs at once, so the run takes as long as the slowest
+  lane, not the sum of ~90 binaries run one after another. Hangs fail after 2 minutes (5 in the `ci`
+  profile); there are no retries.
+- **Three suites stay in-process** (the golden corpus, the runtime's JS tests, the execution corpus): they have
+  thousands of tiny cases, and a process per case would cost ~900 CPU-seconds against 6 s. nextest's default
+  filter leaves them out; `scripts/test.sh` runs their binaries directly next to nextest, and the doc tests
+  next to both.
+- **Heavy tests are grouped and capped**: Chrome tests at 4 at once, tests that start `k` processes at 8. The
+  slowest tests start first.
+- **Dependencies are optimized in the dev profile** (`opt-level = 2`) and the workspace's crates lightly
+  (`opt-level = 1`), with full debug info. Unoptimized crypto and SQLite dominated the server and CLI tests;
+  `opt-level = 1` for the workspace halved the run for no slower rebuilds. A faster linker (lld) and less debug
+  info were measured and gained nothing.
+- **Slow tests are fixed in place, never weakened**: independent work inside a test runs on threads (the warm
+  re-check across the examples, the corpus robustness sweep), ports are reserved across processes, and
+  `QUICK=1` lowers property-test case counts for local iteration only (CI refuses it).
+- **Affected tests are chosen from the change**: a crate's source selects it and its reverse dependencies from
+  `cargo metadata`; a test file selects its binary; `examples/`, `docs/`, `editors/` and `tests/<dir>/` select
+  the tests whose code names that directory in a string literal. The script prints each choice and its reason.
+- **One target directory per concurrent agent.** Cargo builds one command at a time per target directory;
+  agents sharing `target/` spent most of a 37-minute run waiting on each other's builds.
+- **Later:** merge each crate's integration tests into one binary (~90 binaries to ~10) when the repository is
+  quiet; it saves links, macOS's first-run checks and disk, but moves every test.

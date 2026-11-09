@@ -27,8 +27,8 @@ k build
 - The executable links glibc, so the smallest supported base image is `gcr.io/distroless/cc` or an
   equivalent. `scratch` and musl-based images aren't supported.
 
-An edge target, `k build --target edge` for Cloudflare Workers and similar platforms, is deferred by the
-design. The compiler would reject edge-incompatible features, such as long-running jobs or direct Postgres
+An edge target for Cloudflare Workers and similar platforms (a `--target edge` option of `k build`) is
+deferred by the design. The compiler would reject edge-incompatible features, such as long-running jobs or direct Postgres
 sockets, at compile time.
 
 ### Static-only apps
@@ -73,7 +73,7 @@ configuration is needed. Adding server-only code later brings `dist/app` back.
 ## Public origin
 
 **`K_PUBLIC_ORIGIN`**, for example `https://shop.example`, is the origin users and other systems reach the
-app at. It is required in production. It is:
+app at. Set it in every deployment: without it, `dist/app` assumes `http://localhost:{PORT}`. It is:
 
 - the base of every absolute URL built by [`PublicUrls`](routing.md#absolute-urls-publicurls), and of
   `canonical` links;
@@ -100,8 +100,10 @@ Everything that must hold across replicas lives in the database, so replicas nee
 service:
 
 - sessions and rate-limit counters (`k_session`, `k_rate_limit`);
-- the job queue (`k_job`), claimed with `SKIP LOCKED`;
-- broadcasts between server streams, over Postgres `LISTEN`/`NOTIFY`.
+- the job queue (`k_job`), claimed with `SKIP LOCKED`.
+
+Broadcasts between server streams are the exception: they reach only the subscribers of the publishing
+process until delivery over Postgres `LISTEN`/`NOTIFY` is built (**Planned** broadcast-replicas).
 
 **Rolling deploys run the previous release against the new schema,** so migrations follow
 expand/contract: a column is retired in one release and dropped in a later one
@@ -109,7 +111,7 @@ expand/contract: a column is retired in one release and dropped in a later one
 
 ## Containers
 
-> **Planned.** The K project will publish `ghcr.io/k-lang/k:<version>`, a minimal image containing the
+> **Planned** (toolchain-image). The K project will publish `ghcr.io/k-lang/k:<version>`, a minimal image containing the
 > static `k` binary. It isn't published yet; the examples build the toolchain in a first stage instead,
 > as described below the sample.
 

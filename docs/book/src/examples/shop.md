@@ -57,7 +57,7 @@ own mail catcher, which prints each one with its links and keeps it in `shop/.k/
 
 ```bash
 k test           # every member's tests, against in-memory SQLite
-k check          # types, layering and every lockfile, in every member
+k check          # types, layering, every lockfile and the tests, in every member
 ```
 
 ## The contract library

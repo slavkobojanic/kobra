@@ -154,7 +154,7 @@ public service TodoService {
 - In a client-only service, `init()` never runs during server rendering. In the browser it runs after
   hydration.
 - Only services have `init()`. Components and pages use field initializers for setup and `@Effect` for
-  side effects. The formatter places `init()` after the fields and before the other functions.
+  side effects. The formatter will place `init()` after the fields and before the other functions (**Planned** k-fmt).
 
 ## Scopes
 
@@ -282,8 +282,8 @@ its declared initial state, so pages can render. Its `init()` doesn't run.
 - Calling a client-only interface from code that can run during server rendering (a field initializer,
   a `@Derived` or `@Load` initializer, a view) is a compile error. `init()`, effects and event handlers
   are fine, because they run only in the browser.
-- A server-rendered page that reads a client-only service's state is a warning, with a quick fix that
-  adds `@Rendering(.client)` to the app, because the first paint would show the initial state and then
+- A server-rendered page that reads a client-only service's state is a warning (`K4013`), with a quick fix
+  that adds `@Rendering(.client)` to the app, because the first paint would show the initial state and then
   jump. See [The app declaration](app.md#rendering-on-the-client).
 
 ## Injecting interfaces

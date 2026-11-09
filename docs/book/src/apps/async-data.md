@@ -178,9 +178,9 @@ page ProductDetail {
   is a compile error at the field.
 - **So must the errors the loads can throw.** A load that fails on the server renders `failed`, and
   hydrating it needs the error in the browser. Load errors follow the rules for rpc errors: they must be
-  `Codable`, and the compiler warns when a payload is a server-only type or carries a third party's
-  response body, such as an `HttpError.status` from an external API. Wrap such errors without the body,
-  for example as `case upstream(HttpStatus)`.
+  `Codable`, and a payload shouldn't be a server-only type or carry a third party's response body, such
+  as an `HttpError.status` from an external API (a warning for one is **Planned** error-payload-lint).
+  Wrap such errors without the body, for example as `case upstream(HttpStatus)`.
 - **`status(_:)` sets the HTTP status of a server-rendered `failed` page.** It is allowed only in a
   `metadata { }` block inside `failed`, so a "not found" page answers `404` instead of a soft `200` for
   crawlers. During client navigation it has no effect.

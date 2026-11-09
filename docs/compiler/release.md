@@ -55,7 +55,7 @@ Contents:
 | `.github/workflows/ci.yml`, `nightly.yml`, `release.yml` | the pipeline (§9); GitHub Actions is the default, an owner decision | planned |
 | `scripts/install.sh`, `scripts/install.ps1` | installers, served from the docs site | planned |
 | `tests/compat/locks/`, `tests/compat/wire/` | golden lockfiles per format and recorded traffic per minor | planned |
-| `crates/k_cli/tests/version.rs` | every version string agrees; `k --version` format | planned |
+| `crates/k_cli/tests/version.rs` | every version string agrees; `k --version` format | exists (the commit and date in `--version` come with step 1's `build.rs`, in round 3) |
 | `crates/k_cli/tests/toolchain.rs` | requirement, delegation, `k toolchain`, against a local fake index | planned |
 | `docs/book/src/apps/upgrading.md`, `reference/changelog.md` | the upgrade guide (procedure, then one generated section per minor, cumulative) and the changelog page ([design 49](../design/49-documentation.md)) | planned |
 | `docs/book/check/audit.toml` | the page-audit ledger ([documentation.md §5](documentation.md#5-the-page-audit)) | planned |

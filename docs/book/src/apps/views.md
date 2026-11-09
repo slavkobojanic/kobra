@@ -245,7 +245,7 @@ correct semantic HTML element. Writing an HTML name is a compile error with a hi
 | `ul` / `ol` / `li` | `list` / `numberedList` / `item` | |
 | `br` / `hr` | `lineBreak` / `divider` | |
 | `em` | `emphasis` | |
-| `input` | `textField`, `passwordField`, `numberField`, `checkbox`, `dateField`, `fileField`, … | Split by type, so the bound value's type matches |
+| `input` | `textField`, `passwordField`, `numberField`, `checkbox`, `dateField` | Split by type, so the bound value's type matches. Files are picked with the injected `Files` ([Importing and exporting files](files.md)) |
 | `select` / `option` | `dropdown(selection: bind x)` / `option` | |
 | `textarea` | `textArea` | |
 | `table` / `tr` / `th` / `td` | `table` / `row` / `headerCell` / `cell` | |
@@ -400,8 +400,8 @@ nav {
 ~}
 ```
 
-- **On a landmark or group, `.label` is its accessible name.** The compiler warns when a second landmark
-  of the same kind, such as a second `nav`, has no name.
+- **On a landmark or group, `.label` is its accessible name.** Give each of two landmarks of the same
+  kind, such as two `nav`s, a name. A warning for a missing one is planned (**Planned** a11y-lints).
 - `.role` accepts only roles the element doesn't already have and that no semantic element expresses:
   `section { }.role(.navigation)` is a compile error with the hint "use `nav`".
 - `.pressed` on a `box` is a compile error, because only buttons can be pressed.
@@ -432,21 +432,21 @@ button {
 ```
 
 Its accessible name is "Delete Buy milk", and it still starts with the visible text, so a test can find
-it with `button(named: "Delete Buy milk")`. On an element with visible text and a `.role`, a `.label` that
-doesn't contain the visible text is a warning, for the same reason.
+it with `button(named: "Delete Buy milk")`. On an element with visible text and a `.role`, a `.label`
+should contain the visible text, for the same reason; the warning for one that doesn't is planned too.
 
 ### Modifiers
 
-**Modifiers** are cross-cutting behaviors from the standard library, such as `.tooltip(…)`,
-`.animate(…)` and `.track(…)`. Unlike attributes, they apply in the order written, and a component prop
-can't share a modifier's name.
+> **Planned** (modifiers). **Modifiers** are cross-cutting behaviors from the standard library, such as
+> `.tooltip(…)`, `.animate(…)` and `.track(…)`. Unlike attributes, they will apply in the order written,
+> and a component prop won't be able to share a modifier's name. None is built yet.
 
 ## Components from the standard library
 
 The standard library's `k.ui` module builds on these elements:
 
 - **Layout:** `Stack`, `Grid`, `Spacer`.
-- **Accessible widgets** (**Planned**): the design adds `Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`,
+- **Accessible widgets** (**Planned** ui-widgets): the design adds `Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`,
   `Toast`, `Combobox`, `DatePicker` and `DataTable`. None of them is built yet.
 - **Icons:** `Icon`, with a bundled icon set.
 - **`VisuallyHidden`**, for text that only assistive technology reads.
@@ -518,4 +518,4 @@ view {
 ~}
 ```
 
-> **Planned.** `k fmt`, which applies this layout automatically, isn't in the first compiler releases.
+> **Planned** (k-fmt). `k fmt`, which applies this layout automatically, isn't in the first compiler releases.

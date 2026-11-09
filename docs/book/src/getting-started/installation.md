@@ -1,6 +1,6 @@
 # Installation
 
-K ships as **one static binary, `k`**. It contains the compiler, the test runner, the development
+K ships as **one self-contained binary, `k`**. It contains the compiler, the test runner, the development
 server, the migration tool and the server runtime. Installing K needs no Node.js, no npm and no other
 JavaScript tooling, and a K app never depends on them at build time or at runtime.
 
@@ -32,7 +32,8 @@ your editor can never disagree with the compiler. It shows each effect's reactiv
 each page's URL inline, autocomplete after `.` that lists only valid members, and quick fixes for compiler
 errors. [Editor setup](editor-setup.md) explains how to connect VS Code, Neovim, Vim or any other editor.
 
-From the command line, `k check` reports every problem, and `k dev` reports them as you save. Every
+From the command line, `k check` reports every problem, and `k dev` tells you as you save when the
+build has errors. Every
 diagnostic is also available as JSON (`k check --format json`), which is how agents consume them.
 
 ## What's in the box
@@ -44,7 +45,7 @@ diagnostic is also available as JSON (`k check --format json`), which is how age
 | Test runner | `k test`: unit, component and integration tests |
 | Migration tool | `k migrate`: generates and applies database migrations |
 | Server runtime | A JavaScript runtime (V8) embedded in the binary, used by `k dev` and by every built app |
-| Formatter | `k fmt` (**Planned**) |
+| Formatter | `k fmt` (**Planned** k-fmt) |
 | Language server | `k lsp`: diagnostics, quick fixes, navigation, rename and completion in your editor |
 
 The same runtime runs your server code in development and in production, so "works on my machine"

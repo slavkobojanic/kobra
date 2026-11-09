@@ -84,7 +84,7 @@ All constraints accept `message:`, and they apply to `config` fields too, `Secre
 
 ## Mutability
 
-The annotation decides the keyword, and a mismatch is a compile error with a quick fix:
+The annotation decides the keyword, and a mismatch is a compile error (`K3001`) with a quick fix:
 
 | Must be `var` | Must be `let` |
 |---|---|

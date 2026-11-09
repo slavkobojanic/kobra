@@ -109,8 +109,8 @@ characters (`K3028`):
 - **A page has a title when any declaration it renders under sets one:** its own `metadata`, the layout
   it renders in (its `@Layout`, or the app's, none with `@NoLayout`), or the app's `metadata`. A `title`
   inside `failed` is the failure's own and doesn't count. A program without an `app` renders no document
-  and gets no warning, and endpoint pages have no metadata. The quick fix adds `title("…")` made from the
-  page's name (`OrderHistory` gets `title("Order history")`).
+  and gets no warning, and endpoint pages have no metadata. `K3027`'s quick fix adds `title("…")` made from
+  the page's name (`OrderHistory` gets `title("Order history")`).
 - **Only literal descriptions are measured,** in characters, in every `metadata` block. An interpolated
   description's length is known only at run time.
 

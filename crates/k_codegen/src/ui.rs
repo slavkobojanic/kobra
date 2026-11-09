@@ -146,6 +146,14 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         let init = mnode
             .as_ref()
             .and_then(|x| x.children().find_map(ast::Expr::cast));
+        // Everything a field emits maps to its declaration, and a
+        // `@Derived` body to its initializer (codegen.md §18).
+        let start = stmts.len();
+        let field_loc = match (&mi.kind, &mnode) {
+            (MemberKind::Field, Some(node)) => b.loc(node),
+            _ => None,
+        };
+        let init_loc = init.as_ref().and_then(|e| b.loc(e.syntax()));
         match mi.kind {
             MemberKind::Field => {
                 if mi.has_annotation("Prop") || mi.has_annotation("Param") {
@@ -209,6 +217,7 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                     }
                 } else if mi.has_annotation("Derived") {
                     let (pre, x) = b.capture(|b| init.as_ref().map_or(Expr::Null, |e| b.expr(e)));
+                    let x = js::at(init_loc, x);
                     if ssr {
                         // After the awaited loads, which it may read.
                         derived.extend(pre);
@@ -285,6 +294,14 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 stmts.push(Stmt::Function(f, false));
             }
             _ => {}
+        }
+        if let Some(loc) = field_loc {
+            for st in stmts.iter_mut().skip(start) {
+                if !matches!(st, Stmt::At(..)) {
+                    let inner = std::mem::replace(st, Stmt::Break(None));
+                    *st = Stmt::At(loc, Box::new(inner));
+                }
+            }
         }
     }
     // `@Load`: the load group on the client, awaited values on the server.

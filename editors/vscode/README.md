@@ -40,6 +40,24 @@ npm is used only here, for the extension. Building and testing the compiler neve
 
 The command **K: Restart Language Server** restarts `k lsp`, for example after installing a new `k`.
 
+## Debugging
+
+VS Code's built-in JavaScript debugger debugs K as K, with breakpoints in `.k` files, through the source
+maps `k dev` serves. Nothing else needs installing. Copy [`launch.json`](launch.json) and
+[`tasks.json`](tasks.json) into your project's `.vscode/` folder:
+
+- **K: debug in Chrome** starts `k dev --inspect` (the `k: dev` task) and opens the app in Chrome.
+  Breakpoints in components, pages, services and event handlers stop in the browser.
+- **K: attach to the server (k dev --inspect)** attaches to the server's isolate on port 9229.
+  Breakpoints in rpc handlers, `@Load` code running on the server and endpoint pages stop there.
+- **K: browser and server** does both at once.
+
+The maps name the K sources `/_k/src/<path>` in the browser and `k:/_k/src/<path>` on the server;
+`sourceMapPathOverrides` maps both to the workspace folder, which must be the folder with `k.toml`
+(change `${workspaceFolder}` to its subfolder otherwise). The runtime is on the maps' ignore list and in
+`skipFiles`, so stepping stays in K code. The book's Debugging chapter has the details, Firefox and
+Safari included.
+
 ## How it fits together
 
 - `syntaxes/k.tmLanguage.json` is the TextMate grammar. `crates/k_lsp/tests/editors.rs` checks that it

@@ -17,6 +17,8 @@
 //!   [`resolve_at`](Analysis::resolve_at) and [`side_of`](Analysis::side_of).
 //! * [`stdlib`] is the standard library as the checker sees it: embedded K
 //!   sources plus the element, CSS and annotation tables.
+//! * [`features`] lists the features that are planned or in preview, by
+//!   the ids the book's notes use.
 //!
 //! ```
 //! use k_sema::{AnalysisHost, Options, ProjectPath};
@@ -62,6 +64,7 @@ mod check;
 mod cx;
 mod di;
 mod doclinks;
+pub mod features;
 mod framework;
 mod fx;
 mod host;

@@ -170,12 +170,12 @@ func sync() {
 Tracking happens at runtime, because a static scan would be wrong for conditional reads and for reads
 inside helper functions. Here, `draft` is a dependency only while `isLoggedIn` is true.
 
-The compiler also runs a static pass, for tooling:
+The compiler also runs a static pass, for tooling: the language server shows an effect's dependencies on
+hover, and a `@Derived` field's too (see [Editor setup](../getting-started/editor-setup.md)). Reads after
+an `await` aren't tracked.
 
-- A warning appears when an effect reads no reactive values, because it would never re-run.
-- A warning appears when state is read after an `await`, because those reads aren't tracked.
-- The language server shows an effect's dependencies on hover, and a `@Derived` field's too (see
-  [Editor setup](../getting-started/editor-setup.md)).
+> **Planned** (effect-lints). The design adds two warnings from the same pass: an effect that reads no
+> reactive value, which would never re-run, and state read after an `await`. Neither is reported yet.
 
 ### Where effects run
 
@@ -194,7 +194,7 @@ The compiler also runs a static pass, for tooling:
 
 **An `@Effect` function can't be declared `throws`.** Nothing calls an effect, so nothing could catch its
 error. It handles every error inside, with `do`/`catch` or `try … else`, and usually records it in state.
-Declaring `throws` on an effect is a compile error with a quick fix that wraps the body in `do`/`catch`.
+Declaring `throws` on an effect is a compile error (`K3012`).
 Event handlers follow the same rule.
 
 ### Explicit dependencies
@@ -371,5 +371,5 @@ shared state: there is no separate store library. A component that reads `cart.i
 
 - A reader can tell from the declaration alone which values can change and what depends on them.
 - The compiler knows exactly which fields are state, which is what makes state-preserving hot module
-  replacement possible (**Planned** for a later compiler release).
+  replacement possible (**Planned** hmr, for a later compiler release).
 - Ordinary data stays ordinary: nothing pays for reactivity it doesn't need.

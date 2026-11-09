@@ -72,10 +72,10 @@ let isGuest = not isSignedIn
 ~}
 ```
 
-`&&`, `||` and `!` are compile errors with a quick fix that replaces them.
+`&&`, `||` and `!` are compile errors (`K0104`, `K0105`, `K0106`) with a quick fix that replaces them.
 
 **Don't compare a `Bool` with a literal.** `x == true` is just `x`, and `x == false` is `not x`. The
-compiler reports the comparison with a machine-applicable fix:
+compiler reports the comparison (`K2012`) with a machine-applicable fix:
 
 ```k,ignore
 let isPinned = not note.isPinned       // not `note.isPinned == false`

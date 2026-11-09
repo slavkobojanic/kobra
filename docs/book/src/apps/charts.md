@@ -113,5 +113,5 @@ public theme ChartTokens {
 - Series colors given with `.color(…)` are ordinary `Color` values, usually app tokens such as
   `.chartTemperature`, so they switch with variants as well.
 
-> **Planned.** The design adds bar, area, pie and scatter charts that follow the same pattern. Only
+> **Planned** (more-charts). The design adds bar, area, pie and scatter charts that follow the same pattern. Only
 > `LineChart` is built.

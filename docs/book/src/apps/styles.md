@@ -268,7 +268,7 @@ public theme WeatherTheme {
 - The overriding value's category and type come from the library's declaration. Assigning a token that
   nothing declares is a compile error.
 - Declaring a token with the name of one a library already declares, such as
-  `color chartGrid: Color = …`, is a compile error with a quick fix to the assignment form. So an app
+  `color chartGrid: Color = …`, is a compile error (`K3302`) with a quick fix to the assignment form. So an app
   token can't silently collide with a token a library adds later.
 
 ### Variants

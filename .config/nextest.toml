@@ -1,0 +1,109 @@
+# cargo-nextest configuration (docs/compiler/testing.md, "Running tests fast").
+#
+# nextest runs every test of every binary as a process of its own, all
+# binaries at once. Use scripts/test.sh (everything) or
+# scripts/affected-tests.sh (what a change can break) rather than calling
+# it directly: they also run the suites excluded below and the doc tests.
+#
+# Pinned version: install with
+#   cargo install cargo-nextest --version 0.9.111 --locked
+nextest-version = { required = "0.9.100", recommended = "0.9.111" }
+
+# Tests that start Chrome. Each headless Chrome is a handful of processes
+# with a GPU and a renderer of its own; more than a few at once starve each
+# other (and the CDP waits time out) without finishing sooner. At 6 the
+# notes sign-up test timed out in full runs on a loaded machine; at 4 it
+# didn't, and the lane still ends with the rest of the run.
+[test-groups.chrome]
+max-threads = 4
+
+# Tests that start `k` (and through it a server, a database and V8) as a
+# separate process and talk to it over HTTP, or build an example with
+# `k build`. They're fine in parallel, but each holds a few threads and a
+# couple of ports, so they're capped below the core count to leave room
+# for the in-process tests.
+[test-groups.processes]
+max-threads = 8
+
+[profile.default]
+# Every core; the groups above cap the heavy tests.
+test-threads = "num-cpus"
+retries = 0
+fail-fast = false
+# A test is reported as slow after 30 s and killed after 4 periods (2 min),
+# so a hang fails the run in minutes instead of blocking it forever. The
+# slowest test in the suite takes about 25 s on a loaded 14-core machine.
+slow-timeout = { period = "30s", terminate-after = 4 }
+# Subprocesses (a `k dev`, Chrome) get this long to close their output
+# after the test ends before the test is marked as leaky.
+leak-timeout = "500ms"
+status-level = "fail"
+final-status-level = "slow"
+# Suites of thousands of tiny cases (custom libtest-mimic harnesses): one
+# process per case costs 0.05–0.4 s each (V8 start-up for `runtime_js`),
+# about 900 CPU-seconds in all, against 6 s when each binary runs its cases
+# in-process. scripts/test.sh and scripts/affected-tests.sh run them with
+# `cargo test` next to nextest. `--ignore-default-filter` includes them.
+default-filter = """
+not (
+    (package(k_corpus) & binary(=corpus))
+  | (package(k_server) & binary(=runtime_js))
+  | (package(k_server) & binary(=corpus_run))
+)
+"""
+
+[[profile.default.overrides]]
+filter = "package(k_cli) & (binary(=chrome) | binary(=example_checks))"
+test-group = "chrome"
+
+[[profile.default.overrides]]
+filter = """
+package(k_cli) & (
+    binary(=commands) | binary(=cli) | binary(=examples) | binary(=workspaces)
+  | binary(=dist_browser) | binary(=deploy) | binary(=lsp)
+)
+"""
+test-group = "processes"
+
+# The longest tests start first (nextest otherwise starts them in binary
+# order, and one that starts last sets the run's end). Each takes 8–25 s on
+# a loaded machine; keep this list to the slowest dozen or so.
+[[profile.default.overrides]]
+filter = """
+    test(=body_edits_across_the_examples_match_fresh_checks)
+  | test(=the_grammar_agrees_with_the_lexer_on_strings_and_comments)
+  | test(=a_request_body_that_stalls_is_given_up)
+  | test(=a_connection_that_never_finishes_its_headers_is_closed)
+  | test(=every_definition_in_the_examples_is_spelled_like_its_reference)
+  | test(=every_corpus_source_analyses_without_panicking)
+  | test(=unbounded_chains_are_checked_without_overflowing)
+  | test(=random_edits_and_requests_keep_the_server_consistent)
+  | (package(k_sema) & binary(=properties))
+  | (package(k_server) & binary(=differential))
+  | (package(k_sema) & binary(=book))
+  | (package(k_server) & binary(=stage3_server) & test(/stream|subscriber/))
+"""
+priority = 50
+
+# The Chrome tests are many and capped by their group, so their lane is
+# one of the longest: start it early too.
+[[profile.default.overrides]]
+filter = "package(k_cli) & binary(=chrome)"
+priority = 40
+
+# CI: the same tests with longer limits (a cold, shared runner), every
+# failure reported, and a JUnit file for the CI's test view. Property
+# tests keep their full case counts: scripts/test.sh never sets QUICK for
+# this profile.
+[profile.ci]
+test-threads = "num-cpus"
+retries = 0
+fail-fast = false
+slow-timeout = { period = "60s", terminate-after = 5 }
+leak-timeout = "1s"
+status-level = "fail"
+final-status-level = "slow"
+failure-output = "immediate-final"
+
+[profile.ci.junit]
+path = "junit.xml"

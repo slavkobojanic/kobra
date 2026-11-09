@@ -176,6 +176,10 @@ pub enum Part {
     /// mirror, browser `@Native` members). Shipped with every client in
     /// the runtime chunk, measured on its own (`SERVICES_SIZE_BUDGET`).
     Services,
+    /// DevTools custom formatters (`devtoolsFormatters`) for K values:
+    /// appended to the runtime chunk of development clients only, so
+    /// release and test builds never ship them.
+    DevTools,
     /// The public client entry point that re-exports both, `k:runtime`.
     /// Generated client code imports it; the bundler keeps only what is
     /// used.
@@ -243,6 +247,7 @@ const MODULES: &[Module] = modules![
     Http "runtime/http.js",
     Forms "runtime/forms.js",
     Money "runtime/money.js",
+    DevTools "runtime/devtools.js",
     ClientEntry "runtime/index.js",
     Server "runtime/ssr.js",
     Server "runtime/server.js",

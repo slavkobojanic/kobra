@@ -4,7 +4,7 @@ Third-party K code is shared as **git-based packages**, like Go modules. A packa
 prefixes its module paths, and its versions are git tags.
 
 ```bash
-k add github.com/acme/charts@v1.2.0
+k add github.com/acme/charts@v1.2.0   # planned
 ```
 
 ```k,ignore
@@ -27,7 +27,7 @@ import github.com/acme/charts.LineChart
   disagree with the tag.
 - `k remove` takes a dependency out again.
 
-> **Planned.** Packages and `k add` aren't in the first compiler releases.
+> **Planned** (packages). Packages and `k add` aren't in the first compiler releases.
 
 ## Short imports with aliases
 
@@ -50,11 +50,12 @@ import charts.LineChart
 A project without an `App.k` is a library package. Create one with:
 
 ```bash
-k new --library github.com/acme/charts
+k new --library github.com/acme/charts   # planned
 ```
 
-Publishing is pushing a git tag such as `v1.2.0`. Document every public declaration with `///` comments:
-in a package, `k check` warns about API without one (see [doc comments](../language/basics.md#comments)).
+Publishing is pushing a git tag such as `v1.2.0`. Document every public declaration with `///` comments
+(see [doc comments](../language/doc-comments.md)); the design has `k check` warn about a package's API
+without one (**Planned** doc-coverage).
 
 Packages that integrate a vendor, such as a payment provider or an email API, implement the standard
 library's provider interfaces, such as `EmailProvider`. An app then chooses the implementation with a `use`
@@ -81,6 +82,6 @@ for protocols.
 
 Libraries you don't publish, such as the contracts between your own services, live in the same
 [workspace](workspaces.md) as the apps that use them and are depended on with `name = { workspace = true
-}`. That works today, without `k add`. **Their modules keep their own paths,** with no prefix and no
+}`. That works today, with no package to add. **Their modules keep their own paths,** with no prefix and no
 alias: `pay-contracts/src/pay/Payments.k` is imported as `import pay.Payments`. Two packages of one build
 can't declare the same module (`K8106`), so every module path still names exactly one module.

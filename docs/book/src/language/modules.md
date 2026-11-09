@@ -107,7 +107,7 @@ There is no `protected`, because there is no inheritance.
 - **`private` is the only member modifier.** It restricts a member to the body of its enclosing
   declaration.
 - **`public` on a member is redundant.** It is a warning (`K1302`) with a machine-applicable fix,
-  which `k fmt` will apply (**Planned**), so there is one spelling.
+  which `k fmt` will apply (**Planned** k-fmt), so there is one spelling.
 - **`@Inject` fields are always private** to the declaration that injects them. Writing `public` on one
   is a compile error, and `private` is redundant. A type's dependencies are never part of its API, so
   other code can't read `verifier.config`, and a fake never has to declare its target's dependencies.

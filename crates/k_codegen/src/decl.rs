@@ -732,7 +732,18 @@ fn enum_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 ps.push(Param::new(pn.clone()));
                 obj.push(Prop::KeyValue(f.clone(), id(pn)));
             }
-            js::arrow(ps, Expr::Object(obj, false))
+            let obj = Expr::Object(obj, false);
+            // A development client names its payload cases for DevTools'
+            // custom formatters (`runtime/devtools.js`).
+            let obj = if b.g.options.profile == crate::Profile::Development
+                && b.g.options.entry == crate::Entry::App
+                && b.target == Target::Client
+            {
+                rt("devCase", vec![obj, js::str(cname.clone())])
+            } else {
+                obj
+            };
+            js::arrow(ps, obj)
         };
         props.push(Prop::KeyValue(cname, value));
     }

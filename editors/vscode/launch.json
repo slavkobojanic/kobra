@@ -1,0 +1,43 @@
+{
+  // Launch configurations for debugging a K app in VS Code with its
+  // built-in JavaScript debugger (no extension or npm package needed).
+  // Copy this file to `.vscode/launch.json` in your project, or merge its
+  // configurations into yours. The book's Debugging chapter explains them.
+  //
+  // Breakpoints go in `.k` files: the generated code's source maps name
+  // the K sources `/_k/src/<path>` (browser) and `k:/_k/src/<path>`
+  // (server), which the overrides below map to the workspace folder (the
+  // folder with `k.toml`).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "K: debug in Chrome",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:8080/",
+      "webRoot": "${workspaceFolder}",
+      "sourceMaps": true,
+      "pathMapping": { "/_k/src/": "${workspaceFolder}/" },
+      "sourceMapPathOverrides": { "/_k/src/*": "${workspaceFolder}/*" },
+      "skipFiles": ["**/_k/runtime/**"],
+      "preLaunchTask": "k: dev"
+    },
+    {
+      "name": "K: attach to the server (k dev --inspect)",
+      "type": "node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9229,
+      "sourceMaps": true,
+      "sourceMapPathOverrides": { "k:/_k/src/*": "${workspaceFolder}/*" },
+      "skipFiles": ["k:/runtime/**"],
+      "restart": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "K: browser and server",
+      "configurations": ["K: attach to the server (k dev --inspect)", "K: debug in Chrome"]
+    }
+  ]
+}

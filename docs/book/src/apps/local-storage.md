@@ -78,7 +78,7 @@ public interface LocalStorage {
   exists during server rendering with its declared initial state, and its `init()` doesn't run; in the
   browser, `init()` runs after hydration. Calling `LocalStorage` from code that can run during server
   rendering is a compile error.
-- **A server-rendered page that reads such a service is a warning,** because its first paint would show
+- **A server-rendered page that reads such a service is a warning (`K4013`),** because its first paint would show
   the initial state and then jump. The quick fix adds `@Rendering(.client)` to the app
   ([The app declaration](app.md#rendering-on-the-client)).
 
@@ -137,7 +137,7 @@ A key's name and its value's shape are part of the app's stored format, which ou
 - The same file records each background job's name and payload shape, because queued jobs are stored
   data too ([Background jobs](jobs.md#stored-payloads)).
 
-> **Planned.** The first compiler releases compare a committed `storage.lock`'s keys and job payloads with
+> **Planned** (storage-lock-writing). The first compiler releases compare a committed `storage.lock`'s keys and job payloads with
 > the code (`K8008` for a key, `K8003` for a job), but don't write the file. Keys are namespaced with the
 > committed lock's `namespace`, else the project's name. Two keys with the same name are reported
 > (`K2405`), and a name that isn't a string literal (`K2403`).

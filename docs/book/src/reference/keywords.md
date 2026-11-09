@@ -39,7 +39,7 @@ K has two kinds of keyword.
 | `let` | declare a constant, or bind a name in a pattern |
 | `match` | exhaustive branching |
 | `private`, `public` | visibility modifiers; members take only `private` |
-| `requires` | guards on a page, layout, protocol or rpc |
+| `requires` | guards on a page, a protocol or a protocol's rpc (never on a layout, `K5014`, or a handler, `K5507`) |
 | `return` | return from a function |
 | `rpc` | declare or implement a remote call |
 | `self` | the current instance |
@@ -70,7 +70,7 @@ K has two kinds of keyword.
 | `metadata` | a member followed by `{` | document `<head>` entries |
 | `migration` | start of a declaration, in `migrations/` | a database migration |
 | `page` | start of a declaration | a routable page |
-| `proto` | after `import` | import Protobuf definitions (**Planned**) |
+| `proto` | after `import` | import Protobuf definitions (**Planned** protobuf) |
 | `protocol` | start of a declaration | an RPC contract |
 | `repository` | start of a declaration | database queries for an entity |
 | `service` | start of a declaration | injectable logic and shared state |
@@ -78,7 +78,3 @@ K has two kinds of keyword.
 | `theme` | start of a declaration | the app's design tokens |
 | `variant` | a member of a `theme` | a set of token overrides; `variant dark matches .prefersDark` follows the system |
 | `view` | a member followed by `{` | a component's UI |
-
-`config` and `migration` are recent additions to the design. The compiler grammar
-(`docs/compiler/grammar.md`, RA-32) already reserves their shape, `prefix KEYWORD Name { … }`, like the
-other declaration keywords.

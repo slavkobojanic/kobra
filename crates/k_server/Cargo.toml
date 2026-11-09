@@ -26,6 +26,8 @@ sha2.workspace = true
 rustls.workspace = true
 # `@Matches` constraints of config fields, checked at startup.
 regex.workspace = true
+# Stack traces mapped to `.k` lines through the bundle's maps (`stack.rs`).
+sourcemap.workspace = true
 
 [lints]
 workspace = true

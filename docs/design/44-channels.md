@@ -362,7 +362,7 @@ public interface WebSocketClient {
 
 ## `rpc.lock` and compatibility
 
-Open tabs are deployed clients that may live for days, so a channel's messages are recorded like every other wire shape ([40-workspaces-and-services.md](40-workspaces-and-services.md#rpclock)):
+Open tabs are deployed clients that may live for days, so a channel's messages are recorded like every other wire shape ([40-workspaces-and-services.md](40-workspaces-and-services.md#compatibility-between-deploys)):
 
 - **A channel rpc is recorded with `kind = "channel"`** and its three types (`send`, `receive`, `refusal`) beside its parameters and open error. Its wire name is an rpc's (`/huddle.chat.ChatProtocol/Room`); the open frame names it.
 - **Breaking-change detection knows the direction,** because the two sides upgrade at different times:

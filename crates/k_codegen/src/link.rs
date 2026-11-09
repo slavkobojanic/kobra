@@ -203,10 +203,18 @@ pub(crate) fn link(files: Vec<OutputFile>) -> Vec<OutputFile> {
         .filter(|f| f.kind == FileKind::JavaScript)
         .map(|f| (f.path.clone(), f.contents.clone()))
         .collect();
-    let mut out: Vec<OutputFile> = files
-        .into_iter()
-        .filter(|f| f.kind != FileKind::JavaScript)
-        .collect();
+    // The K maps the bundler left next to the chunks that hold K code
+    // (`<chunk>.map`): composed with the minifier's below.
+    let mut kmaps: BTreeMap<String, String> = BTreeMap::new();
+    let mut out: Vec<OutputFile> = Vec::new();
+    for f in files.into_iter().filter(|f| f.kind != FileKind::JavaScript) {
+        match f.path.strip_suffix(".map") {
+            Some(js) if f.kind == FileKind::SourceMap && texts.contains_key(js) => {
+                kmaps.insert(js.to_owned(), f.contents);
+            }
+            _ => out.push(f),
+        }
+    }
     for path in order {
         let Some(text) = texts.remove(&path) else {
             continue;
@@ -216,7 +224,7 @@ pub(crate) fn link(files: Vec<OutputFile>) -> Vec<OutputFile> {
         let source_name = format!("{}.js", base(&stem));
         let keep = keep.get(&path).cloned().flatten();
         let (code, map) = match crate::minify::minify(&text, &source_name, keep.as_ref()) {
-            Ok(m) => (m.code, Some(m.map)),
+            Ok(m) => (m.code, Some(release_map(&m.map, kmaps.get(&path)))),
             // A chunk oxc can't read ships as printed: still correct, only
             // larger (`minify`'s errors are code generator bugs).
             Err(_) => (text, None),
@@ -253,6 +261,23 @@ pub(crate) fn link(files: Vec<OutputFile>) -> Vec<OutputFile> {
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
+}
+
+/// The shipped map of a minified chunk: oxc's map (minified → readable
+/// chunk) composed with the chunk's K map (readable chunk → `.k`) when it
+/// holds K code, so minified code maps straight to the `.k` files; else
+/// oxc's map with its one source (the runtime, a feature chunk or the
+/// `app` entry, embedded) on the `ignoreList`.
+fn release_map(oxc: &str, kmap: Option<&String>) -> String {
+    use crate::sourcemap::{SourceMap, compose, to_json};
+    match (SourceMap::parse(oxc), kmap.map(|k| SourceMap::parse(k))) {
+        (Ok(outer), Some(Ok(inner))) => to_json(&compose(&outer, &inner), None),
+        (Ok(mut outer), None) => {
+            outer.ignore_list = (0..u32::try_from(outer.sources.len()).unwrap_or(0)).collect();
+            to_json(&outer, None)
+        }
+        _ => oxc.to_owned(),
+    }
 }
 
 #[cfg(test)]

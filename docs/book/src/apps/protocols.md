@@ -338,8 +338,8 @@ public protocol StoreProtocol {
 }
 ```
 
-- An rpc whose error enum lacks that case, or that declares no `throws` clause, is a compile error, with
-  a quick fix that adds the case.
+- An rpc whose error enum lacks that case, or that declares no `throws` clause, is a compile error
+  (`K5502`, `K5501`), with a quick fix that adds the case.
 - **An rpc with no errors of its own declares `throws RpcOnlyError`,** a standard enum whose only case is
   `rpcFailure(RpcFailure)`.
 - **Only the runtime produces `rpcFailure`.** A handler can't throw it. Client code that wraps errors at
@@ -418,8 +418,9 @@ end-to-end test, can call an rpc without reading generated files:
   source-breaking but wire-compatible.
 - **A struct return type is the response message itself;** other return types are wrapped as
   `{"value": …}`, and an rpc without a return type answers `{}`.
-- Servers accept JSON (`application/json`) and binary Protobuf (`application/proto`), and nothing else.
-  Request bodies are limited to 1 MB, and every rpc response carries `Cache-Control: private, no-store`.
+- Servers accept JSON (`application/json`) and nothing else; binary Protobuf (`application/proto`) is
+  refused with `415` until it is built (see the note below). Request bodies are limited to 1 MB, and
+  every rpc response carries `Cache-Control: private, no-store`.
 
 ```bash
 curl --header 'Content-Type: application/json' --header 'Connect-Protocol-Version: 1' \
@@ -437,14 +438,15 @@ curl --header 'Content-Type: application/json' --header 'Connect-Protocol-Versio
 | `rpcFailure(.rejected(.forbidden))` | `permission_denied` | 403 |
 | `rpcFailure(.rejected(.rateLimited(retryAfter:)))` | `resource_exhausted`, with `Retry-After` | 429 |
 | a request body over 1 MB | `resource_exhausted` | 413 |
-| a content type other than JSON or Protobuf, or no `Connect-Protocol-Version` | — | 415 |
+| a content type other than JSON, or no `Connect-Protocol-Version` | — | 415 |
 | a panic | `internal`, with no details outside development | 500 |
 | `rpcFailure(.offline)`, `rpcFailure(.timeout)` | none: the client produces them, because nothing reached the server or came back | none |
 
-Error types that cross the wire are `Codable`. The compiler warns when an error payload is a server-only
-type or carries a third party's response body, with a hint to wrap the error without it.
+Error types that cross the wire are `Codable`. Don't put a server-only type or a third party's response
+body in an error's payload; wrap the error without it. A warning for such a payload is planned
+(**Planned** error-payload-lint).
 
-> **Planned.** The first compiler releases speak JSON only. The binary Protobuf encoding, `k proto
+> **Planned** (protobuf). The first compiler releases speak JSON only. The binary Protobuf encoding, `k proto
 > export` (which emits `.proto` files for non-K consumers) and `import proto "billing/v1/invoice.proto"`
 > (which turns existing Protobuf definitions into K types) come later.
 
@@ -462,7 +464,7 @@ you:
 - A deliberate breaking change requires `@Breaking("reason")` on the protocol; `k build` then records
   the new shape. See [Workspaces and services](workspaces.md#rpclock-deploys-that-dont-break-callers).
 
-> **Planned.** Bumping a protocol's version on a deliberate break (`CartProtocol.v2`, served next to the
+> **Planned** (protocol-versions). Bumping a protocol's version on a deliberate break (`CartProtocol.v2`, served next to the
 > old one) isn't in the first compiler releases.
 
 There is no separate `protocol.lock`: an earlier design kept the wire names in one, and `rpc.lock` now

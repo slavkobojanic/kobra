@@ -1418,7 +1418,8 @@ impl Client<'_, '_, '_> {
             let x = b.expr(e);
             b.text_of(x, &t)
         });
-        let body = rt("text", vec![node.clone(), value]);
+        let loc = self.b.loc(e.syntax());
+        let body = js::at(loc, rt("text", vec![node.clone(), value]));
         let f = if pre.is_empty() {
             js::arrow(vec![], body)
         } else {
@@ -1426,13 +1427,24 @@ impl Client<'_, '_, '_> {
             s.push(Stmt::Expr(body));
             js::arrow_block(vec![], s, false)
         };
-        self.b.stmts.push(Stmt::Expr(rt("renderEffect", vec![f])));
+        self.b
+            .stmts
+            .push(Stmt::Expr(js::at(loc, rt("renderEffect", vec![f]))));
     }
 
     /// Emits a render effect whose body is the expression `f` lowers (after
     /// any statements it needs).
     fn effect_of(&mut self, f: impl FnOnce(&mut Body<'_, '_>) -> Expr) {
+        self.effect_at(None, f);
+    }
+
+    /// [`Self::effect_of`] for the binding written at `node`: the effect
+    /// and its body map to it in the source map, so a breakpoint on the
+    /// binding's line stops each time it re-renders.
+    fn effect_at(&mut self, node: Option<SyntaxNode>, f: impl FnOnce(&mut Body<'_, '_>) -> Expr) {
         let (pre, body) = self.b.capture(f);
+        let loc = node.as_ref().and_then(|n| self.b.loc(n));
+        let body = js::at(loc, body);
         let f = if pre.is_empty() {
             js::arrow(vec![], body)
         } else {
@@ -1440,7 +1452,9 @@ impl Client<'_, '_, '_> {
             s.push(Stmt::Expr(body));
             js::arrow_block(vec![], s, false)
         };
-        self.b.stmts.push(Stmt::Expr(rt("renderEffect", vec![f])));
+        self.b
+            .stmts
+            .push(Stmt::Expr(js::at(loc, rt("renderEffect", vec![f]))));
     }
 
     /// Binds the dynamic parts of element `node`: attributes, classes and
@@ -1463,7 +1477,7 @@ impl Client<'_, '_, '_> {
                     let kind = *kind;
                     let name = name.clone();
                     let node = node.clone();
-                    self.effect_of(move |b| {
+                    self.effect_at(Some(e.syntax().clone()), move |b| {
                         let x = b.expr(&e);
                         let x = match kind {
                             AttrKind::Aria => call(id("String"), vec![x]),
@@ -1486,7 +1500,7 @@ impl Client<'_, '_, '_> {
                     let e = e.clone();
                     let name = name.clone();
                     let node = node.clone();
-                    self.effect_of(move |b| {
+                    self.effect_at(Some(e.syntax().clone()), move |b| {
                         let href = crate::app::href_expr(b, &e);
                         rt("attr", vec![node, js::str(name), href])
                     });
@@ -1508,7 +1522,11 @@ impl Client<'_, '_, '_> {
                 .collect();
             let classes = el.classes.clone();
             let node = node.clone();
-            self.effect_of(move |b| {
+            let first = classes.iter().find_map(|c| match c {
+                ClassPart::When(_, e) | ClassPart::Dyn(e) => Some(e.syntax().clone()),
+                ClassPart::Static(_) => None,
+            });
+            self.effect_at(first, move |b| {
                 let mut dynamic = Vec::new();
                 for c in &classes {
                     match c {
@@ -1530,7 +1548,7 @@ impl Client<'_, '_, '_> {
             let e = e.clone();
             let prop = prop.clone();
             let node = node.clone();
-            self.effect_of(move |b| {
+            self.effect_at(Some(e.syntax().clone()), move |b| {
                 let t = b.ty(e.syntax());
                 let x = b.expr(&e);
                 let x = b.css_value_of(x, &t);
@@ -1639,15 +1657,16 @@ impl Client<'_, '_, '_> {
     /// Attaches the element's event handlers with `$k.on`.
     fn element_events(&mut self, node: &Expr, el: &Elem) {
         for (event, h) in &el.events {
+            let loc = self.b.loc(h.syntax());
             let handler = self.handler(h);
             let event = match event.as_str() {
                 "mouseenter" | "mouseleave" | "keydown" | "keyup" | "click" | "focus" | "blur"
                 | "submit" | "input" | "change" => event.clone(),
                 other => other.to_owned(),
             };
-            self.b.stmts.push(Stmt::Expr(rt(
-                "on",
-                vec![node.clone(), js::str(event), handler],
+            self.b.stmts.push(Stmt::Expr(js::at(
+                loc,
+                rt("on", vec![node.clone(), js::str(event), handler]),
             )));
         }
     }
@@ -2417,7 +2436,7 @@ impl Ssr<'_, '_, '_> {
             return;
         }
         // Merge with a preceding raw chunk.
-        if let Some(Stmt::Expr(Expr::Call(f, args))) = self.b.stmts.last_mut() {
+        if let Some(Stmt::Expr(Expr::Call(f, args))) = self.b.stmts.last_mut().map(Stmt::peel_mut) {
             if matches!(&**f, Expr::Member(o, n) if matches!(&**o, Expr::Ident(x) if x == "out") && n == "raw")
             {
                 if let Some(Expr::Html(prev)) = args.first_mut() {

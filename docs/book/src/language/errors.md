@@ -243,7 +243,7 @@ func refresh() async {
 - Patterns nest: `.upstream(.serviceUnavailable)` matches one `HttpStatus` inside the case, because
   `HttpStatus` is an enum too ([Calling HTTP APIs](../apps/http.md#httpstatus)).
 - **Each catch-all has one job.** `catch let error` binds; `catch _` doesn't. A `catch let x` whose
-  binding is never used is a compile error with a quick fix to `catch _`.
+  binding is never used is a compile error (`K2304`) with a quick fix to `catch _`.
 - Like `default` in `match`, a catch-all is a **compile error when unreachable**, meaning every case is
   already handled. `catch` has no `default`; `catch _` takes its place.
 
@@ -393,8 +393,8 @@ func loadUser() async {
 ~}
 ```
 
-Declaring `throws` on an effect, or passing a throwing function to `.on(…)`, is a compile error with a
-quick fix that wraps the body in `do`/`catch`.
+Declaring `throws` on an effect (`K3012`), or passing a throwing function to `.on(…)` (`K3017`), is a
+compile error: wrap the body in `do`/`catch` and record the failure.
 
 ## Panics
 
