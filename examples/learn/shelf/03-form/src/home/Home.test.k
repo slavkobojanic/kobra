@@ -15,6 +15,7 @@ test Home {
         screen.button(named: "Add book").click()
 
         expect screen.item(containing: "Piranesi").isVisible
+        expect screen.textField(labeled: "Title").value == ""
     }
 
     test "a book needs a title" {

@@ -16,16 +16,16 @@ order: a step uses only what the steps before it explained. If you haven't built
 | 1 | [Create the project](01-create.md) | `k new shelf`, the layout, `k dev` | projects, pages, `view`, `k check` |
 | 2 | [Show a list of books](02-list.md) | a `Book` struct, a list of books, a `BookRow` component | `struct`, `List`, `for` in views, `@Prop` |
 | 3 | [Add books with a form](03-form.md) | the add-book form, its messages, the first tests | `@State`, `Validatable`, constraint annotations, `@Form`, `@Emits`, tests |
-| 4 | Make it look right | a theme, classes, a dark variant | `theme`, tokens, scoped styles, variants |
-| 5 | Save books on the server | a database table, a protocol, a service | `entity`, `repository`, `protocol`, `rpc`, `service`, migrations |
-| 6 | Load books from the server | loading and failure states, reloading after adding | `@Load`, `match` on load state, typed errors |
+| 4 | [Make it look right](04-style.md) | a theme, classes, a dark variant | `theme`, tokens, scoped styles, variants |
+| 5 | [Save books on the server](05-server.md) | a database table, a protocol, a service | `entity`, `repository`, migrations, `protocol`, `rpc`, `service … implements`, `do` and `catch` |
+| 6 | [Load books from the server](06-load.md) | loading and failure states, reloading after adding | `@Load`, `loading` and `failed`, `match` on typed errors, `reload()` |
 | 7 | A page per book | `/books/:id`, with notes and a rating | page parameters, links, `routes.lock` |
 | 8 | Accounts | sign up, sign in, each person's own shelf | `k.auth`, sessions, `requires`, guards |
 | 9 | Test it | tests of the server and the whole app | `k.test`, fakes, testing remote calls |
 | 10 | Ship it | `k build`, configuration, the database, `dist/app` | `config`, secrets, `schema.lock`, deployment |
 
-Steps 1 to 3 are written. The pages for the later steps come next; until then, the guides listed at the
-end of step 3 pick up from there.
+Steps 1 to 6 are written. The pages for the later steps come next; until then, the guides listed at the
+end of step 6 pick up from there.
 
 ## Following along
 

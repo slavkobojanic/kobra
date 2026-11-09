@@ -531,7 +531,8 @@ feature chunk (§1): only apps with a `@Form` ship it, and their generated code 
   check of new text passes, which clears it.
 - The returned object: `field(name)` → `{ value(), set(raw), error(), isTouched(), touch(),
   attach(input, message?) }`; `isValid()`, `isSubmitting()`, `isTouched()`, `errors()` (reactive);
-  `value()` while the action runs; `handle(action)`. `fieldParser`, `lengthRule`, `rangeRule` and
+  `value()` while the action runs; `handle(action)`; `reset()`, which sets every field back to its initial
+  text, clears errors, touched flags and `isValid`, and cancels pending checks. `fieldParser`, `lengthRule`, `rangeRule` and
   `requiredRule` build the specs codegen emits.
 
 ---

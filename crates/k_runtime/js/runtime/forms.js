@@ -9,7 +9,9 @@
  * `field(name)` gives `{ value(), set(raw), error(), isTouched(), touch(),
  * attach(input, message?) }`; `isValid()`, `isSubmitting()`, `isTouched()`
  * and `errors()` are reactive reads; `value()` is the parsed struct while
- * the action runs; `handle(action)` returns the submit handler.
+ * the action runs; `handle(action)` returns the submit handler; `reset()`
+ * puts every field back to its initial text and clears errors and touched
+ * flags.
  */
 
 import { attr, on } from "./dom.js";
@@ -51,9 +53,11 @@ export function createForm(fields, initial, validate, clock) {
   const order = [];
   for (const spec of fields) {
     order.push(spec.name);
+    const start = initial && initial[spec.name] !== undefined ? String(initial[spec.name]) : "";
     state.set(spec.name, {
       spec,
-      raw: signal(initial && initial[spec.name] !== undefined ? String(initial[spec.name]) : ""),
+      start,
+      raw: signal(start),
       error: signal(null),
       touched: signal(false),
       // `@Check`: the pending timer and run, and the text a check refused.
@@ -223,6 +227,30 @@ export function createForm(fields, initial, validate, clock) {
     isTouched: () => touched.get(),
     errors: () => errors.get(),
     value: () => current,
+    /**
+     * Puts every field back to its initial text, and clears the errors,
+     * the touched flags and `isValid`. Pending `@Check` runs are cancelled
+     * and their refusals forgotten. Called in the action, after the value
+     * was used, it empties the form for the next entry.
+     */
+    reset() {
+      batch(() => {
+        for (const f of state.values()) {
+          f.timer?.cancel();
+          f.timer = null;
+          f.run?.abort();
+          f.run = null;
+          f.refused = null;
+          f.message = null;
+          f.raw.set(f.start);
+          f.error.set(null);
+          f.touched.set(false);
+        }
+        errors.set([]);
+        touched.set(false);
+        validated.set(false);
+      });
+    },
     /**
      * The submit handler: validates, refuses while submitting, calls
      * `action` with the parsed struct, and shows a `ValidationError` it

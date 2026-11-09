@@ -173,6 +173,7 @@ includes the value. See [Configuration and secrets](config.md).
 | `form.isValid` | whether every rule passes |
 | `form.isSubmitting` | whether a submission is in flight |
 | `form.handle(action)` | a submit handler: validates first, sets `isSubmitting`, prevents double submits, then runs `action` |
+| `form.reset()` | puts every field back to its initial value and clears the errors and `isTouched` |
 
 **The action passed to `handle` either doesn't throw or throws only `ValidationError`.** A
 `ValidationError` it throws is shown under the fields it names. That is how failures from the server
@@ -211,6 +212,10 @@ page Checkout {
 - **`form.value` is the parsed struct,** available only inside the action passed to `handle` (`submit`
   above), which runs after validation passes. Reading `value` anywhere else is a compile error, because
   outside `handle` the fields may not parse.
+- **`form.reset()` starts the form over:** every field goes back to the text `.empty(…)` gave it (blank
+  for a field it doesn't name), the errors and the touched flags are cleared, and a pending
+  [async rule](#async-rules) is cancelled. A form that adds one item after another calls it in the action,
+  after `value` has been used, so the fields are empty for the next entry.
 - **A struct's initializer can't leave fields out.** `OrderRequest(productSlug: slug)` without the other
   fields is a compile error. A partly filled struct never exists as a value; partial input exists only
   inside a form.

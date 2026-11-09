@@ -119,6 +119,13 @@ only as a `@Form` initializer.
 
   - Parameter action: the work to do with the valid `value`.
   - Returns: a handler for `on(submit:)` that doesn't throw.
+- `func reset()`
+  Puts every field back to its initial value, from `.empty` or
+  `.empty(field: value, …)`, and clears the errors and the touched
+  flags, so `isValid` and `isTouched` are `false` again.
+
+  Call it in the action passed to `handle`, after `value` has been
+  used, to empty the form for the next entry.
 
 ## Format
 

@@ -47,8 +47,9 @@ The form is a component of its own, `src/books/AddBookForm.k`:
 // examples/learn/shelf/03-form/src/books/AddBookForm.k
 import k.validation.Form
 
-/// A form for adding a book to the list. It checks what was typed, and
-/// reports a book that passes the checks with `added`.
+/// A form for adding a book to the list. It checks what was typed,
+/// reports a book that passes the checks with `added`, and then clears its
+/// fields for the next one.
 public component AddBookForm {
     @Form var draft: BookDraft = .empty
 
@@ -57,6 +58,7 @@ public component AddBookForm {
 
     func submit() {
         added.emit(draft.value)
+        draft.reset()
     }
 
     view {
@@ -88,6 +90,8 @@ public component AddBookForm {
 - `@Emits let added: Event<BookDraft>` declares an event: something that happened, which the component
   reports to whoever uses it. `added.emit(draft.value)` fires it with the draft. The form doesn't know
   about the list; it only says that a book was added.
+- `draft.reset()` then puts every field back to how `.empty` started it, blank, and forgets the
+  messages, so the form is ready for the next book.
 
 ## Keep the books in state
 
@@ -140,9 +144,9 @@ Then put the form under the list, and listen to its event:
 `.on(added: add)` calls `add` with the draft each time the form fires `added`. The page owns the books;
 the form reports what was typed, and the page decides what to do with it.
 
-Save and reload the browser. Type a title and an author and click Add book: the book joins the list.
-The fields keep what you typed, so you can correct it and add another. Now clear the title and click
-Add book again: "Enter the book's title" appears under the field, and nothing is added.
+Save and reload the browser. Type a title and an author and click Add book: the book joins the list,
+and the fields clear for the next one. Now type only an author and click Add book again: "Enter the
+book's title" appears under the field, and nothing is added.
 
 The form is unstyled for now: the labels and fields sit on one line. Step 4 makes it look right.
 
@@ -152,9 +156,9 @@ run `k check`:
 
 ```text
 error[K7001]: `value` is read only inside the action passed to `handle(…)`, where every field parses
-  --> src/books/AddBookForm.k:23:40
+  --> src/books/AddBookForm.k:25:40
    |
-23 |             paragraph { "Adding {draft.value.title}" }
+25 |             paragraph { "Adding {draft.value.title}" }
    |                                        ^^^^^
 
 checked 8 files: 1 error(s), 0 warning(s)
@@ -201,6 +205,7 @@ test Home {
         screen.button(named: "Add book").click()
 
         expect screen.item(containing: "Piranesi").isVisible
+        expect screen.textField(labeled: "Title").value == ""
     }
 
     test "a book needs a title" {
@@ -220,7 +225,8 @@ test Home {
 - `render(Home())` shows the page as the browser would, and `screen` is what's on it.
 - `screen` finds things the way a person using a screen reader does: a field by its label, a button by
   its name, a list item by its text. `fill` types into a field and `click` clicks.
-- `expect` states what must be true. The last test expects the error message and still three books.
+- `expect` states what must be true. The second test also expects the Title field to be empty again,
+  and the last test expects the error message and still three books.
 
 Run `k check`:
 
@@ -234,9 +240,9 @@ test to `4` and run it again to see:
 
 ```text
 error[K7510]: expectation failed: screen.items().count == 4
-  --> src/home/Home.test.k:27:16
+  --> src/home/Home.test.k:28:16
    |
-27 |         expect screen.items().count == 4
+28 |         expect screen.items().count == 4
    |                ^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: `screen.items().count` was 3
@@ -255,12 +261,13 @@ In this step you:
   `@NotBlank` and `@Length`;
 - built a form with `@Form`, bound its fields with `bind`, and let `handle` check the rules before
   `submit` runs;
-- reported a new book from the form with an `@Emits` event, and listened to it with `.on(added:)`;
+- reported a new book from the form with an `@Emits` event, listened to it with `.on(added:)`, and
+  cleared the form with `reset()`;
 - kept the books in `@State`, so the list updates when one is added;
 - tested the page with `render`, `screen` and `expect`, run by `k check`.
 
 ## Next
 
-- [Tutorial: build Shelf](index.md): what the rest of the tutorial covers.
+- [4. Make it look right](04-style.md): give Shelf its colors, and a dark mode.
 - [Forms and validation](../../apps/forms.md), [Reactivity](../../apps/reactivity.md) and
   [Testing](../../apps/testing.md) cover forms, state and tests in full.

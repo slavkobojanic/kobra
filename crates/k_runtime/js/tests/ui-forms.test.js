@@ -15,6 +15,7 @@
  *   form.isValid(), form.isSubmitting(), form.isTouched(), form.errors()  (reactive reads)
  *   form.value()              → the parsed struct, only while the action runs
  *   form.handle(action)       → (event?) => Promise<void>; calls action(parsedStruct)
+ *   form.reset()              → every field back to its initial text, errors and touched flags cleared
  *   validate(value, rules)    → rules.check(ok, fieldName, message), fieldName a string
  */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
@@ -591,4 +592,75 @@ test("a @Check that throws flags nothing", async () => {
   clock.advance(300);
   await drain();
   assertEq(form.field("email").error(), null);
+});
+
+// ---------------------------------------------------------------- reset
+
+// `reset()` puts every field back to its initial text and forgets what the
+// form knew: errors, touched flags and `isValid`.
+test("reset restores the initial text and clears errors and touched flags", async () => {
+  const form = signup({ age: "18" });
+  form.field("name").set("A");
+  form.field("age").set("3x");
+  form.field("name").touch();
+  await form.handle(async () => {})();
+  assertEq(form.field("name").error(), "Use at least 3 characters");
+  form.reset();
+  assertEq(form.field("name").value(), "");
+  assertEq(form.field("age").value(), "18");
+  assertEq(form.field("name").error(), null);
+  assertEq(form.field("age").error(), null);
+  assertDeepEq(form.errors(), []);
+  assertEq(form.field("name").isTouched(), false);
+  assertEq(form.isTouched(), false);
+  assertEq(form.isValid(), false, "nothing is validated after a reset");
+});
+
+// The usual place for `reset()` is the action itself, after the value has
+// been used: the fields are blank once the submit finishes, and the form
+// can be filled and submitted again.
+test("reset inside the action clears the form after a submit", async () => {
+  const form = signup();
+  fillValid(form);
+  const received = [];
+  const submit = form.handle(async (value) => { received.push(value.name); form.reset(); });
+  await submit();
+  assertEq(form.field("name").value(), "");
+  assertEq(form.field("password").value(), "");
+  assertEq(form.isSubmitting(), false);
+  fillValid(form);
+  await submit();
+  assertDeepEq(received, ["Ada", "Ada"]);
+});
+
+// An attached input shows the initial text again and loses its error.
+test("reset clears an attached input and its error", async () => {
+  const form = signup();
+  const { input, message } = control();
+  root(() => form.field("name").attach(input, message));
+  form.field("name").set("A");
+  await form.handle(async () => {})();
+  assertEq(input.getAttribute("aria-invalid"), "true");
+  form.reset();
+  assertEq(input.value, "");
+  assertEq(input.hasAttribute("aria-invalid"), false);
+  assertEq(message.textContent, "");
+});
+
+// A pending `@Check` is cancelled, and a refusal of the old text is
+// forgotten.
+test("reset cancels a pending @Check and forgets its refusal", async () => {
+  const clock = manualClock();
+  let calls = 0;
+  const form = checked(async () => { calls++; return false; }, clock);
+  const { input } = typed(form, "ada@example.com");
+  blur(input);
+  clock.advance(300);
+  await drain();
+  assertEq(form.field("email").error(), "That address is taken");
+  blur(input);
+  form.reset();
+  assertEq(clock.pending(), 0);
+  assertEq(form.field("email").error(), null);
+  assertEq(calls, 1);
 });

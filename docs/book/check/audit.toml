@@ -47,7 +47,37 @@ date = "2026-11-09"
 note = "new in round 1(b); written against the working tree on top of 8f94734, every command and output taken from running `k` on examples/learn/shelf and a fresh `k new shelf`"
 unpinned = [
     "the `k check` output and diagnostics shown (command transcripts aren't checked yet)",
-    "pressing Enter in a field submits the form, and the fields keep their text after a book is added",
+    "pressing Enter in a field submits the form",
+]
+
+[pages."learn/tutorial/04-style.md"]
+commit = "7c5d543"
+date = "2026-11-09"
+note = "new in round 1(b); written against the working tree on top of 7c5d543, every command and output taken from running `k` on examples/learn/shelf"
+unpinned = [
+    "the `k check` output and diagnostics shown (command transcripts aren't checked yet)",
+    "the page turns dark with the system's dark mode, and Chrome's Emulate CSS prefers-color-scheme command does the same",
+    "the labels sit above their fields and the button is as wide as its text",
+]
+
+[pages."learn/tutorial/05-server.md"]
+commit = "7c5d543"
+date = "2026-11-09"
+note = "new in round 1(b); written against the working tree on top of 7c5d543, every command and output taken from running `k` on examples/learn/shelf"
+unpinned = [
+    "the `k migrate new`, `k check` and `sqlite3` output shown (command transcripts aren't checked yet)",
+    "`k dev` logs `applied migration 0001_create_book_records` when it restarts after the migration is written",
+    "the server checks the draft's rules again before `add` runs (checked by hand with a request that has an empty title)",
+]
+
+[pages."learn/tutorial/06-load.md"]
+commit = "7c5d543"
+date = "2026-11-09"
+note = "new in round 1(b); written against the working tree on top of 7c5d543, every command and output taken from running `k` on examples/learn/shelf"
+unpinned = [
+    "the `k check` output and diagnostics shown (command transcripts aren't checked yet)",
+    "a server-rendered first page arrives with the books loaded, so `loading` isn't seen on opening the page",
+    "with DevTools set to Offline, adding a book shows the step-5 message and keeps the fields",
 ]
 
 [pages."introduction.md"]
