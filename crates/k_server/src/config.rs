@@ -34,6 +34,19 @@ pub enum ConfigKind {
     /// An `Int` constrained by `@Range(min...max)`: parsed as
     /// [`ConfigKind::Int`], then checked against the closed range.
     IntRange(i64, i64),
+    /// A value constrained by `@Matches(pattern, message:)`: parsed as
+    /// `kind`, then its text must match `pattern` (a K regular expression,
+    /// checked with Rust's `regex` syntax; a pattern that syntax can't
+    /// compile is not checked at startup). The problem is `message` when
+    /// the annotation gives one, else `doesn't match <pattern>`.
+    Matching {
+        /// The kind the text is parsed as first.
+        kind: Box<ConfigKind>,
+        /// The pattern.
+        pattern: String,
+        /// The annotation's `message:`.
+        message: Option<String>,
+    },
 }
 
 impl ConfigKind {
@@ -120,6 +133,23 @@ impl ConfigField {
             optional: !required && default.is_none(),
             default: default.map(str::to_owned),
         })
+    }
+}
+
+impl ConfigField {
+    /// The field with its `@Matches` constraint (`pattern`, and the
+    /// annotation's `message:`), from the build manifest; unchanged for
+    /// `None`.
+    #[must_use]
+    pub fn with_pattern(mut self, pattern: Option<&str>, message: Option<&str>) -> ConfigField {
+        if let Some(pattern) = pattern {
+            self.kind = ConfigKind::Matching {
+                kind: Box::new(self.kind),
+                pattern: pattern.to_owned(),
+                message: message.map(str::to_owned),
+            };
+        }
+        self
     }
 }
 
@@ -360,6 +390,19 @@ fn parse_duration(text: &str) -> Option<f64> {
 fn parse(kind: &ConfigKind, text: &str) -> Result<ConfigValue, String> {
     match kind {
         ConfigKind::String => Ok(ConfigValue::String(text.to_owned())),
+        ConfigKind::Matching {
+            kind,
+            pattern,
+            message,
+        } => {
+            let value = parse(kind, text)?;
+            match regex::Regex::new(pattern) {
+                Ok(re) if !re.is_match(text) => Err(message
+                    .clone()
+                    .unwrap_or_else(|| format!("doesn't match {pattern}"))),
+                _ => Ok(value),
+            }
+        }
         ConfigKind::IntRange(lo, hi) => match parse(&ConfigKind::Int, text)? {
             ConfigValue::Int(n) if (*lo..=*hi).contains(&n) => Ok(ConfigValue::Int(n)),
             _ => Err(format!("is outside {lo}...{hi}")),

@@ -330,6 +330,17 @@ pub(crate) fn client_files(
     from_server: &BTreeMap<String, BTreeSet<String>>,
 ) -> Vec<OutputFile> {
     let profile = g.options.profile;
+    // A release app's client is linked and minified after printing
+    // (`crate::link`): its chunks are printed readable, for the source
+    // maps, and reach the runtime through named imports, which is what
+    // lets the runtime chunk keep only what the app uses.
+    let release = linked(g);
+    let printed = if release {
+        Profile::Development
+    } else {
+        profile
+    };
+    let print = |stmts: &[Stmt], _: Profile| print(stmts, printed);
     let mut out = Vec::new();
     let runtime = crate::runtime_chunk(profile, &g.options.entry);
     let runtime_name = hashed("runtime", "js", &runtime, profile);
@@ -410,6 +421,9 @@ pub(crate) fn client_files(
             stmts.extend(items[d].stmts.iter().cloned());
         }
         route_runtime_features(&mut stmts, &feature_names, "./", &mut used_features);
+        if release {
+            named_runtime_imports(&mut stmts);
+        }
         let text = print(&stmts, profile);
         let name = hashed("shared", "js", &text, profile);
         shared_name = Some(name.clone());
@@ -440,6 +454,9 @@ pub(crate) fn client_files(
         stmts.extend(item.prelude.iter().cloned());
         stmts.extend(item.stmts.iter().cloned());
         route_runtime_features(&mut stmts, &feature_names, "../", &mut used_features);
+        if release {
+            named_runtime_imports(&mut stmts);
+        }
         let text = print(&stmts, profile);
         let stem = format!("pages/{}", crate::css::kebab(&g.view.decl(p).name));
         let name = hashed(&stem, "js", &text, profile);
@@ -469,6 +486,9 @@ pub(crate) fn client_files(
         }
         stmts.extend(entry);
         route_runtime_features(&mut stmts, &feature_names, "./", &mut used_features);
+        if release {
+            named_runtime_imports(&mut stmts);
+        }
         let mut text = print(&stmts, profile);
         for (p, name) in &page_names {
             text = text.replace(&format!("$page:{}", p.0), &format!("./{name}"));
@@ -494,6 +514,78 @@ pub(crate) fn client_files(
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
+}
+
+/// `true` when the client of this build is linked and minified after
+/// printing (`crate::link`): an app's release build. Tests and the
+/// development profile keep readable output.
+pub(crate) fn linked(g: &Gen<'_>) -> bool {
+    g.options.profile == Profile::Release && g.options.entry == crate::Entry::App
+}
+
+/// The namespaces generated client code reaches the runtime through: the
+/// runtime chunk (`$k`) and the runtime features with chunks of their own
+/// ([`route_runtime_features`]).
+fn runtime_namespace(name: &str) -> bool {
+    name == "$k"
+        || RUNTIME_FEATURES
+            .iter()
+            .any(|(stem, _)| name == format!("$k_{stem}"))
+}
+
+/// Replaces each namespace import of the runtime (`import * as $k`, and
+/// `$k_forms`, `$k_money`) with named imports of exactly the exports the
+/// chunk uses: `$k.template(…)` becomes `$k$template(…)` with
+/// `import { template as $k$template }`. Names starting `$k$` are never
+/// generated otherwise. A chunk that still uses a namespace as a value
+/// keeps its namespace import too, which keeps every export of that file
+/// alive (`crate::link` shakes only files imported by name).
+fn named_runtime_imports(stmts: &mut Vec<Stmt>) {
+    let mut used: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    js::walk_exprs_mut(stmts, &mut |e| {
+        if let js::Expr::Member(base, name) = e
+            && let js::Expr::Ident(ns) = &**base
+            && runtime_namespace(ns)
+        {
+            let alias = format!("{ns}${name}");
+            used.entry(ns.clone()).or_default().insert(name.clone());
+            *e = js::id(alias);
+        }
+    });
+    let mut bare: BTreeSet<String> = BTreeSet::new();
+    js::walk_exprs_mut(stmts, &mut |e| {
+        if let js::Expr::Ident(ns) = e
+            && runtime_namespace(ns)
+        {
+            bare.insert(ns.clone());
+        }
+    });
+    let mut i = 0;
+    while i < stmts.len() {
+        if let Stmt::ImportAll(ns, spec) = &stmts[i]
+            && runtime_namespace(ns)
+        {
+            let (ns, spec) = (ns.clone(), spec.clone());
+            let names: Vec<(String, String)> = used
+                .remove(&ns)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|n| (n.clone(), format!("{ns}${n}")))
+                .collect();
+            let keep_namespace = bare.contains(&ns);
+            if !keep_namespace {
+                stmts.remove(i);
+            } else {
+                i += 1;
+            }
+            if !names.is_empty() {
+                stmts.insert(i, Stmt::Import(names, spec));
+                i += 1;
+            }
+            continue;
+        }
+        i += 1;
+    }
 }
 
 /// Runtime files that generated code calls through `$k` but that ship as
@@ -602,7 +694,9 @@ fn feature_of(module: &str, sym: &str) -> Option<usize> {
 /// chunk being written to them, `./` or `../`); every other becomes
 /// `const Sym = $k.native("module.Sym")`, the browser's implementation
 /// (`services.js`) or a stand-in that panics with the name when used, so
-/// a chunk always loads and only the unimplemented path fails.
+/// a chunk always loads and only the unimplemented path fails. A linked
+/// release build binds `$k.native_<name>` or `$k.missingNative("…")`
+/// instead, so the lookup table doesn't keep every native alive.
 fn client_natives<'a>(
     g: &Gen<'_>,
     items: &BTreeMap<DeclId, Item>,
@@ -625,7 +719,22 @@ fn client_natives<'a>(
             continue;
         }
         let name = format!("{}.{sym}", module.replace('/', "."));
-        out.push(Stmt::Const(sym, js::rt("native", vec![js::str(name)])));
+        // A release build binds the implementation itself (or the
+        // stand-in), so the runtime's table of natives, and every native
+        // the app doesn't use, can go (codegen.md §17.1).
+        let value = if linked(g) {
+            let export = format!("native_{}", name.replace('.', "_"));
+            let implemented = k_runtime::module("k:/runtime/services.js")
+                .is_some_and(|m| m.source.contains(&format!("export const {export} =")));
+            if implemented {
+                js::member(js::id("$k"), export)
+            } else {
+                js::rt("missingNative", vec![js::str(name)])
+            }
+        } else {
+            js::rt("native", vec![js::str(name)])
+        };
+        out.push(Stmt::Const(sym, value));
     }
     let imports = from
         .into_iter()

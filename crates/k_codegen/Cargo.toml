@@ -21,8 +21,17 @@ serde.workspace = true
 serde_json.workspace = true
 # `routes.lock` is TOML (`routelock.rs`).
 toml.workspace = true
+# Release builds minify and tree-shake the client chunks (`minify.rs`).
+oxc_allocator.workspace = true
+oxc_ast.workspace = true
+oxc_parser.workspace = true
+oxc_span.workspace = true
+oxc_syntax.workspace = true
+oxc_minifier.workspace = true
+oxc_codegen.workspace = true
 
 [dev-dependencies]
+flate2.workspace = true
 criterion.workspace = true
 proptest.workspace = true
 

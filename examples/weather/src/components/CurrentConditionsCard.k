@@ -84,7 +84,7 @@ public component CurrentConditionsCard {
 
         .title       { fontSize: .sm; color: .muted; textTransform: uppercase; }
         .headline    { display: flex; alignItems: center; gap: .md; }
-        .icon        { width: 3rem; height: 3rem; }
+        .icon        { width: 3rem; height: 3rem; fontSize: 3rem; lineHeight: 1; }
         .temperature { fontSize: .display; fontWeight: 600; lineHeight: 1; }
         .condition   { fontSize: .lg; }
 

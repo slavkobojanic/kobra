@@ -2,8 +2,8 @@
 #
 # The manifest holds only what can't be expressed in K. Per-environment
 # choices live in App.k, and configuration and secrets come from the process
-# environment (see docs/design/25-config-and-secrets.md), never from this
-# committed file.
+# environment (see docs/design/25-config-and-secrets.md). The [dev] section
+# below is read only by `k dev` and `k run`, never by `dist/app`.
 
 [package]
 name = "shop"
@@ -18,3 +18,21 @@ version = "0.1.0"
 # k.http, not through a vendor SDK.
 [dependencies]
 pay-contracts = { workspace = true }
+
+# Development settings (docs/design/24-projects.md, "Development settings"),
+# so `k dev` at the workspace root needs no setup. The process environment
+# and a `.env` win over them; production never reads them.
+[dev]
+# The demo catalog, loaded once when `k dev` creates the database.
+seed = "scripts/demo-catalog.sql"
+
+[dev.env]
+SHOP_ADMIN_EMAIL = "admin@shop.example"
+MAIL_FROM = "K Shop <orders@shop.example>"
+# Where paybox calls this shop back: its own development address.
+PAYBOX_CALLBACK_URL = "http://127.0.0.1:{port}"
+
+# Generated on first use into .k/secrets/ (git-ignored); `k dev` prints the
+# admin password at startup.
+[dev.secrets]
+SHOP_ADMIN_PASSWORD_HASH = "password-hash"

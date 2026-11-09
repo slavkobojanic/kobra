@@ -1,0 +1,311 @@
+# Releases, Versioning and Upgrades
+
+## Decision
+
+**K has one version number for everything it ships:** the `k` binary, the standard library and the JavaScript runtime embedded in it, the VS Code extension, the toolchain container image and the book. A release is one commit, tagged `vX.Y.Z`, from which every artifact and the documentation are built, after one gate has passed on that commit.
+
+- **Semantic versioning, Cargo-style before 1.0:** `0.Y` is the compatibility unit, so `0.5.0 → 0.6.0` may break and `0.5.0 → 0.5.3` never does. From 1.0, majors break, and editions make a major rare.
+- **Two channels, stable and nightly**, with a release candidate before each stable minor. Minors ship on a six-week train once the first release is public.
+- **A project pins its toolchain:** `[package] k = "0.5"` is a requirement, and `k.lock` records the exact toolchain version that last built the project. An installed `k` that doesn't match passes the command to a matching installed toolchain, or stops with the one command that installs it. It never downloads anything on its own.
+- **Every break comes with its migration:** a deprecation warning with a machine-applicable fix in a release before the removal, `k fix` to apply it, and `k upgrade` to move a project to a new toolchain.
+- **Every lockfile and wire format carries a format version,** and two adjacent minors always understand each other on the wire, so a workspace's services can be deployed one at a time across a toolchain upgrade.
+- **Changelog entries are fragments in `changes/`,** written in the pull request that makes the change and compiled into `CHANGELOG.md`, the release notes and the book's upgrade guide at release time.
+- **The docs are versioned per minor** (`/0.5/`), with `/next/` for main and `/` for the newest release ([49-documentation.md](49-documentation.md) designs the site itself). Every page is built from the release's own commit, so its snippets compiled against that release's compiler.
+
+Hosting (the repository, CI, the docs site, release binaries, the container registry, the extension marketplaces, package managers) is not decided here: each is an **owner decision**, listed at the end with the options. Nothing below needs any of them to be built and tested.
+
+## What a version promises
+
+### Semantic versioning
+
+| Version change | Before 1.0 | From 1.0 |
+|---|---|---|
+| patch (`0.5.1 → 0.5.2`, `1.4.1 → 1.4.2`) | fixes only: no new error, no new warning, no removed API, no format change | the same |
+| minor (`0.5 → 0.6`, `1.4 → 1.5`) | may break, with a migration (below) | additions, deprecations and new warnings; breaks only behind an edition |
+| major (`1 → 2`) | n/a | reserved for a change editions can't express (a runtime or wire break that can't be bridged); not planned |
+
+- **The compatibility promise:** a project that `k check` accepts with no problem on `X.Y.Z` is accepted, and behaves the same, on every later `X.Y.*`; and from 1.0 on every later `X.*` in the same edition.
+- **Exceptions, in any release:** a soundness fix (the compiler accepted something the language rejects), a security fix, and a fix to behaviour the documentation already described differently. Each still needs a changelog fragment of kind `breaking`, and a diagnostic with a fix where one is possible.
+- **Patch releases add no diagnostics,** errors or warnings. `k check` exits 1 on any problem, warnings included ([13-tooling.md](13-tooling.md#commands)), so a patch with a new warning would break every project's CI on a version its requirement accepts.
+
+### What counts as breaking
+
+A change is breaking when a project accepted with no problem stops being accepted, behaves differently, or can no longer read what the previous version wrote. By surface:
+
+| Surface | Breaking | Not breaking |
+|---|---|---|
+| **Syntax** | removing or changing an accepted form; a new keyword (it can collide with a name) | a new form that was a syntax error before |
+| **Type rules** | rejecting a program that was accepted; changing which overload or member resolves | accepting a program that was rejected; better inference that changes no accepted program's meaning |
+| **Diagnostics** | a new error or warning on accepted code; reusing or removing a code; changing a fix's applicability from machine-applicable | a new code for code that was already rejected; changed message text |
+| **Standard library** | removing, renaming or changing the signature of a public declaration; a new case in a public enum that user code matches; a changed default; a new name in the implicit imports that can collide | a new declaration in a module that has to be imported; a new member of a type users can't implement |
+| **Runtime behaviour** | changing documented behaviour: rendering, events, reactivity order, error mapping, accessibility attributes, server startup, shutdown or exit codes | performance; generated JavaScript and CSS (internal, never API); undocumented DOM structure beyond the element mapping |
+| **Lock and project files** | `k.toml` keys or meaning; a lockfile format change an older toolchain misreads | a new format version read by the new toolchain alongside the old one (below) |
+| **Wire and stored formats** | the rpc wire format, the service token, streaming framing, the session cookie, the runtime's own tables (`k_session`, `k_job`, `k_rate_limit`, `k_migrations`) | a change that the previous and the next minor both understand (below) |
+| **CLI** | removing or renaming a command or flag; changing an exit status; the shape of `--format json` diagnostics; the commands of `dist/app` and the variables it reads | human-readable output; new commands and flags |
+| **Language server** | dropping a standard LSP feature an editor relies on | everything else: the server always comes from the project's own toolchain (below) |
+
+- **Generated code is internal.** Tests and tools must not depend on emitted JavaScript, CSS class names or bundle layout; the documented API is the element mapping, the ARIA attributes, `dist/` paths and `dist/manifest.json`.
+- **Diagnostic codes are API; messages aren't.** A code is never reused ([`k_diagnostics::codes`](../../crates/k_diagnostics/src/codes.rs)). The JSON diagnostic gets a `"schema": 1` field, and its shape changes only with that number.
+- **Dependencies' warnings are not reported.** A git package's code is checked for errors, but its warnings belong to its author, so a new lint in a minor never fails a project because of a package it can't edit (Cargo's lint capping). Workspace libraries are the team's own code and are reported in full.
+
+### Editions
+
+**K adopts editions at 1.0, not before.** An edition (`edition = "2027"` in `[package]`) is a set of syntax and type rules a package opts into; the toolchain supports every edition, and packages of different editions build together, because packages are distributed as source ([18-packages.md](18-packages.md)) and one build mixes them.
+
+- **What an edition may change:** syntax, keywords, type rules, which diagnostics are errors, and which deprecated standard library names are visible. **What it can't:** the standard library's implementation, the runtime and the wire formats, which are one per toolchain and shared by every package of a build.
+- **Before 1.0 each minor plays the edition's part,** and `k upgrade` (below) migrates. Running several rule sets in one compiler before the language has settled would cost more than it saves: there is no ecosystem of packages on older versions yet.
+- `k new` writes the current edition; a `k.toml` without `edition` is the first edition.
+
+### Stability levels
+
+Every language feature and standard library declaration is at one of three levels:
+
+| Level | Promise | How it is used |
+|---|---|---|
+| **stable** | the compatibility promise above | freely |
+| **preview** | may change or disappear in any minor, with a changelog entry but no deprecation period | the project lists the feature in `[package] preview = ["client-streaming"]` |
+| **internal** | none | not at all: used by generated code and the runtime only |
+
+- **Preview is opt-in per project and available on every channel.** Unlike Rust's nightly-only features, a preview doesn't push anyone onto nightly; the opt-in in `k.toml` is the consent, and it is visible in review.
+- **Consent is not inherited.** A package that uses a preview feature requires every project that depends on it to list that feature too (a proposed `K82xx` error naming the package, with a machine-applicable fix that adds it), so no project starts depending on unstable behaviour without saying so.
+- **In the standard library a declaration is marked in source:** `@Preview("feature-name")` and `@Internal`. Using a preview declaration without the opt-in is an error with a fix that adds the opt-in; using an internal one is the existing visibility error.
+- **The feature table** (`k_sema::features`) is the one list of named features that aren't simply stable: each row has an id (`client-streaming`, `k-new`), a status (`planned`, `preview` or `stable`), the version it changed status in, and its design topic. Language features are marked there; stdlib declarations point at a row by their `@Preview` name. The book's `> **Planned** (id).` and `> **Preview** (id).` notes use the same ids, and the book test fails when a note's id is missing from the table or its status disagrees ([49](49-documentation.md#planned-notes-are-tied-to-the-code)), so the docs and the compiler share one source of truth for what is built.
+- **A stabilized feature left in `preview`** is a warning with a fix that removes it; an unknown name is `K8101`, like any malformed manifest value.
+- **In the docs:** the generated standard library reference shows a *Preview* or *Deprecated* badge from the annotations, and a book chapter marks a preview feature with a `> **Preview.**` note naming the feature, as it marks **Planned** ones today. Internal declarations never appear.
+
+### Deprecation
+
+- **`@Deprecated("message", since: "0.6", replacement: "newName(_:)")`** may be put on any declaration, the standard library's or a package's. Using it is a warning; when `replacement` names a declaration whose call shape matches, the warning has a machine-applicable fix.
+- **Removal timing:** before 1.0, a stable declaration or form is deprecated for at least one minor before the minor that removes it (deprecated in 0.6, removed in 0.7 at the earliest). From 1.0, a standard library declaration is never removed; a new edition may hide it.
+- **Removed syntax leaves a tombstone:** for one minor after removal, the parser still recognises the old form and reports it with the fix the deprecation had, instead of an unrelated syntax error. `k upgrade` relies on it.
+- **Removed `k.toml` keys and CLI flags** get the same treatment: a precise error naming what replaces them, for one minor.
+
+## Channels and cadence
+
+| Channel | Version | Built from | Promise |
+|---|---|---|---|
+| **stable** | `0.6.0`, `0.6.1` | a tag on the release branch `release/0.6` | the compatibility promise |
+| release candidate | `0.6.0-rc.1` | the release branch, one week before the stable minor | a stable candidate; installed only by asking for it |
+| **nightly** | `0.7.0-nightly.20261109` | main, every day it changed, after the nightly gate | none: what main is |
+
+- **No separate beta channel.** Release candidates serve that purpose without a third stream to maintain; a beta can be added at 1.0 if users ask for one.
+- **Cadence:** a minor every six weeks once the first release is public (train model: what is on main and green at the branch cut ships; nothing waits for a feature). Patches whenever a fix is needed, from the release branch. Before the first public release, minors are cut when the owner decides.
+- **Only the latest stable minor gets patches.** A security fix may also be backported to the previous minor.
+- **A nightly satisfies its own minor's requirement:** `0.7.0-nightly.…` runs a project requiring `k = "0.7"`, but not one requiring `0.6`, since it may already have broken 0.6 code.
+- **`k --version`** prints the version, the commit and its date: `k 0.6.1 (3fa1c2e 2026-11-02)`; a nightly says `nightly`. `dist/app --version`, its startup log line and `dist/manifest.json` carry the toolchain version that built it, so an operator can tell which runtime is deployed.
+
+## Pinning a toolchain
+
+### The requirement and the lock
+
+- **`[package] k = "0.5"` is a requirement, with Cargo's caret meaning:** `0.5` is `>=0.5.0, <0.6.0`; from 1.0, `1.4` is `>=1.4.0, <2.0.0`. `=0.5.2` pins exactly. It replaces today's "minimum toolchain version" reading ([24-projects.md](24-projects.md#ktoml)), which accepts every later minor even though before 1.0 any later minor may break the project.
+- **`k.lock` records `toolchain = "0.5.2"`,** the exact version that last wrote it, in apps and at a workspace root. Libraries record none: their consumers' toolchains build them. So a team and its CI build with the same compiler, and a bump shows up in review as a one-line diff.
+- **A workspace has one toolchain.** The root's `k.toml` gets the requirement (`[workspace] k = "0.5"`), and a member whose `k` is incompatible with it is an error; members needn't repeat it.
+- **A git package that requires a newer toolchain** than the one building is an error naming the package and its requirement.
+
+### When the installed `k` doesn't match
+
+Toolchains live in `~/.k/toolchains/<version>/` and the `k` on the `PATH` is the default one (installed in `~/.k/bin/` by the install script, below). Every command that works on a project, `k lsp` included, starts by reading the requirement and the lock:
+
+1. **The running `k` satisfies the requirement and equals the locked version:** it runs.
+2. **Otherwise, an installed toolchain is the locked version** (or, without a lock, the newest installed one that satisfies the requirement): the running `k` executes it with the same arguments, environment and standard streams. It sets `K_TOOLCHAIN_DELEGATED=1`, and a delegated `k` never delegates again.
+3. **Otherwise it stops** (exit 2) with one diagnostic (a proposed `K82xx`): *"this project needs k 0.5 (k.lock: 0.5.2); this is k 0.6.1"*, with the commands that resolve it: `k toolchain install` (what the project needs) or `k upgrade` (move the project to this toolchain). It is a diagnostic like any other, so `--format json` gives agents the exact command.
+4. **A satisfying `k` that differs from the lock only in patch** runs, and `k build` updates the lock's `toolchain`. Patches never break, so refusing would only cost time; the lock diff still shows the change.
+
+- **`K_TOOLCHAIN=0.5.2` overrides** the choice for one command, for bisecting and for trying a release candidate (`K_TOOLCHAIN=0.6.0-rc.1 k check`).
+- **No implicit downloads.** Go downloads a missing toolchain automatically; K doesn't: a command such as `k check` on a fresh checkout must not reach the network, CI should say what it installs, and an offline machine should fail with a clear message rather than a timeout. The fix is one command, and `k toolchain install` without arguments installs exactly what `k.lock` names.
+- **The language server follows the same rule,** so an editor uses the project's own compiler and the editor never disagrees with that project's CI. The VS Code extension needs no version logic of its own (below).
+- Delegation exists from the release that introduces it; an older default `k` can't delegate to a newer toolchain, so the install script always installs the newest stable as the default.
+
+### Commands
+
+| Command | Does |
+|---|---|
+| `k toolchain install [version]` | installs a toolchain (default: the one the project's `k.lock`, else its requirement, names; `stable`, `nightly` and `0.6.0-rc.1` also work), verifying its checksum and signature |
+| `k toolchain list` | the installed toolchains, the default, and which one the current project uses |
+| `k toolchain remove <version>` | removes one |
+| `k toolchain default <version>` | makes one the `k` on the `PATH` |
+| `k self update` | installs the newest stable and makes it the default; on nightly, the newest nightly |
+
+Downloads go to the release host chosen by the owner (below) through an index file listing each version's archives, sizes, SHA-256 digests and signatures; `K_TOOLCHAIN_INDEX` points it elsewhere, which is how the tests serve a fake release from a local directory.
+
+## Upgrading a project
+
+- **`k fix`** applies every machine-applicable fix of the current diagnostics, then re-checks, until nothing changes (at most a few rounds). `--code K1234` limits it to one code and `--dry-run` prints the diff. It is useful on its own: agents already consume these fixes from JSON, and this is the same thing in one command.
+- **`k upgrade [--to 0.7]`** moves a project to the running toolchain (or the given one):
+  1. it refuses with uncommitted changes, unless `--allow-dirty`, so the upgrade is one reviewable diff;
+  2. it applies the deprecation fixes of each minor in between, in order. Removed forms are recognised by their tombstones for one minor, so from more than one minor behind it installs and runs each intermediate minor's newest patch in turn (an explicit upgrade is consent to download them);
+  3. it rewrites each lockfile to the current format, and changes `k = "…"` and `k.lock`'s `toolchain`;
+  4. it runs `k check` and prints what it couldn't fix, each problem with the upgrade guide's section for it.
+- **From 1.0, `k upgrade --edition 2030`** does the same for an edition, using the edition's migration lints.
+- **A breaking change without a machine-applicable fix** is allowed only with a manual migration written in the upgrade guide, which the changelog fragment links (below).
+
+### Lockfile format versions
+
+- **Every lockfile starts with `format = N`** after its comment header: `rpc.lock`, `schema.lock`, `storage.lock`, `routes.lock` and `k.lock`. A lockfile without the key is format 1, which is every lockfile written so far.
+- **A toolchain reads its own format and every older one,** and writes the format it read. Only `k upgrade` rewrites a lock to a newer format, together with the requirement bump, so a teammate's older toolchain is stopped by the requirement with a clear message instead of misreading the lock.
+- **A lockfile in a newer format than the toolchain knows** is an error (a proposed `K82xx`) that names the format and the toolchain needed, never a parse error.
+- **Every format change has golden fixtures:** the lock of each format under `tests/compat/locks/<file>/<format>/`, with a test that the current toolchain reads every one and that `k upgrade` turns each into the current format.
+
+### Wire and stored formats across a rolling deploy
+
+A workspace's apps are deployed one at a time, and open browser tabs keep running the previous client: during a deploy, code built by two toolchains talks to each other. `rpc.lock` already protects the *protocols' shapes* ([40-workspaces-and-services.md](40-workspaces-and-services.md#compatibility-between-deploys)); this protects the *toolchain's encodings* of them.
+
+- **Any two adjacent minors interoperate, in both directions.** A change to an encoding takes two minors: release N learns to read the new form and keeps writing the old; release N+1 writes the new. So a deploy may mix N and N+1, never N and N+2.
+- **This covers** the rpc wire format and its error details ([28-rpc-wire-format.md](28-rpc-wire-format.md)), the service token (already versioned, `v1.`), server-stream framing ([29-server-streaming.md](29-server-streaming.md)), the session cookie, job payloads in `k_job` (a job queued by N runs on N+1, and the other way round), the `k-data` payload a page embeds, and the binary Protobuf encoding when it ships.
+- **The runtime's own tables migrate by expand and contract,** exactly as an app's must ([19-persistence.md](19-persistence.md#rolling-deploys-expand-then-contract)): a toolchain migration that adds a column ships in N, and the one that drops what it replaces in N+1 or later. `dist/app` applies them like the app's migrations, under the same advisory lock.
+- **The release notes say** when a minor starts writing a new encoding, so operators know not to skip a minor in one deploy. `k upgrade` from more than one minor behind prints the same warning.
+- **Tested with recorded traffic:** `tests/compat/wire/<minor>/` holds requests and responses recorded from each minor's examples (rpcs, error details, a stream, a service token, a queued job row). The current server must answer the previous minor's recorded requests as recorded, and the previous minor's recorded responses must decode in the current client. Fixtures are offline and need no old binary.
+
+## The release process
+
+The maintainer runbook, step by step, is [docs/compiler/release.md](../compiler/release.md). The decisions it follows:
+
+### One source for the version
+
+- **The workspace `Cargo.toml` `version` is the version.** Everything else that names it is derived or checked against it: `editors/vscode/package.json`, the `k` requirement that `k new` writes, the image tags in [38-deployment.md](38-deployment.md) and the examples' Dockerfiles, the book's install page, and the examples' `k = "…"`.
+- **A test fails when any of them disagrees** (`crates/k_cli/tests/version.rs`), so a release can't ship half-bumped.
+- **Release automation is Rust, in an `xtask` crate** (`cargo xtask release …`), not shell scripts or npm, like the rest of the toolchain. It bumps, compiles the changelog, checks the gate's local parts and prints the tag to push.
+
+### Changelog fragments
+
+This section owns the fragment format that [49-documentation.md](49-documentation.md#docs-ownership-in-review) refers to.
+
+**Each user-visible change adds a file to `changes/`** in the pull request that makes it, and the release compiles them. Conventional commits were rejected: this repository's commits each cover several topics ("Cancel work on unmount, reject more mistakes at compile time, and speed up re-checks"), and a commit subject is the wrong place for a migration note. A fragment is reviewed with the code it describes.
+
+```markdown
+---
+kind: breaking            # breaking | language | stdlib | tooling | runtime | fix | deprecation | preview | docs | internal
+design: 41                # optional: the design file
+migration: K3108          # breaking and deprecation: the code whose fix migrates, or "manual"
+book: apps/drag-and-drop.md   # the book pages changed in this PR, or "none: <reason>"; required for user-visible kinds
+---
+`Draggable` takes its kind first: `Draggable(kind:payload:)`. `k fix` reorders existing calls.
+```
+
+- **File name:** a short slug (`changes/draggable-kind-first.md`), so parallel pull requests never conflict.
+- **Checked by a test:** every fragment parses, its kind is known, a `breaking` or `deprecation` fragment names a migration, a `manual` migration has a section in the upgrade guide, and every `book:` page exists.
+- **The `book:` field is required on the user-visible kinds** (`breaking`, `deprecation`, `language`, `stdlib`, `runtime`, `tooling`, `preview`): a list of pages, or `none: <reason>`. It is optional on `fix` and absent on `docs` and `internal`. `cargo xtask docs-gate <base>` checks that each listed page changed in the same diff ([49](49-documentation.md#docs-ownership-in-review)); this is the review-time half of keeping the book current, the tests being the mechanical half.
+- **CI requires a fragment** in every pull request that changes `crates/`, `editors/` or `docs/book/`, unless it adds a `kind: internal` one; internal fragments are deleted, not published.
+- **At release,** `cargo xtask release prepare` turns the fragments into a `CHANGELOG.md` section grouped by kind (breaking first), the release notes (that section plus `changes/_highlights.md`, written by hand), the book's changelog page, and a new section of the book's upgrade guide (the breaking and deprecation fragments with their migrations), then deletes them. [49-documentation.md](49-documentation.md#docs-ownership-in-review) relies on the same fragments: a change to the compiler's sources that doesn't touch the book must add one.
+
+### Artifacts
+
+| Artifact | Name | Notes |
+|---|---|---|
+| toolchain archives | `k-0.6.0-<target>.tar.gz` (`.zip` on Windows), holding `k`, `LICENSE`, `README.md` | the six targets below |
+| checksums | `SHA256SUMS` | one line per archive |
+| signatures | a Sigstore bundle per archive, and build provenance | keyless signing from CI; see owner decisions |
+| index | `index.json` | versions, archives, digests and signatures, for `k toolchain` |
+| install scripts | `install.sh`, `install.ps1` | in the repository, tested; served from the docs site |
+| VS Code extension | `k-language-0.6.0.vsix` | attached to every release; marketplaces are an owner decision |
+| toolchain image | `<registry>/k:0.6.0`, `:0.6`, `:latest`, `:nightly` | multi-arch (amd64, arm64), `distroless/cc` base |
+| docs | `/0.6/` on the docs site | built from the tag |
+
+**Targets:** `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`, and `aarch64-pc-windows-msvc` when the V8 build `deno_core` uses publishes a prebuilt library for it (until then that target isn't offered).
+
+- **Each target is built and smoke-tested on a native runner** rather than cross-compiled: V8 is linked from a prebuilt static library per target, and a binary that was never run on its target isn't released. The smoke test is `k new`, `k check`, `k test`, `k build`, then `dist/app probe` against the built app's health page.
+- **The Linux binaries link glibc** (V8 needs it, [38-deployment.md](38-deployment.md#what-k-build-produces)) and are built against an old glibc baseline (2.31), so they run on every current distribution. "Static binary" in the docs means *no other files and no Node*, not *statically linked*; musl isn't supported.
+- **`dist/app` is a copy of `k`** ([architecture.md §14](../compiler/architecture.md#14-projects-commands-and-build-outputs)), so an app built on macOS runs only on macOS. Production images are built on Linux, which is what the toolchain image is for. A later `k build --target <triple>` can fetch that target's `k` through `k toolchain` and append the app to it; that is not part of this plan.
+- **Container images contain only `k`** and CA certificates; the runtime image of a deployment is the app's own (`distroless/cc` plus `dist/app`, [38-deployment.md](38-deployment.md#the-toolchain-image)), so no K runtime image is published.
+- **Package managers** (Homebrew, winget, Scoop, the AUR, Nix, crates.io) are options for the owner; each would install the same archives and verify the same digests. Until one is chosen, the install script and `k toolchain` are the supported ways.
+
+### The VS Code extension
+
+- **The extension carries no compiler.** It starts `k lsp` in the workspace folder, and the `k` on the `PATH` delegates to the project's toolchain, so every language feature always matches the project's compiler, whatever extension version is installed.
+- **Its version is the toolchain's,** and it is built on every release from the same commit. What it does own, the TextMate grammar and the language configuration, must colour the code of every supported toolchain, so a new keyword is added to the grammar when it lands on main, and a removed one stays in it until its tombstone is gone.
+- **It reports the server's version** from the LSP `initialize` response (`serverInfo.version`) in its status item, so a user can see which toolchain a project uses.
+- **Nightly builds** of the extension use the marketplace's pre-release flag when it is published there, with the date as the patch number (`0.7.20261109`), because the marketplace accepts only `major.minor.patch`.
+
+### The gate
+
+A release is made only from a commit on which all of these passed. The pipeline below implements it; GitHub Actions is the default, and the CI system is an **owner decision**.
+
+| Check | Command | On pull requests | Nightly | Release |
+|---|---|---|---|---|
+| formatting and lints | `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` | yes | yes | yes |
+| full test suite, which includes the book's snippets (`k_sema/tests/book.rs`), the generated references (`k_corpus/tests/book_reference.rs`) and the examples' check, build and tests | `cargo test --workspace` | Linux, macOS arm64 | every target | every target |
+| on Postgres | `K_TEST_POSTGRES_URL=… cargo test -p k_db -p k_server` | Linux | Linux | Linux |
+| real Chrome | `K_REQUIRE_CHROME=1 cargo test -p k_cli --test chrome --test dist_browser` | Linux | Linux | Linux, macOS |
+| long property runs | `PROPTEST_CASES=…` on the property suites | no | yes | the nightly's result for this commit, or a run |
+| fuzzing | each target of `fuzz/` for 10 minutes; the committed corpus replayed at release | no | yes | corpus replay |
+| performance budgets | `scripts/bench-check.sh` | no | on the dedicated runner | on the dedicated runner |
+| the book builds with no warnings | `mdbook build docs/book` | yes | yes | yes |
+| docs freshness | below | yes | yes | yes |
+| docs ownership | `cargo xtask docs-gate <base>`: each user-visible fragment's `book:` pages are in the diff | yes | — | — |
+| the versioned site builds | `cargo xtask docs build --version <minor>` (substitution, redirects, `versions.json`, search index) | when `docs/book/` or `xtask/` changed | yes (`/next/`) | yes |
+| compatibility fixtures | `cargo test --test compat` (locks, wire) | yes | yes | yes |
+| version consistency, changelog fragments | `crates/k_cli/tests/version.rs`, the fragment test; a fragment per pull request | yes | — | yes, and no fragment may remain |
+| install scripts | against a fake release served locally | when they change | yes | yes |
+| artifacts' smoke test | per target, above | no | yes | yes |
+| toolchain image | build, then build `examples/shop` with it (`K_TOOLCHAIN=` the image) | no | yes | yes |
+
+- **Performance budgets need a quiet machine.** Shared CI runners vary by more than the budgets' margins, so `bench-check.sh` runs on one dedicated runner whose baseline is in [docs/compiler/performance.md](../compiler/performance.md); where it runs is an owner decision. Without one, the release manager runs it on a known machine and pastes its output into the release checklist.
+- **Nightly failures block the train:** the branch cut waits until the nightly of the commit to be cut is green.
+- **Which pull-request checks are required** before merging is an owner decision (below); the recommendation is every "On pull requests" row, so a docs test failing blocks the merge, not only the release.
+
+### Docs freshness checks
+
+The book already can't drift in two ways: its `k` blocks compile, and the diagnostics and standard library references are regenerated from the compiler (`K_BLESS=1`). The full set of drift checks (samples that run, command transcripts, tutorial projects, generated references, coverage, links, Planned notes tied to probes, the staleness list) is designed in [49-documentation.md](49-documentation.md#drift-proofing); they are ordinary `cargo test`s, so the gate runs them on every target. The release adds two of its own:
+
+- **Version strings in the book** (install commands, image tags, `k = "…"` in samples) equal the current minor, or are written `{{k_version}}` and substituted when the site is built. The check is part of `crates/k_cli/tests/version.rs`. The snippet test (`book.rs`) substitutes `{{k_version}}` the same way before compiling, so a `k.toml` sample is checked with the value readers see.
+- **The page audit is current:** every page in `SUMMARY.md` has an entry in the audit ledger (`docs/book/check/audit.toml`, [docs/compiler/documentation.md §5](../compiler/documentation.md#5-the-page-audit)), and `cargo xtask release prepare` lists the pages not re-audited since the previous minor's cut whose design topic changed, for the release manager to review before the candidate.
+- **No fragment remains** in `changes/` on the tag, and the changelog page and the upgrade guide's new section exist.
+
+## Docs versioning
+
+How the site is organised (Learn, Guides, Reference, the quick start and the tutorial), how it is searched and how pages move without breaking links is [49-documentation.md](49-documentation.md). This section fixes what the release guarantees about it.
+
+- **The docs site is built from the release tag,** by the release pipeline: the book with the version substituted, plus `index.json`, `versions.json` and the install scripts. So every snippet on `/0.6/` compiled against 0.6's compiler, every generated reference page is 0.6's, and the tutorial projects passed 0.6's tests.
+- **Layout:**
+
+| Path | Contents |
+|---|---|
+| `/0.6/…` | the book as of the newest 0.6 patch; one directory per minor (patches replace it) |
+| `/next/…` | main, rebuilt nightly, with a banner saying it describes unreleased work |
+| `/`, `/latest/…` | redirect to the newest stable minor's same page |
+| `/versions.json` | the live minors, which one is latest, and next: read by the theme's version switcher |
+| `/index.json` | the toolchain index for `k toolchain` (above) |
+| `/install.sh`, `/install.ps1` | the install scripts |
+
+- **Before 1.0 only the newest minor and `next` stay live** ([49](49-documentation.md#docs-and-releases)); an older minor's built site is attached to its release as an archive, and `/0.N/<page>` redirects to the newest minor's same page, or the page it was moved to (the redirect table), or the landing page. From 1.0 every minor stays live, and an older minor's pages carry a banner and a canonical link to the newest one, so search engines send readers to current docs.
+- **A docs fix to a released minor** goes to its release branch and redeploys `/0.N/`. It needs no toolchain release, and the branch's own tests still compile its snippets with its compiler.
+- **One upgrade guide, one changelog page, both cumulative.** `apps/upgrading.md` ([49](49-documentation.md#docs-and-releases)) is a hand-written procedure followed by one generated section per minor ("Upgrading to 0.6"), assembled from that minor's `breaking` and `deprecation` fragments with their migrations, newest first, between `<!-- gen:upgrading -->` markers. **The changelog page** (`reference/changelog.md`) is `CHANGELOG.md`. Both keep every earlier minor's sections, so the one live minor's site (before 1.0) still tells a project two minors behind everything it needs. The release notes link to both.
+- **`k doc` output for a package** is the package's own and is not hosted by the project.
+
+## Owner decisions
+
+Each needs the project owner's sign-off before anything is published. Everything else in this file, and in [49-documentation.md](49-documentation.md), can be built and tested before they are made. **This table is the one list for both topics**; 49 refers to it.
+
+| Decision | Options | Recommendation |
+|---|---|---|
+| **Project name and namespace** (the org, `k-lang` is a placeholder) | the name "K" is already used by the APL-family language from Kx Systems, and short package names (`k` on Homebrew, crates.io) may be taken; a check is needed before any publication | decide before the first public release |
+| **Source hosting and CI** | GitHub with Actions; GitLab CI; sourcehut; Buildkite with self-hosted agents | GitHub Actions: native runners for all six targets, free for public repositories, keyless signing through its OIDC tokens |
+| **Release binaries host** | GitHub Releases; an object store behind the docs domain (S3, R2, GCS) | GitHub Releases for the archives; `index.json` on the docs site so the host can change without a toolchain release |
+| **Signing** | Sigstore keyless with build provenance; a minisign key held by maintainers; GPG | Sigstore keyless: no long-lived key to guard. **Apple notarization** and **Windows Authenticode** need paid developer accounts; without them, the install script (which avoids browser quarantine) is the supported path on macOS, and Windows shows a SmartScreen prompt |
+| **Required pull-request checks** | every "On pull requests" row of the gate; only tests and lints; none (advisory) | every row, docs ownership included, so a stale page blocks a merge rather than a release |
+| **Docs site host and domain** | GitHub Pages; Cloudflare Pages; Netlify; object storage behind a CDN | GitHub Pages if the source is on GitHub (no extra account, deployed by the same pipeline); the layout above is plain directories, so moving later is cheap ([49](49-documentation.md#hosting) compares them). The domain waits for the name |
+| **Docs pull-request previews** | none; the host's previews (Cloudflare Pages, Netlify); the built site as a CI artifact | the built site as a CI artifact at first: no second host |
+| **Pagefind for search** | keep mdBook's search; Pagefind at docs-build time | Pagefind, pinned to one version and checksum in `xtask`; it never reaches users' machines ([49](49-documentation.md#search)) |
+| **Container registry** | GHCR; Docker Hub; both | GHCR, alongside the source |
+| **Extension marketplaces** | VS Code Marketplace (an Azure DevOps publisher); Open VSX (an Eclipse account) for VSCodium and others; `.vsix` on the release only | both marketplaces once the name is settled; the `.vsix` until then |
+| **Package managers** | an own Homebrew tap, then homebrew-core; winget; Scoop; AUR; Nix; crates.io | an own Homebrew tap first; the rest on demand |
+| **Performance runner** | a self-hosted machine; a dedicated cloud instance; a maintainer's machine, by hand | a self-hosted runner |
+| **First public release and the train's start** | `0.1.0` now; after the quick start, the tutorial and toolchain pinning exist; after packages and `k fmt` | after rounds 1–4 of the [combined plan](49-documentation.md#implementation-plan) and a local `0.1.0-rc.1` dry run: a newcomer's first visit then has a quick start that works and a project they can pin |
+| **Publishing the internals** (`docs/design`, `docs/compiler`) | a second small mdBook; the code host's markdown rendering; not at all | the code host's rendering; revisit after 1.0 |
+
+## Why
+
+- **One version for every part** follows from one binary: the compiler, the stdlib and the runtime are already inseparable, and an extension with its own version would only add a compatibility matrix.
+- **Explicit pins with delegation** give reproducible builds (the `rust-toolchain.toml` lesson) without making a fresh checkout reach the network (the reason not to copy Go's automatic download).
+- **A fix for every break** follows from the machine-applicable fixes the compiler already has: K can promise that upgrading is a command, and agents can apply the same fixes from JSON.
+- **Adjacent-minor wire compatibility** is the toolchain's half of what `rpc.lock` does for protocols: services and open tabs outlive a deploy.
+- **Fragments over conventional commits** keep each changelog entry next to the code it describes, reviewed with it, and carrying its migration.
+- **Docs from the release commit** make the book's existing guarantees (snippets compile, references are generated) hold per version instead of only for main.
+
+## Open questions
+
+- Whether a public standard library enum can be marked as one that will gain cases (Rust's `#[non_exhaustive]`), so adding a case to `RpcFailure` or `HttpError` isn't breaking, or whether every such addition waits for a minor.
+- Whether user declarations shadow names in the implicit imports; if they do, adding a name there isn't breaking.
+- Whether `dist/app` should be able to come from a slimmer runtime binary without the compiler ([architecture.md §14](../compiler/architecture.md#14-projects-commands-and-build-outputs)), which would add a second artifact per target.
+- How long a release candidate soaks (one week is assumed) once there are users to test it.

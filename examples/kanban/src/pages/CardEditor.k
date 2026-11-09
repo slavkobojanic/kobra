@@ -35,6 +35,7 @@ component CardEditor {
         form {
             textField(value: bind input.title)
                 .label("Title of {card.title}")
+                .autofocus(true)
 
             textArea(value: bind input.notes)
                 .label("Notes of {card.title}")

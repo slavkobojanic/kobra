@@ -4,7 +4,7 @@ A small weather dashboard written entirely in K. Search for a city, open its das
 
 The app has about 880 lines of K, not counting blank lines, comments, tests and test fakes. It is meant to be read: every file shows one or two language features in a realistic setting.
 
-> The K compiler doesn't exist yet, so this code hasn't been compiled. It follows the decisions in [`docs/design`](../../docs/design/README.md) (the ones it leans on most are listed [below](#design-documents-this-example-relies-on)) and the syntax in [`docs/compiler/grammar.md`](../../docs/compiler/grammar.md).
+The code follows the decisions in [`docs/design`](../../docs/design/README.md) (the ones it leans on most are listed [below](#design-documents-this-example-relies-on)) and the syntax in [`docs/compiler/grammar.md`](../../docs/compiler/grammar.md).
 
 ## What it demonstrates
 
@@ -90,26 +90,36 @@ The layering follows [10-services.md](../../docs/design/10-services.md). Pages a
 @Load let airQuality: AirQuality = try await weather.airQuality(place: place)
 ```
 
-`forecast` and `airQuality` read `place`, so the compiler starts them when `place` resolves, and runs them in parallel with each other. `loading` renders until all three have resolved. `failed` receives a `WeatherError`, and the page matches on it exhaustively: not found (which also sets `status(.notFound)`), or one of offline, timeout, an upstream error status and an invalid response, each explained in its own sentence with a retry button. The page's own `metadata` block reads `place`, so it isn't evaluated when `failed` renders: the not-found case sets its own title, and the other failures keep the layout's. Every ten minutes `reload()` re-runs the graph. The cached place returns at once, and the dashboard stays on screen until the new forecast arrives.
+`forecast` and `airQuality` read `place`, so the compiler starts them when `place` resolves, and runs them in parallel with each other. `loading` renders until all three have resolved. `failed` receives a `WeatherError`, and the page matches on it exhaustively: not found (which also sets `status(.notFound)`), or one of offline, timeout, an upstream error status and an invalid response, each explained in its own sentence with a retry button. The page's own `metadata` block reads `place`, so it isn't evaluated when `failed` renders: the not-found case sets its own title, and the other failures keep the layout's. Every ten minutes `reload()` re-runs the graph; the refresh timer is created once, when the dashboard first has its values, and isn't recreated by each refresh. The cached place returns at once (except on the first refresh after a server-rendered page, whose place the browser's service hasn't cached yet), and the dashboard stays on screen until the new forecast arrives.
+
+Switching between °C and °F is a navigation to the same page with another `units`, so the page stays mounted and only `forecast`, the one load that reads `units`, runs again: the place and the air quality are kept.
 
 A failed load rendered on the server is sent to the browser for hydration, so `WeatherError` never carries Open-Meteo's response body. `WeatherService` keeps only the `HttpStatus` (`case upstream(HttpStatus)`), as [32-http-client.md](../../docs/design/32-http-client.md#errors) recommends.
 
 ## Running it
 
-These commands will exist once the toolchain ships ([13-tooling.md](../../docs/design/13-tooling.md)):
+From this directory:
 
 ```bash
-cd examples/weather
+k dev
+```
 
-k dev       # dev server with state-preserving hot reload
+Then open http://localhost:8080 and search for a city. There is nothing to set up: Open-Meteo needs no key and the app has no database. `k dev` rebuilds and restarts on every change (`--port` picks another port); there is no hot module replacement yet, so reload the page after a change.
+
+The other commands ([13-tooling.md](../../docs/design/13-tooling.md)):
+
+```bash
 k test      # run every *.test.k file (add --watch to re-run on save)
 k build     # dist/app: one self-contained server executable plus client assets
-k check     # types, formatting, tests and lockfiles, as CI runs them
+k check     # types, tests and lockfiles, as CI runs them
+k run       # like k dev, without rebuilding on change
 ```
 
 `k build` also writes `routes.lock`. The routes are `/` (`Home`) and the default URL for `CityWeather`, for example `/city-weather/2950159?units=imperial`.
 
 The app needs outbound HTTPS access to `geocoding-api.open-meteo.com`, `api.open-meteo.com` and `air-quality-api.open-meteo.com`. Requests are made from the browser, and from the server during server rendering. Open-Meteo's free tier is for non-commercial use, and its data is licensed under CC BY 4.0. The layout shows the attribution the licence requires.
+
+To run against a local fake instead, as the toolchain's real-browser tests do, set `K_DEV_FETCH_ORIGINS` for `k run` or `k dev`: `K_DEV_FETCH_ORIGINS=https://api.open-meteo.com=http://127.0.0.1:5301,…` sends the server's requests for each listed origin to the fake. The browser's own requests are the test's to answer (`crates/k_cli/tests/chrome.rs` intercepts them over the DevTools protocol).
 
 ## Tests
 
@@ -147,4 +157,4 @@ A few smaller stdlib APIs are assumed and not specified anywhere yet:
 - `Date(unixSeconds:)`, and `TimeZone.parse(_:)` following the `Type.parse` convention in [20-standard-library.md](../../docs/design/20-standard-library.md#literals-and-parsing)
 - `Angle(degrees:)`
 - `String.trimmed()`
-- `Icon(name:)` with Lucide-style icon names
+- `Icon(name:)` with Lucide-style icon names. The compiler draws the bundled glyphs as CSS masks in the text colour (`crates/k_codegen/src/icons.rs`), so the condition icon takes the size of its 3rem box and the wind arrow, rotated by `{windArrowAngle}` in degrees, the size of its text

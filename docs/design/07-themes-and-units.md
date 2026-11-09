@@ -57,6 +57,35 @@ public theme AppTheme {
 - The overriding value's category and type come from the library's declaration. Assigning a token that nothing declares is a compile error.
 - Declaring a token with the name of one a library already declares is a compile error, with a quick fix to the assignment form. So an app token can't silently collide with a token a library adds later.
 
+- **Library defaults reach the page.** A library's token declarations are part of the app's `:root` as soon as the app imports from the library, so its components never read an undefined property; an assignment at the top level of the theme replaces the default there, in the base theme itself, not only in variants.
+
+## Fonts
+
+A `font` token is a family and a size: `font body: Font = Font(family: "Inter", size: 16px)`.
+
+- **A font token always has a generic fallback.** The family is followed by a stack chosen from its name, so text never falls back to the browser's default serif (Times) where the family isn't installed:
+  - the system's sans-serif stack, `system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`, for most families;
+  - `ui-serif, Georgia, Cambria, "Times New Roman", serif` for a family whose name says `Serif` (and not `Sans`);
+  - `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace` for one whose name says `Mono` or `Code`.
+- **Without a `font body` token, the page uses the system sans-serif stack.**
+- **K loads a font only when the app ships it.** A named family is used if the reader has it installed, otherwise the fallback. There is no font asset pipeline yet, so no `@font-face` and no preload tag is emitted; never one that points at a third-party font host (see the open questions).
+
+## Base styles
+
+Every app's stylesheet starts with a small base stylesheet drawn from its theme, so an app looks right before its own `style` blocks say anything:
+
+| Rule | Why |
+|---|---|
+| `[hidden] { display: none !important }` | `hidden` hides, whatever a style sets `display` to |
+| `body { margin: 0 }` | no white frame around a dark page |
+| `body { font: <font body> }`, else the system sans-serif stack | the theme's font everywhere, without writing `font: .body` on a root element (a layout has none) |
+| `body { color: <text>; background-color: <background> }` | the page colours follow the variant. The text colour is the first `color` token named `text`, `foreground`, `onBackground` or `onSurface`; the background `background`, else `surface`. A theme without them leaves the browser's |
+| `button, input, select, textarea { font: inherit }` | form controls use the page's font, not the platform's |
+| `color-scheme` on `:root` and on each variant | native controls, scrollbars, link colours and autofill follow the scheme, so inputs are dark in a dark variant. A variant is dark when its page background is a dark colour, else when it `matches .prefersDark` or its name contains `dark` |
+| `:where(ul[data-k-list]) { list-style: none; margin: 0; padding: 0 }`, in an app that uses `k.drag` | a `ReorderableList` has no bullets. Zero specificity, so the app's classes still win |
+
+The base rules are element selectors (or `:where`), so any class in a `style` block overrides them.
+
 ## Switching variants at runtime
 
 ### `ThemeVariant` is generated
@@ -93,6 +122,9 @@ component ThemeToggle {
 - **`Theme` is client-only** ([10-services.md](10-services.md)). Injecting it into server-only code is a compile error.
 - **Following the operating system:** `variant dark matches .prefersDark { … }` applies the variant through a CSS media query (`prefers-color-scheme`) until `theme.apply` is called. Because it is CSS, the first paint is already right, even when server rendered. `.prefersContrast` works the same way.
 - **An explicit choice is remembered in a cookie** (`k_theme`, not `HttpOnly`, holding only the variant name). Server rendering reads it and renders that variant, so a server-rendered app shows the chosen scheme from the first paint with no flash and no `@Rendering(.client)`.
+  - The document puts the variant's classes on `<html>` itself (`k-theme-set k-theme-<variant>`), for a cookie that names one of the theme's variants.
+  - A client-rendered app's document, such as the static `index.html` of `k build`, is rendered once without a cookie. It carries a tiny inline script in `<head>` that applies the cookie's variant before the first paint. The script is the same text in every app, so a Content-Security-Policy allows it by its hash (`examples/kanban/nginx.conf`).
+  - The `Theme` service also applies the remembered variant when it is created, so a reload keeps the scheme in any document.
 - **During server rendering,** `theme.current` is the remembered variant, or `.base`, and `apply` does nothing. Effects don't run on the server anyway ([03-reactivity.md](03-reactivity.md)).
 - A choice that lives in a service (for example a settings service that syncs it to the account) is applied from an `@Effect` in the page or layout that is always mounted: `theme.apply(settings.variant)`.
 - The method is `apply`, not `use`, because `use` is a keyword ([10-services.md](10-services.md#injecting-interfaces)) and K has no member names that are keywords.
@@ -148,5 +180,8 @@ clock.every(30.seconds) { refresh() }
 - **Durations are plain values; the current time is not.** `3.days` needs no clock, but "now" comes only from an injected `Clock` ([35-time.md](35-time.md)). There is no `Date.now`, `.ago` or `.fromNow`: "two hours ago" is `clock.now - 2.hours`.
 
 ## Open questions
+
+- **Shipped fonts.** An app should be able to ship a font file (for example `fonts/Inter.woff2`), and the compiler would then emit its `@font-face`, a preload tag and a `font-display: swap`. That needs a project asset pipeline, which doesn't exist yet. Until then a family is used only where it is installed.
+- **The `k_theme` cookie is per host**, so two K apps on `localhost` on different ports share it.
 
 - **Scoped variants**, applying a variant to one subtree (for example a dark sidebar in a light app), would need a `.theme(.dark)` modifier.

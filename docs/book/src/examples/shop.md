@@ -43,16 +43,17 @@ follows a purchase through the code.
 
 ```bash
 cd examples/shop
-scripts/init-secrets.sh                    # once: secrets/*.txt, and an admin password it prints
-cp paybox/.env.example paybox/.env
-cp shop/.env.example shop/.env
 k dev                                      # paybox on 8080, the shop on 8081
-sqlite3 shop/.k/dev.sqlite < shop/scripts/demo-catalog.sql
 ```
 
-Open `http://localhost:8081` and pay with `4242 4242 4242 4242`. `k dev` at the workspace root builds
-and serves both apps, wires the shop's `PAYBOX_URL` and `PAYBOX_TOKEN` to the paybox it started, and
-gives both one development secret, so the services trust each other with no setup.
+That is the whole setup. Open `http://localhost:8081` and pay with `4242 4242 4242 4242`. `k dev` at
+the workspace root builds and serves both apps, wires the shop's `PAYBOX_URL` and `PAYBOX_TOKEN` to the
+paybox it started, and gives both one development secret, so the services trust each other. Each member's
+`[dev]` section in its `k.toml` supplies the rest
+([project files](../reference/project-files.md#development-settings)): the shop's address for paybox's
+callbacks, a generated admin password (printed at startup, for `/sign-in` as `admin@shop.example`), and
+the demo catalog, loaded when the shop's SQLite database is created. Confirmation emails land in `k dev`'s
+own mail catcher, which prints each one with its links and keeps it in `shop/.k/mail/`.
 
 ```bash
 k test           # every member's tests, against in-memory SQLite

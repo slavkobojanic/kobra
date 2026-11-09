@@ -228,10 +228,32 @@ pub(crate) struct Elem {
     pub children: Vec<VNode>,
     /// The two-way binding of a form control (`bind`), if any.
     pub control: Option<Control>,
-    /// The visible `<label>` text of a form control.
-    pub label: Option<String>,
+    /// The visible `<label>` of a form control.
+    pub label: Option<Label>,
     /// Reactive style values: `(custom property, expression)`.
     pub styles: Vec<(String, ast::Expr)>,
+}
+
+/// The visible `<label>` of a form control: literal text, or a text that
+/// follows an expression (an interpolated string, a computed `String`).
+#[derive(Clone, Debug)]
+pub(crate) enum Label {
+    /// Text known at build time.
+    Static(String),
+    /// The interpolation text of an expression, bound like a dynamic text
+    /// node inside the `<label>`.
+    Dyn(ast::Expr),
+}
+
+impl Label {
+    /// The label's template HTML: its text, or one space the dynamic text
+    /// binding claims (as for any dynamic text node).
+    fn template(&self) -> String {
+        match self {
+            Label::Static(t) => format!("<label>{}</label>", escape_text(t)),
+            Label::Dyn(_) => "<label> </label>".to_owned(),
+        }
+    }
 }
 
 /// A child component call.
@@ -695,18 +717,23 @@ impl Tree<'_, '_, '_> {
                     }
                 }
                 "label" => {
-                    // A form control's literal label is a visible
-                    // `<label>`; a computed one names it through
-                    // `aria-label`, so the control is never unnamed.
-                    let literal = match &value {
-                        Some(ast::Expr::StringLit(s)) if is_form_control(name) => s.plain_value(),
-                        _ => None,
-                    };
-                    if literal.is_some() {
-                        el.label = literal;
-                    } else if let Some(v) = &value {
-                        el.attrs
-                            .push(("aria-label".into(), self.attr_value(v, AttrKind::Text)));
+                    // A form control's label is a visible `<label>`,
+                    // literal or computed (05-views.md); elsewhere `.label`
+                    // is the accessible name, `aria-label`.
+                    match &value {
+                        Some(v) if is_form_control(name) => {
+                            el.label = Some(match v {
+                                ast::Expr::StringLit(s) => match s.plain_value() {
+                                    Some(t) => Label::Static(t),
+                                    None => Label::Dyn(v.clone()),
+                                },
+                                other => Label::Dyn(other.clone()),
+                            });
+                        }
+                        Some(v) => el
+                            .attrs
+                            .push(("aria-label".into(), self.attr_value(v, AttrKind::Text))),
+                        None => {}
                     }
                 }
                 _ => {
@@ -986,8 +1013,14 @@ impl Tree<'_, '_, '_> {
                     tag: "span".into(),
                     ..Elem::default()
                 };
-                if let Some(n) = case(arg("name")) {
-                    e.attrs.push(("data-icon".into(), AttrVal::Static(Some(n))));
+                // The glyph is the stylesheet's (`crate::icons`), by the
+                // case name, also for a computed name.
+                match (case(arg("name")), arg("name")) {
+                    (Some(n), _) => e.attrs.push(("data-icon".into(), AttrVal::Static(Some(n)))),
+                    (None, Some(v)) => e
+                        .attrs
+                        .push(("data-icon".into(), AttrVal::Dyn(v, AttrKind::Text))),
+                    (None, None) => {}
                 }
                 match arg("label") {
                     Some(l) if l.syntax().text().to_string().trim() != "nil" => {
@@ -1087,8 +1120,21 @@ enum Step {
 }
 
 /// The expression that reaches a node of a cloned template from its root
-/// `root` by following `path`, `root.firstChild.nextSibling…`.
-fn path_expr(root: &str, path: &[Step]) -> Expr {
+/// `root` by following `path`, `root.firstChild.nextSibling…`. A linked
+/// release build (`walk`) spells a path of two steps or more as
+/// `$k.walk(root, "fn…")`, which is shorter than the chain it replaces
+/// (codegen.md §17.4).
+fn path_expr(root: &str, path: &[Step], walk: bool) -> Expr {
+    if walk && path.len() >= 2 {
+        let steps: String = path
+            .iter()
+            .map(|s| match s {
+                Step::First => 'f',
+                Step::Next => 'n',
+            })
+            .collect();
+        return rt("walk", vec![id(root), js::str(steps)]);
+    }
     let mut e = id(root);
     for s in path {
         e = member(
@@ -1251,12 +1297,19 @@ impl Client<'_, '_, '_> {
         let t = self.template_const(html);
         // A visible label precedes its control in the document, so its
         // template is claimed first during hydration.
-        let label_node = label.as_ref().map(|text| {
-            let lt = self.template_const(format!("<label>{}</label>", escape_text(text)));
+        let label_node = label.as_ref().map(|lab| {
+            let lt = self.template_const(lab.template());
             let l = self.b.fresh("label");
             self.b
                 .stmts
                 .push(Stmt::Const(l.clone(), call(id(lt), vec![])));
+            if let Label::Dyn(e) = lab {
+                let text = self.b.fresh("e");
+                self.b
+                    .stmts
+                    .push(Stmt::Const(text.clone(), member(id(&l), "firstChild")));
+                self.text_binding(&id(&text), e);
+            }
             l
         });
         let root = self.b.fresh("root");
@@ -1264,12 +1317,13 @@ impl Client<'_, '_, '_> {
             .stmts
             .push(Stmt::Const(root.clone(), call(id(t), vec![])));
         // Resolve every node reference before any block renders.
+        let walk = crate::bundle::linked(self.b.g);
         let mut refs = Vec::new();
         for (path, part) in parts {
             let node = self.b.fresh("e");
             self.b
                 .stmts
-                .push(Stmt::Const(node.clone(), path_expr(&root, &path)));
+                .push(Stmt::Const(node.clone(), path_expr(&root, &path, walk)));
             refs.push((node, part));
         }
         let mut block_ends: Vec<String> = Vec::new();
@@ -1394,6 +1448,13 @@ impl Client<'_, '_, '_> {
     /// write-back event, then the event handlers.
     #[allow(clippy::too_many_lines)]
     fn element_bindings(&mut self, node: &Expr, el: &Elem) {
+        if has_autofocus(el) {
+            // `.autofocus`: the focus moves in when the control appears
+            // later than the document (05-views.md).
+            self.b
+                .stmts
+                .push(Stmt::Expr(rt("autofocus", vec![node.clone()])));
+        }
         for (name, v) in &el.attrs {
             match v {
                 AttrVal::Static(_) => {}
@@ -1472,7 +1533,7 @@ impl Client<'_, '_, '_> {
             self.effect_of(move |b| {
                 let t = b.ty(e.syntax());
                 let x = b.expr(&e);
-                let x = b.text_of(x, &t);
+                let x = b.css_value_of(x, &t);
                 rt("style", vec![node, js::str(prop), x])
             });
         }
@@ -1667,72 +1728,19 @@ impl Client<'_, '_, '_> {
             VNode::Slot(e) => {
                 let with_args = matches!(e, ast::Expr::CallExpr(c)
                     if c.arg_list().is_some_and(|l| l.args().next().is_some()));
-                let x = self.slot_value(e);
-                if with_args {
-                    // `row(item)`: re-render when the arguments change, so
-                    // an item that changes under its key (a rename)
-                    // reaches the slot's view (runtime.md §5.3). The arm
-                    // index flips whenever an argument is a new value.
-                    let args = match &x {
-                        Expr::Call(_, a) => a.clone(),
-                        _ => Vec::new(),
-                    };
-                    let sel = self.b.fresh("sel");
-                    let last = self.b.fresh("last");
-                    let n = self.b.fresh("n");
-                    let now = self.b.fresh("now");
-                    let changed = (0..args.len())
-                        .map(|i| {
-                            bin(
-                                "!==",
-                                Expr::Index(Box::new(id(&now)), Box::new(Expr::Num(i as f64))),
-                                Expr::Index(Box::new(id(&last)), Box::new(Expr::Num(i as f64))),
-                            )
-                        })
-                        .reduce(|a, b| bin("||", a, b))
-                        .unwrap_or(Expr::Bool(false));
-                    self.b.stmts.push(Stmt::Let(last.clone(), Some(Expr::Null)));
-                    self.b
-                        .stmts
-                        .push(Stmt::Let(n.clone(), Some(Expr::Num(1.0))));
-                    self.b.stmts.push(Stmt::Const(
-                        sel.clone(),
-                        js::arrow_block(
-                            vec![],
-                            vec![
-                                Stmt::Const(now.clone(), Expr::Array(args)),
-                                Stmt::If(
-                                    bin("||", bin("===", id(&last), Expr::Null), changed),
-                                    vec![
-                                        Stmt::Expr(js::assign(id(&last), id(&now))),
-                                        Stmt::Expr(js::assign(
-                                            id(&n),
-                                            bin("-", Expr::Num(1.0), id(&n)),
-                                        )),
-                                    ],
-                                    None,
-                                ),
-                                Stmt::Return(Some(id(&n))),
-                            ],
-                            false,
-                        ),
-                    ));
-                    let arm = js::arrow(vec![], x);
-                    self.b.stmts.push(Stmt::Expr(rt(
-                        "branch",
-                        vec![
-                            start.clone(),
-                            end.clone(),
-                            id(sel),
-                            Expr::Array(vec![arm.clone(), arm]),
-                        ],
-                    )));
+                // `row(item)`: the slot gets each argument as an accessor
+                // and reads it at each use, so a new item under the same
+                // key (a rename, a toggle) updates the slot's view in
+                // place; its nodes, focus and state stay (runtime.md §5.3).
+                let x = if with_args {
+                    self.slot_call_lazy(e)
                 } else {
-                    self.b.stmts.push(Stmt::Expr(rt(
-                        "child",
-                        vec![start.clone(), end.clone(), js::arrow(vec![], x)],
-                    )));
-                }
+                    self.slot_value(e)
+                };
+                self.b.stmts.push(Stmt::Expr(rt(
+                    "child",
+                    vec![start.clone(), end.clone(), js::arrow(vec![], x)],
+                )));
             }
             VNode::Boundary(content, fallback) => {
                 // A branch between the content (0) and the fallback (1): a
@@ -1805,6 +1813,36 @@ impl Client<'_, '_, '_> {
             }
             VNode::Elem(_) | VNode::Text(_) | VNode::Dyn(_) | VNode::Mixed(_) | VNode::Meta(_) => {}
         }
+    }
+
+    /// A slot call with arguments in the browser, each argument an accessor
+    /// the slot reads at each use: `props.row(() => todo$())`.
+    fn slot_call_lazy(&mut self, e: &ast::Expr) -> Expr {
+        let ast::Expr::CallExpr(c) = e else {
+            return self.slot_value(e);
+        };
+        let name = match c.callee() {
+            Some(ast::Expr::NameExpr(n)) => {
+                n.name().map(|t| t.text().to_owned()).unwrap_or_default()
+            }
+            _ => String::new(),
+        };
+        let mut args = Vec::new();
+        if let Some(list) = c.arg_list() {
+            for a in list.args() {
+                if let Some(v) = a.value() {
+                    let (pre, x) = self.b.capture(|b| b.expr(&v));
+                    args.push(if pre.is_empty() {
+                        js::arrow(vec![], x)
+                    } else {
+                        let mut s = pre;
+                        s.push(Stmt::Return(Some(x)));
+                        js::arrow_block(vec![], s, false)
+                    });
+                }
+            }
+        }
+        call(member(id("props"), name), args)
     }
 
     /// The value of a slot call: `props.content()`, `props.row(item)`.
@@ -2305,6 +2343,10 @@ fn slot_fn(b: &mut Body<'_, '_>, l: &ast::LambdaExpr, target: Target) -> Expr {
     let owner = b_owner(b);
     let mut params = Vec::new();
     let mut prefix = Vec::new();
+    // In the browser each parameter is an accessor (`todo$`), read at each
+    // use like a `for` row's item, so the slot's view follows a changed
+    // argument in place; the server renders once with the values.
+    let mut signals = Vec::new();
     if let Some(list) = l.param_list() {
         for p in list
             .syntax()
@@ -2312,7 +2354,15 @@ fn slot_fn(b: &mut Body<'_, '_>, l: &ast::LambdaExpr, target: Target) -> Expr {
             .filter(|c| c.kind() == SyntaxKind::LambdaParam)
         {
             if let Some(t) = token(&p, SyntaxKind::Ident) {
-                params.push(Param::new(b.bind(&t)));
+                let name = b.bind(&t);
+                if target == Target::Client {
+                    params.push(Param::new(format!("{name}$")));
+                    if b.signal_locals.insert(name.clone()) {
+                        signals.push(name);
+                    }
+                } else {
+                    params.push(Param::new(name));
+                }
             }
         }
     }
@@ -2332,7 +2382,11 @@ fn slot_fn(b: &mut Body<'_, '_>, l: &ast::LambdaExpr, target: Target) -> Expr {
                 owner,
                 lifetime: None,
             };
-            c.render_fn(&nodes, params, std::mem::take(&mut prefix))
+            let f = c.render_fn(&nodes, params, std::mem::take(&mut prefix));
+            for name in signals {
+                b.signal_locals.remove(&name);
+            }
+            f
         }
         Target::Server => {
             params.push(Param::new("out"));
@@ -2524,7 +2578,7 @@ impl Ssr<'_, '_, '_> {
     /// its children or its control's value, and its end tag.
     #[allow(clippy::too_many_lines)]
     fn element(&mut self, el: &Elem) {
-        if let Some(text) = &el.label {
+        if let Some(label) = &el.label {
             // Per-request ids (`Out.uid`), never an isolate-global counter.
             let uid = self.b.fresh("id");
             self.b.stmts.push(Stmt::Const(
@@ -2536,7 +2590,14 @@ impl Ssr<'_, '_, '_> {
                 member(id("out"), "attribute"),
                 vec![js::str("for"), id(&uid)],
             )));
-            self.raw(&format!(">{}</label>", escape_text(text)));
+            match label {
+                Label::Static(text) => self.raw(&format!(">{}</label>", escape_text(text))),
+                Label::Dyn(e) => {
+                    self.raw(">");
+                    self.node(&VNode::Dyn(e.clone()));
+                    self.raw("</label>");
+                }
+            }
             self.open(el, Some(uid));
         } else {
             self.open(el, None);
@@ -2670,7 +2731,7 @@ impl Ssr<'_, '_, '_> {
             for (i, (prop, e)) in el.styles.iter().enumerate() {
                 let t = self.b.ty(e.syntax());
                 let x = self.b.expr(e);
-                let x = self.b.text_of(x, &t);
+                let x = self.b.css_value_of(x, &t);
                 let sep = if i == 0 { "" } else { "; " };
                 parts.push(TemplatePart::Text(format!("{sep}{prop}: ")));
                 parts.push(TemplatePart::Expr(x));
@@ -2947,6 +3008,7 @@ fn build(
         || !el.styles.is_empty()
         || !el.events.is_empty()
         || el.control.is_some()
+        || has_autofocus(el)
         || (!root && el.label.is_some());
     if needs_bindings {
         let mut bare = el.clone();
@@ -2965,11 +3027,16 @@ fn build(
         step(path, &mut first);
         match c {
             VNode::Elem(child) => {
-                if let Some(text) = &child.label {
+                if let Some(label) = &child.label {
                     // A nested labeled control: its `<label>` comes first,
                     // as the server renders it.
-                    html.push_str(&format!("<label>{}</label>", escape_text(text)));
+                    html.push_str(&label.template());
                     parts.push((path.clone(), Part::Label));
+                    if let Label::Dyn(e) = label {
+                        path.push(Step::First);
+                        parts.push((path.clone(), Part::Text(e.clone())));
+                        path.pop();
+                    }
                     path.push(Step::Next);
                 }
                 build(child, html, path, parts, false);
@@ -3000,6 +3067,12 @@ fn build(
         path.pop();
     }
     html.push_str(&end_tag(el));
+}
+
+/// `true` when the element has an `.autofocus` attribute (any value: the
+/// runtime reads the attribute when the element appears).
+fn has_autofocus(el: &Elem) -> bool {
+    el.attrs.iter().any(|(n, _)| n == "autofocus")
 }
 
 /// Advances `path` to the next child: `firstChild` for the first, then

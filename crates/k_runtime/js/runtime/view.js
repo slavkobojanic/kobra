@@ -47,15 +47,58 @@ export function slotMarkers() {
 /** The titles of what is mounted, outermost first. */
 const titles = [];
 
+/** The descriptions of what is mounted, outermost first. */
+const descriptions = [];
+
+/** The innermost value of `entries` that has one, else `null`. */
+function innermost(entries) {
+  for (let i = entries.length; i--;) {
+    const v = entries[i].v;
+    if (v !== null && v !== undefined && v !== false) return String(v);
+  }
+  return null;
+}
+
 /** Shows the innermost title that has a value. */
 function showTitle() {
-  for (let i = titles.length; i--;) {
-    const v = titles[i].v;
-    if (v !== null && v !== undefined && v !== false) {
-      document.title = String(v);
-      return;
-    }
+  const v = innermost(titles);
+  if (v !== null) document.title = v;
+}
+
+/**
+ * Shows the innermost description that has a value in the document's
+ * `<meta name="description">`, created when the document has none. With
+ * none mounted, the document keeps what the server wrote (the app's).
+ */
+function showDescription() {
+  const v = innermost(descriptions);
+  if (v === null) return;
+  const head = document.head;
+  if (!head) return;
+  let meta = null;
+  for (let n = head.firstChild; n !== null && meta === null; n = n.nextSibling) {
+    if (n.nodeType === 1 && n.localName === "meta" && n.getAttribute("name") === "description") meta = n;
   }
+  if (meta === null) {
+    meta = document.createElement("meta");
+    meta.setAttribute("name", "description");
+    head.appendChild(meta);
+  }
+  if (meta.getAttribute("content") !== v) meta.setAttribute("content", v);
+}
+
+/** Keeps `entries`' innermost value shown with `show` while the owner is mounted. */
+function metaEntry(entries, show, get) {
+  const entry = { v: null };
+  entries.push(entry);
+  renderEffect(() => {
+    entry.v = get();
+    show();
+  });
+  onCleanup(() => {
+    entries.splice(entries.indexOf(entry), 1);
+    show();
+  });
 }
 
 /**
@@ -67,16 +110,18 @@ function showTitle() {
  * @param {() => unknown} get
  */
 export function title(get) {
-  const entry = { v: null };
-  titles.push(entry);
-  renderEffect(() => {
-    entry.v = get();
-    showTitle();
-  });
-  onCleanup(() => {
-    titles.splice(titles.indexOf(entry), 1);
-    showTitle();
-  });
+  metaEntry(titles, showTitle, get);
+}
+
+/**
+ * A `description(_:)` metadata entry in the browser, kept like `title`:
+ * the document's `<meta name="description">` is the innermost mounted
+ * description, so a client-rendered app's pages (whose shell the server
+ * wrote without them) and client navigation both show the page's own.
+ * @param {() => unknown} get
+ */
+export function description(get) {
+  metaEntry(descriptions, showDescription, get);
 }
 
 /**

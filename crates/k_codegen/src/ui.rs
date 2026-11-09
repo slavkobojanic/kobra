@@ -562,8 +562,9 @@ fn is_struct(g: &Gen<'_>, t: Option<&Type>) -> bool {
 /// An `@Effect` function: `$k.effect(…)`, with `$c` when async, and
 /// `untrack` around the body for `@Effect(on: […])`.
 /// With `loads`, the effect waits for the declaration's `@Load` values: it
-/// reads them (so it runs again once they arrive) and returns while there
-/// are none, because its body may read them.
+/// reads whether there are any (so it runs again once they arrive, not on
+/// every reload) and returns while there are none, because its body may
+/// read them.
 fn effect(b: &mut Body<'_, '_>, m: MemberId, f: Function, loads: bool) -> Stmt {
     let node = b.g.member_node(m);
     // The `on:` dependencies, if any.
@@ -604,12 +605,11 @@ fn effect(b: &mut Body<'_, '_>, m: MemberId, f: Function, loads: bool) -> Stmt {
         None => body,
     };
     let body = if loads {
+        // `ready()` changes only between no values and values, so a
+        // reload's new values don't re-run an effect that waits for them
+        // (an `@Effect(on:)` re-runs only for its list).
         let mut s = vec![Stmt::If(
-            bin(
-                "===",
-                call(member(id("$loads"), "values"), vec![]),
-                Expr::Null,
-            ),
+            js::un("!", call(member(id("$loads"), "ready"), vec![])),
             vec![Stmt::Return(None)],
             None,
         )];
@@ -781,8 +781,9 @@ pub(crate) fn protocol(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 params.push(Param::new(pn.clone()));
                 let c = crate::codec::codec_expr(b, &p.ty);
                 // The wire field is the parameter's internal name
-                // (28-rpc-wire-format.md), never its label.
-                fields.push(Prop::KeyValue(
+                // (28-rpc-wire-format.md), never its label; wire keys are
+                // quoted (codegen.md §17.3).
+                fields.push(Prop::Quoted(
                     p.name.clone(),
                     call(member(c, "encode"), vec![id(pn)]),
                 ));

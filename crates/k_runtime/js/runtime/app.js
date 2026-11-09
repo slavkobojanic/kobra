@@ -1029,6 +1029,26 @@ export class Metadata {
   }
 }
 
+/** Where the app's web app manifest is served (22-metadata.md). */
+const MANIFEST_PATH = "/manifest.webmanifest";
+
+/**
+ * The web app manifest of the app's `manifest(name:shortName:)`, or `null`
+ * when it declares none: the names, the start URL and a standalone
+ * display, with the `themeColor` when the app sets one. `k build` writes
+ * the same file next to a static app's `index.html`.
+ */
+function manifestResponse(spec) {
+  const meta = new Metadata();
+  spec.appMeta?.(meta);
+  const m = meta.entries;
+  if (m.manifest === undefined) return null;
+  const body = { name: String(m.manifest.name), short_name: String(m.manifest.shortName), start_url: "/", display: "standalone" };
+  if (m.themeColor !== undefined) body.theme_color = String(m.themeColor);
+  if (m.icon !== undefined) body.icons = [{ src: String(m.icon) }];
+  return respond(200, "application/manifest+json", JSON.stringify(body), [["cache-control", "no-cache"]]);
+}
+
 /** Merges metadata layers; later layers win per entry. */
 function mergeMeta(layers) {
   const out = {};
@@ -1040,20 +1060,31 @@ function mergeMeta(layers) {
  * The `<head>` contents of a document, every value escaped.
  * @param {Record<string, unknown>} m merged metadata
  * @param {object} spec
+ * @param {string} [prepaint] markup that runs before anything paints
+ * @param {string|null} [page] the `Page` case the document renders, whose
+ *   chunks it preloads besides the entry's module graph
  */
-function head(m, spec) {
-  let h = '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
+function head(m, spec, prepaint = "", page = null) {
+  let h = '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' + prepaint;
   if (m.title !== undefined) h += `<title>${escapeText(String(m.title))}</title>`;
   if (m.description !== undefined) h += `<meta name="description" content="${escapeAttribute(String(m.description))}">`;
   if (m.canonical !== undefined) h += `<link rel="canonical" href="${escapeAttribute(info().publicOrigin + String(m.canonical))}">`;
   if (m.themeColor !== undefined) h += `<meta name="theme-color" content="${escapeAttribute(String(m.themeColor))}">`;
   if (m.icon !== undefined) h += `<link rel="icon" href="${escapeAttribute(String(m.icon))}">`;
+  if (m.manifest !== undefined) h += `<link rel="manifest" href="${MANIFEST_PATH}">`;
   if (m.preview !== undefined) {
     h += `<meta property="og:title" content="${escapeAttribute(String(m.preview.title))}">`;
     h += `<meta property="og:image" content="${escapeAttribute(String(m.preview.image))}">`;
   }
   if (m.structuredData !== undefined) h += `<script type="application/ld+json">${serializeData(schemaOrg(m.structuredData))}</script>`;
   for (const href of spec.assets.styles) h += `<link rel="stylesheet" href="${escapeAttribute(href)}">`;
+  // The whole static module graph at once, instead of one level of
+  // imports per round trip (server.md §7); a document without scripts
+  // (a status page) preloads nothing.
+  if (spec.assets.scripts.length > 0) {
+    const pageChunks = (page !== null && spec.assets.pages?.[page]) || [];
+    for (const href of [...(spec.assets.preload ?? []), ...pageChunks]) h += `<link rel="modulepreload" href="${escapeAttribute(href)}">`;
+  }
   return h;
 }
 
@@ -1083,16 +1114,59 @@ function schemaOrg(d) {
 }
 
 /**
+ * The pre-paint snippet of a client-rendered document (07-themes-and-units.md,
+ * "Switching variants at runtime"): gives `<html>` the classes of the
+ * variant the `k_theme` cookie remembers, as the browser's `theme()` does,
+ * before the first paint. A value that isn't a variant name (a lower camel
+ * case identifier) is no choice. It is the same text in every app, so a
+ * Content-Security-Policy can allow it by its hash (38-deployment.md).
+ */
+export const themeSnippet =
+  'try{var m=/(?:^|; )k_theme=([^;]*)/.exec(document.cookie),v=m&&decodeURIComponent(m[1]);' +
+  'if(v&&/^[a-z][A-Za-z0-9]*$/.test(v)){var e=document.documentElement,c=(e.getAttribute("class")||"").split(" ").filter(Boolean);' +
+  'c.push("k-theme-set");if(v!=="base")c.push("k-theme-"+v.replace(/[A-Z]/g,function(x){return"-"+x.toLowerCase()}));' +
+  'e.setAttribute("class",c.join(" "))}}catch(x){}';
+
+/**
+ * The classes of `<html>` for the variant the request's `k_theme` cookie
+ * remembers (`k-theme-set`, plus `k-theme-<variant>` unless it is `base`),
+ * or `""` without a choice, for an app without variants and for a value
+ * that names none of `spec.themes`.
+ * @param {object} spec
+ * @param {RequestState|null} st
+ * @returns {string}
+ */
+function themeClasses(spec, st) {
+  if (!spec.themes?.length || !st?.cookies) return "";
+  let v;
+  try {
+    v = decodeURIComponent(st.cookies.get("k_theme") ?? "");
+  } catch {
+    return "";
+  }
+  if (v === "base") return "k-theme-set";
+  if (!spec.themes.includes(v)) return "";
+  return "k-theme-set k-theme-" + v.replace(new RegExp("[A-Z]", "g"), (c) => "-" + c.toLowerCase());
+}
+
+/**
  * The HTML document around a rendered body (server.md §7).
  * @param {object} spec
  * @param {RequestState} st
  * @param {Record<string, unknown>} meta merged metadata
  * @param {string} body the rendered layouts and page
  * @param {object|null} data the `k-data` payload, `null` for none
+ * @param {string|null} [page] the `Page` case rendered, whose chunks are preloaded
  */
-function documentHtml(spec, st, meta, body, data) {
+function documentHtml(spec, st, meta, body, data, page = null) {
   const lang = escapeAttribute(String(meta.locale ?? "en"));
-  let html = `<!doctype html><html lang="${lang}"><head>${head(meta, spec)}</head><body><div id="k-app">${body}</div>`;
+  const classes = themeClasses(spec, st);
+  const root = classes === "" ? "" : ` class="${classes}"`;
+  // A client-rendered document may be rendered once without any cookie
+  // (`k build`'s static `index.html`), so the browser applies the choice
+  // itself before the stylesheet paints anything.
+  const prepaint = spec.themes?.length && spec.rendering === "client" ? `<script>${themeSnippet}</script>` : "";
+  let html = `<!doctype html><html lang="${lang}"${root}><head>${head(meta, spec, prepaint, page)}</head><body><div id="k-app">${body}</div>`;
   if (data !== null) html += `<script type="application/json" id="k-data">${serializeData(data)}</script>`;
   for (const src of spec.assets.scripts) html += `<script type="module" src="${escapeAttribute(src)}"></script>`;
   return html + "</body></html>";
@@ -1128,7 +1202,7 @@ async function renderPage(st, r, params) {
       data = { v: 1, session: st.mirror(), c: {} };
       if (data.session.user !== null) st.sessionRead = true;
     }
-    return respond(200, HTML, documentHtml(spec, st, mergeMeta([meta]), "", data));
+    return respond(200, HTML, documentHtml(spec, st, mergeMeta([meta]), "", data, r.name ?? null));
   }
   const pageMeta = new Metadata();
   const ids = { n: 0 };
@@ -1158,7 +1232,7 @@ async function renderPage(st, r, params) {
   // is private even when nothing on it read `Session`.
   if (data.session.user !== null) st.sessionRead = true;
   const status = typeof meta.status === "number" ? meta.status : 200;
-  return respond(status, HTML, documentHtml(spec, st, meta, html, data));
+  return respond(status, HTML, documentHtml(spec, st, meta, html, data, r.name ?? null));
 }
 
 /** A small HTML page for a status without a page of its own. */
@@ -1276,6 +1350,10 @@ async function dispatch(st) {
   if (!SAFE.has(st.method)) {
     if (page !== null) return finish(st, respond(405, TEXT, "method not allowed", [["allow", "GET, HEAD"]]), false);
     return finish(st, statusPage(spec, 404, "Not found"), false);
+  }
+  if (path === MANIFEST_PATH) {
+    const manifest = manifestResponse(spec);
+    if (manifest !== null) return finish(st, manifest, false);
   }
   for (const rd of spec.redirects) {
     const params = rd.match(st.url);
@@ -1553,7 +1631,7 @@ const dragSsr = {
    * element, each row's content between block markers.
    */
   ReorderableList(props, _ctx, out) {
-    out.raw(`<ul aria-label="${escapeAttribute(String(props.label()))}"><!--[-->`);
+    out.raw(`<ul data-k-list aria-label="${escapeAttribute(String(props.label()))}"><!--[-->`);
     for (const item of props.items()) {
       out.raw(`<li ${DRAG.source}><!--[-->`);
       props.row(item, out);

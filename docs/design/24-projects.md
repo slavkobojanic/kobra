@@ -26,6 +26,7 @@ charts = "github.com/acme/charts"       # a short prefix: `import charts.LineCha
 | `[package]` | `name` and `k` are required. `title` and `description` are optional. Apps may set `version`, which `dist/app` reports in its logs and metrics; packages can't, because their git tag is their version ([18-packages.md](18-packages.md)). |
 | `[dependencies]` | Module path → git tag. `k add` and `k remove` edit it; `k.lock` pins commits and hashes. |
 | `[aliases]` | Short name → a git package's module path prefix, which is a URL ([18-packages.md](18-packages.md)). Workspace libraries need none: their modules keep their own paths. |
+| `[dev]` | Development settings, read only by `k dev`, `k run` and `k migrate`: values for config variables, generated development secrets and a seed script ([below](#development-settings)). Apps only; a workspace root has none (each member has its own). |
 
 ### `name` is the project's identity
 
@@ -36,8 +37,32 @@ charts = "github.com/acme/charts"       # a short prefix: `import charts.LineCha
 
 ### What `k.toml` doesn't hold
 
-- **No build scripts, no environment variables, no secrets.** Per-environment choices are `use … in .production` rules in `App.k` ([23-app-structure.md](23-app-structure.md)); configuration comes from the environment ([25-config-and-secrets.md](25-config-and-secrets.md)).
+- **No build scripts, no production configuration, no secrets.** Per-environment choices are `use … in .production` rules in `App.k` ([23-app-structure.md](23-app-structure.md)); configuration comes from the environment ([25-config-and-secrets.md](25-config-and-secrets.md)). The only values in `k.toml` are the development ones of `[dev]`, which no build reads.
 - **No tool settings.** The formatter, compiler and test runner have no options to configure.
+
+## Development settings
+
+**Every example and every new app starts with one command, `k dev`, and no setup.** What the process environment and `.env` leave unset, a development run takes from `[dev]` and from the toolchain's own development defaults:
+
+```toml
+[dev]
+seed = "scripts/demo-catalog.sql"           # run once, when `k dev` creates the database
+
+[dev.env]                                    # development values, committed
+SHOP_ADMIN_EMAIL = "admin@shop.example"
+PAYBOX_CALLBACK_URL = "http://127.0.0.1:{port}"
+
+[dev.secrets]                                # generated on first use, never committed
+SHOP_ADMIN_PASSWORD_HASH = "password-hash"
+K_SERVICE_TOKEN = "token"
+```
+
+- **`[dev.env]`** gives config variables development values. `{port}` and `{origin}` in a value stand for the app's development port and origin (`http://localhost:<port>`), so an app can name its own address (a callback URL) whatever `--port` says. **A `[dev.env]` value for a `Secret` field is refused at startup** (exit 78): secrets are never committed.
+- **`[dev.secrets]`** names secret variables that `k dev` generates on first use and keeps in the project's git-ignored `.k/secrets/<NAME>`, so they survive restarts. `"token"` is 32 random bytes (base64url). `"password-hash"` is the Argon2id PHC string of a random password, which is kept next to it (`<NAME>.password`) and printed at every start, so a developer can sign in as the configured administrator.
+- **`seed`** is a SQL file, relative to the project, that `k dev` and `k run` run in one transaction right after they create the development database (when every migration was applied by that start). It is for demo data, which doesn't belong in migrations ([19-persistence.md](19-persistence.md#data-migrations)).
+- **Precedence**, highest first: the process environment; a workspace's wiring (`k dev` at a root, [40-workspaces-and-services.md](40-workspaces-and-services.md#tooling)); `.env`; `[dev.env]`; `[dev.secrets]`; the development defaults ([25-config-and-secrets.md](25-config-and-secrets.md#per-environment)); the field's default.
+- **`dist/app` and `k test` never read `[dev]`.** A production build still needs every required variable set explicitly, and tests bind configs per test group.
+- `k check` validates the section: unknown keys, a non-string value, and a secret kind other than `"token"` or `"password-hash"` are `K8101`.
 
 ## Fixed project layout
 
@@ -51,9 +76,10 @@ schema.lock      generated and committed
 storage.lock     generated and committed
 rpc.lock         written by `k build`, checked by `k check`, committed; apps that serve protocols (40)
 k.lock           package lock, generated and committed
-.env             optional, git-ignored; loaded by `k dev` only
+.env             optional, git-ignored; loaded by `k dev`, `k run` and `k migrate` only
 .env.example     committed; documents what .env may contain
-.k/              the toolchain's local state (the development database, caches); git-ignored
+.k/              the toolchain's local state (the development database, generated development
+                 secrets, caught mail, caches); git-ignored
 dist/            build output; git-ignored
 ```
 
@@ -145,3 +171,4 @@ charts/
 ## Open questions
 
 - Whether `k new` should accept `.` to initialize the current, empty directory.
+- Whether `[dev.secrets]` needs more kinds (an RSA key, a key pair) once an example needs one.

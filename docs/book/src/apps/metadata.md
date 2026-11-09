@@ -100,7 +100,8 @@ layout Shop {
 - **`canonical` takes a typed page**, so canonical URLs come from `routes.lock` and can't drift. It
   renders the absolute URL, built from the app's public origin.
 - **Stylesheets, scripts and fonts never appear in metadata.** The compiler emits CSS from `style` blocks,
-  there is no third-party JavaScript, and theme `font` tokens produce preload tags automatically.
+  there is no third-party JavaScript, and theme `font` tokens become CSS with a fallback stack
+  ([Fonts](styles.md#fonts)).
 
 The compiler warns about a page with no `title` (`K3027`), and about a description longer than 160
 characters (`K3028`):

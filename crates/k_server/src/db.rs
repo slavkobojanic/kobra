@@ -111,6 +111,74 @@ impl DatabaseSetup {
     }
 }
 
+/// The statements of a SQL script, trimmed, without the `;` that ends
+/// each: a `;` inside a quoted string or identifier (`'…'`, `"…"`) or a
+/// comment (`-- …`, `/* … */`) doesn't end a statement, and empty
+/// statements (comments only) are left out.
+#[must_use]
+pub fn split_sql(script: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut code = false;
+    let mut chars = script.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' | '"' => {
+                code = true;
+                current.push(c);
+                while let Some(d) = chars.next() {
+                    current.push(d);
+                    if d == c {
+                        // A doubled quote is an escaped one.
+                        if chars.peek() == Some(&c) {
+                            current.extend(chars.next());
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+            '-' if chars.peek() == Some(&'-') => {
+                for d in chars.by_ref() {
+                    if d == '\n' {
+                        current.push('\n');
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                current.push_str("/*");
+                chars.next();
+                let mut last = ' ';
+                for d in chars.by_ref() {
+                    current.push(d);
+                    if last == '*' && d == '/' {
+                        break;
+                    }
+                    last = d;
+                }
+            }
+            ';' => {
+                if code {
+                    out.push(current.trim().to_owned());
+                }
+                current.clear();
+                code = false;
+            }
+            _ => {
+                if !c.is_whitespace() {
+                    code = true;
+                }
+                current.push(c);
+            }
+        }
+    }
+    if code {
+        out.push(current.trim().to_owned());
+    }
+    out
+}
+
 /// The outcome of a write.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum WriteOutcome {
@@ -906,6 +974,34 @@ impl ProcessDatabase {
         self.stdlib_query(text, params, 0).await
     }
 
+    /// Runs a SQL script (several statements separated by `;`, as
+    /// [`split_sql`] reads them) in one transaction, rolled back on the
+    /// first failure; returns how many statements ran. `k dev` seeds a new
+    /// development database with it (`[dev] seed` in `k.toml`).
+    ///
+    /// # Errors
+    ///
+    /// The failing statement's error (the transaction is rolled back), or a
+    /// lease timeout.
+    pub async fn run_script(&self, script: &str) -> Result<usize, DbError> {
+        let statements = split_sql(script);
+        let db = Arc::clone(&self.db);
+        let lease = Arc::clone(&self.lease);
+        self.on_db(async move {
+            let _held = Self::lease(lease).await?;
+            db.execute("BEGIN", &[]).await?;
+            for statement in &statements {
+                if let Err(e) = db.execute(statement, &[]).await {
+                    let _ = db.execute("ROLLBACK", &[]).await;
+                    return Err(e);
+                }
+            }
+            db.execute("COMMIT", &[]).await?;
+            Ok(statements.len())
+        })
+        .await
+    }
+
     /// The number of open transactions (for tests and diagnostics).
     #[must_use]
     pub fn open_transactions(&self) -> usize {
@@ -1038,6 +1134,34 @@ mod tests {
             .build()
             .expect("runtime")
             .block_on(f)
+    }
+
+    #[test]
+    fn sql_scripts_split_on_semicolons_outside_quotes_and_comments() {
+        assert_eq!(
+            split_sql(
+                "-- a comment; still a comment\nINSERT INTO t VALUES ('a;b', \"c;\");\n/* x; */ DELETE FROM t ;\n\n  ;"
+            ),
+            vec![
+                "INSERT INTO t VALUES ('a;b', \"c;\")",
+                "/* x; */ DELETE FROM t",
+            ]
+        );
+        assert_eq!(split_sql("SELECT 'it''s'"), vec!["SELECT 'it''s'"]);
+        assert!(split_sql("-- only a comment\n").is_empty());
+    }
+
+    #[test]
+    fn a_seed_script_runs_in_one_transaction() {
+        let (db, _) = ProcessDatabase::open(setup()).expect("opens");
+        block_on(async {
+            let script = "INSERT INTO account (id, email) VALUES ('a', 'a@x');\nINSERT INTO account (id, email) VALUES ('b', 'b@x');";
+            assert_eq!(db.run_script(script).await, Ok(2));
+            // The second statement fails: the first is rolled back with it.
+            let failing = "INSERT INTO account (id, email) VALUES ('c', 'c@x');\nINSERT INTO account (id, email) VALUES ('d', 'a@x');";
+            assert!(db.run_script(failing).await.is_err());
+            assert_eq!(db.query(2, vec![], 0).await, Ok(vec![vec![Value::Int(2)]]));
+        });
     }
 
     #[test]

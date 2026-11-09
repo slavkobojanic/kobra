@@ -35,8 +35,10 @@ Contents:
 | Runtime JS | `crates/k_runtime/js/tests/*.test.js` | The JavaScript runtime, inside V8 with a fake DOM (§4.1) |
 | Database | `crates/k_db/tests/*.rs` | Drivers, SQL, the migration builder and migrations on SQLite, and on Postgres when configured (§4.2) |
 | Database corpus | `tests/corpus/db/<app>/` | Apps with entities, repositories and migrations served on a fresh database and driven by `requests.http` (§3.11) |
+| Release builds | `crates/k_codegen/tests/release.rs`, `crates/k_codegen/src/{minify,link,shorten}.rs` (unit) | Every example's release client: named runtime imports, a runtime chunk with only what the app reaches, a source map per chunk, no chunk naming a file that isn't shipped, `walk` paths, quoted wire keys, short CSS names that agree across CSS, markup and SSR, `modulepreload` lists, and each app's gzip budget from performance.md §11.7 ([codegen.md §17.1–17.6](codegen.md#171-release-linking-named-runtime-imports-and-a-shaken-runtime)) |
 | Examples | `crates/k_cli/tests/examples.rs` | Each example builds with `k build`, its `dist/app` serves its main page and an rpc (§8.1) |
 | Browser | `crates/k_server/tests/browser.rs` | Each example's main pages, server-rendered, hydrated by the generated client in the fake DOM and driven through DOM events (§4.3) |
+| Real browser | `crates/k_cli/tests/chrome.rs`, `crates/k_cli/tests/example_checks.rs` | Each example as its README runs it, in headless Chrome over the DevTools protocol: real input, layout, styles, fonts and focus; and the examples' setup scripts and configuration files (§4.4) |
 | End-to-end | `crates/k_cli/tests/`, `tests/e2e/`, `crates/k_server/tests/http/` | The `k` binary, built apps, HTTP (§8) |
 | Language server | `crates/k_lsp/src/**` (unit), `crates/k_lsp/tests/{server,properties,editors}.rs`, `crates/k_cli/tests/lsp.rs` | The features on fixtures, the server in process, random edits and requests, the editor grammars, and `k lsp` driven over JSON-RPC against the examples (§8.5) |
 | Benchmark | `crates/<crate>/benches/*.rs` (criterion), `tests/perf_budget.rs` | Throughput and latency against the budgets |
@@ -767,6 +769,101 @@ async fn duplicates_map_to_the_unique_field() {
 - `K_DUMP=<example> K_DUMP_DIR=<dir> cargo test -p k_server --test browser dump` writes the generated
   files of an example, for debugging; `K_E2E_LOG=1` prints the server's log lines.
 
+### 4.4 Real-browser tests
+
+The simulated tab of §4.3 has no layout, no CSS cascade, no fonts, no focus and no default actions (a
+form's submission, a link's navigation), so a page can pass there and still be broken for a person: a
+title that only `aria-label` carries, a form that reloads the page, a theme that never reaches the
+document. `crates/k_cli/tests/chrome.rs` runs every example in **headless Chrome** instead, as its
+README runs it, and keeps §4.3 for what a fake DOM does well (hydration markers, request counts, fake
+timers).
+
+- **The browser**: Chrome at `K_CHROME`, else the usual install locations
+  (`/Applications/Google Chrome.app/…`, `/usr/bin/google-chrome`, `/usr/bin/chromium`, …), started per
+  test with `--headless=new` and a throwaway profile below Cargo's `CARGO_TARGET_TMPDIR`. Without one,
+  each test prints `skipped: no Chrome found …` and passes; with `K_REQUIRE_CHROME=1` (CI) a missing
+  Chrome fails it.
+- **The protocol client** (`tests/support/cdp.rs`): the DevTools protocol over a WebSocket, both
+  written for the tests on `std::net` and `serde_json` (no new dependency: one loopback connection needs
+  a masked text frame out and possibly fragmented text frames in). A reader thread forwards responses
+  and events to the test, and answers `Fetch.requestPaused` itself, so a paused request never waits for
+  a test blocked in a command.
+- **No internet**: every `https` request the page makes is intercepted. A test answers it (weather's
+  Open-Meteo: a search, Berlin, a forecast, air quality), a third-party image gets a transparent pixel,
+  and anything else fails the request and the test. The server's own requests go to a `FakeHttp` through
+  `K_DEV_FETCH_ORIGINS` (below). Every port a test binds is in 5200–5999, skipping ports something
+  already answers on.
+- **Serving** (`tests/support/apps.rs`): a static-only example (`todos`, `kanban`) is built with `k build`
+  and served by the static host of `tests/support/static_host.rs`; the others run under `k run` or `k dev`
+  in a scratch copy of the example (so nothing is written to the repository), `k dev` at the root for the
+  `stack` and `shop` workspaces. The shop needs no setup, as its README says: the development database,
+  the generated admin password, the demo catalog and the mail catcher (`.k/mail/`) come from `k dev`.
+  **Every example runs its release client**: `k run` and `k dev` get `--release` (`Proc::start`), so the
+  browser runs the linked, minified client with short class names that `k build` ships
+  ([codegen.md §17](codegen.md#17-bundling-chunks-and-printing)); `K_CHROME_PROFILE=development` serves
+  the development client instead. Tests therefore find elements by role, visible text or attributes such
+  as `data-icon`, never by class name.
+- **The tab** (`tests/support/page.rs`): clicks and drags are mouse events at the element's on-screen
+  centre, after checking that the element is what is on top there (an element replaced by a re-render is
+  found again by its query); typing and named keys are key events (Enter submits a form as a person's
+  Enter does). Queries read what is on screen: `role(role, name)` from Chrome's accessibility tree,
+  `by_text` and `visible_text` from text that has a box and isn't clipped away (`VisuallyHidden`,
+  `display: none`, `visibility: hidden`), unlike `textContent`. `style` reads computed styles,
+  `used_fonts` the fonts Chrome actually drew with (`CSS.getPlatformFontsForNode`), `is_focused`
+  `document.activeElement`, `document_token`/`assert_same_document` whether anything reloaded the page,
+  and `reload` keeps cookies and storage (it is the same profile). A tab fails its test when dropped if
+  the page logged a console error, threw, failed a load or reached for the internet.
+- **Cases**: each example's main README flow, green: `todos` (add, complete, the three filters with
+  `aria-pressed`, clear, a reload), `kanban` (create a board, add cards, move one with Space, ArrowRight
+  and Space keeping the focus, drop one onto another with the mouse, Escape closing the editor while
+  typing, a reload), `weather` (a debounced search, a client navigation to a result, °C/°F, home again),
+  `notes` (one command, sign up, create, edit, delete, sign out and in; two apps on `localhost` keeping
+  their own sessions; `k dev` stopping promptly with a `watch()` stream open), `stack` (pay from the
+  shop page through paybox) and `shop` (buy a mug, pay through paybox on non-default ports, the receipt
+  turning paid, the confirmation in the mail catcher). And one red test per open defect (§4.5).
+
+`K_DEV_FETCH_ORIGINS` (comma-separated `from=to` origin pairs) is read by `k run` and `k dev` only: a
+server-side `HttpClient` request to `from`, or below it, goes to `to` instead
+(`ServerOptions::fetch_origins`, as §4.3 sets in process). `dist/app` and builds never read it.
+`crates/k_cli/tests/example_checks.rs` tests it, and the examples' setup scripts and files (the shop's
+`init-secrets.sh` without `argon2`, a config `@Matches` refused at startup, the compose file's SMTP port,
+a member's `.env` watched by workspace `k dev`, the stack's ports, no server-only rpc client in a client
+bundle, the notes example's ignored files, the READMEs).
+
+```text
+cargo test -p k_cli --test chrome
+K_CHROME=/path/to/chromium K_REQUIRE_CHROME=1 cargo test -p k_cli --test chrome
+```
+
+### 4.5 Red tests
+
+A test for a defect that is reproduced but not fixed yet is written first and committed ignored, with
+the defect's id: `#[ignore = "red: <id> <what is wrong>"]`. The fix removes the `ignore` in the same
+change, so the test turns green and stays. `cargo test -- --ignored` runs the red tests (each must fail,
+for the reason its message names); `grep -n 'ignore = "red:' crates/*/tests/*.rs` lists them. The ids
+are those of the real-browser diagnosis of the examples:
+
+| Id | Defect | Test (`crates/k_cli/tests/`) |
+|---|---|---|
+| todos-A | **Fixed** (every form control `.label` is a `<label>`; codegen.md §10): a computed `.label` on a form control is `aria-label` only, not a visible `<label>` | `chrome.rs` `todos_shows_each_todos_title_on_screen` |
+| todos-B | **Fixed** (`on` prevents a `submit`'s default; runtime.md §5.4; `sim.submit` fails a submission nothing prevented): `.on(submit:)` doesn't prevent the browser's submission, so adding reloads the page and a rejected title loses its alert | `todos_adds_in_place_and_keeps_the_focus_in_the_field`, `todos_rejects_a_blank_title_with_an_alert_and_keeps_the_text` |
+| todos-C, kanban-RC4 | **Fixed** (the document and `theme()` apply the cookie; server.md §7): the remembered theme is not applied on load | `todos_keeps_the_dark_theme_across_a_reload`, `kanban_keeps_the_chosen_theme_across_a_reload` |
+| todos-D, kanban-RC3, weather-A, notes-2, shop-D4 | **Fixed** (fallback stacks, base stylesheet; codegen.md §12): theme fonts have no generic fallback, and no base styles apply the theme to the document | `todos_draws_text_in_a_sans_serif_stack_with_base_styles`, `kanban_draws_text_in_a_sans_serif_stack`, `weather_applies_the_theme_font_and_page_colours`, `notes_applies_the_theme_font_and_colours`, `shop_draws_text_in_the_themes_sans_serif_stack` |
+| todos-E | **Fixed** (scoped slots get accessors; `.autofocus`; runtime.md §5.3): a scoped-slot row is remounted when its item changes, losing the node and the focus | `todos_keeps_the_row_and_the_focus_when_a_todo_is_toggled` |
+| todos-F | **Fixed** (`namespace:name` items, bare ones moved once; 36-local-storage.md): local storage keys are not namespaced | `todos_stores_its_todos_under_the_apps_namespace` |
+| todos-G, weather-F | **Fixed** (`$k.description`, `/manifest.webmanifest`; 22-metadata.md): `description` and `manifest` metadata are dropped | `todos_puts_its_description_and_manifest_in_the_head`, `weather_links_and_serves_its_manifest` |
+| kanban-RC1 | **Fixed** (`near`: the space around a list is the list; 41-drag-and-drop.md): a mouse drag can't drop onto an empty column | `kanban_drops_a_card_dragged_onto_an_empty_column` |
+| kanban-RC2, weather-B | **Fixed** (library tokens; codegen.md §12): library tokens and base-theme assignments never reach `:root` | `kanban_puts_library_tokens_and_their_assignments_on_root`, `weather_chart_has_grid_lines_in_the_light_theme` |
+| kanban-RC5 | **Fixed** (base stylesheet, `data-k-list`): no document base styles; `ReorderableList` keeps list bullets; no `color-scheme` | `kanban_has_base_styles_for_the_document_and_its_lists` |
+| kanban-RC6 | **Fixed** (`.autofocus`, visible labels, charts fill their width; runtime.md §12.2): the new-card field gets no focus and no visible label; the chart is letterboxed (also weather-B) | `kanban_focuses_the_new_card_field_and_shows_its_label`, `kanban_chart_fills_its_width`, `weather_chart_fills_its_card` |
+| weather-C | **Fixed** (`crate::icons`): `Icon` renders an empty `<span>` | `weather_draws_its_icons` |
+| weather-D | **Fixed** (`css_value_of`): a reactive `Angle` style value has no unit | `weather_rotates_the_wind_arrow` |
+| weather-E1 | **Fixed** (per-load invalidation, same-page navigations keep the page; runtime.md §7, §10): a units change re-runs every load | `weather_switching_units_fetches_only_the_forecast_again` |
+| weather-E2 | **Fixed** (`$loads.ready()`): the refresh timer is recreated on every reload | `weather_creates_the_refresh_timer_once` |
+| weather-E3 | **Open, red** (needs a design choice: either service state crosses hydration or `reload()` can keep a load whose inputs are unchanged; the weather README says so): hydrated loads don't seed the service's place cache | `weather_refresh_after_server_rendering_uses_the_cached_place` |
+| shop-D5 | **Resolved** (the behaviour is the designed one, 26-auth-and-sessions.md: a guarded page whose session ends is left for the server; the example no longer navigates after the `await`, and its doc comment and README say where sign-out lands): signing out of Admin lands on `/sign-in`, not home | `shop_admin_signs_out_to_the_sign_in_page` |
+| docs-stale | **Fixed** (READMEs updated): example READMEs say the compiler doesn't exist | `example_checks.rs` `example_readmes_do_not_say_the_compiler_is_missing` |
+
 ---
 
 ## 5. Property tests
@@ -1393,9 +1490,9 @@ concurrent clients, graceful shutdown with a request in flight, and start-up fai
 fixation, `x-k-session`, `Retry-After`, `k-data` as JSON, streaming envelopes, body limits, the split on
 served assets, the config table, `dist/app` built by `k build` and run as a process); its harness
 serves projects like the e2e one. One test there is pending (stream back-pressure, see server.md §16).
-- **Browser (planned):** with a Chrome or Chromium executable available, tests drive it through the
-  DevTools protocol from Rust to check hydration, navigation and reactivity in a real DOM. They skip with
-  a message when no browser is found.
+- **Real browser:** with a Chrome or Chromium executable available, `crates/k_cli/tests/chrome.rs` drives
+  it through the DevTools protocol from Rust (§4.4); the tests skip with a message when no browser is
+  found, unless `K_REQUIRE_CHROME=1`.
 - **Example apps:** each app under `examples/` has its own K tests and is built and smoke-tested by the
   e2e suite (§8.1). `k test` runs both sides of them (§8.4), and every example's own tests pass:
   `todos`, `weather`, `notes`, `kanban`, and every member of the workspaces `shop` and `stack`.

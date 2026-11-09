@@ -275,16 +275,24 @@ k check            # every member; a library's problems are reported once
 k test             # every member's tests, each after a `== <name>` line
 k build            # each app into dist/<name>/, and each rpc.lock updated
 k dev              # every app, each calling the others
+k run              # the same, without rebuilding on change
 ```
 
 **`k dev` at the root** runs every app, on `8080`, `8081`, … in dependency order (`--port` sets the
 first). Each `remote` rule whose protocol a sibling serves is wired to it with a development secret
-generated for the run, so you set no `PAYBOX_URL` and no tokens:
+generated for the run, so you set no `PAYBOX_URL` and no tokens. Every line an app prints starts with its
+name, and Ctrl-C stops them all:
 
 ```text
-paybox serving on http://localhost:8080
-shop serving on http://localhost:8081
+paybox | serving on http://localhost:8080
+shop   | serving on http://localhost:8081
+shop   | mail from orders@shop.example to ana@example.com: Your K Shop order
 ```
+
+A change anywhere, each member's `.env` included, rebuilds and restarts every app. An address an app
+hands to another at run time, such as the shop's callback URL for paybox, is the app's own to give: its
+`[dev.env]` names it (`PAYBOX_CALLBACK_URL = "http://127.0.0.1:{port}"`), so it is right whatever port
+the app gets.
 
 **Tests stay hermetic.** In `.test`, every `remote` rule binds an offline `TestRemote<P>` double by
 default, even when the serving app is in the same workspace: its every call fails with

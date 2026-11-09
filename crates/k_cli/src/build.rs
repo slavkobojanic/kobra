@@ -226,6 +226,8 @@ fn write(output: &Output, out: &Path) -> std::io::Result<()> {
                 default: c.default.clone(),
                 cases: c.cases.clone(),
                 range: c.range,
+                pattern: c.pattern.clone(),
+                pattern_message: c.pattern_message.clone(),
             })
             .collect(),
         forgery_exempt: forgery_exempt(output),
@@ -286,6 +288,15 @@ fn write_static(output: &Output, out: &Path) -> std::io::Result<()> {
         &[("accept".to_owned(), "text/html".to_owned())],
         b"",
     );
+    // The app's web app manifest, when it declares one, next to the
+    // document that links it (22-metadata.md).
+    let manifest = k_server::testing::send(
+        server.local_addr(),
+        "GET",
+        "/manifest.webmanifest",
+        &[],
+        b"",
+    );
     let _ = server.shutdown();
     let page = page.map_err(std::io::Error::other)?;
     if page.status != 200 {
@@ -293,6 +304,12 @@ fn write_static(output: &Output, out: &Path) -> std::io::Result<()> {
             "the app's document answered {} instead of 200",
             page.status
         )));
+    }
+    let manifest_file = out.join("public").join("manifest.webmanifest");
+    match manifest {
+        Ok(m) if m.status == 200 => std::fs::write(&manifest_file, &m.body)?,
+        _ if manifest_file.is_file() => std::fs::remove_file(&manifest_file)?,
+        _ => {}
     }
     std::fs::write(out.join("public").join("index.html"), &page.body)
 }
@@ -347,46 +364,23 @@ fn forgery_exempt(output: &Output) -> Vec<String> {
         .collect()
 }
 
-/// Runs `k run`.
+/// Runs `k run`: builds the project for development and serves it until
+/// `SIGTERM` or Ctrl-C, without watching for changes. At a workspace root
+/// it serves every app member, wired together like `k dev` ([`serve_dev`]).
 pub fn run(args: &RunArgs) -> ExitCode {
-    let options = Options {
-        profile: Profile::Development,
-        environment: Environment::Development,
-        entry: Entry::App,
-    };
-    let output = match compile(&args.project, &options, "run") {
-        Ok(o) => o,
-        Err(code) => return code,
-    };
-    serve(&output, &args.project, args.port)
+    serve_dev(args, false)
 }
 
-/// Serves a development build until `SIGTERM` or Ctrl-C (see [`start`]).
-#[cfg(feature = "server")]
-fn serve(output: &Output, project: &Path, port: u16) -> ExitCode {
-    let server = match start(output, project, port, &Wiring::default()) {
-        Ok(s) => s,
-        Err(code) => return code,
-    };
-    match server.run_until_signal() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("error: {e}");
-            ExitCode::from(1)
-        }
-    }
-}
-
-/// What `k dev` at a workspace root adds to one app's development
-/// configuration: the variables wiring its remotes to their sibling
-/// members, which win over the member's `.env`, and the app's name for the
-/// `<name> serving on …` line.
+/// What `k dev` and `k run` at a workspace root add to one app's
+/// development configuration: the variables wiring its remotes to their
+/// sibling members, which win over the member's `.env`, and the app's name,
+/// printed before each of its lines (`shop   | serving on …`).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Wiring {
     /// Variables and values.
     vars: std::collections::BTreeMap<String, String>,
-    /// The app's name, printed before `serving on`.
-    label: Option<String>,
+    /// The app's name, padded to the longest of the run.
+    label: Option<&'static str>,
 }
 
 /// Starts serving a development build on `port` (0 picks a free one) and
@@ -408,8 +402,9 @@ fn start(
     project: &Path,
     port: u16,
     wiring: &Wiring,
+    mail: &mut Option<crate::devenv::MailSink>,
 ) -> Result<k_server::Server, ExitCode> {
-    use k_server::config::{ConfigField, DevEnvironment, EXIT_CONFIG, report, resolve};
+    use k_server::config::{ConfigField, EXIT_CONFIG, report, resolve};
     use k_server::http::StaticAsset;
     use k_server::{JsModule, Server, ServerBundle, ServerOptions};
     let fields: Vec<ConfigField> = output
@@ -427,23 +422,41 @@ fn start(
                 &c.cases,
                 c.range,
             )
+            .map(|f| f.with_pattern(c.pattern.as_deref(), c.pattern_message.as_deref()))
         })
         .collect();
-    let mut env = DevEnvironment::load(project, true);
-    // Names only: a value may be a secret.
-    let shadowed = env.shadowed();
-    if !shadowed.is_empty() {
-        eprintln!(
-            "note: the process environment shadows these `.env` keys: {}",
-            shadowed.join(", ")
-        );
+    let label = wiring.label;
+    let config_error = || ExitCode::from(u8::try_from(EXIT_CONFIG).unwrap_or(78));
+    let inputs = crate::devenv::DevInputs {
+        project,
+        package: &output.manifest.name,
+        port,
+        wiring: &wiring.vars,
+    };
+    let mut start_mail = || {
+        if mail.is_none() {
+            match crate::devenv::MailSink::start(project) {
+                Ok(sink) => *mail = Some(sink),
+                Err(e) => crate::devenv::say(label, &format!("warning: no mail catcher: {e}")),
+            }
+        }
+        mail.as_ref().map(crate::devenv::MailSink::port)
+    };
+    let prepared = match crate::devenv::prepare(&inputs, &fields, &mut start_mail) {
+        Ok(p) => p,
+        Err(problem) => {
+            crate::devenv::say(label, &problem);
+            return Err(config_error());
+        }
+    };
+    for note in &prepared.notes {
+        crate::devenv::say(label, note);
     }
-    env.dotenv.extend(wiring.vars.clone());
-    let values = match resolve(&fields, &env) {
+    let values = match resolve(&fields, &prepared.env) {
         Ok(v) => v,
         Err(problems) => {
-            eprint!("{}", report(&problems));
-            return Err(ExitCode::from(u8::try_from(EXIT_CONFIG).unwrap_or(78)));
+            crate::devenv::say(label, &report(&problems));
+            return Err(config_error());
         }
     };
     let bundle = ServerBundle {
@@ -463,6 +476,13 @@ fn start(
     options.public_origin = format!("http://localhost:{port}");
     options.config = values;
     options.forgery_exempt = forgery_exempt(output);
+    // A restart in `k dev` shouldn't wait out production's 25 s: open
+    // streams end at once anyway, and the browser re-subscribes.
+    options.shutdown_grace = DEV_SHUTDOWN_GRACE;
+    if let Some(l) = label {
+        options.log = k_server::Output::Prefixed(l);
+    }
+    options.fetch_origins = dev_fetch_origins();
     // A relative SQLite path is the project's (each member's, at a
     // workspace root), and its directory is created.
     options.database =
@@ -472,10 +492,24 @@ fn start(
         {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("error: database: {e}");
+                crate::devenv::say(label, &format!("error: database: {e}"));
                 return Err(ExitCode::from(1));
             }
         };
+    // `[dev] seed` fills a database this start creates.
+    if let Some(setup) = &options.database {
+        match crate::devenv::seed(project, setup) {
+            Ok(lines) => {
+                for line in lines {
+                    crate::devenv::say(label, &line);
+                }
+            }
+            Err(e) => {
+                crate::devenv::say(label, &format!("error: {e}"));
+                return Err(ExitCode::from(1));
+            }
+        }
+    }
     // `k run` and `k dev` run the jobs worker too, against the development
     // database (30-background-jobs.md).
     options.jobs = output.manifest.jobs.clone();
@@ -491,22 +525,55 @@ fn start(
         .collect();
     match Server::start(options) {
         Ok(server) => {
-            let prefix = wiring
-                .label
-                .as_ref()
-                .map(|l| format!("{l} "))
-                .unwrap_or_default();
-            eprintln!(
-                "{prefix}serving on http://localhost:{}",
-                server.local_addr().port()
+            crate::devenv::say(
+                label,
+                &format!("serving on http://localhost:{}", server.local_addr().port()),
             );
             Ok(server)
         }
+        Err(k_server::http::ServerError::Bind(e)) => {
+            crate::devenv::say(
+                label,
+                &format!(
+                    "error: cannot listen on port {port}: {e}; another program is using it, \
+                     so pick other ports with `--port`"
+                ),
+            );
+            Err(ExitCode::from(2))
+        }
         Err(e) => {
-            eprintln!("error: {e}");
+            crate::devenv::say(label, &format!("error: {e}"));
             Err(ExitCode::from(2))
         }
     }
+}
+
+/// How long a development server waits for in-flight requests when it
+/// stops or restarts (production's default is 25 s).
+#[cfg(feature = "server")]
+const DEV_SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// `K_DEV_FETCH_ORIGINS` from the process environment: comma-separated
+/// `from=to` origin pairs. Under `k run` and `k dev` only, a server-side
+/// `HttpClient` request to `from` (or below it) goes to `to` instead
+/// ([`k_server::ServerOptions::fetch_origins`]), so an end-to-end test can
+/// stand a local fake in for a third-party API whose URL the app
+/// hard-codes (`docs/compiler/testing.md`, "Real-browser tests"). Builds
+/// and `dist/app` never read it. A pair without `=` is ignored.
+#[cfg(feature = "server")]
+fn dev_fetch_origins() -> Vec<(String, String)> {
+    std::env::var("K_DEV_FETCH_ORIGINS")
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|pair| pair.split_once('='))
+        .map(|(from, to)| {
+            (
+                from.trim().trim_end_matches('/').to_owned(),
+                to.trim().trim_end_matches('/').to_owned(),
+            )
+        })
+        .filter(|(from, to)| !from.is_empty() && !to.is_empty())
+        .collect()
 }
 
 /// How often `k dev` looks for changed sources.
@@ -516,7 +583,8 @@ pub(crate) const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from
 /// Runs `k dev`: serves a development build like `k run`, and rebuilds
 /// and restarts the server on the same port whenever a file of the project
 /// changes (`docs/compiler/server.md`, "Packaging"). There is no hot module
-/// replacement in v0: a restart drops in-memory state such as sessions.
+/// replacement in v0: a restart drops in-memory state, but sessions and
+/// data are in the development database and survive it.
 ///
 /// The first build must succeed (it fails like `k run`). After that, a
 /// build with errors is reported and the last good build keeps serving; a
@@ -524,22 +592,10 @@ pub(crate) const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from
 /// retried on the next change. `SIGTERM` or Ctrl-C stops the server
 /// gracefully and exits 0.
 pub fn dev(args: &RunArgs) -> ExitCode {
-    let options = Options {
-        profile: Profile::Development,
-        environment: Environment::Development,
-        entry: Entry::App,
-    };
-    if workspace::locate(&args.project).is_some_and(|l| l.member.is_none()) {
-        return dev_workspace(&args.project, args.port, &options);
-    }
-    let output = match compile(&args.project, &options, "dev") {
-        Ok(o) => o,
-        Err(code) => return code,
-    };
-    watch(&output, &args.project, args.port, &options)
+    serve_dev(args, true)
 }
 
-/// One app of `k dev` at a workspace root.
+/// One app of `k dev` or `k run`.
 #[cfg(feature = "server")]
 struct DevApp {
     /// The member's index in the workspace.
@@ -548,122 +604,189 @@ struct DevApp {
     dir: std::path::PathBuf,
     /// The port it is served on, fixed for the whole run.
     port: u16,
+    /// Its name before each of its lines, at a workspace root.
+    label: Option<&'static str>,
     /// Its last good build.
     output: Output,
     /// Its running server; `None` while stopped (before the first start, or
     /// after a restart failed).
     server: Option<k_server::Server>,
+    /// Its development mail catcher, once it sends email.
+    mail: Option<crate::devenv::MailSink>,
 }
 
-/// `k dev` at a workspace root (`docs/design/40-workspaces-and-services.md`,
-/// "Tooling"): every app member is built and served, each on its own port
-/// (`port`, `port + 1`, … in dependency order; free ports for 0). Each
-/// `remote` rule whose protocol a sibling member serves is wired to it:
-/// the config's `url` variable is that member's address and its `token`
-/// one development secret, generated per run, which every member also gets
-/// as `K_SERVICE_TOKEN`. A change anywhere in the workspace rebuilds and
-/// restarts every app; a build with errors keeps the last good one
-/// serving.
+/// A free local port, for `--port 0`.
+///
+/// # Errors
+///
+/// Exit status 2 after printing the problem.
 #[cfg(feature = "server")]
-fn dev_workspace(root: &Path, port: u16, options: &Options) -> ExitCode {
-    let loaded = match workspace::load(root) {
+fn free_port() -> Result<u16, ExitCode> {
+    std::net::TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|l| l.local_addr())
+        .map(|a| a.port())
+        .map_err(|e| {
+            eprintln!("error: no free port: {e}");
+            ExitCode::from(2)
+        })
+}
+
+/// `k run` (`watch` false) and `k dev` (`watch` true) for a project, or
+/// for every app member of a workspace root
+/// (`docs/design/40-workspaces-and-services.md`, "Tooling").
+///
+/// At a root, each app is served on its own port (`port`, `port + 1`, …
+/// in dependency order; free ports for 0), its lines are prefixed with its
+/// name, and each `remote` rule whose protocol a sibling member serves is
+/// wired to it: the config's `url` variable is that member's address and
+/// its `token` one development secret, generated per run, which every
+/// member also gets as `K_SERVICE_TOKEN`. With `watch`, a change anywhere
+/// (each member's `.env` included) rebuilds and restarts every app; a build
+/// with errors keeps the last good one serving. Ctrl-C or `SIGTERM` stops
+/// them all.
+#[cfg(feature = "server")]
+fn serve_dev(args: &RunArgs, watch: bool) -> ExitCode {
+    let options = Options {
+        // `--release`: the client `k build` ships, with development wiring
+        // (13-tooling.md, "Release builds").
+        profile: if args.release {
+            Profile::Release
+        } else {
+            Profile::Development
+        },
+        environment: Environment::Development,
+        entry: Entry::App,
+    };
+    let loaded = match workspace::load(&args.project) {
         Ok(l) => l,
         Err(code) => return code,
     };
-    let apps: Vec<usize> = loaded
-        .targets()
-        .into_iter()
-        .filter(|&m| loaded.workspace.members[m].is_app)
-        .collect();
+    let at_root = loaded.focus.is_none();
+    let apps: Vec<usize> = match loaded.focus {
+        Some(m) => vec![m],
+        None => loaded
+            .targets()
+            .into_iter()
+            .filter(|&m| loaded.workspace.members[m].is_app)
+            .collect(),
+    };
     if apps.is_empty() {
         eprintln!(
             "error: the workspace `{}` has no app to run",
-            sources::display(root)
+            sources::display(&args.project)
         );
         return ExitCode::from(2);
     }
+    let width = apps
+        .iter()
+        .map(|&m| loaded.workspace.members[m].name.len())
+        .max()
+        .unwrap_or(0);
     let mut running: Vec<DevApp> = Vec::new();
     for (i, &m) in apps.iter().enumerate() {
-        let dir = loaded.member_dir(m);
-        let output = match compile_member(&loaded, m, &dir, options) {
+        let dir = if at_root {
+            loaded.member_dir(m)
+        } else {
+            args.project.clone()
+        };
+        let output = match compile_member(&loaded, m, &dir, &options) {
             Ok((o, _)) => o,
             Err(code) => return code,
         };
-        let port = if port == 0 {
-            match std::net::TcpListener::bind(("127.0.0.1", 0)).and_then(|l| l.local_addr()) {
-                Ok(a) => a.port(),
-                Err(e) => {
-                    eprintln!("error: no free port: {e}");
-                    return ExitCode::from(2);
-                }
+        let port = if args.port == 0 {
+            match free_port() {
+                Ok(p) => p,
+                Err(code) => return code,
             }
         } else {
-            match port.checked_add(u16::try_from(i).unwrap_or(u16::MAX)) {
+            match args.port.checked_add(u16::try_from(i).unwrap_or(u16::MAX)) {
                 Some(p) => p,
                 None => {
-                    eprintln!("error: port {port} leaves no room for {} apps", apps.len());
+                    eprintln!(
+                        "error: port {} leaves no room for {} apps",
+                        args.port,
+                        apps.len()
+                    );
                     return ExitCode::from(2);
                 }
             }
         };
+        // One small leak per app and run: the server's log output keeps it.
+        let label: Option<&'static str> = at_root.then(|| {
+            &*Box::leak(format!("{:width$}", loaded.workspace.members[m].name).into_boxed_str())
+        });
         running.push(DevApp {
             member: m,
             dir,
             port,
+            label,
             output,
             server: None,
+            mail: None,
         });
     }
-    let secret = match k_server::process::random_token() {
-        Ok(t) => format!("dev-{t}"),
-        Err(e) => {
-            eprintln!("error: {e}");
-            return ExitCode::from(2);
+    let secret = if at_root {
+        match k_server::process::random_token() {
+            Ok(t) => Some(format!("dev-{t}")),
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::from(2);
+            }
         }
+    } else {
+        None
     };
-    let start_all = |running: &mut Vec<DevApp>| -> bool {
+    // Starts (or restarts) every app; the first failure's exit status.
+    let start_all = |running: &mut Vec<DevApp>| -> Result<(), ExitCode> {
         let serves: Vec<(Vec<String>, u16)> = running
             .iter()
             .map(|a| (a.output.manifest.serves.clone(), a.port))
             .collect();
-        let mut ok = true;
+        let mut failed = None;
         for app in running.iter_mut() {
             let mut wiring = Wiring {
                 vars: std::collections::BTreeMap::new(),
-                label: Some(loaded.workspace.members[app.member].name.clone()),
+                label: app.label,
             };
-            wiring
-                .vars
-                .insert("K_SERVICE_TOKEN".to_owned(), secret.clone());
-            wiring.vars.insert(
-                "K_PUBLIC_ORIGIN".to_owned(),
-                format!("http://localhost:{}", app.port),
-            );
-            for remote in &app.output.manifest.remotes {
-                if let Some((_, p)) = serves.iter().find(|(s, _)| s.contains(&remote.protocol)) {
-                    wiring
-                        .vars
-                        .insert(remote.url_env.clone(), format!("http://127.0.0.1:{p}"));
-                    wiring.vars.insert(remote.token_env.clone(), secret.clone());
+            if let Some(secret) = &secret {
+                wiring
+                    .vars
+                    .insert("K_SERVICE_TOKEN".to_owned(), secret.clone());
+                wiring.vars.insert(
+                    "K_PUBLIC_ORIGIN".to_owned(),
+                    format!("http://localhost:{}", app.port),
+                );
+                for remote in &app.output.manifest.remotes {
+                    if let Some((_, p)) = serves.iter().find(|(s, _)| s.contains(&remote.protocol))
+                    {
+                        wiring
+                            .vars
+                            .insert(remote.url_env.clone(), format!("http://127.0.0.1:{p}"));
+                        wiring.vars.insert(remote.token_env.clone(), secret.clone());
+                    }
                 }
             }
             if let Some(old) = app.server.take()
                 && let Err(e) = old.shutdown()
             {
-                eprintln!("error: {e}");
+                crate::devenv::say(app.label, &format!("error: {e}"));
             }
-            app.server = start(&app.output, &app.dir, app.port, &wiring).ok();
-            ok &= app.server.is_some();
+            match start(&app.output, &app.dir, app.port, &wiring, &mut app.mail) {
+                Ok(s) => app.server = Some(s),
+                Err(code) => {
+                    failed.get_or_insert(code);
+                }
+            }
         }
-        ok
+        failed.map_or(Ok(()), Err)
     };
-    if !start_all(&mut running) {
+    if let Err(code) = start_all(&mut running) {
         for app in &mut running {
             if let Some(s) = app.server.take() {
                 let _ = s.shutdown();
             }
         }
-        return ExitCode::from(2);
+        return code;
     }
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -675,7 +798,12 @@ fn dev_workspace(root: &Path, port: u16, options: &Options) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let mut seen = fingerprint(root);
+    let watched = if at_root {
+        loaded.root.clone()
+    } else {
+        args.project.clone()
+    };
+    let mut seen = fingerprint(&watched);
     let stopped = runtime.block_on(async {
         #[cfg(unix)]
         let mut term =
@@ -702,33 +830,57 @@ fn dev_workspace(root: &Path, port: u16, options: &Options) -> ExitCode {
                 () = signal => return Ok(()),
                 () = tokio::time::sleep(WATCH_INTERVAL) => {}
             }
-            let now = fingerprint(root);
+            for app in &mut running {
+                if let Some(mail) = &mut app.mail {
+                    mail.poll(app.label);
+                }
+            }
+            if !watch {
+                continue;
+            }
+            let now = fingerprint(&watched);
             if now == seen {
                 continue;
             }
+            // Let a burst of writes (an editor saving several files) settle.
             tokio::time::sleep(WATCH_INTERVAL).await;
-            seen = fingerprint(root);
-            eprintln!("change detected; rebuilding every app");
-            let Ok(next) = workspace::load(root) else {
-                eprintln!("the last good builds keep serving");
+            seen = fingerprint(&watched);
+            eprintln!(
+                "change detected; rebuilding{}",
+                if at_root { " every app" } else { "" }
+            );
+            let keep = if at_root {
+                "the last good builds keep serving"
+            } else {
+                "the last good build keeps serving"
+            };
+            let Ok(next) = workspace::load(&args.project) else {
+                eprintln!("{keep}");
                 continue;
             };
             let mut outputs = Vec::new();
             for app in &running {
-                match compile_member(&next, app.member, &app.dir, options) {
+                match compile_member(&next, app.member, &app.dir, &options) {
                     Ok((o, _)) => outputs.push(o),
                     Err(_) => break,
                 }
             }
             if outputs.len() != running.len() {
-                eprintln!("the last good builds keep serving");
+                eprintln!("{keep}");
                 continue;
             }
             for (app, output) in running.iter_mut().zip(outputs) {
                 app.output = output;
             }
-            if !start_all(&mut running) {
-                eprintln!("some servers are stopped until the next change");
+            if start_all(&mut running).is_err() {
+                eprintln!(
+                    "{} stopped until the next change",
+                    if at_root {
+                        "some servers are"
+                    } else {
+                        "the server is"
+                    }
+                );
             }
         }
     });
@@ -738,127 +890,33 @@ fn dev_workspace(root: &Path, port: u16, options: &Options) -> ExitCode {
     }
     for app in &mut running {
         if let Some(Err(e)) = app.server.take().map(k_server::Server::shutdown) {
-            eprintln!("error: {e}");
+            crate::devenv::say(app.label, &format!("error: {e}"));
             code = ExitCode::from(1);
+        }
+        if let Some(mail) = &mut app.mail {
+            mail.poll(app.label);
         }
     }
     code
 }
 
-/// Without the server runtime: reports that `k dev` is unavailable and
-/// exits 2.
+/// Without the server runtime: reports that `k run` and `k dev` are
+/// unavailable and exits 2.
 #[cfg(not(feature = "server"))]
-fn dev_workspace(_root: &Path, _port: u16, _options: &Options) -> ExitCode {
-    eprintln!("error: this `k` was built without the server runtime (feature `server`)");
-    ExitCode::from(2)
-}
-
-/// The loop of `k dev` for one project: serves `output`, polls the
-/// project's [`fingerprint`] every `WATCH_INTERVAL`, and on a change waits
-/// for the writes to settle, rebuilds and restarts the server. A build
-/// with errors keeps the old server; a restart that fails leaves none
-/// until the next change. Exits 0 after a graceful stop on `SIGTERM` or
-/// Ctrl-C, 1 if the final shutdown fails, 2 if the watcher can't start.
-#[cfg(feature = "server")]
-fn watch(output: &Output, project: &Path, port: u16, options: &Options) -> ExitCode {
-    let mut server = match start(output, project, port, &Wiring::default()) {
-        Ok(s) => Some(s),
-        Err(code) => return code,
-    };
-    // Port 0 picked a free port: keep it across restarts.
-    let port = server.as_ref().map_or(port, |s| s.local_addr().port());
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return ExitCode::from(2);
-        }
-    };
-    let mut seen = fingerprint(project);
-    let stopped = runtime.block_on(async {
-        #[cfg(unix)]
-        let mut term =
-            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-                Ok(t) => t,
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    return Err(ExitCode::from(2));
-                }
-            };
-        loop {
-            #[cfg(unix)]
-            let signal = async {
-                tokio::select! {
-                    _ = term.recv() => {}
-                    _ = tokio::signal::ctrl_c() => {}
-                }
-            };
-            #[cfg(not(unix))]
-            let signal = async {
-                let _ = tokio::signal::ctrl_c().await;
-            };
-            tokio::select! {
-                () = signal => return Ok(()),
-                () = tokio::time::sleep(WATCH_INTERVAL) => {}
-            }
-            let now = fingerprint(project);
-            if now == seen {
-                continue;
-            }
-            // Let a burst of writes (an editor saving several files) settle.
-            tokio::time::sleep(WATCH_INTERVAL).await;
-            seen = fingerprint(project);
-            eprintln!("change detected; rebuilding");
-            let Ok(next) = compile(project, options, "dev") else {
-                eprintln!("the last good build keeps serving");
-                continue;
-            };
-            if let Some(old) = server.take()
-                && let Err(e) = old.shutdown()
-            {
-                eprintln!("error: {e}");
-            }
-            server = start(&next, project, port, &Wiring::default()).ok();
-            if server.is_none() {
-                eprintln!("the server is stopped until the next change");
-            }
-        }
-    });
-    if let Err(code) = stopped {
-        return code;
-    }
-    match server.map(k_server::Server::shutdown) {
-        Some(Err(e)) => {
-            eprintln!("error: {e}");
-            ExitCode::from(1)
-        }
-        _ => ExitCode::SUCCESS,
-    }
-}
-
-/// Without the server runtime: reports that `k dev` is unavailable and
-/// exits 2.
-#[cfg(not(feature = "server"))]
-fn watch(_output: &Output, _project: &Path, _port: u16, _options: &Options) -> ExitCode {
+fn serve_dev(_args: &RunArgs, _watch: bool) -> ExitCode {
     eprintln!("error: this `k` was built without the server runtime (feature `server`)");
     ExitCode::from(2)
 }
 
 /// A snapshot of the project's files (path, size and modification time),
 /// skipping hidden directories and build output like the source loader,
-/// but keeping `.env`. Two equal snapshots mean nothing changed.
+/// but keeping every `.env` (a workspace member's too). Two equal
+/// snapshots mean nothing changed.
 #[cfg(feature = "server")]
 pub(crate) fn fingerprint(
     project: &Path,
 ) -> Vec<(std::path::PathBuf, u64, Option<std::time::SystemTime>)> {
-    fn walk(
-        dir: &Path,
-        top: bool,
-        out: &mut Vec<(std::path::PathBuf, u64, Option<std::time::SystemTime>)>,
-    ) {
+    fn walk(dir: &Path, out: &mut Vec<(std::path::PathBuf, u64, Option<std::time::SystemTime>)>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
@@ -871,15 +929,15 @@ pub(crate) fn fingerprint(
             };
             if meta.is_dir() {
                 if !name.starts_with('.') && !sources::is_skipped_dir(&name) {
-                    walk(&path, false, out);
+                    walk(&path, out);
                 }
-            } else if !name.starts_with('.') || (top && name == ".env") {
+            } else if !name.starts_with('.') || name == ".env" {
                 out.push((path, meta.len(), meta.modified().ok()));
             }
         }
     }
     let mut out = Vec::new();
-    walk(project, true, &mut out);
+    walk(project, &mut out);
     out.sort();
     out
 }
@@ -894,12 +952,4 @@ fn content_type(path: &str) -> &'static str {
         Some("map") => "application/json",
         _ => "application/octet-stream",
     }
-}
-
-/// Without the server runtime: reports that `k run` is unavailable and
-/// exits 2.
-#[cfg(not(feature = "server"))]
-fn serve(_output: &Output, _project: &Path, _port: u16) -> ExitCode {
-    eprintln!("error: this `k` was built without the server runtime (feature `server`)");
-    ExitCode::from(2)
 }

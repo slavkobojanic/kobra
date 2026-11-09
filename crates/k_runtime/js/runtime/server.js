@@ -47,6 +47,7 @@ export {
   splitTarget,
   testClient,
   theme,
+  themeSnippet,
 } from "./app.js";
 
 export {

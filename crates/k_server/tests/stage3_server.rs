@@ -2502,3 +2502,113 @@ fn the_testing_client_reads_a_stream_as_it_arrives() {
         server.shutdown().map_err(|e| e.to_string())
     });
 }
+
+// Shutdown ends open streams at once instead of waiting out the grace
+// period: a stream never finishes by itself, and the client re-subscribes
+// when one ends (29-server-streaming.md, "Shutdown").
+#[test]
+fn shutdown_ends_open_streams_without_waiting_for_the_grace_period() {
+    passing(|| {
+        let (server, _) = start_project(&project("streaming"), "http://localhost")?;
+        let mut s = OpenStream::open(server.local_addr(), "Watch", r#"{"room": "lobby"}"#, &[])?;
+        s.message()?;
+        let started = Instant::now();
+        let stopping = std::thread::spawn(move || server.shutdown().map_err(|e| e.to_string()));
+        // The stream ends (cleanly or by the connection closing) promptly.
+        while let Ok((0, _)) = s.next() {}
+        stopping
+            .join()
+            .map_err(|_| "the shutdown thread panicked")??;
+        if started.elapsed() >= Duration::from_secs(2) {
+            return Err(format!(
+                "shutdown with an open stream took {:?} (grace is 5 s)",
+                started.elapsed()
+            ));
+        }
+        Ok(())
+    });
+}
+
+const COOKIE_ECHO: &str = r#"
+import { serve } from "k:runtime/server";
+await serve(async (request) => {
+  const cookies = request.headers.filter(([n]) => n === "cookie").map(([, v]) => v).join(" | ");
+  return { status: 200, headers: [["set-cookie", "k_session=fresh; Path=/; HttpOnly"], ["set-cookie", "k_theme=dark; Path=/"]], body: cookies };
+});
+"#;
+
+/// Starts [`COOKIE_ECHO`] serving `origin`.
+fn start_cookie_echo(origin: &str) -> Server {
+    let bundle = ServerBundle {
+        modules: vec![JsModule {
+            specifier: "k:/app/server.js".into(),
+            source: COOKIE_ECHO.into(),
+        }],
+        entry: "k:/app/server.js".into(),
+        rpc_paths: BTreeSet::new(),
+    };
+    let mut o = ServerOptions::new("127.0.0.1:0".parse().expect("addr"), bundle);
+    o.workers = 1;
+    o.public_origin = origin.to_owned();
+    o.log = LogOutput::Capture;
+    Server::start(o).expect("the server starts")
+}
+
+// Browsers scope cookies by host, not port, so two apps on `localhost`
+// would share one `k_session` cookie and sign each other out. On an http
+// origin with a port, the cookie is named after the port; the app (and the
+// runtime) still sees `k_session`, and another app's cookie never reaches it.
+#[test]
+fn the_session_cookie_is_named_after_the_port_of_an_http_origin() {
+    let server = start_cookie_echo("http://localhost:5203");
+    let r = send(
+        server.local_addr(),
+        "GET",
+        "/",
+        &h(&[(
+            "cookie",
+            "k_session=other-app; k_session_5203=mine; k_theme=x",
+        )]),
+        b"",
+    )
+    .expect("served");
+    assert_eq!(text(&r), "k_session=mine; k_theme=x");
+    let set: Vec<&str> = r
+        .headers
+        .iter()
+        .filter(|(n, _)| n == "set-cookie")
+        .map(|(_, v)| v.as_str())
+        .collect();
+    assert_eq!(
+        set,
+        vec![
+            "k_session_5203=fresh; Path=/; HttpOnly",
+            "k_theme=dark; Path=/"
+        ]
+    );
+    server.shutdown().expect("stops");
+}
+
+// Without a port (and on https, where the runtime uses `__Host-k_session`)
+// the cookie keeps its name.
+#[test]
+fn the_session_cookie_keeps_its_name_without_a_port() {
+    for origin in ["http://localhost", "https://shop.example"] {
+        let server = start_cookie_echo(origin);
+        let r = send(
+            server.local_addr(),
+            "GET",
+            "/",
+            &h(&[("cookie", "k_session=a; k_session_5203=b")]),
+            b"",
+        )
+        .expect("served");
+        assert_eq!(text(&r), "k_session=a; k_session_5203=b", "{origin}");
+        assert_eq!(
+            r.header("set-cookie"),
+            Some("k_session=fresh; Path=/; HttpOnly"),
+            "{origin}"
+        );
+        server.shutdown().expect("stops");
+    }
+}

@@ -33,6 +33,7 @@ view {
 - **Built-in elements are type-checked.** Required attributes are named arguments (`image` requires `description`), and invalid values or misspelled attributes are compile errors.
 - **Text is a string literal written directly inside a block.** No wrapper is needed.
 - **Events are chained, one per call:** `.on(click: handler)`. See [04-components.md](04-components.md#events) for handler rules.
+- **A `form` with `.on(submit:)` never navigates.** The browser's own form submission (a page load of the form's URL) is always prevented, before the handler runs and whether or not it throws, so the page and what was typed stay. There is no opt-out: a K form is handled by K, and leaving the page is a `link` or a navigation. A `form` without a `submit` handler keeps the browser's behaviour. (Decided after the real-browser runs found every `.on(submit:)` reloading the page.)
 - **Classes are typed references** to the component's `style` block: `.class(.muted)`. See [06-styles.md](06-styles.md).
 
 ## Control flow
@@ -111,12 +112,14 @@ checkbox(isChecked: bind todo.isDone)
 |---|---|---|
 | `.label("…")` | a visible `<label>` on form controls; `aria-label` elsewhere | form controls; landmarks and groups (`nav`, `section`, `form`, `list`, `numberedList`, `table`); elements given a `.role` |
 | `.placeholder("…")` | `placeholder` | text inputs |
+| `.autofocus(Bool)` | `autofocus`, and the focus when the control appears | form controls |
 | `.type(.submit)`, `.type(.button)`, `.type(.reset)` | `type` | `button`. `.type(.button)` is needed on a non-submitting button inside a `form`. |
 | `.pressed(Bool)` | `aria-pressed` | `button` |
 | `.expanded(Bool)` | `aria-expanded` | `button`, `link` |
 | `.role(.alert)`, `.role(.status)` | `role` (both are live regions) | non-interactive elements |
 
-- **On a form control, `.label` is the visible label.** Tests find the control by it: `textField(labeled:)`, `checkbox(labeled:)` ([21-testing.md](21-testing.md)).
+- **On a form control, `.label` is the visible label,** whatever its value: a literal, an interpolated string (`.label("New title for {todo.title}")`) or a computed `String` (`.label(todo.title)`). It renders as a `<label for>` before the control, and a computed one is a text binding that follows its value. A control that needs a name but no visible text puts `VisuallyHidden { … }` around a whole labelled group instead. Tests find the control by it: `textField(labeled:)`, `checkbox(labeled:)` ([21-testing.md](21-testing.md)).
+- **`.autofocus(true)` on a form control moves the focus into it when it appears:** on the page's first render (the HTML `autofocus` attribute) and whenever an `if`, `match` or `for` block inserts it later, such as an edit form opened by an Edit button or a new-card form opened by "Add a card". Hydrating the server's markup doesn't move the focus a second time. Without it, inserting a control never moves the focus.
 - **On a landmark or group, `.label` is its accessible name** (`nav { … }.label("Filter todos")`). The compiler warns when a second landmark of the same kind, such as a second `nav`, has no name.
 - **`.label` is not defined on `button` or `link`.** Their accessible name is their visible content, which voice-control users say aloud (WCAG 2.5.3, label in name). To add words for screen readers only, put them in the content with `VisuallyHidden` from `k.ui`:
 

@@ -8,8 +8,8 @@ Where the [weather example](weather.md) talks to someone else's API, this one ow
 `protocol` between its browser and its server, entities and migrations, sessions and guards.
 
 ```bash
-k test examples/notes                       # integration tests on the real stack, in-process
-DATABASE_URL=sqlite:.k/dev.db k dev examples/notes
+k test examples/notes     # integration tests on the real stack, in-process
+k dev examples/notes      # http://localhost:8080; the database is .k/notes.db, made at startup
 ```
 
 ## The layout

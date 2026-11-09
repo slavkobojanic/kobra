@@ -70,7 +70,7 @@ docker-compose.test.yml       a throwaway Postgres for the compiler's test suite
 deploy/caddy/Caddyfile        the reverse proxy in front of the shop replicas
 deploy/postgres/              creates paybox's own database next to the shop's
 deploy/kubernetes/            kind cluster, manifests, Secrets script and walkthrough
-scripts/init-secrets.sh       generates every secret into secrets/ (git-ignored)
+scripts/init-secrets.sh       generates every secret into secrets/ (git-ignored), for Compose and Kubernetes
 scripts/e2e.sh                builds and starts the Compose stack, checks it over HTTP, tears it down
 secrets/*.example             placeholders; real secrets are never committed
 
@@ -122,22 +122,32 @@ the Docker image builds its own from this repository.
 ### Development
 
 ```bash
-scripts/init-secrets.sh                    # once: secrets/*.txt, and an admin password it prints
-cp paybox/.env.example paybox/.env
-cp shop/.env.example shop/.env
-docker compose up --detach mail            # optional: Mailpit catches emails at http://localhost:8025
-k dev                                      # paybox on 8080, the shop on 8081
-sqlite3 shop/.k/dev.sqlite < shop/scripts/demo-catalog.sql
+k dev
 ```
 
-Open http://localhost:8081 and pay with `4242 4242 4242 4242`. `k dev` at the root builds and serves both
-apps, wires `PAYBOX_URL` and `PAYBOX_TOKEN` to the paybox it started, and gives both apps one development
-secret generated for the run, so the services trust each other with no setup. Each app keeps its own
-SQLite database below its own directory (`paybox/.k/`, `shop/.k/`). A change anywhere rebuilds and
-restarts both. Sign in at `/sign-in` as `admin@shop.example` with the password `init-secrets.sh` printed
-(it is also in `secrets/admin_password.txt`).
+That one command is the whole setup: no `.env`, no secrets to generate, no Docker. Open
+http://localhost:8081 and pay with `4242 4242 4242 4242`.
 
-To run one app alone, run `k dev` in `paybox/`, then `k dev --port 8081` in `shop/`.
+- **Both apps run,** paybox on 8080 and the shop on 8081 (`--port 9000` for 9000 and 9001), each line of
+  their output prefixed with the app's name. `k dev` wires `PAYBOX_URL` and `PAYBOX_TOKEN` to the paybox
+  it started and gives both apps one development secret generated for the run, so the services trust
+  each other. Paybox calls the shop back at its own development address (`PAYBOX_CALLBACK_URL` in
+  `shop/k.toml`'s `[dev.env]`).
+- **Each app has its own SQLite database** below its own directory (`paybox/.k/paybox.db`,
+  `shop/.k/shop.db`), created at the first start; the shop's is seeded with the demo catalog then
+  (`[dev] seed`).
+- **Confirmation emails go to the built-in mail catcher:** each one is printed in the shop's output with
+  its links, and kept as an `.eml` file in `shop/.k/mail/`. To use Mailpit's web inbox instead, run
+  `docker compose up --detach mail` and set the `SMTP_*` lines of `shop/.env.example` in `shop/.env`.
+- **Sign in at http://localhost:8081/sign-in** as `admin@shop.example` with the development password
+  `k dev` prints at startup (`note: SHOP_ADMIN_PASSWORD_HASH is the hash of the development password …`);
+  it is generated on the first run and kept in `shop/.k/secrets/`. Signing out of the dashboard returns
+  to the sign-in page.
+- A change anywhere, a member's `.env` included, rebuilds and restarts both. Ctrl-C stops both.
+- `k run` does the same without watching for changes.
+
+To run one app alone, run `k dev` in `paybox/`, then `k dev --port 8081` in `shop/` with the lines of
+`shop/.env.example` that point it at that paybox.
 
 ### Tests
 
@@ -163,7 +173,10 @@ docker compose up --build --wait
 docker compose exec -T db psql --username=shop --dbname=shop < shop/scripts/demo-catalog.sql
 ```
 
-Then open http://localhost:8080 (the shop, through Caddy) and http://localhost:8025 (the inbox).
+Then open http://localhost:8080 (the shop, through Caddy) and http://localhost:8025 (the inbox), and sign
+in as `admin@shop.example` with the password `init-secrets.sh` printed (it is also in
+`secrets/admin_password.txt`). The script hashes it with `k hash-password` (or the `argon2` tool, or
+`argon2` in a throwaway container), and fails, writing no hash, when none of them is available.
 
 - The **Dockerfile** builds the `k` toolchain from this repository (no published image or registry
   account is needed; pass `--build-arg K_TOOLCHAIN=ghcr.io/k-lang/k:0.1.0` to use a published one), runs
@@ -200,7 +213,9 @@ mounted file, and the two services' tokens in the right pairs.
 
 Values come from environment variables. A secret can also come from a file named by `NAME_FILE`, which is
 how Docker and Kubernetes secrets arrive. `dist/<app>/app config` lists every variable a build reads, and
-`dist/app` refuses to start, listing every problem, when one is missing or malformed.
+`dist/app` refuses to start, listing every problem, when one is missing or malformed. The tables describe
+production; under `k dev` the workspace wiring, each member's `[dev]` section and the development defaults
+(SQLite in `.k/`, the mail catcher) fill in everything.
 
 **paybox**
 
@@ -227,8 +242,11 @@ how Docker and Kubernetes secrets arrive. `dist/<app>/app config` lists every va
 
 The committed `secrets/*.example` files hold placeholders, never working values; in particular
 `admin_password_hash.txt.example` isn't a hash, so the shop refuses to start with it.
-`scripts/init-secrets.sh` writes random values and an Argon2id hash of a random admin password (with the
-`argon2` command-line tool, or in a throwaway `alpine` container when it isn't installed).
+`scripts/init-secrets.sh` writes random values and an Argon2id hash of a random admin password (with
+`k hash-password`, the `argon2` command-line tool, or `argon2` in a throwaway `alpine` container). Every
+startup checks the hash against `AdminConfig`'s `@Matches`, so an empty or placeholder hash stops the shop
+with exit 78. In development none of this is needed: `shop/k.toml`'s `[dev]` section generates a
+development password and its hash, and gives the other development values; `dist/app` never reads it.
 
 ## Paying through Stripe instead (optional)
 
@@ -247,7 +265,7 @@ edit and runs a Stripe checkout and its webhook against a fake Stripe.
 
 | File | Shows |
 |---|---|
-| `k.toml`, `*/k.toml` | a `[workspace]`, a library, `{ workspace = true }` dependencies |
+| `k.toml`, `*/k.toml` | a `[workspace]`, a library, `{ workspace = true }` dependencies, `[dev]` development values, generated secrets and a seed |
 | `pay-contracts/src/pay/Payments.k` | a library protocol `requires ServiceAuthenticated`, documented like an API |
 | `shop/App.k` | `use remote(PayboxService) for Payments`, `use … for … in .production`, `@Layout`, `@SignInPage`, app `metadata` |
 | `shop/src/paybox/PayboxService.k` | a `config` that `implements RemoteService` |

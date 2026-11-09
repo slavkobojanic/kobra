@@ -1,0 +1,10 @@
+css contains   --k-color-text: #0F172A;
+css contains   --k-color-chart-grid: #CBD5E1;
+css contains   --k-color-chart-axis: #64748B;
+css contains   --k-color-chart-series1: #2563EB;
+css contains   --k-font-size-chart-label: 0.75rem;
+css contains :root.k-theme-dark {
+css contains   --k-color-chart-grid: #334155;
+css contains   --k-font-size-chart-label: 0.875rem;
+css lacks --k-color-chart-grid: #E2E8F0;
+css lacks --k-color-drop-target

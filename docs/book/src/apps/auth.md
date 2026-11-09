@@ -301,7 +301,8 @@ rpc signUp(request: SignUpRequest) async throws SignUpError {
 - **The cookie holds only a random, unguessable session id.** It is `HttpOnly`, `SameSite=Lax`, `Path=/`.
 - **`Secure` follows the scheme of `K_PUBLIC_ORIGIN`,** not of the connection, so it is right behind a
   proxy that terminates TLS. With an `https` origin the cookie is named `__Host-k_session`; with an `http`
-  origin (local development) it is `k_session`.
+  origin (local development) it is `k_session`, or `k_session_<port>` when the origin has a port, so
+  several apps on `localhost` never sign each other out (browsers scope cookies by host, not by port).
 - **Every rpc response, every response whose rendering read `Session`, and every page sent to a
   signed-in user carries `Cache-Control: private, no-store`,** because server-rendered HTML, and a
   client-rendered app's shell, embeds the session mirror.

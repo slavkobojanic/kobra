@@ -84,6 +84,10 @@ pub enum Prop {
     /// `key: value`; printed as shorthand when the value is the identifier
     /// `key`.
     KeyValue(String, Expr),
+    /// `"key": value`, the key always quoted: a JSON wire key (an
+    /// encoder's field), which no property-renaming minifier may touch
+    /// (codegen.md §17.3).
+    Quoted(String, Expr),
     /// `...e`.
     Spread(Expr),
 }
@@ -411,7 +415,7 @@ fn walk_expr(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
         Expr::Object(props, _) => {
             for p in props {
                 match p {
-                    Prop::KeyValue(_, e) | Prop::Spread(e) => walk_expr(e, f),
+                    Prop::KeyValue(_, e) | Prop::Quoted(_, e) | Prop::Spread(e) => walk_expr(e, f),
                 }
             }
         }
@@ -1277,6 +1281,12 @@ impl Printer {
                         self.expr(v, P_ASSIGN);
                     }
                 }
+                Prop::Quoted(k, v) => {
+                    print_string(&mut self.out, k);
+                    self.out.push(':');
+                    self.sp();
+                    self.expr(v, P_ASSIGN);
+                }
                 Prop::Spread(e) => {
                     self.out.push_str("...");
                     self.expr(e, P_ASSIGN);
@@ -1533,6 +1543,18 @@ mod tests {
         let text = print_module(&stmts, PrintOptions { compact: false });
         assert!(!text.contains("$k"), "{text}");
         assert_eq!(text.matches("$x.a").count(), 15, "{text}");
+    }
+
+    #[test]
+    fn quoted_props_always_quote_their_key() {
+        let e = Expr::Object(
+            vec![
+                Prop::Quoted("isDone".into(), id("d")),
+                Prop::KeyValue("title".into(), id("title")),
+            ],
+            false,
+        );
+        assert_eq!(print_expr(&e), "{ \"isDone\": d, title }");
     }
 
     #[test]

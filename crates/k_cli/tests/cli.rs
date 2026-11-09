@@ -687,3 +687,48 @@ fn an_appended_app_migrates_and_manages_dead_jobs() {
         .unwrap();
     assert_eq!(unset.status.code(), Some(78), "DATABASE_URL is required");
 }
+
+// `k hash-password` hashes the password on standard input as an Argon2id
+// PHC string, the format `Password.verify` and config `@Matches` checks
+// expect, so scripts need neither the `argon2` tool nor Docker.
+#[test]
+fn hash_password_prints_an_argon2id_phc_string() {
+    use std::io::Write as _;
+    let run = |input: &str| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
+            .arg("hash-password")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run k");
+        child
+            .stdin
+            .take()
+            .expect("stdin")
+            .write_all(input.as_bytes())
+            .expect("write");
+        child.wait_with_output().expect("wait")
+    };
+    let out = run("correct horse\n");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let hash = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    assert!(hash.starts_with("$argon2id$v=19$"), "{hash}");
+    assert_ne!(
+        hash,
+        String::from_utf8_lossy(&run("correct horse\n").stdout).trim(),
+        "each hash has its own salt"
+    );
+    let empty = run("\n");
+    assert_eq!(empty.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&empty.stderr).contains("empty"),
+        "{}",
+        String::from_utf8_lossy(&empty.stderr)
+    );
+    assert!(empty.stdout.is_empty());
+}

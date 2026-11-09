@@ -16,7 +16,8 @@ import todo.TodoService
 /// todo untouched. Several rows can be edited at once, so the form's field
 /// and buttons are named after the todo too ("New title for Buy milk",
 /// "Save Buy milk"). The label uses the saved title, which doesn't change
-/// while the draft is typed.
+/// while the draft is typed. Opening the form moves the focus into its
+/// field (`.autofocus`), so a keyboard user can type at once.
 component TodoRow {
     /// The todo to show. Changes go through `TodoService`, never through this
     /// value.
@@ -63,6 +64,7 @@ component TodoRow {
                 form {
                     textField(value: bind draft)
                         .label("New title for {todo.title}")
+                        .autofocus(true)
                         .class(.field)
 
                     button {

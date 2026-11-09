@@ -44,8 +44,9 @@ service AccountService {
 ```
 
 **Postgres in production; SQLite for local development and tests.** The connection comes from the
-standard `DatabaseConfig`: `DATABASE_URL`, such as `sqlite:.k/shop.db` in your `.env` or
-`postgres://shop@db:5432/shop` in production, and an optional `DATABASE_PASSWORD` secret.
+standard `DatabaseConfig`: `DATABASE_URL`, such as `postgres://shop@db:5432/shop` in production, and an
+optional `DATABASE_PASSWORD` secret. In development it defaults to a SQLite file, `.k/<package>.db`, which
+`k dev` creates and migrates at startup.
 
 ## Entities and tables
 

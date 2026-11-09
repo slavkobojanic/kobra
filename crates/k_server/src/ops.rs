@@ -230,10 +230,7 @@ fn op_k_log(state: &mut OpState, #[string] level: &str, #[string] message: &str)
             level: level.to_owned(),
             message: message.to_owned(),
         }),
-        Output::JsonLines => {
-            let line = serde_json::json!({ "level": level, "message": message });
-            println!("{line}");
-        }
+        other => other.write(level, message),
     }
 }
 
@@ -451,7 +448,7 @@ fn argon2id() -> argon2::Argon2<'static> {
 /// # Errors
 ///
 /// The random generator failed, or Argon2 refused the input.
-fn password_hash(password: &str) -> Result<String, String> {
+pub fn password_hash(password: &str) -> Result<String, String> {
     use argon2::password_hash::{PasswordHasher, SaltString};
     let mut salt = [0u8; 16];
     getrandom::fill(&mut salt).map_err(|e| format!("the random generator failed: {e}"))?;

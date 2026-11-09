@@ -32,12 +32,41 @@ export function template(html) {
 }
 
 /**
+ * The node `path` leads to from `node`: each `f` steps to the first child,
+ * any other character to the next sibling. Release builds reach the nodes
+ * of a cloned template with it instead of long `.firstChild` /
+ * `.nextSibling` chains, which no minifier can shorten
+ * (docs/compiler/codegen.md §17.4).
+ * @param {Node} node
+ * @param {string} path
+ * @returns {Node}
+ */
+export function walk(node, path) {
+  for (let i = 0; i < path.length; i++) node = path[i] === "f" ? node.firstChild : node.nextSibling;
+  return node;
+}
+
+/**
  * Sets the text of a text node, writing only when it changed.
  * @param {Text} node
  * @param {string} value
  */
 export function text(node, value) {
   if (node.data !== value) node.data = value;
+}
+
+/**
+ * `.autofocus` (05-views.md): once the element is in the document (after
+ * the batch that created it), moves the focus into it while it still has
+ * the `autofocus` attribute. Hydrating the server's markup moves nothing:
+ * the browser already honoured the attribute when the document loaded.
+ * @param {Element} element
+ */
+export function autofocus(element) {
+  if (isHydrating()) return;
+  queueMicrotask(() => {
+    if (connected(element) && element.hasAttribute("autofocus")) element.focus?.();
+  });
 }
 
 /**
@@ -116,16 +145,21 @@ function delegate(e) {
  * component) is disposed, the handler no longer runs: a disposed page's
  * nodes can stay on screen (the session gate leaves for a full page load
  * that replaces them later), and a click on them must not run its body
- * (03-reactivity.md, "What a component leaves behind"). Bubbling events (`click`, `input`, `submit`, `keydown`) on an
- * element already in the document are delegated: one listener per document
- * dispatches by a per-element handler table.
+ * (03-reactivity.md, "What a component leaves behind"). A `submit`
+ * handler always prevents the browser's form submission first, whether or
+ * not its body runs or throws: a form K handles never navigates
+ * (05-views.md, "Events"). Bubbling events (`click`, `input`, `submit`,
+ * `keydown`) on an element already in the document are delegated: one
+ * listener per document dispatches by a per-element handler table.
  * @param {EventTarget} target
  * @param {string} event
  * @param {(event: Event) => unknown} handler
  */
 export function on(target, event, handler) {
   const owner = getOwner();
+  const submit = event === "submit";
   const run = (e) => {
+    if (submit) e.preventDefault?.();
     if (owner !== null && owner.disposed) return;
     let r;
     try {

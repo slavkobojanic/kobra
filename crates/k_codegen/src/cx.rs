@@ -447,6 +447,23 @@ impl<'a> Gen<'a> {
             .clone()
     }
 
+    /// The namespace of the app's browser storage keys
+    /// (`docs/design/36-local-storage.md`, "Keys"): `storage.lock`'s
+    /// `namespace`, else the project name the lock will record.
+    pub(crate) fn storage_namespace(&self) -> String {
+        let recorded =
+            crate::lockfiles::project_file(self, "storage.lock").and_then(|(_, text)| {
+                text.lines().find_map(|line| {
+                    let rest = line.trim().strip_prefix("namespace")?.trim_start();
+                    let v = rest.strip_prefix('=')?.trim();
+                    Some(v.trim_matches('"').to_owned())
+                })
+            });
+        recorded
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| self.project_name())
+    }
+
     /// Reads the project name from `k.toml`; empty when there is none.
     fn read_project_name(&self) -> String {
         for (file, path) in self.analysis.files() {

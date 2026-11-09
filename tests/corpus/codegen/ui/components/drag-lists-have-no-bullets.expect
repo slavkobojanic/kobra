@@ -1,0 +1,3 @@
+css contains :where(ul[data-k-list]) {
+css contains   list-style: none;
+css contains   padding: 0;

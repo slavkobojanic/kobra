@@ -1,5 +1,6 @@
-// A scoped slot is a function of its arguments: the child calls `props.row(item)` once per row and
-// the parent passes `row: (item) => …` (04-components.md, codegen.md §10).
+// A scoped slot is a function of its arguments: the child calls `props.row(() => item)` once per
+// row and the parent passes `row: (item$) => …`, reading each argument through its accessor
+// (04-components.md, codegen.md §10), so `CartRow` gets `item: () => item$()`.
 struct CartItem {
     let id: Int
     let name: String

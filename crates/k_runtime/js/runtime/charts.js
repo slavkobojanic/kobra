@@ -18,7 +18,13 @@ import { claimRaw } from "./hydrate.js";
 import { renderEffect } from "./signals.js";
 import { Instant, localTimeZone } from "./std.js";
 
-/** The drawing's width in SVG units; the SVG scales to its container. */
+/**
+ * The plot's width in SVG units. The image fills its container's width:
+ * lines and paths are drawn in a plot area of this width stretched to it
+ * (strokes keep their width), and labels and markers are placed at the
+ * same positions as percentages of the width, so text is never stretched
+ * and the chart is never letterboxed.
+ */
 const WIDTH = 640;
 /** Room for the y labels, the right edge, the top and the x labels. */
 const LEFT = 48;
@@ -96,23 +102,30 @@ export function lineChart(c, zone) {
   const py = (v) => height - BOTTOM - ((v - y.lo) / (y.hi - y.lo)) * (height - TOP - BOTTOM);
   const label = isDate ? dates(zone, false) : num;
   const color = (s, i) => s.color ?? `var(--k-color-chart-series${(i % 6) + 1})`;
-  let svg = `<svg role="img" aria-label="${esc(c.description)}" viewBox="0 0 ${WIDTH} ${pos(height)}" width="100%" height="${pos(height)}">`;
+  // A position across the width, as a percentage of it.
+  const pct = (v) => `${pos((v / WIDTH) * 100)}%`;
+  const h = pos(height);
+  const stroke = ' vector-effect="non-scaling-stroke"';
+  let svg = `<svg role="img" aria-label="${esc(c.description)}" width="100%" height="${h}" style="overflow: visible">`;
+  let plot = `<svg width="100%" height="${h}" viewBox="0 0 ${WIDTH} ${h}" preserveAspectRatio="none" aria-hidden="true">`;
+  let labels = "";
   for (const t of y.ticks) {
-    svg += `<line x1="${LEFT}" x2="${WIDTH - RIGHT}" y1="${pos(py(t))}" y2="${pos(py(t))}" style="stroke: var(--k-color-chart-grid)"></line>`;
-    svg += `<text x="${LEFT - 6}" y="${pos(py(t) + 4)}" text-anchor="end" style="${AXIS}">${esc(num(t))}</text>`;
+    plot += `<line x1="${LEFT}" x2="${WIDTH - RIGHT}" y1="${pos(py(t))}" y2="${pos(py(t))}"${stroke} style="stroke: var(--k-color-chart-grid)"></line>`;
+    labels += `<text x="${pct(LEFT - 6)}" y="${pos(py(t) + 4)}" text-anchor="end" style="${AXIS}">${esc(num(t))}</text>`;
   }
   const n = xs.length;
   const shown = n <= 6 ? xs : [0, 1, 2, 3, 4, 5].map((i) => xs[Math.round((i * (n - 1)) / 5)]);
-  for (const v of shown) svg += `<text x="${pos(px(v))}" y="${pos(height - BOTTOM + 16)}" text-anchor="middle" style="${AXIS}">${esc(label(v))}</text>`;
-  if (c.yAxisTitle != null) svg += `<text x="${pos(-height / 2)}" y="12" transform="rotate(-90)" text-anchor="middle" style="${AXIS}">${esc(c.yAxisTitle)}</text>`;
-  if (c.xAxisTitle != null) svg += `<text x="${pos(WIDTH / 2)}" y="${pos(height - 4)}" text-anchor="middle" style="${AXIS}">${esc(c.xAxisTitle)}</text>`;
+  for (const v of shown) labels += `<text x="${pct(px(v))}" y="${pos(height - BOTTOM + 16)}" text-anchor="middle" style="${AXIS}">${esc(label(v))}</text>`;
+  if (c.yAxisTitle != null) labels += `<text x="${pos(-height / 2)}" y="12" transform="rotate(-90)" text-anchor="middle" style="${AXIS}">${esc(c.yAxisTitle)}</text>`;
+  if (c.xAxisTitle != null) labels += `<text x="50%" y="${pos(height - 4)}" text-anchor="middle" style="${AXIS}">${esc(c.xAxisTitle)}</text>`;
+  let markers = "";
   series.forEach((s, i) => {
     const sorted = [...s.points].sort((a, b) => xOf(a.x) - xOf(b.x));
     const d = sorted.map((p, j) => `${j ? "L" : "M"}${pos(px(xOf(p.x)))} ${pos(py(p.y))}`).join(" ");
-    if (d) svg += `<path d="${d}" fill="none" style="stroke: ${esc(color(s, i))}; stroke-width: 2"${s.dashed ? ' stroke-dasharray="6 4"' : ""}></path>`;
-    if (s.showsPoints) for (const p of sorted) svg += `<circle cx="${pos(px(xOf(p.x)))}" cy="${pos(py(p.y))}" r="3" style="fill: ${esc(color(s, i))}"></circle>`;
+    if (d) plot += `<path d="${d}" fill="none"${stroke} style="stroke: ${esc(color(s, i))}; stroke-width: 2"${s.dashed ? ' stroke-dasharray="6 4"' : ""}></path>`;
+    if (s.showsPoints) for (const p of sorted) markers += `<circle cx="${pct(px(xOf(p.x)))}" cy="${pos(py(p.y))}" r="3" style="fill: ${esc(color(s, i))}"></circle>`;
   });
-  svg += "</svg>";
+  svg += `${plot}</svg>${labels}${markers}</svg>`;
   if (c.legend !== false && series.length) {
     svg += '<ul style="display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.5rem 0 0; padding: 0; list-style: none; font-size: var(--k-font-size-chart-label)">';
     series.forEach((s, i) => {

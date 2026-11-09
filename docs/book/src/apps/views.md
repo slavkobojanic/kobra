@@ -359,6 +359,9 @@ button { "−" }
 ~}
 ```
 
+**A `form` with `.on(submit:)` never navigates.** The browser's own submission, a page load, is always
+prevented, before the handler runs and even when it fails, so the page and what was typed stay.
+
 Async handlers are fine: `.on(click: checkout)` works when `checkout` is `async`. A handler can't throw;
 see [Components](components.md#handlers).
 
@@ -371,8 +374,9 @@ element's definition. Using one on an element that doesn't define it is a compil
 |---|---|---|
 | `.class(.name)`, `.class([.a, .b when isB])` | scoped classes | every element |
 | `.disabled(Bool)` | `disabled` | form controls and buttons |
-| `.label("…")` | a visible `<label>` on form controls; `aria-label` elsewhere | form controls; landmarks and groups (`nav`, `section`, `form`, `list`, `numberedList`, `table`); elements given a `.role` |
+| `.label("…")` | a visible `<label>` on form controls, literal or computed (`.label(todo.title)`); `aria-label` elsewhere | form controls; landmarks and groups (`nav`, `section`, `form`, `list`, `numberedList`, `table`); elements given a `.role` |
 | `.placeholder("…")` | `placeholder` | text inputs |
+| `.autofocus(Bool)` | `autofocus`; the focus moves in when the control appears, such as an edit form an `if` opens | form controls |
 | `.type(.submit)`, `.type(.button)`, `.type(.reset)` | `type` | `button`. A non-submitting button inside a `form` needs `.type(.button)`. |
 | `.pressed(Bool)` | `aria-pressed` | `button` |
 | `.expanded(Bool)` | `aria-expanded` | `button`, `link` |

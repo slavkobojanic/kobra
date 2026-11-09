@@ -7,7 +7,7 @@
  * change, with `reload()` swapping all values atomically.
  */
 
-import { batch, getOwner, onCleanup, renderEffect, runWithOwner, scope, signal, untrack } from "./signals.js";
+import { batch, computed, getOwner, onCleanup, renderEffect, runWithOwner, scope, signal, untrack } from "./signals.js";
 import { CANCELLED } from "./values.js";
 
 /** Nothing has resolved yet: `loading` renders. */
@@ -32,12 +32,17 @@ export const FAILED = 3;
 /**
  * Creates the load group of one declaration. The group belongs to the
  * current owner: disposing it cancels every running load.
+ *
+ * Each load watches its own inputs: a change re-runs that load and the
+ * loads that read it, and keeps the others' values (14-async-data.md,
+ * "Rules"); the group renders `loading` until the re-run ones resolve.
+ * `reload()` re-runs every load.
  * @param {LoadSpec[]} loads in dependency order
  * @param {Record<string, unknown>|null} serialized values from `k-data` during hydration
  * @param {unknown} [failed] the error a server render failed with (from
  *   `k-data`, decoded): the group starts FAILED with it, and like a
  *   hydrated group runs nothing until an input changes or `reload()`
- * @returns {{state: () => number, values: () => Record<string, unknown>|null, error: () => unknown, reload: () => void}}
+ * @returns {{state: () => number, values: () => Record<string, unknown>|null, ready: () => boolean, error: () => unknown, reload: () => void}}
  */
 export function createLoads(loads, serialized, failed) {
   const owner = getOwner();
@@ -45,36 +50,39 @@ export function createLoads(loads, serialized, failed) {
   const state = signal(serialized ? READY : hydrated ? FAILED : LOADING);
   const values = signal(serialized ? { ...serialized } : null);
   const error = signal(serialized ? null : failed ?? null);
-  let generation = 0;
-  let controllers = [];
-  let runScope = null;
+  // Whether there are values: changes only between none and some, so an
+  // effect waiting for the loads doesn't re-run on every reload.
+  const ready = computed(() => values.get() !== null);
+  /** The resolved values of the current runs, by name. */
+  let got = serialized ? { ...serialized } : {};
+  /** The running loads: name → their `AbortController`. */
+  const running = new Map();
+  /** Each load's input watch: name → its disposal. */
+  const watches = new Map();
+  /** Bumped by `reload()`, a failure and disposal: older runs are stale. */
+  let epoch = 0;
 
-  const abort = () => {
-    for (const c of controllers) c.abort();
-    controllers = [];
-  };
-  const cancel = () => {
-    abort();
-    if (runScope !== null) runScope();
-    runScope = null;
+  /** Stops the run of `name`, if any. */
+  const stop = (name) => {
+    running.get(name)?.abort();
+    running.delete(name);
   };
 
   /**
-   * Runs `read` tracked, in a scope of the group's owner that the next run
-   * disposes; a change of what it read starts the group over.
+   * Runs `read` tracked, in a scope of the group's owner that replaces the
+   * load's previous watch; a change of what it read re-runs the load.
    */
-  const track = (read) => {
+  const watch = (spec, read) => {
+    watches.get(spec.name)?.();
     runWithOwner(owner, () =>
       scope((dispose) => {
-        const previous = runScope;
-        runScope = () => {
-          dispose();
-          if (previous) previous();
-        };
+        watches.set(spec.name, dispose);
         let started = false;
         renderEffect(() => {
           if (started) {
-            queueMicrotask(() => start(false));
+            queueMicrotask(() => {
+              if (watches.get(spec.name) === dispose) invalidate(spec.name);
+            });
             return;
           }
           started = true;
@@ -84,58 +92,87 @@ export function createLoads(loads, serialized, failed) {
     );
   };
 
+  /** The load `name` and every load that reads it, directly or not. */
+  const affected = (name) => {
+    const out = new Set([name]);
+    for (const spec of loads) if (spec.after.some((a) => out.has(a))) out.add(spec.name);
+    return out;
+  };
+
+  /** An input of `name` changed: re-runs it and what reads it. */
+  const invalidate = (name) => {
+    for (const n of affected(name)) {
+      stop(n);
+      delete got[n];
+    }
+    batch(() => {
+      state.set(LOADING);
+      values.set(null);
+      error.set(null);
+    });
+    launch(epoch);
+  };
+
+  /** Starts every load whose dependencies resolved and that has no value. */
+  const launch = (ep) => {
+    for (const spec of loads) {
+      if (spec.name in got || running.has(spec.name) || !spec.after.every((a) => a in got)) continue;
+      const controller = new AbortController();
+      running.set(spec.name, controller);
+      let promise;
+      const snapshot = { ...got };
+      watch(spec, () => {
+        promise = spec.run(snapshot, controller.signal);
+      });
+      const current = () => ep === epoch && running.get(spec.name) === controller && !controller.signal.aborted;
+      Promise.resolve(promise).then(
+        (v) => {
+          if (!current()) return;
+          running.delete(spec.name);
+          got[spec.name] = v;
+          if (loads.every((l) => l.name in got)) {
+            // In declaration order, whichever resolved last.
+            const all = {};
+            for (const l of loads) all[l.name] = got[l.name];
+            batch(() => {
+              values.set(all);
+              state.set(READY);
+              error.set(null);
+            });
+          } else {
+            launch(ep);
+          }
+        },
+        (e) => {
+          // A run stopped by the cancellation (its own, or a disposed
+          // component's function called for a value) is not a failure.
+          if (!current() || e === CANCELLED) return;
+          // The inputs stay watched: a change starts over from FAILED.
+          for (const c of running.values()) c.abort();
+          running.clear();
+          epoch++;
+          got = {};
+          batch(() => {
+            error.set(e);
+            values.set(null);
+            state.set(FAILED);
+          });
+        },
+      );
+    }
+  };
+
+  /** Re-runs every load: the values stay while `reloading`. */
   const start = (reloading) => {
-    cancel();
-    const gen = ++generation;
-    const got = {};
-    const begun = new Set();
-    let left = loads.length;
+    for (const c of running.values()) c.abort();
+    running.clear();
+    const ep = ++epoch;
+    got = {};
     batch(() => {
       state.set(reloading ? RELOADING : LOADING);
       if (!reloading) values.set(null);
       error.set(null);
     });
-    const launch = () => {
-      for (const spec of loads) {
-        if (begun.has(spec.name) || !spec.after.every((a) => a in got)) continue;
-        begun.add(spec.name);
-        const controller = new AbortController();
-        controllers.push(controller);
-        let promise;
-        const snapshot = { ...got };
-        track(() => {
-          promise = spec.run(snapshot, controller.signal);
-        });
-        Promise.resolve(promise).then(
-          (v) => {
-            if (gen !== generation || controller.signal.aborted) return;
-            got[spec.name] = v;
-            left--;
-            if (left === 0) {
-              batch(() => {
-                values.set({ ...got });
-                state.set(READY);
-              });
-            } else {
-              launch();
-            }
-          },
-          (e) => {
-            // A run stopped by the cancellation (its own, or a disposed
-            // component's function called for a value) is not a failure.
-            if (gen !== generation || controller.signal.aborted || e === CANCELLED) return;
-            // The inputs stay watched: a change starts over from FAILED.
-            abort();
-            generation++;
-            batch(() => {
-              error.set(e);
-              values.set(null);
-              state.set(FAILED);
-            });
-          },
-        );
-      }
-    };
     if (loads.length === 0) {
       batch(() => {
         values.set({});
@@ -143,17 +180,20 @@ export function createLoads(loads, serialized, failed) {
       });
       return;
     }
-    launch();
+    launch(ep);
   };
 
   if (owner !== null) onCleanup(() => {
-    generation++;
-    cancel();
+    epoch++;
+    for (const c of running.values()) c.abort();
+    running.clear();
+    for (const dispose of watches.values()) dispose();
+    watches.clear();
   });
   if (hydrated) {
     // Hydrated: nothing runs until an input changes or `reload()`.
     for (const spec of loads) {
-      if (typeof spec.inputs === "function") track(spec.inputs);
+      if (typeof spec.inputs === "function") watch(spec, spec.inputs);
     }
   } else {
     untrack(() => start(false));
@@ -162,6 +202,7 @@ export function createLoads(loads, serialized, failed) {
   return {
     state: () => state.get(),
     values: () => values.get(),
+    ready: () => ready.get(),
     error: () => error.get(),
     reload: () => untrack(() => start(state.peek() !== FAILED && values.peek() !== null)),
   };

@@ -15,8 +15,10 @@ error.
 
 | Command | Purpose |
 |---|---|
-| `k dev` | build the `.development` environment, serve it on port 8080 (`--port` to change), rebuild and restart on every change, run the job worker and load `.env`; a build with errors keeps the last good one serving |
+| `k dev` | build the `.development` environment, serve it on port 8080 (`--port` to change), rebuild and restart on every change, run the job worker and load `.env` and `[dev]`, with no setup (a SQLite database in `.k/`, a mail catcher); a build with errors keeps the last good one serving; at a workspace root, every app, wired together |
 | `k run` | the same as `k dev`, without rebuilding on change |
+| `k run --release`, `k dev --release` | the same, serving the client `k build` ships (minified, with short class names and source maps) instead of the readable development client |
+| `k hash-password` | print the Argon2id PHC string of the password read from standard input, as `Password` and an admin hash's `@Matches` expect |
 | `k test` | run every test: one browser and one server per test, a fresh database each; exit `0` when all passed, `1` on a failure or project errors |
 | `k test --filter <text>` | run only the tests whose full name (`Group › description`) contains the text; repeatable; matching nothing is an error |
 | `k test --watch` | run the tests, then re-run the affected ones on every save |
@@ -34,11 +36,23 @@ error.
 > **Planned.** The design adds the formatting check and the type-checking of `k` blocks in doc comments
 > to `k check`.
 
+For end-to-end tests, `k run` and `k dev` read `K_DEV_FETCH_ORIGINS`: comma-separated `from=to` origin
+pairs, such as `https://api.open-meteo.com=http://127.0.0.1:5301`. A request the server makes through
+`HttpClient` to `from`, or to a URL below it, goes to `to` instead, so a test can answer a third-party
+API from a local fake. A built `dist/app` never reads it.
+
 ## Building
 
 | Command | Purpose |
 |---|---|
 | `k build` | build the `.production` environment into `dist/` (`--out <dir>` to change), and update `rpc.lock`, `routes.lock` and `schema.lock` |
+
+The client `k build` writes is ready to ship as it is. Each app gets only the part of the runtime its
+pages use; every JavaScript file is minified, with a source map next to it (`app.3f2a1b9c.js.map`) that
+browser developer tools use to show the readable code; class names and theme variables are short
+(`_3`, `--k7`); and every page's document preloads the files it needs, so the browser fetches them all
+at once. `k dev` and `k run` serve readable code with the long names (`panel_k3x9a1`), which is easier
+to debug; select elements in tests by role or text, not by class name.
 
 ## Workspaces
 
@@ -58,7 +72,7 @@ that member with the libraries it depends on.
 |---|---|
 | `k migrate new "description"` | write the next migration from the difference between entities and `schema.lock`, and update the lock |
 | `k migrate new --empty "description"` | write an empty migration, for data changes |
-| `k migrate status` | list the migrations the development database (`DATABASE_URL`) has applied and the pending ones |
+| `k migrate status` | list the migrations the development database (`DATABASE_URL`, else `.k/<package>.db`) has applied and the pending ones |
 | `k migrate apply` | apply the pending migrations to the development database |
 | `k migrate new --rename <entity or field> "description"` | rename a table or column so it follows its entity's or field's current name, which is never inferred; marked `@Breaking("single instance")` |
 | `k migrate new --drop-retired "description"` | drop columns and tables retired by earlier migrations |

@@ -640,7 +640,8 @@ public struct Font implements Equatable, Codable
 ```
 
 The `font` token category: a family and a size, used by the `font`
-property. Theme font tokens produce preload tags automatically.
+property. A font token is followed by a generic fallback stack, so text
+keeps a readable face where the family isn't installed.
 
 **Members**
 

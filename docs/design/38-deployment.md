@@ -38,7 +38,7 @@ When an app renders on the client and has no server-only code ([23-app-structure
 ## Startup and shutdown
 
 - **Startup order:** configuration (exit 78 on any problem), database connection, migrations, then the HTTP listener. A health check therefore fails until the app can actually serve.
-- **On `SIGTERM`** the server stops accepting connections, finishes in-flight requests, stops claiming jobs and waits for running ones, for up to `ServerConfig.shutdownGrace` (`K_SHUTDOWN_GRACE`, default 25 seconds, under Docker's and Kubernetes' default 30-second kill timeout). Then it exits `0`.
+- **On `SIGTERM`** the server stops accepting connections, ends open streams at once (the browser subscribes again elsewhere, [29-server-streaming.md](29-server-streaming.md#the-handler)), finishes in-flight requests, stops claiming jobs and waits for running ones, for up to `ServerConfig.shutdownGrace` (`K_SHUTDOWN_GRACE`, default 25 seconds, under Docker's and Kubernetes' default 30-second kill timeout). Then it exits `0`.
 - Logs go to stdout as JSON lines from `k.observe`.
 - **The runtime reads no environment variable that isn't a `config` field** ([25-config-and-secrets.md](25-config-and-secrets.md#stdlib-configs)), so `dist/app config` is the complete list of what a deployment can set.
 

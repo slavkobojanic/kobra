@@ -46,6 +46,7 @@ Router.navigate(to: .product(id: product.id).tab(.reviews))
 - Every `Page` value has `url: Url`, its path and query (`/product/42?tab=reviews`). Absolute URLs are built on the server by `PublicUrls` (below).
 - **External links and navigation:** `link(url: "https://…")` links out, and `Router.navigate(url: Url)` leaves the app with a full page load, for example to a hosted payment page.
 - **Pages are always referenced as `Page` values:** in `link(to:)`, `Router.navigate(to:)`, `canonical(…)`, `@SignInPage(.signIn)` and `Page`-typed `@Param`s alike.
+- **Navigating to the page already shown, with other parameters, updates it in place:** `.cityWeather(placeId: id).units(.imperial)` from `.cityWeather(placeId: id)` changes the `units` parameter of the mounted page, whose state stays, and re-runs only the loads that read it ([14-async-data.md](14-async-data.md#rules)).
 
 ## Parameters
 

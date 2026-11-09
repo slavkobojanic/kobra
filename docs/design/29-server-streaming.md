@@ -41,6 +41,7 @@ service NoteChanges {
 - The handler may be `async`, to load initial data before the stream starts. It returns once; the runtime then sends each element as it is produced.
 - **Guards run before the handler, as for any rpc.** A refusal, a network failure before the stream opens (`rpcFailure(.offline)`, `.timeout`), or any error the handler throws, is thrown by the client's call itself, not later from the stream.
 - The stream is closed when it finishes, when the client stops reading, or when the connection drops. Closing it cancels its producer, which releases any subscription.
+- **Shutdown ends every open stream at once.** A stream never finishes by itself, so waiting for it would hold every shutdown (and every `k dev` restart) for the whole grace period (`K_SHUTDOWN_GRACE`, 25 s). When the server stops accepting, it ends each open stream's response; the client sees a finished stream, as after a dropped connection, and subscribes again, to another replica or to the restarted server. Ordinary requests in flight still get the grace period.
 - **A stream ends when its session ends.** The runtime closes every stream opened under a session on sign-out, expiry or `endAll` ([26-auth-and-sessions.md](26-auth-and-sessions.md#lifetime-and-revocation)), so a signed-out tab stops receiving data even though guards ran only when it opened.
 
 ## `Stream<T>`

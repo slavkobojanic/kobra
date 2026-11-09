@@ -1,0 +1,3 @@
+client contains autofocus>
+client contains $k.autofocus(
+server contains autofocus

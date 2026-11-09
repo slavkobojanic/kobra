@@ -348,7 +348,9 @@ Card(title: "Your cart", items: items) {
 ```
 
 - The required unnamed slot is the trailing block.
-- A **scoped slot** is a function that returns a `View`, so the data it receives is fully typed.
+- A **scoped slot** is a function that returns a `View`, so the data it receives is fully typed. Its view
+  follows its arguments: when a keyed list's item changes under the same key, the row updates in place,
+  keeping its nodes, the state of the components in it and the focus.
 - `if let footer` unwraps an optional slot with ordinary optional binding.
 - **Slots are opaque.** A component can place its children, but it can't inspect or modify them. There
   is nothing like `React.Children.map`.

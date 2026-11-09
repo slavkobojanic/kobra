@@ -7,7 +7,9 @@
 # Usage: scripts/init-secrets.sh [directory]
 #   directory: where to write the files; secrets/ by default. scripts/e2e.sh
 #   passes a temporary one.
-# Needs: openssl; argon2, or docker to run it in a throwaway container.
+# Needs: openssl, and one of: the `k` toolchain (`k hash-password`; set K to
+# its path if it isn't on PATH), the argon2 tool, or docker to run argon2 in
+# a throwaway container. Without any of them it fails, writing no hash.
 #
 # Every value is random. The admin password is printed once, and kept in
 # admin_password.txt next to them so you can sign in at /sign-in as
@@ -39,18 +41,32 @@ random() {
     openssl rand -hex 24
 }
 
-# The PHC string of an Argon2id hash of $1 (64 MiB, 3 iterations, 4 lanes),
-# the format AdminConfig requires.
+# The PHC string of an Argon2id hash of $1, the format AdminConfig
+# requires: from `k hash-password` when the toolchain is available (the
+# parameters k.crypto.Password uses), else the argon2 tool (64 MiB, 3
+# iterations, 4 lanes), else argon2 in a throwaway container. Fails, printing
+# nothing, when none of them works or the result isn't an Argon2id hash.
 argon2id() {
-    local salt
-    salt="$(openssl rand -hex 16)"
-    if command -v argon2 >/dev/null; then
-        printf '%s' "$1" | argon2 "$salt" -id -t 3 -m 16 -p 4 -e
+    local salt hash="" k="${K:-k}"
+    if command -v "$k" >/dev/null && "$k" hash-password --help >/dev/null 2>&1; then
+        hash="$(printf '%s\n' "$1" | "$k" hash-password)" || hash=""
+    elif command -v argon2 >/dev/null; then
+        salt="$(openssl rand -hex 16)"
+        hash="$(printf '%s' "$1" | argon2 "$salt" -id -t 3 -m 16 -p 4 -e)" || hash=""
+    elif command -v docker >/dev/null; then
+        salt="$(openssl rand -hex 16)"
+        docker pull --quiet alpine:3.22 >/dev/null || true
+        hash="$(printf '%s' "$1" | docker run --rm --interactive alpine:3.22 \
+            sh -c "apk add --quiet --no-cache argon2 >/dev/null && argon2 '$salt' -id -t 3 -m 16 -p 4 -e")" || hash=""
     else
-        docker pull --quiet alpine:3.22 >/dev/null
-        printf '%s' "$1" | docker run --rm --interactive alpine:3.22 \
-            sh -c "apk add --quiet --no-cache argon2 >/dev/null && argon2 '$salt' -id -t 3 -m 16 -p 4 -e"
+        echo "init-secrets: hashing the admin password needs the k toolchain (k hash-password), argon2 or docker" >&2
+        return 2
     fi
+    if [[ "$hash" != '$argon2id$'* ]]; then
+        echo "init-secrets: hashing the admin password failed" >&2
+        return 2
+    fi
+    printf '%s' "$hash"
 }
 
 command -v openssl >/dev/null || { echo "init-secrets: openssl is required" >&2; exit 2; }
@@ -60,11 +76,15 @@ secret paybox_db_password "$(random)"
 secret paybox_service_token "$(random)"
 secret shop_service_token "$(random)"
 
-if [[ ! -e "$dir/admin_password_hash.txt" ]]; then
+if [[ ! -s "$dir/admin_password_hash.txt" ]]; then
     password="$(openssl rand -hex 12)"
+    # A failure here must stop the script: `set -e` doesn't see a command
+    # substitution used as an argument.
+    hash="$(argon2id "$password")" || exit 2
+    rm -f "$dir/admin_password_hash.txt"
     printf '%s' "$password" > "$dir/admin_password.txt"
-    secret admin_password_hash "$(argon2id "$password")"
-    printf '\nSign in at http://localhost:8080/sign-in as admin@shop.example with the password\n  %s\n(kept in %s/admin_password.txt)\n' "$password" "$dir"
+    secret admin_password_hash "$hash"
+    printf '\nWith Docker Compose, sign in at http://localhost:8080/sign-in as admin@shop.example with the password\n  %s\n(kept in %s/admin_password.txt)\n' "$password" "$dir"
 else
     printf 'kept       %s/admin_password_hash.txt\n' "$dir"
 fi

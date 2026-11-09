@@ -55,8 +55,23 @@ test("a series without a color takes the next chartSeries token; dashed and poin
 test("the legend can be hidden, and the height is the svg's", () => {
   assert(lineChart(chart(), "UTC").includes("<ul"), "a legend by default");
   assert(!lineChart(chart({ legend: false }), "UTC").includes("<ul"), "no legend");
-  assert(lineChart(chart({ height: "240px" }), "UTC").includes('viewBox="0 0 640 240"'));
-  assert(lineChart(chart(), "UTC").includes('viewBox="0 0 640 320"'), "320px by default");
+  assert(lineChart(chart({ height: "240px" }), "UTC").startsWith('<svg role="img" aria-label="Temperatures &amp; more" width="100%" height="240"'));
+  assert(lineChart(chart(), "UTC").includes('height="320"'), "320px by default");
+});
+
+// The chart fills its width at any size (kanban-RC6, weather-B): the image
+// has no viewBox of its own, so it is never letterboxed; its lines are
+// drawn in a plot area stretched to the width with strokes that keep their
+// width, and the labels and markers are placed by percentage, so text is
+// never stretched.
+test("the chart fills its width without stretching its text", () => {
+  const html = lineChart(chart(), "UTC");
+  const outer = html.slice(0, html.indexOf(">") + 1);
+  assert(!outer.includes("viewBox"), outer);
+  assert(html.includes('<svg width="100%" height="320" viewBox="0 0 640 320" preserveAspectRatio="none"'), html);
+  assert(html.includes('vector-effect="non-scaling-stroke"'), "lines keep their width");
+  assert(new RegExp('<text x="[0-9.]+%"').test(html), "labels by percentage");
+  assert(new RegExp('<circle cx="[0-9.]+%"').test(html), "markers by percentage");
 });
 
 test("numbers on the x axis, a fixed y range and axis titles", () => {

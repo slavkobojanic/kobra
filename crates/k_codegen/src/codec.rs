@@ -196,11 +196,12 @@ pub(crate) fn emit_codec(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                     ));
                     continue;
                 }
-                let mut props = vec![Prop::KeyValue("case".into(), js::str(cname.clone()))];
+                // Wire keys are quoted (codegen.md §17.3).
+                let mut props = vec![Prop::Quoted("case".into(), js::str(cname.clone()))];
                 let mut dargs = Vec::new();
                 for (f, t) in fields.iter().zip(&ptypes) {
                     let c = codec_expr(b, t);
-                    props.push(Prop::KeyValue(
+                    props.push(Prop::Quoted(
                         f.clone(),
                         call(
                             member(c.clone(), "encode"),
@@ -259,7 +260,7 @@ pub(crate) fn emit_codec(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                     vec![member(id("v"), fname.clone())],
                 )
             };
-            props.push(Prop::KeyValue(key.clone(), enc));
+            props.push(Prop::Quoted(key.clone(), enc));
             let raw = Expr::Index(Box::new(id("j")), Box::new(js::str(key.clone())));
             let path = bin("+", id("p"), js::str(format!(".{key}")));
             let dec = if m.has_default && !matches!(t, Type::Optional(_)) {

@@ -714,8 +714,9 @@ fn todos_adds_toggles_deletes_and_filters_todos_and_switches_the_theme() {
     contains(&text, "Write tests", "after adding");
     contains(&text, "2 items left", "after adding");
     lacks(&text, "Nothing to do yet", "after adding");
-    // The list is saved to local storage.
-    let saved = tab.run("done(sim.state().storage.get(\"todos\") ?? null);");
+    // The list is saved to local storage, under the app's namespace from
+    // storage.lock (36-local-storage.md).
+    let saved = tab.run("done(sim.state().storage.get(\"todos:todos\") ?? null);");
     contains(saved.as_str().unwrap_or(""), "Buy milk", "local storage");
     // A blank title is refused with a message.
     tab.run(
@@ -778,11 +779,20 @@ fn todos_adds_toggles_deletes_and_filters_todos_and_switches_the_theme() {
         "base root class",
     );
     assert_eq!(theme[3], serde_json::json!(false));
-    let saved = tab.run("done(sim.state().storage.get(\"todos\") ?? null);");
+    let saved = tab.run("done(sim.state().storage.get(\"todos:todos\") ?? null);");
     drop(tab);
-    // A reload restores the saved list.
+    // A reload restores the saved list, here as an older build stored it
+    // under the bare key: it is moved under the namespace on first read.
     let saved = serde_json::json!({ "todos": saved });
     let mut tab = Tab::open(&mut site, "/", &saved);
+    let moved = tab.run(
+        "const s = sim.state().storage; done([s.get(\"todos\") ?? null, (s.get(\"todos:todos\") ?? \"\").includes(\"Buy milk\")]);",
+    );
+    assert_eq!(
+        moved,
+        serde_json::json!([null, true]),
+        "the bare item moved under the namespace"
+    );
     let text = tab.text();
     contains(&text, "Buy milk", "after a reload");
     lacks(&text, "Write tests", "after a reload");

@@ -46,6 +46,33 @@ pub enum Output {
     /// Written to stdout as JSON lines (`{"level":…,"message":…}`), as
     /// `k.observe` specifies for servers.
     JsonLines,
+    /// Written to stdout for a person, each line after the app's name:
+    /// `shop   | warning: …`. `k dev` and `k run` at a workspace root use
+    /// it, so the interleaved lines of several apps say whose they are.
+    Prefixed(&'static str),
+}
+
+impl Output {
+    /// Writes one log line at `level` the way this output wants it; a
+    /// no-op for [`Output::Capture`] (whose lines the engine keeps itself).
+    pub fn write(self, level: &str, message: &str) {
+        match self {
+            Output::Capture => {}
+            Output::JsonLines => {
+                let line = serde_json::json!({ "level": level, "message": message });
+                println!("{line}");
+            }
+            Output::Prefixed(label) => {
+                for (i, text) in message.lines().enumerate() {
+                    if i == 0 {
+                        println!("{label} | {level}: {text}");
+                    } else {
+                        println!("{label} |   {text}");
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// A JavaScript module for the module map.

@@ -30,8 +30,16 @@ pub struct StaticHost {
 
 impl StaticHost {
     /// Serves `public` on a free loopback port.
+    #[allow(dead_code)]
     pub fn start(public: &Path) -> StaticHost {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+        StaticHost::serve(
+            TcpListener::bind("127.0.0.1:0").expect("a free port"),
+            public,
+        )
+    }
+
+    /// Serves `public` on `listener`, already bound.
+    pub fn serve(listener: TcpListener, public: &Path) -> StaticHost {
         let addr = listener.local_addr().expect("an address");
         let stop = Arc::new(AtomicBool::new(false));
         let root = public.to_path_buf();
@@ -74,6 +82,7 @@ fn content_type(path: &Path) -> &'static str {
         "map" | "json" => "application/json",
         "svg" => "image/svg+xml",
         "png" => "image/png",
+        "webmanifest" => "application/manifest+json",
         _ => "application/octet-stream",
     }
 }

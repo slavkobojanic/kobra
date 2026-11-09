@@ -104,11 +104,26 @@ Setting both `NAME` and `NAME_FILE` is a startup error, so it is never ambiguous
 | Environment | Values come from |
 |---|---|
 | `.production` (`dist/app`) | the process environment only |
-| `.development` (`k dev`) | the process environment, plus an optional `.env` file at the project root. The process environment wins on a conflict, and `k dev` names the `.env` keys it shadowed. `_FILE` variables may point at paths relative to the project root. |
+| `.development` (`k dev`, `k run`, `k migrate`) | the process environment, plus an optional `.env` file at the project root, then the `[dev]` section of `k.toml` and the development defaults (below). The process environment wins on a conflict, and `k dev` names the `.env` keys it shadowed. `_FILE` variables may point at paths relative to the project root. |
 | `.test` (`k test`) | never the environment; see [Tests](#tests) |
 
 `k dev` (and `k run`) names the `.env` keys the process environment shadows when it starts, the keys set
 in both places to different values, without printing any value.
+
+### Development needs no setup
+
+`k dev` starts with no `.env` at all. What the environment and `.env` leave unset comes from:
+
+1. **`[dev.env]` in `k.toml`:** committed development values, such as an admin email or the app's own
+   callback address (`"http://127.0.0.1:{port}"`). A value for a `Secret` field is refused at startup.
+2. **`[dev.secrets]` in `k.toml`:** secrets generated on first use and kept in the git-ignored
+   `.k/secrets/`: a `"token"`, or a `"password-hash"` whose password `k dev` prints at every start.
+3. **The development defaults:** `DATABASE_URL` is `sqlite:.k/<package>.db`; an app that sends email over
+   SMTP without `SMTP_HOST` gets a local mail catcher, which prints each message with its links and keeps
+   it in `.k/mail/`.
+
+See [Project files](../reference/project-files.md#development-settings). A production build reads none of
+this: `dist/app` still refuses to start without every required variable.
 
 ### Example files hold placeholders
 
@@ -120,9 +135,8 @@ such as an end-to-end test, generate them.
 
 ```text
 # .env.example
-DATABASE_URL=sqlite:.k/shop.db
-SHOP_ADMIN_EMAIL=admin@shop.example
-# Generate a real hash into this file; the committed .example holds a placeholder.
+DATABASE_URL=postgres://shop@localhost:5432/shop
+# Generate a real hash into this file (`k hash-password`); the committed .example holds a placeholder.
 SHOP_ADMIN_PASSWORD_HASH_FILE=secrets/admin_password_hash.txt
 ```
 
@@ -175,7 +189,7 @@ everything a deployment can set:
 | | `K_PUBLIC_ORIGIN` | `publicOrigin: Url` | required in production; `http://localhost:{PORT}` in development; `http://localhost` in tests |
 | | `K_SHUTDOWN_GRACE` | `shutdownGrace: Duration` | `25.seconds` |
 | | `K_TRUSTED_PROXIES` | `trustedProxies: List<String>` (CIDR ranges) | empty |
-| `DatabaseConfig` (`k.db`) | `DATABASE_URL` | `url: Url` (`postgres://…` or `sqlite:path`) | required |
+| `DatabaseConfig` (`k.db`) | `DATABASE_URL` | `url: Url` (`postgres://…` or `sqlite:path`) | required in production; `sqlite:.k/<package>.db` in development |
 | | `DATABASE_PASSWORD` | `password: Secret<String>?` | `nil` |
 | `JobConfig` (`k.server`) | `K_JOB_CONCURRENCY` | `concurrency: Int`, 1 to 256 | `4` |
 | `SessionConfig` (`k.auth`) | `K_SESSION_MAX_AGE` | `maxAge: Duration` | `30.days` |

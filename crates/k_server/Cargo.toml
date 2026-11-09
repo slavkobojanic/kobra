@@ -24,6 +24,8 @@ hyper-rustls.workspace = true
 lettre.workspace = true
 sha2.workspace = true
 rustls.workspace = true
+# `@Matches` constraints of config fields, checked at startup.
+regex.workspace = true
 
 [lints]
 workspace = true

@@ -2752,6 +2752,21 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// The CSS value of `x`, of type `t`, for a reactive style value
+    /// (06-styles.md, "Reactive values"): an `Angle` (degrees) gets `deg`
+    /// and a `Duration` (milliseconds) `ms`; lengths and colors are CSS
+    /// text already, and anything else is its interpolation text.
+    pub(crate) fn css_value_of(&mut self, x: Expr, t: &Type) -> Expr {
+        let unit = if self.g.is(t, self.g.b.angle) {
+            "deg"
+        } else if self.g.is(t, self.g.b.duration) {
+            "ms"
+        } else {
+            return self.text_of(x, t);
+        };
+        Expr::Template(vec![TemplatePart::Expr(x), TemplatePart::Text(unit.into())])
+    }
+
     /// A function giving the interpolation text of a `t`.
     pub(crate) fn text_fn(&mut self, t: &Type) -> Expr {
         if self.g.is_string(t) || self.g.is_css_text(t) {

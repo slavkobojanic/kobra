@@ -14,12 +14,21 @@ run or deploy it.
 
 From this directory:
 
+```bash
+k dev
+```
+
+Then open <http://localhost:8080>. There is nothing to set up: boards live in the browser's storage, so
+there is no database and no configuration. `k dev` rebuilds and restarts on every change (`--port` picks
+another port).
+
+The other commands:
+
 | Command | What it does |
 |---|---|
 | `k test` | Runs the 41 tests of `*.test.k`: the board service, import and export, the pages with their drags, shortcuts and forms. |
 | `k check` | Type checks, checks `storage.lock` and runs the tests, as CI and the image build do (`--no-tests` skips them). |
-| `k dev` | Serves the app on <http://localhost:8080> and rebuilds on every change. |
-| `k build` | Writes `dist/public`: `index.html` and the hashed assets. There is no `dist/app`. |
+| `k build` | Writes `dist/public`: `index.html` and the hashed assets (minified, each script with its source map, about 30 KB gzip in all). There is no `dist/app`. |
 | `docker compose up --build` | Checks, builds and serves the app with nginx on <http://localhost:8080>. |
 
 The image is two stages: the `k` toolchain, built from this repository's source (or a published
@@ -28,13 +37,19 @@ toolchain image passed as `--build-arg K_TOOLCHAIN=...`), runs `k check` (tests 
 health check. [`nginx.conf`](nginx.conf) answers `index.html` for every URL that isn't a file, so a link
 to `/boards/<id>` reaches the client router; the document is sent with `Cache-Control: no-cache`, so a
 deploy is seen on the next load, and the hashed files below `/assets/` with
-`Cache-Control: public, max-age=31536000, immutable`, a missing one being a 404. The examples' tests
+`Cache-Control: public, max-age=31536000, immutable`, a missing one being a 404. Its
+Content-Security-Policy allows no inline script except the document's pre-paint theme snippet, by its
+hash, which puts the remembered theme on `<html>` before the first paint so a reload keeps it
+(`crates/k_server/tests/theme_snippet.rs` checks the hash). The examples' tests
 serve the build the same way ([`crates/k_cli/tests/support/static_host.rs`](../../crates/k_cli/tests/support/static_host.rs)).
 
 ## Using it
 
-- **Move a card with the mouse:** drag it onto another card, which it takes the place of, or onto a
-  column's empty space, which puts it at the bottom. Clicking a card's Edit button never starts a drag.
+- **Move a card with the mouse:** drag it onto another card, which it takes the place of, or anywhere
+  else in a column (its heading, the space below its cards, an empty column), which puts it at the
+  bottom. Clicking a card's Edit button never starts a drag.
+- **Add or edit a card:** "Add a card" (or **N**) opens the form with the focus in its title field, and
+  Edit opens the editor the same way (`.autofocus`), so you can type at once.
 - **Move a card on a touch screen:** press and hold it for a moment, then drag. A quick swipe scrolls.
 - **Move a card with the keyboard:** Tab to the card and press **Space** or **Enter** to pick it up.
   **ArrowUp** and **ArrowDown** move it within its column, **ArrowLeft** and **ArrowRight** to the

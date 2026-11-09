@@ -5,7 +5,7 @@
  * (docs/compiler/runtime.md, "DOM renderer").
  */
 import { assert, assertEq, assertThrows, installDom, test } from "k:testing";
-import { attr, batch, classList, each, on, prop, renderEffect, root, signal, style, template, text, when } from "k:runtime";
+import { attr, autofocus, batch, classList, each, on, prop, renderEffect, root, signal, style, template, text, walk, when } from "k:runtime";
 
 test("the fake DOM parses and serializes compiler-style HTML", () => {
   const doc = installDom();
@@ -71,6 +71,16 @@ test("template clones a fresh copy each time", () => {
   assert(a !== b);
   a.firstChild.firstChild.data = "changed";
   assertEq(b.firstChild.firstChild.data, " ");
+});
+
+test("walk follows first-child and next-sibling steps from a node", () => {
+  installDom();
+  const t = template('<div><p>a</p><!--[--><!--]--><ul><li>x</li><li>y</li></ul></div>');
+  const root = t();
+  assertEq(walk(root, ""), root);
+  assertEq(walk(root, "f"), root.firstChild);
+  assertEq(walk(root, "fnnn"), root.firstChild.nextSibling.nextSibling.nextSibling);
+  assertEq(walk(root, "fnnnfn").firstChild.data, "y");
 });
 
 test("text writes only changed values", () => {
@@ -192,4 +202,49 @@ test("a parsed style attribute and style properties are one inline style", () =>
   span.removeAttribute("style");
   assertEq(host.innerHTML, "<span></span>");
   assertEq(span.getAttribute("style"), null);
+});
+
+// A K form never navigates: a `submit` handler prevents the browser's
+// submission first, even when its body throws or its component is gone
+// (05-views.md, "Rules"; todos-B).
+test("a submit handler prevents the browser's form submission", () => {
+  installDom();
+  const doc = globalThis.document;
+  const form = doc.createElement("form");
+  doc.body.appendChild(form);
+  let runs = 0;
+  root(() => on(form, "submit", () => { runs++; }));
+  const e = new Event("submit", { bubbles: true, cancelable: true });
+  form.dispatchEvent(e);
+  assertEq(runs, 1);
+  assert(e.defaultPrevented, "no page load");
+  const other = doc.createElement("form");
+  doc.body.appendChild(other);
+  root(() => on(other, "submit", () => { throw new Error("boom"); }));
+  const f = new Event("submit", { bubbles: true, cancelable: true });
+  assertThrows(() => other.dispatchEvent(f));
+  assert(f.defaultPrevented, "prevented before the handler threw");
+  const click = new Event("click", { bubbles: true, cancelable: true });
+  root(() => on(form, "click", () => {}));
+  form.dispatchEvent(click);
+  assert(!click.defaultPrevented, "other events keep their default");
+});
+
+// `.autofocus` moves the focus into a control inserted after the document
+// loaded, once it is in the document (05-views.md; todos-E, kanban-RC6).
+test("autofocus focuses the control once it is in the document", async () => {
+  installDom();
+  const doc = globalThis.document;
+  const input = doc.createElement("input");
+  input.setAttribute("autofocus", "");
+  autofocus(input);
+  doc.body.appendChild(input);
+  assert(doc.activeElement !== input, "not before the batch ends");
+  await Promise.resolve();
+  assertEq(doc.activeElement, input);
+  const detached = doc.createElement("input");
+  detached.setAttribute("autofocus", "");
+  autofocus(detached);
+  await Promise.resolve();
+  assertEq(doc.activeElement, input, "a control that never appeared takes nothing");
 });

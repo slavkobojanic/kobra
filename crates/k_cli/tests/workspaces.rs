@@ -294,6 +294,27 @@ fn free_port() -> u16 {
         .unwrap()
 }
 
+/// Two consecutive free local ports in 5200–5999 (a workspace run serves
+/// its apps on `port` and `port + 1`); the first of them.
+///
+/// The probe's listeners are closed before the app binds, so tests running
+/// at the same time each start from their own offset: otherwise two of
+/// them find the same free pair and one app can't listen.
+fn free_pair() -> u16 {
+    static CALLS: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+    let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let start = 5200 + ((std::process::id() % 700) as u16 + call * 37) % 798;
+    for i in 0..800u16 {
+        let p = 5200 + (start - 5200 + i * 3) % 798;
+        let a = std::net::TcpListener::bind(("127.0.0.1", p));
+        let b = std::net::TcpListener::bind(("127.0.0.1", p + 1));
+        if a.is_ok() && b.is_ok() {
+            return p;
+        }
+    }
+    panic!("no two free ports in 5200-5999");
+}
+
 /// One HTTP/1.1 POST of an rpc with `Connection: close`: the status and body.
 fn rpc(port: u16, path: &str, body: &str) -> Option<(u16, String)> {
     let mut s = TcpStream::connect(("127.0.0.1", port)).ok()?;
@@ -473,7 +494,7 @@ fn two_built_services_call_each_other_with_signed_tokens() {
 fn dev_at_the_root_runs_every_app_with_its_remotes_wired() {
     let dir = TempDir::new("dev");
     copy_stack(&dir.0);
-    let port = free_port();
+    let port = free_pair();
     let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
         .args(["dev", ".", "--port", &port.to_string()])
         .current_dir(&dir.0)
@@ -502,7 +523,9 @@ fn dev_at_the_root_runs_every_app_with_its_remotes_wired() {
         let line = rx
             .recv_timeout(left)
             .unwrap_or_else(|_| panic!("both apps serve: {seen:?}"));
-        if let Some((name, rest)) = line.split_once(" serving on http://localhost:") {
+        // `paybox | serving on http://localhost:<port>`: each app's lines
+        // start with its name.
+        if let Some((name, rest)) = line.split_once(" | serving on http://localhost:") {
             ports.insert(name.trim().to_owned(), rest.trim().parse::<u16>().unwrap());
         }
         seen.push(line);
@@ -521,37 +544,63 @@ fn dev_at_the_root_runs_every_app_with_its_remotes_wired() {
     stop(child);
 }
 
+/// Collects a child's output lines (`stdout` and `stderr`) as they come.
+fn lines_of(child: &mut Child) -> std::sync::mpsc::Receiver<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = child.stdout.take().unwrap();
+    let err = child.stderr.take().unwrap();
+    let tx2 = tx.clone();
+    std::thread::spawn(move || {
+        for line in BufReader::new(out).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    std::thread::spawn(move || {
+        for line in BufReader::new(err).lines().map_while(Result::ok) {
+            if tx2.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    rx
+}
+
+/// Waits for a line containing `needle`, keeping every line in `seen`.
+fn wait_line(
+    rx: &std::sync::mpsc::Receiver<String>,
+    seen: &mut Vec<String>,
+    needle: &str,
+) -> String {
+    if let Some(l) = seen.iter().find(|l| l.contains(needle)) {
+        return l.clone();
+    }
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let line = rx
+            .recv_timeout(left)
+            .unwrap_or_else(|_| panic!("a line with {needle:?}: {seen:#?}"));
+        seen.push(line.clone());
+        if line.contains(needle) {
+            return line;
+        }
+    }
+}
+
 #[test]
-fn dev_at_the_root_of_the_shop_pays_an_order_through_paybox_with_a_database_per_member() {
-    // `examples/shop` as its README runs it: each member's `.env` from its
-    // `.env.example`, the secret files `scripts/init-secrets.sh` writes, and
-    // `k dev` at the root. Each member's relative `sqlite:` database is its
-    // own, below its own directory, created on first start.
+fn dev_at_the_root_of_the_shop_runs_with_no_setup() {
+    // `examples/shop` as its README runs it: `k dev` at the root and
+    // nothing else. No `.env`, no secret files, no Docker: paybox and the
+    // shop are wired together, each has its own SQLite database below its
+    // own directory, the shop's is seeded with the demo catalog, the admin
+    // password is generated and printed, and confirmation email lands in
+    // the built-in mail catcher.
     let dir = TempDir::new("shop-dev");
     copy_example("shop", &dir.0);
-    // Paybox serves on `--port`, the shop on the next one; the examples
-    // name the default ports, 8080 and 8081.
-    let paybox = free_port();
+    let paybox = free_pair();
     let shop = paybox + 1;
-    for member in ["paybox", "shop"] {
-        let example = fs::read_to_string(dir.0.join(member).join(".env.example")).unwrap();
-        if member == "shop" {
-            assert!(
-                example.contains("PAYBOX_CALLBACK_URL=http://127.0.0.1:8081\n"),
-                "{example}"
-            );
-        }
-        let env = example.replace(
-            "PAYBOX_CALLBACK_URL=http://127.0.0.1:8081",
-            &format!("PAYBOX_CALLBACK_URL=http://127.0.0.1:{shop}"),
-        );
-        write(&dir.0, &format!("{member}/.env"), &env);
-    }
-    write(
-        &dir.0,
-        "secrets/admin_password_hash.txt",
-        "$argon2id$v=19$m=65536,t=3,p=4$aLYLgjk75OnGzmfOgi+w+g$6DSzMJriTe+IRcfo7YcTibzOSpaPcEMeYxWRXNtBCFY",
-    );
     let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
         .args(["dev", ".", "--port", &paybox.to_string()])
         .current_dir(&dir.0)
@@ -559,51 +608,53 @@ fn dev_at_the_root_of_the_shop_pays_an_order_through_paybox_with_a_database_per_
         .env_remove("PAYBOX_URL")
         .env_remove("PAYBOX_CALLBACK_URL")
         .env_remove("K_SERVICE_TOKEN")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .env_remove("SMTP_HOST")
+        .env_remove("SHOP_ADMIN_PASSWORD_HASH")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    wait_for(paybox, &mut child, "paybox");
-    wait_for(shop, &mut child, "the shop");
+    let rx = lines_of(&mut child);
+    let mut seen = Vec::new();
+    wait_line(
+        &rx,
+        &mut seen,
+        &format!("paybox | serving on http://localhost:{paybox}"),
+    );
+    wait_line(
+        &rx,
+        &mut seen,
+        &format!("shop   | serving on http://localhost:{shop}"),
+    );
+    wait_line(&rx, &mut seen, "shop   | seeded the new database from");
+    let note = wait_line(&rx, &mut seen, "the hash of the development password ");
+    let password = note
+        .split("development password ")
+        .nth(1)
+        .and_then(|r| r.split(' ').next())
+        .unwrap()
+        .to_owned();
     for member in ["paybox", "shop"] {
         assert!(
-            dir.0.join(member).join(".k/dev.sqlite").is_file(),
+            dir.0.join(member).join(format!(".k/{member}.db")).is_file(),
             "{member} has its own database"
         );
     }
-    assert!(!dir.0.join(".k").exists(), "no database at the root");
-    let url = format!("sqlite:{}", dir.0.join("shop/.k/dev.sqlite").display());
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let catalog = fs::read_to_string(dir.0.join("shop/scripts/demo-catalog.sql")).unwrap();
-    let execute = |sql: &str| -> Vec<Vec<k_db::Value>> {
-        runtime.block_on(async {
-            let db = k_db::Database::connect(&url, &k_db::DatabaseOptions::default())
-                .await
-                .unwrap();
-            if sql.trim_start().starts_with("SELECT") {
-                db.query(sql, &[])
-                    .await
-                    .unwrap()
-                    .into_iter()
-                    .map(|r| r.values)
-                    .collect()
-            } else {
-                db.execute(sql, &[]).await.unwrap();
-                Vec::new()
-            }
-        })
-    };
-    execute(&catalog);
+    assert!(!dir.0.join(".k").exists(), "nothing at the root");
+    let (status, body) = rpc(
+        shop,
+        "/shop.admin.AdminProtocol/SignIn",
+        &format!(r#"{{"request":{{"email":"admin@shop.example","password":"{password}"}}}}"#),
+    )
+    .unwrap();
+    assert_eq!(status, 200, "the printed admin password signs in: {body}");
     let (status, body) = rpc(
         shop,
         "/shop.store.StoreProtocol/PlaceOrder",
         r#"{"request":{"productSlug":"k-mug","quantity":1,"email":"ana@example.com"}}"#,
     )
     .unwrap();
-    assert_eq!(status, 200, "{body}");
+    assert_eq!(status, 200, "the demo catalog is there: {body}");
     let order = body
         .split("\"orderId\":\"")
         .nth(1)
@@ -617,16 +668,80 @@ fn dev_at_the_root_of_the_shop_pays_an_order_through_paybox_with_a_database_per_
     )
     .unwrap();
     assert_eq!(status, 200, "{body}");
-    // Paybox's event, from its jobs worker, marks the order paid: the two
-    // apps call each other with the run's one development secret.
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
-        let rows = execute("SELECT status FROM \"order\"");
-        if rows[0][0] == k_db::Value::Text("paid".into()) {
-            break;
-        }
-        assert!(Instant::now() < deadline, "the order is paid: {rows:?}");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    // Paybox's event, from its jobs worker, reaches the shop at its own
+    // address (`PAYBOX_CALLBACK_URL` from `[dev.env]`), which marks the
+    // order paid and emails the confirmation to the catcher.
+    let mail = wait_line(&rx, &mut seen, "shop   | mail from");
+    assert!(mail.contains("to ana@example.com"), "{mail}");
+    wait_line(&rx, &mut seen, &format!("http://localhost:{shop}/"));
+    let kept = fs::read_dir(dir.0.join("shop/.k/mail")).unwrap().count();
+    assert_eq!(kept, 1, "the message is kept as an .eml file");
+    stop(child);
+}
+
+#[test]
+fn run_at_the_root_serves_every_app_wired_together() {
+    // `k run` at a workspace root starts every app like `k dev`, without
+    // watching, and Ctrl-C or SIGTERM stops them all.
+    let dir = TempDir::new("run-root");
+    copy_stack(&dir.0);
+    let port = free_pair();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
+        .args(["run", ".", "--port", &port.to_string()])
+        .current_dir(&dir.0)
+        .env_remove("PAYBOX_URL")
+        .env_remove("SHOP_URL")
+        .env_remove("K_SERVICE_TOKEN")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let rx = lines_of(&mut child);
+    let mut seen = Vec::new();
+    let line = wait_line(&rx, &mut seen, "shop   | serving on http://localhost:");
+    let shop: u16 = line.rsplit(':').next().unwrap().trim().parse().unwrap();
+    wait_line(&rx, &mut seen, "paybox | serving on http://localhost:");
+    let (status, body) = rpc(
+        shop,
+        "/shop.checkout.CheckoutApi/Pay",
+        r#"{"orderId":"run","cents":990}"#,
+    )
+    .unwrap();
+    assert_eq!(status, 200, "{body}\n{seen:?}");
+    let started = Instant::now();
+    stop(child);
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "both apps stop promptly: {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn the_notes_example_runs_with_no_database_url() {
+    // A development run needs no `.env`: `DATABASE_URL` defaults to a
+    // SQLite file below the project's `.k/`, created and migrated at start.
+    let dir = TempDir::new("notes-run");
+    copy_example("notes", &dir.0);
+    let port = free_port();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
+        .args(["run", ".", "--port", &port.to_string()])
+        .current_dir(&dir.0)
+        .env_remove("DATABASE_URL")
+        .env_remove("DATABASE_PASSWORD")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let rx = lines_of(&mut child);
+    let mut seen = Vec::new();
+    wait_line(
+        &rx,
+        &mut seen,
+        &format!("serving on http://localhost:{port}"),
+    );
+    assert!(dir.0.join(".k/notes.db").is_file(), "{seen:?}");
+    let (status, _) = rpc(port, "/", "").unwrap_or((0, String::new()));
+    assert_ne!(status, 0);
     stop(child);
 }

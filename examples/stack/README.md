@@ -16,14 +16,26 @@ Nothing here needs an account anywhere: the services only call each other.
 
 From this directory:
 
+```bash
+k dev
+```
+
+Then open http://localhost:8081 and press **Pay**. `k dev` builds and serves both apps, paybox on 8080 and
+shop on 8081, each line of their output prefixed with the app's name. Each `remote` rule is wired to the
+other app with a development secret generated for the run, so no `.env` is needed. A change anywhere
+rebuilds and restarts both; Ctrl-C stops both.
+
+The other commands:
+
 | Command | What it does |
 |---|---|
-| `k dev` | Builds and serves both apps: paybox on 8080 and shop on 8081. Each `remote` rule is wired to the other app with a development secret generated for the run, so no `.env` is needed. Open http://localhost:8081 and press **Pay**. |
+| `k run` | Serves both apps like `k dev`, without rebuilding on change. |
 | `k test` | Runs both apps' tests. Remote calls never leave the process: paybox's `PaymentEvents` is a `TestRemote` double, and shop's tests bind a fake `Payments`. |
 | `k check` | Checks every member, and the `rpc.lock` of each app against the code, and runs both apps' tests. |
 | `k build` | Builds `dist/paybox/` and `dist/shop/`, and updates each app's `rpc.lock`. |
 
-To run one app on its own, copy its `.env.example` to `.env` and run `k dev` in its directory.
+To run one app on its own, copy its `.env.example` to `.env`, then run `k dev` in `paybox/` (port 8080)
+and `k dev --port 8081` in `shop/`; the two `.env` files must share one token value.
 
 ## Structure
 

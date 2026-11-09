@@ -6,10 +6,11 @@
 -- needs (docs/design/19-persistence.md#data-migrations). A real shop manages
 -- its catalog from an admin screen.
 --
--- The statement is plain SQL that SQLite and Postgres both accept. Load it
--- once the app has created the tables:
+-- The statement is plain SQL that SQLite and Postgres both accept. `k dev`
+-- runs it once, when it creates the development database (`seed` in the
+-- [dev] section of k.toml). With Compose, load it once the app has created
+-- the tables:
 --
---   sqlite3 .k/dev.sqlite < scripts/demo-catalog.sql                                    # k dev
 --   docker compose exec -T db psql --username=shop --dbname=shop < scripts/demo-catalog.sql
 --
 -- `price` is a Money column, which the database stores as `price_amount` and

@@ -7,3 +7,9 @@
 
 # Agent worktrees
 .claude/worktrees/
+
+# A project's local development state: `.env` (copied from `.env.example`)
+# and `.k/` (development databases, generated development secrets, caught
+# mail). Neither is ever committed.
+.env
+.k/

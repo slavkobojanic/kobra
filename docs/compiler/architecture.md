@@ -770,6 +770,7 @@ Few, well-known crates. Adding one requires a line here.
 | `hyper` (`client`), `hyper-util` (`client-legacy`) | outgoing HTTP for `FetchHttpClient` (`op_k_fetch`), the same HTTP stack as the server | in use (k_server) |
 | `hyper-rustls`, `rustls` (`ring` provider, `webpki-roots`) | TLS for outgoing HTTPS and SMTP, pure Rust, no system certificates or OpenSSL needed in the container | in use (k_server) |
 | `lettre` (`smtp-transport`, `tokio1-rustls-tls`, `builder`) | `SmtpEmailProvider`: SMTP with STARTTLS/TLS/plain, authentication, MIME building and reply classification (`op_k_smtp_send`) | in use (k_server) |
+| `oxc_allocator`, `oxc_ast`, `oxc_parser`, `oxc_span`, `oxc_syntax`, `oxc_minifier`, `oxc_codegen` (`=0.155.0`) | minifying, tree-shaking and source-mapping an app's release client in process (k_codegen `minify.rs`, `link.rs`; [codegen.md §17.2](codegen.md#172-minification)); pinned exactly, since the output is part of every content hash. About 150 crates in the tree, 3 MB of `k`. Raised the workspace's `rust-version` to 1.97, oxc's minimum. Closure Compiler was rejected (a JVM, ~1.2 s per app; [13-tooling.md](../design/13-tooling.md#commands)) | in use (k_codegen) |
 | `sha2` | SHA-256 of session tokens and OAuth state in `k_session`, and HMAC-SHA-256/512 (`op_k_hmac`, RFC 2104 over `sha2`) | in use (k_server) |
 
 | `lsp-types` (with `url`) | the Language Server Protocol's data types in `k_lsp`; the transport is our own ([lsp.md §1](lsp.md#1-dependencies)) | in use (k_lsp, k_cli tests) |

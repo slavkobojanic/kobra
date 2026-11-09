@@ -179,10 +179,12 @@ pub(crate) fn meta_calls(b: &mut Body<'_, '_>, calls: &[SyntaxNode], target: &Ex
 
 /// The browser's share of metadata calls: a `title(_:)` becomes
 /// `$k.title(() => text)`, which keeps `document.title` on the innermost
-/// mounted title (runtime.md §10). With `ready` (a page's or layout's
-/// loads), the title has no value until it is truthy, since the text
-/// usually reads loaded data. The other entries only shape the server's
-/// document `<head>`.
+/// mounted title (runtime.md §10), and a `description(_:)`
+/// `$k.description(() => text)`, which keeps `<meta name="description">`
+/// the same way (a client-rendered app's shell has no page to take it
+/// from). With `ready` (a page's or layout's loads), neither has a value
+/// until it is truthy, since the text usually reads loaded data. The other
+/// entries only shape the server's document `<head>`.
 pub(crate) fn client_title(
     b: &mut Body<'_, '_>,
     calls: &[SyntaxNode],
@@ -193,12 +195,18 @@ pub(crate) fn client_title(
         let Some(c) = ast::CallExpr::cast(node.clone()) else {
             continue;
         };
-        let is_title = matches!(c.callee(), Some(ast::Expr::NameExpr(n)) if n.name().is_some_and(|t| t.text() == "title"));
+        let entry = match c.callee() {
+            Some(ast::Expr::NameExpr(n)) => n
+                .name()
+                .map(|t| t.text().to_owned())
+                .filter(|t| t == "title" || t == "description"),
+            _ => None,
+        };
+        let Some(entry) = entry else { continue };
         let Some(text) = c
             .arg_list()
             .and_then(|l| l.args().next())
             .and_then(|a| a.value())
-            .filter(|_| is_title)
         else {
             continue;
         };
@@ -213,7 +221,7 @@ pub(crate) fn client_title(
             pre.push(Stmt::Return(Some(value)));
             js::arrow_block(vec![], pre, false)
         };
-        out.push(Stmt::Expr(rt("title", vec![get])));
+        out.push(Stmt::Expr(rt(&entry, vec![get])));
     }
     out
 }
@@ -2060,55 +2068,62 @@ pub(crate) fn server_entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)
         .into_iter()
         .map(js::str)
         .collect();
-    let spec = Expr::Object(
-        vec![
-            Prop::KeyValue("name".into(), js::str(g.project_name())),
-            Prop::KeyValue(
-                "rendering".into(),
-                js::str(if client { "client" } else { "server" }),
+    let mut spec_props = vec![
+        Prop::KeyValue("name".into(), js::str(g.project_name())),
+        Prop::KeyValue(
+            "rendering".into(),
+            js::str(if client { "client" } else { "server" }),
+        ),
+        Prop::KeyValue("pages".into(), pages),
+        Prop::KeyValue("redirects".into(), redirects),
+        Prop::KeyValue("rpcs".into(), rpcs),
+        Prop::KeyValue("endpoints".into(), endpoints),
+        Prop::KeyValue(
+            "container".into(),
+            js::arrow(
+                vec![Param::new("st")],
+                if tests(g) {
+                    // A test's requests use its group's server container.
+                    Expr::Cond(
+                        Box::new(member(id("st"), "test")),
+                        Box::new(call(
+                            member(member(id("st"), "test"), "container"),
+                            vec![id("st")],
+                        )),
+                        Box::new(Expr::New(Box::new(id("$Request")), vec![id("st")])),
+                    )
+                } else {
+                    Expr::New(Box::new(id("$Request")), vec![id("st")])
+                },
             ),
-            Prop::KeyValue("pages".into(), pages),
-            Prop::KeyValue("redirects".into(), redirects),
-            Prop::KeyValue("rpcs".into(), rpcs),
-            Prop::KeyValue("endpoints".into(), endpoints),
-            Prop::KeyValue(
-                "container".into(),
-                js::arrow(
-                    vec![Param::new("st")],
-                    if tests(g) {
-                        // A test's requests use its group's server container.
-                        Expr::Cond(
-                            Box::new(member(id("st"), "test")),
-                            Box::new(call(
-                                member(member(id("st"), "test"), "container"),
-                                vec![id("st")],
-                            )),
-                            Box::new(Expr::New(Box::new(id("$Request")), vec![id("st")])),
-                        )
-                    } else {
-                        Expr::New(Box::new(id("$Request")), vec![id("st")])
-                    },
-                ),
+        ),
+        Prop::KeyValue("appMeta".into(), app_meta),
+        Prop::KeyValue("signIn".into(), sign_in),
+        Prop::KeyValue(
+            "session".into(),
+            Expr::Object(
+                vec![
+                    Prop::KeyValue("roles".into(), roles),
+                    Prop::KeyValue("decodeUser".into(), decode_user),
+                ],
+                false,
             ),
-            Prop::KeyValue("appMeta".into(), app_meta),
-            Prop::KeyValue("signIn".into(), sign_in),
-            Prop::KeyValue(
-                "session".into(),
-                Expr::Object(
-                    vec![
-                        Prop::KeyValue("roles".into(), roles),
-                        Prop::KeyValue("decodeUser".into(), decode_user),
-                    ],
-                    false,
-                ),
-            ),
-            Prop::KeyValue("jobs".into(), crate::jobs::table(&mut b)),
-            Prop::KeyValue("httpStatus".into(), Expr::Array(http_status)),
-            Prop::KeyValue("httpBody".into(), Expr::Array(http_body)),
-            Prop::KeyValue("assets".into(), id(ASSETS_PLACEHOLDER)),
-        ],
-        true,
-    );
+        ),
+        Prop::KeyValue("jobs".into(), crate::jobs::table(&mut b)),
+        Prop::KeyValue("httpStatus".into(), Expr::Array(http_status)),
+        Prop::KeyValue("httpBody".into(), Expr::Array(http_body)),
+        Prop::KeyValue("assets".into(), id(ASSETS_PLACEHOLDER)),
+    ];
+    // The theme's variants, so the document puts the remembered one's
+    // classes on `<html>` (07-themes-and-units.md); none without variants.
+    let variants = crate::css::variants(g);
+    if !variants.is_empty() {
+        spec_props.push(Prop::KeyValue(
+            "themes".into(),
+            Expr::Array(variants.into_iter().map(js::str).collect()),
+        ));
+    }
+    let spec = Expr::Object(spec_props, true);
     stmts.extend(helpers);
     stmts.push(Stmt::Const("$spec".into(), spec));
     if tests(g) {
@@ -2126,7 +2141,14 @@ pub(crate) fn server_entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)
 
 /// The JSON text of the asset table for [`ASSETS_PLACEHOLDER`]: the
 /// stylesheets and the app chunk of the client files.
-pub(crate) fn assets_json(client: &[crate::OutputFile]) -> String {
+///
+/// `preload` is the entry chunk and every chunk it imports statically,
+/// transitively, and `pages` each page's own chunk with the static imports
+/// `preload` lacks, by `Page` case: the document links them as
+/// `<link rel="modulepreload">` (the page's for the page it renders), so
+/// the browser fetches the whole graph at once instead of one level of
+/// imports per round trip (server.md §7).
+pub(crate) fn assets_json(g: &Gen<'_>, client: &[crate::OutputFile]) -> String {
     let mut styles: Vec<String> = client
         .iter()
         .filter(|f| f.kind == crate::FileKind::Css)
@@ -2138,7 +2160,53 @@ pub(crate) fn assets_json(client: &[crate::OutputFile]) -> String {
         .filter(|f| f.kind == crate::FileKind::JavaScript && f.path.starts_with("app."))
         .map(|f| format!("/assets/{}", f.path))
         .collect();
-    serde_json::json!({ "styles": styles, "scripts": scripts }).to_string()
+    let graph = crate::link::module_graph(client);
+    let closure = |from: &str, skip: &BTreeSet<String>| -> Vec<String> {
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        let mut order = Vec::new();
+        let mut work = vec![from.to_owned()];
+        while let Some(p) = work.pop() {
+            if skip.contains(&p) || !seen.insert(p.clone()) {
+                continue;
+            }
+            if let Some(i) = graph.get(&p) {
+                work.extend(i.static_.iter().rev().cloned());
+            }
+            order.push(p);
+        }
+        order
+    };
+    let mut preload: Vec<String> = Vec::new();
+    for f in client
+        .iter()
+        .filter(|f| f.kind == crate::FileKind::JavaScript && f.path.starts_with("app."))
+    {
+        preload.extend(closure(&f.path, &BTreeSet::new()));
+    }
+    let preloaded: BTreeSet<String> = preload.iter().cloned().collect();
+    let mut pages = serde_json::Map::new();
+    for p in crate::app::pages(g) {
+        let name = &g.view.decl(p).name;
+        let stem = format!("pages/{}.", crate::css::kebab(name));
+        let Some(chunk) = client.iter().find(|f| {
+            f.kind == crate::FileKind::JavaScript
+                && f.path.starts_with(&stem)
+                && f.path[stem.len()..].matches('.').count() == 1
+        }) else {
+            continue;
+        };
+        let links: Vec<serde_json::Value> = closure(&chunk.path, &preloaded)
+            .into_iter()
+            .map(|p| serde_json::Value::String(format!("/assets/{p}")))
+            .collect();
+        pages.insert(crate::app::case_name(name), serde_json::Value::Array(links));
+    }
+    let preload: Vec<String> = preload
+        .into_iter()
+        .map(|p| format!("/assets/{p}"))
+        .collect();
+    serde_json::json!({ "styles": styles, "scripts": scripts, "preload": preload, "pages": pages })
+        .to_string()
 }
 
 // ----------------------------------------------------------------- config
@@ -2217,6 +2285,31 @@ fn range_of(node: &SyntaxNode) -> Option<(i64, i64)> {
         e?.syntax().text().to_string().replace('_', "").parse().ok()
     };
     Some((num(be.lhs())?, num(be.rhs())?))
+}
+
+/// The pattern and `message:` of a config field's `@Matches` annotation.
+fn matches_of(node: &SyntaxNode) -> (Option<String>, Option<String>) {
+    let Some(ann) = node
+        .children()
+        .filter_map(ast::Annotation::cast)
+        .find(|a| a.name().is_some_and(|t| t.text() == "Matches"))
+    else {
+        return (None, None);
+    };
+    let mut pattern = None;
+    let mut message = None;
+    for arg in ann.arg_list().into_iter().flat_map(|l| l.args()) {
+        let text = match arg.value() {
+            Some(ast::Expr::StringLit(s)) => s.plain_value(),
+            _ => None,
+        };
+        match arg.label().map(|t| t.text().to_owned()).as_deref() {
+            None => pattern = pattern.or(text),
+            Some("message") => message = text,
+            Some(_) => {}
+        }
+    }
+    (pattern, message)
 }
 
 /// The `@Env` variable of a config field node.
@@ -2353,7 +2446,10 @@ fn entry_of(
     let default = init.as_ref().and_then(default_text);
     let optional = ty.ends_with('?');
     let public_origin = env == "K_PUBLIC_ORIGIN";
+    let (pattern, pattern_message) = matches_of(node);
     Some(crate::ConfigEntry {
+        pattern,
+        pattern_message,
         declared_at,
         secret: ty.starts_with("Secret<"),
         required: !optional && init.is_none() && !public_origin,

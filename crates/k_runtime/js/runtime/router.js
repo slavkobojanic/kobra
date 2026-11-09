@@ -23,8 +23,9 @@
 
 import { hydrate } from "./hydrate.js";
 import { gateSession, seedSession, sessionMirror } from "./rpc.js";
-import { batch, root } from "./signals.js";
+import { batch, root, signal } from "./signals.js";
 import { splitTarget } from "./std.js";
+import { equals } from "./values.js";
 import { slotMarkers } from "./view.js";
 
 /** The running router, if any. */
@@ -59,6 +60,31 @@ function leave(r, url) {
 }
 
 /**
+ * A page's parameters as reactive values: `params` reads each through its
+ * own signal, and `update` sets the ones that changed, so a navigation to
+ * the same page with other parameters updates the mounted page in place
+ * (14-async-data.md: a `@Load` re-runs when an input it reads changes).
+ * @param {Record<string, unknown>} values
+ */
+function reactiveParams(values) {
+  const signals = {};
+  const params = {};
+  for (const k of Object.keys(values)) {
+    signals[k] = signal(values[k]);
+    Object.defineProperty(params, k, { get: () => signals[k].get(), enumerable: true });
+  }
+  const keys = Object.keys(values).sort().join("\u0000");
+  return {
+    params,
+    /** `true` when `next` has the same parameter names. */
+    fits: (next) => Object.keys(next).sort().join("\u0000") === keys,
+    update(next) {
+      for (const k of Object.keys(next)) if (!equals(signals[k].peek(), next[k])) signals[k].set(next[k]);
+    },
+  };
+}
+
+/**
  * Renders the layouts of `page` from level `i` inward, then the page, each
  * in a root of its own whose disposal `r.mounted` (layouts) and `r.page`
  * keep; a layout records the markers of its slot when the slot renders.
@@ -69,7 +95,8 @@ function mountRoute(r, page, params, ctx, i) {
   if (i === layouts.length) {
     return root((dispose) => {
       r.page = dispose;
-      return page.render(params, ctx);
+      r.params = reactiveParams(params);
+      return page.render(r.params.params, ctx);
     });
   }
   return root((dispose) => {
@@ -125,6 +152,12 @@ async function show(url, first) {
   batch(() => {
     let kept = 0;
     while (kept < r.mounted.length && kept < layouts.length && r.mounted[kept].layout === layouts[kept]) kept++;
+    // The same page with other parameters (a query change, another id):
+    // the mounted page stays, and what reads a changed parameter updates.
+    if (!data && r.page !== null && r.shown === match.route && kept === layouts.length && r.mounted.length === kept && r.params?.fits(match.params)) {
+      r.params.update(match.params);
+      return;
+    }
     r.page?.();
     r.page = null;
     while (r.mounted.length > kept) r.mounted.pop().dispose();

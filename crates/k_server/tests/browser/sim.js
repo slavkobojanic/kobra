@@ -343,6 +343,24 @@ export function find(tag, text, attrs) {
   return found[0];
 }
 
+/**
+ * The form control whose accessible name is `name`: its visible
+ * `<label for>` (how a form control's `.label` renders, 05-views.md) or
+ * its `aria-label`. Throws with the page's markup when there is none.
+ */
+export function labeled(name) {
+  for (const l of all("label", null)) {
+    const id = l.getAttribute("for");
+    if (id !== null && textOf(l) === name) {
+      const control = all("*", null, { id })[0];
+      if (control !== undefined) return control;
+    }
+  }
+  const named = all("*", null, { "aria-label": name }).find((e) => ["input", "textarea", "select"].includes(e.localName));
+  if (named !== undefined) return named;
+  throw new Error(`no control labeled ${JSON.stringify(name)} in ${document.getElementById("k-app").innerHTML}`);
+}
+
 /** Clicks the first match of {@link find}. */
 export function click(tag, text, attrs) {
   const e = find(tag, text, attrs);
@@ -364,9 +382,15 @@ export function check(input, checked) {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-/** Submits a form: dispatches a cancelable `submit`. */
+/**
+ * Submits a form: dispatches a cancelable `submit`. A submission nothing
+ * prevented is a page load in a browser, which this simulated tab doesn't
+ * do, so it fails the test instead of passing on a page that would reload
+ * (todos-B: `.on(submit:)` handlers didn't prevent it).
+ */
 export function submit(form) {
-  form.dispatchEvent(new Event("submit", { bubbles: true }));
+  const allowed = form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  if (allowed) throw new Error("the form's submission wasn't prevented: a browser would load another page");
 }
 
 /** The app container's markup. */

@@ -1,0 +1,10 @@
+client contains "data-icon"
+client contains IconName$$text
+server contains data-icon
+css contains [data-icon] {
+css contains   background-color: currentColor;
+css contains   mask: var(--k-icon) center / contain no-repeat;
+css contains [data-icon="sun"] {
+css contains [data-icon="cloudRain"] {
+css contains [data-icon="arrowUp"] {
+css contains --k-icon: url("data:image/svg+xml,

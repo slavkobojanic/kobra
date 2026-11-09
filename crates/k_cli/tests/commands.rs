@@ -957,8 +957,11 @@ fn migrate_status_and_apply_use_the_development_database() {
     assert_eq!(stdout(&again), "the database is up to date\n");
 }
 
+/// Without `DATABASE_URL` (environment, `.env` or `[dev.env]`), `k migrate
+/// apply` migrates the database `k dev` would open,
+/// `sqlite:.k/<package>.db` (13-tooling.md).
 #[test]
-fn migrate_apply_without_a_database_url_exits_with_1() {
+fn migrate_apply_without_a_database_url_uses_the_development_database() {
     let dir = TempDir::new("migrate_nourl");
     copy_example("notes", &dir.0);
     let out = Command::new(env!("CARGO_BIN_EXE_k"))
@@ -967,8 +970,11 @@ fn migrate_apply_without_a_database_url_exits_with_1() {
         .env_remove("DATABASE_URL")
         .output()
         .unwrap();
-    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
-    assert!(stderr(&out).contains("DATABASE_URL"), "{}", stderr(&out));
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        dir.0.join(".k/notes.db").is_file(),
+        "no development database"
+    );
 }
 
 // -------------------------------------------------------------------- test

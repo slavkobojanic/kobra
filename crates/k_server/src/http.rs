@@ -43,8 +43,17 @@ type Body = BoxBody<Bytes, std::convert::Infallible>;
 
 /// A streamed response body: the chunks a worker sends with
 /// `op_k_respond_chunk`, ending when it calls `op_k_respond_end` or drops
-/// the stream.
-struct ChunkBody(mpsc::UnboundedReceiver<Vec<u8>>);
+/// the stream, or when the server starts shutting down (`closed` yields
+/// or closes: [`Shared::streams`]), so an open stream never holds a
+/// shutdown for the whole grace period. The client treats an ended stream
+/// like a dropped connection and subscribes again
+/// (`docs/design/29-server-streaming.md`).
+struct ChunkBody {
+    /// The worker's chunks.
+    chunks: mpsc::UnboundedReceiver<Vec<u8>>,
+    /// Closed by the server at shutdown.
+    closed: mpsc::UnboundedReceiver<()>,
+}
 
 impl hyper::body::Body for ChunkBody {
     type Data = Bytes;
@@ -54,7 +63,10 @@ impl hyper::body::Body for ChunkBody {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Self::Error>>> {
-        self.0
+        if self.closed.poll_recv(cx).is_ready() {
+            return std::task::Poll::Ready(None);
+        }
+        self.chunks
             .poll_recv(cx)
             .map(|chunk| chunk.map(|c| Ok(hyper::body::Frame::data(Bytes::from(c)))))
     }
@@ -221,6 +233,34 @@ struct Shared {
     warned_forwarding: AtomicBool,
     /// Where the front's own log lines go.
     log: Output,
+    /// The session cookie's public name when it differs from the runtime's
+    /// `k_session` ([`front::public_session_cookie`]).
+    session_cookie: Option<String>,
+    /// One sender per open streamed response; `None` once shutdown began.
+    /// Dropping them ends every stream ([`ChunkBody`]).
+    streams: std::sync::Mutex<Option<Vec<mpsc::UnboundedSender<()>>>>,
+}
+
+impl Shared {
+    /// The receiver that ends a new streamed response at shutdown; already
+    /// closed when shutdown has begun.
+    fn stream_closer(&self) -> mpsc::UnboundedReceiver<()> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        if let Ok(mut streams) = self.streams.lock()
+            && let Some(open) = streams.as_mut()
+        {
+            open.retain(|t| !t.is_closed());
+            open.push(tx);
+        }
+        rx
+    }
+
+    /// Ends every open streamed response, and every one opened later.
+    fn close_streams(&self) {
+        if let Ok(mut streams) = self.streams.lock() {
+            streams.take();
+        }
+    }
 }
 
 /// The body of one worker thread: creates its isolate, reports on `started`
@@ -262,9 +302,8 @@ fn worker_thread(
         .map_err(|e| ServerError::Worker(e.to_string()));
     // A worker whose entry module failed answers 503 from now on; say why
     // at once rather than only at shutdown.
-    if let (Err(e), Output::JsonLines) = (&outcome, log) {
-        let line = serde_json::json!({ "level": "error", "message": e.to_string() });
-        println!("{line}");
+    if let Err(e) = &outcome {
+        log.write("error", &e.to_string());
     }
     outcome
 }
@@ -292,10 +331,7 @@ fn client_address(shared: &Shared, remote: SocketAddr, headers: &[(String, Strin
 
 /// Writes a server log line the way workers do.
 fn log_line(log: Output, level: &str, message: &str) {
-    if log == Output::JsonLines {
-        let line = serde_json::json!({ "level": level, "message": message });
-        println!("{line}");
-    }
+    log.write(level, message);
 }
 
 /// A complete response with `status` (`500` if it isn't a valid status),
@@ -389,10 +425,14 @@ async fn handle(
         .iter()
         .filter(|(n, _)| !(exempt && *n == hyper::header::COOKIE))
         .map(|(n, v)| {
-            (
-                n.as_str().to_ascii_lowercase(),
-                String::from_utf8_lossy(v.as_bytes()).into_owned(),
-            )
+            let value = String::from_utf8_lossy(v.as_bytes()).into_owned();
+            let value = match &shared.session_cookie {
+                Some(public) if *n == hyper::header::COOKIE => {
+                    front::to_runtime_cookies(&value, public)
+                }
+                _ => value,
+            };
+            (n.as_str().to_ascii_lowercase(), value)
         })
         .collect();
     if let Some(refused) = front::check(&shared.policy, &method, &path, &headers) {
@@ -488,7 +528,8 @@ async fn handle(
     };
     let mut r = match response.stream {
         Some(chunks) => {
-            let mut r = Response::new(ChunkBody(chunks).boxed());
+            let closed = shared.stream_closer();
+            let mut r = Response::new(ChunkBody { chunks, closed }.boxed());
             *r.status_mut() =
                 StatusCode::from_u16(response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             r
@@ -500,6 +541,12 @@ async fn handle(
         }
     };
     for (n, v) in response.headers {
+        let v = match &shared.session_cookie {
+            Some(public) if n.eq_ignore_ascii_case("set-cookie") => {
+                front::to_public_set_cookie(&v, public)
+            }
+            _ => v,
+        };
         if let (Ok(n), Ok(v)) = (
             hyper::header::HeaderName::try_from(n),
             hyper::header::HeaderValue::try_from(v),
@@ -584,6 +631,8 @@ impl Server {
             proxies,
             warned_forwarding: AtomicBool::new(false),
             log: options.log,
+            streams: std::sync::Mutex::new(Some(Vec::new())),
+            session_cookie: front::public_session_cookie(&options.public_origin),
         });
         // The jobs worker: with jobs and a database, after every isolate
         // started (it hands runs to them like requests).
@@ -778,6 +827,9 @@ async fn accept_loop(
         }
     }
     drop(listener);
+    // A stream never finishes by itself: end them now, so the grace period
+    // only waits for ordinary requests.
+    shared.close_streams();
     tokio::select! {
         () = graceful.shutdown() => {}
         () = tokio::time::sleep(grace) => {}

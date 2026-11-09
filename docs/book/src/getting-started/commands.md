@@ -15,23 +15,32 @@ it rebuilds what changed and reports compile errors in the terminal.
 
 - `k dev` builds the **`.development` environment**. Any `use … in .development` rules in `App.k`
   apply, so you can use a fake payment provider locally and the real one in production.
-- It loads configuration from the process environment and, if it exists, from a `.env` file at the
-  project root. When both set a variable, the process environment wins.
+- **It needs no setup.** It loads configuration from the process environment and, if it exists, from a
+  `.env` file at the project root; what they leave unset comes from the `[dev]` section of `k.toml`
+  (development values and generated development secrets, see
+  [Project files](../reference/project-files.md#development-settings)) and from development defaults.
+  When several set a variable, the process environment wins, then `.env`.
 - It only asks for configuration that the development dependency graph reaches, so a variable needed
   only by a production payment provider is never required locally. See
   [Configuration and secrets](../apps/config.md).
-- If the app has a database, `k dev` uses the `DATABASE_URL` from your environment, such as a SQLite
-  file in `.k/`, applies pending migrations at startup, and runs the background-job worker.
+- If the app has a database, `k dev` uses the `DATABASE_URL` from your environment or `.env`, and
+  otherwise a SQLite file, `.k/<package>.db`. It applies pending migrations at startup, runs `[dev] seed`
+  once when it creates the database, and runs the background-job worker.
+- If the app sends email and no `SMTP_HOST` is set, `k dev` catches it: each message is printed with its
+  links and kept in `.k/mail/`.
 
 - **On a change** `k dev` rebuilds and restarts the server on the same port. A build with errors is
-  reported and the last good build keeps serving. A restart drops in-memory state such as sessions.
+  reported and the last good build keeps serving. A restart drops in-memory state; sessions and data
+  are in the development database and survive it. Open streams end at once, and the page subscribes
+  again.
 - **At a workspace root** `k dev` builds and serves every app member, each on its own port (`8080`,
-  `8081`, … in dependency order), and wires each `remote` rule to the sibling that serves it. See
+  `8081`, … in dependency order), wires each `remote` rule to the sibling that serves it, and prefixes
+  each app's output with its name. Ctrl-C stops them all. See
   [Workspaces and services](../apps/workspaces.md).
 - **The process environment wins over `.env`,** and `k dev` says so at every start: ``note: the process
   environment shadows these `.env` keys: DATABASE_URL``. Only keys set in both, to different values, are
   named, and never a value.
-- `--port` changes the port. `k run` is the same without the rebuilding.
+- `--port` changes the port. `k run` is the same without the rebuilding, at a workspace root too.
 
 > **Planned.** State-preserving hot module replacement isn't in the first compiler releases. Until it
 > lands, refresh the browser after a rebuild.
@@ -175,7 +184,7 @@ k migrate apply
   each refused change is explained. Review the file and commit both.
 - **`--empty`** writes an empty migration, for data changes you write by hand.
 - **`k migrate status`** lists the migrations the development database (`DATABASE_URL`, from the
-  environment or `.env`) has applied and the ones still pending; **`k migrate apply`** applies the
+  environment, `.env` or `[dev.env]`, else `.k/<package>.db`) has applied and the ones still pending; **`k migrate apply`** applies the
   pending ones. Production applies migrations itself at startup.
 
 See [Persistence](../apps/persistence.md#migrations).

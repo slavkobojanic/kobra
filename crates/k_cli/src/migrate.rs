@@ -14,8 +14,9 @@
 //!   code, keeping its table or column: only `schema.lock` changes
 //!   ([`k_codegen::record_rename`]).
 //! * `apply` applies the pending migrations to the development database,
-//!   `DATABASE_URL` from the environment or the project's `.env` (the
-//!   environment wins), as `k run` would at startup.
+//!   `DATABASE_URL` from the environment, the project's `.env` or
+//!   `[dev.env]` (the environment wins), else `sqlite:.k/<package>.db`, as
+//!   `k run` would at startup.
 //! * `status` lists every migration of the build as `applied` or `pending`
 //!   in that database, without changing it.
 
@@ -141,7 +142,7 @@ pub fn status(args: &ProjectArgs) -> ExitCode {
 #[cfg(feature = "server")]
 fn database(root: &Path, migrate: bool) -> ExitCode {
     use k_codegen::{CodegenError, Entry, Environment, Options, Profile, generate};
-    use k_server::config::{ConfigField, DevEnvironment, report, resolve};
+    use k_server::config::{ConfigField, report, resolve};
     let project = match project::load(root, "migrate") {
         Ok(p) => p,
         Err(code) => return code,
@@ -199,7 +200,23 @@ fn database(root: &Path, migrate: bool) -> ExitCode {
             None,
         ));
     }
-    let values = match resolve(&fields, &DevEnvironment::load(root, true)) {
+    // The development environment `k dev` gives the app: `.env`, then
+    // `[dev.env]`, then the default `sqlite:.k/<package>.db`.
+    let wiring = std::collections::BTreeMap::new();
+    let inputs = crate::devenv::DevInputs {
+        project: root,
+        package: project.name(),
+        port: 8080,
+        wiring: &wiring,
+    };
+    let env = match crate::devenv::prepare(&inputs, &fields, &mut || None) {
+        Ok(p) => p.env,
+        Err(problem) => {
+            eprintln!("{problem}");
+            return ExitCode::from(1);
+        }
+    };
+    let values = match resolve(&fields, &env) {
         Ok(v) => v,
         Err(problems) => {
             eprint!("{}", report(&problems));

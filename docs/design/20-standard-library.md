@@ -40,7 +40,7 @@ Stdlib providers read their settings from ordinary `config` declarations (`Serve
 
 | Module | Contents |
 |---|---|
-| `k.ui` | Built-in elements; layout (`Stack`, `Grid`, `Spacer`); accessible widgets (`Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable`); `VisuallyHidden`; `KeyboardShortcut` ([43-keyboard-shortcuts.md](43-keyboard-shortcuts.md)); the element events `appeared`, `disappeared` and `resized` ([45-web-platform.md](45-web-platform.md#element-events)); `Icon` with a bundled icon set; the `Theme` service ([07-themes-and-units.md](07-themes-and-units.md)) |
+| `k.ui` | Built-in elements; layout (`Stack`, `Grid`, `Spacer`); accessible widgets (`Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable`); `VisuallyHidden`; `KeyboardShortcut` ([43-keyboard-shortcuts.md](43-keyboard-shortcuts.md)); the element events `appeared`, `disappeared` and `resized` ([45-web-platform.md](45-web-platform.md#element-events)); `Icon` with a bundled icon set (drawn by the stylesheet as a 1em mask in the text colour, so an icon takes the size and colour of the text around it and needs no request, script or font; only the glyphs an app can show ship, all of them once an `Icon` computes its name); the `Theme` service ([07-themes-and-units.md](07-themes-and-units.md)) |
 | `k.animation` | Transitions, springs, enter/exit animation, `.animate()` modifiers |
 | `k.charts` | Line, bar, area, pie and scatter charts, built on SVG and themed by tokens ([37-charts.md](37-charts.md)) |
 | `k.graphics` | Canvas 2D, SVG drawing |

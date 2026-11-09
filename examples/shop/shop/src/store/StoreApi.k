@@ -15,8 +15,9 @@ import payments.PaymentGateway
 /// provider never holds database locks. If the gateway fails, the order is
 /// cancelled and its stock released.
 ///
-/// The payment itself is confirmed later and elsewhere: the provider calls
-/// the `StripeWebhook` page, which hands the event to `PaymentRecorder`.
+/// The payment itself is confirmed later and elsewhere: paybox calls the
+/// shop's `PaymentEvents` (`PaymentEventsApi`), which hands the charge to
+/// `PaymentRecorder`.
 public service StoreApi implements StoreProtocol {
     @Inject let catalog: ProductRepository
     @Inject let orders: OrderRepository

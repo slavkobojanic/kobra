@@ -419,7 +419,8 @@ fn the_client_entry_builds_the_browser_container() {
         "get TodoService() {",
         "return this.$a.$TodoService ??= $k.runWithOwner(null, () => new TodoService({ LocalStorage: this.$a.LocalStorage }));",
         "get LocalStorage() {\n    return this.$a.BrowserStorage;",
-        "$k.browserStorage(StorageReadError, StorageWriteError)",
+        // Keys are namespaced with storage.lock's namespace (36-local-storage.md).
+        "$k.browserStorage(StorageReadError, StorageWriteError, \"todos\")",
         "get Theme() {\n    return this.$a.$Theme ??= $k.theme();",
         "const data = $k.readData(document);",
         "$k.startRouter(routes, container, { c: () => app, session: data });",
@@ -524,6 +525,23 @@ fn shop_client() -> Vec<OutputFile> {
     )
     .expect("generates")
     .client
+}
+
+/// An endpoint page has no view and runs on the server only, so what it
+/// injects is not in the browser's containers: the shop's
+/// `StripeWebhook` injects `StripeEvents`, bound to `StripeDisabled`, and
+/// neither reaches a client file (codegen.md §16).
+#[test]
+fn what_only_an_endpoint_page_injects_never_ships_to_the_browser() {
+    for f in &shop_client() {
+        for needle in ["StripeDisabled", "StripeWebhookVerifier", "StripeEvents"] {
+            assert!(
+                !f.contents.contains(needle),
+                "{} ships {needle}, which only an endpoint page injects",
+                f.path
+            );
+        }
+    }
 }
 
 /// The client file of `files` whose name starts with `stem`, if any.

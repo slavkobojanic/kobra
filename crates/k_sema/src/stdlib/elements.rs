@@ -132,6 +132,12 @@ const PLACEHOLDER: Param = Param {
     ty: "String",
     doc: "the placeholder text of a text input",
 };
+/// The `autofocus:` attribute of form controls.
+const AUTOFOCUS: Param = Param {
+    label: "autofocus",
+    ty: "Bool",
+    doc: "moves the focus into the control when it appears: on the first render, and when a block inserts it later",
+};
 /// The `expanded:` attribute (`aria-expanded`) of buttons and links.
 const EXPANDED: Param = Param {
     label: "expanded",
@@ -175,9 +181,9 @@ const CONTENT_ATTRIBUTES: &[Param] = &[ROLE, LABEL];
 /// The attributes of landmark elements (`main`, `nav`, …).
 const LANDMARK_ATTRIBUTES: &[Param] = &[LABEL, ROLE];
 /// The attributes of text inputs.
-const TEXT_INPUT_ATTRIBUTES: &[Param] = &[LABEL, PLACEHOLDER, DISABLED];
+const TEXT_INPUT_ATTRIBUTES: &[Param] = &[LABEL, PLACEHOLDER, DISABLED, AUTOFOCUS];
 /// The attributes of other form controls.
-const CONTROL_ATTRIBUTES: &[Param] = &[LABEL, DISABLED];
+const CONTROL_ATTRIBUTES: &[Param] = &[LABEL, DISABLED, AUTOFOCUS];
 
 /// Defines a plain content element with no required arguments.
 const fn content(name: &'static str, html: &'static str) -> ElementDef {
@@ -488,6 +494,7 @@ pub const ELEMENTS: &[ElementDef] = &[
             LABEL,
             PLACEHOLDER,
             DISABLED,
+            AUTOFOCUS,
             Param {
                 label: "rows",
                 ty: "Int",

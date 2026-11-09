@@ -48,15 +48,19 @@ mod db;
 mod decl;
 pub mod dist;
 pub mod hash;
+mod icons;
 mod jobs;
 mod js;
+mod link;
 mod lockfiles;
 mod lower;
 mod migration;
+mod minify;
 mod native;
 mod routelock;
 mod routes;
 mod server;
+mod shorten;
 mod suite;
 mod ui;
 mod view;
@@ -182,6 +186,12 @@ pub struct ConfigEntry {
     /// The bounds of an `@Range(lo...hi)` constraint on an `Int` field.
     #[serde(default)]
     pub range: Option<(i64, i64)>,
+    /// The pattern of a `@Matches` constraint, checked at startup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    /// The `message:` of that `@Matches`, used as the startup problem.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern_message: Option<String>,
     /// The environment variable, `PORT`.
     pub env: String,
     /// `module.Config.field`.
@@ -540,9 +550,19 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
     }
     output.client = bundle::client_files(g, &client, &pages, entry, &from_server);
     output.client.extend(css::files(g));
+    // An app's release client is shaken, minified and renamed as a whole
+    // (codegen.md §17).
+    if bundle::linked(g) {
+        shorten::shorten(
+            &css::scoped_names(g),
+            &mut output.client,
+            &mut output.server,
+        );
+        output.client = link::link(std::mem::take(&mut output.client));
+    }
     // The server entry names the hashed client files it links.
     if let Some(entry) = &output.server_entry {
-        let assets = server::assets_json(&output.client);
+        let assets = server::assets_json(g, &output.client);
         for f in output.server.iter_mut().filter(|f| &f.path == entry) {
             if let Some(i) = f.contents.rfind(server::ASSETS_PLACEHOLDER) {
                 f.contents
@@ -751,7 +771,8 @@ pub(crate) fn runtime_chunk(profile: Profile, entry: &Entry) -> String {
             continue;
         }
         let text = k_runtime::strip_links(m.source);
-        let text = if profile == Profile::Release {
+        // An app's release client is minified by `link` instead.
+        let text = if profile == Profile::Release && *entry != Entry::App {
             k_runtime::compact(&text).unwrap_or(text)
         } else {
             text
@@ -797,7 +818,7 @@ pub(crate) fn feature_chunk(
             }
         }
     }
-    if profile == Profile::Release {
+    if profile == Profile::Release && *entry != Entry::App {
         k_runtime::compact(&text).unwrap_or(text)
     } else {
         text

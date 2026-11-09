@@ -1,0 +1,14 @@
+css contains [hidden] {
+css contains body {
+css contains   margin: 0;
+css contains   font: var(--k-font-body);
+css contains   color: var(--k-color-text);
+css contains   background-color: var(--k-color-background);
+css contains button, input, select, textarea {
+css contains   font: inherit;
+css contains   color-scheme: light;
+css contains :root.k-theme-dark {
+css contains   color-scheme: dark;
+css contains     color-scheme: dark;
+css lacks @font-face
+server contains themes: ["dark", "highContrast"]

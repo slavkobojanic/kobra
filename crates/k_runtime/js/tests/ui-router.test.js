@@ -20,7 +20,7 @@
  */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import * as k from "k:runtime";
-import { child, flush, navigate, onCleanup, renderEffect, root, rpc, sessionMirror, signal, startRouter, title } from "k:runtime";
+import { child, description, flush, navigate, onCleanup, renderEffect, root, rpc, sessionMirror, signal, startRouter, title } from "k:runtime";
 
 const ROUTER = "router (runtime.md §10)";
 const ORIGIN = "https://shop.example";
@@ -288,6 +288,45 @@ test("popstate renders the page without pushing history", async () => {
   assertEq(log[log.length - 1], "render pricing {}");
 });
 
+// The same page with other parameters stays mounted: each parameter is
+// reactive, so what reads a changed one updates, and a `@Load` re-runs only
+// for the parameters it reads (14-async-data.md; weather-E1).
+test("a navigation to the same page with other parameters updates it in place", async () => {
+  browser("/product/1");
+  const ids = [];
+  let renders = 0;
+  const routes = [{
+    name: "product",
+    parse: parser(["product", ":id"]),
+    load: async () => ({
+      render(params) {
+        renders++;
+        const main = globalThis.document.createElement("main");
+        renderEffect(() => {
+          ids.push(params.id);
+          main.textContent = `product ${params.id}`;
+        });
+        return main;
+      },
+    }),
+  }];
+  const { container } = app();
+  startRouter(routes, container);
+  await tick();
+  const main = container.firstChild;
+  navigate("/product/2");
+  await tick();
+  flush();
+  assertEq(renders, 1, "not rendered again");
+  assertEq(container.firstChild, main, "the same nodes");
+  assertEq(container.textContent, "product 2");
+  assertDeepEq(ids, ["1", "2"]);
+  navigate("/product/2");
+  await tick();
+  flush();
+  assertDeepEq(ids, ["1", "2"], "an unchanged parameter notifies nothing");
+});
+
 // Leaving a page disposes its scope: its cleanups run before the next page
 // renders, and its nodes are gone.
 test("leaving a page disposes it", async () => {
@@ -442,6 +481,29 @@ test("document.title follows the mounted page and layouts", async () => {
   navigate("/");
   await tick();
   assertEq(globalThis.document.title, "Home");
+});
+
+// A page's description is kept in `<meta name="description">` like its
+// title, created when the document has none (a client-rendered shell), and
+// left as the server wrote it once nothing mounted has one (todos-G).
+test("the description meta follows the mounted page's description", () => {
+  const head = globalThis.document.head;
+  while (head.firstChild) head.removeChild(head.firstChild);
+  const metas = () => [...head.childNodes].filter((n) => n.localName === "meta");
+  const text = signal("All your notes.");
+  const dispose = root((d) => {
+    description(() => text.get());
+    return d;
+  });
+  assertEq(metas().length, 1);
+  assertEq(metas()[0].getAttribute("name"), "description");
+  assertEq(metas()[0].getAttribute("content"), "All your notes.");
+  text.set("Two notes.");
+  flush();
+  assertEq(metas().length, 1, "the same element");
+  assertEq(metas()[0].getAttribute("content"), "Two notes.");
+  dispose();
+  assertEq(metas()[0].getAttribute("content"), "Two notes.", "kept once nothing has one");
 });
 
 test("a reactive title updates, and an empty one falls back to the layer below", () => {

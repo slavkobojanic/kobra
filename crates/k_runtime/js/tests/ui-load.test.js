@@ -401,3 +401,88 @@ test("a group hydrated as FAILED loads again on reload and when an input changes
   assertEq(again.runs.length, 1, "an input change after hydration starts over");
   assertEq(other.state(), LOADING);
 });
+
+// ------------------------------------------------- per-load re-runs (weather-E1)
+
+// An input change re-runs only the load that reads it and the loads that
+// read that one: `units` re-runs `forecast`, never `place` or `air`
+// (14-async-data.md, "Rules"; the weather dashboard's three loads).
+test("an input change re-runs only the load that reads it and its dependents", async () => {
+  const placeId = signal(1);
+  const units = signal("metric");
+  const place = controlled("place", [], () => placeId.get());
+  const forecast = controlled("forecast", ["place"], (v) => [v.place, units.get()]);
+  const air = controlled("air", ["place"], (v) => v.place);
+  const loads = root(() => createLoads([place.spec, forecast.spec, air.spec], null));
+  place.runs[0].resolve("Berlin");
+  await tick();
+  forecast.runs[0].resolve("forecast metric");
+  air.runs[0].resolve("air");
+  await tick();
+  assertEq(loads.state(), READY);
+  batch(() => units.set("imperial"));
+  await tick();
+  assertEq(place.runs.length, 1, "the place isn't loaded again");
+  assertEq(air.runs.length, 1, "nor is the air quality");
+  assertEq(forecast.runs.length, 2, "the forecast is");
+  assertDeepEq(forecast.runs[1].input, ["Berlin", "imperial"]);
+  assertEq(loads.state(), LOADING, "the old forecast describes other units");
+  forecast.runs[1].resolve("forecast imperial");
+  await tick();
+  assertEq(loads.state(), READY);
+  assertDeepEq(loads.values(), { place: "Berlin", forecast: "forecast imperial", air: "air" });
+  // The place's input re-runs everything that reads the place.
+  batch(() => placeId.set(2));
+  await tick();
+  assertEq(place.runs.length, 2);
+  assertEq(forecast.runs.length, 2, "dependents wait for the new place");
+  place.runs[1].resolve("Tokyo");
+  await tick();
+  assertEq(forecast.runs.length, 3);
+  assertEq(air.runs.length, 2);
+});
+
+// The same granularity after hydration, through the specs' `inputs`.
+test("a hydrated group re-runs only the load whose inputs changed", async () => {
+  const units = signal("metric");
+  const place = controlled("place");
+  const forecast = controlled("forecast", ["place"], (v) => [v.place, units.get()]);
+  forecast.spec.inputs = () => [units.get()];
+  const air = controlled("air", ["place"], (v) => v.place);
+  const loads = root(() => createLoads([place.spec, forecast.spec, air.spec], { place: "Berlin", forecast: "f", air: "a" }));
+  batch(() => units.set("imperial"));
+  await tick();
+  assertEq(place.runs.length, 0);
+  assertEq(air.runs.length, 0);
+  assertEq(forecast.runs.length, 1);
+  assertDeepEq(forecast.runs[0].input, ["Berlin", "imperial"]);
+  forecast.runs[0].resolve("f2");
+  await tick();
+  assertDeepEq(loads.values(), { place: "Berlin", forecast: "f2", air: "a" });
+});
+
+// `ready()` changes only between no values and values: an effect waiting
+// for the loads isn't re-run by a reload's new values (weather-E2).
+test("ready() doesn't change across a reload", async () => {
+  const product = controlled("product");
+  let runs = 0;
+  const loads = root(() => {
+    const l = createLoads([product.spec], null);
+    renderEffect(() => {
+      l.ready();
+      runs++;
+    });
+    return l;
+  });
+  assertEq(loads.ready(), false);
+  product.runs[0].resolve("one");
+  await tick();
+  assertEq(loads.ready(), true);
+  const before = runs;
+  loads.reload();
+  await tick();
+  product.runs[1].resolve("two");
+  await tick();
+  assertEq(loads.values().product, "two");
+  assertEq(runs, before, "no re-run for new values");
+});

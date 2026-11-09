@@ -88,7 +88,8 @@ function setThemeCookie(value, age) {
 /**
  * The browser's `k.ui.Theme` (07-themes-and-units.md): `current` is
  * reactive and starts as the remembered variant (the `k_theme` cookie) or
- * `base`; `apply` swaps the `k-theme-<variant>` class on `<html>` (with
+ * `base`, and its classes are applied at once; `apply` swaps the
+ * `k-theme-<variant>` class on `<html>` (with
  * `k-theme-set`, which turns the `prefers-*` media rules off) and
  * remembers the choice; `followSystem` forgets it.
  * @returns {object}
@@ -103,6 +104,11 @@ export function theme() {
     root().setAttribute("class", kept.join(" "));
     current.set(variant);
   };
+  // A reload keeps the remembered choice: the server or the static
+  // document's snippet put the same classes on `<html>` already, and this
+  // covers a document that has neither.
+  const remembered = themeCookie();
+  if (remembered && globalThis.document?.documentElement) set(remembered, true);
   return {
     /**
      * The applied theme variant (`"base"` when following the system), read
@@ -135,11 +141,20 @@ export function theme() {
  * The browser's `k.storage.BrowserStorage` over `window.localStorage`,
  * values JSON-encoded with their codec. `R` and `W` are the generated
  * `StorageReadError` and `StorageWriteError` enums, whose cases it throws.
+ *
+ * A key's item is `namespace:name`, the namespace being `storage.lock`'s
+ * (36-local-storage.md, "Keys"), so two K apps on one origin never share
+ * an item. Builds before namespacing stored items under the bare name: a
+ * read that finds no namespaced item takes the bare one once, moving it
+ * under the namespace (written, then the bare item removed), so users keep
+ * their data across the upgrade.
  * @param {object} R
  * @param {object} W
+ * @param {string} [namespace] the app's namespace; none keeps bare names
  * @returns {object}
  */
-export function browserStorage(R, W) {
+export function browserStorage(R, W, namespace) {
+  const item = (key) => (namespace ? `${namespace}:${key.name}` : key.name);
   const store = () => {
     try {
       const s = globalThis.localStorage;
@@ -163,7 +178,19 @@ export function browserStorage(R, W) {
       if (s === null) throw R.unavailable;
       let text;
       try {
-        text = s.getItem(key.name);
+        text = s.getItem(item(key));
+        if (text === null && namespace) {
+          // The one-time move of an item stored before namespacing.
+          text = s.getItem(key.name);
+          if (text !== null) {
+            try {
+              s.setItem(item(key), text);
+              s.removeItem(key.name);
+            } catch {
+              // Moved on a later write instead.
+            }
+          }
+        }
       } catch {
         throw R.unavailable;
       }
@@ -187,7 +214,7 @@ export function browserStorage(R, W) {
       const s = store();
       if (s === null) throw W.unavailable;
       try {
-        s.setItem(key.name, JSON.stringify(codec.encode(value)));
+        s.setItem(item(key), JSON.stringify(codec.encode(value)));
       } catch (e) {
         throw e && e.name === "QuotaExceededError" ? W.quotaExceeded : W.unavailable;
       }
@@ -198,8 +225,10 @@ export function browserStorage(R, W) {
      * @param {...unknown} a the call's arguments, the key last
      */
     remove(...a) {
+      const key = a[a.length - 1];
       try {
-        store()?.removeItem(a[a.length - 1].name);
+        store()?.removeItem(item(key));
+        if (namespace) store()?.removeItem(key.name);
       } catch {
         // Removing never throws.
       }
@@ -343,19 +372,36 @@ export function session(data) {
   };
 }
 
+// Client implementations of `@Native` stdlib members without a generated
+// body. Each is exported as `native_` and its `module.Owner$member` name
+// with `_` for `.`, which release builds import directly, so an app ships
+// only the natives it uses (codegen.md §17.1); {@link native} finds them
+// by name for everything else.
+
+/** `Uuid.random()`: a version 4 UUID from the browser's generator. */
+export const native_k_crypto_Uuid$random = () => crypto.randomUUID();
+/** `Uuid(text)`: the canonical UUID, panicking on text that isn't one. */
+export const native_k_crypto_Uuid$init = (t) => parseUuid(String(t)) ?? stub("k.crypto.Uuid$init")();
+/** `Uuid.parse(text)`: the canonical UUID, or `null`. */
+export const native_k_crypto_Uuid$parse = (t) => parseUuid(String(t));
+/** `EmailAddress(text)`: the address (its text, as on the server), panicking on text that isn't one. */
+export const native_k_text_EmailAddress$init = (t) => parseEmail(String(t)) ?? panic(`not an email address: ${JSON.stringify(t)}`);
+/** `EmailAddress.parse(text)`: the address, or `null`. */
+export const native_k_text_EmailAddress$parse = (t) => parseEmail(String(t));
+/** `StorageKey(name)`: the key, `{ name }`. */
+export const native_k_storage_StorageKey$init = (name) => ({ name });
+
 /**
- * Client implementations of `@Native` stdlib members without a generated
- * body, by `module.Owner$member`, as on the server (`natives` in
- * `app.js`). {@link native} looks them up.
+ * The client natives by `module.Owner$member`, as on the server (`natives`
+ * in `app.js`). {@link native} looks them up.
  */
 const NATIVES = {
-  "k.crypto.Uuid$random": () => crypto.randomUUID(),
-  "k.crypto.Uuid$init": (t) => parseUuid(String(t)) ?? stub("k.crypto.Uuid$init")(),
-  "k.crypto.Uuid$parse": (t) => parseUuid(String(t)),
-  // An `EmailAddress` is its text, as on the server.
-  "k.text.EmailAddress$init": (t) => parseEmail(String(t)) ?? panic(`not an email address: ${JSON.stringify(t)}`),
-  "k.text.EmailAddress$parse": (t) => parseEmail(String(t)),
-  "k.storage.StorageKey$init": (name) => ({ name }),
+  "k.crypto.Uuid$random": native_k_crypto_Uuid$random,
+  "k.crypto.Uuid$init": native_k_crypto_Uuid$init,
+  "k.crypto.Uuid$parse": native_k_crypto_Uuid$parse,
+  "k.text.EmailAddress$init": native_k_text_EmailAddress$init,
+  "k.text.EmailAddress$parse": native_k_text_EmailAddress$parse,
+  "k.storage.StorageKey$init": native_k_storage_StorageKey$init,
 };
 
 /**
@@ -367,6 +413,17 @@ const NATIVES = {
  */
 export function native(name) {
   return NATIVES[name] ?? stub(name);
+}
+
+/**
+ * The stand-in for a `@Native` stdlib member the browser doesn't
+ * implement, `name` (`module.Owner$member`): release builds bind it
+ * directly instead of looking `name` up with {@link native}.
+ * @param {string} name
+ * @returns {Function}
+ */
+export function missingNative(name) {
+  return stub(name);
 }
 
 /**

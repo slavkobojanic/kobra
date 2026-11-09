@@ -7,8 +7,8 @@
 # whether the run passes or fails. No account is needed anywhere.
 #
 # Usage: scripts/e2e.sh
-# Needs: docker (with Compose v2), curl, openssl, jq; argon2, or docker to
-# run it (scripts/init-secrets.sh).
+# Needs: docker (with Compose v2), curl, openssl, jq; for the admin hash,
+# the k toolchain, argon2, or docker to run argon2 (scripts/init-secrets.sh).
 #
 # The run never uses secrets/: scripts/init-secrets.sh generates every
 # secret, including a random admin password and its hash, in a temporary

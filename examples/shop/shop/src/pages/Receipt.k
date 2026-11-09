@@ -6,9 +6,10 @@ import store.StoreService
 /// The receipt for one order, where customers land after paying.
 ///
 /// The URL contains the order's random id, so it works like a private link.
-/// Stripe may redirect here a moment before its webhook arrives, which is
-/// why an order awaiting payment is shown as being confirmed rather than as
-/// unpaid.
+/// The card form sends the customer here as soon as paybox accepts the
+/// charge, usually a moment before paybox's `PaymentEvents` call marks the
+/// order paid, which is why an order awaiting payment is shown as being
+/// confirmed rather than as unpaid.
 public page Receipt {
     /// The order's id.
     @Param let id: Uuid
@@ -61,7 +62,7 @@ public page Receipt {
             }
 
             case .paid {
-                paragraph { "Payment received. We've emailed a confirmation to {order.email}." }
+                paragraph { "Payment received. A confirmation email is on its way to {order.email}." }
             }
 
             case .needsReview, .cancelled {

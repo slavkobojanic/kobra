@@ -1,0 +1,5 @@
+client contains name: "place", after: [], run:
+client contains inputs: () => [props.placeId()]
+client contains inputs: () => [props.units()]
+client contains if (!$loads.ready())
+client lacks $loads.values() === null

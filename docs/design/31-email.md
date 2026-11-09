@@ -77,6 +77,15 @@ public enum EmailError implements Error {
 - The config is required only when `SmtpEmailProvider` is reachable, so an app that never sends email needs none of these.
 - `SMTP_SECURITY=none` is a startup warning outside private networks, and is meant for local catchers such as Mailpit.
 
+## In development
+
+**`k dev` and `k run` catch email themselves.** When an app sends email over SMTP and nothing sets `SMTP_HOST` (the process environment, `.env` or `[dev.env]`), each app gets its own mail catcher: a small SMTP server inside `k dev`, on a free loopback port, that `SMTP_HOST`, `SMTP_PORT` and `SMTP_SECURITY=none` point at ([25-config-and-secrets.md](25-config-and-secrets.md#development-needs-no-setup)). It accepts every message and
+
+- prints it in the app's log: sender, recipients, subject, and every link in its body (so a confirmation link is one click away);
+- keeps it as an `.eml` file in the project's git-ignored `.k/mail/`, which any mail client opens.
+
+So a confirmation email works on a fresh checkout with no Docker and no account anywhere. To look at mail in a web inbox instead, run Mailpit (`docker compose up mail` in the shop example) and set `SMTP_HOST`, `SMTP_PORT` and `SMTP_SECURITY=none` in `.env`; the catcher then stays off. A recipient address starting with `reject@` is refused (`550`) and one starting with `defer@` deferred (`451`), so the failure paths of a job that sends mail can be tried by hand. Production never has a catcher: `dist/app` requires `SMTP_HOST`.
+
 ## Tests
 
 **`k test` installs `RecordingEmailProvider`** (from `k.test`) for `EmailProvider` by default ([21-testing.md](21-testing.md#test-doubles-and-defaults)), so no test can send real mail:

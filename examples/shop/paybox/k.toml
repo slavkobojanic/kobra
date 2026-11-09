@@ -14,3 +14,9 @@ version = "0.1.0"
 
 [dependencies]
 pay-contracts = { workspace = true }
+
+# Development settings (docs/design/24-projects.md, "Development settings").
+# At the workspace root `k dev` wires K_SERVICE_TOKEN itself; run alone, the
+# token is generated into .k/secrets/ (git-ignored).
+[dev.secrets]
+K_SERVICE_TOKEN = "token"

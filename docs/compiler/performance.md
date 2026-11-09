@@ -754,6 +754,74 @@ executable, later ones 50–70 ms for the examples.
 | 2026-11-07 | runtime size cut, feature chunks, client streams, kept layouts, titles, charts | 86 ns | 47.6 ms `dist/app` weather | 46 µs | 122,700 (generated 115,400) | 438,000 lines/s | — |
 | 2026-11-08 | `forms` and `money` feature chunks (full runtime 8,666 B, stdlib bodies 8,398 B, runtime chunk 18,388 B gzip) | — | — | — | — | — | — |
 | 2026-11-08 | Page guards in the browser (full runtime 9,022 B, runtime chunk 18,730 B gzip); checked literals and handler guards (compile-time only, no runtime change) | — | — | — | — | — | — |
+| 2026-11-09 | Release linking and minification (§11.7): todos ships 15,872 B gzip (was 26,926), its runtime chunk 9,895 B (was 19,972); release generation +2–7 ms per example | — | — | — | — | — | — |
+
+### 11.7 Shipped client per app (release builds)
+
+What a browser downloads for an app is every JavaScript and CSS file of its release build's
+`dist/public/assets` (source maps excluded: only developer tools fetch them), each compressed on its
+own. Since release builds link and minify the client ([codegen.md §17.1–17.6](codegen.md#171-release-linking-named-runtime-imports-and-a-shaken-runtime)),
+each app ships only the runtime it reaches, so the budget is per app.
+
+**Budgets** (gzip -9, the sum over the files; enforced by `every_app_ships_within_its_gzip_budget` in
+`crates/k_codegen/tests/release.rs`, which reads this table, so a budget is changed here and nowhere
+else). Each is the 2026-11-09 measurement plus about 10%, rounded:
+
+| App | Budget | Ships (2026-11-09) |
+|---|---|---|
+| `todos` | 17,500 B | 15,872 B |
+| `kanban` | 32,500 B | 29,840 B |
+| `weather` | 28,500 B | 25,820 B |
+| `notes` | 28,000 B | 25,440 B |
+| `shop/shop` | 30,500 B | 27,881 B |
+| `shop/paybox` | 5,500 B | 4,894 B |
+| `stack/shop` | 12,000 B | 10,644 B |
+| `stack/paybox` | 5,500 B | 4,894 B |
+
+The part budgets of §11.3 still hold for the runtime's parts as written (they measure `compact`, not the
+linked output); a shipped runtime chunk is now well under the 23 KB of its parts (todos 9,895 B gzip,
+notes 11,517 B, weather 11,618 B).
+
+**Before and after** (`k build` of every example, JavaScript and CSS, bytes; before is commit bf27830
+plus the work in progress of 2026-11-09, which shipped the whole runtime to every app and only stripped
+whitespace):
+
+| App | before raw | before gzip | before brotli | after raw | after gzip | after brotli | gzip |
+|---|---|---|---|---|---|---|---|
+| todos | 87,275 | 26,926 | 24,100 | 42,891 | 15,872 | 14,159 | −41% |
+| kanban | 133,544 | 41,377 | 36,833 | 79,184 | 29,840 | 26,509 | −28% |
+| weather | 125,672 | 36,035 | 32,172 | 75,128 | 25,820 | 23,084 | −28% |
+| notes | 111,126 | 35,479 | 31,615 | 64,152 | 25,440 | 22,668 | −28% |
+| shop/shop | 119,617 | 38,433 | 34,079 | 70,173 | 27,881 | 24,706 | −27% |
+| shop/paybox | 64,024 | 20,340 | 18,446 | 11,901 | 4,894 | 4,406 | −76% |
+| stack/shop | 67,412 | 21,812 | 19,756 | 26,560 | 10,644 | 9,724 | −51% |
+| stack/paybox | 64,024 | 20,340 | 18,446 | 11,901 | 4,894 | 4,406 | −76% |
+
+Where it comes from, measured step by step on the same tree (JavaScript only, gzip): linking and oxc
+(named imports, the shaken runtime, minification) took todos from 25,778 to 15,132 B and kanban from
+39,733 to 28,794 B; `walk` saved about 2 KB raw in kanban and nothing measurable after gzip; direct
+natives, short CSS names and quoted keys together about 200–300 B of JavaScript per app; short CSS names
+cut the stylesheets by 17–30% gzip (kanban 1,644 → 1,365 B, notes 913 → 728 B). The paybox apps have
+no pages, so almost the whole runtime goes.
+
+**Build time** (`release_generation_time`, `cargo test --release -p k_codegen --test release --
+--ignored --nocapture`; best of 5, analysis included): the release profile costs 2–7 ms more than the
+development profile per example (todos 7.6 → 12.3 ms, kanban 11.4 → 18.5 ms, shop 36.6 → 43.0 ms).
+On the 100k-line project (`perf_budget`, release): codegen 367 ms, 272,000 lines/s (was 228 ms,
+438,000 lines/s; budget 200,000), still linear (10k → 100k 10.4×, limit 14×); the cold `k build` 473 ms
+with codegen 370 ms (was 332 / 230 ms; budgets 2.5 s and 600 ms). Its output is now 10.1 MB in 419 files,
+source maps included. All budgets met; codegen has about 27% headroom left, so the linker's two parses
+per chunk (graph and minification) are the next thing to share if it gets tight.
+
+**Load waterfall.** Every document now links the entry chunk's static module graph and its page's
+chunk as `modulepreload` (codegen.md §17.6), so a cold load fetches them in one round trip instead of
+3–5 chained ones (kanban: html → `app` → `runtime`/`shared`/`files` → `charts`/`drag`/`forms` → page →
+`keys`). That is worth more than the bytes on a slow connection (about 150 ms per round trip on slow
+4G).
+
+**Not done:** short aliases for names exported across chunks (codegen.md §17.2, about 2–4%), mapping
+the minified code back to `.k` sources (codegen.md §18), and property renaming, which needs every wire
+format quoted (encoders are, §17.3) and gains little over oxc.
 
 ---
 

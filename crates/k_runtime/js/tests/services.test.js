@@ -8,11 +8,13 @@
  * `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session` mirror and
  * browser `@Native` members.
  */
+import * as k from "k:runtime";
 import { assert, assertDeepEq, assertEq, assertThrows, installDom, test, tick } from "k:testing";
 import {
   Instant, KPanic, afterHydration, browserStorage, clock, codecs, effect, fetchHttpClient, flush, hydrate, isHydrating, native,
   provide, root, session, sessionMirror, template, theme, unitCase,
 } from "k:runtime";
+import { themeSnippet } from "k:runtime/server";
 
 /** Runs `fn` inside a hydration pass over an empty container. */
 function hydrating(fn) {
@@ -119,6 +121,46 @@ test("Theme starts from the k_theme cookie, else base", () => {
   assertEq(theme().current, "dark");
 });
 
+// A reload keeps the scheme (07-themes-and-units.md): the remembered
+// variant's classes are on `<html>` as soon as the service exists, even
+// when nothing put them there before (a document without the snippet).
+test("Theme applies the remembered variant when it is created", () => {
+  installDom();
+  const jar = cookies();
+  const root$ = globalThis.document.documentElement;
+  root$.setAttribute("class", "app");
+  jar.set("k_theme", "highContrast");
+  assertEq(theme().current, "highContrast");
+  assertEq(root$.getAttribute("class"), "app k-theme-set k-theme-high-contrast");
+  jar.set("k_theme", "base");
+  theme();
+  assertEq(root$.getAttribute("class"), "app k-theme-set");
+  jar.delete("k_theme");
+  root$.setAttribute("class", "app");
+  theme();
+  assertEq(root$.getAttribute("class"), "app", "no choice leaves the root alone");
+});
+
+// The static document's pre-paint snippet (`themeSnippet`, run inline in
+// `<head>` before the stylesheet applies) gives `<html>` the same classes
+// `theme()` would, and ignores a cookie that isn't a variant name.
+test("the pre-paint snippet applies the remembered variant", () => {
+  installDom();
+  const jar = cookies();
+  const root$ = globalThis.document.documentElement;
+  const run = () => new Function(themeSnippet)();
+  root$.setAttribute("class", "");
+  run();
+  assertEq(root$.getAttribute("class") ?? "", "");
+  jar.set("k_theme", "highContrast");
+  run();
+  assertEq(root$.getAttribute("class"), "k-theme-set k-theme-high-contrast");
+  root$.setAttribute("class", "");
+  jar.set("k_theme", "x%22%20onload%3D");
+  run();
+  assertEq(root$.getAttribute("class") ?? "", "");
+});
+
 test("Theme.apply swaps the root class, remembers the choice and is reactive", () => {
   installDom();
   const jar = cookies();
@@ -171,6 +213,36 @@ test("BrowserStorage writes and reads values through their codec", () => {
   assertDeepEq(s.read(codec, key), ["a", "b"]);
   s.remove(key);
   assertEq(s.read(codec, key), null);
+});
+
+// Keys are namespaced per app with `storage.lock`'s namespace
+// (36-local-storage.md, "Keys"; todos-F).
+test("BrowserStorage keeps a key's item under the app's namespace", () => {
+  const items = memoryStorage(null);
+  const s = browserStorage(ReadError, WriteError, "todos");
+  const key = { name: "todos" };
+  const codec = codecs.list(codecs.string);
+  s.write(codec, key, ["a"]);
+  assertEq(items.get("todos:todos"), '["a"]');
+  assert(!items.has("todos"), "no bare item");
+  assertDeepEq(s.read(codec, key), ["a"]);
+  s.remove(key);
+  assertEq(items.size, 0);
+});
+
+// An item a build before namespacing stored under the bare name is moved
+// under the namespace the first time it is read, once.
+test("BrowserStorage moves an item stored before namespacing, once", () => {
+  const items = memoryStorage(null);
+  items.set("todos", '["old"]');
+  const s = browserStorage(ReadError, WriteError, "todos");
+  const codec = codecs.list(codecs.string);
+  assertDeepEq(s.read(codec, { name: "todos" }), ["old"]);
+  assertEq(items.get("todos:todos"), '["old"]');
+  assert(!items.has("todos"), "the bare item is gone");
+  // A bare item written later (another app) is never read over ours.
+  items.set("todos", '["other"]');
+  assertDeepEq(s.read(codec, { name: "todos" }), ["old"]);
 });
 
 test("BrowserStorage throws the typed cases", () => {
@@ -312,6 +384,16 @@ test("browser natives: StorageKey, Uuid.random", () => {
   } finally {
     globalThis.crypto = saved;
   }
+});
+
+test("each browser native is also its own export, for release builds to import directly", () => {
+  for (const name of ["k.crypto.Uuid$random", "k.crypto.Uuid$init", "k.crypto.Uuid$parse", "k.text.EmailAddress$init", "k.text.EmailAddress$parse", "k.storage.StorageKey$init"]) {
+    const exported = k["native_" + name.replaceAll(".", "_")];
+    assertEq(typeof exported, "function", name);
+    assertEq(exported, native(name), name);
+  }
+  const missing = k.missingNative("k.server.JobQueue");
+  assertThrows(() => missing.enqueue(1), "k.server.JobQueue.enqueue is not implemented in the browser yet");
 });
 
 test("a native the browser lacks loads and panics with its name when used", () => {

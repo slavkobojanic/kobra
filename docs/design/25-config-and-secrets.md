@@ -36,9 +36,9 @@ The requirements this meets:
 - **Two configs naming the same variable is a compile error**, as are fields without `@Env`.
 - **A field with a default is optional; one without is required.** `T?` fields are optional with `nil`.
 - **Field types implement `ConfigValue`**, which the stdlib provides for `String`, `Int`, `Double`, `Decimal`, `Bool` (`true`/`false`), `Duration` (`30s`, `5m`, `2h`, `10.5s`), `Url`, `Uuid`, `EmailAddress`, enums without associated values (by case name: `SMTP_SECURITY=startTls`), `List<T>` (comma-separated), and `Secret<T>`. Any other type is a compile error at the field.
-- **Constraint annotations from [15-forms-and-validation.md](15-forms-and-validation.md) apply:** `@Range(1...65535) @Env("PORT") let port: Int`. A failed constraint is a startup problem like a malformed value.
+- **Constraint annotations from [15-forms-and-validation.md](15-forms-and-validation.md) apply,** in `k dev`, `k run` and `dist/app` alike: `@Range(1...65535) @Env("PORT") let port: Int`. A failed constraint is a startup problem like a malformed value.
 - **Constraints on a `Secret<T>` field are allowed** and check the revealed value at startup: `@Matches("^whsec_[A-Za-z0-9]+$") @Env("STRIPE_WEBHOOK_SECRET") let signingSecret: Secret<String>`. The failure message names the variable and the constraint, never the value.
-- **`@Matches` takes a string literal regular expression,** validated at compile time: an invalid pattern is a compile error, not a startup error.
+- **`@Matches` takes a string literal regular expression,** validated at compile time: an invalid pattern is a compile error, not a startup error. The build manifest carries the pattern and the annotation's `message:`, and startup reports `Secret(•••) <message>` (or `doesn't match <pattern>`) for a value that fails it, so an empty or placeholder password hash stops the app. The runtime checks the pattern with Rust's `regex` syntax; one that only JavaScript understands (a look-around, a back-reference) isn't checked at startup.
 - **A config is data.** It holds only `@Env` fields: no functions, no `@Inject`, no state. Static members may be added to a config only by extensions in a test-only module, for shared test values (`StripeWebhookConfig.sample`).
 - **The runtime reads no environment variable that isn't a `config` field,** the stdlib's own included. So `dist/app config` lists everything a deployment can set.
 
@@ -105,7 +105,7 @@ The stdlib's own settings are ordinary `config` declarations, with documented va
 | | `K_PUBLIC_ORIGIN` | `publicOrigin: Url` | required in production; `http://localhost:{PORT}` in development; `http://localhost` in tests |
 | | `K_SHUTDOWN_GRACE` | `shutdownGrace: Duration` | `25.seconds` |
 | | `K_TRUSTED_PROXIES` | `trustedProxies: List<String>` (CIDR ranges) | empty |
-| `DatabaseConfig` (`k.db`) | `DATABASE_URL` | `url: Url` (`postgres://user@host:5432/db` or `sqlite:path`) | required |
+| `DatabaseConfig` (`k.db`) | `DATABASE_URL` | `url: Url` (`postgres://user@host:5432/db` or `sqlite:path`) | required in production; `sqlite:.k/<package>.db` in development |
 | | `DATABASE_PASSWORD` | `password: Secret<String>?` | `nil` |
 | `JobConfig` (`k.server`) | `K_JOB_CONCURRENCY` | `@Range(1...256) concurrency: Int` | `4` |
 | `SessionConfig` (`k.auth`) | `K_SESSION_MAX_AGE` | `maxAge: Duration` | `30.days` |
@@ -120,8 +120,20 @@ The stdlib's own settings are ordinary `config` declarations, with documented va
 | Environment | Values come from |
 |---|---|
 | `.production` (`dist/app`) | the process environment only |
-| `.development` (`k dev`) | the process environment, plus an optional `.env` file at the project root. **The process environment wins on a conflict,** and `k dev` prints which `.env` keys were shadowed: before each start, one note naming the keys set in both places to different values, never a value. `.env` is git-ignored; a project commits `.env.example` instead. `_FILE` variables may point at paths relative to the project root. |
+| `.development` (`k dev`, `k run`, `k migrate`) | the process environment, plus an optional `.env` file at the project root, then the project's development settings and the development defaults (below). **The process environment wins on a conflict,** and `k dev` prints which `.env` keys were shadowed: before each start, one note naming the keys set in both places to different values, never a value. `.env` is git-ignored; a project commits `.env.example` instead. `_FILE` variables may point at paths relative to the project root. |
 | `.test` (`k test`) | **never the environment.** Stdlib configs have built-in test values (an in-memory SQLite database, the origin `http://localhost`); the app's own configs are bound per test group (below). |
+
+### Development needs no setup
+
+A development run starts with one command and no `.env`. What the process environment and `.env` leave unset comes, in this order, from:
+
+1. **`[dev.env]` and `[dev.secrets]` in `k.toml`** ([24-projects.md](24-projects.md#development-settings)): committed development values (never for a `Secret` field: that is refused at startup), and secrets generated on first use into the git-ignored `.k/secrets/`.
+2. **The development defaults**, for the stdlib's own configs:
+   - `DATABASE_URL` is `sqlite:.k/<package>.db`, a SQLite file in the project's `.k/`, created and migrated at startup.
+   - An app that sends email over SMTP (`SmtpConfig` is reachable) and sets no `SMTP_HOST` gets a **local mail catcher**: `SMTP_HOST`, `SMTP_PORT` and `SMTP_SECURITY=none` point at an SMTP server inside `k dev` that accepts every message, prints its sender, recipients, subject and links, and keeps it as an `.eml` file in `.k/mail/` ([31-email.md](31-email.md#in-development)). `MAIL_FROM` defaults to `noreply@example.com` then. Setting `SMTP_HOST` (in `.env`, to a local Mailpit for example) turns the catcher off.
+   - `K_PUBLIC_ORIGIN` is `http://localhost:<port>`, as before.
+
+**Production builds still require explicit configuration**: `dist/app` reads only the process environment, so a missing `DATABASE_URL` is still exit 78 there.
 
 **Committed example files hold placeholders, never working values.** A `.env.example` or `secrets/*.example` file that someone copies into place must fail validation until a real value is set (for example a password hash that isn't a PHC string), so a documented sample password can never become a deployed one. Scripts that need real values (an end-to-end test) generate them.
 

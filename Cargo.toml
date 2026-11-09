@@ -14,7 +14,7 @@ exclude = ["fuzz"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.97"
 publish = false
 
 [workspace.dependencies]
@@ -60,6 +60,15 @@ argon2 = "0.5"
 lsp-types = "0.95.1"
 regex = { version = "1.11", default-features = false, features = ["std", "unicode-perl"] }
 yaml-rust2 = { version = "0.13", default-features = false }
+# The release-build JavaScript minifier (k_codegen `minify.rs`), pinned
+# exactly: its output is part of every content hash.
+oxc_allocator = "=0.155.0"
+oxc_ast = "=0.155.0"
+oxc_parser = "=0.155.0"
+oxc_span = "=0.155.0"
+oxc_syntax = "=0.155.0"
+oxc_minifier = "=0.155.0"
+oxc_codegen = "=0.155.0"
 
 [workspace.lints.rust]
 missing_docs = "warn"

@@ -23,6 +23,8 @@ mod build;
 mod check;
 mod cli;
 mod debug;
+#[cfg(feature = "server")]
+mod devenv;
 mod migrate;
 mod project;
 mod routes;
@@ -35,6 +37,42 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use cli::{Cli, Command, MigrateCommand};
+
+/// `k hash-password`: reads one line from standard input (the password,
+/// its line ending removed) and prints its Argon2id hash as a PHC string,
+/// with the parameters `k.crypto.Password` uses
+/// (`docs/design/13-tooling.md`, "Commands"). Scripts generating an
+/// admin password's hash use it instead of the `argon2` tool. An empty
+/// password exits 2.
+fn hash_password() -> ExitCode {
+    let mut line = String::new();
+    if let Err(e) = std::io::stdin().read_line(&mut line) {
+        eprintln!("error: cannot read the password: {e}");
+        return ExitCode::from(2);
+    }
+    let password = line.strip_suffix('\n').unwrap_or(&line);
+    let password = password.strip_suffix('\r').unwrap_or(password);
+    if password.is_empty() {
+        eprintln!("error: the password is empty; write it on standard input");
+        return ExitCode::from(2);
+    }
+    #[cfg(feature = "server")]
+    match k_server::ops::password_hash(password) {
+        Ok(hash) => {
+            println!("{hash}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(2)
+        }
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        eprintln!("error: this `k` was built without the server runtime (feature `server`)");
+        ExitCode::from(2)
+    }
+}
 
 fn main() -> ExitCode {
     // `dist/app` is this executable with an app appended: serve it.
@@ -53,6 +91,7 @@ fn main() -> ExitCode {
         Command::Lsp { .. } => ExitCode::from(u8::try_from(k_lsp::run_stdio()).unwrap_or(1)),
         Command::Test(args) => test::run(&args),
         Command::Routes(args) => routes::run(&args),
+        Command::HashPassword => hash_password(),
         Command::Migrate { command } => match command {
             MigrateCommand::New(args) => migrate::new(&args),
             MigrateCommand::Rename(args) => migrate::rename(&args),

@@ -46,6 +46,8 @@ page Product {
 ## Rules
 
 - **`@Load` is an async `@Derived`.** It re-runs when its inputs change (for example, `id` on client navigation). The previous run is cancelled.
+- **Only the loads whose inputs changed re-run,** with the loads that read them. On the weather dashboard, a `units` change re-runs `forecast` and keeps `place` and `airQuality`; a `placeId` change re-runs all three, because the other two read `place`. The page renders `loading` until the re-run loads resolve, as the table [below](#what-renders-during-a-re-run) says. A hydrated page watches the same inputs, so its first change after hydration re-runs just as narrowly.
+- **A navigation to the same page with other parameters keeps the page mounted.** Its `@Param`s change in place, so its `@State` stays and only what reads a changed parameter updates or re-runs. A navigation to another page, or to the same page from a different set of layouts, mounts it afresh. (Both decided after the real-browser runs found a units change re-fetching every load.)
 - **`view` renders only once every `@Load` field has resolved,** so values are unwrapped inside it. There are no `if let` checks and no `isLoading` flags.
 - **The loading order comes from the dependency graph.** `reviews` reads `product`, so it waits for `product`. `related` only reads `id`, so it runs in parallel with `product`. There is no `Promise.all`.
 - **`loading` is required whenever `@Load` is used.** An empty `loading { }` is the explicit way to render nothing, so a loading state is never forgotten.

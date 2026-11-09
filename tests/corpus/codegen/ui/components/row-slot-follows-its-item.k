@@ -1,7 +1,8 @@
 // A slot called with an argument (`.row { item => … }` called by a keyed
-// list for each item) re-renders when the argument changes: an item that
-// changes under the same key (a rename) reaches the slot's view
-// (runtime.md §5.3).
+// list for each item) follows the argument in place: the slot gets an
+// accessor and its bindings read through it, so an item that changes under
+// the same key (a rename) updates the slot's view without rendering it
+// again; its nodes and the focus stay (runtime.md §5.3; todos-E).
 struct Entry {
     let id: Int
     let title: String

@@ -16,6 +16,6 @@ public enum CheckoutError implements Error {
     /// The call failed outside the handler: the order form failed validation
     /// on the server, the client exceeded the rate limit, or the browser
     /// couldn't reach the server. After a timeout the order may have been
-    /// placed, but never paid for: payment starts only on Stripe's page.
+    /// placed, but never paid for: payment starts only on the card page.
     case rpcFailure(RpcFailure)
 }

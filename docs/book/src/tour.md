@@ -350,16 +350,12 @@ example ``entries.count was 0, expected == 1``.
 
 ## Running it
 
-Point `k dev` at a local database by creating `.env`:
-
-```text
-DATABASE_URL=sqlite:.k/guestbook.db
-```
-
-Then:
+There is nothing to set up. Without a `DATABASE_URL`, `k dev` keeps the development database in a
+SQLite file below the project's `.k/` directory (`.k/<package name>.db`), and creates it on the first
+start. To use another database, set `DATABASE_URL` in the environment or in a `.env` file.
 
 ```bash
-k dev       # applies the migration and serves the app
+k dev       # creates the database, applies the migration and serves the app
 k test      # runs the test against an in-memory database
 k check     # types, every static rule and the lockfiles, as CI runs it
 ```

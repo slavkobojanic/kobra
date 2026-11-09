@@ -5,7 +5,7 @@ import store.OrderRepository
 import store.Product
 import store.ProductRepository
 
-// The receipt a customer returns to from Stripe: read through the real
+// The receipt a customer lands on after paying: read through the real
 // StoreService and StoreApi, and refreshed on the TestClock while the
 // payment is being confirmed.
 
@@ -46,7 +46,7 @@ test Receipt {
         await screen.settle()
 
         expect screen.text("Paid").isVisible
-        expect screen.text("Payment received. We've emailed a confirmation to ana@example.com.").isVisible
+        expect screen.text("Payment received. A confirmation email is on its way to ana@example.com.").isVisible
     }
 
     test "an unknown order is not found" {

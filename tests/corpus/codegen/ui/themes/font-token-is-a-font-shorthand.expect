@@ -1,6 +1,8 @@
-css contains   --k-font-body: 16px "Inter";
-css contains   --k-font-heading: 1.5rem "Source \"Serif\" 4";
+css contains   --k-font-body: 16px "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+css contains   --k-font-heading: 1.5rem "Source \"Serif\" 4", ui-serif, Georgia, Cambria, "Times New Roman", serif;
+css contains   --k-font-code: 14px "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 css contains :root.k-theme-large {
-css contains   --k-font-body: 20px "Inter";
+css contains   --k-font-body: 20px "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 css contains   font: var(--k-font-body);
 css lacks Font(
+css lacks @font-face

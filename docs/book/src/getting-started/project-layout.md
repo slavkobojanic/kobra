@@ -115,7 +115,8 @@ time. [Project files and lockfiles](../reference/project-files.md) describes eac
 A project's `.gitignore` excludes:
 
 - `dist/`, the build output;
-- `.k/`, the toolchain's local state, such as the SQLite database `k dev` uses;
+- `.k/`, the toolchain's local state: the SQLite database `k dev` uses (`.k/<package>.db`), the
+  development secrets it generates and the mail it catches;
 - `.env`, your local development configuration.
 
 Commit a `.env.example` instead, documenting what `.env` may contain. Like every committed example file,

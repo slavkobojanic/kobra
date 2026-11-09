@@ -32,7 +32,7 @@ public page ProductDetail at "/products/{slug}" {
     ///
     /// After a timeout the order may already have been placed, and submitting
     /// again places a second one. Neither is charged until the customer pays
-    /// on Stripe's page.
+    /// on the card page.
     func buy() async throws ValidationError {
         problem = nil
 

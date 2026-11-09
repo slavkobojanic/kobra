@@ -1,0 +1,7 @@
+css contains body {
+css contains   margin: 0;
+css contains   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+css contains button, input, select, textarea {
+css lacks var(--k-color
+css lacks color-scheme
+server lacks themes:

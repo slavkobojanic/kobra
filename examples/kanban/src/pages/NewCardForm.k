@@ -30,6 +30,7 @@ component NewCardForm {
             textField(value: bind input.title)
                 .label("New card in {column.title}")
                 .placeholder("What needs doing?")
+                .autofocus(true)
 
             box {
                 button { "Add card" }

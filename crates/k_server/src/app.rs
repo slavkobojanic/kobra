@@ -84,6 +84,12 @@ pub struct ConfigSpec {
     /// `@Range(lo...hi)` bounds of an `Int`.
     #[serde(default)]
     pub range: Option<(i64, i64)>,
+    /// The pattern of a `@Matches` constraint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    /// That constraint's `message:`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern_message: Option<String>,
 }
 
 impl ConfigSpec {
@@ -101,6 +107,7 @@ impl ConfigSpec {
             &self.cases,
             self.range,
         )
+        .map(|f| f.with_pattern(self.pattern.as_deref(), self.pattern_message.as_deref()))
     }
 
     /// The server's own variables (`k.server.ServerConfig`), which every

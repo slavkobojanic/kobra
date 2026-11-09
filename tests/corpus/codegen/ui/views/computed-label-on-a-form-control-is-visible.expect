@@ -1,0 +1,7 @@
+client lacks aria-label
+server lacks aria-label
+client contains "<label> </label>"
+client contains `New title for ${props.title()}`
+client contains "for"
+server contains out.text(`New title for ${props.title()}`)
+server contains out.text(props.title())

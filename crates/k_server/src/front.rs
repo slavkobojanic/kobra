@@ -98,6 +98,62 @@ pub fn header<'a>(
     }
 }
 
+/// The name browsers see for the session cookie of an app serving
+/// `public_origin`, when it isn't the runtime's own `k_session`: on an
+/// `http` origin with an explicit port, `k_session_<port>`.
+///
+/// Browsers scope cookies by host, not by port, so every app on
+/// `localhost` would otherwise share one `k_session` cookie, and each would
+/// clear the others' sessions as unknown (`docs/design/26-auth-and-sessions.md`,
+/// "The session cookie"). An `https` origin keeps `__Host-k_session`
+/// (one app per origin), and so does an `http` origin without a port.
+/// The front renames the cookie both ways ([`to_runtime_cookies`],
+/// [`to_public_set_cookie`]), so the runtime only ever sees `k_session`.
+#[must_use]
+pub fn public_session_cookie(public_origin: &str) -> Option<String> {
+    let rest = public_origin.strip_prefix("http://")?;
+    let host = rest.split('/').next().unwrap_or("");
+    // `[::1]:8080` or `localhost:8080`: the port is after the last `:`
+    // that follows any bracketed address.
+    let after = host.rsplit_once(']').map_or(host, |(_, a)| a);
+    let (_, port) = after.rsplit_once(':')?;
+    (!port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| format!("{SESSION_COOKIE}_{port}"))
+}
+
+/// A request's `Cookie` header value as the runtime sees it, for the
+/// public cookie name `public`: `public=…` becomes `k_session=…`, and a
+/// plain `k_session` (another app's on the same host) is dropped.
+#[must_use]
+pub fn to_runtime_cookies(value: &str, public: &str) -> String {
+    value
+        .split(';')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .filter_map(|pair| {
+            let (name, rest) = pair.split_once('=').unwrap_or((pair, ""));
+            if name.trim() == SESSION_COOKIE {
+                None
+            } else if name.trim() == public {
+                Some(format!("{SESSION_COOKIE}={rest}"))
+            } else {
+                Some(pair.to_owned())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// A `Set-Cookie` value from the runtime as browsers see it: `k_session=`
+/// becomes `public=`; other cookies are unchanged.
+#[must_use]
+pub fn to_public_set_cookie(value: &str, public: &str) -> String {
+    match value.strip_prefix(SESSION_COOKIE) {
+        Some(rest) if rest.starts_with('=') => format!("{public}{rest}"),
+        _ => value.to_owned(),
+    }
+}
+
 /// Returns `true` if the request carries the session cookie.
 #[must_use]
 pub fn has_session_cookie(headers: &[(String, String)]) -> bool {
@@ -378,6 +434,33 @@ mod tests {
         assert_eq!(
             check(&policy(), "POST", RPC, &h(&[JSON, CONNECT, cookie, prefix])).map(|r| r.status),
             Some(403)
+        );
+    }
+
+    #[test]
+    fn the_public_session_cookie_is_named_after_an_http_port() {
+        assert_eq!(
+            public_session_cookie("http://localhost:8081").as_deref(),
+            Some("k_session_8081")
+        );
+        assert_eq!(
+            public_session_cookie("http://[::1]:5200/").as_deref(),
+            Some("k_session_5200")
+        );
+        assert_eq!(public_session_cookie("http://localhost"), None);
+        assert_eq!(public_session_cookie("http://[::1]"), None);
+        assert_eq!(public_session_cookie("https://shop.example:8443"), None);
+        assert_eq!(
+            to_runtime_cookies("k_session=x; a=1;k_session_81=y", "k_session_81"),
+            "a=1; k_session=y"
+        );
+        assert_eq!(
+            to_public_set_cookie("k_session=; Max-Age=0", "k_session_81"),
+            "k_session_81=; Max-Age=0"
+        );
+        assert_eq!(
+            to_public_set_cookie("k_sessionx=1", "k_session_81"),
+            "k_sessionx=1"
         );
     }
 

@@ -66,6 +66,36 @@ pub struct Manifest {
     pub members: Vec<(String, TextRange)>,
     /// `[dependencies]`, in file order.
     pub dependencies: Vec<Dependency>,
+    /// `[dev]`: what `k dev` and `k run` add to the development
+    /// environment (`docs/design/24-projects.md`, "Development settings").
+    pub dev: DevSettings,
+}
+
+/// The `[dev]` section of a package's `k.toml`: development-only values,
+/// read by `k dev`, `k run` and `k migrate`, never by a build's `dist/app`
+/// or by `k test`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DevSettings {
+    /// `[dev.env]`: values for config variables, below the process
+    /// environment and `.env`. `{origin}` and `{port}` in a value stand
+    /// for the app's development origin and port.
+    pub env: BTreeMap<String, String>,
+    /// `[dev.secrets]`: secret variables generated on first use and kept
+    /// in `.k/secrets/`, never committed.
+    pub secrets: BTreeMap<String, DevSecret>,
+    /// `[dev] seed`: a SQL file run once, when `k dev` or `k run` creates
+    /// the development database.
+    pub seed: Option<String>,
+}
+
+/// What `[dev.secrets]` generates for a variable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DevSecret {
+    /// `"token"`: 32 random bytes, base64url.
+    Token,
+    /// `"password-hash"`: a random password, kept next to its Argon2id
+    /// hash (the variable's value) and printed at startup.
+    PasswordHash,
 }
 
 /// One `[dependencies]` entry.
@@ -261,7 +291,99 @@ pub fn parse_manifest(
             }
         }
     }
+    if let Some(dev) = table.get("dev") {
+        if out.is_workspace {
+            problem(
+                &mut problems,
+                section_line(text, "dev"),
+                "a workspace root has no `[dev]` section: put it in each member's k.toml"
+                    .to_owned(),
+            );
+        } else {
+            for (range, message) in parse_dev(text, dev, &mut out.dev) {
+                problem(&mut problems, range, message);
+            }
+        }
+    }
     (out, problems)
+}
+
+/// Reads the `[dev]` table into `out`, returning its problems.
+fn parse_dev(text: &str, dev: &toml::Value, out: &mut DevSettings) -> Vec<(TextRange, String)> {
+    let mut problems = Vec::new();
+    let Some(dev) = dev.as_table() else {
+        return vec![(
+            key_or_section(text, "", "dev"),
+            "`dev` must be a table".to_owned(),
+        )];
+    };
+    let mut unknown = Vec::new();
+    for (key, value) in dev {
+        match key.as_str() {
+            "seed" => match value {
+                toml::Value::String(path) if !path.is_empty() => out.seed = Some(path.clone()),
+                _ => problems.push((
+                    key_or_section(text, "dev", "seed"),
+                    "`[dev] seed` must be the path of a SQL file, such as \"scripts/seed.sql\""
+                        .to_owned(),
+                )),
+            },
+            "env" => match value.as_table() {
+                None => problems.push((
+                    key_or_section(text, "dev", "env"),
+                    "`[dev] env` must be a table".to_owned(),
+                )),
+                Some(env) => {
+                    for (name, v) in env {
+                        match v {
+                            toml::Value::String(s) => {
+                                out.env.insert(name.clone(), s.clone());
+                            }
+                            _ => problems.push((
+                                key_line(text, "dev.env", name),
+                                format!("`[dev.env] {name}` must be a string"),
+                            )),
+                        }
+                    }
+                }
+            },
+            "secrets" => match value.as_table() {
+                None => problems.push((
+                    key_or_section(text, "dev", "secrets"),
+                    "`[dev] secrets` must be a table".to_owned(),
+                )),
+                Some(secrets) => {
+                    for (name, v) in secrets {
+                        let kind = match v.as_str() {
+                            Some("token") => Some(DevSecret::Token),
+                            Some("password-hash") => Some(DevSecret::PasswordHash),
+                            _ => None,
+                        };
+                        match kind {
+                            Some(k) => {
+                                out.secrets.insert(name.clone(), k);
+                            }
+                            None => problems.push((
+                                key_line(text, "dev.secrets", name),
+                                format!(
+                                    "`[dev.secrets] {name}` must be \"token\" or \"password-hash\""
+                                ),
+                            )),
+                        }
+                    }
+                }
+            },
+            other => unknown.push(other.to_owned()),
+        }
+    }
+    for key in unknown {
+        problems.push((
+            key_line(text, "dev", &key),
+            format!("unknown key `{key}` in `[dev]`; expected `env`, `secrets` or `seed`"),
+        ));
+    }
+    problems.sort_by_key(|(r, _)| r.start());
+    problems
 }
 
 /// The range of the line containing `offset`, without its line break.
@@ -1371,6 +1493,52 @@ mod tests {
         assert_eq!(
             w.problems[0].message,
             "module `pay` is declared by both `lib` and `shop`"
+        );
+    }
+
+    #[test]
+    fn the_dev_section_holds_development_values_secrets_and_a_seed() {
+        let text = "[package]\nname = \"shop\"\nk = \"0.1\"\n\n[dev]\nseed = \"scripts/demo.sql\"\n\n[dev.env]\nSHOP_ADMIN_EMAIL = \"admin@shop.example\"\nPAYBOX_CALLBACK_URL = \"{origin}\"\nPAYBOX_TIMEOUT = \"10s\"\n\n[dev.secrets]\nSHOP_ADMIN_PASSWORD_HASH = \"password-hash\"\nK_SERVICE_TOKEN = \"token\"\n";
+        let (m, problems) = parse_manifest("k.toml", text, true, false);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(m.dev.seed.as_deref(), Some("scripts/demo.sql"));
+        assert_eq!(
+            m.dev.env.get("PAYBOX_CALLBACK_URL").map(String::as_str),
+            Some("{origin}")
+        );
+        assert_eq!(m.dev.env.len(), 3);
+        assert_eq!(
+            m.dev.secrets.get("SHOP_ADMIN_PASSWORD_HASH"),
+            Some(&DevSecret::PasswordHash)
+        );
+        assert_eq!(
+            m.dev.secrets.get("K_SERVICE_TOKEN"),
+            Some(&DevSecret::Token)
+        );
+    }
+
+    #[test]
+    fn a_malformed_dev_section_is_reported() {
+        let text = "[package]\nname = \"shop\"\nk = \"0.1\"\n\n[dev]\nseed = 3\nport = 1\n\n[dev.env]\nA = [1]\n\n[dev.secrets]\nB = \"rsa-key\"\n";
+        let (_, problems) = parse_manifest("k.toml", text, true, false);
+        let messages: Vec<&str> = problems.iter().map(|p| p.message.as_str()).collect();
+        assert_eq!(
+            messages,
+            vec![
+                "`[dev] seed` must be the path of a SQL file, such as \"scripts/seed.sql\"",
+                "unknown key `port` in `[dev]`; expected `env`, `secrets` or `seed`",
+                "`[dev.env] A` must be a string",
+                "`[dev.secrets] B` must be \"token\" or \"password-hash\"",
+            ]
+        );
+        let root = "[workspace]\nmembers = [\"a\"]\n\n[dev.env]\nA = \"1\"\n";
+        let (_, problems) = parse_manifest("k.toml", root, true, false);
+        assert_eq!(
+            problems
+                .iter()
+                .map(|p| p.message.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a workspace root has no `[dev]` section: put it in each member's k.toml"]
         );
     }
 

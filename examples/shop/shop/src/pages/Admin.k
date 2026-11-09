@@ -16,15 +16,16 @@ public page Admin requires Authenticated, Role(.admin) {
     @Load let orders: List<OrderSummary> = try await admin.recentOrders()
     @State var problem: String? = nil
 
-    /// Signs out and leaves the dashboard. If the server can't be reached,
-    /// the session is still open, so the page stays and says so.
+    /// Signs out. The page requires a signed-in admin, so as soon as the
+    /// response says the session has ended, the router leaves the page for
+    /// the server, which sends the browser to the sign-in page; nothing
+    /// after the `await` runs. If the server can't be reached, the session
+    /// is still open, so the page stays and says so.
     func signOut() async {
         problem = nil
 
         do {
             try await admin.signOut()
-
-            Router.navigate(to: .home)
         } catch _ {
             problem = "You couldn't be signed out. Check your connection and try again."
         }

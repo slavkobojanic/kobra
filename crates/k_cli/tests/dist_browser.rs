@@ -35,6 +35,10 @@ use std::time::{Duration, Instant};
 use k_server::testing::{HttpResponse, send};
 use k_server::{Engine, EngineOptions, JsModule};
 
+/// A well-formed Argon2id hash (PHC format) that matches no password: the
+/// shop refuses to start without one, and these tests never sign in.
+const UNUSABLE_ADMIN_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
 const SIM: &str = include_str!("../../k_server/tests/browser/sim.js");
 
 #[path = "support/static_host.rs"]
@@ -740,7 +744,7 @@ fn todos_dist_app_renders_adds_a_todo_and_switches_the_theme_in_the_browser() {
     contains(&text, "1 item left", "after adding");
     // `BrowserStorage` saved the list, and `Theme` sets the root class and
     // remembers the choice in its cookie.
-    let saved = tab.run("done(sim.state().storage.get(\"todos\") ?? null);");
+    let saved = tab.run("done(sim.state().storage.get(\"todos:todos\") ?? null);");
     contains(saved.as_str().unwrap_or(""), "Ship it", "local storage");
     let theme = tab.run(
         "const box = sim.find(\"input\", null, { type: \"checkbox\", id: sim.find(\"label\", \"Dark mode\").getAttribute(\"for\") });\n\
@@ -1179,7 +1183,7 @@ fn shop_dist_app_hydrates_the_storefront_and_validates_the_order_form_in_the_bro
         &[
             ("DATABASE_URL", url.as_str()),
             ("SHOP_ADMIN_EMAIL", "admin@example.com"),
-            ("SHOP_ADMIN_PASSWORD_HASH", "placeholder_ADMIN_HASH_SECRET"),
+            ("SHOP_ADMIN_PASSWORD_HASH", UNUSABLE_ADMIN_HASH),
             ("K_SERVICE_TOKEN", "shop_SERVICE_SECRET"),
             ("PAYBOX_URL", "http://127.0.0.1:9"),
             ("PAYBOX_TOKEN", "paybox_SERVICE_SECRET"),
@@ -1392,7 +1396,7 @@ fn place_and_pay_an_order_through_paybox(dir: &TempDir, url: &str) {
         &[
             ("DATABASE_URL", url),
             ("SHOP_ADMIN_EMAIL", "admin@example.com"),
-            ("SHOP_ADMIN_PASSWORD_HASH", "placeholder_ADMIN_HASH_SECRET"),
+            ("SHOP_ADMIN_PASSWORD_HASH", UNUSABLE_ADMIN_HASH),
             ("K_SERVICE_TOKEN", "shop_SERVICE_SECRET"),
             ("PAYBOX_URL", paybox_url.as_str()),
             ("PAYBOX_TOKEN", "paybox_SERVICE_SECRET"),
@@ -1516,9 +1520,9 @@ fn place_and_pay_an_order_through_paybox(dir: &TempDir, url: &str) {
 }
 
 /// Types `value` into the input whose accessible name is `label` (its
-/// `aria-label`).
+/// visible `<label>`, or its `aria-label`).
 fn typed(label: &str, value: &str) -> String {
-    format!("sim.type(sim.find(\"input\", null, {{ \"aria-label\": {label:?} }}), {value:?});\n")
+    format!("sim.type(sim.labeled({label:?}), {value:?});\n")
 }
 
 /// A bubbling event of `type` with `fields`, dispatched on `target` (a JS
@@ -1596,7 +1600,7 @@ fn kanban_static_build_creates_a_board_drags_cards_and_keeps_them_in_local_stora
     );
     contains(&tab.html(), "role=\"img\"", "the chart's SVG");
     // `BrowserStorage` saved the board as it is now.
-    let saved = tab.run("done(sim.state().storage.get(\"boards\") ?? null);");
+    let saved = tab.run("done(sim.state().storage.get(\"kanban:boards\") ?? null);");
     let saved: serde_json::Value =
         serde_json::from_str(saved.as_str().unwrap_or("null")).expect("the saved boards are JSON");
     let columns = &saved[0]["columns"];

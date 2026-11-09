@@ -81,6 +81,39 @@ pub(crate) fn class_name(g: &Gen<'_>, owner: DeclId, class: &str) -> String {
     crate::hash::scoped_name(&g.view.qualified_name(owner), class, readable(g))
 }
 
+/// Every scoped name the project's style blocks define, as the hashed
+/// profiles print them (`panel_k3x9a1`): each class selector and
+/// keyframes name of each component, page and layout. A release build
+/// renames exactly these (`crate::shorten`).
+pub(crate) fn scoped_names(g: &Gen<'_>) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for &d in &g.own {
+        let Some(block) = style_block(g, d) else {
+            continue;
+        };
+        for n in block.descendants() {
+            let name = match n.kind() {
+                SyntaxKind::ClassSelector => ident(&n),
+                SyntaxKind::KeyframesRule => n
+                    .children_with_tokens()
+                    .filter_map(rowan::NodeOrToken::into_token)
+                    .filter(|t| t.kind().is_name_like())
+                    .nth(1)
+                    .map(|t| t.text().to_owned()),
+                _ => None,
+            };
+            if let Some(name) = name {
+                out.insert(crate::hash::scoped_name(
+                    &g.view.qualified_name(d),
+                    &name,
+                    false,
+                ));
+            }
+        }
+    }
+    out
+}
+
 /// The custom property of the `n`th interpolation of `owner`'s style block.
 fn reactive_property(g: &Gen<'_>, owner: DeclId, n: usize) -> String {
     let scope = if readable(g) {
@@ -165,13 +198,106 @@ fn ident(n: &SyntaxNode) -> Option<String> {
         .map(|t| t.text().to_owned())
 }
 
-/// The theme declarations of the project.
-fn themes(g: &Gen<'_>) -> Vec<DeclId> {
+/// The project's own theme declarations, with their syntax.
+fn own_themes(g: &Gen<'_>) -> Vec<SyntaxNode> {
     g.own
         .iter()
         .copied()
         .filter(|&d| g.view.decl(d).named_kind() == Some(DeclarationKind::Theme))
+        .filter_map(|d| g.decl_node(d))
         .collect()
+}
+
+/// The syntax of a stdlib declaration, from the stdlib's own parse
+/// ([`Gen::decl_node`] only knows project files).
+fn stdlib_decl_node(g: &Gen<'_>, d: DeclId) -> Option<SyntaxNode> {
+    let info = g.view.decl(d);
+    let k_sema::FileOrigin::Stdlib(path) = g.analysis.origin(info.file)? else {
+        return None;
+    };
+    let file = k_sema::stdlib::Stdlib::get()
+        .files()
+        .iter()
+        .find(|f| f.path == path)?;
+    crate::cx::node_at(&file.parse.syntax(), info.range)
+}
+
+/// The paths the project's files import (`k.charts.LineChart`).
+pub(crate) fn imports(g: &Gen<'_>) -> std::collections::BTreeSet<String> {
+    let mut files = std::collections::HashSet::new();
+    let mut out = std::collections::BTreeSet::new();
+    for &d in &g.own {
+        if !files.insert(g.view.decl(d).file) {
+            continue;
+        }
+        let Some(root) = g.decl_node(d).and_then(|n| n.ancestors().last()) else {
+            continue;
+        };
+        if root.kind() != SyntaxKind::SourceFile {
+            continue;
+        }
+        for i in root
+            .children()
+            .filter_map(ast::Import::cast)
+            .filter_map(|i| i.path())
+        {
+            out.insert(i.text());
+        }
+    }
+    out
+}
+
+/// `true` when the project imports a declaration of stdlib module
+/// `module` (`k.charts`).
+fn uses_module(imports: &std::collections::BTreeSet<String>, module: &str) -> bool {
+    imports.iter().any(|i| {
+        i.strip_prefix(module)
+            .is_some_and(|rest| rest.starts_with('.') && !rest[1..].contains('.'))
+    })
+}
+
+/// The token names a theme assigns with the assignment form, at its top
+/// level or in a variant.
+fn assigned_names(theme: &SyntaxNode) -> Vec<String> {
+    theme
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::ThemeOverride)
+        .filter_map(|o| ident(&o))
+        .collect()
+}
+
+/// The token declarations of the libraries the project uses
+/// (07-themes-and-units.md, "Library tokens"): every stdlib `theme` (such
+/// as `k.charts`' `ChartTokens`) of a module the project imports from, or
+/// whose tokens its theme assigns.
+fn library_themes(g: &Gen<'_>) -> Vec<SyntaxNode> {
+    let imported = imports(g);
+    let assigned: Vec<String> = own_themes(g).iter().flat_map(assigned_names).collect();
+    let mut out = Vec::new();
+    for (i, info) in g.view.decls.iter().enumerate() {
+        if !info.stdlib || info.named_kind() != Some(DeclarationKind::Theme) {
+            continue;
+        }
+        let Some(node) = stdlib_decl_node(g, DeclId(i as u32)) else {
+            continue;
+        };
+        let module = info.module.clone().unwrap_or_default();
+        let declares_assigned = theme_tokens(&node)
+            .iter()
+            .any(|t| assigned.contains(&t.name));
+        if uses_module(&imported, &module) || declares_assigned {
+            out.push(node);
+        }
+    }
+    out
+}
+
+/// The theme declarations whose tokens the app has: the libraries' first,
+/// then the project's own.
+fn themes(g: &Gen<'_>) -> Vec<SyntaxNode> {
+    let mut out = library_themes(g);
+    out.extend(own_themes(g));
+    out
 }
 
 /// One token of a project theme, `color primary = #2563EB`.
@@ -184,34 +310,61 @@ struct Token {
     value: Option<SyntaxNode>,
 }
 
-/// Every token of every theme of the project, in declaration order; a
-/// token without both a category and a name is skipped.
-fn tokens(g: &Gen<'_>) -> Vec<Token> {
+/// The tokens one theme declares, in declaration order; a token without
+/// both a category and a name is skipped.
+fn theme_tokens(theme: &SyntaxNode) -> Vec<Token> {
     let mut out = Vec::new();
-    for t in themes(g) {
-        let Some(node) = g.decl_node(t) else { continue };
-        for tok in node
+    for tok in theme
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::ThemeToken)
+    {
+        let words: Vec<String> = tok
+            .children_with_tokens()
+            .filter_map(rowan::NodeOrToken::into_token)
+            .filter(|t| t.kind().is_name_like())
+            .map(|t| t.text().to_owned())
+            .collect();
+        if words.len() < 2 {
+            continue;
+        }
+        let value = tok
+            .children()
+            .filter(|c| c.kind() != SyntaxKind::PathType)
+            .find(|c| ast::Expr::can_cast(c.kind()));
+        out.push(Token {
+            category: words[0].clone(),
+            name: words[1].clone(),
+            value,
+        });
+    }
+    out
+}
+
+/// The value of an assignment (`chartGrid = #E2E8F0`), as `(name, value)`.
+fn assignment(o: &SyntaxNode) -> Option<(String, SyntaxNode)> {
+    let name = ident(o)?;
+    let value = o.children().find(|c| ast::Expr::can_cast(c.kind()))?;
+    Some((name, value))
+}
+
+/// Every token of the app, in declaration order (the libraries' tokens
+/// first), each with its base value: the declared one, or the one the
+/// project's theme assigns at its top level (`chartGrid = #CBD5E1`, the
+/// override of a library default).
+fn tokens(g: &Gen<'_>) -> Vec<Token> {
+    let mut out: Vec<Token> = themes(g).iter().flat_map(theme_tokens).collect();
+    for theme in own_themes(g) {
+        for o in theme
             .descendants()
-            .filter(|n| n.kind() == SyntaxKind::ThemeToken)
+            .filter(|n| n.kind() == SyntaxKind::ThemeOverride)
+            .filter(|n| !n.ancestors().any(|a| a.kind() == SyntaxKind::ThemeVariant))
         {
-            let words: Vec<String> = tok
-                .children_with_tokens()
-                .filter_map(rowan::NodeOrToken::into_token)
-                .filter(|t| t.kind().is_name_like())
-                .map(|t| t.text().to_owned())
-                .collect();
-            if words.len() < 2 {
+            let Some((name, value)) = assignment(&o) else {
                 continue;
+            };
+            if let Some(t) = out.iter_mut().find(|t| t.name == name) {
+                t.value = Some(value);
             }
-            let value = tok
-                .children()
-                .filter(|c| c.kind() != SyntaxKind::PathType)
-                .find(|c| ast::Expr::can_cast(c.kind()));
-            out.push(Token {
-                category: words[0].clone(),
-                name: words[1].clone(),
-                value,
-            });
         }
     }
     out
@@ -234,8 +387,7 @@ pub(crate) fn color_literal(g: &Gen<'_>, name: &str) -> Option<String> {
 /// The names of the theme's variants.
 pub(crate) fn variants(g: &Gen<'_>) -> Vec<String> {
     let mut out = Vec::new();
-    for t in themes(g) {
-        let Some(node) = g.decl_node(t) else { continue };
+    for node in own_themes(g) {
         for v in node
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::ThemeVariant)
@@ -301,11 +453,42 @@ fn literal_text(n: &SyntaxNode) -> String {
     n.text().to_string().trim().to_owned()
 }
 
+/// The generic stack after a family that doesn't name a kind: the
+/// platform's UI font, then the common sans-serif faces
+/// (07-themes-and-units.md, "Fonts"). It is also the body's font in an app
+/// whose theme has no `font body`.
+pub(crate) const SANS_STACK: &str =
+    "system-ui, -apple-system, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif";
+
+/// The fallback stack after a serif family (one whose name says `Serif`
+/// and not `Sans`).
+const SERIF_STACK: &str = "ui-serif, Georgia, Cambria, \"Times New Roman\", serif";
+
+/// The fallback stack after a monospaced family (`Mono` or `Code` in its
+/// name).
+const MONO_STACK: &str = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+
+/// The fallback stack for the family `family` (its CSS string): serif or
+/// monospace when its name says so, sans-serif otherwise.
+fn fallback_stack(family: &str) -> &'static str {
+    let f = family.to_ascii_lowercase();
+    if f.contains("mono") || f.contains("code") {
+        MONO_STACK
+    } else if f.contains("serif") && !f.contains("sans") {
+        SERIF_STACK
+    } else {
+        SANS_STACK
+    }
+}
+
 /// Prints the CSS text of a token value of `category`: a `font` token's
 /// `Font(family: "Inter", size: 16px)` is the value of the `font`
-/// shorthand, size then family (`16px "Inter"`), with the family's K
-/// string literal kept as the CSS string (both escape `"` and `\\` with a
-/// backslash); every other value is its literal text.
+/// shorthand, size then family then a generic fallback stack
+/// (`16px "Inter", system-ui, …, sans-serif`, [`fallback_stack`]), with
+/// the family's K string literal kept as the CSS string (both escape `"`
+/// and `\\` with a backslash), so text never falls back to the browser's
+/// default serif when the family isn't installed; every other value is its
+/// literal text.
 fn token_value(category: &str, n: &SyntaxNode) -> String {
     if category == "font" {
         if let Some(text) = font_shorthand(n) {
@@ -315,8 +498,8 @@ fn token_value(category: &str, n: &SyntaxNode) -> String {
     literal_text(n)
 }
 
-/// `size family` of a `Font(family:size:)` call, or `None` when the value
-/// isn't one with both arguments.
+/// `size family, fallback` of a `Font(family:size:)` call, or `None` when
+/// the value isn't one with both arguments.
 fn font_shorthand(n: &SyntaxNode) -> Option<String> {
     let call = ast::CallExpr::cast(n.clone())?;
     let mut family = None;
@@ -329,7 +512,106 @@ fn font_shorthand(n: &SyntaxNode) -> Option<String> {
             _ => {}
         }
     }
-    Some(format!("{} {}", size?, family?))
+    let family = family?;
+    Some(format!("{} {family}, {}", size?, fallback_stack(&family)))
+}
+
+/// The first of `names` that is a color token of the app: the token the
+/// base stylesheet takes a page colour from.
+fn first_color<'t>(all: &'t [Token], names: &[&str]) -> Option<&'t Token> {
+    names
+        .iter()
+        .find_map(|n| all.iter().find(|t| t.category == "color" && t.name == *n))
+}
+
+/// The page's text colour token: `text`, else `foreground`.
+const TEXT_TOKENS: &[&str] = &["text", "foreground", "onBackground", "onSurface"];
+
+/// The page's background colour token: `background`, else `surface`.
+const BACKGROUND_TOKENS: &[&str] = &["background", "surface"];
+
+/// `Some(true)` when the hex color `text` (`#0F172A`) is dark (its
+/// relative luminance below one half), `None` for anything but a hex
+/// literal.
+fn is_dark(text: &str) -> Option<bool> {
+    let hex = text.trim().strip_prefix('#')?;
+    if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let channel = |s: &str| u8::from_str_radix(s, 16).ok().map(f64::from);
+    let (r, g, b) = match hex.len() {
+        3 | 4 => {
+            let d = |i: usize| channel(&hex[i..=i].repeat(2));
+            (d(0)?, d(1)?, d(2)?)
+        }
+        6 | 8 => (
+            channel(&hex[0..2])?,
+            channel(&hex[2..4])?,
+            channel(&hex[4..6])?,
+        ),
+        _ => return None,
+    };
+    let lin = |c: f64| {
+        let c = c / 255.0;
+        if c <= 0.039_28 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    Some(luminance < 0.5)
+}
+
+/// The `color-scheme` of the base theme: dark when its page background is
+/// a dark color literal, light otherwise.
+fn base_scheme(all: &[Token]) -> &'static str {
+    let dark = first_color(all, BACKGROUND_TOKENS)
+        .and_then(|t| t.value.as_ref())
+        .and_then(|v| is_dark(&literal_text(v)));
+    if dark == Some(true) { "dark" } else { "light" }
+}
+
+/// The base stylesheet of an app (07-themes-and-units.md, "Base styles"):
+/// `hidden` stays hidden whatever a style sets `display` to, the body has
+/// no margin and takes the theme's `font body` (else [`SANS_STACK`]) and
+/// page colours, and form controls inherit the font instead of the
+/// platform's.
+fn base_rules(all: &[Token]) -> String {
+    let mut css = String::from("[hidden] {\n  display: none !important;\n}\n");
+    css.push_str("body {\n  margin: 0;\n");
+    if all.iter().any(|t| t.category == "font" && t.name == "body") {
+        css.push_str("  font: var(--k-font-body);\n");
+    } else {
+        css.push_str(&format!("  font-family: {SANS_STACK};\n"));
+    }
+    if let Some(t) = first_color(all, TEXT_TOKENS) {
+        css.push_str(&format!(
+            "  color: var({});\n",
+            token_property("color", &t.name)
+        ));
+    }
+    if let Some(t) = first_color(all, BACKGROUND_TOKENS) {
+        css.push_str(&format!(
+            "  background-color: var({});\n",
+            token_property("color", &t.name)
+        ));
+    }
+    css.push_str("}\n");
+    css.push_str("button, input, select, textarea {\n  font: inherit;\n}\n");
+    css
+}
+
+/// The base rules of the libraries the project uses: a `ReorderableList`
+/// (`k.drag`, a `ul` marked `data-k-list`) has no bullets, margin or
+/// padding, at zero specificity so the app's own classes still win.
+fn library_rules(g: &Gen<'_>) -> String {
+    if uses_module(&imports(g), "k.drag") {
+        ":where(ul[data-k-list]) {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n}\n"
+            .to_owned()
+    } else {
+        String::new()
+    }
 }
 
 /// The stylesheet files: `app.[hash].css` with the theme and every
@@ -337,8 +619,19 @@ fn font_shorthand(n: &SyntaxNode) -> Option<String> {
 pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
     let mut css = String::new();
     let all = tokens(g);
+    let is_app = g
+        .own
+        .iter()
+        .any(|&d| g.view.decl(d).named_kind() == Some(DeclarationKind::App));
+    // `color-scheme` follows the variants in an app with a theme, so native
+    // controls, scrollbars and default link colours match the page.
+    let themed_app = is_app && !own_themes(g).is_empty();
+    let scheme = base_scheme(&all);
     if !all.is_empty() {
         css.push_str(":root {\n");
+        if themed_app {
+            css.push_str(&format!("  color-scheme: {scheme};\n"));
+        }
         for t in &all {
             let v = t
                 .value
@@ -352,9 +645,9 @@ pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
         }
         css.push_str("}\n");
     }
+    let background = first_color(&all, BACKGROUND_TOKENS).map(|t| t.name.clone());
     // Variants.
-    for t in themes(g) {
-        let Some(node) = g.decl_node(t) else { continue };
+    for node in own_themes(g) {
         for v in node
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::ThemeVariant)
@@ -366,7 +659,16 @@ pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
                 .map(|t| t.text().to_owned())
                 .collect();
             let Some(name) = words.get(1) else { continue };
+            let matches_dark = v.descendants().any(|n| {
+                n.kind() == SyntaxKind::ImplicitMemberExpr
+                    && ident(&n).as_deref() == Some("prefersDark")
+            });
+            let matches_light = v.descendants().any(|n| {
+                n.kind() == SyntaxKind::ImplicitMemberExpr
+                    && ident(&n).as_deref() == Some("prefersLight")
+            });
             let mut body = String::new();
+            let mut variant_dark = None;
             for o in v
                 .children()
                 .filter(|c| c.kind() == SyntaxKind::ThemeOverride)
@@ -376,12 +678,23 @@ pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
                     .iter()
                     .find(|x| x.name == tname)
                     .map_or("color", |x| x.category.as_str());
-                let value = o
-                    .children()
-                    .find(|c| ast::Expr::can_cast(c.kind()))
-                    .map(|n| token_value(cat, &n))
-                    .unwrap_or_default();
+                let value = o.children().find(|c| ast::Expr::can_cast(c.kind()));
+                if background.as_deref() == Some(tname.as_str()) {
+                    variant_dark = value.as_ref().and_then(|n| is_dark(&literal_text(n)));
+                }
+                let value = value.map(|n| token_value(cat, &n)).unwrap_or_default();
                 body.push_str(&format!("{}: {value};\n", token_property(cat, &tname)));
+            }
+            if themed_app {
+                // A variant's scheme: from its page background when it
+                // sets one, else from what it matches or is named.
+                let dark = variant_dark.unwrap_or_else(|| {
+                    matches_dark
+                        || (!matches_light && name.to_ascii_lowercase().contains("dark"))
+                        || (!matches_light && scheme == "dark")
+                });
+                let s = if dark { "dark" } else { "light" };
+                body.insert_str(0, &format!("color-scheme: {s};\n"));
             }
             let class = format!("k-theme-{}", kebab(name));
             css.push_str(&format!(":root.{class} {{\n"));
@@ -389,14 +702,6 @@ pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
                 css.push_str(&format!("  {line}\n"));
             }
             css.push_str("}\n");
-            let matches_dark = v.descendants().any(|n| {
-                n.kind() == SyntaxKind::ImplicitMemberExpr
-                    && ident(&n).as_deref() == Some("prefersDark")
-            });
-            let matches_light = v.descendants().any(|n| {
-                n.kind() == SyntaxKind::ImplicitMemberExpr
-                    && ident(&n).as_deref() == Some("prefersLight")
-            });
             if matches_dark || matches_light {
                 let scheme = if matches_dark { "dark" } else { "light" };
                 css.push_str(&format!(
@@ -409,6 +714,8 @@ pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
             }
         }
     }
+    css.push_str(&library_rules(g));
+    css.push_str(&crate::icons::rules(g));
     for &d in &g.own {
         if !matches!(
             g.view.decl(d).named_kind(),
@@ -431,15 +738,10 @@ pub(crate) fn files(g: &Gen<'_>) -> Vec<OutputFile> {
         }
         css.push_str(&p.out);
     }
-    let is_app = g
-        .own
-        .iter()
-        .any(|&d| g.view.decl(d).named_kind() == Some(DeclarationKind::App));
     if is_app {
         // Every app links one stylesheet, so the document's shape doesn't
-        // depend on whether the project has styles: the base rule keeps
-        // `hidden` elements hidden whatever a style sets `display` to.
-        css.insert_str(0, "[hidden] {\n  display: none !important;\n}\n");
+        // depend on whether the project has styles.
+        css.insert_str(0, &base_rules(&all));
     }
     if css.is_empty() {
         return Vec::new();

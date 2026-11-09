@@ -118,7 +118,10 @@ try storage.write(key: savedTodos, value: items)        // value must be a List<
   are a `k check` error, so two services can't corrupt each other's data.
 - **Keys are namespaced per app,** so two K apps on one origin don't collide. The namespace is derived
   from `k.toml`'s `name` when first recorded in `storage.lock`, and read from the lock afterwards, so
-  renaming the project doesn't orphan every user's data.
+  renaming the project doesn't orphan every user's data. The browser's item is `namespace:name`
+  (`todos:todos`).
+- **Data stored before namespacing moves once.** An item an older build stored under the bare name is
+  read when the namespaced one is missing, then moved under the namespace, so users keep their data.
 
 ### `storage.lock`
 
@@ -135,8 +138,8 @@ A key's name and its value's shape are part of the app's stored format, which ou
   data too ([Background jobs](jobs.md#stored-payloads)).
 
 > **Planned.** The first compiler releases compare a committed `storage.lock`'s keys and job payloads with
-> the code (`K8008` for a key, `K8003` for a job), but don't write the file, don't namespace keys per app
-> (a key's name is the browser's storage key as written). Two keys with the same name are reported
+> the code (`K8008` for a key, `K8003` for a job), but don't write the file. Keys are namespaced with the
+> committed lock's `namespace`, else the project's name. Two keys with the same name are reported
 > (`K2405`), and a name that isn't a string literal (`K2403`).
 
 #### File format

@@ -12,6 +12,7 @@ import {
   Metadata,
   Out,
   theme as serverTheme,
+  themeSnippet,
   requestTimeZone,
   ServerBroadcast,
   clock,
@@ -178,6 +179,26 @@ test("a page renders a document with escaped metadata, assets and k-data", async
   assert(html.includes('<script type="module" src="/assets/app.js"></script>'));
   assert(html.includes('"session":{"user":null}'));
   assertEq(header(r, "set-cookie"), undefined);
+});
+
+test("a page's document preloads the module graph and the page's own chunks", async () => {
+  const assets = {
+    styles: ["/assets/app.css"],
+    scripts: ["/assets/app.js"],
+    preload: ["/assets/app.js", "/assets/runtime.js", "/assets/shared.js"],
+    pages: { product: ["/assets/pages/product.js", "/assets/forms.js"], home: ["/assets/pages/home.js"] },
+  };
+  const html = text(await createApp(spec({ assets }))(req("GET", "/product/5")));
+  for (const href of [...assets.preload, ...assets.pages.product]) {
+    assert(html.includes(`<link rel="modulepreload" href="${href}">`), href);
+  }
+  assert(!html.includes("/assets/pages/home.js"), "only the rendered page's chunk");
+  assert(html.indexOf("modulepreload") < html.indexOf("</head>"));
+  // A status page runs no script, so it preloads none.
+  const missing = text(await createApp(spec({ assets }))(req("GET", "/nowhere")));
+  assert(!missing.includes("modulepreload"), missing);
+  // Assets without a graph (an older build) preload nothing.
+  assert(!text(await createApp(spec())(req("GET", "/product/5"))).includes("modulepreload"));
 });
 
 test("a parameter that doesn't parse, an unknown path and an unknown enum case are 404s", async () => {
@@ -478,6 +499,34 @@ test("the server's Theme reads the k_theme cookie", () => {
   assertEq(t.current, "dark");
 });
 
+// The remembered variant is on `<html>` before the first paint
+// (07-themes-and-units.md, "Switching variants at runtime"): the server
+// writes the classes from the `k_theme` cookie; an unknown or malformed
+// value is no choice. A client-rendered document (a static build's
+// `index.html`, rendered once without a cookie) also carries the pre-paint
+// snippet, which does the same from `document.cookie`.
+test("the document puts the remembered theme's classes on <html>", async () => {
+  const themed = spec({ themes: ["dark", "highContrast"] });
+  const page = async (s, cookie) => {
+    const headers = cookie === null ? [] : [["cookie", `k_theme=${cookie}`]];
+    return text(await createApp(s)(req("GET", "/product/5", { headers })));
+  };
+  assert((await page(themed, null)).startsWith('<!doctype html><html lang="en"><head>'), "no choice, no class");
+  assert((await page(themed, "dark")).startsWith('<!doctype html><html lang="en" class="k-theme-set k-theme-dark">'));
+  assert((await page(themed, "highContrast")).includes('class="k-theme-set k-theme-high-contrast"'));
+  assert((await page(themed, "base")).includes('<html lang="en" class="k-theme-set">'));
+  for (const bad of ["sepia", "x%22%3E", "%E0%A4%A"]) {
+    assert((await page(themed, bad)).startsWith('<!doctype html><html lang="en"><head>'), bad);
+  }
+  // Without variants there is nothing to remember.
+  assert((await page(spec(), "dark")).startsWith('<!doctype html><html lang="en"><head>'));
+  assert(!(await page(themed, null)).includes("<script>"), "a server-rendered page needs no snippet");
+  const client = await page({ ...themed, rendering: "client" }, null);
+  const snippet = client.match(new RegExp('initial-scale=1"><script>(.*?)</script>'));
+  assert(snippet !== null, client);
+  assertEq(snippet[1], themeSnippet);
+});
+
 // `TimeZone.local` during server rendering is the zone the browser reported
 // in `k_tz` (35-time.md, "Server rendering").
 test("requestTimeZone reads the k_tz cookie of the rendered request", () => {
@@ -539,4 +588,22 @@ test("structured data is a JSON-LD script in the head", async () => {
   assert(head.includes('"offers":{"@type":"Offer","price":"24.00","priceCurrency":"'), head);
   const a = await app(req("GET", "/article"));
   assert(text(a).includes('{"@context":"https://schema.org","@type":"Article","headline":"News"}'), text(a));
+});
+
+// ------------------------------------------------------------- manifest
+
+// The app's `manifest(name:shortName:)` is linked from every document and
+// served at `/manifest.webmanifest` (22-metadata.md; todos-G, weather-F),
+// which `k build` also writes next to a static app's `index.html`.
+test("the app's manifest is linked from the head and served", async () => {
+  const app = createApp(spec({ appMeta: (m) => { m.locale("en"); m.manifest("Weather", "Weather"); m.themeColor("#0EA5E9"); } }));
+  const page = await app(req("GET", "/product/5"));
+  assert(text(page).includes('<link rel="manifest" href="/manifest.webmanifest">'), text(page));
+  const r = await app(req("GET", "/manifest.webmanifest"));
+  assertEq(r.status, 200);
+  assertEq(header(r, "content-type"), "application/manifest+json");
+  assertDeepEq(JSON.parse(text(r)), { name: "Weather", short_name: "Weather", start_url: "/", display: "standalone", theme_color: "#0EA5E9" });
+  const none = createApp(spec());
+  assert(!text(await none(req("GET", "/product/5"))).includes('rel="manifest"'), "no link without a manifest");
+  assertEq((await none(req("GET", "/manifest.webmanifest"))).status, 404);
 });

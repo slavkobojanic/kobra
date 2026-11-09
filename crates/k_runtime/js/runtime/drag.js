@@ -32,7 +32,7 @@
  */
 
 import { claimRange, claimRaw, isHydrating } from "./hydrate.js";
-import { clear, place } from "./dom.js";
+import { place } from "./dom.js";
 import { each } from "./list.js";
 import { batch, flush, onCleanup, renderEffect, untrack } from "./signals.js";
 
@@ -216,13 +216,14 @@ function listen(root) {
 /** Follows the pointer at (x, y): the copy, the region under it and the position there. */
 function over(x, y, fallback) {
   ghost?.style.setProperty("transform", `translate(${x - drag.x}px, ${y - drag.y}px)`);
-  let n = document.elementFromPoint?.(x, y) ?? fallback;
+  const hit = document.elementFromPoint?.(x, y) ?? fallback;
+  let n = hit;
   let row = null;
   while (n && !regions.has(n.$kd)) {
     if (n.$kr) row = n;
     n = n.parentNode;
   }
-  const t = n ? n.$kd : null;
+  const t = n ? n.$kd : near(hit);
   if (t && accepts(t)) {
     drag.target = t;
     drag.at = t.list ? (row && row.$kr === t ? t.rows().indexOf(row) : lastAt(t)) : -1;
@@ -230,6 +231,33 @@ function over(x, y, fallback) {
     drag.target = null;
   }
   mark();
+}
+
+/**
+ * The region of the drag's kind around the point when the pointer is over
+ * no region: the one region inside the innermost element under the pointer
+ * that holds any, such as a column's list when the pointer is on the
+ * column's heading, its padding or below an empty (zero-height) list
+ * (41-drag-and-drop.md). An element holding several (the board) is no
+ * target, so the drop stays where it was.
+ */
+function near(hit) {
+  for (let a = hit; a && a.nodeType === 1 && a !== a.ownerDocument?.body; a = a.parentNode) {
+    let found = null;
+    for (const r of regions) {
+      if (r.kind() !== drag.kind || !within(r.el, a)) continue;
+      if (found !== null) return null;
+      found = r;
+    }
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+/** `true` when `n` is `a` or inside it. */
+function within(n, a) {
+  for (; n; n = n.parentNode) if (n === a) return true;
+  return false;
 }
 
 /** `true` when region `t` accepts the drag: its kind, and its rule (a list always takes back its own item). */
@@ -430,6 +458,9 @@ export function DropTarget(props, _ctx) {
  */
 export function ReorderableList(props, _ctx) {
   const [ul, close, open] = host("ul", null);
+  // The app's base stylesheet drops the list's bullets, margin and padding
+  // (`:where(ul[data-k-list])`, 07-themes-and-units.md, "Base styles").
+  ul.setAttribute("data-k-list", "");
   renderEffect(() => ul.setAttribute("aria-label", props.label()));
   const key = (v) => String(props.key()(v));
   const name = (v) => fn(props, "itemLabel", () => "")(v) || key(v);
@@ -449,16 +480,12 @@ export function ReorderableList(props, _ctx) {
   each(open, close, () => props.items(), key, (item, index) => {
     const [li, end, start] = host("li", null);
     li.$kr = t;
-    let first = true;
     renderEffect(() => {
-      const v = item();
-      li.$kk = key(v);
-      untrack(() => {
-        if (!first) clear(start, end);
-        first = false;
-        place(isHydrating() ? claimRange(start, end, () => props.row(v)) : props.row(v), end);
-      });
+      li.$kk = key(item());
     });
+    // The row slot reads its item through the accessor, so a changed item
+    // under the same key updates the row in place (its focus stays).
+    untrack(() => place(isHydrating() ? claimRange(start, end, () => props.row(item)) : props.row(item), end));
     source(li, () => ({ kind: t.kind(), payload: item(), label: name(item()), list: t, index: index(), key: key(item()) }));
     return li;
   });

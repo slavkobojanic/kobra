@@ -454,8 +454,13 @@ fn route_table(g: &Gen<'_>, b: &mut Body<'_, '_>, target: Target) -> Expr {
 /// lowered client items use, every `@Inject` dependency, and for an
 /// injected interface the implementation bound for the build's
 /// environment. The browser's containers are generated from this set.
+///
+/// An endpoint page (a page without a view, [`endpoints`]) is no root: it
+/// runs on the server only, so what only it injects (the shop's
+/// `StripeWebhook` and its `StripeEvents` binding) never ships.
 pub(crate) fn client_reach(g: &Gen<'_>, items: &BTreeMap<DeclId, Item>) -> BTreeSet<DeclId> {
     let rules = crate::server::use_rules(g);
+    let server_only: BTreeSet<DeclId> = endpoints(g).into_iter().collect();
     let mut reached: BTreeSet<DeclId> = BTreeSet::new();
     let mut work: Vec<DeclId> = g
         .own
@@ -465,7 +470,7 @@ pub(crate) fn client_reach(g: &Gen<'_>, items: &BTreeMap<DeclId, Item>) -> BTree
             matches!(
                 g.view.decl(d).named_kind(),
                 Some(DeclarationKind::Page | DeclarationKind::Layout | DeclarationKind::App)
-            )
+            ) && !server_only.contains(&d)
         })
         .collect();
     while let Some(d) = work.pop() {
@@ -648,19 +653,6 @@ pub(crate) fn client_containers(
         }
         provided.insert(name);
     }
-    // Protocols: the generated RPC client.
-    for &p in &g.own {
-        if g.view.decl(p).named_kind() != Some(DeclarationKind::Protocol) {
-            continue;
-        }
-        let name = g.name(p);
-        let client = b.use_decl(p, format!("{name}$client"));
-        app.push(getter(
-            name.clone(),
-            app_memo(&name, Expr::New(Box::new(client), vec![])),
-        ));
-        provided.insert(name);
-    }
     // Everything else that client code injects: bound interfaces and the
     // stdlib's services.
     let mut wanted: Vec<DeclId> = Vec::new();
@@ -680,6 +672,25 @@ pub(crate) fn client_containers(
         }
     }
     let testing = g.options.environment == crate::Environment::Test;
+    // Protocols: the generated RPC client, for the protocols client code
+    // injects. A protocol only server code calls (a `remote(...)` client
+    // holding a service token, or one the server serves to other
+    // services) gets no browser client: it would only post to paths the
+    // browser can't use. Tests keep every client.
+    for &p in &g.own {
+        if g.view.decl(p).named_kind() != Some(DeclarationKind::Protocol)
+            || !(testing || wanted.contains(&p))
+        {
+            continue;
+        }
+        let name = g.name(p);
+        let client = b.use_decl(p, format!("{name}$client"));
+        app.push(getter(
+            name.clone(),
+            app_memo(&name, Expr::New(Box::new(client), vec![])),
+        ));
+        provided.insert(name);
+    }
     let rules = use_rules(g);
     let mut i = 0;
     while i < wanted.len() {
@@ -804,13 +815,15 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
             "fetchHttpClient",
             enums(b, &["k.http.HttpError", "k.http.HttpStatus"]),
         ),
-        "k.storage.BrowserStorage" => rt(
-            "browserStorage",
-            enums(
+        // Keys are namespaced per app (36-local-storage.md).
+        "k.storage.BrowserStorage" => {
+            let mut args = enums(
                 b,
                 &["k.storage.StorageReadError", "k.storage.StorageWriteError"],
-            ),
-        ),
+            );
+            args.push(js::str(b.g.storage_namespace()));
+            rt("browserStorage", args)
+        }
         // The files chunk's (runtime.md §12.4), imported by the entry.
         "k.device.BrowserFiles" => match b.g.view.lookup(qualified) {
             Some(d) => call(b.use_decl(d, "BrowserFiles".into()), vec![]),
@@ -939,6 +952,41 @@ fn load_deps(b: &Body<'_, '_>, init: &ast::Expr, loads: &[MemberId]) -> Vec<Stri
     out
 }
 
+/// The reactive reads of a load's initializer without its request: each
+/// `@Param`, `@Prop`, `@State` or `@Derived` member of the declaration it
+/// names, so a hydrated group knows its inputs (`inputs` of the spec).
+fn load_inputs(b: &mut Body<'_, '_>, init: &ast::Expr, loads: &[MemberId]) -> Vec<Expr> {
+    let mut seen = Vec::new();
+    let mut out = Vec::new();
+    for n in init.syntax().descendants() {
+        if n.kind() != SyntaxKind::NameExpr {
+            continue;
+        }
+        let Some(Resolved::Member(m)) = b.g.resolved(b.file, n.text_range()) else {
+            continue;
+        };
+        if loads.contains(&m) || seen.contains(&m) {
+            continue;
+        }
+        let mi = b.g.view.member(m);
+        if !["Param", "Prop", "State", "Derived"]
+            .iter()
+            .any(|a| mi.has_annotation(a))
+        {
+            continue;
+        }
+        let Some(e) = ast::Expr::cast(n.clone()) else {
+            continue;
+        };
+        seen.push(m);
+        let (pre, x) = b.capture(|b| b.expr(&e));
+        if pre.is_empty() {
+            out.push(x);
+        }
+    }
+    out
+}
+
 /// The client load group: `$k.createLoads([{ name, after, run }],
 /// serialized, failed)`. With a `failed` block (`error`, the type it
 /// receives), a server render that failed serialized the error, which
@@ -984,17 +1032,24 @@ pub(crate) fn client_loads(
         let mut body = pre;
         body.push(Stmt::Return(Some(x)));
         let run = js::arrow_block(vec![Param::new("v"), Param::new("$c")], body, true);
-        specs.push(Expr::Object(
-            vec![
-                Prop::KeyValue("name".into(), js::str(mi.name.clone())),
-                Prop::KeyValue(
-                    "after".into(),
-                    Expr::Array(deps.into_iter().map(js::str).collect()),
-                ),
-                Prop::KeyValue("run".into(), run),
-            ],
-            false,
-        ));
+        let mut spec = vec![
+            Prop::KeyValue("name".into(), js::str(mi.name.clone())),
+            Prop::KeyValue(
+                "after".into(),
+                Expr::Array(deps.into_iter().map(js::str).collect()),
+            ),
+            Prop::KeyValue("run".into(), run),
+        ];
+        // A hydrated group runs nothing, so it watches these reads to
+        // know when the load's inputs change (runtime.md §7).
+        let reads = load_inputs(b, &init, loads);
+        if !reads.is_empty() {
+            spec.push(Prop::KeyValue(
+                "inputs".into(),
+                js::arrow(vec![], Expr::Array(reads)),
+            ));
+        }
+        specs.push(Expr::Object(spec, false));
     }
     // The server serialized the values with their codecs (`ssr_loads`);
     // hydration decodes them back, so a `Money` is a `Money` again.

@@ -65,11 +65,15 @@ K borrows ideas, not syntax. Where another language does something well, K adapt
 | 45 | The web platform | [45-web-platform.md](45-web-platform.md) |
 | 46 | Media capture, recording and calls | [46-media-and-rtc.md](46-media-and-rtc.md) |
 | 47 | Client-rendered components (*proposal*) | [47-client-rendered-components.md](47-client-rendered-components.md) |
+| 48 | Releases, versioning and upgrades | [48-releases-and-versioning.md](48-releases-and-versioning.md) |
+| 49 | Documentation and the docs site | [49-documentation.md](49-documentation.md) |
 
 ## Decisions still open
 
 No cross-cutting decision is open. The most recent ones:
 
+- **K has one version for everything it ships, and a project pins it:** semver with Cargo's pre-1.0 meaning (a minor may break, always with a migration; a patch adds no diagnostics), `k = "0.6"` as a caret requirement with the exact toolchain in `k.lock`, delegation to an installed matching toolchain and never an implicit download, `k fix` and `k upgrade`, a `format` key in every lockfile, adjacent minors compatible on the wire, changelog fragments in `changes/` that name the book pages they change, and docs built from each release tag at `/0.N/`. Hosting, CI, signing and the name need the owner's sign-off, listed once in the topic. See [48-releases-and-versioning.md](48-releases-and-versioning.md).
+- **The book gets two front doors, Learn and Reference:** a ten-minute quick start, a ten-step full-stack tutorial whose every step is a tested project, concept pages, then the guides; a Reference generated from the compiler's registries, with a symbol index for search. It stays on mdBook for now, and the docs are drift-proofed by tests (runnable samples, command transcripts, links, coverage, Planned notes tied to probes) and every user-visible changelog fragment names the book pages it changes. Hosting, Pagefind and CI need the owner's sign-off. See [49-documentation.md](49-documentation.md).
 - **A client-rendered app with a server gets the session mirror:** its shell embeds the same `k-data` session payload a server-rendered document does, and the server checks a page's guards before sending it, so client-side guards work exactly as in server-rendered apps. A guarded page keeps an app from being static-only. See [23-app-structure.md](23-app-structure.md#rendering-mode) and [26-auth-and-sessions.md](26-auth-and-sessions.md#in-the-browser).
 - **`TimeOfDay` is a value on both sides, not only in job schedules:** its `HH:MM` text, with `hour`, `minute`, `TimeOfDay.parse(_:)` and the text as its printed and encoded form. See [35-time.md](35-time.md#timeofday).
 - **An `rpc` is only written where a protocol serves it:** an `rpc` member of a struct, a component, or a service that implements no protocol declaring it is `K5508`, with a fix to `func`. See [11-protocols-and-rpc.md](11-protocols-and-rpc.md#rules).

@@ -105,7 +105,7 @@ compatibility check of `k check` (the compiler already reads job names from the 
 | `app::{append, read, read_file, probe, AppPayload, ConfigSpec, EmbeddedFile, MAGIC}` | `dist/app`; the payload carries the config table and the session-free endpoint templates. |
 | `testing::{parse_script, run_script, send, Exchange, Expect, HttpResponse}` | HTTP request scripts ([testing.md §8.2](testing.md#82-server-end-to-end-tests)). |
 | `testing::{open_stream, StreamingResponse, StreamChunk}` | A request whose response body is read as it arrives (`next_chunk(wait)`), for a server stream; dropping it closes the connection ([testing.md §4.3](testing.md#43-browser-tests)). |
-| `ServerOptions { fetch_origins }`, `outbound::replace_origin`, `ProcessState::{with_fetch_origins, fetch_origins}` | `(origin, replacement)` pairs: an outgoing `HttpClient` request to that exact origin (or below it) goes to the replacement, for tests that stand a `FakeHttp` in for a third party the app hard-codes. Empty in production: `k run` and `dist/app` never set it. |
+| `ServerOptions { fetch_origins }`, `outbound::replace_origin`, `ProcessState::{with_fetch_origins, fetch_origins}` | `(origin, replacement)` pairs: an outgoing `HttpClient` request to that exact origin (or below it) goes to the replacement, for tests that stand a `FakeHttp` in for a third party the app hard-codes. Empty in production: `dist/app` never sets it; `k run` and `k dev` set it from `K_DEV_FETCH_ORIGINS` (comma-separated `from=to` pairs), so an end-to-end test can serve such a third party from a fake (testing.md §4.4). |
 | `ServerOptions { jobs, job_poll }` | The build's job specs (`k_db::stdlib::JobSpec`, from the manifest) and how often the worker polls (250 ms). |
 | `jobs::{JobWorker, JobWorkerOptions, Dispatch, fate, job_id, now_ms}` | The background jobs worker ([§11](#11-background-jobs)). |
 | `outbound::{fetch, send_mail, build_message, FetchRequest, FetchOutcome, SmtpSettings, SmtpSecurity, MailMessage, MailOutcome}` | Outgoing HTTP and SMTP ([§18](#18-outgoing-http-and-email)). |
@@ -303,8 +303,16 @@ server streaming.
   `canonical(.page)` is made absolute with the public origin; every value is escaped.
 - **`Theme` during server rendering** is `theme(st)` (`app.js`): `current` is the variant the `k_theme`
   cookie remembers, or `base`; `apply` and `followSystem` do nothing.
-- **The document**: `<!doctype html><html lang="…">` (the `locale`; theme classes from the `k_theme`
-  cookie are planned), `<head>` with `charset`, `viewport`, the metadata and the stylesheet links, then
+- **The document**: `<!doctype html><html lang="…" class="…">` (the `locale`; the classes of the
+  variant the `k_theme` cookie remembers, `k-theme-set k-theme-<variant>` or `k-theme-set` for `base`,
+  when it names one of `spec.themes`; no `class` otherwise), `<head>` with `charset`, `viewport`, in a
+  client-rendered app with variants the pre-paint snippet (`themeSnippet`, an inline script that does the
+  same from `document.cookie`, since `k build`'s static `index.html` is rendered once without a cookie;
+  one text for every app, so a CSP allows it by its hash), the metadata, the stylesheet links and a
+  `<link rel="modulepreload">` for each chunk of the asset table's `preload` (the entry chunk and its
+  static imports, transitively) and of `pages[<case>]` for the page rendered (its own chunk and the
+  static imports `preload` lacks; [codegen.md §17.6](codegen.md#176-module-preloading)), so the browser
+  fetches the whole module graph at once; a status page, which runs no script, preloads none. Then
   `<body><div id="k-app">…</div>`, the `k-data` script ([runtime.md §6](runtime.md#6-hydration-protocol):
   `{"v":1,"now":…,"session":{"user":…},"c":{"0":{"loads":…}}}`) and the app chunk's module script (it
   imports the runtime, shared and page chunks). The asset names are the hashed client files of the same
@@ -347,7 +355,9 @@ server streaming.
   missing. Both set, or `NAME_FILE` for a non-secret, is a problem.
 - Values are parsed by kind: `Int` (safe integers), `Double` (finite), `Bool` (`true`/`false`), `Duration`
   (`300ms`, `30s`, `5m`, `2h`, `1d`, decimals allowed), enums by case name, `List<T>` comma-separated,
-  `String`; constraint annotations run after parsing.
+  `String`; constraint annotations run after parsing: `@Range` (`ConfigKind::IntRange`) and `@Matches`
+  (`ConfigKind::Matching`, from the manifest's `pattern` and `pattern_message` through
+  `ConfigField::with_pattern`; Rust `regex` syntax, a pattern it can't compile isn't checked).
 - **All problems at once**, sorted by variable, printed by `config::report`, then exit **78**, before any
   port or database connection is opened.
 - **Secrets are never printed**: a malformed or constraint-failing secret shows as `Secret(•••)`, and the
@@ -359,11 +369,18 @@ server streaming.
   wins; the harness leaves the process out), `NAME_FILE` paths relative to the project root. Before it
   serves, `k run` and `k dev` print the `.env` keys the process environment shadows
   (`DevEnvironment::shadowed`: set in both, to different values), names only. The stdlib's
-  server variables are always read; `K_PUBLIC_ORIGIN` falls back to `http://localhost:{PORT}`. A
-  relative `sqlite:` path in `DATABASE_URL` is relative to the project root too, and its directory is
-  created (`DatabaseSetup::rooted_at`), for `k run`, `k dev` and `k migrate` alike, so each member that
-  `k dev` runs at a workspace root has its own database (`sqlite:.k/dev.sqlite` is
-  `<member>/.k/dev.sqlite`). `dist/app` keeps the working directory.
+  server variables are always read; `K_PUBLIC_ORIGIN` falls back to `http://localhost:{PORT}`.
+  `k_cli`'s `devenv::prepare` then fills what is still unset (25-config-and-secrets.md, "Development
+  needs no setup"): a workspace's wiring above `.env`; below it `[dev.env]` (with `{port}` and `{origin}`
+  expanded; a value for a secret is refused), `[dev.secrets]` (generated into `.k/secrets/`), the
+  default `DATABASE_URL=sqlite:.k/<package>.db`, and, for an app that reads `SMTP_HOST`, the address of
+  its mail catcher (`devenv::MailSink`, a `fakes::FakeSmtp` whose messages `k dev` prints and keeps in
+  `.k/mail/`). A relative `sqlite:` path in `DATABASE_URL` is relative to the project root too, and its
+  directory is created (`DatabaseSetup::rooted_at`), for `k run`, `k dev` and `k migrate` alike, so
+  each member that `k dev` runs at a workspace root has its own database (`<member>/.k/<member>.db`).
+  `[dev] seed` runs (`ProcessDatabase::run_script`, one transaction, statements split by
+  `db::split_sql`) when a start applied every migration of the build, that is, created the database.
+  `dist/app` keeps the working directory and reads none of this.
 - A `Secret<T>?` field is a secret like `Secret<T>`: it may come from `NAME_FILE`, is never printed, and
   reaches JavaScript as `Secret` or `null`.
 - Values reach JavaScript once per isolate through `op_k_server_info`, already typed (a `Duration` in
@@ -388,7 +405,12 @@ server streaming.
   cookie holds only the token:
   `HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`, plus `Secure` and the `__Host-k_session` name when
   `K_PUBLIC_ORIGIN` is `https`, `k_session` otherwise; signing out sends it empty with `Max-Age=0`. A
-  cookie the server never issued (or one that expired or was revoked) is a guest.
+  cookie the server never issued (or one that expired or was revoked) is a guest. **On an `http` origin
+  with a port the browser sees `k_session_<port>`** (`front::public_session_cookie`): the front renames
+  it to `k_session` in each request's `Cookie` header, drops a plain `k_session` (another app's on the
+  same host), and renames `k_session=` back in each `Set-Cookie` (`front::to_runtime_cookies`,
+  `front::to_public_set_cookie`), so the runtime keeps one name and apps on `localhost` never clear each
+  other's sessions.
 - **Lifetime**: idle timeout (default 7 days, sliding; a stored session's last-seen time is written at
   most once a minute) and
   absolute lifetime (30 days from `signIn`), or `K_SESSION_IDLE` and `K_SESSION_MAX_AGE` from the
@@ -531,12 +553,16 @@ panics. The handler's `$e` carries the parsed `@Param`s and the request containe
   for production; **`k run`** serves a development build on `--port` (default 8080) until `SIGTERM` or
   Ctrl-C, with the development environment of [§8](#8-configuration-and-secrets). **`k dev`** serves the
   same development build and watches the project (every file below its root except hidden directories,
-  `target`, `dist` and `node_modules`, plus `.env`; polled every 250 ms by size and modification time).
-  On a change it rebuilds and restarts the server on the same port; there is no HMR in v0, so a restart
-  drops in-memory state such as sessions. The first build must succeed (it fails like `k run`); after
+  `target`, `dist` and `node_modules`, plus every `.env`, a workspace member's too; polled every 250 ms
+  by size and modification time). On a change it rebuilds and restarts the server on the same port,
+  with a 2 s grace instead of 25 s; there is no HMR in v0, so a restart drops in-memory state (sessions
+  and data in the development database survive). The first build must succeed (it fails like `k run`); after
   that a build with errors is reported and the last good build keeps serving, and a restart that fails
   (a configuration problem) is reported and retried on the next change. `k run` and `k dev` run the jobs
-  worker too, against the development database ([§11](#11-background-jobs)).
+  worker too, against the development database ([§11](#11-background-jobs)). At a workspace root both
+  serve every app member, wired together, each line prefixed with the app's name
+  (`engine::Output::Prefixed`); `k run` just doesn't watch. Both poll each app's mail catcher on the
+  watch interval.
 
 ---
 
@@ -557,9 +583,11 @@ Assets are served from memory by the Rust front: `GET`/`HEAD` of `/assets/<hashe
   listener.
   `Server::start` returns only after every isolate has started. Each applied migration is logged as
   `applied migration <name>`.
-- **Shutdown** (`SIGTERM`/`SIGINT` in `run_until_signal`, or `Server::shutdown`): stop accepting; let open
-  connections finish their in-flight requests through hyper's graceful shutdown, for at most
-  `K_SHUTDOWN_GRACE` (default 25 s); then stop the jobs worker ([§11](#11-background-jobs)); then close
+- **Shutdown** (`SIGTERM`/`SIGINT` in `run_until_signal`, or `Server::shutdown`): stop accepting; **end
+  every open streamed response** (each `ChunkBody` also polls a closer that `Shared::close_streams`
+  drops, and a stream opened after that ends at once), since a stream never finishes by itself and
+  the client re-subscribes when one ends; let open connections finish their in-flight requests
+  through hyper's graceful shutdown, for at most `K_SHUTDOWN_GRACE` (default 25 s); then stop the jobs worker ([§11](#11-background-jobs)); then close
   the worker queues, so each `serve()` returns once the
   requests already queued are answered; join the workers; exit 0. A worker whose entry module failed is
   reported as `ServerError::Worker`.
@@ -569,7 +597,9 @@ Assets are served from memory by the Rust front: `GET`/`HEAD` of `/assets/<hashe
 ## 15. Logging, panics and errors
 
 - Logs are JSON lines on stdout: `{"level": "...", "message": "..."}` (v0), with request ids and K stack
-  traces from `k.observe` later. A panic is logged with the method, the path and the JavaScript stack; a
+  traces from `k.observe` later. `k dev` and `k run` at a workspace root write them for people instead,
+  after the app's name (`Output::Prefixed`: `shop   | warning: …`); every log site goes through
+  `Output::write`. A panic is logged with the method, the path and the JavaScript stack; a
   worker whose entry module fails logs why at once (and answers `503` from then on). Fields named `password` and `Secret` values are redacted by the checker's
   warnings and by `Secret`'s text form.
 - **A panic in a handler** is a `500` with a request id and no details in production; in development the

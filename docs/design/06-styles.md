@@ -47,6 +47,7 @@ component CartSummary {
 - **There are no element or id selectors** (grammar [RA-8](../compiler/grammar.md#ra-8-no-element-selectors)): `h1 { … }`, `td { … }` and `#main { … }` are compile errors. Elements are styled through classes, which are typed and scoped: `heading(level: 1) { title }.class(.title)` with `.title { … }`. A selector is built from classes, `&`, pseudo-classes and pseudo-elements, attribute selectors and `*`.
 - **Theme tokens and static values use implicit member syntax:** `padding: .md` resolves against the type the property expects. See [07-themes-and-units.md](07-themes-and-units.md).
 - **`{ }` is used only for reactive values** (props and state). `{accent}` compiles to a CSS custom property, updated through the signal system. No inline `style=` strings are needed.
+- **A reactive value is written as a CSS value of its type**, not as interpolation text: an `Angle` gets `deg` (`rotate: {windArrowAngle}` is `298deg`), a `Duration` gets `ms`, and lengths and colors are CSS text already.
 - **Position decides meaning:** at the rule level, `.summary` is a class selector; after `property:`, `.md` is a value.
 
 ## Keyword values

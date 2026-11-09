@@ -18,6 +18,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+/// A well-formed Argon2id hash (PHC format) that matches no password: the
+/// shop refuses to start without one, and these tests never sign in.
+const UNUSABLE_ADMIN_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
 #[path = "support/static_host.rs"]
 mod static_host;
 
@@ -447,7 +451,7 @@ fn shop_renders_the_storefront_and_lists_products_from_the_database() {
         &[
             ("DATABASE_URL", "sqlite::memory:"),
             ("SHOP_ADMIN_EMAIL", "admin@example.com"),
-            ("SHOP_ADMIN_PASSWORD_HASH", "placeholder_SECRET"),
+            ("SHOP_ADMIN_PASSWORD_HASH", UNUSABLE_ADMIN_HASH),
             ("K_SERVICE_TOKEN", "shop_service_SECRET"),
             ("PAYBOX_URL", "http://127.0.0.1:9"),
             ("PAYBOX_TOKEN", "paybox_service_SECRET"),

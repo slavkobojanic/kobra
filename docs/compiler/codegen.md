@@ -68,8 +68,9 @@ markers, while user strings break up `<!--` (§3); the client bundle is `runtime
 **v0** (the full-stack vertical slice of [architecture.md §16](architecture.md#16-milestones)): everything in
 sections 4–19 unless marked *deferred*. **Deferred:** hot module replacement, the binary Protobuf
 encoding, client and bidirectional streaming, code splitting below page granularity, CSS minification
-beyond whitespace removal, `@Rendering` per page, and the release-build name shortener (release builds
-in v0 strip whitespace and comments only).
+beyond whitespace removal and short names (§17.5), `@Rendering` per page, short aliases for names
+exported across chunks (§17.2), and source maps from the JavaScript back to `.k` spans (§18). Release
+builds link, tree-shake and minify the client (§17.1–17.6).
 
 Rules that hold for every part:
 
@@ -127,7 +128,8 @@ Output { client, server, server_entry, manifest }
   file, line and reason.
 - **Step 2** is the split: the server roots are the `app`, every page, layout, endpoint page, protocol
   implementation, job and the stdlib server services the graph reaches; the client roots are every view
-  page and layout, the `app`'s client entry and the client services they inject. A declaration is emitted
+  page and layout, the `app`'s client entry and the client services they inject (an endpoint page is no
+  client root, so a binding only it injects, such as the shop's `StripeDisabled`, never ships). A declaration is emitted
   into a bundle only if it is reachable from that bundle's roots *and* allowed on that side. **A project
   without an `app` is a library**: every top-level declaration of its own modules is a root on each side
   it is allowed on (this is what single-file codegen corpus cases are), and there is no server entry.
@@ -431,7 +433,11 @@ export function Counter(props, ctx) {
 - **`@Emits`**: `.on(changed: f)` on a component sets `props.on$changed`; `emit` calls it inside the
   child's batch.
 - **`@Slot`**: an unscoped slot is a function returning nodes (`props.content()`), a scoped slot a function
-  of its arguments (`props.row(item)`); optional slots are `null` when not given.
+  of its arguments; optional slots are `null` when not given. In the browser a scoped slot gets each
+  argument as an accessor, `props.row(() => item$())`, rendered once by `child`; the slot's lambda takes
+  `item$` and reads `item$()` at each use (its parameters are signal locals, like a `for` row's
+  variable), so a changed argument updates the slot's view in place. On the server it gets the values,
+  `props.row(item, out)`.
 - **`@Stylable`**: a getter returning hashed class names from the parent's scope, appended to the
   element's class list.
 - Each component instance runs inside `$k.scope`, so unmounting disposes its effects, loads and handlers
@@ -463,7 +469,8 @@ export function Counter(props, ctx) {
   `todos.clearCompleted.bind(todos)` (an arrow over a receiver that isn't a plain path).
 - **`@Load` and the members that read it.** On the server, `@Derived` values are computed after the
   awaited loads (they may read them); on the client, an `@Effect` of a declaration with loads returns
-  while `$loads.values()` is `null` (it reads them, so it runs again once they arrive); `reload()` is the
+  while `!$loads.ready()` (it reads whether there are values, so it runs again once they arrive but not
+  for a reload's new values, and an `@Effect(on:)` re-runs only for its list); `reload()` is the
   group's `$loads.reload()` anywhere in the declaration, closures and timers included, unless the
   declaration has a `func reload` of its own. The client decodes the hydrated values with their codecs
   (`(($v) => $v && { product: ProductSummary$codec.decode($v.product, "product") })($k.loadsOf(ctx))`),
@@ -471,11 +478,18 @@ export function Counter(props, ctx) {
   its server render failed with: `(($f) => $f == null ? undefined : LookupError$codec.decode($f,
   "failed"))($k.loadsOf(ctx, "failed"))` (the raw JSON for an error that isn't `Codable`), so hydration
   starts the group `FAILED` and the `failed` block claims the server's markup
-  ([runtime.md §7](runtime.md#7-load)).
-- **Titles in the browser.** A page's or layout's `metadata` block contributes its `title(_:)` as
-  `$k.title(() => text)`, after the loads (`() => $loads.values() ? text : null` when it has loads, as the
-  text usually reads them); a `metadata` block in a `failed` block contributes its title where the block
-  renders. The other entries are server-only ([runtime.md §10](runtime.md#10-router)).
+  ([runtime.md §7](runtime.md#7-load)). Each load spec whose initializer reads `@Param`, `@Prop`, `@State`
+  or `@Derived` members has `inputs: () => [props.units(), …]`, those reads without the request, which a
+  hydrated group watches so that a change re-runs that load alone.
+- **Titles and descriptions in the browser.** A page's or layout's `metadata` block contributes its
+  `title(_:)` as `$k.title(() => text)` and its `description(_:)` as `$k.description(() => text)`, after
+  the loads (`() => $loads.values() ? text : null` when it has loads, as the text usually reads them); a
+  `metadata` block in a `failed` block contributes its own where the block renders. The other entries
+  are server-only ([runtime.md §10](runtime.md#10-router)).
+- **Form control labels.** `.label(…)` on a form control is a `<label for>` before it, linked by a fresh
+  `uid()`: a literal is template text, anything else (an interpolation, a computed `String`) a dynamic
+  text inside `<label> </label>` bound like any dynamic text (`out.text(…)` on the server). `.autofocus`
+  is the `autofocus` attribute plus `$k.autofocus(el)` among the element's bindings.
 - **Service `init()`** (`MemberKind::Init`) becomes the class's `init` method, called at the end of the
   constructor, except for client-only services ([§13](#13-services-and-dependency-injection)).
 - **`k.charts.LineChart`** is the runtime's (`charts.js`): a client chunk that uses it imports `LineChart`
@@ -486,7 +500,8 @@ export function Counter(props, ctx) {
   `Stack` is a flex `div` (`axis` and a `gap` token such as `.md`, read at compile time), `Grid` a grid
   `div` with an integer `columns` literal (default 2), `Spacer` a `flex: 1 1 auto` `div` hidden from
   assistive technology, `VisuallyHidden` a `span` with the visually-hidden styles, `Icon` a `span` with
-  `data-icon` (decorative, or `role="img"` with `aria-label` when it has a `label`). Their layout values
+  `data-icon`, the case name, bound like any attribute when the name is computed (decorative, or
+  `role="img"` with `aria-label` when it has a `label`); the stylesheet draws the glyph (§12, "Icons"). Their layout values
   are inline `style` text; an argument that isn't a literal keeps the default (*v0 limitation*).
   **`ErrorBoundary`** is a block: on the client `branch(start, end, failed ? 1 : 0, [content, fallback])`,
   where the content arm renders inside `catchError` and a `try`, so a panic while it renders, or later in
@@ -611,17 +626,46 @@ one lowered view, so they can't drift.
 - **Theme tokens** become custom properties on `:root` in declaration order: `--k-color-primary:
   #3B82F6;`, named `--k-<category>-<token>` with both parts in kebab case (`color`, `space`, `radius`,
   `font-size`, `font`; `surfaceHover` → `--k-color-surface-hover`). A `font` token's
-  `Font(family: "Inter", size: 16px)` prints as the value of the `font` shorthand, size then family:
-  `--k-font-body: 16px "Inter";` (the K string literal is the CSS string), in `:root` and in variants
-  alike, so `font: .body` is valid CSS; every other value prints as written.
+  `Font(family: "Inter", size: 16px)` prints as the value of the `font` shorthand, size, family, then a
+  generic fallback stack: `--k-font-body: 16px "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+  "Helvetica Neue", Arial, sans-serif;` (the K string literal is the CSS string; the stack is serif or
+  monospace instead when the family's name says `Serif` or `Mono`/`Code`), in `:root` and in variants
+  alike, so `font: .body` is valid CSS and a family that isn't installed never falls back to Times. No
+  `@font-face` is emitted: there is no font asset pipeline yet (`css::fallback_stack`,
+  `codegen/ui/themes/font-token-is-a-font-shorthand`). Every other value prints as written.
+- **Library tokens.** The stdlib `theme`s of the modules the project imports from (`k.charts`'
+  `ChartTokens`, `k.drag`'s `DragTokens`), or whose tokens the project's theme assigns, come first in
+  `:root` with their defaults. A top-level assignment (`chartGrid = #CBD5E1`) replaces the default in
+  `:root` itself; a variant's assignment prints in the variant (`codegen/ui/themes/library-tokens-are-on-root`).
 - **Variants** become classes on `<html>`: `:root.k-theme-dark { --k-color-surface: #111827; }`. A variant
   with `matches .prefersDark` also gets `@media (prefers-color-scheme: dark) { :root:not(.k-theme-set) {…}
   }`, so the OS preference applies until `theme.apply` adds `k-theme-set` plus the chosen variant's class.
-  SSR reads the `k_theme` cookie and renders both classes on `<html>` from the first byte.
+  The server spec lists the variants (`themes: ["dark", …]`, only when there are any), and the document
+  carries the remembered variant's classes on `<html>` from the first byte ([server.md §7](server.md)).
+- **Base stylesheet** of an app (`css::base_rules`, 07-themes-and-units.md "Base styles"), first in the
+  file: `[hidden] { display: none !important }`; `body { margin: 0; font: var(--k-font-body); color:
+  var(--k-color-text); background-color: var(--k-color-background) }` (the font is the system sans-serif
+  stack without a `font body` token; the colours are the first `color` token of `text`, `foreground`,
+  `onBackground`, `onSurface` and of `background`, `surface`, left out when there is none);
+  `button, input, select, textarea { font: inherit }`. In an app with a theme, `:root` and every variant
+  also set `color-scheme`: dark when the page background token's literal is dark (relative luminance
+  below ½), else from `matches .prefersDark` or a name containing `dark`, else the base's. An app that
+  imports from `k.drag` gets `:where(ul[data-k-list]) { list-style: none; margin: 0; padding: 0 }` for
+  `ReorderableList` (`codegen/ui/themes/app-base-styles/`, `app-without-a-theme/`,
+  `codegen/ui/components/drag-lists-have-no-bullets`).
+- **Icons** (`crate::icons`): a project that imports `k.ui.Icon` gets `[data-icon] { display:
+  inline-block; width: 1em; height: 1em; background-color: currentColor; mask: var(--k-icon) center /
+  contain no-repeat }` and one `[data-icon="<case>"] { --k-icon: url("data:image/svg+xml,…") }` per glyph
+  of the bundled set, only the cases named by a static `Icon(name: .case)` unless some `Icon` computes
+  its name (`codegen/ui/components/icon-draws-its-glyph`).
+- **Reactive unit values** are CSS values of their type (`Body::css_value_of`): an `Angle` is
+  `` `${x}deg` ``, a `Duration` `` `${x}ms` ``; lengths and colors are CSS text already; anything else is
+  its interpolation text (`codegen/ui/styles/reactive-unit-values-have-their-units`).
 - **Printing.** Development and test output put one declaration per line, indented by two spaces, a
   rule's selector and `{` on one line, `}` on its own; rules in source order after the `:root` block.
 - **Output.** One stylesheet, `app.[hash].css`, with the theme and every component's rules, linked from
-  the HTML shell (per-page stylesheets are *deferred*). Release builds strip whitespace and comments.
+  the HTML shell (per-page stylesheets are *deferred*). Release builds strip whitespace and comments,
+  and give scoped classes and custom properties short names (§17.5).
 
 ---
 
@@ -1014,21 +1058,109 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   `$s.natives[…] ?? $s.missingNative(…)` on the server.
 - **Entry HTML**: the server renders the shell; a static-only app gets a generated `index.html` that loads
   `runtime` and `app`.
-- **Printing**: development output is indented with 2 spaces, one statement per line; release output
-  omits whitespace and comments (*deferred*: renaming locals), but keeps a space between a binary `-` or
+- **Printing**: development output is indented with 2 spaces, one statement per line; the release
+  printer (`compact`, used for server modules, and for client chunks outside an app's release build)
+  omits whitespace and comments, but keeps a space between a binary `-` or
   `+` and a right operand that starts with the same sign (`a- -b`, never the `a--b` that JS reads as a
   decrement), and spaces around a word operator (`e instanceof Error`, `"k" in o`), which would otherwise
   run into the names beside it. The runtime's own files are compacted by `k_runtime::compact` instead
   ([runtime.md §2](runtime.md#2-modules-api-and-size-budget)). Numbers print in shortest round-trip form;
-  strings with `"`.
+  strings with `"`. An app's release client is printed readable and then linked and minified (§17.1–17.6).
+
+### 17.1 Release linking: named runtime imports and a shaken runtime
+
+`k build` (and `k run --release`, `k dev --release`) generate with `Profile::Release` and `Entry::App`;
+only then is the client **linked** (`bundle::linked`). `k dev`, `k run`, `k test`, `k debug codegen` and
+the codegen corpus (`Profile::Test`) keep the readable output above, so goldens don't change.
+
+- **Named imports.** After routing runtime features (§17), each shared, page and entry chunk replaces
+  its namespace imports of the runtime (`$k`, `$k_forms`, `$k_money`) with named imports of exactly the
+  members it uses: `$k.template(…)` becomes `$k$template(…)` with
+  `import { template as $k$template } from "./runtime.[hash].js"` (`bundle::named_runtime_imports`).
+  Names starting `$k$` are never generated otherwise. A chunk that still uses a namespace as a value
+  would keep its namespace import, which keeps every export of that file (none does today).
+- **Natives** are bound directly: `const Uuid$random = $k.native_k_crypto_Uuid$random` for a native the
+  browser implements (each is its own export of `services.js`, `native_` and the qualified name with `_`
+  for `.`), `$k.missingNative("k.server.JobQueue")` for one it doesn't, so `native()`'s lookup table, and
+  with it every native the app doesn't use, can go.
+- **Shaking** (`link::link`): the module graph is read from each chunk's imports with oxc's module
+  record (static named imports, namespace and default imports, `export … from`, and `import("…")` with a
+  literal specifier). A chunk imported only by name (the runtime, `forms`, `money`, the feature chunks,
+  `shared`) keeps exporting only the names some chunk imports: every other export becomes a plain
+  declaration before minification, which then drops it and everything only it reached. A chunk imported
+  as a namespace, dynamically (the pages) or by nobody (`app`) keeps every export. So the runtime chunk
+  carries what the app reaches across all its chunks, and its hash differs per app.
+- The runtime and feature chunks are not compacted first (`k_runtime::compact`): the minifier reads the
+  runtime's own readable text, which is what the source maps show.
+
+### 17.2 Minification
+
+Every JavaScript chunk of a linked build goes through **oxc** (`minify.rs`; `oxc_parser`, `oxc_minifier`,
+`oxc_codegen`, pinned exactly in the workspace `Cargo.toml`, since the output is part of every content
+hash): `CompressOptions::smallest()`, mangling with top-level names, `CodegenOptions::minify()`.
+
+- **What is never renamed.** Only bindings change. Property names, string keys and exported names keep
+  their spelling, so DOM and Web APIs (`nextSibling`), JSON wire keys, storage keys and the JSON stored
+  under them, the `NATIVES` names, route names and parameters, hydration data keys, `k-theme-*` classes
+  and the names other chunks import are untouched. Property mangling is off. **Decision:** no Closure
+  Compiler (a JVM, ~1.2 s per app, and its ADVANCED mode needs externs for every wire format; it broke
+  todos' saved data in the measurement and gained 0–6% over oxc).
+- **Order and names.** Chunks are minified dependencies first (a depth-first post-order of the graph);
+  each is then named after its minified text (`stem.<hash>.js`) and the chunks still to come are updated
+  to that name before they are minified in turn, so every hash covers the final bytes and the names they
+  import. The stylesheet is renamed the same way after §17.5.
+- **Failure.** A chunk oxc can't parse (a code generator bug) ships as printed, unminified; a test
+  (`crates/k_codegen/tests/release.rs`) minifies every example.
+- *Deferred:* short aliases for names exported across chunks (`TodoRow`, `renderEffect` in import
+  lists); the whole program is known, so K could pick them, for about 2–4% more.
+
+### 17.3 Wire keys are quoted
+
+Encoders (`Codable` structs, enum payloads and case tags) and rpc request bodies print their keys quoted
+(`js::Prop::Quoted`): `{ "id": …, "title": v.title, "isDone": v.isDone }`, in every profile, as the
+decoders already read `j["isDone"]`. No minifier option that renames properties can then change a wire
+format; the minifier itself may still drop the quotes, which changes nothing.
+
+### 17.4 Walking to template nodes
+
+A linked build reaches a node two or more steps from a template's root with `$k.walk(root, "fnn…")`
+(`f` first child, `n` next sibling; `runtime/dom.js`) instead of `root.firstChild.nextSibling…`, whose
+property names no minifier can shorten. One step stays a property read. It mostly saves raw bytes
+(about 2 KB of kanban's 77 KB), which is what the browser parses.
+
+### 17.5 Short CSS names
+
+A linked build renames, in the stylesheet, every client chunk and every server module at once
+(`shorten.rs`, before linking): each scoped class and keyframes name the style blocks define
+(`panel_k3x9a1`, `css::scoped_names`) to `_` and a base-36 number (`_0` … `_z`, `_10`), and each `--k-*`
+custom property of the stylesheet (theme tokens, `{value}` interpolations, `--k-icon`) to `--k` and a
+base-36 number (`--k0`), except those an embedded runtime file names itself (`--k-color-chart-axis`,
+`--k-color-drop-target`, …), because the server renders charts with the embedded runtime. Names are
+given in sorted order of the long names; a replacement matches only a whole name (bounded by characters
+that can't continue a CSS identifier). The test profile keeps `Component__class`, so goldens and tests
+that select by class are unaffected; tests of release builds select by role, text or `data-icon`.
+
+### 17.6 Module preloading
+
+The asset table in the server entry (`server::assets_json`) lists `preload`, the entry chunk and every
+chunk it imports statically, transitively, and `pages`, each page's own chunk with the static imports
+`preload` lacks, by `Page` case. The document's `<head>` links both as `<link rel="modulepreload">` for
+the page it renders ([server.md §7](server.md#7-server-side-rendering)), so the browser fetches the whole
+graph at once instead of one level of imports per round trip; a static-only app's `index.html` is the
+document of `/`. Every profile emits them.
 
 ---
 
 ## 18. Source maps
 
-- Every emitted JS file has a v3 source map (`file.js.map`, referenced with `//# sourceMappingURL=`)
-  mapping statements and call expressions back to `.k` spans; `sources` are project-relative paths,
-  `sourcesContent` is included in development builds and omitted in release builds.
+- **Implemented:** every JavaScript chunk of a linked release client has a v3 source map
+  (`stem.<hash>.js.map`, named after its own text and referenced with `//# sourceMappingURL=` at the
+  chunk's end, so the chunk's hash covers the comment too and every client file is named after its
+  bytes) from the minified chunk
+  back to the readable chunk the printer produced, which the map embeds (`sourcesContent`; its source is
+  named `<stem>.js`). Development builds ship the readable chunks themselves and no maps.
+- *Deferred:* mapping statements and call expressions back to `.k` spans (composing the K→JS map with
+  oxc's through `oxc_sourcemap`), with project-relative `sources`.
 - Server stack traces are mapped through the server bundle's maps by `k_server` when a panic is logged
   or (in development) shown on the 500 page ([server.md §5](server.md#5-request-lifecycle)).
 - CSS source maps are *deferred*.
@@ -1149,9 +1281,10 @@ isolate.
 
 Fixed while making the examples' tests pass: an omitted `@Stylable` prop is no class (it was read as a
 function), an omitted optional `@Slot` is `nil`, a form control's computed `.label(…)` becomes its
-`aria-label` (it was dropped, leaving the control unnamed), and a slot called with arguments (`row(item)`)
-re-renders when they change, through `branch` with an index that flips on a new value, so a keyed item
-renamed in place reaches the row (`tests/corpus/codegen/ui/**` cases for each).
+visible `<label>` (first an `aria-label`, which left the todos' titles invisible in a real browser), and
+a slot called with arguments (`row(item)`) follows them through accessors (first a `branch` that
+rendered the row again on every change, which lost the focus and the row's state)
+(`tests/corpus/codegen/ui/**` cases for each).
 
 Fixed while making the examples' server-side tests pass, each pinned first:
 

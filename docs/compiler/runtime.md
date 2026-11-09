@@ -38,7 +38,7 @@ No npm, no bundler, no transpiler: the files are shipped as written (compacted i
 | Hydration, label ids (`uid`), claiming root texts, separators and marker pairs (`textNode`, `separator`, `claimMarkers`) | `runtime/hydrate.js` | **implemented** (core) |
 | View helpers (`child`, `slotMarkers`, `markers`, `lifetime`, `paramProps`, `withQuery`, `loadsOf`, `joinClasses`, `title`) | `runtime/view.js` | **implemented** (extended) |
 | Path stores for `@State` structs | `runtime/store.js` | **implemented** (extended) |
-| Services in the browser: `provide` (component scope), `afterHydration` (client-only `init()`), `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session` mirror, browser `@Native` members (`native`) | `runtime/services.js` | **implemented** (part `Services`, [§12.1](#121-services-in-the-browser)) |
+| Services in the browser: `provide` (component scope), `afterHydration` (client-only `init()`), `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session` mirror, browser `@Native` members (`native`, `native_<name>`, `missingNative`) | `runtime/services.js` | **implemented** (part `Services`, [§12.1](#121-services-in-the-browser)) |
 | Router (layouts kept across navigations, `document.title`, page guards against the `Session` mirror), RPC client, `@Load` (hydrating a failed render too) | `router.js`, `rpc.js`, `load.js` | **implemented** (extended) |
 | `@Form` state: `createForm`, field parsers, constraint rules | `runtime/forms.js` | **implemented** (part `Forms`, a chunk of its own reached as `$k_forms`, [§9](#9-forms)) |
 | `Decimal`, `Money`, `Currency` and their codecs (`moneyCodecs`) | `runtime/money.js` | **implemented** (part `Money`, a chunk of its own reached as `$k_money`, [§12](#12-native-stdlib-bodies)) |
@@ -100,13 +100,16 @@ parts never mention `Deno.core` or `k:testing` (tested).
 
 **`k:runtime` exports**: `signal`, `computed`, `renderEffect`, `effect`, `batch`, `untrack`, `onCleanup`,
 `root`, `scope`, `catchError`, `flush`, `isTracking`, `Signal`, `Computed`; `template`, `text`, `attr`,
-`prop`, `classList`, `style`, `on`, `when`, `branch`, `each`; `hydrate`, `isHydrating`, `readData`, `uid`,
+`prop`, `classList`, `style`, `on`, `when`, `branch`, `each`, `walk` (a template node by a path of
+`f`/`n` steps, which release builds use instead of `.firstChild`/`.nextSibling` chains,
+[codegen.md §17.4](codegen.md#174-walking-to-template-nodes)); `hydrate`, `isHydrating`, `readData`, `uid`,
 `textNode`, `separator`;
 `KPanic`, `panic`, `isPanic`, `checkInt`, `intDiv`, `intRem`, `equals`, `unitCase`, `textOf`; `startRouter`,
 `navigate`; `child`, `slotMarkers`, `title`, `loadsOf`, `lifetime`, `own`, `bound`; `CANCELLED`, `live`, `guard`; `rpc`, `rpcError`, `DEFAULT_TIMEOUT_MS`;
 `createLoads`, `LOADING`, `READY`, `RELOADING`, `FAILED`; `claimRaw` (hydration of a native component that
 owns its subtree); from `services.js` `provide`, `afterHydration`, `clock`, `theme`, `browserStorage`,
-`fetchHttpClient`, `session`, `native`; and from `std.js` (among the stdlib bodies) `route`, `routeParam`, `NO`, `splitTarget`,
+`fetchHttpClient`, `session`, `native`, `missingNative` and one `native_<name>` per browser native
+(`native_k_crypto_Uuid$random`, …; release builds import these directly, §12.1); and from `std.js` (among the stdlib bodies) `route`, `routeParam`, `NO`, `splitTarget`,
 `parseQuery`, `parseUrl`, `urlHost`, `urlPath`, `parseEmail`, `parseUuid`, `parseColor`, `colorHex`,
 `parseTimeZone`, `localTimeZone`, `parseTimeOfDay`, `timeOfDayHour`, `timeOfDayMinute`, `PushStream`, `payloadFields`. The feature chunks export `LineChart`,
 `lineChart`, `chartKey` and `chartProps` (`charts.js`), `Draggable`, `DropTarget`, `ReorderableList`,
@@ -306,10 +309,21 @@ A block owns the DOM range between two comment markers and a child scope:
   longest-increasing-subsequence diff, so the minimum number of nodes move; removed rows are disposed.
   A row is the span from its first node to its last, read when it moves or leaves, so content a block of
   the row inserted after the row was created moves and leaves with it.
+- **A scoped slot gets its arguments as accessors.** A slot called with arguments (`row(item)`) is
+  rendered once with `child(start, end, () => props.row(() => item$()))`, and the slot's function takes
+  `item$` and reads `item$()` at each use, like an `each` row its item. An item that changes under the
+  same key (a rename, a toggle) updates the slot's bindings and the props of the components in it in
+  place: the row's nodes, its components' state and the focus stay. The server calls the slot once with
+  the values (`row(item, out)`).
 
 ### 5.4 Events
 
-`on(target, event, handler)` wraps the handler in `batch`; an async handler's promise is not awaited.
+`on(target, event, handler)` wraps the handler in `batch`; an async handler's promise is not awaited. A
+`submit` handler calls `preventDefault()` first, before the owner check and whether or not the body
+throws, so a form K handles never navigates ([05-views.md](../design/05-views.md#rules)).
+`autofocus(el)` (emitted for `.autofocus`) focuses the element in a microtask, once it is in the
+document and still has the `autofocus` attribute; it does nothing while hydrating, where the browser
+honoured the attribute itself.
 Common bubbling events (`click`, `input`, `submit`, `keydown`) on an element **already in the document**
 are delegated: one listener per document (on `documentElement`) dispatches by a per-element handler
 table, and `stopPropagation` stops the walk. An element not yet in the document (a freshly cloned
@@ -373,8 +387,9 @@ A server-rendered page contains the HTML from the `$ssr` renderers and one data 
 component ([14-async-data.md](../design/14-async-data.md)). Each load is `{ name, after, run }`, `after`
 naming the loads it reads; `run(values, signal)` is async, and its synchronous reads are the load's
 inputs. A spec may add `inputs()`, the same reads without the request: a hydrated group runs nothing, so
-this is how it learns its inputs. `state()`, `values()` and `error()` are reactive; `values()` is `null`
-outside `READY`/`RELOADING`.
+this is how it learns its inputs. `state()`, `values()`, `ready()` and `error()` are reactive; `values()`
+is `null` outside `READY`/`RELOADING`, and `ready()` is whether it isn't, a computed that changes only
+between the two, so an effect waiting for the loads isn't re-run by a reload's new values.
 
 ```text
             inputs change                     reload()
@@ -394,8 +409,11 @@ outside `READY`/`RELOADING`.
 - **`reload()` swaps atomically**: during `RELOADING` the view keeps every previous value; when every load
   of the new run has resolved, all values are replaced in one batch, so dependent values stay consistent.
   A failure moves to `FAILED`. `reload()` from `FAILED` goes through `LOADING`.
-- **An input change** (a read signal, such as a `@Param`, changes) cancels the run and starts over in
-  `LOADING`, because old values describe something else.
+- **An input change** (a read signal, such as a `@Param`, changes) cancels the run of the load that read
+  it and of every load that reads that one, directly or not, and starts them again in `LOADING`, because
+  old values describe something else; the other loads keep their values and aren't run again. Each load
+  watches its own reads (or its `inputs()` after hydration). A failure moves the group to `FAILED` and
+  clears every value, and an input change from there runs every load whose dependencies have values.
 - With `serialized` (hydration), the group starts in `READY` with those values and runs nothing until an
   input changes or `reload()` is called. With `failed` (hydrating a page whose server render failed, so
   its `failed` block is what the server sent), the group starts in `FAILED` with that error and likewise
@@ -567,7 +585,13 @@ feature chunk (§1): only apps with a `@Form` ship it, and their generated code 
   `metadata` block (a page with loads reads it once its loads have values; until then it has none), and
   a `failed` block for its own. While its owner is mounted the entry takes part; `document.title` is the
   innermost entry with a value, so a page's title replaces its layout's, and leaving the page restores
-  the layout's. Other metadata entries only shape the server's `<head>`.
+  the layout's. `description(() => text)` keeps `<meta name="description">` the same way (created when
+  the shell has none; left as it is when nothing mounted has one). Other metadata entries only shape the
+  server's `<head>` ([22-metadata.md](../design/22-metadata.md#rules)).
+- **The same page with other parameters stays mounted.** A navigation whose route is the shown one, with
+  the same layouts and the same parameter names, sets the changed parameters (each a signal behind the
+  page's `params` getters, compared with `equals`) instead of rendering the page again, so only what
+  reads a changed parameter updates and only the loads reading it re-run.
 - `parse` is the generated `(u) => route(u, segments, params)`: the same typed matcher and parameter
   parsers as the server's (`std.js`), so parameters have their declared types, a parameter that doesn't
   parse (or a malformed `%`-escape) matches no route, `+` in the query is a space, and a query
@@ -636,11 +660,11 @@ generate ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
 | `provide(ctx, name, value)` | a copy of `ctx` whose container answers `name` with `value` and delegates every other name to `ctx.c` (getters run on the original container, so its memoized instances stay shared): how a component shares its `@Scope(.component)` service with its subtree |
 | `afterHydration(f)` | runs `f` in a microtask when a hydration pass is running, else now: a client-only service's `init()` runs after hydration, so the first paint matches the server's |
 | `clock(data)` | `k.time.Clock`: `now` is the server's render instant (`data.now`) while the page hydrates, the system time otherwise; `every`/`after` return a `TimerHandle` over `setInterval`/`setTimeout`; `sleep(c, d)` resolves after `d` ms and stops waiting when `c` aborts |
-| `theme()` | `k.ui.Theme`: `current` is reactive and starts as the `k_theme` cookie's variant or `base`; `apply(v)` replaces the `k-theme-*` classes on `<html>` with `k-theme-set` and `k-theme-<v in kebab case>` (none for `base`) and sets the cookie for a year; `followSystem()` removes them and the cookie |
-| `browserStorage(R, W)` | `k.storage.BrowserStorage` over `localStorage`: values JSON-encoded with their codec under `key.name`; throws `R.unavailable` (no storage), `R.unreadable` (bad JSON or a value its codec refuses), `W.quotaExceeded` (a `QuotaExceededError`), `W.unavailable`; `remove` never throws |
+| `theme()` | `k.ui.Theme`: `current` is reactive and starts as the `k_theme` cookie's variant or `base`, and a remembered variant's classes are applied at once (a reload keeps the scheme even in a document without them); `apply(v)` replaces the `k-theme-*` classes on `<html>` with `k-theme-set` and `k-theme-<v in kebab case>` (none for `base`) and sets the cookie for a year; `followSystem()` removes them and the cookie |
+| `browserStorage(R, W, namespace)` | `k.storage.BrowserStorage` over `localStorage`: values JSON-encoded with their codec under `namespace:key.name` (the namespace is `storage.lock`'s, else the project name; codegen passes it), a missing namespaced item read once from the bare `key.name` and moved under the namespace (items written before namespacing); `remove` removes both; throws `R.unavailable` (no storage), `R.unreadable` (bad JSON or a value its codec refuses), `W.quotaExceeded` (a `QuotaExceededError`), `W.unavailable`; `remove` never throws |
 | `fetchHttpClient(E, S)` | `k.http.FetchHttpClient` over `fetch`: the request's `query` appended form-encoded, `headers`, revealed `secretHeaders` and `bearerToken`, the body by its case (JSON, text, form, bytes); `send` resolves to an `HttpResponse` (`status` as an `HttpStatus` case, `isSuccess`, `body`, `bodyBytes`, `headers.get/all`, `json(codec)`) whatever the status and rejects with `E.offline` or, after the request's `timeout` (30 s by default), `E.timeout`; `fetchJson(c, codec, r)` also requires a 2xx (`E.status(status, body)`) and decodes the body (`E.decoding(message)`) |
 | `session(data)` | `k.auth.Session`: `user` reads the `Session` mirror, started from `data.session` (once per document, `seedSession`) and updated by rpc responses (`x-k-session`) |
-| `native(name)` | the browser's implementation of the `@Native` stdlib member `module.Owner$member` (`k.crypto.Uuid$random`, `Uuid$init`, `Uuid$parse`, `k.storage.StorageKey$init`), else a stand-in that loads and panics with the name when called, constructed or read from; client chunks bind every stdlib symbol they use that no item defines with it (`const Uuid$random = $k.native("k.crypto.Uuid$random")`) |
+| `native(name)` | the browser's implementation of the `@Native` stdlib member `module.Owner$member` (`k.crypto.Uuid$random`, `Uuid$init`, `Uuid$parse`, `k.storage.StorageKey$init`), else a stand-in that loads and panics with the name when called, constructed or read from; client chunks bind every stdlib symbol they use that no item defines with it (`const Uuid$random = $k.native("k.crypto.Uuid$random")`). Each implementation is also its own export, `native_` and the name with `_` for `.` (`native_k_crypto_Uuid$random`), and `missingNative(name)` is the stand-in alone: a release build binds those directly, so the lookup table and the natives an app doesn't use are shaken out ([codegen.md §17.1](codegen.md#171-release-linking-named-runtime-imports-and-a-shaken-runtime)) |
 
 ### 12.2 Charts
 
@@ -648,7 +672,11 @@ generate ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
 ([37-charts.md](../design/37-charts.md)):
 
 - `lineChart(chart, zone)` draws a chart as HTML, the same text on both sides for the same chart and zone:
-  an `<svg role="img" aria-label="description" viewBox="0 0 640 height">` with grid lines and y ticks at
+  an `<svg role="img" aria-label="description" width="100%" height="height">` that fills its container's
+  width, never letterboxed: the grid lines and paths are drawn in a nested plot `<svg viewBox="0 0 640
+  height" preserveAspectRatio="none">` stretched to the width (`vector-effect="non-scaling-stroke"`
+  keeps their widths), and the labels and point markers sit in the outer image at the same positions as
+  percentages of the width, so text is never stretched. It has grid lines and y ticks at
   about five round steps (1, 2 or 5 × 10ⁿ; the domain widened to whole steps unless `yRange` fixes it),
   at most six x ticks (a `Date` axis as `HH:MM` in `zone`), the axis titles, one path per series (dashed
   with `stroke-dasharray`, markers when it shows points), then the legend (unless `legend` is false) and
@@ -671,8 +699,8 @@ generate ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
 - **The components.** `Draggable(props, ctx)` renders its `content` slot between block markers in a
   focusable `div` (`role="group"`, `aria-roledescription="draggable"`, `aria-label` = `label`);
   `DropTarget` in a `div` (`role="group"`, `aria-label`); `ReorderableList` a `ul` (`aria-label`) whose
-  rows are an `each` over `items` keyed by `key`, each row an `li` drawing the `row` slot again when its
-  item changes under the same key. Every source carries `ATTRS.source` (`tabindex="0"`,
+  rows are an `each` over `items` keyed by `key`, each row an `li` whose `row` slot is drawn once with the
+  row's item accessor, so an item that changes under the same key updates the row in place. Every source carries `ATTRS.source` (`tabindex="0"`,
   `aria-describedby="k-drag-help"`, `touch-action: manipulation`, no selection or callout). While
   hydrating each claims the server's element (`claimRaw`) and its slot content (`claimRange` over the
   element's markers); the server renders the same markup from `ATTRS` (`$s.natives["k.drag.…$ssr"]`).
@@ -685,7 +713,10 @@ generate ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
   8px (`setTimeout`; moving first abandons it, so the page scrolls). On start a copy of the source
   (ids removed, `aria-hidden`, `pointer-events: none`, fixed at the source's box) follows the pointer by
   `transform`. Each move hit-tests `document.elementFromPoint` (else the event's target) up to a region;
-  over a row of a list the position is that row's, over the list itself its end. `pointerup` drops,
+  over a row of a list the position is that row's, over the list itself its end. Over no region, the
+  innermost element under the pointer that holds exactly one region of the drag's kind gives that region
+  (`near`; a column's heading, padding or an empty, zero-height list mean its list's end), and one that
+  holds several gives none. `pointerup` drops,
   `pointercancel` and Escape cancel, the click a drag ends with is swallowed, and `touchmove` is
   prevented while a drag runs.
 - **Keyboard.** Space or Enter on the source itself picks it up; while carrying, ArrowUp/ArrowDown move

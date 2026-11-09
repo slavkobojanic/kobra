@@ -99,7 +99,9 @@ paragraph { "Nothing here yet." }
 ## Scoping
 
 **Styles are scoped by default.** The compiler hashes class names, so `.panel` in one component can't
-collide with `.panel` in another, and no style leaks out of its component.
+collide with `.panel` in another, and no style leaks out of its component. `k dev` names it
+`panel_k3x9a1`; `k build` gives every scoped class a short name such as `_3`, so don't select elements
+by class name in tests or scripts.
 
 Global CSS is an explicit escape hatch:
 
@@ -213,7 +215,34 @@ public theme AppTheme {
 - **Tokens work in code too:** `canvas.fill(.primary)`.
 - **There is one theme per app, with standard-library defaults.** A token that nothing declares is a
   compile error.
-- `font` tokens produce font preload tags automatically.
+- A library's tokens (`k.charts`' chart colours, `k.drag`'s drop colours) are on `:root` with their
+  defaults as soon as the app imports from the library.
+
+### Fonts
+
+A `font` token is a family and a size. The compiler always follows the family with a generic
+fallback stack, so text never falls back to the browser's default serif where the family isn't
+installed: `Font(family: "Inter", size: 16px)` becomes `16px "Inter", system-ui, …, sans-serif`. A
+family whose name says `Serif` falls back to serif faces, one that says `Mono` or `Code` to
+monospaced ones.
+
+K doesn't load fonts from the web. A named family is drawn where the reader has it installed, and the
+fallback stack everywhere else.
+
+### Base styles
+
+Every app's stylesheet starts with a few base rules taken from the theme, so the page looks right
+before your own styles say anything:
+
+- the body has no margin, and uses the `font body` token (the system's sans-serif stack without one);
+- the body's text and background colours are the `text` (or `foreground`) and `background` (or
+  `surface`) color tokens, so they follow the variant;
+- buttons, inputs, selects and text areas inherit the page's font;
+- `color-scheme` is dark in a variant whose background is dark, so native inputs, scrollbars and links
+  are dark too;
+- a `ReorderableList` has no bullets.
+
+The base rules are element selectors, so any class of yours overrides them.
 
 ### Library tokens
 
@@ -295,7 +324,9 @@ component ThemeToggle {
   right, even when server rendered. `.prefersContrast` works the same way.
 - **An explicit choice is remembered in a cookie** (`k_theme`, holding only the variant name). Server
   rendering reads it, so a server-rendered app shows the chosen scheme from the first paint, with no
-  flash.
+  flash. A static build's `index.html` has a tiny inline script that does the same in the browser
+  before anything paints, so a reload keeps the scheme there too. It is the same in every app; a
+  Content-Security-Policy allows it by its hash, as `examples/kanban/nginx.conf` does.
 - During server rendering, `theme.current` is the remembered variant, or `.base`, and `apply` does nothing.
 - A choice that lives in another service, for example a settings service that syncs it to the account,
   is applied from an `@Effect` in a page or layout that is always mounted:

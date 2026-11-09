@@ -10,7 +10,7 @@
 | `src/**/*.test.k` | tests, next to the code they test |
 | `src/**/testing/*.k` | shared fakes and fixtures, in test-only modules |
 | `migrations/NNNN_description.k` | database migrations (written by `k migrate new`, then reviewed) |
-| `.env` | local configuration for `k dev`; git-ignored |
+| `.env` | optional local configuration for `k dev`, `k run` and `k migrate`; git-ignored |
 | `.env.example` | documents what `.env` may contain, with placeholders only; committed |
 
 ## `k.toml`
@@ -20,9 +20,36 @@
 | `[package]` | `name` and `k` (the minimum toolchain version) are required. `title` and `description` are optional. Apps may set `version`; packages can't, because their git tag is their version. |
 | `[dependencies]` | `name = { workspace = true }` for a library of the same workspace; module path = git tag for a git package (**Planned**, as are `k add` and `k remove`, which will edit it) |
 | `[aliases]` | short name = a git package's module path prefix, enabling `import charts.LineChart` (**Planned**, with git packages); workspace libraries need none, as their modules keep their own paths |
+| `[dev]` | development settings, read only by `k dev`, `k run` and `k migrate` ([below](#development-settings)) |
 
-The manifest never holds environment variables, secrets, per-environment settings, build scripts or tool
-options. See [Project layout](../getting-started/project-layout.md#ktoml).
+The manifest never holds production configuration, secrets, build scripts or tool options. See
+[Project layout](../getting-started/project-layout.md#ktoml).
+
+### Development settings
+
+An app starts with `k dev` and no setup. What the environment and `.env` leave unset, a development run
+takes from `[dev]`, then from the toolchain's defaults:
+
+```toml
+[dev]
+seed = "scripts/demo-catalog.sql"      # SQL run once, when k dev creates the database
+
+[dev.env]                               # development values for config variables
+SHOP_ADMIN_EMAIL = "admin@shop.example"
+PAYBOX_CALLBACK_URL = "http://127.0.0.1:{port}"
+
+[dev.secrets]                           # generated on first use into .k/secrets/
+SHOP_ADMIN_PASSWORD_HASH = "password-hash"
+```
+
+- `[dev.env]` values may use `{port}` and `{origin}` (`http://localhost:<port>`). A value for a `Secret`
+  field is refused at startup: secrets are never committed.
+- `[dev.secrets]` generates a `"token"` (32 random bytes) or a `"password-hash"` (the Argon2id hash of a
+  random password, which `k dev` prints at every start) and keeps it in the git-ignored `.k/secrets/`.
+- The defaults: `DATABASE_URL` is `sqlite:.k/<package>.db`, and an app that sends email gets a local mail
+  catcher, which prints each message with its links and keeps it in `.k/mail/`.
+- The process environment wins over `.env`, `.env` over `[dev]`. `dist/app` and `k test` never read
+  `[dev]`: a production build still needs every required variable set.
 
 ## Lockfiles
 

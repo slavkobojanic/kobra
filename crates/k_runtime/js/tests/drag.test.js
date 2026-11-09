@@ -8,7 +8,7 @@
  */
 import { assert, assertDeepEq, assertEq, installDom, test } from "k:testing";
 import { DragKind$init, Draggable, DropTarget, ReorderableList } from "k:/runtime/drag.js";
-import { flush, hydrate, root, signal, textNode } from "k:runtime";
+import { flush, hydrate, renderEffect, root, signal, textNode } from "k:runtime";
 
 const card = DragKind$init("card");
 const other = DragKind$init("column");
@@ -65,7 +65,15 @@ function board(lists = { todo: ["a", "b", "c"], done: ["d"] }, over = {}) {
           key: () => (t) => t.id,
           label: () => (id === "todo" ? "To do" : id === "done" ? "Done" : id),
           itemLabel: () => (t) => t.title,
-          row: (t) => document.createTextNode(t.title),
+          // The slot reads its item through the accessor, as generated
+          // slots do, so a changed item redraws in place.
+          row: (t) => {
+            const n = document.createTextNode("");
+            renderEffect(() => {
+              n.data = t().title;
+            });
+            return n;
+          },
           on$moved: apply,
           ...(over[id] ?? {}),
         }),
@@ -99,6 +107,7 @@ test("a reorderable list is a list named by its label, with one focusable item p
   const b = board();
   const ul = b.list("todo");
   assertEq(ul.localName, "ul");
+  assertEq(ul.getAttribute("data-k-list"), "", "the base stylesheet drops its bullets");
   assertDeepEq(b.titles("todo"), ["Card a", "Card b", "Card c"]);
   for (const li of b.rows("todo")) {
     assertEq(li.localName, "li");
@@ -116,7 +125,7 @@ test("rows are kept by key: a reorder of the items moves the same elements", () 
   b.state.todo.set(b.state.todo.peek().map((t) => (t.id === "b" ? { ...t, title: "Renamed" } : t)));
   flush();
   assertEq(b.rows("todo")[1], bb, "a changed item under the same key keeps its row");
-  assertEq(bb.textContent, "Renamed", "and its row slot draws it again");
+  assertEq(bb.textContent, "Renamed", "and its row slot shows the new item in place");
 });
 
 // --------------------------------------------------------------- keyboard
@@ -382,7 +391,7 @@ test("a hydrating list claims the server's elements and its rows' content", () =
   const [la, lb] = [...ul.childNodes].filter((n) => n.nodeType === 1);
   const text = la.childNodes[1];
   const items = signal([{ id: "a", title: "Card a" }, { id: "b", title: "Card b" }]);
-  hydrate(container, () => ReorderableList({ kind: () => card, id: () => "todo", items: () => items.get(), key: () => (t) => t.id, label: () => "To do", row: (t) => textNode(t.title) }), null);
+  hydrate(container, () => ReorderableList({ kind: () => card, id: () => "todo", items: () => items.get(), key: () => (t) => t.id, label: () => "To do", row: (t) => textNode(t().title) }), null);
   assertEq(container.firstChild, ul, "the list is the server's");
   const rows = [...ul.childNodes].filter((n) => n.nodeType === 1);
   assertDeepEq(rows, [la, lb], "and so are its rows");

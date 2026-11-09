@@ -113,10 +113,7 @@ pub fn job_id() -> Result<String, String> {
 /// Writes a server log line on standard output in [`Output::JsonLines`]
 /// mode (and drops it otherwise).
 fn log(mode: Output, level: &str, message: &str) {
-    if mode == Output::JsonLines {
-        let line = serde_json::json!({ "level": level, "message": message });
-        println!("{line}");
-    }
+    mode.write(level, message);
 }
 
 /// What a run's outcome means for its row.

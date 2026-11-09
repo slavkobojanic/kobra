@@ -32,10 +32,12 @@ test("a drop target renders a group named by its label", () => {
   assertEq(html, `<div ${ATTRS.region} aria-label="Trash"><!--[-->Drop here<!--]--></div>`);
 });
 
+// `data-k-list`: the app's base stylesheet drops the list's bullets
+// (07-themes-and-units.md, "Base styles").
 test("a reorderable list renders a named list with a focusable item per element", () => {
   const items = [{ id: "a", title: "A & B" }, { id: "b", title: "C" }];
   const html = render("ReorderableList", { kind: () => kind, id: () => "todo", items: () => items, key: () => (t) => t.id, label: () => "To do", row: (t, out) => out.text(t.title) });
-  assertEq(html, `<ul aria-label="To do"><!--[--><li ${ATTRS.source}><!--[-->A &amp; B<!--]--></li><li ${ATTRS.source}><!--[-->C<!--]--></li><!--]--></ul>`);
+  assertEq(html, `<ul data-k-list aria-label="To do"><!--[--><li ${ATTRS.source}><!--[-->A &amp; B<!--]--></li><li ${ATTRS.source}><!--[-->C<!--]--></li><!--]--></ul>`);
 });
 
 test("the browser claims the server's list", () => {
@@ -48,7 +50,7 @@ test("the browser claims the server's list", () => {
   const li = ul.childNodes[1];
   let node = null;
   root(() => {
-    node = hydrate(container, () => ReorderableList({ ...props, row: (t) => textNode(t.title) }, {}), null);
+    node = hydrate(container, () => ReorderableList({ ...props, row: (t) => textNode(t().title) }, {}), null);
   });
   flush();
   assertEq(node, ul);

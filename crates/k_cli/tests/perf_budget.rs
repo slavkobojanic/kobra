@@ -33,6 +33,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+/// A well-formed Argon2id hash (PHC format) that matches no password: the
+/// shop refuses to start without one, and these tests never sign in.
+const UNUSABLE_ADMIN_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
 /// Cold start to the first response, milliseconds.
 const COLD_START_MS: f64 = 150.0;
 /// SSR p50 of a page, sequential, milliseconds.
@@ -104,7 +108,7 @@ fn env_of(name: &str) -> Vec<(&'static str, &'static str)> {
         "shop" => vec![
             ("DATABASE_URL", "sqlite::memory:"),
             ("SHOP_ADMIN_EMAIL", "admin@example.com"),
-            ("SHOP_ADMIN_PASSWORD_HASH", "placeholder"),
+            ("SHOP_ADMIN_PASSWORD_HASH", UNUSABLE_ADMIN_HASH),
             // Paybox isn't running: the measured pages and rpcs never call
             // it.
             ("K_SERVICE_TOKEN", "placeholder"),
@@ -504,6 +508,9 @@ fn shipped_client_assets() {
         let (mut raw, mut gz) = (0, 0);
         let mut runtime = None;
         let mut lines = Vec::new();
+        // Source maps are fetched only by developer tools, so they don't
+        // count as shipped (codegen.md §18).
+        files.retain(|f| f.extension().is_none_or(|e| e != "map"));
         for f in &files {
             let bytes = std::fs::read(f).expect("reads");
             let g = gzip_len(&bytes);

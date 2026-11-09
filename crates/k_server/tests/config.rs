@@ -231,3 +231,39 @@ fn the_report_matches_the_documented_layout() {
         "error: configuration is invalid (2 problems)\n  STRIPE_WEBHOOK_SECRET  missing\n  PORT                   \"x\" is not an Int\n"
     );
 }
+
+// `@Matches` is checked at startup, on a secret's revealed value too, and
+// the problem names the pattern (or the annotation's message), never the
+// value (25-config-and-secrets.md, "`config` declarations").
+#[test]
+fn a_value_that_fails_its_matches_pattern_is_a_problem_without_the_value() {
+    let hash = secret("ADMIN_HASH").with_pattern(
+        Some("^\\$argon2id\\$"),
+        Some("must be an Argon2id hash in PHC format"),
+    );
+    let code = field("CODE", ConfigKind::String).with_pattern(Some("^[A-Z]{3}$"), None);
+    let problems = resolve(
+        &[hash.clone(), code.clone()],
+        &Env::new(&[("ADMIN_HASH", ""), ("CODE", "abcd")], &[]),
+    )
+    .expect_err("both fail");
+    assert_eq!(
+        problems,
+        vec![
+            Problem {
+                env: "ADMIN_HASH".into(),
+                message: "Secret(•••) must be an Argon2id hash in PHC format".into(),
+            },
+            Problem {
+                env: "CODE".into(),
+                message: "\"abcd\" doesn't match ^[A-Z]{3}$".into(),
+            },
+        ]
+    );
+    let ok = resolve(
+        &[hash, code],
+        &Env::new(&[("ADMIN_HASH", "$argon2id$v=19$x"), ("CODE", "ABC")], &[]),
+    )
+    .expect("both match");
+    assert_eq!(ok["CODE"], ConfigValue::String("ABC".into()));
+}

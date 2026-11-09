@@ -4,19 +4,25 @@ A small todo list written entirely in K. You can add, rename, complete and delet
 
 The app is deliberately small and client-only: there is no server code, no RPC and no database. It exists to show K's component model, reactivity, styling and testing in one place. For a full-stack example that loads data over the network, see [`examples/weather`](../weather).
 
-> K's compiler is still being written, so this code hasn't been compiled. It follows the decisions in [`docs/design`](../../docs/design/README.md) (see [Design documents this example relies on](#design-documents-this-example-relies-on)), and its syntax follows the compiler's grammar, [`docs/compiler/grammar.md`](../../docs/compiler/grammar.md).
-
 ## Running it
 
 From this directory:
 
+```bash
+k dev
+```
+
+Then open http://localhost:8080. There is nothing to set up: the app keeps its data in the browser, so it needs no database and no configuration. `k dev` rebuilds and restarts on every change (`--port` picks another port). There is no hot module replacement yet, so reload the page after a change; the todos are in local storage and come back.
+
+The other commands:
+
 | Command | What it does |
 |---|---|
-| `k dev` | Starts the dev server with state-preserving hot module replacement. Edit a component and its `@State`, such as a half-typed todo, survives the reload. |
 | `k build` | Builds the app. Because it renders on the client and has no server-only code, the output is static files in `dist/public` that any static host can serve. |
 | `k test` | Runs every `*.test.k` file. Add `--watch` to re-run on change. |
-| `k check` | Type checks, verifies formatting, runs the tests and checks lockfiles (here `storage.lock`), as CI does. |
-| `k fmt` | Formats the code in the one canonical style. |
+| `k check` | Type checks, runs the tests and checks lockfiles (here `storage.lock`), as CI does. |
+
+The code follows the decisions in [`docs/design`](../../docs/design/README.md) (see [Design documents this example relies on](#design-documents-this-example-relies-on)) and the compiler's grammar, [`docs/compiler/grammar.md`](../../docs/compiler/grammar.md).
 
 ## Structure
 
@@ -63,7 +69,7 @@ The layout follows the module rules in [16-modules.md](../../docs/design/16-modu
 
 **State lives in services.** `TodoService` holds the list and is the only code that can change it: components read `todos.items` and the derived counts, and call methods such as `add(title:)` and `setDone(id:isDone:)`. The color scheme belongs to the stdlib's `Theme` service. The page itself owns just one piece of state, the selected `filter`, because it belongs to the page rather than the app.
 
-**Every change is saved.** Each `TodoService` method checks its input, changes `items` in place (fine-grained, so only the affected row updates), and writes the whole list to `LocalStorage` under a typed `StorageKey<List<Todo>>`. On startup, the service's `init()` restores the saved list. The key's name and the shape of `Todo` are recorded in `storage.lock`, so a change that would make users' saved lists unreadable fails `k check` instead of shipping. The lock also records the storage namespace, derived from `k.toml`'s `name` when first recorded and read from the lock afterwards, so renaming the project doesn't orphan anyone's saved todos.
+**Every change is saved.** Each `TodoService` method checks its input, changes `items` in place (fine-grained, so only the affected row updates), and writes the whole list to `LocalStorage` under a typed `StorageKey<List<Todo>>`. On startup, the service's `init()` restores the saved list. The key's name and the shape of `Todo` are recorded in `storage.lock`, so a change that would make users' saved lists unreadable fails `k check` instead of shipping. The lock also records the storage namespace, derived from `k.toml`'s `name` when first recorded and read from the lock afterwards, so renaming the project doesn't orphan anyone's saved todos. The list is stored as `todos:todos` in `localStorage` (namespace, then key), so another K app on the same origin can't overwrite it; a list saved by an older build under the bare `todos` key is moved there the first time it is read.
 
 **Failures are values, not surprises.** Invalid titles throw a typed `TitleError`, which the components catch and show next to the field. Storage failures (data that no longer decodes, blocked storage, a full quota) never stop the app: the change still applies in memory, and `TodoService.problem` drives a `StorageNotice` that tells the user what is and isn't being saved.
 
@@ -85,7 +91,7 @@ The layout follows the module rules in [16-modules.md](../../docs/design/16-modu
 | [`src/home/Home.k`](src/home/Home.k) | A `page` with a named URL (`at "/"`), `@Derived` values built with `if` and `match` expressions (there are no ternaries), reactive `metadata`, `bind` to a child's `@Binding`, a scoped slot used from the caller (`.row { todo => … }`), passing a class to a child's `@Stylable` hook (`.container(.board)`), `if let` in a view |
 | [`src/home/NewTodoField.k`](src/home/NewTodoField.k) | `@State` with `bind` to a built-in `textField`, form submission, `catch let` to keep a typed error as state, chained modifiers each on their own line, theme colors in styles (`.primary.opacity(0.85)`) |
 | [`src/home/TodoList.k`](src/home/TodoList.k) | A scoped slot (`row: (Todo) -> View`) next to a trailing slot (`empty`), `if`/`else` in a view, `for … in … key …` |
-| [`src/home/TodoRow.k`](src/home/TodoRow.k) | Local editing state, `if`/`else` between two layouts, a custom `Binding(get:set:)` passed to a `checkbox`, a function passed by name (`set: markDone`), conditional classes with `when` (`.done when todo.isDone`), `.disabled` driven by `@Derived`, `VisuallyHidden` to give each row's buttons a distinct accessible name ("Delete Buy milk"), and a field label that names the todo ("New title for Buy milk") so rows edited at the same time don't share one |
+| [`src/home/TodoRow.k`](src/home/TodoRow.k) | Local editing state, `if`/`else` between two layouts, a custom `Binding(get:set:)` passed to a `checkbox`, a function passed by name (`set: markDone`), conditional classes with `when` (`.done when todo.isDone`), `.disabled` driven by `@Derived`, `VisuallyHidden` to give each row's buttons a distinct accessible name ("Delete Buy milk"), and a field label that names the todo ("New title for Buy milk") so rows edited at the same time don't share one; `.autofocus(true)` puts the focus in that field when Edit opens it. Each row updates in place when its todo changes, so toggling a checkbox keeps the focus on it |
 | [`src/home/FilterBar.k`](src/home/FilterBar.k) | `@Binding` written by the child (`selection = filter`), `for … key` over enum values, `match` in a function, `when` classes, the `pressed` accessibility state, a labelled `nav` landmark |
 | [`src/home/StorageNotice.k`](src/home/StorageNotice.k) | `match` in a view, with one exhaustive branch per enum case, and a live region (`.role(.status)`) |
 | [`src/home/ThemeToggle.k`](src/home/ThemeToggle.k) | A component with no `style` block, the injected stdlib `Theme` service, and a custom `Binding` that reads `theme.current` and writes through `theme.apply(…)` |
@@ -126,7 +132,7 @@ Beyond the core language documents, the example uses these parts of the design:
 | [36-local-storage.md](../../docs/design/36-local-storage.md) | `LocalStorage`, `StorageKey<T>`, `StorageReadError`/`StorageWriteError`, `MemoryStorage`, and the `storage.lock` file format |
 | [10-services.md](../../docs/design/10-services.md) | `init()` in `TodoService` |
 | [07-themes-and-units.md](../../docs/design/07-themes-and-units.md) | The `Theme` service, `theme.apply(…)`, `theme.current` and the generated `ThemeVariant` with its `.base` case |
-| [05-views.md](../../docs/design/05-views.md) | `checkbox(isChecked:)`, `.label` as an accessible name, `.pressed`, `.role`, `VisuallyHidden` |
+| [05-views.md](../../docs/design/05-views.md) | `checkbox(isChecked:)`, `.label` as a form control's visible `<label>` (the todo's title next to its checkbox), `.autofocus`, `.pressed`, `.role`, `VisuallyHidden`, forms whose `submit` never reloads the page |
 | [09-errors.md](../../docs/design/09-errors.md) | `catch let rejection` to keep a typed error as state |
 | [16-modules.md](../../docs/design/16-modules.md) | Members that follow their type's visibility, and the test-only `testing` module |
 | [21-testing.md](../../docs/design/21-testing.md) | `@Inject` of the hermetic `MemoryStorage` default, `fill`, queries with exact `named:` matching, element state and scoped queries |

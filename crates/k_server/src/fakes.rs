@@ -208,7 +208,19 @@ impl FakeHttp {
     ///
     /// The port couldn't be bound.
     pub fn start(routes: Vec<FakeRoute>) -> std::io::Result<FakeHttp> {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        FakeHttp::serve(std::net::TcpListener::bind("127.0.0.1:0")?, routes)
+    }
+
+    /// Starts a fake answering `routes` on `listener`, already bound (a
+    /// test that must stay within a range of ports binds it itself).
+    ///
+    /// # Errors
+    ///
+    /// The listener can't be made non-blocking.
+    pub fn serve(
+        listener: std::net::TcpListener,
+        routes: Vec<FakeRoute>,
+    ) -> std::io::Result<FakeHttp> {
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
         let state = Arc::new(Mutex::new(HttpState {
@@ -399,7 +411,16 @@ impl FakeSmtp {
     ///
     /// The port couldn't be bound.
     pub fn start() -> std::io::Result<FakeSmtp> {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        FakeSmtp::serve(std::net::TcpListener::bind("127.0.0.1:0")?)
+    }
+
+    /// Starts a fake that accepts every message, on `listener`, already
+    /// bound.
+    ///
+    /// # Errors
+    ///
+    /// The listener can't be made non-blocking.
+    pub fn serve(listener: std::net::TcpListener) -> std::io::Result<FakeSmtp> {
         listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
         let mail = Arc::new(Mutex::new(Vec::new()));

@@ -35,6 +35,8 @@ pub enum Command {
         #[arg(long, hide = true)]
         stdio: bool,
     },
+    /// Hash the password read from standard input with Argon2id, printing its PHC string.
+    HashPassword,
     /// Manage database migrations.
     Migrate {
         /// The migration subcommand.
@@ -173,6 +175,11 @@ pub struct RunArgs {
     /// The port to listen on.
     #[arg(long, default_value_t = 8080)]
     pub port: u16,
+    /// Generate the client as `k build` does (minified, tree-shaken, with
+    /// short class names and source maps) while keeping the development
+    /// wiring, to check the shipped code locally.
+    #[arg(long)]
+    pub release: bool,
 }
 
 /// Arguments of `k debug`.
