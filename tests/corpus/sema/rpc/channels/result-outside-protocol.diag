@@ -1,0 +1,5 @@
+error[K5509] 11:40-11:76: rpc `lobby` returns an optional `Channel`; a channel rpc returns `Channel<C, S, E>` and throws when it can't open
+error[K5509] 17:55-17:90: `open` returns a `Channel`, but only a protocol's rpc and the handler that serves it do
+  help: declare the channel as an rpc of a protocol; a client service opens it by calling that rpc and keeps it in a field
+error[K5509] 21:23-21:59: `current` returns a `Channel`, but only a protocol's rpc and the handler that serves it do
+  help: declare the channel as an rpc of a protocol; a client service opens it by calling that rpc and keeps it in a field

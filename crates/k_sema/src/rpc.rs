@@ -5,6 +5,9 @@
 //!   (K5502).
 //! * Parameters, results (stream elements included) and error payloads are
 //!   `Codable` (K5503).
+//! * A channel rpc's `Channel<C, S, E>` result: `C` and `S` are `Codable`
+//!   (K5503), and `E` is an rpc error enum like `throws` (K5502, K5503)
+//!   (44-channels.md; the placement rules are [`crate::channels`]).
 //! * A protocol is implemented by a service (K5504) whose handlers repeat
 //!   each rpc's signature, `throws` included (K5505); a missing handler is a
 //!   missing member (K2010).
@@ -118,7 +121,7 @@ fn and_list(items: &[String]) -> String {
 
 /// The protocols in `d`'s `implements` clause that declare an rpc named
 /// like member `m`, with that rpc, each protocol once.
-fn served_by(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) -> Vec<(DeclId, MemberId)> {
+pub(crate) fn served_by(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) -> Vec<(DeclId, MemberId)> {
     let p = cx.p;
     let name = &p.member(m).name;
     let mut served: Vec<(DeclId, MemberId)> = Vec::new();
@@ -436,7 +439,15 @@ fn rpc(cx: &Cx<'_, '_>, file: FileIx, m: MemberId) {
             }
             other => other.clone(),
         };
-        if !is_codable(&element) {
+        let channel = match &sig.ret {
+            Ty::Optional(inner) => crate::channels::channel_args(cx, inner).is_some(),
+            other => crate::channels::channel_args(cx, other).is_some(),
+        };
+        if let Some(args) = crate::channels::channel_args(cx, &sig.ret) {
+            channel_messages(cx, file, &ret, args);
+        } else if channel {
+            // `Channel<…>?` is K5509 (`channels::check`).
+        } else if !is_codable(&element) {
             not_codable(
                 cx,
                 file,
@@ -489,10 +500,65 @@ fn rpc(cx: &Cx<'_, '_>, file: FileIx, m: MemberId) {
         return;
     }
     let range = error_node.syntax().text_range();
+    error_enum(cx, file, range, &error, ErrorRole::Rpc);
+}
+
+/// Which error an error-enum check is about, for its messages.
+#[derive(Clone, Copy)]
+enum ErrorRole {
+    /// An rpc's `throws` type.
+    Rpc,
+    /// A channel's refusal `E` in `Channel<C, S, E>`.
+    Refusal,
+}
+
+/// The `C`, `S` and `E` of a channel rpc's `Channel<C, S, E>` result at
+/// `ret`: the messages are `Codable` (K5503) and the refusal is an rpc
+/// error enum (K5502, K5503).
+fn channel_messages(cx: &Cx<'_, '_>, file: FileIx, ret: &ast::Type, args: &[Ty]) {
+    let codable = cx.b.codable;
+    let is_codable = |t: &Ty| t.contains_error() || codable.is_none_or(|c| cx.implements(t, c));
+    let whole = ret.syntax().text_range();
+    let ranges: Vec<TextRange> = match ret {
+        ast::Type::PathType(path) => path
+            .generic_arg_list()
+            .map(|l| l.types().map(|t| t.syntax().text_range()).collect())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let at = |i: usize| ranges.get(i).copied().unwrap_or(whole);
+    for (i, what) in [
+        (0, "a channel's client message"),
+        (1, "a channel's server message"),
+    ] {
+        if let Some(t) = args.get(i) {
+            if !is_codable(t) {
+                not_codable(cx, file, at(i), t, what);
+            }
+        }
+    }
+    if let Some(e) = args.get(2) {
+        if !e.contains_error() {
+            error_enum(cx, file, at(2), e, ErrorRole::Refusal);
+        }
+    }
+}
+
+/// K5502 and K5503 for error type `error`, written at `range`: it is
+/// `RpcOnlyError` or an enum with exactly one `rpcFailure(RpcFailure)`
+/// case, whose payloads are `Codable`.
+fn error_enum(cx: &Cx<'_, '_>, file: FileIx, range: TextRange, error: &Ty, role: ErrorRole) {
+    let p = cx.p;
+    let codable = cx.b.codable;
+    let is_codable = |t: &Ty| t.contains_error() || codable.is_none_or(|c| cx.implements(t, c));
     let Some(e) = error.decl() else { return };
     if p.lookup_qualified("k.rpc.RpcOnlyError") == Some(e) {
         return;
     }
+    let (subject, payload) = match role {
+        ErrorRole::Rpc => ("an rpc's error", "an rpc error's payload"),
+        ErrorRole::Refusal => ("a channel's refusal", "a channel refusal's payload"),
+    };
     let failure = p.lookup_qualified("k.rpc.RpcFailure");
     let cases = if cx.is_enum(e) {
         cx.cases(e)
@@ -516,7 +582,7 @@ fn rpc(cx: &Cx<'_, '_>, file: FileIx, m: MemberId) {
             codes::RPC_ERROR_WITHOUT_FAILURE_CASE,
             p.span(file, range),
             format!(
-                "an rpc's error is `RpcOnlyError` or an enum with exactly one `rpcFailure(RpcFailure)` case; `{}` isn't",
+                "{subject} is `RpcOnlyError` or an enum with exactly one `rpcFailure(RpcFailure)` case; `{}` isn't",
                 p.decl_name(e)
             ),
         )
@@ -550,7 +616,7 @@ fn rpc(cx: &Cx<'_, '_>, file: FileIx, m: MemberId) {
         .iter()
         .all(|c| cx.case_sig(*c).params.iter().all(|x| is_codable(&x.ty)));
     if !payloads_ok {
-        not_codable(cx, file, range, &error, "an rpc error's payload");
+        not_codable(cx, file, range, error, payload);
     }
 }
 

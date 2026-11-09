@@ -1,0 +1,3 @@
+error[K2009] 9:25-9:32: `Token` can't derive `Codable`: field `value` (`Secret<String>`) doesn't implement it
+error[K5503] 18:54-18:59: a channel's client message crosses the wire, so it must be `Codable`; `corpus.Draft` isn't
+error[K5503] 19:61-19:75: a channel's server message crosses the wire, so it must be `Codable`; `Secret<String>` isn't

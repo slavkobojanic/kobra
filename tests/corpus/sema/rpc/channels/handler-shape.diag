@@ -1,0 +1,4 @@
+error[K5505] 31:9-31:13: `room` doesn't repeat the signature of `corpus.Chat.room`
+  label 25:9-25:13: declared here
+error[K2001] 36:33-36:43: expected `Stream<corpus.Event>`, found `Stream<corpus.Command>`
+error[K2203] 41:13-41:34: `corpus.OtherError` is neither caught nor declared in `throws`

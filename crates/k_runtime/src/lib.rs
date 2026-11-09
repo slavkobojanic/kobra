@@ -78,6 +78,12 @@ pub const CHARTS_SIZE_BUDGET: usize = 3 * 1024;
 /// (`docs/compiler/performance.md` §11.3).
 pub const STREAMS_SIZE_BUDGET: usize = 1024;
 
+/// The largest the frame codec of channels ([`Part::Channels`]) may be,
+/// measured like [`CORE_SIZE_BUDGET`] (2 KB: two codecs, JSON text and
+/// Protobuf). Nothing ships it yet: it becomes part of the channels' client
+/// chunk, only for apps with a channel rpc (`docs/design/44-channels.md`).
+pub const CHANNELS_SIZE_BUDGET: usize = 2048;
+
 /// The largest `HttpResponse` and `HttpHeaders` in the browser
 /// ([`Part::Http`]) may be, measured like [`CORE_SIZE_BUDGET`] (1.5 KB).
 /// Like the charts it ships in its own chunk, only to apps whose client
@@ -264,6 +270,10 @@ pub enum Part {
     /// chunk, only to apps with a streaming rpc, and measured on its own
     /// ([`STREAMS_SIZE_BUDGET`]).
     Streams,
+    /// The frames of channels (`k.channel.v1`) as pure JSON and Protobuf
+    /// encode and decode, which the channels' client is built on; not
+    /// shipped yet, and measured on its own ([`CHANNELS_SIZE_BUDGET`]).
+    Channels,
     /// `HttpResponse` and `HttpHeaders` (built and read alike) in the
     /// browser: shipped as its own client chunk, only to apps whose client
     /// code uses them, and measured on its own ([`HTTP_SIZE_BUDGET`]). The
@@ -352,6 +362,7 @@ const MODULES: &[Module] = modules![
     Observe "runtime/observe.js",
     Keys "runtime/keys.js",
     Streams "runtime/streams.js",
+    Channels "runtime/channels.js",
     Http "runtime/http.js",
     Forms "runtime/forms.js",
     Money "runtime/money.js",

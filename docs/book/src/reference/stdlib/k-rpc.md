@@ -8,6 +8,10 @@ Import each declaration by name, for example `import k.rpc.Broadcast`.
 | Declaration | Summary |
 |---|---|
 | [`Broadcast`](#broadcast) | Fans values out to subscribers by key, across requests and replicas (`docs/design/29-server-streaming.md`). |
+| [`Channel`](#channel) | A long-lived, two-way, typed conversation between one browser tab and the app's server (`docs/design/44-channels.md`): the result of a protocol's channel rpc, `rpc room(id: RoomId) throws RoomError -> Channel<ChatCommand, ChatEvent, CommandError>`. |
+| [`ChannelClose`](#channelclose) | Why a [`Channel`](#channel) closed for good (`docs/design/44-channels.md`, "The client"). |
+| [`ChannelConfig`](#channelconfig) | The limits of channels (`docs/design/44-channels.md`, "Limits and back-pressure"), read from the environment like every stdlib config. |
+| [`ChannelState`](#channelstate) | Where a [`Channel`](#channel) is, for a banner (`docs/design/44-channels.md`, "The client"). |
 | [`RemoteClient`](#remoteclient) | Builds a client of a protocol at an address known only at run time, such as a merchant's callback URL registered with the app (`docs/design/40-workspaces-and-services.md`). |
 | [`RemoteService`](#remoteservice) | Where another service of the same system runs, and the secret its calls are signed with (`docs/design/40-workspaces-and-services.md`). |
 | [`RpcFailure`](#rpcfailure) | A failure outside an rpc's handler, carried by the `rpcFailure` case every rpc error enum has (`docs/design/28-rpc-wire-format.md`, "Failures outside the handler"). |
@@ -39,6 +43,101 @@ service ([`k.core.ServiceScope.server`](k-core.md#servicescope)).
 
   - Returns: a [`k.core.Stream`](k-core.md#stream) that starts receiving immediately
     and buffers values until they are read.
+
+## Channel
+
+```k,ignore
+public class Channel<C, S, E>
+```
+
+A long-lived, two-way, typed conversation between one browser tab and
+the app's server (`docs/design/44-channels.md`): the result of a
+protocol's channel rpc,
+`rpc room(id: RoomId) throws RoomError -> Channel<ChatCommand, ChatEvent, CommandError>`.
+The client sends `C`, the server sends `S`, and the server may refuse a
+client message with the error enum `E`, which has an
+`rpcFailure(RpcFailure)` case like every rpc error.
+
+On the server a channel is only built, by the handler of a channel
+rpc, and returned; its `state`, `messages`, `send` and `close` are the
+client's.
+
+**Members**
+
+- `init(sending: Stream<S>, closed: ((ChannelClose) -> Void)? = nil, receiving: (C) async throws E -> Void)`
+  Builds the channel a handler returns. Server-only: only the handler
+  of a channel rpc builds one.
+
+  - Parameters:
+    - sending: every message the server sends on the channel; when it
+      ends, the server has closed the channel
+      ([`ChannelClose.byServer`](#channelclose)).
+    - closed: runs on a normal close, best-effort.
+    - receiving: runs for each client message, in order, one at a
+      time; throwing `E` refuses that message.
+- `let state: ChannelState`
+  `connecting`, `open`, `reconnecting` or `closed`; reactive.
+  Client-only.
+- `let messages: Stream<S>`
+  Every server message, in order, across reconnects; ends when the
+  channel closes for good. Read once. Client-only.
+- `func send(_ message: C) async throws E`
+  Sends `message` and waits for the server's acknowledgement.
+  Client-only.
+
+  - Throws: the server's refusal, or `rpcFailure`; on a closed channel,
+    `rpcFailure(.offline)` at once.
+- `func close()`
+  Closes the channel for good; idempotent. Client-only.
+
+## ChannelClose
+
+```k,ignore
+public enum ChannelClose implements Equatable, Codable
+```
+
+Why a [`Channel`](#channel) closed for good (`docs/design/44-channels.md`, "The
+client"). Crosses the wire in a `close` frame.
+
+**Members**
+
+- `case byClient`
+  `close()`, or the owner that opened it was cancelled.
+- `case byServer`
+  The handler's sending stream ended.
+- `case sessionEnded`
+  Sign-out, expiry or `endAll`; the router reacts as for any rpc.
+- `case refused`
+  A restart was refused: a guard, or the handler threw.
+
+## ChannelConfig
+
+```k,ignore
+public config ChannelConfig
+```
+
+The limits of channels (`docs/design/44-channels.md`, "Limits and
+back-pressure"), read from the environment like every stdlib config.
+
+## ChannelState
+
+```k,ignore
+public enum ChannelState implements Equatable
+```
+
+Where a [`Channel`](#channel) is, for a banner (`docs/design/44-channels.md`,
+"The client"). Read on the client, from `channel.state`.
+
+**Members**
+
+- `case connecting`
+  The first open, or a reopen after the socket came back.
+- `case open`
+  Open: messages flow.
+- `case reconnecting(attempt: Int, at: Date)`
+  Dropped; the next attempt is due at `at`.
+- `case closed(ChannelClose)`
+  Closed for good, and why.
 
 ## RemoteClient
 

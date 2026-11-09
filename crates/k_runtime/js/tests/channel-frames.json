@@ -1,0 +1,435 @@
+{
+  "comment": "Golden vectors of the k.channel.v1 frames (docs/design/44-channels.md, \"The wire\"), read by crates/k_server/tests/channels.rs and crates/k_runtime/js/tests/channels.test.js. `frame` is the decoded JSON frame (payloads as JSON) and `json` its exact text; `binaryFrame` is the decoded binary frame (payloads as hex bytes) and `binary` its exact bytes in hex. Each must decode to its frame and encode back to exactly itself. `invalidJson` and `invalidBinary` must fail to decode.",
+  "frames": [
+    {
+      "name": "open",
+      "frame": {
+        "kind": "open",
+        "ch": 1,
+        "method": "/huddle.chat.ChatProtocol/Room",
+        "request": {
+          "id": "r1"
+        }
+      },
+      "json": "{\"open\":{\"ch\":1,\"method\":\"/huddle.chat.ChatProtocol/Room\",\"request\":{\"id\":\"r1\"}}}",
+      "binaryFrame": {
+        "kind": "open",
+        "ch": 1,
+        "method": "/huddle.chat.ChatProtocol/Room",
+        "request": "0a027231"
+      },
+      "binary": "0a280801121e2f687564646c652e636861742e4368617450726f746f636f6c2f526f6f6d1a040a027231"
+    },
+    {
+      "name": "open with no parameters",
+      "frame": {
+        "kind": "open",
+        "ch": 2,
+        "method": "/huddle.chat.ChatProtocol/Lobby",
+        "request": {}
+      },
+      "json": "{\"open\":{\"ch\":2,\"method\":\"/huddle.chat.ChatProtocol/Lobby\",\"request\":{}}}",
+      "binaryFrame": {
+        "kind": "open",
+        "ch": 2,
+        "method": "/huddle.chat.ChatProtocol/Lobby",
+        "request": ""
+      },
+      "binary": "0a230802121f2f687564646c652e636861742e4368617450726f746f636f6c2f4c6f626279"
+    },
+    {
+      "name": "opened",
+      "frame": {
+        "kind": "opened",
+        "ch": 1,
+        "resume": "p1.w3.s9.Zm9v"
+      },
+      "json": "{\"opened\":{\"ch\":1,\"resume\":\"p1.w3.s9.Zm9v\"}}",
+      "binaryFrame": {
+        "kind": "opened",
+        "ch": 1,
+        "resume": "p1.w3.s9.Zm9v"
+      },
+      "binary": "12110801120d70312e77332e73392e5a6d3976"
+    },
+    {
+      "name": "refused",
+      "frame": {
+        "kind": "refused",
+        "ch": 1,
+        "error": {
+          "notAMember": {}
+        }
+      },
+      "json": "{\"refused\":{\"ch\":1,\"error\":{\"notAMember\":{}}}}",
+      "binaryFrame": {
+        "kind": "refused",
+        "ch": 1,
+        "error": "0a00"
+      },
+      "binary": "1a06080112020a00"
+    },
+    {
+      "name": "server message",
+      "frame": {
+        "kind": "msg",
+        "ch": 1,
+        "seq": 1,
+        "value": {
+          "snapshot": {
+            "messages": []
+          }
+        }
+      },
+      "json": "{\"msg\":{\"ch\":1,\"seq\":1,\"value\":{\"snapshot\":{\"messages\":[]}}}}",
+      "binaryFrame": {
+        "kind": "msg",
+        "ch": 1,
+        "seq": 1,
+        "value": "0a00"
+      },
+      "binary": "2208080110011a020a00"
+    },
+    {
+      "name": "client message with text",
+      "frame": {
+        "kind": "msg",
+        "ch": 1,
+        "seq": 1,
+        "value": {
+          "post": {
+            "clientId": "c-1",
+            "text": "héllo \"hi\""
+          }
+        }
+      },
+      "json": "{\"msg\":{\"ch\":1,\"seq\":1,\"value\":{\"post\":{\"clientId\":\"c-1\",\"text\":\"héllo \\\"hi\\\"\"}}}}",
+      "binaryFrame": {
+        "kind": "msg",
+        "ch": 1,
+        "seq": 1,
+        "value": "0a0e0a0868c3a96c6c6f2068691203632d31"
+      },
+      "binary": "2218080110011a120a0e0a0868c3a96c6c6f2068691203632d31"
+    },
+    {
+      "name": "message on a later channel",
+      "frame": {
+        "kind": "msg",
+        "ch": 300,
+        "seq": 128,
+        "value": {
+          "typing": {}
+        }
+      },
+      "json": "{\"msg\":{\"ch\":300,\"seq\":128,\"value\":{\"typing\":{}}}}",
+      "binaryFrame": {
+        "kind": "msg",
+        "ch": 300,
+        "seq": 128,
+        "value": "2200"
+      },
+      "binary": "220a08ac021080011a022200"
+    },
+    {
+      "name": "ack",
+      "frame": {
+        "kind": "ack",
+        "ch": 1,
+        "seq": 1
+      },
+      "json": "{\"ack\":{\"ch\":1,\"seq\":1}}",
+      "binaryFrame": {
+        "kind": "ack",
+        "ch": 1,
+        "seq": 1
+      },
+      "binary": "2a0408011001"
+    },
+    {
+      "name": "ack with a refusal",
+      "frame": {
+        "kind": "ack",
+        "ch": 1,
+        "seq": 2,
+        "error": {
+          "notYourMessage": {}
+        }
+      },
+      "json": "{\"ack\":{\"ch\":1,\"seq\":2,\"error\":{\"notYourMessage\":{}}}}",
+      "binaryFrame": {
+        "kind": "ack",
+        "ch": 1,
+        "seq": 2,
+        "error": "0a00"
+      },
+      "binary": "2a08080110021a020a00"
+    },
+    {
+      "name": "ack with an empty refusal",
+      "frame": {
+        "kind": "ack",
+        "ch": 1,
+        "seq": 3,
+        "error": {}
+      },
+      "json": "{\"ack\":{\"ch\":1,\"seq\":3,\"error\":{}}}",
+      "binaryFrame": {
+        "kind": "ack",
+        "ch": 1,
+        "seq": 3,
+        "error": ""
+      },
+      "binary": "2a06080110031a00"
+    },
+    {
+      "name": "rcvd",
+      "frame": {
+        "kind": "rcvd",
+        "ch": 1,
+        "seq": 14
+      },
+      "json": "{\"rcvd\":{\"ch\":1,\"seq\":14}}",
+      "binaryFrame": {
+        "kind": "rcvd",
+        "ch": 1,
+        "seq": 14
+      },
+      "binary": "32040801100e"
+    },
+    {
+      "name": "resume",
+      "frame": {
+        "kind": "resume",
+        "ch": 1,
+        "token": "p1.w3.s9.Zm9v",
+        "received": 14,
+        "sent": 3
+      },
+      "json": "{\"resume\":{\"ch\":1,\"token\":\"p1.w3.s9.Zm9v\",\"received\":14,\"sent\":3}}",
+      "binaryFrame": {
+        "kind": "resume",
+        "ch": 1,
+        "token": "p1.w3.s9.Zm9v",
+        "received": 14,
+        "sent": 3
+      },
+      "binary": "3a150801120d70312e77332e73392e5a6d3976180e2003"
+    },
+    {
+      "name": "resume having received nothing",
+      "frame": {
+        "kind": "resume",
+        "ch": 4,
+        "token": "t",
+        "received": 0,
+        "sent": 0
+      },
+      "json": "{\"resume\":{\"ch\":4,\"token\":\"t\",\"received\":0,\"sent\":0}}",
+      "binaryFrame": {
+        "kind": "resume",
+        "ch": 4,
+        "token": "t",
+        "received": 0,
+        "sent": 0
+      },
+      "binary": "3a050804120174"
+    },
+    {
+      "name": "close by the server",
+      "frame": {
+        "kind": "close",
+        "ch": 1,
+        "reason": "byServer"
+      },
+      "json": "{\"close\":{\"ch\":1,\"reason\":\"byServer\"}}",
+      "binaryFrame": {
+        "kind": "close",
+        "ch": 1,
+        "reason": "byServer"
+      },
+      "binary": "420408011002"
+    },
+    {
+      "name": "close by the client",
+      "frame": {
+        "kind": "close",
+        "ch": 2,
+        "reason": "byClient"
+      },
+      "json": "{\"close\":{\"ch\":2,\"reason\":\"byClient\"}}",
+      "binaryFrame": {
+        "kind": "close",
+        "ch": 2,
+        "reason": "byClient"
+      },
+      "binary": "420408021001"
+    },
+    {
+      "name": "close when the session ended",
+      "frame": {
+        "kind": "close",
+        "ch": 3,
+        "reason": "sessionEnded"
+      },
+      "json": "{\"close\":{\"ch\":3,\"reason\":\"sessionEnded\"}}",
+      "binaryFrame": {
+        "kind": "close",
+        "ch": 3,
+        "reason": "sessionEnded"
+      },
+      "binary": "420408031003"
+    },
+    {
+      "name": "close of a refused restart",
+      "frame": {
+        "kind": "close",
+        "ch": 4,
+        "reason": "refused"
+      },
+      "json": "{\"close\":{\"ch\":4,\"reason\":\"refused\"}}",
+      "binaryFrame": {
+        "kind": "close",
+        "ch": 4,
+        "reason": "refused"
+      },
+      "binary": "420408041004"
+    },
+    {
+      "name": "session of a guest",
+      "frame": {
+        "kind": "session",
+        "user": null
+      },
+      "json": "{\"session\":{\"user\":null}}",
+      "binaryFrame": {
+        "kind": "session",
+        "user": null
+      },
+      "binary": "4a00"
+    },
+    {
+      "name": "session of a user",
+      "frame": {
+        "kind": "session",
+        "user": {
+          "id": "a1",
+          "roles": []
+        }
+      },
+      "json": "{\"session\":{\"user\":{\"id\":\"a1\",\"roles\":[]}}}",
+      "binaryFrame": {
+        "kind": "session",
+        "user": "0a026131"
+      },
+      "binary": "4a060a040a026131"
+    },
+    {
+      "name": "beat",
+      "frame": {
+        "kind": "beat"
+      },
+      "json": "{\"beat\":{}}",
+      "binaryFrame": {
+        "kind": "beat"
+      },
+      "binary": "5200"
+    }
+  ],
+  "invalidJson": [
+    {
+      "name": "not an object",
+      "json": "[1]"
+    },
+    {
+      "name": "two kinds",
+      "json": "{\"beat\":{},\"rcvd\":{\"ch\":1,\"seq\":1}}"
+    },
+    {
+      "name": "no kind",
+      "json": "{}"
+    },
+    {
+      "name": "an unknown kind",
+      "json": "{\"ping\":{}}"
+    },
+    {
+      "name": "channel zero",
+      "json": "{\"rcvd\":{\"ch\":0,\"seq\":1}}"
+    },
+    {
+      "name": "a missing sequence number",
+      "json": "{\"msg\":{\"ch\":1,\"value\":{}}}"
+    },
+    {
+      "name": "a negative sequence number",
+      "json": "{\"rcvd\":{\"ch\":1,\"seq\":-1}}"
+    },
+    {
+      "name": "a fractional sequence number",
+      "json": "{\"rcvd\":{\"ch\":1,\"seq\":1.5}}"
+    },
+    {
+      "name": "a sequence number beyond 2^53 - 1",
+      "json": "{\"rcvd\":{\"ch\":1,\"seq\":9007199254740992}}"
+    },
+    {
+      "name": "a missing payload",
+      "json": "{\"msg\":{\"ch\":1,\"seq\":1}}"
+    },
+    {
+      "name": "a method that isn't a string",
+      "json": "{\"open\":{\"ch\":1,\"method\":3,\"request\":{}}}"
+    },
+    {
+      "name": "an unknown close reason",
+      "json": "{\"close\":{\"ch\":1,\"reason\":\"goingAway\"}}"
+    },
+    {
+      "name": "a body that isn't an object",
+      "json": "{\"beat\":1}"
+    },
+    {
+      "name": "not JSON",
+      "json": "{\"beat\":"
+    }
+  ],
+  "invalidBinary": [
+    {
+      "name": "empty",
+      "binary": ""
+    },
+    {
+      "name": "an unknown kind only",
+      "binary": "5a00"
+    },
+    {
+      "name": "a truncated length",
+      "binary": "2205"
+    },
+    {
+      "name": "a truncated varint",
+      "binary": "22020880"
+    },
+    {
+      "name": "channel zero",
+      "binary": "32021001"
+    },
+    {
+      "name": "a kind that isn't length-delimited",
+      "binary": "2001"
+    },
+    {
+      "name": "a channel number that isn't a varint",
+      "binary": "22020a00"
+    },
+    {
+      "name": "an unknown close reason",
+      "binary": "420408011009"
+    },
+    {
+      "name": "a method that isn't UTF-8",
+      "binary": "0a0508011201ff"
+    }
+  ]
+}

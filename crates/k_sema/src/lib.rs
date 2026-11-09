@@ -61,6 +61,7 @@
 mod activation;
 mod app;
 mod body;
+mod channels;
 mod check;
 mod cx;
 mod di;

@@ -54,6 +54,14 @@ struct Lock {
     services: BTreeMap<String, String>,
     /// App and library types by qualified name.
     types: BTreeMap<String, Shape>,
+    /// The program's types that a client sends or an rpc carries, which
+    /// keep every case (not recorded; only the program's lock has it). A
+    /// type reached only as a channel's server message `S` may lose a case
+    /// (44-channels.md, "rpc.lock and compatibility").
+    strict: BTreeSet<String>,
+    /// The types of each enum's case payloads in the program (not
+    /// recorded), so the comparison reaches them through the enum.
+    payloads: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// One rpc.
@@ -62,10 +70,26 @@ struct Rpc {
     /// The parameters: name, type, and whether it may be left out
     /// (optional or defaulted; not recorded, only used for comparing).
     params: Vec<(String, String, bool)>,
-    /// The result type.
+    /// The result type (empty for a channel, which records [`Rpc::channel`]
+    /// instead).
     returns: String,
     /// The error type.
     throws: String,
+    /// A channel rpc's message types (`kind = "channel"`): what the client
+    /// sends (`send`, `C`), what it receives (`receive`, `S`) and the
+    /// refusal (`refusal`, `E`).
+    channel: Option<Messages>,
+}
+
+/// The three types of a channel rpc's `Channel<C, S, E>`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Messages {
+    /// `C`, client to server.
+    send: String,
+    /// `S`, server to client.
+    receive: String,
+    /// `E`, the refusal of a client message.
+    refusal: String,
 }
 
 /// A recorded type.
@@ -221,7 +245,11 @@ fn wire_service(cx: &Cx<'_, '_>, d: DeclId) -> String {
 fn current(cx: &Cx<'_, '_>, served: &[(String, DeclId)]) -> Lock {
     let p = cx.p;
     let mut out = Lock::default();
+    // The types reached strictly (parameters, results, errors, a channel's
+    // client messages and refusals), and those reached only as a channel's
+    // server messages.
     let mut pending: Vec<Ty> = Vec::new();
+    let mut lenient: Vec<Ty> = Vec::new();
     for (name, d) in served {
         out.services.insert(name.clone(), wire_service(cx, *d));
         let mut rpcs = BTreeMap::new();
@@ -243,23 +271,50 @@ fn current(cx: &Cx<'_, '_>, served: &[(String, DeclId)]) -> Lock {
                     )
                 })
                 .collect();
-            pending.push(sig.ret.clone());
+            let channel = crate::channels::channel_args(cx, &sig.ret).map(|args| {
+                pending.push(args[0].clone());
+                lenient.push(args[1].clone());
+                pending.push(args[2].clone());
+                Messages {
+                    send: text(cx, &args[0]),
+                    receive: text(cx, &args[1]),
+                    refusal: text(cx, &args[2]),
+                }
+            });
+            if channel.is_none() {
+                pending.push(sig.ret.clone());
+            }
             let throws = sig.throws.clone().unwrap_or(Ty::Error);
             pending.push(throws.clone());
             rpcs.insert(
                 member.name.clone(),
                 Rpc {
                     params,
-                    returns: text(cx, &sig.ret),
+                    returns: if channel.is_some() {
+                        String::new()
+                    } else {
+                        text(cx, &sig.ret)
+                    },
                     throws: text(cx, &throws),
+                    channel,
                 },
             );
         }
         out.protocols.insert(name.clone(), rpcs);
     }
-    // The app and library types reachable from the signatures.
+    // The app and library types reachable from the signatures: the strict
+    // ones first, then those only a channel's server messages reach.
     let mut seen: BTreeSet<DeclId> = BTreeSet::new();
-    while let Some(t) = pending.pop() {
+    let mut strict = true;
+    loop {
+        let Some(t) = pending.pop() else {
+            if lenient.is_empty() {
+                break;
+            }
+            strict = false;
+            pending = std::mem::take(&mut lenient);
+            continue;
+        };
         match &t {
             Ty::Optional(inner) => pending.push((**inner).clone()),
             Ty::Named(d, args) => {
@@ -267,6 +322,9 @@ fn current(cx: &Cx<'_, '_>, served: &[(String, DeclId)]) -> Lock {
                 let d = *d;
                 if p.is_stdlib(d) || !seen.insert(d) {
                     continue;
+                }
+                if strict {
+                    out.strict.insert(p.decl_name(d));
                 }
                 match p.decl(d).named_kind() {
                     Some(K::Struct) => {
@@ -297,10 +355,15 @@ fn current(cx: &Cx<'_, '_>, served: &[(String, DeclId)]) -> Lock {
                     }
                     Some(K::Enum) => {
                         let mut cases = Vec::new();
+                        let mut payloads = BTreeSet::new();
                         for m in cx.cases(d) {
                             cases.push(p.member(m).name.clone());
-                            pending.extend(cx.case_sig(m).params.iter().map(|sp| sp.ty.clone()));
+                            for sp in cx.case_sig(m).params.iter() {
+                                payloads.extend(names_in(&text(cx, &sp.ty)));
+                                pending.push(sp.ty.clone());
+                            }
                         }
+                        out.payloads.insert(p.decl_name(d), payloads);
                         out.types.insert(p.decl_name(d), Shape::Enum(cases));
                     }
                     _ => {}
@@ -397,8 +460,20 @@ fn write(lock: &Lock) -> String {
                 .iter()
                 .map(|(n, t, _)| format!("{{ name = {}, type = {} }}", quote(n), quote(t)))
                 .collect();
+            if r.channel.is_some() {
+                out.push_str("kind = \"channel\"\n");
+            }
             let _ = writeln!(out, "params = [{}]", params.join(", "));
-            let _ = writeln!(out, "returns = {}", quote(&r.returns));
+            match &r.channel {
+                Some(m) => {
+                    let _ = writeln!(out, "send = {}", quote(&m.send));
+                    let _ = writeln!(out, "receive = {}", quote(&m.receive));
+                    let _ = writeln!(out, "refusal = {}", quote(&m.refusal));
+                }
+                None => {
+                    let _ = writeln!(out, "returns = {}", quote(&r.returns));
+                }
+            }
             let _ = writeln!(out, "throws = {}", quote(&r.throws));
         }
     }
@@ -480,12 +555,27 @@ fn read(text: &str) -> Result<Lock, Invalid> {
                             .ok_or_else(bad)?;
                         params.push((n.to_owned(), ty.to_owned(), false));
                     }
+                    let channel = match r.get("kind") {
+                        None => None,
+                        Some(k) if k.as_str() == Some("channel") => Some(Messages {
+                            send: s("send").ok_or_else(bad)?,
+                            receive: s("receive").ok_or_else(bad)?,
+                            refusal: s("refusal").ok_or_else(bad)?,
+                        }),
+                        Some(_) => return Err(bad()),
+                    };
+                    let returns = if channel.is_some() {
+                        String::new()
+                    } else {
+                        s("returns").ok_or_else(bad)?
+                    };
                     rpcs.insert(
                         rpc.clone(),
                         Rpc {
                             params,
-                            returns: s("returns").ok_or_else(bad)?,
+                            returns,
                             throws: s("throws").ok_or_else(bad)?,
+                            channel,
                         },
                     );
                 }
@@ -663,13 +753,37 @@ fn compare(
                     ));
                 }
             }
-            if old.returns == new.returns {
-                types.insert(old.returns.clone());
-            } else {
-                changes.push(format!(
+            match (&old.channel, &new.channel) {
+                (None, None) if old.returns == new.returns => {
+                    types.insert(old.returns.clone());
+                }
+                (None, None) => changes.push(format!(
                     "rpc `{rpc}` returned `{}` and now returns `{}`",
                     old.returns, new.returns
-                ));
+                )),
+                (Some(_), None) => changes.push(format!(
+                    "rpc `{rpc}` was a channel and now returns `{}`; open tabs still open it as a channel",
+                    new.returns
+                )),
+                (None, Some(_)) => changes.push(format!(
+                    "rpc `{rpc}` returned `{}` and is now a channel; deployed callers still call it as an rpc",
+                    old.returns
+                )),
+                (Some(o), Some(n)) => {
+                    for (what, a, b) in [
+                        ("client messages", &o.send, &n.send),
+                        ("server messages", &o.receive, &n.receive),
+                        ("refusal", &o.refusal, &n.refusal),
+                    ] {
+                        if a == b {
+                            types.insert(a.clone());
+                        } else {
+                            changes.push(format!(
+                                "the {what} of channel `{rpc}` changed from `{a}` to `{b}`"
+                            ));
+                        }
+                    }
+                }
             }
             if old.throws == new.throws {
                 types.insert(old.throws.clone());
@@ -712,10 +826,17 @@ fn compare(
                     }
                 }
                 (Shape::Enum(oc), Shape::Enum(nc)) => {
-                    for c in oc {
-                        if !nc.contains(c) {
-                            type_changes.push(format!("case `{c}` of `{t}` was removed"));
+                    // A type only a channel's server messages reach may
+                    // lose a case: the server stops sending it.
+                    if now.strict.contains(&t) {
+                        for c in oc {
+                            if !nc.contains(c) {
+                                type_changes.push(format!("case `{c}` of `{t}` was removed"));
+                            }
                         }
+                    }
+                    if let Some(payloads) = now.payloads.get(&t) {
+                        todo.extend(payloads.iter().cloned());
                     }
                 }
                 _ => type_changes.push(format!("`{t}` changed between a struct and an enum")),
@@ -768,6 +889,20 @@ mod tests {
                 params: vec![("item".into(), "cart.Item".into(), false)],
                 returns: "Int".into(),
                 throws: "cart.CartError".into(),
+                channel: None,
+            },
+        );
+        rpcs.insert(
+            "follow".to_owned(),
+            Rpc {
+                params: vec![("id".into(), "Int".into(), false)],
+                returns: String::new(),
+                throws: "cart.CartError".into(),
+                channel: Some(Messages {
+                    send: "cart.Item".into(),
+                    receive: "cart.CartError".into(),
+                    refusal: "cart.CartError".into(),
+                }),
             },
         );
         l.protocols.insert("cart.CartApi".into(), rpcs);
@@ -810,6 +945,9 @@ mod tests {
     #[test]
     fn written_locks_read_back() {
         let text = write(&lock());
+        assert!(text.contains(
+            "[protocols.\"cart.CartApi\".rpcs.follow]\nkind = \"channel\"\nparams = [{ name = \"id\", type = \"Int\" }]\nsend = \"cart.Item\"\nreceive = \"cart.CartError\"\nrefusal = \"cart.CartError\"\nthrows = \"cart.CartError\"\n"
+        ));
         let back = read(&text).ok().unwrap();
         assert_eq!(back, strip(lock()));
         assert_eq!(write(&back), text);
@@ -845,6 +983,8 @@ mod tests {
             "[types.\"a.B\"]\nfields = []\nreserved = [\"x\"]\n",
             "[types.\"a.B\"]\nnothing = 1\n",
             "[protocols.\"a.P\".rpcs.r]\nparams = [1]\nreturns = \"Int\"\nthrows = \"E\"\n",
+            "[protocols.\"a.P\".rpcs.r]\nkind = \"stream\"\nparams = []\nreturns = \"Int\"\nthrows = \"E\"\n",
+            "[protocols.\"a.P\".rpcs.r]\nkind = \"channel\"\nparams = []\nsend = \"A\"\nthrows = \"E\"\n",
         ] {
             let Err(e) = read(text) else {
                 panic!("{text:?} was read");

@@ -220,6 +220,11 @@ K5505: Repeat the rpc's parameters, return type and `throws` in the handler.
 K5506: Throw one of the error enum's own cases; `rpcFailure` is produced only by the runtime.
 K5507: Move the clause to the protocol's rpc (the quick fix does it); for a library's protocol, check the caller in the handler instead.
 K5508: Make it a `func` (the quick fix does it), or declare the rpc in a protocol the service implements so it is served.
+K5509: Declare the channel as an rpc of a protocol, returning `Channel<C, S, E>` (not optional); a client service opens it by calling that rpc and keeps it in a field.
+K5510: Open one channel per subject and hold each in its own field or local of type `Channel<C, S, E>` or `Channel<C, S, E>?`.
+K5511: Open the channel and use its `state`, `messages`, `send` and `close` from a client service; on the server, only a channel rpc's handler builds a `Channel` and returns it.
+K5512: Build the `Channel(sending:receiving:)` in the handler of the channel rpc and return it; a client test uses `TestChannel` instead.
+K5513: Open the channel from an `@Effect`, which runs only in the browser, not from a `@Load`.
 K6001: Use only fields, literals, parameters and the query operators the compiler translates; filter in K after loading if needed.
 K6002: Use a column type (`String`, `Int`, `Bool`, `Double`, `Decimal`, `Money`, `Date`, `Uuid`, an enum without payloads, …) or a `@Relation`.
 K6003: Rename the entity, or set another table name.

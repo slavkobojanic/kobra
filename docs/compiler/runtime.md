@@ -43,6 +43,7 @@ No npm, no bundler, no transpiler: the files are shipped as written (compacted i
 | `@Form` state: `createForm`, field parsers, constraint rules | `runtime/forms.js` | **implemented** (part `Forms`, a chunk of its own reached as `$k_forms`, [§9](#9-forms)) |
 | `Decimal`, `Money`, `Currency` and their codecs (`moneyCodecs`) | `runtime/money.js` | **implemented** (part `Money`, a chunk of its own reached as `$k_money`, [§12](#12-native-stdlib-bodies)) |
 | Server streams in the browser (`streamed`: the request envelope, the response read as it arrives) | `runtime/streams.js` | **implemented** (part `Streams`, a chunk of its own, [§8](#8-rpc-client)) |
+| Channel frames (`k.channel.v1`): `encodeChannelFrame`/`decodeChannelFrame` (JSON text) and `encodeChannelFrameBinary`/`decodeChannelFrameBinary` (Protobuf), pure, tested against the golden vectors `tests/channel-frames.json` shared with `k_server::channels` | `runtime/channels.js` | **implemented, unwired** (part `Channels`; no socket or client state machine yet, [44-channels.md](../design/44-channels.md#the-wire)) |
 | `k.charts.LineChart`, one drawing for the server and the browser | `runtime/charts.js` | **implemented** (part `Charts`, a chunk of its own, [§12.2](#122-charts)) |
 | `k.drag`: `Draggable`, `DropTarget`, `ReorderableList` with pointer, touch and keyboard dragging | `runtime/drag.js` | **implemented** (part `Drag`, a chunk of its own, [§12.3](#123-drag-and-drop)) |
 | `k.device.BrowserFiles`: the file picker and downloads | `runtime/files.js` | **implemented** (part `Files`, a chunk of its own, [§12.4](#124-files)) |
@@ -156,6 +157,7 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | `observe.[hash].js` | `observe.js` (part `Observe`), a runtime feature shipped only to clients whose views use `appeared`, `disappeared` or `resized` | ≤ 1 KB (`OBSERVE_SIZE_BUDGET`) | 728 B |
 | `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
 | `streams.[hash].js` | `streams.js` (part `Streams`), shipped only to apps with a streaming rpc | ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | 569 B |
+| (not shipped yet) | `channels.js` (part `Channels`), the channel frame codec, to become part of the channels' chunk for apps with a channel rpc | ≤ 2 KB (`CHANNELS_SIZE_BUDGET`) | 1,721 B |
 | `http.[hash].js` | `http.js` (part `Http`), shipped only to apps whose client builds or reads an `HttpResponse` | ≤ 1.5 KB (`HTTP_SIZE_BUDGET`) | 1,175 B |
 | `forms.[hash].js` | `forms.js` (part `Forms`), shipped only to apps with a `@Form` | ≤ 2 KB (`FORMS_SIZE_BUDGET`) | 1,807 B |
 | `money.[hash].js` | `money.js` (part `Money`), shipped only to apps whose client uses `Decimal`, `Money` or `Currency` | ≤ 2.5 KB (`MONEY_SIZE_BUDGET`) | 2,164 B |

@@ -406,7 +406,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 
 | Code | Name | Severity | Primary span | Fix |
 |---|---|---|---|---|
-| K5001 | `url-conflict` | error | The later page's name token or `at` template; label: the first. | — |
+| K5001 | `url-conflict` | error | The later page's name token or `at` template; label: the first. Also a page or endpoint page at `/_k/channels`, where the browser opens its channels' WebSocket ([44-channels.md](../design/44-channels.md#sessions-and-security)): its URL, with no label. | — |
 | K5002 | `unroutable-param` | error | The field's type. | — |
 | K5003 | `at-template-mismatch` | error | The template segment, or the field's name token when the template lacks it. | — |
 | K5004 | `endpoint-without-at` | error | The page's name token. | Insert ` at "/<kebab-name>"` (machine-applicable). |
@@ -426,13 +426,18 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | Code | Name | Severity | Primary span | Fix |
 |---|---|---|---|---|
 | K5501 | `rpc-without-throws` | error | The rpc's name token. | Insert ` throws RpcOnlyError` before the return type (machine-applicable). |
-| K5502 | `rpc-error-without-failure-case` | error | The error type in the rpc's `throws` clause; label: the enum. | Insert `case rpcFailure(RpcFailure)` into the enum (machine-applicable when the enum is in the project). |
-| K5503 | `rpc-payload-not-codable` | error | The parameter's, return or error type. | — |
+| K5502 | `rpc-error-without-failure-case` | error | The error type in the rpc's `throws` clause, or a channel rpc's refusal `E` in its `Channel<C, S, E>` result; label: the enum. | Insert `case rpcFailure(RpcFailure)` into the enum (machine-applicable when the enum is in the project). |
+| K5503 | `rpc-payload-not-codable` | error | The parameter's, return or error type; for a channel rpc, the `C`, `S` or `E` type argument of its `Channel<C, S, E>` result. | — |
 | K5504 | `rpc-implementation-not-server` | error | The protocol's name in the `implements` clause. | — |
 | K5505 | `rpc-handler-mismatch` | error | The handler's name token; label: the protocol's rpc. | — |
 | K5506 | `handler-throws-rpc-failure` | error | The `throw` statement, in the body of a protocol handler, whose value constructs a `rpcFailure` case ([28-rpc-wire-format.md](../design/28-rpc-wire-format.md): only the runtime produces it). Client code rethrowing it is fine. | — |
 | K5507 | `requires-on-handler` | error | The `requires` clause of an rpc outside a protocol: a service's handler, or an rpc no protocol declares. Only the protocol's clauses (on the protocol and on its rpc) are checked by the server. A label marks each protocol rpc the handler serves. | Move the guards the protocol doesn't already declare to every protocol rpc the handler serves (appended to its `requires` clause, or a new clause after its signature), importing them where needed, and delete the handler's clause (maybe-incorrect: it changes the protocol's contract for every implementation and caller). When the protocol already declares every guard: delete the clause (machine-applicable). Either way, also delete the imports of the handler's file that only the clause used, except those of guards moved to a protocol in the same file. No fix when a protocol comes from a library or the stdlib (a help says so), or when no protocol declares the rpc (a help says to declare it in one). |
 | K5508 | `rpc-outside-protocol` | error | The `rpc` keyword of a member of anything but a protocol (a struct, a component, an extension, or a service) that no protocol in its declaration's `implements` clause declares. A struct that names such a protocol is K5504 instead. | Replace `rpc` with `func` (maybe-incorrect: the rpc may belong in a protocol). None when the rpc has a `requires` clause, or no body outside an interface. |
+| K5509 | `channel-result-misplaced` | error | The return type of a `func` or rpc whose result is `Channel<…>` or `Channel<…>?` but that isn't a protocol's rpc or a service's handler serving one; or the `Channel<…>?` result of a protocol rpc or handler ([44-channels.md](../design/44-channels.md#channelc-s-e)). | — |
+| K5510 | `nested-channel` | error | A type argument that names `Channel` (through `?` and parentheses), anywhere a type is written: `List<Channel<…>>`, `Map<K, Channel<…>?>`, `Stream<Channel<…>>`. A `Channel<…>?` that isn't a type argument is allowed. | — |
+| K5511 | `channel-on-server` | error | In the body of a server-only declaration (a service implementing a protocol, a `.request` or `.server` service, an endpoint page, …): the member expression or call of a `Channel`'s `state`, `messages`, `send` or `close`, or the call of a channel rpc ([44-channels.md](../design/44-channels.md#server-only-and-client-only)). | — |
+| K5512 | `channel-built-outside-handler` | error | The type name of a `Channel(sending:receiving:)` call outside the body of a service's handler of a channel rpc (its lambdas included); a private helper of the service is outside. | — |
+| K5513 | `channel-opened-during-ssr` | warning | The call in a `@Load` initializer of a channel rpc, or of an app function that calls one, directly or through other app functions (resolved names only), except in a client-rendered app or a client-rendered component's subtree. | — |
 
 ### Persistence (K6000–K6999)
 

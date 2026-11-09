@@ -706,6 +706,71 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// `true` when the body belongs to server-only code: a declaration
+    /// that is server-only and not client-only (44-channels.md,
+    /// "Server-only and client-only").
+    fn in_server_only_code(&self) -> bool {
+        self.owner.decl.is_some_and(|d| {
+            let side = crate::di::side(self.cx, d);
+            side.server && !side.client
+        })
+    }
+
+    /// K5511: a client member of a `Channel` (`state`, `messages`, `send`,
+    /// `close`) used by server-only code.
+    fn channel_client_use(&mut self, member: MemberId, range: TextRange) {
+        if !crate::channels::is_client_member(self.cx, member) || !self.in_server_only_code() {
+            return;
+        }
+        let name = self.cx.p.member(member).name.clone();
+        self.err(
+            codes::CHANNEL_ON_SERVER,
+            range,
+            format!(
+                "a channel's `{name}` is the browser's, but this code is server-only; the server only builds a channel, in a handler, and returns it"
+            ),
+        );
+    }
+
+    /// K5511 for a call of `member`: a client member of a `Channel`, or a
+    /// channel rpc, called from server-only code. (A channel opened while
+    /// the server renders, K5513, is `channels::opened_during_ssr`'s, which
+    /// follows calls through the app's functions.)
+    fn channel_call(&mut self, member: MemberId, call: &SyntaxNode) {
+        self.channel_client_use(member, call.text_range());
+        if !crate::channels::is_channel_rpc(self.cx, member) {
+            return;
+        }
+        let name = self.cx.p.member(member).name.clone();
+        if self.in_server_only_code() {
+            self.err(
+                codes::CHANNEL_ON_SERVER,
+                call.text_range(),
+                format!(
+                    "`{name}` opens a channel, which only the browser does, but this code is server-only"
+                ),
+            );
+        }
+    }
+
+    /// K5512: `Channel(sending:receiving:)` outside the handler of a channel
+    /// rpc.
+    fn channel_built(&mut self, range: TextRange) {
+        let in_handler = self.current_fn.is_some_and(|f| {
+            crate::channels::is_channel_rpc(self.cx, f)
+                && self.owner.decl.is_some_and(|d| {
+                    self.cx.p.decl(d).named_kind() != Some(DeclarationKind::Protocol)
+                })
+        });
+        if !in_handler {
+            self.err(
+                codes::CHANNEL_BUILT_OUTSIDE_HANDLER,
+                range,
+                "only the handler of a channel rpc builds a `Channel`, and returns it",
+            );
+        }
+    }
+
     /// Returns `true` when the code at `range` renders only in the browser:
     /// it belongs to a client-rendered component's subtree (outside its
     /// `loading` block), so K4012 and K4013 don't apply
@@ -5424,6 +5489,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
         self.client_state_read(m, &name);
         self.client_only_read(m, &name);
+        if let Some(Target::Member(field)) = self.targets.get(&name.text_range()).copied() {
+            self.channel_client_use(field, m.syntax().text_range());
+        }
         self.form_value(&name);
         t
     }
@@ -6117,6 +6185,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                                 self.check_mutable(&recv);
                             }
                             self.client_only_call(mm, &node);
+                            self.channel_call(mm, &node);
                         }
                         if lifted { Ty::optional(ret) } else { ret }
                     }
@@ -6704,6 +6773,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         args: &[Arg],
         expected: Option<&Ty>,
     ) -> Ty {
+        if Some(d) == crate::channels::channel_decl(self.cx) {
+            self.channel_built(name_range);
+        }
         let decl = self.cx.p.decl(d);
         if matches!(
             decl.named_kind(),

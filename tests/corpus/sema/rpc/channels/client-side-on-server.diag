@@ -1,0 +1,5 @@
+error[K5511] 21:33-21:50: `room` opens a channel, which only the browser does, but this code is server-only
+error[K5511] 22:19-22:52: a channel's `send` is the browser's, but this code is server-only; the server only builds a channel, in a handler, and returns it
+error[K5511] 23:28-23:44: a channel's `messages` is the browser's, but this code is server-only; the server only builds a channel, in a handler, and returns it
+error[K5511] 24:13-24:28: a channel's `close` is the browser's, but this code is server-only; the server only builds a channel, in a handler, and returns it
+error[K5511] 26:19-26:32: a channel's `state` is the browser's, but this code is server-only; the server only builds a channel, in a handler, and returns it

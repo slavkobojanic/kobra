@@ -798,6 +798,21 @@ codes! {
     /// An `rpc` member that no protocol its declaration implements declares.
     RPC_OUTSIDE_PROTOCOL = 5508, "rpc-outside-protocol", Error,
         "Only a protocol's rpcs are served: an `rpc` elsewhere is a `func`, or belongs in a protocol the service implements.";
+    /// A `Channel` result anywhere but a protocol's rpc or the handler that serves it.
+    CHANNEL_RESULT_MISPLACED = 5509, "channel-result-misplaced", Error,
+        "A `Channel` is the result of a protocol's rpc, and of the handler that serves it, only; elsewhere it is held in a field or a local.";
+    /// A `Channel` inside another type (`List<Channel<…>>`, `Stream<Channel<…>>`).
+    NESTED_CHANNEL = 5510, "nested-channel", Error,
+        "A `Channel` can't be inside another type: one channel per subject, held in a field or a local of type `Channel<C, S, E>` or `Channel<C, S, E>?`.";
+    /// A channel is opened, or its client side used, by server-only code.
+    CHANNEL_ON_SERVER = 5511, "channel-on-server", Error,
+        "A channel's `state`, `messages`, `send` and `close`, and opening one, are the browser's: server-only code only builds a channel in a handler.";
+    /// `Channel(sending:receiving:)` outside the handler of a channel rpc.
+    CHANNEL_BUILT_OUTSIDE_HANDLER = 5512, "channel-built-outside-handler", Error,
+        "Only the handler of a channel rpc builds a `Channel(sending:receiving:)`, and returns it.";
+    /// A channel rpc is called from code that can run while the server renders.
+    CHANNEL_OPENED_DURING_SSR = 5513, "channel-opened-during-ssr", Warning,
+        "Channels open only in the browser: a channel rpc called from a `@Load` or a field initializer panics while the server renders; open it from an `@Effect`.";
 
     // ---------------------------------------------------------------- persistence
     /// A repository query lambda uses something that can't be translated to SQL.

@@ -769,6 +769,9 @@ test("batch flushes synchronously when the outermost batch ends", () => {
 test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.md §5.3)", () => { … });
 ```
 
+- **Fixtures**: a `name.json` next to the test files is importable as `k:/tests/name.json.js`, whose default
+  export is the parsed value; the channel frame vectors (`channel-frames.json`) use it so the Rust tests
+  (`crates/k_server/tests/channels.rs`) and the JS tests read one file.
 - **Registering**: `test(name, fn)` (`fn` may be async) and `test.pending(name, reason, fn)`; names are
   unique per file. Each registered test is two cargo tests: `<file>/<name>` against the runtime as written,
   and `<file>/<name> (compacted)` against the runtime after `k_runtime::compact`, which is what release

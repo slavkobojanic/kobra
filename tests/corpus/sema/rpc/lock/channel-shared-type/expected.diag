@@ -1,0 +1,4 @@
+error[K8001] src/chat/ChatProtocol.k:5:17-5:29: `chat.ChatProtocol` changed in a way that breaks callers already deployed, without `@Breaking`
+  label rpc.lock:4:1-4:32: recorded here
+  note: case `typing` of `chat.ChatEvent` was removed
+  note: keep the recorded shape (adding an rpc, an optional field or an error case is compatible), or mark the protocol `@Breaking("reason")` once no deployed caller relies on it

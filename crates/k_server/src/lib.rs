@@ -7,6 +7,8 @@
 //!   assets, enforces body limits and the RPC and request-forgery
 //!   preconditions ([`front`]), and hands every other request to a worker
 //!   isolate running the app's server bundle.
+//! * [`channels`]: the frames of `k.channel.v1`, the channels' WebSocket
+//!   protocol, as pure JSON and Protobuf encode and decode (no socket yet).
 //! * [`config`]: reading `config` declarations from the environment and
 //!   `NAME_FILE` secret files, validated all at once and redacted.
 //! * [`process`]: the state every worker of a server process shares
@@ -78,6 +80,7 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 pub mod app;
+pub mod channels;
 pub mod config;
 pub mod db;
 pub mod engine;

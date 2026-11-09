@@ -138,7 +138,7 @@ A page starts `follow` from an `@Effect(on: [roomId])`, exactly as it follows a 
 - **`E`** is the error enum a client message can be refused with. Like every rpc error enum it has the case `rpcFailure(RpcFailure)` ([28-rpc-wire-format.md](28-rpc-wire-format.md#failures-outside-the-handler)); a channel with no refusals of its own uses `RpcOnlyError`.
 - **The rpc's own `throws` clause is for opening:** `RoomError` above is what joining can fail with (`notAMember`, a guard's refusal, `offline` on the first connect). `E` is what each message can fail with (`notYourMessage`). The two are separate because they are different questions, and a client handles them in different places.
 - A `Channel` can be written as a type anywhere on the client (a service field, as above). On the server it is only built, by the handler, and returned.
-- **Rules (codes assigned when implemented):** a `Channel` result outside a protocol rpc or its handler is an error; so is a `Channel` inside another type (`List<Channel<…>>`, `Stream<Channel<…>>`), a non-`Codable` `C` or `S`, an `E` without `rpcFailure`, and a `Secret` or other server-only type inside `C` or `S` (as for error payloads, [28-rpc-wire-format.md](28-rpc-wire-format.md#errors-and-status-codes)).
+- **Rules (codes as built: K5503, K5502, K5509, K5510; see "Decided while implementing"):** a `Channel` result outside a protocol rpc or its handler is an error; so is a `Channel` inside another type (`List<Channel<…>>`, `Stream<Channel<…>>`), a non-`Codable` `C` or `S`, an `E` without `rpcFailure`, and a `Secret` or other server-only type inside `C` or `S` (as for error payloads, [28-rpc-wire-format.md](28-rpc-wire-format.md#errors-and-status-codes)).
 
 ## The server: one handler run per channel
 
@@ -501,6 +501,42 @@ A team chat, small enough to read in an afternoon, that exercises every part of 
 - **Tests:** two-peer tests for posting, presence and moderation; `TestChannels.drop` for the banner, resume and restart; `TestChannel` for `RoomService` alone.
 
 A later step makes `examples/kanban` collaborative (shared boards with live card moves and cursors) on the same pieces, once kanban has a server.
+
+## Decided while implementing
+
+**Round 3, first slice: declarations, checks, `rpc.lock` and the frame codec.** Nothing opens a socket yet: the Rust WebSocket front, the server runtime, the client state machine, `TestChannels`/`TestPeer`/`TestChannel`, presence, `NOTIFY` fan-out, `WebSocketClient` and `examples/huddle` are later slices.
+
+**Stdlib (`k.rpc`)**
+
+- **`Channel<C, S, E>` is a `@Native` class** with `init(sending: Stream<S>, closed: ((ChannelClose) -> Void)? = nil, receiving: (C) async throws E -> Void)`, `let state: ChannelState`, `let messages: Stream<S>`, `func send(_ message: C) async throws E` and `func close()`. Nothing implements them yet (a call reaches `missingNative`). It declares **no `where` constraints** on `C`, `S` and `E`, so a wrong type argument is reported once, by the rpc rules below with a message about the channel, rather than as a generic constraint error as well.
+- **`ChannelState`** (`Equatable`) and **`ChannelClose`** (`Equatable, Codable`) are the enums above. **`ChannelConfig`** is a stdlib `config` with `K_CHANNEL_MAX_MESSAGE` (bytes, default 65,536), `K_CHANNEL_RESUME_WINDOW` (30 s), `K_CHANNEL_HEARTBEAT` (25 s) and `K_CHANNEL_RATE` (messages a second, 20); the burst of 50 isn't configurable. It isn't added to `dist/app config` until the server runtime reads it.
+- **The sides are member-level, so they are checks, not annotations.** `Channel` itself crosses the boundary (a client service holds one; a handler builds one), so it can't be `@ServerOnly` or `@ClientOnly`; K5511 and K5512 below draw the line instead. `ChannelState` isn't `@ClientOnly` either: it is reached only through `channel.state`, which K5511 already keeps off the server, and marking it would make a shared declaration that mentions it client-only. `ChannelConfig` is server-only as every `config` is.
+- `Stream.merge(_:_:)` is not added yet; it belongs to the server runtime slice, which implements it.
+
+**Checks** (sema.md §12.8; [diagnostics](../compiler/diagnostics.md)):
+
+- **The messages reuse the rpc codes,** since they are the same rules applied to the result: a non-`Codable` `C` or `S` is **K5503** at the type argument ("a channel's client message crosses the wire…"), an `E` without exactly one `rpcFailure(RpcFailure)` case is **K5502** (with the same fix that adds the case), and a non-`Codable` refusal payload is K5503. A `Secret` in `C` or `S` is K5503 because `Secret` isn't `Codable`; inside a struct that claims `Codable` it is K2009 at the struct, as for any wire type. No separate "server-only type in a message" rule was needed.
+- **K5509 `channel-result-misplaced`:** a `Channel` (or `Channel?`) result of anything but a protocol's rpc or a service rpc that serves one, including a client service's helper and a server service's private helper; and a `Channel?` result of a channel rpc, which throws instead of answering `nil`.
+- **K5510 `nested-channel`:** a type argument that names `Channel` anywhere a type is written (`List<Channel<…>>`, `Map<K, Channel<…>?>`, `Stream<Channel<…>>`, a local's annotation). A plain `Channel<…>?` is allowed, for the client service's field.
+- **K5511 `channel-on-server`:** in a server-only declaration (as `di::side` computes it: a protocol's implementation, a `.request` or `.server` service, an endpoint page, anything injecting one), reading `state` or `messages`, calling `send` or `close`, or calling a channel rpc (which also covers a `remote` client of a channel rpc, since remote clients are server-only).
+- **K5512 `channel-built-outside-handler`:** `Channel(sending:receiving:)` outside the body of a service's channel rpc handler, its lambdas included. A private helper that builds the channel for the handler is outside too (and K5509 for its result): the handler builds and returns it, as the design says.
+- **K5513 `channel-opened-during-ssr`** (a warning): a `@Load` initializer that calls a channel rpc, or an app function that calls one through any chain of app functions. Pages and components can't inject protocols, so the direct case only arises with other errors; the useful case is a client service's method that opens a channel, called from a `@Load`. It is a whole-program pass over resolved calls after the bodies, skipped in a client-rendered app and a client-rendered component's subtree.
+- **`/_k/channels`** as a page's or endpoint page's URL is the existing **K5001** (`url-conflict`), with its own message.
+- **Narrowing:** the receiving lambda is part of the handler's body, so `session.user` is narrowed there under `requires Authenticated` with no new rule; the corpus pins it. Handler shape needed nothing new either: K5505 compares `Channel<C, S, E>` with the protocol's, and the initializer's types make `sending:` a `Stream<S>` and the lambda a `(C) async throws E`.
+
+**`rpc.lock`** (format in [sema.md §12.16](../compiler/sema.md#1216-lockfiles))
+
+- A channel rpc is written with `kind = "channel"` and `send`, `receive`, `refusal` **instead of** `returns`; other rpcs have no `kind`, so every existing lock reads and writes unchanged (a stream is told from a unary rpc by `returns = "Stream<…>"`, as before).
+- **The one direction-dependent rule** is case removal: an enum reached in the program only through channels' `receive` types may lose a case. Reaching it from anything else, in any served protocol (a parameter, a result, an error, a `send`, a `refusal`), makes it strict. Added required fields and changed types break both directions, as the table says. Turning a channel into an rpc or a stream, or back, and changing `send`, `receive` or `refusal`, are each a K8001 note.
+- **The comparison now follows enum case payloads,** using the program's payload types (the lock records only case names). Before, a struct carried only inside an error enum's case was never compared; with event enums as channel messages that gap mattered, so it is closed for every rpc.
+
+**The wire** (`k_server::channels`, `runtime/channels.js`, part `Channels`)
+
+- **Frames as built:** the JSON form is exactly the design's (`{"kind": {…}}`, keys in the order shown, numbers as JSON numbers up to 2^53 − 1, `ack.error` left out when accepted, `session.user` `null` for a guest); unknown keys inside a frame are ignored, an unknown kind is an error. The binary form is the Protobuf message `k.channel.v1.Frame`, a `oneof` of the ten kinds with payloads as `bytes` (the method names the payload's type) and the close reason as an enum numbered from 1; it is spelled out in `k_server::channels`. Encoding is canonical proto3, except `ack.error` and `session.user`, which are `optional` so an empty refusal is still a refusal.
+- **Golden vectors** are `crates/k_runtime/js/tests/channel-frames.json`: each frame's decoded value and its exact JSON text and Protobuf bytes, plus invalid frames, read by `crates/k_server/tests/channels.rs` and `channels.test.js` (the JS test runner now loads a `name.json` beside the tests as the module `k:/tests/name.json.js`). The binary vectors were computed by a separate throwaway encoder written for them, not by either codec, so they don't merely restate one.
+- **Channel numbers** are 1 to 2^32 − 1 (0 is "absent" in Protobuf, so it is invalid); sequence numbers start at 1, and `rcvd`/`resume` counts may be 0. The JS binary decoder rejects numbers above 2^53 − 1, which the Rust one accepts; no K peer sends one.
+- The `close` reasons are `ChannelClose`'s four. "Going away" on `SIGTERM` and the buffer-overflow drop are socket closes, not frames, so they need no reason here; that is for the front's slice to confirm.
+
 
 ## Why
 

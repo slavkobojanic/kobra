@@ -1,0 +1,2 @@
+warning[K5513] 36:39-36:58: `join` opens a channel (it calls `room`), and channels open only in the browser, but a `@Load` runs while the server renders
+  help: open the channel from an `@Effect`, which runs only in the browser

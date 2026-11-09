@@ -1,0 +1,5 @@
+error[K5502] 24:68-24:75: a channel's refusal is `RpcOnlyError` or an enum with exactly one `rpcFailure(RpcFailure)` case; `corpus.Refused` isn't
+  label 10:6-10:13: declared here
+  fix "Add `case rpcFailure(RpcFailure)`"
+    edit 12:1-12:1 "    case rpcFailure(RpcFailure)\n"
+error[K5503] 25:69-25:77: a channel refusal's payload crosses the wire, so it must be `Codable`; `corpus.Rejected` isn't

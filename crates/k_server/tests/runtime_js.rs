@@ -1,6 +1,7 @@
 //! Runs the runtime's JavaScript unit tests (`crates/k_runtime/js/tests/*.test.js`)
 //! inside V8, one cargo test per registered JS test, each in a fresh isolate
-//! (`docs/compiler/testing.md`, "Runtime JS tests").
+//! (`docs/compiler/testing.md`, "Runtime JS tests"). A JSON fixture next to
+//! them, `name.json`, is importable as `k:/tests/name.json.js`.
 //!
 //! ```text
 //! cargo test -p k_server --test runtime_js                 # every JS test
@@ -54,16 +55,44 @@ fn tests_dir() -> PathBuf {
 ///
 /// The isolate can't be created.
 fn engine(file: &str, source: &str, compact_runtime: bool) -> Result<Engine, String> {
+    let mut modules = vec![JsModule {
+        specifier: format!("k:/tests/{file}"),
+        source: source.to_owned(),
+    }];
+    modules.extend(fixtures()?);
     Engine::new(EngineOptions {
-        modules: vec![JsModule {
-            specifier: format!("k:/tests/{file}"),
-            source: source.to_owned(),
-        }],
+        modules,
         timeout: Some(Duration::from_secs(10)),
         compact_runtime,
         ..Default::default()
     })
     .map_err(|e| e.to_string())
+}
+
+/// The JSON fixtures next to the test files (`channel-frames.json`, the
+/// golden vectors shared with `k_server`'s tests), each as a module
+/// `k:/tests/<name>.json.js` whose default export is the parsed value.
+///
+/// # Errors
+///
+/// A fixture can't be read.
+fn fixtures() -> Result<Vec<JsModule>, String> {
+    let mut out = Vec::new();
+    for entry in fs::read_dir(tests_dir()).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.ends_with(".json") {
+            continue;
+        }
+        let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        out.push(JsModule {
+            specifier: format!("k:/tests/{name}.js"),
+            source: format!("export default {text};\n"),
+        });
+    }
+    Ok(out)
 }
 
 /// The tests file `file` registers, in registration order.

@@ -7153,6 +7153,341 @@ error[K5508]: rpc `reset` is never served: `Counter` isn't a service, and only s
 
 **Fix:** Make it a `func` (the quick fix does it), or declare the rpc in a protocol the service implements so it is served.
 
+### K5509 `channel-result-misplaced`
+
+**Error.** A `Channel` is the result of a protocol's rpc, and of the handler that serves it, only; elsewhere it is held in a field or a local.
+
+Example (`tests/corpus/sema/rpc/channels/result-outside-protocol.k`):
+
+```k,ignore
+// A `Channel` is the result of a protocol's rpc and of its handler only, and never optional there.
+import k.rpc.Channel
+import k.rpc.RpcOnlyError
+
+enum Event implements Codable {
+    case posted(text: String)
+}
+
+protocol Chat {
+    rpc room(id: Int) throws RpcOnlyError -> Channel<Event, Event, RpcOnlyError>
+    rpc lobby() throws RpcOnlyError -> Channel<Event, Event, RpcOnlyError>?
+}
+
+service RoomService {
+    @Inject let chat: Chat
+
+    func open(room: Int) async throws RpcOnlyError -> Channel<Event, Event, RpcOnlyError> {
+        return try await chat.room(id: room)
+    }
+
+    func current() -> Channel<Event, Event, RpcOnlyError>? {
+        return nil
+    }
+}
+```
+
+```text
+error[K5509]: rpc `lobby` returns an optional `Channel`; a channel rpc returns `Channel<C, S, E>` and throws when it can't open
+  --> src/corpus/result-outside-protocol.k:11:40
+   |
+11 |     rpc lobby() throws RpcOnlyError -> Channel<Event, Event, RpcOnlyError>?
+   |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[K5509]: `open` returns a `Channel`, but only a protocol's rpc and the handler that serves it do
+  --> src/corpus/result-outside-protocol.k:17:55
+   |
+17 |     func open(room: Int) async throws RpcOnlyError -> Channel<Event, Event, RpcOnlyError> {
+   |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: declare the channel as an rpc of a protocol; a client service opens it by calling that rpc and keeps it in a field
+
+error[K5509]: `current` returns a `Channel`, but only a protocol's rpc and the handler that serves it do
+  --> src/corpus/result-outside-protocol.k:21:23
+   |
+21 |     func current() -> Channel<Event, Event, RpcOnlyError>? {
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: declare the channel as an rpc of a protocol; a client service opens it by calling that rpc and keeps it in a field
+```
+
+**Fix:** Declare the channel as an rpc of a protocol, returning `Channel<C, S, E>` (not optional); a client service opens it by calling that rpc and keeps it in a field.
+
+### K5510 `nested-channel`
+
+**Error.** A `Channel` can't be inside another type: one channel per subject, held in a field or a local of type `Channel<C, S, E>` or `Channel<C, S, E>?`.
+
+Example (`tests/corpus/sema/rpc/channels/nested-channel.k`):
+
+```k,ignore
+// A `Channel` can't be inside another type; an optional `Channel` is fine.
+import k.rpc.Channel
+import k.rpc.RpcOnlyError
+
+enum Event implements Codable {
+    case posted(text: String)
+}
+
+protocol Chat {
+    rpc room(id: Int) throws RpcOnlyError -> Channel<Event, Event, RpcOnlyError>
+}
+
+service RoomService {
+    @Inject let chat: Chat
+
+    @State var current: Channel<Event, Event, RpcOnlyError>? = nil
+    @State var open: List<Channel<Event, Event, RpcOnlyError>> = []
+    @State var byRoom: Map<Int, Channel<Event, Event, RpcOnlyError>?> = [:]
+
+    func follow(rooms: List<Int>) async throws RpcOnlyError {
+        for room in rooms {
+            let channel = try await chat.room(id: room)
+            let pair: List<Channel<Event, Event, RpcOnlyError>> = [channel]
+            current = channel
+        }
+    }
+}
+```
+
+```text
+error[K5510]: a `Channel` can't be inside another type
+  --> src/corpus/nested-channel.k:17:27
+   |
+17 |     @State var open: List<Channel<Event, Event, RpcOnlyError>> = []
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: open one channel per subject and hold it in a field or a local of type `Channel<C, S, E>` or `Channel<C, S, E>?`
+
+error[K5510]: a `Channel` can't be inside another type
+  --> src/corpus/nested-channel.k:18:33
+   |
+18 |     @State var byRoom: Map<Int, Channel<Event, Event, RpcOnlyError>?> = [:]
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: open one channel per subject and hold it in a field or a local of type `Channel<C, S, E>` or `Channel<C, S, E>?`
+
+error[K5510]: a `Channel` can't be inside another type
+  --> src/corpus/nested-channel.k:23:28
+   |
+23 |             let pair: List<Channel<Event, Event, RpcOnlyError>> = [channel]
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: open one channel per subject and hold it in a field or a local of type `Channel<C, S, E>` or `Channel<C, S, E>?`
+```
+
+**Fix:** Open one channel per subject and hold each in its own field or local of type `Channel<C, S, E>` or `Channel<C, S, E>?`.
+
+### K5511 `channel-on-server`
+
+**Error.** A channel's `state`, `messages`, `send` and `close`, and opening one, are the browser's: server-only code only builds a channel in a handler.
+
+Example (`tests/corpus/sema/rpc/channels/client-side-on-server.k`):
+
+```k,ignore
+// Server-only code builds a channel in a handler; opening one and its client members are the browser's.
+import k.rpc.Channel
+import k.rpc.RpcOnlyError
+
+enum Event implements Codable {
+    case posted(text: String)
+}
+
+protocol Chat {
+    rpc room(id: Int) throws RpcOnlyError -> Channel<Event, Event, RpcOnlyError>
+}
+
+protocol Relay {
+    rpc relay(id: Int) throws RpcOnlyError -> Int
+}
+
+service RelayApi implements Relay {
+    @Inject let chat: Chat
+
+    rpc relay(id: Int) async throws RpcOnlyError -> Int {
+        let channel = try await chat.room(id: id)
+        try await channel.send(.posted(text: "hi"))
+        for await event in channel.messages {
+            channel.close()
+        }
+        return if channel.state == .open { 1 } else { 0 }
+    }
+}
+```
+
+```text
+error[K5511]: `room` opens a channel, which only the browser does, but this code is server-only
+  --> src/corpus/client-side-on-server.k:21:33
+   |
+21 |         let channel = try await chat.room(id: id)
+   |                                 ^^^^^^^^^^^^^^^^^
+
+error[K5511]: a channel's `send` is the browser's, but this code is server-only; the server only builds a channel, in a handler, and returns it
+  --> src/corpus/client-side-on-server.k:22:19
+   |
+22 |         try await channel.send(.posted(text: "hi"))
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[K5511]: a channel's `messages` is the browser's, but this code is server-only; the server only builds a channel, in a handler, and returns it
+  --> src/corpus/client-side-on-server.k:23:28
+   |
+23 |         for await event in channel.messages {
+   |                            ^^^^^^^^^^^^^^^^
+
+error[K5511]: a channel's `close` is the browser's, but this code is server-only; the server only builds a channel, in a handler, and returns it
+  --> src/corpus/client-side-on-server.k:24:13
+   |
+24 |             channel.close()
+   |             ^^^^^^^^^^^^^^^
+
+error[K5511]: a channel's `state` is the browser's, but this code is server-only; the server only builds a channel, in a handler, and returns it
+  --> src/corpus/client-side-on-server.k:26:19
+   |
+26 |         return if channel.state == .open { 1 } else { 0 }
+   |                   ^^^^^^^^^^^^^
+```
+
+**Fix:** Open the channel and use its `state`, `messages`, `send` and `close` from a client service; on the server, only a channel rpc's handler builds a `Channel` and returns it.
+
+### K5512 `channel-built-outside-handler`
+
+**Error.** Only the handler of a channel rpc builds a `Channel(sending:receiving:)`, and returns it.
+
+Example (`tests/corpus/sema/rpc/channels/built-outside-handler.k`):
+
+```k,ignore
+// Only the handler of a channel rpc builds a `Channel(sending:receiving:)`.
+import k.rpc.Broadcast
+import k.rpc.Channel
+import k.rpc.RpcOnlyError
+
+enum Event implements Codable {
+    case posted(text: String)
+}
+
+protocol Chat {
+    rpc room(id: Int) throws RpcOnlyError -> Channel<Event, Event, RpcOnlyError>
+}
+
+@Scope(.server)
+service Rooms {
+    private let events: Broadcast<Int, Event> = Broadcast()
+
+    func subscribe(room: Int) -> Stream<Event> {
+        return events.subscribe(key: room)
+    }
+}
+
+service ChatApi implements Chat {
+    @Inject let rooms: Rooms
+
+    rpc room(id: Int) async throws RpcOnlyError -> Channel<Event, Event, RpcOnlyError> {
+        return build(id: id)
+    }
+
+    private func build(id: Int) -> Channel<Event, Event, RpcOnlyError> {
+        return Channel(sending: rooms.subscribe(room: id)) { event => }
+    }
+}
+
+service RoomService {
+    @State var channel: Channel<Event, Event, RpcOnlyError>? = nil
+
+    func fake(events: Stream<Event>) {
+        channel = Channel(sending: events) { event => }
+    }
+}
+```
+
+```text
+error[K5512]: only the handler of a channel rpc builds a `Channel`, and returns it
+  --> src/corpus/built-outside-handler.k:31:16
+   |
+31 |         return Channel(sending: rooms.subscribe(room: id)) { event => }
+   |                ^^^^^^^
+
+error[K5512]: only the handler of a channel rpc builds a `Channel`, and returns it
+  --> src/corpus/built-outside-handler.k:39:19
+   |
+39 |         channel = Channel(sending: events) { event => }
+   |                   ^^^^^^^
+```
+
+**Fix:** Build the `Channel(sending:receiving:)` in the handler of the channel rpc and return it; a client test uses `TestChannel` instead.
+
+### K5513 `channel-opened-during-ssr`
+
+**Warning.** Channels open only in the browser: a channel rpc called from a `@Load` or a field initializer panics while the server renders; open it from an `@Effect`.
+
+Example (`tests/corpus/sema/rpc/channels/opened-in-load.k`):
+
+```k,ignore
+// A `@Load` runs while the server renders, where a channel can't open; an `@Effect` is the place.
+import k.rpc.Channel
+import k.rpc.RpcOnlyError
+
+enum Event implements Codable {
+    case posted(text: String)
+}
+
+protocol Chat {
+    rpc room(id: Int) throws RpcOnlyError -> Channel<Event, Event, RpcOnlyError>
+    rpc count(id: Int) throws RpcOnlyError -> Int
+}
+
+service RoomService {
+    @Inject let chat: Chat
+
+    @State var channel: Channel<Event, Event, RpcOnlyError>? = nil
+
+    func join(room: Int) async throws RpcOnlyError -> Int {
+        return try await open(room: room)
+    }
+
+    private func open(room: Int) async throws RpcOnlyError -> Int {
+        channel = try await chat.room(id: room)
+        return room
+    }
+
+    func count(room: Int) async throws RpcOnlyError -> Int {
+        return try await chat.count(id: room)
+    }
+}
+
+page RoomPage {
+    @Inject let rooms: RoomService
+
+    @Load let joined: Int = try await rooms.join(room: 1)
+    @Load let count: Int = try await rooms.count(room: 1)
+
+    @Effect
+    func follow() async {
+        do {
+            let joined = try await rooms.join(room: 1)
+        } catch .rpcFailure(let failure) {
+        }
+    }
+
+    view {
+        paragraph { "{joined} {count}" }
+    }
+
+    loading {
+        paragraph { "Loading…" }
+    }
+}
+```
+
+```text
+warning[K5513]: `join` opens a channel (it calls `room`), and channels open only in the browser, but a `@Load` runs while the server renders
+  --> src/corpus/opened-in-load.k:36:39
+   |
+36 |     @Load let joined: Int = try await rooms.join(room: 1)
+   |                                       ^^^^^^^^^^^^^^^^^^^
+   |
+   = help: open the channel from an `@Effect`, which runs only in the browser
+```
+
+**Fix:** Open the channel from an `@Effect`, which runs only in the browser, not from a `@Load`.
+
 ## K6000–K6999: Persistence
 
 ### K6001 `untranslatable-query`

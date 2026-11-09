@@ -1,0 +1,6 @@
+error[K5510] 17:27-17:62: a `Channel` can't be inside another type
+  help: open one channel per subject and hold it in a field or a local of type `Channel<C, S, E>` or `Channel<C, S, E>?`
+error[K5510] 18:33-18:69: a `Channel` can't be inside another type
+  help: open one channel per subject and hold it in a field or a local of type `Channel<C, S, E>` or `Channel<C, S, E>?`
+error[K5510] 23:28-23:63: a `Channel` can't be inside another type
+  help: open one channel per subject and hold it in a field or a local of type `Channel<C, S, E>` or `Channel<C, S, E>?`

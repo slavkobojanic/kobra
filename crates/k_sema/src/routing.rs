@@ -109,6 +109,10 @@ fn template(node: &SyntaxNode) -> Option<(TextRange, Vec<Segment>)> {
     Some((lit.text_range(), segments))
 }
 
+/// The path the browser opens the channels' WebSocket at, which no page
+/// may have (44-channels.md).
+const CHANNELS_PATH: &str = "/_k/channels";
+
 /// The URL shape of a page: its template with parameters as `{}`.
 fn shape(segments: &[Segment]) -> String {
     let mut out = String::new();
@@ -286,8 +290,18 @@ fn page(cx: &Cx<'_, '_>, d: DeclId, urls: &mut HashMap<String, (FileIx, TextRang
             (decl.name_range, segments)
         }
     };
-    // URL conflicts (K5001), at the later page.
+    // URL conflicts (K5001), at the later page; `/_k/channels` is where
+    // the browser opens the channels' WebSocket (44-channels.md, "Sessions
+    // and security").
     let key = shape(&segments);
+    if key == CHANNELS_PATH {
+        cx.error(
+            file,
+            codes::URL_CONFLICT,
+            url_range,
+            format!("the URL `{CHANNELS_PATH}` is reserved: the browser opens its channels' WebSocket there"),
+        );
+    }
     match urls.get(&key) {
         Some((first_file, first)) => {
             cx.report(

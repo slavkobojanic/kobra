@@ -1,0 +1,4 @@
+error[K5509] 30:36-30:71: `build` returns a `Channel`, but only a protocol's rpc and the handler that serves it do
+  help: declare the channel as an rpc of a protocol; a client service opens it by calling that rpc and keeps it in a field
+error[K5512] 31:16-31:23: only the handler of a channel rpc builds a `Channel`, and returns it
+error[K5512] 39:19-39:26: only the handler of a channel rpc builds a `Channel`, and returns it

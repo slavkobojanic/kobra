@@ -868,6 +868,24 @@ Accessibility lints beyond required accessible names are **deferred**.
   deferred with the wire format.
 - There is no `protocol.lock`: `rpc.lock` (§12.16) records what deployed callers rely on, the wire
   names and field numbers included ([13-tooling.md](../design/13-tooling.md#lockfiles)).
+- **Channels** ([44-channels.md](../design/44-channels.md); `channels.rs`, and `rpc.rs` for the
+  messages). An rpc whose result is `Channel<C, S, E>` (`k.rpc.Channel`, a `@Native` class) is a channel:
+  `C` and `S` are `Codable` (**K5503** at the type argument: "a channel's client/server message"), and `E`
+  follows the rules of an rpc's error enum (**K5502**, with its fix, and **K5503** for its payloads). A
+  `Secret` in `C` or `S` is K5503, since `Secret` isn't `Codable`; inside a struct declared `Codable`
+  it is K2009 at the struct. Placement: a `Channel` or `Channel?` result of anything but a protocol's
+  rpc or a service rpc serving one, and a `Channel?` result of those, is **K5509** at the return type; a
+  type argument naming `Channel` (`List<Channel<…>>`, `Map<K, Channel<…>?>`, written anywhere) is
+  **K5510** (a syntax walk of every project file). Sides, from the body checker: in a server-only
+  declaration (`di::side`), a `Channel`'s `state`, `messages`, `send` or `close`, or a call of a channel
+  rpc, is **K5511**; `Channel(sending:closed:receiving:)` outside the body of a service's channel rpc
+  handler (its lambdas included, a private helper not) is **K5512**. A `@Load` initializer that calls a
+  channel rpc, or an app function that does, through any chain of app functions (resolved calls, after
+  the body pass), is the warning **K5513**, except in a client-rendered app or component. The receiving
+  lambda is part of the handler's body, so `session.user` is narrowed there as in the handler. Handler
+  shape needs nothing new: the handler repeats `Channel<C, S, E>` (K5505), `sending:` is a `Stream<S>`
+  and the trailing lambda a `(C) async throws E -> Void` (K2001, K2203). A page or endpoint at
+  `/_k/channels` is K5001 (`routing.rs`).
 - **`RemoteClient.at(url:token:timeout:)`** (`k.rpc`, server-only) returns a client of its generic result
   `P`, the type it is used as (K has no explicit type arguments in expressions). A result that resolves
   to anything but a protocol is **K4026**; one that can't be inferred is K2002
@@ -1037,6 +1055,30 @@ name. New rpcs, optional fields and parameters and new cases are compatible. **W
 after every number used or reserved, removed fields' numbers added to `reserved`; `None` for a library or
 an app that serves nothing and has no lock. `k build` writes it when it differs; `k check` never writes.
 An unreadable lock is reported and the implied lock is the program's alone.
+
+**Channel rpcs** in `rpc.lock` ([44-channels.md](../design/44-channels.md#rpclock-and-compatibility))
+are written with `kind = "channel"` and the three types of `Channel<C, S, E>` in place of `returns`:
+
+```toml
+[protocols."chat.ChatProtocol".rpcs.room]
+kind = "channel"
+params = [{ name = "id", type = "Int" }]
+send = "chat.ChatCommand"
+receive = "chat.ChatEvent"
+refusal = "chat.CommandError"
+throws = "chat.RoomError"
+```
+
+Other rpcs have no `kind` (unary and stream rpcs differ by `returns`, `Stream<T>` or not), so locks written
+before channels read unchanged; a `kind` other than `"channel"`, or a channel without `send`, `receive` or
+`refusal`, is K8002. Comparing: an rpc that was a channel and isn't, or the reverse, and a changed `send`,
+`receive` or `refusal`, are K8001 notes. **The direction matters for one rule only:** a type reached in
+the program *only* through channels' `receive` types (the server's messages, which an old tab skips when
+it doesn't know a case) may lose an enum case; a type also reached from a parameter, a result, an error,
+a `send` or a `refusal`, of any served protocol, keeps every case ("the stricter rule of each place it
+appears"). Added required fields and changed types break both directions. The comparison follows enum
+case payloads too (the program's payload types, which the lock doesn't record), so a struct carried only
+inside an event enum is compared field by field.
 
 `Analysis::file_dependencies(file)` lists the files whose declarations a file's names, types and members
 resolve to; `k test --watch` uses it to find the tests a change affects.
