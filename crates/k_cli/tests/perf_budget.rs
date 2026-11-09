@@ -493,6 +493,7 @@ fn shipped_client_assets() {
         ("observe.", k_runtime::OBSERVE_SIZE_BUDGET),
         ("media.", k_runtime::MEDIA_SIZE_BUDGET),
         ("playback.", k_runtime::PLAYBACK_SIZE_BUDGET),
+        ("rtc.", k_runtime::RTC_SIZE_BUDGET),
         ("keys.", k_runtime::KEYS_SIZE_BUDGET),
         ("streams.", k_runtime::STREAMS_SIZE_BUDGET),
         ("channels.", k_runtime::CHANNELS_SIZE_BUDGET),
@@ -502,7 +503,9 @@ fn shipped_client_assets() {
         ("forms.", k_runtime::FORMS_SIZE_BUDGET),
         ("money.", k_runtime::MONEY_SIZE_BUDGET),
     ];
-    for name in ["todos", "weather", "notes", "shop", "kanban", "memos"] {
+    for name in [
+        "todos", "weather", "notes", "shop", "kanban", "memos", "call",
+    ] {
         let dir = TempDir::new(name);
         let (dist, _) = build(name, &dir.0);
         let mut files = Vec::new();
@@ -573,6 +576,15 @@ fn shipped_client_assets() {
                 "memos: the client is {gz} bytes gzip (budget {MEMOS_CLIENT_BUDGET})"
             );
         }
+        // The call's whole client: its own code, the runtime, the channels,
+        // media, rtc and playback chunks and the styles (46-media-and-rtc.md,
+        // "Example apps").
+        if name == "call" {
+            assert!(
+                gz <= CALL_CLIENT_BUDGET,
+                "call: the client is {gz} bytes gzip (budget {CALL_CLIENT_BUDGET})"
+            );
+        }
     }
 }
 
@@ -580,3 +592,8 @@ fn shipped_client_assets() {
 /// file of `dist/public` but source maps (about 23 KB as built, 2 KB under
 /// this).
 const MEMOS_CLIENT_BUDGET: usize = 25 * 1024;
+
+/// The largest the call example's shipped client may be, gzip, every file
+/// of `dist/public` but source maps (about 29.5 KB as built, 4.5 KB under
+/// this).
+const CALL_CLIENT_BUDGET: usize = 34 * 1024;

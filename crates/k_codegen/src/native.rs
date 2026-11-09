@@ -919,6 +919,45 @@ pub(crate) fn construct(
             ],
             false,
         ),
+        // A data channel kind (46-media-and-rtc.md, "Typed data channels"):
+        // its name, its message type's codec, and the fingerprint of the
+        // type's `Codable` shape, which each peer sends when the channel
+        // opens.
+        "k.rtc.DataChannelKind" => {
+            let message = result.args().first().cloned().unwrap_or(Type::Error);
+            let codec = crate::codec::codec_expr(b, &message);
+            let shape = shape_fingerprint(b.g, &message);
+            Expr::Object(
+                vec![
+                    js::Prop::KeyValue("name".into(), a0),
+                    js::Prop::KeyValue("codec".into(), codec),
+                    js::Prop::KeyValue("shape".into(), js::str(shape)),
+                ],
+                false,
+            )
+        }
+        // A relay of `Signal`s (46-media-and-rtc.md, "Signalling over a
+        // channel") on `Presence` and `Broadcast`, named per declaration
+        // like them; signals cross isolates in `Signal`'s codec encoding.
+        "k.rtc.SignallingRelay" if b.target == crate::cx::Target::Server => {
+            let owner = b
+                .owner
+                .map(|o| b.g.view.qualified_name(o))
+                .unwrap_or_default();
+            let at = u32::from(ast::AstNode::syntax(c).text_range().start());
+            let signal = match b.g.view.lookup("k.rtc.Signal") {
+                Some(d) => crate::codec::codec_expr(b, &Type::Named(d, Vec::new())),
+                None => Expr::Null,
+            };
+            Expr::New(
+                Box::new(member(id("$s"), "SignallingRelay")),
+                vec![
+                    js::str(format!("{owner}@{at}")),
+                    signal,
+                    args.first().cloned().unwrap_or(Expr::Undefined),
+                ],
+            )
+        }
         // A scripted channel (44-channels.md, "TestChannel"): the kit's,
         // given the refusal enum `E` so a closed channel throws its
         // `rpcFailure(.offline)`.
@@ -1166,4 +1205,92 @@ pub(crate) fn emits_stdlib_decl(g: &crate::cx::Gen<'_>, d: DeclId) -> bool {
 #[allow(dead_code)]
 fn fmt(n: f64) -> String {
     fmt_num(n)
+}
+
+/// The fingerprint of `t`'s `Codable` shape: the 32-bit FNV-1a hash, in
+/// hexadecimal, of [`shape_text`]. Two builds whose message types have
+/// different fields or cases get different fingerprints, and a data
+/// channel between them closes as `incompatible` instead of decoding the
+/// wrong type (46-media-and-rtc.md, "Typed data channels").
+pub(crate) fn shape_fingerprint(g: &crate::cx::Gen<'_>, t: &Type) -> String {
+    let text = shape_text(g, t, &mut Vec::new());
+    let mut h: u32 = 0x811c_9dc5;
+    for b in text.bytes() {
+        h ^= u32::from(b);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    format!("{h:08x}")
+}
+
+/// `t`'s shape as text: a struct by its fields' names and shapes, an enum
+/// by its cases' names and payloads, anything else by name, with type
+/// arguments. A renamed struct with the same fields has the same shape;
+/// a type already being written (a recursive one) is written by name.
+fn shape_text(g: &crate::cx::Gen<'_>, t: &Type, seen: &mut Vec<DeclId>) -> String {
+    match t {
+        Type::Optional(inner) => format!("{}?", shape_text(g, inner, seen)),
+        Type::Tuple(items) => format!(
+            "({})",
+            items
+                .iter()
+                .map(|i| shape_text(g, i, seen))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        _ => {
+            let Some(d) = t.decl() else {
+                return "?".to_owned();
+            };
+            let info = g.view.decl(d);
+            let args: Vec<String> = t.args().iter().map(|a| shape_text(g, a, seen)).collect();
+            let named = if args.is_empty() {
+                info.name.clone()
+            } else {
+                format!("{}<{}>", info.name, args.join(","))
+            };
+            if info.stdlib || seen.contains(&d) {
+                return named;
+            }
+            seen.push(d);
+            let out = match info.named_kind() {
+                Some(DeclarationKind::Enum) => {
+                    let cases: Vec<String> = g
+                        .cases(d)
+                        .into_iter()
+                        .map(|c| {
+                            let m = g.view.member(c);
+                            let types: Vec<Type> = m
+                                .signature
+                                .as_ref()
+                                .map(|s| s.params.iter().map(|p| p.ty.clone()).collect())
+                                .unwrap_or_default();
+                            let fields: Vec<String> = g
+                                .case_fields(c)
+                                .iter()
+                                .zip(&types)
+                                .map(|(f, t)| format!("{f}:{}", shape_text(g, t, seen)))
+                                .collect();
+                            format!("{}({})", m.name, fields.join(","))
+                        })
+                        .collect();
+                    format!("[{}]", cases.join(","))
+                }
+                Some(DeclarationKind::Struct | DeclarationKind::Entity) => {
+                    let fields: Vec<String> = g
+                        .stored_fields(d)
+                        .into_iter()
+                        .map(|f| {
+                            let m = g.view.member(f);
+                            let ty = m.ty.clone().unwrap_or(Type::Error);
+                            format!("{}:{}", m.name, shape_text(g, &ty, seen))
+                        })
+                        .collect();
+                    format!("{{{}}}", fields.join(","))
+                }
+                _ => named,
+            };
+            seen.pop();
+            out
+        }
+    }
 }

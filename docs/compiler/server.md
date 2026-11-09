@@ -919,3 +919,23 @@ a `Room` page for it, runs in real Chrome in `crates/k_cli/tests/chrome.rs`. `cr
 runs two process states against a real Postgres (Docker, or `K_TEST_POSTGRES_URL`; skipped without
 either unless `K_REQUIRE_DOCKER=1`): order, spills, presence counting and expiry, session ends.
 Presence in `k test` is `crates/k_cli/tests/fixtures/realtime/src/hall`.
+
+### Signalling relays and ICE servers
+
+- **`SignallingRelay<Key>`** (`k.rtc`, [46-media-and-rtc.md](../design/46-media-and-rtc.md#signalling-over-a-channel))
+  is `$s.SignallingRelay(name, signalCodec, peersPerRoom)` (codegen, named per declaration like
+  `ServerPresence`), in `runtime/relay.js`. A room is a `ServerPresence` key (`<name>|peers`) whose
+  members are random peer ids, and a `ServerBroadcast` (`<name>|signals`) of `{from, signal}` envelopes,
+  the signal in `Signal`'s codec encoding. `join(c, key)` is async: it answers `null` when `members` has
+  `peersPerRoom` already, else subscribes to the room's signals and changes, joins, and reads `members`
+  again, leaving when it isn't among the first `peersPerRoom` (so two racing joins can't both take the
+  last place). The `RelayPeer`'s `signals` yields `peerJoined` first when someone was there, then the
+  other peers' envelopes and `peerJoined`/`peerLeft` from the presence changes; its lease ends with the
+  request, so with Postgres a crashed replica's peers leave when their leases expire.
+- **`IceServers`** is `$s.iceServers(() => this.TurnConfig, () => $s.clock(this.$r))`: no servers
+  without URLs, else one entry with every URL, the user name `<expiry>:<user>` (Unix seconds) and the
+  Base64 HMAC-SHA1 of it under the secret (`hmacSha1`, SHA-1 in JavaScript; nothing else uses it). The
+  container also provides `TurnConfig`, which joins the server's configuration (and `dist/app config`)
+  when the app injects `IceServers`; `config.rs` adds its startup rules (`turn_rules`: every URL a
+  `stun:`, `turn:` or `turns:` one, and URLs need `K_TURN_SECRET`). In tests `TurnConfig` is
+  `{urls: [], secret: null}` unless a `use` rule binds one.

@@ -1,3 +1,5 @@
+import k.media.MediaStream
+
 /// What a test device produces, on the [`TestClock`]
 /// (`docs/design/46-media-and-rtc.md`, "Tests"). Video frames are a solid
 /// test pattern: tests check streams, states and labels, never pixels.
@@ -8,7 +10,10 @@ public class TestSource {
     func speak(level: Double, for duration: Duration)
     /// Plays silence for `duration`.
     func silence(for duration: Duration)
-    /// Ends the source's live screen tracks with `.endedByUser`, as the
-    /// browser's "Stop sharing" button does.
+    /// Ends the live screen tracks (which `TestMediaDevices.camera` feeds)
+    /// with `.endedByUser`, as the browser's "Stop sharing" button does.
     func stopSharing()
+    /// A new live stream of this device, without asking for a permission:
+    /// what a [`TestCallPeer`] sends.
+    func newStream() -> MediaStream
 }

@@ -46,6 +46,8 @@ import { createFront, testChannel as scriptedChannel } from "./channels.js";
 import { TestWebSocketServer, testWebSocketClient as scriptedSockets } from "../runtime/websocket.js";
 import { setTesting as cryptoTesting } from "../runtime/crypto.js";
 import { audioMeter, mediaStream, mediaTrack, recordedTracks, recordingSession } from "../runtime/media.js";
+import { peerConnections } from "../runtime/rtc.js";
+import { fakeRtc } from "./rtc.js";
 
 // `k test`'s fast passphrase salts (33-crypto.md, "Testing"): 1,000
 // iterations, which parse only here.
@@ -57,7 +59,7 @@ cryptoTesting(true);
  * The running test: its container, its screens, and the errors thrown by
  * work it scheduled (effects flushed in a microtask).
  */
-let current = { container: null, screens: [], errors: [], clock: null, server: null, offline: false, front: null, context: null, sockets: null, media: null };
+let current = { container: null, screens: [], errors: [], clock: null, server: null, offline: false, front: null, context: null, sockets: null, media: null, rtc: null };
 
 /**
  * Starts a test with `container` (the generated browser container): the
@@ -68,7 +70,7 @@ let current = { container: null, screens: [], errors: [], clock: null, server: n
  * @param {object|null} [server]
  */
 export function begin(container, clock = null, server = null) {
-  current = { container, screens: [], errors: [], clock, server, offline: false, front: null, context: null, sockets: null, media: null };
+  current = { container, screens: [], errors: [], clock, server, offline: false, front: null, context: null, sockets: null, media: null, rtc: null };
 }
 
 /**
@@ -580,6 +582,7 @@ function report(el, C, entry) {
 function end() {
   for (const s of current.screens.splice(0)) s.unmount();
   stopTestMedia();
+  current.rtc?.$reset();
   current.front?.reset();
   channelEnv({ socket: noSocket, browser: () => null });
   active = null;
@@ -732,6 +735,8 @@ const KINDS = {
   navigation: (el) => tag(el) === "nav" || role(el) === "navigation",
   alert: (el) => role(el) === "alert",
   status: (el) => role(el) === "status",
+  video: (el) => tag(el) === "video",
+  audio: (el) => tag(el) === "audio",
 };
 
 /** Keeps only the deepest of `els`: none that contains another. */
@@ -926,6 +931,14 @@ class Queries {
   status() {
     return this.only("status");
   }
+  /** `video(labeled:)`: the `video` element whose accessible name is `label`. */
+  video(label) {
+    return this.named("video", label);
+  }
+  /** `audio(labeled:)`: the `audio` element whose accessible name is `label`. */
+  audio(label) {
+    return this.named("audio", label);
+  }
   /** `items()`: a handle per list item, in document order. */
   items() {
     return this.every("item");
@@ -993,6 +1006,20 @@ class Handle extends Queries {
   get isVisible() {
     const m = this.match();
     return m.length === 1 && visible(m[0]);
+  }
+  /**
+   * Whether the `video` or `audio` element has something to play: a
+   * stream with a live track, a file or a URL (the playback chunk's
+   * `$kSource`).
+   */
+  get isPlaying() {
+    const s = this.one().$kSource;
+    return s ? (s.$ === 0 ? s._0.isLive === true : true) : false;
+  }
+  /** Whether the `video` or `audio` element plays no sound. */
+  get isMuted() {
+    const el = this.one();
+    return el.muted === true || attr(el, "muted") !== null;
   }
   /** Whether the checkbox is checked (the property, or `aria-checked`). */
   get isChecked() {
@@ -1701,7 +1728,7 @@ function stopTestMedia() {
  * feeds.
  * @param {object} clock the `TestClock`
  */
-function testSource(clock) {
+function testSource(clock, make) {
   const segments = [];
   const tracks = new Set();
   const at = () => clock.now.ms;
@@ -1717,6 +1744,9 @@ function testSource(clock) {
         for (const t of [...tracks]) if (t.$screen) t.$end(2);
       });
       flush();
+    },
+    newStream() {
+      return make();
     },
     $levelAt(ms) {
       for (let i = segments.length - 1; i >= 0; i--) {
@@ -1756,7 +1786,17 @@ export function testMediaDevices() {
   let cancelScreen = false;
   const captures = [];
   const live = new Set();
-  const sources = { microphone: testSource(clock), camera: testSource(clock), screen: testSource(clock) };
+  // A source's own stream (`newStream()`, what a `TestCallPeer` sends): the
+  // device of another person, so no permission and not in `liveTracks`.
+  const own = (kind) => () => {
+    const [id, , label] = TEST_DEVICES[kind];
+    const t = { kind: kind === 1 ? "video" : "audio", label, enabled: true, muted: false, stop() {} };
+    const h = mediaTrack(t, { device: id });
+    t.$handle = h;
+    h.$source = kind === 1 ? sources.camera : sources.microphone;
+    return mediaStream([h], null);
+  };
+  const sources = { microphone: testSource(clock, own(0)), camera: testSource(clock, own(1)), screen: testSource(clock, own(1)) };
   /** `[camera?, microphone?]` permission indexes of a request. */
   const kinds = (r) => (r.$ === 0 ? [1] : r.$ === 1 ? [0] : [0, 1]);
   const track = (kind, id, label, source, screen) => {
@@ -1765,6 +1805,7 @@ export function testMediaDevices() {
       ? { size: { width: 1280, height: 720 }, frameRate: 30, sampleRate: null, channelCount: null, echoCancellation: null, noiseSuppression: null, autoGainControl: null }
       : { size: null, frameRate: null, sampleRate: 48000, channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true };
     const h = mediaTrack(t, { device: id, screen, settings });
+    t.$handle = h;
     h.$source = source;
     h.$screen = screen;
     live.add(h);
@@ -1848,7 +1889,7 @@ export function testMediaDevices() {
         throw unitCase(3);
       }
       if (failure !== null) throw failure;
-      const tracks = [track(1, null, "Test Screen", sources.screen, true)];
+      const tracks = [track(1, null, "Test Screen", sources.camera, true)];
       if (request?.audio === true) tracks.push(track(0, null, "Test Screen Audio", sources.screen, true));
       return ownTestStream(mediaStream(tracks, null), c, lifetime);
     },
@@ -1966,6 +2007,93 @@ export function testAudio() {
     },
     async play(_c, source) {
       played.push(source);
+    },
+  };
+}
+
+// -------------------------------------------------------------- calls
+
+/**
+ * `k.test.TestPeerConnections`, one per test (46-media-and-rtc.md,
+ * "Loopback peers"): `runtime/rtc.js`'s real negotiation over the app's
+ * real channel and relay, with the in-process engine of `testing/rtc.js`
+ * and timers on the test's clock. Every data channel a connection opens
+ * is opened by the test's call peers too, so `received(kind)` holds what
+ * the app sent even when the test never opened the channel itself.
+ */
+export function testPeerConnections() {
+  if (current.rtc) return current.rtc;
+  const clock = sharedClock();
+  const engine = fakeRtc();
+  const conns = new Set();
+  const peers = new Set();
+  const env = {
+    RTCPeerConnection: engine.RTCPeerConnection,
+    after: (ms, f) => clock.after(ms, () => (f(), flush())),
+    cancel: (h) => h?.cancel?.(),
+    log: true,
+    opened(conn, kind) {
+      conns.add(conn);
+      for (const p of peers) if (p !== conn) p.handle.channel(kind);
+    },
+  };
+  const pcs = peerConnections(env);
+  const net = [() => engine.lost(), () => engine.restored(), () => engine.iceFails(), () => engine.glare()];
+  return (current.rtc = {
+    get isSupported() {
+      return true;
+    },
+    async connect(c, signalling, servers, policy, lifetime) {
+      const h = await pcs.connect(c, signalling, servers, policy, lifetime);
+      conns.add(h.$conn);
+      for (const k of h.$conn.channels.values()) for (const p of peers) p.handle.channel(k.kind);
+      return h;
+    },
+    async peer(c, signalling) {
+      const h = await pcs.connect(null, signalling, [], unitCase(0), unitCase(0));
+      const conn = h.$conn;
+      peers.add(conn);
+      for (const other of conns) for (const d of other.channels.values()) h.channel(d.kind);
+      return testCallPeer(h);
+    },
+    simulate(e) {
+      net[e.$]();
+      flush();
+    },
+    $reset() {
+      for (const c of [...conns, ...peers]) c.end(0);
+      engine.reset();
+    },
+  });
+}
+
+/**
+ * `k.test.TestCallPeer` over a connection handle `h`: `remote` is the
+ * app's own track handles (`$handle` of the tracks it sent), so a test
+ * sees the app's mute.
+ * @param {object} h
+ */
+function testCallPeer(h) {
+  const conn = h.$conn;
+  return {
+    get state() {
+      return h.state;
+    },
+    get remote() {
+      const stream = h.remote;
+      if (!stream) return null;
+      return mediaStream(
+        stream.$tracks.map((t) => t.$t.$src?.$handle ?? t),
+        null,
+        false,
+      );
+    },
+    send: (stream) => h.send(stream),
+    close: () => h.close(),
+    channel: (kind) => h.channel(kind),
+    received(kind) {
+      h.channel(kind);
+      return [...(conn.channels.get(kind.name)?.log ?? [])];
     },
   };
 }

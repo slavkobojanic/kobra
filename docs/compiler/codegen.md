@@ -1087,7 +1087,7 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
 - **Feature chunks**: `charts.[hash].js`, `drag.[hash].js`, `files.[hash].js`, `clipboard.[hash].js`,
   `share.[hash].js`, `geolocation.[hash].js`, `tabs.[hash].js`, `notifications.[hash].js`, `wakelock.[hash].js`,
-  `environment.[hash].js`, `media.[hash].js`, `keys.[hash].js`, `http.[hash].js`, `streams.[hash].js`,
+  `environment.[hash].js`, `media.[hash].js`, `rtc.[hash].js`, `keys.[hash].js`, `http.[hash].js`, `streams.[hash].js`,
   `channels.[hash].js` and `websocket.[hash].js` (`runtime/charts.js`, …),
   emitted only when a client chunk or the client entry uses a symbol they implement
   (`k.charts.LineChart`; `k.drag.ReorderableList`, `Draggable`, `DropTarget`, `DragKind(name:)`;

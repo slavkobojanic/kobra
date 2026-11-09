@@ -836,6 +836,7 @@ pub(crate) fn client_containers(
                     "k.media.MediaDevices" => "k.media.BrowserMediaDevices",
                     "k.media.Recorder" => "k.media.BrowserRecorder",
                     "k.media.Audio" => "k.media.BrowserAudio",
+                    "k.rtc.PeerConnections" => "k.rtc.BrowserPeerConnections",
                     "k.device.TabMessaging" => "k.device.BrowserTabMessaging",
                     "k.device.Notifications" => "k.device.BrowserNotifications",
                     "k.crypto.KeyStore" => "k.crypto.BrowserKeyStore",
@@ -962,6 +963,7 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         | "k.media.BrowserMediaDevices"
         | "k.media.BrowserRecorder"
         | "k.media.BrowserAudio"
+        | "k.rtc.BrowserPeerConnections"
         | "k.device.PageVisibility"
         | "k.device.Connectivity"
         | "k.device.Viewport" => match b.g.view.lookup(qualified) {
@@ -1044,6 +1046,9 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         "k.test.TestMediaDevices" => crate::suite::kit_call("testMediaDevices", vec![]),
         "k.test.TestRecorder" => crate::suite::kit_call("testRecorder", vec![]),
         "k.test.TestAudio" => crate::suite::kit_call("testAudio", vec![]),
+        // The in-process media engine, on the test's clock
+        // (46-media-and-rtc.md, "Loopback peers").
+        "k.test.TestPeerConnections" => crate::suite::kit_call("testPeerConnections", vec![]),
         "k.test.TestTabMessaging" => crate::suite::kit_call("testTabMessaging", vec![]),
         // `click` opens the notification's page with `Page$href`.
         "k.test.TestNotifications" => {

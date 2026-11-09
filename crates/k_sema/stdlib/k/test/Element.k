@@ -21,6 +21,11 @@ public class Element {
     var text: String
     /// The level of a heading, `1...6`.
     var level: Int
+    /// `true` for a `video` or `audio` element with something to play: a
+    /// stream with a live track, a file or a URL.
+    var isPlaying: Bool
+    /// `true` for a `video` or `audio` element that plays no sound.
+    var isMuted: Bool
 
     /// Clicks the element and flushes synchronous updates.
     func click()
@@ -83,6 +88,10 @@ public class Element {
     func alert() -> Element
     /// The only `.role(.status)` live region.
     func status() -> Element
+    /// The `video` element labelled exactly `label` (`.label(…)`).
+    func video(labeled label: String) -> Element
+    /// The `audio` element labelled exactly `label` (`.label(…)`).
+    func audio(labeled label: String) -> Element
     /// Returns every list item, in document order.
     func items() -> List<Element>
     /// Returns every button, in document order.

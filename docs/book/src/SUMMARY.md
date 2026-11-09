@@ -78,7 +78,7 @@
 - [Notifications](apps/notifications.md)
 - [The page and the device](apps/environment.md)
 - [Other tabs and the screen](apps/tabs-and-screen.md)
-- [Camera, microphone and recording](apps/media.md)
+- [Camera, microphone, recording and calls](apps/media.md)
 - [Testing](apps/testing.md)
 - [Packages](apps/packages.md)
 - [Workspaces and services](apps/workspaces.md)
@@ -96,6 +96,7 @@
 - [Stack: the smallest system of services](examples/stack.md)
 - [Kanban: drag and drop in the browser](examples/kanban.md)
 - [Memos: recording voice memos](examples/memos.md)
+- [Call: a video call between two browsers](examples/call.md)
 
 # Reference
 
@@ -118,6 +119,7 @@
     - [`k.media`](reference/stdlib/k-media.md)
     - [`k.observe`](reference/stdlib/k-observe.md)
     - [`k.rpc`](reference/stdlib/k-rpc.md)
+    - [`k.rtc`](reference/stdlib/k-rtc.md)
     - [`k.server`](reference/stdlib/k-server.md)
     - [`k.storage`](reference/stdlib/k-storage.md)
     - [`k.test`](reference/stdlib/k-test.md)

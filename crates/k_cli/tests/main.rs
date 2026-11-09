@@ -40,6 +40,7 @@ mod static_host;
 
 mod book_commands;
 mod book_projects;
+mod call_deploy;
 mod chrome;
 mod cli;
 mod commands;

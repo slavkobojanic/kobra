@@ -547,11 +547,42 @@ pub fn resolve(
             Err(e) => problems.push(problem(format!("{} {e}", shown(&raw)))),
         }
     }
+    turn_rules(&values, &mut problems);
     if problems.is_empty() {
         Ok(values)
     } else {
         problems.sort_by(|a, b| a.env.cmp(&b.env));
         Err(problems)
+    }
+}
+
+/// `k.rtc.TurnConfig`'s own rules (`docs/design/46-media-and-rtc.md`,
+/// "STUN and TURN without third-party accounts"): every `K_TURN_URLS` item
+/// is a `stun:`, `turn:` or `turns:` URL, and URLs need `K_TURN_SECRET`,
+/// which signs the credentials browsers get.
+fn turn_rules(values: &BTreeMap<String, ConfigValue>, problems: &mut Vec<Problem>) {
+    let Some(ConfigValue::List(urls)) = values.get("K_TURN_URLS") else {
+        return;
+    };
+    let problem = |message: String| Problem {
+        env: "K_TURN_URLS".to_owned(),
+        message,
+    };
+    for url in urls {
+        if let ConfigValue::String(text) = url {
+            let scheme = text.split(':').next().unwrap_or_default();
+            if !matches!(scheme, "stun" | "turn" | "turns") || !text.contains(':') {
+                problems.push(problem(format!(
+                    "{text:?} isn't a stun:, turn: or turns: URL"
+                )));
+            }
+        }
+    }
+    let secret = values.get("K_TURN_SECRET");
+    if !urls.is_empty() && matches!(secret, None | Some(ConfigValue::Nil)) {
+        problems.push(problem(
+            "is set without K_TURN_SECRET (or K_TURN_SECRET_FILE), which signs the TURN credentials (required by k.rtc.TurnConfig.secret)".to_owned(),
+        ));
     }
 }
 
@@ -628,6 +659,80 @@ mod tests {
             Some(ConfigKind::Key("Ed25519PrivateKey".to_owned()))
         );
         assert_eq!(ConfigKind::from_manifest("", none, None), None);
+    }
+
+    #[test]
+    fn turn_urls_need_a_secret_and_turn_schemes() {
+        struct Env(Vec<(&'static str, &'static str)>);
+        impl Environment for Env {
+            fn var(&self, name: &str) -> Option<String> {
+                self.0
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| (*v).to_owned())
+            }
+            fn read_file(&self, path: &str) -> Result<String, String> {
+                Err(format!("no file {path}"))
+            }
+        }
+        let fields = [
+            ConfigField::from_manifest(
+                "K_TURN_URLS",
+                "k.rtc.TurnConfig.urls",
+                "List<String>",
+                false,
+                false,
+                Some(""),
+                &[],
+                None,
+            )
+            .expect("a list"),
+            ConfigField::from_manifest(
+                "K_TURN_SECRET",
+                "k.rtc.TurnConfig.secret",
+                "Secret<String>?",
+                true,
+                false,
+                None,
+                &[],
+                None,
+            )
+            .expect("a secret"),
+        ];
+        assert!(
+            resolve(&fields, &Env(vec![])).is_ok(),
+            "no TURN server is fine"
+        );
+        let urls = "turn:turn.example.org:3478?transport=udp,stun:turn.example.org:3478";
+        let missing = resolve(&fields, &Env(vec![("K_TURN_URLS", urls)])).expect_err("no secret");
+        assert_eq!(missing.len(), 1);
+        assert!(
+            missing[0].message.contains("without K_TURN_SECRET"),
+            "{}",
+            missing[0].message
+        );
+        assert!(
+            resolve(
+                &fields,
+                &Env(vec![("K_TURN_URLS", urls), ("K_TURN_SECRET", "s")])
+            )
+            .is_ok()
+        );
+        let bad = resolve(
+            &fields,
+            &Env(vec![
+                ("K_TURN_URLS", "https://turn.example.org"),
+                ("K_TURN_SECRET", "s"),
+            ]),
+        )
+        .expect_err("not a TURN URL");
+        assert!(
+            bad[0]
+                .message
+                .contains("isn't a stun:, turn: or turns: URL"),
+            "{}",
+            bad[0].message
+        );
     }
 
     #[test]

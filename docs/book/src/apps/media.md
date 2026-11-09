@@ -1,7 +1,8 @@
-# Camera, microphone and recording
+# Camera, microphone, recording and calls
 
 Capturing the camera, the microphone and the screen, recording what they produce, measuring how
-loud it is and playing media back are the **`k.media`** module. Its three interfaces,
+loud it is and playing media back are the **`k.media`** module; calls between two browsers are
+**`k.rtc`** ([below](#calls-between-browsers)). Its three interfaces,
 `MediaDevices`, `Recorder` and `Audio`, are client-only and injected into services, like
 `Geolocation`; `k test` replaces each with a double, so no test opens a prompt or a device. The
 design is in `docs/design/46-media-and-rtc.md`.
@@ -198,6 +199,182 @@ sets how the user answers, `failCaptures(with:)` fails every following capture,
 out (a removed device's tracks end with `.deviceLost`). `prompts`, `captures` and `liveTracks`
 record what happened, so a test can check that leaving a page released the microphone.
 
-> **Planned** (k-rtc). The design adds `k.rtc`: peer-to-peer calls between two browsers with typed
-> data channels, signalling over a typed channel of the app's own protocol, and self-hosted TURN
-> with short-lived credentials.
+## Calls between browsers
+
+**`k.rtc`** connects two browsers directly: their cameras, microphones and screens, and **typed
+data channels** for anything else. The two find each other through a **channel of the app's own
+protocol** ([Channels](channels.md)), so signalling is typed, guarded and reconnected like any
+other channel, and the stdlib runs the whole offer/answer exchange: an app never sees a session
+description. Media and data go from browser to browser, encrypted end to end; the server only
+pairs the two.
+
+### Signalling over a channel
+
+The protocol declares a channel rpc of `Signal`s, and its handler hands both ends to a
+`SignallingRelay`, which pairs the people who join one room and forwards each one's signals to the
+other:
+
+```k
+// examples/call/src/calls/CallProtocol.k
+public protocol CallProtocol requires Authenticated {
+    /// The STUN and TURN servers to connect through, with credentials that
+    /// expire in an hour; none in development.
+    rpc iceServers() throws RpcOnlyError -> List<IceServer> requires RateLimit(30.perMinute)
+// ...
+    /// Joins a room's signalling until the caller leaves it.
+    rpc join(room: Uuid) throws CallError -> Channel<Signal, Signal, RpcOnlyError>
+}
+```
+
+```k
+// examples/call/src/calls/CallApi.k
+    rpc join(room: Uuid) async throws CallError -> Channel<Signal, Signal, RpcOnlyError> {
+        // In the room until this channel closes: leaving the page, a
+        // dropped connection that doesn't come back, or signing out.
+        guard let peer = await rooms.relay.join(key: room) else {
+            throw CallError.roomFull
+        }
+
+        return Channel(sending: peer.signals) { signal => peer.forward(signal) }
+    }
+```
+
+- **`SignallingRelay<Key>(peersPerRoom:)`** is held by a `@Scope(.server)` service. `join(key:)`
+  answers `nil` when the room is full, so "room full" is the app's own typed error. The peer is a
+  lease of the channel's request: it leaves when the channel closes, with nothing to clean up.
+- The relay is built on `Presence` and `Broadcast`, so with Postgres the two peers may be on
+  different replicas.
+- **Who may join is the app's decision**, made by the guards and the handler before `join`. The
+  call example's rooms are unguessable links; another app checks an invitation first.
+- **`Signal` is opaque**: only the stdlib creates or reads one.
+
+### Connecting
+
+On the client, `PeerConnections` (a client-only platform interface, like `MediaDevices`) connects
+over that channel. `connect` waits until the relay pairs this browser with another, then returns a
+`PeerConnection`:
+
+```k
+// examples/call/src/calls/CallService.k
+        joined = true
+        var connected: PeerConnection? = nil
+        do {
+            connected = try await peers.connect(signalling: channel, iceServers: servers ?? [], lifetime: .service)
+        } catch .unsupported {
+            problem = .unsupported
+        } catch .signallingClosed {
+            problem = .offline
+        }
+        guard let peer = connected else {
+            hangUp()
+            return
+        }
+
+        connection = peer
+        sender = peer.send(local)
+        await talk(on: peer)
+```
+
+| `PeerConnection` | Meaning |
+|---|---|
+| `state` | `.waitingForPeer`, `.connecting`, `.connected`, `.reconnecting` or `.closed(PeerClose)`; reactive |
+| `remote` | what the other browser sends, a `MediaStream`; `nil` until its first track arrives |
+| `send(_:)` | sends a stream's tracks, and returns a `MediaSender` |
+| `channel(_:delivery:)` | a typed data channel (below) |
+| `stats()` | round-trip time, bitrate, packet loss, and whether a TURN relay is in use |
+| `close()` | hangs up: the other side sees `.closed(.byPeer)` |
+
+- **Negotiation is the stdlib's.** It implements the WebRTC specification's "perfect negotiation":
+  the two browsers' ids make one polite and one impolite, offers that cross resolve by role, and
+  sending a stream or opening a channel needs no app code.
+- **Reconnecting is automatic.** When the network changes, the state is `.reconnecting` and the
+  impolite side restarts ICE through the same channel; after 15 seconds without recovery the call
+  closes `.failed`. A page shows "Reconnecting…" from `state` and nothing else.
+- **A call is owned like a capture**: `lifetime: .owner` hangs up when the run that connected is
+  cancelled, `.service` when the page is left.
+- **`MediaSender.replace(with:)`** swaps what is sent without renegotiating: switching cameras,
+  sharing the screen. Each of the new stream's tracks replaces the one of its kind, so sharing a
+  screen keeps the microphone. `stop()` stops sending, and the other side's copies end with
+  `.remoteEnded`.
+- Muting is `MediaTrack.setEnabled(false)` on the local track: the other side receives silence or
+  black frames, and the device stays open.
+
+### Typed data channels
+
+```k
+// examples/call/src/calls/chatLines.k
+/// The call's chat: typed lines, straight from one browser to the other.
+public let chatLines: DataChannelKind<ChatLine> = DataChannelKind(name: "chat")
+```
+
+A `DataChannelKind<T>` pairs a name with a `Codable` message type, and `peer.channel(chatLines)`
+gives a `DataChannel<ChatLine>` whose `send(_:)` takes only a `ChatLine` and whose `messages` is a
+`Stream<ChatLine>`. Both sides open the channel independently, in any order: its id is derived from
+the name. Two kinds with the same name and different types are K2408, and two names whose ids
+collide are K2409. When a channel opens, each side checks that the other's message type has the
+same shape, so two builds that disagree close it `.incompatible` instead of decoding the wrong
+type. `send` waits while more than 1 MiB is buffered and refuses a message over 64 KiB
+(`.tooLarge`). `delivery: .unordered(retransmits: 0)` suits values where only the latest matters,
+such as a pointer.
+
+### STUN and TURN without a third-party account
+
+**There is no default STUN or TURN server.** Two tabs on one machine, or two laptops on one
+network, reach each other directly, so `k dev` needs nothing. A deployment that must connect
+across networks runs its own **coturn** next to the app, and the app's `IceServers` service hands
+browsers short-lived credentials for it, signed with a secret only the server knows:
+
+```k
+// examples/call/src/calls/CallApi.k
+    rpc iceServers() async throws RpcOnlyError -> List<IceServer> {
+        return await ice.forClient(user: session.user.id.name, validFor: 1.hours)
+    }
+```
+
+- `IceServers` reads the stdlib's **`TurnConfig`**: `K_TURN_URLS` (`turn:` URLs, comma-separated)
+  and `K_TURN_SECRET` (coturn's `static-auth-secret`, read from `K_TURN_SECRET_FILE` in
+  containers). Without URLs it issues none. URLs without a secret, or a URL whose scheme isn't
+  `stun`, `turn` or `turns`, stop the server at startup (exit 78).
+- The credentials follow coturn's TURN REST scheme (`--use-auth-secret`): the user name
+  `<expiry>:<user>` and an HMAC of it, so a leaked credential is worth an hour of relaying.
+- **Deny the private ranges** in coturn's flags, or a TURN server relays into the deployment's own
+  network. The call example's `compose.yaml` does, and its deployment test checks it.
+- `IcePolicy.relayOnly` sends everything through TURN: for testing a deployment's TURN server, and
+  for users who must not reveal their address to the other side.
+
+### Testing calls
+
+`k test` puts **`TestPeerConnections`** in place of the browser's: the real negotiation, over the
+app's real channel and relay, with an in-process media engine. The other side of a call is a
+`TestCallPeer`, which joins as a second browser ([`TestPeers`](channels.md)) through the app's own
+protocol, so the guards, the handler and the relay all run:
+
+```k
+// examples/call/src/calls/Room.test.k
+    test "two people see each other and chat" {
+        await sessions.signIn(userId: AccountId(name: "ana"))
+        let screen = render(Room(id: callRoom))
+        screen.button(named: "Join call").click()
+        await screen.settle()
+// ...
+        let sam = await peers.signIn(userId: AccountId(name: "sam"))
+        let samsApi: CallProtocol = sam.client()
+        let other = try await rtc.peer(joining: try await samsApi.join(room: callRoom))
+        other.send(devices.camera.newStream())
+        try await other.channel(introductions).send(Introduction(name: "Sam"))
+        await screen.settle()
+
+        expect not screen.status().exists
+        expect screen.video(labeled: "Sam's camera").isPlaying
+```
+
+- `other.send(_:)`, `other.channel(_:)` and `other.close()` act as the other person;
+  `other.received(chatLines)` lists what the app sent on a channel, and `other.remote` is what the
+  app sends, whose tracks are the app's own, so a test checks that muting disabled them.
+- `rtc.simulate(_:)` changes the in-process network: `.networkLost`, `.networkRestored`,
+  `.iceFails`, or `.glare`, both sides offering at once. Timeouts follow the `TestClock`.
+- `devices.camera.newStream()` is a stream of a test device that needs no permission, for the other
+  person to send; `screen.video(labeled:)` and `screen.audio(labeled:)` find media elements, with
+  `isPlaying` and `isMuted`.
+- `IceServers` runs for real, with `TurnConfig`'s built-in test value (no URLs), so `iceServers()`
+  answers `[]`.

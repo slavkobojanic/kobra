@@ -12,12 +12,14 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`Key`](#key) | A key for [`Element.press`](#element). |
 | [`MemoryKeyStore`](#memorykeystore) | The default [`KeyStore`](k-crypto.md#keystore) in `k test` (`docs/design/33-crypto.md`, "Testing"): keys in memory, empty for every test. |
 | [`MemoryStorage`](#memorystorage) | The default [`LocalStorage`](k-storage.md#localstorage) in `k test`: empty for every test, able to simulate failures (`docs/design/36-local-storage.md`). |
+| [`NetworkEvent`](#networkevent) | A change to the in-process network of [`TestPeerConnections`](#testpeerconnections). |
 | [`OpenChannel`](#openchannel) | A channel open on the test's connection ([`TestChannels.open`](#testchannels)). |
 | [`RecordingEmailProvider`](#recordingemailprovider) | The default [`EmailProvider`](k-server.md#emailprovider) in `k test`: it keeps sent messages. |
 | [`RecordingJobQueue`](#recordingjobqueue) | The default [`JobQueue`](k-server.md#jobqueue) in `k test`: it stores jobs without running them; [`InlineJobQueue`](#inlinejobqueue) runs them instead. |
 | [`render`](#render) | Mounts `view` in the test's browser container (`docs/design/21-testing.md`, "Rendering and querying"). |
 | [`Screen`](#screen) | A rendered view, returned by `render(_:)`. |
 | [`TestAudio`](#testaudio) | The default [`Audio`](k-media.md#audio) in `k test`: a meter reports the level its stream's [`TestSource`](#testsource) scripts, and `play` records what it played. |
+| [`TestCallPeer`](#testcallpeer) | The other side of a call in a test ([`TestPeerConnections`](#testpeerconnections)): a peer connection the test drives, joined through the app's own protocol. |
 | [`TestChannel`](#testchannel) | A scripted channel for a client service tested without a server (`docs/design/44-channels.md`, "TestChannel"): the test plays the server. |
 | [`TestChannels`](#testchannels) | The test's channel connection in `k test` (`docs/design/44-channels.md`, "Testing"): the in-process socket between the test's browser and its server. |
 | [`TestClient`](#testclient) | Sends requests through the whole server stack in-process: routing, guards, server rendering and endpoint pages (`docs/design/21-testing.md`, "HTTP-level tests"). |
@@ -32,6 +34,7 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`TestNotifications`](#testnotifications) | The default [`Notifications`](k-device.md#notifications) in `k test` (`docs/design/45-web-platform.md`, "Notifications"): no prompt opens and nothing reaches the operating system. |
 | [`TestPageVisibility`](#testpagevisibility) | The default [`PageVisibility`](k-device.md#pagevisibility) in `k test` (`docs/design/45-web-platform.md`, "Page visibility"): the page is visible until `hide()`. |
 | [`TestPeer`](#testpeer) | Another browser in the same test ([`TestPeers`](#testpeers)): its own session, cookie and channel socket, sharing the test's server, database and clock. |
+| [`TestPeerConnections`](#testpeerconnections) | The default [`PeerConnections`](k-rtc.md#peerconnections) in `k test` (`docs/design/46-media-and-rtc.md`, "Loopback peers"): the real negotiation over the real channel and relay, with an in-process media engine, so nothing leaves the process. |
 | [`TestPeers`](#testpeers) | More browsers in one test (`docs/design/44-channels.md`, "TestPeer"): realtime features are about other people, so a test can sign in a second person and act as them against the same server, database and clock. |
 | [`TestPreferences`](#testpreferences) | The default [`Preferences`](k-device.md#preferences) in `k test` (`docs/design/45-web-platform.md`, "Preferences"): no preference is set until the test sets one. |
 | [`TestRecorder`](#testrecorder) | The default [`Recorder`](k-media.md#recorder) in `k test`: records a synthetic stream into a small, deterministic file (100 bytes a second) whose duration follows the [`TestClock`](#testclock). |
@@ -74,6 +77,11 @@ Every handle supports the queries of [`Screen`](#screen), scoped to its subtree.
   The element's text content.
 - `var level: Int`
   The level of a heading, `1...6`.
+- `var isPlaying: Bool`
+  `true` for a `video` or `audio` element with something to play: a
+  stream with a live track, a file or a URL.
+- `var isMuted: Bool`
+  `true` for a `video` or `audio` element that plays no sound.
 - `func click()`
   Clicks the element and flushes synchronous updates.
 - `func fill(_ text: String)`
@@ -134,6 +142,10 @@ Every handle supports the queries of [`Screen`](#screen), scoped to its subtree.
   The only `.role(.alert)` live region.
 - `func status() -> Element`
   The only `.role(.status)` live region.
+- `func video(labeled label: String) -> Element`
+  The `video` element labelled exactly `label` (`.label(…)`).
+- `func audio(labeled label: String) -> Element`
+  The `audio` element labelled exactly `label` (`.label(…)`).
 - `func items() -> List<Element>`
   Returns every list item, in document order.
 - `func buttons() -> List<Element>`
@@ -253,6 +265,27 @@ simulate failures (`docs/design/36-local-storage.md`).
 - `func stopFailing()`
   Ends both simulations (`failReads(error:)` and
   `failWrites(error:)`).
+
+## NetworkEvent
+
+```k,ignore
+public enum NetworkEvent implements Equatable
+```
+
+A change to the in-process network of [`TestPeerConnections`](#testpeerconnections).
+
+**Members**
+
+- `case networkLost`
+  Every connection loses its path: `.reconnecting`, and `.closed(.failed)`
+  15 seconds of the [`TestClock`](#testclock) later unless the network comes back.
+- `case networkRestored`
+  Paths work again; an ICE restart reconnects.
+- `case iceFails`
+  Every connection's ICE fails at once; the impolite peer restarts it.
+- `case glare`
+  Both peers of every connection offer at once, as when both add a
+  track in the same moment; perfect negotiation resolves it.
 
 ## OpenChannel
 
@@ -374,6 +407,10 @@ A rendered view, returned by `render(_:)`. It supports every query of
   The only `.role(.alert)` live region.
 - `func status() -> Element`
   The only `.role(.status)` live region.
+- `func video(labeled label: String) -> Element`
+  The `video` element labelled exactly `label` (`.label(…)`).
+- `func audio(labeled label: String) -> Element`
+  The `audio` element labelled exactly `label` (`.label(…)`).
 - `func items() -> List<Element>`
   Returns every list item, in document order.
 - `func buttons() -> List<Element>`
@@ -401,6 +438,31 @@ stream's [`TestSource`](#testsource) scripts, and `play` records what it played.
   A meter reading the scripted level of the stream's microphone.
 - `func play(_ source: MediaSource) async throws PlaybackError`
   Records `source` in `played` and resolves at once.
+
+## TestCallPeer
+
+```k,ignore
+public class TestCallPeer
+```
+
+The other side of a call in a test ([`TestPeerConnections`](#testpeerconnections)): a peer
+connection the test drives, joined through the app's own protocol.
+
+**Members**
+
+- `var state: PeerState`
+  Where the connection is.
+- `var remote: MediaStream?`
+  What the app sends. Its tracks are the app's own, so a test can
+  check that muting disabled them.
+- `func send(_ stream: MediaStream) -> MediaSender`
+  Sends `stream` to the app, as [`k.rtc.PeerConnection.send(_:)`](k-rtc.md#peerconnection).
+- `func close()`
+  Hangs up: the app sees `.closed(.byPeer)`.
+- `func channel<T>(_ kind: DataChannelKind<T>) -> DataChannel<T>`
+  The test peer's end of a data channel, to send to the app.
+- `func received<T>(_ kind: DataChannelKind<T>) -> List<T>`
+  Every message the app sent on `kind`'s channel, oldest first.
 
 ## TestChannel
 
@@ -861,6 +923,36 @@ clock.
   Signs this browser's person out, ending its session and the
   channels opened under it.
 
+## TestPeerConnections
+
+```k,ignore
+@TestDefault(replaces: PeerConnections)
+public service TestPeerConnections implements PeerConnections
+```
+
+The default [`PeerConnections`](k-rtc.md#peerconnections) in `k test`
+(`docs/design/46-media-and-rtc.md`, "Loopback peers"): the real
+negotiation over the real channel and relay, with an in-process media
+engine, so nothing leaves the process. The other side of a call is a
+[`TestCallPeer`](#testcallpeer) the test drives.
+
+**Members**
+
+- `var isSupported: Bool`
+  `true`.
+- `func connect(signalling: Channel<Signal, Signal, RpcOnlyError>, iceServers: List<IceServer>, policy: IcePolicy = .all, lifetime: CaptureLifetime = .owner) async throws PeerError -> PeerConnection`
+  See [`PeerConnections.connect(signalling:iceServers:policy:lifetime:)`](k-rtc.md#peerconnections).
+- `func peer(joining channel: Channel<Signal, Signal, RpcOnlyError>) async throws PeerError -> TestCallPeer`
+  A test-driven peer on `channel`, usually opened through a
+  [`TestPeer`](#testpeer)'s client of the app's protocol, so the guards, the
+  handler and the relay run as in production.
+
+  - Throws: `.signallingClosed` when the channel ended before the
+    app's peer joined.
+- `func simulate(_ event: NetworkEvent)`
+  Changes the in-process network: `.networkLost`, `.networkRestored`,
+  `.iceFails`, or `.glare` (both peers offer at once).
+
 ## TestPeers
 
 ```k,ignore
@@ -997,8 +1089,11 @@ test pattern: tests check streams, states and labels, never pixels.
 - `func silence(for duration: Duration)`
   Plays silence for `duration`.
 - `func stopSharing()`
-  Ends the source's live screen tracks with `.endedByUser`, as the
-  browser's "Stop sharing" button does.
+  Ends the live screen tracks (which `TestMediaDevices.camera` feeds)
+  with `.endedByUser`, as the browser's "Stop sharing" button does.
+- `func newStream() -> MediaStream`
+  A new live stream of this device, without asking for a permission:
+  what a [`TestCallPeer`](#testcallpeer) sends.
 
 ## TestTabMessaging
 

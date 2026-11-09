@@ -1,0 +1,15 @@
+# Format: docs/design/24-projects.md
+#
+# The manifest holds only what can't be expressed in K. TURN settings come
+# from the environment, never from this committed file (see .env.example and
+# docs/design/25-config-and-secrets.md).
+
+[package]
+name = "call"
+title = "Call"
+description = "A 1:1 video call between two browsers: camera, microphone, screen sharing and a chat, signalled over the app's own channel."
+k = "0.1"
+version = "0.1.0"
+
+# Only the standard library is used, so there are no [dependencies] or
+# [aliases].

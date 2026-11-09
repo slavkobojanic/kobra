@@ -34,7 +34,9 @@
 //! find the keys the same way: a storage key named like an earlier one is
 //! **K2405**, a `DragKind` named like an earlier one with another
 //! payload type is **K2406**, and a `TabChannel` or `DataChannelKind` named
-//! like an earlier one of its type with another message type is **K2408**.
+//! like an earlier one of its type with another message type is **K2408**;
+//! two `DataChannelKind`s whose names give the same channel id are
+//! **K2409**.
 //!
 //! Types are compared by shape, not by name: a payload struct renamed with
 //! the same fields still decodes the queued jobs, so it is compatible.
@@ -87,6 +89,7 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
     conflicting_drag_kinds(cx);
     conflicting_channels(cx, tab_message, "tab channel");
     conflicting_channels(cx, data_channel_message, "data channel kind");
+    colliding_data_channels(cx);
     for lock in &cx.p.lockfiles {
         if lock.kind == LockfileKind::Storage {
             storage(cx, lock);
@@ -680,6 +683,56 @@ fn conflicting_channels(cx: &Cx<'_, '_>, value_of: fn(&Cx<'_, '_>, &Ty) -> Optio
     }
 }
 
+/// K2409: a data channel kind whose name differs from an earlier one's (in
+/// file path order) but whose id, derived from the name with
+/// [`data_channel_id`], is the same, at its name literal, with a label at
+/// the earlier kind's. Both peers open a channel with the id of its name
+/// (`negotiated: true`, `docs/design/46-media-and-rtc.md`, "Typed data
+/// channels"), so two such kinds would be one channel carrying both.
+fn colliding_data_channels(cx: &Cx<'_, '_>) {
+    let reported = cx.diags.borrow().len();
+    let kinds = find_named(cx, data_channel_message, true);
+    cx.diags.borrow_mut().truncate(reported);
+    let mut first: BTreeMap<u16, (String, crate::program::FileIx, TextRange)> = BTreeMap::new();
+    for kind in kinds {
+        let (Some(name), Some(literal)) = (&kind.name, kind.literal) else {
+            continue;
+        };
+        let id = data_channel_id(name);
+        match first.get(&id) {
+            Some((other, file, range)) if other != name => cx.report(
+                kind.file,
+                Diagnostic::new(
+                    codes::COLLIDING_DATA_CHANNELS,
+                    cx.p.span(kind.file, literal),
+                    format!(
+                        "the data channel kinds `{other}` and `{name}` would share the channel id {id}, which both peers derive from the name; rename one"
+                    ),
+                )
+                .with_label(cx.p.span(*file, *range), format!("`{other}` has the id {id}")),
+            ),
+            Some(_) => {}
+            None => {
+                first.insert(id, (name.clone(), kind.file, literal));
+            }
+        }
+    }
+}
+
+/// The id both peers give the data channel of a `DataChannelKind` named
+/// `name`: 1 plus the 32-bit FNV-1a hash of its UTF-8 bytes modulo 1023,
+/// so `1...1023` (id 0 is the stdlib's own channel). The browser's
+/// `runtime/rtc.js` computes the same (`dataChannelId`).
+#[must_use]
+pub(crate) fn data_channel_id(name: &str) -> u16 {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in name.bytes() {
+        h ^= u32::from(b);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    u16::try_from(1 + h % 1023).unwrap_or(1)
+}
+
 /// The message type of a `TabChannel<T>`.
 fn tab_message(cx: &Cx<'_, '_>, ty: &Ty) -> Option<Ty> {
     type_argument(cx, ty, "k.device.TabChannel")
@@ -987,6 +1040,15 @@ impl Compare<'_, '_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn data_channel_ids_match_the_browsers() {
+        // The same vectors as `rtc.test.js`'s, so the two can't drift.
+        assert_eq!(data_channel_id("chat"), 721);
+        assert_eq!(data_channel_id("cursor"), 467);
+        assert_eq!(data_channel_id("al"), data_channel_id("el"));
+        assert_eq!(data_channel_id("al"), 240);
+    }
 
     #[test]
     fn written_types_round_trip() {

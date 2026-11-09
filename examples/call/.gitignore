@@ -1,0 +1,5 @@
+# Real secrets never leave this machine. Only the *.example files are
+# committed; copy each one without `.example` and put a random value in it
+# (README, "Deploying it").
+secrets/*
+!secrets/*.example

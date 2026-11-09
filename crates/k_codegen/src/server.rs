@@ -705,6 +705,20 @@ fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Func
                 wanted.push(imp);
             }
             this(g.name(imp))
+        } else if qualified == "k.rtc.TurnConfig" && tests(g) {
+            // `TurnConfig`'s built-in test value: no URLs, so `IceServers`
+            // issues none unless a test binds its own with a `use` rule
+            // (46-media-and-rtc.md, "Loopback peers").
+            memo(
+                &name,
+                Expr::Object(
+                    vec![
+                        Prop::KeyValue("urls".into(), Expr::Array(Vec::new())),
+                        Prop::KeyValue("secret".into(), Expr::Null),
+                    ],
+                    false,
+                ),
+            )
         } else if g.view.decl(t).named_kind() == Some(DeclarationKind::Config) && !tests(g) {
             // A stdlib config the app injects (`k.rpc.ServiceConfig`): read
             // from the environment like the app's own configs. Tests never
@@ -719,6 +733,25 @@ fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Func
             // rendering and the server"): `isSupported` is `false` there and
             // `permission` `.prompt`; any other use is K4012.
             memo(&name, srt("clientPlatform", vec![js::str(qualified)]))
+        } else if qualified == "k.rtc.IceServers" {
+            // It reads the deployment's `TurnConfig` and signs credentials
+            // that expire on the request's clock (46-media-and-rtc.md,
+            // "STUN and TURN without third-party accounts").
+            if let Some(turn) = g.view.lookup("k.rtc.TurnConfig")
+                && !wanted.contains(&turn)
+            {
+                wanted.push(turn);
+            }
+            memo(
+                &name,
+                srt(
+                    "iceServers",
+                    vec![
+                        js::arrow(vec![], this("TurnConfig")),
+                        js::arrow(vec![], srt("clock", vec![this("$r")])),
+                    ],
+                ),
+            )
         } else if let Some(body) = server_platform_service(b, &qualified) {
             if tests(g) && qualified.starts_with("k.test.") && qualified != "k.test.InlineJobQueue"
             {
@@ -2585,6 +2618,11 @@ fn stdlib_configs(g: &Gen<'_>) -> Vec<&'static str> {
     });
     if serves_channel {
         out.push("k/rpc/ChannelConfig.k");
+    }
+    // `TurnConfig` when the app issues ICE servers (46-media-and-rtc.md,
+    // "STUN and TURN without third-party accounts").
+    if uses("k.rtc.IceServers") {
+        out.push("k/rtc/TurnConfig.k");
     }
     // Any other stdlib config the app's code injects itself
     // (`@Inject let service: ServiceConfig`).

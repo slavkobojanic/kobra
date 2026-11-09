@@ -48,6 +48,7 @@ const APPS: &[&str] = &[
     "notes",
     "huddle",
     "memos",
+    "call",
     "shop/shop",
     "shop/paybox",
     "stack/shop",

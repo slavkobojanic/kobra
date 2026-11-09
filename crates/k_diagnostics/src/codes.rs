@@ -463,6 +463,9 @@ codes! {
     /// Two tab channels, or two data channel kinds, have the same name but different message types.
     CONFLICTING_CHANNEL = 2408, "conflicting-channel", Error,
         "Two `TabChannel`s, or two `DataChannelKind`s, with the same name are the same channel, so they must carry the same message type.";
+    /// Two data channel kinds with different names would share one channel id.
+    COLLIDING_DATA_CHANNELS = 2409, "colliding-data-channels", Error,
+        "Two `DataChannelKind`s with different names would share one channel id, which both peers derive from the name; rename one.";
 
     // ---------------------------------------------------------------- annotations, members and reactivity
     /// An annotated field must be declared `let` or `var` as its annotation requires.
@@ -737,9 +740,9 @@ codes! {
     /// A config field holds a secret or private key without `Secret<…>`.
     BARE_PRIVATE_KEY_IN_CONFIG = 4032, "bare-private-key-in-config", Error,
         "A config field holds a secret or private key (`AesGcmKey`, `Ed25519PrivateKey`, `EcdsaP256PrivateKey`, `X25519PrivateKey`) that isn't wrapped in `Secret<…>`.";
-    /// A browser-only stdlib type (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`) is named in a server-only declaration.
+    /// A browser-only stdlib type (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`, `PeerConnection`, `MediaSender`, `DataChannel`) is named in a server-only declaration.
     CLIENT_ONLY_ON_SERVER = 4033, "client-only-on-server", Error,
-        "A browser-only stdlib type (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`) is named in a server-only declaration.";
+        "A browser-only stdlib type (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`, `PeerConnection`, `MediaSender`, `DataChannel`) is named in a server-only declaration.";
 
     // ---------------------------------------------------------------- pages and routing
     /// Two pages or endpoints have the same URL.

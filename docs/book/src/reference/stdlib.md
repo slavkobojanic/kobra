@@ -50,7 +50,7 @@ library's own doc comments (`crates/k_sema/stdlib`), so they list exactly what t
 | [`k.auth`](stdlib/k-auth.md) | `Session`, `SessionManager`, `SessionUser`, the `Authenticated`, `Role` and `RateLimit` guards, `GuardRejection`, `AuthRole`, `AuthUserId`, `SessionConfig` | OAuth providers, passkeys |
 | [`k.device`](stdlib/k-device.md) | `Files` (the file picker and downloads), `File`, `FileType` and their errors | clipboard, geolocation, notifications, sharing |
 | [`k.media`](stdlib/k-media.md) | `MediaDevices` (the camera, the microphone and the screen), `MediaStream`, `MediaTrack`, `Recorder`, `RecordingSession`, `Recording`, `Audio`, `AudioMeter`, `LevelMeter`, `MediaController`, `MediaSource` and their errors | |
-| `k.rtc` | | peer-to-peer calls and typed data channels |
+| [`k.rtc`](stdlib/k-rtc.md) | `PeerConnections` and `PeerConnection` (calls between two browsers, with perfect negotiation), `MediaSender`, typed data channels (`DataChannelKind`, `DataChannel`), signalling over a channel (`Signal`, `SignallingRelay`, `RelayPeer`), `IceServer`, `IceServers` and `TurnConfig` for self-hosted TURN | calls with more than two people |
 | [`k.drag`](stdlib/k-drag.md) | `DragKind`, `Draggable`, `DropTarget`, `ReorderableList`, `ListMove`, the drag tokens | |
 | [`k.encoding`](stdlib/k-encoding.md) | `Json`, `@JsonKey` | CSV, URL encoding |
 | [`k.server`](stdlib/k-server.md) | `ServerConfig`, `PublicUrls`; jobs (`Job`, `JobQueue`, `JobConfig`, `@Retry`, `@Schedule`, `@JobName`); email (`Email`, `EmailProvider`, `SmtpEmailProvider`, `SmtpConfig`) | file storage (S3-compatible) |
@@ -64,7 +64,7 @@ library's own doc comments (`crates/k_sema/stdlib`), so they list exactly what t
 | `k.animation` | | transitions, springs, enter and exit animations |
 | `k.graphics` | | Canvas 2D and SVG drawing |
 
-> **Planned** (ui-widgets, more-charts, k-text, k-i18n, k-collections, k-animation, k-graphics, k-rtc). The last
+> **Planned** (ui-widgets, more-charts, k-text, k-i18n, k-collections, k-animation, k-graphics). The last
 > column lists what the design adds to each module; none of it is built yet.
 
 Each declaration is imported individually: `import k.ui.VisuallyHidden`, `import k.rpc.RpcFailure`.
@@ -82,6 +82,7 @@ with `@Inject` by their concrete type:
 | `EmailProvider` | `RecordingEmailProvider` |
 | `HttpClient` | `TestHttpClient` |
 | `MediaDevices`, `Recorder`, `Audio` | `TestMediaDevices`, `TestRecorder`, `TestAudio` |
+| `PeerConnections` | `TestPeerConnections` |
 
 ## Where each API is described
 
@@ -101,7 +102,8 @@ with `@Inject` by their concrete type:
 | `Database`, writes, `Schema` | [Persistence](../apps/persistence.md) |
 | `Theme`, `ThemeVariant` | [Styles and themes](../apps/styles.md) |
 | `LineChart`, `LineSeries`, `ChartPoint` | [Charts](../apps/charts.md) |
-| `MediaDevices`, `Recorder`, `Audio`, `LevelMeter`, `MediaController` | [Camera, microphone and recording](../apps/media.md) |
+| `MediaDevices`, `Recorder`, `Audio`, `LevelMeter`, `MediaController` | [Camera, microphone, recording and calls](../apps/media.md) |
+| `PeerConnections`, `PeerConnection`, `DataChannelKind`, `SignallingRelay`, `IceServers`, `TurnConfig` | [Calls between browsers](../apps/media.md#calls-between-browsers) |
 | `PublicUrls` | [Pages and routing](../apps/routing.md#absolute-urls-publicurls) |
 | `Money`, `Currency` | [Money](../apps/money.md) |
 | `Files`, `File`, `FileType` | [Importing and exporting files](../apps/files.md) |

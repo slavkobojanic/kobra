@@ -497,6 +497,10 @@ pub(crate) fn entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)>) {
             };
             methods.push(crate::server::getter(g.name(target), value));
         }
+        // With route-scoped services the test's container is a `$Route`
+        // over the group's: its getters of what the group overrides read
+        // the group's, as `$App`'s own read the app's through `$a`.
+        let overridden: Vec<String> = methods.iter().map(|m| m.name.clone()).collect();
         stmts.push(Stmt::Class(
             Class {
                 name: container.clone(),
@@ -506,10 +510,27 @@ pub(crate) fn entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)>) {
             false,
         ));
         let make = if per_route {
+            let route = format!("{container}R");
+            stmts.push(Stmt::Class(
+                Class {
+                    name: route.clone(),
+                    extends: Some(id("$Route")),
+                    methods: overridden
+                        .iter()
+                        .map(|n| {
+                            crate::server::getter(
+                                n.clone(),
+                                member(crate::server::this("$a"), n.clone()),
+                            )
+                        })
+                        .collect(),
+                },
+                false,
+            ));
             js::arrow(
                 vec![],
                 Expr::New(
-                    Box::new(id("$Route")),
+                    Box::new(id(&route)),
                     vec![Expr::New(Box::new(id(&container)), vec![Expr::Null])],
                 ),
             )

@@ -64,6 +64,7 @@ impl TestPostgres {
             );
             return None;
         }
+        remove_orphans();
         let name = format!(
             "k-test-{tag}-{}-{}",
             std::process::id(),
@@ -149,6 +150,48 @@ impl TestPostgres {
 impl Drop for TestPostgres {
     fn drop(&mut self) {
         if let Some(name) = &self.container {
+            let _ = Command::new("docker")
+                .args(["rm", "--force", name])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    }
+}
+
+/// Removes the containers of test processes that have exited. `Drop`
+/// removes a container when its test ends normally, but a test process
+/// that is killed (a nextest timeout, a cancelled run) never drops it, and
+/// the containers would otherwise run until Docker restarts. A name is
+/// `k-test-{tag}-{pid}-{nanos}`; a container whose pid is gone is an orphan.
+fn remove_orphans() {
+    let Ok(out) = Command::new("docker")
+        .args([
+            "ps",
+            "--all",
+            "--filter",
+            "name=^k-test-",
+            "--format",
+            "{{.Names}}",
+        ])
+        .output()
+    else {
+        return;
+    };
+    for name in String::from_utf8_lossy(&out.stdout).lines() {
+        let mut parts = name.rsplit('-');
+        let (Some(_nanos), Some(pid)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        if pid.parse::<u32>().is_err() {
+            continue;
+        }
+        let alive = Command::new("kill")
+            .args(["-0", pid])
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if !alive {
             let _ = Command::new("docker")
                 .args(["rm", "--force", name])
                 .stdout(Stdio::null())

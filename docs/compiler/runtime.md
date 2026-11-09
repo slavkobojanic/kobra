@@ -159,6 +159,7 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | `observe.[hash].js` | `observe.js` (part `Observe`), a runtime feature shipped only to clients whose views use `appeared`, `disappeared` or `resized` | ≤ 1 KB (`OBSERVE_SIZE_BUDGET`) | 728 B |
 | `media.[hash].js` | `media.js` (part `Media`), shipped only to pages whose client uses `k.media` ([§12.14](#1214-media)); a release build minifies it to about 4.4 KB | ≤ 6 KB (`MEDIA_SIZE_BUDGET`) | 5,702 B |
 | `playback.[hash].js` | `playback.js` (part `Playback`), a runtime feature shipped only to clients with a `video` or `audio` element | ≤ 1 KB (`PLAYBACK_SIZE_BUDGET`) | 858 B |
+| `rtc.[hash].js` | `rtc.js` (part `Rtc`), shipped only to pages whose client uses `k.rtc` ([§12.15](#1215-calls)) | ≤ 5 KB (`RTC_SIZE_BUDGET`) | 3,940 B |
 | `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
 | `streams.[hash].js` | `streams.js` (part `Streams`), shipped only to apps with a streaming rpc | ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | 569 B |
 | `channels.[hash].js` | `channels.js` (part `Channels`), the frame codec and the channels' client ([§8.2](#82-channels)), shipped only to apps whose client calls a channel rpc; a release build links the unused Protobuf codec out (3.2 KB gzip minified in a one-channel app) | ≤ 4.5 KB (`CHANNELS_SIZE_BUDGET`) | 4,302 B |
@@ -1196,6 +1197,49 @@ binding, a runtime feature like `observe.js`.
   `cameraPermission` and `microphonePermission` read `.prompt` and `devices` `[]`;
   `natives["k.media.MediaController"]` is an idle controller, and `LevelMeter` renders an empty
   `role="meter"`. The doubles are the kit's `testMediaDevices`, `testRecorder` and `testAudio`.
+
+
+### 12.15 Calls
+
+`rtc.js` (part `Rtc`), a feature chunk, is `k.rtc` in the browser
+([46-media-and-rtc.md](../design/46-media-and-rtc.md#peer-connections-krtc)): `BrowserPeerConnections`,
+which the client entry's `$App` constructs for `PeerConnections` (deferred to the pages that reach it),
+and the `PeerConnection`, `MediaSender` and `DataChannel` handles. `relay.js` (part `Server`) is the
+server's half: `SignallingRelay` and `iceServers` ([server.md §20](server.md#20-channels)).
+
+- **`peerConnections(env)`** is the whole client over `env`'s `RTCPeerConnection`, `MediaStream`,
+  `after(ms, f)` and `cancel(h)`: the browser's for `BrowserPeerConnections`, the kit's in-process
+  engine (`testing/rtc.js`) and `TestClock` for `TestPeerConnections`. `connect(c, signalling,
+  servers, policy, lifetime)` reads the channel's `Signal`s in order (each handled after the last) and
+  resolves once paired; a channel that ends first rejects with `PeerError.signallingClosed`.
+- **Pairing.** On `peerJoined` a peer sends `hello` with its random id; a `hello` with an id it hasn't
+  seen starts a new `RTCPeerConnection` (closing an earlier one, whose remote tracks end with
+  `.remoteEnded`), with the senders and data channels kept; the peer with the larger id is polite. A
+  `hello` with the same id is the other peer's channel restarting: the impolite one restarts ICE.
+  `peerLeft` before the call connected goes back to `.waitingForPeer`; after, ICE says whether the peer
+  is still there. `bye` closes `.byPeer`.
+- **Perfect negotiation** as the WebRTC specification writes it: `negotiationneeded` sets a local
+  description (`setLocalDescription()`, implicit offer or answer) while `making`; an offer that collides
+  (`making`, or not `stable`) is ignored by the impolite peer and rolled back implicitly by the polite
+  one; a candidate's failure is swallowed only while ignoring. Every connection opens a negotiated data
+  channel of id 0 first, so the first offer carries the data transport and later channels open without
+  renegotiating. The impolite peer attaches it, its senders and its data channels at once, so it makes
+  the first offer; the polite peer attaches them after answering that offer (`later`), since a first
+  offer rolled back makes Chrome's gathering for the answer stall.
+- **ICE.** `connected` or `completed` is `.connected`; `disconnected` or `failed` is `.reconnecting`
+  (after `.connected`), restarts ICE on the impolite side and starts a 15 s timer that closes `.failed`.
+- **Senders.** `send(stream)` adds each track (`addTrack(track, nativeStream)`); `replace(with:)`
+  replaces each new track's kind in place with `replaceTrack` and adds a kind not sent yet; `stop()`
+  removes the senders, and the peer's stream fires `removetrack`, which ends the copies.
+- **Data channels** are `createDataChannel(name, {negotiated: true, id: dataChannelId(name)})`, one per
+  kind name and connection. On `open` each side sends `{"k": shape}` (codegen's fingerprint of the
+  message type's `Codable` shape); another shape closes the channel with `.incompatible`. Messages are
+  `{"m": json}` in the codec's JSON; `send` refuses over 64 KiB and waits above 1 MiB buffered.
+- **`stats()`** reads `getStats()`: the transport's selected candidate pair (or a nominated, succeeded
+  one), its `currentRoundTripTime` and `availableOutgoingBitrate`, whether its local candidate is a
+  `relay`, and the `packetsLost` of every `inbound-rtp`.
+- A `.service` lifetime closes the call when the page's path changes or the document is hidden for
+  good, as for a `.service` stream; `.owner` when the run's `c` aborts.
 
 ## 14. Performance budgets
 

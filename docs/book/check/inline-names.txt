@@ -29,4 +29,3 @@ k.i18n  # planned: k-i18n
 k.collections  # planned: k-collections
 k.animation  # planned: k-animation
 k.graphics  # planned: k-graphics
-k.rtc  # planned: k-rtc

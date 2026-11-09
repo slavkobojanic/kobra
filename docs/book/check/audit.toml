@@ -439,14 +439,17 @@ unpinned = [
 ]
 
 [pages."apps/media.md"]
-commit = "a0e5b2b"
+commit = "fd61697"
 date = "2026-11-10"
-note = "new with k.media; written against the working tree on top of a0e5b2b, the behaviour checked with `k test` on examples/memos and crates/k_cli/tests/fixtures/capturing, media.test.js against scripted browsers, and in Chrome by chrome.rs's media_* and memos_* tests"
+note = "new with k.media on top of a0e5b2b; its calls section (and title) added with k.rtc against the working tree on top of fd61697, the behaviour checked with `k test` on examples/call, rtc.test.js over the in-process engine, call_deploy.rs, and in Chrome by chrome.rs's rtc_* tests (direct, through a coturn container, glare, replace)"
 unpinned = [
     "Firefox records WebM and Safari MP4 (only Chromium runs in the real-browser suite; the choice is media.test.js's scripted `isTypeSupported`)",
     "the screen picker and `.cancelled` in a real browser (headless Chrome shows no picker; the double and the scripted error mapping cover it)",
     "`Audio.play(_:)` resolving when the sound ends in a real browser",
     "on a machine where Chrome can't open its fake devices (macOS without camera and microphone access for the test process) the real-browser recording checks are skipped",
+    "a real call restarting ICE after a network change (needs a network namespace to drop packets in; covered over the in-process engine only)",
+    "`MediaSender.stop()` ending the other side's tracks in a real browser (Chrome mutes a removed track rather than ending it; the stream's `removetrack` is what ends it)",
+    "a stale build's data channel closing `.incompatible` between two real browsers (rtc.test.js's engine covers it)",
 ]
 
 [pages."apps/tabs-and-screen.md"]
@@ -532,6 +535,15 @@ commit = "0dd7625"
 date = "2026-11-09"
 unpinned = [
     "`k dev` at the root serves paybox on the first port and shop on the next",
+]
+
+[pages."examples/call.md"]
+commit = "fd61697"
+date = "2026-11-10"
+note = "new with examples/call; written against the working tree on top of fd61697; `k test`, `k check` and `k build` run on the example, call_deploy.rs checks the deployment"
+unpinned = [
+    "`docker compose up --build --wait` runs the app with coturn (the compose file is checked by call_deploy.rs, not run)",
+    "switching cameras on a device with two cameras",
 ]
 
 [pages."examples/memos.md"]
@@ -644,6 +656,11 @@ note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book
 [pages."reference/stdlib/k-rpc.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-rtc.md"]
+commit = "fd61697"
+date = "2026-11-10"
 note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
 
 [pages."reference/stdlib/k-server.md"]

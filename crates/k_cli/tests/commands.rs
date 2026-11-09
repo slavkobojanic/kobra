@@ -1198,6 +1198,16 @@ fn test_runs_the_memos_example() {
 }
 
 #[test]
+fn test_runs_the_call_example() {
+    // `PeerConnections` against `TestPeerConnections` (46-media-and-rtc.md,
+    // "Loopback peers"): a second person joining through the protocol and
+    // the relay, chat on a data channel, muting, a lost and a dead
+    // network, hanging up, screen sharing, a full room, blocked devices,
+    // statistics and no ICE servers without TURN.
+    assert_example_passes("call");
+}
+
+#[test]
 fn test_runs_the_capturing_fixture() {
     // The real-Chrome fixture's buttons against the doubles: `.notAsked`
     // before asking, one prompt, `.denied` without one, a missing chosen

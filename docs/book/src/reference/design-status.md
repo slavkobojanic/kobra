@@ -22,7 +22,6 @@ with a Planned note naming the feature's id, and this table is generated from th
 | A warning when a `GET` or `HEAD` handler that uses the session signs in, signs out or writes | `safe-method-lint` | [Authentication and sessions](../apps/auth.md#request-forgery) |
 | A warning when a field named `password`, or a `Secret`, is logged | `password-log-lint` | [Authentication and sessions](../apps/auth.md#passwords), [Bytes and cryptography](../apps/crypto.md#passwords) |
 | `WebPush`: Web Push with VAPID and payload encryption, without a third-party account | `web-push` | [Bytes and cryptography](../apps/crypto.md#whats-next) |
-| `k.rtc`: peer-to-peer calls and typed data channels, signalled over the app's own channel | `k-rtc` | [Camera, microphone and recording](../apps/media.md#testing), [Standard library overview](stdlib.md#modules) |
 | Rejecting a call to a job's `run` outside the worker and tests | `job-run-check` | [Background jobs](../apps/jobs.md#jobs) |
 | Metrics and tracing in `k.observe` (OpenTelemetry), such as a dead-job count | `observe-metrics` | [Channels](../apps/channels.md#seeing-what-channels-do), [Background jobs](../apps/jobs.md#retries-and-dead-jobs) |
 | State-preserving hot module replacement in `k dev` | `hmr` | [Your first app](../getting-started/first-app.md#running-it), [Everyday commands](../getting-started/commands.md#k-dev), [Reactivity](../apps/reactivity.md#why-explicit-annotations) |

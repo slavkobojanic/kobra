@@ -995,6 +995,17 @@ timers).
   Chrome asks the system for the camera and microphone even when they are fake, and a test process that
   was never granted them waits forever: those parts then print `skipped: …` and pass, unless
   `K_REQUIRE_MEDIA=1` makes them fail.
+- **Calls** (46-media-and-rtc.md): the `rtc_*` tests open two tabs of one Chrome on
+  `tests/fixtures/calling` under `k dev`, with the fake camera allowed, background tabs kept running and
+  host candidates as addresses (not `.local` names), and send **video only**, since the fake camera opens
+  on macOS where the fake microphone waits. They call with no ICE servers; through a `coturn/coturn:4.6`
+  container (Docker; skipped without it unless `K_REQUIRE_DOCKER=1`) with `IcePolicy.relayOnly`, checking
+  that `stats()` reports the relay; under glare forced by holding both tabs' WebSocket frames while each
+  adds its camera; and across a mid-call `replace`, counting descriptions through a wrapped
+  `RTCPeerConnection`. coturn's port is published on every interface and the TURN URL names this
+  machine's network address: Docker Desktop here doesn't forward a port published on `127.0.0.1` alone,
+  and Chrome reaches a TURN server only from a network interface. The ICE restart after a network
+  namespace drops packets isn't run: macOS has no network namespaces.
 - **The protocol client** (`tests/support/cdp.rs`): the DevTools protocol over a WebSocket, both
   written for the tests on `std::net` and `serde_json` (no new dependency: one loopback connection needs
   a masked text frame out and possibly fragmented text frames in). A reader thread forwards responses

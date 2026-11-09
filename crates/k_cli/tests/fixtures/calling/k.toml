@@ -1,0 +1,9 @@
+# `k.rtc` against real Chrome with a fake camera
+# (docs/design/46-media-and-rtc.md, "Testing the stdlib against real
+# browsers"; crates/k_cli/tests/chrome.rs): two tabs join one room, and
+# each button sends, replaces or measures one way and says what happened in
+# the status line. Video only: headless Chrome's fake microphone needs a
+# system permission the test process may not have on macOS.
+[package]
+name = "calling"
+k = "0.1"

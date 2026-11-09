@@ -105,6 +105,8 @@ export {
   unloadedMany,
 } from "./db.js";
 
+export { SignallingRelay, hmacSha1, iceServers, sha1, turnCredential } from "./relay.js";
+
 import { STREAMED } from "./app.js";
 
 /**

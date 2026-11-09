@@ -2956,38 +2956,67 @@ error[K2407]: this adds CHF to USD; `Money` never mixes currencies, so it would 
 
 **Error.** Two `TabChannel`s, or two `DataChannelKind`s, with the same name are the same channel, so they must carry the same message type.
 
-Example (`tests/corpus/sema/app/tabs/conflicting-tab-channel.k`):
+Example (`tests/corpus/sema/app/rtc/conflicting-data-channel-kind.k`):
 
 ```k,ignore
-// A `TabChannel<T>` pairs a name with its message type (45-web-platform.md, "Messages between tabs"):
-// channels with the same name are the same channel, so two named alike must carry the same message
-// type, or one tab would post a type another decodes as a different one. A channel named like an
-// earlier one with another message type is K2408 at its name literal, with a label at the earlier
-// one; redeclaring one with the same type is fine.
-import k.device.TabChannel
+// A `DataChannelKind<T>` pairs a name with its message type (46-media-and-rtc.md, "Typed data
+// channels"), and the two peers open a channel by its name, so two kinds named alike must carry the
+// same type: the same K2408 as for `TabChannel`.
+import k.rtc.DataChannelKind
 
-enum CartChange implements Codable {
-    case added(id: Int)
-    case cleared
+struct ChatLine implements Codable {
+    let text: String
 }
 
-let cartChanges: TabChannel<CartChange> = TabChannel(name: "cart")
-let sameChanges: TabChannel<CartChange> = TabChannel(name: "cart")
-let cartCounts: TabChannel<Int> = TabChannel(name: "cart")
-let themeChanges: TabChannel<String> = TabChannel(name: "theme")
+let chatLines: DataChannelKind<ChatLine> = DataChannelKind(name: "chat")
+let chatCounts: DataChannelKind<Int> = DataChannelKind(name: "chat")
 ```
 
 ```text
-error[K2408]: another tab channel is named `cart` with the message type `corpus.CartChange`; channels with the same name are the same channel, so this one can't carry `Int`
-  --> src/corpus/conflicting-tab-channel.k:15:52
+error[K2408]: another data channel kind is named `chat` with the message type `corpus.ChatLine`; channels with the same name are the same channel, so this one can't carry `Int`
+  --> src/corpus/conflicting-data-channel-kind.k:11:62
    |
-13 | let cartChanges: TabChannel<CartChange> = TabChannel(name: "cart")
-   |                                                            ------ the tab channel named `cart` carries `corpus.CartChange`
-15 | let cartCounts: TabChannel<Int> = TabChannel(name: "cart")
-   |                                                    ^^^^^^
+10 | let chatLines: DataChannelKind<ChatLine> = DataChannelKind(name: "chat")
+   |                                                                  ------ the data channel kind named `chat` carries `corpus.ChatLine`
+11 | let chatCounts: DataChannelKind<Int> = DataChannelKind(name: "chat")
+   |                                                              ^^^^^^
 ```
 
 **Fix:** Give the channel its own name, or the message type of the channel already named so; usually declare the channel once and import it.
+
+### K2409 `colliding-data-channels`
+
+**Error.** Two `DataChannelKind`s with different names would share one channel id, which both peers derive from the name; rename one.
+
+Example (`tests/corpus/sema/app/rtc/colliding-data-channels.k`):
+
+```k,ignore
+// Both peers open a data channel under an id derived from its name (46-media-and-rtc.md, "Typed
+// data channels"), so two kinds whose names give the same id would be one channel: K2409. The same
+// name twice, with the same type, is the same channel and is fine.
+import k.rtc.DataChannelKind
+
+struct Cursor implements Codable {
+    let x: Int
+    let y: Int
+}
+
+let al: DataChannelKind<Cursor> = DataChannelKind(name: "al")
+let alAgain: DataChannelKind<Cursor> = DataChannelKind(name: "al")
+let el: DataChannelKind<Cursor> = DataChannelKind(name: "el")
+```
+
+```text
+error[K2409]: the data channel kinds `al` and `el` would share the channel id 240, which both peers derive from the name; rename one
+  --> src/corpus/colliding-data-channels.k:13:57
+   |
+11 | let al: DataChannelKind<Cursor> = DataChannelKind(name: "al")
+   |                                                         ---- `al` has the id 240
+13 | let el: DataChannelKind<Cursor> = DataChannelKind(name: "el")
+   |                                                         ^^^^
+```
+
+**Fix:** Rename one of the two data channel kinds: their names hash to the same channel id, and almost any other name gives another one.
 
 ## K3000–K3999: Components, views, styles, themes, reactivity
 
@@ -6354,47 +6383,56 @@ error[K4032]: a secret key in a config is held as `Secret<Ed25519PrivateKey>`, s
 
 ### K4033 `client-only-on-server`
 
-**Error.** A browser-only stdlib type (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`) is named in a server-only declaration.
+**Error.** A browser-only stdlib type (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`, `PeerConnection`, `MediaSender`, `DataChannel`) is named in a server-only declaration.
 
-Example (`tests/corpus/sema/app/media/client-only-on-server.k`):
+Example (`tests/corpus/sema/app/rtc/client-only-on-server.k`):
 
 ```k,ignore
-// A stream, a recording session or a meter exists only in the browser: naming one in a
-// server-only declaration is K4033 (46-media-and-rtc.md, "Server and client"). A `Recording` is a
-// value and may be named anywhere.
-import k.media.MediaStream
-import k.media.Recording
-import k.media.RecordingSession
+// A peer connection, a sender and a data channel exist only in the browser: naming one in a
+// server-only declaration is K4033 (46-media-and-rtc.md, "Server and client").
+import k.rtc.DataChannel
+import k.rtc.MediaSender
+import k.rtc.PeerConnection
+
+struct Line implements Codable {
+    let text: String
+}
 
 @Scope(.server)
-service Archive {
-    func keep(stream: MediaStream) {
-        stream.stop()
+service Calls {
+    var current: PeerConnection? = nil
+
+    func hangUp(sender: MediaSender) {
+        sender.stop()
     }
 
-    func store(recording: Recording) -> Int {
-        return recording.file.bytes.count
+    func open(channel: DataChannel<Line>) {
+        channel.close()
     }
-
-    var current: RecordingSession? = nil
 }
 ```
 
 ```text
-error[K4033]: `MediaStream` exists only in the browser, but `Archive` runs on the server
-  --> src/corpus/client-only-on-server.k:10:23
+error[K4033]: `PeerConnection` exists only in the browser, but `Calls` runs on the server
+  --> src/corpus/client-only-on-server.k:13:18
    |
-10 |     func keep(stream: MediaStream) {
-   |                       ^^^^^^^^^^^
+13 |     var current: PeerConnection? = nil
+   |                  ^^^^^^^^^^^^^^
 
-error[K4033]: `RecordingSession` exists only in the browser, but `Archive` runs on the server
-  --> src/corpus/client-only-on-server.k:18:18
+error[K4033]: `MediaSender` exists only in the browser, but `Calls` runs on the server
+  --> src/corpus/client-only-on-server.k:15:25
    |
-18 |     var current: RecordingSession? = nil
-   |                  ^^^^^^^^^^^^^^^^
+15 |     func hangUp(sender: MediaSender) {
+   |                         ^^^^^^^^^^^
+
+error[K4033]: `DataChannel` exists only in the browser, but `Calls` runs on the server
+  --> src/corpus/client-only-on-server.k:19:24
+   |
+19 |     func open(channel: DataChannel<Line>) {
+   |                        ^^^^^^^^^^^
 ```
 
-**Fix:** Keep the stream, track, controller, meter or recording session in a client-only service, and send the server what it can store: a `Recording`'s `File` bytes, not the session.
+**Fix:** Keep the stream, track, controller, meter, recording session, peer connection, sender or data channel in a client-only service, and send the server what it can store: a `Recording`'s `File` bytes, not the session; a call's signals go through the relay's channel.
 
 ## K5000–K5499: Pages and routing
 

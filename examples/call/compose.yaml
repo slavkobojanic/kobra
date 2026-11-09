@@ -1,0 +1,53 @@
+# Call in production (docs/design/46-media-and-rtc.md, "STUN and TURN
+# without third-party accounts"): the app and its own TURN server, coturn,
+# which relays a call when the two browsers can't reach each other directly
+# (most corporate networks and some mobile ones). Nothing else is needed:
+# no STUN or TURN account anywhere.
+#
+#   cp secrets/turn_secret.txt.example secrets/turn_secret.txt   # then a random value
+#   docker compose up --build --wait
+#
+# Replace call.example.org with the host browsers reach, and 203.0.113.10
+# with its public address. Open 8080/tcp for the app (or put it behind your
+# TLS proxy), and 3478/udp, 3478/tcp and 49160-49200/udp for coturn.
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: examples/call/Dockerfile
+    image: k-call:local
+    ports:
+      - "8080:8080"
+    environment:
+      K_PUBLIC_ORIGIN: https://call.example.org
+      # The URLs browsers are given, with credentials signed by the secret
+      # coturn shares; both transports, for networks that block UDP.
+      K_TURN_URLS: turn:call.example.org:3478?transport=udp,turn:call.example.org:3478?transport=tcp
+      K_TURN_SECRET_FILE: /run/secrets/turn_secret
+    secrets: [turn_secret]
+
+  turn:
+    image: coturn/coturn:4.6
+    # The relay ports are a range; host networking avoids publishing each.
+    network_mode: host
+    secrets: [turn_secret]
+    entrypoint: ["sh", "-c"]
+    # The denied ranges matter: without them a TURN server relays to the
+    # deployment's private network, which makes it a proxy into the data
+    # centre for anyone with a credential.
+    command:
+      - >
+        exec turnserver -n --no-cli --fingerprint
+        --listening-port=3478 --min-port=49160 --max-port=49200
+        --realm=call.example.org --external-ip=$${EXTERNAL_IP}
+        --use-auth-secret --static-auth-secret="$$(cat /run/secrets/turn_secret)"
+        --no-multicast-peers --denied-peer-ip=10.0.0.0-10.255.255.255
+        --denied-peer-ip=172.16.0.0-172.31.255.255 --denied-peer-ip=192.168.0.0-192.168.255.255
+        --denied-peer-ip=127.0.0.0-127.255.255.255
+    environment:
+      EXTERNAL_IP: 203.0.113.10
+
+secrets:
+  turn_secret:
+    file: ./secrets/turn_secret.txt

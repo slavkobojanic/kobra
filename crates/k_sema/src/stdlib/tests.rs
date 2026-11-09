@@ -95,6 +95,7 @@ fn every_module_is_below_k() {
         "k.media",
         "k.observe",
         "k.rpc",
+        "k.rtc",
         "k.server",
         "k.storage",
         "k.test",

@@ -198,6 +198,13 @@ pub const OBSERVE_SIZE_BUDGET: usize = 1024;
 /// (`docs/compiler/performance.md` §11.3).
 pub const MEDIA_SIZE_BUDGET: usize = 6 * 1024;
 
+/// The largest `k.rtc` in the browser ([`Part::Rtc`]:
+/// `BrowserPeerConnections` with perfect negotiation, ICE restarts, typed
+/// data channels and `stats()`) may be, measured like [`CORE_SIZE_BUDGET`]
+/// (5 KB). It ships in its own chunk, only to pages whose client uses
+/// `k.rtc` (`docs/compiler/performance.md` §11.3).
+pub const RTC_SIZE_BUDGET: usize = 5 * 1024;
+
 /// The largest the `video` and `audio` elements' binding in the browser
 /// ([`Part::Playback`]) may be, measured like [`CORE_SIZE_BUDGET`] (1 KB).
 /// It ships in a chunk of its own, only to pages with a `video` or
@@ -309,6 +316,11 @@ pub enum Part {
     /// client chunk, only to pages whose client uses it, and measured on
     /// its own ([`MEDIA_SIZE_BUDGET`]).
     Media,
+    /// `k.rtc` in the browser (`BrowserPeerConnections`, `PeerConnection`,
+    /// `MediaSender`, `DataChannel`): shipped as its own client chunk, only
+    /// to pages whose client uses it, and measured on its own
+    /// ([`RTC_SIZE_BUDGET`]).
+    Rtc,
     /// The `video` and `audio` elements' binding in the browser: shipped as
     /// its own client chunk, only to pages with one, and measured on its
     /// own ([`PLAYBACK_SIZE_BUDGET`]). Generated code reaches it as
@@ -427,6 +439,7 @@ const MODULES: &[Module] = modules![
     Observe "runtime/observe.js",
     Media "runtime/media.js",
     Playback "runtime/playback.js",
+    Rtc "runtime/rtc.js",
     Keys "runtime/keys.js",
     Streams "runtime/streams.js",
     Channels "runtime/channels.js",
@@ -444,10 +457,12 @@ const MODULES: &[Module] = modules![
     Server "runtime/outbound.js",
     Server "runtime/remote.js",
     Server "runtime/db.js",
+    Server "runtime/relay.js",
     Testing "testing/channels.js",
     Testing "testing/dom.js",
     Testing "testing/harness.js",
     Testing "testing/kit.js",
+    Testing "testing/rtc.js",
 ];
 
 /// Returns every embedded runtime file, in table order (core modules

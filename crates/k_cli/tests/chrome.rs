@@ -2240,10 +2240,11 @@ fn media_records_each_named_format_in_chrome() {
             format!("recorded {media} recording.webm"),
             "{button}"
         );
-        // MediaRecorder's WebM has no duration in its header: seeking past
-        // the end makes Chrome scan the file and report it.
+        // The player renders a moment after the status line. MediaRecorder's
+        // WebM has no duration in its header: seeking past the end makes
+        // Chrome scan the file and report it.
         let duration = tab.eval(
-            "(async () => { const v = document.querySelector('video[aria-label=Playback]'); if (v.readyState < 1) await new Promise((r) => v.addEventListener('loadedmetadata', r, { once: true })); if (!Number.isFinite(v.duration)) { v.currentTime = 1e9; await new Promise((r) => v.addEventListener('durationchange', r, { once: true })); } return v.duration; })()",
+            "(async () => { for (let i = 0; i < 100 && !document.querySelector('video[aria-label=Playback]'); i++) await new Promise((r) => setTimeout(r, 50)); const v = document.querySelector('video[aria-label=Playback]'); if (v.readyState < 1) await new Promise((r) => v.addEventListener('loadedmetadata', r, { once: true })); if (!Number.isFinite(v.duration)) { v.currentTime = 1e9; await new Promise((r) => v.addEventListener('durationchange', r, { once: true })); } return v.duration; })()",
         );
         let seconds = duration.as_f64().unwrap_or(0.0);
         assert!(
@@ -2297,3 +2298,450 @@ fn memos_records_a_memo_and_plays_it_back() {
     );
     drop(tab);
 }
+
+// ------------------------------------------------------------ calls
+
+/// Chrome's fake camera with every prompt allowed, for calls (46, "Testing
+/// the stdlib against real browsers"), with background tabs kept running:
+/// the two tabs of a call take turns in front, and Chrome otherwise pauses
+/// a background tab's video. The calls send video only: on macOS headless
+/// Chrome's fake microphone waits for a system permission the test process
+/// may not have (`can_capture`), while the fake camera opens.
+const FAKE_CALL: &[&str] = &[
+    "--use-fake-device-for-media-stream",
+    "--use-fake-ui-for-media-stream",
+    "--autoplay-policy=no-user-gesture-required",
+    "--disable-background-media-suspend",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    // Host candidates as addresses rather than `.local` names: several
+    // Chromes of a parallel test run otherwise resolve each other's names.
+    "--disable-features=WebRtcHideLocalIpsWithMdns",
+];
+
+/// Installed in each tab before the app runs: every `RTCPeerConnection`
+/// it makes, in `__pcs`, for a failure message ([`call_ice`]).
+const CALL_PCS: &str = r#"(() => {
+  const R = RTCPeerConnection;
+  const t0 = performance.now();
+  window.__pcs = [];
+  window.__trace = [];
+  const log = (...a) => window.__trace.push(`${Math.round(performance.now() - t0)} ${a.join(" ")}`);
+  window.RTCPeerConnection = function (c) {
+    const p = new R(c);
+    const n = window.__pcs.push(p);
+    log(n, "new");
+    p.addEventListener("icecandidate", (e) => log(n, "candidate", e.candidate ? e.candidate.candidate.split(" ").slice(4, 8).join(" ") : "end"));
+    p.addEventListener("icegatheringstatechange", () => log(n, "gathering", p.iceGatheringState));
+    p.addEventListener("negotiationneeded", () => log(n, "negotiationneeded", p.signalingState));
+    p.addEventListener("signalingstatechange", () => log(n, "signaling", p.signalingState));
+    for (const k of ["setLocalDescription", "setRemoteDescription", "addIceCandidate"]) {
+      const f = p[k].bind(p);
+      p[k] = (...a) => {
+        log(n, k, a[0]?.type ?? (a[0]?.candidate ? "cand" : ""), p.signalingState);
+        return f(...a).then((v) => (log(n, k, "ok"), v), (e) => (log(n, k, "failed", e.name), Promise.reject(e)));
+      };
+    }
+    return p;
+  };
+  window.RTCPeerConnection.prototype = R.prototype;
+})();"#;
+
+/// Installed in each tab of the glare and replace tests before the app
+/// runs: `__log` records every `setLocalDescription` and
+/// `setRemoteDescription` with the signalling state it found, and while
+/// `__hold` is set the page's WebSocket frames wait, until `__release()`.
+const CALL_HOOKS: &str = r#"(() => {
+  const send = WebSocket.prototype.send;
+  const held = [];
+  window.__hold = false;
+  WebSocket.prototype.send = function (d) { if (window.__hold) held.push([this, d]); else send.call(this, d); };
+  window.__release = () => { window.__hold = false; for (const [ws, d] of held.splice(0)) send.call(ws, d); };
+  window.__log = [];
+  const P = RTCPeerConnection.prototype;
+  const local = P.setLocalDescription;
+  const remote = P.setRemoteDescription;
+  P.setLocalDescription = function (...a) { window.__log.push(["local", this.signalingState]); return local.apply(this, a); };
+  P.setRemoteDescription = function (d, ...a) { window.__log.push(["remote", d?.type ?? "", this.signalingState]); return remote.call(this, d, ...a); };
+})();"#;
+
+/// The calling fixture (`fixtures/calling`) under `k dev` with `env`, and
+/// two tabs of one Chrome on it, each with `hooks` installed.
+fn call_lab(dir: &Scratch, env: &[(&str, String)], hooks: &str) -> Option<(Tab, Tab, Proc)> {
+    let mut a = page::chrome_with(&dir.0, FAKE_CALL)?;
+    let fixture =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/calling");
+    copy_project(&fixture, &dir.0.join("calling"));
+    let (k, port) = Proc::serve(
+        &["dev", "."],
+        1,
+        &dir.0.join("calling"),
+        env,
+        &["K_TURN_URLS", "K_TURN_SECRET"],
+        Duration::from_secs(120),
+    );
+    let origin = format!("http://localhost:{port}");
+    a.before_each_document(CALL_PCS);
+    if !hooks.is_empty() {
+        a.before_each_document(hooks);
+    }
+    a.open(&format!("{origin}/"));
+    a.wait_text("state: none");
+    let mut b = a.new_tab();
+    b.before_each_document(CALL_PCS);
+    if !hooks.is_empty() {
+        b.before_each_document(hooks);
+    }
+    b.open(&format!("{origin}/"));
+    b.wait_text("state: none");
+    Some((a, b, k))
+}
+
+/// Brings `tab` to the front and clicks its button `name`.
+fn call_press(tab: &mut Tab, name: &str) {
+    tab.bring_to_front();
+    let button = tab.role("button", name);
+    tab.wait_handles_click(&button);
+    tab.click(&button);
+}
+
+/// Waits for `tab`'s status line to start with `expected`.
+fn call_status(tab: &mut Tab, expected: &str) -> String {
+    tab.wait(&format!("the status to start with {expected:?}"), |t| {
+        let status = t.eval("document.querySelector('[role=status]')?.innerText ?? ''");
+        let text = status.as_str().unwrap_or_default().to_owned();
+        text.starts_with(expected).then_some(text)
+    })
+}
+
+/// Joins both tabs (`button`: "Join" or "Join relayed") and waits until
+/// each is connected to the other.
+fn call_join(a: &mut Tab, b: &mut Tab, button: &str) {
+    call_press(a, button);
+    call_status(a, "joining");
+    call_press(b, button);
+    call_status(b, "paired");
+    call_status(a, "paired");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let connected = |t: &mut Tab| {
+        t.eval("document.body.innerText")
+            .as_str()
+            .is_some_and(|x| x.contains("state: connected"))
+    };
+    while !(connected(a) && connected(b)) {
+        if Instant::now() > deadline {
+            let a_state = call_ice(a);
+            let b_state = call_ice(b);
+            let a_trace = a.eval("(window.__trace ?? []).join('\\n')");
+            let b_trace = b.eval("(window.__trace ?? []).join('\\n')");
+            panic!(
+                "the tabs didn't connect within a minute:\n{a_state}\n{b_state}\nA:\n{}\nB:\n{}",
+                a_trace.as_str().unwrap_or_default(),
+                b_trace.as_str().unwrap_or_default()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// What `tab`'s connections say about ICE (see [`CALL_PCS`]), for a
+/// failure message.
+fn call_ice(tab: &mut Tab) -> String {
+    let v = tab.eval(
+        "(async () => { const out = []; for (const p of window.__pcs ?? []) { out.push(`${p.signalingState} ${p.iceGatheringState} ${p.iceConnectionState}`); (await p.getStats()).forEach((s) => { if (s.type === 'candidate-pair') out.push(`  pair ${s.state} ${s.nominated}`); else if (s.type.endsWith('candidate')) out.push(`  ${s.type} ${s.candidateType} ${s.address}:${s.port} ${s.protocol}`); }); } return out.join('\\n'); })()",
+    );
+    v.as_str().unwrap_or_default().to_owned()
+}
+
+/// Waits until `tab`'s remote picture is `width` pixels wide: the other
+/// tab's camera arrived and decodes, at the size it sends.
+fn call_remote_width(tab: &mut Tab, width: u64) {
+    tab.bring_to_front();
+    tab.wait(&format!("the remote picture to be {width} wide"), |t| {
+        let w = t.eval("document.querySelector('video[aria-label=Remote]')?.videoWidth ?? 0");
+        (w.as_u64() == Some(width)).then_some(())
+    });
+}
+
+/// `__log`'s entries of `tab` (see [`CALL_HOOKS`]).
+fn call_log(tab: &mut Tab) -> Vec<Value> {
+    tab.eval("window.__log")
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Two tabs on `localhost` call each other through the K server's relay
+/// with no ICE servers at all (46, "STUN and TURN without third-party
+/// accounts"): host candidates are enough on one machine. One tab's fake
+/// camera arrives at the other at the size it sent, `stats()` reports a
+/// direct path, and hanging up closes the other tab's side `.byPeer`.
+#[test]
+fn rtc_two_tabs_call_each_other_without_ice_servers_in_chrome() {
+    let dir = Scratch::new("rtc-direct");
+    let Some((mut a, mut b, _k)) = call_lab(&dir, &[], "") else {
+        return;
+    };
+    call_join(&mut a, &mut b, "Join");
+    call_press(&mut a, "Send 640");
+    call_status(&mut a, "sending 640");
+    call_remote_width(&mut b, 640);
+    call_press(&mut b, "Stats");
+    assert_eq!(call_status(&mut b, "stats"), "stats relayed=false");
+    call_press(&mut a, "Hang up");
+    b.wait_text("state: closed byPeer");
+    a.wait_text("state: closed byApp");
+    drop(b);
+    drop(a);
+}
+
+/// A coturn container (`coturn/coturn:4.6`) with the TURN REST secret
+/// `secret`, on a UDP port of the tests' range, or
+/// `None` without Docker (with `K_REQUIRE_DOCKER=1` that fails instead).
+/// Only the listening port is published: both tabs relay, so media goes
+/// from one relay port to the other inside the container, whose address
+/// coturn advertises. Unlike `examples/call/compose.yaml`, it doesn't deny
+/// the private ranges, since that container address is one of them.
+struct Coturn {
+    name: String,
+    /// This machine's address on its network: Chrome talks to a TURN
+    /// server only from a network interface, never over loopback.
+    host: String,
+    port: u16,
+}
+
+impl Coturn {
+    fn start(secret: &str) -> Option<Coturn> {
+        let required = std::env::var("K_REQUIRE_DOCKER").is_ok_and(|v| v == "1");
+        let docker = std::process::Command::new("docker")
+            .args(["version", "--format", "{{.Server.Version}}"])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !docker {
+            assert!(
+                !required,
+                "K_REQUIRE_DOCKER=1, but Docker isn't available to start coturn"
+            );
+            eprintln!("skipped: no Docker to start coturn (K_REQUIRE_DOCKER=1 makes this fail)");
+            return None;
+        }
+        // The address of the interface that would reach another network;
+        // a UDP "connection" sends nothing.
+        let host = std::net::UdpSocket::bind("0.0.0.0:0")
+            .and_then(|s| s.connect("192.0.2.1:9").and_then(|()| s.local_addr()))
+            .map(|a| a.ip())
+            .ok()
+            .filter(|ip| !ip.is_loopback() && !ip.is_unspecified());
+        let Some(host) = host else {
+            assert!(
+                !required,
+                "K_REQUIRE_DOCKER=1, but this machine has no network address for coturn"
+            );
+            eprintln!("skipped: no network address for Chrome to reach coturn at");
+            return None;
+        };
+        let host = host.to_string();
+        let name = format!("k-test-coturn-{}", std::process::id());
+        let _ = std::process::Command::new("docker")
+            .args(["rm", "--force", &name])
+            .output();
+        for attempt in 0..20u16 {
+            let port = 5200 + ((std::process::id() as u16).wrapping_add(attempt * 41)) % 800;
+            let out = std::process::Command::new("docker")
+                .args([
+                    "run",
+                    "--detach",
+                    "--rm",
+                    "--name",
+                    &name,
+                    "--publish",
+                    // On every interface: Docker Desktop doesn't forward a
+                    // port published on 127.0.0.1 alone here (checked
+                    // 2026-11). The secret is the test's, and the
+                    // container lives only as long as the test.
+                    &format!("{port}:3478/udp"),
+                    "coturn/coturn:4.6",
+                    "-n",
+                    "--no-cli",
+                    "--fingerprint",
+                    "--listening-port=3478",
+                    "--min-port=49160",
+                    "--max-port=49200",
+                    "--realm=k.test",
+                    "--use-auth-secret",
+                    &format!("--static-auth-secret={secret}"),
+                    "--no-multicast-peers",
+                    "--log-file=stdout",
+                ])
+                .output()
+                .expect("docker runs");
+            if out.status.success() {
+                // Ready once it answers a STUN binding request at the address
+                // Chrome will use: its log says it listens before the
+                // published port reaches it.
+                let deadline = Instant::now() + Duration::from_secs(60);
+                let socket = std::net::UdpSocket::bind("0.0.0.0:0").expect("a UDP socket");
+                socket
+                    .set_read_timeout(Some(Duration::from_millis(250)))
+                    .expect("a timeout");
+                let mut request = vec![0x00, 0x01, 0x00, 0x00, 0x21, 0x12, 0xa4, 0x42];
+                request.extend((0..12u8).map(|i| i.wrapping_mul(37)));
+                let mut ready = false;
+                while !ready && Instant::now() < deadline {
+                    let _ = socket.send_to(&request, (host.as_str(), port));
+                    let mut answer = [0u8; 512];
+                    ready = socket
+                        .recv_from(&mut answer)
+                        .is_ok_and(|(n, _)| n >= 20 && answer[0] == 0x01);
+                }
+                assert!(
+                    ready,
+                    "coturn answers STUN at {host}:{port} within a minute"
+                );
+                return Some(Coturn { name, host, port });
+            }
+            let _ = std::process::Command::new("docker")
+                .args(["rm", "--force", &name])
+                .output();
+        }
+        panic!("a coturn container starts");
+    }
+}
+
+impl Drop for Coturn {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("docker")
+            .args(["rm", "--force", &self.name])
+            .output();
+    }
+}
+
+/// The same call through the deployment's own TURN server: `k dev` with
+/// `K_TURN_URLS` naming a coturn container and `K_TURN_SECRET` its
+/// `static-auth-secret`, so `IceServers` signs credentials coturn accepts
+/// (46, "STUN and TURN without third-party accounts"), and both tabs with
+/// `IcePolicy.relayOnly`: they connect, the picture arrives, and `stats()`
+/// on both sides reports the relay.
+#[test]
+fn rtc_call_relays_through_coturn_in_chrome() {
+    let secret = "k-test-turn-secret";
+    let Some(turn) = Coturn::start(secret) else {
+        return;
+    };
+    let dir = Scratch::new("rtc-relay");
+    let env = [
+        (
+            "K_TURN_URLS",
+            format!("turn:{}:{}?transport=udp", turn.host, turn.port),
+        ),
+        ("K_TURN_SECRET", secret.to_owned()),
+    ];
+    let Some((mut a, mut b, _k)) = call_lab(&dir, &env, "") else {
+        return;
+    };
+    call_join(&mut a, &mut b, "Join relayed");
+    call_press(&mut a, "Send 640");
+    call_remote_width(&mut b, 640);
+    call_press(&mut b, "Stats");
+    assert_eq!(call_status(&mut b, "stats"), "stats relayed=true");
+    call_press(&mut a, "Stats");
+    assert_eq!(call_status(&mut a, "stats"), "stats relayed=true");
+    drop(b);
+    drop(a);
+    drop(turn);
+}
+
+/// Perfect negotiation under forced glare (46, "`PeerConnections` and
+/// `PeerConnection`"): while both tabs' WebSocket frames are held, each
+/// adds its camera, so each makes an offer; released, each receives the
+/// other's offer while it has one of its own. The polite tab rolls back
+/// and answers (the one `setRemoteDescription(offer)` in
+/// `have-local-offer`), the impolite one ignores the offer, and both
+/// pictures arrive.
+#[test]
+fn rtc_perfect_negotiation_resolves_glare_in_chrome() {
+    let dir = Scratch::new("rtc-glare");
+    let Some((mut a, mut b, _k)) = call_lab(&dir, &[], CALL_HOOKS) else {
+        return;
+    };
+    call_join(&mut a, &mut b, "Join");
+    let before: Vec<usize> = [&mut a, &mut b]
+        .into_iter()
+        .map(|t| call_log(t).len())
+        .collect();
+    for t in [&mut a, &mut b] {
+        t.eval("window.__hold = true");
+    }
+    call_press(&mut a, "Send 640");
+    call_press(&mut b, "Send 640");
+    for (t, n) in [&mut a, &mut b].into_iter().zip(&before) {
+        let n = *n;
+        t.wait("an offer of its own, held", |t| {
+            let log = call_log(t);
+            log[n..]
+                .iter()
+                .any(|e| e[0] == "local" && e[1] == "stable")
+                .then_some(())
+        });
+    }
+    for t in [&mut a, &mut b] {
+        t.eval("window.__release()");
+    }
+    call_remote_width(&mut b, 640);
+    call_remote_width(&mut a, 640);
+    let rolled_back: usize = [&mut a, &mut b]
+        .into_iter()
+        .zip(&before)
+        .map(|(t, n)| {
+            call_log(t)[*n..]
+                .iter()
+                .filter(|e| e[0] == "remote" && e[1] == "offer" && e[2] == "have-local-offer")
+                .count()
+        })
+        .sum();
+    assert_eq!(
+        rolled_back, 1,
+        "exactly the polite tab took the other's offer over its own"
+    );
+    for t in [&mut a, &mut b] {
+        t.wait_text("state: connected");
+    }
+    drop(b);
+    drop(a);
+}
+
+/// A mid-call `MediaSender.replace` (46, "`MediaSender`"): the camera sent
+/// at 640 wide is replaced by a capture 320 wide, the other tab's picture
+/// changes size in the same received track, and neither tab negotiates
+/// again.
+#[test]
+fn rtc_replace_swaps_the_camera_without_renegotiating_in_chrome() {
+    let dir = Scratch::new("rtc-replace");
+    let Some((mut a, mut b, _k)) = call_lab(&dir, &[], CALL_HOOKS) else {
+        return;
+    };
+    call_join(&mut a, &mut b, "Join");
+    call_press(&mut a, "Send 640");
+    call_status(&mut a, "sending 640");
+    call_remote_width(&mut b, 640);
+    let negotiated: Vec<usize> = [&mut a, &mut b]
+        .into_iter()
+        .map(|t| call_log(t).len())
+        .collect();
+    call_press(&mut a, "Send 320");
+    call_status(&mut a, "replaced with 320");
+    call_remote_width(&mut b, 320);
+    let after: Vec<usize> = [&mut a, &mut b]
+        .into_iter()
+        .map(|t| call_log(t).len())
+        .collect();
+    assert_eq!(after, negotiated, "replace made no new descriptions");
+    drop(b);
+    drop(a);
+}
+
+// The ICE restart after the network drops packets (46, "Testing the
+// stdlib against real browsers") needs a network namespace to drop them
+// in; macOS has none, so it isn't here. `rtc.test.js` and `examples/call`'s
+// tests restart ICE over the in-process engine.

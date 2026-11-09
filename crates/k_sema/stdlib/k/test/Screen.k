@@ -47,6 +47,10 @@ public class Screen {
     func alert() -> Element
     /// The only `.role(.status)` live region.
     func status() -> Element
+    /// The `video` element labelled exactly `label` (`.label(…)`).
+    func video(labeled label: String) -> Element
+    /// The `audio` element labelled exactly `label` (`.label(…)`).
+    func audio(labeled label: String) -> Element
     /// Returns every list item, in document order.
     func items() -> List<Element>
     /// Returns every button, in document order.

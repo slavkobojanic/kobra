@@ -43,6 +43,8 @@ public service CaptureLab {
 
     /// Records two seconds in `format` and keeps the recording.
     func record(format: RecordingFormat) async {
+        // Said at once, so two recordings in a row read as two outcomes.
+        status = "recording"
         recording = nil
         var request: CaptureRequest = .microphone
         if format == .video {

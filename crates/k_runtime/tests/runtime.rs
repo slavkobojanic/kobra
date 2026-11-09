@@ -13,7 +13,7 @@ use k_runtime::{
     CRYPTO_SIZE_BUDGET, DRAG_SIZE_BUDGET, ENVIRONMENT_SIZE_BUDGET, FILES_SIZE_BUDGET,
     FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET, HTTP_SIZE_BUDGET,
     KEYS_SIZE_BUDGET, MEDIA_SIZE_BUDGET, MONEY_SIZE_BUDGET, NOTIFICATIONS_SIZE_BUDGET,
-    OBSERVE_SIZE_BUDGET, PLAYBACK_SIZE_BUDGET, Part, SERVICE_WORKER_SIZE_BUDGET,
+    OBSERVE_SIZE_BUDGET, PLAYBACK_SIZE_BUDGET, Part, RTC_SIZE_BUDGET, SERVICE_WORKER_SIZE_BUDGET,
     SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET,
     TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact, compacted_sources,
     module, modules, resolve,
@@ -186,6 +186,7 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Observe
                 | Part::Media
                 | Part::Playback
+                | Part::Rtc
                 | Part::Keys
                 | Part::Streams
                 | Part::Channels
@@ -499,6 +500,21 @@ fn media_meets_its_size_budget() {
 }
 
 #[test]
+fn rtc_meets_its_size_budget() {
+    let rtc = compacted_sources(&[Part::Rtc]).expect("compacts");
+    let size = gzip_len(&rtc);
+    eprintln!(
+        "rtc: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {RTC_SIZE_BUDGET})",
+        raw_len(&[Part::Rtc]),
+        rtc.len()
+    );
+    assert!(
+        size <= RTC_SIZE_BUDGET,
+        "rtc is {size} bytes gzip, over the {RTC_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
 fn the_media_elements_binding_meets_its_size_budget() {
     let playback = compacted_sources(&[Part::Playback]).expect("compacts");
     let size = gzip_len(&playback);
@@ -735,6 +751,7 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::Observe
                 | Part::Media
                 | Part::Playback
+                | Part::Rtc
                 | Part::Keys
                 | Part::Streams
                 | Part::Channels
