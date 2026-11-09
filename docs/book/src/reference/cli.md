@@ -29,7 +29,7 @@ error.
 | `k check --format json` | the same, with one JSON object per diagnostic (code, span, message, quick fixes) on standard output |
 | `k check --color always\|never\|auto` | when to color human-readable output |
 | `k fmt` | format code canonically, removing redundant spellings such as `public` on members (**Planned** k-fmt) |
-| `k routes` | print the route table: one row per URL and method (pages, endpoint handlers, `routes.lock` redirects) with parameters and guards |
+| `k routes` | print the route table: one row per URL and method (pages, endpoint handlers, `routes.lock` redirects), then the [channel](../apps/channels.md#seeing-what-channels-do) rpcs, with parameters and guards |
 | `k doc` | render documentation from `///` comments (**Planned** k-doc) |
 | `k explain <code>` | describe a diagnostic code (**Planned** k-explain; see the [diagnostics reference](diagnostics.md)) |
 | `k lsp` | run the language server on standard input and output, for editors ([Editor setup](../getting-started/editor-setup.md)) |

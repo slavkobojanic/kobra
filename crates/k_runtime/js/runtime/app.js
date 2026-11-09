@@ -879,7 +879,8 @@ function refusalOf(r) {
  * Opens channel `id`: the rpc's decode, validation, guards and handler,
  * exactly as for an rpc over HTTP, under the session of the socket's
  * cookie. A refusal answers `{error}`; an opened channel starts pumping its
- * `sending` stream.
+ * `sending` stream and answers `{ok: true, user}`, `user` the signed-in
+ * user's id as JSON text (left out for a guest).
  * @param {object} spec
  * @param {object} request the open event: `path` the method, `body` the request message
  * @param {number} id
@@ -906,7 +907,9 @@ async function openChannel(spec, request, id) {
   const entry = { st, rpc, value, done: false, stop, stopped, watch: null };
   openChannels.set(id, entry);
   pumpChannel(id, entry);
-  return { ok: true };
+  // The signed-in user's id names the channel in `k dev`'s log lines and inspector.
+  const u = st.loaded;
+  return u ? { ok: true, user: stringify(toJSON(u.id)) } : { ok: true };
 }
 
 /** What a stopped channel's pump wakes up with. */

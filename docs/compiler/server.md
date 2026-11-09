@@ -882,7 +882,7 @@ GET /_k/channels ── Origin = K_PUBLIC_ORIGIN? (403) ── upgrade + k.chann
   arrival order with lease counts. `update` keeps a member's place when it changes in place.
 - **With Postgres** (`ProcessState::start_replicas`, called by `Server::start` after the database
   opened; a no-op otherwise), `replicas.rs` takes over:
-  - `publish` delivers here, then `NOTIFY k_broadcast, {"p": tag, "k": key, "v": json}` on the statement
+  - `publish` delivers here, then `NOTIFY k_broadcast, {"p": tag, "k": key, "v": json, "t": ms}` on the statement
     connection (detached on the `k-db` runtime, in call order). Over 7,000 bytes the payload goes to
     `k_broadcast_spill` and the notification is `{"p", "s": id}`.
   - A listening connection of its own (`k_db::PostgresListener`) delivers the other tags' elements in
@@ -897,6 +897,20 @@ GET /_k/channels ── Origin = K_PUBLIC_ORIGIN? (403) ── upgrade + k.chann
     others close the matching subscribers, which ends those streams and channels with `sessionEnded`.
   - Failures are logged as warnings and dropped; `ServerOptions::replicas` shortens the intervals for
     tests.
+
+### Tooling
+
+- **Metrics and spans** (`metrics.rs`): a registry in the channels' `Hub` (`ProcessState::metrics`,
+  `Server::channels().metrics`) of counters, gauges, histograms and the last 256 spans, rendered in the
+  Prometheus text format. The `Hub` records the `k_channel_*` metrics and the `k.channel.open` /
+  `k.channel.message` spans where it already handles the frames; a receiver of another replica's element
+  records `now - t` in `k_broadcast_lag_seconds`. The names and labels are in 44-channels.md, "Decided
+  while implementing". Nothing exports them yet.
+- **`ServerOptions::dev_tools`** (`k dev`, `k run`; never `dist/app`) turns on the open and close lines
+  (`Hub::enable_dev`, written to the server's log output and kept for `Hub::log_lines`), the last 8
+  messages per channel, and `GET /_k/dev/channels`, the inspector (`devtools.rs`), answered by the HTTP
+  front before the worker isolates from `Hub::snapshot` and `ProcessState::presence_snapshot`. An
+  accepted open's answer carries the user id's JSON (`{"ok": true, "user": …}`) for the lines.
 
 Tests: `crates/k_server/tests/channel_server.rs` drives `tests/projects/channels` with a raw
 `tungstenite` client; the handshake checks and `ChannelLimits::from_config` have unit tests in

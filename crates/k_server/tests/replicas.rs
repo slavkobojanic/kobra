@@ -100,6 +100,15 @@ fn a_publish_reaches_subscribers_on_another_replica_in_order() {
     }
     quiet(&a, on_a, Duration::from_millis(300));
     quiet(&b, other, Duration::from_millis(0));
+    // B measured how late each of A's elements arrived; A's own elements
+    // never crossed replicas.
+    let lag = b
+        .metrics()
+        .histogram("k_broadcast_lag_seconds", &[])
+        .expect("B measured the lag");
+    assert_eq!(lag.count, 20);
+    assert!(lag.sum >= 0.0 && lag.sum < 200.0, "{lag:?}");
+    assert_eq!(a.metrics().histogram("k_broadcast_lag_seconds", &[]), None);
 }
 
 #[test]

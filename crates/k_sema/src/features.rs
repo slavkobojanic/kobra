@@ -224,11 +224,6 @@ pub const FEATURES: &[Feature] = &[
         "29-server-streaming.md",
     ),
     planned(
-        "channel-tooling",
-        "Channels in `k routes`, a `k dev` inspector and `k.observe` metrics",
-        "44-channels.md",
-    ),
-    planned(
         "in-process-services",
         "Binding a workspace member's own implementation in-process in `.test`",
         "40-workspaces-and-services.md",

@@ -40,7 +40,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
@@ -53,6 +53,8 @@ use tokio_tungstenite::tungstenite::{self, Message};
 
 use crate::channels::{CloseReason, Frame, SUBPROTOCOL, decode_json, encode_json};
 use crate::config::ConfigValue;
+use crate::engine::Output;
+use crate::metrics::Metrics;
 use crate::ops::{PendingRequest, WorkerResponse};
 
 /// The limits of channels (`docs/design/44-channels.md`, "Limits and
@@ -156,6 +158,67 @@ pub struct ChannelRun {
     pub reason: &'static str,
 }
 
+/// One channel as `k dev`'s inspector shows it ([`Hub::snapshot`]).
+#[derive(Clone, Debug)]
+pub struct ChannelView {
+    /// Its process-wide id.
+    pub id: u64,
+    /// Its number on its socket; `None` while it waits for a resume.
+    pub ch: Option<u32>,
+    /// The rpc's wire name.
+    pub method: String,
+    /// The signed-in user's id as JSON; `None` for a guest (or while
+    /// opening).
+    pub user: Option<String>,
+    /// `opening`, `open` or `waiting for a resume`.
+    pub state: &'static str,
+    /// The worker isolate it runs in.
+    pub worker: usize,
+    /// How long ago it was opened.
+    pub age: Duration,
+    /// While waiting for a resume, how long the window has left.
+    pub resume_left: Option<Duration>,
+    /// The sequence number of the last server message.
+    pub sent: u64,
+    /// The sequence number of the last client message.
+    pub received: u64,
+    /// Server messages not yet confirmed received.
+    pub buffered: usize,
+    /// Their bytes.
+    pub buffered_bytes: usize,
+    /// Client messages accepted.
+    pub messages_in: u64,
+    /// Server messages sent.
+    pub messages_out: u64,
+    /// The most recent messages each way, oldest first.
+    pub last: Vec<LastMessage>,
+}
+
+/// One socket as `k dev`'s inspector shows it.
+#[derive(Clone, Debug)]
+pub struct SocketView {
+    /// Its id.
+    pub id: u64,
+    /// Its session: the first 8 hex digits of the cookie's SHA-256, or
+    /// `guest`.
+    pub session: String,
+    /// The worker its new channels open on.
+    pub worker: usize,
+    /// How long ago it was accepted.
+    pub age: Duration,
+    /// Its channels.
+    pub channels: Vec<ChannelView>,
+}
+
+/// Every socket and channel of the process ([`Hub::snapshot`]).
+#[derive(Clone, Debug)]
+pub struct HubView {
+    /// The open sockets, oldest first.
+    pub sockets: Vec<SocketView>,
+    /// The channels waiting for a resume, with their sessions.
+    pub detached: Vec<(String, ChannelView)>,
+}
+
 /// Hands requests to the server's worker isolates.
 pub(crate) trait Workers: Send + Sync {
     /// Queues `request` on worker `index`; `false` if it can't take it
@@ -184,7 +247,29 @@ struct Inbound {
     /// `Some(retry after, in seconds)` when it is over the rate limit and
     /// is refused without running the receiving function.
     limited: Option<u64>,
+    /// When it arrived, for the acknowledgement latency and its span.
+    at: (Instant, SystemTime),
 }
+
+/// One of a channel's recent messages, kept for `k dev`'s inspector.
+#[derive(Clone, Debug)]
+pub struct LastMessage {
+    /// `true` for a client message, `false` for a server message.
+    pub incoming: bool,
+    /// Its sequence number.
+    pub seq: u64,
+    /// Its value as JSON text, cut after [`LAST_MESSAGE_CHARS`] characters.
+    pub text: String,
+}
+
+/// How many recent messages a channel keeps for the inspector.
+const LAST_MESSAGES: usize = 8;
+
+/// How much of a recent message the inspector shows.
+pub const LAST_MESSAGE_CHARS: usize = 300;
+
+/// How many open and close lines the hub keeps for the inspector.
+const LOG_LINES_KEPT: usize = 100;
 
 /// One channel's state in the front.
 #[derive(Debug)]
@@ -219,6 +304,20 @@ struct Chan {
     refilled: Instant,
     /// Bumped on every detach and attach, so a stale expiry does nothing.
     epoch: u64,
+    /// The rpc's wire name (`/chans.chat.ChatProtocol/Room`).
+    method: String,
+    /// The signed-in user's id as JSON, once open; `None` for a guest.
+    user: Option<String>,
+    /// When the open arrived.
+    since: Instant,
+    /// When its socket went, while it waits for a resume.
+    dropped: Option<Instant>,
+    /// Client messages accepted.
+    messages_in: u64,
+    /// Server messages sent.
+    messages_out: u64,
+    /// The most recent messages each way, under `k dev` only.
+    last: VecDeque<LastMessage>,
 }
 
 /// How many acknowledgements a channel remembers (the client has at most
@@ -241,6 +340,8 @@ struct Sock {
     over_limit: bool,
     /// `true` once it was sent the guest mirror after its session ended.
     told_session_end: bool,
+    /// When it was accepted.
+    since: Instant,
 }
 
 /// The front's state.
@@ -278,6 +379,14 @@ pub struct Hub {
     idle: Notify,
     /// The limits.
     pub limits: ChannelLimits,
+    /// The process's metrics: the `k_channel_*` metrics and the
+    /// `k.channel.*` spans are recorded here.
+    pub metrics: Arc<Metrics>,
+    /// Under `k dev` ([`Hub::enable_dev`]): where the open and close lines
+    /// go; recent messages are kept for the inspector too.
+    dev: std::sync::OnceLock<Output>,
+    /// The most recent open and close lines, oldest first (`k dev` only).
+    log: Mutex<VecDeque<String>>,
 }
 
 impl Default for Hub {
@@ -303,6 +412,24 @@ fn rate_limited(retry_after: u64) -> Value {
         "message": "too many messages or channels; try again later",
         "retryAfter": retry_after,
     })
+}
+
+/// How a log line names a channel's user: the id's JSON, or `a guest`.
+fn user_text(user: Option<&str>) -> String {
+    user.map_or_else(|| "a guest".to_owned(), str::to_owned)
+}
+
+/// The label a refusal is counted under: the case of a typed refusal
+/// (`notAllowed`), otherwise its Connect code (`resource_exhausted`,
+/// `invalid_argument`, `unavailable`, …).
+fn refusal_case(error: &Value) -> String {
+    let detail = &error["details"][0];
+    if detail["type"] == "k.TypedError"
+        && let Some(case) = detail["debug"]["case"].as_str()
+    {
+        return case.to_owned();
+    }
+    error["code"].as_str().unwrap_or("unknown").to_owned()
 }
 
 /// A channel event for the isolate: `kind` with the channel `id`.
@@ -389,6 +516,153 @@ impl Hub {
             in_flight: AtomicUsize::new(0),
             idle: Notify::new(),
             limits,
+            metrics: Arc::new(Metrics::default()),
+            dev: std::sync::OnceLock::new(),
+            log: Mutex::new(VecDeque::new()),
+        }
+    }
+
+    /// Turns on `k dev`'s extras (`ServerOptions::dev_tools`): a line on
+    /// `log` for each channel open and close, and the recent messages the
+    /// inspector at `/_k/dev/channels` shows. `dist/app` never calls it.
+    pub fn enable_dev(&self, log: Output) {
+        let _ = self.dev.set(log);
+    }
+
+    /// `true` under `k dev`.
+    fn dev(&self) -> bool {
+        self.dev.get().is_some()
+    }
+
+    /// Writes an open or close line (`k dev` only) and keeps it.
+    fn dev_line(&self, text: String) {
+        let Some(out) = self.dev.get() else { return };
+        out.write("info", &text);
+        let mut log = lock(&self.log);
+        log.push_back(text);
+        while log.len() > LOG_LINES_KEPT {
+            log.pop_front();
+        }
+    }
+
+    /// The most recent open and close lines, oldest first; empty unless
+    /// [`Hub::enable_dev`] was called.
+    #[must_use]
+    pub fn log_lines(&self) -> Vec<String> {
+        lock(&self.log).iter().cloned().collect()
+    }
+
+    /// What `k dev`'s inspector shows: every open socket with its
+    /// channels, and the channels waiting for a resume, each with its
+    /// session as a short hash (never the cookie itself).
+    #[must_use]
+    pub fn snapshot(&self) -> HubView {
+        let st = self.state();
+        let session = |s: &str| {
+            if s.is_empty() {
+                "guest".to_owned()
+            } else {
+                crate::process::token_hash(s)[..8].to_owned()
+            }
+        };
+        let view = |id: u64, c: &Chan| ChannelView {
+            id,
+            ch: c.socket.map(|(_, ch)| ch),
+            method: c.method.clone(),
+            user: c.user.clone(),
+            state: if !c.opened {
+                "opening"
+            } else if c.socket.is_some() {
+                "open"
+            } else {
+                "waiting for a resume"
+            },
+            worker: c.worker,
+            age: c.since.elapsed(),
+            resume_left: c
+                .dropped
+                .map(|d| self.limits.resume_window.saturating_sub(d.elapsed())),
+            sent: c.next_seq - 1,
+            received: c.received,
+            buffered: c.buffer.len(),
+            buffered_bytes: c.buffer_bytes,
+            messages_in: c.messages_in,
+            messages_out: c.messages_out,
+            last: c.last.iter().cloned().collect(),
+        };
+        let mut sockets: Vec<SocketView> = st
+            .sockets
+            .iter()
+            .map(|(&id, s)| {
+                let mut channels: Vec<ChannelView> = s
+                    .channels
+                    .values()
+                    .filter_map(|cid| st.channels.get(cid).map(|c| view(*cid, c)))
+                    .collect();
+                channels.sort_by_key(|c| c.id);
+                SocketView {
+                    id,
+                    session: session(&s.session),
+                    worker: s.worker,
+                    age: s.since.elapsed(),
+                    channels,
+                }
+            })
+            .collect();
+        sockets.sort_by_key(|s| s.id);
+        let mut detached: Vec<(String, ChannelView)> = st
+            .channels
+            .iter()
+            .filter(|(_, c)| c.socket.is_none())
+            .map(|(&id, c)| (session(&c.session), view(id, c)))
+            .collect();
+        detached.sort_by_key(|(_, c)| c.id);
+        HubView { sockets, detached }
+    }
+
+    /// Records the end of channel `chan` (just removed) for `reason`: the
+    /// open gauge, the closes counter and, for one that had opened, the
+    /// close line.
+    fn finish(&self, chan: &Chan, reason: &str) {
+        let method = chan.method.as_str();
+        self.metrics.count(
+            "k_channel_closes_total",
+            &[("method", method), ("reason", reason)],
+            1,
+        );
+        if !chan.opened {
+            return;
+        }
+        self.metrics
+            .gauge("k_channel_open", &[("method", method)], -1);
+        if self.dev() {
+            let secs = chan.since.elapsed().as_secs_f64();
+            self.dev_line(format!(
+                "channel {method} closed ({reason}) for {} after {secs:.1} s: {} in, {} out",
+                user_text(chan.user.as_deref()),
+                chan.messages_in,
+                chan.messages_out,
+            ));
+        }
+    }
+
+    /// Keeps `text` as one of channel `chan`'s recent messages (`k dev`
+    /// only).
+    fn remember(&self, chan: &mut Chan, incoming: bool, seq: u64, text: &str) {
+        if !self.dev() {
+            return;
+        }
+        let text = match text.char_indices().nth(LAST_MESSAGE_CHARS) {
+            Some((i, _)) => format!("{}…", &text[..i]),
+            None => text.to_owned(),
+        };
+        chan.last.push_back(LastMessage {
+            incoming,
+            seq,
+            text,
+        });
+        while chan.last.len() > LAST_MESSAGES {
+            chan.last.pop_front();
         }
     }
 
@@ -443,13 +717,16 @@ impl Hub {
                 channels: HashMap::new(),
                 over_limit,
                 told_session_end: false,
+                since: Instant::now(),
             },
         );
+        self.metrics.gauge("k_channel_sockets", &[], 1);
         Some(id)
     }
 
-    /// Opens channel `ch` on socket `sock` (an `open` frame).
-    fn open(&self, sock: u64, ch: u32) -> Opening {
+    /// Opens channel `ch` of rpc `method` on socket `sock` (an `open`
+    /// frame).
+    fn open(&self, sock: u64, ch: u32, method: &str) -> Opening {
         let limits = &self.limits;
         let mut st = self.state();
         let Some(s) = st.sockets.get(&sock) else {
@@ -498,35 +775,80 @@ impl Hub {
                 tokens: f64::from(limits.burst),
                 refilled: Instant::now(),
                 epoch: 0,
+                method: method.to_owned(),
+                user: None,
+                since: Instant::now(),
+                dropped: None,
+                messages_in: 0,
+                messages_out: 0,
+                last: VecDeque::new(),
             },
         );
         Opening::Start(id, worker, rx)
     }
 
-    /// The isolate answered channel `id`'s open: `Ok` opened it, `Err`
-    /// refused it with the rpc's error. `true` when the channel was
-    /// abandoned meanwhile (its socket closed, or the client closed it) and
-    /// the isolate must close it again.
-    fn opened(&self, id: u64, outcome: Result<(), Value>) -> bool {
+    /// The isolate answered channel `id`'s open (which arrived at
+    /// `started`): `Ok` opened it, with the signed-in user's id as JSON
+    /// (`None` for a guest), `Err` refused it with the rpc's error. Records
+    /// the `k.channel.open` span. `true` when the channel was abandoned
+    /// meanwhile (its socket closed, or the client closed it) and the
+    /// isolate must close it again.
+    fn opened(
+        &self,
+        id: u64,
+        outcome: Result<Option<String>, Value>,
+        started: (Instant, SystemTime),
+    ) -> bool {
         let mut st = self.state();
+        let method = st
+            .channels
+            .get(&id)
+            .map(|c| c.method.clone())
+            .unwrap_or_default();
+        let outcome_label = match &outcome {
+            Ok(_) => "opened".to_owned(),
+            Err(e) => refusal_case(e),
+        };
+        self.metrics.span(
+            "k.channel.open",
+            &[
+                ("method", &method),
+                ("channel", &id.to_string()),
+                ("outcome", &outcome_label),
+            ],
+            started.1,
+            started.0.elapsed(),
+        );
         match outcome {
             Err(error) => {
-                if let Some(chan) = st.remove(id)
-                    && let Some((sock, ch)) = chan.socket
-                {
-                    st.send(sock, &Frame::Refused { ch, error });
+                if let Some(chan) = st.remove(id) {
+                    self.finish(&chan, "refused");
+                    if self.dev() {
+                        let why = error["message"].as_str().unwrap_or_default();
+                        self.dev_line(format!("channel {method} refused: {outcome_label} ({why})"));
+                    }
+                    if let Some((sock, ch)) = chan.socket {
+                        st.send(sock, &Frame::Refused { ch, error });
+                    }
                 }
                 false
             }
-            Ok(()) => {
+            Ok(user) => {
                 let Some(chan) = st.channels.get_mut(&id) else {
                     return true;
                 };
-                chan.opened = true;
+                chan.user = user;
                 if chan.socket.is_none() {
-                    st.remove(id);
+                    if let Some(chan) = st.remove(id) {
+                        self.finish(&chan, "byClient");
+                    }
                     return true;
                 }
+                chan.opened = true;
+                let who = user_text(chan.user.as_deref());
+                self.metrics
+                    .gauge("k_channel_open", &[("method", &method)], 1);
+                self.dev_line(format!("channel {method} opened for {who}"));
                 st.deliver_opened(id);
                 false
             }
@@ -546,17 +868,29 @@ impl Hub {
         };
         let seq = chan.next_seq;
         chan.next_seq += 1;
+        chan.messages_out += 1;
+        self.metrics.count(
+            "k_channel_messages_total",
+            &[("method", &chan.method), ("direction", "out")],
+            1,
+        );
+        if self.dev() {
+            let text = value.to_string();
+            self.remember(chan, false, seq, &text);
+        }
         chan.buffer.push_back((seq, value.clone(), size));
         chan.buffer_bytes += size;
         if chan.buffer.len() > limits.buffer_messages || chan.buffer_bytes > limits.buffer_bytes {
             // A client that can't keep up: drop the channel without a
             // resume token, so it restarts with a fresh snapshot after its
             // backoff, and close the socket it is on.
-            if let Some(chan) = st.remove(id)
-                && let Some((sock, _)) = chan.socket
-                && let Some(s) = st.sockets.get(&sock)
-            {
-                let _ = s.out.send(Out::Close(1013, "k.overflow".to_owned()));
+            if let Some(chan) = st.remove(id) {
+                self.finish(&chan, "overflow");
+                if let Some((sock, _)) = chan.socket
+                    && let Some(s) = st.sockets.get(&sock)
+                {
+                    let _ = s.out.send(Out::Close(1013, "k.overflow".to_owned()));
+                }
             }
             return false;
         }
@@ -574,6 +908,7 @@ impl Hub {
     pub fn close(&self, id: u64, reason: CloseReason) {
         let mut st = self.state();
         let Some(chan) = st.remove(id) else { return };
+        self.finish(&chan, reason.name());
         let Some((sock, ch)) = chan.socket else {
             return;
         };
@@ -619,6 +954,16 @@ impl Hub {
             return Err(());
         }
         chan.received = seq;
+        chan.messages_in += 1;
+        self.metrics.count(
+            "k_channel_messages_total",
+            &[("method", &chan.method), ("direction", "in")],
+            1,
+        );
+        if self.dev() {
+            let text = value.to_string();
+            self.remember(chan, true, seq, &text);
+        }
         let now = Instant::now();
         let rate = f64::from(limits.rate.max(1));
         let elapsed = now.saturating_duration_since(chan.refilled).as_secs_f64();
@@ -637,17 +982,50 @@ impl Hub {
             seq,
             value: value.to_string(),
             limited,
+            at: (now, SystemTime::now()),
         });
         Ok(())
     }
 
     /// Records the acknowledgement of client message `seq` of channel `id`
-    /// and sends it, if the channel is attached.
-    fn ack(&self, id: u64, seq: u64, error: Option<Value>) {
+    /// (which arrived `at`) and sends it, if the channel is attached; with
+    /// the acknowledgement latency, a refusal's case and the
+    /// `k.channel.message` span.
+    fn ack(&self, id: u64, seq: u64, error: Option<Value>, at: (Instant, SystemTime)) {
         let mut st = self.state();
         let Some(chan) = st.channels.get_mut(&id) else {
             return;
         };
+        let latency = at.0.elapsed();
+        let method = chan.method.as_str();
+        self.metrics.observe(
+            "k_channel_ack_seconds",
+            &[("method", method)],
+            latency.as_secs_f64(),
+        );
+        let outcome = match &error {
+            Some(e) => {
+                let case = refusal_case(e);
+                self.metrics.count(
+                    "k_channel_refusals_total",
+                    &[("method", method), ("case", &case)],
+                    1,
+                );
+                case
+            }
+            None => "ok".to_owned(),
+        };
+        self.metrics.span(
+            "k.channel.message",
+            &[
+                ("method", method),
+                ("channel", &id.to_string()),
+                ("seq", &seq.to_string()),
+                ("outcome", &outcome),
+            ],
+            at.1,
+            latency,
+        );
         chan.acks.push_back((seq, error.clone()));
         while chan.acks.len() > ACKS_KEPT {
             chan.acks.pop_front();
@@ -685,7 +1063,9 @@ impl Hub {
             return None;
         }
         let worker = chan.worker;
-        st.remove(id);
+        if let Some(chan) = st.remove(id) {
+            self.finish(&chan, "byClient");
+        }
         Some((id, worker))
     }
 
@@ -713,6 +1093,8 @@ impl Hub {
                 .is_some_and(|c| c.opened && c.session == session)
         });
         let Some(id) = found else {
+            self.metrics
+                .count("k_channel_reconnects_total", &[("outcome", "restarted")], 1);
             let error = refusal("not_found", "the channel can't be resumed; open it again");
             st.send(sock, &Frame::Refused { ch, error });
             return Ok(());
@@ -736,8 +1118,11 @@ impl Hub {
         if let Some(s) = st.sockets.get_mut(&sock) {
             s.channels.insert(ch, id);
         }
+        self.metrics
+            .count("k_channel_reconnects_total", &[("outcome", "resumed")], 1);
         if let Some(chan) = st.channels.get_mut(&id) {
             chan.socket = Some((sock, ch));
+            chan.dropped = None;
             chan.epoch += 1;
             while chan.buffer.front().is_some_and(|(s, _, _)| *s <= received) {
                 if let Some((_, _, size)) = chan.buffer.pop_front() {
@@ -756,6 +1141,7 @@ impl Hub {
         let Some(s) = st.sockets.remove(&sock) else {
             return Vec::new();
         };
+        self.metrics.gauge("k_channel_sockets", &[], -1);
         if let Some(n) = st.sockets_per_worker.get_mut(s.worker) {
             *n = n.saturating_sub(1);
         }
@@ -774,6 +1160,7 @@ impl Hub {
             {
                 chan.socket = None;
                 chan.epoch += 1;
+                chan.dropped = Some(Instant::now());
                 if chan.opened {
                     waiting.push((id, chan.epoch));
                 }
@@ -790,7 +1177,9 @@ impl Hub {
         if chan.socket.is_some() || chan.epoch != epoch {
             return None;
         }
-        st.remove(id).map(|c| c.worker)
+        let chan = st.remove(id)?;
+        self.finish(&chan, "expired");
+        Some(chan.worker)
     }
 
     /// Shutdown: refuses new sockets, closes every open one with "going
@@ -808,7 +1197,11 @@ impl Hub {
         }
         let ids: Vec<u64> = st.channels.keys().copied().collect();
         ids.into_iter()
-            .filter_map(|id| st.remove(id).map(|c| (id, c.worker)))
+            .filter_map(|id| {
+                let chan = st.remove(id)?;
+                self.finish(&chan, "byServer");
+                Some((id, chan.worker))
+            })
             .collect()
     }
 
@@ -1049,17 +1442,23 @@ impl Front {
                 ch,
                 method,
                 request,
-            } => match self.hub.open(sock, ch) {
+            } => match self.hub.open(sock, ch, &method) {
                 Opening::Start(id, worker, inbox) => {
                     tokio::spawn(Arc::clone(self).pump(id, worker, inbox));
                     let front = Arc::clone(self);
                     let accepted = Arc::clone(accepted);
+                    let started = (Instant::now(), SystemTime::now());
                     tokio::spawn(async move {
                         let body = request.to_string().into_bytes();
+                        // The isolate's answer names the signed-in user.
                         let outcome = front
                             .ask(worker, run("open", id, 0, ""), method, body, &accepted)
-                            .await;
-                        if front.hub.opened(id, outcome) {
+                            .await
+                            .map(|ok| match &ok["user"] {
+                                Value::String(u) => Some(u.clone()),
+                                _ => None,
+                            });
+                        if front.hub.opened(id, outcome, started) {
                             front.close_in_worker(id, worker, "byClient");
                         }
                     });
@@ -1127,13 +1526,13 @@ impl Front {
                     outcome.err()
                 }
             };
-            self.hub.ack(id, m.seq, error);
+            self.hub.ack(id, m.seq, error, m.at);
         }
     }
 
     /// Sends a channel event to `worker` and waits for its answer:
-    /// `{"ok": true}` is `Ok`, `{"error": e}` is `Err(e)`, and a worker that
-    /// can't answer is `unavailable`.
+    /// `{"ok": true, …}` is `Ok` with the whole answer, `{"error": e}` is
+    /// `Err(e)`, and a worker that can't answer is `unavailable`.
     async fn ask(
         &self,
         worker: usize,
@@ -1141,7 +1540,7 @@ impl Front {
         path: String,
         body: Vec<u8>,
         accepted: &Accepted,
-    ) -> Result<(), Value> {
+    ) -> Result<Value, Value> {
         let (reply, response) = oneshot::channel::<WorkerResponse>();
         let request = PendingRequest {
             method: "POST".to_owned(),
@@ -1161,7 +1560,7 @@ impl Front {
             return Err(unavailable());
         };
         match serde_json::from_slice::<Value>(&answer.body) {
-            Ok(v) if v.get("ok") == Some(&Value::Bool(true)) => Ok(()),
+            Ok(v) if v.get("ok") == Some(&Value::Bool(true)) => Ok(v),
             Ok(v) => Err(v.get("error").cloned().unwrap_or_else(unavailable)),
             Err(_) => Err(unavailable()),
         }

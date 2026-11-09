@@ -6,6 +6,10 @@
 //! method), and each redirect recorded in `routes.lock`. A row carries the
 //! page's parameters (path parameters first, then query parameters with
 //! their defaults) and the guards of its `requires` clause as written.
+//! After them come the channel rpcs the app serves (`docs/design/
+//! 44-channels.md`, "Visibility in development and production"), by their
+//! wire URL: opened on the channels' socket, not requested at that URL,
+//! with the rpc's parameters and the protocol's and the rpc's guards.
 //!
 //! The table is computed from the same functions code generation uses for
 //! the route matchers and the manifest ([`crate::app::template`],
@@ -29,6 +33,9 @@ pub enum RouteKind {
     Endpoint,
     /// A permanent redirect recorded in `routes.lock` to the page named.
     Redirect,
+    /// A channel rpc (`Channel<C, S, E>` result) the app serves, named by
+    /// its wire URL; it opens on `/_k/channels`.
+    Channel,
 }
 
 /// One parameter of a page.
@@ -49,17 +56,20 @@ pub struct RouteParam {
 /// One row of the route table.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Route {
-    /// The HTTP method, upper case: `GET` for pages and redirects.
+    /// The HTTP method, upper case: `GET` for pages and redirects; `WS`
+    /// for a channel rpc, which is opened on the channels' WebSocket.
     pub method: String,
     /// The URL template, `/products/{slug}`.
     pub url: String,
     /// The page's declaration name (`ProductDetail`); for a redirect, the
     /// name of the page it redirects to, or the recorded `Page` case when
-    /// no page of that name exists any more.
+    /// no page of that name exists any more; for a channel rpc, the
+    /// protocol and the rpc (`ChatProtocol.room`).
     pub page: String,
     /// What answers the URL.
     pub kind: RouteKind,
-    /// The page's parameters; empty for redirects and endpoints.
+    /// The page's parameters; empty for redirects and endpoints; a
+    /// channel rpc's parameters as path-less rows (`query` false).
     pub params: Vec<RouteParam>,
     /// The guards of the page's `requires` clause, as written
     /// (`Authenticated`, `Role(.admin)`, `RateLimit(10.perMinute)`).
@@ -70,7 +80,8 @@ pub struct Route {
 const METHODS: [&str; 5] = ["Get", "Post", "Put", "Patch", "Delete"];
 
 /// Computes the route table of the analysed project, sorted by URL, then
-/// by method in the order `GET`, `POST`, `PUT`, `PATCH`, `DELETE`.
+/// by method in the order `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, with the
+/// channel rpcs after every page, endpoint and redirect, sorted by URL.
 ///
 /// # Errors
 ///
@@ -171,7 +182,71 @@ pub fn route_table(analysis: &k_sema::Analysis) -> Result<Vec<Route>, CodegenErr
             b.page.as_str(),
         ))
     });
+    let mut channels = channel_rpcs(&g);
+    channels.sort_by(|a, b| a.url.cmp(&b.url));
+    out.extend(channels);
     Ok(out)
+}
+
+/// The channel rpcs of the protocols the app serves.
+fn channel_rpcs(g: &Gen<'_>) -> Vec<Route> {
+    let mut out = Vec::new();
+    for &p in &g.own {
+        let info = g.view.decl(p);
+        if info.named_kind() != Some(DeclarationKind::Protocol)
+            || crate::server::implementation(g, p).is_none()
+        {
+            continue;
+        }
+        let protocol_guards = g
+            .decl_node(p)
+            .map(|n| clause_guards(&n))
+            .unwrap_or_default();
+        for &m in &info.members {
+            let mi = g.view.member(m);
+            let is_channel = mi.kind == k_sema::view::MemberKind::Rpc
+                && mi
+                    .signature
+                    .as_ref()
+                    .is_some_and(|s| crate::server::channel_types(g, &s.ret).is_some());
+            if !is_channel {
+                continue;
+            }
+            let node = g.member_node(m);
+            let params = node
+                .as_ref()
+                .and_then(|n| ast::RpcDecl::cast(n.clone()))
+                .and_then(|r| r.param_list())
+                .map(|l| {
+                    l.params()
+                        .filter_map(|param| {
+                            let text = squash(&param.syntax().text().to_string());
+                            let (name, ty) = text.split_once(':')?;
+                            Some(RouteParam {
+                                name: name.trim().to_owned(),
+                                ty: ty.trim().to_owned(),
+                                default: None,
+                                query: false,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut guards = protocol_guards.clone();
+            if let Some(n) = &node {
+                guards.extend(clause_guards(n));
+            }
+            out.push(Route {
+                method: "WS".into(),
+                url: crate::app::rpc_path(g, p, m),
+                page: format!("{}.{}", info.name, mi.name),
+                kind: RouteKind::Channel,
+                params,
+                guards,
+            });
+        }
+    }
+    out
 }
 
 /// The `@Param` fields of `page`: path parameters in declaration order,
@@ -218,6 +293,12 @@ fn guards(g: &Gen<'_>, page: DeclId) -> Vec<String> {
     if g.view.decl(page).named_kind() != Some(DeclarationKind::Page) {
         return Vec::new();
     }
+    clause_guards(&node)
+}
+
+/// The guards of `node`'s `requires` clause, each as its source text with
+/// whitespace runs collapsed.
+fn clause_guards(node: &k_syntax::SyntaxNode) -> Vec<String> {
     node.children()
         .filter(|c| c.kind() == SyntaxKind::RequiresClause)
         .flat_map(|clause| {

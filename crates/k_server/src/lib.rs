@@ -12,6 +12,8 @@
 //! * [`sockets`]: the channels' WebSocket front at `/_k/channels`: the
 //!   handshake checks, heartbeats, limits, resume and the hand-over of
 //!   channel events to the worker isolates.
+//! * [`metrics`]: the process's `k.observe` metrics and trace spans.
+//! * [`devtools`]: `k dev`'s channels inspector at `/_k/dev/channels`.
 //! * [`config`]: reading `config` declarations from the environment and
 //!   `NAME_FILE` secret files, validated all at once and redacted.
 //! * [`process`]: the state every worker of a server process shares
@@ -92,12 +94,14 @@ pub mod app;
 pub mod channels;
 pub mod config;
 pub mod db;
+pub mod devtools;
 pub mod engine;
 pub mod fakes;
 pub mod front;
 pub mod http;
 pub mod inspector;
 pub mod jobs;
+pub mod metrics;
 pub mod ops;
 pub mod outbound;
 pub mod process;

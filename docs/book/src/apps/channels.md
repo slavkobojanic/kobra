@@ -278,8 +278,40 @@ changed on the channel. Behind a proxy, pass the `Upgrade` header through
 ([Deployment](deployment.md)).
 
 Raw WebSockets to third-party endpoints are `WebSocketClient`'s ([Calling HTTP
-APIs](http.md#raw-websockets)). Channels in `k routes`, a `k dev` inspector and metrics (**Planned**
-channel-tooling) come later.
+APIs](http.md#raw-websockets)).
+
+## Seeing what channels do
+
+**`k routes` lists each channel rpc** after the pages, as a `WS` row at its wire URL with `CHANNEL` in
+the `PAGE` column:
+
+```text
+METHOD  URL                             PAGE                         PARAMS        GUARDS
+GET     /room/{name}                    Room                         name: String  Authenticated
+WS      /huddle.chat.ChatProtocol/Room  CHANNEL (ChatProtocol.room)  name: String  Authenticated
+```
+
+**`k dev` logs each open and close** on one line, with the user's id, how long the channel was open,
+the messages each way and why it closed:
+
+```text
+channel /huddle.chat.ChatProtocol/Room opened for {"name":"ana"}
+channel /huddle.chat.ChatProtocol/Room closed (byClient) for {"name":"ana"} after 42.0 s: 3 in, 17 out
+```
+
+**`k dev` serves an inspector at `/_k/dev/channels`:** the open sockets by session, each channel's
+state, sequence numbers each way, unconfirmed messages and its last few messages, the channels waiting
+for a resume, who is present under each key, and the metrics below. It refreshes itself every two
+seconds. `k build` never includes it: a deployed app answers that URL like any unknown page.
+
+**Metrics** are kept by every server, development or deployed: open sockets (`k_channel_sockets`) and
+channels per method (`k_channel_open`), messages each way (`k_channel_messages_total`), refusals by
+case (`k_channel_refusals_total`), acknowledgement latency (`k_channel_ack_seconds`), closes by reason
+(`k_channel_closes_total`), resumes versus restarts (`k_channel_reconnects_total`) and, with several
+replicas, how late broadcasts arrive from the others (`k_broadcast_lag_seconds`). Each open and each
+handled message is also a trace span (`k.channel.open`, `k.channel.message`). Sending them to a
+metrics or tracing system comes with metrics in `k.observe` (**Planned** observe-metrics); until then
+the inspector shows them.
 
 ## Testing
 

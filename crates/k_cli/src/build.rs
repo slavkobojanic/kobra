@@ -514,6 +514,9 @@ fn start(
     // A panic's 500 page shows its stack, mapped to `.k` lines, and with
     // `--inspect` a debugger can attach (13-tooling.md, "Debugging").
     options.dev_errors = true;
+    // Channels' open and close lines and the inspector at
+    // `/_k/dev/channels` (44-channels.md); `dist/app` never has them.
+    options.dev_tools = true;
     options.inspect = wiring
         .inspect
         .map(|p| std::net::SocketAddr::from(([127, 0, 0, 1], p)));

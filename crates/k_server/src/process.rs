@@ -181,6 +181,10 @@ struct PresenceTable {
     keys: HashMap<String, Vec<(String, usize)>>,
 }
 
+/// One presence key with its members (codec JSON) and their lease counts,
+/// as `k dev`'s inspector lists it ([`ProcessState::presence_snapshot`]).
+pub type PresenceKey = (String, Vec<(String, usize)>);
+
 /// A change of presence, as `PresenceChange`'s codec writes it
 /// (`{"case": "joined", "_0": member}`); `member` is JSON text.
 #[must_use]
@@ -397,6 +401,32 @@ impl ProcessState {
     /// The process's channels ([`crate::sockets::Hub`]).
     pub fn channels(&self) -> Arc<crate::sockets::Hub> {
         Arc::clone(&self.channels)
+    }
+
+    /// The process's metrics ([`crate::metrics`]), which its channels'
+    /// hub records into.
+    #[must_use]
+    pub fn metrics(&self) -> Arc<crate::metrics::Metrics> {
+        Arc::clone(&self.channels.metrics)
+    }
+
+    /// Every presence key of this process with its members (codec JSON)
+    /// and their lease counts, sorted by key, for `k dev`'s inspector;
+    /// `None` when presence lives in Postgres.
+    #[must_use]
+    pub fn presence_snapshot(&self) -> Option<Vec<PresenceKey>> {
+        if self.replicas.get().is_some() {
+            return None;
+        }
+        let table = lock(&self.presence);
+        let mut keys: Vec<PresenceKey> = table
+            .keys
+            .iter()
+            .filter(|(_, m)| !m.is_empty())
+            .map(|(k, m)| (k.clone(), m.clone()))
+            .collect();
+        keys.sort();
+        Some(keys)
     }
 
     /// Shows failed requests' stack traces on their 500 page
@@ -1031,6 +1061,24 @@ impl ProcessState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_presence_snapshot_lists_each_key_with_its_members_and_leases() {
+        let p = ProcessState::new("http://localhost".to_owned(), BTreeMap::new());
+        let first = p.presence_join("room|b", "\"ana\"");
+        p.presence_join("room|b", "\"ana\"");
+        p.presence_join("room|a", "\"bo\"");
+        let gone = p.presence_join("room|c", "\"cy\"");
+        p.presence_leave(first);
+        p.presence_leave(gone);
+        assert_eq!(
+            p.presence_snapshot(),
+            Some(vec![
+                ("room|a".to_owned(), vec![("\"bo\"".to_owned(), 1)]),
+                ("room|b".to_owned(), vec![("\"ana\"".to_owned(), 1)]),
+            ])
+        );
+    }
 
     #[test]
     fn subscriber_ids_differ_across_process_states() {

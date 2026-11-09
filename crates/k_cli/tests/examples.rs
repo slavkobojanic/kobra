@@ -542,6 +542,15 @@ fn huddle_signs_in_and_talks_in_a_room_over_its_channel() {
         refused["ack"]["error"]["code"], "failed_precondition",
         "{refused}"
     );
+    // `k dev`'s channels inspector is never in a build: with a channel
+    // open, `dist/app` answers its URL as any unknown page.
+    let inspector = app.get("/_k/dev/channels");
+    assert_ne!(inspector.status, 200, "{}", inspector.body);
+    assert!(
+        !inspector.body.contains("Channels · k dev"),
+        "{}",
+        inspector.body
+    );
     let _ = ws.close(None);
     app.stop();
 }

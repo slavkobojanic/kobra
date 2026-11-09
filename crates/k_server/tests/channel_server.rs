@@ -84,6 +84,12 @@ fn build() -> &'static Output {
 /// Serves the project on two workers with `limits` (the defaults when
 /// `None`, read from `ChannelConfig`).
 fn start(limits: Option<ChannelLimits>) -> Server {
+    start_with(limits, false)
+}
+
+/// As [`start`], with `k dev`'s tools (`ServerOptions::dev_tools`) when
+/// `dev` is set.
+fn start_with(limits: Option<ChannelLimits>, dev: bool) -> Server {
     let output = build();
     let bundle = ServerBundle {
         modules: output
@@ -125,7 +131,17 @@ fn start(limits: Option<ChannelLimits>) -> Server {
     o.database = k_server::db::DatabaseSetup::from_config(output.database.clone(), &o.config);
     assert!(o.database.is_some(), "the project has a database");
     o.channels = limits;
+    o.dev_tools = dev;
     Server::start(o).expect("starts")
+}
+
+/// Waits (at most 5 s) until `ready` holds.
+fn eventually(what: &str, ready: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !ready() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 /// An rpc over HTTP, with the session `cookie` if any.
@@ -850,4 +866,173 @@ fn channel_config_is_listed_with_the_servers_configuration() {
     ] {
         assert!(names.contains(&n), "{n} in {names:?}");
     }
+}
+
+// ------------------------------------------------------------------ tooling
+
+const ROOM: &str = "/chans.chat.ChatProtocol/Room";
+
+// `k.observe` (44-channels.md, "Visibility in development and production"):
+// open sockets and channels per method, messages each way, refusals by
+// case, the acknowledgement latency, closes by reason, resumes versus
+// restarts, and a span for each open and each handled message.
+#[test]
+fn channels_record_metrics_and_spans_for_opens_messages_refusals_and_closes() {
+    let server = start(None);
+    let addr = server.local_addr();
+    let metrics = server.channels().metrics.clone();
+    let mut c = Client::connect(addr);
+    let token = c.opened(1, "Room", json!({ "id": "metrics" }));
+    c.expect("msg");
+    assert_eq!(metrics.gauge_value("k_channel_sockets", &[]), 1);
+    assert_eq!(
+        metrics.gauge_value("k_channel_open", &[("method", ROOM)]),
+        1
+    );
+    c.msg(1, 1, case("refuse"));
+    assert!(c.expect("ack").get("error").is_some());
+    c.msg(1, 2, case("count"));
+    let mut got = Vec::new();
+    while got.len() < 2 {
+        got.push(c.frame());
+    }
+    let room = |direction| {
+        metrics.counter(
+            "k_channel_messages_total",
+            &[("method", ROOM), ("direction", direction)],
+        )
+    };
+    assert_eq!(room("in"), 2);
+    assert_eq!(room("out"), 2, "the snapshot and the count");
+    assert_eq!(
+        metrics.counter(
+            "k_channel_refusals_total",
+            &[("method", ROOM), ("case", "notAllowed")]
+        ),
+        1
+    );
+    let acks = metrics
+        .histogram("k_channel_ack_seconds", &[("method", ROOM)])
+        .expect("acknowledgement latencies");
+    assert_eq!(acks.count, 2);
+    // A refused open is counted as a close with `refused`.
+    c.open(2, "Room", json!({ "id": "closed" }));
+    c.expect("refused");
+    assert_eq!(
+        metrics.counter(
+            "k_channel_closes_total",
+            &[("method", ROOM), ("reason", "refused")]
+        ),
+        1
+    );
+    // A resume, and a restart (an unknown token).
+    c.drop_connection();
+    eventually("the socket to go", || {
+        metrics.gauge_value("k_channel_sockets", &[]) == 0
+    });
+    let mut c = Client::connect(addr);
+    c.send(json!({ "resume": { "ch": 3, "token": token, "received": 2, "sent": 2 } }));
+    c.expect("opened");
+    c.send(json!({ "resume": { "ch": 4, "token": "nope", "received": 0, "sent": 0 } }));
+    c.expect("refused");
+    let reconnects =
+        |outcome| metrics.counter("k_channel_reconnects_total", &[("outcome", outcome)]);
+    assert_eq!((reconnects("resumed"), reconnects("restarted")), (1, 1));
+    c.send(json!({ "close": { "ch": 3, "reason": "byClient" } }));
+    eventually("the close", || {
+        metrics.counter(
+            "k_channel_closes_total",
+            &[("method", ROOM), ("reason", "byClient")],
+        ) == 1
+    });
+    assert_eq!(
+        metrics.gauge_value("k_channel_open", &[("method", ROOM)]),
+        0
+    );
+    let spans = metrics.spans();
+    let opens: Vec<&str> = spans
+        .iter()
+        .filter(|s| s.name == "k.channel.open")
+        .filter_map(|s| s.attribute("outcome"))
+        .collect();
+    assert_eq!(opens, vec!["opened", "closed"]);
+    let handled: Vec<(&str, &str)> = spans
+        .iter()
+        .filter(|s| s.name == "k.channel.message")
+        .map(|s| {
+            (
+                s.attribute("seq").unwrap_or(""),
+                s.attribute("outcome").unwrap_or(""),
+            )
+        })
+        .collect();
+    assert_eq!(handled, vec![("1", "notAllowed"), ("2", "ok")]);
+    assert!(spans.iter().all(|s| s.attribute("method") == Some(ROOM)));
+    let text = metrics.render();
+    for line in [
+        "# TYPE k_channel_ack_seconds histogram",
+        "k_channel_messages_total{direction=\"in\",method=\"/chans.chat.ChatProtocol/Room\"} 2",
+        "k_channel_sockets 1",
+    ] {
+        assert!(text.contains(line), "{line} in\n{text}");
+    }
+    server.shutdown().expect("stops");
+}
+
+// `k dev` logs each open and close on one line (method, user, duration,
+// messages each way, close reason) and serves the inspector; without its
+// tools (as `dist/app`) neither happens.
+#[test]
+fn dev_tools_log_opens_and_closes_and_serve_the_inspector() {
+    let server = start_with(None, true);
+    let addr = server.local_addr();
+    let hub = server.channels();
+    let ana = sign_in(addr, "ana");
+    let mut c = Client::with_cookie(addr, Some(&ana));
+    c.opened(1, "Members", json!({ "id": "dev" }));
+    c.expect("msg");
+    c.msg(1, 1, post("hello <b>"));
+    let mut got = Vec::new();
+    while got.len() < 2 {
+        got.push(c.frame());
+    }
+    let page = send(addr, "GET", "/_k/dev/channels", &[], b"").expect("answers");
+    assert_eq!(page.status, 200);
+    let html = String::from_utf8_lossy(&page.body);
+    for part in [
+        "<title>Channels · k dev</title>",
+        "<code>/chans.chat.ChatProtocol/Members</code>",
+        "<code>{&quot;name&quot;:&quot;ana&quot;}</code>",
+        "<td>open</td>",
+        "hello &lt;b&gt;",
+        "No one is present anywhere.",
+        "k_channel_open{method=&quot;/chans.chat.ChatProtocol/Members&quot;} 1",
+    ] {
+        assert!(html.contains(part), "{part} in\n{html}");
+    }
+    assert!(!html.contains(&ana), "the session cookie never shows");
+    c.send(json!({ "close": { "ch": 1, "reason": "byClient" } }));
+    eventually("the close line", || hub.log_lines().len() == 2);
+    let lines = hub.log_lines();
+    assert_eq!(
+        lines[0],
+        "channel /chans.chat.ChatProtocol/Members opened for {\"name\":\"ana\"}"
+    );
+    let close = &lines[1];
+    assert!(
+        close.starts_with(
+            "channel /chans.chat.ChatProtocol/Members closed (byClient) for {\"name\":\"ana\"} after "
+        ) && close.ends_with(" s: 1 in, 2 out"),
+        "{close}"
+    );
+    server.shutdown().expect("stops");
+
+    let plain = start(None);
+    let addr = plain.local_addr();
+    let mut c = Client::connect(addr);
+    c.opened(1, "Room", json!({ "id": "quiet" }));
+    let page = send(addr, "GET", "/_k/dev/channels", &[], b"").expect("answers");
+    assert_ne!(page.status, 200, "no inspector without k dev");
+    assert!(plain.channels().log_lines().is_empty());
+    plain.shutdown().expect("stops");
 }

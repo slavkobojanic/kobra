@@ -461,6 +461,14 @@ fn dev_rebuilds_on_change_and_keeps_the_last_good_build_on_errors() {
     }
     let port = port.unwrap_or_else(|| panic!("k dev did not start: {log:?}"));
     assert!(wait_for(port, "/home", "Version one"), "first build serves");
+    // `k dev` serves the channels inspector (44-channels.md), even for an
+    // app without channels; `dist/app` never does.
+    assert!(
+        get(port, "/_k/dev/channels").is_some_and(
+            |r| r.starts_with("HTTP/1.1 200") && r.contains("<title>Channels · k dev</title>")
+        ),
+        "the inspector"
+    );
 
     write(&dir.0, "src/home/Home.k", &dev_page("Version two"));
     assert!(

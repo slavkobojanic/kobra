@@ -9,7 +9,8 @@
 //! - **A publish** is delivered in its own process at once and sent to the
 //!   others with `NOTIFY k_broadcast` on the statement connection: one
 //!   channel per app (each app has its own database). The payload is
-//!   `{"p": tag, "k": key, "v": element}`; one over [`NOTIFY_INLINE_LIMIT`]
+//!   `{"p": tag, "k": key, "v": element, "t": unix ms}`, and a receiver
+//!   records `now - t` in `k_broadcast_lag_seconds`; one over [`NOTIFY_INLINE_LIMIT`]
 //!   bytes is stored in `k_broadcast_spill` and the notification carries
 //!   `{"p": tag, "s": id}` instead. Spilled rows older than
 //!   [`SPILL_LIFETIME_MS`] are swept.
@@ -156,9 +157,17 @@ impl Replicas {
         let _ = ready_rx.recv_timeout(FIRST_LISTEN_WAIT);
     }
 
-    /// Sends `json`, published on `key` here, to the other replicas.
+    /// Sends `json`, published on `key` here, to the other replicas, with
+    /// the time it was published (`t`, Unix milliseconds) for the
+    /// receivers' `k_broadcast_lag_seconds`.
     pub fn publish(&self, key: &str, json: &str) {
-        let payload = serde_json::json!({"p": self.tag, "k": key, "v": json}).to_string();
+        let payload = serde_json::json!({
+            "p": self.tag,
+            "k": key,
+            "v": json,
+            "t": crate::jobs::now_ms(),
+        })
+        .to_string();
         self.notify(payload);
     }
 
@@ -329,6 +338,15 @@ impl Replicas {
             None => &v,
         };
         if let (Some(key), Some(json)) = (v["k"].as_str(), v["v"].as_str()) {
+            // The delivery lag across replicas, by the two processes'
+            // clocks (a sender before this field had none).
+            if let Some(t) = v["t"].as_i64() {
+                #[allow(clippy::cast_precision_loss)]
+                let lag = (crate::jobs::now_ms() - t).max(0) as f64 / 1000.0;
+                process
+                    .metrics()
+                    .observe("k_broadcast_lag_seconds", &[], lag);
+            }
             process.deliver(key, json);
         }
     }

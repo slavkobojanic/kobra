@@ -118,6 +118,15 @@ fn routes_prints_query_parameters_with_their_defaults() {
 }
 
 #[test]
+fn routes_lists_channel_rpcs_after_the_pages_with_channel_in_the_page_column() {
+    // Huddle's `ChatProtocol.room` is a channel: a `WS` row at its wire
+    // URL, with the protocol's `requires Authenticated`.
+    let out = k(&["routes"], &repo().join("examples/huddle"));
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_golden(&stdout(&out), "routes-huddle.txt");
+}
+
+#[test]
 fn routes_lists_redirects_from_routes_lock_and_every_endpoint_method() {
     let dir = TempDir::new("routes");
     write(&dir.0, "k.toml", MANIFEST);

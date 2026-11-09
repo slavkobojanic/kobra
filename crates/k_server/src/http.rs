@@ -154,6 +154,11 @@ pub struct ServerOptions {
     /// mapped to `.k` lines ([`crate::stack`]); `k run` and `k dev` set
     /// it, `dist/app` never does (server.md §15).
     pub dev_errors: bool,
+    /// `k dev`'s and `k run`'s development tools for channels: a log line
+    /// for each channel open and close, and the inspector at
+    /// `/_k/dev/channels` ([`crate::devtools`]). `dist/app` never sets it,
+    /// so a `k build` never serves them.
+    pub dev_tools: bool,
     /// The channels' limits ([`crate::sockets::ChannelLimits`]); `None`
     /// reads them from [`ServerOptions::config`] (`ChannelConfig`), with the
     /// design's defaults for the rest. Tests shorten them.
@@ -187,6 +192,7 @@ impl ServerOptions {
             fetch_origins: Vec::new(),
             inspect: None,
             dev_errors: false,
+            dev_tools: false,
             channels: None,
             replicas: crate::replicas::ReplicaTimings::default(),
         }
@@ -232,6 +238,8 @@ pub struct Server {
     stop: Option<oneshot::Sender<()>>,
     /// The HTTP thread, joined by [`Server::stop_and_join`]; `None` once joined.
     thread: Option<std::thread::JoinHandle<Result<(), ServerError>>>,
+    /// The process's channels, with its metrics.
+    channels: Arc<crate::sockets::Hub>,
 }
 
 /// The worker isolates' request queues; cleared at shutdown, which closes
@@ -272,6 +280,9 @@ struct Shared {
     warned_forwarding: AtomicBool,
     /// Where the front's own log lines go.
     log: Output,
+    /// Under [`ServerOptions::dev_tools`]: the process, whose channels and
+    /// presence `/_k/dev/channels` shows.
+    dev_tools: Option<Arc<ProcessState>>,
     /// The session cookie's public name when it differs from the runtime's
     /// `k_session` ([`front::public_session_cookie`]).
     session_cookie: Option<String>,
@@ -434,6 +445,19 @@ async fn handle(
 ) -> Result<Response<Body>, std::convert::Infallible> {
     if request.uri().path() == crate::channels::PATH {
         return Ok(finish(channel_upgrade(&shared, remote, request), true));
+    }
+    if let Some(process) = &shared.dev_tools
+        && request.uri().path() == crate::devtools::CHANNELS_PATH
+        && request.method() == hyper::Method::GET
+    {
+        let presence = process.presence_snapshot();
+        let page = crate::devtools::channels_page(&process.channels(), presence.as_deref());
+        let mut r = simple(200, "text/html; charset=utf-8", page);
+        r.headers_mut().insert(
+            hyper::header::CACHE_CONTROL,
+            hyper::header::HeaderValue::from_static("no-store"),
+        );
+        return Ok(finish(r, false));
     }
     let method = request.method().as_str().to_owned();
     let path = request
@@ -724,6 +748,10 @@ impl Server {
             process = process.with_database(db);
         }
         let process = Arc::new(process);
+        if options.dev_tools {
+            process.channels().enable_dev(options.log);
+        }
+        let channels_hub = process.channels();
         // With Postgres, broadcasts and presence reach the other replicas
         // sharing the database (44-channels.md); otherwise they stay here.
         process.start_replicas(options.replicas);
@@ -779,6 +807,7 @@ impl Server {
             proxies,
             warned_forwarding: AtomicBool::new(false),
             log: options.log,
+            dev_tools: options.dev_tools.then(|| Arc::clone(&process)),
             streams: std::sync::Mutex::new(Some(Vec::new())),
             session_cookie: front::public_session_cookie(&options.public_origin),
         });
@@ -861,6 +890,7 @@ impl Server {
             addr,
             stop: Some(stop_tx),
             thread: Some(thread),
+            channels: channels_hub,
         })
     }
 
@@ -868,6 +898,14 @@ impl Server {
     #[must_use]
     pub fn local_addr(&self) -> SocketAddr {
         self.addr
+    }
+
+    /// The process's channels: their state, `k dev`'s open and close
+    /// lines ([`crate::sockets::Hub::log_lines`]) and the process's
+    /// metrics ([`crate::sockets::Hub::metrics`]).
+    #[must_use]
+    pub fn channels(&self) -> Arc<crate::sockets::Hub> {
+        Arc::clone(&self.channels)
     }
 
     /// Stops accepting, waits up to the grace period for in-flight

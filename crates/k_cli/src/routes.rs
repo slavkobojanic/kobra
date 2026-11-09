@@ -2,7 +2,9 @@
 //! (`docs/design/12-routing.md`, "`routes.lock` and redirects").
 //!
 //! The table has one row per URL and method: view pages (`GET`), each
-//! handler of an endpoint page, and the redirects `routes.lock` records.
+//! handler of an endpoint page, and the redirects `routes.lock` records,
+//! then the channel rpcs the app serves (`WS`, `CHANNEL (Protocol.rpc)` in
+//! the `PAGE` column, by their wire URL; `docs/design/44-channels.md`).
 //! Columns are `METHOD`, `URL`, `PAGE` (an endpoint or redirect says so in
 //! parentheses), `PARAMS` (path parameters as `name: Type`, query
 //! parameters as `?name: Type = default`) and `GUARDS` (the `requires`
@@ -51,6 +53,7 @@ pub fn render(routes: &[Route]) -> String {
             RouteKind::Page => r.page.clone(),
             RouteKind::Endpoint => format!("{} (endpoint)", r.page),
             RouteKind::Redirect => format!("{} (redirect)", r.page),
+            RouteKind::Channel => format!("CHANNEL ({})", r.page),
         };
         rows.push([
             r.method.clone(),
