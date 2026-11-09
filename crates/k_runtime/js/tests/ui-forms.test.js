@@ -19,7 +19,7 @@
  *   validate(value, rules)    → rules.check(ok, fieldName, message), fieldName a string
  */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
-import { batch, createForm, fieldParser, renderEffect, root } from "k:runtime";
+import { batch, createForm, fieldParser, hydrate, renderEffect, root, template } from "k:runtime";
 
 const FORMS = "forms (runtime.md §9)";
 
@@ -363,6 +363,39 @@ test("an attached field without an error element gets one when it fails", async 
   await form.handle(async () => {})();
   assertEq(message.textContent, "");
   assertEq(input.hasAttribute("aria-invalid"), false);
+});
+
+// A person can type into a server-rendered form before the page's scripts
+// have run (the notes example's sign-in page on a loaded machine: the email
+// typed, wiped by hydration, and "Enter a valid email address" on submit).
+// Hydration keeps the text and the field takes it once the pass is over; a
+// field nobody typed into, and every field afterwards, shows the field's
+// text as before.
+test("hydration keeps text typed into a field before it, and the field takes it", async () => {
+  const form = signup();
+  const doc = globalThis.document;
+  const container = doc.createElement("div");
+  container.innerHTML = "<form><input><input></form>";
+  doc.body.appendChild(container);
+  const [typed, untouched] = [container.firstChild.firstChild, container.firstChild.lastChild];
+  // What the browser holds: the markup's value, and what the person typed.
+  for (const i of [typed, untouched]) i.defaultValue = "";
+  typed.value = "Ada Lovelace";
+  untouched.value = "";
+  const view = template("<form><input><input></form>");
+  hydrate(container, () => {
+    const f = view();
+    form.field("name").attach(f.firstChild);
+    form.field("password").attach(f.lastChild);
+    return f;
+  }, null);
+  assertEq(typed.value, "Ada Lovelace", "hydration leaves the typed text");
+  await tick();
+  assertEq(form.field("name").value(), "Ada Lovelace", "and the field has it");
+  form.field("password").set("correct horse");
+  assertEq(untouched.value, "correct horse");
+  form.field("name").set("");
+  assertEq(typed.value, "", "after hydration the field's text shows again");
 });
 
 // Two forms on one page give their error elements distinct ids.

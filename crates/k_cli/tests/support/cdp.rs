@@ -264,6 +264,7 @@ impl Cdp {
             &json!({ "id": id, "method": method, "params": params }),
         )?;
         let deadline = Instant::now() + timeout;
+        let _slow = SlowCall(method.to_owned(), Instant::now());
         loop {
             if let Some(i) = self
                 .backlog
@@ -318,12 +319,26 @@ impl Cdp {
     /// Waits up to `timeout` for an event `method` received after event
     /// number `since` of [`Cdp::events`], returning its params.
     pub fn wait_event(&mut self, method: &str, since: usize, timeout: Duration) -> Option<Value> {
+        self.wait_event_where(method, since, timeout, |_| true)
+    }
+
+    /// [`Cdp::wait_event`] for an event whose params satisfy `matches`.
+    pub fn wait_event_where(
+        &mut self,
+        method: &str,
+        since: usize,
+        timeout: Duration,
+        matches: impl Fn(&Value) -> bool,
+    ) -> Option<Value> {
         let deadline = Instant::now() + timeout;
         loop {
             self.pump();
             if let Some(e) = self.events[since.min(self.events.len())..]
                 .iter()
-                .find(|e| e.get("method").and_then(Value::as_str) == Some(method))
+                .find(|e| {
+                    e.get("method").and_then(Value::as_str) == Some(method)
+                        && matches(e.get("params").unwrap_or(&Value::Null))
+                })
             {
                 return Some(e.get("params").cloned().unwrap_or(Value::Null));
             }
@@ -352,6 +367,21 @@ impl Cdp {
     /// Intercepted requests nothing answered (each one failed in the page).
     pub fn unanswered(&self) -> Vec<String> {
         lock(&self.shared).unanswered.clone()
+    }
+}
+
+/// Notes a DevTools command that took over 5 s on standard error, which
+/// the test harness shows for a failing test: a page that stopped drawing
+/// frames shows up as commands that never answer, long before the wait
+/// that fails.
+struct SlowCall(String, Instant);
+
+impl Drop for SlowCall {
+    fn drop(&mut self) {
+        let took = self.1.elapsed();
+        if took > Duration::from_secs(5) {
+            eprintln!("DevTools {} took {took:?}", self.0);
+        }
     }
 }
 
@@ -513,12 +543,17 @@ pub fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// How long a starting Chrome gets to answer on DevTools. A dozen Chromes
+/// starting at once with fresh profiles, beside a full test run, took
+/// longer than the 30 s this was.
+const STARTUP: Duration = Duration::from_secs(90);
+
 /// A headless Chrome with its own profile, killed and its profile removed
 /// when dropped.
 pub struct Chrome {
     child: Child,
     profile: PathBuf,
-    /// The DevTools port.
+    /// The DevTools port, once [`Chrome::page_url`] has read it.
     pub port: u16,
 }
 
@@ -530,11 +565,15 @@ impl Chrome {
         let profile = scratch.join(format!("chrome-profile-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&profile);
         std::fs::create_dir_all(&profile).expect("a profile directory");
-        let port = free_port();
+        // Port 0: Chrome binds a free port itself and writes it to
+        // `DevToolsActivePort` in the profile. A port picked here and
+        // handed over could be taken in between by anything that doesn't
+        // take part in the tests' port reservations, and Chrome then runs
+        // without DevTools.
         let child = Command::new(binary)
             .args([
                 "--headless=new",
-                &format!("--remote-debugging-port={port}"),
+                "--remote-debugging-port=0",
                 "--remote-debugging-address=127.0.0.1",
                 &format!("--user-data-dir={}", profile.display()),
                 "--no-first-run",
@@ -558,28 +597,46 @@ impl Chrome {
         Chrome {
             child,
             profile,
-            port,
+            port: 0,
         }
     }
 
     /// The WebSocket URL of the first page target, once DevTools answers.
     pub fn page_url(&mut self) -> String {
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let started = Instant::now();
+        let mut seen = "no DevToolsActivePort file yet".to_owned();
         loop {
             if let Some(status) = self.child.try_wait().ok().flatten() {
                 panic!("Chrome exited before DevTools answered ({status})");
             }
-            if let Some(list) = http_get_json(self.port, "/json/list")
-                && let Some(url) = list.as_array().and_then(|targets| {
+            if self.port == 0 {
+                // The first line is the port; the file appears once Chrome
+                // listens.
+                if let Some(port) = std::fs::read_to_string(self.profile.join("DevToolsActivePort"))
+                    .ok()
+                    .and_then(|t| t.lines().next().and_then(|l| l.trim().parse().ok()))
+                {
+                    self.port = port;
+                    seen = format!("DevTools on port {port}, no answer to /json/list yet");
+                }
+            }
+            if self.port != 0
+                && let Some(list) = http_get_json(self.port, "/json/list")
+            {
+                if let Some(url) = list.as_array().and_then(|targets| {
                     targets
                         .iter()
                         .find(|t| t["type"] == "page")
                         .and_then(|t| t["webSocketDebuggerUrl"].as_str())
-                })
-            {
-                return url.to_owned();
+                }) {
+                    return url.to_owned();
+                }
+                seen = format!("DevTools on port {}, no page target yet: {list}", self.port);
             }
-            assert!(Instant::now() < deadline, "Chrome's DevTools answers");
+            assert!(
+                started.elapsed() < STARTUP,
+                "Chrome's DevTools answers within {STARTUP:?} ({seen})"
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
     }

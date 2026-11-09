@@ -607,7 +607,12 @@ feature chunk (§1): only apps with a `@Form` ship it, and their generated code 
 - Field bindings wire `aria-invalid` and `aria-describedby` to the error element. `attach(input,
   message?)` keeps the input and the field's raw text in sync (`input`, `blur`); without a `message`
   element (the generated views pass none, so the server's markup has none to claim) it creates a
-  `<p role="alert">` right under the input when the field first shows an error.
+  `<p role="alert">` right under the input when the field first shows an error. While hydrating, an
+  input whose `value` is no longer its markup's (`defaultValue`) was typed into before the page's
+  scripts ran (a slow load): the text is kept and the field takes it once the pass is over, instead of
+  being wiped by the field's empty raw text. Only `@Form` fields do this: a plain `bind` field is set by
+  `prop` in the full client runtime, which is at its size budget (2 B of headroom), so it still shows
+  the state's value after hydration.
 - Raw values are text; a number field's `Number(…)` is accepted and parsed as its text.
 - `@Check` async rules: a field spec's `checks` (`[{ run(signal, value) → Promise<Bool>, message }]`)
   run 300 ms after the field's `blur` (`CHECK_DELAY`), on the `clock` passed as `createForm`'s fourth
@@ -752,7 +757,7 @@ generate ([codegen.md §13](codegen.md#13-services-and-dependency-injection)):
 | `clock(data)` | `k.time.Clock`: `now` is the server's render instant (`data.now`) while the page hydrates, the system time otherwise; `every`/`after` return a `TimerHandle` over `setInterval`/`setTimeout`; `sleep(c, d)` resolves after `d` ms and stops waiting when `c` aborts |
 | `theme()` | `k.ui.Theme`: `current` is reactive and starts as the `k_theme` cookie's variant or `base`, and a remembered variant's classes are applied at once (a reload keeps the scheme even in a document without them); `apply(v)` replaces the `k-theme-*` classes on `<html>` with `k-theme-set` and `k-theme-<v in kebab case>` (none for `base`) and sets the cookie for a year; `followSystem()` removes them and the cookie |
 | `browserStorage(R, W, namespace)` | `k.storage.BrowserStorage` over `localStorage`: values JSON-encoded with their codec under `namespace:key.name` (the namespace is `storage.lock`'s, else the project name; codegen passes it), a missing namespaced item read once from the bare `key.name` and moved under the namespace (items written before namespacing); `remove` removes both; throws `R.unavailable` (no storage), `R.unreadable` (bad JSON or a value its codec refuses), `W.quotaExceeded` (a `QuotaExceededError`), `W.unavailable`; `remove` never throws |
-| `fetchHttpClient(E, S)` | `k.http.FetchHttpClient` over `fetch`: the request's `query` appended form-encoded, `headers`, revealed `secretHeaders` and `bearerToken`, the body by its case (JSON, text, form, bytes); `send` resolves to an `HttpResponse` (`status` as an `HttpStatus` case, `isSuccess`, `body`, `bodyBytes`, `headers.get/all`, `json(codec)`) whatever the status and rejects with `E.offline` or, after the request's `timeout` (30 s by default), `E.timeout`; `fetchJson(c, codec, r)` also requires a 2xx (`E.status(status, body)`) and decodes the body (`E.decoding(message)`) |
+| `fetchHttpClient(E, S)` | `k.http.FetchHttpClient` over `fetch`: the request's `query` appended form-encoded, `headers`, revealed `secretHeaders` and `bearerToken`, the body by its case (JSON, text, form, bytes); `send` resolves to an `HttpResponse` (`status` as an `HttpStatus` case, `isSuccess`, `body`, `bodyBytes`, `headers.get/all`, `json(codec)`) whatever the status and rejects with `E.offline` or, after the request's `timeout` (30 s by default), `E.timeout`; a cancellation or the timeout while the body arrives is `E.offline` too (it was an unhandled `AbortError` the page reported as uncaught); `fetchJson(c, codec, r)` also requires a 2xx (`E.status(status, body)`) and decodes the body (`E.decoding(message)`) |
 | `session(data)` | `k.auth.Session`: `user` reads the `Session` mirror, started from `data.session` (once per document, `seedSession`) and updated by rpc responses (`x-k-session`) |
 | `native(name)` | the browser's implementation of the `@Native` stdlib member `module.Owner$member` (`k.crypto.Uuid$random`, `Uuid$init`, `Uuid$parse`, `k.storage.StorageKey$init`), else a stand-in that loads and panics with the name when called, constructed or read from; client chunks bind every stdlib symbol they use that no item defines with it (`const Uuid$random = $k.native("k.crypto.Uuid$random")`). Each implementation is also its own export, `native_` and the name with `_` for `.` (`native_k_crypto_Uuid$random`), and `missingNative(name)` is the stand-in alone: a release build binds those directly, so the lookup table and the natives an app doesn't use are shaken out ([codegen.md §17.1](codegen.md#171-release-linking-named-runtime-imports-and-a-shaken-runtime)) |
 
@@ -918,7 +923,10 @@ They are stdlib services, not platform interfaces: there is no `Browser…` impl
 - `isOnline` is `navigator.onLine !== false`, refreshed on `online` and `offline`. The service wraps
   `fetch` when it is constructed: a request to a path starting with `/` (the app's rpcs) that rejects with
   anything but an `AbortError` sets it to `false`, and one that gets a response sets it to `true`. That is
-  how a failed rpc takes the app offline without the runtime chunk knowing about `Connectivity`.
+  how a failed rpc takes the app offline without the runtime chunk knowing about `Connectivity`. A
+  response (or a channel socket's `k-online`) sets it to `navigator.onLine !== false` rather than `true`:
+  `false` there is certain, and a response that was already on its way when the network went arrives
+  after the `offline` event; taken as `true` it hid the offline banner until the network came back.
 - Each preference follows `matchMedia("(prefers-color-scheme: dark)")`, `(prefers-reduced-motion:
   reduce)`, `(prefers-contrast: more)` and `(forced-colors: active)` and their `change` events.
 - `size` is `{width: "<innerWidth>px", height: "<innerHeight>px"}` (`Length`s are CSS strings),

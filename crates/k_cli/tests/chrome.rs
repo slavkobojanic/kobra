@@ -154,9 +154,13 @@ fn have_chrome() -> bool {
 /// "Remind me" (`Notifications`, 45-web-platform.md): with the permission
 /// granted as a user's earlier "Allow" would be, a todo's reminder is shown
 /// by the static build's service worker, `/k-sw.js`, half an hour later.
-/// Time passes quickly here: a script DevTools runs before the page's makes
-/// each timer of a minute or more fire at once and moves `Date.now` on by
-/// its delay, so the page's once-a-minute check finds the reminder due.
+/// Time passes quickly here: a script DevTools runs before the page's holds
+/// each timer of a minute or more until the test calls `__kFastForward()`,
+/// and from then on fires it at once and moves `Date.now` on by its delay,
+/// so the page's once-a-minute check finds the reminder due. Holding them
+/// first keeps "Reminder set" on screen until the test has seen it: with
+/// time racing from the start the reminder could be shown and gone, and
+/// the button back, between two looks of a test on a loaded machine.
 ///
 /// The same script records each notification the service worker's
 /// registration showed, once Chrome has shown it. The test reads that
@@ -179,8 +183,12 @@ fn todos_reminds_through_the_service_worker() {
     tab.cdp.call(
         "Page.addScriptToEvaluateOnNewDocument",
         json!({ "source": "(() => { const now = Date.now; let skew = 0; Date.now = () => now() + skew; \
-            const later = setTimeout; globalThis.setTimeout = (f, d, ...a) => d >= 60000 \
-            ? later(() => { skew += d; f(...a); }, 10) : later(f, d, ...a); \
+            const later = setTimeout, cancel = clearTimeout, held = new Map(); let fast = false, next = -1; \
+            const fire = (f, d, a) => later(() => { skew += d; f(...a); }, 10); \
+            globalThis.__kFastForward = () => { fast = true; for (const [f, d, a] of held.values()) fire(f, d, a); held.clear(); }; \
+            globalThis.setTimeout = (f, d, ...a) => d < 60000 ? later(f, d, ...a) \
+            : fast ? fire(f, d, a) : (held.set(next, [f, d, a]), next--); \
+            globalThis.clearTimeout = (id) => (held.has(id) ? held.delete(id) : cancel(id)); \
             const shown = globalThis.__kShown = []; const show = ServiceWorkerRegistration.prototype.showNotification; \
             ServiceWorkerRegistration.prototype.showNotification = function (title, o) { \
             return show.call(this, title, o).then(() => { shown.push([title, o.body, o.data && o.data.url, this.active.scriptURL]); }); }; })();" }),
@@ -205,6 +213,7 @@ fn todos_reminds_through_the_service_worker() {
     let remind = tab.role("button", "Remind me about Buy milk");
     tab.click(&remind);
     tab.wait_text("Reminder set");
+    tab.eval("__kFastForward()");
     let shown = tab.wait("the reminder shown by the service worker", |t| {
         let shown = t.eval("globalThis.__kShown");
         shown
@@ -257,7 +266,7 @@ fn todos_adds_completes_filters_and_clears_todos() {
     let completed = tab.role("button", "Completed");
     tab.click(&completed);
     tab.wait("only the completed todo", |t| {
-        (t.has_role("checkbox", "Walk the dog") && !t.has_role("checkbox", "Buy milk"))
+        (t.has_role("checkbox", "Walk the dog") && t.has_no_role("checkbox", "Buy milk"))
             .then_some(())
     });
     let completed = tab.role("button", "Completed");
@@ -272,7 +281,7 @@ fn todos_adds_completes_filters_and_clears_todos() {
     let active = tab.role("button", "Active");
     tab.click(&active);
     tab.wait("only the active todo", |t| {
-        (t.has_role("checkbox", "Buy milk") && !t.has_role("checkbox", "Walk the dog"))
+        (t.has_role("checkbox", "Buy milk") && t.has_no_role("checkbox", "Walk the dog"))
             .then_some(())
     });
     let all = tab.role("button", "All");
@@ -283,12 +292,12 @@ fn todos_adds_completes_filters_and_clears_todos() {
     let clear = tab.role("button", "Clear completed");
     tab.click(&clear);
     tab.wait("the completed todo cleared", |t| {
-        (!t.has_role("checkbox", "Walk the dog")).then_some(())
+        (t.has_no_role("checkbox", "Walk the dog")).then_some(())
     });
     // Everything is kept in the browser: a reload shows the same list.
     tab.reload();
     tab.role("checkbox", "Buy milk");
-    assert!(!tab.has_role("checkbox", "Walk the dog"));
+    assert!(tab.has_no_role("checkbox", "Walk the dog"));
 }
 
 /// The todo's title is on screen, next to its checkbox, as a `<label>`
@@ -674,11 +683,19 @@ fn kanban_has_base_styles_for_the_document_and_its_lists() {
     );
 }
 
-/// Escape closes the card editor even while its field has the focus, as
-/// the README says (reported as kanban-RC6; it does in real Chrome, so this
-/// guards it).
+/// Escape closes the card editor, and, as the README says of every
+/// shortcut, not while you type in one of its fields: there it would take
+/// a key meant for the field (43-keyboard-shortcuts.md, "Rules").
+///
+/// This test used to say the opposite, that Escape closes the editor while
+/// typing, and passed only by accident: its Escape carried a
+/// `nativeVirtualKeyCode`, which on macOS hides the headless page, the
+/// accessibility query for the field then never answered, and the wait
+/// took the abandoned query for "the editor is gone". Under load the next
+/// key event hung instead (the flake). See `Tab::press` and
+/// `docs/compiler/testing.md`, "Flakes".
 #[test]
-fn kanban_escape_closes_the_card_editor_while_typing() {
+fn kanban_escape_closes_the_card_editor_but_not_while_typing() {
     if !have_chrome() {
         return;
     }
@@ -694,13 +711,25 @@ fn kanban_escape_closes_the_card_editor_while_typing() {
         tab.focused()
     );
     tab.type_text(" now");
+    // The page has handled a key event when DevTools answers for it, and a
+    // shortcut acts in its `keydown` handler, so this is already after it.
+    tab.press("Escape");
     assert!(
-        tab.has_role("textbox", "Title of Ship it"),
-        "the editor is open"
+        tab.has_role("textbox", "Title of Ship it") && tab.is_focused(&field),
+        "Escape in the field leaves the editor open, still typing; the focus is on {}",
+        tab.focused()
     );
+    assert_eq!(
+        tab.on(&field, "function() { return this.value; }", &[]),
+        json!("Ship it now"),
+        "the typing is kept"
+    );
+    // Out of the field (on a button of the editor), Escape closes it.
+    let normal = tab.role("button", "Normal");
+    tab.click(&normal);
     tab.press("Escape");
     tab.wait("the editor closed", |t| {
-        (!t.has_role("textbox", "Title of Ship it")).then_some(())
+        (t.has_no_role("textbox", "Title of Ship it")).then_some(())
     });
 }
 
@@ -863,14 +892,14 @@ fn weather(dir: &Scratch, tab: &mut Tab) -> Weather {
     ]
     .map(|o| format!("{o}={}", fake.origin()))
     .join(",");
-    let port = cdp::free_port();
-    let mut k = Proc::start(
-        &["run", ".", "--port", &port.to_string()],
+    let (k, port) = Proc::serve(
+        &["run", "."],
+        1,
         &dir.0.join("weather"),
         &[("K_DEV_FETCH_ORIGINS", origins)],
         &[],
+        Duration::from_secs(120),
     );
-    k.wait_port(port, Duration::from_secs(120));
     tab.intercept(open_meteo);
     Weather {
         _fake: fake,
@@ -893,6 +922,7 @@ fn weather_searches_opens_a_city_and_switches_units() {
     tab.open(&format!("{}/", w.origin));
     let city = tab.role("textbox", "City");
     let token = tab.document_token();
+    tab.wait_handles(&city, "input");
     tab.fill(&city, "Ber");
     let berlin = tab.role("link", "Berlin, Land Berlin, Germany");
     tab.role("link", "Bern, Switzerland");
@@ -907,7 +937,7 @@ fn weather_searches_opens_a_city_and_switches_units() {
     tab.wait("the path with imperial units", |t| {
         t.path().contains("units=imperial").then_some(())
     });
-    tab.wait_text("°F");
+    tab.wait_text("3°F");
     tab.assert_same_document(&token, "switching units");
     // Back home through the layout's brand link.
     let home = tab.role("link", "Weather");
@@ -1072,8 +1102,10 @@ fn weather_switching_units_fetches_only_the_forecast_again() {
     tab.wait("the forecast in °F", |t| {
         (meteo_requests(t, "/v1/forecast") > forecasts).then_some(())
     });
-    tab.wait_text("°F");
-    std::thread::sleep(Duration::from_millis(300));
+    // The new values are on screen only once every load that re-ran has
+    // answered, and loads that re-run start together, so by now an extra
+    // request for the place or the air quality would have been made.
+    tab.wait_text("3°F");
     assert_eq!(
         meteo_requests(&tab, "/v1/air-quality"),
         airs,
@@ -1154,11 +1186,17 @@ fn weather_shows_recent_places_after_hydration_without_moving_the_server_parts()
     };
     let before = server_parts(&mut tab);
     assert!(
-        !tab.has_role("heading", "Recently viewed"),
+        tab.has_no_role("heading", "Recently viewed"),
         "nothing stored yet"
     );
-    // Opening a city remembers it in local storage.
+    // Opening a city remembers it in local storage, once the page has
+    // hydrated and its effect ran: leaving as soon as the server's heading
+    // shows could leave before that.
     open_berlin(&mut tab, &w);
+    tab.wait_js(
+        "Object.keys(localStorage).some((k) => k.endsWith('recentPlaces') && localStorage.getItem(k).includes('2950159'))",
+        "Berlin stored as recently viewed",
+    );
     tab.open(&home);
     let html = tab.eval("fetch('/').then((r) => r.text())");
     let html = html.as_str().unwrap_or_default();
@@ -1209,14 +1247,14 @@ fn notes(dir: &std::path::Path, with_env: bool) -> (Proc, String) {
     if with_env {
         std::fs::copy(dir.join(".env.example"), dir.join(".env")).unwrap();
     }
-    let port = cdp::free_port();
-    let mut k = Proc::start(
-        &["dev", ".", "--port", &port.to_string()],
+    let (k, port) = Proc::serve(
+        &["dev", "."],
+        1,
         dir,
         &[],
         &["DATABASE_URL", "DATABASE_PASSWORD"],
+        Duration::from_secs(120),
     );
-    k.wait_port(port, Duration::from_secs(120));
     (k, format!("http://localhost:{port}"))
 }
 
@@ -1230,6 +1268,7 @@ fn sign_up(tab: &mut Tab, origin: &str, email: &str) {
     let confirm = tab.role("textbox", "Confirm password");
     tab.fill(&confirm, "correct horse");
     let create = tab.role("button", "Create account");
+    tab.wait_handles_click(&create);
     tab.click(&create);
     tab.role("link", "New note");
 }
@@ -1289,7 +1328,7 @@ fn notes_signs_up_and_creates_edits_and_deletes_a_note() {
     let delete = tab.role("button", "Delete note");
     tab.click(&delete);
     tab.wait("the note gone", |t| {
-        (t.path() == "/" && !t.has_role("link", "Groceries for Sunday")).then_some(())
+        (t.path() == "/" && t.has_no_role("link", "Groceries for Sunday")).then_some(())
     });
     // Sign out and back in. The guest mirror makes the router leave the
     // guarded list for a full load, which the server redirects to the
@@ -1308,6 +1347,7 @@ fn notes_signs_up_and_creates_edits_and_deletes_a_note() {
     let password = tab.css("input[type=password]");
     tab.fill(&password, "correct horse");
     let button = tab.role("button", "Sign in");
+    tab.wait_handles_click(&button);
     tab.click(&button);
     tab.role("link", "New note");
     drop(tab);
@@ -1405,9 +1445,18 @@ fn notes_stops_promptly_with_a_stream_open() {
     let dir = Scratch::new("notes-shutdown");
     let mut tab = tab!(dir);
     let (mut k, origin) = notes(&dir.0.join("notes"), true);
+    tab.cdp.call("Network.enable", json!({}));
+    let since = tab.cdp.events.len();
     sign_up(&mut tab, &origin, "ada@example.com");
-    // The list's `watch()` stream is open now.
-    std::thread::sleep(Duration::from_millis(500));
+    // The list's `watch()` stream is open once its response head arrived.
+    let opened = tab
+        .cdp
+        .wait_event_where("Network.responseReceived", since, page::WAIT, |e| {
+            e["response"]["url"]
+                .as_str()
+                .is_some_and(|u| u.ends_with("NotesProtocol/Watch"))
+        });
+    assert!(opened.is_some(), "the notes list opens its watch() stream");
     let started = Instant::now();
     k.terminate();
     let exit = k.wait_exit(Duration::from_secs(5));
@@ -1417,9 +1466,9 @@ fn notes_stops_promptly_with_a_stream_open() {
         started.elapsed(),
         k.log()
     );
-    // The page notices the server is gone; that is expected here.
-    std::thread::sleep(Duration::from_millis(300));
-    tab.allow_errors();
+    // The page notices the server is gone, now and at every retry; that is
+    // expected here.
+    tab.allow_errors_from_now_on();
     drop(tab);
 }
 
@@ -1452,14 +1501,14 @@ fn channels_resume_in_chrome_after_the_socket_drops() {
         &repo().join("crates/k_server/tests/projects/channels"),
         &root,
     );
-    let port = cdp::free_port();
-    let mut k = Proc::start(
-        &["dev", ".", "--port", &port.to_string()],
+    let (k, port) = Proc::serve(
+        &["dev", "."],
+        1,
         &root,
         &[],
         &["DATABASE_URL"],
+        Duration::from_secs(120),
     );
-    k.wait_port(port, Duration::from_secs(120));
     let origin = format!("http://localhost:{port}");
     tab.before_each_document(SOCKET_SPY);
     tab.open(&format!("{origin}/"));
@@ -1508,9 +1557,9 @@ fn stack_pays_from_the_shop_page_through_paybox() {
     let dir = Scratch::new("stack-flow");
     let mut tab = tab!(dir);
     copy_example("stack", &dir.0.join("stack"));
-    let port = cdp::free_ports(2);
-    let mut k = Proc::start(
-        &["dev", ".", "--port", &port.to_string()],
+    let (_k, port) = Proc::serve(
+        &["dev", "."],
+        2,
         &dir.0.join("stack"),
         &[],
         &[
@@ -1520,12 +1569,12 @@ fn stack_pays_from_the_shop_page_through_paybox() {
             "SHOP_TOKEN",
             "K_SERVICE_TOKEN",
         ],
+        Duration::from_secs(120),
     );
-    k.wait_port(port, Duration::from_secs(120));
-    k.wait_port(port + 1, Duration::from_secs(60));
     tab.open(&format!("http://localhost:{}/", port + 1));
     tab.wait_text("Not paid yet");
     let pay = tab.role("button", "Pay");
+    tab.wait_handles_click(&pay);
     tab.click(&pay);
     tab.wait_text("Paid:");
     drop(tab);
@@ -1544,10 +1593,9 @@ struct Shop {
 
 fn shop(root: &std::path::Path) -> Shop {
     copy_example("shop", root);
-    let paybox = cdp::free_ports(2);
-    let shop_port = paybox + 1;
-    let mut k = Proc::start(
-        &["dev", ".", "--port", &paybox.to_string()],
+    let (k, paybox) = Proc::serve(
+        &["dev", "."],
+        2,
         root,
         &[],
         &[
@@ -1561,9 +1609,9 @@ fn shop(root: &std::path::Path) -> Shop {
             "SHOP_ADMIN_PASSWORD_HASH",
             "SHOP_ADMIN_PASSWORD_HASH_FILE",
         ],
+        Duration::from_secs(180),
     );
-    k.wait_port(paybox, Duration::from_secs(180));
-    k.wait_port(shop_port, Duration::from_secs(60));
+    let shop_port = paybox + 1;
     Shop {
         k,
         dir: root.join("shop"),
@@ -1589,6 +1637,7 @@ fn buy_a_mug(tab: &mut Tab, s: &Shop, email: &str) {
     let field = tab.role("textbox", "Email for your receipt");
     tab.fill(&field, email);
     let buy = tab.role("button", "Buy now");
+    tab.wait_handles_click(&buy);
     tab.click(&buy);
     let card = tab.role("textbox", "Card number");
     tab.fill(&card, "4242 4242 4242 4242");
@@ -1598,6 +1647,7 @@ fn buy_a_mug(tab: &mut Tab, s: &Shop, email: &str) {
             .find(|(name, _)| name.starts_with("Pay "))
             .map(|(_, el)| el)
     });
+    tab.wait_handles_click(&pay);
     tab.click(&pay);
     tab.wait("the receipt", |t| {
         let text = t.visible_text();
@@ -1670,6 +1720,7 @@ fn shop_admin_signs_out_to_the_sign_in_page() {
     let secret = admin_password(&s);
     tab.fill(&password, &secret);
     let button = tab.role("button", "Sign in");
+    tab.wait_handles_click(&button);
     tab.click(&button);
     tab.role("button", "Sign out");
     assert_eq!(tab.path(), "/admin");
@@ -1703,12 +1754,14 @@ fn shop_keeps_the_cart_in_step_across_tabs() {
     let mug = first.by_text("K Mug");
     first.click(&mug);
     let add = first.role("button", "Add to cart");
+    first.wait_handles_click(&add);
     first.click(&add);
     first.wait_text("Cart: 1 item");
     second.wait_text("Cart: 1 item");
     second.assert_same_document(&token, "the other tab's cart updating");
     second.bring_to_front();
     let empty = second.role("button", "Empty cart");
+    second.wait_handles_click(&empty);
     second.click(&empty);
     second.wait_text("Cart: 0 items");
     first.wait_text("Cart: 0 items");

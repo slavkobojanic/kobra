@@ -15,6 +15,7 @@
  */
 
 import { attr, on } from "./dom.js";
+import { isHydrating } from "./hydrate.js";
 import { batch, renderEffect, signal, untrack } from "./signals.js";
 import { graphemeCount, parseEmail } from "./std.js";
 
@@ -203,10 +204,16 @@ export function createForm(fields, initial, validate, clock) {
           attr(input, "aria-describedby", e === null ? null : message.id);
           message.textContent = e ?? "";
         });
+        // Text typed into the server's field before the page's scripts ran
+        // (a slow load: an email typed into the sign-in form) isn't the
+        // markup's value: hydration keeps it and the field takes it, as if
+        // typed now, rather than wiping it.
         renderEffect(() => {
           const raw = f.raw.get();
           untrack(() => {
-            if (input.value !== raw) input.value = raw;
+            if (input.value === raw) return;
+            if (isHydrating() && input.value !== input.defaultValue) queueMicrotask(() => field(name).set(input.value));
+            else input.value = raw;
           });
         });
         on(input, "input", () => field(name).set(input.value));

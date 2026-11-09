@@ -286,24 +286,27 @@ export function fetchHttpClient(E, S) {
         ctl.abort();
         reject(E.timeout);
       }, r.timeout ?? 30000);
-      fetch(url, { method: METHODS[r.method.$], headers, body, signal: ctl.signal }).then(
-        async (res) => {
-          const text = await res.text();
-          clearTimeout(timer);
-          resolve({
-            status: status(res.status),
-            isSuccess: res.ok,
-            body: text,
-            bodyBytes: new TextEncoder().encode(text),
-            headers: headerView(headerPairs(res.headers)),
-            json: (codec) => json(codec, text),
-          });
-        },
-        () => {
+      // Reading the body is part of the request: a cancellation or the
+      // timeout while it arrives rejects `text()` with an `AbortError`,
+      // which ends here as `offline` (ignored by a cancelled caller), not
+      // as an unhandled rejection the page reports as uncaught.
+      fetch(url, { method: METHODS[r.method.$], headers, body, signal: ctl.signal })
+        .then((res) =>
+          res.text().then((text) => {
+            clearTimeout(timer);
+            resolve({
+              status: status(res.status),
+              isSuccess: res.ok,
+              body: text,
+              bodyBytes: new TextEncoder().encode(text),
+              headers: headerView(headerPairs(res.headers)),
+              json: (codec) => json(codec, text),
+            });
+          }))
+        .catch(() => {
           clearTimeout(timer);
           reject(E.offline);
-        },
-      );
+        });
     });
   return {
     send,

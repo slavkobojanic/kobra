@@ -353,6 +353,40 @@ test("FetchHttpClient rejects with offline when fetch fails", async () => {
   assertEq(e, HttpError.offline);
 });
 
+// A cancellation (a `@Load`'s `reload()` stopping the run before) can land
+// after the response's head and before its body: `text()` then rejects
+// with an `AbortError`, which reached the page as an uncaught error. It is
+// the call's `offline` now, and the cancelled caller ignores it. (An
+// unhandled rejection fails the test isolate.)
+test("FetchHttpClient cancelled while reading the body rejects with offline, not an uncaught AbortError", async () => {
+  fakeFetch(200, "");
+  let signal = null;
+  globalThis.fetch = (url, init) => {
+    signal = init.signal;
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: () =>
+        new Promise((_, reject) => {
+          init.signal.addEventListener("abort", () => reject(new Error("AbortError: signal is aborted without reason")));
+        }),
+    });
+  };
+  const caller = new AbortController();
+  const sent = fetchHttpClient(HttpError, HttpStatus).send(caller.signal, request({}));
+  await tick();
+  caller.abort();
+  assert(signal.aborted, "the caller's cancellation aborts the fetch");
+  let e = null;
+  try {
+    await sent;
+  } catch (x) {
+    e = x;
+  }
+  assertEq(e, HttpError.offline);
+});
+
 // ---------------------------------------------------------------- Session
 
 test("Session mirrors k-data and later rpc updates", () => {

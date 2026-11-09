@@ -19,8 +19,14 @@ use serde_json::{Value, json};
 
 use super::cdp::{Cdp, Chrome, Fulfil, Interceptor, Paused, chrome_binary};
 
-/// How long a wait for something on screen lasts.
-pub const WAIT: Duration = Duration::from_secs(15);
+/// How long a wait for something on screen lasts. Waits poll a condition,
+/// so a passing test never waits this long; it is the bound for a page
+/// slowed down by a loaded machine (a dozen Chromes and a full test run
+/// beside them), not a guess at how long the page needs.
+pub const WAIT: Duration = Duration::from_secs(30);
+
+/// How long one DevTools command may take before the test gives up on it.
+const QUERY: Duration = Duration::from_secs(30);
 
 /// The helpers every visible-text query uses, defined in each call.
 const VISIBLE: &str = r"
@@ -113,6 +119,9 @@ pub struct Tab {
     port: u16,
     /// Console errors already reported by [`Tab::allow_errors`].
     allowed: usize,
+    /// Why the last query found nothing (a DevTools error or a command
+    /// that took too long), for a wait's timeout message.
+    last_miss: Option<String>,
 }
 
 /// Starts Chrome, or returns `None` after saying why the test is skipped.
@@ -181,11 +190,22 @@ impl Tab {
         cdp.set_interceptor(Box::new(|p: &Paused| {
             (p.resource_type == "Image").then(Fulfil::pixel)
         }));
+        // `K_CHROME_THROTTLE=4` slows every page's CPU four times, to shake
+        // out races a loaded machine shows only now and then
+        // (docs/compiler/testing.md, "Flakes").
+        if let Some(rate) = std::env::var("K_CHROME_THROTTLE")
+            .ok()
+            .and_then(|r| r.parse::<f64>().ok())
+            .filter(|r| *r > 1.0)
+        {
+            cdp.call("Emulation.setCPUThrottlingRate", json!({ "rate": rate }));
+        }
         Tab {
             cdp,
             _chrome: chrome,
             port,
             allowed: 0,
+            last_miss: None,
         }
     }
 
@@ -292,17 +312,88 @@ impl Tab {
     /// Polls `check` until it returns `Some`, for up to [`WAIT`].
     pub fn wait<T>(&mut self, what: &str, mut check: impl FnMut(&mut Tab) -> Option<T>) -> T {
         let deadline = Instant::now() + WAIT;
+        self.last_miss = None;
         loop {
             if let Some(v) = check(self) {
                 return v;
             }
             if Instant::now() >= deadline {
                 let text = self.visible_text();
-                panic!("timed out waiting for {what}; the page shows:\n{text}");
+                let miss = self
+                    .last_miss
+                    .take()
+                    .map(|m| format!("\n(the last query failed: {m})"))
+                    .unwrap_or_default();
+                // A hidden page draws no frames, and DevTools commands that
+                // wait for one never answer (see `Tab::press`).
+                let hidden = if self.eval("document.visibilityState") == json!("hidden") {
+                    "\n(the page is hidden)"
+                } else {
+                    ""
+                };
+                panic!("timed out waiting for {what}; the page shows:\n{text}{miss}{hidden}");
             }
             self.cdp.pump();
             std::thread::sleep(Duration::from_millis(50));
         }
+    }
+
+    /// Waits until the page's script handles a click on `el`: its form's
+    /// `submit` for a submit button, else a `click` on it, through the
+    /// runtime's handler table on it or an ancestor (`$kh`, delegated
+    /// events, runtime.md §5.4) or a listener on the element itself (a
+    /// client-rendered element).
+    ///
+    /// A server-rendered page shows its buttons before hydration has wired
+    /// them: a click then does nothing, and a submit is the browser's own
+    /// (a reload). A person on a slow connection can run into that too, but
+    /// it makes a test's next wait fail, so a test calls this before a
+    /// click that a freshly loaded page's script must handle.
+    pub fn wait_handles_click(&mut self, el: &El) {
+        let el = self.fresh(el);
+        let submit = self.on(
+            &el,
+            "function() { return this.type === 'submit' && !!this.form; }",
+            &[],
+        ) == json!(true);
+        let (target, event) = if submit {
+            let form = self
+                .from(&el, "function() { return this.form; }", "its form")
+                .unwrap_or_else(|| panic!("the form of {}", el.what));
+            (form, "submit")
+        } else {
+            (el.clone(), "click")
+        };
+        self.wait_handles(&target, event);
+    }
+
+    /// Waits until the page's script handles `event` on `el` (see
+    /// [`Tab::wait_handles_click`]): typing into a plain `bind` field of a
+    /// server-rendered page before hydration is wiped by it (only `@Form`
+    /// fields keep such text, runtime.md §9), so a test waits for `input`.
+    pub fn wait_handles(&mut self, el: &El, event: &str) {
+        let what = format!("the page to handle {event} on {}", el.what);
+        self.wait(&what, |t| t.handles(el, event).then_some(()));
+    }
+
+    /// Whether the page's script handles `event` on `el`.
+    fn handles(&mut self, el: &El, event: &str) -> bool {
+        let delegated = self.on(
+            el,
+            "function(t) { for (let n = this; n; n = n.parentNode) if (n.$kh && n.$kh[t]) return true; return false; }",
+            &[json!(event)],
+        ) == json!(true);
+        delegated
+            || self
+                .query(
+                    "DOMDebugger.getEventListeners",
+                    json!({ "objectId": el.id, "depth": 0 }),
+                )
+                .is_some_and(|r| {
+                    r["listeners"]
+                        .as_array()
+                        .is_some_and(|ls| ls.iter().any(|l| l["type"] == json!(event)))
+                })
     }
 
     /// Waits until the expression `js` is truthy.
@@ -378,10 +469,9 @@ impl Tab {
         let Some(root) = self.root() else {
             return Vec::new();
         };
-        let Ok(r) = self.cdp.call_within(
+        let Some(r) = self.query(
             "Accessibility.queryAXTree",
             json!({ "nodeId": root, "role": role }),
-            Duration::from_secs(5),
         ) else {
             return Vec::new();
         };
@@ -403,14 +493,10 @@ impl Tab {
         // form's navigation); that is "not there yet", and the caller's
         // wait asks again.
         let root = self.root()?;
-        let r = self
-            .cdp
-            .call_within(
-                "Accessibility.queryAXTree",
-                json!({ "nodeId": root, "role": role, "accessibleName": name }),
-                Duration::from_secs(5),
-            )
-            .ok()?;
+        let r = self.query(
+            "Accessibility.queryAXTree",
+            json!({ "nodeId": root, "role": role, "accessibleName": name }),
+        )?;
         let nodes = r["nodes"].as_array().cloned().unwrap_or_default();
         let node = nodes.into_iter().find(|n| n["ignored"] != json!(true))?;
         self.resolve(&node, what)
@@ -418,14 +504,7 @@ impl Tab {
 
     fn resolve(&mut self, node: &Value, what: &str) -> Option<El> {
         let backend = node["backendDOMNodeId"].as_u64()?;
-        let r = self
-            .cdp
-            .call_within(
-                "DOM.resolveNode",
-                json!({ "backendNodeId": backend }),
-                Duration::from_secs(10),
-            )
-            .ok()?;
+        let r = self.query("DOM.resolveNode", json!({ "backendNodeId": backend }))?;
         r["object"]["objectId"].as_str().map(|id| El {
             id: id.to_owned(),
             what: what.to_owned(),
@@ -434,20 +513,51 @@ impl Tab {
     }
 
     fn root(&mut self) -> Option<u64> {
-        let d = self
-            .cdp
-            .call_within(
-                "DOM.getDocument",
-                json!({ "depth": 0 }),
-                Duration::from_secs(5),
-            )
-            .ok()?;
+        let d = self.query("DOM.getDocument", json!({ "depth": 0 }))?;
         d["root"]["nodeId"].as_u64()
+    }
+
+    /// A command whose failure means "not there (yet)": the document was
+    /// replaced between two calls, say. `None` then, with the reason kept
+    /// for the wait's message.
+    ///
+    /// It gets as long as any command ([`QUERY`]). A shorter limit made
+    /// waits fail on a loaded machine: Chrome answers one command at a
+    /// time, so a query given up on still ran, the next one queued behind
+    /// it, and every retry was given up on in turn until the wait ran out
+    /// (`docs/compiler/testing.md`, "Flakes").
+    fn query(&mut self, method: &str, params: Value) -> Option<Value> {
+        match self.cdp.call_within(method, params, QUERY) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                self.last_miss = Some(e);
+                None
+            }
+        }
     }
 
     /// Whether there is an element with `role` and `name` right now.
     pub fn has_role(&mut self, role: &str, name: &str) -> bool {
         self.try_role(role, name, "probe").is_some()
+    }
+
+    /// Whether Chrome's accessibility tree says there is no element with
+    /// `role` and `name` right now. A query that failed is not an answer:
+    /// treating it as "not there" made a wait for something to go away
+    /// pass while Chrome wasn't answering at all.
+    pub fn has_no_role(&mut self, role: &str, name: &str) -> bool {
+        let Some(root) = self.root() else {
+            return false;
+        };
+        self.query(
+            "Accessibility.queryAXTree",
+            json!({ "nodeId": root, "role": role, "accessibleName": name }),
+        )
+        .is_some_and(|r| {
+            r["nodes"]
+                .as_array()
+                .is_none_or(|nodes| nodes.iter().all(|n| n["ignored"] == json!(true)))
+        })
     }
 
     /// The point at the centre of `el`, scrolled into view, after checking
@@ -469,8 +579,9 @@ impl Tab {
     pub fn point(&mut self, el: &El) -> (f64, f64) {
         let el = &self.fresh(el);
         // An element can be on its way in (a transition, a page still
-        // hydrating): give it a moment to get a size and come out on top.
-        let deadline = Instant::now() + Duration::from_secs(3);
+        // hydrating, a renderer slowed down by a loaded machine): wait for
+        // it to get a size and come out on top.
+        let deadline = Instant::now() + WAIT;
         loop {
             let v = self.probe_point(el);
             let ready = v[2].as_f64().unwrap_or(0.0) > 0.0
@@ -583,17 +694,27 @@ impl Tab {
 
     /// Presses and releases the named key (`Enter`, `Tab`, `Space`,
     /// `Escape`, `Backspace`, the arrows).
+    ///
+    /// No `nativeVirtualKeyCode`: on macOS Chrome hands a key event with one
+    /// to the window as a native event, and a native Escape hides the
+    /// headless page (`document.visibilityState` turns `"hidden"`). A
+    /// hidden page draws no frames, so every later command that waits for
+    /// one (an accessibility query, the next key event) never answered:
+    /// that was `kanban_escape_closes_the_card_editor_while_typing`'s
+    /// flake, and its wait for the closed editor passed only because the
+    /// hung query was given up on (`docs/compiler/testing.md`, "Flakes").
+    /// The page sees the same `key`, `code` and `keyCode` without it.
     pub fn press(&mut self, name: &str) {
         let k = key_def(name);
         let down = if k.text.is_empty() {
-            json!({ "type": "rawKeyDown", "key": k.key, "code": k.code, "windowsVirtualKeyCode": k.vk, "nativeVirtualKeyCode": k.vk })
+            json!({ "type": "rawKeyDown", "key": k.key, "code": k.code, "windowsVirtualKeyCode": k.vk })
         } else {
-            json!({ "type": "keyDown", "key": k.key, "code": k.code, "windowsVirtualKeyCode": k.vk, "nativeVirtualKeyCode": k.vk, "text": k.text, "unmodifiedText": k.text })
+            json!({ "type": "keyDown", "key": k.key, "code": k.code, "windowsVirtualKeyCode": k.vk, "text": k.text, "unmodifiedText": k.text })
         };
         self.cdp.call("Input.dispatchKeyEvent", down);
         self.cdp.call(
             "Input.dispatchKeyEvent",
-            json!({ "type": "keyUp", "key": k.key, "code": k.code, "windowsVirtualKeyCode": k.vk, "nativeVirtualKeyCode": k.vk }),
+            json!({ "type": "keyUp", "key": k.key, "code": k.code, "windowsVirtualKeyCode": k.vk }),
         );
     }
 
@@ -664,17 +785,15 @@ impl Tab {
     /// Whether `el` is still in the document.
     pub fn is_connected(&mut self, el: &El) -> bool {
         // An element of a document that is gone can't be called at all.
-        self.cdp
-            .call_within(
-                "Runtime.callFunctionOn",
-                json!({
-                    "objectId": el.id,
-                    "functionDeclaration": "function() { return this.isConnected; }",
-                    "returnByValue": true,
-                }),
-                Duration::from_secs(10),
-            )
-            .is_ok_and(|r| r["result"]["value"] == json!(true))
+        self.query(
+            "Runtime.callFunctionOn",
+            json!({
+                "objectId": el.id,
+                "functionDeclaration": "function() { return this.isConnected; }",
+                "returnByValue": true,
+            }),
+        )
+        .is_some_and(|r| r["result"]["value"] == json!(true))
     }
 
     /// The computed value of the CSS property `property` of `el`.
@@ -804,6 +923,13 @@ impl Tab {
     /// purpose, such as a failed request it expects).
     pub fn allow_errors(&mut self) {
         self.allowed = self.errors().len();
+    }
+
+    /// Accepts every error from now on (a test that stops the page's
+    /// server: each of the page's retries logs one, for as long as the tab
+    /// lives).
+    pub fn allow_errors_from_now_on(&mut self) {
+        self.allowed = usize::MAX;
     }
 }
 

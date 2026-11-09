@@ -68,7 +68,10 @@ export function PageVisibility() {
  * requests (rpcs, whose paths start with `/`) are the probe: one that fails
  * for want of a network (a rejected `fetch` that wasn't aborted) sets
  * `isOnline` to `false`, and one that gets an answer sets it to `true`,
- * so the indicator and the rpc's `.offline` agree. They are observed by
+ * so the indicator and the rpc's `.offline` agree, unless `navigator.onLine`
+ * is `false`: that is certain, and a response that was already on its way
+ * when the network went (an rpc, a stream's head) doesn't overrule it. They
+ * are observed by
  * wrapping `fetch` once the service exists, which keeps the runtime chunk
  * out of it. The channels' socket says the same with the window events
  * `k-online` (it opened) and `k-offline` (a reconnect failed).
@@ -76,11 +79,14 @@ export function PageVisibility() {
  */
 export function Connectivity() {
   const g = globalThis;
-  const s = liveValue(true, () => g.navigator?.onLine !== false);
+  const onLine = () => g.navigator?.onLine !== false;
+  const s = liveValue(true, onLine);
+  // Evidence of a network: online, unless the browser knows it has none.
+  const answered = () => s.set(onLine());
   listenTo(g, "online", s.refresh);
   listenTo(g, "offline", s.refresh);
   // The channels' socket is a probe too (channels.js): it opened, or a reconnect failed.
-  listenTo(g, "k-online", () => s.set(true));
+  listenTo(g, "k-online", answered);
   listenTo(g, "k-offline", () => s.set(false));
   const f = g.fetch;
   if (typeof f === "function") {
@@ -88,7 +94,7 @@ export function Connectivity() {
       const p = f(url, init);
       return typeof url === "string" && url[0] === "/"
         ? p.then(
-          (r) => (s.set(true), r),
+          (r) => (answered(), r),
           (e) => {
             if (e?.name !== "AbortError") s.set(false);
             throw e;

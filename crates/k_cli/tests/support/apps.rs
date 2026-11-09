@@ -122,6 +122,23 @@ pub fn release_profile() -> bool {
     std::env::var("K_CHROME_PROFILE").map_or(true, |p| p != "development")
 }
 
+/// Why [`Proc::try_wait_port`] gave up.
+#[derive(Debug)]
+pub enum PortError {
+    /// Another program took the port first; another port may do.
+    Taken(String),
+    /// The process exited or didn't serve in time.
+    Failed(String),
+}
+
+impl std::fmt::Display for PortError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PortError::Taken(e) | PortError::Failed(e) => f.write_str(e),
+        }
+    }
+}
+
 /// A `k` process (`k run`, `k dev`), killed when dropped. Its standard
 /// error is collected for messages.
 pub struct Proc {
@@ -185,33 +202,105 @@ impl Proc {
             .clone()
     }
 
-    /// Waits up to `timeout` for `port` to accept connections; panics with
-    /// the log if the process exits first or the time runs out.
+    /// Waits up to `timeout` until this process serves on `port`; panics
+    /// with the log if it exits first, can't listen there, or the time runs
+    /// out.
     pub fn wait_port(&mut self, port: u16, timeout: Duration) {
+        if let Err(e) = self.try_wait_port(port, timeout) {
+            panic!("{e}");
+        }
+    }
+
+    /// [`Proc::wait_port`], with "the port was taken" as an `Err` the
+    /// caller can recover from ([`Proc::serve`]).
+    ///
+    /// Serving is the process saying so (`serving on http://localhost:<port>`)
+    /// and the port answering. The port answering alone isn't enough: a
+    /// port picked by the tests can be taken before `k` binds it by a
+    /// process that doesn't take part in their reservations (a `k dev`
+    /// started by hand, another checkout's servers), and a connection then
+    /// reaches that process while `k` fails to listen.
+    pub fn try_wait_port(&mut self, port: u16, timeout: Duration) -> Result<(), PortError> {
         let deadline = Instant::now() + timeout;
+        let says = [
+            format!("serving on http://localhost:{port}\n"),
+            format!("serving on port {port}\n"),
+        ];
+        let taken = format!("cannot listen on port {port}:");
         loop {
-            if TcpStream::connect(("127.0.0.1", port)).is_ok() {
-                return;
+            let log = self.log();
+            if log.contains(&taken) {
+                return Err(PortError::Taken(format!(
+                    "{}: port {port} was taken by another program:\n{log}",
+                    self.what
+                )));
+            }
+            if says.iter().any(|s| log.contains(s.as_str()))
+                && TcpStream::connect(("127.0.0.1", port)).is_ok()
+            {
+                return Ok(());
             }
             if let Some(status) = self
                 .child
                 .as_mut()
                 .and_then(|c| c.try_wait().ok().flatten())
             {
-                panic!(
-                    "{} exited ({status}) before serving on {port}:\n{}",
-                    self.what,
-                    self.log()
-                );
+                // Its last words may still be on their way through the pipe.
+                std::thread::sleep(Duration::from_millis(100));
+                let log = self.log();
+                if log.contains(&taken) {
+                    continue;
+                }
+                return Err(PortError::Failed(format!(
+                    "{} exited ({status}) before serving on {port}:\n{log}",
+                    self.what
+                )));
             }
-            assert!(
-                Instant::now() < deadline,
-                "{} serves on {port} within {timeout:?}:\n{}",
-                self.what,
-                self.log()
-            );
+            if Instant::now() >= deadline {
+                return Err(PortError::Failed(format!(
+                    "{} serves on {port} within {timeout:?}:\n{log}",
+                    self.what
+                )));
+            }
             std::thread::sleep(Duration::from_millis(50));
         }
+    }
+
+    /// Starts `k <args> --port <port>` on `count` consecutive free ports
+    /// (`k dev` at a workspace root serves on `port`, `port + 1`, …) and
+    /// waits up to `timeout` until it serves on all of them. When another
+    /// program took one of the ports first ([`Proc::try_wait_port`]), it
+    /// starts again on other ports, up to three times. Returns the process
+    /// and the first port.
+    pub fn serve(
+        args: &[&str],
+        count: u16,
+        dir: &Path,
+        env: &[(&str, String)],
+        unset: &[&str],
+        timeout: Duration,
+    ) -> (Proc, u16) {
+        let mut last = String::new();
+        for _ in 0..3 {
+            let port = super::cdp::free_ports(count);
+            let port_arg = port.to_string();
+            let mut all = args.to_vec();
+            all.extend(["--port", port_arg.as_str()]);
+            let mut k = Proc::start(&all, dir, env, unset);
+            let mut outcome = Ok(());
+            for p in port..port + count {
+                outcome = k.try_wait_port(p, timeout);
+                if outcome.is_err() {
+                    break;
+                }
+            }
+            match outcome {
+                Ok(()) => return (k, port),
+                Err(PortError::Taken(e)) => last = e,
+                Err(PortError::Failed(e)) => panic!("{e}"),
+            }
+        }
+        panic!("three tries, each with a port taken by another program; the last:\n{last}");
     }
 
     /// Waits up to `timeout` for the process to exit by itself; its exit
@@ -245,6 +334,19 @@ impl Proc {
 
 impl Drop for Proc {
     fn drop(&mut self) {
+        // A failing test shows what the process said: a page that wouldn't
+        // load is often the server's story.
+        if std::thread::panicking() {
+            let status = self
+                .child
+                .as_mut()
+                .and_then(|c| c.try_wait().ok().flatten())
+                .map_or_else(|| "still running".to_owned(), |s| format!("exited: {s}"));
+            let log = self.log();
+            let lines: Vec<&str> = log.lines().collect();
+            let tail = lines[lines.len().saturating_sub(40)..].join("\n");
+            eprintln!("--- {} ({status}), its last output:\n{tail}", self.what);
+        }
         if let Some(mut c) = self.child.take() {
             let _ = c.kill();
             let _ = c.wait();

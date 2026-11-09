@@ -206,6 +206,34 @@ test("an rpc that fails for want of a network takes the app offline until one su
   }
 });
 
+// A response already on its way when the network went (the notes list's
+// stream opening as the test took Chrome offline) arrives after the
+// `offline` event. It used to set `isOnline` back to `true`, and with
+// `navigator.onLine` false nothing set it to `false` again: the offline
+// banner never showed (`chrome::notes_shows_an_offline_banner…`).
+test("a response that arrives after the browser went offline doesn't bring the app back online", async () => {
+  const b = fakeBrowser();
+  try {
+    const c = Connectivity();
+    let deliver;
+    b.answer = () => new Promise((resolve) => (deliver = resolve));
+    const call = rpc("/notes.NotesProtocol/List", {}, null);
+    b.navigator.onLine = false;
+    b.window.fire("offline");
+    assertEq(c.isOnline, false);
+    deliver({ ok: true, status: 200, headers: { get: () => null }, text: async () => "{}" });
+    assert((await call).ok, "the call itself succeeded");
+    assertEq(c.isOnline, false, "navigator.onLine says offline, and that is certain");
+    b.window.fire("k-online");
+    assertEq(c.isOnline, false, "a channel's socket opening doesn't overrule it either");
+    b.navigator.onLine = true;
+    b.window.fire("online");
+    assertEq(c.isOnline, true);
+  } finally {
+    b.restore();
+  }
+});
+
 test("the browser's online event brings the app back after a failed rpc", async () => {
   const b = fakeBrowser();
   try {

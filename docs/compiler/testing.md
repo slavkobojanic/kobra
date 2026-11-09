@@ -128,15 +128,19 @@ The configuration is `.config/nextest.toml`:
   binary runs its cases in one process. nextest leaves them out by default; `cargo nextest run
   --ignore-default-filter` runs them too, as processes.
 - **Test groups.** `chrome` (the real-browser tests, at most 4 at once: each headless Chrome is several
-  processes, and more of them only slow each other down) and `processes` (k_cli tests that start `k`, a server
-  or a build, at most 8 at once).
+  processes, and more of them only slow each other down; measured again in §4.6, where 8 and 12 made the
+  whole run 2–4 s slower, not faster) and `processes` (k_cli tests that start `k`, a server or a build, at
+  most 8 at once).
 - **Priorities.** The dozen slowest tests and the Chrome tests start first, so no 20-second test starts last.
   Add a test to that list when it becomes one of the slowest (`final-status-level = "slow"` reports them).
 - **Timeouts.** A test is reported slow after 30 s and killed after 2 minutes (`ci`: 60 s and 5 minutes), so a
   hang fails the run instead of blocking it. No retries: a flaky test fails and gets fixed.
 - **Ports.** Every test process is separate, so tests that probe for a free port must reserve it across
   processes: `crates/k_cli/tests/support/ports.rs` holds an advisory file lock per port in the temp dir until
-  the process exits.
+  the process exits. A program outside the tests (a `k dev` started by hand) can still take a reserved port
+  before `k` binds it, so `Proc::serve` waits for `k`'s own `serving on …` line rather than for the port to
+  answer, and starts `k` again on other ports when it says `cannot listen on port` (§4.6). Chrome picks its
+  DevTools port itself (`--remote-debugging-port=0`, read back from `DevToolsActivePort`).
 
 The build profile matters as much as the runner (`Cargo.toml`): third-party crates are built with
 `opt-level = 2` and the workspace's crates with `opt-level = 1`, both with full debug info. Unoptimized,
@@ -983,7 +987,10 @@ timers).
   written for the tests on `std::net` and `serde_json` (no new dependency: one loopback connection needs
   a masked text frame out and possibly fragmented text frames in). A reader thread forwards responses
   and events to the test, and answers `Fetch.requestPaused` itself, so a paused request never waits for
-  a test blocked in a command.
+  a test blocked in a command. Chrome starts with `--remote-debugging-port=0` and the test reads the port
+  from the profile's `DevToolsActivePort`, within 90 s (a dozen Chromes starting at once beside a full
+  run took longer than the 30 s this was). A command that takes over 5 s is noted on standard error,
+  which the harness shows for a failing test.
 - **No internet**: every `https` request the page makes is intercepted. A test answers it (weather's
   Open-Meteo: a search, Berlin, a forecast, air quality), a third-party image gets a transparent pixel,
   and anything else fails the request and the test. The server's own requests go to a `FakeHttp` through
@@ -1008,17 +1015,25 @@ timers).
   `used_fonts` the fonts Chrome actually drew with (`CSS.getPlatformFontsForNode`), `is_focused`
   `document.activeElement`, `document_token`/`assert_same_document` whether anything reloaded the page,
   and `reload` keeps cookies and storage (it is the same profile). A tab fails its test when dropped if
-  the page logged a console error, threw, failed a load or reached for the internet.
+  the page logged a console error, threw, failed a load or reached for the internet. Waits poll a
+  condition for up to 30 s (`WAIT`) and each DevTools query may take as long; a timed-out wait says
+  what the page shows, why the last query failed, and whether the page is hidden. `has_no_role` is
+  "the accessibility tree answered, without it", never a failed query. `wait_handles_click(el)` and
+  `wait_handles(el, event)` wait until the page's script handles the click (or the form's submit) or
+  the event: a server-rendered page shows its controls before hydration wires them. `Proc`s print
+  their last output when a test fails. `K_CHROME_THROTTLE=4` slows every tab's CPU four times
+  (`Emulation.setCPUThrottlingRate`), to shake out races.
 - **Cases**: each example's main README flow, green: `todos` (add, complete, the three filters with
   `aria-pressed`, clear, a reload; "Remind me" with the notification permission granted by
   `Browser.grantPermissions`, the static build's `/k-sw.js` served as JavaScript, and the reminder shown
   through the `/k-sw.js` registration, time passing quickly through a script run before the
-  page's with `Page.addScriptToEvaluateOnNewDocument`: each timer of a minute or more fires at once and
-  moves `Date.now` on by its delay, and each `showNotification` that resolved is recorded for the test.
+  page's with `Page.addScriptToEvaluateOnNewDocument`: each timer of a minute or more is held until the
+  test has seen "Reminder set" and calls `__kFastForward()`, then fires at once and moves `Date.now` on by
+  its delay, and each `showNotification` that resolved is recorded for the test.
   Not `getNotifications()`: on macOS it asks the system's notification center, which stalls past the
   test's wait when several Chromes ask at once), `kanban` (create a board, add cards, move one with Space, ArrowRight
-  and Space keeping the focus, drop one onto another with the mouse, Escape closing the editor while
-  typing, a reload, "Copy link" putting the card's absolute link on the real clipboard, with the
+  and Space keeping the focus, drop one onto another with the mouse, Escape closing the editor but not
+  while typing in it, a reload, "Copy link" putting the card's absolute link on the real clipboard, with the
   permission granted by `Browser.grantPermissions`, and the link opening the card's editor), `weather` (a debounced search, a client navigation to a result, °C/°F, home again;
   the recently viewed list, a client-rendered component, appearing after hydration without moving the
   server-rendered parts; a refresh after server rendering keeping the place; "Use my location", absent
@@ -1076,6 +1091,42 @@ are those of the real-browser diagnosis of the examples:
 | weather-E3 | **Fixed** (`@Load(keepOnReload: true)`: `reload()` keeps a marked load whose inputs are unchanged; 14-async-data.md, "Reloading"): hydrated loads don't seed the service's place cache, so the first refresh looked the place up again | `weather_refresh_after_server_rendering_uses_the_cached_place` |
 | shop-D5 | **Resolved** (the behaviour is the designed one, 26-auth-and-sessions.md: a guarded page whose session ends is left for the server; the example no longer navigates after the `await`, and its doc comment and README say where sign-out lands): signing out of Admin lands on `/sign-in`, not home | `shop_admin_signs_out_to_the_sign_in_page` |
 | docs-stale | **Fixed** (READMEs updated): example READMEs say the compiler doesn't exist | `example_checks.rs` `example_readmes_do_not_say_the_compiler_is_missing` |
+
+### 4.6 Flakes
+
+The real-browser tests run beside everything else, so a race that a quiet machine never shows comes out
+under load. A flake is a bug until it is explained: either the app's (fixed, with a test of its own) or
+the test's (a wait fixed to wait for a condition, never a sleep). There are no retries.
+
+**Reproducing.** The Chrome module ten times in a row, each run beside a loop of
+`cargo nextest run --workspace -E 'not package(k_cli)'`, and harder than the nextest group allows: all 44
+tests at once (`cargo test -p k_cli --test it -- chrome:: --test-threads 44`) with `K_CHROME_THROTTLE=4`.
+A single test is repeated by running the test binary several times at once
+(`target/…/it chrome::notes_shows_an_offline … &`, sixteen copies). Diagnostics that found the causes
+below, and stay: a timed-out wait names the last failed query and a hidden page, a failing test prints
+its `k` process's output, and slow DevTools commands are noted.
+
+**Found and fixed** (November 2026; the earlier two, a stream reopened under a dead session and the
+notes sign-out race, are in [44-channels.md](../design/44-channels.md#decided-while-implementing)):
+
+| Failure | Cause | Kind | Fix |
+|---|---|---|---|
+| `kanban_escape…`: `Input.dispatchKeyEvent: no answer within 30s` | `Tab::press` sent a `nativeVirtualKeyCode`; on macOS Chrome hands such an event to the window as a native one, and a native Escape *hides* the headless page (`visibilityState` `"hidden"`). A hidden page draws no frames, and every command that waits for one (the next key, an accessibility query) never answers. The test's wait for the closed editor had passed only because the hung query was given up after 5 s and read as "gone": Escape never closed the editor while typing, which the README and [43](../design/43-keyboard-shortcuts.md#rules) say it mustn't | test | no native key codes (the page gets the same `key`, `code`, `keyCode`); `has_no_role` counts only an answer; the test now checks what the README says: Escape in the field leaves the editor open with the text, Escape outside it closes it (`kanban_escape_closes_the_card_editor_but_not_while_typing`) |
+| `weather_refresh…`, `weather_creates_the_refresh_timer_once`: `uncaught: AbortError` | the browser's `HttpClient` read the body in an `async` callback whose rejection nothing handled: a `reload()` cancelling a load after the response's head and before its body made `text()` reject | app (runtime) | `send` turns a failed body read into `offline`, which the cancelled caller ignores; `services.test.js` |
+| `notes_shows_an_offline_banner…`: the banner never shows | the list's stream response, already on its way, arrived just after the `offline` event and set `Connectivity.isOnline` back to `true`; with `navigator.onLine` false nothing set it to `false` again | app (runtime) | a response or `k-online` sets `isOnline` to `navigator.onLine !== false` ([45](../design/45-web-platform.md#connectivity)); `environment.test.js`. 3 of 16 parallel runs failed before, none of 40 after |
+| `notes_signs_up…`: "Enter a valid email address" after signing in again | the sign-in page is server-rendered; text typed before hydration was wiped by the form's empty fields, and a click before hydration is the browser's own submit (a reload) | app (runtime) and test | `@Form` fields keep text typed before hydration and take it (runtime.md §9; `ui-forms.test.js`; plain `bind` fields don't, since the full client runtime has 2 B of its budget left); tests call `wait_handles_click` before the first click a freshly loaded page must handle, and `wait_handles(field, "input")` before typing into a plain `bind` field |
+| `weather_shows_recent_places…`: no "Recently viewed" | the test left the city page as soon as the server-rendered heading showed, before hydration ran the effect that stores the place | test | wait until local storage holds it |
+| `todos_reminds…`: no "Reminder set" | time raced from the start: the reminder could be set, shown and gone, and the button back, between two looks | test | long timers are held until the test has seen "Reminder set" |
+| `weather_*`: `net::ERR_CONNECTION_REFUSED` | a port reserved by the tests was taken by a program outside them before `k run` bound it; `wait_port` connected to that program and went on, while `k` exited with `cannot listen on port` | test | `Proc::serve` waits for `k`'s own `serving on` line and restarts `k` on other ports when its port was taken |
+| `Chrome's DevTools answers` | Chrome bound the port the test picked; nothing stops a program outside the tests' reservations from taking it first, and a dozen fresh profiles start slowly | test | `--remote-debugging-port=0` and `DevToolsActivePort`; 90 s |
+| `textbox named "New todo"` with the field on screen; `weather_switching_units…` | each accessibility query had 5 s; on a loaded machine Chrome answered later, the query was given up and asked again behind the first, and the wait ran out. `weather_switching_units` slept 300 ms before checking that nothing else was fetched | test | queries get the full 30 s; the units test waits for the °F reading, which shows only once every load that re-ran has answered (so an extra request would already have been made) |
+| `notes_stops_promptly…` | slept 500 ms for the stream to open and 300 ms for the page's errors after stopping the server | test | waits for the stream's response (`Network.responseReceived`); `allow_errors_from_now_on` for a page whose server is gone |
+
+**Result:** ten consecutive runs of all 44 tests at once under a 4× CPU throttle beside the load loop
+were clean, and full `cargo nextest run --workspace` runs with the `chrome` group at 4, 8 and 12 were
+clean too (4: 24–25 s; 8: 26–31 s; 12: 26–29 s), so the group stays at 4. Beyond about 44 Chromes at
+once (two such runs side by side, or 80 kanban tabs) Chrome stops answering `DOM.getDocument` within
+30 s while `Runtime.evaluate` still answers; that is past anything the configuration runs.
 
 ---
 

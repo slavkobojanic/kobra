@@ -75,14 +75,14 @@ fn k_run_sends_server_fetches_for_a_replaced_origin_to_the_fake() {
     ]
     .map(|o| format!("{o}={}", fake.origin()))
     .join(",");
-    let port = cdp::free_port();
-    let mut k = Proc::start(
-        &["run", ".", "--port", &port.to_string()],
+    let (_k, port) = Proc::serve(
+        &["run", "."],
+        1,
         &dir.0,
         &[("K_DEV_FETCH_ORIGINS", origins)],
         &[],
+        Duration::from_secs(120),
     );
-    k.wait_port(port, Duration::from_secs(120));
     let (status, body) = get(port, "/city-weather/2950159");
     // The place came from the fake; the forecast's 503 shows as the
     // dashboard's failed block, which the server renders with 200.
@@ -199,15 +199,14 @@ fn shop_compose_publishes_mailpits_smtp_port_for_development() {
 fn workspace_dev_restarts_when_a_members_env_changes() {
     let dir = Scratch::new("stack-env-watch");
     copy_example("stack", &dir.0);
-    let port = cdp::free_ports(2);
-    let mut k = Proc::start(
-        &["dev", ".", "--port", &port.to_string()],
+    let (k, _port) = Proc::serve(
+        &["dev", "."],
+        2,
         &dir.0,
         &[],
         &["PAYBOX_URL", "SHOP_URL", "K_SERVICE_TOKEN"],
+        Duration::from_secs(120),
     );
-    k.wait_port(port, Duration::from_secs(120));
-    k.wait_port(port + 1, Duration::from_secs(60));
     let before = k.log();
     std::fs::write(dir.0.join("shop/.env"), "EXTRA_SETTING=1\n").unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
