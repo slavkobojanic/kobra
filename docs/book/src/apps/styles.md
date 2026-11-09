@@ -1,8 +1,8 @@
 # Styles and themes
 
 Each component, page and layout can have one `style { }` block. It keeps **CSS selectors and value
-syntax**, and changes one thing: **property names are camelCase**, mapped one-to-one to CSS
-(`borderLeft` → `border-left`). The compiler type-checks it, scopes it, and connects it to the theme.
+syntax**, and changes one thing: **names are camelCase**, property names and keyword values alike,
+mapped one-to-one to CSS (`borderLeft` → `border-left`, `spaceBetween` → `space-between`). The compiler type-checks it, scopes it, and connects it to the theme.
 
 ```k
 component CartSummary {
@@ -234,15 +234,17 @@ fallback stack everywhere else.
 Every app's stylesheet starts with a few base rules taken from the theme, so the page looks right
 before your own styles say anything:
 
+- an element with the `hidden` attribute stays hidden, whatever `display` a style gives it;
 - the body has no margin, and uses the `font body` token (the system's sans-serif stack without one);
-- the body's text and background colours are the `text` (or `foreground`) and `background` (or
-  `surface`) color tokens, so they follow the variant;
+- the body's text and background colours are the `text` (else `foreground`, `onBackground` or
+  `onSurface`) and `background` (else `surface`) color tokens, so they follow the variant;
 - buttons, inputs, selects and text areas inherit the page's font;
-- `color-scheme` is dark in a variant whose background is dark, so native inputs, scrollbars and links
-  are dark too;
+- in an app with a theme, `color-scheme` is dark in a variant whose background is dark, so native
+  inputs, scrollbars and links are dark too;
 - a `ReorderableList` has no bullets.
 
-The base rules are element selectors, so any class of yours overrides them.
+The base rules are element selectors (`:where(…)` for the list), so any class of yours overrides
+them; only the `hidden` rule is `!important`.
 
 ### Library tokens
 

@@ -264,8 +264,8 @@ test StripeWebhookVerifier {
 ```
 
 The value may be a shared static member such as `StripeWebhookConfig.sample`, or the config's memberwise
-initializer, which exists only in test code. A test group whose graph reaches an unbound app config is a
-compile error (`K7503`) that names the path to it. See
+initializer, which exists only in test code. A test group whose graph reaches an unbound app config,
+through services, repositories or a protocol's server side, is a compile error (`K7503`) that names the path to it. See
 [Configuration and secrets](config.md#tests).
 
 ## Fakes, fixtures and test-only modules

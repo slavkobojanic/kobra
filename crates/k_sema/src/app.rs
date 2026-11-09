@@ -234,7 +234,8 @@ fn test_group(cx: &Cx<'_, '_>, d: DeclId) {
         }
     }
     checker.finish();
-    // K7503: the group's dependencies reach an app config it doesn't bind.
+    // K7503: the group's dependencies reach an app config it doesn't bind,
+    // through services, repositories and a protocol's server side.
     // A depth-first walk with a parent map; the path is spelled only for
     // the report (spelling it at every step made the walk quadratic in the
     // path length, 13% of a warm re-check at 100k lines). Without `use`
@@ -290,6 +291,17 @@ fn test_group(cx: &Cx<'_, '_>, d: DeclId) {
                         .iter()
                         .filter(|x| !prune || crate::di::reaches_config(cx, **x))
                         .map(|x| (*x, Some(t))),
+                );
+            }
+            // A test's calls through a protocol run its server side in
+            // process, so the walk steps on to the implementations, unless
+            // the group binds the protocol itself.
+            Some(K::Protocol) if !bound.contains(&t) => {
+                stack.extend(
+                    crate::di::protocol_implementations(cx, t)
+                        .into_iter()
+                        .filter(|x| !prune || crate::di::reaches_config(cx, *x))
+                        .map(|x| (x, Some(t))),
                 );
             }
             _ => {}

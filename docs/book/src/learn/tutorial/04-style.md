@@ -95,8 +95,8 @@ public component BookRow {
 }
 ```
 
-- The style block is CSS, with one change: property names are written in camelCase, `borderBottom` for
-  `border-bottom`. Each declaration ends with `;`.
+- The style block is CSS, with one change: names are written in camelCase, `borderBottom` for
+  `border-bottom` (keyword values too: `spaceBetween` for `space-between`). Each declaration ends with `;`.
 - After a property, `.md` and `.border` are tokens from the theme. At the start of a rule, `.row` is a
   class of this block.
 - `&:last-child { … }` is a nested rule for the last row: `&` stands for `.row`. The last book has no line

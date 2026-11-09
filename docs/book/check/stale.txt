@@ -8,6 +8,7 @@
 # CSS in K: properties and keyword values are camelCase (K3214)
 \b[a-z]+(?:[A-Z][a-z]+)+: *[a-z]+(?:-[a-z]+)+\b  # CSS keyword values are camelCase in K (K3214): `spaceBetween`, not `space-between`
 \b(?:font|background|border|max|min|line|text|justify|align|flex|grid|box|margin|padding)-[a-z]+(?:-[a-z]+)*: *[^ ]  # CSS properties are camelCase in K: `fontSize:`, not `font-size:`
+(?:one change|changes one thing): \**(?:property names|properties)  # keyword values are camelCase too (K3214): say "names are camelCase", property names and keyword values alike
 
 # The toolchain exists
 [Tt]he compiler is (?:still )?being written  # the compiler exists and runs

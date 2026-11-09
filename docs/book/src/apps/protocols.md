@@ -192,8 +192,9 @@ service CartApi implements CartProtocol {
 - The compiler checks that every `rpc` is implemented, with matching types. A handler is written as an
   `rpc` or a `func` of the same name.
 - **`rpc` is only for what a protocol serves.** An `rpc` in a struct, a component, or a service whose
-  protocols don't declare it could never be called over the wire, so it is a compile error (`K5508`). Its
-  quick fix makes it a `func`; if you meant it to be remote, declare it in the protocol.
+  protocols don't declare it could never be called over the wire, so it is a compile error (`K5508`). When
+  it has a body and no `requires` clause, its quick fix makes it a `func`; if you meant it to be remote,
+  declare it in the protocol.
 - An implementation may be `async` even though the contract doesn't say so: whether the server suspends
   is an implementation detail.
 - The protocol's `Authenticated` guard has already run inside `CartApi`, so `session.user` is a

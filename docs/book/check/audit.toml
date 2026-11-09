@@ -12,7 +12,7 @@
 [pages."learn/quick-start.md"]
 commit = "3d3fd6c"
 date = "2026-11-09"
-note = "new in round 1(b) with `k new`; written against the working tree on top of 3d3fd6c, every command and output taken from running `k` on examples/learn/quick-start and a fresh `k new tip`"
+note = "new in round 1(b) with `k new`; written against the working tree on top of 3d3fd6c, every command and output taken from running `k` on examples/learn/quick-start and a fresh `k new tip`; targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: camelCase CSS and `k new`; no findings"
 unpinned = [
     "the `k new`, `k check` and `k build` output shown (command transcripts aren't checked yet)",
     "typing 50 as the bill shows that each person pays $28.75",
@@ -44,7 +44,7 @@ unpinned = [
 [pages."learn/tutorial/03-form.md"]
 commit = "8f94734"
 date = "2026-11-09"
-note = "new in round 1(b); written against the working tree on top of 8f94734, every command and output taken from running `k` on examples/learn/shelf and a fresh `k new shelf`"
+note = "new in round 1(b); written against the working tree on top of 8f94734, every command and output taken from running `k` on examples/learn/shelf and a fresh `k new shelf`; targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `Form.reset()`; no findings"
 unpinned = [
     "the `k check` output and diagnostics shown (command transcripts aren't checked yet)",
     "pressing Enter in a field submits the form",
@@ -53,7 +53,7 @@ unpinned = [
 [pages."learn/tutorial/04-style.md"]
 commit = "7c5d543"
 date = "2026-11-09"
-note = "new in round 1(b); written against the working tree on top of 7c5d543, every command and output taken from running `k` on examples/learn/shelf"
+note = "new in round 1(b); written against the working tree on top of 7c5d543, every command and output taken from running `k` on examples/learn/shelf; targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: camelCase CSS; fixed: 'one change: property names' now names keyword values too"
 unpinned = [
     "the `k check` output and diagnostics shown (command transcripts aren't checked yet)",
     "the page turns dark with the system's dark mode, and Chrome's Emulate CSS prefers-color-scheme command does the same",
@@ -63,7 +63,7 @@ unpinned = [
 [pages."learn/tutorial/05-server.md"]
 commit = "7c5d543"
 date = "2026-11-09"
-note = "new in round 1(b); written against the working tree on top of 7c5d543, every command and output taken from running `k` on examples/learn/shelf"
+note = "new in round 1(b); written against the working tree on top of 7c5d543, every command and output taken from running `k` on examples/learn/shelf; targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `Form.reset()`; no findings"
 unpinned = [
     "the `k migrate new`, `k check` and `sqlite3` output shown (command transcripts aren't checked yet)",
     "`k dev` logs `applied migration 0001_create_book_records` when it restarts after the migration is written",
@@ -131,10 +131,12 @@ date = "2026-11-09"
 [pages."philosophy.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: camelCase keywords and the `TimeOfDay` literal; no findings"
 
 [pages."getting-started/installation.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: language-server features; no findings"
 unpinned = [
     "the language server's hover lists an effect's reactive dependencies",
 ]
@@ -142,6 +144,7 @@ unpinned = [
 [pages."getting-started/first-app.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `k new`; no findings"
 unpinned = [
     "`k dev` reports a build with errors by its count and keeps serving the last good build",
     "an unset `K_PUBLIC_ORIGIN` makes `dist/app` use `http://localhost:<port>`",
@@ -150,10 +153,12 @@ unpinned = [
 [pages."getting-started/project-layout.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `k new`; no findings, checked by running it (name rules, a non-empty directory, the files, `k check` passing)"
 
 [pages."getting-started/commands.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: one-command `k dev` (development database, `[dev] seed`, the mail catcher, workspace roots); no findings"
 unpinned = [
     "`k dev` at a workspace root serves the apps on consecutive ports in dependency order",
     "`k test` exits 2 outside a project",
@@ -162,6 +167,7 @@ unpinned = [
 [pages."getting-started/editor-setup.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: completion (`.on(` events, style properties, keywords, tokens, classes) and hover on tokens and classes; no findings"
 unpinned = [
     "renaming a public declaration renames its file",
     "events an earlier `.on(…)` of the chain handles are left out of completion",
@@ -170,11 +176,12 @@ unpinned = [
 [pages."getting-started/debugging.md"]
 commit = "0dd7625"
 date = "2026-11-09"
-note = "added by the concurrent source-map change; read, not audited in round 1(a): its `K_PUBLIC_SOURCE_MAPS` is an environment variable outside any `config`, which deployment.md and config.md say the runtime never reads"
+note = "added by the concurrent source-map change; read, not audited in round 1(a): its `K_PUBLIC_SOURCE_MAPS` is an environment variable outside any `config`, which deployment.md and config.md say the runtime never reads; targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: source maps and debugging (`/_k/src` paths, `--inspect` and its default port, the VS Code files, `--release` maps, `K_PUBLIC_SOURCE_MAPS`); no findings; `K_PUBLIC_SOURCE_MAPS` is still the open code-versus-design question of documentation.md §5"
 
 [pages."tour.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: the development database; no findings"
 unpinned = [
     "an rpc's `Validatable` request is validated before the handler runs",
 ]
@@ -194,6 +201,7 @@ date = "2026-11-09"
 [pages."language/types.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `TimeOfDay` and validated literals; no findings"
 
 [pages."language/strings.md"]
 commit = "0dd7625"
@@ -247,6 +255,7 @@ date = "2026-11-09"
 [pages."apps/components.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: async handlers cancelled on unmount; no findings"
 unpinned = [
     "a scoped slot's row updates in place under the same key, keeping focus",
 ]
@@ -254,6 +263,7 @@ unpinned = [
 [pages."apps/views.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `.on(submit:)` preventing navigation, visible labels for literal and computed `.label`; no findings"
 unpinned = [
     "`.on(submit:)` prevents the browser's navigation even when the handler fails",
     "a computed `.label` renders a visible `<label>`",
@@ -262,6 +272,7 @@ unpinned = [
 [pages."apps/styles.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: camelCase keywords (K3214), font fallback stacks and base styles; fixed: the opening said only property names are camelCase, and the base-style list missed the `hidden` rule, the other text tokens and that `color-scheme` needs a theme"
 unpinned = [
     "font tokens are followed by a generic fallback stack",
     "the base stylesheet sets the body font and colors from the theme",
@@ -270,6 +281,7 @@ unpinned = [
 [pages."apps/reactivity.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: async work cancelled on unmount (owner signal on rpc and HttpClient calls, the check after each `await` and on entering a `catch`); no findings"
 unpinned = [
     "no code after an `await` runs once the owning component is disposed",
 ]
@@ -285,14 +297,17 @@ date = "2026-11-09"
 [pages."apps/async-data.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: cancellation of `@Load` runs; no findings"
 
 [pages."apps/forms.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `Form.reset()`; no findings"
 
 [pages."apps/protocols.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: K5507 and K5508; fixed: K5508's quick fix exists only for an rpc with a body and no `requires` clause"
 unpinned = [
     "`application/proto` is refused with 415",
 ]
@@ -311,6 +326,7 @@ date = "2026-11-09"
 [pages."apps/auth.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: K5507, the client-rendered session mirror and its guards; no findings"
 unpinned = [
     "the session cookie is `k_session_<port>` on an `http` origin with a port",
 ]
@@ -318,6 +334,7 @@ unpinned = [
 [pages."apps/config.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: development settings and the mail catcher; no findings"
 unpinned = [
     "`dist/app config` prints no values",
 ]
@@ -329,6 +346,7 @@ date = "2026-11-09"
 [pages."apps/jobs.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `TimeOfDay` in schedules; no findings"
 unpinned = [
     "a job's `run` can be called from any server-side code (job-run-check is planned)",
 ]
@@ -348,14 +366,17 @@ date = "2026-11-09"
 [pages."apps/money.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: K2407; no findings"
 
 [pages."apps/time.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `TimeOfDay`; no findings"
 
 [pages."apps/local-storage.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: storage key namespacing; fixed: the namespace is the committed lock's, else the project name (lock writing is Planned)"
 unpinned = [
     "an item stored under the bare key name moves under the namespace on first read",
 ]
@@ -367,6 +388,7 @@ date = "2026-11-09"
 [pages."apps/drag-and-drop.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: K2406; no findings"
 unpinned = [
     "a mouse drag starts after 4px, a touch drag after a 250ms press",
 ]
@@ -385,6 +407,7 @@ date = "2026-11-09"
 [pages."apps/testing.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `screen.unmount()`, the session mirror in tests and K7503; K7503 now follows a protocol to its server side (the sentence says so)"
 unpinned = [
     "every test gets a fresh in-memory database",
 ]
@@ -396,14 +419,17 @@ date = "2026-11-09"
 [pages."apps/workspaces.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `k dev` at a workspace root; no findings"
 
 [pages."apps/metadata.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: font tokens and their fallback stack; no findings"
 
 [pages."apps/app.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: the client-rendered shell carrying the session mirror; no findings"
 
 [pages."apps/deployment.md"]
 commit = "0dd7625"
@@ -428,6 +454,7 @@ date = "2026-11-09"
 [pages."examples/shop.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: one-command start at the workspace root, seed and mail catcher; no findings"
 unpinned = [
     "`k dev` prints the generated admin password at every start",
 ]
@@ -446,6 +473,7 @@ date = "2026-11-09"
 [pages."reference/keywords.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: K5507 on `requires`; no findings"
 
 [pages."reference/annotations.md"]
 commit = "0dd7625"
@@ -458,6 +486,7 @@ date = "2026-11-09"
 [pages."reference/cli.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `k new`, `--release`, minification, short names, source maps and modulepreload; no findings (kanban's shipped size rebuilt: 30.9 KB gzip)"
 
 [pages."reference/diagnostics.md"]
 commit = "0dd7625"
@@ -467,6 +496,7 @@ note = "generated by crates/k_corpus/tests/book_reference.rs from the code regis
 [pages."reference/project-files.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: `[dev]` settings and `storage.lock`'s namespace; no findings"
 
 [pages."reference/stdlib.md"]
 commit = "0dd7625"

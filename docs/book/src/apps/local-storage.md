@@ -116,10 +116,9 @@ try storage.write(key: savedTodos, value: items)        // value must be a List<
   arguments in expressions.
 - **The name is a string literal,** and each name is declared once in the app. Two keys with the same name
   are a `k check` error, so two services can't corrupt each other's data.
-- **Keys are namespaced per app,** so two K apps on one origin don't collide. The namespace is derived
-  from `k.toml`'s `name` when first recorded in `storage.lock`, and read from the lock afterwards, so
-  renaming the project doesn't orphan every user's data. The browser's item is `namespace:name`
-  (`todos:todos`).
+- **Keys are namespaced per app,** so two K apps on one origin don't collide. The namespace is the one
+  `storage.lock` records, so renaming the project doesn't orphan every user's data; without a lock it is
+  `k.toml`'s `name`. The browser's item is `namespace:name` (`todos:todos`).
 - **Data stored before namespacing moves once.** An item an older build stored under the bare name is
   read when the namespaced one is missing, then moved under the namespace, so users keep their data.
 

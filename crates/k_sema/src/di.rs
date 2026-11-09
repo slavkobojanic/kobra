@@ -247,9 +247,10 @@ pub(crate) fn injected_decls(cx: &Cx<'_, '_>, d: DeclId) -> std::rc::Rc<[DeclId]
 }
 
 /// Returns `true` if a project (non-stdlib) config is `d` or reachable from
-/// it through the `@Inject` fields of services and repositories, the edges
-/// K7503 follows (`app::test_group`). Computed once for the program by a
-/// backward search from the configs, linear in the injections.
+/// it through the `@Inject` fields of services and repositories and from a
+/// protocol to its server implementations, the edges K7503 follows
+/// (`app::test_group`). Computed once for the program by a backward search
+/// from the configs, linear in the injections.
 pub(crate) fn reaches_config(cx: &Cx<'_, '_>, d: DeclId) -> bool {
     cx.di
         .reaches_config
@@ -264,6 +265,11 @@ pub(crate) fn reaches_config(cx: &Cx<'_, '_>, d: DeclId) -> bool {
                     Some(K::Service | K::Repository) => {
                         for t in injected_decls(cx, x).iter() {
                             back.entry(*t).or_default().push(x);
+                        }
+                    }
+                    Some(K::Protocol) => {
+                        for s in protocol_implementations(cx, x) {
+                            back.entry(s).or_default().push(x);
                         }
                     }
                     Some(K::Config) if !p.is_stdlib(x) && out.insert(x) => stack.push(x),
