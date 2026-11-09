@@ -1021,6 +1021,7 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("channels", "k:/runtime/channels.js", "k/rpc"),
     ("http", "k:/runtime/http.js", "k/http"),
     ("websocket", "k:/runtime/websocket.js", "k/http"),
+    ("crypto", "k:/runtime/crypto.js", "k/crypto"),
 ];
 
 /// The feature chunk (an index of [`FEATURE_CHUNKS`]) that implements

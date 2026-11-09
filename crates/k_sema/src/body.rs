@@ -559,6 +559,48 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             })
     }
 
+    /// The help for `==` on a type that holds a secret and so isn't
+    /// `Equatable` (33-crypto.md, "Comparing in constant time"): the
+    /// constant-time member to use instead.
+    fn constant_time_hint(&self, t: &Ty) -> Option<&'static str> {
+        let d = self.resolve(t).decl()?;
+        let is = |q: &str| self.cx.p.lookup_qualified(q) == Some(d);
+        if is("k.crypto.Mac") {
+            return Some("a `Mac` is compared with `matches(_:)`, which takes constant time");
+        }
+        let secret_keys = [
+            "k.crypto.AesGcmKey",
+            "k.crypto.Ed25519PrivateKey",
+            "k.crypto.EcdsaP256PrivateKey",
+            "k.crypto.X25519PrivateKey",
+            "k.crypto.SharedSecret",
+        ];
+        secret_keys.iter().any(|q| is(q)).then_some(
+            "secret keys aren't `Equatable`: compare their public keys, or bytes with `ConstantTime.equals(_:_:)`",
+        )
+    }
+
+    /// The message of K1203 for an export member of a key that isn't
+    /// `Exportable` (33-crypto.md, "Exportable keys"), or `None`.
+    fn not_exportable(&self, t: &Ty, name: &str) -> Option<String> {
+        if !matches!(name, "exportRaw" | "exportJwk" | "exportPem") {
+            return None;
+        }
+        let d = t.decl()?;
+        let keys = [
+            "k.crypto.AesGcmKey",
+            "k.crypto.Ed25519PrivateKey",
+            "k.crypto.EcdsaP256PrivateKey",
+            "k.crypto.X25519PrivateKey",
+        ];
+        keys.iter()
+            .any(|q| self.cx.p.lookup_qualified(q) == Some(d))
+            .then(|| {
+                let n = &self.cx.p.decl(d).name;
+                format!("`{n}` can't be exported; generate it with `generateExportable()`")
+            })
+    }
+
     /// K3013: an effect that discards the `TimerHandle` of `clock.every`
     /// or `clock.after` can't cancel the timer, nor one that discards a
     /// `Subscription` its callbacks (45-web-platform.md, "Ownership and
@@ -5214,15 +5256,19 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     .equatable
                     .is_none_or(|e| self.cx.implements(&lo, e));
                 if !same || !equatable {
-                    self.err(
+                    let mut d = Diagnostic::new(
                         codes::INVALID_OPERANDS,
-                        range,
+                        self.span(range),
                         format!(
                             "`{}` and `{}` can't be compared with `==`",
                             l.render(self.cx.p),
                             r.render(self.cx.p)
                         ),
                     );
+                    if let Some(hint) = self.constant_time_hint(&lo) {
+                        d = d.with_help(hint);
+                    }
+                    self.report(d);
                 }
                 bool_ty
             }
@@ -5992,6 +6038,19 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     return (kind, None, false);
                 }
                 if target.decl().is_some_and(|d| self.cx.is_open(d, statics)) {
+                    return (Ty::Error, None, false);
+                }
+                if let Some(message) = self
+                    .not_exportable(&target, name.text())
+                    .filter(|_| !statics)
+                {
+                    let d = Diagnostic::new(
+                        codes::UNKNOWN_MEMBER,
+                        self.span(name.text_range()),
+                        message,
+                    )
+                    .with_help("whether a key can leave is part of its type: `Exportable<K>` has `exportRaw()`");
+                    self.report(d);
                     return (Ty::Error, None, false);
                 }
                 let candidates = self.member_candidates(&target, statics);

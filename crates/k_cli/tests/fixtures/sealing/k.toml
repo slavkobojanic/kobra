@@ -1,0 +1,5 @@
+# `k.crypto`'s key types in `k test` (docs/design/33-crypto.md, "Testing"):
+# seeded randomness, fast passphrase salts, `TestKeys` and `Secret<K>`.
+[package]
+name = "sealing"
+k = "0.1"

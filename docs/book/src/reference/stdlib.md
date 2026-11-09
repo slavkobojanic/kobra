@@ -46,7 +46,7 @@ library's own doc comments (`crates/k_sema/stdlib`), so they list exactly what t
 | [`k.storage`](stdlib/k-storage.md) | typed local storage: `LocalStorage`, `StorageKey`, `BrowserStorage` | IndexedDB collections, session storage, cookies |
 | [`k.time`](stdlib/k-time.md) | `Clock`, `TimerHandle`, `TimeOfDay`, `TimeZone`, `Weekday` | calendars |
 | [`k.text`](stdlib/k-text.md) | `EmailAddress` | regular expressions, Markdown rendering, slugs |
-| [`k.crypto`](stdlib/k-crypto.md) | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only) | |
+| [`k.crypto`](stdlib/k-crypto.md) | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only), `ConstantTime`, the key types (`AesGcmKey`, `Ed25519PrivateKey`, `EcdsaP256PrivateKey`, `X25519PrivateKey` and their public keys and signatures), `Sealed`, `Envelope`, `WrappedKey`, `EnvelopedKey`, `Exportable`, `SharedSecret`, `PassphraseSalt`, `Hkdf`, `OpenError` | |
 | [`k.auth`](stdlib/k-auth.md) | `Session`, `SessionManager`, `SessionUser`, the `Authenticated`, `Role` and `RateLimit` guards, `GuardRejection`, `AuthRole`, `AuthUserId`, `SessionConfig` | OAuth providers, passkeys |
 | [`k.device`](stdlib/k-device.md) | `Files` (the file picker and downloads), `File`, `FileType` and their errors | clipboard, geolocation, notifications, sharing, camera, microphone |
 | [`k.drag`](stdlib/k-drag.md) | `DragKind`, `Draggable`, `DropTarget`, `ReorderableList`, `ListMove`, the drag tokens | |
@@ -92,7 +92,7 @@ with `@Inject` by their concrete type:
 | `Job`, `JobQueue`, `JobError` | [Background jobs](../apps/jobs.md) |
 | `EmailProvider`, `Email`, `EmailAddress` | [Email](../apps/email.md) |
 | `HttpClient`, `HttpRequest`, `HttpError`, `HttpStatus` | [Calling HTTP APIs](../apps/http.md) |
-| `Bytes`, `Hmac`, `Mac`, `Uuid`, `SecureRandom` | [Bytes and cryptography](../apps/crypto.md) |
+| `Bytes`, `Hmac`, `Mac`, `Uuid`, `SecureRandom`, the key types, `Sealed`, `Envelope` | [Bytes and cryptography](../apps/crypto.md) |
 | `Clock`, `TimerHandle`, `TestClock`, `TimeOfDay` | [Time and timers](../apps/time.md) |
 | `LocalStorage`, `StorageKey<T>`, `MemoryStorage` | [Local storage](../apps/local-storage.md) |
 | `Database`, writes, `Schema` | [Persistence](../apps/persistence.md) |

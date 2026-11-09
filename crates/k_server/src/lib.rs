@@ -28,6 +28,8 @@
 //!   appended to the runtime executable.
 //! * [`outbound`]: outgoing HTTP (`HttpClient`) and SMTP (`EmailProvider`)
 //!   on behalf of K code.
+//! * [`crypto`]: `k.crypto`'s primitives (AES-GCM, HKDF, PBKDF2, Ed25519,
+//!   ECDSA P-256, X25519), the server's backend of the key types.
 //! * [`websocket`]: outgoing WebSockets (`WebSocketClient`) on behalf of K
 //!   code.
 //! * [`proxy`]: the client address behind the proxies `K_TRUSTED_PROXIES`
@@ -93,6 +95,7 @@
 pub mod app;
 pub mod channels;
 pub mod config;
+pub mod crypto;
 pub mod db;
 pub mod devtools;
 pub mod engine;

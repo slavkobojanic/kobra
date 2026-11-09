@@ -1,0 +1,5 @@
+error[K1203] 9:21-9:30: `AesGcmKey` can't be exported; generate it with `generateExportable()`
+  help: whether a key can leave is part of its type: `Exportable<K>` has `exportRaw()`
+error[K1203] 10:23-10:32: `Ed25519PrivateKey` can't be exported; generate it with `generateExportable()`
+  help: whether a key can leave is part of its type: `Exportable<K>` has `exportRaw()`
+error[K2001] 11:67-11:73: expected `k.crypto.Exportable<k.crypto.Ed25519PrivateKey>`, found `k.crypto.Ed25519PrivateKey`

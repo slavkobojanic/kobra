@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 
 use k_runtime::{
     CHANNELS_SIZE_BUDGET, CHARTS_SIZE_BUDGET, CLIPBOARD_SIZE_BUDGET, CORE_SIZE_BUDGET,
-    DRAG_SIZE_BUDGET, ENVIRONMENT_SIZE_BUDGET, FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET,
-    FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET, HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET,
-    MONEY_SIZE_BUDGET, NOTIFICATIONS_SIZE_BUDGET, OBSERVE_SIZE_BUDGET, Part,
+    CRYPTO_SIZE_BUDGET, DRAG_SIZE_BUDGET, ENVIRONMENT_SIZE_BUDGET, FILES_SIZE_BUDGET,
+    FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET, HTTP_SIZE_BUDGET,
+    KEYS_SIZE_BUDGET, MONEY_SIZE_BUDGET, NOTIFICATIONS_SIZE_BUDGET, OBSERVE_SIZE_BUDGET, Part,
     SERVICE_WORKER_SIZE_BUDGET, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
     STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact,
     compacted_sources, module, modules, resolve,
@@ -188,6 +188,7 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Channels
                 | Part::Http
                 | Part::WebSocket
+                | Part::Crypto
                 | Part::Forms
                 | Part::Money
                 | Part::DevTools
@@ -574,6 +575,21 @@ fn the_websockets_meet_their_size_budget() {
     assert!(
         size <= WEBSOCKET_SIZE_BUDGET,
         "the websockets are {size} bytes gzip, over the {WEBSOCKET_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn the_crypto_chunk_meets_its_size_budget() {
+    let crypto = compacted_sources(&[Part::Crypto]).expect("compacts");
+    let size = gzip_len(&crypto);
+    eprintln!(
+        "crypto: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {CRYPTO_SIZE_BUDGET})",
+        raw_len(&[Part::Crypto]),
+        crypto.len()
+    );
+    assert!(
+        size <= CRYPTO_SIZE_BUDGET,
+        "k.crypto is {size} bytes gzip, over the {CRYPTO_SIZE_BUDGET}-byte budget"
     );
 }
 

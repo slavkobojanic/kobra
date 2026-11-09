@@ -57,6 +57,15 @@ flate2 = "1.1"
 toml = { version = "1.2", default-features = false, features = ["std", "parse", "serde"] }
 getrandom = "0.4"
 argon2 = "0.5"
+# `k.crypto`'s key types on the server (k_server `crypto.rs`): AES-256-GCM,
+# HKDF, PBKDF2, Ed25519 and ECDSA P-256 from `ring`, already in the tree as
+# rustls's provider; static X25519 keys from `x25519-dalek`, because
+# `ring`'s agreement keys are ephemeral only (docs/design/33-crypto.md).
+ring = "0.17"
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
+# The public point of an imported raw P-256 scalar (`ring` signs, but only
+# builds a P-256 key pair from both halves).
+p256 = { version = "0.13", default-features = false, features = ["arithmetic"] }
 lsp-types = "0.95.1"
 regex = { version = "1.11", default-features = false, features = ["std", "unicode-perl"] }
 yaml-rust2 = { version = "0.13", default-features = false }

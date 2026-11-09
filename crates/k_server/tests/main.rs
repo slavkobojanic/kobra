@@ -37,6 +37,7 @@ mod channel_server;
 mod channels;
 mod client_bundle;
 mod config;
+mod crypto_wire;
 mod differential;
 mod engine;
 mod literals;

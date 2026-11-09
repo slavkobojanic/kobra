@@ -496,6 +496,7 @@ fn shipped_client_assets() {
         ("channels.", k_runtime::CHANNELS_SIZE_BUDGET),
         ("http.", k_runtime::HTTP_SIZE_BUDGET),
         ("websocket.", k_runtime::WEBSOCKET_SIZE_BUDGET),
+        ("crypto.", k_runtime::CRYPTO_SIZE_BUDGET),
         ("forms.", k_runtime::FORMS_SIZE_BUDGET),
         ("money.", k_runtime::MONEY_SIZE_BUDGET),
     ];

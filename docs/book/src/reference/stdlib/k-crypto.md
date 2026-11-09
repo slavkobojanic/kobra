@@ -3,16 +3,369 @@
 
 # `k.crypto`
 
-Import each declaration by name, for example `import k.crypto.Hash`.
+Import each declaration by name, for example `import k.crypto.AesGcmKey`.
 
 | Declaration | Summary |
 |---|---|
+| [`AesGcmKey`](#aesgcmkey) | An AES-256-GCM key (`docs/design/33-crypto.md`, "The key types"): it seals and opens values ([`Sealed`](#sealed)) and wraps other keys ([`WrappedKey`](#wrappedkey)). |
+| [`ConstantTime`](#constanttime) | Comparisons whose time doesn't reveal where values differ. |
+| [`EcdsaP256PrivateKey`](#ecdsap256privatekey) | An ECDSA P-256 signing key with SHA-256, for interop (JWT `ES256`, Web Push VAPID, platforms that only speak P-256). |
+| [`EcdsaP256PublicKey`](#ecdsap256publickey) | An ECDSA P-256 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url text of its 65-byte uncompressed point. |
+| [`EcdsaP256Signature`](#ecdsap256signature) | An ECDSA P-256 signature in the 64-byte `r‖s` form Web Crypto and JWS use: [`Codable`](k-core.md#codable) as base64url text. |
+| [`Ed25519PrivateKey`](#ed25519privatekey) | An Ed25519 signing key (`docs/design/33-crypto.md`, "Signatures"), the default signature algorithm. |
+| [`Ed25519PublicKey`](#ed25519publickey) | An Ed25519 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url text of its 32-byte raw form. |
+| [`Ed25519Signature`](#ed25519signature) | An Ed25519 signature, from [`Ed25519PrivateKey.sign(_:)`](#ed25519privatekey): [`Codable`](k-core.md#codable) as base64url text of its 64 bytes. |
+| [`Envelope`](#envelope) | A value sealed to an [`X25519PublicKey`](#x25519publickey) (`docs/design/33-crypto.md`, "Sealing to a public key"): HPKE base mode with DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM. |
+| [`EnvelopedKey`](#envelopedkey) | A key sealed to an [`X25519PublicKey`](#x25519publickey), the way [`WrappedKey`](#wrappedkey) seals one to an [`AesGcmKey`](#aesgcmkey): a key isn't [`Codable`](k-core.md#codable), so `Envelope<AesGcmKey>` doesn't compile and this is how to share one. |
+| [`Exportable`](#exportable) | A key that can leave the platform's key storage (`docs/design/33-crypto.md`, "Exportable keys"), from `generateExportable()` or `unwrapExportable(_:)`. |
 | [`Hash`](#hash) | Plain digests. |
+| [`Hkdf`](#hkdf) | HKDF-SHA256 (RFC 5869) with raw output, for implementing a protocol that specifies it. |
 | [`Hmac`](#hmac) | HMAC over Web Crypto. |
 | [`Mac`](#mac) | A message authentication code, from [`Hmac`](#hmac). |
+| [`OpenError`](#openerror) | Why opening a [`Sealed`](#sealed), an [`Envelope`](#envelope) or a wrapped key failed. |
+| [`PassphraseSalt`](#passphrasesalt) | The salt and work factor of a passphrase-derived key (`AesGcmKey.derive(fromPassphrase:salt:)`). |
 | [`Password`](#password) | Password hashing with Argon2id. |
+| [`Sealed`](#sealed) | A value encrypted with an [`AesGcmKey`](#aesgcmkey) (`docs/design/33-crypto.md`, "Authenticated encryption"). |
 | [`SecureRandom`](#securerandom) | Random values from a secure source; there is no non-secure source. |
+| [`SharedSecret`](#sharedsecret) | The output of [`X25519PrivateKey.agree(with:)`](#x25519privatekey): input to a key derivation only (`AesGcmKey.derive(from:salt:info:)`, `Hkdf.sha256(from:salt:info:count:)`). |
 | [`Uuid`](#uuid) | A UUID (`docs/design/33-crypto.md`, "Uuid"). |
+| [`WrappedKey`](#wrappedkey) | A key sealed with an [`AesGcmKey`](#aesgcmkey) (`docs/design/33-crypto.md`, "Key wrapping"): AES-GCM over the key's raw form, with the key type's name authenticated, so a wrapped X25519 key can't be unwrapped as an `AesGcmKey`. |
+| [`X25519PrivateKey`](#x25519privatekey) | An X25519 key-agreement key (`docs/design/33-crypto.md`, "Key agreement"): it agrees on a [`SharedSecret`](#sharedsecret) with another key and opens [`Envelope`](#envelope)s sealed to its public key. |
+| [`X25519PublicKey`](#x25519publickey) | An X25519 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url text of its 32-byte raw form. |
+
+## AesGcmKey
+
+```k,ignore
+public struct AesGcmKey
+```
+
+An AES-256-GCM key (`docs/design/33-crypto.md`, "The key types"): it
+seals and opens values ([`Sealed`](#sealed)) and wraps other keys
+([`WrappedKey`](#wrappedkey)).
+
+A key is secret: it isn't [`Codable`](k-core.md#codable), [`Equatable`](k-core.md#equatable) or printable
+(`"{key}"` is `AesGcmKey(•••)`), so no rpc, `@Load` field, job, entity
+or log can carry it, and it can't be exported unless it was generated
+with `generateExportable()`. In the browser it is a non-extractable
+Web Crypto key.
+
+**Members**
+
+- `static func generate() async -> AesGcmKey`
+  Generates a key that can't be exported.
+
+  - Returns: a fresh random key.
+- `static func generateExportable() async -> Exportable<AesGcmKey>`
+  Generates a key that can be exported and wrapped.
+
+  - Returns: the key, as an [`Exportable`](#exportable).
+- `static func parse(raw: Secret<Bytes>) -> AesGcmKey?`
+  Imports a raw key, non-exportable.
+
+  - Parameter raw: 32 secret bytes.
+  - Returns: the key, or `nil` for any other length.
+- `static func derive(from input: SharedSecret, salt: Bytes, info: String) async -> AesGcmKey`
+  Derives a key from a key agreement with HKDF-SHA256 (RFC 5869).
+
+  - Parameters:
+    - input: the [`SharedSecret`](#sharedsecret) of [`X25519PrivateKey.agree(with:)`](#x25519privatekey).
+    - salt: a salt both sides know, possibly empty.
+    - info: the purpose, such as `"chat/v1"`, so two derivations from
+      one secret never collide.
+  - Returns: the derived key, non-exportable.
+- `static func derive(from input: Secret<Bytes>, salt: Bytes, info: String) async -> AesGcmKey`
+  Derives a key from secret bytes with HKDF-SHA256 (RFC 5869).
+
+  - Returns: the derived key, non-exportable.
+- `static func derive(from input: Secret<String>, salt: Bytes, info: String) async -> AesGcmKey`
+  Derives a key from a secret text (its UTF-8) with HKDF-SHA256.
+
+  - Returns: the derived key, non-exportable.
+- `static func derive(from input: Secret<AesGcmKey>, salt: Bytes, info: String) async -> AesGcmKey`
+  Derives a per-purpose key from a configured key with HKDF-SHA256,
+  whose raw bytes the runtime uses without exposing them.
+
+  - Returns: the derived key, non-exportable.
+- `static func derive(fromPassphrase passphrase: String, salt: PassphraseSalt) async -> AesGcmKey`
+  Derives a key from a passphrase with PBKDF2-HMAC-SHA256 at the
+  salt's work factor. Never derive from the sign-in password.
+
+  - Parameters:
+    - passphrase: what the person typed.
+    - salt: a [`PassphraseSalt`](#passphrasesalt), stored next to what the key protects.
+  - Returns: the derived key, non-exportable.
+- `func seal<T>(_ value: T, context: Bytes = "".utf8) async -> Sealed<T> where T implements Codable`
+  Encrypts `value` with a fresh random nonce. `Bytes` are encrypted as
+  they are, any other [`Codable`](k-core.md#codable) value as its JSON.
+
+  - Parameters:
+    - value: what to encrypt.
+    - context: authenticated but not encrypted, such as
+      `"note:{id}".utf8`; opening needs the same bytes.
+  - Returns: the ciphertext.
+- `func open<T>(_ sealed: Sealed<T>, context: Bytes = "".utf8) async throws OpenError -> T where T implements Codable`
+  Checks and decrypts `sealed`.
+
+  - Parameters:
+    - sealed: a value sealed with this key.
+    - context: the context it was sealed with.
+  - Returns: the value.
+  - Throws: `.authenticationFailed` for a wrong key or context or
+    changed bytes; `.undecodable` when it is authentic but not a `T`.
+- `func wrap<K>(_ key: Exportable<K>) async -> WrappedKey<K>`
+  Seals an exportable key with this one, with the key type's name as
+  the context.
+
+  - Returns: the wrapped key, to store or send.
+- `func unwrap<K>(_ wrapped: WrappedKey<K>) async throws OpenError -> K`
+  Unwraps a key wrapped with this one.
+
+  - Returns: the key, non-exportable.
+  - Throws: `.authenticationFailed` for the wrong wrapping key, such
+    as one derived from a wrong passphrase.
+- `func unwrapExportable<K>(_ wrapped: WrappedKey<K>) async throws OpenError -> Exportable<K>`
+  Unwraps a key so it can be wrapped again, for a new device.
+
+  - Returns: the key, exportable.
+  - Throws: `.authenticationFailed` for the wrong wrapping key.
+
+## ConstantTime
+
+```k,ignore
+public class ConstantTime
+```
+
+Comparisons whose time doesn't reveal where values differ.
+
+**Members**
+
+- `static func equals(_ a: Bytes, _ b: Bytes) -> Bool`
+  Compares `a` and `b` in time that depends only on their lengths,
+  for protocol code holding plain bytes, such as a token's hash read
+  from a database.
+
+  - Returns: `true` if they are equal.
+
+## EcdsaP256PrivateKey
+
+```k,ignore
+public struct EcdsaP256PrivateKey
+```
+
+An ECDSA P-256 signing key with SHA-256, for interop (JWT `ES256`,
+Web Push VAPID, platforms that only speak P-256). Never used for key
+agreement. Secret: not [`Codable`](k-core.md#codable), [`Equatable`](k-core.md#equatable) or printable.
+
+**Members**
+
+- `var publicKey: EcdsaP256PublicKey`
+  The public key, to verify its signatures.
+- `static func generate() async -> EcdsaP256PrivateKey`
+  Generates a key that can't be exported.
+
+  - Returns: a fresh random key.
+- `static func generateExportable() async -> Exportable<EcdsaP256PrivateKey>`
+  Generates a key that can be exported and wrapped.
+
+  - Returns: the key, as an [`Exportable`](#exportable).
+- `static func parse(raw: Secret<Bytes>) -> EcdsaP256PrivateKey?`
+  Imports a raw key (the 32-byte big-endian scalar), non-exportable.
+
+  - Returns: the key, or `nil` if `raw` isn't a valid scalar.
+- `func sign(_ message: Bytes) async -> EcdsaP256Signature`
+  Signs `message`, with a random nonce from the platform.
+
+  - Returns: the signature, as the 64-byte `r‖s`.
+
+## EcdsaP256PublicKey
+
+```k,ignore
+public struct EcdsaP256PublicKey implements Codable, Equatable, Hashable
+```
+
+An ECDSA P-256 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url
+text of its 65-byte uncompressed point.
+
+**Members**
+
+- `var raw: Bytes`
+  The uncompressed point, `0x04‖x‖y`.
+- `static func parse(raw: Bytes) -> EcdsaP256PublicKey?`
+  Reads an uncompressed point.
+
+  - Returns: the key, or `nil` unless `raw` is 65 bytes starting
+    with `0x04`. A point off the curve verifies nothing.
+- `func verify(_ signature: EcdsaP256Signature, of message: Bytes) async -> Bool`
+  Checks that `signature` signs `message` with this key.
+
+  - Returns: `true` if it does; `false` for any invalid signature.
+- `func fingerprint() async -> String`
+  The SHA-256 of the raw form as hex.
+
+  - Returns: 64 hex digits.
+
+## EcdsaP256Signature
+
+```k,ignore
+public struct EcdsaP256Signature implements Codable, Equatable, Hashable
+```
+
+An ECDSA P-256 signature in the 64-byte `r‖s` form Web Crypto and JWS
+use: [`Codable`](k-core.md#codable) as base64url text.
+
+**Members**
+
+- `var bytes: Bytes`
+  The 64 bytes, `r‖s`.
+- `static func parse(bytes: Bytes) -> EcdsaP256Signature?`
+  Reads the `r‖s` form.
+
+  - Returns: the signature, or `nil` unless `bytes` is 64 bytes.
+- `static func parse(der: Bytes) -> EcdsaP256Signature?`
+  Reads the DER form (`SEQUENCE { r INTEGER, s INTEGER }`).
+
+  - Returns: the signature, or `nil` if `der` isn't one.
+
+## Ed25519PrivateKey
+
+```k,ignore
+public struct Ed25519PrivateKey
+```
+
+An Ed25519 signing key (`docs/design/33-crypto.md`, "Signatures"),
+the default signature algorithm. Secret: not [`Codable`](k-core.md#codable),
+[`Equatable`](k-core.md#equatable) or printable.
+
+**Members**
+
+- `var publicKey: Ed25519PublicKey`
+  The public key, to verify its signatures.
+- `static func generate() async -> Ed25519PrivateKey`
+  Generates a key that can't be exported.
+
+  - Returns: a fresh random key.
+- `static func generateExportable() async -> Exportable<Ed25519PrivateKey>`
+  Generates a key that can be exported and wrapped.
+
+  - Returns: the key, as an [`Exportable`](#exportable).
+- `static func parse(raw: Secret<Bytes>) -> Ed25519PrivateKey?`
+  Imports a raw key (RFC 8032's 32-byte seed), non-exportable.
+
+  - Returns: the key, or `nil` for any other length.
+- `func sign(_ message: Bytes) async -> Ed25519Signature`
+  Signs `message`; Ed25519 signatures are deterministic.
+
+  - Returns: the signature.
+
+## Ed25519PublicKey
+
+```k,ignore
+public struct Ed25519PublicKey implements Codable, Equatable, Hashable
+```
+
+An Ed25519 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url text
+of its 32-byte raw form.
+
+**Members**
+
+- `var raw: Bytes`
+  The 32-byte raw form.
+- `static func parse(raw: Bytes) -> Ed25519PublicKey?`
+  Reads the raw form.
+
+  - Returns: the key, or `nil` unless `raw` is 32 bytes.
+- `func verify(_ signature: Ed25519Signature, of message: Bytes) async -> Bool`
+  Checks that `signature` signs `message` with this key.
+
+  - Returns: `true` if it does; `false` for any invalid signature,
+    never an error.
+- `func fingerprint() async -> String`
+  The SHA-256 of the raw form as hex, for people to compare on two
+  devices.
+
+  - Returns: 64 hex digits.
+
+## Ed25519Signature
+
+```k,ignore
+public struct Ed25519Signature implements Codable, Equatable, Hashable
+```
+
+An Ed25519 signature, from [`Ed25519PrivateKey.sign(_:)`](#ed25519privatekey):
+[`Codable`](k-core.md#codable) as base64url text of its 64 bytes.
+
+**Members**
+
+- `var bytes: Bytes`
+  The 64 bytes.
+- `static func parse(bytes: Bytes) -> Ed25519Signature?`
+  Reads a signature.
+
+  - Returns: the signature, or `nil` unless `bytes` is 64 bytes.
+
+## Envelope
+
+```k,ignore
+public struct Envelope<T> implements Codable, Equatable, Hashable where T implements Codable
+```
+
+A value sealed to an [`X25519PublicKey`](#x25519publickey) (`docs/design/33-crypto.md`,
+"Sealing to a public key"): HPKE base mode with DHKEM(X25519,
+HKDF-SHA256), HKDF-SHA256 and AES-256-GCM. The wire form is a version
+byte `0x01`, the 32-byte encapsulated key and the ciphertext; the text
+form is `k1e.` followed by base64url.
+
+**Members**
+
+- `var bytes: Bytes`
+  The wire form, for storing outside K.
+- `static func parse(bytes: Bytes) -> Envelope<T>?`
+  Reads the wire form.
+
+  - Returns: the envelope, or `nil` if `bytes` isn't one.
+- `static func parse(_ text: String) -> Envelope<T>?`
+  Reads the text form, `"{envelope}"`.
+
+  - Returns: the envelope, or `nil` if `text` isn't one.
+
+## EnvelopedKey
+
+```k,ignore
+public struct EnvelopedKey<K> implements Codable, Equatable, Hashable
+```
+
+A key sealed to an [`X25519PublicKey`](#x25519publickey), the way [`WrappedKey`](#wrappedkey) seals
+one to an [`AesGcmKey`](#aesgcmkey): a key isn't [`Codable`](k-core.md#codable), so
+`Envelope<AesGcmKey>` doesn't compile and this is how to share one.
+Its text form is `k1k.` followed by base64url.
+
+**Members**
+
+- `static func parse(_ text: String) -> EnvelopedKey<K>?`
+  Reads the text form.
+
+  - Returns: the enveloped key, or `nil` if `text` isn't one.
+
+## Exportable
+
+```k,ignore
+public struct Exportable<K>
+```
+
+A key that can leave the platform's key storage
+(`docs/design/33-crypto.md`, "Exportable keys"), from
+`generateExportable()` or `unwrapExportable(_:)`. Whether a key can be
+exported is part of its type: a plain key has no export members.
+
+**Members**
+
+- `var key: K`
+  The key itself, for every ordinary operation.
+- `func exportRaw() -> Secret<Bytes>`
+  The raw form: 32 bytes for AES, the Ed25519 seed and X25519, the
+  scalar for P-256.
+
+  - Returns: the bytes, as a [`Secret`](k-core.md#secret).
 
 ## Hash
 
@@ -32,6 +385,39 @@ Plain digests. A digest isn't a secret, so it is ordinary [`Bytes`](k-core.md#by
   Computes the SHA-512 digest of `data`.
 
   - Returns: the 64-byte digest.
+
+## Hkdf
+
+```k,ignore
+public class Hkdf
+```
+
+HKDF-SHA256 (RFC 5869) with raw output, for implementing a protocol
+that specifies it. For a key, use `AesGcmKey.derive(from:salt:info:)`.
+
+**Members**
+
+- `static func sha256(from input: SharedSecret, salt: Bytes, info: String, count: Int) async -> Secret<Bytes>`
+  Derives `count` bytes from a key agreement.
+
+  - Parameters:
+    - input: the key material.
+    - salt: a salt, possibly empty.
+    - info: the purpose, so two derivations never collide.
+    - count: the number of bytes, at most 8,160.
+  - Returns: the output, as a [`Secret`](k-core.md#secret).
+- `static func sha256(from input: Secret<Bytes>, salt: Bytes, info: String, count: Int) async -> Secret<Bytes>`
+  Derives `count` bytes from secret bytes.
+
+  - Returns: the output, as a [`Secret`](k-core.md#secret).
+- `static func sha256(from input: Secret<String>, salt: Bytes, info: String, count: Int) async -> Secret<Bytes>`
+  Derives `count` bytes from a secret text, as UTF-8.
+
+  - Returns: the output, as a [`Secret`](k-core.md#secret).
+- `static func sha256(from input: Secret<AesGcmKey>, salt: Bytes, info: String, count: Int) async -> Secret<Bytes>`
+  Derives `count` bytes from a configured key's raw bytes.
+
+  - Returns: the output, as a [`Secret`](k-core.md#secret).
 
 ## Hmac
 
@@ -83,6 +469,43 @@ that compiles.
 - `var hex: String`
   The code as lowercase hex.
 
+## OpenError
+
+```k,ignore
+public enum OpenError implements Error, Equatable
+```
+
+Why opening a [`Sealed`](#sealed), an [`Envelope`](#envelope) or a wrapped key failed.
+
+**Members**
+
+- `case authenticationFailed`
+  The wrong key, the wrong context, or the bytes were changed.
+- `case undecodable(DecodingError)`
+  Authentic, but not a value of the type: written by another version
+  of the app.
+
+## PassphraseSalt
+
+```k,ignore
+public struct PassphraseSalt implements Codable, Equatable
+```
+
+The salt and work factor of a passphrase-derived key
+(`AesGcmKey.derive(fromPassphrase:salt:)`). It isn't secret: store it
+next to what the key protects. It carries its work factor, so raising
+the default never breaks existing vaults.
+
+**Members**
+
+- `var iterations: Int`
+  The PBKDF2-HMAC-SHA256 iterations this salt records.
+- `static func generate() -> PassphraseSalt`
+  A fresh salt: 16 random bytes at the current work factor,
+  600,000 iterations (1,000 in `k test`).
+
+  - Returns: the salt.
+
 ## Password
 
 ```k,ignore
@@ -115,6 +538,33 @@ Password hashing with Argon2id. Server-only and deliberately slow.
   A valid hash that no password matches: verifying against it when
   the user doesn't exist keeps sign-in timing equal.
 
+## Sealed
+
+```k,ignore
+public struct Sealed<T> implements Codable, Equatable, Hashable where T implements Codable
+```
+
+A value encrypted with an [`AesGcmKey`](#aesgcmkey) (`docs/design/33-crypto.md`,
+"Authenticated encryption"). The type parameter documents the content;
+sealed values of different `T` don't convert into each other.
+
+The wire form is a version byte `0x01`, the 12-byte nonce, the
+ciphertext and the 16-byte tag; the text form, which `Codable` uses, is
+`k1.` followed by that in base64url.
+
+**Members**
+
+- `var bytes: Bytes`
+  The wire form, for storing outside K.
+- `static func parse(bytes: Bytes) -> Sealed<T>?`
+  Reads the wire form.
+
+  - Returns: the sealed value, or `nil` if `bytes` isn't one.
+- `static func parse(_ text: String) -> Sealed<T>?`
+  Reads the text form, `"{sealed}"`.
+
+  - Returns: the sealed value, or `nil` if `text` isn't one.
+
 ## SecureRandom
 
 ```k,ignore
@@ -129,6 +579,18 @@ Random values from a secure source; there is no non-secure source.
   Returns `count` random bytes.
 - `static func token(bytes: Int) -> String`
   Returns a URL-safe Base64 token of `bytes` random bytes.
+
+## SharedSecret
+
+```k,ignore
+public struct SharedSecret
+```
+
+The output of [`X25519PrivateKey.agree(with:)`](#x25519privatekey): input to a key
+derivation only (`AesGcmKey.derive(from:salt:info:)`,
+`Hkdf.sha256(from:salt:info:count:)`). Raw Diffie–Hellman output isn't
+uniformly random and isn't bound to a purpose, so it has no other
+members, and it isn't [`Codable`](k-core.md#codable), [`Equatable`](k-core.md#equatable) or printable.
 
 ## Uuid
 
@@ -150,4 +612,100 @@ invalid id in a URL is a `404`.
   - Returns: the UUID, or `nil` if `text` isn't one.
 - `static func random() -> Uuid`
   Returns a new version 4 UUID from a secure random source.
+
+## WrappedKey
+
+```k,ignore
+public struct WrappedKey<K> implements Codable, Equatable, Hashable
+```
+
+A key sealed with an [`AesGcmKey`](#aesgcmkey) (`docs/design/33-crypto.md`, "Key
+wrapping"): AES-GCM over the key's raw form, with the key type's name
+authenticated, so a wrapped X25519 key can't be unwrapped as an
+`AesGcmKey`. Its text form is `k1w.` followed by base64url.
+
+**Members**
+
+- `static func parse(_ text: String) -> WrappedKey<K>?`
+  Reads the text form, `"{wrapped}"`.
+
+  - Returns: the wrapped key, or `nil` if `text` isn't one.
+
+## X25519PrivateKey
+
+```k,ignore
+public struct X25519PrivateKey
+```
+
+An X25519 key-agreement key (`docs/design/33-crypto.md`, "Key
+agreement"): it agrees on a [`SharedSecret`](#sharedsecret) with another key and
+opens [`Envelope`](#envelope)s sealed to its public key. Secret: not
+[`Codable`](k-core.md#codable), [`Equatable`](k-core.md#equatable) or printable.
+
+**Members**
+
+- `var publicKey: X25519PublicKey`
+  The public key, to publish.
+- `static func generate() async -> X25519PrivateKey`
+  Generates a key that can't be exported.
+
+  - Returns: a fresh random key.
+- `static func generateExportable() async -> Exportable<X25519PrivateKey>`
+  Generates a key that can be exported and wrapped.
+
+  - Returns: the key, as an [`Exportable`](#exportable).
+- `static func parse(raw: Secret<Bytes>) -> X25519PrivateKey?`
+  Imports a raw key (32 bytes), non-exportable.
+
+  - Returns: the key, or `nil` for any other length.
+- `func agree(with theirs: X25519PublicKey) async -> SharedSecret`
+  Agrees on a secret with the holder of `theirs`.
+
+  - Returns: the shared secret, input to a key derivation only.
+- `func open<T>(_ envelope: Envelope<T>, context: Bytes = "".utf8) async throws OpenError -> T where T implements Codable`
+  Opens an envelope sealed to this key's public key.
+
+  - Parameter context: the context it was sealed with.
+  - Returns: the value.
+  - Throws: `.authenticationFailed` for another key, another context
+    or changed bytes; `.undecodable` when it isn't a `T`.
+- `func unwrap<K>(_ key: EnvelopedKey<K>) async throws OpenError -> K`
+  Unwraps a key sealed to this key's public key.
+
+  - Returns: the key, non-exportable.
+  - Throws: `.authenticationFailed` for another key or changed bytes.
+
+## X25519PublicKey
+
+```k,ignore
+public struct X25519PublicKey implements Codable, Equatable, Hashable
+```
+
+An X25519 public key: ordinary data, [`Codable`](k-core.md#codable) as base64url text of
+its 32-byte raw form. Values are sealed to it as [`Envelope`](#envelope)s.
+
+**Members**
+
+- `var raw: Bytes`
+  The 32-byte raw form.
+- `static func parse(raw: Bytes) -> X25519PublicKey?`
+  Reads the raw form.
+
+  - Returns: the key, or `nil` unless `raw` is 32 bytes and not a
+    known small-order point.
+- `func seal<T>(_ value: T, context: Bytes = "".utf8) async -> Envelope<T> where T implements Codable`
+  Encrypts `value` so only the holder of the private key can read it:
+  HPKE base mode (RFC 9180) with a fresh ephemeral key. It isn't
+  authenticated to a sender.
+
+  - Parameter context: authenticated but not encrypted.
+  - Returns: the envelope.
+- `func wrap<K>(_ key: Exportable<K>) async -> EnvelopedKey<K>`
+  Seals an exportable key to this public key.
+
+  - Returns: the enveloped key.
+- `func fingerprint() async -> String`
+  The SHA-256 of the raw form as hex.
+
+  - Returns: 64 hex digits.
 

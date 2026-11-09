@@ -27,6 +27,7 @@
 //! | `op_k_db_savepoint` | `(tx, depth, op: 0 begin, 1 release, 2 roll back) => Promise<void>` | nested transactions |
 //! | `op_k_db_ping` | `(timeoutMs) => Promise<boolean>` | `Database.ping` |
 //! | `op_k_hmac` | `(bits, key, message) => Uint8Array` (bits 256 or 512) | `Hmac.sha256`, `Hmac.sha512` |
+//! | `op_k_crypto_*` | the key types' primitives ([`crate::crypto`]) | `k.crypto`'s `ops` backend |
 //! | `op_k_jobs_enqueue` | `(name, payloadJson, delayMs, tx) => Promise<id>` | `DatabaseJobQueue` |
 //! | `op_k_fetch` | `(id, {method, url, headers, timeoutMs}, body, hasBody) => Promise<outcome>` | `FetchHttpClient` |
 //! | `op_k_fetch_abort` | `(id) => void` | a cancelled `FetchHttpClient` call |
@@ -1413,6 +1414,21 @@ deno_core::extension!(
         op_k_db_ping,
         op_k_jobs_enqueue,
         op_k_hmac,
+        crate::crypto::op_k_crypto_random,
+        crate::crypto::op_k_crypto_digest,
+        crate::crypto::op_k_crypto_hkdf,
+        crate::crypto::op_k_crypto_pbkdf2,
+        crate::crypto::op_k_crypto_aes_seal,
+        crate::crypto::op_k_crypto_aes_open,
+        crate::crypto::op_k_crypto_ed25519_public,
+        crate::crypto::op_k_crypto_ed25519_sign,
+        crate::crypto::op_k_crypto_ed25519_verify,
+        crate::crypto::op_k_crypto_p256_public,
+        crate::crypto::op_k_crypto_p256_sign,
+        crate::crypto::op_k_crypto_p256_verify,
+        crate::crypto::op_k_crypto_x25519_public,
+        crate::crypto::op_k_crypto_x25519_agree,
+        crate::crypto::op_k_crypto_equals,
         op_k_fetch,
         op_k_fetch_abort,
         op_k_ws_connect,

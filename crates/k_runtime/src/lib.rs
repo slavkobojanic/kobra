@@ -108,6 +108,15 @@ pub const HTTP_SIZE_BUDGET: usize = 1536;
 /// §11.3).
 pub const WEBSOCKET_SIZE_BUDGET: usize = 1536;
 
+/// The largest `k.crypto` in the browser ([`Part::Crypto`]: `Hash`, `Hmac`,
+/// `SecureRandom`, `ConstantTime`, the key types over Web Crypto, HPKE for
+/// `Envelope` and the wire formats) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (8 KB; about 7 KB as built, and a release build
+/// links out what a page doesn't use). It ships in its own chunk, only to
+/// pages whose client code uses one of them (`docs/design/33-crypto.md`,
+/// "Implementation"; `docs/compiler/performance.md` §11.3).
+pub const CRYPTO_SIZE_BUDGET: usize = 8192;
+
 /// The largest `k.drag` in the browser ([`Part::Drag`]: `Draggable`,
 /// `DropTarget` and `ReorderableList` with pointer, touch and keyboard
 /// dragging) may be, measured like [`CORE_SIZE_BUDGET`] (4 KB). It ships in
@@ -303,6 +312,12 @@ pub enum Part {
     /// to apps whose client injects `WebSocketClient`, and measured on its
     /// own ([`WEBSOCKET_SIZE_BUDGET`]). The server imports it too.
     WebSocket,
+    /// `k.crypto` in the browser (`Hash`, `Hmac`, `SecureRandom`, the key
+    /// types over Web Crypto, `Sealed` and `Envelope`): shipped as its own
+    /// client chunk, only to pages whose client code uses it, and measured
+    /// on its own ([`CRYPTO_SIZE_BUDGET`]). The server imports it too, with
+    /// its Rust ops as the backend.
+    Crypto,
     /// Dependency injection in the browser: `provide` for component-scoped
     /// services and the client bodies of the stdlib's platform services
     /// (`Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session`
@@ -389,6 +404,7 @@ const MODULES: &[Module] = modules![
     Channels "runtime/channels.js",
     Http "runtime/http.js",
     WebSocket "runtime/websocket.js",
+    Crypto "runtime/crypto.js",
     Forms "runtime/forms.js",
     Money "runtime/money.js",
     DevTools "runtime/devtools.js",

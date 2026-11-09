@@ -25,6 +25,7 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`TestFiles`](#testfiles) | The default [`Files`](k-device.md#files) in `k test` (`docs/design/42-files.md`): no picker opens. |
 | [`TestGeolocation`](#testgeolocation) | The default [`Geolocation`](k-device.md#geolocation) in `k test` (`docs/design/45-web-platform.md`, "Geolocation"): no prompt opens and the machine's position is never read. |
 | [`TestHttpClient`](#testhttpclient) | The default [`HttpClient`](k-http.md#httpclient) in `k test`: it answers only requests it has a canned response for, and fails the test on any other. |
+| [`TestKeys`](#testkeys) | Fixture keys by number (`docs/design/33-crypto.md`, "Testing"): the same key for the same number in every test and every run, such as `TestKeys.ed25519(1)`. |
 | [`TestNotifications`](#testnotifications) | The default [`Notifications`](k-device.md#notifications) in `k test` (`docs/design/45-web-platform.md`, "Notifications"): no prompt opens and nothing reaches the operating system. |
 | [`TestPageVisibility`](#testpagevisibility) | The default [`PageVisibility`](k-device.md#pagevisibility) in `k test` (`docs/design/45-web-platform.md`, "Page visibility"): the page is visible until `hide()`. |
 | [`TestPeer`](#testpeer) | Another browser in the same test ([`TestPeers`](#testpeers)): its own session, cookie and channel socket, sharing the test's server, database and clock. |
@@ -624,6 +625,36 @@ canned response for, and fails the test on any other.
   Answers requests to `path` with `text` and `status`.
 - `func fail(path: String, error: HttpError)`
   Makes requests to `path` throw `error`.
+
+## TestKeys
+
+```k,ignore
+public class TestKeys
+```
+
+Fixture keys by number (`docs/design/33-crypto.md`, "Testing"): the
+same key for the same number in every test and every run, such as
+`TestKeys.ed25519(1)`. They can be bound into configs with
+`Secret(TestKeys.ed25519(1))`.
+
+**Members**
+
+- `static func aesGcm(_ n: Int) -> AesGcmKey`
+  The AES-256-GCM key number `n`.
+
+  - Returns: the key.
+- `static func ed25519(_ n: Int) -> Ed25519PrivateKey`
+  The Ed25519 key number `n`.
+
+  - Returns: the key.
+- `static func ecdsaP256(_ n: Int) -> EcdsaP256PrivateKey`
+  The ECDSA P-256 key number `n`.
+
+  - Returns: the key.
+- `static func x25519(_ n: Int) -> X25519PrivateKey`
+  The X25519 key number `n`.
+
+  - Returns: the key.
 
 ## TestNotifications
 

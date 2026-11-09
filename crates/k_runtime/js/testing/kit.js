@@ -44,6 +44,11 @@ import { channelEnv } from "../runtime/channels.js";
 import { install as installDom } from "./dom.js";
 import { createFront, testChannel as scriptedChannel } from "./channels.js";
 import { TestWebSocketServer, testWebSocketClient as scriptedSockets } from "../runtime/websocket.js";
+import { setTesting as cryptoTesting } from "../runtime/crypto.js";
+
+// `k test`'s fast passphrase salts (33-crypto.md, "Testing"): 1,000
+// iterations, which parse only here.
+cryptoTesting(true);
 
 // ---------------------------------------------------------------- state
 

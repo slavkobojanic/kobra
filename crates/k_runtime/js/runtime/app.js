@@ -34,12 +34,15 @@ import { DecodeFailure, Instant, NO, Secret, parseEmail, parseQuery, parseTimeZo
 import { Out, escapeAttribute, escapeText, serializeData } from "./ssr.js";
 import { httpStatus, received, runJobBody, wireRequest } from "./outbound.js";
 import * as http from "./http.js";
+import * as crypto from "./crypto.js";
 import { chartKey, chartProps, lineChart } from "./charts.js";
 import { ATTRS as DRAG, DragKind$init } from "./drag.js";
 import { STATUS_HIDDEN } from "./clipboard.js";
 
 /** The ops the Rust server exposes to this isolate; `undefined` outside it. */
 const ops = globalThis.Deno?.core?.ops;
+// `k.crypto`'s `ops` backend (33-crypto.md, "Implementation").
+if (ops) crypto.useOps(ops);
 
 /** Methods that can't change state, which skip the forgery check. */
 const SAFE = new Set(["GET", "HEAD"]);
@@ -1902,21 +1905,6 @@ const password = {
 };
 
 /**
- * `Hmac.sha256` / `Hmac.sha512` (33-crypto.md): the key is `Bytes` or a
- * `Secret<String>` (its UTF-8 bytes, revealed only here); the MAC is
- * `{bytes, hex}`, compared with {@link macMatches}.
- * @param {number} bits 256 or 512
- */
-function hmacOf(bits) {
-  return async (_c, key, message) => {
-    const k = key instanceof Secret ? new TextEncoder().encode(String(key.reveal())) : key instanceof Uint8Array ? key : Uint8Array.from(key ?? []);
-    const m = message instanceof Uint8Array ? message : Uint8Array.from(message ?? []);
-    const bytes = new Uint8Array(ops.op_k_hmac(bits, k, m));
-    return { bytes, hex: [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("") };
-  };
-}
-
-/**
  * `Bytes.parse(hex:)`: an even number of hexadecimal digits in either
  * case, else `nil`.
  * @param {string} text
@@ -1965,20 +1953,6 @@ function bytesFromBase64(text) {
 
 /** The standard base64 alphabet, without padding. */
 const BASE64 = new RegExp("^[A-Za-z0-9+/]*$");
-
-/**
- * `mac.matches(other)`: compares in time independent of where the bytes
- * differ (33-crypto.md, "Comparing MACs").
- * @param {{bytes: Uint8Array}} mac
- * @param {Uint8Array} other
- */
-function macMatches(mac, other) {
-  const a = mac.bytes;
-  if (!(other instanceof Uint8Array) || other.length !== a.length) return false;
-  let d = 0;
-  for (let i = 0; i < a.length; i++) d |= a[i] ^ other[i];
-  return d === 0;
-}
 
 /**
  * The server's `LineChart` (37-charts.md): the drawing the browser's
@@ -2060,8 +2034,10 @@ export const natives = {
   "k.device.CopyButton$ssr": statusButtonSsr,
   "k.device.ShareButton$ssr": statusButtonSsr,
   "k.crypto.Password": password,
-  "k.crypto.Hmac": { sha256: hmacOf(256), sha512: hmacOf(512) },
-  "k.crypto.Mac$matches": macMatches,
+  // `Hash`, `Hmac`, `SecureRandom`, `ConstantTime` and the key types
+  // (`crypto.js`), as in the browser's chunk, over the server's ops.
+  ...Object.fromEntries(Object.entries(crypto).filter(([k]) => k[0] >= "A" && k[0] <= "Z" && k !== "Key" && k !== "TestKeys").map(([k, f]) => [`k.crypto.${k}`, f])),
+  "k.test.TestKeys": crypto.TestKeys,
   "k.core.Bytes$parse$hex": bytesFromHex,
   "k.core.Bytes$parse$base64": bytesFromBase64,
   "k.crypto.Uuid$random": randomUuid,

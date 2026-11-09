@@ -1662,7 +1662,15 @@ impl<'p, 'a> Cx<'p, 'a> {
         statics: bool,
     ) -> MemberFound {
         match recv {
-            Ty::Named(d, args) => self.lookup_in_decl(file, body_owner, *d, args, name, statics),
+            Ty::Named(d, args) => {
+                let found = self.lookup_in_decl(file, body_owner, *d, args, name, statics);
+                if matches!(found, MemberFound::Missing) && !statics {
+                    if let Some(key) = self.secret_key_forwarding(*d, args, name) {
+                        return self.lookup_in_decl(file, body_owner, key, &[], name, false);
+                    }
+                }
+                found
+            }
             Ty::Optional(inner) if statics => {
                 // `Optional` cases on `T?`.
                 let _ = inner;
@@ -1686,6 +1694,37 @@ impl<'p, 'a> Cx<'p, 'a> {
             }
             _ => MemberFound::Missing,
         }
+    }
+
+    /// The key type whose operation `name` a `Secret<K>` forwards
+    /// (`docs/design/33-crypto.md`, "Keys in configuration"): `secret.sign(m)`
+    /// on a `Secret<Ed25519PrivateKey>` is the key's `sign`, the way `Hmac`
+    /// accepts a `Secret<String>`, so a configured key needs no `reveal()`.
+    /// Only the key operations are forwarded, never an export.
+    fn secret_key_forwarding(&self, decl: DeclId, args: &[Ty], name: &str) -> Option<DeclId> {
+        const OPERATIONS: [&str; 8] = [
+            "seal",
+            "open",
+            "wrap",
+            "unwrap",
+            "unwrapExportable",
+            "sign",
+            "agree",
+            "publicKey",
+        ];
+        const KEYS: [&str; 4] = [
+            "k.crypto.AesGcmKey",
+            "k.crypto.Ed25519PrivateKey",
+            "k.crypto.EcdsaP256PrivateKey",
+            "k.crypto.X25519PrivateKey",
+        ];
+        if !OPERATIONS.contains(&name) || self.p.lookup_qualified("k.core.Secret") != Some(decl) {
+            return None;
+        }
+        let key = args.first()?.decl()?;
+        KEYS.iter()
+            .any(|q| self.p.lookup_qualified(q) == Some(key))
+            .then_some(key)
     }
 
     /// Looks the member `name` up in `decl` (instantiated with `args`) as seen

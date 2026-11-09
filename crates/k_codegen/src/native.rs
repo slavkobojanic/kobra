@@ -299,8 +299,22 @@ pub(crate) fn property(
         ("k.http.HttpStatus", "isServerError") => {
             bin(">=", rt("httpCode", vec![recv]), Expr::Num(500.0))
         }
+        // The key types' values are held as text or as an opaque key
+        // (`crypto.js`), so each property is the native `Owner$name`.
+        (o, _) if is_crypto_value(o) => {
+            let d = b.g.view.member(m).owner;
+            let f = b.use_decl(d, format!("{}${name}", b.g.name(d)));
+            call(f, vec![recv])
+        }
         _ => return None,
     })
+}
+
+/// `true` for the `k.crypto` types whose natives live in `crypto.js` and
+/// whose properties are functions of the value (every type of the module
+/// but `Mac`, a plain `{bytes, hex}`, and `Uuid`, its text).
+fn is_crypto_value(owner: &str) -> bool {
+    owner.starts_with("k.crypto.") && !matches!(owner, "k.crypto.Mac" | "k.crypto.Uuid")
 }
 
 /// Wraps a function argument so JS callbacks receive only the element
@@ -599,6 +613,22 @@ pub(crate) fn method(
             "colorMix",
             vec![recv, f0(), a.get(1).cloned().unwrap_or(Expr::Num(50.0))],
         ),
+        // Unwrapping makes a key of the type the program expects, never of
+        // a type named in the bytes: the native gets `K`'s name, which is
+        // also the context the wrapped form authenticates (33-crypto.md,
+        // "Key wrapping").
+        ("k.crypto.AesGcmKey", "unwrap" | "unwrapExportable")
+        | ("k.crypto.X25519PrivateKey", "unwrap") => {
+            let key = match result {
+                Type::Named(d, args) if b.g.view.qualified_name(*d) == "k.crypto.Exportable" => {
+                    args.first().and_then(Type::decl)
+                }
+                t => t.decl(),
+            };
+            let key = key.map_or_else(String::new, |d| b.g.view.decl(d).name.clone());
+            let f = b.fn_ref(m);
+            call(f, vec![recv, b.c_expr(), js::str(key), f0()])
+        }
         _ => {
             let _ = un;
             return None;

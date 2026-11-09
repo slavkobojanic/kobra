@@ -1,0 +1,1 @@
+error[K4019] 7:41-7:58: a config field is a `ConfigValue`; `k.crypto.Ed25519PrivateKey` isn't

@@ -1768,3 +1768,168 @@ fn shop_keeps_the_cart_in_step_across_tabs() {
     drop(second);
     drop(first);
 }
+
+/// How many random inputs each side of the crypto differential seals and
+/// signs for the other.
+const CRYPTO_ROUNDS: usize = 400;
+
+/// Runs `body` on the server's `ops` backend: a fresh isolate with the
+/// runtime's `crypto.js` as `c`, `codecs`, `hex` and `bin`, returning the
+/// JSON text `body` assigns to `out`.
+fn crypto_on_ops(body: &str) -> Value {
+    let mut e = k_server::Engine::new(k_server::EngineOptions {
+        timeout: Some(Duration::from_secs(60)),
+        ..Default::default()
+    })
+    .expect("an isolate");
+    let code = format!(
+        "import * as c from \"k:/runtime/crypto.js\";\n\
+         import {{ codecs }} from \"k:runtime\";\n\
+         c.useOps(Deno.core.ops);\n\
+         const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, \"0\")).join(\"\");\n\
+         const bin = (h) => Uint8Array.from(h.match(/../g) ?? [], (x) => parseInt(x, 16));\n\
+         let out = null;\n\
+         {body}\n\
+         Deno.core.ops.op_k_set_result(JSON.stringify(out));\n"
+    );
+    let text = e.run_main(&code).expect("runs").expect("a result");
+    serde_json::from_str(&text).expect("JSON")
+}
+
+/// `k.crypto` in real Chrome (33-crypto.md, "Testing"): the `subtle`
+/// backend, Web Crypto, passes the same published vectors as the server's
+/// `ops` backend (`crypto-vectors.js` over `crypto-vectors.json`: NIST
+/// AES-GCM, RFC 5869, 8032, 7748 and 9180, and a Wycheproof subset), and
+/// each side opens and verifies what the other sealed and signed on
+/// random inputs: `Sealed` under one AES key, Ed25519 and ECDSA P-256
+/// signatures, and `Envelope`s to each other's X25519 key. The runtime's
+/// files are served as they are written; the other side is an isolate of
+/// the server's runtime in this process.
+#[test]
+fn crypto_subtle_matches_the_vectors_and_the_ops_backend() {
+    let dir = Scratch::new("crypto");
+    let site = dir.0.join("site");
+    let js = repo().join("crates/k_runtime/js");
+    for sub in ["runtime", "tests"] {
+        std::fs::create_dir_all(site.join(sub)).unwrap();
+    }
+    for entry in std::fs::read_dir(js.join("runtime")).unwrap().flatten() {
+        std::fs::copy(entry.path(), site.join("runtime").join(entry.file_name())).unwrap();
+    }
+    for name in ["crypto-vectors.js", "crypto-vectors.json"] {
+        std::fs::copy(js.join("tests").join(name), site.join("tests").join(name)).unwrap();
+    }
+    std::fs::write(
+        site.join("index.html"),
+        "<!doctype html><title>crypto</title>",
+    )
+    .unwrap();
+    let host = crate::static_host::StaticHost::start(&site);
+    let mut tab = tab!(dir);
+    tab.open(&format!("http://localhost:{}/index.html", host.addr.port()));
+    let prelude = "const c = await import('/runtime/crypto.js'); \
+                   const { codecs } = await import('/runtime/std.js'); \
+                   const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join(''); \
+                   const bin = (h) => Uint8Array.from(h.match(/../g) ?? [], (x) => parseInt(x, 16));";
+
+    // The vectors, on Web Crypto.
+    let failures = tab.eval(&format!(
+        "(async () => {{ {prelude} \
+           if (c.backend() !== c.subtle) return ['the browser picked ' + c.backend().name]; \
+           const {{ checkVectors }} = await import('/tests/crypto-vectors.js'); \
+           const v = await (await fetch('/tests/crypto-vectors.json')).json(); \
+           return checkVectors(c, c.subtle, v); }})()"
+    ));
+    let failures: Vec<&str> = failures
+        .as_array()
+        .expect("a list")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "{} vector(s) failed on Web Crypto:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+
+    // The differential: one AES key both sides import, and each side's
+    // own signing and agreement keys.
+    let aes = "8f0e5d2c7b1a4f3e9d8c7b6a5f4e3d2c1b0a99887766554433221100ffeeddcc";
+    let browser = tab.eval(&format!(
+        "(async () => {{ {prelude} \
+           globalThis.$keys = {{ aes: await c.subtle.fromRaw('AesGcmKey', bin('{aes}'), false), \
+             ed: await c.Ed25519PrivateKey$generate(null), ec: await c.EcdsaP256PrivateKey$generate(null), \
+             x: await c.X25519PrivateKey$generate(null) }}; \
+           return {{ x: c.X25519PrivateKey$publicKey($keys.x) }}; }})()"
+    ));
+    let browser_x = browser["x"]
+        .as_str()
+        .expect("the browser's X25519 key")
+        .to_owned();
+    // The server's half: seals, signs and seals to the browser.
+    let produce = |rand: &str| {
+        format!(
+            "const items = []; \
+             for (let i = 0; i < {CRYPTO_ROUNDS}; i++) {{ \
+               const msg = {rand}(i % 257); const ctx = {rand}(i % 7); \
+               items.push({{ msg: hex(msg), ctx: hex(ctx), \
+                 sealed: await c.AesGcmKey$seal(keys.aes, null, codecs.bytes, msg, ctx), \
+                 ed: await c.Ed25519PrivateKey$sign(keys.ed, null, msg), \
+                 ec: await c.EcdsaP256PrivateKey$sign(keys.ec, null, msg), \
+                 env: await c.X25519PublicKey$seal(peerX, null, codecs.bytes, msg, ctx) }}); }}"
+        )
+    };
+    // The checks of the other side's items: the number that failed.
+    let consume = "let failed = []; \
+         for (const [i, t] of theirs.items.entries()) { \
+           const msg = bin(t.msg); const ctx = bin(t.ctx); \
+           try { \
+             if (hex(await c.AesGcmKey$open(keys.aes, null, codecs.bytes, t.sealed, ctx)) !== t.msg) failed.push(i + ' sealed'); \
+             if (!(await c.Ed25519PublicKey$verify(theirs.ed, null, t.ed, msg))) failed.push(i + ' ed25519'); \
+             if (!(await c.EcdsaP256PublicKey$verify(theirs.ec, null, t.ec, msg))) failed.push(i + ' ecdsa'); \
+             if (hex(await c.X25519PrivateKey$open(keys.x, null, codecs.bytes, t.env, ctx)) !== t.msg) failed.push(i + ' envelope'); \
+           } catch (e) { failed.push(i + ' threw ' + JSON.stringify(e?.message ?? e)); } }";
+    let server = crypto_on_ops(&format!(
+        "const keys = {{ aes: c.ops.fromRaw('AesGcmKey', bin('{aes}'), false), ed: c.TestKeys.ed25519(1), \
+           ec: c.TestKeys.ecdsaP256(1), x: c.TestKeys.x25519(1) }}; \
+         const peerX = {browser_x:?}; \
+         {} \
+         out = {{ ed: c.Ed25519PrivateKey$publicKey(keys.ed), ec: c.EcdsaP256PrivateKey$publicKey(keys.ec), \
+           x: c.X25519PrivateKey$publicKey(keys.x), items }};",
+        produce("c.random")
+    ));
+    // The browser opens and verifies the server's, and makes its own.
+    let browser = tab.eval(&format!(
+        "(async () => {{ {prelude} \
+           const keys = $keys; const theirs = {server}; const peerX = theirs.x; \
+           const random = (n) => crypto.getRandomValues(new Uint8Array(n)); \
+           {consume} \
+           {} \
+           return {{ failed, ed: c.Ed25519PrivateKey$publicKey(keys.ed), ec: c.EcdsaP256PrivateKey$publicKey(keys.ec), items }}; }})()",
+        produce("random")
+    ));
+    let failed = browser["failed"].as_array().expect("a list");
+    assert!(
+        failed.is_empty(),
+        "the browser couldn't open or verify {} of the server's values: {failed:?}",
+        failed.len()
+    );
+    // The server opens and verifies the browser's.
+    let theirs =
+        serde_json::json!({ "ed": browser["ed"], "ec": browser["ec"], "items": browser["items"] });
+    let server = crypto_on_ops(&format!(
+        "const keys = {{ aes: c.ops.fromRaw('AesGcmKey', bin('{aes}'), false), x: c.TestKeys.x25519(1) }}; \
+         const theirs = {theirs}; \
+         {consume} \
+         out = failed;"
+    ));
+    let failed = server.as_array().expect("a list");
+    assert!(
+        failed.is_empty(),
+        "the server couldn't open or verify {} of the browser's values: {failed:?}",
+        failed.len()
+    );
+    drop(tab);
+    drop(host);
+}

@@ -1265,6 +1265,25 @@ fn test_copies_and_shares_through_the_clipboard_and_share_doubles() {
 }
 
 #[test]
+fn test_seals_signs_and_unwraps_with_the_key_types() {
+    // `k.crypto`'s key types in `k test` (33-crypto.md, "Testing"): a
+    // passphrase vault with fast test salts, `OpenError` from a wrong
+    // passphrase or a moved ciphertext, randomness seeded from the test's
+    // name (a sealed value that is the same on every run), `TestKeys`,
+    // `Secret<K>`'s forwarded operations, envelopes and key agreement.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sealing");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("12 passed; 0 failed"), "{text}");
+    assert!(
+        text.contains("PASS  Vault › randomness repeats in every run of a test"),
+        "{text}"
+    );
+}
+
+#[test]
 fn test_locates_through_the_geolocation_double() {
     // `Geolocation` against `TestGeolocation` (45-web-platform.md): the
     // prompt from a click, reads that never prompt, a refused or blocked

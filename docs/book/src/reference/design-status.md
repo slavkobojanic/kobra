@@ -21,6 +21,12 @@ with a Planned note naming the feature's id, and this table is generated from th
 | `dist/app` reporting `[package] version` in its logs and metrics | `app-version` | [Project layout](../getting-started/project-layout.md#ktoml) |
 | A warning when a `GET` or `HEAD` handler that uses the session signs in, signs out or writes | `safe-method-lint` | [Authentication and sessions](../apps/auth.md#request-forgery) |
 | A warning when a field named `password`, or a `Secret`, is logged | `password-log-lint` | [Authentication and sessions](../apps/auth.md#passwords), [Bytes and cryptography](../apps/crypto.md#passwords) |
+| JWK and PEM import and export of `k.crypto`'s keys (`parse(jwk:)`, `parse(pem:)`, `exportJwk()`, `exportPem()`), `Exportable<K>.parse`, `RsaPublicKey` and `k keys new` | `crypto-key-formats` | [Bytes and cryptography](../apps/crypto.md#whats-next) |
+| Key types as `ConfigValue`s, read from configuration, and the fix that wraps a bare private key field in `Secret<K>` | `crypto-config-keys` | [Bytes and cryptography](../apps/crypto.md#keys-held-as-secret) |
+| JWT verification and signing, JWS and JWK sets, with the algorithm taken from the key's type | `jwt` | [Bytes and cryptography](../apps/crypto.md#whats-next) |
+| `KeyStore`, keeping non-extractable keys in the browser's IndexedDB, and `MemoryKeyStore` in tests | `key-store` | [Bytes and cryptography](../apps/crypto.md#whats-next) |
+| The notes example's private vault, end-to-end encrypted with `AesGcmKey` and a passphrase | `notes-vault` | [Bytes and cryptography](../apps/crypto.md#whats-next) |
+| `WebPush`: Web Push with VAPID and payload encryption, without a third-party account | `web-push` | [Bytes and cryptography](../apps/crypto.md#whats-next) |
 | Rejecting a call to a job's `run` outside the worker and tests | `job-run-check` | [Background jobs](../apps/jobs.md#jobs) |
 | Metrics and tracing in `k.observe` (OpenTelemetry), such as a dead-job count | `observe-metrics` | [Channels](../apps/channels.md#seeing-what-channels-do), [Background jobs](../apps/jobs.md#retries-and-dead-jobs) |
 | State-preserving hot module replacement in `k dev` | `hmr` | [Your first app](../getting-started/first-app.md#running-it), [Everyday commands](../getting-started/commands.md#k-dev), [Reactivity](../apps/reactivity.md#why-explicit-annotations) |

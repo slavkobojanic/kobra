@@ -1,7 +1,8 @@
 //! Runs the runtime's JavaScript unit tests (`crates/k_runtime/js/tests/*.test.js`)
 //! inside V8, one cargo test per registered JS test, each in a fresh isolate
 //! (`docs/compiler/testing.md`, "Runtime JS tests"). A JSON fixture next to
-//! them, `name.json`, is importable as `k:/tests/name.json.js`.
+//! them, `name.json`, is importable as `k:/tests/name.json.js`, and a helper
+//! module, `name.js` (not `.test.js`), as `k:/tests/name.js`.
 //!
 //! ```text
 //! cargo test -p k_server --test runtime_js                 # every JS test
@@ -71,7 +72,8 @@ fn engine(file: &str, source: &str, compact_runtime: bool) -> Result<Engine, Str
 
 /// The JSON fixtures next to the test files (`channel-frames.json`, the
 /// golden vectors shared with `k_server`'s tests), each as a module
-/// `k:/tests/<name>.json.js` whose default export is the parsed value.
+/// `k:/tests/<name>.json.js` whose default export is the parsed value, and
+/// the helper modules (`crypto-vectors.js`) as themselves.
 ///
 /// # Errors
 ///
@@ -83,6 +85,15 @@ fn fixtures() -> Result<Vec<JsModule>, String> {
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
+        if name.ends_with(".js") && !name.ends_with(".test.js") {
+            // A helper the tests share with another driver (the real-Chrome
+            // test runs `crypto-vectors.js` too), importable as itself.
+            out.push(JsModule {
+                specifier: format!("k:/tests/{name}"),
+                source: fs::read_to_string(&path).map_err(|e| e.to_string())?,
+            });
+            continue;
+        }
         if !name.ends_with(".json") {
             continue;
         }

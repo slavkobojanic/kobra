@@ -29,7 +29,7 @@ Import each declaration by name, for example `import k.http.DecodingError`.
 ## DecodingError
 
 ```k,ignore
-public enum DecodingError implements Error, Codable
+public enum DecodingError implements Error, Codable, Equatable
 ```
 
 Why decoding JSON into a [`Codable`](k-core.md#codable) type failed.
