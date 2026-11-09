@@ -19,13 +19,12 @@ order: a step uses only what the steps before it explained. If you haven't built
 | 4 | [Make it look right](04-style.md) | a theme, classes, a dark variant | `theme`, tokens, scoped styles, variants |
 | 5 | [Save books on the server](05-server.md) | a database table, a protocol, a service | `entity`, `repository`, migrations, `protocol`, `rpc`, `service … implements`, `do` and `catch` |
 | 6 | [Load books from the server](06-load.md) | loading and failure states, reloading after adding | `@Load`, `loading` and `failed`, `match` on typed errors, `reload()` |
-| 7 | A page per book | `/books/:id`, with notes and a rating | page parameters, links, `routes.lock` |
-| 8 | Accounts | sign up, sign in, each person's own shelf | `k.auth`, sessions, `requires`, guards |
-| 9 | Test it | tests of the server and the whole app | `k.test`, fakes, testing remote calls |
-| 10 | Ship it | `k build`, configuration, the database, `dist/app` | `config`, secrets, `schema.lock`, deployment |
+| 7 | [A page per book](07-routing.md) | `/books/{id}`, with notes and a rating, a second migration | `@Param`, `at`, `link(to:)`, `routes.lock`, errors of your own |
+| 8 | [Accounts](08-accounts.md) | sign up, sign in, each person's own shelf | `k.auth`, sessions, `requires`, guards, `@SignInPage` |
+| 9 | [Test it](09-testing.md) | tests of the failure states, the server's rules, the forms and the whole server | fakes, `use … for …`, `testing` modules, `expect throws`, `TestClient` |
+| 10 | [Ship it](10-ship.md) | a setting, `k build`, `dist/app` with its own database | `config`, `@Env`, secrets, `schema.lock`, deployment |
 
-Steps 1 to 6 are written. The pages for the later steps come next; until then, the guides listed at the
-end of step 6 pick up from there.
+All ten steps are written.
 
 ## Following along
 

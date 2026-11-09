@@ -66,7 +66,7 @@ mod suite;
 mod ui;
 mod view;
 
-pub use lockfiles::{project_diagnostics, routes_lock, schema_lock};
+pub use lockfiles::{project_diagnostics, routes_lock, schema_diagnostics, schema_lock};
 pub use migration::{
     MigrationDraft, MigrationError, MigrationPlan, MigrationRequest, plan_migration,
     plan_migration_with, record_rename,

@@ -325,6 +325,6 @@ In this step you:
 
 ## Next
 
-- [Tutorial: build Shelf](index.md): what the rest of the tutorial covers.
+- [7. A page per book](07-routing.md): a page for each book, with notes and a rating.
 - [Async data loading](../../apps/async-data.md) covers `@Load`, `loading`, `failed` and `reload()` in
   full, and [Errors](../../language/errors.md) covers errors and `match`.

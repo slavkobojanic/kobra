@@ -15,6 +15,10 @@
     - [4. Make it look right](learn/tutorial/04-style.md)
     - [5. Save books on the server](learn/tutorial/05-server.md)
     - [6. Load books from the server](learn/tutorial/06-load.md)
+    - [7. A page per book](learn/tutorial/07-routing.md)
+    - [8. Accounts](learn/tutorial/08-accounts.md)
+    - [9. Test it](learn/tutorial/09-testing.md)
+    - [10. Ship it](learn/tutorial/10-ship.md)
 
 # Getting started
 

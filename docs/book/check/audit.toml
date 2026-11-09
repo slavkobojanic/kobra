@@ -21,7 +21,7 @@ unpinned = [
 [pages."learn/tutorial/index.md"]
 commit = "8f94734"
 date = "2026-11-09"
-note = "new in round 1(b); written against the working tree on top of 8f94734, every command and output taken from running `k` on examples/learn/shelf and a fresh `k new shelf`"
+note = "new in round 1(b); written against the working tree on top of 8f94734, every command and output taken from running `k` on examples/learn/shelf and a fresh `k new shelf`; the step table and its links updated on top of feadf33, when steps 7–10 were written"
 
 [pages."learn/tutorial/01-create.md"]
 commit = "8f94734"
@@ -78,6 +78,50 @@ unpinned = [
     "the `k check` output and diagnostics shown (command transcripts aren't checked yet)",
     "a server-rendered first page arrives with the books loaded, so `loading` isn't seen on opening the page",
     "with DevTools set to Offline, adding a book shows the step-5 message and keeps the fields",
+]
+
+[pages."learn/tutorial/07-routing.md"]
+commit = "feadf33"
+date = "2026-11-09"
+note = "new in round 1(b); written against the working tree on top of feadf33, every command and output taken from running `k` and `dist/app` on examples/learn/shelf"
+unpinned = [
+    "the `k migrate new`, `k routes`, `k build` and `k check` output and diagnostics shown (command transcripts aren't checked yet)",
+    "`k dev` reports the two missing columns as `the project has 2 error(s)` and keeps serving, then applies 0002 once it is written",
+    "following a title link loads the book's page in the browser, without a full page load",
+    "a URL whose id isn't a UUID answers 404 (checked with curl against `k dev`)",
+]
+
+[pages."learn/tutorial/08-accounts.md"]
+commit = "feadf33"
+date = "2026-11-09"
+note = "new in round 1(b); written against the working tree on top of feadf33, every command and output taken from running `k` and `dist/app` on examples/learn/shelf"
+unpinned = [
+    "the `k migrate new` and `k check` output and diagnostics shown (command transcripts aren't checked yet)",
+    "`/` signed out redirects to `/sign-in`, and a book's page to `/sign-in?returnTo=…` (checked with curl against `k dev`)",
+    "signing in after the redirect lands on the refused page",
+    "a field added to a table with rows needs a default or an optional type (K8004's message)",
+]
+
+[pages."learn/tutorial/09-testing.md"]
+commit = "feadf33"
+date = "2026-11-09"
+note = "new in round 1(b); written against the working tree on top of feadf33, every command and output taken from running `k` and `dist/app` on examples/learn/shelf"
+unpinned = [
+    "the `k check` and `k test --filter` output and diagnostics shown (command transcripts aren't checked yet)",
+    "a protocol handler can't throw `rpcFailure` (K5506), so the fake is of `BookService`",
+    "`k test --watch` reruns the affected tests on save (from `k test --help`)",
+]
+
+[pages."learn/tutorial/10-ship.md"]
+commit = "feadf33"
+date = "2026-11-09"
+note = "new in round 1(b); written against the working tree on top of feadf33, every command and output taken from running `k` and `dist/app` on examples/learn/shelf"
+unpinned = [
+    "the `k build`, `k check`, `dist/app config` and `dist/app` output shown (command transcripts aren't checked yet)",
+    "`dist/app` exits 78 on invalid configuration and stops on Ctrl-C",
+    "`k dev` rebuilds when `.env` changes, and then refuses sign-ups with `SHELF_SIGN_UPS=false`",
+    "`dist/app probe` exits 0 when the page answers",
+    "an `https` K_PUBLIC_ORIGIN makes the session cookie Secure (from the auth guide)",
 ]
 
 [pages."introduction.md"]

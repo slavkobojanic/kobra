@@ -31,8 +31,9 @@ it rebuilds, and when the build has errors it says how many and keeps serving th
   links and kept in `.k/mail/`.
 
 - **On a change** `k dev` rebuilds and restarts the server on the same port. A build with errors is
-  reported and the last good build keeps serving. A restart drops in-memory state; sessions and data
-  are in the development database and survive it. Open streams end at once, and the page subscribes
+  reported and the last good build keeps serving. An entity without its migration counts as an error
+  here, as it does in `k check`, so the app is never served without its tables. A restart drops
+  in-memory state; sessions and data are in the development database and survive it. Open streams end at once, and the page subscribes
   again.
 - **At a workspace root** `k dev` builds and serves every app member, each on its own port (`8080`,
   `8081`, … in dependency order), wires each `remote` rule to the sibling that serves it, and prefixes

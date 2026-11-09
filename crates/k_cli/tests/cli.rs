@@ -519,6 +519,97 @@ fn dev_rebuilds_on_change_and_keeps_the_last_good_build_on_errors() {
     let _ = status;
 }
 
+/// An entity with no migration is an error to `k dev` as it is to
+/// `k check` (K8004): the rebuild is reported like any other error, and the
+/// last good build keeps serving, rather than serving an app whose table
+/// doesn't exist.
+#[test]
+fn dev_reports_an_entity_without_a_migration() {
+    use std::io::BufRead;
+    let dir = TempDir::new("dev_migration");
+    write(
+        &dir.0,
+        "k.toml",
+        "[package]\nname = \"hello\"\nk = \"0.1\"\n",
+    );
+    write(&dir.0, "App.k", DEV_APP);
+    write(&dir.0, "src/home/Home.k", &dev_page("Version one"));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
+        .args(["dev", "--port", "0"])
+        .current_dir(&dir.0)
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let reader = std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stderr).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let mut log = Vec::new();
+    let mut port = None;
+    while let Ok(line) = rx.recv_timeout(std::time::Duration::from_secs(120)) {
+        log.push(line.clone());
+        if let Some(rest) = line.strip_prefix("serving on http://localhost:") {
+            port = rest.trim().parse::<u16>().ok();
+            break;
+        }
+    }
+    let port = port.unwrap_or_else(|| panic!("k dev did not start: {log:?}"));
+    assert!(wait_for(port, "/home", "Version one"), "first build serves");
+
+    // The entity and the edit to the page land in one rebuild.
+    write(
+        &dir.0,
+        "src/home/Note.k",
+        "import k.crypto.Uuid\n\npublic entity Note {\n    @Id let id: Uuid\n}\n",
+    );
+    write(&dir.0, "src/home/Home.k", &dev_page("Version two"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let mut reported = false;
+    let mut kept = false;
+    while std::time::Instant::now() < deadline {
+        match rx.recv_timeout(std::time::Duration::from_millis(200)) {
+            Ok(line) => {
+                reported |= line.contains("the project has 1 error(s)");
+                kept |= reported && line.contains("the last good build keeps serving");
+                log.push(line);
+                if kept {
+                    break;
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    assert!(
+        reported && kept,
+        "the missing migration is reported: {log:?}"
+    );
+    assert!(
+        get(port, "/home").is_some_and(|r| r.contains("Version one")),
+        "the last good build keeps serving"
+    );
+
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-TERM", &child.id().to_string()])
+            .status();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    drop(rx);
+    let _ = reader.join();
+}
+
 /// `k dev` names the `.env` keys the process environment shadows, before it
 /// serves (25-config-and-secrets.md, "Per environment"): only the keys set
 /// in both with different values, never a value.

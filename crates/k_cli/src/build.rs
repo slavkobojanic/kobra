@@ -23,7 +23,7 @@ use crate::{sources, workspace};
 /// [`workspace::load_member`] and [`compile_member`].
 fn compile(project: &Path, options: &Options, command: &str) -> Result<Output, ExitCode> {
     let (loaded, member) = workspace::load_member(project, command)?;
-    compile_member(&loaded, member, project, options).map(|(o, _)| o)
+    compile_member(&loaded, member, project, options, false).map(|(o, _)| o)
 }
 
 /// The lockfiles a build writes, by file name, with the text each
@@ -48,7 +48,11 @@ fn locks(analysis: &k_sema::Analysis) -> Locks {
 }
 
 /// Generates member `m`'s bundles, shown as `project`; also returns the
-/// lockfiles its program implies ([`locks`]).
+/// lockfiles its program implies ([`locks`]). With `serve` (`k dev` and
+/// `k run`), the `schema.lock` errors `k check` reports
+/// ([`k_codegen::schema_diagnostics`], such as an entity with no
+/// migration) count as the project's errors too, so a build whose tables
+/// don't exist is never served.
 ///
 /// # Errors
 ///
@@ -59,10 +63,26 @@ fn compile_member(
     m: usize,
     project: &Path,
     options: &Options,
+    serve: bool,
 ) -> Result<(Output, Locks), ExitCode> {
     let host = loaded.host(m);
     let analysis = host.analysis();
-    match generate(&analysis, options) {
+    // Checked before generating, whose own error for a column the
+    // migrations don't create would otherwise come first.
+    let unmigrated = if serve {
+        k_codegen::schema_diagnostics(&analysis)
+            .iter()
+            .filter(|d| d.is_error())
+            .count()
+    } else {
+        0
+    };
+    let generated = if unmigrated > 0 {
+        Err(CodegenError::HasErrors { count: unmigrated })
+    } else {
+        generate(&analysis, options)
+    };
+    match generated {
         Ok(output) if output.server_entry.is_none() && !output.manifest.static_only => {
             eprintln!(
                 "error: `{}` is a library: it has no `app` to build or run",
@@ -132,7 +152,7 @@ pub fn build(args: &BuildArgs) -> ExitCode {
                 continue;
             }
             let dir = loaded.member_dir(m);
-            let (output, lock) = match compile_member(&loaded, m, &dir, &options) {
+            let (output, lock) = match compile_member(&loaded, m, &dir, &options, false) {
                 Ok(o) => o,
                 Err(code) => return code,
             };
@@ -156,7 +176,7 @@ pub fn build(args: &BuildArgs) -> ExitCode {
         }
         return ExitCode::SUCCESS;
     };
-    let (output, lock) = match compile_member(&loaded, member, &args.project, &options) {
+    let (output, lock) = match compile_member(&loaded, member, &args.project, &options, false) {
         Ok(o) => o,
         Err(code) => return code,
     };
@@ -745,7 +765,7 @@ fn serve_dev(args: &RunArgs, watch: bool) -> ExitCode {
         } else {
             args.project.clone()
         };
-        let output = match compile_member(&loaded, m, &dir, &options) {
+        let output = match compile_member(&loaded, m, &dir, &options, true) {
             Ok((o, _)) => o,
             Err(code) => return code,
         };
@@ -917,7 +937,7 @@ fn serve_dev(args: &RunArgs, watch: bool) -> ExitCode {
             };
             let mut outputs = Vec::new();
             for app in &running {
-                match compile_member(&next, app.member, &app.dir, &options) {
+                match compile_member(&next, app.member, &app.dir, &options, true) {
                     Ok((o, _)) => outputs.push(o),
                     Err(_) => break,
                 }

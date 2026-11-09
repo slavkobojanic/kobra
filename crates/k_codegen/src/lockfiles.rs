@@ -70,6 +70,23 @@ pub fn project_diagnostics(analysis: &k_sema::Analysis) -> Vec<Diagnostic> {
     out
 }
 
+/// The `schema.lock` part of [`project_diagnostics`]: what `k dev` and
+/// `k run` refuse to serve, since a build whose entities the migrations
+/// don't produce fails at its first query. `routes.lock` problems are left
+/// out, as the next `k build` records a renamed page's redirect.
+#[must_use]
+pub fn schema_diagnostics(analysis: &k_sema::Analysis) -> Vec<Diagnostic> {
+    let Ok(Some(view)) = checked_app(analysis) else {
+        return Vec::new();
+    };
+    let options = Options::default();
+    let g = Gen::new(analysis, view, &options);
+    let mut out = Vec::new();
+    schema(&g, &mut out);
+    out.sort_by_key(|d| (d.span, d.code));
+    out
+}
+
 /// The program view of an app without errors, `None` for a library or a
 /// program with errors.
 ///
