@@ -22,13 +22,17 @@
 #   crates/k_runtime/js/tests/**
 #       -> k_server's runtime_js suite and k_runtime's tests (the JS test
 #          files are read from disk, not compiled into the runtime).
-#   crates/<c>/tests/<name>.rs (a test target's root)
-#       -> that test binary.
-#   crates/<c>/tests/** (support files, fixtures, golden files)
-#       -> every test binary of <c>, and any test binary of another crate
-#          that includes the file with `#[path = …]`.
+#   crates/<c>/tests/<name>.rs (a module of <c>'s test binary `it`, or the
+#   root of a binary of its own such as tests/corpus.rs)
+#       -> that module's tests (`binary_id(=<c>::it) & test(/^<name>::/)`),
+#          or that test binary. tests/main.rs -> all of <c>::it.
+#   crates/<c>/tests/**/*.rs (support modules)
+#       -> the test modules, in any crate, that use them: through a
+#          `#[path = …]` include or `crate::<module>` / `super::<module>`.
+#   crates/<c>/tests/** (fixtures, golden files, unused support)
+#       -> every test binary of <c>.
 #   examples/**, docs/book/**, docs/**, tests/<dir>/**, editors/**
-#       -> the test binaries (and unit tests) whose source has a string
+#       -> the test modules (and unit tests) whose source has a string
 #          literal naming that directory: "examples", "book", "docs",
 #          "<dir>" (e.g. "corpus", "e2e"), "editors". The literal scan is
 #          what keeps the choice current as tests are added.
@@ -164,6 +168,58 @@ def includes(path, depth=0):
         found.extend(includes(f, depth + 1))
     return found
 
+MOD_DECL = re.compile(r'((?:#\[[^\]\n]*\]\s*)*)\bmod\s+(\w+)\s*;')
+CRATE_REF = re.compile(r'\b(?:crate|super)::(\w+)')
+
+def scan(files):
+    lits, code = set(), []
+    for f in files:
+        lines = code_lines(f)
+        code.extend(lines)
+        lits.update(literals(lines))
+    return lits, "\n".join(code)
+
+def modules_of(main):
+    """A test binary root (tests/main.rs): its test modules, as name -> file,
+    and its support modules (declared with #[path]), as name -> file."""
+    tests, support = {}, {}
+    text = "\n".join(code_lines(main))
+    d = os.path.dirname(main)
+    for attrs, name in MOD_DECL.findall(text):
+        m = PATH_ATTR.search(attrs)
+        if m:
+            f = os.path.normpath(os.path.join(d, m.group(1)))
+            # A directory-rooted former test binary (tests/<name>/main.rs) is a
+            # test module; anything else declared with #[path] is support.
+            (tests if f == os.path.join(d, name, "main.rs") else support)[name] = f
+        else:
+            for f in (os.path.join(d, name + ".rs"), os.path.join(d, name, "mod.rs")):
+                if os.path.isfile(f):
+                    (support if name == "common" else tests)[name] = f
+                    break
+    return tests, support
+
+def with_support(files, support):
+    """`files` plus the support modules they reach through `crate::name` or
+    `super::name` (support modules reach each other with `super::`), with
+    whatever those include with #[path]."""
+    out, todo = set(files), list(files)
+    while todo:
+        f = todo.pop()
+        for name in CRATE_REF.findall("\n".join(code_lines(f))):
+            s = support.get(name)
+            if s and s not in out:
+                out.add(s)
+                todo.append(s)
+                for inc in includes(s):
+                    if inc not in out:
+                        out.add(inc)
+                        todo.append(inc)
+    return out
+
+# A target is a test binary, a lib or bin's unit tests, or one module of a
+# crate's `it` binary (docs/design/13-tooling.md, "One test binary per
+# crate"): `<pkg>::it/<module>`, selected with a test-name prefix.
 targets = {}
 for name, p in pkgs.items():
     for t in p["targets"]:
@@ -171,20 +227,26 @@ for name, p in pkgs.items():
         if kind not in ("lib", "bin", "test", "proc-macro"):
             continue
         src = t["src_path"]
+        if kind == "test" and t["name"] == "it":
+            tests, support = modules_of(src)
+            for mod, f in tests.items():
+                files = with_support([f] + includes(f), support)
+                lits, code = scan(files)
+                targets[f"{name}::it/{mod}"] = dict(
+                    pkg=name, kind=kind, root=os.path.relpath(f, root),
+                    files={os.path.relpath(x, root) for x in files}, lits=lits, code=code,
+                    binary=f"{name}::it", module=mod)
+            continue
         files = [src] + includes(src)
         if kind in ("lib", "bin", "proc-macro"):
             # Unit tests live anywhere under src/.
             src_dir = os.path.join(os.path.dirname(p["manifest_path"]), "src")
             files = [os.path.join(d, f) for d, _, fs in os.walk(src_dir) for f in fs if f.endswith(".rs")]
         rel = {os.path.relpath(f, root) for f in files}
-        lits, code = set(), []
-        for f in files:
-            lines = code_lines(f)
-            code.extend(lines)
-            lits.update(literals(lines))
+        lits, code = scan(files)
         targets[nextest_id(name, t)] = dict(
             pkg=name, kind=kind, root=os.path.relpath(src, root), files=rel, lits=lits,
-            code="\n".join(code))
+            code=code, binary=nextest_id(name, t), module=None)
 
 # Directories reached through a helper rather than a literal path.
 HELPERS = {"corpus": re.compile(r"\bcorpus_root\s*\(")}
@@ -233,14 +295,21 @@ for f in changed:
             if roots:
                 some.update(roots)
                 reasons.append(f"{f}: test root -> {', '.join(roots)}")
+            elif f == os.path.join(pkg_dir[pkg], "tests", "main.rs"):
+                own = sorted(tid for tid, t in targets.items() if t["binary"] == f"{pkg}::it")
+                some.update(own)
+                reasons.append(f"{f}: the root of {pkg}::it -> all of {pkg}::it")
+            elif users and f.endswith(".rs"):
+                some.update(users)
+                reasons.append(f"{f}: test support -> the tests that use it: {', '.join(users)}")
             else:
                 own = sorted(tid for tid, t in targets.items() if t["pkg"] == pkg and t["kind"] == "test")
                 some.update(own)
                 reasons.append(f"{f}: test support/fixture -> every test binary of {pkg}")
-            other = [u for u in users if targets[u]["pkg"] != pkg]
-            if other:
-                some.update(other)
-                reasons.append(f"{f}: included with #[path] by {', '.join(other)}")
+                other = [u for u in users if targets[u]["pkg"] != pkg]
+                if other:
+                    some.update(other)
+                    reasons.append(f"{f}: included with #[path] by {', '.join(other)}")
         elif rel.startswith("benches/"):
             reasons.append(f"{f}: a benchmark -> nothing (scripts/bench-check.sh)")
         else:
@@ -280,7 +349,15 @@ if not full:
     some = {s for s in some if s in targets and targets[s]["pkg"] not in whole_pkgs}
     packages = sorted(whole_pkgs | {targets[s]["pkg"] for s in some})
     parts = [f"package(={p})" for p in sorted(whole_pkgs)]
-    parts += [f"binary_id(={s})" for s in sorted(some)]
+    by_binary = defaultdict(list)    # binary id -> modules of `it` (None: all of it)
+    for s in sorted(some):
+        by_binary[targets[s]["binary"]].append(targets[s]["module"])
+    for b, mods in sorted(by_binary.items()):
+        every = {t["module"] for t in targets.values() if t["binary"] == b}
+        if None in mods or set(mods) == every:
+            parts.append(f"binary_id(={b})")
+        else:
+            parts.append(f"(binary_id(={b}) & test(/^({'|'.join(mods)})::/))")
     selected_in = sorted(
         b for b in IN_PROCESS
         if b.split("::")[0] in whole_pkgs or b in some

@@ -22,8 +22,7 @@ use std::time::{Duration, Instant};
 /// shop refuses to start without one, and these tests never sign in.
 const UNUSABLE_ADMIN_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
-#[path = "support/static_host.rs"]
-mod static_host;
+use crate::static_host;
 
 fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")

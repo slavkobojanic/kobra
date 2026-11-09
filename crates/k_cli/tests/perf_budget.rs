@@ -8,7 +8,7 @@
 //! Ignored by default; run in release, one test at a time:
 //!
 //! ```text
-//! cargo test --release -p k_cli --test perf_budget -- --ignored --nocapture --test-threads 1
+//! cargo test --release -p k_cli --test it -- perf_budget:: --ignored --nocapture --test-threads 1
 //! # or: scripts/bench-check.sh --app
 //! ```
 //!
@@ -71,7 +71,7 @@ fn require_release() {
     if cfg!(debug_assertions) {
         panic!(
             "the performance budget check must run in an optimized build: \
-             cargo test --release -p k_cli --test perf_budget -- --ignored"
+             cargo test --release -p k_cli --test it -- perf_budget:: --ignored"
         );
     }
 }

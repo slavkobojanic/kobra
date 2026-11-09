@@ -18,8 +18,7 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-#[path = "support/mdbook.rs"]
-mod mdbook;
+use crate::mdbook;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;

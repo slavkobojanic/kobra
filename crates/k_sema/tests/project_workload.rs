@@ -9,8 +9,7 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-#[path = "../benches/project/mod.rs"]
-mod project;
+use crate::project;
 
 use k_sema::{AnalysisHost, Change, Options, ProjectPath};
 use project::{File, Pathological};

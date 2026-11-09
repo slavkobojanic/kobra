@@ -76,7 +76,7 @@ theme/k.css                  small style additions
 
 ## Every K sample compiles
 
-`cargo test -p k_sema --test book` extracts every fenced block tagged `k` from `src/` and checks it with
+`cargo test -p k_sema --test it -- book::` extracts every fenced block tagged `k` from `src/` and checks it with
 the same analysis `k check` runs. A block passes when it reports no error. The rules
 (`crates/k_sema/tests/book.rs` has the details):
 
@@ -105,14 +105,14 @@ the same analysis `k check` runs. A block passes when it reports no error. The r
 
 ## Prose checks
 
-The book's prose is checked too, by `cargo test -p k_sema --test book --test book_links` and
-`cargo test -p k_cli --test book_commands --test version`:
+The book's prose is checked too, by `cargo test -p k_sema --test it -- book:: book_links::` and
+`cargo test -p k_cli --test it -- book_commands:: version::`:
 
 - every relative link and `#anchor` resolves (in `docs/design` and `docs/compiler` as well), and a
   chapter links only inside the book;
 - every `> **Planned** (id).` note names a planned row of `k_sema::features`, and every planned row is
   named by a note. The Planned table of `reference/design-status.md` is generated from the notes:
-  `K_BLESS=1 cargo test -p k_sema --test book` rewrites it;
+  `K_BLESS=1 cargo test -p k_sema --test it -- book::` rewrites it;
 - no pattern of `check/stale.txt` (one regular expression per line, then ` # ` and the reason) occurs in
   prose or in `text`, `bash`, `console` and `toml` blocks. When a change makes a phrase false or removes
   syntax, add the old form there;
@@ -129,7 +129,7 @@ The book's prose is checked too, by `cargo test -p k_sema --test book --test boo
 ## Generated reference pages
 
 `src/reference/diagnostics.md` and `src/reference/stdlib/*.md` are generated, and
-`cargo test -p k_corpus --test book_reference` fails when they are out of date:
+`cargo test -p k_corpus --test it` fails when they are out of date:
 
 - the diagnostics page from the code registry (`crates/k_diagnostics/src/codes.rs`), an example per code
   from the golden corpus (`tests/corpus`) with the compiler's actual output, and the fixes in
@@ -139,7 +139,7 @@ The book's prose is checked too, by `cargo test -p k_sema --test book --test boo
 Regenerate both after changing any of their sources:
 
 ```sh
-K_BLESS=1 cargo test -p k_corpus --test book_reference
+K_BLESS=1 cargo test -p k_corpus --test it
 ```
 
 A new stdlib module also needs an entry in `src/SUMMARY.md`; the test says which.

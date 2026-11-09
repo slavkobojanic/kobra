@@ -19,7 +19,7 @@
 //! serves it, and the tab loads `index.html`, which the client renders.
 //!
 //! ```text
-//! cargo test -p k_cli --test dist_browser
+//! cargo test -p k_cli --test it -- dist_browser::
 //! ```
 
 // The helpers below fail the calling test with a message.
@@ -41,8 +41,7 @@ const UNUSABLE_ADMIN_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb2
 
 const SIM: &str = include_str!("../../k_server/tests/browser/sim.js");
 
-#[path = "support/static_host.rs"]
-mod static_host;
+use crate::static_host;
 
 fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")

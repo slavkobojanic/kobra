@@ -1,5 +1,8 @@
 [package]
 name = "k_syntax"
+# Integration tests are modules of tests/main.rs (one binary, `it`), not one
+# binary per file: docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
 description = "Tokens, lexer, parser and the lossless syntax tree of the K language."
 version.workspace = true
 edition.workspace = true
@@ -14,6 +17,10 @@ rowan.workspace = true
 criterion.workspace = true
 proptest.workspace = true
 arbitrary.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
 
 [[bench]]
 name = "syntax"

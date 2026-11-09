@@ -669,7 +669,7 @@ Assets are served from memory by the Rust front: `GET`/`HEAD` of `/assets/<hashe
 | Trivial RPC throughput | ≥ 30,000 req/s on 8 cores | 124,000 req/s on 14 cores (budget scaled: 52,500); generated rpc 126,000 req/s |
 | SSR of a 1,000-node page | ≤ 3 ms | 0.16 ms p50, 0.21 ms p99 for the whole round trip (a page with a load and 500 two-element rows) |
 
-Run `cargo test --release -p k_server --test perf_budget -- --ignored --nocapture --test-threads 1`;
+Run `cargo test --release -p k_server --test it -- perf_budget:: --ignored --nocapture --test-threads 1`;
 method and history in [performance.md §11](performance.md#11-stage-3-runtime-and-server).
 
 ---

@@ -32,18 +32,12 @@
 
 #![allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
 
-#[path = "support/codablegen.rs"]
-mod codablegen;
-#[path = "support/coracle.rs"]
-mod coracle;
-#[path = "support/exprgen.rs"]
-mod exprgen;
-#[path = "support/horacle.rs"]
-mod horacle;
-#[path = "../../k_sema/tests/support/tgen.rs"]
-mod tgen;
-#[path = "support/viewgen.rs"]
-mod viewgen;
+use crate::codablegen;
+use crate::coracle;
+use crate::exprgen;
+use crate::horacle;
+use crate::tgen;
+use crate::viewgen;
 
 use std::time::Duration;
 

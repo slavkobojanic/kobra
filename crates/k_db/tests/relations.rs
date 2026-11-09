@@ -3,7 +3,7 @@
 //! and `.including { … }` as one extra query per relation (never one per
 //! row), on every available database.
 
-mod common;
+use crate::common;
 
 use common::{
     eq, finish, id_list, ids, note_select, run, seeded, sorted_ids, table_count, text, uuid,

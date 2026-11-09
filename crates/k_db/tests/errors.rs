@@ -3,7 +3,7 @@
 //! other failure as a non-domain error (a panic in K), messages that never
 //! leak passwords or bound values, and no driver panics on bad input.
 
-mod common;
+use crate::common;
 
 use common::{finish, migrated, run, schema, text, uuid};
 use k_db::ir::{Operand, Statement};

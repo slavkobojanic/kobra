@@ -11,10 +11,7 @@
 
 #![allow(clippy::unwrap_used, clippy::panic, missing_docs)]
 
-#[path = "../../k_syntax/tests/support/kgen.rs"]
-mod kgen;
-#[path = "support/soracle.rs"]
-mod soracle;
+use crate::soracle;
 
 use std::fs;
 use std::path::{Path, PathBuf};

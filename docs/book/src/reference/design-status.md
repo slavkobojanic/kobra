@@ -10,7 +10,7 @@ ambiguities" section records the syntactic decisions the design leaves open.
 The design includes these, but the first compiler releases don't. Each page that mentions one marks it
 with a Planned note naming the feature's id, and this table is generated from those notes:
 
-<!-- gen:planned: generated from the book's Planned notes and k_sema::features; regenerate with K_BLESS=1 cargo test -p k_sema --test book -->
+<!-- gen:planned: generated from the book's Planned notes and k_sema::features; regenerate with K_BLESS=1 cargo test -p k_sema --test it -- book:: -->
 | Feature | Id | Where it's described |
 |---|---|---|
 | `k new --library`, the library package skeleton | `k-new-library` | [Project layout](../getting-started/project-layout.md#creating-a-project), [Packages](../apps/packages.md#writing-a-package), [The k command](cli.md#projects) |

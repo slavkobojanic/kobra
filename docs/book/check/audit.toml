@@ -2,7 +2,7 @@
 #
 # One entry per page of SUMMARY.md: the commit the page was last read against, every prose claim
 # checked against the compiler, CLI, stdlib and runtime; the date; and the claims that are true but no
-# test pins (`unpinned`). `cargo test -p k_sema --test book_links` fails when a SUMMARY page has no
+# test pins (`unpinned`). `cargo test -p k_sema --test it -- book_links::` fails when a SUMMARY page has no
 # entry, or an entry names a page SUMMARY doesn't list. `note` says why an entry is special.
 #
 # Round 1(a) audited 0dd7625 together with the working tree it had on 2026-11-09 (not yet committed),

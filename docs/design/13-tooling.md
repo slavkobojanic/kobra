@@ -192,7 +192,7 @@ Errors are structured and machine-readable, with quick fixes that agents can app
 
 - **nextest, pinned** (`cargo install cargo-nextest --version 0.9.111 --locked`; `.config/nextest.toml` names
   the minimum). Every test is a process and every binary runs at once, so the run takes as long as the slowest
-  lane, not the sum of ~90 binaries run one after another. Hangs fail after 2 minutes (5 in the `ci`
+  lane, not the sum of the binaries run one after another. Hangs fail after 2 minutes (5 in the `ci`
   profile); there are no retries.
 - **Three suites stay in-process** (the golden corpus, the runtime's JS tests, the execution corpus): they have
   thousands of tiny cases, and a process per case would cost ~900 CPU-seconds against 6 s. nextest's default
@@ -208,9 +208,19 @@ Errors are structured and machine-readable, with quick fixes that agents can app
   re-check across the examples, the corpus robustness sweep), ports are reserved across processes, and
   `QUICK=1` lowers property-test case counts for local iteration only (CI refuses it).
 - **Affected tests are chosen from the change**: a crate's source selects it and its reverse dependencies from
-  `cargo metadata`; a test file selects its binary; `examples/`, `docs/`, `editors/` and `tests/<dir>/` select
+  `cargo metadata`; a test file selects its module of the crate's `it` binary (and a support file the
+  modules that use it); `examples/`, `docs/`, `editors/` and `tests/<dir>/` select
   the tests whose code names that directory in a string literal. The script prints each choice and its reason.
 - **One target directory per concurrent agent.** Cargo builds one command at a time per target directory;
   agents sharing `target/` spent most of a 37-minute run waiting on each other's builds.
-- **Later:** merge each crate's integration tests into one binary (~90 binaries to ~10) when the repository is
-  quiet; it saves links, macOS's first-run checks and disk, but moves every test.
+- **One test binary per crate** (`it`, rooted at `crates/<crate>/tests/main.rs`, `autotests = false`): each
+  former test file is a module of it, so tests are named `<file>::<test>` and run with `cargo test -p <crate>
+  --test it -- <file>::` or nextest's `binary_id(=<crate>::it) & test(/^<file>::/)`. The files stay where they
+  were, so paths in the docs, `#[path]` includes and proptest regression files are unchanged; shared support
+  modules are declared once in `tests/main.rs`. Only the suites with their own harness (`harness = false`: the
+  golden corpus, the runtime's JS tests, the execution corpus, the e2e scripts) keep binaries of their own.
+  This took the workspace from 87 integration-test executables to 14 and their size from 2.3 GB to 0.7 GB,
+  with the same 5647 tests (and 46 doc tests) and the same run time (the run was already as long as its slowest lane); it saves
+  links, macOS's first-run checks and disk. `scripts/test.sh` refuses to run when a `tests/*.rs` file is in
+  no binary. Chosen over `tests/it/*.rs` (moving the files) because nothing outside `Cargo.toml` and
+  `tests/main.rs` had to change paths.

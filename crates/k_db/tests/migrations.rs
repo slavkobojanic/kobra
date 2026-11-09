@@ -3,7 +3,7 @@
 //! `k_migrations`, rollback of a failing migration, diverged histories and
 //! concurrent starters, on every available database.
 
-mod common;
+use crate::common;
 
 use common::{
     create_migration, databases, finish, init_migration, note_table, raw_migration, table_count,

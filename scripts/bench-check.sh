@@ -2,7 +2,8 @@
 # Checks the toolchain and the built product against their performance
 # budgets.
 #
-# Runs the ignored `perf_budget` tests of each area in an optimized build,
+# Runs the ignored `perf_budget` tests of each area (the `perf_budget`
+# module of each crate's test binary `it`) in an optimized build,
 # one test at a time so measurements do not compete for cores:
 #
 #   syntax   crates/k_syntax/tests/perf_budget.rs   lexer and parser
@@ -69,39 +70,41 @@ selected() {
 }
 
 budget() {
-    # $1: package, $2: test target, rest: extra libtest arguments.
-    local package="$1" target="$2"
-    shift 2
-    cargo test --release -p "$package" --test "$target" -- \
+    # $1: package, rest: libtest arguments (by default the `perf_budget`
+    # module of the package's test binary `it`).
+    local package="$1"
+    shift
+    [ $# -eq 0 ] && set -- perf_budget::
+    cargo test --release -p "$package" --test it -- \
         --ignored --nocapture --test-threads=1 "$@"
 }
 
 status=0
 if selected syntax; then
-    budget k_syntax perf_budget || status=1
+    budget k_syntax || status=1
 fi
 if selected sema; then
-    budget k_sema perf_budget --skip memory_of_ || status=1
-    budget k_sema perf_budget --exact memory_of_a_warm_100k_line_project || status=1
+    budget k_sema perf_budget:: --skip memory_of_ || status=1
+    budget k_sema --exact perf_budget::memory_of_a_warm_100k_line_project || status=1
 fi
 if selected codegen; then
-    budget k_codegen perf_budget || status=1
+    budget k_codegen || status=1
 fi
 if selected runtime; then
     # Not ignored: the size budgets are part of the normal test suite too.
-    cargo test --release -p k_runtime --test runtime -- --nocapture size_budget || status=1
+    cargo test --release -p k_runtime --test it -- --nocapture size_budget || status=1
 fi
 if selected server; then
-    budget k_server perf_budget || status=1
+    budget k_server || status=1
 fi
 if selected db; then
-    budget k_db perf_budget || status=1
+    budget k_db || status=1
 fi
 if selected app; then
-    budget k_cli perf_budget || status=1
+    budget k_cli || status=1
 fi
 if selected lsp; then
-    budget k_lsp perf_budget || status=1
+    budget k_lsp || status=1
 fi
 
 if [ "$criterion" = 1 ]; then

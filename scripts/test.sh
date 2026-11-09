@@ -113,6 +113,24 @@ if [ $DOC_SET = 0 ]; then
     if [ ${#PACKAGES[@]} -gt 0 ]; then DOC="${PACKAGES[*]}"; else DOC="all"; fi
 fi
 
+# Each crate's integration tests are modules of one binary, tests/main.rs
+# (`autotests = false`; docs/design/13-tooling.md, "One test binary per
+# crate"), so a test file that is neither a module of it nor a [[test]] of
+# its own would never be compiled. Refuse to run without it.
+orphans=""
+for f in crates/*/tests/*.rs; do
+    dir="${f%/tests/*}"
+    stem="$(basename "$f" .rs)"
+    [ "$stem" = main ] && continue
+    grep -Eq "^(pub )?mod $stem;" "$dir/tests/main.rs" 2>/dev/null && continue
+    grep -q "^path = \"tests/$stem.rs\"" "$dir/Cargo.toml" && continue
+    orphans="$orphans $f"
+done
+if [ -n "$orphans" ]; then
+    echo "scripts/test.sh: not compiled into any test binary (add \`mod <name>;\` to tests/main.rs):$orphans" >&2
+    exit 2
+fi
+
 # ---------------------------------------------------------------------------
 # 1. Build every test binary once.
 # ---------------------------------------------------------------------------

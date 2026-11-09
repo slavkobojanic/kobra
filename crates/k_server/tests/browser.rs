@@ -12,7 +12,7 @@
 //! again on hydration, and the DOM after each interaction.
 //!
 //! ```text
-//! cargo test -p k_server --test browser
+//! cargo test -p k_server --test it -- browser::
 //! ```
 
 // The helpers below fail the calling test with a message.

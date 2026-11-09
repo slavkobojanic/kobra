@@ -20,12 +20,9 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-#[allow(dead_code, missing_docs, unused_qualifications)]
-#[path = "../src/cli.rs"]
-mod cli;
+use crate::cli_support as cli;
 
-#[path = "../../k_sema/tests/support/mdbook.rs"]
-mod mdbook;
+use crate::mdbook;
 
 use clap::Parser;
 use clap::error::ErrorKind;

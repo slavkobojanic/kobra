@@ -226,7 +226,7 @@ A release is made only from a commit on which all of these passed. The pipeline 
 | formatting and lints | `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` | yes | yes | yes |
 | full test suite, which includes the book's snippets (`k_sema/tests/book.rs`), the generated references (`k_corpus/tests/book_reference.rs`) and the examples' check, build and tests | `cargo test --workspace` | Linux, macOS arm64 | every target | every target |
 | on Postgres | `K_TEST_POSTGRES_URL=… cargo test -p k_db -p k_server` | Linux | Linux | Linux |
-| real Chrome | `K_REQUIRE_CHROME=1 cargo test -p k_cli --test chrome --test dist_browser` | Linux | Linux | Linux, macOS |
+| real Chrome | `K_REQUIRE_CHROME=1 cargo test -p k_cli --test it -- chrome:: dist_browser::` | Linux | Linux | Linux, macOS |
 | long property runs | `PROPTEST_CASES=…` on the property suites | no | yes | the nightly's result for this commit, or a run |
 | fuzzing | each target of `fuzz/` for 10 minutes; the committed corpus replayed at release | no | yes | corpus replay |
 | performance budgets | `scripts/bench-check.sh` | no | on the dedicated runner | on the dedicated runner |

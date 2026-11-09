@@ -205,7 +205,7 @@ the admin guard, a session shared by the replicas and the sign-in rate limit, an
 local kind cluster: Postgres as a StatefulSet, Mailpit, paybox and two shop pods with probes, a migration
 Job per app, Secrets created from `secrets/` by a script, and an Ingress (or `kubectl port-forward`).
 
-`cargo test -p k_cli --test deploy` checks, without Docker or a cluster, that `docker-compose.yml` and the
+`cargo test -p k_cli --test it -- deploy::` checks, without Docker or a cluster, that `docker-compose.yml` and the
 Kubernetes manifests give every container each variable its `dist/app config` lists, every secret as a
 mounted file, and the two services' tokens in the right pairs.
 

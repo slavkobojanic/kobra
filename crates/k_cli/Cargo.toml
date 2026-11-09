@@ -1,5 +1,8 @@
 [package]
 name = "k_cli"
+# Integration tests are modules of tests/main.rs (one binary, `it`), not one
+# binary per file: docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
 description = "The `k` command-line tool: compiler, test runner and development server of the K language."
 version.workspace = true
 edition.workspace = true
@@ -47,6 +50,10 @@ sourcemap.workspace = true
 # compiler-only `k` without V8, for fast compiler development.
 default = ["server"]
 server = ["dep:k_server", "dep:tokio"]
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
 
 [lints]
 workspace = true

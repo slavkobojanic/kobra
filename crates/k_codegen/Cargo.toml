@@ -1,5 +1,8 @@
 [package]
 name = "k_codegen"
+# Integration tests are modules of tests/main.rs (one binary, `it`), not one
+# binary per file: docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
 description = "JavaScript and CSS code generation for K, with the client/server bundle split."
 version.workspace = true
 edition.workspace = true
@@ -35,6 +38,10 @@ sourcemap.workspace = true
 flate2.workspace = true
 criterion.workspace = true
 proptest.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
 
 [[bench]]
 name = "codegen"

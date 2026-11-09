@@ -24,7 +24,7 @@ Contents:
 | Kind | Where | What it checks |
 |---|---|---|
 | Unit | `#[cfg(test)] mod tests` inside each source file | One function or type in isolation |
-| Integration | `crates/<crate>/tests/*.rs` | A crate's public API |
+| Integration | `crates/<crate>/tests/*.rs`, modules of the crate's one test binary `it` (`tests/main.rs`, §2.4) | A crate's public API |
 | Golden corpus | `tests/corpus/<suite>/**/*.k` + expectation files | Exact output of a compiler stage for a K source |
 | Property | `crates/<crate>/tests/properties.rs`, `invariants.rs` | Invariants over generated inputs (proptest) |
 | Differential | `crates/k_server/tests/differential.rs`, `crates/k_db/tests/sql_properties.rs`, `crates/k_codegen/tests/persistence_properties.rs`, `crates/k_server/tests/literals.rs` | Generated programs compiled and run in V8 agree with a reference, across builds and between server and client rendering; SQL never holds a value (§5.6); the compiler's checked-literal parsers (`k_sema::literals`) give exactly what the runtime's `parseEmail`, `parseUrl` and `parseUuid` give, on fixed and generated inputs |
@@ -61,29 +61,29 @@ cargo test -p k_corpus --test corpus            # the whole golden corpus
 cargo test -p k_corpus --test corpus -- lexer/  # corpus cases whose name contains "lexer/"
 cargo test -p k_corpus --test corpus -- --exact lexer/strings/escapes.k
 K_BLESS=1 cargo test -p k_corpus --test corpus  # rewrite expectations from actual output
-cargo test -p k_syntax --test properties        # property tests (shared oracle, see §5)
-cargo test -p k_syntax --test invariants        # the original minimal invariants
-cargo test -p k_sema --test properties          # semantic property tests (soracle, typed generator; §5.5)
-PROPTEST_CASES=3000 cargo test --release -p k_sema --test properties   # longer semantic run
-PROPTEST_CASES=20000 cargo test -p k_syntax --test properties   # longer property run
-cargo test -p k_server --test differential      # stage 3 differential properties (§5.6)
-PROPTEST_CASES=500 cargo test -p k_server --test differential -- --test-threads=4   # longer run
-cargo test -p k_db --test sql_properties        # SQL never interpolates, SQLite equals the reference
-cargo test -p k_codegen --test persistence_properties   # repository SQL never holds a constant
-K_STRESS_CASES=100000 cargo test -p k_syntax --test robustness  # longer random stress run
+cargo test -p k_syntax --test it -- properties::        # property tests (shared oracle, see §5)
+cargo test -p k_syntax --test it -- invariants::        # the original minimal invariants
+cargo test -p k_sema --test it -- properties::          # semantic property tests (soracle, typed generator; §5.5)
+PROPTEST_CASES=3000 cargo test --release -p k_sema --test it -- properties::   # longer semantic run
+PROPTEST_CASES=20000 cargo test -p k_syntax --test it -- properties::   # longer property run
+cargo test -p k_server --test it -- differential::      # stage 3 differential properties (§5.6)
+PROPTEST_CASES=500 cargo test -p k_server --test it -- differential:: --test-threads=4   # longer run
+cargo test -p k_db --test it -- sql_properties::        # SQL never interpolates, SQLite equals the reference
+cargo test -p k_codegen --test it -- persistence_properties::   # repository SQL never holds a constant
+K_STRESS_CASES=100000 cargo test -p k_syntax --test it -- robustness::  # longer random stress run
 cargo test -p k_corpus --test corpus -- codegen/   # the codegen golden suite (§3.9)
 cargo test -p k_server --test corpus_run        # the execution corpus, in V8 (§3.10)
 cargo test -p k_server --test runtime_js        # the runtime's JS unit tests, in V8 (§4.1)
-cargo test -p k_server --test client_bundle     # generated client bundles running in V8
-cargo test -p k_server --test cancellation      # generated pages stop their async work when left
+cargo test -p k_server --test it -- client_bundle::     # generated client bundles running in V8
+cargo test -p k_server --test it -- cancellation::      # generated pages stop their async work when left
 cargo test -p k_db                              # database tests on SQLite (§4.2)
 K_TEST_POSTGRES_URL=postgres://u:pw@127.0.0.1:5432/k_test cargo test -p k_db   # and on Postgres
 cargo test -p k_server --test e2e               # server end-to-end request scripts (§8.2)
 cargo test -p k_server --test e2e -- db/        # the database corpus (§3.11); with K_TEST_POSTGRES_URL also on Postgres
-cargo test -p k_cli --test examples             # the example apps built and served (§8.1)
-cargo test -p k_server --test regressions        # adversarial findings in generated apps, pinned (§7)
-cargo test --release -p k_db --test perf_budget -- --ignored --nocapture --test-threads 1
-cargo test --release -p k_server --test perf_budget -- --ignored --nocapture --test-threads 1
+cargo test -p k_cli --test it -- examples::             # the example apps built and served (§8.1)
+cargo test -p k_server --test it -- regressions::        # adversarial findings in generated apps, pinned (§7)
+cargo test --release -p k_db --test it -- perf_budget:: --ignored --nocapture --test-threads 1
+cargo test --release -p k_server --test it -- perf_budget:: --ignored --nocapture --test-threads 1
 cargo +nightly fuzz run parse                   # fuzzing (see §6)
 cargo bench -p k_syntax                         # benchmarks (see §9)
 cargo clippy --workspace --all-targets          # must be clean
@@ -109,7 +109,7 @@ scripts/test.sh -p k_sema        # one package (its in-process suites and doc te
 scripts/test.sh -E 'test(warm)'  # a nextest filterset on top
 QUICK=1 scripts/test.sh          # PROPTEST_CASES=16, K_STRESS_CASES=500 (not allowed with --ci)
 scripts/test.sh --ci             # nextest's `ci` profile: longer limits, JUnit in target/nextest/ci/junit.xml
-cargo nextest run -p k_server --test differential   # nextest directly (see the default filter below)
+cargo nextest run -p k_server --test it differential::   # nextest directly (see the default filter below)
 ```
 
 `scripts/test.sh` builds every test binary once, then runs three lanes at the same time and prints how long
@@ -162,7 +162,7 @@ time it runs (syspolicyd, about 0.7 s each, one at a time): 60–130 s for the f
 binary was relinked (the in-process corpus, which runs in 0.6 s, once waited 127 s to start), and about as
 much in a serial `cargo test`. Adding the terminal (or the app that runs the agents)
 under System Settings → Privacy & Security → Developer Tools exempts the processes it starts. `scripts/test.sh`
-can't avoid it; fewer test binaries would (§2.4).
+can't avoid it; fewer test binaries make it shorter, which is one reason each crate has one (§2.4).
 
 ### 2.2 Affected tests
 
@@ -182,9 +182,10 @@ It lists the changed files, maps each to tests, prints every choice with its rea
 | `Cargo.toml`, `Cargo.lock`, `.cargo/`, `.config/`, `rust-toolchain*`, `clippy.toml`, `rustfmt.toml` | everything |
 | `crates/<c>/src/**`, `Cargo.toml`, `build.rs`, `js/**` | every test of `<c>` and of every crate depending on it (`cargo metadata`; a dev-dependency adds the dependent's tests but goes no further), and their doc tests |
 | `crates/k_runtime/js/tests/**` | `k_server::runtime_js` and `k_runtime`'s tests (the JS test files are read from disk) |
-| `crates/<c>/tests/<name>.rs`, a test target's root | that test binary |
-| other files under `crates/<c>/tests/` | every test binary of `<c>`, and any other crate's test that includes the file with `#[path]` |
-| `examples/**`, `docs/book/**`, `docs/**`, `editors/**`, `tests/<dir>/**` | the test binaries and unit tests whose code has a string literal naming that directory (`"examples"`, `"book"`, `"docs"`, `"editors"`, `"corpus"`, `"e2e"`; `corpus_root()` counts for `tests/corpus`) |
+| `crates/<c>/tests/<name>.rs`, a module of `<c>::it` | that module's tests: `binary_id(=<c>::it) & test(/^<name>::/)`; for `tests/main.rs`, all of `<c>::it`; for a binary of its own (`tests/corpus.rs`), that binary |
+| other `.rs` files under `crates/<c>/tests/` (support modules) | the test modules, in any crate, that use them: through `#[path]`, or `crate::<module>` / `super::<module>` for the support modules `tests/main.rs` declares |
+| other files under `crates/<c>/tests/` (fixtures, golden files) | every test binary of `<c>` |
+| `examples/**`, `docs/book/**`, `docs/**`, `editors/**`, `tests/<dir>/**` | the test modules and unit tests whose code has a string literal naming that directory (`"examples"`, `"book"`, `"docs"`, `"editors"`, `"corpus"`, `"e2e"`; `corpus_root()` counts for `tests/corpus`) |
 | anything else | nothing, and it says so |
 
 The literal scan keeps the choice current as tests are added: a new test that reads `examples/` is picked up
@@ -192,7 +193,7 @@ by naming the directory as code does today. A test that finds its files some oth
 script's `HELPERS`.
 
 **The rule for agents:** run `scripts/affected-tests.sh` (with `QUICK=1` while iterating, without before
-reporting), not `cargo test --workspace`. Run a single binary with `cargo nextest run -p <crate> --test <name>`
+reporting), not `cargo test --workspace`. Run one test file with `cargo nextest run -p <crate> --test it <name>::`
 while working on it. The full `scripts/test.sh` is for changes to the workspace configuration, which the
 script turns into a full run anyway, and for CI.
 
@@ -213,16 +214,44 @@ A full debug target is about 8–10 GB (dependencies included). Remove an agent'
 `target/` itself had grown to 100 GB and about 950 000 files in `target/debug/deps`, which `cargo clean` (when
 no one is building) resets.
 
-### 2.4 Later: fewer test binaries
+### 2.4 One test binary per crate
 
-The suite has about 90 test binaries, a third of them linking V8. Each costs a link (under a second), a
-first-run check on macOS (§2.1), a `--list` per nextest run, and its own copy of the dependencies' code in
-memory. Merging each crate's integration tests into one binary (`tests/it/main.rs` with a module per current
-file, as `k_server/tests/regressions/` already is) would cut that to about 10 binaries: an estimated 50 s less
-on a relinked run on macOS, a few seconds less listing per nextest run, and most of the 3 GB the test
-executables take in the target directory. It
-changes every test's path (`k_server::e2e` becomes `k_server::it e2e::…`) and the commands in this document,
-so it waits for a quiet moment in the repository.
+Each crate's integration tests are one test binary, `it`, whose root is `crates/<crate>/tests/main.rs`: every
+`tests/<name>.rs` is a module of it (`mod <name>;`), so a test's full name is `<name>::<test>` and nextest's id
+is `<crate>::it <name>::<test>`. The files stay where they were, so `#[path]` includes, `include_str!`, the
+`.proptest-regressions` files next to them and every path in these documents are unchanged. Support modules
+used by more than one file (`support/*.rs`, `common/`, the benchmark workloads) are declared once in
+`tests/main.rs` and used as `crate::<module>`; a file can't be compiled twice into one binary.
+
+Each `Cargo.toml` sets `autotests = false` and names `it`, so a new `tests/<name>.rs` needs a `mod <name>;` in
+`tests/main.rs`. `scripts/test.sh` refuses to run while one doesn't have it. The suites with a harness of
+their own (`harness = false`: `k_corpus::corpus`, `k_server::runtime_js`, `k_server::corpus_run`,
+`k_server::e2e`) stay binaries of their own.
+
+```sh
+cargo test -p k_sema --test it                    # every integration test of k_sema
+cargo test -p k_sema --test it -- book::          # one file's tests (libtest: a name filter)
+cargo test -p k_sema --test it -- book:: warm::   # two files (filters are alternatives)
+cargo nextest run -p k_sema --test it book::      # the same with nextest
+cargo nextest run -E 'binary_id(=k_sema::it) & test(/^book::/)'
+```
+
+A stack overflow aborts the process it happens in, so under `cargo test` it takes the rest of `it` with it;
+nextest, the normal runner, runs every test in a process of its own.
+
+Measured on the 14-core development Mac, warm build, other agents building at the same time:
+
+| | ~90 binaries | One per crate |
+|---|---|---|
+| Test executables (integration + unit) | 87 + 10 | 14 + 10 |
+| Their size in `target/debug/deps` | 2.29 GB | 0.70 GB |
+| `scripts/test.sh` (warm build) | 25.1 s | 26.3 s |
+| Tests (nextest and in-process, ignored ones included; doc tests apart) | 5647 | 5647 |
+
+The run takes as long as before: nextest already ran every binary at once, and the slowest lane (Chrome,
+the property tests) sets its length. What it saves is a link per binary after a change at the bottom of the
+graph, macOS's first-run check per new executable (§2.1), a `--list` per binary on every nextest run, and
+1.6 GB of disk per target directory.
 
 ---
 
@@ -707,7 +736,8 @@ and `renameColumn`). Ids are chosen by the client so later exchanges can refer t
 - **Unit tests** live in a `#[cfg(test)] mod tests` at the bottom of the file they test. Name tests after
   the behavior: `offsets_past_end_are_clamped`, not `test_line_index_3`.
 - **Integration tests** live in `crates/<crate>/tests/*.rs` and use only the public API. Start each file
-  with a `//!` comment saying what it covers.
+  with a `//!` comment saying what it covers, and add `mod <name>;` for it to the crate's `tests/main.rs`
+  (§2.4).
 - Tests may `unwrap`, `expect` and `panic` (clippy allows it in tests). Production code may not.
 - Build syntax trees by hand in unit tests with `rowan::GreenNodeBuilder` (see `crates/k_syntax/src/ast.rs`
   tests) when a test should not depend on the parser.
@@ -895,9 +925,9 @@ async fn duplicates_map_to_the_unique_field() {
 
   ```text
   docker compose --file examples/shop/docker-compose.test.yml up --detach --wait
-  DATABASE_URL=postgres://k_test@127.0.0.1:55432/k_test cargo test -p k_cli --test dist_browser -- postgres
+  DATABASE_URL=postgres://k_test@127.0.0.1:55432/k_test cargo test -p k_cli --test it -- dist_browser::shop_dist_app_places_and_pays_an_order_on_postgres
   ```
-- `K_DUMP=<example> K_DUMP_DIR=<dir> cargo test -p k_server --test browser dump` writes the generated
+- `K_DUMP=<example> K_DUMP_DIR=<dir> cargo test -p k_server --test it -- browser::dump` writes the generated
   files of an example, for debugging; `K_E2E_LOG=1` prints the server's log lines.
 
 ### 4.4 Real-browser tests
@@ -964,8 +994,8 @@ a member's `.env` watched by workspace `k dev`, the stack's ports, no server-onl
 bundle, the notes example's ignored files, the READMEs).
 
 ```text
-cargo test -p k_cli --test chrome
-K_CHROME=/path/to/chromium K_REQUIRE_CHROME=1 cargo test -p k_cli --test chrome
+cargo test -p k_cli --test it -- chrome::
+K_CHROME=/path/to/chromium K_REQUIRE_CHROME=1 cargo test -p k_cli --test it -- chrome::
 ```
 
 ### 4.5 Red tests
@@ -1075,8 +1105,8 @@ number of random inputs (default 3000).
 
 `crates/k_syntax/tests/adversarial.rs` holds regressions from adversarial testing that the corpus cannot
 express: recursion that must be bounded by the nesting limit (function-type chains, `if`/`match` nested
-in conditions) and dumps of very deep trees. It is a separate test binary because a stack overflow
-aborts the whole binary.
+in conditions) and dumps of very deep trees. Run it with nextest (a process per test): a stack overflow
+aborts the whole process, which under `cargo test` is all of `k_syntax::it`.
 
 Later stages add their own property files: code generation and execution are §5.6; the formatter
 (deferred) will state that formatting is idempotent.
@@ -1246,9 +1276,9 @@ a second, and `persistence_properties` 48 analyses in about a second. Two ignore
 
 ```sh
 K_REPLAY_DIR=path/to/project K_REPLAY_ENTRY=calc.main K_DIFF_DUMP=1 \
-  cargo test -p k_server --test differential -- --ignored replay_program --nocapture
+  cargo test -p k_server --test it -- --ignored differential::replay_program --nocapture
 K_REPLAY_VIEW=path/to/Generated.k K_REPLAY_PROPS='[{"title":"a","count":0,"isOn":true,"items":[]},{…}]' \
-  K_DIFF_DUMP=1 cargo test -p k_server --test differential -- --ignored replay_view
+  K_DIFF_DUMP=1 cargo test -p k_server --test it -- --ignored differential::replay_view
 ```
 
 `K_DIFF_DUMP=1` prints the release build's modules (`replay_program`) or every module of the view case.

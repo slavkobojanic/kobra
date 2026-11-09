@@ -31,10 +31,8 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-#[path = "support/kgen.rs"]
-mod kgen;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::kgen;
+use crate::oracle;
 
 use arbitrary::Unstructured;
 use k_syntax::{lex, parse};

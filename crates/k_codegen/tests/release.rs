@@ -468,7 +468,7 @@ fn every_app_ships_within_its_gzip_budget() {
 /// What linking and minifying cost (`docs/compiler/performance.md`
 /// §11.7): each app generated with the development and the release
 /// profile, best of 5. Run in release:
-/// `cargo test --release -p k_codegen --test release -- --ignored --nocapture`.
+/// `cargo test --release -p k_codegen --test it -- release:: --ignored --nocapture`.
 #[test]
 #[ignore = "timing; run in release with --ignored --nocapture"]
 fn release_generation_time() {

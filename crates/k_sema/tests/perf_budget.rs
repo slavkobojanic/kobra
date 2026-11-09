@@ -10,7 +10,7 @@
 //! ```sh
 //! scripts/bench-check.sh
 //! # or, equivalently:
-//! cargo test --release -p k_sema --test perf_budget -- --ignored --nocapture --test-threads=1
+//! cargo test --release -p k_sema --test it -- perf_budget:: --ignored --nocapture --test-threads=1
 //! ```
 //!
 //! # Method
@@ -56,8 +56,7 @@
 
 #![allow(clippy::unwrap_used, clippy::panic, clippy::print_stdout)]
 
-#[path = "../benches/project/mod.rs"]
-mod project;
+use crate::project;
 
 use std::hint::black_box;
 use std::num::NonZeroUsize;
@@ -111,7 +110,7 @@ fn require_release() {
     if cfg!(debug_assertions) {
         panic!(
             "the performance budget check must run in an optimized build: \
-             cargo test --release -p k_sema --test perf_budget -- --ignored"
+             cargo test --release -p k_sema --test it -- perf_budget:: --ignored"
         );
     }
 }

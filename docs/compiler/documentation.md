@@ -9,13 +9,13 @@ people changing the tests and generators. Items marked **Planned** aren't built.
 | Check | Where | Regenerate |
 |---|---|---|
 | Every ` ```k ` block compiles (`ignore`, `fails=`, `standalone`, hidden `~` lines, project files, excerpts) | `crates/k_sema/tests/book.rs` | — |
-| The diagnostics page matches the code registry, the corpus examples and `check/diagnostic-fixes.txt` | `crates/k_corpus/tests/book_reference.rs` | `K_BLESS=1 cargo test -p k_corpus --test book_reference` |
+| The diagnostics page matches the code registry, the corpus examples and `check/diagnostic-fixes.txt` | `crates/k_corpus/tests/book_reference.rs` | `K_BLESS=1 cargo test -p k_corpus --test it` |
 | One page per stdlib module from `///` comments, each listed in `SUMMARY.md` | same | same |
 | `mdbook build docs/book` is warning-free; a missing chapter fails (`create-missing = false`) | run by hand | — |
 | `{{k_version}}` is replaced with the toolchain's minor (`0.1`) before a block is checked | `crates/k_sema/tests/book.rs` | — |
 | Links and anchors in `docs/book`, `docs/design`, `docs/compiler` resolve; a chapter's link stays inside the book; `[output.html.redirect]` targets are pages | `crates/k_sema/tests/book_links.rs` | — |
 | `Planned (id)` / `Preview (id)` notes name rows of `k_sema::features` (`crates/k_sema/src/features.rs`) with the same status; every planned row is named by a note | `book.rs` | — |
-| The Planned table of `reference/design-status.md` is generated from the notes, between `<!-- gen:planned … -->` and `<!-- /gen -->` | `book.rs` | `K_BLESS=1 cargo test -p k_sema --test book` |
+| The Planned table of `reference/design-status.md` is generated from the notes, between `<!-- gen:planned … -->` and `<!-- /gen -->` | `book.rs` | `K_BLESS=1 cargo test -p k_sema --test it -- book::` |
 | No `docs/book/check/stale.txt` pattern occurs in prose or in `text`, `bash`, `sh`, `console` and `toml` blocks (the diagnostics page, which shows mistakes on purpose, is skipped) | `book.rs` | — |
 | Inline code that reads as a qualified K name (`RemoteClient.at`, `k.auth.Session`) or an annotation (`@Load`) resolves in the stdlib or the annotation registry; `docs/book/check/inline-names.txt` lists deliberate non-symbols, and an entry that resolves or is unused fails | `book.rs` | — |
 | Every `k …` line in `bash`/`sh`/`console` blocks, and inline `` `k …` `` code outside Planned paragraphs, parses with `Cli::try_parse_from`; `# planned` lines must not | `crates/k_cli/tests/book_commands.rs` (includes `src/cli.rs` by path) | — |

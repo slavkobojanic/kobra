@@ -28,8 +28,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-#[path = "ports.rs"]
-mod ports;
+use super::ports;
 
 /// The ports the test suite may bind (the repository's rule for anything
 /// a test runs: 5200 to 5999).

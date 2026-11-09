@@ -401,7 +401,7 @@ cubic behaviour it had before [§10.6](#106-changes-made-while-setting-up-the-be
 
 ### 10.4 Budget status
 
-Measured with `cargo test --release -p k_sema --test perf_budget -- --ignored --test-threads=1` (what
+Measured with `cargo test --release -p k_sema --test it -- perf_budget:: --ignored --test-threads=1` (what
 `scripts/bench-check.sh` runs) on 2026-11-09, same machine as [§4](#4-budget-status), after the stage 5
 changes below (expect ±10%; memory measured alone, as `bench-check.sh` runs it).
 
@@ -576,11 +576,11 @@ Effect on the 100k-line project (budget check, best-of): cold on 1 thread 141 �
 
 ```sh
 scripts/bench-check.sh --codegen --runtime --server --db --app   # every stage 3 budget
-cargo test --release -p k_codegen --test perf_budget -- --ignored --nocapture --test-threads 1
-cargo test --release -p k_runtime --test runtime -- --nocapture size_budget
-cargo test --release -p k_server --test perf_budget -- --ignored --nocapture --test-threads 1
-cargo test --release -p k_db --test perf_budget -- --ignored --nocapture --test-threads 1
-cargo test --release -p k_cli --test perf_budget -- --ignored --nocapture --test-threads 1
+cargo test --release -p k_codegen --test it -- perf_budget:: --ignored --nocapture --test-threads 1
+cargo test --release -p k_runtime --test it -- --nocapture size_budget
+cargo test --release -p k_server --test it -- perf_budget:: --ignored --nocapture --test-threads 1
+cargo test --release -p k_db --test it -- perf_budget:: --ignored --nocapture --test-threads 1
+cargo test --release -p k_cli --test it -- perf_budget:: --ignored --nocapture --test-threads 1
 cargo bench -p k_codegen                                         # criterion: emit/*, build/*
 ```
 
@@ -804,7 +804,7 @@ natives, short CSS names and quoted keys together about 200–300 B of JavaScrip
 cut the stylesheets by 17–30% gzip (kanban 1,644 → 1,365 B, notes 913 → 728 B). The paybox apps have
 no pages, so almost the whole runtime goes.
 
-**Build time** (`release_generation_time`, `cargo test --release -p k_codegen --test release --
+**Build time** (`release_generation_time`, `cargo test --release -p k_codegen --test it -- release::
 --ignored --nocapture`; best of 5, analysis included): the release profile costs 2–7 ms more than the
 development profile per example (todos 7.6 → 12.3 ms, kanban 11.4 → 18.5 ms, shop 36.6 → 43.0 ms).
 On the 100k-line project (`perf_budget`, release): codegen 367 ms, 272,000 lines/s (was 228 ms,
@@ -831,7 +831,7 @@ format quoted (encoders are, §17.3) and gains little over oxc.
 
 ```sh
 scripts/bench-check.sh --lsp
-cargo test --release -p k_lsp --test perf_budget -- --ignored --nocapture --test-threads=1
+cargo test --release -p k_lsp --test it -- perf_budget:: --ignored --nocapture --test-threads=1
 ```
 
 ### 12.2 Method

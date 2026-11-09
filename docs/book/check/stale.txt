@@ -1,5 +1,5 @@
 # Phrases that must not appear in the book's prose or in its text, bash, console and toml blocks,
-# nor in the example apps' README.md files. `k` blocks are compiled instead. Checked by `cargo test -p k_sema --test book` (no_stale_phrases).
+# nor in the example apps' README.md files. `k` blocks are compiled instead. Checked by `cargo test -p k_sema --test it -- book::` (no_stale_phrases).
 #
 # One regular expression (Rust `regex` syntax) per line, then ` # ` and why it is stale, with what to
 # write instead. When a change removes syntax or makes a claim false, add the old form here in the same

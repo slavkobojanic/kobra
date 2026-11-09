@@ -4,7 +4,7 @@
 //! value on every database, and comparisons and ordering on a column follow
 //! the K type's semantics, not the storage type's.
 
-mod common;
+use crate::common;
 
 use common::{column, create_migration, databases, finish, id_column, text, uuid};
 use k_db::ir::{CmpOp, Order, Select, Statement};

@@ -1,5 +1,8 @@
 [package]
 name = "k_db"
+# Integration tests are modules of tests/main.rs (one binary, `it`), not one
+# binary per file: docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
 description = "Persistence for K: entity schemas, query translation to SQL, migrations and the SQLite/Postgres drivers."
 version.workspace = true
 edition.workspace = true
@@ -18,6 +21,10 @@ toml.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
 proptest.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
 
 [lints]
 workspace = true

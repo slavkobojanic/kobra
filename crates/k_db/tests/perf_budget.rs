@@ -3,7 +3,7 @@
 //! the raw `rusqlite` call. Ignored by default; run in release:
 //!
 //! ```text
-//! cargo test --release -p k_db --test perf_budget -- --ignored --nocapture --test-threads 1
+//! cargo test --release -p k_db --test it -- perf_budget:: --ignored --nocapture --test-threads 1
 //! ```
 
 use std::time::{Duration, Instant};

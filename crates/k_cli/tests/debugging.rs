@@ -23,17 +23,9 @@
 
 #![allow(clippy::panic, clippy::unwrap_used)]
 
-#[path = "support/apps.rs"]
-mod apps;
-#[path = "support/cdp.rs"]
-#[allow(dead_code)]
-mod cdp;
-#[path = "support/page.rs"]
-#[allow(dead_code)]
-mod page;
-#[path = "support/static_host.rs"]
-#[allow(dead_code)]
-mod static_host;
+use crate::apps;
+use crate::cdp;
+use crate::page;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;

@@ -34,12 +34,9 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-#[path = "../../k_syntax/tests/support/kgen.rs"]
-mod kgen;
-#[path = "support/soracle.rs"]
-mod soracle;
-#[path = "support/tgen.rs"]
-mod tgen;
+use crate::kgen;
+use crate::soracle;
+use crate::tgen;
 
 use std::fs;
 use std::path::{Path, PathBuf};

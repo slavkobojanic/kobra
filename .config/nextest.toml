@@ -44,6 +44,11 @@ final-status-level = "slow"
 # about 900 CPU-seconds in all, against 6 s when each binary runs its cases
 # in-process. scripts/test.sh and scripts/affected-tests.sh run them with
 # `cargo test` next to nextest. `--ignore-default-filter` includes them.
+#
+# Every other integration test is in its crate's one test binary, `it`
+# (tests/main.rs), and a former test file is a module of it: the filters
+# below name `binary(=it)` and the module as a test-name prefix
+# (docs/design/13-tooling.md, "One test binary per crate").
 default-filter = """
 not (
     (package(k_corpus) & binary(=corpus))
@@ -53,14 +58,13 @@ not (
 """
 
 [[profile.default.overrides]]
-filter = "package(k_cli) & (binary(=chrome) | binary(=example_checks))"
+filter = "package(k_cli) & binary(=it) & test(/^(chrome|example_checks)::/)"
 test-group = "chrome"
 
 [[profile.default.overrides]]
 filter = """
-package(k_cli) & (
-    binary(=commands) | binary(=cli) | binary(=examples) | binary(=workspaces) | binary(=new)
-  | binary(=dist_browser) | binary(=deploy) | binary(=lsp)
+package(k_cli) & binary(=it) & test(
+    /^(commands|cli|examples|workspaces|new|dist_browser|deploy|lsp)::/
 )
 """
 test-group = "processes"
@@ -70,25 +74,24 @@ test-group = "processes"
 # a loaded machine; keep this list to the slowest dozen or so.
 [[profile.default.overrides]]
 filter = """
-    test(=body_edits_across_the_examples_match_fresh_checks)
-  | test(=the_grammar_agrees_with_the_lexer_on_strings_and_comments)
-  | test(=a_request_body_that_stalls_is_given_up)
-  | test(=a_connection_that_never_finishes_its_headers_is_closed)
-  | test(=every_definition_in_the_examples_is_spelled_like_its_reference)
-  | test(=every_corpus_source_analyses_without_panicking)
-  | test(=unbounded_chains_are_checked_without_overflowing)
-  | test(=random_edits_and_requests_keep_the_server_consistent)
-  | (package(k_sema) & binary(=properties))
-  | (package(k_server) & binary(=differential))
-  | (package(k_sema) & binary(=book))
-  | (package(k_server) & binary(=stage3_server) & test(/stream|subscriber/))
+    test(=warm::body_edits_across_the_examples_match_fresh_checks)
+  | test(=textmate::the_grammar_agrees_with_the_lexer_on_strings_and_comments)
+  | test(=regressions::a_request_body_that_stalls_is_given_up)
+  | test(=regressions::a_connection_that_never_finishes_its_headers_is_closed)
+  | test(=server::every_definition_in_the_examples_is_spelled_like_its_reference)
+  | test(=robustness::every_corpus_source_analyses_without_panicking)
+  | test(=robustness::unbounded_chains_are_checked_without_overflowing)
+  | test(=properties::random_edits_and_requests_keep_the_server_consistent)
+  | (package(k_sema) & binary(=it) & test(/^(properties|book)::/))
+  | (package(k_server) & binary(=it) & test(/^differential::/))
+  | (package(k_server) & binary(=it) & test(/^stage3_server::.*(stream|subscriber)/))
 """
 priority = 50
 
 # The Chrome tests are many and capped by their group, so their lane is
 # one of the longest: start it early too.
 [[profile.default.overrides]]
-filter = "package(k_cli) & binary(=chrome)"
+filter = "package(k_cli) & binary(=it) & test(/^chrome::/)"
 priority = 40
 
 # CI: the same tests with longer limits (a cold, shared runner), every

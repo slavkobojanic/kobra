@@ -1,5 +1,8 @@
 [package]
 name = "k_sema"
+# Integration tests are modules of tests/main.rs (one binary, `it`), not one
+# binary per file: docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
 description = "Semantic analysis for K: modules, name resolution, types and the language's static rules."
 version.workspace = true
 edition.workspace = true
@@ -29,6 +32,10 @@ proptest.workspace = true
 regex.workspace = true
 arbitrary.workspace = true
 criterion.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
 
 [[bench]]
 name = "sema"

@@ -3,7 +3,7 @@
 //! `update(entity)`, `delete(entity)` and the bulk `update { … }` /
 //! `delete()` on filtered queries, as IR, as SQL and on every database.
 
-mod common;
+use crate::common;
 
 use common::{
     both, eq, finish, ids, insert_notes, note_values, notes_where, rows, run, seeded, sorted_ids,

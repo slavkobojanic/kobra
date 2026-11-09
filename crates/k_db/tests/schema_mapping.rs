@@ -3,7 +3,7 @@
 //! `docs/design/19-persistence.md`, "Entities and tables"), and that the
 //! DDL actually runs on every available database.
 
-mod common;
+use crate::common;
 
 use common::{
     column, create_migration, finish, id_column, migrated, note_table, order_table, tag_table,

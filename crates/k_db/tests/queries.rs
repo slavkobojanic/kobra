@@ -7,7 +7,7 @@
 //! pin the contract between lowering, rendering and the drivers. The seed
 //! rows are listed in `common::seed_rows`.
 
-mod common;
+use crate::common;
 
 use common::{
     both, cmp, eq, finish, id_list, ids, json_list, note_select, notes_where, order, rows, seeded,

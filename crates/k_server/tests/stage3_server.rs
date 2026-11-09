@@ -18,7 +18,7 @@
 //!   `crates/k_server/tests/projects/`.
 //!
 //! ```text
-//! cargo test -p k_server --test stage3_server
+//! cargo test -p k_server --test it -- stage3_server::
 //! ```
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};

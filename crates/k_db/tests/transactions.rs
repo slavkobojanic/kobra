@@ -5,7 +5,7 @@
 //! `RELEASE`, `ROLLBACK TO`), recovering from a caught unique violation, the
 //! `k test` isolation scheme, and SQLite file databases for `k dev`.
 
-mod common;
+use crate::common;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 

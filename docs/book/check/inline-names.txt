@@ -1,6 +1,6 @@
 # Inline code that reads as a qualified K name (`Type.member`, `k.module.Declaration`) or an annotation
 # (`@Name`) but deliberately doesn't resolve in the standard library or the annotation registry.
-# Checked by `cargo test -p k_sema --test book` (inline_names_resolve); an entry that resolves, or
+# Checked by `cargo test -p k_sema --test it -- book::` (inline_names_resolve); an entry that resolves, or
 # that no page uses any more, fails the test.
 #
 # One name per line, without a call's arguments (`Type.parse` covers `Type.parse(text)`), then ` # ` and

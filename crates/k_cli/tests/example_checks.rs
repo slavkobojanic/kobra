@@ -7,20 +7,15 @@
 //! removes the `ignore` (`docs/compiler/testing.md`, "Red tests").
 //!
 //! ```text
-//! cargo test -p k_cli --test example_checks
-//! cargo test -p k_cli --test example_checks -- --ignored   # the red ones
+//! cargo test -p k_cli --test it -- example_checks::
+//! cargo test -p k_cli --test it -- example_checks:: --ignored   # the red ones
 //! ```
 
 // The helpers fail the calling test with a message.
 #![allow(clippy::panic, clippy::unwrap_used)]
 
-#[path = "support/apps.rs"]
-mod apps;
-#[path = "support/cdp.rs"]
-#[allow(dead_code)]
-mod cdp;
-#[path = "support/static_host.rs"]
-mod static_host;
+use crate::apps;
+use crate::cdp;
 
 use std::io::{Read, Write};
 use std::net::TcpStream;

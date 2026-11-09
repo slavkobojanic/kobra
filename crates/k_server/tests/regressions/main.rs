@@ -14,7 +14,7 @@
 //! with raw sockets where a script can't express the request.
 //!
 //! ```text
-//! cargo test -p k_server --test regressions
+//! cargo test -p k_server --test it -- regressions::
 //! ```
 
 use std::fs;

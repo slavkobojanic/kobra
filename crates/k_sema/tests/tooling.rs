@@ -12,8 +12,7 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-#[path = "support/tgen.rs"]
-mod tgen;
+use crate::tgen;
 
 use std::fs;
 use std::path::{Path, PathBuf};

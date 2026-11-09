@@ -13,8 +13,7 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-#[path = "../benches/workload/mod.rs"]
-mod workload;
+use crate::workload_support as workload;
 
 use k_diagnostics::FileId;
 use k_syntax::{SyntaxKind, SyntaxNode, lex, parse};

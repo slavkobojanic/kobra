@@ -6,7 +6,7 @@
 //! indexes and a referencing table in place, so a table rebuild on SQLite
 //! is shown to keep all three.
 
-mod common;
+use crate::common;
 
 use common::{databases, finish, scalar, text};
 use k_db::builder::{AlterOp, ColumnDef, Literal, Replay, SchemaOp};

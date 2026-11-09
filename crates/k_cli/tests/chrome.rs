@@ -29,24 +29,17 @@
 //! `docs/compiler/testing.md`); the fix removes the `ignore`.
 //!
 //! ```text
-//! cargo test -p k_cli --test chrome
-//! cargo test -p k_cli --test chrome -- --ignored        # the red ones
+//! cargo test -p k_cli --test it -- chrome::
+//! cargo test -p k_cli --test it -- chrome:: --ignored        # the red ones
 //! grep -n 'ignore = "red:' crates/k_cli/tests/*.rs     # what is still red
 //! ```
 
 // The helpers fail the calling test with a message.
 #![allow(clippy::panic, clippy::unwrap_used)]
 
-#[path = "support/apps.rs"]
-mod apps;
-#[path = "support/cdp.rs"]
-#[allow(dead_code)]
-mod cdp;
-#[path = "support/page.rs"]
-#[allow(dead_code)]
-mod page;
-#[path = "support/static_host.rs"]
-mod static_host;
+use crate::apps;
+use crate::cdp;
+use crate::page;
 
 use std::time::{Duration, Instant};
 

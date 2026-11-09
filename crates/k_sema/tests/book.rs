@@ -56,7 +56,7 @@
 //!   `(**Planned** id)`) names a row
 //!   of [`k_sema::features`] with that status, and the Planned table of
 //!   `reference/design-status.md` is generated from the notes
-//!   (`K_BLESS=1 cargo test -p k_sema --test book` rewrites it);
+//!   (`K_BLESS=1 cargo test -p k_sema --test it -- book::` rewrites it);
 //! * no pattern of `docs/book/check/stale.txt` occurs outside `k` blocks;
 //! * a sentence that gives a diagnostic a quick fix names its code, and a
 //!   corpus case pins that code's fix;
@@ -67,8 +67,7 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-#[path = "support/mdbook.rs"]
-mod mdbook;
+use crate::mdbook;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -420,7 +419,7 @@ fn version_placeholder_is_substituted() {
 const DESIGN_STATUS: &str = "reference/design-status.md";
 /// The markers around the generated table.
 const GEN_START: &str = "<!-- gen:planned: generated from the book's Planned notes and \
-                         k_sema::features; regenerate with K_BLESS=1 cargo test -p k_sema --test book -->";
+                         k_sema::features; regenerate with K_BLESS=1 cargo test -p k_sema --test it -- book:: -->";
 /// The end marker of a generated region.
 const GEN_END: &str = "<!-- /gen -->";
 
@@ -651,7 +650,7 @@ fn design_status_planned_table_is_current() {
     }
     panic!(
         "{DESIGN_STATUS}'s Planned table is out of date; regenerate it with\n  \
-         K_BLESS=1 cargo test -p k_sema --test book\n\nexpected:\n{generated}"
+         K_BLESS=1 cargo test -p k_sema --test it -- book::\n\nexpected:\n{generated}"
     );
 }
 

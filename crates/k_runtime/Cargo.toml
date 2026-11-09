@@ -1,5 +1,8 @@
 [package]
 name = "k_runtime"
+# Integration tests are modules of tests/main.rs (one binary, `it`), not one
+# binary per file: docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
 description = "The hand-written JavaScript runtime of K (signals, DOM renderer, hydration, router, RPC client), embedded in the k binary."
 version.workspace = true
 edition.workspace = true
@@ -10,6 +13,10 @@ publish.workspace = true
 
 [dev-dependencies]
 flate2.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
 
 [lints]
 workspace = true

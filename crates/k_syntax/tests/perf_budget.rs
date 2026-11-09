@@ -9,7 +9,7 @@
 //! ```sh
 //! scripts/bench-check.sh
 //! # or, equivalently:
-//! cargo test --release -p k_syntax --test perf_budget -- --ignored --nocapture --test-threads=1
+//! cargo test --release -p k_syntax --test it -- perf_budget:: --ignored --nocapture --test-threads=1
 //! ```
 //!
 //! # Method
@@ -46,8 +46,7 @@
 
 #![allow(clippy::unwrap_used, clippy::panic, clippy::print_stdout)]
 
-#[path = "../benches/workload/mod.rs"]
-mod workload;
+use crate::workload_support as workload;
 
 use k_diagnostics::FileId;
 use std::hint::black_box;
@@ -92,7 +91,7 @@ fn require_release() {
     if cfg!(debug_assertions) {
         panic!(
             "the performance budget check must run in an optimized build: \
-             cargo test --release -p k_syntax --test perf_budget -- --ignored"
+             cargo test --release -p k_syntax --test it -- perf_budget:: --ignored"
         );
     }
 }

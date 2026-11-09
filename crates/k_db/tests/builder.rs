@@ -3,7 +3,7 @@
 //! migration a build error, and the rendered migrations applied to every
 //! test database.
 
-mod common;
+use crate::common;
 
 use common::{databases, finish, has_column, scalar, table_count};
 use k_db::builder::{AlterOp, ColumnDef, Literal, Replay, SchemaOp};

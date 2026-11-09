@@ -1,5 +1,8 @@
 [package]
 name = "k_diagnostics"
+# Integration tests are modules of tests/main.rs (one binary, `it`), not one
+# binary per file: docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
 description = "Structured diagnostics for the K toolchain: codes, spans, labels, quick fixes and rendering."
 version.workspace = true
 edition.workspace = true
@@ -8,6 +11,10 @@ publish.workspace = true
 
 [dependencies]
 text-size.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
 
 [lints]
 workspace = true

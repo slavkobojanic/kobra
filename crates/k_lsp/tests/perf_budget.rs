@@ -7,7 +7,7 @@
 //! ```sh
 //! scripts/bench-check.sh --lsp
 //! # or, equivalently:
-//! cargo test --release -p k_lsp --test perf_budget -- --ignored --nocapture --test-threads=1
+//! cargo test --release -p k_lsp --test it -- perf_budget:: --ignored --nocapture --test-threads=1
 //! ```
 //!
 //! # Method
@@ -47,10 +47,8 @@
     clippy::expect_used
 )]
 
-#[path = "support/driver.rs"]
-mod driver;
-#[path = "../../k_sema/benches/project/mod.rs"]
-mod project;
+use crate::driver;
+use crate::project;
 
 use std::fs;
 use std::hint::black_box;

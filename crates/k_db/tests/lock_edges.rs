@@ -3,7 +3,7 @@
 //! lock, ordering, quoting of every odd character, every key in its fixed
 //! order, what parsing rejects, and the lock form of the fixture entities.
 
-mod common;
+use crate::common;
 
 use k_db::lock::{HEADER, LockedColumn, LockedTable, SchemaLock};
 use k_db::schema::{ColumnType, Schema};

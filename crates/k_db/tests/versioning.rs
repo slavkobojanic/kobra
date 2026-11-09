@@ -4,7 +4,7 @@
 //! column to the read value plus one, and returns `Bool` from the
 //! affected-row count. `Note.revision` is the fixture's version field.
 
-mod common;
+use crate::common;
 
 use common::{both, eq, finish, rows, run, seeded, text, uuid};
 use k_db::Value;

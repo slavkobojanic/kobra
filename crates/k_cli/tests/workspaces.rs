@@ -11,8 +11,7 @@
 // The helpers below fail the calling test with a message.
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-#[path = "support/ports.rs"]
-mod ports;
+use crate::ports;
 
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};

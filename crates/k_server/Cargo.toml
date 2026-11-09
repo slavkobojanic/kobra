@@ -1,5 +1,8 @@
 [package]
 name = "k_server"
+# Integration tests are modules of tests/main.rs (one binary, `it`), not one
+# binary per file: docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
 description = "The K server runtime: embedded V8 via deno_core, HTTP via hyper, RPC dispatch and server-side rendering."
 version.workspace = true
 edition.workspace = true
@@ -43,17 +46,13 @@ arbitrary.workspace = true
 toml.workspace = true
 
 [[test]]
+name = "it"
+path = "tests/main.rs"
+
+[[test]]
 name = "runtime_js"
 path = "tests/runtime_js.rs"
 harness = false
-
-[[test]]
-name = "engine"
-path = "tests/engine.rs"
-
-[[test]]
-name = "config"
-path = "tests/config.rs"
 
 [[test]]
 name = "corpus_run"
@@ -65,34 +64,3 @@ name = "e2e"
 path = "tests/e2e.rs"
 harness = false
 
-[[test]]
-name = "server"
-path = "tests/server.rs"
-
-[[test]]
-name = "differential"
-path = "tests/differential.rs"
-
-[[test]]
-name = "perf_budget"
-path = "tests/perf_budget.rs"
-
-[[test]]
-name = "browser"
-path = "tests/browser.rs"
-
-[[test]]
-name = "outbound"
-path = "tests/outbound.rs"
-
-[[test]]
-name = "sessions"
-path = "tests/sessions.rs"
-
-[[test]]
-name = "shop_production"
-path = "tests/shop_production.rs"
-
-[[test]]
-name = "literals"
-path = "tests/literals.rs"

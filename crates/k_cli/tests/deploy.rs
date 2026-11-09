@@ -23,7 +23,7 @@
 //! Compose stack itself.
 //!
 //! ```text
-//! cargo test -p k_cli --test deploy
+//! cargo test -p k_cli --test it -- deploy::
 //! ```
 
 // The helpers below fail the calling test with a message.

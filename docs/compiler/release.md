@@ -174,7 +174,7 @@ Timeline for `0.6.0`, with T the planned release day.
    It sets the version everywhere ([§2](#2-files-the-release-process-owns)), compiles the fragments
    into a draft `CHANGELOG.md` section, the changelog page and the upgrade guide's new section (it does
    not delete fragments for a release candidate), updates `k = "0.6"` in the examples and the `k new`
-   skeleton, runs `cargo test -p k_cli --test version` and prints what it changed. It also prints the
+   skeleton, runs `cargo test -p k_cli --test it -- version::` and prints what it changed. It also prints the
    book pages whose audit-ledger entry predates the previous minor's cut and whose design topic changed
    since: re-audit those before tagging the candidate.
 4. **Review the draft notes:** read every fragment in the context of the others, fix wording in the

@@ -14,8 +14,7 @@
 
 #![allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
 
-#[path = "support/driver.rs"]
-mod driver;
+use crate::driver;
 
 use std::fs;
 

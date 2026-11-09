@@ -1,5 +1,8 @@
 [package]
 name = "k_corpus"
+# Integration tests are modules of tests/main.rs (one binary, `it`), not one
+# binary per file: docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
 description = "Golden corpus test harness for the K toolchain (tests/corpus)."
 version.workspace = true
 edition.workspace = true
@@ -15,6 +18,10 @@ serde_json.workspace = true
 
 [dev-dependencies]
 libtest-mimic.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
 
 [[test]]
 name = "corpus"
