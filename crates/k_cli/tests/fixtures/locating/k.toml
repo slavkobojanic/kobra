@@ -1,0 +1,6 @@
+# `Geolocation` with its test double, `TestGeolocation`
+# (docs/design/45-web-platform.md, "Geolocation"; docs/compiler/testing.md
+# §8.4): every test here must pass.
+[package]
+name = "locating"
+k = "0.1"

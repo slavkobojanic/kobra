@@ -1,12 +1,14 @@
 import components.CitySearch
 import components.RecentPlacesList
+import components.UseMyLocation
 
 /// The start page: search for any place, jump to one of a few featured
 /// cities, or reopen a place viewed recently.
 ///
 /// The page is rendered on the server. The recently viewed places come from
 /// the browser's local storage, so only `RecentPlacesList` renders in the
-/// browser (`@Rendering(.client)`).
+/// browser (`@Rendering(.client)`). "Use my location" appears after
+/// hydration, where the browser can locate (`UseMyLocation`).
 ///
 /// `Home` has a named URL because it is the site root, which a default URL
 /// derived from the page name (`/home`) can't express.
@@ -33,6 +35,8 @@ public page Home at "/" {
                 .class(.lead)
 
             CitySearch()
+
+            UseMyLocation()
         }
         .class(.intro)
 

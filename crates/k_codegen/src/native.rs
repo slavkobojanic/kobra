@@ -876,6 +876,13 @@ pub(crate) fn static_call(
                 false,
             )
         }
+        // A test fixture (45-web-platform.md, "Geolocation"): the test kit
+        // answers it with the `TestClock`'s time; elsewhere the stand-in
+        // panics with its name.
+        ("k.device.Position", "sample") => call(
+            rt("native", vec![js::str("k.device.Position$sample")]),
+            args,
+        ),
         ("k.core.Color", "rgb") => rt("colorRgb", args),
         ("k.observe.Log", level) => rt("log", vec![js::str(level), a0]),
         ("k.encoding.Json", "encode") => {

@@ -42,4 +42,18 @@ public struct Place implements Codable, Equatable {
 
         return parts.joined(separator: ", ")
     }
+
+    /// The device's position as a place without a name or a GeoNames id
+    /// (`id` 0), for the forecast and the air quality, which need only the
+    /// coordinates. They come from a URL as text, since a URL can't carry
+    /// a `Double`.
+    ///
+    /// - Throws: `WeatherError.placeNotFound` when either isn't a number.
+    static func here(latitude: String, longitude: String) throws WeatherError -> Place {
+        guard let lat = Double.parse(latitude), let lon = Double.parse(longitude) else {
+            throw WeatherError.placeNotFound(id: 0)
+        }
+
+        return Place(id: 0, name: "Your location", region: nil, country: nil, latitude: lat, longitude: lon)
+    }
 }

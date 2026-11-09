@@ -837,6 +837,49 @@ fn weather_searches_opens_a_city_and_switches_units() {
     drop(tab);
 }
 
+/// "Use my location" (`Geolocation`, 45-web-platform.md): the server
+/// renders no button (it can't locate), the browser shows it after
+/// hydration, and a click reads the position DevTools emulates, with the
+/// permission granted as a user's earlier "Allow" would be, and opens the
+/// weather there.
+#[test]
+fn weather_uses_my_location() {
+    let dir = Scratch::new("weather-locate");
+    let mut tab = tab!(dir);
+    let w = weather(&dir, &mut tab);
+    tab.cdp.call(
+        "Browser.grantPermissions",
+        json!({ "origin": w.origin, "permissions": ["geolocation"] }),
+    );
+    tab.cdp.call(
+        "Emulation.setGeolocationOverride",
+        json!({ "latitude": 48.8566, "longitude": 2.3522, "accuracy": 100 }),
+    );
+    tab.open(&format!("{}/", w.origin));
+    let served = tab.eval("fetch('/').then((r) => r.text())");
+    assert!(
+        !served
+            .as_str()
+            .unwrap_or_default()
+            .contains("Use my location"),
+        "the server renders no button"
+    );
+    let locate = tab.role("button", "Use my location");
+    let token = tab.document_token();
+    tab.click(&locate);
+    tab.role("heading", "Your location");
+    tab.assert_same_document(&token, "opening the weather at the position");
+    assert_eq!(tab.path(), "/local-weather/48.8566/2.3522");
+    tab.wait_text("3°C");
+    assert!(
+        tab.requests()
+            .iter()
+            .any(|r| r.url.contains("/v1/forecast?") && r.url.contains("latitude=48.8566")),
+        "the forecast for the position"
+    );
+    drop(tab);
+}
+
 /// The theme reaches the page: its font with a generic fallback, and the
 /// page colours, in the dark scheme too (weather-A).
 #[test]

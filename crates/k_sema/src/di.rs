@@ -1836,10 +1836,19 @@ pub(crate) fn sides(cx: &Cx<'_, '_>) -> HashMap<(FileId, TextRange), Side> {
     for (i, decl) in cx.p.decls.iter().enumerate() {
         let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
         let file = cx.p.file(decl.file);
-        if file.stdlib || decl.name.is_empty() || decl.named_kind().is_none() {
+        if decl.name.is_empty() || decl.named_kind().is_none() {
             continue;
         }
-        out.insert((file.id, decl.name_range), side(cx, d).side());
+        let s = side(cx, d).side();
+        // Of the stdlib, only the client-only platform interfaces
+        // (`Geolocation`): the server binds a stand-in for them when a
+        // client-only service it constructs reads `isSupported` or
+        // `permission` (45-web-platform.md, "Server rendering and the
+        // server").
+        if file.stdlib && !(s == Side::ClientOnly && decl.named_kind() == Some(K::Interface)) {
+            continue;
+        }
+        out.insert((file.id, decl.name_range), s);
     }
     out
 }

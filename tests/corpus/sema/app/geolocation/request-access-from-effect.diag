@@ -1,0 +1,3 @@
+error[K4030] 33:29-33:42: `Locator.ask()` needs a user's action, such as a click, but an `@Effect` isn't one
+  note: the path to the user's action: `Locator.ask()` → `Geolocation.requestAccess()`
+  help: call it from a click, submit or key handler, before the handler's first `await`

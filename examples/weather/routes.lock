@@ -9,3 +9,7 @@ url = "/city-weather/{placeId}"
 [pages.home]
 declaration = "pages.Home"
 url = "/"
+
+[pages.localWeather]
+declaration = "pages.LocalWeather"
+url = "/local-weather/{latitude}/{longitude}"

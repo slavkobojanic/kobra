@@ -17,6 +17,7 @@ export {
   ServerBroadcast,
   callLocal,
   checkGuards,
+  clientPlatform,
   clock,
   config,
   configEnum,

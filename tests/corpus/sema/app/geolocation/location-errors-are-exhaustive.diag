@@ -1,0 +1,8 @@
+error[K2206] 10:9-10:11: the `catch` clauses don't handle every error
+  note: missing: `.timeout`
+  fix "Insert the missing `catch` clauses" maybe-incorrect
+    edit 21:10-21:10 " catch .timeout {\n        }"
+error[K2203] 25:25-25:66: `k.device.LocationError` is neither caught nor declared in `throws`
+  label 24:10-24:15: declared here without `throws k.device.LocationError`
+  fix "Add `throws LocationError`" maybe-incorrect
+    edit 24:45-24:45 " throws LocationError"

@@ -75,6 +75,7 @@ test AddToCart {
 | `HttpClient` | `TestHttpClient` | answers only requests it has a canned response for; any other request fails the test, naming the URL ([32-http-client.md](32-http-client.md)) |
 | `Files` | `TestFiles` | opens no picker and starts no download; `choose(_:)` says what the user picks, `saved` holds what was saved ([42-files.md](42-files.md#tests-testfiles)) |
 | `Clipboard` | `TestClipboard` | a clipboard in memory, empty for every test; `text` is what it holds, `set(text:)` copies as another application would, `failWrites(error:)`, `failReads(error:)`, `setSupported(_:)` ([45-web-platform.md](45-web-platform.md#copybutton)) |
+| `Geolocation` | `TestGeolocation` | prompts nobody and reads no real position; supported, `permission` `.prompt`, prompts answered `.granted`, no fix until `move(to:)`; `answerPrompts(with:)`, `setPermission(_:)`, `failNext(error:)`, `setSupported(_:)`, `prompts`, `lastAccuracy` ([45-web-platform.md](45-web-platform.md#geolocation)) |
 | `Share` | `TestShare` | opens no sheet; `shared` records every share, `cancelNext()`, `failNext(error:)`, `setSupported(_:)` ([45-web-platform.md](45-web-platform.md#sharebutton)) |
 
 - **A test reaches a default with `@Inject`,** by its concrete type: `@Inject let clock: TestClock`, `@Inject let mailer: RecordingEmailProvider`.

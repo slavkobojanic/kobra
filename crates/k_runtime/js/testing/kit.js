@@ -12,7 +12,7 @@
  *   synchronous updates.
  * - The hermetic defaults of `k.test`: `TestClock` (virtual time),
  *   `MemoryStorage`, `TestHttpClient`, `TestFiles`, `TestClipboard`,
- *   `TestShare`, `RecordingJobQueue`
+ *   `TestShare`, `TestGeolocation`, `RecordingJobQueue`
  *   and `RecordingEmailProvider`.
  * - `fail` and `failThrows`: a failed `expect`, as a panic carrying the
  *   expectation's source range and the values of its sub-expressions.
@@ -25,9 +25,9 @@
  * runtime instance.
  */
 
-import { flush, root } from "../runtime/signals.js";
+import { flush, onCleanup, root, signal } from "../runtime/signals.js";
 import { KPanic, isPanic, unitCase } from "../runtime/values.js";
-import { Instant, httpCode } from "../runtime/std.js";
+import { Instant, PushStream, httpCode } from "../runtime/std.js";
 import { HttpResponse$isSuccess, HttpResponse$json, HttpResponse$text } from "../runtime/http.js";
 import { received } from "../runtime/outbound.js";
 import { hasNative, native as browserNative } from "../runtime/services.js";
@@ -1415,6 +1415,109 @@ export function testShare() {
   };
 }
 
+/**
+ * `k.test.TestGeolocation`: a device that hasn't moved
+ * (45-web-platform.md, "Geolocation"). Supported, `permission` `.prompt`
+ * (`unitCase(0)`; reactive, like the browser's), prompts answered
+ * `.granted` (`1`), and no fix: `currentPosition` throws `.unavailable`
+ * (`LocationError` `3`) until `move`. `watch` streams start with the
+ * current position and end when the permission stops being granted or
+ * their owner is disposed.
+ */
+export function testGeolocation() {
+  const permission = signal(unitCase(0));
+  let supported = true;
+  let answer = unitCase(1);
+  let prompts = 0;
+  let accuracy = null;
+  let at = null;
+  let next = null;
+  const watches = new Set();
+  const setPermission = (p) => {
+    permission.set(p);
+    if (p.$ !== 1) for (const s of [...watches]) s.close();
+  };
+  /** Throws `.unsupported`, or `.notAsked`/`.denied` unless granted. */
+  const check = (p) => {
+    if (!supported) throw unitCase(0);
+    if (p.$ !== 1) throw unitCase(p.$ === 0 ? 1 : 2);
+  };
+  return {
+    get isSupported() {
+      return supported;
+    },
+    get permission() {
+      return permission.get();
+    },
+    get prompts() {
+      return prompts;
+    },
+    get lastAccuracy() {
+      return accuracy;
+    },
+    async requestAccess(_c) {
+      if (!supported || permission.peek().$ !== 0) return permission.peek();
+      prompts++;
+      setPermission(answer);
+      return answer;
+    },
+    async currentPosition(_c, a) {
+      if (!supported) throw unitCase(0);
+      accuracy = a ?? unitCase(0);
+      const e = next;
+      next = null;
+      if (e !== null) throw e;
+      check(permission.peek());
+      if (at === null) throw unitCase(3);
+      return at;
+    },
+    watch(a) {
+      check(permission.get());
+      accuracy = a ?? unitCase(0);
+      const stream = new PushStream();
+      stream.close = () => {
+        if (watches.delete(stream)) stream.push(null);
+      };
+      watches.add(stream);
+      if (at !== null) stream.push(at);
+      onCleanup(stream.close);
+      return stream;
+    },
+    move(p) {
+      at = p;
+      for (const s of watches) s.push(p);
+    },
+    answerPrompts(p) {
+      answer = p;
+    },
+    setPermission,
+    failNext(e) {
+      next = e;
+    },
+    setSupported(value) {
+      supported = value === true;
+    },
+  };
+}
+
+/**
+ * `Position.sample(latitude:longitude:)`: a position with 1 km accuracy
+ * and nothing else known, measured at the test's clock.
+ * @param {number} latitude
+ * @param {number} longitude
+ */
+function positionSample(latitude, longitude) {
+  return {
+    latitude,
+    longitude,
+    accuracyMeters: 1000,
+    altitudeMeters: null,
+    headingDegrees: null,
+    speedMetersPerSecond: null,
+    measuredAt: sharedClock().now,
+  };
+}
+
 /** The path of a URL, without its query. */
 function pathOf(url) {
   const text = String(url ?? "");
@@ -1532,6 +1635,7 @@ export function recordingEmailProvider() {
  */
 export function native(name) {
   if (name === "k.test.render") return render;
+  if (name === "k.device.Position$sample") return positionSample;
   // Test code runs in the test's one process: a server-only stdlib member
   // it calls (`Hmac.sha256` to sign a webhook payload) is the server's.
   if (!hasNative(name) && Object.hasOwn(serverNatives, name)) return serverNatives[name];

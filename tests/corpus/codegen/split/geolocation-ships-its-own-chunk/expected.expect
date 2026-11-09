@@ -1,0 +1,10 @@
+# docs/design/45-web-platform.md, docs/compiler/codegen.md §16: `BrowserGeolocation` is the
+# geolocation chunk's, which only an app whose client locates ships; the container binds
+# `Geolocation` to it with no `use` rule.
+client contains // file: geolocation.[hash].js
+client contains import { BrowserGeolocation } from "./geolocation.[hash].js";
+client contains get Geolocation() {
+client contains export function BrowserGeolocation(
+client lacks $k.native("k.device.
+client lacks clipboard.[hash].js
+server contains $s.clientPlatform("k.device.Geolocation")

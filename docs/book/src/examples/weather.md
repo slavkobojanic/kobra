@@ -209,6 +209,26 @@ The server renders the empty `loading` block in its place, and the browser swaps
 hydration, once the service's `init()` has read local storage. The list is the last thing on the page, so
 nothing the server rendered moves when it appears ([Components](../apps/components.md#rendering-in-the-browser-only)).
 
+## Using the device's location
+
+Below the search, "Use my location" opens the weather at the device's position. `LocationService`
+injects the client-only `Geolocation` interface, and its `canLocate` reads only `isSupported` and
+`permission`, which are `false` and `.prompt` while the server renders. The server renders no button,
+and the browser shows it after hydration, where it can locate:
+
+```k
+// examples/weather/src/components/UseMyLocation.k
+if location.canLocate {
+    button { "Use my location" }
+        .on(click: useLocation)
+        .class(.locate)
+}
+```
+
+`locate()` asks for access with `requestAccess()`, which the compiler allows only from a user's
+action, so the button's click is where the prompt comes from. The position opens `LocalWeather`,
+which loads the forecast for its coordinates ([The user's location](../apps/location.md)).
+
 ## The theme and the chart
 
 ```k

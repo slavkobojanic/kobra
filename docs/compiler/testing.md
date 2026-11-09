@@ -795,8 +795,11 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
   and `share.test.js` (`BrowserClipboard` and `BrowserShare` against scripted `navigator.clipboard`
   and `navigator.share` fakes with each engine's documented rejections; `CopyButton` and `ShareButton`
   with a recording container: the copy at the click, the two seconds on the clock, the events, the
-  fallback copy, the server's markup and hydration) test the chunks of
-  [runtime.md §12.3–12.6](runtime.md#123-drag-and-drop).
+  fallback copy, the server's markup and hydration), and `geolocation.test.js` (`BrowserGeolocation`
+  against scripted `navigator.geolocation` and `navigator.permissions`: an insecure context, reads that
+  never prompt, the prompt by one position request, each error code, Gecko's allow-once, no Permissions
+  API, WebKit's missing `change` event, and watches ending on revocation and with their owner) test the
+  chunks of [runtime.md §12.3–12.7](runtime.md#123-drag-and-drop).
 - **Cancellation**: `cancellation.test.js` pins the ownership of async work (design 03, "Async work is
   owned"): `live` and `CANCELLED`, a body stopped at an `await` (and a `catch`) whose owner was disposed
   after the promise settled, an effect re-run and a load stopping their superseded run, `on` keeping a
@@ -984,7 +987,9 @@ timers).
   typing, a reload, "Copy link" putting the card's absolute link on the real clipboard, with the
   permission granted by `Browser.grantPermissions`, and the link opening the card's editor), `weather` (a debounced search, a client navigation to a result, °C/°F, home again;
   the recently viewed list, a client-rendered component, appearing after hydration without moving the
-  server-rendered parts; a refresh after server rendering keeping the place),
+  server-rendered parts; a refresh after server rendering keeping the place; "Use my location", absent
+  from the server's HTML, reading the position set by `Emulation.setGeolocationOverride` with the
+  permission granted by `Browser.grantPermissions`, and opening `LocalWeather` there),
   `notes` (one command, sign up, create, edit, delete, sign out and in; two apps on `localhost` keeping
   their own sessions; `k dev` stopping promptly with a `watch()` stream open), `stack` (pay from the
   shop page through paybox) and `shop` (buy a mug, pay through paybox on non-default ports, the receipt
@@ -1698,10 +1703,13 @@ format change is a reviewed diff):
 - **Regressions of the runner** (`crates/k_cli/tests/fixtures/regressions`, every test must pass; and
   `fixtures/throws`, whose second test must fail with the case it threw; and `fixtures/sharing`,
   every test must pass: `Clipboard`, `Share`, `CopyButton` and `ShareButton` against `TestClipboard`
-  and `TestShare`): each bug of the test bundle or
+  and `TestShare`; and `fixtures/locating`, every test must pass: `Geolocation` against
+  `TestGeolocation`, the prompt from a click, refusals, no fix, and a `watch` in an effect ending when
+  the permission is revoked): each bug of the test bundle or
   the kit that an example exposed, pinned before it was fixed: a chained enum page parameter given as an
   implicit member, `Page.x` with only optional parameters, a group helper named like the tested
-  service's function, a labelled argument after a default, `expect throws` checking the case.
+  service's function, a labelled argument after a default, `expect throws` checking the case, a
+  group named after a declaration whose file sorts after the group's (it took the declaration's name).
 - `K_TEST_BUNDLE_DIR=<dir> k test` writes the test bundle's modules there, for debugging the compiler.
 - **`k build --out`** removes the hashed assets of earlier builds and keeps files outside
   `public/assets/`.

@@ -412,6 +412,14 @@ unpinned = [
     "screen readers announce \"Copied\" (the live region is pinned by clipboard.test.js; what a screen reader says isn't tested)",
 ]
 
+[pages."apps/location.md"]
+commit = "63b6900"
+date = "2026-11-10"
+note = "new with Geolocation; written against the working tree on top of 63b6900, the behaviour checked with `k test` on crates/k_cli/tests/fixtures/locating and examples/weather, and in Chrome by chrome.rs's weather_uses_my_location"
+unpinned = [
+    "`.coarse` is lighter on the battery (a property of the device, not of K)",
+]
+
 [pages."apps/testing.md"]
 commit = "0dd7625"
 date = "2026-11-09"

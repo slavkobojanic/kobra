@@ -546,6 +546,67 @@ test("TestClipboard holds text in memory, counts calls, and fails or is unsuppor
   assertEq(clipboard.calls, 6);
 });
 
+test("TestGeolocation: a capable browser at prompt, no fix until moved, prompts counted", async () => {
+  const g = kit.testGeolocation();
+  const settle = (p) => p.then((ok) => ({ ok }), (error) => ({ error }));
+  const here = { latitude: 1, longitude: 2 };
+  assert(g.isSupported);
+  assertEq(g.permission, unitCase(0));
+  assertEq(g.lastAccuracy, null);
+  assertEq((await settle(g.currentPosition(null, unitCase(1), 0, 15000))).error, unitCase(1), "not asked");
+  assertEq(g.prompts, 0, "a read never prompts");
+  assertEq(g.lastAccuracy, unitCase(1));
+  assertEq(await g.requestAccess(null), unitCase(1));
+  assertEq(await g.requestAccess(null), unitCase(1));
+  assertEq(g.prompts, 1, "asked once");
+  assertEq((await settle(g.currentPosition(null, unitCase(0), 0, 15000))).error, unitCase(3), "no fix");
+  g.move(here);
+  assertEq(await g.currentPosition(null, unitCase(0), 0, 15000), here);
+  g.failNext(unitCase(4));
+  assertEq((await settle(g.currentPosition(null, unitCase(0), 0, 15000))).error, unitCase(4));
+  assertEq(await g.currentPosition(null, unitCase(0), 0, 15000), here, "failNext fails once");
+  g.setPermission(unitCase(2));
+  assertEq((await settle(g.currentPosition(null, unitCase(0), 0, 15000))).error, unitCase(2));
+  g.setSupported(false);
+  assert(!g.isSupported);
+  assertEq((await settle(g.currentPosition(null, unitCase(0), 0, 15000))).error, unitCase(0));
+  assertThrows(() => g.watch(unitCase(0)));
+});
+
+test("TestGeolocation: a refused prompt, and a watch that follows moves and ends", async () => {
+  const g = kit.testGeolocation();
+  g.answerPrompts(unitCase(2));
+  assertEq(await g.requestAccess(null), unitCase(2));
+  assertEq(g.permission, unitCase(2));
+  g.setPermission(unitCase(1));
+  g.move({ latitude: 1 });
+  const stream = g.watch(unitCase(1));
+  assertEq((await stream.next()).latitude, 1, "starts with the current position");
+  g.move({ latitude: 2 });
+  assertEq((await stream.next()).latitude, 2);
+  g.setPermission(unitCase(2));
+  assertEq(await stream.next(), null, "revoked: ended");
+  g.setPermission(unitCase(1));
+  let owned = null;
+  const dispose = root((d) => {
+    owned = g.watch(unitCase(0));
+    return d;
+  });
+  dispose();
+  assertEq((await owned.next()).latitude, 2, "the position it started with");
+  assertEq(await owned.next(), null, "ended with its owner");
+});
+
+test("Position.sample is measured at the test clock", () => {
+  kit.begin({});
+  const sample = kit.native("k.device.Position$sample");
+  kit.sharedClock().advance(5000);
+  const p = sample(52.52, 13.4);
+  assertEq(p.accuracyMeters, 1000);
+  assertEq(p.altitudeMeters, null);
+  assertEq(p.measuredAt.ms, kit.sharedClock().now.ms);
+});
+
 test("TestShare records each share, and cancels, fails or is unsupported on request", async () => {
   const share = kit.testShare();
   const settle = (p) => p.then((ok) => ({ ok }), (error) => ({ error }));

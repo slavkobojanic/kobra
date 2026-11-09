@@ -149,6 +149,7 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | `files.[hash].js` | `files.js` (part `Files`), shipped only to apps whose client injects `Files` | ≤ 1 KB (`FILES_SIZE_BUDGET`) | 886 B |
 | `clipboard.[hash].js` | `clipboard.js` (part `Clipboard`), shipped only to apps whose client copies (`Clipboard`, `CopyButton`) | ≤ 1.25 KB (`CLIPBOARD_SIZE_BUDGET`) | 1,010 B |
 | `share.[hash].js` | `share.js` (part `Share`), shipped only to apps whose client shares (`Share`, `ShareButton`) | ≤ 1.25 KB (`SHARE_SIZE_BUDGET`) | 1,139 B |
+| `geolocation.[hash].js` | `geolocation.js` (part `Geolocation`), shipped only to apps whose client injects `Geolocation` | ≤ 1.25 KB (`GEOLOCATION_SIZE_BUDGET`) | 1,064 B |
 | `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
 | `streams.[hash].js` | `streams.js` (part `Streams`), shipped only to apps with a streaming rpc | ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | 569 B |
 | `http.[hash].js` | `http.js` (part `Http`), shipped only to apps whose client builds or reads an `HttpResponse` | ≤ 1.5 KB (`HTTP_SIZE_BUDGET`) | 1,175 B |
@@ -803,6 +804,33 @@ client entry's `$App` for `Clipboard` and `Share` like `BrowserFiles`:
   `app.rs`). `ShareContent`'s factories are lowered inline to `{url, text, title}`; `page` wraps the page's
   `Page$href` in `$k.pageUrl` (`std.js`: `location.origin` + the path, the path alone on the server).
   The test doubles are the kit's `testClipboard` and `testShare`.
+
+### 12.7 Geolocation
+
+`geolocation.js` (part `Geolocation`), a feature chunk, is `k.device.BrowserGeolocation`
+([45-web-platform.md](../design/45-web-platform.md#geolocation)), constructed by the client entry's `$App`
+for `Geolocation`:
+
+- `isSupported` is a secure context with `navigator.geolocation.getCurrentPosition`. `permission` is a
+  signal, `.prompt` until `navigator.permissions.query({name: "geolocation"})` answers, then kept current
+  by the status's `change` event and re-read on `visibilitychange` to visible (WebKit fires no `change`).
+- `requestAccess(c)` reads the permission and, only while it is `prompt`, calls `getCurrentPosition` with
+  `maximumAge: Infinity`, which is what shows the browser's prompt; error code 1 is `.denied`, any other
+  answer (a position, no fix, a timeout) `.granted`. The grant is remembered for the page, since Gecko's
+  "allow once" and engines without the Permissions API keep saying `prompt`.
+- `currentPosition(c, accuracy, maximumAge, timeout)` reads the permission first and throws
+  `unitCase(1)` (`notAsked`) or `2` (`denied`) without calling the browser; otherwise it passes
+  `enableHighAccuracy` for `.precise` and maps `GeolocationPositionError` codes 1, 2 and 3 to `denied` (2),
+  `unavailable` (3) and `timeout` (4). Durations are milliseconds already.
+- `watch(accuracy)` reads `permission` tracked, so an effect that watched before the Permissions API
+  answered runs again, and throws synchronously unless granted; it returns a `PushStream` fed by
+  `watchPosition`, ends (`push(null)`) when the permission leaves `granted` or on code 1, and clears the
+  watch when closed or when its owner is disposed (`onCleanup`).
+- `position(p)` makes a `Position` of a `GeolocationPosition`: `null` and `NaN` (a still device's heading)
+  are `nil`, `measuredAt` is an `Instant` of its `timestamp`.
+- The server binds `Geolocation` to `$s.clientPlatform(...)` (`app.js`) for a client-only service it
+  constructs while rendering. The test double is the kit's `testGeolocation`; `Position.sample` is
+  `$k.native("k.device.Position$sample")`, which only the kit answers.
 
 ---
 

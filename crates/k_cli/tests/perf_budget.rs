@@ -485,6 +485,7 @@ fn shipped_client_assets() {
         ("files.", k_runtime::FILES_SIZE_BUDGET),
         ("clipboard.", k_runtime::CLIPBOARD_SIZE_BUDGET),
         ("share.", k_runtime::SHARE_SIZE_BUDGET),
+        ("geolocation.", k_runtime::GEOLOCATION_SIZE_BUDGET),
         ("keys.", k_runtime::KEYS_SIZE_BUDGET),
         ("streams.", k_runtime::STREAMS_SIZE_BUDGET),
         ("http.", k_runtime::HTTP_SIZE_BUDGET),

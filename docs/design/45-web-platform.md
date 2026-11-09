@@ -525,6 +525,16 @@ test UseMyLocation {
 }
 ```
 
+*As built* (`crates/k_runtime/js/runtime/geolocation.js`, the `geolocation` feature chunk; `TestGeolocation` in the test kit):
+
+- **`requestAccess()` counts any answer but a refusal as `.granted`:** the position request that shows the prompt can also end in no fix or a timeout after the user allowed, which says nothing against the grant. The grant is remembered for the page's life, because Gecko's "allow once" and engines without the Permissions API keep reporting `prompt` afterwards.
+- **`permission` is `.prompt` until the Permissions API answers** (it is asynchronous), so `watch` reads it tracked: an effect that called `watch` too early throws `.notAsked` and runs again once the permission is known.
+- **`LocationAccuracy` implements `Equatable`,** so a test can `expect geolocation.lastAccuracy == .coarse`; the sketch above declares it without.
+- **`Position.sample(latitude:longitude:)` is a `@Native` static function of `Position`** that only `k test` implements (elsewhere it panics with its name), since a test fixture can't be added to `Position` from `k.test`.
+- **During server rendering** a client-only service that injects `Geolocation` is still constructed when a view reads its `@Derived` field (`LocationService.canLocate`); the server binds the interface to a stand-in whose `isSupported` is `false` and `permission` `.prompt`, and whose other members panic with their name (they are `K4012` at compile time).
+- **`TestGeolocation.failNext(error:)` wins over the permission check,** so a test can fail a read with any case whatever the permission says; `watch` starts with the current position when the device has moved.
+- **The weather app** ([implementation tests](#implementation-tests) item 4) opens a `LocalWeather` page at `/local-weather/{latitude}/{longitude}` rather than selecting a place: Open-Meteo has no reverse geocoding, so the position has no place to select. The coordinates are `String` parameters read by `Place.here`, since a page parameter can't be a `Double`. Its real-Chrome test grants the permission with `Browser.grantPermissions` and sets the position with `Emulation.setGeolocationOverride`, so the prompt itself isn't exercised there; the scripted fakes and `k test` cover it.
+
 ## Page visibility
 
 ```k

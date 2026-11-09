@@ -73,6 +73,7 @@
 - [Importing and exporting files](apps/files.md)
 - [Keyboard shortcuts](apps/keyboard-shortcuts.md)
 - [Copying and sharing](apps/clipboard-and-sharing.md)
+- [The user's location](apps/location.md)
 - [Testing](apps/testing.md)
 - [Packages](apps/packages.md)
 - [Workspaces and services](apps/workspaces.md)

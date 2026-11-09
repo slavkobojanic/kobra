@@ -711,6 +711,14 @@ fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Func
             // read the environment, so there it stays a stand-in whose use
             // panics with its name.
             memo(&name, crate::ui::config_object(b, t))
+        } else if g.view.decl(t).named_kind() == Some(DeclarationKind::Interface)
+            && g.view.decl(t).side == Some(k_sema::Side::ClientOnly)
+        {
+            // A client-only platform interface a client-only service reads
+            // while the server renders (45-web-platform.md, "Server
+            // rendering and the server"): `isSupported` is `false` there and
+            // `permission` `.prompt`; any other use is K4012.
+            memo(&name, srt("clientPlatform", vec![js::str(qualified)]))
         } else if let Some(body) = server_platform_service(b, &qualified) {
             if tests(g) && qualified.starts_with("k.test.") && qualified != "k.test.InlineJobQueue"
             {

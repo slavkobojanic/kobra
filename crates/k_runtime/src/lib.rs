@@ -111,6 +111,12 @@ pub const CLIPBOARD_SIZE_BUDGET: usize = 1280;
 /// whose client shares (`docs/compiler/performance.md` §11.3).
 pub const SHARE_SIZE_BUDGET: usize = 1280;
 
+/// The largest `k.device`'s geolocation in the browser
+/// ([`Part::Geolocation`]: `BrowserGeolocation`) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (1.25 KB). It ships in its own chunk, only to apps
+/// whose client locates (`docs/compiler/performance.md` §11.3).
+pub const GEOLOCATION_SIZE_BUDGET: usize = 1280;
+
 /// The largest `k.ui.KeyboardShortcut` in the browser ([`Part::Keys`]) may
 /// be, measured like [`CORE_SIZE_BUDGET`] (512 B). It ships in its own
 /// chunk, only to apps that use keyboard shortcuts
@@ -177,6 +183,10 @@ pub enum Part {
     /// `ShareButton`): shipped as its own client chunk, only to apps whose
     /// client shares, and measured on its own ([`SHARE_SIZE_BUDGET`]).
     Share,
+    /// `k.device`'s geolocation in the browser (`BrowserGeolocation`):
+    /// shipped as its own client chunk, only to apps whose client locates,
+    /// and measured on its own ([`GEOLOCATION_SIZE_BUDGET`]).
+    Geolocation,
     /// `k.ui.KeyboardShortcut` in the browser: shipped as its own client
     /// chunk, only to apps that use it, and measured on its own
     /// ([`KEYS_SIZE_BUDGET`]).
@@ -264,6 +274,7 @@ const MODULES: &[Module] = modules![
     Files "runtime/files.js",
     Clipboard "runtime/clipboard.js",
     Share "runtime/share.js",
+    Geolocation "runtime/geolocation.js",
     Keys "runtime/keys.js",
     Streams "runtime/streams.js",
     Http "runtime/http.js",

@@ -650,6 +650,7 @@ Measured 2026-11-07, release build, 14-core Apple M-series:
 | `k.device` files ≤ 1 KB (`FILES_SIZE_BUDGET`) | `files.js` 4.1 KB raw, 1.8 KB compacted, **886 B** gzip | met. **New budget, justified:** the file picker and downloads (42-files.md) are needed only by apps whose client injects `Files`; the `$App` container imports `BrowserFiles` from `files.[hash].js`, so no other app ships it and the browser services' budget is untouched |
 | `k.device` clipboard ≤ 1.25 KB (`CLIPBOARD_SIZE_BUDGET`) | `clipboard.js` 5.4 KB raw, 2.3 KB compacted, **1,010 B** gzip | met. **New budget, justified:** `BrowserClipboard` and `CopyButton` (45-web-platform.md) are needed only by apps whose client copies (kanban); the `$App` container imports `BrowserClipboard` from `clipboard.[hash].js`, so no other app ships it. Each Tier 1 wrapper of 45 gets a chunk of its own rather than growing the browser services |
 | `k.device` sharing ≤ 1.25 KB (`SHARE_SIZE_BUDGET`) | `share.js` 5.6 KB raw, 2.6 KB compacted, **1,139 B** gzip | met. **New budget, justified:** as the clipboard's: `BrowserShare` and `ShareButton`, whose fallback copy goes through the container's `Clipboard`, so the two chunks don't import each other |
+| `k.device` geolocation ≤ 1.25 KB (`GEOLOCATION_SIZE_BUDGET`) | `geolocation.js` 5.8 KB raw, 2.3 KB compacted, **1,064 B** gzip | met. **New budget, justified:** as the clipboard's: `BrowserGeolocation` is needed only by apps whose client locates (weather); the `$App` container imports it from `geolocation.[hash].js` |
 | `KeyboardShortcut` ≤ 512 B (`KEYS_SIZE_BUDGET`) | `keys.js` 1.6 KB raw, 0.6 KB compacted, **384 B** gzip | met. **New budget, justified:** 43-keyboard-shortcuts.md; a chunk of its own (`keys.[hash].js`) for apps with shortcuts, rather than 384 B more in every client's runtime chunk |
 | `@Form` support ≤ 2 KB (`FORMS_SIZE_BUDGET`) | `forms.js` 11.0 KB raw, 4.6 KB compacted, **1,807 B** gzip (shipped `forms.[hash].js` 1,866 B: notes, shop, kanban) | met. **New budget, justified:** `forms.js` was 1,457 B of the full client runtime, which had 117 B of headroom left; only apps with a `@Form` need it, so instead of raising `FULL_SIZE_BUDGET` it moved to a feature chunk of its own (`forms.[hash].js`), like `streams` and `http`, and counts against no other part. 2 KB leaves about 240 B of room to grow |
 | `Decimal` and `Money` ≤ 2.5 KB (`MONEY_SIZE_BUDGET`) | `money.js` 14.4 KB raw, 6.2 KB compacted, **2,164 B** gzip (shop's shipped `money.[hash].js` 2,218 B) | met. **New budget, justified:** the exact types were 1,586 B of the stdlib bodies, which had 81 B of headroom; only apps whose client code builds, reads or decodes a `Decimal`, `Money` or `Currency` ship them (shop, of the examples), so they moved to `money.[hash].js` instead of raising `STDLIB_SIZE_BUDGET`. 2.5 KB leaves about 400 B of room to grow |
@@ -773,12 +774,17 @@ else). Each is the 2026-11-09 measurement plus about 10%, rounded:
 |---|---|---|
 | `todos` | 17,500 B | 15,872 B |
 | `kanban` | 32,500 B | 29,840 B |
-| `weather` | 28,500 B | 25,820 B |
+| `weather` | 33,000 B | 25,820 B (30,076 B on 2026-11-10) |
 | `notes` | 28,000 B | 25,440 B |
 | `shop/shop` | 30,500 B | 27,881 B |
 | `shop/paybox` | 5,500 B | 4,894 B |
 | `stack/shop` | 12,000 B | 10,644 B |
 | `stack/paybox` | 5,500 B | 4,894 B |
+
+**Raised, justified:** weather's budget went from 28,500 B to 33,000 B on 2026-11-10 with "Use my
+location" (45-web-platform.md): it had grown to 26,965 B before, and the geolocation chunk (1,064 B),
+the `LocalWeather` page's chunk and `UseMyLocation` add 3,111 B. Each is a feature the app didn't have,
+not growth in what it already shipped, so the budget is the new measurement plus about 10% again.
 
 The part budgets of §11.3 still hold for the runtime's parts as written (they measure `compact`, not the
 linked output); a shipped runtime chunk is now well under the 23 KB of its parts (todos 9,895 B gzip,

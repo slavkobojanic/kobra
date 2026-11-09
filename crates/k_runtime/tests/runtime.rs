@@ -10,9 +10,10 @@ use std::path::{Path, PathBuf};
 
 use k_runtime::{
     CHARTS_SIZE_BUDGET, CLIPBOARD_SIZE_BUDGET, CORE_SIZE_BUDGET, DRAG_SIZE_BUDGET,
-    FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET,
-    MONEY_SIZE_BUDGET, Part, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
-    STREAMS_SIZE_BUDGET, compact, compacted_sources, module, modules, resolve,
+    FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET,
+    HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, MONEY_SIZE_BUDGET, Part, SERVICES_SIZE_BUDGET,
+    SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET, compact, compacted_sources, module,
+    modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -174,6 +175,7 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Files
                 | Part::Clipboard
                 | Part::Share
+                | Part::Geolocation
                 | Part::Keys
                 | Part::Streams
                 | Part::Http
@@ -379,6 +381,21 @@ fn sharing_meets_its_size_budget() {
 }
 
 #[test]
+fn geolocation_meets_its_size_budget() {
+    let geolocation = compacted_sources(&[Part::Geolocation]).expect("compacts");
+    let size = gzip_len(&geolocation);
+    eprintln!(
+        "geolocation: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {GEOLOCATION_SIZE_BUDGET})",
+        raw_len(&[Part::Geolocation]),
+        geolocation.len()
+    );
+    assert!(
+        size <= GEOLOCATION_SIZE_BUDGET,
+        "geolocation is {size} bytes gzip, over the {GEOLOCATION_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
 fn keyboard_shortcuts_meet_their_size_budget() {
     let keys = compacted_sources(&[Part::Keys]).expect("compacts");
     let size = gzip_len(&keys);
@@ -524,6 +541,7 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::Files
                 | Part::Clipboard
                 | Part::Share
+                | Part::Geolocation
                 | Part::Keys
                 | Part::Streams
                 | Part::Forms

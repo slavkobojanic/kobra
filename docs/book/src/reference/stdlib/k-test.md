@@ -19,6 +19,7 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`TestClipboard`](#testclipboard) | The default [`Clipboard`](k-device.md#clipboard) in `k test` (`docs/design/45-web-platform.md`, "Clipboard"): a clipboard in memory, empty for every test, never the machine's. |
 | [`TestClock`](#testclock) | Virtual time for tests, the default [`Clock`](k-time.md#clock) in `k test` (`docs/design/35-time.md`, "Testing with TestClock"). |
 | [`TestFiles`](#testfiles) | The default [`Files`](k-device.md#files) in `k test` (`docs/design/42-files.md`): no picker opens. |
+| [`TestGeolocation`](#testgeolocation) | The default [`Geolocation`](k-device.md#geolocation) in `k test` (`docs/design/45-web-platform.md`, "Geolocation"): no prompt opens and the machine's position is never read. |
 | [`TestHttpClient`](#testhttpclient) | The default [`HttpClient`](k-http.md#httpclient) in `k test`: it answers only requests it has a canned response for, and fails the test on any other. |
 | [`TestRemote`](#testremote) | The `.test` binding of every `remote` rule, also when the serving app is a member of the same workspace (`docs/design/40-workspaces-and-services.md`): an in-process double of protocol `P` whose every rpc fails with `rpcFailure(.offline)` ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so each service's tests stay hermetic and never open a socket. |
 | [`TestShare`](#testshare) | The default [`Share`](k-device.md#share) in `k test` (`docs/design/45-web-platform.md`, "Web Share"): no sheet opens; every share is recorded, and the user picks a target unless the test says otherwise. |
@@ -417,6 +418,56 @@ asks, and reads what was saved.
   throw `error`.
 - `func failSaves(error: FileSaveError)`
   Makes every following `save(_:)` throw `error`.
+
+## TestGeolocation
+
+```k,ignore
+@TestDefault(replaces: Geolocation)
+public service TestGeolocation implements Geolocation
+```
+
+The default [`Geolocation`](k-device.md#geolocation) in `k test`
+(`docs/design/45-web-platform.md`, "Geolocation"): no prompt opens and
+the machine's position is never read. The browser is capable, the
+permission starts at `.prompt`, the user answers prompts with
+`.granted`, and the device has no fix until `move(to:)`.
+
+**Members**
+
+- `var isSupported: Bool`
+  `true` unless `setSupported(_:)` said otherwise.
+- `var permission: PermissionState`
+  `.prompt` until a prompt is answered or `setPermission(_:)`
+  changes it. Reactive, like the browser's.
+- `var prompts: Int`
+  The number of `requestAccess()` calls that asked the user.
+- `var lastAccuracy: LocationAccuracy?`
+  The accuracy of the latest `currentPosition` or `watch`; `nil`
+  before either.
+- `func requestAccess() async -> PermissionState`
+  Asks while `permission` is `.prompt`, counting it in `prompts`
+  and answering what `answerPrompts(with:)` set; otherwise answers
+  the permission as it is.
+- `func currentPosition(accuracy: LocationAccuracy = .coarse, maximumAge: Duration = 0.seconds, timeout: Duration = 15.seconds) async throws LocationError -> Position`
+  The position set by `move(to:)`, or what `failNext(error:)` set,
+  `.unsupported`, `.notAsked`, `.denied`, or `.unavailable` before
+  the device has moved.
+- `func watch(accuracy: LocationAccuracy = .coarse) throws LocationError -> Stream<Position>`
+  A stream of every position `move(to:)` sets, starting with the
+  current one; it ends when the permission stops being `.granted`.
+- `func move(to position: Position)`
+  Moves the device: `currentPosition` answers `position`, and every
+  open `watch` yields it.
+- `func answerPrompts(with answer: PermissionState)`
+  How the user answers the next prompts; `.granted` by default.
+- `func setPermission(_ permission: PermissionState)`
+  Changes `permission` as the site's settings would; anything but
+  `.granted` ends every open `watch`.
+- `func failNext(error: LocationError)`
+  Makes the next `currentPosition` throw `error`.
+- `func setSupported(_ value: Bool)`
+  Sets `isSupported`; while it is `false` every call throws
+  `.unsupported`.
 
 ## TestHttpClient
 

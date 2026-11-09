@@ -1247,6 +1247,24 @@ fn test_copies_and_shares_through_the_clipboard_and_share_doubles() {
 }
 
 #[test]
+fn test_locates_through_the_geolocation_double() {
+    // `Geolocation` against `TestGeolocation` (45-web-platform.md): the
+    // prompt from a click, reads that never prompt, a refused or blocked
+    // permission, no fix, `watch` following moves and ending when the
+    // permission is revoked, and `Position.sample` on the `TestClock`.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/locating");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("0 failed"), "{text}");
+    assert!(
+        text.contains("PASS  Follower › revoking the permission ends the watch, and the effect, run again, finds it denied"),
+        "{text}"
+    );
+}
+
+#[test]
 fn test_expect_throws_checks_the_case_it_names() {
     // A qualified case pattern (`Choice.second`) was read as its type's
     // name, which matched any error.

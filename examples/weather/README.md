@@ -2,7 +2,7 @@
 
 A small weather dashboard written entirely in K. Search for a city, open its dashboard, and see current conditions, air quality and a 24-hour temperature chart. The data comes from the free [Open-Meteo](https://open-meteo.com) APIs, which need no API key, and refreshes every ten minutes while the page is open.
 
-The app has about 880 lines of K, not counting blank lines, comments, tests and test fakes. It is meant to be read: every file shows one or two language features in a realistic setting.
+The app has about 1,020 lines of K, not counting blank lines, comments, tests and test fakes. It is meant to be read: every file shows one or two language features in a realistic setting.
 
 The code follows the decisions in [`docs/design`](../../docs/design/README.md) (the ones it leans on most are listed [below](#design-documents-this-example-relies-on)) and the syntax in [`docs/compiler/grammar.md`](../../docs/compiler/grammar.md).
 
@@ -33,6 +33,7 @@ The code follows the decisions in [`docs/design`](../../docs/design/README.md) (
 | Renamed HTML elements: `box`, `text`, `paragraph`, `heading`, `list` / `item`, `link`, `definitionList` / `term` / `definition`, `figure` / `caption` | throughout `components/` and `pages/` |
 | Typed navigation: `link(to: .cityWeather(placeId: id).units(.imperial))`, and a named URL (`page Home at "/"`) | [`pages/CityWeather.k`](src/pages/CityWeather.k), [`pages/Home.k`](src/pages/Home.k) |
 | A client-rendered component in a server-rendered page: the recently viewed places live in local storage, so `@Rendering(.client)` renders only that list in the browser, after `RecentPlaces.init()` has read it; the server renders its empty `loading` | [`components/RecentPlacesList.k`](src/components/RecentPlacesList.k), [`weather/RecentPlaces.k`](src/weather/RecentPlaces.k), [`pages/Home.k`](src/pages/Home.k) |
+| "Use my location": the client-only `Geolocation` interface in a service, `isSupported` and `permission` read while the server renders (`false` and `.prompt`, so the button appears after hydration), the prompt only from the button's click (`@UserAction`), `LocationError` folded into three cases, and `TestGeolocation` in tests | [`weather/LocationService.k`](src/weather/LocationService.k), [`components/UseMyLocation.k`](src/components/UseMyLocation.k), [`pages/LocalWeather.k`](src/pages/LocalWeather.k), [`components/UseMyLocation.test.k`](src/components/UseMyLocation.test.k) |
 | `@Load(keepOnReload: true)`: the periodic refresh keeps the place and fetches only the forecast and air quality | [`pages/CityWeather.k`](src/pages/CityWeather.k) |
 | Typed local storage: a `StorageKey` recorded in [`storage.lock`](storage.lock) | [`weather/RecentPlaces.k`](src/weather/RecentPlaces.k) |
 | `App.k`: the app-wide default layout and metadata | [`App.k`](App.k) |
@@ -122,7 +123,7 @@ k check     # types, tests and lockfiles, as CI runs them
 k run       # like k dev, without rebuilding on change
 ```
 
-`k build` also writes `routes.lock`. The routes are `/` (`Home`) and the default URL for `CityWeather`, for example `/city-weather/2950159?units=imperial`.
+`k build` also writes `routes.lock`. The routes are `/` (`Home`), the default URL for `CityWeather`, for example `/city-weather/2950159?units=imperial`, and `LocalWeather`'s, for the device's position: `/local-weather/52.52/13.41`.
 
 The app needs outbound HTTPS access to `geocoding-api.open-meteo.com`, `api.open-meteo.com` and `air-quality-api.open-meteo.com`. Requests are made from the browser, and from the server during server rendering. Open-Meteo's free tier is for non-commercial use, and its data is licensed under CC BY 4.0. The layout shows the attribution the licence requires.
 
@@ -139,6 +140,8 @@ To run against a local fake instead, as the toolchain's real-browser tests do, s
 | `components/CitySearch.test.k` | The idle hint, the debounce (299 ms vs 300 ms, and restarting on new input), the one-letter minimum, the in-progress text, no matches, failure, and clearing the field |
 | `pages/CityWeather.test.k` | The loaded dashboard, the `loading` block, parallel loading after the place, imperial units from the parameter, not found (rendered, and as a server-rendered 404 with its title), a server-rendered 200, offline, timeout with a working retry, 5xx vs 4xx messages, an invalid response, refreshing every 10 minutes, keeping the view during a refresh, and stopping the timer on unmount |
 | `weather/RecentPlaces.test.k` | An empty list at first, newest first without duplicates, and the limit |
+| `components/UseMyLocation.test.k` | The prompt from the first click and the weather opened at the position, a refused prompt, no fix, and no button where location is blocked or unsupported |
+| `pages/LocalWeather.test.k` | The dashboard at a position, a failure with a retry, and coordinates that aren't numbers |
 | `pages/Home.test.k` | The search field and featured links; the recently viewed list (rendered in the browser) and its absence |
 
 ## Design documents this example relies on
@@ -155,6 +158,7 @@ Besides the core topics (components, views, styles, reactivity, routing), the ex
 | [`09-errors.md`](../../docs/design/09-errors.md) | Typed throws, exhaustive `catch`, translating errors at a layer boundary |
 | [`14-async-data.md`](../../docs/design/14-async-data.md) | `@Load`, `loading`, `failed`, `reload()`, `keepOnReload`, keeping the view during a refresh, `status(.notFound)`, the page `metadata` skipped when `failed` renders |
 | [`47-client-rendered-components.md`](../../docs/design/47-client-rendered-components.md) | `@Rendering(.client)` on `RecentPlacesList`, its `loading` block |
+| [`45-web-platform.md`](../../docs/design/45-web-platform.md) | `Geolocation`, `PermissionState`, `@UserAction`, the server-rendering rule for `isSupported` and `permission`, `TestGeolocation` |
 | [`36-local-storage.md`](../../docs/design/36-local-storage.md) | `LocalStorage`, `StorageKey`, `storage.lock`, `MemoryStorage` in tests |
 | [`07-themes-and-units.md`](../../docs/design/07-themes-and-units.md) | The theme, `variant dark matches .prefersDark`, overriding library tokens by assignment |
 | [`37-charts.md`](../../docs/design/37-charts.md) | `LineChart`, `LineSeries`, `ChartPoint`, chart tokens |

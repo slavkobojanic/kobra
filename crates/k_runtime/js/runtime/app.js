@@ -28,7 +28,7 @@
  */
 
 import { SERVICE_TOKEN_HEADER, verifyServiceToken } from "./remote.js";
-import { KPanic, isPanic, panic } from "./values.js";
+import { KPanic, isPanic, panic, unitCase } from "./values.js";
 import { currencyCode } from "./money.js";
 import { DecodeFailure, Instant, NO, Secret, parseEmail, parseQuery, parseTimeZone, parseUuid, route, routeParam, splitTarget, stringify, toJSON } from "./std.js";
 import { Out, escapeAttribute, escapeText, serializeData } from "./ssr.js";
@@ -1816,6 +1816,22 @@ export function testClient(st, E, S, codes) {
       return received(E, statusOf(o.status), o.status, o.headers, body);
     },
   };
+}
+
+/**
+ * The server's stand-in for the client-only platform interface `name`
+ * (`k.device.Geolocation`, 45-web-platform.md, "Server rendering and the
+ * server"): a client-only service that injects it is constructed while the
+ * server renders, and may read `isSupported`, `false` here, and
+ * `permission`, `.prompt` (`PermissionState`'s `unitCase(0)`). Anything
+ * else is K4012 at compile time, and panics with its name here.
+ * @param {string} name
+ */
+export function clientPlatform(name) {
+  const missing = missingNative(name);
+  return new Proxy(missing, {
+    get: (_t, key) => (key === "isSupported" ? false : key === "permission" ? unitCase(0) : missing[key]),
+  });
 }
 
 /**

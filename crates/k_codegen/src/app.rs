@@ -722,6 +722,7 @@ pub(crate) fn client_containers(
                     "k.device.Files" => "k.device.BrowserFiles",
                     "k.device.Clipboard" => "k.device.BrowserClipboard",
                     "k.device.Share" => "k.device.BrowserShare",
+                    "k.device.Geolocation" => "k.device.BrowserGeolocation",
                     _ => return None,
                 };
                 g.view.lookup(default)
@@ -832,22 +833,24 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
             rt("browserStorage", args)
         }
         // The files chunk's (runtime.md §12.4), imported by the entry.
-        // The feature chunks' (runtime.md §12.4, §12.6), imported by the
+        // The feature chunks' (runtime.md §12.4, §12.6, §12.7), imported by the
         // entry.
-        "k.device.BrowserFiles" | "k.device.BrowserClipboard" | "k.device.BrowserShare" => {
-            match b.g.view.lookup(qualified) {
-                Some(d) => {
-                    let name = b.g.name(d);
-                    call(b.use_decl(d, name), vec![])
-                }
-                None => rt("native", vec![js::str(qualified)]),
+        "k.device.BrowserFiles"
+        | "k.device.BrowserClipboard"
+        | "k.device.BrowserShare"
+        | "k.device.BrowserGeolocation" => match b.g.view.lookup(qualified) {
+            Some(d) => {
+                let name = b.g.name(d);
+                call(b.use_decl(d, name), vec![])
             }
-        }
+            None => rt("native", vec![js::str(qualified)]),
+        },
         // The test's one clock, shared with its server container.
         "k.test.TestClock" => crate::suite::kit_call("sharedClock", vec![]),
         "k.test.TestFiles" => crate::suite::kit_call("testFiles", vec![]),
         "k.test.TestClipboard" => crate::suite::kit_call("testClipboard", vec![]),
         "k.test.TestShare" => crate::suite::kit_call("testShare", vec![]),
+        "k.test.TestGeolocation" => crate::suite::kit_call("testGeolocation", vec![]),
         "k.test.MemoryStorage" => crate::suite::kit_call(
             "memoryStorage",
             enums(

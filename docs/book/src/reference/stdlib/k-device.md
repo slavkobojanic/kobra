@@ -9,6 +9,7 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 |---|---|
 | [`BrowserClipboard`](#browserclipboard) | The standard [`Clipboard`](#clipboard): the browser's asynchronous clipboard (`navigator.clipboard`). |
 | [`BrowserFiles`](#browserfiles) | The standard [`Files`](#files): the browser's file picker (an `input` of type `file`) and downloads through an object URL. |
+| [`BrowserGeolocation`](#browsergeolocation) | The standard [`Geolocation`](#geolocation): the browser's Geolocation API (`navigator.geolocation`), with the permission read from the Permissions API. |
 | [`BrowserShare`](#browsershare) | The standard [`Share`](#share): the browser's Web Share API (`navigator.share`). |
 | [`Clipboard`](#clipboard) | Plain text on the system clipboard (`docs/design/45-web-platform.md`, "Clipboard"). |
 | [`ClipboardReadError`](#clipboardreaderror) | Why [`Clipboard.readText()`](#clipboard) read nothing (`docs/design/45-web-platform.md`, "Clipboard"). |
@@ -19,7 +20,11 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`Files`](#files) | Opening files the user chooses, and saving files the app generates as downloads (`docs/design/42-files.md`). |
 | [`FileSaveError`](#filesaveerror) | Why [`Files.save`](#files) couldn't start a download (`docs/design/42-files.md`). |
 | [`FileType`](#filetype) | A kind of file the picker offers (`docs/design/42-files.md`): its media type and file name extension. |
+| [`Geolocation`](#geolocation) | The device's position (`docs/design/45-web-platform.md`, "Geolocation"). |
+| [`LocationAccuracy`](#locationaccuracy) | How exact a position [`Geolocation`](#geolocation) asks for (`docs/design/45-web-platform.md`, "Geolocation"). |
+| [`LocationError`](#locationerror) | Why [`Geolocation`](#geolocation) has no position (`docs/design/45-web-platform.md`, "Geolocation"). |
 | [`PermissionState`](#permissionstate) | Whether the app may use a permissioned browser feature (`docs/design/45-web-platform.md`, "Permissions"). |
+| [`Position`](#position) | Where the device is (`docs/design/45-web-platform.md`, "Geolocation"): plain numbers with their unit in the name. |
 | [`Share`](#share) | The system share sheet (`docs/design/45-web-platform.md`, "Web Share"). |
 | [`ShareButton`](#sharebutton) | A button that shares `content` (`docs/design/45-web-platform.md`, "ShareButton"): `ShareButton(content: .page(.recipe(id: recipe.id), title: recipe.title), label: "Share recipe")`. |
 | [`ShareButtonFailure`](#sharebuttonfailure) | Why a [`ShareButton`](#sharebutton) neither shared nor copied (`docs/design/45-web-platform.md`, "ShareButton"). |
@@ -70,6 +75,32 @@ The standard [`Files`](#files): the browser's file picker (an `input` of type
   [`Files.openAll(accepting:)`](#files).
 - `func save(_ file: File) throws FileSaveError`
   Starts a download of `file`; see [`Files.save(_:)`](#files).
+
+## BrowserGeolocation
+
+```k,ignore
+@ClientOnly
+public service BrowserGeolocation implements Geolocation
+```
+
+The standard [`Geolocation`](#geolocation): the browser's Geolocation API
+(`navigator.geolocation`), with the permission read from the
+Permissions API.
+
+**Members**
+
+- `var isSupported: Bool`
+  `true` in a secure context whose browser can locate; see
+  [`Geolocation.isSupported`](#geolocation).
+- `var permission: PermissionState`
+  The site's geolocation permission; see [`Geolocation.permission`](#geolocation).
+- `@UserAction func requestAccess() async -> PermissionState`
+  Asks the browser for one position, which shows its prompt; see
+  [`Geolocation.requestAccess()`](#geolocation).
+- `func currentPosition(accuracy: LocationAccuracy = .coarse, maximumAge: Duration = 0.seconds, timeout: Duration = 15.seconds) async throws LocationError -> Position`
+  Reads one position; see [`Geolocation.currentPosition`](#geolocation).
+- `func watch(accuracy: LocationAccuracy = .coarse) throws LocationError -> Stream<Position>`
+  Watches the position; see [`Geolocation.watch`](#geolocation).
 
 ## BrowserShare
 
@@ -319,6 +350,101 @@ type and file name extension.
 - `var fileExtension: String`
   The file name extension, without the dot ("json").
 
+## Geolocation
+
+```k,ignore
+@Platform(side: .client)
+public interface Geolocation
+```
+
+The device's position (`docs/design/45-web-platform.md`,
+"Geolocation"). A client-only platform interface:
+[`BrowserGeolocation`](#browsergeolocation) is injected with no `use` rule, and
+[`k.test.TestGeolocation`](k-test.md#testgeolocation) replaces it in tests.
+
+Only `requestAccess()` asks the user, and only from a user's action
+(a click handler, before its first `await`). Every other member checks
+the permission first and never prompts: while it is `.prompt` they
+throw [`LocationError.notAsked`](#locationerror).
+
+**Members**
+
+- `var isSupported: Bool`
+  Whether this browser can locate the device here: `false` outside a
+  secure context (`http:` on a host other than `localhost`), and
+  during server rendering. It doesn't change while the page is open.
+- `var permission: PermissionState`
+  Whether the app may read the position. Reactive: a view or a
+  `@Derived` value that reads it updates when the user changes the
+  site's settings. `.prompt` during server rendering.
+- `@UserAction func requestAccess() async -> PermissionState`
+  Asks the user for access, unless `permission` already says
+  `.granted` or `.denied`.
+
+  - Returns: the new permission. A refusal is an answer, not an error.
+- `func currentPosition(accuracy: LocationAccuracy = .coarse, maximumAge: Duration = 0.seconds, timeout: Duration = 15.seconds) async throws LocationError -> Position`
+  Reads the device's position once.
+
+  - Parameters:
+    - accuracy: `.coarse` (a city, fast and light on the battery) or
+      `.precise`.
+    - maximumAge: accepts a cached position this old; `0.seconds`
+      asks for a fresh one.
+    - timeout: how long to wait for a fix.
+  - Throws: [`LocationError.unsupported`](#locationerror) where `isSupported` is
+    `false`, `.notAsked` before `requestAccess()`, `.denied` when
+    the user refused, `.unavailable` when the device has no fix and
+    `.timeout` when none came in time.
+- `func watch(accuracy: LocationAccuracy = .coarse) throws LocationError -> Stream<Position>`
+  Follows the device's position: the stream yields the first position
+  as soon as there is a fix, then each change. It ends when the
+  permission is revoked (`permission` then says why) and when its
+  owner is cancelled, which stops the browser's watch.
+
+  - Throws: [`LocationError.unsupported`](#locationerror) where `isSupported` is
+    `false`, `.notAsked` or `.denied` when `permission` isn't
+    `.granted`.
+
+## LocationAccuracy
+
+```k,ignore
+public enum LocationAccuracy implements Equatable
+```
+
+How exact a position [`Geolocation`](#geolocation) asks for
+(`docs/design/45-web-platform.md`, "Geolocation").
+
+**Members**
+
+- `case coarse`
+  Within a few kilometres: enough for a city's weather or "stores near
+  me", faster and lighter on the battery. The default.
+- `case precise`
+  As exact as the device can tell, from satellites where it has them.
+
+## LocationError
+
+```k,ignore
+public enum LocationError implements Error, Equatable
+```
+
+Why [`Geolocation`](#geolocation) has no position
+(`docs/design/45-web-platform.md`, "Geolocation").
+
+**Members**
+
+- `case unsupported`
+  This browser or context can't locate the device.
+- `case notAsked`
+  The user hasn't been asked yet: call
+  [`Geolocation.requestAccess()`](#geolocation) from a user's action first.
+- `case denied`
+  The user, a browser setting or a policy refused.
+- `case unavailable`
+  The device has no fix.
+- `case timeout`
+  No position came within the timeout.
+
 ## PermissionState
 
 ```k,ignore
@@ -339,6 +465,36 @@ interface exposes it as a reactive `permission` member; only its
 - `case denied`
   The user, a browser setting or a policy refused it; only the
   browser's site settings can change it now.
+
+## Position
+
+```k,ignore
+public struct Position implements Equatable, Codable
+```
+
+Where the device is (`docs/design/45-web-platform.md`, "Geolocation"):
+plain numbers with their unit in the name.
+
+**Members**
+
+- `let latitude: Double`
+  Degrees north of the equator (negative south), WGS 84.
+- `let longitude: Double`
+  Degrees east of Greenwich (negative west), WGS 84.
+- `let accuracyMeters: Double`
+  The radius of 95% confidence around the position, in metres.
+- `let altitudeMeters: Double?`
+  Metres above the WGS 84 ellipsoid, when the device knows it.
+- `let headingDegrees: Double?`
+  The direction of travel, clockwise from true north; `nil` when not
+  moving.
+- `let speedMetersPerSecond: Double?`
+  The ground speed, when the device knows it.
+- `let measuredAt: Date`
+  When the position was measured.
+- `static func sample(latitude: Double, longitude: Double) -> Position`
+  A position for tests: 1 km accuracy, nothing else known, measured
+  at the [`k.test.TestClock`](k-test.md#testclock)'s time. It exists only in `k test`.
 
 ## Share
 

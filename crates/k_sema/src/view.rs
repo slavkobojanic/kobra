@@ -602,6 +602,7 @@ pub(crate) fn build(cx: &Cx<'_, '_>, sides: &HashMap<(FileId, TextRange), Side>)
             view.generics[i].constraints = cx.constraints(id).iter().map(Type::from_ty).collect();
         }
     }
+    let mut suites = Vec::new();
     for (i, d) in p.decls.iter().enumerate() {
         let id = program::DeclId(u32::try_from(i).unwrap_or(u32::MAX));
         let file = p.file(d.file);
@@ -663,12 +664,24 @@ pub(crate) fn build(cx: &Cx<'_, '_>, sides: &HashMap<(FileId, TextRange), Side>)
                 Some(m) => format!("{m}.{}", d.name),
                 None => d.name.clone(),
             };
-            view.qualified.entry(q).or_insert(DeclId(id.0));
-            view.display
-                .entry(info.display_name.clone())
-                .or_insert(DeclId(id.0));
+            // A test group shares its name with what it tests (`test
+            // Panel { }` beside `component Panel`), and its file may come
+            // first: the name is the declaration's, and the group's only
+            // when nothing else has it (below).
+            if d.named_kind() == Some(DeclarationKind::TestSuite) {
+                suites.push((q, info.display_name.clone(), DeclId(id.0)));
+            } else {
+                view.qualified.entry(q).or_insert(DeclId(id.0));
+                view.display
+                    .entry(info.display_name.clone())
+                    .or_insert(DeclId(id.0));
+            }
         }
         view.decls.push(info);
+    }
+    for (q, display, id) in suites {
+        view.qualified.entry(q).or_insert(id);
+        view.display.entry(display).or_insert(id);
     }
     for (i, m) in p.members.iter().enumerate() {
         let id = program::MemberId(u32::try_from(i).unwrap_or(u32::MAX));
