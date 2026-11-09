@@ -6,6 +6,7 @@
 //!   app                     the server executable (k_server packaging); absent for static-only apps
 //!   public/
 //!     index.html            only for static-only apps
+//!     k-sw.js               the service worker, only for apps that notify
 //!     assets/*.js *.css *.map   hashed client files
 //!   manifest.json           the build manifest
 //! ```
@@ -16,7 +17,8 @@ use std::path::{Component, Path};
 
 use crate::Output;
 
-/// Writes `output.client` below `dist/public/assets/` and the manifest to
+/// Writes `output.client` below `dist/public/assets/`, `output.root` (the
+/// service worker) in `dist/public/`, and the manifest to
 /// `dist/manifest.json`. Existing files are replaced, and every other file
 /// below `dist/public/assets/` (the hashed chunks, styles and maps of
 /// earlier builds) is removed, with the directories that empties; nothing
@@ -72,6 +74,33 @@ pub fn write_public(output: &Output, dist: &Path) -> io::Result<()> {
             fs::create_dir_all(parent)?;
         }
         fs::write(target, &file.contents)?;
+    }
+    // The files served at the site's root (`k-sw.js`): written next to
+    // `assets/`, and one an earlier build wrote that this one doesn't is
+    // removed (a browser keeps a registered worker whose script is gone,
+    // but shows no new notifications through it, since no page asks it to).
+    let public = dist.join("public");
+    let worker = public.join(crate::bundle::SERVICE_WORKER);
+    if !output
+        .root
+        .iter()
+        .any(|f| f.path == crate::bundle::SERVICE_WORKER)
+        && worker.is_file()
+    {
+        fs::remove_file(worker)?;
+    }
+    for file in &output.root {
+        if Path::new(&file.path)
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+            || file.path.contains('/')
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("bad output path {}", file.path),
+            ));
+        }
+        fs::write(public.join(&file.path), &file.contents)?;
     }
     let manifest = serde_json::to_string_pretty(&output.manifest).map_err(io::Error::other)?;
     fs::write(dist.join("manifest.json"), manifest + "\n")
@@ -144,6 +173,28 @@ mod tests {
             "the emptied directory is removed"
         );
         assert!(dist.join("manifest.json").is_file());
+        let _ = fs::remove_dir_all(&dist);
+    }
+
+    #[test]
+    fn the_service_worker_is_written_at_the_root_and_removed_when_gone() {
+        let dist = scratch("worker");
+        let mut with = output(&["a.11111111.js"]);
+        with.root.push(OutputFile {
+            path: "k-sw.js".into(),
+            contents: "// worker".into(),
+            kind: FileKind::JavaScript,
+        });
+        write_public(&with, &dist).unwrap_or(());
+        assert!(dist.join("public/k-sw.js").is_file());
+        assert!(!dist.join("public/assets/k-sw.js").exists());
+        write_public(&output(&["a.11111111.js"]), &dist).unwrap_or(());
+        assert!(!dist.join("public/k-sw.js").exists());
+        with.root[0].path = "../k-sw.js".into();
+        assert_eq!(
+            write_public(&with, &dist).map_err(|e| e.kind()),
+            Err(io::ErrorKind::InvalidInput)
+        );
         let _ = fs::remove_dir_all(&dist);
     }
 

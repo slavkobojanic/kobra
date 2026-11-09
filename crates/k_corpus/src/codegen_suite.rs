@@ -44,7 +44,8 @@ pub const RUNTIME_CHUNK_PREFIX: &str = "runtime.";
 /// One assertion of a `.expect` file.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Assertion {
-    /// `client`, `server` or `css`.
+    /// `client`, `server`, `css` or `root` (the files served at the site's
+    /// root, `k-sw.js`).
     pub target: &'static str,
     /// `true` for `contains`, `false` for `lacks`.
     pub contains: bool,
@@ -55,7 +56,7 @@ pub struct Assertion {
 }
 
 /// Parses a `.expect` file: one assertion per line,
-/// `client|server|css contains|lacks TEXT`; `#` comments and blank lines
+/// `client|server|css|root contains|lacks TEXT`; `#` comments and blank lines
 /// are ignored.
 ///
 /// # Errors
@@ -73,9 +74,10 @@ pub fn parse_expect(text: &str) -> Result<Vec<Assertion>, String> {
             Some("client") => "client",
             Some("server") => "server",
             Some("css") => "css",
+            Some("root") => "root",
             _ => {
                 return Err(format!(
-                    "line {}: expected `client`, `server` or `css`",
+                    "line {}: expected `client`, `server`, `css` or `root`",
                     i + 1
                 ));
             }
@@ -217,6 +219,10 @@ pub fn run(case: &Case, bless: bool) -> Result<(), String> {
             .iter()
             .filter(|f| f.kind == FileKind::Css)
             .collect();
+        // The files served at the site's root (`k-sw.js`), only asserted
+        // on by `.expect` files.
+        let root: Vec<&OutputFile> = output.root.iter().collect();
+        let root = render_files(&root);
         let rendered = [
             ("client.js", render_files(&client)),
             ("server.js", render_files(&server)),
@@ -240,6 +246,7 @@ pub fn run(case: &Case, bless: bool) -> Result<(), String> {
             let haystack = match a.target {
                 "client" => &rendered[0].1,
                 "server" => &rendered[1].1,
+                "root" => &root,
                 _ => &rendered[2].1,
             };
             if haystack.contains(&a.text) != a.contains {

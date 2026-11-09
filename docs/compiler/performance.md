@@ -653,6 +653,8 @@ Measured 2026-11-07, release build, 14-core Apple M-series:
 | `k.device` geolocation ≤ 1.25 KB (`GEOLOCATION_SIZE_BUDGET`) | `geolocation.js` 5.8 KB raw, 2.3 KB compacted, **1,064 B** gzip | met. **New budget, justified:** as the clipboard's: `BrowserGeolocation` is needed only by apps whose client locates (weather); the `$App` container imports it from `geolocation.[hash].js` |
 | `k.device` messages between tabs ≤ 640 B (`TABS_SIZE_BUDGET`) | `tabs.js` 2.7 KB raw, 0.9 KB compacted, **516 B** gzip | met. **New budget, justified:** as the clipboard's: `BrowserTabMessaging` (45-web-platform.md) is needed only by apps whose client injects `TabMessaging` (the shop's cart); the `$App` container imports it from `tabs.[hash].js`. The full client runtime had about 2 B of headroom, so it couldn't go there |
 | `KeepScreenAwake` ≤ 640 B (`WAKE_LOCK_SIZE_BUDGET`) | `wakelock.js` 2.4 KB raw, 0.9 KB compacted, **485 B** gzip | met. **New budget, justified:** like `KeyboardShortcut`'s: a component that renders nothing, in a chunk of its own (`wakelock.[hash].js`) for the apps that use it |
+| `k.device` notifications ≤ 1 KB (`NOTIFICATIONS_SIZE_BUDGET`) | `notifications.js` 4.4 KB raw, 1.7 KB compacted, **825 B** gzip | met. **New budget, justified:** as the clipboard's: `BrowserNotifications` (45-web-platform.md) is needed only by apps whose client injects `Notifications` (todos' reminders); the `$App` container imports it from `notifications.[hash].js`, deferred to the pages that reach it. The full client runtime has 2 B of headroom, so it couldn't go there |
+| The service worker ≤ 640 B (`SERVICE_WORKER_SIZE_BUDGET`) | `sw.js` 2.9 KB raw, 0.9 KB compacted, **497 B** gzip | met. **New budget, justified:** `k-sw.js` ships at the site's root next to the notifications chunk; no page load fetches it, only the browser's worker updates, so it counts against no app's budget, but it is measured so the Tier 2 push and offline work that extends it stays small |
 | `k.device` environment services ≤ 1.25 KB (`ENVIRONMENT_SIZE_BUDGET`) | `environment.js` 6.1 KB raw, 2.4 KB compacted, **1,016 B** gzip | met. **New budget, justified:** `PageVisibility`, `Connectivity`, `Preferences` and `Viewport` (45-web-platform.md) are needed only by apps whose client injects one (notes' offline banner); the full client runtime had 2 B of headroom, so they ship as one chunk of their own rather than four (each is a signal or three over the same hydration helper, too small to be worth a request each) |
 | Element events ≤ 1 KB (`OBSERVE_SIZE_BUDGET`) | `observe.js` 4.4 KB raw, 1.5 KB compacted, **728 B** gzip | met. **New budget, justified:** `appeared`, `disappeared` and `resized` (45-web-platform.md) are lowered to `$k.observeElement`, a runtime feature routed to `observe.[hash].js` like `forms`, so only clients that use one ship the shared observers |
 | `KeyboardShortcut` ≤ 512 B (`KEYS_SIZE_BUDGET`) | `keys.js` 1.6 KB raw, 0.6 KB compacted, **384 B** gzip | met. **New budget, justified:** 43-keyboard-shortcuts.md; a chunk of its own (`keys.[hash].js`) for apps with shortcuts, rather than 384 B more in every client's runtime chunk |
@@ -776,7 +778,7 @@ else). Each is the 2026-11-09 measurement plus about 10%, rounded:
 
 | App | Budget | Ships (2026-11-09) |
 |---|---|---|
-| `todos` | 17,500 B | 15,872 B |
+| `todos` | 19,500 B | 15,872 B (17,853 B on 2026-11-10, with reminders and their `notifications` chunk) |
 | `kanban` | 32,500 B | 29,840 B |
 | `weather` | 33,000 B | 25,820 B (30,076 B on 2026-11-10; 30,115 B once the geolocation chunk loads only with the start page) |
 | `notes` | 28,000 B | 25,440 B |
@@ -789,6 +791,12 @@ else). Each is the 2026-11-09 measurement plus about 10%, rounded:
 location" (45-web-platform.md): it had grown to 26,965 B before, and the geolocation chunk (1,064 B),
 the `LocalWeather` page's chunk and `UseMyLocation` add 3,111 B. Each is a feature the app didn't have,
 not growth in what it already shipped, so the budget is the new measurement plus about 10% again.
+
+**Raised, justified:** todos' budget went from 17,500 B to 19,500 B on 2026-11-10 with reminders
+(`Notifications`, 45-web-platform.md): the notifications chunk (about 830 B in the linked build),
+`ReminderService` and the row's "Remind me" add about 1,980 B to the 15,872 B it shipped. As for weather,
+it is a feature the app didn't have, so the budget is the new measurement plus about 10%. The service
+worker, `k-sw.js` (504 B), isn't counted: no page load fetches it, only the browser's worker updates.
 
 The part budgets of §11.3 still hold for the runtime's parts as written (they measure `compact`, not the
 linked output); a shipped runtime chunk is now well under the 23 KB of its parts (todos 9,895 B gzip,

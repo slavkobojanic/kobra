@@ -597,6 +597,47 @@ test("TestGeolocation: a refused prompt, and a watch that follows moves and ends
   assertEq(await owned.next(), null, "ended with its owner");
 });
 
+test("TestNotifications: a capable browser at prompt, shows recorded, prompts counted", async () => {
+  const n = kit.testNotifications((p) => `/reports/${p.id}`);
+  const settle = (p) => p.then((ok) => ({ ok }), (error) => ({ error }));
+  const ready = { title: "Ready", body: null, tag: "r", opens: { $: 0, id: "7" } };
+  assert(n.isSupported);
+  assertEq(n.permission, unitCase(0));
+  assertEq((await settle(n.show(null, ready))).error, unitCase(1), "not asked");
+  assertEq(n.prompts, 0, "a show never prompts");
+  assertEq(await n.requestAccess(null), unitCase(1));
+  assertEq(await n.requestAccess(null), unitCase(1));
+  assertEq(n.prompts, 1, "asked once");
+  await n.show(null, ready);
+  await n.show(null, ready);
+  assertEq(n.shown.length, 2, "a replaced notification is still recorded");
+  n.setPermission(unitCase(2));
+  assertEq((await settle(n.show(null, ready))).error, unitCase(2));
+  n.setSupported(false);
+  assert(!n.isSupported);
+  assertEq((await settle(n.show(null, ready))).error, unitCase(0));
+  assertEq(n.shown.length, 2);
+});
+
+test("TestNotifications: a dismissed prompt stays at prompt; a click opens the page shown", async () => {
+  installDom();
+  kit.installBrowser();
+  const n = kit.testNotifications((p) => `/reports/${p.id}`);
+  n.answerPrompts(unitCase(0));
+  assertEq(await n.requestAccess(null), unitCase(0));
+  assertEq(n.prompts, 1);
+  n.setPermission(unitCase(1));
+  const ready = { title: "Ready", body: null, tag: null, opens: { $: 0, id: "7" } };
+  const plain = { title: "Plain", body: null, tag: null, opens: null };
+  await n.show(null, ready);
+  await n.show(null, plain);
+  n.click({ ...ready });
+  assertEq(globalThis.location.pathname, "/reports/7", "an equal value is the one shown");
+  n.click(plain);
+  assertEq(globalThis.location.pathname, "/reports/7", "no page: the tab stays");
+  assertThrows(() => n.click({ ...plain, title: "Other" }));
+});
+
 test("TestTabMessaging: posts are recorded, deliveries reach listeners and streams as decoded JSON", async () => {
   const tabs = kit.testTabMessaging();
   const cart = { name: "cart" };

@@ -251,6 +251,7 @@ pub(crate) fn page_enum(b: &mut Body<'_, '_>) -> Vec<Stmt> {
         tests: Vec::new(),
         body: vec![Stmt::Return(Some(js::str("/")))],
     });
+    crate::decl::on_demand(b, vec!["Page$codec".into()], page_codec);
     vec![
         Stmt::ExportConst("Page".into(), Expr::Object(props, true)),
         Stmt::Function(
@@ -264,6 +265,103 @@ pub(crate) fn page_enum(b: &mut Body<'_, '_>) -> Vec<Stmt> {
         ),
         Stmt::ExportConst("Page$routes".into(), Expr::Array(parse_routes)),
     ]
+}
+
+/// `Page$codec`, emitted only where something encodes or decodes a page
+/// (a `SystemNotification`'s `opens`): the wire form of an enum
+/// (codegen.md §5.1), a page with parameters as `{"case": "report", "id":
+/// …}`, one without as `"home"`.
+fn page_codec(b: &mut Body<'_, '_>) -> Vec<Stmt> {
+    let g = b.g;
+    let mut enc_cases = Vec::new();
+    let mut dec_stmts = vec![Stmt::Const(
+        "c".into(),
+        rt("caseName", vec![id("j"), id("p")]),
+    )];
+    for (tag, &p) in pages(g).iter().enumerate() {
+        let cname = case_name(&g.view.decl(p).name);
+        let ps = params(g, p);
+        let page = id("Page");
+        if ps.is_empty() {
+            enc_cases.push(js::Case {
+                tests: vec![Expr::Num(tag as f64)],
+                body: vec![Stmt::Return(Some(js::str(cname.clone())))],
+            });
+            dec_stmts.push(Stmt::If(
+                bin("===", id("c"), js::str(cname.clone())),
+                vec![Stmt::Return(Some(member(page, cname)))],
+                None,
+            ));
+            continue;
+        }
+        let mut wire = vec![Prop::Quoted("case".into(), js::str(cname.clone()))];
+        let mut dargs = Vec::new();
+        for (_, name, t, _) in &ps {
+            let c = crate::codec::codec_expr(b, t);
+            wire.push(Prop::Quoted(
+                name.clone(),
+                call(
+                    member(c.clone(), "encode"),
+                    vec![member(id("v"), name.clone())],
+                ),
+            ));
+            dargs.push(call(
+                member(c, "decode"),
+                vec![
+                    Expr::Index(Box::new(id("j")), Box::new(js::str(name.clone()))),
+                    bin("+", id("p"), js::str(format!(".{name}"))),
+                ],
+            ));
+        }
+        enc_cases.push(js::Case {
+            tests: vec![Expr::Num(tag as f64)],
+            body: vec![Stmt::Return(Some(Expr::Object(wire, false)))],
+        });
+        dec_stmts.push(Stmt::If(
+            bin("===", id("c"), js::str(cname.clone())),
+            vec![Stmt::Return(Some(call(member(page, cname), dargs)))],
+            None,
+        ));
+    }
+    enc_cases.push(js::Case {
+        tests: Vec::new(),
+        body: vec![Stmt::Return(Some(rt("unreachable", vec![])))],
+    });
+    dec_stmts.push(Stmt::Return(Some(rt(
+        "decodeFail",
+        vec![id("p"), bin("+", js::str("unknown page "), id("c"))],
+    ))));
+    vec![Stmt::ExportConst(
+        "Page$codec".into(),
+        Expr::Object(
+            vec![
+                Prop::KeyValue(
+                    "encode".into(),
+                    js::arrow_block(
+                        vec![Param::new("v")],
+                        vec![Stmt::Switch(member(id("v"), "$"), enc_cases)],
+                        false,
+                    ),
+                ),
+                Prop::KeyValue(
+                    "decode".into(),
+                    js::arrow_block(
+                        vec![
+                            Param::new("j"),
+                            Param {
+                                name: "p".into(),
+                                default: Some(js::str("")),
+                                rest: false,
+                            },
+                        ],
+                        dec_stmts,
+                        false,
+                    ),
+                ),
+            ],
+            false,
+        ),
+    )]
 }
 
 /// `Endpoint$href(e)`: the path of an `Endpoint` value, the endpoint
@@ -735,6 +833,7 @@ pub(crate) fn client_containers(
                     "k.device.Share" => "k.device.BrowserShare",
                     "k.device.Geolocation" => "k.device.BrowserGeolocation",
                     "k.device.TabMessaging" => "k.device.BrowserTabMessaging",
+                    "k.device.Notifications" => "k.device.BrowserNotifications",
                     _ => return None,
                 };
                 g.view.lookup(default)
@@ -878,6 +977,19 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
             }
             None => rt("native", vec![js::str(qualified)]),
         },
+        // The notifications chunk's (runtime.md §12.12): a notification's
+        // `opens` page becomes the URL its click opens with `Page$href`.
+        "k.device.BrowserNotifications" => match b.g.view.lookup(qualified) {
+            Some(d) => {
+                let name = b.g.name(d);
+                let href = match b.g.view.lookup("k.core.Page") {
+                    Some(p) => b.use_decl(p, "Page$href".into()),
+                    None => Expr::Null,
+                };
+                call(b.use_decl(d, name), vec![href])
+            }
+            None => rt("native", vec![js::str(qualified)]),
+        },
         // The environment chunk's (runtime.md §12.8): during hydration the
         // preferences the server rendered with (`k-data`'s `p`).
         "k.device.Preferences" => match b.g.view.lookup(qualified) {
@@ -894,6 +1006,14 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         "k.test.TestShare" => crate::suite::kit_call("testShare", vec![]),
         "k.test.TestGeolocation" => crate::suite::kit_call("testGeolocation", vec![]),
         "k.test.TestTabMessaging" => crate::suite::kit_call("testTabMessaging", vec![]),
+        // `click` opens the notification's page with `Page$href`.
+        "k.test.TestNotifications" => {
+            let href = match b.g.view.lookup("k.core.Page") {
+                Some(p) => b.use_decl(p, "Page$href".into()),
+                None => Expr::Null,
+            };
+            crate::suite::kit_call("testNotifications", vec![href])
+        }
         "k.test.TestWakeLock" => crate::suite::kit_call("testWakeLock", vec![]),
         "k.test.TestPageVisibility" => crate::suite::kit_call("testPageVisibility", vec![]),
         "k.test.TestConnectivity" => crate::suite::kit_call("testConnectivity", vec![]),

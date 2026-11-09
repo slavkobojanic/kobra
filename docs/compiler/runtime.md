@@ -150,6 +150,8 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | `clipboard.[hash].js` | `clipboard.js` (part `Clipboard`), shipped only to apps whose client copies (`Clipboard`, `CopyButton`) | ≤ 1.25 KB (`CLIPBOARD_SIZE_BUDGET`) | 1,010 B |
 | `share.[hash].js` | `share.js` (part `Share`), shipped only to apps whose client shares (`Share`, `ShareButton`) | ≤ 1.25 KB (`SHARE_SIZE_BUDGET`) | 1,139 B |
 | `geolocation.[hash].js` | `geolocation.js` (part `Geolocation`), shipped only to apps whose client injects `Geolocation` | ≤ 1.25 KB (`GEOLOCATION_SIZE_BUDGET`) | 1,064 B |
+| `notifications.[hash].js` | `notifications.js` (part `Notifications`), shipped only to apps whose client injects `Notifications` | ≤ 1 KB (`NOTIFICATIONS_SIZE_BUDGET`) | 825 B |
+| `k-sw.js` (at the root) | `sw.js` (part `ServiceWorker`), the service worker emitted next to the notifications chunk; fetched by the browser's worker updates, never by a page load | ≤ 640 B (`SERVICE_WORKER_SIZE_BUDGET`) | 497 B |
 | `environment.[hash].js` | `environment.js` (part `Environment`), shipped only to apps whose client injects `PageVisibility`, `Connectivity`, `Preferences` or `Viewport` | ≤ 1.25 KB (`ENVIRONMENT_SIZE_BUDGET`) | 1,016 B |
 | `observe.[hash].js` | `observe.js` (part `Observe`), a runtime feature shipped only to clients whose views use `appeared`, `disappeared` or `resized` | ≤ 1 KB (`OBSERVE_SIZE_BUDGET`) | 728 B |
 | `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
@@ -929,6 +931,44 @@ empty comment.
   unmount it releases the lock, or the one a pending request brings. A refusal fires `failed` in a
   `batch`.
 - On the server it renders nothing (`natives["k.device.KeepScreenAwake$ssr"]`).
+
+### 12.12 Notifications and the service worker
+
+`notifications.js` (part `Notifications`), a feature chunk, is `k.device.BrowserNotifications`
+([45-web-platform.md](../design/45-web-platform.md#notifications)), constructed by the client entry's `$App` for
+`Notifications` as `BrowserNotifications(Page$href)`, and `sw.js` (part `ServiceWorker`) is the service worker
+`k build` emits at `/k-sw.js` for every app that ships the chunk ([codegen.md §19](codegen.md#19-output-layout-of-dist)).
+
+- `isSupported` is a secure context with `Notification` and `navigator.serviceWorker`: `false` in a Safari tab
+  on iOS, which exposes `Notification` only to an app added to the home screen. `Notification` itself is never
+  constructed, since Chromium on Android throws for it.
+- `permission` is a signal, `.prompt` while the page hydrates, then `Notification.permission` (`default` is
+  `.prompt`), re-read on the Permissions API's `change` for `{name: "notifications"}` where the engine fires it
+  and on `visibilitychange` to visible where it doesn't (WebKit).
+- `requestAccess(c)` asks only while the permission is `default`, through `Notification.requestPermission()`,
+  and answers what it is after: `.prompt` again when the user dismissed the prompt or Chromium's quieter prompt
+  answered without asking.
+- `show(c, n)` checks the permission first and throws `unitCase(1)` (`notAsked`) or `2` (`denied`) without
+  calling the browser; then it registers the worker, once per page (`register("/k-sw.js", {scope: "/",
+  updateViaCache: "none"})`, then `navigator.serviceWorker.ready`; a rejection, as in Gecko's private windows,
+  is `.unsupported` and the next `show` tries again) and calls `showNotification(title, {body, tag, data:
+  {url, from}})`: `url` is `Page$href(opens)` or `null`, `from` the path that showed it. A rejection there (the
+  permission revoked meanwhile) re-reads the permission and is `.denied`. When the permission is already
+  granted at load, the worker is registered after hydration, so it is installed before anything is shown.
+- **Opening the page:** the chunk listens for the worker's `{k: "open", url}` message on
+  `navigator.serviceWorker`, navigates with the router (`navigate(url)`, a client-side navigation that keeps
+  the app's state) and answers `true` on the message's port.
+- **The worker** has three listeners and no `fetch` handler, so it never stands between the app and the
+  network: `install` calls `skipWaiting()` and `activate` `clients.claim()`, so a new build's worker takes over
+  without waiting for every tab to close and every open tab is one it controls. `notificationclick` closes the
+  notification, finds the app's tabs (`matchAll({type: "window", includeUncontrolled: true})`), focuses the
+  focused one, else the most recent, and posts it the message; a tab that doesn't answer within 1,000 ms (it
+  never loaded the chunk) is navigated by the worker (`WindowClient.navigate`, a full load), or, when the
+  worker doesn't control it, the page opens in a new tab. With no tab open, `clients.openWindow(url ?? from)`.
+  A notification without a page only focuses the tab.
+- On the server `Notifications` is `$s.clientPlatform(...)` like `Geolocation` (§12.7). The test double is the
+  kit's `testNotifications(Page$href)`: `isSupported` and `permission` are signals, `show` records into `shown`,
+  and `click(n)` (of a notification `shown` holds, by value) navigates to its page with the router.
 
 ---
 

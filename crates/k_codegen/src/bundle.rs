@@ -819,6 +819,37 @@ fn bind_deferred(stmts: &mut [Stmt], deferred: &[Deferred]) {
     });
 }
 
+/// The service worker `k-sw.js` (`k:/runtime/sw.js`, runtime.md §12.12)
+/// for a client that ships the notifications chunk, which registers it:
+/// served at the site's root so its scope is the whole app, under a fixed
+/// name, since a registration is keyed by its script's URL, and
+/// compacted in a release build like the runtime. The browser installs a
+/// new worker when the bytes it fetches differ, so it carries no build
+/// hash. Empty for every other client (codegen.md §19).
+pub(crate) fn service_worker(g: &Gen<'_>, client: &[OutputFile]) -> Option<OutputFile> {
+    let (stem, _, _) = FEATURE_CHUNKS
+        .iter()
+        .find(|(_, specifier, _)| *specifier == "k:/runtime/notifications.js")?;
+    let prefix = format!("{stem}.");
+    if !client.iter().any(|f| f.path.starts_with(&prefix)) {
+        return None;
+    }
+    let source = k_runtime::module("k:/runtime/sw.js")?.source;
+    let contents = if g.options.profile == Profile::Release {
+        k_runtime::compact(source).unwrap_or_else(|_| source.to_owned())
+    } else {
+        source.to_owned()
+    };
+    Some(OutputFile {
+        path: SERVICE_WORKER.to_owned(),
+        contents,
+        kind: FileKind::JavaScript,
+    })
+}
+
+/// The service worker's name and URL path below the site's root.
+pub(crate) const SERVICE_WORKER: &str = "k-sw.js";
+
 /// `true` when the client of this build is linked and minified after
 /// printing (`crate::link`): an app's release build. Tests and the
 /// development profile keep readable output.
@@ -982,6 +1013,7 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("share", "k:/runtime/share.js", "k/device"),
     ("geolocation", "k:/runtime/geolocation.js", "k/device"),
     ("tabs", "k:/runtime/tabs.js", "k/device"),
+    ("notifications", "k:/runtime/notifications.js", "k/device"),
     ("wakelock", "k:/runtime/wakelock.js", "k/device"),
     ("environment", "k:/runtime/environment.js", "k/device"),
     ("keys", "k:/runtime/keys.js", "k/ui"),

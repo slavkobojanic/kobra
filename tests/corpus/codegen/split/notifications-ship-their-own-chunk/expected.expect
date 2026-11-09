@@ -1,0 +1,16 @@
+# docs/design/45-web-platform.md, docs/compiler/codegen.md §16: `BrowserNotifications` is the
+# notifications chunk's, which only an app whose client notifies ships, and only with the pages
+# that reach it (`Home`, not `Report`); the container binds `Notifications` to it with no `use`
+# rule, passing the pages' `href`, and the build emits the service worker that shows them at the
+# site's root (`root`). Nothing here encodes a page, so there is no `Page$codec`.
+client contains // file: notifications.[hash].js
+client contains import { BrowserNotifications as $f_BrowserNotifications } from "../notifications.[hash].js";
+client lacks Page$codec
+client contains get Notifications() {
+client contains export function BrowserNotifications(
+client contains BrowserNotifications(Page$href)
+client lacks $k.native("k.device.
+client lacks geolocation.[hash].js
+server contains $s.clientPlatform("k.device.Notifications")
+root contains // file: k-sw.js
+root contains addEventListener("notificationclick"

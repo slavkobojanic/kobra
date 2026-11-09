@@ -12,9 +12,9 @@ use k_runtime::{
     CHARTS_SIZE_BUDGET, CLIPBOARD_SIZE_BUDGET, CORE_SIZE_BUDGET, DRAG_SIZE_BUDGET,
     ENVIRONMENT_SIZE_BUDGET, FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET,
     GEOLOCATION_SIZE_BUDGET, HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, MONEY_SIZE_BUDGET,
-    OBSERVE_SIZE_BUDGET, Part, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
-    STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, compact, compacted_sources,
-    module, modules, resolve,
+    NOTIFICATIONS_SIZE_BUDGET, OBSERVE_SIZE_BUDGET, Part, SERVICE_WORKER_SIZE_BUDGET,
+    SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET,
+    TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, compact, compacted_sources, module, modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -178,6 +178,7 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Share
                 | Part::Geolocation
                 | Part::Tabs
+                | Part::Notifications
                 | Part::WakeLock
                 | Part::Environment
                 | Part::Observe
@@ -461,6 +462,44 @@ fn the_element_events_meet_their_size_budget() {
 }
 
 #[test]
+fn notifications_meet_their_size_budget() {
+    let notifications = compacted_sources(&[Part::Notifications]).expect("compacts");
+    let size = gzip_len(&notifications);
+    eprintln!(
+        "notifications: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {NOTIFICATIONS_SIZE_BUDGET})",
+        raw_len(&[Part::Notifications]),
+        notifications.len()
+    );
+    assert!(
+        size <= NOTIFICATIONS_SIZE_BUDGET,
+        "notifications are {size} bytes gzip, over the {NOTIFICATIONS_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn the_service_worker_meets_its_size_budget() {
+    let worker = compacted_sources(&[Part::ServiceWorker]).expect("compacts");
+    let size = gzip_len(&worker);
+    eprintln!(
+        "service worker: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {SERVICE_WORKER_SIZE_BUDGET})",
+        raw_len(&[Part::ServiceWorker]),
+        worker.len()
+    );
+    assert!(
+        size <= SERVICE_WORKER_SIZE_BUDGET,
+        "the service worker is {size} bytes gzip, over the {SERVICE_WORKER_SIZE_BUDGET}-byte budget"
+    );
+    // A classic worker script: no `import`, no `export`.
+    let source = module("k:/runtime/sw.js").expect("embedded").source;
+    assert!(
+        !source
+            .lines()
+            .any(|l| l.starts_with("import ") || l.starts_with("export ")),
+        "sw.js is a classic script"
+    );
+}
+
+#[test]
 fn keyboard_shortcuts_meet_their_size_budget() {
     let keys = compacted_sources(&[Part::Keys]).expect("compacts");
     let size = gzip_len(&keys);
@@ -608,6 +647,7 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::Share
                 | Part::Geolocation
                 | Part::Tabs
+                | Part::Notifications
                 | Part::WakeLock
                 | Part::Environment
                 | Part::Observe

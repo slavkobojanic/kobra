@@ -1313,6 +1313,29 @@ fn test_messages_tabs_and_keeps_the_screen_on_through_their_doubles() {
 }
 
 #[test]
+fn test_notifies_through_the_notifications_double() {
+    // `Notifications` against `TestNotifications` (45-web-platform.md): the
+    // prompt from a click, a show that never prompts, a refused, dismissed
+    // or blocked permission, every notification recorded, a click opening
+    // the notification's page, and `SystemNotification` as a `Codable`
+    // value with its page.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/notifying");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("0 failed"), "{text}");
+    for name in [
+        "PASS  ExportService › a granted permission shows the notification as given",
+        "PASS  ExportService › a notification survives JSON, its page too",
+        "PASS  ExportButton › clicking the notification opens its page",
+        "PASS  ExportButton › clicking a notification without a page leaves the tab where it is",
+    ] {
+        assert!(text.contains(name), "{name}\n{text}");
+    }
+}
+
+#[test]
 fn test_expect_throws_checks_the_case_it_names() {
     // A qualified case pattern (`Choice.second`) was read as its type's
     // name, which matched any error.

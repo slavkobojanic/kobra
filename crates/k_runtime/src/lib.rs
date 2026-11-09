@@ -124,6 +124,19 @@ pub const GEOLOCATION_SIZE_BUDGET: usize = 1280;
 /// §11.3).
 pub const TABS_SIZE_BUDGET: usize = 640;
 
+/// The largest `k.device`'s notifications in the browser
+/// ([`Part::Notifications`]: `BrowserNotifications`) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (1 KB). It ships in its own chunk, only to apps
+/// whose client injects `Notifications` (`docs/compiler/performance.md`
+/// §11.3).
+pub const NOTIFICATIONS_SIZE_BUDGET: usize = 1024;
+
+/// The largest the service worker `k-sw.js` ([`Part::ServiceWorker`]) may
+/// be, measured like [`CORE_SIZE_BUDGET`] (640 B). It is fetched when the
+/// app first notifies and then on the browser's update checks, never by a
+/// page load (`docs/compiler/performance.md` §11.3).
+pub const SERVICE_WORKER_SIZE_BUDGET: usize = 640;
+
 /// The largest `k.device.KeepScreenAwake` in the browser
 /// ([`Part::WakeLock`]) may be, measured like [`CORE_SIZE_BUDGET`]
 /// (640 B). It ships in its own chunk, only to apps that use it
@@ -218,6 +231,17 @@ pub enum Part {
     /// apps whose client injects `TabMessaging`, and measured on its own
     /// ([`TABS_SIZE_BUDGET`]).
     Tabs,
+    /// `k.device`'s notifications in the browser (`BrowserNotifications`):
+    /// shipped as its own client chunk, only to apps whose client injects
+    /// `Notifications`, and measured on its own
+    /// ([`NOTIFICATIONS_SIZE_BUDGET`]).
+    Notifications,
+    /// The service worker `k-sw.js` that shows notifications and opens
+    /// their pages: a classic worker script served at the site's root, not
+    /// a module of any bundle, emitted for apps that ship
+    /// [`Part::Notifications`] and measured on its own
+    /// ([`SERVICE_WORKER_SIZE_BUDGET`]).
+    ServiceWorker,
     /// `k.device.KeepScreenAwake` in the browser: shipped as its own client
     /// chunk, only to apps that use it, and measured on its own
     /// ([`WAKE_LOCK_SIZE_BUDGET`]).
@@ -321,6 +345,8 @@ const MODULES: &[Module] = modules![
     Share "runtime/share.js",
     Geolocation "runtime/geolocation.js",
     Tabs "runtime/tabs.js",
+    Notifications "runtime/notifications.js",
+    ServiceWorker "runtime/sw.js",
     WakeLock "runtime/wakelock.js",
     Environment "runtime/environment.js",
     Observe "runtime/observe.js",

@@ -1,7 +1,9 @@
+import k.test.TestNotifications
 import todo.TodoService
 
 test TodoRow {
     @Inject let todos: TodoService
+    @Inject let notifications: TestNotifications
 
     test "checking the box marks the todo done" {
         try todos.add(title: "Buy milk")
@@ -24,12 +26,13 @@ test TodoRow {
         expect not todos.items[0].isDone
     }
 
-    test "the Edit and Delete buttons are named after their todo" {
+    test "the Edit, Remind me and Delete buttons are named after their todo" {
         try todos.add(title: "Buy milk")
         let screen = render(TodoRow(todo: todos.items[0]))
 
-        expect screen.buttons().count == 2
+        expect screen.buttons().count == 3
         expect screen.button(named: "Edit Buy milk").isVisible
+        expect screen.button(named: "Remind me about Buy milk").isVisible
         expect screen.button(named: "Delete Buy milk").isVisible
     }
 
@@ -90,5 +93,41 @@ test TodoRow {
         screen.button(named: "Delete Buy milk").click()
 
         expect todos.items.isEmpty
+    }
+
+    test "Remind me asks for permission from the click, then says the reminder is set" {
+        try todos.add(title: "Buy milk")
+        let screen = render(TodoRow(todo: todos.items[0]))
+
+        screen.button(named: "Remind me about Buy milk").click()
+        await screen.settle()
+
+        expect notifications.prompts == 1
+        expect screen.text("Reminder set").isVisible
+        expect not screen.button(named: "Remind me about Buy milk").exists
+    }
+
+    test "a refused prompt sets nothing, and the button goes" {
+        notifications.answerPrompts(with: .denied)
+        try todos.add(title: "Buy milk")
+        let screen = render(TodoRow(todo: todos.items[0]))
+
+        screen.button(named: "Remind me about Buy milk").click()
+        await screen.settle()
+
+        expect not screen.text("Reminder set").exists
+        expect not screen.button(named: "Remind me about Buy milk").exists
+    }
+
+    test "a done todo, or a browser that can't notify, offers no reminder" {
+        try todos.add(title: "Buy milk")
+        todos.setDone(id: todos.items[0].id, isDone: true)
+
+        expect not render(TodoRow(todo: todos.items[0])).button(named: "Remind me about Buy milk").exists
+
+        todos.setDone(id: todos.items[0].id, isDone: false)
+        notifications.setSupported(false)
+
+        expect not render(TodoRow(todo: todos.items[0])).button(named: "Remind me about Buy milk").exists
     }
 }

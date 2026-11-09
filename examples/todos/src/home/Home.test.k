@@ -1,4 +1,6 @@
 import k.test.MemoryStorage
+import k.test.TestClock
+import k.test.TestNotifications
 import k.ui.Theme
 import todo.TodoService
 
@@ -6,6 +8,8 @@ test Home {
     @Inject let storage: MemoryStorage
     @Inject let todos: TodoService
     @Inject let theme: Theme
+    @Inject let notifications: TestNotifications
+    @Inject let clock: TestClock
 
     test "a new list invites the first todo" {
         let screen = render(Home())
@@ -128,5 +132,32 @@ test Home {
 
         expect screen.checkbox(labeled: "Walk the cat").isVisible
         expect screen.textField(labeled: "New title for Buy milk").value == "Buy milk"
+    }
+
+    test "a reminder comes half an hour later, and its click brings the list back" {
+        let screen = render(Home())
+        let field = screen.textField(labeled: "New todo")
+        field.fill("Buy milk")
+        field.press(.enter)
+
+        screen.button(named: "Remind me about Buy milk").click()
+        await screen.settle()
+        clock.advance(by: 29.minutes)
+        await screen.settle()
+
+        expect notifications.shown.isEmpty
+
+        clock.advance(by: 1.minute)
+        await screen.settle()
+
+        expect notifications.shown.count == 1
+        expect notifications.shown[0].title == "Buy milk"
+        expect not screen.text("Reminder set").exists
+        expect screen.button(named: "Remind me about Buy milk").isVisible
+
+        notifications.click(notifications.shown[0])
+        await screen.settle()
+
+        expect screen.currentPage == .home
     }
 }

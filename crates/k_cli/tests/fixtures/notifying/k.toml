@@ -1,0 +1,6 @@
+# `Notifications` with its test double, `TestNotifications`
+# (docs/design/45-web-platform.md, "Notifications"; docs/compiler/testing.md
+# §8.4): every test here must pass.
+[package]
+name = "notifying"
+k = "0.1"

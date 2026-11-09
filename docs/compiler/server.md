@@ -571,7 +571,8 @@ panics. The handler's `$e` carries the parsed `@Param`s and the request containe
 
 Assets are served from memory by the Rust front: `GET`/`HEAD` of `/assets/<hashed name>` →
 `Cache-Control: public, max-age=31536000, immutable` and the content type by extension; unhashed files
-(`index.html`) get `no-cache`. `HEAD` sends no body. Precompressed variants (brotli/gzip chosen by
+(`index.html`, and the service worker `/k-sw.js` at the root, [codegen.md §19](codegen.md#19-output-layout-of-dist))
+get `no-cache`. `HEAD` sends no body. Precompressed variants (brotli/gzip chosen by
 `Accept-Encoding`) are *v0, planned*.
 
 ---

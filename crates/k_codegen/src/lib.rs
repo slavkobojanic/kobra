@@ -258,6 +258,12 @@ pub struct Output {
     /// The client files: JavaScript chunks, CSS, source maps. Never empty
     /// for an app (the runtime chunk is always there).
     pub client: Vec<OutputFile>,
+    /// The files served at the site's root rather than below `/assets/`,
+    /// unhashed and revalidated on every fetch: the service worker
+    /// `k-sw.js` of an app whose client shows notifications
+    /// (`docs/compiler/codegen.md` §19). Empty for most apps.
+    #[serde(default)]
+    pub root: Vec<OutputFile>,
     /// The server modules; empty for a static-only app.
     pub server: Vec<OutputFile>,
     /// The specifier of the server entry module: `k:/app/$server.js`, or
@@ -551,6 +557,14 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
     }
     output.client = bundle::client_files(g, &client, &pages, entry, &from_server);
     output.client.extend(css::files(g));
+    // The service worker that shows notifications and opens their pages
+    // (45-web-platform.md, "Notifications"), for a client that ships the
+    // notifications chunk.
+    if !tests {
+        output
+            .root
+            .extend(bundle::service_worker(g, &output.client));
+    }
     // An app's release client is shaken, minified and renamed as a whole
     // (codegen.md §17).
     if bundle::linked(g) {

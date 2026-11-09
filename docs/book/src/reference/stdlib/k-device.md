@@ -10,6 +10,7 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`BrowserClipboard`](#browserclipboard) | The standard [`Clipboard`](#clipboard): the browser's asynchronous clipboard (`navigator.clipboard`). |
 | [`BrowserFiles`](#browserfiles) | The standard [`Files`](#files): the browser's file picker (an `input` of type `file`) and downloads through an object URL. |
 | [`BrowserGeolocation`](#browsergeolocation) | The standard [`Geolocation`](#geolocation): the browser's Geolocation API (`navigator.geolocation`), with the permission read from the Permissions API. |
+| [`BrowserNotifications`](#browsernotifications) | The standard [`Notifications`](#notifications): shown through the app's service worker registration's `showNotification`, since Chromium on Android has no `new Notification()`. |
 | [`BrowserShare`](#browsershare) | The standard [`Share`](#share): the browser's Web Share API (`navigator.share`). |
 | [`BrowserTabMessaging`](#browsertabmessaging) | The standard [`TabMessaging`](#tabmessaging): the browser's `BroadcastChannel`, one per channel name, namespaced per app as storage keys are. |
 | [`Clipboard`](#clipboard) | Plain text on the system clipboard (`docs/design/45-web-platform.md`, "Clipboard"). |
@@ -26,6 +27,8 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`KeepScreenAwake`](#keepscreenawake) | Keeps the screen on while it is mounted (`docs/design/45-web-platform.md`, "KeepScreenAwake"): `if cooking.isStepByStep { KeepScreenAwake() }`. |
 | [`LocationAccuracy`](#locationaccuracy) | How exact a position [`Geolocation`](#geolocation) asks for (`docs/design/45-web-platform.md`, "Geolocation"). |
 | [`LocationError`](#locationerror) | Why [`Geolocation`](#geolocation) has no position (`docs/design/45-web-platform.md`, "Geolocation"). |
+| [`NotificationError`](#notificationerror) | Why [`Notifications.show(_:)`](#notifications) showed nothing (`docs/design/45-web-platform.md`, "Notifications"). |
+| [`Notifications`](#notifications) | Notifications the operating system shows (`docs/design/45-web-platform.md`, "Notifications"): a timer finished, a long export is ready, a message arrived on an open stream. |
 | [`PageVisibility`](#pagevisibility) | Whether the page is on screen (`docs/design/45-web-platform.md`, "Page visibility"). |
 | [`PermissionState`](#permissionstate) | Whether the app may use a permissioned browser feature (`docs/design/45-web-platform.md`, "Permissions"). |
 | [`PointerKind`](#pointerkind) | The primary pointing device, [`Viewport.pointer`](#viewport). |
@@ -37,6 +40,7 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`ShareContent`](#sharecontent) | What to share (`docs/design/45-web-platform.md`, "Web Share"): a page of the app, a link or text, with an optional title. |
 | [`ShareError`](#shareerror) | Why [`Share.share(_:)`](#share) didn't share (`docs/design/45-web-platform.md`, "Web Share"). |
 | [`Subscription`](#subscription) | A running callback subscription, such as a handler listening for messages from the app's other tabs (`docs/design/45-web-platform.md`, "Ownership and lifetime"). |
+| [`SystemNotification`](#systemnotification) | A notification the operating system shows (`docs/design/45-web-platform.md`, "Notifications"). |
 | [`TabChannel`](#tabchannel) | A channel between the app's tabs, paired with the type of its messages: `TabChannel<CartChange> = TabChannel(name: "cart")` (`docs/design/45-web-platform.md`, "Messages between tabs"). |
 | [`TabMessaging`](#tabmessaging) | Messages between the app's tabs (`docs/design/45-web-platform.md`, "Messages between tabs"). |
 | [`Viewport`](#viewport) | The layout viewport and the primary pointer (`docs/design/45-web-platform.md`, "Viewport"), for decisions CSS can't make; layout by width belongs in style blocks' media and container queries. |
@@ -111,6 +115,33 @@ Permissions API.
   Reads one position; see [`Geolocation.currentPosition`](#geolocation).
 - `func watch(accuracy: LocationAccuracy = .coarse) throws LocationError -> Stream<Position>`
   Watches the position; see [`Geolocation.watch`](#geolocation).
+
+## BrowserNotifications
+
+```k,ignore
+@ClientOnly
+public service BrowserNotifications implements Notifications
+```
+
+The standard [`Notifications`](#notifications): shown through the app's service worker
+registration's `showNotification`, since Chromium on Android has no
+`new Notification()`. `k build` emits the worker as `/k-sw.js` for an
+app whose client reaches this service. The permission comes from the
+Notifications API.
+
+**Members**
+
+- `var isSupported: Bool`
+  `true` in a secure context with service workers and the
+  Notifications API; see [`Notifications.isSupported`](#notifications).
+- `var permission: PermissionState`
+  The site's notification permission; see
+  [`Notifications.permission`](#notifications).
+- `@UserAction func requestAccess() async -> PermissionState`
+  Shows the browser's prompt; see [`Notifications.requestAccess()`](#notifications).
+- `func show(_ notification: SystemNotification) async throws NotificationError`
+  Shows a notification through the service worker; see
+  [`Notifications.show(_:)`](#notifications).
 
 ## BrowserShare
 
@@ -511,6 +542,75 @@ Why [`Geolocation`](#geolocation) has no position
 - `case timeout`
   No position came within the timeout.
 
+## NotificationError
+
+```k,ignore
+public enum NotificationError implements Error, Equatable
+```
+
+Why [`Notifications.show(_:)`](#notifications) showed nothing
+(`docs/design/45-web-platform.md`, "Notifications").
+
+**Members**
+
+- `case unsupported`
+  This browser or context can't show notifications.
+- `case notAsked`
+  The user hasn't been asked yet: call
+  [`Notifications.requestAccess()`](#notifications) from a user's action first.
+- `case denied`
+  The user, a browser setting or a policy refused.
+
+## Notifications
+
+```k,ignore
+@Platform(side: .client)
+public interface Notifications
+```
+
+Notifications the operating system shows
+(`docs/design/45-web-platform.md`, "Notifications"): a timer finished,
+a long export is ready, a message arrived on an open stream. A
+client-only platform interface: [`BrowserNotifications`](#browsernotifications) is injected
+with no `use` rule, and [`k.test.TestNotifications`](k-test.md#testnotifications) replaces it in
+tests.
+
+Only `requestAccess()` asks the user, and only from a user's action
+(a click handler, before its first `await`). `show(_:)` checks the
+permission first and never prompts: while it is `.prompt` it throws
+[`NotificationError.notAsked`](#notificationerror).
+
+A click on a notification focuses the app's tab and opens its
+[`SystemNotification.opens`](#systemnotification) page, or opens a new tab at that page if
+the app's tab was closed. There is no click callback: the notification
+can outlive the page that showed it.
+
+**Members**
+
+- `var isSupported: Bool`
+  Whether this browser can show notifications here: `false` outside a
+  secure context, in a Safari tab on iOS (only an app added to the
+  home screen may notify there), and during server rendering. It
+  doesn't change while the page is open.
+- `var permission: PermissionState`
+  Whether the app may show notifications. Reactive: a view or a
+  `@Derived` value that reads it updates when the user changes the
+  site's settings. `.prompt` during server rendering.
+- `@UserAction func requestAccess() async -> PermissionState`
+  Asks the user for permission, unless `permission` already says
+  `.granted` or `.denied`.
+
+  - Returns: the new permission: `.prompt` again when the user
+    dismissed the prompt without answering. A refusal is an answer,
+    not an error.
+- `func show(_ notification: SystemNotification) async throws NotificationError`
+  Shows `notification`. A later notification with the same `tag`
+  replaces it.
+
+  - Throws: [`NotificationError.unsupported`](#notificationerror) where `isSupported` is
+    `false`, `.notAsked` before `requestAccess()` and `.denied` when
+    the user refused.
+
 ## PageVisibility
 
 ```k,ignore
@@ -756,6 +856,30 @@ one returned inside an [`k.core.Effect`](k-core.md#effect) is a warning, as for 
 - `func cancel()`
   Stops the callbacks; cancelling a cancelled subscription does
   nothing.
+
+## SystemNotification
+
+```k,ignore
+public struct SystemNotification implements Equatable, Codable
+```
+
+A notification the operating system shows
+(`docs/design/45-web-platform.md`, "Notifications"). `Codable`, so a
+push message (Tier 2) can carry the same value.
+
+**Members**
+
+- `let title: String`
+  The first line, in bold on most systems.
+- `let body: String? = nil`
+  The text under the title.
+- `let tag: String? = nil`
+  A later notification with the same tag replaces this one, rather
+  than adding another.
+- `let opens: Page? = nil`
+  The page a click opens; `nil` focuses the app's tab where it is (or
+  opens the page that showed the notification, if the tab was
+  closed).
 
 ## TabChannel
 

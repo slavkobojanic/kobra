@@ -232,6 +232,12 @@ fn write(output: &Output, out: &Path) -> std::io::Result<()> {
                 path: format!("/assets/{}", f.path),
                 text: f.contents.clone(),
             })
+            // The service worker at the site's root, unhashed, so served
+            // with `no-cache` (codegen.md §19).
+            .chain(output.root.iter().map(|f| EmbeddedFile {
+                path: format!("/{}", f.path),
+                text: f.contents.clone(),
+            }))
             .collect(),
         config: output
             .manifest
@@ -551,6 +557,17 @@ fn start(
             immutable: true,
         })
         .collect();
+    // The service worker at the site's root (`/k-sw.js`), revalidated on
+    // every fetch so a rebuild reaches the browser's next update check
+    // (codegen.md §19).
+    options
+        .assets
+        .extend(output.root.iter().map(|f| StaticAsset {
+            path: format!("/{}", f.path),
+            content_type: content_type(&f.path).to_owned(),
+            body: f.contents.clone().into_bytes().into(),
+            immutable: false,
+        }));
     // The `.k` files the source maps name (`/_k/src/<path>`), for the
     // debuggers that fetch sources rather than read the embedded text
     // (codegen.md §18).

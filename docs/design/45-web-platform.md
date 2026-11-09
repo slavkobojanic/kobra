@@ -433,6 +433,43 @@ public enum NotificationError implements Error, Equatable {
 
 **Test double: `TestNotifications`.** `shown: List<SystemNotification>` records what was shown; `answerPrompts(with:)`, `setPermission(_:)` (as if changed in site settings) and `setSupported(_:)` set the browser's state; `prompts: Int` counts `requestAccess` calls that asked; `click(_ notification:)` simulates the user clicking one, so a test can check `screen.currentPage`.
 
+*As built* (`crates/k_runtime/js/runtime/notifications.js`, the `notifications` feature chunk; `runtime/sw.js`,
+emitted as `/k-sw.js`; `TestNotifications` in the test kit):
+
+- **`SystemNotification`'s optional fields default to `nil`,** so `SystemNotification(title: "Done")` is enough.
+  The fields and their types are as above; the defaults only spare the call sites.
+- **`Page` is now `Codable` in fact,** as the stdlib already declared: the generated `Page$codec` has an enum's
+  wire form (`"home"`, `{"case": "report", "id": "7"}`) and is emitted only where something encodes a page
+  ([codegen.md §14](../compiler/codegen.md#14-routing-tables)), so `SystemNotification` round-trips through JSON
+  with its `opens`, as the push payload will.
+- **The service worker is emitted, served and updated like this** ([codegen.md
+  §19](../compiler/codegen.md#19-output-layout-of-dist)): `k build` writes it for an app whose client ships the
+  notifications chunk, at the site's root (`dist/public/k-sw.js`; `dist/app`, `k run` and `k dev` serve
+  `/k-sw.js`), so its scope is the whole app without a `Service-Worker-Allowed` header a CDN might not send.
+  Its name is fixed, since a registration is keyed by its URL; it is served `no-cache` and registered with
+  `updateViaCache: "none"`, so the browser's update check sees a changed worker at once, and it carries no
+  build hash, since nothing in it depends on the app. It is the same file in development and release (compacted
+  in release). The page registers it on the first `show`, or after hydration when the permission is already
+  granted.
+- **Besides `notificationclick`, the worker has `install` (`skipWaiting`) and `activate` (`clients.claim`),** and
+  still no `fetch` handler. Without them a new build's worker would wait for every tab of the app to close, and
+  a tab opened before the first registration couldn't be navigated by the worker.
+- **A click opens the page with the router when it can:** the worker focuses the app's tab (the focused one,
+  else the most recent) and posts it the URL; the notifications chunk navigates client-side and answers. A tab
+  that never loaded the chunk doesn't answer within a second, and the worker navigates it (a full load), or
+  opens a new tab when it doesn't control it. A notification whose `opens` is `nil` only focuses the tab, or,
+  with the tab closed, opens the page that showed it.
+- **`requestAccess()` answers `.prompt` again when the user dismissed the prompt** (or Chromium's quieter prompt
+  answered for them), so the app may ask again from a later click.
+- **`TestNotifications.click(_:)` panics for a notification that was never shown,** compared by value, and its
+  `isSupported` is reactive like `permission`, so a `@Derived` that read it follows `setSupported(_:)`.
+- **The todos example sets reminders** ([implementation tests](#implementation-tests) item 4 names no example for
+  notifications): "Remind me" on an open todo asks from the click, and half an hour later the page, which
+  checks once a minute while reminders are waiting, has the operating system show it, unless the todo was done
+  or deleted since. A timer that finished is the first use this section names, it needs no server, and a
+  client-rendered static app checks the worker on a static host. The real-Chrome test is `chrome.rs`'s
+  `todos_reminds_through_the_service_worker`.
+
 ### Push (Tier 2)
 
 Recorded so Tier 1 doesn't close it off; push gets its own design file.
@@ -822,7 +859,15 @@ Built tests first, in this order:
 1. **The `@UserAction` check:** sema corpus cases for each allowed context and each refused one (effect, `@Load`, `init()`, timer callback, after `await`, stored function value, a non-`@UserAction` component event, two consuming calls), the inferred property on app functions, and the diagnostic's path. `Files.open` gets the check retroactively.
 2. **Typed detection and permissions:** `PermissionState`, the error conventions, and the server-render rule that `isSupported` and `permission` may be read during server rendering while every other member is `K4012`.
 3. **Each wrapper's double and binding:** a `k test` corpus per wrapper using its double, and a runtime test per binding against a scripted fake of the browser API.
-4. **Examples:** the weather app's "Use my location", a `CopyButton` in the kanban board's share panel, an offline banner in the notes app, cross-tab cart sync in the shop, `KeepScreenAwake` in a recipe step view.
+4. **Examples:** the weather app's "Use my location", a `CopyButton` in the kanban board's share panel, an offline banner in the notes app, cross-tab cart sync in the shop, `KeepScreenAwake` in a recipe step view, reminders in the todos app (`Notifications`, chosen in round 2e).
+
+*As built (round 2e):* `Notifications`, its service worker and `TestNotifications` are built tests first:
+`crates/k_cli/tests/fixtures/notifying` (`k test`), `tests/corpus/sema/app/notifications` and the
+`split/notifications-ship-their-own-chunk` codegen case (with a new `root` target in `.expect` files for the
+worker), then `notifications.test.js` and `sw.test.js` against a scripted browser and worker scope, and the todos
+example's reminders, checked in Chrome with the permission granted by `Browser.grantPermissions` and the
+notification read back with `getNotifications()`. No new diagnostic: asking from an effect is already K4030 and an
+unhandled `NotificationError` K2206/K2203.
 
 *As built (round 2d):* `TabMessaging` and `KeepScreenAwake`, with their doubles, are built tests first: `crates/k_cli/tests/fixtures/tabs` (`k test`), `tests/corpus/sema/app/tabs` and `app/screen`, the `split/tabs-ship-their-own-chunk` and `split/wake-lock-ships-its-own-chunk` codegen cases, then `tabs.test.js` and `wakelock.test.js` against scripted browsers, and the shop's cart, checked in Chrome with two tabs. No new diagnostic: a conflicting channel was already K2408.
 

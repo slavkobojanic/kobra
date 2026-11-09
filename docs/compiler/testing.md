@@ -649,7 +649,9 @@ css contains .CartSummary__panel
 ```
 
 `TARGET contains TEXT` / `TARGET lacks TEXT`, where `TARGET` is `client`, `server` or `css` (the rendered
-outputs above) and `TEXT` is everything after the second space, matched literally.
+outputs above), or `root` (the files served at the site's root, `Output::root`: the service worker `k-sw.js`
+of [codegen.md §19](codegen.md#19-output-layout-of-dist)), and `TEXT` is everything after the second space,
+matched literally.
 
 **Always checked**, pending or not: the case must analyse **without errors** (a test-first case is still
 a valid program), and `k_codegen::check_client_bundle` must find no server code in client files.
@@ -809,10 +811,20 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
   `BroadcastChannel`), `wakelock.test.js` (`KeepScreenAwake` against a scripted `navigator.wakeLock`: held
   while mounted, released when hidden and asked again when shown, a request resolving after unmount
   released, a refusal, no API or an insecure context, the container's `TestWakeLock`, the server's empty
-  markup) and
+  markup), `notifications.test.js` (`BrowserNotifications` against a scripted `Notification`,
+  `navigator.serviceWorker` and `navigator.permissions`: an insecure context and a Safari tab on iOS
+  unsupported, the permission after hydration and on `change` or (WebKit) on becoming visible, a show
+  before asking `notAsked` with nothing registered, the worker registered once at `/k-sw.js` with scope
+  `/` and `updateViaCache: "none"`, the page's URL in the notification's data, a refused and a quieted
+  prompt, Gecko's private windows rejecting `register`, a permission revoked mid-show, and the worker's
+  `open` message navigating and answered), `sw.test.js` (the service worker in a scripted
+  `ServiceWorkerGlobalScope`: `skipWaiting` and `clients.claim`, a click focusing the focused tab, else
+  the most recent, and posting it the page, the worker navigating a tab that doesn't answer within a
+  second or opening a new tab when it can't, a notification without a page only focusing, no tab open,
+  and a refused `focus`) and
   `observe.test.js` (the element events against scripted observers: entries and exits, thresholds, one
   observer per option set, sizes, and disposal) test the chunks of
-  [runtime.md §12.3–12.9](runtime.md#123-drag-and-drop).
+  [runtime.md §12.3–12.12](runtime.md#123-drag-and-drop).
 - **Cancellation**: `cancellation.test.js` pins the ownership of async work (design 03, "Async work is
   owned"): `live` and `CANCELLED`, a body stopped at an `await` (and a `catch`) whose owner was disposed
   after the promise settled, an effect re-run and a load stopping their superseded run, `on` keeping a
@@ -995,7 +1007,11 @@ timers).
   and `reload` keeps cookies and storage (it is the same profile). A tab fails its test when dropped if
   the page logged a console error, threw, failed a load or reached for the internet.
 - **Cases**: each example's main README flow, green: `todos` (add, complete, the three filters with
-  `aria-pressed`, clear, a reload), `kanban` (create a board, add cards, move one with Space, ArrowRight
+  `aria-pressed`, clear, a reload; "Remind me" with the notification permission granted by
+  `Browser.grantPermissions`, the static build's `/k-sw.js` served as JavaScript, and the reminder found
+  by the worker registration's `getNotifications()`, time passing quickly through a script run before the
+  page's with `Page.addScriptToEvaluateOnNewDocument`: each timer of a minute or more fires at once and
+  moves `Date.now` on by its delay), `kanban` (create a board, add cards, move one with Space, ArrowRight
   and Space keeping the focus, drop one onto another with the mouse, Escape closing the editor while
   typing, a reload, "Copy link" putting the card's absolute link on the real clipboard, with the
   permission granted by `Browser.grantPermissions`, and the link opening the card's editor), `weather` (a debounced search, a client navigation to a result, °C/°F, home again;
@@ -1724,7 +1740,10 @@ format change is a reviewed diff):
   the permission is revoked; and `fixtures/environment`, every test must pass: the environment services
   against their doubles and the element events driven from handles; and `fixtures/tabs`, every test must
   pass: `TabMessaging` against `TestTabMessaging` through a service's `listen` and an effect's
-  `messages`, and `KeepScreenAwake` against `TestWakeLock`): each bug of the test bundle or
+  `messages`, and `KeepScreenAwake` against `TestWakeLock`; and `fixtures/notifying`, every test must
+  pass: `Notifications` against `TestNotifications`, the prompt from a click, a show that never prompts,
+  refused, dismissed and blocked permissions, a click opening the notification's page, and a
+  `SystemNotification` with its page through JSON): each bug of the test bundle or
   the kit that an example exposed, pinned before it was fixed: a chained enum page parameter given as an
   implicit member, `Page.x` with only optional parameters, a group helper named like the tested
   service's function, a labelled argument after a default, `expect throws` checking the case, a

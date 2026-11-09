@@ -1,0 +1,8 @@
+error[K2206] 16:9-16:11: the `catch` clauses don't handle every error
+  note: missing: `.denied`
+  fix "Insert the missing `catch` clauses" maybe-incorrect
+    edit 23:10-23:10 " catch .denied {\n        }"
+error[K2203] 27:9-27:103: `k.device.NotificationError` is neither caught nor declared in `throws`
+  label 26:10-26:20: declared here without `throws k.device.NotificationError`
+  fix "Add `throws NotificationError`" maybe-incorrect
+    edit 26:28-26:28 " throws NotificationError"

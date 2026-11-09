@@ -487,6 +487,7 @@ fn shipped_client_assets() {
         ("share.", k_runtime::SHARE_SIZE_BUDGET),
         ("geolocation.", k_runtime::GEOLOCATION_SIZE_BUDGET),
         ("tabs.", k_runtime::TABS_SIZE_BUDGET),
+        ("notifications.", k_runtime::NOTIFICATIONS_SIZE_BUDGET),
         ("wakelock.", k_runtime::WAKE_LOCK_SIZE_BUDGET),
         ("environment.", k_runtime::ENVIRONMENT_SIZE_BUDGET),
         ("observe.", k_runtime::OBSERVE_SIZE_BUDGET),
@@ -534,6 +535,15 @@ fn shipped_client_assets() {
                         "{name}: {rel} is {g} bytes gzip (budget {limit})"
                     );
                 }
+            }
+            // The service worker at the root, which no page load fetches
+            // (codegen.md §19).
+            if rel == "public/k-sw.js" {
+                assert!(
+                    g <= k_runtime::SERVICE_WORKER_SIZE_BUDGET,
+                    "{name}: {rel} is {g} bytes gzip (budget {})",
+                    k_runtime::SERVICE_WORKER_SIZE_BUDGET
+                );
             }
             lines.push(format!("  {rel}: {} raw, {g} gzip", bytes.len()));
         }

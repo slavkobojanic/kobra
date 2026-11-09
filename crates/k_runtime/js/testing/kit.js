@@ -12,7 +12,8 @@
  *   synchronous updates.
  * - The hermetic defaults of `k.test`: `TestClock` (virtual time),
  *   `MemoryStorage`, `TestHttpClient`, `TestFiles`, `TestClipboard`,
- *   `TestShare`, `TestGeolocation`, `TestTabMessaging`, `TestWakeLock`,
+ *   `TestShare`, `TestGeolocation`, `TestNotifications`, `TestTabMessaging`,
+ *   `TestWakeLock`,
  *   `TestPageVisibility`, `TestConnectivity`, `TestPreferences`,
  *   `TestViewport`,
  *   `RecordingJobQueue` and `RecordingEmailProvider`.
@@ -30,12 +31,13 @@
  */
 
 import { batch, flush, onCleanup, root, signal } from "../runtime/signals.js";
-import { KPanic, isPanic, unitCase } from "../runtime/values.js";
+import { KPanic, equals, isPanic, unitCase } from "../runtime/values.js";
 import { Instant, PushStream, httpCode, stringify } from "../runtime/std.js";
 import { HttpResponse$isSuccess, HttpResponse$json, HttpResponse$text } from "../runtime/http.js";
 import { received } from "../runtime/outbound.js";
 import { hasNative, native as browserNative } from "../runtime/services.js";
 import { sessionMirror } from "../runtime/rpc.js";
+import { navigate } from "../runtime/router.js";
 import { RequestState, natives as serverNatives } from "../runtime/app.js";
 import { install as installDom } from "./dom.js";
 
@@ -1576,6 +1578,73 @@ export function testGeolocation() {
     },
     setSupported(value) {
       supported = value === true;
+    },
+  };
+}
+
+/**
+ * `k.test.TestNotifications`: nothing reaches the operating system
+ * (45-web-platform.md, "Notifications"). Supported, `permission` `.prompt`
+ * (`unitCase(0)`; reactive, like the browser's), prompts answered
+ * `.granted` (`1`). `show` records each notification in `shown`, or
+ * throws `NotificationError` `0` (`unsupported`), `1` (`notAsked`) or `2`
+ * (`denied`) as the browser would. `click` plays the user clicking a shown
+ * notification: the router opens its `opens` page (`href` is the app's
+ * `Page$href`), and a notification without one leaves the tab as it is.
+ * @param {((page: object) => string)|null} href
+ */
+export function testNotifications(href) {
+  const permission = signal(unitCase(0));
+  // Reactive like `permission`, so a `@Derived` that read it follows
+  // `setSupported` (a browser never changes it while the page is open).
+  const supported = signal(true);
+  let answer = unitCase(1);
+  let prompts = 0;
+  const shown = [];
+  return {
+    get isSupported() {
+      return supported.get();
+    },
+    get permission() {
+      return permission.get();
+    },
+    get prompts() {
+      return prompts;
+    },
+    /** A copy of the notifications shown so far, oldest first. */
+    get shown() {
+      return [...shown];
+    },
+    async requestAccess(_c) {
+      if (!supported.peek() || permission.peek().$ !== 0) return permission.peek();
+      prompts++;
+      permission.set(answer);
+      return answer;
+    },
+    async show(_c, n) {
+      if (!supported.peek()) throw unitCase(0);
+      const p = permission.peek().$;
+      if (p !== 1) throw unitCase(p === 0 ? 1 : 2);
+      shown.push(n);
+      return undefined;
+    },
+    answerPrompts(p) {
+      answer = p;
+    },
+    setPermission(p) {
+      permission.set(p);
+      flush();
+    },
+    setSupported(value) {
+      supported.set(value === true);
+      flush();
+    },
+    click(n) {
+      if (!shown.some((s) => equals(s, n))) {
+        throw new KPanic("TestNotifications.click: that notification was never shown");
+      }
+      if (n.opens != null && href) navigate(href(n.opens));
+      flush();
     },
   };
 }

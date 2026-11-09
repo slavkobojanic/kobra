@@ -1,4 +1,5 @@
 import k.ui.VisuallyHidden
+import todo.ReminderService
 import todo.TitleError
 import todo.Todo
 import todo.TodoService
@@ -18,12 +19,17 @@ import todo.TodoService
 /// "Save Buy milk"). The label uses the saved title, which doesn't change
 /// while the draft is typed. Opening the form moves the focus into its
 /// field (`.autofocus`), so a keyboard user can type at once.
+///
+/// Where the browser can show notifications, an open todo also has "Remind
+/// me", which asks for permission from the click the first time and sets a
+/// reminder half an hour away (`ReminderService`).
 component TodoRow {
     /// The todo to show. Changes go through `TodoService`, never through this
     /// value.
     @Prop let todo: Todo
 
     @Inject let todos: TodoService
+    @Inject let reminders: ReminderService
 
     @State var isEditing: Bool = false
     @State var draft: String = ""
@@ -56,6 +62,12 @@ component TodoRow {
 
     func delete() {
         todos.remove(id: todo.id)
+    }
+
+    /// A click is a user's action, so the reminder may ask for permission
+    /// from here.
+    func remind() async {
+        await reminders.remind(about: todo)
     }
 
     view {
@@ -103,6 +115,20 @@ component TodoRow {
                 .class(.edit)
                 .on(click: startEditing)
 
+                if reminders.canRemind and not todo.isDone {
+                    if reminders.isPending(id: todo.id) {
+                        text { "Reminder set" }
+                            .class(.reminder)
+                    } else {
+                        button {
+                            "Remind me"
+
+                            VisuallyHidden { " about {todo.title}" }
+                        }
+                        .on(click: remind)
+                    }
+                }
+
                 button {
                     "Delete"
 
@@ -128,6 +154,7 @@ component TodoRow {
         .editing { backgroundColor: .background; }
         .edit    { marginLeft: auto; }
         .delete  { color: .danger; }
+        .reminder { color: .muted; fontSize: .sm; }
 
         .editor {
             display: flex;

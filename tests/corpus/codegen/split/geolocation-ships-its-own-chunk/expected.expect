@@ -8,3 +8,5 @@ client contains export function BrowserGeolocation(
 client lacks $k.native("k.device.
 client lacks clipboard.[hash].js
 server contains $s.clientPlatform("k.device.Geolocation")
+# Only an app whose client notifies gets a service worker.
+root lacks k-sw.js

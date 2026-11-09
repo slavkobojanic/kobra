@@ -454,7 +454,7 @@ fn value_extras(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
 }
 
 /// Lowers `f` as an on-demand piece defining `symbols`.
-fn on_demand(
+pub(crate) fn on_demand(
     b: &mut Body<'_, '_>,
     symbols: Vec<String>,
     f: impl FnOnce(&mut Body<'_, '_>) -> Vec<Stmt>,

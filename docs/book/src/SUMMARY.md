@@ -74,6 +74,7 @@
 - [Keyboard shortcuts](apps/keyboard-shortcuts.md)
 - [Copying and sharing](apps/clipboard-and-sharing.md)
 - [The user's location](apps/location.md)
+- [Notifications](apps/notifications.md)
 - [The page and the device](apps/environment.md)
 - [Other tabs and the screen](apps/tabs-and-screen.md)
 - [Testing](apps/testing.md)

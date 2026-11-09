@@ -420,6 +420,15 @@ unpinned = [
     "`.coarse` is lighter on the battery (a property of the device, not of K)",
 ]
 
+[pages."apps/notifications.md"]
+commit = "37f5be6"
+date = "2026-11-10"
+note = "new with Notifications; written against the working tree on top of 37f5be6, the behaviour checked with `k test` on crates/k_cli/tests/fixtures/notifying and examples/todos, and in Chrome by chrome.rs's todos_reminds_through_the_service_worker"
+unpinned = [
+    "a click on a real notification focuses the app's tab and opens its page (sw.test.js scripts the worker scope; no real-browser test can click a system notification)",
+    "a worker served from a deeper path can't open the app's pages (a property of service worker scopes)",
+]
+
 [pages."apps/environment.md"]
 commit = "3a8c7ed"
 date = "2026-11-10"
@@ -476,6 +485,10 @@ unpinned = [
 [pages."examples/todos.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "the reminders section added on top of 37f5be6 (2026-11-10), checked by Home.test.k, ReminderService.test.k and chrome.rs's todos_reminds_through_the_service_worker"
+unpinned = [
+    "browsers run a background tab's timers about once a minute (Chromium's intensive throttling; not tested)",
+]
 
 [pages."examples/weather.md"]
 commit = "0dd7625"

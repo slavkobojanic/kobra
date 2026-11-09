@@ -1,6 +1,6 @@
 # Todos
 
-A small todo list written entirely in K. You can add, rename, complete and delete todos, filter the list, clear completed todos, and switch between light and dark themes. The todos are saved in the browser's local storage, so a reload brings the list back, and the stdlib's `Theme` service remembers the theme.
+A small todo list written entirely in K. You can add, rename, complete and delete todos, filter the list, clear completed todos, ask to be reminded about a todo in half an hour, and switch between light and dark themes. The todos are saved in the browser's local storage, so a reload brings the list back, and the stdlib's `Theme` service remembers the theme.
 
 The app is deliberately small and client-only: there is no server code, no RPC and no database. It exists to show K's component model, reactivity, styling and testing in one place. For a full-stack example that loads data over the network, see [`examples/weather`](../weather).
 
@@ -39,7 +39,10 @@ todos/
     │   ├── TitleError.k            enum TitleError (the typed error for bad titles)
     │   ├── StorageProblem.k        enum StorageProblem (what to tell the user)
     │   ├── TodoService.k           service TodoService (the shared todo state)
-    │   └── TodoService.test.k
+    │   ├── TodoService.test.k
+    │   ├── Reminder.k              struct Reminder
+    │   ├── ReminderService.k       service ReminderService (reminders shown as notifications)
+    │   └── ReminderService.test.k
     ├── ui/                         module `ui`: app-agnostic building blocks
     │   ├── TodoTheme.k             theme TodoTheme, with a dark variant
     │   ├── Panel.k                 component Panel (slots and @Stylable)
@@ -75,6 +78,8 @@ The layout follows the module rules in [16-modules.md](../../docs/design/16-modu
 
 **The color scheme is remembered once, by `Theme`.** `ThemeToggle` injects the stdlib's `Theme` service, reads `theme.current` and calls `theme.apply(…)`, which swaps one class on the document root and re-renders nothing. `Theme` remembers the choice itself, so the app keeps no copy of it.
 
+**Reminders are notifications.** "Remind me" on an open todo calls `ReminderService.remind(about:)`, which asks for the browser's permission the first time; the compiler allows the prompt only from a user's action, here the click. While reminders are waiting, `Home`'s effect checks once a minute (as often as browsers run a background tab's timers anyway) and `showDue()` has the operating system show those that are due through `k.device.Notifications`, unless the todo was done or deleted since. A click on the notification brings the tab back. Reminders live as long as the tab, and the button appears only where the browser can notify and the user hasn't blocked it. `k build` writes the service worker that shows them, `dist/public/k-sw.js`; a static host serves it from the site's root with the rest of `dist/public`.
+
 **Rendering is client-only.** Local storage exists only in the browser, so `App.k` declares `@Rendering(.client)`. Otherwise a server-rendered page would show an empty list and then jump to the saved one.
 
 ## What each file demonstrates
@@ -103,15 +108,16 @@ The tests use `test`/`expect` and accessibility queries ([21-testing.md](../../d
 
 | File | What it covers |
 |---|---|
+| `ReminderService.test.k` | A reminder shown half an hour later and opening the list, through `TestNotifications` and `TestClock`; asking once, and a refused or dismissed prompt setting nothing; a todo done or deleted before its time; notifications turned off meanwhile. |
 | `TodoService.test.k` | Adding, trimming, ordering and unique ids; empty, whitespace-only, at-limit and over-limit titles; renaming, including a blank rename and a removed todo; counts; removing; clearing completed (and that it doesn't write when nothing is done); filters; saving every change; restoring; unreadable data; blocked storage; a full quota; recovery after a failure; dismissing a problem. It pins the storage key name, because renaming it would lose users' data. |
 | `Panel.test.k` | The default heading level, setting it, placing the optional slots, and leaving them out. |
 | `TodoList.test.k` | The scoped slot draws each todo in order, and the empty slot replaces the list. |
-| `TodoRow.test.k` | Checking and unchecking, the buttons' accessible names, an edit starting from the current title in a field named after the todo, saving, cancelling, Save disabled for a blank draft, a too-long title, deleting. |
+| `TodoRow.test.k` | Checking and unchecking, the buttons' accessible names, an edit starting from the current title in a field named after the todo, saving, cancelling, Save disabled for a blank draft, a too-long title, deleting; "Remind me" asking from the click and then saying the reminder is set, a refused prompt, and no button for a done todo or a browser that can't notify. |
 | `NewTodoField.test.k` | Adding with the button and with Enter, clearing the field, blank and too-long titles (shown as an alert, with the text kept), the error clearing after a successful add. |
 | `FilterBar.test.k` | The pressed state, writing through `bind` to a host component's `@State`, writing through a custom `Binding`, the labelled landmark. |
-| `Home.test.k` | The whole page with the real services: the empty state, adding with Enter, counts and the document title (including "1 item left"), every filter and its empty message, Clear completed, each row's buttons acting on their own todo, a storage failure notice and dismissing it through a query scoped to the notice, the dark mode switch (checked through `theme.current`), the switch showing a variant applied before the first render, and two rows renamed at the same time. |
+| `Home.test.k` | The whole page with the real services: the empty state, adding with Enter, counts and the document title (including "1 item left"), every filter and its empty message, Clear completed, each row's buttons acting on their own todo, a storage failure notice and dismissing it through a query scoped to the notice, the dark mode switch (checked through `theme.current`), the switch showing a variant applied before the first render, two rows renamed at the same time, and a reminder shown half an hour after "Remind me" whose click brings the list back. |
 
-No test group needs a `use … for …` rule. `k test` installs `MemoryStorage` from `k.test` for `LocalStorage` by default, empty for every test, and a test that wants to look inside it or simulate the browser's failure modes (`failWrites(error: .quotaExceeded)`, `writeRaw(name:text:)`) injects it with `@Inject let storage: MemoryStorage`. Every test gets a fresh container, including a fresh `Theme` at `.base`, so no state leaks between tests.
+No test group needs a `use … for …` rule. `k test` installs `MemoryStorage` from `k.test` for `LocalStorage` by default, empty for every test, and a test that wants to look inside it or simulate the browser's failure modes (`failWrites(error: .quotaExceeded)`, `writeRaw(name:text:)`) injects it with `@Inject let storage: MemoryStorage`. Every test gets a fresh container, including a fresh `Theme` at `.base`, so no state leaks between tests. In the same way `TestNotifications` replaces `Notifications`: no prompt opens, nothing reaches the operating system, and a test reads what was shown from `notifications.shown`.
 
 ## Choices worth noting
 
@@ -129,6 +135,7 @@ Beyond the core language documents, the example uses these parts of the design:
 | [24-projects.md](../../docs/design/24-projects.md) | The `k.toml` format and the fixed project layout |
 | [23-app-structure.md](../../docs/design/23-app-structure.md) | The `app` declaration in `App.k`, and `@Rendering(.client)` |
 | [39-doc-comments.md](../../docs/design/39-doc-comments.md) | `///` documentation comments with `- Parameter`, `- Returns` and `- Throws` sections, and backticked references that resolve through the file's imports, the app's own declarations or fully qualified names (`k.ui.Theme`) |
+| [45-web-platform.md](../../docs/design/45-web-platform.md) | `Notifications`, `SystemNotification`, the prompt only from a user's action, and `TestNotifications` |
 | [36-local-storage.md](../../docs/design/36-local-storage.md) | `LocalStorage`, `StorageKey<T>`, `StorageReadError`/`StorageWriteError`, `MemoryStorage`, and the `storage.lock` file format |
 | [10-services.md](../../docs/design/10-services.md) | `init()` in `TodoService` |
 | [07-themes-and-units.md](../../docs/design/07-themes-and-units.md) | The `Theme` service, `theme.apply(…)`, `theme.current` and the generated `ThemeVariant` with its `.base` case |

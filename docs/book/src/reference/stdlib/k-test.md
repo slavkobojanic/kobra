@@ -22,6 +22,7 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`TestFiles`](#testfiles) | The default [`Files`](k-device.md#files) in `k test` (`docs/design/42-files.md`): no picker opens. |
 | [`TestGeolocation`](#testgeolocation) | The default [`Geolocation`](k-device.md#geolocation) in `k test` (`docs/design/45-web-platform.md`, "Geolocation"): no prompt opens and the machine's position is never read. |
 | [`TestHttpClient`](#testhttpclient) | The default [`HttpClient`](k-http.md#httpclient) in `k test`: it answers only requests it has a canned response for, and fails the test on any other. |
+| [`TestNotifications`](#testnotifications) | The default [`Notifications`](k-device.md#notifications) in `k test` (`docs/design/45-web-platform.md`, "Notifications"): no prompt opens and nothing reaches the operating system. |
 | [`TestPageVisibility`](#testpagevisibility) | The default [`PageVisibility`](k-device.md#pagevisibility) in `k test` (`docs/design/45-web-platform.md`, "Page visibility"): the page is visible until `hide()`. |
 | [`TestPreferences`](#testpreferences) | The default [`Preferences`](k-device.md#preferences) in `k test` (`docs/design/45-web-platform.md`, "Preferences"): no preference is set until the test sets one. |
 | [`TestRemote`](#testremote) | The `.test` binding of every `remote` rule, also when the serving app is a member of the same workspace (`docs/design/40-workspaces-and-services.md`): an in-process double of protocol `P` whose every rpc fails with `rpcFailure(.offline)` ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so each service's tests stay hermetic and never open a socket. |
@@ -534,6 +535,50 @@ canned response for, and fails the test on any other.
   Answers requests to `path` with `text` and `status`.
 - `func fail(path: String, error: HttpError)`
   Makes requests to `path` throw `error`.
+
+## TestNotifications
+
+```k,ignore
+@TestDefault(replaces: Notifications)
+public service TestNotifications implements Notifications
+```
+
+The default [`Notifications`](k-device.md#notifications) in `k test`
+(`docs/design/45-web-platform.md`, "Notifications"): no prompt opens
+and nothing reaches the operating system. The browser is capable, the
+permission starts at `.prompt`, and the user answers prompts with
+`.granted`.
+
+**Members**
+
+- `var isSupported: Bool`
+  `true` unless `setSupported(_:)` said otherwise.
+- `var permission: PermissionState`
+  `.prompt` until a prompt is answered or `setPermission(_:)`
+  changes it. Reactive, like the browser's.
+- `var shown: List<SystemNotification>`
+  Every notification shown, oldest first, including those a later one
+  with the same tag replaced.
+- `var prompts: Int`
+  The number of `requestAccess()` calls that asked the user.
+- `func requestAccess() async -> PermissionState`
+  Asks while `permission` is `.prompt`, counting it in `prompts`
+  and answering what `answerPrompts(with:)` set; otherwise answers
+  the permission as it is.
+- `func show(_ notification: SystemNotification) async throws NotificationError`
+  Records `notification` in `shown`; throws `.unsupported`,
+  `.notAsked` or `.denied` as the browser would.
+- `func answerPrompts(with answer: PermissionState)`
+  How the user answers the next prompts; `.granted` by default.
+- `func setPermission(_ permission: PermissionState)`
+  Changes `permission` as the site's settings would.
+- `func setSupported(_ value: Bool)`
+  Sets `isSupported`; while it is `false`, `show(_:)` throws
+  `.unsupported` and `requestAccess()` asks nothing.
+- `func click(_ notification: SystemNotification)`
+  Plays the user clicking `notification`, which must have been shown:
+  the app's tab opens its `opens` page (`screen.currentPage` says
+  which), or stays where it is when `opens` is `nil`.
 
 ## TestPageVisibility
 

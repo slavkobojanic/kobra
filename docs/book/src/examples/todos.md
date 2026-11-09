@@ -136,6 +136,8 @@ public enum Filter implements Equatable, Hashable {
 // examples/todos/src/home/Home.k
 public page Home at "/" {
     @Inject let todos: TodoService
+    @Inject let reminders: ReminderService
+    @Inject let clock: Clock
 
     @State var filter: Filter = .all
 
@@ -220,6 +222,32 @@ The row's classes depend on state:
 // examples/todos/src/home/TodoRow.k
 .class([.row, .done when todo.isDone, .editing when isEditing])
 ```
+
+## Reminders
+
+An open todo has "Remind me" where the browser can show notifications. The first click asks for
+permission, and half an hour later the operating system shows the todo's title, also while the tab is
+in the background:
+
+```k
+// examples/todos/src/home/Home.k
+@Effect
+func showReminders() async {
+    guard reminders.hasPending else { return }
+
+    while true {
+        await clock.sleep(1.minute)
+        await reminders.showDue()
+    }
+}
+```
+
+`ReminderService` keeps the waiting reminders and shows those that are due through `Notifications`
+([Notifications](../apps/notifications.md)); the page checks once a minute, which is as often as
+browsers run a background tab's timers anyway. The effect reads only `hasPending`, so it starts when a
+reminder is set and stops once the last one is out. Reminders live as long as the tab: they aren't
+saved with the todos. `k build` writes the service worker that shows them, `dist/public/k-sw.js`, next
+to `index.html`.
 
 ## The theme switch
 

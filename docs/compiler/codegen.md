@@ -874,6 +874,11 @@ implementing `k.server.Job<Payload>`:
   parameter's text is its URL) and `page.url` is `Page$href(page)`. URL templates: `at "…"` (its source
   text, `{param}` included), else the name in kebab case (`Home` is `/home`) with required parameters
   appended.
+- **`Page` is `Codable`** (a `SystemNotification`'s `opens`, [45-web-platform.md](../design/45-web-platform.md#notifications)):
+  `Page$codec` has an enum's wire form ([§5.1](#51-json-codable)), a page without parameters as its case
+  name (`"home"`), one with parameters as `{"case": "report", "id": "7"}` with each parameter through its
+  type's codec, and decodes back to `Page.case(…)`. It is on-demand code of the `Page` item (`page_codec`
+  in `app.rs`), emitted only where a codec names it, so an app that never encodes a page ships none.
 - **Parsing** (server): each route's `match(url)` is `$s.route(url, segments, [[name, parser, required,
   default]])`; parsers by type (`$s.param.int`, `double`, `bool`, `uuid`, `string`, `cases({…})` for a
   payload-free enum by exact case name, `page(() => $spec)` for a `Page`: a path of this app only), so a
@@ -1044,14 +1049,16 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   *and* the names it imports, so changing a dependency renames its dependents. The entry imports the
   services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
 - **Feature chunks**: `charts.[hash].js`, `drag.[hash].js`, `files.[hash].js`, `clipboard.[hash].js`,
-  `share.[hash].js`, `geolocation.[hash].js`, `tabs.[hash].js`, `wakelock.[hash].js`, `environment.[hash].js`,
-  `keys.[hash].js`, `http.[hash].js` and `streams.[hash].js` (`runtime/charts.js`, …),
+  `share.[hash].js`, `geolocation.[hash].js`, `tabs.[hash].js`, `notifications.[hash].js`, `wakelock.[hash].js`,
+  `environment.[hash].js`, `keys.[hash].js`, `http.[hash].js` and `streams.[hash].js` (`runtime/charts.js`, …),
   emitted only when a client chunk or the client entry uses a symbol they implement
   (`k.charts.LineChart`; `k.drag.ReorderableList`, `Draggable`, `DropTarget`, `DragKind(name:)`;
   `k.ui.KeyboardShortcut`; `k.device.CopyButton`, `ShareButton` and `KeepScreenAwake`; `streamed`; and
-  `k.device.BrowserFiles`, `BrowserClipboard`, `BrowserShare`, `BrowserGeolocation` and `BrowserTabMessaging`,
-  which the entry's `$App` constructs for `Files`, `Clipboard`, `Share`, `Geolocation` and `TabMessaging`
-  (`BrowserTabMessaging("<storage namespace>", import.meta.url)`: the entry's URL names the build), and the stdlib services
+  `k.device.BrowserFiles`, `BrowserClipboard`, `BrowserShare`, `BrowserGeolocation`, `BrowserTabMessaging` and
+  `BrowserNotifications`, which the entry's `$App` constructs for `Files`, `Clipboard`, `Share`, `Geolocation`,
+  `TabMessaging` and `Notifications`
+  (`BrowserTabMessaging("<storage namespace>", import.meta.url)`: the entry's URL names the build;
+  `BrowserNotifications(Page$href)`: a notification's page becomes its URL), and the stdlib services
   `PageVisibility`, `Connectivity`, `Preferences` and `Viewport`, which it constructs under their own
   names), with their imports of other
   runtime files pointing at the runtime chunk; the chunks that use them import those symbols from them
@@ -1266,6 +1273,7 @@ dist/
   manifest.json               the Manifest, pretty JSON
   public/
     index.html                static-only apps only
+    k-sw.js                   the service worker, only for apps whose client notifies
     assets/
       runtime.3f2a1b9c.js     hashed client files: chunks, stylesheets, source maps
       app.9c1d2e3f.js
@@ -1279,6 +1287,23 @@ dist/
   `k` binary itself as the runtime executable; a slim runtime binary without the compiler is *deferred*.
 - `dist/public` holds the same client assets for teams that serve them from a CDN.
 - Hashed files are served with `Cache-Control: public, max-age=31536000, immutable`.
+- **The service worker, `k-sw.js`** (`Output::root`, `bundle::service_worker`): emitted for an app whose
+  client ships the notifications chunk ([45-web-platform.md](../design/45-web-platform.md#notifications)),
+  which registers it. It is `runtime/sw.js` as written (compacted in a release build, so dev and release
+  differ only in whitespace and comments), a classic worker script with no imports and no app code, so no
+  build hash or source map, and the same text in every app.
+  - **At the site's root, not below `/assets/`:** a worker controls only URLs below its script's
+    directory unless the response carries `Service-Worker-Allowed`, which a CDN serving `dist/public` may
+    not send. At `/k-sw.js` its default scope is `/`, the whole app, with no header. Both servers put it
+    there: `dist/app` (`AppPayload::assets` path `/k-sw.js`) and `k run`/`k dev`; `k build` writes
+    `dist/public/k-sw.js`, and removes one an earlier build wrote when the app stops notifying.
+  - **Unhashed, and revalidated:** a registration is keyed by its script's URL, so the name never changes.
+    It is served with `Cache-Control: no-cache` (the server's rule for unhashed files, server.md §13), and
+    the page registers it with `updateViaCache: "none"`, so the browser's update check (on each
+    registration, and on navigations at most a day apart) fetches it past every cache and installs the new
+    worker when the bytes differ. Nothing else busts it: the worker has no build-specific content, so a
+    rebuild that doesn't change `sw.js` reinstalls nothing.
+  - **Test bundles** (`k test`) get none: `TestNotifications` replaces the browser.
 - `manifest.json` is for tooling and humans (`k routes`, deploy scripts); `dist/app` embeds what it needs
   (the config table and the session-free endpoint templates).
 - Every app links one stylesheet, `app.[hash].css`, which starts with the base rule `[hidden] { display:

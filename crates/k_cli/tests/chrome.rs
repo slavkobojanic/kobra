@@ -151,6 +151,72 @@ fn have_chrome() -> bool {
     }
 }
 
+/// "Remind me" (`Notifications`, 45-web-platform.md): with the permission
+/// granted as a user's earlier "Allow" would be, a todo's reminder is shown
+/// by the static build's service worker, `/k-sw.js`, half an hour later.
+/// Time passes quickly here: a script DevTools runs before the page's makes
+/// each timer of a minute or more fire at once and moves `Date.now` on by
+/// its delay, so the page's once-a-minute check finds the reminder due.
+#[test]
+fn todos_reminds_through_the_service_worker() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("todos-remind");
+    let site = StaticSite::start("todos", &dir.0);
+    let mut tab = tab!(dir);
+    tab.cdp.call(
+        "Browser.grantPermissions",
+        json!({ "origin": site.origin, "permissions": ["notifications"] }),
+    );
+    tab.cdp.call(
+        "Page.addScriptToEvaluateOnNewDocument",
+        json!({ "source": "(() => { const now = Date.now; let skew = 0; Date.now = () => now() + skew; \
+            const later = setTimeout; globalThis.setTimeout = (f, d, ...a) => d >= 60000 \
+            ? later(() => { skew += d; f(...a); }, 10) : later(f, d, ...a); })();" }),
+    );
+    tab.open(&format!("{}/", site.origin));
+    tab.role("textbox", "New todo");
+    let worker =
+        tab.eval("fetch('/k-sw.js').then((r) => [r.status, r.headers.get('content-type')])");
+    assert_eq!(
+        worker[0],
+        json!(200),
+        "the service worker is served at the root"
+    );
+    assert!(
+        worker[1]
+            .as_str()
+            .unwrap_or_default()
+            .contains("javascript"),
+        "as JavaScript: {worker}"
+    );
+    add_todo(&mut tab, "Buy milk");
+    let remind = tab.role("button", "Remind me about Buy milk");
+    tab.click(&remind);
+    tab.wait_text("Reminder set");
+    let titles = tab.wait("the reminder shown by the service worker", |t| {
+        let titles = t.eval(
+            "navigator.serviceWorker.getRegistration('/').then((r) => r ? r.getNotifications() : []).then((ns) => ns.map((n) => [n.title, n.body, n.data && n.data.url]))",
+        );
+        titles
+            .as_array()
+            .is_some_and(|a| !a.is_empty())
+            .then_some(titles)
+    });
+    assert_eq!(
+        titles,
+        json!([["Buy milk", "You asked to be reminded about this.", "/"]])
+    );
+    let scope = tab.eval("navigator.serviceWorker.getRegistration('/').then((r) => r.scope)");
+    assert_eq!(scope, json!(format!("{}/", site.origin)));
+    tab.wait("the row offers a reminder again", |t| {
+        t.has_role("button", "Remind me about Buy milk")
+            .then_some(())
+    });
+    drop(tab);
+}
+
 /// Types `title` into the new-todo field and presses Enter.
 fn add_todo(tab: &mut Tab, title: &str) {
     let field = tab.role("textbox", "New todo");
