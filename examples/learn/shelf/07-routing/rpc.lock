@@ -46,4 +46,7 @@ fields = [
 ]
 
 [types."books.LookupError"]
-cases = ["notFound", "rpcFailure"]
+cases = [
+    { name = "notFound" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]

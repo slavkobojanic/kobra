@@ -23,7 +23,11 @@ returns = "Void"
 throws = "RpcOnlyError"
 
 [types."checkout.CheckoutError"]
-cases = ["declined", "paymentsUnavailable", "rpcFailure"]
+cases = [
+    { name = "declined" },
+    { name = "paymentsUnavailable" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."checkout.Receipt"]
 fields = [

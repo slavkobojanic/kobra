@@ -746,6 +746,8 @@ fn stdlib_default(g: &Gen<'_>, qualified: &str) -> Option<DeclId> {
     let imp = match (qualified, test) {
         ("k.http.HttpClient", false) => "k.http.FetchHttpClient",
         ("k.http.HttpClient", true) => "k.test.TestHttpClient",
+        ("k.http.WebSocketClient", false) => "k.http.StandardWebSocketClient",
+        ("k.http.WebSocketClient", true) => "k.test.TestWebSocketClient",
         ("k.server.EmailProvider", false) => "k.server.SmtpEmailProvider",
         ("k.server.EmailProvider", true) => "k.test.RecordingEmailProvider",
         ("k.server.JobQueue", false) => "k.server.DatabaseJobQueue",
@@ -789,6 +791,30 @@ fn server_platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Option<Expr
     Some(match qualified {
         "k.http.FetchHttpClient" => http(b, "fetchHttpClient"),
         "k.test.TestHttpClient" => http(b, "testHttpClient"),
+        "k.http.StandardWebSocketClient" => {
+            let mut args = stdlib_enums(
+                b,
+                &[
+                    "k.http.WebSocketError",
+                    "k.http.WebSocketMessage",
+                    "k.http.WebSocketState",
+                    "k.http.HttpStatus",
+                ],
+            );
+            args.push(http_status_codes(b.g));
+            srt("webSocketClient", args)
+        }
+        "k.test.TestWebSocketClient" => srt(
+            "testWebSocketClient",
+            stdlib_enums(
+                b,
+                &[
+                    "k.http.WebSocketError",
+                    "k.http.WebSocketMessage",
+                    "k.http.WebSocketState",
+                ],
+            ),
+        ),
         "k.server.SmtpEmailProvider" => {
             let mut args = stdlib_enums(b, &["k.server.EmailError"]);
             args.push(member(srt("info", vec![]), "config"));

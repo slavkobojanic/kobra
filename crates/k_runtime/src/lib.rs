@@ -99,6 +99,15 @@ pub const CHANNELS_SIZE_BUDGET: usize = 4608;
 /// (`docs/compiler/performance.md` §11.3).
 pub const HTTP_SIZE_BUDGET: usize = 1536;
 
+/// The largest raw WebSockets in the browser ([`Part::WebSocket`]: the
+/// `WebSocket` value, `StandardWebSocketClient` over the browser's
+/// `WebSocket`, and the `k.test` doubles the kit and the server share,
+/// which a release build links out) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (1.5 KB). It ships in its own chunk, only to apps
+/// whose client injects `WebSocketClient` (`docs/compiler/performance.md`
+/// §11.3).
+pub const WEBSOCKET_SIZE_BUDGET: usize = 1536;
+
 /// The largest `k.drag` in the browser ([`Part::Drag`]: `Draggable`,
 /// `DropTarget` and `ReorderableList` with pointer, touch and keyboard
 /// dragging) may be, measured like [`CORE_SIZE_BUDGET`] (4 KB). It ships in
@@ -289,6 +298,11 @@ pub enum Part {
     /// code uses them, and measured on its own ([`HTTP_SIZE_BUDGET`]). The
     /// server has the same bodies in `$s.natives`.
     Http,
+    /// `k.http`'s raw WebSockets (`StandardWebSocketClient`, the `WebSocket`
+    /// value, `TestWebSocketClient`): shipped as its own client chunk, only
+    /// to apps whose client injects `WebSocketClient`, and measured on its
+    /// own ([`WEBSOCKET_SIZE_BUDGET`]). The server imports it too.
+    WebSocket,
     /// Dependency injection in the browser: `provide` for component-scoped
     /// services and the client bodies of the stdlib's platform services
     /// (`Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session`
@@ -374,6 +388,7 @@ const MODULES: &[Module] = modules![
     Streams "runtime/streams.js",
     Channels "runtime/channels.js",
     Http "runtime/http.js",
+    WebSocket "runtime/websocket.js",
     Forms "runtime/forms.js",
     Money "runtime/money.js",
     DevTools "runtime/devtools.js",

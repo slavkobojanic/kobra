@@ -1,0 +1,1 @@
+error[K4031] 13:117-13:124: `headers` sets a WebSocket handshake header, which a browser can't send, but this code may run in the browser; connect from a server-only service instead

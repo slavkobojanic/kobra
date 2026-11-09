@@ -18,6 +18,13 @@ Import each declaration by name, for example `import k.http.DecodingError`.
 | [`HttpResponse`](#httpresponse) | An HTTP response: received from [`HttpClient`](#httpclient), or sent by an endpoint page's handler (`docs/design/32-http-client.md`, "Responses"). |
 | [`HttpStatus`](#httpstatus) | An HTTP status (`docs/design/32-http-client.md`, "HttpStatus"). |
 | [`IncomingRequest`](#incomingrequest) | A request an endpoint page's handler receives (`docs/design/27-endpoint-pages.md`, "The incoming request"). |
+| [`StandardWebSocketClient`](#standardwebsocketclient) | The standard [`WebSocketClient`](#websocketclient): the browser's `WebSocket` in the browser, and a Rust client on the server. |
+| [`WebSocket`](#websocket) | An open WebSocket, from [`WebSocketClient.connect`](#websocketclient) (`docs/design/44-channels.md`, "Raw WebSockets"). |
+| [`WebSocketClient`](#websocketclient) | Opens WebSockets to third-party endpoints that speak their own protocol: an exchange's price feed, a chat bridge, a local device (`docs/design/44-channels.md`, "Raw WebSockets"). |
+| [`WebSocketError`](#websocketerror) | Why a [`WebSocketClient`](#websocketclient) call or a [`WebSocket.send`](#websocket) failed (`docs/design/44-channels.md`, "Raw WebSockets"). |
+| [`WebSocketMessage`](#websocketmessage) | One WebSocket message: text or binary. |
+| [`WebSocketRequest`](#websocketrequest) | What [`WebSocketClient.connect`](#websocketclient) opens (`docs/design/44-channels.md`, "Raw WebSockets"). |
+| [`WebSocketState`](#websocketstate) | Where a [`WebSocket`](#websocket) is. |
 
 ## DecodingError
 
@@ -396,4 +403,200 @@ A request an endpoint page's handler receives
   - Returns: the decoded body.
   - Throws: [`DecodingError.malformed`](#decodingerror) when the body isn't JSON, and
     [`DecodingError.mismatch`](#decodingerror) when it doesn't have the type's shape.
+
+## StandardWebSocketClient
+
+```k,ignore
+public service StandardWebSocketClient implements WebSocketClient
+```
+
+The standard [`WebSocketClient`](#websocketclient): the browser's `WebSocket` in the
+browser, and a Rust client on the server.
+
+**Members**
+
+- `func connect(request: WebSocketRequest) async throws WebSocketError -> WebSocket`
+  Opens a socket to the request's URL.
+
+  - Parameter request: the request.
+  - Returns: the open socket.
+  - Throws: [`WebSocketError.offline`](#websocketerror), [`WebSocketError.timeout`](#websocketerror) or
+    [`WebSocketError.refused`](#websocketerror).
+
+## WebSocket
+
+```k,ignore
+public class WebSocket
+```
+
+An open WebSocket, from [`WebSocketClient.connect`](#websocketclient)
+(`docs/design/44-channels.md`, "Raw WebSockets").
+
+```k,ignore
+let socket = try await sockets.connect(request: WebSocketRequest(url: feed))
+try await socket.send(.text("{\"subscribe\": \"BTC-USD\"}"))
+
+for await message in socket.messages {
+    let tick: Tick = try message.json()
+}
+```
+
+**Members**
+
+- `let state: WebSocketState`
+  `open`, `closing` or `closed(code:reason:)`; reactive.
+- `let subprotocol: String?`
+  The subprotocol the endpoint chose, or `nil`.
+- `let messages: Stream<WebSocketMessage>`
+  Every message the endpoint sends, in order; ends when the socket
+  closes. Read once.
+- `func send(_ message: WebSocketMessage) async throws WebSocketError`
+  Sends `message`, waiting while more than 1 MB is still queued to go
+  out.
+
+  - Throws: [`WebSocketError.closed`](#websocketerror) once the socket is closing or
+    closed, and [`WebSocketError.tooLarge`](#websocketerror) once it closed because an
+    incoming message was over the request's `maxMessage`.
+- `func close(code: Int = 1000, reason: String = "")`
+  Closes the socket with `code` and `reason`; idempotent.
+
+## WebSocketClient
+
+```k,ignore
+@Platform(side: .both)
+public interface WebSocketClient
+```
+
+Opens WebSockets to third-party endpoints that speak their own protocol:
+an exchange's price feed, a chat bridge, a local device
+(`docs/design/44-channels.md`, "Raw WebSockets"). A platform interface
+usable on both sides and injectable only into services; its one
+implementation, [`StandardWebSocketClient`](#standardwebsocketclient), is injected with no `use`
+rule, and [`k.test.TestWebSocketClient`](k-test.md#testwebsocketclient) replaces it in tests.
+
+Nothing reconnects by itself, since the runtime can't know how to
+resubscribe to someone else's protocol: a loop that waits
+[`k.time.Backoff.next`](k-time.md#backoff) between attempts uses the channels' delays.
+
+**Members**
+
+- `func connect(request: WebSocketRequest) async throws WebSocketError -> WebSocket`
+  Opens a socket to the request's URL and waits for the handshake.
+
+  The socket belongs to the run that opened it: when that run is
+  cancelled (the page is left, the effect re-runs) the socket closes.
+
+  - Parameter request: the URL, and optionally a subprotocol, headers
+    (server-only) and limits.
+  - Returns: the open socket.
+  - Throws: [`WebSocketError.offline`](#websocketerror) when the endpoint can't be
+    reached, [`WebSocketError.timeout`](#websocketerror) when the handshake takes longer
+    than the request's `timeout`, and [`WebSocketError.refused`](#websocketerror) when
+    the endpoint answered without upgrading (on the server; a browser
+    doesn't say why, so there it is `offline`).
+
+## WebSocketError
+
+```k,ignore
+public enum WebSocketError implements Error, Codable
+```
+
+Why a [`WebSocketClient`](#websocketclient) call or a [`WebSocket.send`](#websocket) failed
+(`docs/design/44-channels.md`, "Raw WebSockets").
+
+**Members**
+
+- `case offline`
+  The endpoint couldn't be reached, or the browser refused the
+  handshake without saying why.
+- `case timeout`
+  The handshake took longer than the request's `timeout`.
+- `case refused(status: HttpStatus)`
+  The endpoint answered the handshake without upgrading (on the
+  server, which sees the answer).
+- `case tooLarge`
+  An incoming message was over the request's `maxMessage`, so the
+  socket closed (code 1009).
+- `case closed`
+  The socket is closing or closed.
+
+## WebSocketMessage
+
+```k,ignore
+public enum WebSocketMessage implements Equatable
+```
+
+One WebSocket message: text or binary.
+
+**Members**
+
+- `case text(String)`
+  A text message.
+- `case binary(Bytes)`
+  A binary message.
+- `func json<T>() throws DecodingError -> T where T implements Codable`
+  Decodes the message, text or UTF-8 bytes, as JSON into a
+  [`Codable`](k-core.md#codable) type, given by the binding: `let tick: Tick = try message.json()`.
+
+  - Returns: the decoded value.
+  - Throws: [`DecodingError.malformed`](#decodingerror) when it isn't JSON, and
+    [`DecodingError.mismatch`](#decodingerror) when it doesn't have the type's shape.
+
+## WebSocketRequest
+
+```k,ignore
+@Builder
+public struct WebSocketRequest
+```
+
+What [`WebSocketClient.connect`](#websocketclient) opens (`docs/design/44-channels.md`,
+"Raw WebSockets").
+
+A `@Builder` struct like [`HttpRequest`](#httprequest): the URL is a named argument and
+every other field is a chained method,
+`WebSocketRequest(url: Url("wss://feed.example/v1")).subprotocol("feed.v2")`.
+
+**`headers`, `secretHeaders` and `bearerToken` are server-only:** a
+browser can't send headers on a handshake, so setting them in code that
+runs in the browser is a compile error (K4031), and a token in a header
+never reaches client code.
+
+**Members**
+
+- `let url: Url`
+  The `ws://` or `wss://` URL.
+- `let subprotocol: String? = nil`
+  The subprotocol to ask for (`Sec-WebSocket-Protocol`); none when
+  `nil`.
+- `let headers: Map<String, String> = [:]`
+  Headers to send with the handshake. Server-only.
+- `let secretHeaders: Map<String, Secret<String>> = [:]`
+  Headers whose values are secrets, redacted in logs. Server-only.
+- `let bearerToken: Secret<String>? = nil`
+  A token sent as `Authorization: Bearer …`; none when `nil`.
+  Server-only.
+- `let timeout: Duration = 30.seconds`
+  How long the handshake may take before [`WebSocketError.timeout`](#websocketerror).
+- `let maxMessage: Int = 1_000_000`
+  The largest incoming message, in bytes; a larger one closes the
+  socket (code 1009) and the next `send` throws
+  [`WebSocketError.tooLarge`](#websocketerror).
+
+## WebSocketState
+
+```k,ignore
+public enum WebSocketState implements Equatable
+```
+
+Where a [`WebSocket`](#websocket) is.
+
+**Members**
+
+- `case open`
+  Open: messages flow both ways.
+- `case closing`
+  `close` was called; the endpoint hasn't confirmed yet.
+- `case closed(code: Int, reason: String)`
+  Closed, with the close frame's code and reason (`1006` and an empty
+  reason when the connection dropped without one).
 

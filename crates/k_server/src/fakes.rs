@@ -1,5 +1,6 @@
-//! Fake third parties for tests: an HTTP API ([`FakeHttp`]) and an SMTP
-//! server ([`FakeSmtp`]), each listening on an ephemeral loopback port and
+//! Fake third parties for tests: an HTTP API ([`FakeHttp`]), an SMTP
+//! server ([`FakeSmtp`]) and a WebSocket echo server ([`FakeWebSocket`]),
+//! each listening on an ephemeral loopback port and
 //! recording what it receives (`docs/compiler/testing.md` §8.3).
 //!
 //! The end-to-end harness starts them for a project with a `fakes.toml`,
@@ -569,6 +570,133 @@ fn address_of(text: &str) -> String {
     match (t.find('<'), t.find('>')) {
         (Some(a), Some(b)) if a < b => t[a + 1..b].to_owned(),
         _ => t.split_whitespace().next().unwrap_or("").to_owned(),
+    }
+}
+
+// ------------------------------------------------------------- WebSocket
+
+/// A WebSocket echo server (`crate::websocket`'s tests): it echoes every
+/// text and binary message, answers the subprotocol a handshake asks for,
+/// and records each handshake's headers. Two text commands script the rest:
+/// `close <code> <reason>` makes it close with that frame, and `big <n>`
+/// makes it send a text of `n` bytes.
+pub struct FakeWebSocket {
+    /// The bound address.
+    addr: SocketAddr,
+    /// Each handshake's headers, names lower case, in arrival order.
+    handshakes: Arc<Mutex<Vec<BTreeMap<String, String>>>>,
+    /// Dropping it stops the serving thread.
+    _stop: oneshot::Sender<()>,
+}
+
+impl FakeWebSocket {
+    /// Starts an echo server on an ephemeral loopback port.
+    ///
+    /// # Errors
+    ///
+    /// The port couldn't be bound.
+    pub fn start() -> std::io::Result<FakeWebSocket> {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let addr = listener.local_addr()?;
+        let handshakes = Arc::new(Mutex::new(Vec::new()));
+        let shared = Arc::clone(&handshakes);
+        let stop = spawn_service("k-fake-websocket", move |mut stop| async move {
+            let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
+                return;
+            };
+            loop {
+                tokio::select! {
+                    _ = &mut stop => return,
+                    accepted = listener.accept() => {
+                        let Ok((stream, _)) = accepted else { continue };
+                        let handshakes = Arc::clone(&shared);
+                        tokio::task::spawn_local(echo(stream, handshakes));
+                    }
+                }
+            }
+        })?;
+        Ok(FakeWebSocket {
+            addr,
+            handshakes,
+            _stop: stop,
+        })
+    }
+
+    /// The `ws://127.0.0.1:<port>` URL to connect to.
+    #[must_use]
+    pub fn url(&self) -> String {
+        format!("ws://{}", self.addr)
+    }
+
+    /// The headers of every handshake so far.
+    #[must_use]
+    pub fn handshakes(&self) -> Vec<BTreeMap<String, String>> {
+        lock(&self.handshakes).clone()
+    }
+}
+
+/// Serves one echo connection.
+// tungstenite's handshake callback returns its large `ErrorResponse`.
+#[allow(clippy::result_large_err)]
+async fn echo(
+    stream: tokio::net::TcpStream,
+    handshakes: Arc<Mutex<Vec<BTreeMap<String, String>>>>,
+) {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::tungstenite::handshake::server::{
+        ErrorResponse, Request as WsRequest, Response as WsResponse,
+    };
+    use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+    use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+
+    let record =
+        move |request: &WsRequest, mut response: WsResponse| -> Result<WsResponse, ErrorResponse> {
+            let headers: BTreeMap<String, String> = request
+                .headers()
+                .iter()
+                .map(|(n, v)| (n.as_str().to_owned(), v.to_str().unwrap_or("").to_owned()))
+                .collect();
+            if let Some(p) = request.headers().get("sec-websocket-protocol") {
+                response
+                    .headers_mut()
+                    .insert("sec-websocket-protocol", p.clone());
+            }
+            lock(&handshakes).push(headers);
+            Ok(response)
+        };
+    let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(stream, record).await else {
+        return;
+    };
+    while let Some(Ok(message)) = ws.next().await {
+        let reply = match message {
+            Message::Text(t) => {
+                let text = t.as_str();
+                if let Some(rest) = text.strip_prefix("close ") {
+                    let (code, reason) = rest.split_once(' ').unwrap_or((rest, ""));
+                    let _ = ws
+                        .send(Message::Close(Some(CloseFrame {
+                            code: CloseCode::from(code.parse::<u16>().unwrap_or(1000)),
+                            reason: reason.to_owned().into(),
+                        })))
+                        .await;
+                    continue;
+                }
+                if let Some(n) = text.strip_prefix("big ") {
+                    Message::text("x".repeat(n.parse::<usize>().unwrap_or(0)))
+                } else {
+                    Message::Text(t)
+                }
+            }
+            Message::Binary(b) => Message::Binary(b),
+            // Reading on sends tungstenite's reply to the close, and then
+            // ends the stream.
+            Message::Close(_) | Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => continue,
+        };
+        if ws.send(reply).await.is_err() {
+            break;
+        }
     }
 }
 

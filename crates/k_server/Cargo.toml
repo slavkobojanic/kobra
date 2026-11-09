@@ -31,9 +31,11 @@ rustls.workspace = true
 regex.workspace = true
 # Stack traces mapped to `.k` lines through the bundle's maps (`stack.rs`).
 sourcemap.workspace = true
-# The channels' WebSocket front (`sockets.rs`).
+# The channels' WebSocket front (`sockets.rs`) and outgoing WebSockets
+# (`websocket.rs`).
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+tower-service.workspace = true
 
 [lints]
 workspace = true

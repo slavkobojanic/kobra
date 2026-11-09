@@ -1252,6 +1252,12 @@ fn write_note(tab: &mut Tab, title: &str) {
 fn notes_signs_up_and_creates_edits_and_deletes_a_note() {
     let dir = Scratch::new("notes-flow");
     let mut tab = tab!(dir);
+    // A slow page, as under a loaded machine: signing out used to race the
+    // change stream's end, which the page answered by opening the stream
+    // again under the dead session (a 401 in the console). The end now
+    // carries the guest mirror, so the router leaves the page first.
+    tab.cdp
+        .call("Emulation.setCPUThrottlingRate", json!({ "rate": 4 }));
     let (_k, origin) = notes(&dir.0.join("notes"), true);
     sign_up(&mut tab, &origin, "ada@example.com");
     let new = tab.role("link", "New note");
@@ -1285,11 +1291,18 @@ fn notes_signs_up_and_creates_edits_and_deletes_a_note() {
     tab.wait("the note gone", |t| {
         (t.path() == "/" && !t.has_role("link", "Groceries for Sunday")).then_some(())
     });
-    // Sign out and back in.
+    // Sign out and back in. The guest mirror makes the router leave the
+    // guarded list for a full load, which the server redirects to the
+    // sign-in page. The header's "Sign in" link shows a moment before, as
+    // soon as the session is gone, so following it, or typing before the
+    // new page has loaded, races that load.
     let out = tab.role("button", "Sign out");
+    let since = tab.cdp.events.len();
     tab.click(&out);
-    let sign_in = tab.role("link", "Sign in");
-    tab.click(&sign_in);
+    tab.cdp
+        .wait_event("Page.loadEventFired", since, Duration::from_secs(30))
+        .expect("the sign-in page loads after signing out");
+    assert_eq!(tab.path(), "/sign-in");
     let email = tab.role("textbox", "Email");
     tab.fill(&email, "ada@example.com");
     let password = tab.css("input[type=password]");

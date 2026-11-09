@@ -790,7 +790,7 @@ generated code is plain construction.
     `P$client` ([§15](#15-rpc-client-stubs-and-server-dispatch)); every interface that client code
     injects to the app's `use … for … in` rule for the selected environment, else its single project
     implementation, else the stdlib default (`LocalStorage` → `BrowserStorage`, `HttpClient` →
-    `FetchHttpClient`); the stdlib's services to their browser bodies in `services.js`
+    `FetchHttpClient`, `WebSocketClient` → `StandardWebSocketClient`); the stdlib's services to their browser bodies in `services.js`
     ([runtime.md §12](runtime.md#121-services-in-the-browser)): `Clock` → `$k.clock(data)`, `Theme` →
     `$k.theme()`, `Session` → `$k.session(data)`, `BrowserStorage` → `$k.browserStorage(R, W)`,
     `FetchHttpClient` → `$k.fetchHttpClient(HttpError, HttpStatus)` (the generated stdlib enums whose
@@ -834,6 +834,7 @@ generated code is plain construction.
 | Injected | Production and development | `Environment::Test` |
 |---|---|---|
 | `k.http.HttpClient` (no project binding) | `FetchHttpClient` → `$s.fetchHttpClient(HttpError, HttpStatus, [codes])` | `TestHttpClient` → `$s.testHttpClient(…)` |
+| `k.http.WebSocketClient` | `StandardWebSocketClient` → `$s.webSocketClient(WebSocketError, WebSocketMessage, WebSocketState, HttpStatus, [codes])` | `TestWebSocketClient` → `$s.testWebSocketClient(WebSocketError, WebSocketMessage, WebSocketState)`, one per test (`perTest`), shared with the kit's |
 | `k.server.EmailProvider` | `SmtpEmailProvider` → `$s.smtpEmailProvider(EmailError, $s.info().config)` | `RecordingEmailProvider` → `$s.recordingEmailProvider(EmailError)` |
 | `k.server.JobQueue` | `DatabaseJobQueue` → `$s.jobQueue(this.Database)` | `RecordingJobQueue` → `$s.recordingJobQueue()` |
 | `k.test.InlineJobQueue` (a `use` rule) | `$s.inlineJobQueue(this.$r.spec, this, this.Database)` | the same |
@@ -1086,15 +1087,16 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
 - **Feature chunks**: `charts.[hash].js`, `drag.[hash].js`, `files.[hash].js`, `clipboard.[hash].js`,
   `share.[hash].js`, `geolocation.[hash].js`, `tabs.[hash].js`, `notifications.[hash].js`, `wakelock.[hash].js`,
-  `environment.[hash].js`, `keys.[hash].js`, `http.[hash].js`, `streams.[hash].js` and `channels.[hash].js`
-  (`runtime/charts.js`, …),
+  `environment.[hash].js`, `keys.[hash].js`, `http.[hash].js`, `streams.[hash].js`, `channels.[hash].js` and
+  `websocket.[hash].js` (`runtime/charts.js`, …),
   emitted only when a client chunk or the client entry uses a symbol they implement
   (`k.charts.LineChart`; `k.drag.ReorderableList`, `Draggable`, `DropTarget`, `DragKind(name:)`;
   `k.ui.KeyboardShortcut`; `k.device.CopyButton`, `ShareButton` and `KeepScreenAwake`; `streamed`;
   `openChannel`; and
   `k.device.BrowserFiles`, `BrowserClipboard`, `BrowserShare`, `BrowserGeolocation`, `BrowserTabMessaging` and
   `BrowserNotifications`, which the entry's `$App` constructs for `Files`, `Clipboard`, `Share`, `Geolocation`,
-  `TabMessaging` and `Notifications`
+  `TabMessaging` and `Notifications`, and `k.http.StandardWebSocketClient(WebSocketError, WebSocketMessage,
+  WebSocketState)` for `WebSocketClient`
   (`BrowserTabMessaging("<storage namespace>", import.meta.url)`: the entry's URL names the build;
   `BrowserNotifications(Page$href)`: a notification's page becomes its URL), and the stdlib services
   `PageVisibility`, `Connectivity`, `Preferences` and `Viewport`, which it constructs under their own

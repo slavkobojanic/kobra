@@ -293,8 +293,8 @@ library is documented, reviewable K and the checker has no second declaration fo
 |---|---|---|
 | `k.core` (the prelude) | `Int`, `Double`, `Decimal`, `Bool`, `String`, `Bytes`, `Url`, `Void`, `Optional`, `Result`, `List`, `Map`, `Set`, ranges, `Stream`, `Binding`, `Builder`, `View`, `Error`, `Equatable`, `Hashable`, `Comparable`, `Codable`, `Copyable`, units (`Length`, `Duration`, `Angle`, `Percent`, `Color`, `Spacing`, `Radius`, `FontSize`, `Font`), `Date`, `DateStyle`, `NumberStyle`, `Money`, `Currency`, `RoundingRule`, `Secret`, `ConfigValue`, `Environment`, `Page`, `Endpoint`, `ThemeVariant`, `MediaCondition`, `Event`, `Classes`, framework annotations (`@Prop`, `@Binding`, `@State`, `@Derived`, `@Effect`, `@Load`, `@Emits`, `@Slot`, `@Stylable`, `@Inject`, `@Param`, `@Scope`, `@Env`, `@Get`/`@Post`/`@Put`/`@Patch`/`@Delete`, `@Layout`, `@NoLayout`, `@Rendering`, `@SignInPage`, `@Breaking`), `LoadState`, `onCleanup`, `untracked`, `global` | 08, 20 |
 | `k.ui` | `Theme` (with `apply(_:)`), `Router`, `Stack`, `Grid`, `Spacer`, `Icon`, `IconName`, `ErrorBoundary`, `VisuallyHidden`, `Locale`, `AriaRole`, `ButtonType`, `ImageLoading`, `Axis`, `MetadataEntries`, `StructuredData` | 04, 05, 07, 22 |
-| `k.http` | `HttpClient`, `FetchHttpClient`, `HttpRequest`, `HttpResponse`, `HttpMethod`, `HttpHeaders`, `HttpBody`, `HttpStatus` (enum with `.other(Int)`), `HttpError`, `DecodingError`, `IncomingRequest` | 32, 27 |
-| `k.time` | `Clock` (a stdlib service: `now`, `sleep(for:)`, `every(_:_:)`, `after(_:_:)`), `TimerHandle`, `TimeZone`, `TimeOfDay`, `Weekday` | 35 |
+| `k.http` | `HttpClient`, `FetchHttpClient`, `HttpRequest`, `HttpResponse`, `HttpMethod`, `HttpHeaders`, `HttpBody`, `HttpStatus` (enum with `.other(Int)`), `HttpError`, `DecodingError`, `IncomingRequest`, `WebSocketClient`, `StandardWebSocketClient`, `WebSocketRequest`, `WebSocket`, `WebSocketMessage`, `WebSocketState`, `WebSocketError` | 32, 27, 44 |
+| `k.time` | `Clock` (a stdlib service: `now`, `sleep(for:)`, `every(_:_:)`, `after(_:_:)`), `TimerHandle`, `TimeZone`, `TimeOfDay`, `Weekday`, `Backoff` (the channels' reconnect delays) | 35, 44 |
 | `k.rpc` | `RpcFailure`, `RpcOnlyError`, `Broadcast`, `RemoteService`, `RemoteClient`, `ServiceAuthenticated`, `ServiceCaller`, `ServiceConfig` | 11, 28, 29, 40 |
 | `k.auth` | `Authenticated`, `Role`, `Session`, `SessionManager`, `SessionConfig`, `SessionUser`, `SessionUserId`, `SessionRole`, `AuthUserId`, `AuthRole`, `RateLimit`, `Rate`, `GuardRejection` | 26 |
 | `k.storage` | `LocalStorage`, `BrowserStorage`, `StorageKey`, `StorageReadError`, `StorageWriteError` | 36 |
@@ -306,7 +306,7 @@ library is documented, reviewable K and the checker has no second declaration fo
 | `k.encoding` | `Json`, `@JsonKey` | 20 |
 | `k.text` | `EmailAddress` | 31 |
 | `k.observe` | `Log` | 38 |
-| `k.test` (test-only) | `TestClock`, `TestClient`, `TestHttpClient`, `TestRemote`, `MemoryStorage`, `RecordingEmailProvider`, `RecordingJobQueue`, `InlineJobQueue`, `Screen`, `Element`, `Key`, `render` | 21, 40 |
+| `k.test` (test-only) | `TestClock`, `TestClient`, `TestHttpClient`, `TestWebSocketClient`, `TestWebSocketServer`, `TestRemote`, `MemoryStorage`, `RecordingEmailProvider`, `RecordingJobQueue`, `InlineJobQueue`, `Screen`, `Element`, `Key`, `render` | 21, 40 |
 
 Module names follow the design documents: email and jobs live in `k.server`, money and config values in
 `k.core`, testing support in `k.test`. The examples' imports are pinned by
@@ -777,6 +777,9 @@ Accessibility lints beyond required accessible names are **deferred**.
   during server rendering (field initializers, `@Derived`/`@Load` initializers, views) → **K4012**; a
   server-rendered page reading a client-only service's state → **K4013** (warning; fixes
   `@Rendering(.client)` on the component, first, when the read is in a component, then on the app).
+  Chaining `headers`, `secretHeaders` or `bearerToken` onto a `k.http.WebSocketRequest` in a declaration that
+  isn't server-only (shared or client-only code may run in the browser, which can't send handshake headers)
+  → **K4031** at the setter's name ([44-channels.md](../design/44-channels.md#raw-websockets-khttp)).
 - **Client-rendered components** ([47-client-rendered-components.md](../design/47-client-rendered-components.md)):
   `@Rendering` applies to the app and to components (K3002 elsewhere). `@Rendering(.server)` on a
   component → **K4027**; `@Rendering(.client)` on a component of a `@Rendering(.client)` app → **K4029**
@@ -1038,16 +1041,27 @@ fields = [
 reserved = [3]
 
 [types."pay.ChargeError"]
-cases = ["declined", "rpcFailure"]
+cases = [
+    { name = "declined", fields = [{ name = "reason", type = "String?" }] },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 ```
 
 Types are written like `storage.lock`'s (stdlib types by simple name); `[types]` holds every app or
-library struct and enum reachable from the served signatures. Malformed TOML, a field number that isn't a
+library struct and enum reachable from the served signatures. An enum's `cases` are inline tables, each
+with its `name` and, when it has a payload, its `fields` (`name` and `type`; an unlabelled payload is
+named `_0`, `_1`… by position, as the wire names it). Payload fields have no numbers: a case's payload is
+JSON on the wire today, and numbers come with Protobuf enums. **A case written as a bare string** (`cases =
+["declined", "rpcFailure"]`) is how locks were written before payloads were recorded; it still reads, and
+its fields, being unknown, aren't compared (the payload *types* are still followed through the program, as
+before). There is no format key and none was added: the new form is a superset the reader tells apart per
+case, and `k build` rewrites an old lock in the new form the next time it writes it. Malformed TOML, a field number that isn't a
 positive integer, a number used twice in one type or both used and reserved → **K8002** at the line. The
 comparison, per recorded protocol: the wire `service` changed (the Protobuf package, from the declaring
 package's name and the module, and the protocol's name; a lock without `service` isn't compared); an
 rpc, parameter, field or case removed; a parameter, field, result or error type changed (by written
-type); a new required parameter or field (not optional, no default) →
+type); a new required parameter or field (not optional, no default); and for a case recorded with its fields, the
+same three changes to one of its payload fields →
 **K8001** at the protocol's name, one note per change, a label at the protocol's line in the lock, unless
 the protocol is `@Breaking("reason")`. A recorded protocol the app no longer serves → K8001 at the app's
 name. New rpcs, optional fields and parameters and new cases are compatible. **Writing:**
@@ -1076,9 +1090,11 @@ before channels read unchanged; a `kind` other than `"channel"`, or a channel wi
 the program *only* through channels' `receive` types (the server's messages, which an old tab skips when
 it doesn't know a case) may lose an enum case; a type also reached from a parameter, a result, an error,
 a `send` or a `refusal`, of any served protocol, keeps every case ("the stricter rule of each place it
-appears"). Added required fields and changed types break both directions. The comparison follows enum
-case payloads too (the program's payload types, which the lock doesn't record), so a struct carried only
-inside an event enum is compared field by field.
+appears"). Added required fields, removed fields and changed types break both directions, for a struct's
+fields and a case's payload fields alike: a `S` case gaining a required field can't be decoded by an open
+tab, and a `C` case gaining one is never sent by it. A removed case's fields aren't compared. The
+comparison follows enum case payloads into the types they carry, so a struct carried only inside an event
+enum is compared field by field.
 
 `Analysis::file_dependencies(file)` lists the files whose declarations a file's names, types and members
 resolve to; `k test --watch` uses it to find the tests a change affects.

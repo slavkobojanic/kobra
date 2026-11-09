@@ -30,6 +30,10 @@
 //! | `op_k_jobs_enqueue` | `(name, payloadJson, delayMs, tx) => Promise<id>` | `DatabaseJobQueue` |
 //! | `op_k_fetch` | `(id, {method, url, headers, timeoutMs}, body, hasBody) => Promise<outcome>` | `FetchHttpClient` |
 //! | `op_k_fetch_abort` | `(id) => void` | a cancelled `FetchHttpClient` call |
+//! | `op_k_ws_connect` | `(id, {url, protocol, headers, timeoutMs, maxMessage}) => Promise<outcome>` | `StandardWebSocketClient` |
+//! | `op_k_ws_next` | `(id) => Promise<{kind: "text", text} \| {kind: "binary", bytes} \| {kind: "closed", code, reason} \| {kind: "tooLarge"}>` | a `WebSocket`'s `messages` |
+//! | `op_k_ws_send` | `(id, text, bytes, binary) => Promise<boolean>` | `WebSocket.send` |
+//! | `op_k_ws_close` | `(id, code, reason) => Promise<void>` (also cancels a connect in flight) | `WebSocket.close`, a cancelled connect |
 //! | `op_k_smtp_send` | `(settings, message) => Promise<outcome>` | `SmtpEmailProvider` |
 //! | `op_k_test_reset` | `() => void` | `k test`: a fresh process (and database) per test |
 //! | `op_k_test_tick` | `() => Promise<void>` | `k test`: one event-loop turn between idle rounds |
@@ -191,6 +195,10 @@ pub struct EngineState {
     pub process: Arc<ProcessState>,
     /// The abort handles of `op_k_fetch` requests in flight, by id.
     pub fetches: HashMap<u32, Rc<tokio::sync::Notify>>,
+    /// The abort handles of `op_k_ws_connect` handshakes in flight, by id.
+    pub socket_connects: HashMap<u32, Rc<tokio::sync::Notify>>,
+    /// The open outgoing WebSockets (`crate::websocket`), by id.
+    pub sockets: HashMap<u32, Rc<SocketHalves>>,
     /// The database half of a test build (`k test`): `op_k_test_reset`
     /// opens a fresh in-memory SQLite database with its migrations for
     /// every test. `None` outside tests, or for a build without
@@ -211,6 +219,8 @@ impl EngineState {
             requests: None,
             process: Arc::new(ProcessState::default()),
             fetches: HashMap::new(),
+            socket_connects: HashMap::new(),
+            sockets: HashMap::new(),
             test_database: None,
             symbols: Rc::new(crate::stack::Symbolicator::default()),
         }
@@ -1161,6 +1171,190 @@ fn op_k_fetch_abort(state: &mut OpState, id: u32) {
     }
 }
 
+/// The halves of an open outgoing WebSocket, each locked by the op using
+/// it, so a send never waits for a read.
+pub struct SocketHalves {
+    /// What the endpoint sends.
+    reader: tokio::sync::Mutex<crate::websocket::Reader>,
+    /// What this side sends.
+    writer: tokio::sync::Mutex<crate::websocket::Writer>,
+}
+
+/// An outcome of `op_k_ws_connect` for JavaScript.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum JsConnectOutcome {
+    /// The socket is open; `op_k_ws_next` reads it.
+    Open {
+        /// The subprotocol the endpoint chose, if any.
+        protocol: Option<String>,
+    },
+    /// The endpoint answered without upgrading.
+    Refused {
+        /// The answer's status.
+        status: u16,
+    },
+    /// The endpoint couldn't be reached.
+    Offline {
+        /// Why, for the server log.
+        message: String,
+    },
+    /// The handshake took longer than the request's timeout.
+    Timeout,
+    /// The request is malformed.
+    Invalid {
+        /// What is wrong.
+        message: String,
+    },
+    /// `op_k_ws_close` was called while connecting.
+    Aborted,
+}
+
+/// What `op_k_ws_next` read, for JavaScript.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum JsIncoming {
+    /// A text message.
+    Text {
+        /// Its text.
+        text: String,
+    },
+    /// A binary message.
+    Binary {
+        /// Its bytes, a `Uint8Array`.
+        bytes: ToJsBuffer,
+    },
+    /// The socket closed.
+    Closed {
+        /// The close code (1006 without a close frame).
+        code: u16,
+        /// The close reason.
+        reason: String,
+    },
+    /// A message was over the request's limit; the socket is done.
+    TooLarge,
+}
+
+/// Opens an outgoing WebSocket for `StandardWebSocketClient`
+/// (`crate::websocket::connect`); `id` names it for the other `op_k_ws_*`.
+#[op2]
+#[serde]
+async fn op_k_ws_connect(
+    state: Rc<RefCell<OpState>>,
+    id: u32,
+    #[serde] request: crate::websocket::SocketRequest,
+) -> JsConnectOutcome {
+    let abort = Rc::new(tokio::sync::Notify::new());
+    let s = shared(&state.borrow());
+    s.borrow_mut().socket_connects.insert(id, Rc::clone(&abort));
+    let outcome = tokio::select! {
+        o = crate::websocket::connect(request) => Some(o),
+        () = abort.notified() => None,
+    };
+    s.borrow_mut().socket_connects.remove(&id);
+    match outcome {
+        None => JsConnectOutcome::Aborted,
+        Some(crate::websocket::ConnectOutcome::Open { socket, protocol }) => {
+            s.borrow_mut().sockets.insert(
+                id,
+                Rc::new(SocketHalves {
+                    reader: tokio::sync::Mutex::new(socket.reader),
+                    writer: tokio::sync::Mutex::new(socket.writer),
+                }),
+            );
+            JsConnectOutcome::Open { protocol }
+        }
+        Some(crate::websocket::ConnectOutcome::Refused { status }) => {
+            JsConnectOutcome::Refused { status }
+        }
+        Some(crate::websocket::ConnectOutcome::Offline { message }) => {
+            JsConnectOutcome::Offline { message }
+        }
+        Some(crate::websocket::ConnectOutcome::Timeout) => JsConnectOutcome::Timeout,
+        Some(crate::websocket::ConnectOutcome::Invalid { message }) => {
+            JsConnectOutcome::Invalid { message }
+        }
+    }
+}
+
+/// The socket `id`, if it is open.
+fn socket(state: &Rc<RefCell<OpState>>, id: u32) -> Option<Rc<SocketHalves>> {
+    shared(&state.borrow()).borrow().sockets.get(&id).cloned()
+}
+
+/// Reads socket `id`'s next message. After `closed` or `tooLarge` (or for
+/// an unknown socket, which is `closed` with 1006) the socket is forgotten.
+#[op2]
+#[serde]
+async fn op_k_ws_next(state: Rc<RefCell<OpState>>, id: u32) -> JsIncoming {
+    let gone = JsIncoming::Closed {
+        code: 1006,
+        reason: String::new(),
+    };
+    let Some(halves) = socket(&state, id) else {
+        return gone;
+    };
+    let incoming = halves.reader.lock().await.next().await;
+    let forget = || {
+        shared(&state.borrow()).borrow_mut().sockets.remove(&id);
+    };
+    match incoming {
+        crate::websocket::Incoming::Text(text) => JsIncoming::Text { text },
+        crate::websocket::Incoming::Binary(bytes) => JsIncoming::Binary {
+            bytes: bytes.into(),
+        },
+        crate::websocket::Incoming::Closed { code, reason } => {
+            forget();
+            JsIncoming::Closed { code, reason }
+        }
+        crate::websocket::Incoming::TooLarge => {
+            halves.writer.lock().await.close(1009, "too large").await;
+            forget();
+            JsIncoming::TooLarge
+        }
+    }
+}
+
+/// Sends `text` (or `bytes`, when `binary`) on socket `id`; `false` when it
+/// is closed or unknown.
+#[op2]
+async fn op_k_ws_send(
+    state: Rc<RefCell<OpState>>,
+    id: u32,
+    #[string] text: String,
+    #[buffer(copy)] bytes: Vec<u8>,
+    binary: bool,
+) -> bool {
+    let Some(halves) = socket(&state, id) else {
+        return false;
+    };
+    let mut writer = halves.writer.lock().await;
+    if binary {
+        writer.binary(bytes).await
+    } else {
+        writer.text(text).await
+    }
+}
+
+/// Closes socket `id` with `code` and `reason`, or cancels its handshake
+/// if it is still connecting; nothing for an unknown one. The socket stays
+/// readable until the endpoint's close arrives (`op_k_ws_next`).
+#[op2]
+async fn op_k_ws_close(state: Rc<RefCell<OpState>>, id: u32, code: u32, #[string] reason: String) {
+    let connecting = shared(&state.borrow())
+        .borrow_mut()
+        .socket_connects
+        .remove(&id);
+    if let Some(n) = connecting {
+        n.notify_one();
+        return;
+    }
+    if let Some(halves) = socket(&state, id) {
+        let code = u16::try_from(code).unwrap_or(1000);
+        halves.writer.lock().await.close(code, &reason).await;
+    }
+}
+
 /// Sends an email over SMTP for `SmtpEmailProvider`
 /// (`crate::outbound::send_mail`).
 #[op2]
@@ -1221,6 +1415,10 @@ deno_core::extension!(
         op_k_hmac,
         op_k_fetch,
         op_k_fetch_abort,
+        op_k_ws_connect,
+        op_k_ws_next,
+        op_k_ws_send,
+        op_k_ws_close,
         op_k_smtp_send,
     ],
 );

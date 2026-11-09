@@ -43,6 +43,7 @@ import { RequestState, sessionManager, natives as serverNatives } from "../runti
 import { channelEnv } from "../runtime/channels.js";
 import { install as installDom } from "./dom.js";
 import { createFront, testChannel as scriptedChannel } from "./channels.js";
+import { TestWebSocketServer, testWebSocketClient as scriptedSockets } from "../runtime/websocket.js";
 
 // ---------------------------------------------------------------- state
 
@@ -50,7 +51,7 @@ import { createFront, testChannel as scriptedChannel } from "./channels.js";
  * The running test: its container, its screens, and the errors thrown by
  * work it scheduled (effects flushed in a microtask).
  */
-let current = { container: null, screens: [], errors: [], clock: null, server: null, offline: false, front: null, context: null };
+let current = { container: null, screens: [], errors: [], clock: null, server: null, offline: false, front: null, context: null, sockets: null };
 
 /**
  * Starts a test with `container` (the generated browser container): the
@@ -61,7 +62,7 @@ let current = { container: null, screens: [], errors: [], clock: null, server: n
  * @param {object|null} [server]
  */
 export function begin(container, clock = null, server = null) {
-  current = { container, screens: [], errors: [], clock, server, offline: false, front: null, context: null };
+  current = { container, screens: [], errors: [], clock, server, offline: false, front: null, context: null, sockets: null };
 }
 
 /**
@@ -2153,6 +2154,25 @@ export function testPeers() {
 export function testChannel(E) {
   return scriptedChannel(E, sharedClock());
 }
+
+/**
+ * `k.test.TestWebSocketClient` (44-channels.md, "Testing"): one per test,
+ * shared with the test's server containers (the same memo key as the
+ * server's `perTest`), so a test scripts the endpoints a server service
+ * connects to as well as the browser's.
+ * @param {object} E the generated `WebSocketError` enum
+ * @param {object} M the generated `WebSocketMessage` enum
+ * @param {object} St the generated `WebSocketState` enum
+ */
+export function testWebSocketClient(E, M, St) {
+  const memo = current.context?.memo;
+  if (!memo) return (current.sockets ??= scriptedSockets(E, M, St));
+  if (!memo.has("TestWebSocketClient")) memo.set("TestWebSocketClient", scriptedSockets(E, M, St));
+  return memo.get("TestWebSocketClient");
+}
+
+/** `TestWebSocketServer()`: a scripted endpoint (`../runtime/websocket.js`). */
+export const testWebSocketServer = TestWebSocketServer;
 
 /**
  * The browser's `@Native` members, with `k.test`'s first, then the

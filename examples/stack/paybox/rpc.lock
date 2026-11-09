@@ -18,7 +18,10 @@ fields = [
 ]
 
 [types."pay.ChargeError"]
-cases = ["declined", "rpcFailure"]
+cases = [
+    { name = "declined" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."pay.ChargeRequest"]
 fields = [

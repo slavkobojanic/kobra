@@ -1353,6 +1353,31 @@ fn test_runs_channels_in_process_with_peers_and_scripted_channels() {
 }
 
 #[test]
+fn test_scripts_websockets_shared_by_the_browser_and_the_server() {
+    // Raw WebSockets in `k test` (44-channels.md, "Raw WebSockets: `k.http`"):
+    // `TestWebSocketClient` connects only to the endpoints a test scripted
+    // with `TestWebSocketServer`, one double per test shared by the test's
+    // browser and server; a reconnect loop waits `Backoff`'s delays on the
+    // `TestClock`; leaving the page closes the socket; and
+    // `WebSocketMessage.json()` decodes text and bytes.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/feeds");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("7 passed; 0 failed"), "{text}");
+    for name in [
+        "PASS  Prices › ticks from the feed appear on the page",
+        "PASS  Prices › a dropped feed reconnects after the backoff",
+        "PASS  Prices › leaving the page closes the socket",
+        "PASS  Relay › a server service's socket uses the test's double",
+        "PASS  Backoffs › delays grow to 30 seconds and start again after reset",
+    ] {
+        assert!(text.contains(name), "{name}\n{text}");
+    }
+}
+
+#[test]
 fn test_notifies_through_the_notifications_double() {
     // `Notifications` against `TestNotifications` (45-web-platform.md): the
     // prompt from a click, a show that never prompts, a refused, dismissed

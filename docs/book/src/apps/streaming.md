@@ -61,7 +61,8 @@ public service NoteChanges {
   Closing it cancels its producer, which releases any subscription.
 - **A stream ends when its session ends.** The runtime closes every stream opened under a session on
   sign-out, expiry or `endAll`, so a signed-out tab stops receiving data even though guards ran only when
-  it opened.
+  it opened. The end tells the browser the session is gone, so a page that requires a user is left
+  before its loop can open the stream again.
 
 ## `Stream<T>`
 

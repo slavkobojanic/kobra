@@ -250,7 +250,8 @@ CI included, the way `schema.lock` is written by `k migrate` and checked by `k c
 
 - **Compatible:** adding an rpc, an optional field or parameter, or an error case.
 - **Breaking:** removing an rpc, a parameter, a field or an error case, changing any of their types, adding
-  a required field or parameter, changing the protocol's wire name (recorded as `service`, from the
+  a required field or parameter (a struct's fields and an enum case's payload fields follow the same
+  rules: `case outOfStock(available: Int)` gaining a required `restockOn` breaks), changing the protocol's wire name (recorded as `service`, from the
   project's name, the module and the protocol), or no longer serving a recorded protocol. Each is `K8001`, with one note
   per change:
 

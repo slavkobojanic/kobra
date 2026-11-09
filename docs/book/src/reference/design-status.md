@@ -43,7 +43,6 @@ with a Planned note naming the feature's id, and this table is generated from th
 | Git packages, `k add`, `k remove` and `k.lock` | `packages` | [Packages](../apps/packages.md#how-packages-work), [The k command](cli.md#packages), [Project files and lockfiles](project-files.md#ktoml) |
 | Writing `storage.lock` (its entries are compared once recorded) | `storage-lock-writing` | [Project layout](../getting-started/project-layout.md#ktoml), [Local storage](../apps/local-storage.md#storagelock), [Project files and lockfiles](project-files.md#lockfiles) |
 | One connection for identical streams opened in several tabs | `stream-tab-sharing` | [Server streaming](../apps/streaming.md#one-connection-per-stream-shared-across-tabs) |
-| `WebSocketClient`: raw WebSockets to third-party endpoints | `websocket-client` | [Channels](../apps/channels.md#limits) |
 | Channels in `k routes`, a `k dev` inspector and `k.observe` metrics | `channel-tooling` | [Channels](../apps/channels.md#limits) |
 | Binding a workspace member's own implementation in-process in `.test` | `in-process-services` | [Workspaces and services](../apps/workspaces.md#tooling) |
 | Streaming rpcs between services | `service-streaming` | [Workspaces and services](../apps/workspaces.md#tooling) |

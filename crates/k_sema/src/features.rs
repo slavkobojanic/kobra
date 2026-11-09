@@ -224,11 +224,6 @@ pub const FEATURES: &[Feature] = &[
         "29-server-streaming.md",
     ),
     planned(
-        "websocket-client",
-        "`WebSocketClient`: raw WebSockets to third-party endpoints",
-        "44-channels.md",
-    ),
-    planned(
         "channel-tooling",
         "Channels in `k routes`, a `k dev` inspector and `k.observe` metrics",
         "44-channels.md",

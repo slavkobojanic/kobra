@@ -45,6 +45,7 @@ Contents:
 | Database: open and migrate at startup, statements by number, request-bound transactions | `db`, `ops`, `k_db` | **implemented** ([db.md §6, §9](db.md#6-drivers-the-manifest-and-ops)); one connection per process |
 | Background jobs: `DatabaseJobQueue`, the jobs worker, retries, schedules | `jobs`, `db`, `k_db::stdlib` | **implemented** ([§11](#11-background-jobs)) |
 | Outgoing HTTP (`FetchHttpClient`) and SMTP email (`SmtpEmailProvider`) | `outbound`, `ops` | **implemented** ([§18](#18-outgoing-http-and-email)) |
+| Outgoing WebSockets (`StandardWebSocketClient`) | `websocket`, `ops`, `k:runtime/outbound` | **implemented** ([§18](#websockets-standardwebsocketclient)) |
 | In-process rpc calls during SSR: guards and validation | `k:runtime/app` (`callLocal`) | **implemented** ([§6](#6-rpc-dispatch)) |
 | Channels: the WebSocket at `/_k/channels`, heartbeats, limits, resume, the channel runtime | `sockets`, `channels`, `k:runtime/app` | **implemented** in one process ([§20](#20-channels)); JSON frames only, no fan-out across replicas yet |
 | V8 snapshot | — | v0 target, not yet built (cold start is already within budget without it) |
@@ -181,6 +182,7 @@ Ops are the only way server JavaScript reaches Rust (`Deno.core.ops.*`):
 | `op_k_hmac` | `(bits, key, message) => Uint8Array`: HMAC-SHA-256 (`bits` 256) or -512 | implemented (`Hmac.sha256`/`sha512`; `Mac.matches` compares in constant time in JavaScript) |
 | `op_k_hash` | crypto (`Hash`) | v0, not built yet |
 | `op_k_fetch` / `op_k_fetch_abort` | `(id, {method, url, headers, timeoutMs}, body, hasBody) => Promise<outcome>`, `(id) => void` | implemented ([§18](#18-outgoing-http-and-email)) |
+| `op_k_ws_connect` / `_next` / `_send` / `_close` | `(id, {url, protocol, headers, timeoutMs, maxMessage}) => Promise<outcome>`, `(id) => Promise<incoming>`, `(id, text, bytes, binary) => Promise<boolean>`, `(id, code, reason) => Promise<void>` | implemented ([§18](#websockets-standardwebsocketclient)) |
 | `op_k_smtp_send` | `(settings, message) => Promise<outcome>` | implemented ([§18](#18-outgoing-http-and-email)) |
 
 The request handed to JavaScript is `{ id, method, path, headers: [[name, value]…] (lower case, in order),
@@ -265,7 +267,10 @@ server streaming.
   body). Then `200` with `application/connect+json`, one envelope per element (a struct is the message,
   anything else `{"value": …}`), and an end-of-stream envelope (flags `0x02`) `{}` or `{"error": {…}}`.
   A stream ends when its source does, when the client goes away, or when the session it was opened under
-  ends on any worker. An enveloped request to a unary rpc is `415`.
+  ends on any worker; that last end is `{"metadata": {"x-k-session": ["{\"user\":null}"]}}`, the guest
+  mirror in the Connect end's metadata, which the browser takes as it takes the header (runtime.md §8), so
+  the router leaves a guarded page before the page's code sees the end and opens the stream again under
+  the dead session (a `401` the console would log). An enveloped request to a unary rpc is `415`.
 - **Errors** (Connect error body `{"code", "message", "details"}`):
 
   | Outcome | Code | HTTP |
@@ -714,6 +719,28 @@ another implementation; a test build binds `TestHttpClient`.
 - **`TestHttpClient`** (`$s.testHttpClient`): `respond(path:with:)`, `serveJson`, `serveText`,
   `fail(path:error:)` and `requests`; a request to a path without a canned answer is a panic naming the
   method and URL, so a test never reaches the network.
+
+### WebSockets: `StandardWebSocketClient`
+
+[44-channels.md](../design/44-channels.md#raw-websockets-khttp). On the server `WebSocketClient` binds to
+`StandardWebSocketClient` (`$s.webSocketClient(WebSocketError, WebSocketMessage, WebSocketState, HttpStatus,
+codes)`, `k:runtime/outbound.js` over `k:runtime/websocket.js`); a test build binds `TestWebSocketClient`, one per
+test and shared with the test's browser ([runtime.md §12.13](runtime.md#1213-raw-websockets)).
+
+- **`op_k_ws_connect`** (`websocket::connect`) opens `ws://` (TCP) or `wss://` (rustls with the Mozilla roots,
+  through hyper-rustls's connector) and runs tokio-tungstenite's client handshake with the request's headers
+  (secrets revealed by `wireRequest`) and `Sec-WebSocket-Protocol`; the timeout (at most 10 minutes) covers
+  connecting and the handshake. Outcomes: `open` (with the chosen subprotocol; the socket's halves go into the
+  isolate's `sockets` table), `refused` with the status of an answer that didn't upgrade, `offline` (its
+  message names no header), `timeout`, `invalid` (not `ws`/`wss`, a header that can't be sent: a panic) or
+  `aborted` (`op_k_ws_close` during the handshake: the awaiting code never resumes).
+- **`op_k_ws_next`** reads the next text or binary message; pings are answered by tungstenite and skipped. A
+  close frame is `closed` with its code and reason (1005 without a code, 1006 for a dropped connection); a
+  message over `maxMessage` (at most 64 MiB) is `tooLarge`, after which the socket is closed with 1009. Either
+  forgets the socket.
+- **`op_k_ws_send`** sends on the writing half, locked apart from the reading half so a send never waits for a
+  read; `false` once the socket is closed, which `send` throws as `WebSocketError.closed`.
+- A socket opened by a request closes (1000) when the request's signal aborts.
 
 ### Email: `SmtpEmailProvider`
 

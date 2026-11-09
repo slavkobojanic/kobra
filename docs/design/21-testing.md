@@ -73,6 +73,7 @@ test AddToCart {
 | `LocalStorage` | `MemoryStorage` | an empty in-memory store that can simulate failures ([36-local-storage.md](36-local-storage.md)) |
 | `EmailProvider` | `RecordingEmailProvider` | keeps sent messages in `sent`; `simulateFailure(error:)` ([31-email.md](31-email.md)) |
 | `HttpClient` | `TestHttpClient` | answers only requests it has a canned response for; any other request fails the test, naming the URL ([32-http-client.md](32-http-client.md)) |
+| `WebSocketClient` | `TestWebSocketClient` | connects only to endpoints scripted with a `TestWebSocketServer`; any other URL fails the test, naming it; one per test, shared by its browser and server ([44-channels.md](44-channels.md#testing)) |
 | `Files` | `TestFiles` | opens no picker and starts no download; `choose(_:)` says what the user picks, `saved` holds what was saved ([42-files.md](42-files.md#tests-testfiles)) |
 | `Clipboard` | `TestClipboard` | a clipboard in memory, empty for every test; `text` is what it holds, `set(text:)` copies as another application would, `failWrites(error:)`, `failReads(error:)`, `setSupported(_:)` ([45-web-platform.md](45-web-platform.md#copybutton)) |
 | `Geolocation` | `TestGeolocation` | prompts nobody and reads no real position; supported, `permission` `.prompt`, prompts answered `.granted`, no fix until `move(to:)`; `answerPrompts(with:)`, `setPermission(_:)`, `failNext(error:)`, `setSupported(_:)`, `prompts`, `lastAccuracy` ([45-web-platform.md](45-web-platform.md#geolocation)) |

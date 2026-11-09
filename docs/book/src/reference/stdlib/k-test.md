@@ -35,6 +35,8 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`TestTabMessaging`](#testtabmessaging) | The default [`TabMessaging`](k-device.md#tabmessaging) in `k test` (`docs/design/45-web-platform.md`, "Messages between tabs"): there are no other tabs. |
 | [`TestViewport`](#testviewport) | The default [`Viewport`](k-device.md#viewport) in `k test` (`docs/design/45-web-platform.md`, "Viewport"): a 1280×800 viewport with a fine pointer that can hover, until the test changes one. |
 | [`TestWakeLock`](#testwakelock) | The screen wake lock in `k test` (`docs/design/45-web-platform.md`, "KeepScreenAwake"): a mounted [`k.device.KeepScreenAwake`](k-device.md#keepscreenawake) holds it, never the machine's screen. |
+| [`TestWebSocketClient`](#testwebsocketclient) | The default [`WebSocketClient`](k-http.md#websocketclient) in `k test` (`docs/design/44-channels.md`, "Testing"): it connects only to URLs a test scripted with `serve(url:with:)`, and fails the test, naming the URL, on any other. |
+| [`TestWebSocketServer`](#testwebsocketserver) | A scripted WebSocket endpoint for [`TestWebSocketClient.serve(url:with:)`](#testwebsocketclient): the test plays the third party. |
 
 ## Element
 
@@ -879,4 +881,62 @@ never the machine's screen.
   Refuses every later request with `failure`, as a browser without
   the API (`.unsupported`) or in battery saver (`.unavailable`) does;
   the component's `failed` event fires with it.
+
+## TestWebSocketClient
+
+```k,ignore
+@TestDefault(replaces: WebSocketClient)
+public service TestWebSocketClient implements WebSocketClient
+```
+
+The default [`WebSocketClient`](k-http.md#websocketclient) in `k test`
+(`docs/design/44-channels.md`, "Testing"): it connects only to URLs a
+test scripted with `serve(url:with:)`, and fails the test, naming the
+URL, on any other. One per test, shared by the test's browser and
+server, so a test scripts what a server service connects to too.
+
+**Members**
+
+- `var requests: List<WebSocketRequest>`
+  Every request connected or refused so far, oldest first.
+- `func connect(request: WebSocketRequest) async throws WebSocketError -> WebSocket`
+  Connects to the endpoint scripted for the request's URL, or throws
+  what `fail(url:error:)` set; a URL with nothing scripted fails the
+  test.
+- `func serve(url: Url, with server: TestWebSocketServer)`
+  Scripts the endpoint at `url` (compared without its query): each
+  connection to it talks to `server`.
+- `func fail(url: Url, error: WebSocketError)`
+  Makes connections to `url` throw `error`.
+
+## TestWebSocketServer
+
+```k,ignore
+public class TestWebSocketServer
+```
+
+A scripted WebSocket endpoint for [`TestWebSocketClient.serve(url:with:)`](#testwebsocketclient):
+the test plays the third party.
+
+```k,ignore
+let feed = TestWebSocketServer()
+sockets.serve(url: Url("wss://feed.example/v1"), with: feed)
+feed.send(.text("{\"price\": 42}"))
+expect feed.received == [.text("{\"subscribe\": \"BTC-USD\"}")]
+```
+
+**Members**
+
+- `init()`
+  Creates an endpoint that accepts every connection and has sent and
+  received nothing.
+- `let received: List<WebSocketMessage>`
+  The messages the code under test sent, oldest first, across its
+  connections.
+- `let connections: Int`
+  The number of connections open now.
+- `func send(_ message: WebSocketMessage)`
+  Sends `message` on every open connection, in order.
+- `func close(code: Int = 1000, reason: String = "")`
+  Closes every open connection with `code` and `reason`.
 

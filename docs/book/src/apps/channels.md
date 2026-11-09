@@ -277,8 +277,9 @@ A file doesn't belong in a channel: send it with an rpc or an endpoint page, and
 changed on the channel. Behind a proxy, pass the `Upgrade` header through
 ([Deployment](deployment.md)).
 
-Raw WebSockets to other services (**Planned** websocket-client) and channels in `k routes`, a `k dev`
-inspector and metrics (**Planned** channel-tooling) come later.
+Raw WebSockets to third-party endpoints are `WebSocketClient`'s ([Calling HTTP
+APIs](http.md#raw-websockets)). Channels in `k routes`, a `k dev` inspector and metrics (**Planned**
+channel-tooling) come later.
 
 ## Testing
 

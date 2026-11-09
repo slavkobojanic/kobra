@@ -728,6 +728,9 @@ codes! {
     /// A member that needs a user's action (`@UserAction`) is called, or passed, where there is none.
     USER_ACTION_REQUIRED = 4030, "user-action-required", Error,
         "A member the browser allows only during a user's action (`@UserAction`) is called outside the synchronous part of a click, submit or key handler.";
+    /// A WebSocket handshake header is set in code that may run in the browser.
+    HANDSHAKE_HEADER_ON_CLIENT = 4031, "handshake-header-on-client", Error,
+        "A WebSocket handshake header (`WebSocketRequest`'s `headers`, `secretHeaders` or `bearerToken`) is set in code that may run in the browser, which can't send headers on a handshake.";
 
     // ---------------------------------------------------------------- pages and routing
     /// Two pages or endpoints have the same URL.

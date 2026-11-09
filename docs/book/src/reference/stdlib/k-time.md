@@ -3,15 +3,53 @@
 
 # `k.time`
 
-Import each declaration by name, for example `import k.time.Clock`.
+Import each declaration by name, for example `import k.time.Backoff`.
 
 | Declaration | Summary |
 |---|---|
+| [`Backoff`](#backoff) | The delays between reconnection attempts that channels use (`docs/design/44-channels.md`, "Reconnecting and resuming"), for a loop that reconnects by hand, such as one over a [`k.http.WebSocket`](k-http.md#websocket): a random delay up to 0.5 s, 1 s, 2 s, 4 s, 8 s, 16 s, then up to 30 s for every later attempt ("full jitter"). |
 | [`Clock`](#clock) | The current time, timers and sleeps (`docs/design/35-time.md`). |
 | [`TimeOfDay`](#timeofday) | A time of day such as `TimeOfDay("03:00")`: a job schedule's time, or any value that names a time on a 24-hour clock, such as opening hours. |
 | [`TimerHandle`](#timerhandle) | A running timer from [`Clock.every`](#clock) or [`Clock.after`](#clock). |
 | [`TimeZone`](#timezone) | A time zone, for formatting dates and chart axes. |
 | [`Weekday`](#weekday) | A day of the week, for weekly schedules. |
+
+## Backoff
+
+```k,ignore
+public class Backoff
+```
+
+The delays between reconnection attempts that channels use
+(`docs/design/44-channels.md`, "Reconnecting and resuming"), for a loop
+that reconnects by hand, such as one over a [`k.http.WebSocket`](k-http.md#websocket):
+a random delay up to 0.5 s, 1 s, 2 s, 4 s, 8 s, 16 s, then up to 30 s
+for every later attempt ("full jitter").
+
+```k,ignore
+let backoff = Backoff()
+while true {
+    do {
+        let socket = try await sockets.connect(request: request)
+        backoff.reset()
+        for await message in socket.messages { … }
+    } catch _ {}
+    await clock.sleep(backoff.next())
+}
+```
+
+The jitter draws from the runtime's random source, which `k test` seeds
+per test, so a test's delays repeat; sleeping on the injected [`Clock`](#clock)
+lets [`k.test.TestClock`](k-test.md#testclock) drive them.
+
+**Members**
+
+- `init()`
+  A backoff before its first attempt.
+- `func next() -> Duration`
+  The delay before the next attempt, which counts it.
+- `func reset()`
+  Starts again from the first attempt's delay, after a success.
 
 ## Clock
 

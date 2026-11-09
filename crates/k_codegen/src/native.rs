@@ -573,6 +573,11 @@ pub(crate) fn method(
             };
             http_native(b, "HttpResponse", "json", vec![recv, codec, err])
         }
+        ("k.http.WebSocketMessage", "json") => {
+            let codec = crate::codec::codec_expr(b, result);
+            let err = decoding_error(b);
+            rt("messageJson", vec![recv, codec, err])
+        }
         ("k.http.HttpHeaders", "get") => http_native(b, "HttpHeaders", "get", vec![recv, f0()]),
         ("k.http.HttpHeaders", "all") => http_native(b, "HttpHeaders", "all", vec![recv, f0()]),
         ("k.http.IncomingRequest", "text") => call(member(id("$s"), "requestText"), vec![recv]),
@@ -855,6 +860,10 @@ pub(crate) fn construct(
             crate::suite::kit_call("testChannel", vec![e])
         }
         "k.http.HttpResponse" => http_native(b, "HttpResponse", "init", vec![a0]),
+        // `k.time.Backoff` (`std.js`): the channels' delays.
+        "k.time.Backoff" => Expr::New(Box::new(member(id("$k"), "Backoff")), vec![]),
+        // A scripted WebSocket endpoint (44-channels.md, "Testing").
+        "k.test.TestWebSocketServer" => crate::suite::kit_call("testWebSocketServer", vec![]),
         "k.core.Secret" => Expr::New(Box::new(member(id("$k"), "Secret")), vec![a0]),
         _ => return None,
     })

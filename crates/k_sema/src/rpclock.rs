@@ -24,6 +24,11 @@
 //!   `@Breaking("reason")`;
 //! * adding an rpc, an optional field, an optional parameter or an error
 //!   case is compatible;
+//! * an enum case's payload fields are recorded and compared as a struct's
+//!   fields are (by name: a label, or `_0`, `_1`… for an unlabelled one, as
+//!   the wire names them), except that they have no numbers; a lock written
+//!   before they were recorded lists bare case names, which still read and
+//!   whose fields aren't compared;
 //! * a lock that isn't valid TOML of this structure, or that gives two
 //!   fields of a type one number, is **K8002**.
 //!
@@ -102,8 +107,20 @@ enum Shape {
         /// Numbers never to be used again.
         reserved: BTreeSet<u32>,
     },
-    /// An enum's case names.
-    Enum(Vec<String>),
+    /// An enum's cases.
+    Enum(Vec<Case>),
+}
+
+/// One enum case.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Case {
+    /// The case's name.
+    name: String,
+    /// The payload fields: name (the label, or `_0`, `_1`… for an
+    /// unlabelled one), type, and whether it is optional (for comparing).
+    /// `None` for a case recorded as a bare name, before payloads were
+    /// recorded: its fields are unknown and aren't compared.
+    fields: Option<Vec<(String, String, bool)>>,
 }
 
 /// Why the lock can't be read: a message and the byte offset of the
@@ -357,11 +374,25 @@ fn current(cx: &Cx<'_, '_>, served: &[(String, DeclId)]) -> Lock {
                         let mut cases = Vec::new();
                         let mut payloads = BTreeSet::new();
                         for m in cx.cases(d) {
-                            cases.push(p.member(m).name.clone());
-                            for sp in cx.case_sig(m).params.iter() {
+                            let mut fields = Vec::new();
+                            for (i, sp) in cx.case_sig(m).params.iter().enumerate() {
                                 payloads.extend(names_in(&text(cx, &sp.ty)));
                                 pending.push(sp.ty.clone());
+                                let name = if sp.name.is_empty() {
+                                    format!("_{i}")
+                                } else {
+                                    sp.name.clone()
+                                };
+                                fields.push((
+                                    name,
+                                    text(cx, &sp.ty),
+                                    sp.has_default || matches!(sp.ty, Ty::Optional(_)),
+                                ));
                             }
+                            cases.push(Case {
+                                name: p.member(m).name.clone(),
+                                fields: Some(fields),
+                            });
                         }
                         out.payloads.insert(p.decl_name(d), payloads);
                         out.types.insert(p.decl_name(d), Shape::Enum(cases));
@@ -501,8 +532,38 @@ fn write(lock: &Lock) -> String {
                 }
             }
             Shape::Enum(cases) => {
-                let list: Vec<String> = cases.iter().map(|c| quote(c)).collect();
-                let _ = writeln!(out, "cases = [{}]", list.join(", "));
+                // Every case is a table, even one without a payload, so a
+                // bare name always means "recorded before payloads were".
+                if cases.is_empty() {
+                    out.push_str("cases = []\n");
+                } else {
+                    out.push_str("cases = [\n");
+                    for c in cases {
+                        match &c.fields {
+                            Some(fields) if !fields.is_empty() => {
+                                let list: Vec<String> = fields
+                                    .iter()
+                                    .map(|(n, t, _)| {
+                                        format!("{{ name = {}, type = {} }}", quote(n), quote(t))
+                                    })
+                                    .collect();
+                                let _ = writeln!(
+                                    out,
+                                    "    {{ name = {}, fields = [{}] }},",
+                                    quote(&c.name),
+                                    list.join(", ")
+                                );
+                            }
+                            Some(_) => {
+                                let _ = writeln!(out, "    {{ name = {} }},", quote(&c.name));
+                            }
+                            None => {
+                                let _ = writeln!(out, "    {},", quote(&c.name));
+                            }
+                        }
+                    }
+                    out.push_str("]\n");
+                }
             }
         }
     }
@@ -645,7 +706,37 @@ fn read(text: &str) -> Result<Lock, Invalid> {
             } else if let Some(cases) = t.get("cases") {
                 let mut list = Vec::new();
                 for c in cases.as_array().ok_or_else(bad)? {
-                    list.push(c.as_str().ok_or_else(bad)?.to_owned());
+                    if let Some(name) = c.as_str() {
+                        list.push(Case {
+                            name: name.to_owned(),
+                            fields: None,
+                        });
+                        continue;
+                    }
+                    let c = c.as_table().ok_or_else(bad)?;
+                    let name = c
+                        .get("name")
+                        .and_then(toml::Value::as_str)
+                        .ok_or_else(bad)?;
+                    let mut fields = Vec::new();
+                    if let Some(list) = c.get("fields") {
+                        for f in list.as_array().ok_or_else(bad)? {
+                            let f = f.as_table().ok_or_else(bad)?;
+                            let n = f
+                                .get("name")
+                                .and_then(toml::Value::as_str)
+                                .ok_or_else(bad)?;
+                            let ty = f
+                                .get("type")
+                                .and_then(toml::Value::as_str)
+                                .ok_or_else(bad)?;
+                            fields.push((n.to_owned(), ty.to_owned(), false));
+                        }
+                    }
+                    list.push(Case {
+                        name: name.to_owned(),
+                        fields: Some(fields),
+                    });
                 }
                 Shape::Enum(list)
             } else {
@@ -826,12 +917,41 @@ fn compare(
                     }
                 }
                 (Shape::Enum(oc), Shape::Enum(nc)) => {
-                    // A type only a channel's server messages reach may
-                    // lose a case: the server stops sending it.
-                    if now.strict.contains(&t) {
-                        for c in oc {
-                            if !nc.contains(c) {
-                                type_changes.push(format!("case `{c}` of `{t}` was removed"));
+                    for c in oc {
+                        let Some(n) = nc.iter().find(|n| n.name == c.name) else {
+                            // A type only a channel's server messages reach
+                            // may lose a case: the server stops sending it.
+                            if now.strict.contains(&t) {
+                                type_changes
+                                    .push(format!("case `{}` of `{t}` was removed", c.name));
+                            }
+                            continue;
+                        };
+                        // A case's fields follow a struct's rules, in both
+                        // directions (44-channels.md, "rpc.lock and
+                        // compatibility"); a bare recorded name has none to
+                        // compare.
+                        let (Some(of), Some(nf)) = (&c.fields, &n.fields) else {
+                            continue;
+                        };
+                        let case = &c.name;
+                        for (f, ty, _) in of {
+                            match nf.iter().find(|g| &g.0 == f) {
+                                None => type_changes.push(format!(
+                                    "field `{f}` of case `{case}` of `{t}` was removed"
+                                )),
+                                Some(g) if &g.1 != ty => type_changes.push(format!(
+                                    "field `{f}` of case `{case}` of `{t}` was `{ty}` and is now `{}`",
+                                    g.1
+                                )),
+                                Some(_) => todo.extend(names_in(ty)),
+                            }
+                        }
+                        for (f, _, optional) in nf {
+                            if !optional && !of.iter().any(|g| &g.0 == f) {
+                                type_changes.push(format!(
+                                    "field `{f}` of case `{case}` of `{t}` is new and required; a new field must be optional"
+                                ));
                             }
                         }
                     }
@@ -918,7 +1038,20 @@ mod tests {
         );
         l.types.insert(
             "cart.CartError".into(),
-            Shape::Enum(vec!["gone".into(), "rpcFailure".into()]),
+            Shape::Enum(vec![
+                Case {
+                    name: "gone".into(),
+                    fields: Some(vec![("left".into(), "Int?".into(), true)]),
+                },
+                Case {
+                    name: "full".into(),
+                    fields: Some(Vec::new()),
+                },
+                Case {
+                    name: "rpcFailure".into(),
+                    fields: Some(vec![("_0".into(), "RpcFailure".into(), false)]),
+                },
+            ]),
         );
         l
     }
@@ -933,9 +1066,16 @@ mod tests {
             }
         }
         for t in l.types.values_mut() {
-            if let Shape::Struct { fields, .. } = t {
-                for f in fields {
-                    f.3 = false;
+            match t {
+                Shape::Struct { fields, .. } => {
+                    for f in fields {
+                        f.3 = false;
+                    }
+                }
+                Shape::Enum(cases) => {
+                    for f in cases.iter_mut().flat_map(|c| c.fields.iter_mut().flatten()) {
+                        f.2 = false;
+                    }
                 }
             }
         }
@@ -948,9 +1088,32 @@ mod tests {
         assert!(text.contains(
             "[protocols.\"cart.CartApi\".rpcs.follow]\nkind = \"channel\"\nparams = [{ name = \"id\", type = \"Int\" }]\nsend = \"cart.Item\"\nreceive = \"cart.CartError\"\nrefusal = \"cart.CartError\"\nthrows = \"cart.CartError\"\n"
         ));
+        assert!(text.contains(
+            "[types.\"cart.CartError\"]\ncases = [\n    { name = \"gone\", fields = [{ name = \"left\", type = \"Int?\" }] },\n    { name = \"full\" },\n    { name = \"rpcFailure\", fields = [{ name = \"_0\", type = \"RpcFailure\" }] },\n]\n"
+        ));
         let back = read(&text).ok().unwrap();
         assert_eq!(back, strip(lock()));
         assert_eq!(write(&back), text);
+    }
+
+    #[test]
+    fn bare_case_names_read_as_unrecorded_payloads() {
+        let back = read("[types.\"a.E\"]\ncases = [\"x\", { name = \"y\" }]\n")
+            .ok()
+            .unwrap();
+        assert_eq!(
+            back.types.get("a.E"),
+            Some(&Shape::Enum(vec![
+                Case {
+                    name: "x".into(),
+                    fields: None,
+                },
+                Case {
+                    name: "y".into(),
+                    fields: Some(Vec::new()),
+                },
+            ]))
+        );
     }
 
     #[test]
@@ -982,6 +1145,9 @@ mod tests {
             "[types.\"a.B\"]\nfields = [{ name = \"x\", type = \"Int\", number = 1 }, { name = \"y\", type = \"Int\", number = 1 }]\n",
             "[types.\"a.B\"]\nfields = []\nreserved = [\"x\"]\n",
             "[types.\"a.B\"]\nnothing = 1\n",
+            "[types.\"a.E\"]\ncases = [1]\n",
+            "[types.\"a.E\"]\ncases = [{ fields = [] }]\n",
+            "[types.\"a.E\"]\ncases = [{ name = \"x\", fields = [{ name = \"y\" }] }]\n",
             "[protocols.\"a.P\".rpcs.r]\nparams = [1]\nreturns = \"Int\"\nthrows = \"E\"\n",
             "[protocols.\"a.P\".rpcs.r]\nkind = \"stream\"\nparams = []\nreturns = \"Int\"\nthrows = \"E\"\n",
             "[protocols.\"a.P\".rpcs.r]\nkind = \"channel\"\nparams = []\nsend = \"A\"\nthrows = \"E\"\n",

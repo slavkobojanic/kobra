@@ -50,3 +50,4 @@ mod sessions;
 mod shop_production;
 mod stage3_server;
 mod theme_snippet;
+mod websocket_client;

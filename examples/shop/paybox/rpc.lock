@@ -34,7 +34,13 @@ fields = [
 ]
 
 [types."pay.ChargeError"]
-cases = ["unknownMerchant", "invalidAmount", "invalidCard", "declined", "rpcFailure"]
+cases = [
+    { name = "unknownMerchant" },
+    { name = "invalidAmount" },
+    { name = "invalidCard" },
+    { name = "declined", fields = [{ name = "reason", type = "pay.DeclineReason" }] },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."pay.ChargeRequest"]
 fields = [
@@ -45,7 +51,11 @@ fields = [
 ]
 
 [types."pay.DeclineReason"]
-cases = ["cardDeclined", "insufficientFunds", "expiredCard"]
+cases = [
+    { name = "cardDeclined" },
+    { name = "insufficientFunds" },
+    { name = "expiredCard" },
+]
 
 [types."pay.Merchant"]
 fields = [
@@ -62,7 +72,12 @@ fields = [
 ]
 
 [types."pay.RefundError"]
-cases = ["unknownCharge", "invalidAmount", "exceedsCharge", "rpcFailure"]
+cases = [
+    { name = "unknownCharge" },
+    { name = "invalidAmount" },
+    { name = "exceedsCharge", fields = [{ name = "refundable", type = "Money" }] },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."pay.RefundRequest"]
 fields = [
@@ -71,4 +86,7 @@ fields = [
 ]
 
 [types."pay.RegistrationError"]
-cases = ["unknownCaller", "rpcFailure"]
+cases = [
+    { name = "unknownCaller" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]

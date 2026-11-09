@@ -66,6 +66,9 @@ export {
   smtpEmailProvider,
   smtpSettings,
   testHttpClient,
+  testWebSocketClient,
+  TestWebSocketServer,
+  webSocketClient,
   wireEmail,
   wireRequest,
 } from "./outbound.js";

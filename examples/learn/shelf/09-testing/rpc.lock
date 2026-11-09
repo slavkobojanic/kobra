@@ -49,10 +49,16 @@ fields = [
 ]
 
 [types."accounts.SignInError"]
-cases = ["invalidCredentials", "rpcFailure"]
+cases = [
+    { name = "invalidCredentials" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."accounts.SignUpError"]
-cases = ["emailTaken", "rpcFailure"]
+cases = [
+    { name = "emailTaken" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."books.Book"]
 fields = [
@@ -76,4 +82,7 @@ fields = [
 ]
 
 [types."books.LookupError"]
-cases = ["notFound", "rpcFailure"]
+cases = [
+    { name = "notFound" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]

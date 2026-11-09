@@ -1,0 +1,7 @@
+# Raw WebSockets in `k test` (docs/design/44-channels.md, "Raw WebSockets: `k.http`" and "Testing"):
+# `TestWebSocketClient` with scripted `TestWebSocketServer`s, shared by the test's browser and server,
+# a reconnect loop on `Backoff` and the `TestClock`, and `WebSocketMessage.json()`. Every test here
+# must pass.
+[package]
+name = "feeds"
+k = "0.1"

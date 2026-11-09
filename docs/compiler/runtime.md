@@ -53,7 +53,8 @@ No npm, no bundler, no transpiler: the files are shipped as written (compacted i
 | Server request loop, `env` | `runtime/server.js` | **implemented** (`serve` turns a broken handler into a `500` and keeps the loop) |
 | Persistence: column codecs `dbc`, the request's `Database` (transactions, savepoints, `ping`), `dbQuery`/`dbCount`/`dbWrite`/`dbInsertAll`, `dbInclude`, unloaded-relation stand-ins | `runtime/db.js` | **implemented** (part `Server`; [db.md §4–§9](db.md#4-the-query-ir-and-lowering)) |
 | The server app: routing with typed parameters, RPC dispatch (unary and streaming), channels (open, in-order messages, the sending pump, session end; [server.md §20](server.md#20-channels)), in-process rpc calls with guards and validation (`callLocal`), endpoint pages, sessions (loaded once per request, `RequestState.load`; OAuth state), guards, metadata and the document, config values, `.server` state, broadcasts, background job runs, native stdlib bodies the server provides (`Password`, `Hmac`, `Mac.matches`, `Uuid`, `EmailAddress`, `Bytes.parse(hex:)`/`(base64:)`) | `runtime/app.js` | **implemented** (part `Server`; [server.md §5–§11](server.md#5-request-lifecycle)) |
-| The server's I/O platform services: `FetchHttpClient` over `op_k_fetch`, `TestHttpClient`, `SmtpEmailProvider` over `op_k_smtp_send`, `RecordingEmailProvider`, `DatabaseJobQueue`, `RecordingJobQueue`, `InlineJobQueue`, job outcomes (`runJobBody`) | `runtime/outbound.js` | **implemented** (part `Server`; [server.md §18](server.md#18-outgoing-http-and-email)) |
+| `k.http`'s raw WebSockets: the `WebSocket` value over a port, the browser's `StandardWebSocketClient`, `TestWebSocketClient` and `TestWebSocketServer` (shared by the kit and the server) | `runtime/websocket.js` | **implemented** (part `WebSocket`, a chunk of its own, [§12.13](#1213-raw-websockets)) |
+| The server's I/O platform services: `FetchHttpClient` over `op_k_fetch`, `StandardWebSocketClient` over `op_k_ws_*`, `TestHttpClient`, `SmtpEmailProvider` over `op_k_smtp_send`, `RecordingEmailProvider`, `DatabaseJobQueue`, `RecordingJobQueue`, `InlineJobQueue`, job outcomes (`runJobBody`) | `runtime/outbound.js` | **implemented** (part `Server`; [server.md §18](server.md#18-outgoing-http-and-email)) |
 | Test harness and fake DOM | `testing/harness.js`, `testing/dom.js` | **implemented** (tests only) |
 
 **The runtime chunk.** Generated client code imports the runtime as one module, `runtime.[hash].js`:
@@ -473,7 +474,8 @@ between the two, so an effect waiting for the loads isn't re-run by a reload's n
 - No automatic retries: the runtime can't know whether the handler ran.
 - Responses that carry the session (`x-k-session` header with the mirror: a change, or a refusal by a
   session guard) update the `Session` mirror before the outcome is returned, an opened stream's
-  included. The router's gate (`gateSession`) sees each new mirror first
+  included, and so does an `x-k-session` in a stream's end-of-stream metadata (sent when the stream's
+  session ended), before the stream ends. The router's gate (`gateSession`) sees each new mirror first
   ([§10](#10-router)).
 - `rpcError(o, E, codec)` maps a failed outcome to the rpc's error enum `E`: a `failed_precondition` with a
   detail `{"type": "k.TypedError", "debug": {"error", "case", "fields"}}` (as the server sends it,
@@ -723,6 +725,8 @@ Declarations marked `@Native` in `crates/k_sema/stdlib` get their bodies from th
 | `Log` | `console.*` in the browser; `op_k_log` (JSON lines) on the server |
 | `Clock` | `clock(data)` in `services.js` in the browser ([§12.1](#121-services-in-the-browser)); on the server `clock()` in `app.js`: `now` from `op_k_now`; `sleep`, `every` and `after` panic with their name until the server has timers |
 | `HttpClient` (`FetchHttpClient`) | `fetchHttpClient` over `fetch` in the browser; not provided on the server yet (`missingNative`) |
+| `WebSocketClient` (`StandardWebSocketClient`) | the websocket chunk's `StandardWebSocketClient(E, M, St)` over `WebSocket` in the browser; `webSocketClient(E, M, St, S, codes)` over `op_k_ws_*` on the server ([§12.13](#1213-raw-websockets)) |
+| `Backoff`, `WebSocketMessage.json()` | `Backoff` and `messageJson` in `std.js`, both sides; `backoffDelay` is the channels' client's too |
 | `LocalStorage` (`BrowserStorage`) | `browserStorage` over `localStorage` with typed keys ([36-local-storage.md](../design/36-local-storage.md)) |
 | `Theme` | `theme()` in the browser; `theme(st)` in `app.js` during server rendering |
 | `TimeZone` | its IANA name, as text: `parse` (`parseTimeZone` in `std.js`) asks `Intl.DateTimeFormat` and returns the canonical spelling (`europe/berlin` → `Europe/Berlin`) or `nil`; `identifier` and `name` are the text; `utc` is `"UTC"`; equal, hashable and encoded as the text (`codecs.timeZone`). `TimeZone.local` is `localTimeZone()` in the browser (the browser's zone); on the server it is `requestTimeZone(ctx)`, the `k_tz` cookie of the request a view is rendering, UTC on a first visit; read outside a view's body (a plain function, a service) the server has no request to ask and uses UTC. `Date.formatted` writes UTC in v0, on both sides, so hydration never changes the text |
@@ -1099,13 +1103,40 @@ empty comment.
   drive the main interactions ([testing.md §4.3](testing.md#43-browser-tests)). Browser end-to-end tests
   over the DevTools protocol are planned ([testing.md §8](testing.md#8-end-to-end-tests)).
 
+### 12.13 Raw WebSockets
+
+`websocket.js` (part `WebSocket`), a feature chunk shipped only to apps whose client injects
+`WebSocketClient`, is `k.http`'s raw WebSockets ([44-channels.md](../design/44-channels.md#raw-websockets-khttp)).
+The server imports it from `outbound.js`, and the kit from `testing/kit.js`.
+
+- **`openedSocket(T, port, protocol, owner)`** is the `WebSocket` value on both sides, over a port
+  (`send(m)`, `close(code, reason)`, `buffered()`): `state` is a signal (`St.open`, `St.closing`,
+  `St.closed(code, reason)`), `messages` a `PushStream` that ends when the socket closes, `send($c, m)` throws
+  `E.closed` once it isn't open (or `E.tooLarge` after an oversized message closed it) and waits while
+  `buffered()` is over 1 MiB, and `close(code, reason)` is idempotent. When `owner` (the opening run's signal)
+  aborts, the socket closes with 1000. The transport reports `message(m)`, `closed(code, reason)` and
+  `tooLarge()`.
+- **`StandardWebSocketClient(E, M, St)`**, constructed by the client entry for `WebSocketClient`, opens
+  `new WebSocket(url, subprotocol?)` with `binaryType = "arraybuffer"`; the request's `timeout` closes a
+  handshake that hasn't opened (`E.timeout`), and a socket that closes before opening is `E.offline` (the
+  browser doesn't say why). An incoming message over `maxMessage` (UTF-8 bytes of text) is `tooLarge`; the
+  browser's socket is closed with its default code, since `close` accepts only 1000 and 3000–4999.
+- **The server's** `webSocketClient(E, M, St, S, codes)` (`outbound.js`) sends the request's wire form
+  (`wireRequest`'s URL and headers, secrets revealed) to `op_k_ws_connect`, maps `refused` to
+  `E.refused(HttpStatus)`, then pumps `op_k_ws_next` into the socket until `closed` or `tooLarge`.
+- **`testWebSocketClient(E, M, St)` and `TestWebSocketServer()`**: endpoints by URL without the query, a
+  panic naming the URL for an unscripted one, `fail(url, error)`; a scripted server broadcasts `send` to its
+  open connections and records what they sent, and a close from either side is confirmed in a microtask.
+  The kit memoizes the client under `TestWebSocketClient` in the test's memo, which the server's `perTest`
+  uses too, so the browser and the server of one test share it.
+
 ---
 
 ## 14. Performance budgets
 
 | Area | Budget | Measured (release, Apple M-series) |
 |---|---|---|
-| Client runtime size, compacted + compressed | ≤ 5 KB core, ≤ 10 KB full, ≤ 10 KB stdlib bodies, ≤ 3 KB browser services, ≤ 3 KB charts, ≤ 1 KB streams, ≤ 1.5 KB http, ≤ 4 KB drag, ≤ 1 KB files, ≤ 512 B keys, ≤ 2 KB forms, ≤ 2.5 KB money | 4,550 B / 9,022 B / 8,398 B / 2,340 B / 2,306 B / 569 B / 1,175 B / 3,493 B / 886 B / 384 B / 1,807 B / 2,164 B gzip |
+| Client runtime size, compacted + compressed | ≤ 5 KB core, ≤ 10 KB full, ≤ 10 KB stdlib bodies, ≤ 3 KB browser services, ≤ 3 KB charts, ≤ 1 KB streams, ≤ 1.5 KB http, ≤ 1.5 KB websocket, ≤ 4 KB drag, ≤ 1 KB files, ≤ 512 B keys, ≤ 2 KB forms, ≤ 2.5 KB money | 4,550 B / 9,022 B / 8,398 B / 2,340 B / 2,306 B / 569 B / 1,175 B / 3,493 B / 886 B / 384 B / 1,807 B / 2,164 B gzip |
 | Signal write to DOM text update | ≤ 1 µs per binding | 86 ns (1,000 bindings, test DOM in V8) |
 | Signal write through a diamond of three computeds to an effect | ≤ 1 µs | 280 ns |
 | Hydration of a 1,000-node page | ≤ 10 ms | 0.10 ms (1,008 nodes, test DOM) |

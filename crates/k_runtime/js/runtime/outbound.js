@@ -4,7 +4,8 @@
  * The server's bodies of the stdlib's I/O platform services
  * (docs/compiler/server.md §18): `k.http.FetchHttpClient` over `op_k_fetch`,
  * the `k.test.TestHttpClient` double, `k.server.SmtpEmailProvider` over
- * `op_k_smtp_send` and the `k.test.RecordingEmailProvider` double. The
+ * `op_k_smtp_send` and the `k.test.RecordingEmailProvider` double,
+ * `k.http.StandardWebSocketClient` over the `op_k_ws_*` ops. The
  * generated request container constructs them, passing the generated
  * stdlib enums whose cases they return and throw.
  *
@@ -20,6 +21,9 @@
 import { KPanic, panic } from "./values.js";
 import { DecodeFailure, Secret, stringify, toJSON } from "./std.js";
 import { headerView } from "./http.js";
+import { openedSocket } from "./websocket.js";
+
+export { testWebSocketClient, TestWebSocketServer } from "./websocket.js";
 
 /** The ops the Rust server exposes to this isolate; `undefined` outside it. */
 const ops = globalThis.Deno?.core?.ops;
@@ -369,6 +373,94 @@ export function wireEmail(email, defaultFrom) {
       replyTo: email.replyTo ?? null,
       cc: list(email.cc),
       bcc: list(email.bcc),
+    },
+  };
+}
+
+/** The id of the next outgoing WebSocket, which the `op_k_ws_*` ops name. */
+let nextSocket = 1;
+
+/**
+ * The server's `k.http.StandardWebSocketClient` (44-channels.md, "Raw
+ * WebSockets"): `connect` resolves to an open `WebSocket` and rejects with
+ * `E.offline`, `E.timeout` or `E.refused(status:)`; a cancelled call never
+ * settles and drops the handshake, and a socket closes when the run that
+ * opened it is cancelled. `transport` stands in for the ops in tests:
+ * `{connect(id, wire), next(id), send(id, text, bytes, binary), close(id, code, reason)}`.
+ * @param {object} E the generated `WebSocketError` enum
+ * @param {object} M the generated `WebSocketMessage` enum
+ * @param {object} St the generated `WebSocketState` enum
+ * @param {object} S the generated `HttpStatus` enum
+ * @param {Array<number|null>} codes `HttpStatus`'s codes in declaration order
+ * @param {object} [transport]
+ */
+export function webSocketClient(E, M, St, S, codes, transport) {
+  const statusOf = httpStatus(S, codes);
+  const op = transport ?? {
+    connect: (id, w) => ops.op_k_ws_connect(id, w),
+    next: (id) => ops.op_k_ws_next(id),
+    send: (id, text, bytes, binary) => ops.op_k_ws_send(id, text, bytes, binary),
+    close: (id, code, reason) => ops.op_k_ws_close(id, code, reason),
+  };
+  const empty = new Uint8Array(0);
+  return {
+    /**
+     * Opens the socket `r` describes.
+     * @param {AbortSignal|null} c the call's cancellation signal
+     * @param {object} r a `WebSocketRequest`
+     */
+    connect(c, r) {
+      if (c?.aborted) return new Promise(() => {});
+      const id = nextSocket++;
+      const w = wireRequest({ ...r, query: null, body: null, method: null });
+      const wire = { url: w.url, protocol: r.subprotocol ?? null, headers: w.headers, timeoutMs: w.timeoutMs, maxMessage: typeof r.maxMessage === "number" ? r.maxMessage : 1000000 };
+      return new Promise((resolve, reject) => {
+        const cancel = () => op.close(id, 1000, "");
+        c?.addEventListener?.("abort", cancel);
+        op.connect(id, wire).then((o) => {
+          c?.removeEventListener?.("abort", cancel);
+          switch (o.kind) {
+            case "open": {
+              const s = openedSocket(
+                { E, St },
+                {
+                  send: (m) => op.send(id, m.$ === 0 ? String(m._0) : "", m.$ === 0 ? empty : m._0, m.$ !== 0),
+                  close: (code, reason) => op.close(id, code, reason),
+                  buffered: () => 0,
+                },
+                o.protocol ?? null,
+                c,
+              );
+              (async () => {
+                for (;;) {
+                  const n = await op.next(id);
+                  if (n.kind === "text") s.message(M.text(n.text));
+                  else if (n.kind === "binary") s.message(M.binary(n.bytes instanceof Uint8Array ? n.bytes : new Uint8Array(n.bytes ?? [])));
+                  else if (n.kind === "tooLarge") return s.tooLarge();
+                  else return s.closed(n.code ?? 1006, n.reason ?? "");
+                }
+              })();
+              resolve(s.socket);
+              break;
+            }
+            case "refused":
+              reject(E.refused(statusOf(o.status)));
+              break;
+            case "timeout":
+              reject(E.timeout);
+              break;
+            case "offline":
+              logWarning(`WebSocketClient: ${redactUrl(wire.url)} failed: ${o.message}`);
+              reject(E.offline);
+              break;
+            case "aborted":
+              // Cancelled: the awaiting code never resumes.
+              break;
+            default:
+              reject(new KPanic(`WebSocketClient: ${redactUrl(wire.url)}: ${o.message ?? "an invalid request"}`));
+          }
+        }, reject);
+      });
     },
   };
 }

@@ -1762,7 +1762,10 @@ format change is a reviewed diff):
   `SystemNotification` with its page through JSON; and `fixtures/realtime`, every test must pass: channels
   in-process through `TestChannels` (resume without loss, a restart with a new snapshot, offline, hours
   of heartbeats, `open`), `TestPeers` (a second browser posting, refused, a guest, sessions ended by
-  `endAll` and by the peer's own sign-out) and `TestChannel` for a service alone): each bug of the test bundle or
+  `endAll` and by the peer's own sign-out) and `TestChannel` for a service alone; and `fixtures/feeds`, every
+  test must pass: raw WebSockets against `TestWebSocketClient` and `TestWebSocketServer` (a page following a
+  feed, a reconnect after `Backoff`'s delay on the `TestClock`, unmounting closing the socket, a server service
+  sharing the test's double, a refusal, `Backoff` and `WebSocketMessage.json()`)): each bug of the test bundle or
   the kit that an example exposed, pinned before it was fixed: a chained enum page parameter given as an
   implicit member, `Page.x` with only optional parameters, a group helper named like the tested
   service's function, a labelled argument after a default, `expect throws` checking the case, a

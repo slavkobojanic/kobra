@@ -24,7 +24,9 @@
 
 import { sessionMirror, takeMirror } from "./rpc.js";
 import { effect, root, signal, untrack } from "./signals.js";
-import { Instant, PushStream } from "./std.js";
+// The delays are `k.time.Backoff`'s (std.js), so a hand-written reconnect
+// loop waits exactly as a channel does.
+import { Instant, PushStream, backoffDelay } from "./std.js";
 import { unitCase } from "./values.js";
 
 /** The kinds, in Protobuf field-number order (from 1). */
@@ -251,8 +253,6 @@ export function decodeChannelFrameBinary(bytes) {
 
 // ------------------------------------------------------------------ the client
 
-/** The cap of each reconnect's random delay, by attempt (the last repeats), in ms. */
-const BACKOFF = [500, 1000, 2000, 4000, 8000, 16000, 30000];
 
 /** The outcome of a call or a send that couldn't reach the server (rpc.js `rpcError`). */
 const OFFLINE = { ok: false, kind: "offline" };
@@ -702,7 +702,7 @@ class Hub {
     if (code === 1013) this.slow = true;
     const n = ++this.attempt;
     const retry = code === 1001 && new RegExp("k\\.retry=(\\d+)").exec(reason);
-    const delay = now ? 0 : retry ? +retry[1] : Math.floor(env.random() * BACKOFF[Math.min(n, BACKOFF.length) - 1]);
+    const delay = now ? 0 : retry ? +retry[1] : backoffDelay(n, env.random());
     const at = { $: 2, attempt: n, at: new Instant(env.now() + delay) };
     for (const c of this.live) c.st.set(at);
     if (now) this.connect();

@@ -753,6 +753,34 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// K4031: a handshake header (`headers`, `secretHeaders` or
+    /// `bearerToken` of `k.http.WebSocketRequest`) set in code that may run
+    /// in the browser, which can't send headers on a WebSocket handshake
+    /// (44-channels.md, "Raw WebSockets").
+    fn handshake_header_on_client(&mut self, member: MemberId, range: TextRange) {
+        let m = self.cx.p.member(member);
+        if !matches!(m.name.as_str(), "headers" | "secretHeaders" | "bearerToken")
+            || self.cx.p.lookup_qualified("k.http.WebSocketRequest") != Some(m.owner)
+        {
+            return;
+        }
+        let Some(d) = self.owner.decl else {
+            return;
+        };
+        // Shared or client-only code may run in the browser.
+        if crate::di::side(self.cx, d).server {
+            return;
+        }
+        let name = m.name.clone();
+        self.err(
+            codes::HANDSHAKE_HEADER_ON_CLIENT,
+            range,
+            format!(
+                "`{name}` sets a WebSocket handshake header, which a browser can't send, but this code may run in the browser; connect from a server-only service instead"
+            ),
+        );
+    }
+
     /// K5512: `Channel(sending:receiving:)` outside the handler of a channel
     /// rpc.
     fn channel_built(&mut self, range: TextRange) {
@@ -5900,6 +5928,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                         {
                             // A chained optional field of a builder struct
                             // (`.query(q)`): a setter returning the value.
+                            self.handshake_header_on_client(member, name.text_range());
                             let sig = Sig {
                                 generics: Vec::new(),
                                 params: vec![SigParam {

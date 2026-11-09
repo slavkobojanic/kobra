@@ -11,6 +11,7 @@
  * (codegen.md §16), and measured against its own size budget.
  */
 
+import { takeMirror } from "./rpc.js";
 import { PushStream } from "./std.js";
 
 /**
@@ -40,7 +41,9 @@ export function streamed(each) {
 /**
  * The elements of a streamed response body (Connect envelopes), decoded
  * with `each`, as a `PushStream` that yields each as its envelope arrives
- * and ends at the end-of-stream envelope (an error in it is no error),
+ * and ends at the end-of-stream envelope (an error in it is no error; an
+ * `x-k-session` in its metadata, sent when the stream's session ended, is
+ * taken as a response header's is),
  * when the connection drops, or when an element `each` refuses arrives.
  * Closing it (leaving a `for await` loop) or aborting `signal` (the
  * caller was cancelled) aborts the request and cancels the body.
@@ -70,7 +73,10 @@ function readStream(response, each, controller, signal) {
         joined.set(value, buf.length);
         buf = joined;
         for (let n; buf.length >= 5 && buf.length >= 5 + (n = ((buf[1] << 24) | (buf[2] << 16) | (buf[3] << 8) | buf[4]) >>> 0);) {
-          if (buf[0] & 2) return;
+          // The end: one that ended with its session carries the guest
+          // mirror, taken before the stream ends, so a guarded page is left
+          // before its code can open the stream again.
+          if (buf[0] & 2) return takeMirror(JSON.parse(text.decode(buf.subarray(5, 5 + n))).metadata?.["x-k-session"]?.[0]);
           stream.push(each(JSON.parse(text.decode(buf.subarray(5, 5 + n)))));
           buf = buf.slice(5 + n);
         }

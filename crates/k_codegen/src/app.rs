@@ -828,6 +828,7 @@ pub(crate) fn client_containers(
                 let default = match qualified.as_str() {
                     "k.storage.LocalStorage" => "k.storage.BrowserStorage",
                     "k.http.HttpClient" => "k.http.FetchHttpClient",
+                    "k.http.WebSocketClient" => "k.http.StandardWebSocketClient",
                     "k.device.Files" => "k.device.BrowserFiles",
                     "k.device.Clipboard" => "k.device.BrowserClipboard",
                     "k.device.Share" => "k.device.BrowserShare",
@@ -963,6 +964,23 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
             }
             None => rt("native", vec![js::str(qualified)]),
         },
+        // The websocket chunk's (runtime.md §12.13), given the enums it
+        // builds values of.
+        "k.http.StandardWebSocketClient" => match b.g.view.lookup(qualified) {
+            Some(d) => {
+                let name = b.g.name(d);
+                let args = enums(
+                    b,
+                    &[
+                        "k.http.WebSocketError",
+                        "k.http.WebSocketMessage",
+                        "k.http.WebSocketState",
+                    ],
+                );
+                call(b.use_decl(d, name), args)
+            }
+            None => rt("native", vec![js::str(qualified)]),
+        },
         // The tabs chunk's (runtime.md §12.10): channels are namespaced per
         // app, as storage keys are, and a message carries the build that
         // posted it, which the entry's URL names (it is hashed from the
@@ -1033,6 +1051,19 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         "k.test.TestHttpClient" => crate::suite::kit_call(
             "testHttpClient",
             enums(b, &["k.http.HttpError", "k.http.HttpStatus"]),
+        ),
+        // One per test, shared with the test's server (44-channels.md,
+        // "Testing").
+        "k.test.TestWebSocketClient" => crate::suite::kit_call(
+            "testWebSocketClient",
+            enums(
+                b,
+                &[
+                    "k.http.WebSocketError",
+                    "k.http.WebSocketMessage",
+                    "k.http.WebSocketState",
+                ],
+            ),
         ),
         "k.test.RecordingJobQueue" => crate::suite::kit_call("recordingJobQueue", vec![]),
         "k.test.RecordingEmailProvider" => crate::suite::kit_call("recordingEmailProvider", vec![]),

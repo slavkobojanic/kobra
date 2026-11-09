@@ -6188,6 +6188,52 @@ error[K4030]: `FilePicker.pick()` needs a user's action, so `Picking.pick()` mus
 
 **Fix:** Call it from a click, submit or key handler, before the handler's first `await`, directly or through functions it calls; load what it needs earlier, in `@Load`.
 
+### K4031 `handshake-header-on-client`
+
+**Error.** A WebSocket handshake header (`WebSocketRequest`'s `headers`, `secretHeaders` or `bearerToken`) is set in code that may run in the browser, which can't send headers on a handshake.
+
+Example (`tests/corpus/sema/di/websockets/handshake-headers.k`):
+
+```k,ignore
+// A browser can't send headers on a WebSocket handshake: setting them is server-only (K4031).
+import k.core.Secret
+import k.http.WebSocket
+import k.http.WebSocketClient
+import k.http.WebSocketError
+import k.http.WebSocketRequest
+
+/// Shared: it may run in the browser.
+service Feed {
+    @Inject let sockets: WebSocketClient
+
+    func open() async throws WebSocketError -> WebSocket {
+        let request = WebSocketRequest(url: Url("wss://feed.example/v1")).subprotocol("feed.v2").timeout(5.seconds).headers(["x-feed": "1"])
+        return try await sockets.connect(request: request)
+    }
+}
+
+/// Server-only: it bridges the feed for the browser, with its token.
+@Scope(.server)
+service Bridge {
+    @Inject let sockets: WebSocketClient
+
+    func open(token: Secret<String>) async throws WebSocketError -> WebSocket {
+        let request = WebSocketRequest(url: Url("wss://feed.example/v1")).headers(["x-feed": "1"]).bearerToken(token)
+        return try await sockets.connect(request: request)
+    }
+}
+```
+
+```text
+error[K4031]: `headers` sets a WebSocket handshake header, which a browser can't send, but this code may run in the browser; connect from a server-only service instead
+  --> src/corpus/handshake-headers.k:13:117
+   |
+13 |         let request = WebSocketRequest(url: Url("wss://feed.example/v1")).subprotocol("feed.v2").timeout(5.seconds).headers(["x-feed": "1"])
+   |                                                                                                                     ^^^^^^^
+```
+
+**Fix:** Set handshake headers only in a server-only service (`@Scope(.server)`, or one a protocol's implementation injects), which can bridge the feed to the browser through a `Broadcast`; a browser's socket can carry a token in the URL's query or its first message instead.
+
 ## K5000–K5499: Pages and routing
 
 ### K5001 `url-conflict`

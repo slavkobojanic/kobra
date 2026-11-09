@@ -780,7 +780,15 @@ async function pumpStream(st, s) {
     for (;;) {
       const next = s.stream.next();
       const v = await Promise.race([next, ended]);
-      if (v === ENDED || v === null || v === undefined) break;
+      if (v === ENDED) {
+        // The end carries the guest mirror, as a unary response's
+        // `x-k-session` does, so the browser's router leaves a guarded page
+        // before the page's code can open the stream again under a session
+        // that is gone (and be refused).
+        end = stringify({ metadata: { "x-k-session": [JSON.stringify({ user: null })] } });
+        break;
+      }
+      if (v === null || v === undefined) break;
       if (!sink.chunk(envelope(0, stringify(s.encode(v))))) break;
     }
   } catch (e) {

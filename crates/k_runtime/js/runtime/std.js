@@ -2274,3 +2274,68 @@ export class Broadcast {
 export function globalClass(name) {
   return name;
 }
+
+// ---------------------------------------------------------- k.time.Backoff
+
+/**
+ * The cap of each reconnect's random delay, by attempt (the last repeats),
+ * in ms: the channels' policy (44-channels.md, "Reconnecting and resuming"),
+ * which `k.time.Backoff` shares.
+ */
+const BACKOFF = [500, 1000, 2000, 4000, 8000, 16000, 30000];
+
+/**
+ * The delay of attempt `n` (1 for the first) with full jitter: a whole
+ * number of ms below the attempt's cap, from `r`, a draw in `[0, 1)`.
+ * @param {number} n
+ * @param {number} r
+ * @returns {number}
+ */
+export function backoffDelay(n, r) {
+  return Math.floor(r * BACKOFF[Math.min(Math.max(n, 1), BACKOFF.length) - 1]);
+}
+
+/**
+ * `k.time.Backoff`: the channels' delays for a hand-written reconnect loop.
+ * The jitter draws from `Math.random`, which `k test` seeds per test.
+ */
+export class Backoff {
+  /** A backoff before its first attempt. */
+  constructor() {
+    this.n = 0;
+  }
+  /**
+   * The delay before the next attempt, which counts it.
+   * @returns {number} a `Duration` in ms
+   */
+  next() {
+    return backoffDelay(++this.n, Math.random());
+  }
+  /** Starts again from the first attempt's delay. */
+  reset() {
+    this.n = 0;
+  }
+}
+
+/**
+ * `WebSocketMessage.json()`: the message (text, or UTF-8 bytes) decoded
+ * with `codec`, throwing `DecodingError.malformed` when it isn't JSON and
+ * `.mismatch(path:message:)` when it doesn't have the type's shape.
+ * @param {{$: number, _0: string|Uint8Array}} m
+ * @param {{decode: Function}} codec
+ * @param {object} D the generated `DecodingError` enum
+ */
+export function messageJson(m, codec, D) {
+  let j;
+  try {
+    j = JSON.parse(m.$ === 0 ? m._0 : new TextDecoder("utf-8", { fatal: true }).decode(m._0));
+  } catch (e) {
+    throw D.malformed(String(e?.message ?? e));
+  }
+  try {
+    return codec.decode(j, "");
+  } catch (e) {
+    if (e instanceof DecodeFailure) throw D.mismatch(e.path || "$", e.message);
+    throw e;
+  }
+}

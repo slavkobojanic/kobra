@@ -64,7 +64,10 @@ returns = "List<store.ProductSummary>"
 throws = "RpcOnlyError"
 
 [types."admin.SignInError"]
-cases = ["invalidCredentials", "rpcFailure"]
+cases = [
+    { name = "invalidCredentials" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."admin.SignInRequest"]
 fields = [
@@ -95,13 +98,28 @@ fields = [
 ]
 
 [types."paybox.CardPaymentError"]
-cases = ["orderNotFound", "notAwaitingPayment", "declined", "invalidCard", "paymentsUnavailable", "rpcFailure"]
+cases = [
+    { name = "orderNotFound" },
+    { name = "notAwaitingPayment" },
+    { name = "declined", fields = [{ name = "message", type = "String" }] },
+    { name = "invalidCard" },
+    { name = "paymentsUnavailable" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."store.CheckoutError"]
-cases = ["productNotFound", "outOfStock", "paymentUnavailable", "rpcFailure"]
+cases = [
+    { name = "productNotFound" },
+    { name = "outOfStock", fields = [{ name = "available", type = "Int" }] },
+    { name = "paymentUnavailable" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."store.LookupError"]
-cases = ["notFound", "rpcFailure"]
+cases = [
+    { name = "notFound" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."store.OrderRequest"]
 fields = [
@@ -111,7 +129,12 @@ fields = [
 ]
 
 [types."store.OrderStatus"]
-cases = ["awaitingPayment", "paid", "needsReview", "cancelled"]
+cases = [
+    { name = "awaitingPayment" },
+    { name = "paid" },
+    { name = "needsReview" },
+    { name = "cancelled" },
+]
 
 [types."store.OrderSummary"]
 fields = [

@@ -1020,6 +1020,7 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("streams", "k:/runtime/streams.js", "k/core"),
     ("channels", "k:/runtime/channels.js", "k/rpc"),
     ("http", "k:/runtime/http.js", "k/http"),
+    ("websocket", "k:/runtime/websocket.js", "k/http"),
 ];
 
 /// The feature chunk (an index of [`FEATURE_CHUNKS`]) that implements

@@ -26,9 +26,12 @@
 //!   appended to the runtime executable.
 //! * [`outbound`]: outgoing HTTP (`HttpClient`) and SMTP (`EmailProvider`)
 //!   on behalf of K code.
+//! * [`websocket`]: outgoing WebSockets (`WebSocketClient`) on behalf of K
+//!   code.
 //! * [`proxy`]: the client address behind the proxies `K_TRUSTED_PROXIES`
 //!   trusts (`X-Forwarded-For`).
-//! * [`fakes`]: fake third parties for tests (an HTTP API, an SMTP server).
+//! * [`fakes`]: fake third parties for tests (an HTTP API, an SMTP server,
+//!   a WebSocket echo server).
 //! * [`testing`]: the HTTP request scripts of the server end-to-end tests.
 //!
 //! The design is `docs/compiler/server.md`; what is v0 and what is deferred
@@ -103,6 +106,7 @@ pub mod replicas;
 pub mod sockets;
 pub mod stack;
 pub mod testing;
+pub mod websocket;
 
 pub use engine::{Engine, EngineError, EngineOptions, JsModule, LogLine, Output};
 pub use http::{Server, ServerBundle, ServerError, ServerOptions};

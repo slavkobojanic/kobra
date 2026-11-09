@@ -14,8 +14,8 @@ use k_runtime::{
     FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET, HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET,
     MONEY_SIZE_BUDGET, NOTIFICATIONS_SIZE_BUDGET, OBSERVE_SIZE_BUDGET, Part,
     SERVICE_WORKER_SIZE_BUDGET, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
-    STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, compact, compacted_sources,
-    module, modules, resolve,
+    STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact,
+    compacted_sources, module, modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -187,6 +187,7 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Streams
                 | Part::Channels
                 | Part::Http
+                | Part::WebSocket
                 | Part::Forms
                 | Part::Money
                 | Part::DevTools
@@ -558,6 +559,21 @@ fn the_http_responses_meet_their_size_budget() {
     assert!(
         size <= HTTP_SIZE_BUDGET,
         "the http responses are {size} bytes gzip, over the {HTTP_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn the_websockets_meet_their_size_budget() {
+    let ws = compacted_sources(&[Part::WebSocket]).expect("compacts");
+    let size = gzip_len(&ws);
+    eprintln!(
+        "websocket: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {WEBSOCKET_SIZE_BUDGET})",
+        raw_len(&[Part::WebSocket]),
+        ws.len()
+    );
+    assert!(
+        size <= WEBSOCKET_SIZE_BUDGET,
+        "the websockets are {size} bytes gzip, over the {WEBSOCKET_SIZE_BUDGET}-byte budget"
     );
 }
 

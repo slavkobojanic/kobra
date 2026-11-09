@@ -26,12 +26,12 @@ public page Notes requires Authenticated at "/" {
     /// after the page mounts and again on each reconnect, in the browser
     /// only; leaving the page cancels it, which closes the stream.
     ///
-    /// When the account signs out in another tab, the session ends and so
-    /// does the stream. `NotesService.watch()` then tries to open a new one,
-    /// and its response tells the browser the session is gone: the router
-    /// leaves this page, which requires a signed-in user, and the server
-    /// sends the tab to the sign-in page. The `.rejected` case below covers
-    /// a refusal the browser's session copy didn't foresee.
+    /// When the account signs out, here or in another tab, the session ends
+    /// and so does the stream. Its end tells the browser the session is
+    /// gone, so the router leaves this page, which requires a signed-in
+    /// user, before `NotesService.watch()` can open a new one. The
+    /// `.rejected` case below covers a refusal the browser's session copy
+    /// didn't foresee.
     @Effect(on: [connectAttempt])
     func followChanges() async {
         isDisconnected = false

@@ -9,7 +9,8 @@
  * dropped connection or when its caller is cancelled.
  */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
-import { rpc } from "k:runtime";
+import { rpc, sessionMirror } from "k:runtime";
+import { gateSession } from "k:/runtime/rpc.js";
 import { streamed } from "k:/runtime/streams.js";
 import { PushStream, streamMerge } from "k:/runtime/std.js";
 
@@ -112,6 +113,26 @@ test("the end-of-stream envelope ends the stream; an error in it is no error", a
   for await (const v of o.message) seen.push(v.decoded);
   assertDeepEq(seen, ["a"]);
   assertEq(await o.message.next(), null, "an ended stream stays ended");
+});
+
+test("an end that carries the session's mirror sets it, through the router's gate, before the stream ends", async () => {
+  // A stream ended because its session did: the router must leave a
+  // guarded page before the page's code sees the end and opens the stream
+  // again under a session that is gone.
+  sessionMirror.set({ user: { id: "ana" } });
+  const order = [];
+  gateSession((m) => order.push(["gate", m.user]));
+  try {
+    const s = fakeResponse();
+    const o = await rpc("/a.B/Watch", {}, null, { ...streamed(each), fetch: () => Promise.resolve(s.response) });
+    const ended = o.message.next().then((v) => order.push(["end", v]));
+    s.push(envelope(2, { metadata: { "x-k-session": [JSON.stringify({ user: null })] } }));
+    await ended;
+    assertDeepEq(order, [["gate", null], ["end", null]]);
+    assertDeepEq(sessionMirror.peek(), { user: null });
+  } finally {
+    gateSession(null);
+  }
 });
 
 test("a dropped connection ends the stream like its end", async () => {

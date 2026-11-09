@@ -26,13 +26,26 @@ refusal = "chat.CommandError"
 throws = "chat.RoomError"
 
 [types."accounts.SignInError"]
-cases = ["invalidName", "rpcFailure"]
+cases = [
+    { name = "invalidName" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."chat.ChatCommand"]
-cases = ["post", "delete", "typing"]
+cases = [
+    { name = "post", fields = [{ name = "text", type = "String" }, { name = "clientId", type = "Uuid" }] },
+    { name = "delete", fields = [{ name = "id", type = "Uuid" }] },
+    { name = "typing" },
+]
 
 [types."chat.ChatEvent"]
-cases = ["snapshot", "posted", "deleted", "presence", "typing"]
+cases = [
+    { name = "snapshot", fields = [{ name = "messages", type = "List<chat.ChatMessage>" }, { name = "present", type = "List<chat.Member>" }] },
+    { name = "posted", fields = [{ name = "message", type = "chat.ChatMessage" }, { name = "clientId", type = "Uuid" }] },
+    { name = "deleted", fields = [{ name = "id", type = "Uuid" }] },
+    { name = "presence", fields = [{ name = "_0", type = "PresenceChange<chat.Member>" }] },
+    { name = "typing", fields = [{ name = "name", type = "String" }] },
+]
 
 [types."chat.ChatMessage"]
 fields = [
@@ -44,7 +57,12 @@ fields = [
 ]
 
 [types."chat.CommandError"]
-cases = ["invalidText", "notYourMessage", "messageGone", "rpcFailure"]
+cases = [
+    { name = "invalidText" },
+    { name = "notYourMessage" },
+    { name = "messageGone" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
 
 [types."chat.Member"]
 fields = [
@@ -52,4 +70,7 @@ fields = [
 ]
 
 [types."chat.RoomError"]
-cases = ["noSuchRoom", "rpcFailure"]
+cases = [
+    { name = "noSuchRoom" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]

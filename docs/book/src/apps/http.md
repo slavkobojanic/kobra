@@ -208,3 +208,112 @@ test "a server error status is an upstream error" {
 Any request with no canned response fails the test, naming the method and URL. An app can still write its
 own fake, implementing only `send` (`fetchJson` is a default method, so the real decoding path runs in
 tests), and choose it with `use FakeStripeApi for HttpClient`.
+
+## Raw WebSockets
+
+A third party's realtime endpoint (an exchange's price feed, a chat bridge, a device on the local
+network) speaks its own protocol over a WebSocket. **`WebSocketClient`** in `k.http` opens one, typed,
+next to `HttpClient`. For realtime between your own browser and server, use a
+[channel](channels.md) instead: it reconnects, resumes and checks types for you.
+
+```k
+// src/prices/PriceFeed.k
+import k.http.WebSocketClient
+import k.http.WebSocketError
+import k.http.WebSocketRequest
+import k.time.Backoff
+import k.time.Clock
+
+struct Tick implements Codable {
+    let symbol: String
+    let cents: Int
+}
+
+public service PriceFeed {
+    @Inject let sockets: WebSocketClient
+    @Inject let clock: Clock
+
+    @State var cents: Int? = nil
+
+    func follow() async {
+        let backoff = Backoff()
+
+        while true {
+            do {
+                let socket = try await sockets.connect(request: WebSocketRequest(url: Url("wss://feed.example/v1")).subprotocol("feed.v2"))
+                backoff.reset()
+                try await socket.send(.text("subscribe BTC"))
+
+                for await message in socket.messages {
+                    let tick: Tick = try message.json()
+                    cents = tick.cents
+                }
+            } catch _ {
+            }
+
+            await clock.sleep(backoff.next())
+        }
+    }
+
+    func announce(text: String) async throws WebSocketError {
+        let socket = try await sockets.connect(request: WebSocketRequest(url: Url("wss://feed.example/v1")))
+        try await socket.send(.text(text))
+        socket.close(code: 1000, reason: "done")
+    }
+}
+```
+
+- **`connect(request:)`** waits for the handshake and returns a `WebSocket`: `state` (reactive: `open`,
+  `closing`, `closed(code:reason:)`), `messages` (`.text(String)` and `.binary(Bytes)`, ending when the
+  socket closes), `send(_:)` and `close(code:reason:)`. `message.json()` decodes a `Codable` value.
+- **It throws `WebSocketError`:** `offline`, `timeout`, `refused(status:)` (the server sees the answer
+  that didn't upgrade; a browser doesn't say, so there it is `offline`), `tooLarge` (an incoming message
+  over the request's `maxMessage`, 1 MB by default, closed the socket) and `closed`.
+- **Nothing reconnects by itself**, since the runtime can't know how to resubscribe to someone else's
+  protocol. `Backoff` in `k.time` gives a loop the delays channels use (a random wait up to 0.5 s, then
+  1 s, 2 s and so on, up to 30 s), and sleeping on the injected `Clock` lets `TestClock` drive them.
+- **A socket belongs to the run that opened it:** leaving the page, or an effect re-running, closes it.
+- **Handshake headers are server-only.** A browser can't send headers on a WebSocket handshake, so
+  `headers`, `secretHeaders` and `bearerToken` of `WebSocketRequest` are a compile error (K4031) in code
+  that may run in the browser. A feed that needs a token is opened by a server-only service, which can
+  publish what it receives to a `Broadcast` that the browser's channels or streams follow; the token
+  never reaches the browser.
+
+**In `k test`, `TestWebSocketClient` stands in** and connects only to endpoints the test scripted with a
+`TestWebSocketServer`, which plays the third party. One double serves the whole test, the browser and the
+server, so a test also scripts what a server service connects to:
+
+```k
+// src/prices/PriceFeed.test.k
+import k.http.WebSocketError
+import k.test.TestWebSocketClient
+import k.test.TestWebSocketServer
+
+test PriceFeed {
+    @Inject let sockets: TestWebSocketClient
+    @Inject let feed: PriceFeed
+
+    test "what the service sends reaches the endpoint" {
+        let endpoint = TestWebSocketServer()
+        sockets.serve(url: Url("wss://feed.example/v1"), with: endpoint)
+
+        try await feed.announce(text: "hello")
+
+        expect endpoint.received == [.text("hello")]
+        expect endpoint.connections == 0
+    }
+
+    test "a refused handshake is thrown" {
+        sockets.fail(url: Url("wss://feed.example/v1"), error: .refused(status: .forbidden))
+
+        expect throws WebSocketError.refused {
+            try await feed.announce(text: "hello")
+        }
+    }
+}
+```
+
+`endpoint.send(_:)` plays the third party sending to every open connection,
+`endpoint.close(code:reason:)` closes them, and `sockets.fail(url:error:)` makes connecting throw. A connection to a URL nobody scripted
+fails the test, naming the URL.
+
