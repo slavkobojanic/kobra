@@ -677,6 +677,9 @@ async function handleRpc(st, rpc) {
  * @param {unknown[]} args the decoded parameters
  */
 export async function callLocal(c, rpc, $c, args) {
+  // A channel is the browser's (44-channels.md, "The client"): opening one
+  // while rendering on the server is a programmer error.
+  if (rpc.channel) throw new KPanic("channels open only in the browser: open it from an `@Effect`");
   const st = c.$r;
   const fail = (tag, payload) => {
     throw rpc.failure ? rpc.failure({ $: tag, _0: payload }) : new KPanic("an rpc without an error enum failed outside its handler");

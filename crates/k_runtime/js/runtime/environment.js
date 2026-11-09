@@ -70,7 +70,8 @@ export function PageVisibility() {
  * `isOnline` to `false`, and one that gets an answer sets it to `true`,
  * so the indicator and the rpc's `.offline` agree. They are observed by
  * wrapping `fetch` once the service exists, which keeps the runtime chunk
- * out of it.
+ * out of it. The channels' socket says the same with the window events
+ * `k-online` (it opened) and `k-offline` (a reconnect failed).
  * @returns {{isOnline: boolean}}
  */
 export function Connectivity() {
@@ -78,6 +79,9 @@ export function Connectivity() {
   const s = liveValue(true, () => g.navigator?.onLine !== false);
   listenTo(g, "online", s.refresh);
   listenTo(g, "offline", s.refresh);
+  // The channels' socket is a probe too (channels.js): it opened, or a reconnect failed.
+  listenTo(g, "k-online", () => s.set(true));
+  listenTo(g, "k-offline", () => s.set(false));
   const f = g.fetch;
   if (typeof f === "function") {
     g.fetch = (url, init) => {

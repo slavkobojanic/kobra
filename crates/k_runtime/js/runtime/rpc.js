@@ -55,10 +55,11 @@ export function gateSession(fn) {
 /**
  * Sets the `Session` mirror from an rpc response's `x-k-session` header,
  * after the router's check of it ({@link gateSession}); a missing or
- * malformed header changes nothing.
+ * malformed header changes nothing. The channels' socket hands it the
+ * guest mirror it delivers when the session ends (channels.js).
  * @param {string|null|undefined} text the header's value
  */
-function takeMirror(text) {
+export function takeMirror(text) {
   if (!text) return;
   let mirror = null;
   try {

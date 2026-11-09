@@ -237,6 +237,15 @@ used by RPC, `@Load` serialization, jobs, `Json`, local storage and the executio
   `Decimal`.
 - `and`/`or`/`not` → `&&`/`||`/`!` (operands are always `Bool`).
 - Optional chaining `a?.b` → `a?.b` with `?? null` when the result is stored (JS yields `undefined`).
+  **A nil skips the whole rest of the chain**, as in Swift: in `user?.id.name` neither `.id` nor
+  `.name` is read on nil. JavaScript's own `?.` does that only for property reads, so it is used when
+  every link after the `?.` is a plain field read (`a?.b.c ?? null`). Any other link after a `?.` (a
+  method, a computed property, a stdlib member, an index, a signal read) puts the receiver in a temporary
+  assigned inside a nil test, and the chain's outermost link wraps the whole chain in the tests of its
+  `?.` links, left to right: `user?.id.name` with a computed `name` is
+  `($o1 = user) == null ? null : AccountId$name($o1.id)`, with `let $o1;` before the statement, so the
+  receiver is evaluated once, in place. Before, the test wrapped only the next link, so `.name` was read
+  from `null`.
 
 ### 6.2 Control flow
 
@@ -1014,6 +1023,23 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
 
   `streamed` is a symbol of `k.core` that the feature chunk `streams.[hash].js` implements (§17), imported
   by the chunk that holds the stub ([runtime.md §8](runtime.md#8-rpc-client)).
+- **The client stub of a channel rpc** ([44-channels.md](../design/44-channels.md)) opens it with the
+  runtime's `openChannel`, passing `C`'s encoder, `S`'s decoder (a message's `value` is its codec's JSON)
+  and the refusal `E`'s mapping, and returns the open channel; a refused open throws the rpc's error as
+  for any rpc:
+
+  ```js
+  async room($c, id) {
+    const o = await openChannel("/chat.ChatProtocol/Room", { "id": $k.codecs.string.encode(id) }, $c, { encode: (m) => ChatCommand$codec.encode(m), decode: (j) => ChatEvent$codec.decode(j, "value"), refusal: (o) => $k.rpcError(o, CommandError) });
+    if (o.ok) return o.message;
+    throw $k.rpcError(o, RoomError);
+  }
+  ```
+
+  `openChannel` is a symbol of `k.rpc` that the feature chunk `channels.[hash].js` implements, imported
+  like `streamed` ([runtime.md §8.2](runtime.md#82-channels)). The channel's members are the runtime's:
+  `channel.state` and `channel.messages` are property reads, `channel.send($c, m)` and `channel.close()`
+  calls. There is no `remote` channel client (K5511).
 
 ---
 
@@ -1060,10 +1086,12 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
 - **Feature chunks**: `charts.[hash].js`, `drag.[hash].js`, `files.[hash].js`, `clipboard.[hash].js`,
   `share.[hash].js`, `geolocation.[hash].js`, `tabs.[hash].js`, `notifications.[hash].js`, `wakelock.[hash].js`,
-  `environment.[hash].js`, `keys.[hash].js`, `http.[hash].js` and `streams.[hash].js` (`runtime/charts.js`, …),
+  `environment.[hash].js`, `keys.[hash].js`, `http.[hash].js`, `streams.[hash].js` and `channels.[hash].js`
+  (`runtime/charts.js`, …),
   emitted only when a client chunk or the client entry uses a symbol they implement
   (`k.charts.LineChart`; `k.drag.ReorderableList`, `Draggable`, `DropTarget`, `DragKind(name:)`;
-  `k.ui.KeyboardShortcut`; `k.device.CopyButton`, `ShareButton` and `KeepScreenAwake`; `streamed`; and
+  `k.ui.KeyboardShortcut`; `k.device.CopyButton`, `ShareButton` and `KeepScreenAwake`; `streamed`;
+  `openChannel`; and
   `k.device.BrowserFiles`, `BrowserClipboard`, `BrowserShare`, `BrowserGeolocation`, `BrowserTabMessaging` and
   `BrowserNotifications`, which the entry's `$App` constructs for `Files`, `Clipboard`, `Share`, `Geolocation`,
   `TabMessaging` and `Notifications`

@@ -404,7 +404,7 @@ fn geolocation_meets_its_size_budget() {
 }
 
 #[test]
-fn the_channel_frame_codec_meets_its_size_budget() {
+fn the_channels_meet_their_size_budget() {
     let channels = compacted_sources(&[Part::Channels]).expect("compacts");
     let size = gzip_len(&channels);
     eprintln!(

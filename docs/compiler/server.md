@@ -838,4 +838,5 @@ GET /_k/channels ── Origin = K_PUBLIC_ORIGIN? (403) ── upgrade + k.chann
 
 Tests: `crates/k_server/tests/channel_server.rs` drives `tests/projects/channels` with a raw
 `tungstenite` client; the handshake checks and `ChannelLimits::from_config` have unit tests in
-`sockets.rs`.
+`sockets.rs`. The browser's half is [runtime.md §8.2](runtime.md#82-channels); the same project, which has
+a `Room` page for it, runs in real Chrome in `crates/k_cli/tests/chrome.rs`.

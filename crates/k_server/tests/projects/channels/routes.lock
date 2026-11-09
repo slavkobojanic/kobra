@@ -2,6 +2,10 @@
 # that no longer needs to work; nothing else is edited by hand.
 # Format: docs/design/12-routing.md
 
+[pages.room]
+declaration = "chat.Room"
+url = "/"
+
 [pages.signIn]
 declaration = "chat.SignIn"
 url = "/sign-in"

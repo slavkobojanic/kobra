@@ -157,7 +157,7 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | `observe.[hash].js` | `observe.js` (part `Observe`), a runtime feature shipped only to clients whose views use `appeared`, `disappeared` or `resized` | ≤ 1 KB (`OBSERVE_SIZE_BUDGET`) | 728 B |
 | `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
 | `streams.[hash].js` | `streams.js` (part `Streams`), shipped only to apps with a streaming rpc | ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | 569 B |
-| (not shipped yet) | `channels.js` (part `Channels`), the channel frame codec, to become part of the channels' chunk for apps with a channel rpc | ≤ 2 KB (`CHANNELS_SIZE_BUDGET`) | 1,721 B |
+| `channels.[hash].js` | `channels.js` (part `Channels`), the frame codec and the channels' client ([§8.2](#82-channels)), shipped only to apps whose client calls a channel rpc; a release build links the unused Protobuf codec out (3.2 KB gzip minified in a one-channel app) | ≤ 4.5 KB (`CHANNELS_SIZE_BUDGET`) | 4,302 B |
 | `http.[hash].js` | `http.js` (part `Http`), shipped only to apps whose client builds or reads an `HttpResponse` | ≤ 1.5 KB (`HTTP_SIZE_BUDGET`) | 1,175 B |
 | `forms.[hash].js` | `forms.js` (part `Forms`), shipped only to apps with a `@Form` | ≤ 2 KB (`FORMS_SIZE_BUDGET`) | 1,807 B |
 | `money.[hash].js` | `money.js` (part `Money`), shipped only to apps whose client uses `Decimal`, `Money` or `Currency` | ≤ 2.5 KB (`MONEY_SIZE_BUDGET`) | 2,164 B |
@@ -529,6 +529,63 @@ between the two, so an effect waiting for the loads isn't re-run by a reload's n
   (`ServiceCaller.name`); a refusal is `unauthenticated` (401, `rpcFailure(.rejected(.unauthenticated))`
   for the caller). In-process calls (`callLocal`) skip it: the app's own code needs no token.
 - Tested by `crates/k_runtime/js/tests/remote.test.js`, over stand-ins for `op_k_fetch` and `op_k_hmac`.
+
+### 8.2 Channels
+
+`runtime/channels.js` (part `Channels`, the `channels` feature chunk;
+[44-channels.md](../design/44-channels.md), "The client"). A channel rpc's stub calls
+`openChannel(path, request, $c, {encode, decode, refusal})`: `encode` is `C`'s codec, `decode` reads a
+message's `value` with `S`'s, and `refusal(o)` is `rpcError(o, E, codec)` for the refusal enum `E`. It
+resolves to the outcomes of `rpc` (§8): `{ok: true, message}` with the open channel once the server
+sends `opened`; a `refused` frame's error body as `{kind: "connect", code, details, retryAfter}`, which the
+stub maps to the open error as for any rpc; `offline` when the socket closes or fails first; `timeout`
+after 30 s. The first open is never retried. Opening one on the server (an in-process call, `callLocal`)
+panics: "channels open only in the browser".
+
+- **One socket per page** (`Hub`), `GET /_k/channels` with the `k.channel.v1` subprotocol, opened for
+  the first channel and closed (1000) after the last; each channel gets the next channel number on it.
+- **`Channel`**: `state` reads a signal of `ChannelState` (`connecting` 0, `open` 1, `reconnecting {attempt,
+  at: Instant}` 2, `closed {_0: ChannelClose}` 3, `ChannelClose` tagged byClient 0, byServer 1,
+  sessionEnded 2, refused 3); `messages` is a `PushStream` that ends when the channel closes for good,
+  and leaving its `for await` closes the channel; `send($c, m)`; `close()`. Cancelling the opener's `$c`
+  closes it (`byClient`, a `close` frame).
+- **Sending.** A message gets the next sequence number when it is transmitted, with at most 32 transmitted
+  and unacknowledged; the `ack` resolves it, or rejects it with `refusal` of the error body (`unavailable`,
+  a channel the isolate already ended, is `offline`). An encoded message over 65,536 UTF-8 bytes is
+  `rpcFailure(.invalid)` without transmitting. A closed channel's `send` is `offline` at once. A message
+  sent while the channel isn't open waits at most 10 s (then `offline`) and at most 32 wait (the 33rd is
+  `offline` at once). A cancelled send that wasn't transmitted is withdrawn; one that was ignores its answer.
+- **Receiving.** A `msg` at or below the last received number is skipped (a replay overlap); one that
+  doesn't decode (a case this tab doesn't know) is skipped with a console warning. Receipts (`rcvd` with
+  the last number) go at most a second after a message and with every heartbeat reply.
+- **Heartbeats.** A server `beat` is answered with a `beat`. A socket that delivered nothing for 60 s is
+  closed and handled as a drop.
+- **Dropped socket.** Channels opening for the first time fail `offline`; the others go
+  `reconnecting(attempt, at)` and the next attempt is due after a delay drawn from the environment's
+  random source up to 0.5, 1, 2, 4, 8, 16, then 30 s (full jitter, whole milliseconds), or after the
+  server's `k.retry=<ms>` on a `1001`. A timer that fires while `navigator.onLine` is `false` doesn't try;
+  `online`, the window event `k-online` and the document becoming visible try at once. A failed attempt
+  dispatches `k-offline` on the window and an opened socket `k-online`, which `Connectivity`
+  (`environment.js`) follows, so its `isOnline` and the channels agree. A socket opening resets the
+  attempt count, except after `1013 k.overflow`, so a channel that can't keep up doesn't restart in a
+  tight loop.
+- **Resume and restart.** On the new socket each channel goes `connecting` and sends `resume {ch, token,
+  received, sent}`; `opened` reattaches it and re-sends every transmitted, unacknowledged message with
+  its number (the server skips those it handled), then the waiting ones. A `refused` with `not_found`
+  restarts it: `open` again with the same arguments, the transmitted-unacknowledged messages fail
+  `offline`, numbering starts again at 1; a refused restart closes the channel `refused`. The server's
+  `close` frame closes the channel with its reason, and nothing reconnects it.
+- **The back-forward cache.** `pagehide` drops the socket and schedules nothing; `pageshow` reconnects at
+  once, resuming.
+- **Sessions.** A `session` frame is handed to the mirror like an `x-k-session` header (`takeMirror`, so
+  the router's gate sees it). The hub watches the mirror's user; when it changes, the socket is replaced
+  at once and every channel restarts on the new one, so none runs under another session.
+- **Tests.** `channelEnv({socket, now, after, cancel, random, online})` replaces the socket factory, the
+  time and timers, the random source (`Math.random` by default, which `k test` seeds) and the online
+  check, and forgets the page's socket: `crates/k_runtime/js/tests/channel-client.test.js` drives the
+  client against a scripted server this way. *Deferred*: `TestChannels`, `TestPeer` and `TestChannel`
+  ([44-channels.md](../design/44-channels.md#testing)), which will drive it from `k test` on the
+  `TestClock`.
 
 ## 9. Forms
 

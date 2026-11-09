@@ -1,0 +1,17 @@
+# 44-channels.md, "The client"; codegen.md §15: a channel rpc's client stub opens the channel with
+# `openChannel` (the runtime's channels chunk, which only apps whose client calls a channel rpc ship),
+# passing `C`'s encoder, `S`'s decoder and the refusal `E`'s mapping (decoded with its codec when it is
+# Codable), and returns the open channel; a refusal of the open is thrown like a unary rpc's error.
+client contains await openChannel("/talk.TalkProtocol/Room", { "id": $k.codecs.string.encode(id) }, $c, { encode: (m) => Command$codec.encode(m), decode: (j) => Event$codec.decode(j, "value"), refusal: (o) => $k.rpcError(o, Refusal, Refusal$codec) });
+client contains return o.message;
+client contains throw $k.rpcError(o, JoinError);
+client contains import { openChannel } from "./channels.[hash].js";
+client contains // file: channels.[hash].js
+client contains from "./runtime.[hash].js";
+client lacks Channel$codec
+client lacks $k.native("k.rpc.openChannel")
+client lacks TalkApi
+client lacks $k.rpc("/talk.TalkProtocol/Room"
+# The members are the channel's own: `send` takes the caller's cancellation context.
+client contains .send($c, Command.say(text))
+server contains channel: {

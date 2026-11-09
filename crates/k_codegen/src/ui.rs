@@ -959,14 +959,52 @@ pub(crate) fn protocol(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             };
             call(streamed, vec![each])
         });
-        let decode = if element.is_some() {
+        // A channel (44-channels.md): the channels chunk opens it on the
+        // page's socket with `C`'s encoder, `S`'s decoder and the refusal
+        // `E`'s mapping, and the call returns the open channel.
+        let channel = crate::server::channel_types(g, &ret);
+        let decode = if element.is_some() || channel.is_some() {
             member(id("o"), "message")
         } else if ret.decl() == g.b.void {
             Expr::Undefined
         } else {
             decode_message(b, &ret, member(id("o"), "message"))
         };
-        let call_rpc = if remote {
+        let call_rpc = if let Some((sent, received, refused)) = &channel {
+            let enc = crate::codec::codec_expr(b, sent);
+            let dec = crate::codec::codec_expr(b, received);
+            let refusal = rpc_error(b, Some(refused));
+            let codec = Expr::Object(
+                vec![
+                    Prop::KeyValue(
+                        "encode".into(),
+                        js::arrow(
+                            vec![Param::new("m")],
+                            call(member(enc, "encode"), vec![id("m")]),
+                        ),
+                    ),
+                    Prop::KeyValue(
+                        "decode".into(),
+                        js::arrow(
+                            vec![Param::new("j")],
+                            call(member(dec, "decode"), vec![id("j"), js::str("value")]),
+                        ),
+                    ),
+                    Prop::KeyValue("refusal".into(), js::arrow(vec![Param::new("o")], refusal)),
+                ],
+                false,
+            );
+            // `openChannel` is the channels chunk (a stdlib symbol of
+            // `k.rpc`, bundled from `runtime/channels.js`).
+            let open = match g.view.lookup("k.rpc.Channel") {
+                Some(d) => b.use_decl(d, "openChannel".into()),
+                None => id("openChannel"),
+            };
+            call(
+                open,
+                vec![js::str(path), Expr::Object(fields, false), id("$c"), codec],
+            )
+        } else if remote {
             let mut args = vec![
                 member(Expr::This, "r"),
                 js::str(path),
@@ -981,20 +1019,7 @@ pub(crate) fn protocol(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             rt("rpc", args)
         };
         let err = sig.as_ref().and_then(|s| s.throws.clone());
-        let fail = match err.as_ref().and_then(Type::decl) {
-            // A Codable error's detail is decoded with its codec
-            // (server.md §6), so its payload has its declared types.
-            Some(e) if crate::codec::has_codec(g, e) => {
-                let f = b.decl_ref(e);
-                let c = crate::codec::codec_expr(b, err.as_ref().unwrap_or(&Type::Error));
-                rt("rpcError", vec![id("o"), f, c])
-            }
-            Some(e) => {
-                let f = b.decl_ref(e);
-                rt("rpcError", vec![id("o"), f])
-            }
-            None => rt("rpcError", vec![id("o"), Expr::Null]),
-        };
+        let fail = rpc_error(b, err.as_ref());
         let body = vec![
             Stmt::Const("o".into(), Expr::Await(Box::new(call_rpc))),
             Stmt::If(
@@ -1045,6 +1070,25 @@ pub(crate) fn protocol(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         },
         true,
     )]
+}
+
+/// `$k.rpcError(o, E, codec)`: the failed outcome `o` of an rpc (or a
+/// channel's send) as its error enum `err`; a Codable error's detail is
+/// decoded with its codec (server.md §6), so its payload has its declared
+/// types.
+fn rpc_error(b: &mut Body<'_, '_>, err: Option<&Type>) -> Expr {
+    match err.and_then(Type::decl) {
+        Some(e) if crate::codec::has_codec(b.g, e) => {
+            let f = b.decl_ref(e);
+            let c = crate::codec::codec_expr(b, err.unwrap_or(&Type::Error));
+            rt("rpcError", vec![id("o"), f, c])
+        }
+        Some(e) => {
+            let f = b.decl_ref(e);
+            rt("rpcError", vec![id("o"), f])
+        }
+        None => rt("rpcError", vec![id("o"), Expr::Null]),
+    }
 }
 
 /// A config: built from the environment at server startup

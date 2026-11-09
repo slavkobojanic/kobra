@@ -1011,10 +1011,12 @@ timers).
   the page logged a console error, threw, failed a load or reached for the internet.
 - **Cases**: each example's main README flow, green: `todos` (add, complete, the three filters with
   `aria-pressed`, clear, a reload; "Remind me" with the notification permission granted by
-  `Browser.grantPermissions`, the static build's `/k-sw.js` served as JavaScript, and the reminder found
-  by the worker registration's `getNotifications()`, time passing quickly through a script run before the
+  `Browser.grantPermissions`, the static build's `/k-sw.js` served as JavaScript, and the reminder shown
+  through the `/k-sw.js` registration, time passing quickly through a script run before the
   page's with `Page.addScriptToEvaluateOnNewDocument`: each timer of a minute or more fires at once and
-  moves `Date.now` on by its delay), `kanban` (create a board, add cards, move one with Space, ArrowRight
+  moves `Date.now` on by its delay, and each `showNotification` that resolved is recorded for the test.
+  Not `getNotifications()`: on macOS it asks the system's notification center, which stalls past the
+  test's wait when several Chromes ask at once), `kanban` (create a board, add cards, move one with Space, ArrowRight
   and Space keeping the focus, drop one onto another with the mouse, Escape closing the editor while
   typing, a reload, "Copy link" putting the card's absolute link on the real clipboard, with the
   permission granted by `Browser.grantPermissions`, and the link opening the card's editor), `weather` (a debounced search, a client navigation to a result, °C/°F, home again;
@@ -1028,7 +1030,10 @@ timers).
   shop page through paybox) and `shop` (buy a mug, pay through paybox on non-default ports, the receipt
   turning paid, the confirmation in the mail catcher; two tabs of one browser, the second opened with
   `Target.createTarget` (`Tab::new_tab`), the cart added to in one updating the other's header in place,
-  and emptied from the other). And one red test per open defect (§4.5).
+  and emptied from the other). Besides the examples, `crates/k_server/tests/projects/channels` under `k dev`:
+  its `Room` page opening a channel, a message and its echo, the socket closed from DevTools while new ones
+  are refused (a spy installed before the page's scripts), and the channel resuming with an announcement
+  published meanwhile, delivered exactly once. And one red test per open defect (§4.5).
 
 `K_DEV_FETCH_ORIGINS` (comma-separated `from=to` origin pairs) is read by `k run` and `k dev` only: a
 server-side `HttpClient` request to `from`, or below it, goes to `to` instead

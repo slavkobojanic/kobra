@@ -140,6 +140,13 @@ pub(crate) struct Body<'g, 'a> {
     /// Expressions already evaluated into a temporary, by range: the
     /// operands of a test's `expect` (`test_expect`).
     overrides: HashMap<TextRange, Expr>,
+    /// The nil tests of the `?.` links of the optional chains being lowered,
+    /// each with the range of its chain's outermost link, which wraps the
+    /// whole chain in them ([`Body::chain`]).
+    opt_guards: Vec<(TextRange, Expr)>,
+    /// The outermost links of the chains with a JavaScript `?.` in them,
+    /// which may yield `undefined`.
+    opt_undefined: HashSet<TextRange>,
 }
 
 impl<'g, 'a> Body<'g, 'a> {
@@ -172,6 +179,8 @@ impl<'g, 'a> Body<'g, 'a> {
             bind_args: false,
             signal_locals: HashSet::new(),
             overrides: HashMap::new(),
+            opt_guards: Vec::new(),
+            opt_undefined: HashSet::new(),
         }
     }
 
@@ -2507,26 +2516,9 @@ impl<'g, 'a> Body<'g, 'a> {
                 }
             }
             ast::Expr::BinaryExpr(b) => self.binary(b),
-            ast::Expr::CallExpr(c) => self.call_expr(c),
-            ast::Expr::MemberExpr(m) => self.member_expr(m),
-            ast::Expr::IndexExpr(i) => {
-                let mut exprs = i.syntax().children().filter_map(ast::Expr::cast);
-                let (Some(base), Some(index)) = (exprs.next(), exprs.next()) else {
-                    return Expr::Null;
-                };
-                let bty = self.ty(base.syntax());
-                let b = self.expr(&base);
-                let ix = self.expr(&index);
-                if bty.decl().is_some() && bty.decl() == self.g.view.lookup("k.http.HttpHeaders") {
-                    // `headers[name]`: the values joined, or `nil`.
-                    crate::native::http_native(self, "HttpHeaders", "get", vec![b, ix])
-                } else if self.g.is(&bty, self.g.b.map) {
-                    let nested = matches!(bty.args().get(1), Some(Type::Optional(_)));
-                    rt(if nested { "mapGetNested" } else { "mapGet" }, vec![b, ix])
-                } else {
-                    rt("at", vec![b, ix])
-                }
-            }
+            ast::Expr::CallExpr(c) => self.chain(c.syntax(), |b| b.call_expr(c)),
+            ast::Expr::MemberExpr(m) => self.chain(m.syntax(), |b| b.member_expr(m)),
+            ast::Expr::IndexExpr(i) => self.chain(i.syntax(), |b| b.index_expr(i)),
             ast::Expr::BindExpr(b) => match b.syntax().children().find_map(ast::Expr::cast) {
                 Some(inner) => self.binding_pair(&inner),
                 None => Expr::Null,
@@ -2538,6 +2530,100 @@ impl<'g, 'a> Body<'g, 'a> {
                 Expr::Cond(Box::new(c), Box::new(v), Box::new(Expr::Bool(false)))
             }
         }
+    }
+
+    /// Lowers `base[index]`.
+    fn index_expr(&mut self, i: &ast::IndexExpr) -> Expr {
+        let mut exprs = i.syntax().children().filter_map(ast::Expr::cast);
+        let (Some(base), Some(index)) = (exprs.next(), exprs.next()) else {
+            return Expr::Null;
+        };
+        let bty = self.ty(base.syntax());
+        let b = self.expr(&base);
+        let ix = self.expr(&index);
+        if bty.decl().is_some() && bty.decl() == self.g.view.lookup("k.http.HttpHeaders") {
+            // `headers[name]`: the values joined, or `nil`.
+            crate::native::http_native(self, "HttpHeaders", "get", vec![b, ix])
+        } else if self.g.is(&bty, self.g.b.map) {
+            let nested = matches!(bty.args().get(1), Some(Type::Optional(_)));
+            rt(if nested { "mapGetNested" } else { "mapGet" }, vec![b, ix])
+        } else {
+            rt("at", vec![b, ix])
+        }
+    }
+
+    /// Lowers one link of a member, call or index chain with `lower`; the
+    /// outermost link wraps the chain in the nil tests its `?.` links
+    /// raised, so a nil skips everything after it (`a?.b.c()` is
+    /// `($o1 = a) == null ? null : c($o1.b)`, codegen.md §5).
+    fn chain(&mut self, node: &SyntaxNode, lower: impl FnOnce(&mut Self) -> Expr) -> Expr {
+        let mut e = lower(self);
+        if chain_parent(node).is_some() {
+            return e;
+        }
+        let range = node.text_range();
+        if self.opt_undefined.remove(&range) {
+            e = bin("??", e, Expr::Null);
+        }
+        let mut tests = Vec::new();
+        self.opt_guards.retain(|(top, test)| {
+            if *top == range {
+                tests.push(test.clone());
+                false
+            } else {
+                true
+            }
+        });
+        match tests.into_iter().reduce(|a, b| bin("||", a, b)) {
+            Some(test) => Expr::Cond(Box::new(test), Box::new(Expr::Null), Box::new(e)),
+            None => e,
+        }
+    }
+
+    /// The `?.` link at `node` with receiver `r`: `r` goes into a temporary
+    /// `t`, assigned inside the nil test so it is evaluated in place, and the
+    /// test is raised to the chain's outermost link. Returns `t`, the
+    /// non-nil receiver for the rest of the link.
+    fn opt_link(&mut self, node: &SyntaxNode, r: Expr) -> Expr {
+        let t = self.fresh("o");
+        self.emit(Stmt::Let(t.clone(), None));
+        let test = bin(
+            "==",
+            Expr::Assign("=", Box::new(id(&t)), Box::new(r)),
+            Expr::Null,
+        );
+        self.opt_guards.push((chain_top(node).text_range(), test));
+        id(t)
+    }
+
+    /// `true` if `m` reads a plain project field, which is a JavaScript
+    /// property read (`r.name`).
+    fn plain_field(&self, m: &ast::MemberExpr) -> bool {
+        let Some(name) = m.name() else {
+            return false;
+        };
+        match self.resolved(name.text_range()) {
+            Some(Resolved::Member(mid)) => {
+                let info = self.g.view.member(mid);
+                info.kind == MemberKind::Field
+                    && !self.g.view.decl(info.owner).stdlib
+                    && !(info.has_annotation("State") && self.target == Target::Client)
+            }
+            _ => false,
+        }
+    }
+
+    /// `true` if every link of the chain after `node` is a plain field read,
+    /// so JavaScript's own `?.` at `node` short-circuits all of them.
+    fn plain_after(&self, node: &SyntaxNode) -> bool {
+        let mut cur = node.clone();
+        while let Some(p) = chain_parent(&cur) {
+            match ast::MemberExpr::cast(p.clone()) {
+                Some(m) if self.plain_field(&m) => cur = p,
+                _ => return false,
+            }
+        }
+        true
     }
 
     /// Lowers an `if` that [`Body::if_is_simple`] accepted to `c ? a : b`; if a
@@ -3874,7 +3960,8 @@ impl<'g, 'a> Body<'g, 'a> {
     }
 
     /// Lowers `r?.name`: JavaScript optional chaining for a plain project
-    /// field, otherwise `r` in a temporary and `t == null ? null : t.name`.
+    /// field followed only by plain field reads, otherwise a nil test raised
+    /// to the chain's outermost link ([`Body::opt_link`]).
     fn optional_member(
         &mut self,
         r: Expr,
@@ -3883,44 +3970,15 @@ impl<'g, 'a> Body<'g, 'a> {
         resolved: Option<Resolved>,
         m: &ast::MemberExpr,
     ) -> Expr {
-        // A plain field: JS optional chaining.
-        let plain = match resolved {
-            Some(Resolved::Member(mid)) => {
-                let info = self.g.view.member(mid);
-                info.kind == MemberKind::Field
-                    && !self.g.view.decl(info.owner).stdlib
-                    && !(info.has_annotation("State") && self.target == Target::Client)
-            }
-            _ => false,
-        };
-        if plain {
-            let e = Expr::OptMember(Box::new(r), name.to_owned());
-            return self.null_if_stored(e, m.syntax());
+        if self.plain_field(m) && self.plain_after(m.syntax()) {
+            // JavaScript's `?.` yields `undefined`; the chain's outermost
+            // link turns it into `null` (codegen.md §6.1).
+            let top = chain_top(m.syntax()).text_range();
+            self.opt_undefined.insert(top);
+            return Expr::OptMember(Box::new(r), name.to_owned());
         }
-        let t = self.fresh("o");
-        self.emit(Stmt::Const(t.clone(), r));
-        let read = self.member_read(id(&t), base, name, resolved, m.syntax());
-        Expr::Cond(
-            Box::new(bin("==", id(&t), Expr::Null)),
-            Box::new(Expr::Null),
-            Box::new(read),
-        )
-    }
-
-    /// Appends `?? null` to an optional chain unless it is part of a longer
-    /// chain.
-    fn null_if_stored(&self, e: Expr, node: &SyntaxNode) -> Expr {
-        let continues = node.parent().is_some_and(|p| {
-            matches!(
-                p.kind(),
-                SyntaxKind::MemberExpr | SyntaxKind::CallExpr | SyntaxKind::IndexExpr
-            ) && p.first_child().as_ref() == Some(node)
-        });
-        if continues {
-            e
-        } else {
-            bin("??", e, Expr::Null)
-        }
+        let t = self.opt_link(m.syntax(), r);
+        self.member_read(t, base, name, resolved, m.syntax())
     }
 
     // ------------------------------------------------------------- calls
@@ -4246,15 +4304,9 @@ impl<'g, 'a> Body<'g, 'a> {
                         }
                         let r = self.expr(&recv);
                         if me.is_optional() {
-                            let t = self.fresh("o");
-                            self.emit(Stmt::Const(t.clone(), r));
+                            let t = self.opt_link(c.syntax(), r);
                             let base = rty.unwrap_optional().clone();
-                            let inner = self.call_method(id(&t), &base, m, c, &result_ty);
-                            return Expr::Cond(
-                                Box::new(bin("==", id(&t), Expr::Null)),
-                                Box::new(Expr::Null),
-                                Box::new(inner),
-                            );
+                            return self.call_method(t, &base, m, c, &result_ty);
                         }
                         let base = rty.unwrap_optional().clone();
                         self.call_method(r, &base, m, c, &result_ty)
@@ -4962,6 +5014,26 @@ fn covers_compound(e: &ast::Expr) -> bool {
             .is_some_and(|r| matches!(r, ast::Expr::CallExpr(_)) || covers_compound(&r)),
         _ => false,
     }
+}
+
+/// The outermost link of the chain `node` is part of.
+fn chain_top(node: &SyntaxNode) -> SyntaxNode {
+    let mut top = node.clone();
+    while let Some(p) = chain_parent(&top) {
+        top = p;
+    }
+    top
+}
+
+/// The member, call or index expression that continues the chain at `node`
+/// (`node` is its receiver, callee or base), if any.
+fn chain_parent(node: &SyntaxNode) -> Option<SyntaxNode> {
+    node.parent().filter(|p| {
+        matches!(
+            p.kind(),
+            SyntaxKind::MemberExpr | SyntaxKind::CallExpr | SyntaxKind::IndexExpr
+        ) && p.first_child().as_ref() == Some(node)
+    })
 }
 
 /// The indexed expression of `base[index]`.

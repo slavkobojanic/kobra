@@ -1018,6 +1018,7 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("environment", "k:/runtime/environment.js", "k/device"),
     ("keys", "k:/runtime/keys.js", "k/ui"),
     ("streams", "k:/runtime/streams.js", "k/core"),
+    ("channels", "k:/runtime/channels.js", "k/rpc"),
     ("http", "k:/runtime/http.js", "k/http"),
 ];
 

@@ -493,6 +493,7 @@ fn shipped_client_assets() {
         ("observe.", k_runtime::OBSERVE_SIZE_BUDGET),
         ("keys.", k_runtime::KEYS_SIZE_BUDGET),
         ("streams.", k_runtime::STREAMS_SIZE_BUDGET),
+        ("channels.", k_runtime::CHANNELS_SIZE_BUDGET),
         ("http.", k_runtime::HTTP_SIZE_BUDGET),
         ("forms.", k_runtime::FORMS_SIZE_BUDGET),
         ("money.", k_runtime::MONEY_SIZE_BUDGET),

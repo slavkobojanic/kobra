@@ -45,7 +45,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use apps::{Proc, Scratch, StaticSite, copy_example};
+use apps::{Proc, Scratch, StaticSite, copy_example, copy_project, repo};
 use cdp::{Fulfil, Paused};
 use page::{El, Tab};
 
@@ -157,6 +157,13 @@ fn have_chrome() -> bool {
 /// Time passes quickly here: a script DevTools runs before the page's makes
 /// each timer of a minute or more fire at once and moves `Date.now` on by
 /// its delay, so the page's once-a-minute check finds the reminder due.
+///
+/// The same script records each notification the service worker's
+/// registration showed, once Chrome has shown it. The test reads that
+/// record rather than `getNotifications()`, which on macOS asks the
+/// system's notification center and, with several Chromes asking at once,
+/// can take longer than the test waits (it made this test flaky in full
+/// runs).
 #[test]
 fn todos_reminds_through_the_service_worker() {
     if !have_chrome() {
@@ -173,7 +180,10 @@ fn todos_reminds_through_the_service_worker() {
         "Page.addScriptToEvaluateOnNewDocument",
         json!({ "source": "(() => { const now = Date.now; let skew = 0; Date.now = () => now() + skew; \
             const later = setTimeout; globalThis.setTimeout = (f, d, ...a) => d >= 60000 \
-            ? later(() => { skew += d; f(...a); }, 10) : later(f, d, ...a); })();" }),
+            ? later(() => { skew += d; f(...a); }, 10) : later(f, d, ...a); \
+            const shown = globalThis.__kShown = []; const show = ServiceWorkerRegistration.prototype.showNotification; \
+            ServiceWorkerRegistration.prototype.showNotification = function (title, o) { \
+            return show.call(this, title, o).then(() => { shown.push([title, o.body, o.data && o.data.url, this.active.scriptURL]); }); }; })();" }),
     );
     tab.open(&format!("{}/", site.origin));
     tab.role("textbox", "New todo");
@@ -195,18 +205,21 @@ fn todos_reminds_through_the_service_worker() {
     let remind = tab.role("button", "Remind me about Buy milk");
     tab.click(&remind);
     tab.wait_text("Reminder set");
-    let titles = tab.wait("the reminder shown by the service worker", |t| {
-        let titles = t.eval(
-            "navigator.serviceWorker.getRegistration('/').then((r) => r ? r.getNotifications() : []).then((ns) => ns.map((n) => [n.title, n.body, n.data && n.data.url]))",
-        );
-        titles
+    let shown = tab.wait("the reminder shown by the service worker", |t| {
+        let shown = t.eval("globalThis.__kShown");
+        shown
             .as_array()
             .is_some_and(|a| !a.is_empty())
-            .then_some(titles)
+            .then_some(shown)
     });
     assert_eq!(
-        titles,
-        json!([["Buy milk", "You asked to be reminded about this.", "/"]])
+        shown,
+        json!([[
+            "Buy milk",
+            "You asked to be reminded about this.",
+            "/",
+            format!("{}/k-sw.js", site.origin)
+        ]])
     );
     let scope = tab.eval("navigator.serviceWorker.getRegistration('/').then((r) => r.scope)");
     assert_eq!(scope, json!(format!("{}/", site.origin)));
@@ -1395,6 +1408,84 @@ fn notes_stops_promptly_with_a_stream_open() {
     std::thread::sleep(Duration::from_millis(300));
     tab.allow_errors();
     drop(tab);
+}
+
+// ================================================================ channels
+
+/// Records every channel socket the page opens (`__kSockets`) and the kind
+/// of each frame it sends (`__kSent`), and refuses to open one while
+/// `__kBlock` is set, as a network that is down would.
+const SOCKET_SPY: &str = "(() => { const Real = WebSocket; globalThis.__kSockets = []; globalThis.__kSent = []; \
+    globalThis.WebSocket = function (url, protocols) { if (globalThis.__kBlock) throw new Error('blocked'); \
+    const s = new Real(url, protocols); const send = s.send.bind(s); \
+    s.send = (t) => { __kSent.push(Object.keys(JSON.parse(t))[0]); send(t); }; __kSockets.push(s); return s; }; })();";
+
+/// A channel in real Chrome against a real server
+/// (`crates/k_server/tests/projects/channels` under `k dev`, 44-channels.md,
+/// "The client"): the page opens its room channel on `/_k/channels`, gets
+/// the snapshot, sends a message and sees the room's echo. Then the test
+/// closes the socket from DevTools and keeps the network down for a
+/// moment: the page shows it reconnecting, an announcement published to
+/// the room meanwhile waits in the channel's buffer on the server, and
+/// once a socket can open again the channel resumes with its token, which
+/// delivers the announcement exactly once (a restart would have lost it:
+/// it isn't in the snapshot) and repeats nothing.
+#[test]
+fn channels_resume_in_chrome_after_the_socket_drops() {
+    let dir = Scratch::new("channels");
+    let mut tab = tab!(dir);
+    let root = dir.0.join("channels");
+    copy_project(
+        &repo().join("crates/k_server/tests/projects/channels"),
+        &root,
+    );
+    let port = cdp::free_port();
+    let mut k = Proc::start(
+        &["dev", ".", "--port", &port.to_string()],
+        &root,
+        &[],
+        &["DATABASE_URL"],
+    );
+    k.wait_port(port, Duration::from_secs(120));
+    let origin = format!("http://localhost:{port}");
+    tab.before_each_document(SOCKET_SPY);
+    tab.open(&format!("{origin}/"));
+    let status = "document.querySelector('[role=status]').textContent === 'Open'";
+    tab.wait_js(status, "the channel open");
+    let field = tab.role("textbox", "Message");
+    tab.fill(&field, "hello");
+    tab.press("Enter");
+    tab.wait_text("hello");
+    assert_eq!(tab.eval("__kSockets.length"), json!(1));
+    tab.eval("(globalThis.__kBlock = true, __kSockets[0].close(), 0)");
+    tab.wait_text("Reconnecting");
+    let announced = tab.eval(&format!(
+        "fetch('{origin}/chans.chat.ChatProtocol/Announce', {{ method: 'POST', headers: {{ 'content-type': 'application/json', 'connect-protocol-version': '1' }}, body: JSON.stringify({{ room: 'lobby', text: 'while away' }}) }}).then((r) => r.status)"
+    ));
+    assert_eq!(announced, json!(200), "the announcement is published");
+    tab.eval("(globalThis.__kBlock = false, 0)");
+    tab.wait_js(status, "the channel open again");
+    tab.wait_text("while away");
+    let lines = tab.eval("[...document.querySelectorAll('li')].map((l) => l.textContent)");
+    assert_eq!(
+        lines,
+        json!(["hello", "while away"]),
+        "each line once, in order"
+    );
+    let sent = tab.eval("__kSent");
+    let sent: Vec<&str> = sent
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(
+        sent.contains(&"resume") && sent.iter().filter(|k| **k == "open").count() == 1,
+        "resumed with its token, never opened again: {sent:?}"
+    );
+    assert_eq!(tab.eval("__kSockets.length"), json!(2));
+    drop(tab);
+    drop(k);
 }
 
 // ============================================================ stack, shop

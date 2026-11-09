@@ -51,6 +51,12 @@ impl Drop for Scratch {
 /// doesn't have or a run writes: `dist`, `.k`, `.env` and generated
 /// secrets (the committed `secrets/*.example` files are copied).
 pub fn copy_example(example: &str, to: &Path) {
+    copy_project(&repo().join("examples").join(example), to);
+}
+
+/// Copies the project at `from` to `to`, leaving out what
+/// [`copy_example`] does.
+pub fn copy_project(from: &Path, to: &Path) {
     fn copy(from: &Path, to: &Path) {
         std::fs::create_dir_all(to).expect("a directory");
         for entry in std::fs::read_dir(from).expect("readable").flatten() {
@@ -67,7 +73,7 @@ pub fn copy_example(example: &str, to: &Path) {
             }
         }
     }
-    copy(&repo().join("examples").join(example), to);
+    copy(from, to);
 }
 
 /// `k build examples/<example> --out <dir>/dist`; returns the dist

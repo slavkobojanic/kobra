@@ -78,11 +78,19 @@ pub const CHARTS_SIZE_BUDGET: usize = 3 * 1024;
 /// (`docs/compiler/performance.md` §11.3).
 pub const STREAMS_SIZE_BUDGET: usize = 1024;
 
-/// The largest the frame codec of channels ([`Part::Channels`]) may be,
-/// measured like [`CORE_SIZE_BUDGET`] (2 KB: two codecs, JSON text and
-/// Protobuf). Nothing ships it yet: it becomes part of the channels' client
-/// chunk, only for apps with a channel rpc (`docs/design/44-channels.md`).
-pub const CHANNELS_SIZE_BUDGET: usize = 2048;
+/// The largest channels in the browser ([`Part::Channels`]: the frame
+/// codec and the client) may be, measured like [`CORE_SIZE_BUDGET`]
+/// (4.5 KB): 2 KB for the two codecs, JSON text and Protobuf, and 2.5 KB
+/// for the client, which owns one socket per page, opening, resuming and
+/// restarting channels, backoff, heartbeats and receipts, the limits on
+/// waiting and in-flight messages, the back-forward cache and a change of
+/// session (`docs/design/44-channels.md`, "The client"), as much as the
+/// server streams' chunk and the rpc client together. It ships as its own
+/// chunk, only to apps whose client calls a channel rpc, so it counts
+/// against no other budget; a release build links the Protobuf codec out
+/// until the Protobuf wire format uses it (`docs/compiler/performance.md`
+/// §11.3).
+pub const CHANNELS_SIZE_BUDGET: usize = 4608;
 
 /// The largest `HttpResponse` and `HttpHeaders` in the browser
 /// ([`Part::Http`]) may be, measured like [`CORE_SIZE_BUDGET`] (1.5 KB).
@@ -270,9 +278,11 @@ pub enum Part {
     /// chunk, only to apps with a streaming rpc, and measured on its own
     /// ([`STREAMS_SIZE_BUDGET`]).
     Streams,
-    /// The frames of channels (`k.channel.v1`) as pure JSON and Protobuf
-    /// encode and decode, which the channels' client is built on; not
-    /// shipped yet, and measured on its own ([`CHANNELS_SIZE_BUDGET`]).
+    /// Channels in the browser: the frames of `k.channel.v1` as pure JSON
+    /// and Protobuf encode and decode, and the client that opens channel
+    /// rpcs on the page's socket. Shipped as its own client chunk, only to
+    /// apps whose client calls a channel rpc, and measured on its own
+    /// ([`CHANNELS_SIZE_BUDGET`]).
     Channels,
     /// `HttpResponse` and `HttpHeaders` (built and read alike) in the
     /// browser: shipped as its own client chunk, only to apps whose client

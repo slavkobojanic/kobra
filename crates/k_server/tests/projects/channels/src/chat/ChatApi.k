@@ -82,11 +82,7 @@ public service ChatApi implements ChatProtocol {
             }
 
             case .whoami {
-                if let user = session.user {
-                    events.publish(room: room, event: ChatEvent.user(name: user.id.name))
-                } else {
-                    events.publish(room: room, event: ChatEvent.user(name: "guest"))
-                }
+                events.publish(room: room, event: ChatEvent.user(name: session.user?.id.name ?? "guest"))
             }
         }
     }
