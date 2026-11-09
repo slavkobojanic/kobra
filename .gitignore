@@ -13,3 +13,14 @@
 # mail). Neither is ever committed.
 .env
 .k/
+
+# Build output of `k build`, in every project (examples, test projects).
+dist/
+
+# Editor extension packaging.
+node_modules/
+*.vsix
+
+# OS and tool noise.
+.DS_Store
+*.log
