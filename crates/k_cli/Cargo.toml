@@ -44,6 +44,8 @@ tokio.workspace = true
 yaml-rust2.workspace = true
 # tests/debugging.rs decodes the source maps Chrome is given.
 sourcemap.workspace = true
+# tests/examples.rs talks to huddle's channels over a raw WebSocket.
+tungstenite.workspace = true
 
 [features]
 # The server runtime (V8). On by default; `--no-default-features` builds a

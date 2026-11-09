@@ -11,10 +11,13 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`InlineJobQueue`](#inlinejobqueue) | A [`JobQueue`](k-server.md#jobqueue) for tests that runs each job when the enqueuing app-level transaction commits, or at once outside one: `use InlineJobQueue for JobQueue`. |
 | [`Key`](#key) | A key for [`Element.press`](#element). |
 | [`MemoryStorage`](#memorystorage) | The default [`LocalStorage`](k-storage.md#localstorage) in `k test`: empty for every test, able to simulate failures (`docs/design/36-local-storage.md`). |
+| [`OpenChannel`](#openchannel) | A channel open on the test's connection ([`TestChannels.open`](#testchannels)). |
 | [`RecordingEmailProvider`](#recordingemailprovider) | The default [`EmailProvider`](k-server.md#emailprovider) in `k test`: it keeps sent messages. |
 | [`RecordingJobQueue`](#recordingjobqueue) | The default [`JobQueue`](k-server.md#jobqueue) in `k test`: it stores jobs without running them; [`InlineJobQueue`](#inlinejobqueue) runs them instead. |
 | [`render`](#render) | Mounts `view` in the test's browser container (`docs/design/21-testing.md`, "Rendering and querying"). |
 | [`Screen`](#screen) | A rendered view, returned by `render(_:)`. |
+| [`TestChannel`](#testchannel) | A scripted channel for a client service tested without a server (`docs/design/44-channels.md`, "TestChannel"): the test plays the server. |
+| [`TestChannels`](#testchannels) | The test's channel connection in `k test` (`docs/design/44-channels.md`, "Testing"): the in-process socket between the test's browser and its server. |
 | [`TestClient`](#testclient) | Sends requests through the whole server stack in-process: routing, guards, server rendering and endpoint pages (`docs/design/21-testing.md`, "HTTP-level tests"). |
 | [`TestClipboard`](#testclipboard) | The default [`Clipboard`](k-device.md#clipboard) in `k test` (`docs/design/45-web-platform.md`, "Clipboard"): a clipboard in memory, empty for every test, never the machine's. |
 | [`TestClock`](#testclock) | Virtual time for tests, the default [`Clock`](k-time.md#clock) in `k test` (`docs/design/35-time.md`, "Testing with TestClock"). |
@@ -24,6 +27,8 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`TestHttpClient`](#testhttpclient) | The default [`HttpClient`](k-http.md#httpclient) in `k test`: it answers only requests it has a canned response for, and fails the test on any other. |
 | [`TestNotifications`](#testnotifications) | The default [`Notifications`](k-device.md#notifications) in `k test` (`docs/design/45-web-platform.md`, "Notifications"): no prompt opens and nothing reaches the operating system. |
 | [`TestPageVisibility`](#testpagevisibility) | The default [`PageVisibility`](k-device.md#pagevisibility) in `k test` (`docs/design/45-web-platform.md`, "Page visibility"): the page is visible until `hide()`. |
+| [`TestPeer`](#testpeer) | Another browser in the same test ([`TestPeers`](#testpeers)): its own session, cookie and channel socket, sharing the test's server, database and clock. |
+| [`TestPeers`](#testpeers) | More browsers in one test (`docs/design/44-channels.md`, "TestPeer"): realtime features are about other people, so a test can sign in a second person and act as them against the same server, database and clock. |
 | [`TestPreferences`](#testpreferences) | The default [`Preferences`](k-device.md#preferences) in `k test` (`docs/design/45-web-platform.md`, "Preferences"): no preference is set until the test sets one. |
 | [`TestRemote`](#testremote) | The `.test` binding of every `remote` rule, also when the serving app is a member of the same workspace (`docs/design/40-workspaces-and-services.md`): an in-process double of protocol `P` whose every rpc fails with `rpcFailure(.offline)` ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so each service's tests stay hermetic and never open a socket. |
 | [`TestShare`](#testshare) | The default [`Share`](k-device.md#share) in `k test` (`docs/design/45-web-platform.md`, "Web Share"): no sheet opens; every share is recorded, and the user picks a target unless the test says otherwise. |
@@ -206,6 +211,22 @@ simulate failures (`docs/design/36-local-storage.md`).
   Ends both simulations (`failReads(error:)` and
   `failWrites(error:)`).
 
+## OpenChannel
+
+```k,ignore
+public struct OpenChannel
+```
+
+A channel open on the test's connection ([`TestChannels.open`](#testchannels)).
+
+**Members**
+
+- `let method: String`
+  The channel rpc's wire name, `/package.Protocol/Method`.
+- `let arguments: String`
+  The arguments it was opened with: the rpc's request message as
+  JSON.
+
 ## RecordingEmailProvider
 
 ```k,ignore
@@ -318,6 +339,72 @@ A rendered view, returned by `render(_:)`. It supports every query of
   Returns every heading, in document order.
 - `func links() -> List<Element>`
   Returns every link, in document order.
+
+## TestChannel
+
+```k,ignore
+public class TestChannel<C, S, E>
+```
+
+A scripted channel for a client service tested without a server
+(`docs/design/44-channels.md`, "TestChannel"): the test plays the
+server. Hand `channel` to the code under test, then `deliver`
+messages and read what it `sent`.
+
+```k,ignore
+let room: TestChannel<ChatCommand, ChatEvent, CommandError> = TestChannel()
+```
+
+**Members**
+
+- `init()`
+  Creates an open channel with nothing delivered or sent.
+- `let channel: Channel<C, S, E>`
+  The channel the code under test reads and sends on.
+- `let sent: List<C>`
+  The messages the code under test sent and the channel accepted,
+  oldest first.
+- `func deliver(_ message: S)`
+  Plays the server sending `message`: the channel's `messages`
+  stream yields it. While the channel is dropped it waits for the
+  resume, or is lost on a restart.
+- `func refuseNext(with error: E)`
+  Makes the next `send` throw `error`, as a server refusal.
+- `func drop(resumable: Bool = true)`
+  Drops the connection: the channel goes `reconnecting` and opens
+  again after the first backoff on the [`TestClock`](#testclock). Sends wait
+  meanwhile, at most 10 seconds. With `resumable: false` it
+  restarts: what was delivered while dropped is lost, and the test
+  delivers the new snapshot itself.
+- `func close(_ reason: ChannelClose)`
+  Plays the server closing the channel for `reason`.
+
+## TestChannels
+
+```k,ignore
+public service TestChannels
+```
+
+The test's channel connection in `k test`
+(`docs/design/44-channels.md`, "Testing"): the in-process socket
+between the test's browser and its server. Channels opened in a test
+run through the real framing, guards, handlers, acknowledgements and
+limits, with no socket and no second process; the reconnect delays
+and the resume window follow the [`TestClock`](#testclock).
+
+Going offline is [`TestConnectivity.goOffline()`](#testconnectivity)'s, which also drops
+this socket and stops reconnects until `goOnline()`.
+
+**Members**
+
+- `var open: List<OpenChannel>`
+  The channels the test's browser has open now, oldest first.
+- `func drop(resumable: Bool = true)`
+  Drops the test's socket. With `resumable`, the server keeps every
+  channel for its resume window (30 seconds of the [`TestClock`](#testclock)),
+  the channels go `reconnecting` and resume after their backoff
+  without losing a message. Without it, the server forgets them, as
+  after a deploy: they restart, and their handlers run again.
 
 ## TestClient
 
@@ -599,6 +686,47 @@ visible until `hide()`.
   Hides the page, as switching to another tab does.
 - `func show()`
   Shows the page again.
+
+## TestPeer
+
+```k,ignore
+public class TestPeer
+```
+
+Another browser in the same test ([`TestPeers`](#testpeers)): its own session,
+cookie and channel socket, sharing the test's server, database and
+clock.
+
+**Members**
+
+- `func client<P>() -> P`
+  A client of protocol `P`, the type the result is used as
+  (`let chat: ChatProtocol = bob.client()`): its rpcs and channels
+  run under this browser's session, on its own socket.
+- `func signOut() async`
+  Signs this browser's person out, ending its session and the
+  channels opened under it.
+
+## TestPeers
+
+```k,ignore
+public service TestPeers
+```
+
+More browsers in one test (`docs/design/44-channels.md`, "TestPeer"):
+realtime features are about other people, so a test can sign in a
+second person and act as them against the same server, database and
+clock.
+
+**Members**
+
+- `func signIn(userId: SessionUserId, roles: Set<SessionRole> = Set([])) async -> TestPeer`
+  Opens another browser and signs `userId` in there, with its own
+  session; the test's own browser stays signed in as it was.
+
+  - Returns: the new browser.
+- `func guest() -> TestPeer`
+  Opens another browser with nobody signed in.
 
 ## TestPreferences
 

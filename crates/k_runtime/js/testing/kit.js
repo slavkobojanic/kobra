@@ -16,7 +16,8 @@
  *   `TestWakeLock`,
  *   `TestPageVisibility`, `TestConnectivity`, `TestPreferences`,
  *   `TestViewport`,
- *   `RecordingJobQueue` and `RecordingEmailProvider`.
+ *   `RecordingJobQueue` and `RecordingEmailProvider`; and the channels'
+ *   helpers `TestChannels`, `TestPeers` and `TestChannel` (`./channels.js`).
  * - Fake `IntersectionObserver` and `ResizeObserver`, which report only
  *   what a handle's `appear`, `disappear` and `resize` say.
  * - `fail` and `failThrows`: a failed `expect`, as a panic carrying the
@@ -36,10 +37,12 @@ import { Instant, PushStream, httpCode, stringify } from "../runtime/std.js";
 import { HttpResponse$isSuccess, HttpResponse$json, HttpResponse$text } from "../runtime/http.js";
 import { received } from "../runtime/outbound.js";
 import { hasNative, native as browserNative } from "../runtime/services.js";
-import { sessionMirror } from "../runtime/rpc.js";
+import { sessionMirror, takeMirror } from "../runtime/rpc.js";
 import { navigate } from "../runtime/router.js";
-import { RequestState, natives as serverNatives } from "../runtime/app.js";
+import { RequestState, sessionManager, natives as serverNatives } from "../runtime/app.js";
+import { channelEnv } from "../runtime/channels.js";
 import { install as installDom } from "./dom.js";
+import { createFront, testChannel as scriptedChannel } from "./channels.js";
 
 // ---------------------------------------------------------------- state
 
@@ -47,7 +50,7 @@ import { install as installDom } from "./dom.js";
  * The running test: its container, its screens, and the errors thrown by
  * work it scheduled (effects flushed in a microtask).
  */
-let current = { container: null, screens: [], errors: [], clock: null, server: null, offline: false };
+let current = { container: null, screens: [], errors: [], clock: null, server: null, offline: false, front: null, context: null };
 
 /**
  * Starts a test with `container` (the generated browser container): the
@@ -58,7 +61,7 @@ let current = { container: null, screens: [], errors: [], clock: null, server: n
  * @param {object|null} [server]
  */
 export function begin(container, clock = null, server = null) {
-  current = { container, screens: [], errors: [], clock, server, offline: false };
+  current = { container, screens: [], errors: [], clock, server, offline: false, front: null, context: null };
 }
 
 /**
@@ -505,7 +508,18 @@ export function installBrowser(seed = "") {
   watching = new Map();
   globalThis.IntersectionObserver = class extends FakeObserver {};
   globalThis.ResizeObserver = class extends FakeObserver {};
-  globalThis.addEventListener ??= () => {};
+  // The window's events, new per test: the channels' client listens for
+  // `online` (`TestConnectivity.goOnline()` dispatches it).
+  const listeners = new Map();
+  globalThis.addEventListener = (type, f) => {
+    if (!listeners.has(type)) listeners.set(type, new Set());
+    listeners.get(type).add(f);
+  };
+  globalThis.removeEventListener = (type, f) => listeners.get(type)?.delete(f);
+  globalThis.dispatchEvent = (e) => {
+    for (const f of [...(listeners.get(e.type) ?? [])]) f(e);
+    return true;
+  };
   globalThis.document.title = "";
 }
 
@@ -558,6 +572,9 @@ function report(el, C, entry) {
 /** Unmounts every view the running test rendered. */
 function end() {
   for (const s of current.screens.splice(0)) s.unmount();
+  current.front?.reset();
+  channelEnv({ socket: noSocket, browser: () => null });
+  active = null;
 }
 
 // ------------------------------------------------------------ failures
@@ -1154,8 +1171,18 @@ class Screen extends Queries {
    */
   async settle() {
     if (this.pending) await this.pending;
+    // At least two rounds with a front: the first round's turn of the
+    // event loop may have delivered what only the second sees.
+    let mark = -1;
     await idle();
     await serverIdle();
+    // Channel traffic waits on turns of the event loop (a broadcast's next
+    // element): more rounds while it moves (44-channels.md, "Testing").
+    for (let i = 0; i < 200 && current.front && current.front.activity !== mark; i++) {
+      mark = current.front.activity;
+      await idle();
+      await serverIdle();
+    }
     if (this.pending) await this.pending;
     flush();
   }
@@ -1756,8 +1783,12 @@ export function testPageVisibility() {
 export function testConnectivity() {
   const online = signal(true);
   const set = (v) => {
+    const was = !current.offline;
     current.offline = !v;
     online.set(v);
+    // Offline drops the channels' socket (it resumes once back online).
+    if (was && !v) current.front?.drop(MAIN, true);
+    if (!was && v) globalThis.dispatchEvent?.(new globalThis.Event("online"));
     flush();
   };
   return {
@@ -1938,6 +1969,191 @@ export function recordingEmailProvider() {
   };
 }
 
+// ------------------------------------------------------------- channels
+
+/**
+ * The test's own browser for the channels (`./channels.js`): its requests
+ * are the test's (`current.context`, the test's one session), its mirror
+ * the runtime's, and it is offline after `TestConnectivity.goOffline()`.
+ */
+const MAIN = {
+  get ctx() {
+    return current.context;
+  },
+  mirror: sessionMirror,
+  get offline() {
+    return current.offline;
+  },
+};
+
+/**
+ * The `TestPeer` whose protocol client is calling now, so the rpc or
+ * channel it starts runs in that browser; `null` for the test's own. The
+ * stubs start their request synchronously, so a call sets it only while it
+ * runs.
+ * @type {object|null}
+ */
+let active = null;
+
+/** A socket that can't open: a test without a server has no channels. */
+function noSocket() {
+  throw new Error("this test has no server");
+}
+
+/**
+ * Points the channels' client at the test: its sockets at an in-process
+ * front over the app's handler (`context`, the test's `TestContext`, when
+ * it has a server), its timers at the `TestClock`, and its browsers at the
+ * test's own and its peers.
+ * @param {object} clock
+ * @param {object|null} context
+ */
+function installChannels(clock, context) {
+  current.context = context;
+  current.front = context === null ? null : createFront(clock, track);
+  const ops = globalThis.Deno?.core?.ops;
+  if (context !== null && ops && !ops.$kChannels) {
+    // The app's channel runtime sends through the front instead of Rust's.
+    try {
+      ops.op_k_channel_send = (id, json) => current.front?.send(id, json) ?? false;
+      ops.op_k_channel_close = (id, reason) => current.front?.close(id, reason);
+      ops.$kChannels = true;
+    } catch {
+      // A read-only op table: channels then can't reach the browser.
+    }
+  }
+  channelEnv({
+    socket: (b) => (current.front === null ? noSocket() : current.front.connect(b ?? MAIN)),
+    now: () => clock.now.ms,
+    after: (ms, f) => clock.after(ms, f),
+    cancel: (t) => t?.cancel?.(),
+    online: (b) => !(b ?? MAIN).offline,
+    browser: () => active,
+    mirror: (b) => (b === null ? sessionMirror : b.mirror),
+    take: (b, text) => (b === null ? takeMirror(text) : setMirror(b, text)),
+  });
+}
+
+/** Sets peer `b`'s mirror from a mirror's JSON `text`. */
+function setMirror(b, text) {
+  try {
+    if (text) b.mirror.set(JSON.parse(text));
+  } catch {
+    // A malformed mirror is ignored, as `takeMirror` does.
+  }
+}
+
+/**
+ * A peer's `fetch`: its request goes to the app in-process with its own
+ * cookie, and a changed session reaches its mirror, not the test's.
+ */
+function peerFetch(b, url, init) {
+  return b.ctx.fetch(url, init).then((r) => {
+    setMirror(b, r.headers.get("x-k-session"));
+    return { ...r, headers: { get: (n) => (String(n).toLowerCase() === "x-k-session" ? null : r.headers.get(n)) } };
+  });
+}
+
+/**
+ * `k.test.TestChannels` (44-channels.md, "TestChannels"): the test's own
+ * connection. `open` lists its open channels; `drop` drops its socket,
+ * resumable or not.
+ */
+export function testChannels() {
+  return {
+    get open() {
+      return current.front === null ? [] : current.front.open(MAIN);
+    },
+    drop(resumable) {
+      current.front?.drop(MAIN, resumable !== false);
+      flush();
+    },
+  };
+}
+
+/**
+ * A new browser of the running test: its own cookie and `Session` mirror,
+ * the test's server, clock and per-test instances.
+ */
+function newPeer() {
+  const T = current.context;
+  if (T === null) throw new KPanic("this test has no server: a peer is another browser of the same server");
+  const ctx = Object.create(T);
+  ctx.cookie = null;
+  ctx.direct = null;
+  const b = { ctx, mirror: signal({ user: null }), offline: false };
+  ctx.sessionChanged = (st) => {
+    ctx.cookie = st.sessionId;
+    try {
+      b.mirror.set(st.mirror());
+    } catch {
+      // A session that isn't loaded yet has no mirror to share.
+    }
+  };
+  /** A request state of the peer, its session loaded, for `SessionManager`. */
+  const state = async () => {
+    const st = new RequestState(T.spec, ctx.request("GET", "/", [], EMPTY, undefined));
+    await track(st.load());
+    return st;
+  };
+  b.handle = {
+    /** A client of the protocol whose stub is `stub`, calling as this peer. */
+    client(stub) {
+      return new Proxy(stub, {
+        get(t, k) {
+          const v = t[k];
+          if (typeof v !== "function") return v;
+          return (...a) => {
+            const was = active;
+            active = b;
+            try {
+              return v.apply(t, a);
+            } finally {
+              active = was;
+            }
+          };
+        },
+      });
+    },
+    async signOut(_c) {
+      const st = await state();
+      await track(sessionManager(st).signOut(null));
+      flush();
+    },
+  };
+  b.signIn = async (userId, roles) => {
+    const st = await state();
+    await track(sessionManager(st).signIn(null, userId, roles));
+  };
+  return b;
+}
+
+/**
+ * `k.test.TestPeers` (44-channels.md, "TestPeer"): more browsers in the
+ * test, each a `TestPeer` with its own session.
+ */
+export function testPeers() {
+  return {
+    async signIn(_c, userId, roles) {
+      const b = newPeer();
+      await b.signIn(userId, roles);
+      return b.handle;
+    },
+    guest() {
+      return newPeer().handle;
+    },
+  };
+}
+
+/**
+ * `TestChannel()`: a scripted channel on the test's clock; `E` is its
+ * refusal enum's constructor object.
+ * @param {object|null} E
+ */
+export function testChannel(E) {
+  return scriptedChannel(E, sharedClock());
+}
+
 /**
  * The browser's `@Native` members, with `k.test`'s first, then the
  * server's for those the browser doesn't implement.
@@ -2009,6 +2225,7 @@ export async function run(groups, selected, server = null, routes = []) {
       try {
         let clock = testClock();
         let direct = null;
+        let context = null;
         if (server !== null) {
           // A fresh process and database, and the test's one session.
           globalThis.Deno?.core?.ops?.op_k_test_reset?.();
@@ -2022,9 +2239,16 @@ export async function run(groups, selected, server = null, routes = []) {
           direct = T.container(st);
           // `TestConnectivity.goOffline()` fails the browser's requests as
           // a device without a network does.
-          globalThis.fetch = (url, init) => (current.offline ? Promise.reject(new TypeError("Failed to fetch")) : T.fetch(url, init));
+          globalThis.fetch = (url, init) => {
+            const b = active;
+            if (b !== null) return b.offline ? Promise.reject(new TypeError("Failed to fetch")) : peerFetch(b, url, init);
+            return current.offline ? Promise.reject(new TypeError("Failed to fetch")) : T.fetch(url, init);
+          };
+          context = T;
         }
         begin(null, clock, direct);
+        installChannels(clock, context);
+        context = null;
         const container = g.container();
         current.container = container;
         const instance = new g.group(container);

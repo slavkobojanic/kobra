@@ -439,6 +439,91 @@ fn notes_migrates_redirects_to_sign_in_and_answers_an_rpc_from_the_database() {
 }
 
 #[test]
+fn huddle_signs_in_and_talks_in_a_room_over_its_channel() {
+    use tungstenite::Message;
+    use tungstenite::client::IntoClientRequest;
+
+    let dir = TempDir::new("huddle");
+    let app = App::start("huddle", &dir.0, &[("DATABASE_URL", "sqlite::memory:")]);
+    let home = app.get("/");
+    assert_eq!(home.status, 303, "the lobby requires a session");
+    let sign_in = app.get("/sign-in");
+    assert_eq!(sign_in.status, 200, "{}", sign_in.body);
+    app.serves_its_assets(&sign_in);
+    let signed = rpc(
+        app.port,
+        "/huddle.accounts.AuthProtocol/SignIn",
+        "{\"name\": \"ana\"}",
+    );
+    assert_eq!(signed.status, 200, "{}", signed.body);
+    let cookie = signed
+        .header("set-cookie")
+        .and_then(|c| c.split(';').next())
+        .expect("a session cookie")
+        .to_owned();
+    // The tab's one socket (44-channels.md): the handshake needs the
+    // public origin and the `k.channel.v1` subprotocol.
+    let stream = TcpStream::connect(("127.0.0.1", app.port)).expect("connects");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("a timeout");
+    let mut request = format!("ws://127.0.0.1:{}/_k/channels", app.port)
+        .into_client_request()
+        .expect("a request");
+    let h = request.headers_mut();
+    let origin = format!("http://localhost:{}", app.port);
+    h.insert("origin", origin.parse().expect("a header"));
+    h.insert(
+        "sec-websocket-protocol",
+        "k.channel.v1".parse().expect("a header"),
+    );
+    h.insert("cookie", cookie.parse().expect("a header"));
+    let (mut ws, _) = tungstenite::client::client(request, stream).expect("upgrades");
+    let next = |ws: &mut tungstenite::WebSocket<TcpStream>| -> serde_json::Value {
+        loop {
+            match ws.read().expect("a frame") {
+                Message::Text(t) => {
+                    let v: serde_json::Value = serde_json::from_str(t.as_str()).expect("JSON");
+                    if v.get("beat").is_none() {
+                        return v;
+                    }
+                }
+                Message::Ping(_) | Message::Pong(_) => {}
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+    };
+    let open = serde_json::json!({"open": {"ch": 1, "method": "/huddle.chat.ChatProtocol/Room", "request": {"name": "general"}}});
+    ws.send(Message::text(open.to_string())).expect("sends");
+    let opened = next(&mut ws);
+    assert!(opened["opened"]["resume"].is_string(), "{opened}");
+    let snapshot = next(&mut ws);
+    assert_eq!(snapshot["msg"]["value"]["case"], "snapshot", "{snapshot}");
+    let post = serde_json::json!({"msg": {"ch": 1, "seq": 1, "value": {"case": "post", "text": "hello", "clientId": "6f1c2a2e-0000-4000-8000-000000000001"}}});
+    ws.send(Message::text(post.to_string())).expect("sends");
+    // The echo and the acknowledgement, in either order.
+    let (a, b) = (next(&mut ws), next(&mut ws));
+    let (ack, echo) = if a.get("ack").is_some() {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    assert_eq!(ack, serde_json::json!({"ack": {"ch": 1, "seq": 1}}));
+    assert_eq!(echo["msg"]["value"]["case"], "posted", "{echo}");
+    assert_eq!(echo["msg"]["value"]["message"]["author"], "ana", "{echo}");
+    // A refusal is a typed error on the message; the channel stays open.
+    let blank = serde_json::json!({"msg": {"ch": 1, "seq": 2, "value": {"case": "post", "text": " ", "clientId": "6f1c2a2e-0000-4000-8000-000000000002"}}});
+    ws.send(Message::text(blank.to_string())).expect("sends");
+    let refused = next(&mut ws);
+    assert_eq!(
+        refused["ack"]["error"]["code"], "failed_precondition",
+        "{refused}"
+    );
+    let _ = ws.close(None);
+    app.stop();
+}
+
+#[test]
 fn shop_renders_the_storefront_and_lists_products_from_the_database() {
     let dir = TempDir::new("shop");
     // The shop is the `shop` member of the `examples/shop` workspace. Its

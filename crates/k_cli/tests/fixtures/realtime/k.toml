@@ -1,0 +1,6 @@
+# Channels in `k test` (docs/design/44-channels.md, "Testing"; docs/compiler/testing.md §8.4):
+# `TestChannels` (the in-process socket: drop, resume, restart, offline), `TestPeers` (a second
+# browser with its own session) and `TestChannel` (a scripted channel). Every test here must pass.
+[package]
+name = "realtime"
+k = "0.1"

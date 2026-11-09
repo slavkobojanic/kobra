@@ -1070,6 +1070,15 @@ empty comment.
   doubles that draw; `location`, `history`, `matchMedia`) and a fresh container, captures errors thrown by effects flushed in microtasks (and a
   page that fails to render) as the test's failure, and reports a test that stops making progress as
   "never finished" instead of hanging the run. Its JS tests are `js/tests/kit.test.js`.
+- **Channels in `k test`** (`testing/channels.js`, [44-channels.md](../design/44-channels.md#testing)): the
+  kit installs `channelEnv` per test, with the `TestClock`'s timers and sockets of an in-process front
+  (`createFront`) that serves the app's channel events as the Rust front does and receives the app's
+  `op_k_channel_send`/`op_k_channel_close`. `testChannels` (`TestChannels`: `drop`, `open`) acts on the
+  test's own browser, `testPeers` (`TestPeers`) makes `TestPeer`s, each a browser with its own cookie,
+  `Session` mirror and channel socket whose protocol clients set the active browser while a call starts,
+  and `testChannel` is the scripted `TestChannel`. With a front, `Screen.settle()` runs idle rounds until
+  one moves no channel frame. `TestConnectivity.goOffline()` drops the test's socket, and `goOnline()`
+  dispatches `online` on the kit's window, whose events are new per test.
 - **The server half of a test.** With `server` (the server entry's `$test`), each test first gets a fresh
   process: `op_k_test_reset` (sessions, rate limits, shared state, subscribers and, for an app with
   persistence, a fresh in-memory SQLite database with the migrations applied) and `server.reset()` (a new

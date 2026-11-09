@@ -93,6 +93,19 @@ app at. Set it in every deployment: without it, `dist/app` assumes `http://local
   `X-Forwarded-Proto` aren't read; whether the session cookie is `Secure` follows `K_PUBLIC_ORIGIN`.
 - **Serve HTTP/2 at the proxy.** Each open [server stream](streaming.md) holds a request, and browsers
   allow only six HTTP/1.1 connections per origin.
+- **Pass WebSocket upgrades through** for an app with [channels](channels.md): their socket is
+  `GET /_k/channels` with `Upgrade: websocket`, and its `Origin` must match `K_PUBLIC_ORIGIN`. With
+  nginx, and a read timeout above the 25-second heartbeat:
+
+```nginx
+location /_k/channels {
+    proxy_pass http://app:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 75s;
+}
+```
 
 ## Several replicas
 
@@ -102,7 +115,7 @@ service:
 - sessions and rate-limit counters (`k_session`, `k_rate_limit`);
 - the job queue (`k_job`), claimed with `SKIP LOCKED`.
 
-Broadcasts between server streams are the exception: they reach only the subscribers of the publishing
+Broadcasts between server streams and channels are the exception: they reach only the subscribers of the publishing
 process until delivery over Postgres `LISTEN`/`NOTIFY` is built (**Planned** broadcast-replicas).
 
 **Rolling deploys run the previous release against the new schema,** so migrations follow

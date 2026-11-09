@@ -384,6 +384,7 @@ const MODULES: &[Module] = modules![
     Server "runtime/outbound.js",
     Server "runtime/remote.js",
     Server "runtime/db.js",
+    Testing "testing/channels.js",
     Testing "testing/dom.js",
     Testing "testing/harness.js",
     Testing "testing/kit.js",

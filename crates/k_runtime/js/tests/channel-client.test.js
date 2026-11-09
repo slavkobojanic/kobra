@@ -135,7 +135,8 @@ async function opened(n, method = "/t.P/Room", tok = "tok-1") {
   const open = n.sent("open").pop();
   n.say({ kind: "opened", ch: open.ch, resume: tok });
   const o = await p;
-  assert(o.ok, `the channel opened: ${JSON.stringify(o)}`);
+  // A channel refers to its socket's hub, which holds window listeners: only a failure is printed.
+  if (!o.ok) assert(false, `the channel opened: ${JSON.stringify(o)}`);
   return o.message;
 }
 

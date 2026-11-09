@@ -782,6 +782,7 @@ else). Each is the 2026-11-09 measurement plus about 10%, rounded:
 | `kanban` | 32,500 B | 29,840 B |
 | `weather` | 33,000 B | 25,820 B (30,076 B on 2026-11-10; 30,115 B once the geolocation chunk loads only with the start page) |
 | `notes` | 28,000 B | 25,440 B |
+| `huddle` | 23,000 B | 20,899 B (2026-11-10, new: the channels chunk included) |
 | `shop/shop` | 30,500 B | 27,881 B (30,342 B on 2026-11-10, with the cart and its `tabs` chunk, 531 B) |
 | `shop/paybox` | 5,500 B | 4,894 B |
 | `stack/shop` | 12,000 B | 10,644 B |

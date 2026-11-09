@@ -46,6 +46,7 @@ const APPS: &[&str] = &[
     "kanban",
     "weather",
     "notes",
+    "huddle",
     "shop/shop",
     "shop/paybox",
     "stack/shop",

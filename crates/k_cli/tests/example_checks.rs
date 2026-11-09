@@ -314,7 +314,9 @@ fn example_readmes_do_not_say_the_compiler_is_missing() {
         "will exist once the toolchain ships",
     ];
     let mut found = Vec::new();
-    for example in ["todos", "kanban", "weather", "notes", "shop", "stack"] {
+    for example in [
+        "todos", "kanban", "weather", "notes", "huddle", "shop", "stack",
+    ] {
         let text = std::fs::read_to_string(repo().join("examples").join(example).join("README.md"))
             .unwrap();
         for s in stale {

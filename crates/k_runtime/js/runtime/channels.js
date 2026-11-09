@@ -260,28 +260,33 @@ const OFFLINE = { ok: false, kind: "offline" };
 /**
  * What the client reads the world through, replaced in tests ({@link channelEnv}): the socket,
  * the time and timers (the browser's, as `Clock`'s), the jitter's random source (`Math.random`,
- * which `k test` seeds) and whether the browser is online.
+ * which `k test` seeds), whether the browser is online, and which browser opens a channel now
+ * with its `Session` mirror: a page is one browser (`null`); `k test`'s peers are more, each
+ * with its own socket and session (44-channels.md, "TestPeer"). Members taking `b` get it.
  */
 const env = {
-  socket: () => new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/_k/channels`, "k.channel.v1"),
+  socket: (_b) => new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/_k/channels`, "k.channel.v1"),
   now: () => Date.now(),
   after: (ms, f) => setTimeout(f, ms),
   cancel: (t) => clearTimeout(t),
   random: () => Math.random(),
-  online: () => globalThis.navigator?.onLine !== false,
+  online: (_b) => globalThis.navigator?.onLine !== false,
+  browser: () => null,
+  mirror: (_b) => sessionMirror,
+  take: (_b, text) => takeMirror(text),
 };
 
-/** The page's one socket and what it carries; `null` until the first channel opens. */
-let hub = null;
+/** Each browser's one socket and what it carries, made when its first channel opens. */
+let hubs = new Map();
 
 /**
- * Replaces parts of {@link env} and forgets the page's socket and channels without a word to
- * the server: a test's fresh start.
+ * Replaces parts of {@link env} and forgets the sockets and channels without a word to the
+ * server: a test's fresh start.
  * @param {Partial<typeof env>} parts
  */
 export function channelEnv(parts) {
-  hub?.stop();
-  hub = null;
+  for (const h of hubs.values()) h.stop();
+  hubs = new Map();
   Object.assign(env, parts);
 }
 
@@ -312,7 +317,9 @@ export function openChannel(method, request, $c, codec) {
       resolve(o);
     };
     $c?.addEventListener("abort", () => c.close());
-    (hub ??= new Hub()).add(c);
+    const b = env.browser();
+    if (!hubs.has(b)) hubs.set(b, new Hub(b));
+    (c.hub = hubs.get(b)).add(c);
   });
 }
 
@@ -342,6 +349,8 @@ class Channel {
     this.out = [];
     this.done = false;
     this.opening = null;
+    /** The socket of the browser that opened it. */
+    this.hub = null;
   }
 
   get state() {
@@ -351,7 +360,7 @@ class Channel {
   /** The first open failed with outcome `o`: the caller gets it, and the channel is gone. */
   fail(o) {
     this.done = true;
-    hub?.remove(this);
+    this.hub.remove(this);
     this.opening?.(o);
   }
 
@@ -402,7 +411,7 @@ class Channel {
         if (!p.seq && flying < 32) {
           p.seq = ++this.seq;
           flying++;
-          hub.put({ kind: "msg", ch: this.ch, seq: p.seq, value: p.v });
+          this.hub.put({ kind: "msg", ch: this.ch, seq: p.seq, value: p.v });
         }
       } else {
         p.wait ??= env.after(10_000, () => {
@@ -428,14 +437,14 @@ class Channel {
     if (this.done) return;
     this.done = true;
     this.opening = null;
-    if (tell && this.ch && hub?.up) hub.put({ kind: "close", ch: this.ch, reason: CHANNEL_REASONS[reason] });
+    if (tell && this.ch && this.hub.up) this.hub.put({ kind: "close", ch: this.ch, reason: CHANNEL_REASONS[reason] });
     this.st.set({ $: 3, _0: unitCase(reason) });
     this.messages.push(null);
     for (const p of this.out.splice(0)) {
       env.cancel(p.wait);
       p.no(OFFLINE);
     }
-    hub?.remove(this);
+    this.hub.remove(this);
   }
 
   /**
@@ -453,22 +462,22 @@ class Channel {
       for (const p of this.out) {
         env.cancel(p.wait);
         p.wait = null;
-        if (p.seq) hub.put({ kind: "msg", ch: this.ch, seq: p.seq, value: p.v });
+        if (p.seq) this.hub.put({ kind: "msg", ch: this.ch, seq: p.seq, value: p.v });
       }
       this.pump();
     } else if (k === "refused") {
-      hub.chans.delete(this.ch);
+      this.hub.chans.delete(this.ch);
       this.ch = 0;
       if (this.opening) this.fail(refusal(f.error));
       else if (this.token && f.error?.code === "not_found") {
         // The server forgot it (past the window, a deploy, another replica): open it again.
         this.token = null;
-        hub.attach(this);
+        this.hub.attach(this);
       } else this.end(3, false);
     } else if (k === "msg") {
       if (f.seq <= this.got) return;
       this.got = f.seq;
-      hub.receipt();
+      this.hub.receipt();
       let v;
       try {
         v = this.codec.decode(f.value);
@@ -497,7 +506,9 @@ class Channel {
  * backoff while channels live, resuming or restarting each.
  */
 class Hub {
-  constructor() {
+  /** @param {unknown} b the browser ({@link env}) */
+  constructor(b) {
+    this.b = b;
     this.ws = null;
     this.up = false;
     /** Channels by number on the current socket, and every channel not closed for good. */
@@ -517,7 +528,7 @@ class Hub {
     /** The mirror's user the socket was opened under. */
     this.user = null;
     const g = globalThis;
-    const now = () => this.live.size && !this.ws && !this.hidden && env.online() && this.connect();
+    const now = () => this.live.size && !this.ws && !this.hidden && env.online(b) && this.connect();
     this.off = [
       [g, "online", now],
       [g, "k-online", now],
@@ -535,7 +546,7 @@ class Hub {
     // A change of session replaces the socket: its channels restart under the new one.
     this.dispose = root((dispose) => {
       effect(() => {
-        const user = JSON.stringify(sessionMirror.get().user ?? null);
+        const user = JSON.stringify(env.mirror(b).get().user ?? null);
         untrack(() => {
           if (this.ws && user !== this.user) {
             for (const c of this.live) c.token = null;
@@ -578,10 +589,10 @@ class Hub {
   connect() {
     env.cancel(this.timer);
     this.timer = null;
-    this.user = JSON.stringify(sessionMirror.peek().user ?? null);
+    this.user = JSON.stringify(env.mirror(this.b).peek().user ?? null);
     let s;
     try {
-      s = this.ws = env.socket();
+      s = this.ws = env.socket(this.b);
     } catch {
       return this.drop(null, 1006, "");
     }
@@ -651,7 +662,7 @@ class Hub {
     if (f.kind === "beat") {
       this.put({ kind: "beat" });
       this.confirm();
-    } else if (f.kind === "session") takeMirror(JSON.stringify({ user: f.user }));
+    } else if (f.kind === "session") env.take(this.b, JSON.stringify({ user: f.user }));
     else this.chans.get(f.ch)?.frame(f);
   }
 
@@ -695,6 +706,6 @@ class Hub {
     const at = { $: 2, attempt: n, at: new Instant(env.now() + delay) };
     for (const c of this.live) c.st.set(at);
     if (now) this.connect();
-    else if (!this.hidden) this.timer = env.after(delay, () => (this.timer = null, env.online() && this.connect()));
+    else if (!this.hidden) this.timer = env.after(delay, () => (this.timer = null, env.online(this.b) && this.connect()));
   }
 }

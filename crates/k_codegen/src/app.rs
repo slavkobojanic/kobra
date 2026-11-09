@@ -1017,6 +1017,10 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         "k.test.TestWakeLock" => crate::suite::kit_call("testWakeLock", vec![]),
         "k.test.TestPageVisibility" => crate::suite::kit_call("testPageVisibility", vec![]),
         "k.test.TestConnectivity" => crate::suite::kit_call("testConnectivity", vec![]),
+        // The test's in-process channel socket and its other browsers
+        // (44-channels.md, "Testing").
+        "k.test.TestChannels" => crate::suite::kit_call("testChannels", vec![]),
+        "k.test.TestPeers" => crate::suite::kit_call("testPeers", vec![]),
         "k.test.TestPreferences" => crate::suite::kit_call("testPreferences", vec![]),
         "k.test.TestViewport" => crate::suite::kit_call("testViewport", vec![]),
         "k.test.MemoryStorage" => crate::suite::kit_call(

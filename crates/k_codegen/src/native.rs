@@ -419,6 +419,17 @@ pub(crate) fn method(
             "distinct",
             vec![recv, Expr::Bool(b.g.is_primitive_key(&elem))],
         ),
+        // A client of the protocol the call is used as, under the peer's
+        // session (44-channels.md, "TestPeer"): the browser's stub, which
+        // the kit binds to the peer.
+        ("k.test.TestPeer", "client") => {
+            let p = result.decl()?;
+            let stub = b.use_decl(p, format!("{}$client", b.g.name(p)));
+            call(
+                member(recv, "client"),
+                vec![Expr::New(Box::new(stub), vec![])],
+            )
+        }
         ("k.core.List", "indexWhere") => rt("indexWhere", vec![recv, f0()]),
         ("k.core.List", "firstWhere") => {
             let nested = matches!(elem, Type::Optional(_));
@@ -811,6 +822,17 @@ pub(crate) fn construct(
             ],
             false,
         ),
+        // A scripted channel (44-channels.md, "TestChannel"): the kit's,
+        // given the refusal enum `E` so a closed channel throws its
+        // `rpcFailure(.offline)`.
+        "k.test.TestChannel" => {
+            let e = result
+                .args()
+                .get(2)
+                .and_then(Type::decl)
+                .map_or(Expr::Null, |d| b.decl_ref(d));
+            crate::suite::kit_call("testChannel", vec![e])
+        }
         "k.http.HttpResponse" => http_native(b, "HttpResponse", "init", vec![a0]),
         "k.core.Secret" => Expr::New(Box::new(member(id("$k"), "Secret")), vec![a0]),
         _ => return None,

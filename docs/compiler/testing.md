@@ -1715,7 +1715,8 @@ through `ServerOptions::channels`.
   found, unless `K_REQUIRE_CHROME=1`.
 - **Example apps:** each app under `examples/` has its own K tests and is built and smoke-tested by the
   e2e suite (§8.1). `k test` runs both sides of them (§8.4), and every example's own tests pass:
-  `todos`, `weather`, `notes`, `kanban`, and every member of the workspaces `shop` and `stack`.
+  `todos`, `weather`, `notes`, `huddle`, `kanban`, and every member of the workspaces `shop` and `stack`.
+  `examples.rs` also builds huddle's `dist/app` and talks to a room over a raw WebSocket.
 
 ### 8.4 `k test` and the project commands
 
@@ -1758,7 +1759,10 @@ format change is a reviewed diff):
   `messages`, and `KeepScreenAwake` against `TestWakeLock`; and `fixtures/notifying`, every test must
   pass: `Notifications` against `TestNotifications`, the prompt from a click, a show that never prompts,
   refused, dismissed and blocked permissions, a click opening the notification's page, and a
-  `SystemNotification` with its page through JSON): each bug of the test bundle or
+  `SystemNotification` with its page through JSON; and `fixtures/realtime`, every test must pass: channels
+  in-process through `TestChannels` (resume without loss, a restart with a new snapshot, offline, hours
+  of heartbeats, `open`), `TestPeers` (a second browser posting, refused, a guest, sessions ended by
+  `endAll` and by the peer's own sign-out) and `TestChannel` for a service alone): each bug of the test bundle or
   the kit that an example exposed, pinned before it was fixed: a chained enum page parameter given as an
   implicit member, `Page.x` with only optional parameters, a group helper named like the tested
   service's function, a labelled argument after a default, `expect throws` checking the case, a

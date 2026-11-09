@@ -447,6 +447,16 @@ unpinned = [
     "the screen stays on in a real browser (wakelock.test.js scripts `navigator.wakeLock`; no real-browser test holds the screen)",
 ]
 
+[pages."apps/channels.md"]
+commit = "5d4c801"
+date = "2026-11-10"
+note = "new with the channels' test helpers and examples/huddle; written against the working tree on top of 5d4c801, the behaviour checked with `k test` on crates/k_cli/tests/fixtures/realtime and examples/huddle, `k dev` on huddle, and huddle's dist/app over a raw WebSocket (examples.rs)"
+unpinned = [
+    "the backoff delays (0.5 s up to 30 s) and retrying when the page becomes visible are pinned by channel-client.test.js, not by a test of an app",
+    "the per-session socket limit (16) and per-socket channel limit (32) are pinned by channel_server.rs, not by a test of an app",
+    "the nginx lines of the deployment chapter aren't run by any test",
+]
+
 [pages."apps/testing.md"]
 commit = "0dd7625"
 date = "2026-11-09"
@@ -511,6 +521,14 @@ commit = "0dd7625"
 date = "2026-11-09"
 unpinned = [
     "`k dev` at the root serves paybox on the first port and shop on the next",
+]
+
+[pages."examples/huddle.md"]
+commit = "5d4c801"
+date = "2026-11-10"
+note = "new with examples/huddle; written against the working tree on top of 5d4c801; `k dev`, `k test` and `k build` run on the example"
+unpinned = [
+    "stopping and restarting `k dev` while a room is open shows Reconnecting…, then the new snapshot (seen by hand in development, not in a browser test)",
 ]
 
 [pages."examples/kanban.md"]

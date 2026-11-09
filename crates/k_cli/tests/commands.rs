@@ -1169,6 +1169,15 @@ fn test_runs_the_notes_example() {
 }
 
 #[test]
+fn test_runs_the_huddle_example() {
+    // Channels end to end in-process: two people in one room through
+    // `TestPeers`, the dropped, forgotten and offline connection through
+    // `TestChannels` and `TestConnectivity`, and `RoomService` alone
+    // against a `TestChannel`.
+    assert_example_passes("huddle");
+}
+
+#[test]
 fn test_runs_the_kanban_example() {
     // Drag and drop with the pointer and the keyboard, keyboard shortcuts,
     // @Form card editing, import and export through TestFiles, local
@@ -1307,6 +1316,31 @@ fn test_messages_tabs_and_keeps_the_screen_on_through_their_doubles() {
         "PASS  CartBadge › a change another tab posts updates this one",
         "PASS  CartFeed › an effect follows the other tabs' messages",
         "PASS  Recipe › the screen stays on only while the step-by-step mode is shown",
+    ] {
+        assert!(text.contains(name), "{name}\n{text}");
+    }
+}
+
+#[test]
+fn test_runs_channels_in_process_with_peers_and_scripted_channels() {
+    // Channels in `k test` (44-channels.md, "Testing"): `TestChannels`
+    // drops the in-process socket (resume without loss, a restart with a
+    // new snapshot, offline through `TestConnectivity`, heartbeats over
+    // hours of virtual time), `TestPeers` adds a second browser with its
+    // own session against the same server, and `TestChannel` scripts a
+    // channel for a client service alone.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/realtime");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("17 passed; 0 failed"), "{text}");
+    for name in [
+        "PASS  Lobby › a dropped connection shows a banner and resumes without losing a line",
+        "PASS  Lobby › a channel the server forgot restarts with a new snapshot",
+        "PASS  Peers › a line said by one person appears for another",
+        "PASS  Peers › ending a person's sessions elsewhere closes their channels",
+        "PASS  LobbyService › a dropped channel reconnects, and sends wait for it",
     ] {
         assert!(text.contains(name), "{name}\n{text}");
     }

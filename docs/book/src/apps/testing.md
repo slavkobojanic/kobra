@@ -223,6 +223,10 @@ the real time:
   `use TestClock for Clock`, is a warning (`K4014`) with a quick fix that removes it.
 - **Precedence:** a test group's `use` rules override the `App.k` rules for `.test`, which override these
   defaults.
+- **Channels run in-process too,** through the real frames and handlers. `TestChannels` drops the
+  test's connection, `TestPeers` signs a second person in, in another browser of the same test, and
+  `TestChannel<C, S, E>` scripts a channel for a client service alone
+  ([Channels](channels.md#testing)).
 
 ```k
 ~import k.text.EmailAddress

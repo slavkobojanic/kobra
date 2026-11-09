@@ -1,0 +1,12 @@
+# Format: docs/design/24-projects.md
+#
+# The manifest holds only what can't be expressed in K. The database URL comes
+# from the environment, never from this committed file (see .env.example and
+# docs/design/25-config-and-secrets.md).
+
+[package]
+name = "huddle"
+title = "Huddle"
+description = "A small team chat on channels: rooms, live messages over one WebSocket, reconnecting without losing any."
+k = "0.1"
+version = "0.1.0"
