@@ -658,3 +658,52 @@ test("drag(to:) presses, moves past the threshold onto the target, releases and 
     ["click", "B", 16, "mouse"],
   ]);
 });
+
+test("the environment doubles start capable and change one fact at a time, flushing", () => {
+  const visibility = kit.testPageVisibility();
+  const connectivity = kit.testConnectivity();
+  const preferences = kit.testPreferences();
+  const viewport = kit.testViewport();
+  const seen = [];
+  root(() => effect(() => seen.push([visibility.isVisible, connectivity.isOnline, preferences.prefersDark, viewport.size.width])));
+  flush();
+  visibility.hide();
+  connectivity.goOffline();
+  preferences.set$prefersDark(true);
+  viewport.resize("390px", "844px");
+  assertDeepEq(seen, [
+    [true, true, false, "1280px"],
+    [false, true, false, "1280px"],
+    [false, false, false, "1280px"],
+    [false, false, true, "1280px"],
+    [false, false, true, "390px"],
+  ]);
+  assertEq(viewport.pointer, unitCase(0));
+  assertEq(viewport.canHover, true);
+  viewport.set$pointer(unitCase(1));
+  viewport.set$canHover(false);
+  assertEq(viewport.pointer, unitCase(1));
+  assertEq(viewport.canHover, false);
+  assertDeepEq([preferences.prefersReducedMotion, preferences.prefersMoreContrast, preferences.forcedColors], [false, false, false]);
+  connectivity.goOnline();
+  assert(connectivity.isOnline);
+});
+
+test("handles drive the fake observers: nothing appears or resizes unless a test says so", () => {
+  installDom();
+  kit.installBrowser("Kit › observers");
+  kit.begin({});
+  const seen = [];
+  const screen = kit.render(() => {
+    const p = document.createElement("p");
+    p.textContent = "Footer";
+    new globalThis.IntersectionObserver((entries) => seen.push(entries[0].isIntersecting)).observe(p);
+    new globalThis.ResizeObserver((entries) => seen.push(entries[0].contentRect.width)).observe(p);
+    return p;
+  });
+  assertDeepEq(seen, []);
+  screen.text("Footer").appear();
+  screen.text("Footer").disappear();
+  screen.text("Footer").resize("320px", "200px");
+  assertDeepEq(seen, [true, false, 320]);
+});

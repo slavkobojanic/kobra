@@ -806,6 +806,13 @@ fn server_platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Option<Expr
         ),
         // The test's virtual clock, shared with its browser container.
         "k.test.TestClock" => srt("clock", vec![this("$r")]),
+        // Server values of the environment services (45-web-platform.md,
+        // "Server rendering and the server").
+        "k.device.Preferences" => srt("serverPreferences", vec![this("$r")]),
+        "k.device.PageVisibility" | "k.device.Connectivity" | "k.device.Viewport" => srt(
+            "serverEnvironment",
+            vec![js::str(qualified.rsplit('.').next().unwrap_or_default())],
+        ),
         // The verified caller of a `ServiceAuthenticated` rpc.
         "k.rpc.ServiceCaller" => srt("serviceCaller", vec![this("$r")]),
         "k.test.TestClient" => {

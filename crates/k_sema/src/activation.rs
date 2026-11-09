@@ -413,7 +413,14 @@ impl Walk<'_, '_> {
     fn lambda(&mut self, n: &SyntaxNode) {
         let kind = match self.site(n) {
             Site::Action => Kind::Action,
-            Site::Handler(event) => Kind::Not(format!("a `{event}` handler")),
+            Site::Handler(event) => {
+                let article = if event.starts_with(['a', 'e', 'i', 'o', 'u']) {
+                    "an"
+                } else {
+                    "a"
+                };
+                Kind::Not(format!("{article} `{event}` handler"))
+            }
             Site::Value => match &self.outer {
                 Some(reason) => Kind::Not(reason.clone()),
                 None if timer_callback(n) => Kind::Not("a timer callback".into()),

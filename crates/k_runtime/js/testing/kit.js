@@ -12,8 +12,11 @@
  *   synchronous updates.
  * - The hermetic defaults of `k.test`: `TestClock` (virtual time),
  *   `MemoryStorage`, `TestHttpClient`, `TestFiles`, `TestClipboard`,
- *   `TestShare`, `TestGeolocation`, `RecordingJobQueue`
- *   and `RecordingEmailProvider`.
+ *   `TestShare`, `TestGeolocation`, `TestPageVisibility`,
+ *   `TestConnectivity`, `TestPreferences`, `TestViewport`,
+ *   `RecordingJobQueue` and `RecordingEmailProvider`.
+ * - Fake `IntersectionObserver` and `ResizeObserver`, which report only
+ *   what a handle's `appear`, `disappear` and `resize` say.
  * - `fail` and `failThrows`: a failed `expect`, as a panic carrying the
  *   expectation's source range and the values of its sub-expressions.
  * - `run`: runs the selected tests of the generated groups, each with a
@@ -41,7 +44,7 @@ import { install as installDom } from "./dom.js";
  * The running test: its container, its screens, and the errors thrown by
  * work it scheduled (effects flushed in a microtask).
  */
-let current = { container: null, screens: [], errors: [], clock: null, server: null };
+let current = { container: null, screens: [], errors: [], clock: null, server: null, offline: false };
 
 /**
  * Starts a test with `container` (the generated browser container): the
@@ -52,7 +55,7 @@ let current = { container: null, screens: [], errors: [], clock: null, server: n
  * @param {object|null} [server]
  */
 export function begin(container, clock = null, server = null) {
-  current = { container, screens: [], errors: [], clock, server };
+  current = { container, screens: [], errors: [], clock, server, offline: false };
 }
 
 /**
@@ -461,7 +464,9 @@ export function testRandom() {
  * `00000000-0000-4000-8000-000000000001`), `crypto.getRandomValues` and
  * `Math.random` drawing from the test's random source seeded with `seed`
  * ({@link seededRandom}), `location` at `/`, `history`, `matchMedia`
- * (nothing matches) and an empty `document.title`.
+ * (nothing matches), an `IntersectionObserver` and a `ResizeObserver` that
+ * report nothing until a handle says so ({@link FakeObserver}), and an
+ * empty `document.title`.
  * @param {string} [seed] the test's full name
  */
 export function installBrowser(seed = "") {
@@ -493,8 +498,58 @@ export function installBrowser(seed = "") {
     },
   };
   globalThis.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  // New classes per test, so the runtime's shared observers are made again.
+  watching = new Map();
+  globalThis.IntersectionObserver = class extends FakeObserver {};
+  globalThis.ResizeObserver = class extends FakeObserver {};
   globalThis.addEventListener ??= () => {};
   globalThis.document.title = "";
+}
+
+/**
+ * The elements the fake observers watch, each with its observers; made
+ * again by each test's `installBrowser`.
+ * @type {Map<object, Set<FakeObserver>>}
+ */
+let watching = new Map();
+
+/**
+ * An `IntersectionObserver` or `ResizeObserver` with no layout behind it
+ * (45-web-platform.md, "Tests"): it reports an element only when a
+ * handle's `appear()`, `disappear()` or `resize(width:height:)` says so.
+ */
+class FakeObserver {
+  /** @param {(entries: object[], observer: object) => void} callback */
+  constructor(callback) {
+    this.callback = callback;
+  }
+  /** Watches `el`. */
+  observe(el) {
+    if (!watching.has(el)) watching.set(el, new Set());
+    watching.get(el).add(this);
+  }
+  /** Stops watching `el`. */
+  unobserve(el) {
+    watching.get(el)?.delete(this);
+  }
+  /** Stops watching everything. */
+  disconnect() {
+    for (const set of watching.values()) set.delete(this);
+  }
+}
+
+/**
+ * Reports `entry` for `el` to every observer of class `C` watching it,
+ * then flushes the updates its handlers made.
+ * @param {object} el
+ * @param {Function} C `IntersectionObserver` or `ResizeObserver`
+ * @param {object} entry
+ */
+function report(el, C, entry) {
+  for (const o of [...(watching.get(el) ?? [])]) {
+    if (o instanceof C) o.callback([{ target: el, ...entry }], o);
+  }
+  flush();
 }
 
 /** Unmounts every view the running test rendered. */
@@ -1016,6 +1071,30 @@ class Handle extends Queries {
    * where the browser would (the click a drag ends with, which the drag
    * swallows).
    */
+  /**
+   * Makes the element appear in the viewport: every intersection observer
+   * watching it reports it fully visible (45-web-platform.md, "Element
+   * events").
+   */
+  appear() {
+    report(this.one(), globalThis.IntersectionObserver, { isIntersecting: true, intersectionRatio: 1 });
+  }
+
+  /** Makes the element leave the viewport. */
+  disappear() {
+    report(this.one(), globalThis.IntersectionObserver, { isIntersecting: false, intersectionRatio: 0 });
+  }
+
+  /**
+   * Gives the element's content box a new size: every resize observer
+   * watching it reports it.
+   * @param {string} width a `Length` in pixels (`"320px"`)
+   * @param {string} height
+   */
+  resize(width, height) {
+    report(this.one(), globalThis.ResizeObserver, { contentRect: { width: Number.parseFloat(width), height: Number.parseFloat(height) } });
+  }
+
   drag(target) {
     const from = this.one();
     const to = target.one();
@@ -1501,6 +1580,86 @@ export function testGeolocation() {
 }
 
 /**
+ * `k.test.TestPageVisibility` (45-web-platform.md, "Page visibility"): the
+ * page is visible until `hide()`. Each change flushes, so the test reads
+ * the updated view at once.
+ */
+export function testPageVisibility() {
+  const visible = signal(true);
+  const set = (v) => (visible.set(v), flush());
+  return {
+    get isVisible() {
+      return visible.get();
+    },
+    hide: () => set(false),
+    show: () => set(true),
+  };
+}
+
+/**
+ * `k.test.TestConnectivity` (45-web-platform.md, "Connectivity"): online
+ * until `goOffline()`, which also makes the browser's requests fail as
+ * without a network (so its rpcs throw `rpcFailure(.offline)`) until
+ * `goOnline()`.
+ */
+export function testConnectivity() {
+  const online = signal(true);
+  const set = (v) => {
+    current.offline = !v;
+    online.set(v);
+    flush();
+  };
+  return {
+    get isOnline() {
+      return online.get();
+    },
+    goOffline: () => set(false),
+    goOnline: () => set(true),
+  };
+}
+
+/**
+ * `k.test.TestPreferences` (45-web-platform.md, "Preferences"): every
+ * preference `false` until the test sets it (`set(prefersDark:)` is
+ * `set$prefersDark`).
+ */
+export function testPreferences() {
+  const t = {};
+  for (const name of ["prefersDark", "prefersReducedMotion", "prefersMoreContrast", "forcedColors"]) {
+    const s = signal(false);
+    Object.defineProperty(t, name, { get: () => s.get(), enumerable: true });
+    t[`set$${name}`] = (v) => (s.set(v === true), flush());
+  }
+  return t;
+}
+
+/**
+ * `k.test.TestViewport` (45-web-platform.md, "Viewport"): 1280×800, a
+ * fine pointer (`PointerKind` `unitCase(0)`) that can hover, until the test
+ * changes one.
+ */
+export function testViewport() {
+  const size = signal({ width: "1280px", height: "800px" });
+  const pointer = signal(unitCase(0));
+  const hover = signal(true);
+  const set = (s, v) => (s.set(v), flush());
+  return {
+    get size() {
+      return size.get();
+    },
+    get pointer() {
+      return pointer.get();
+    },
+    get canHover() {
+      return hover.get();
+    },
+    resize: (width, height) => set(size, { width, height }),
+    set$pointer: (p) => set(pointer, p),
+    set$canHover: (v) => set(hover, v === true),
+  };
+}
+
+/**
  * `Position.sample(latitude:longitude:)`: a position with 1 km accuracy
  * and nothing else known, measured at the test's clock.
  * @param {number} latitude
@@ -1710,7 +1869,9 @@ export async function run(groups, selected, server = null, routes = []) {
           await st.load();
           T.direct = st;
           direct = T.container(st);
-          globalThis.fetch = (url, init) => T.fetch(url, init);
+          // `TestConnectivity.goOffline()` fails the browser's requests as
+          // a device without a network does.
+          globalThis.fetch = (url, init) => (current.offline ? Promise.reject(new TypeError("Failed to fetch")) : T.fetch(url, init));
         }
         begin(null, clock, direct);
         const container = g.container();

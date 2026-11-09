@@ -209,8 +209,7 @@ fn events_of(
             return Ok(Vec::new());
         };
         return Ok(def
-            .events
-            .iter()
+            .all_events()
             .map(|e| event_item(e.name, Some(e.payload.to_owned()), None))
             .map(|mut i| {
                 i.documentation = Some(format!(

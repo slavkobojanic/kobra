@@ -1,0 +1,4 @@
+error[K2001] 8:27-8:34: expected `Length`, found `String`
+error[K2001] 10:30-10:33: expected `Percent`, found `Double`
+error[K2001] 12:26-12:57: expected `(k.ui.ElementSize) async -> Void`, found `(Int) async -> Void`
+error[K3105] 14:17-14:25: `paragraph` has no event `scrolled`: its events are `click`, `mouseEnter`, `mouseLeave`, `appeared`, `disappeared`, `resized`

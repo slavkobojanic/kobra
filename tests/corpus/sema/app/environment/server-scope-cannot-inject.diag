@@ -1,0 +1,2 @@
+error[K4004] 7:31-7:43: a `.server` service can't inject `k.device.Connectivity`, which is `.app` and may end sooner
+  note: corpus.Warmup → k.device.Connectivity

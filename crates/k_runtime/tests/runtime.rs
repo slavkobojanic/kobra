@@ -10,10 +10,10 @@ use std::path::{Path, PathBuf};
 
 use k_runtime::{
     CHARTS_SIZE_BUDGET, CLIPBOARD_SIZE_BUDGET, CORE_SIZE_BUDGET, DRAG_SIZE_BUDGET,
-    FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET,
-    HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, MONEY_SIZE_BUDGET, Part, SERVICES_SIZE_BUDGET,
-    SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET, compact, compacted_sources, module,
-    modules, resolve,
+    ENVIRONMENT_SIZE_BUDGET, FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET,
+    GEOLOCATION_SIZE_BUDGET, HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, MONEY_SIZE_BUDGET,
+    OBSERVE_SIZE_BUDGET, Part, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
+    STREAMS_SIZE_BUDGET, compact, compacted_sources, module, modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -176,6 +176,8 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Clipboard
                 | Part::Share
                 | Part::Geolocation
+                | Part::Environment
+                | Part::Observe
                 | Part::Keys
                 | Part::Streams
                 | Part::Http
@@ -396,6 +398,36 @@ fn geolocation_meets_its_size_budget() {
 }
 
 #[test]
+fn the_environment_services_meet_their_size_budget() {
+    let environment = compacted_sources(&[Part::Environment]).expect("compacts");
+    let size = gzip_len(&environment);
+    eprintln!(
+        "environment: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {ENVIRONMENT_SIZE_BUDGET})",
+        raw_len(&[Part::Environment]),
+        environment.len()
+    );
+    assert!(
+        size <= ENVIRONMENT_SIZE_BUDGET,
+        "the environment services are {size} bytes gzip, over the {ENVIRONMENT_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn the_element_events_meet_their_size_budget() {
+    let observe = compacted_sources(&[Part::Observe]).expect("compacts");
+    let size = gzip_len(&observe);
+    eprintln!(
+        "element events: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {OBSERVE_SIZE_BUDGET})",
+        raw_len(&[Part::Observe]),
+        observe.len()
+    );
+    assert!(
+        size <= OBSERVE_SIZE_BUDGET,
+        "the element events are {size} bytes gzip, over the {OBSERVE_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
 fn keyboard_shortcuts_meet_their_size_budget() {
     let keys = compacted_sources(&[Part::Keys]).expect("compacts");
     let size = gzip_len(&keys);
@@ -542,6 +574,8 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::Clipboard
                 | Part::Share
                 | Part::Geolocation
+                | Part::Environment
+                | Part::Observe
                 | Part::Keys
                 | Part::Streams
                 | Part::Forms

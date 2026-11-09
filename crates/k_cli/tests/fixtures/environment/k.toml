@@ -1,0 +1,7 @@
+# The environment services and element events with their test doubles
+# (docs/design/45-web-platform.md, "Page visibility", "Connectivity",
+# "Preferences", "Viewport", "Element events"; docs/compiler/testing.md
+# §8.4): every test here must pass.
+[package]
+name = "environment"
+k = "0.1"

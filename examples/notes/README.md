@@ -22,6 +22,7 @@ It is a teaching example. Every file is meant to show one part of the language t
 | `@Load` with `loading` and an exhaustive `failed` block that answers `404`, sets its own title and retries with `reload()` | `src/notes/EditNote.k` |
 | Structs (wire types, form values, a typed id), enums with associated data, an `interface` with a default method | `src/notes/NoteSummary.k`, `src/notes/NoteChange.k`, `src/search/Searchable.k` |
 | Typed, checked errors and exhaustive `catch`, including the `rpcFailure(RpcFailure)` case every rpc has, for refused, invalid and offline calls, and `RpcOnlyError` for rpcs with no errors of their own | `src/notes/SaveError.k`, `src/notes/NotesProtocol.k`, `src/notes/EditNote.k`, `src/notes/Notes.k`, `src/notes/NotesService.k` |
+| An offline banner from the reactive `Connectivity` service, tested with `TestConnectivity.goOffline()`, which also fails the test's rpcs | `src/shell/OfflineBanner.k`, `src/shell/OfflineBanner.test.k`, `src/notes/NewNote.test.k` |
 | The injected `Clock` for timestamps and relative times, and `TestClock` in tests | `src/notes/NotesApi.k`, `src/accounts/AuthApi.k`, `src/notes/NoteCard.k`, `src/notes/NoteCard.test.k` |
 | `@Emits` events, function-typed props, typed scoped styles, theme tokens, ARIA attributes, `VisuallyHidden` | `src/notes/NoteCard.k`, `src/notes/NoteEditor.k`, `src/shell/NotesTheme.k` |
 | Integration tests on the real stack in-process, component and page tests, and fixtures in a test-only module | every `*.test.k`, `src/testing/Samples.k` |
@@ -172,6 +173,7 @@ Calls in tests run in-process, so `.offline` and `.timeout` never happen there, 
 | [16-modules.md](../../docs/design/16-modules.md) | member visibility, the test-only `testing` module |
 | [39-doc-comments.md](../../docs/design/39-doc-comments.md) | `///` documentation comments |
 | [21-testing.md](../../docs/design/21-testing.md) | screen queries, `settle()`, `currentPage`, hermetic defaults, test-file helpers, fixtures |
+| [45-web-platform.md](../../docs/design/45-web-platform.md) | `Connectivity` and the offline banner, `TestConnectivity` |
 | [35-time.md](../../docs/design/35-time.md) | the injected `Clock`, `formatted(as: .relative, from:)`, `TestClock` |
 | [05-views.md](../../docs/design/05-views.md) | `.pressed`, `.role`, `.label`, `VisuallyHidden` |
 | [14-async-data.md](../../docs/design/14-async-data.md), [22-metadata.md](../../docs/design/22-metadata.md) | `@Load`, `failed`, `reload()`, `status(.notFound)`, metadata when a load fails |

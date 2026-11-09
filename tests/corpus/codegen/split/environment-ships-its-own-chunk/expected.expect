@@ -1,0 +1,12 @@
+# docs/design/45-web-platform.md, docs/compiler/codegen.md §16: the environment services are the
+# environment chunk's, which only an app whose client injects one ships; the server answers them
+# with its own values (online, preferences from the client hints).
+client contains // file: environment.[hash].js
+client contains import { Connectivity, Preferences } from "./environment.[hash].js";
+client contains get Connectivity() {
+client contains export function Connectivity(
+client lacks $k.native("k.device.
+client lacks geolocation.[hash].js
+client lacks observe.[hash].js
+server contains $s.serverEnvironment("Connectivity")
+server contains $s.serverPreferences(this.$r)

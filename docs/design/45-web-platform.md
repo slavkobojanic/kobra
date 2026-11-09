@@ -566,6 +566,13 @@ public service PageVisibility {
 
 **Test double: `TestPageVisibility`:** `hide()`, `show()`.
 
+*As built* (`crates/k_runtime/js/runtime/environment.js`, the `environment` feature chunk, shared by the four environment services; the doubles in the test kit):
+
+- **The four services share one chunk,** not one each: each is a signal or three over the same hydration helper (about 250 B gzip apiece), too small to be worth a request of its own, and an app that uses one usually uses another. The chunk ships only to apps whose client injects one of them; its budget is 1.25 KB (1,016 B as built).
+- **While the first page hydrates, every member answers the server's value,** and takes the browser's once the pass is over (`afterHydration`), so a view that read it re-renders as an expected update, as [server rendering](#server-rendering-and-the-server) says.
+- **The back-forward cache:** `pageshow` re-reads `isVisible`. Reopening streams on restore is the channels' and streams' work ([44-channels.md](44-channels.md)), not this service's, and isn't built here.
+- **The doubles flush after each change,** so a test reads the updated view right after `visibility.hide()` without a `settle()`.
+
 ## Connectivity
 
 ```k
@@ -589,6 +596,12 @@ public service Connectivity {
 
 **Test double: `TestConnectivity`:** `goOffline()`, `goOnline()`. `goOffline()` also makes the test's rpcs from the browser container fail with `rpcFailure(.offline)`, and drops its channel socket without reconnecting, until `goOnline()`, so an offline test needs one line. It is the only offline switch in `k test`; `TestChannels` ([44](44-channels.md#testchannels-the-tests-connection)) only drops sockets.
 
+*As built:*
+
+- **A failed rpc is seen by wrapping `fetch`,** not by the rpc client: the service, when constructed, wraps the page's `fetch` so that a request to the app's own server (a path starting with `/`) that rejects for any reason but an abort sets `isOnline` to `false`, and one that gets any response sets it to `true`. The full client runtime had 2 B of its budget left, so the rpc client couldn't grow a hook, and this keeps every byte in the feature chunk. Requests to other origins don't count: a CORS refusal from a third-party API looks the same as no network. Until something injects `Connectivity` there is nothing to update, so nothing is wrapped.
+- **Channels aren't built yet,** so neither the reconnect-sets-offline rule nor `goOffline()` dropping a channel socket exists; both belong to the channels work.
+- **The notes example** ([implementation tests](#implementation-tests) item 4) shows a banner in its layout while `isOnline` is `false`; `NewNote` already said when a save couldn't reach the server, and its test now goes offline with `TestConnectivity`. Its real-Chrome test takes the browser offline with `Network.emulateNetworkConditions`, which sets `navigator.onLine` and fires `offline` as a real disconnection does.
+
 ## Preferences
 
 ```k
@@ -607,6 +620,11 @@ public service Preferences {
 - **During server rendering** the server uses the `Sec-CH-Prefers-Color-Scheme` and `Sec-CH-Prefers-Reduced-Motion` client hints, which the runtime asks for with `Accept-CH` and which Chromium sends from the second request on; without them every member is `false`. After hydration the real values apply, as an expected update.
 
 **Test double: `TestPreferences`:** `set(prefersDark:)`, `set(prefersReducedMotion:)`, `set(prefersMoreContrast:)`, `set(forcedColors:)`. All are `false` by default.
+
+*As built:*
+
+- **The server asks for the hints only once a render reads `Preferences`:** the response then carries `Accept-CH` and `Vary` naming `Sec-CH-Prefers-Color-Scheme` and `Sec-CH-Prefers-Reduced-Motion`, and its `k-data` the two values it rendered with (`p`), which the browser keeps until hydration has finished. Pages that never read it ask for nothing and don't vary.
+- **`k.animation` doesn't exist yet,** so the rule that it reads `prefersReducedMotion` itself waits for it.
 
 ## Viewport
 
@@ -631,6 +649,11 @@ public enum PointerKind { case fine, coarse, none }
 - `size` is the layout viewport (`innerWidth`, `innerHeight`); the on-screen keyboard's visual viewport is an [open question](#open-questions).
 
 **Test double: `TestViewport`:** `resize(width:height:)`, `set(pointer:)`, `set(canHover:)`; 1280×800, `.fine`, `true` by default.
+
+*As built:*
+
+- **`size`, `pointer` and `canHover` are each a signal,** refreshed together at most once per animation frame after a `resize` or a `change` of the `pointer` and `hover` media queries; a value equal to the old one notifies nobody, so a resize that ends where it started re-runs nothing.
+- **`Length` has no arithmetic or comparison yet,** so code compares a size with `==` (`viewport.size == ViewportSize(width: 390px, height: 844px)`) or shows it; "how many labels fit" needs `Length` to grow `<` and division, which this round didn't add.
 
 ## Element events
 
@@ -668,6 +691,15 @@ view {
 - **`resized` is for measurements CSS can't use** (how many columns of a canvas, a chart's width). Container queries handle layout.
 - `ElementSize` has `width` and `height` as `Length` in CSS pixels.
 - **Tests:** `handle.appear()`, `handle.disappear()` and `handle.resize(width:height:)` fire the events on the element the handle matches; nothing appears in the fake DOM unless a test says so.
+
+*As built* (`crates/k_runtime/js/runtime/observe.js`, a runtime feature with a chunk of its own, `observe.[hash].js`, routed like `forms`; budget 1 KB, 728 B as built):
+
+- **The three events and two options are in the element table** (`UNIVERSAL_EVENTS` and `UNIVERSAL_ATTRIBUTES` in `k_sema`'s `elements.rs`), so every element accepts them, with `ElementSize` in `k.ui`. Neither option becomes an HTML attribute; each `.on(…)` lowers to `$k.observeElement(el, event, handler, threshold, margin)`.
+- **`appeared` and `disappeared` follow a per-element state:** an element is visible when the entry intersects with at least the threshold; `appeared` runs on a change to visible and `disappeared` on a change back, so the observer's first report of an element off screen runs nothing, and `disappeared` never runs before `appeared`.
+- **Observing starts when the element is created,** not a microtask later: the browser reports nothing until the element is in the document, which is after mount, and a test can act on a handle right after `render`.
+- **An async `resized` handler** receives the size after its owner's lifetime, as async handlers of other events receive nothing.
+- **The test kit's observers** are fake `IntersectionObserver` and `ResizeObserver` classes installed per test; the handle actions report through them, so the state rules above run in `k test` as in the browser.
+- **`appeared` isn't a user-action context:** a `@UserAction` call from it is `K4030`, as from any non-activation handler; the message now reads "an `appeared` handler".
 
 ## `KeepScreenAwake`
 
@@ -775,6 +807,8 @@ Built tests first, in this order:
 2. **Typed detection and permissions:** `PermissionState`, the error conventions, and the server-render rule that `isSupported` and `permission` may be read during server rendering while every other member is `K4012`.
 3. **Each wrapper's double and binding:** a `k test` corpus per wrapper using its double, and a runtime test per binding against a scripted fake of the browser API.
 4. **Examples:** the weather app's "Use my location", a `CopyButton` in the kanban board's share panel, an offline banner in the notes app, cross-tab cart sync in the shop, `KeepScreenAwake` in a recipe step view.
+
+*As built (round 2c):* the environment services and element events, with their doubles, are built tests first: `crates/k_cli/tests/fixtures/environment` (`k test`), `tests/corpus/sema/app/environment` and the `split/environment-ships-its-own-chunk` and `split/element-events-ship-their-own-chunk` codegen cases, then `environment.test.js` and `observe.test.js` against scripted browsers, and the notes example's offline banner, checked in Chrome by `chrome.rs`'s `notes_shows_an_offline_banner_while_the_network_is_gone`.
 
 ## Open questions
 

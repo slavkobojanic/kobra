@@ -397,9 +397,12 @@ fn element_table_is_sorted_and_names_existing_types() {
         }
     }
     for element in ELEMENTS {
-        for event in element.events {
+        for event in element.all_events() {
             for name in type_names(event.payload) {
-                assert!(known_type(&name, &[]), "event payload `{name}`");
+                assert!(
+                    known_type(&name, elements::TYPE_SCOPE),
+                    "event payload `{name}`"
+                );
             }
         }
         if let elements::Content::Only(children) = element.content {

@@ -5172,36 +5172,28 @@ error[K4005]: a component can't inject server infrastructure
 
 **Error.** Only a service's own methods can write its fields.
 
-Example (`tests/corpus/sema/app/services/state-plain-var-field.k`):
+Example (`tests/corpus/sema/app/environment/members-are-read-only.k`):
 
 ```k,ignore
-// The rule covers plain `var` fields, not only `@State`.
-service Retry {
-    var attempts: Int = 0
-}
+// The environment follows the browser: a view can't write it.
+import k.device.Connectivity
 
-component RetryButton {
-    @Inject let retry: Retry
-
-    func clear() {
-        retry.attempts = 0
-    }
+component Toggle {
+    @Inject let connectivity: Connectivity
 
     view {
-        button { "Clear" }
-            .on(click: clear)
+        button { "Pretend" }
+            .on(click: { connectivity.isOnline = false })
     }
 }
 ```
 
 ```text
-error[K4006]: only `Retry`'s own methods write its field `attempts`
-  --> src/corpus/state-plain-var-field.k:10:9
-   |
- 3 |     var attempts: Int = 0
-   |         -------- declared here
-10 |         retry.attempts = 0
-   |         ^^^^^^^^^^^^^^
+error[K4006]: only `Connectivity`'s own methods write its field `isOnline`
+ --> src/corpus/members-are-read-only.k:9:26
+  |
+9 |             .on(click: { connectivity.isOnline = false })
+  |                          ^^^^^^^^^^^^^^^^^^^^^
 ```
 
 **Fix:** Add a method to the service that makes the change, and call it.

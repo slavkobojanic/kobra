@@ -37,6 +37,16 @@ public class Element {
     /// onto `target` and releases there (`docs/design/41-drag-and-drop.md`,
     /// "Tests").
     func drag(to target: Element)
+    /// Makes the element appear in the viewport, firing its `appeared`
+    /// event (`docs/design/45-web-platform.md`, "Element events"). The
+    /// test DOM has no layout, so nothing appears unless a test says so.
+    func appear()
+    /// Makes the element leave the viewport, firing its `disappeared`
+    /// event.
+    func disappear()
+    /// Gives the element's content box a new size, firing its `resized`
+    /// event.
+    func resize(width: Length, height: Length)
 
     /// The heading whose accessible name is exactly `name`.
     func heading(named name: String) -> Element

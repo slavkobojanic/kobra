@@ -18,11 +18,15 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`TestClient`](#testclient) | Sends requests through the whole server stack in-process: routing, guards, server rendering and endpoint pages (`docs/design/21-testing.md`, "HTTP-level tests"). |
 | [`TestClipboard`](#testclipboard) | The default [`Clipboard`](k-device.md#clipboard) in `k test` (`docs/design/45-web-platform.md`, "Clipboard"): a clipboard in memory, empty for every test, never the machine's. |
 | [`TestClock`](#testclock) | Virtual time for tests, the default [`Clock`](k-time.md#clock) in `k test` (`docs/design/35-time.md`, "Testing with TestClock"). |
+| [`TestConnectivity`](#testconnectivity) | The default [`Connectivity`](k-device.md#connectivity) in `k test` (`docs/design/45-web-platform.md`, "Connectivity"): the device is online until `goOffline()`. |
 | [`TestFiles`](#testfiles) | The default [`Files`](k-device.md#files) in `k test` (`docs/design/42-files.md`): no picker opens. |
 | [`TestGeolocation`](#testgeolocation) | The default [`Geolocation`](k-device.md#geolocation) in `k test` (`docs/design/45-web-platform.md`, "Geolocation"): no prompt opens and the machine's position is never read. |
 | [`TestHttpClient`](#testhttpclient) | The default [`HttpClient`](k-http.md#httpclient) in `k test`: it answers only requests it has a canned response for, and fails the test on any other. |
+| [`TestPageVisibility`](#testpagevisibility) | The default [`PageVisibility`](k-device.md#pagevisibility) in `k test` (`docs/design/45-web-platform.md`, "Page visibility"): the page is visible until `hide()`. |
+| [`TestPreferences`](#testpreferences) | The default [`Preferences`](k-device.md#preferences) in `k test` (`docs/design/45-web-platform.md`, "Preferences"): no preference is set until the test sets one. |
 | [`TestRemote`](#testremote) | The `.test` binding of every `remote` rule, also when the serving app is a member of the same workspace (`docs/design/40-workspaces-and-services.md`): an in-process double of protocol `P` whose every rpc fails with `rpcFailure(.offline)` ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so each service's tests stay hermetic and never open a socket. |
 | [`TestShare`](#testshare) | The default [`Share`](k-device.md#share) in `k test` (`docs/design/45-web-platform.md`, "Web Share"): no sheet opens; every share is recorded, and the user picks a target unless the test says otherwise. |
+| [`TestViewport`](#testviewport) | The default [`Viewport`](k-device.md#viewport) in `k test` (`docs/design/45-web-platform.md`, "Viewport"): a 1280×800 viewport with a fine pointer that can hover, until the test changes one. |
 
 ## Element
 
@@ -69,6 +73,16 @@ Every handle supports the queries of [`Screen`](#screen), scoped to its subtree.
   Drags the element onto `target` with the mouse: presses it, moves
   onto `target` and releases there (`docs/design/41-drag-and-drop.md`,
   "Tests").
+- `func appear()`
+  Makes the element appear in the viewport, firing its `appeared`
+  event (`docs/design/45-web-platform.md`, "Element events"). The
+  test DOM has no layout, so nothing appears unless a test says so.
+- `func disappear()`
+  Makes the element leave the viewport, firing its `disappeared`
+  event.
+- `func resize(width: Length, height: Length)`
+  Gives the element's content box a new size, firing its `resized`
+  event.
 - `func heading(named name: String) -> Element`
   The heading whose accessible name is exactly `name`.
 - `func link(named name: String) -> Element`
@@ -383,6 +397,28 @@ test's server and browser containers.
   Sets the virtual instant to `now`, before the code under test reads
   it.
 
+## TestConnectivity
+
+```k,ignore
+@TestDefault(replaces: Connectivity)
+public service TestConnectivity implements Connectivity
+```
+
+The default [`Connectivity`](k-device.md#connectivity) in `k test`
+(`docs/design/45-web-platform.md`, "Connectivity"): the device is
+online until `goOffline()`. It is the one offline switch of `k test`.
+
+**Members**
+
+- `var isOnline: Bool`
+  `true` until `goOffline()`. Reactive, like the browser's.
+- `func goOffline()`
+  Takes the device offline: `isOnline` turns `false`, and every rpc
+  the test's browser makes fails with `rpcFailure(.offline)` until
+  `goOnline()`.
+- `func goOnline()`
+  Brings the device back online.
+
 ## TestFiles
 
 ```k,ignore
@@ -497,6 +533,56 @@ canned response for, and fails the test on any other.
 - `func fail(path: String, error: HttpError)`
   Makes requests to `path` throw `error`.
 
+## TestPageVisibility
+
+```k,ignore
+@TestDefault(replaces: PageVisibility)
+public service TestPageVisibility implements PageVisibility
+```
+
+The default [`PageVisibility`](k-device.md#pagevisibility) in `k test`
+(`docs/design/45-web-platform.md`, "Page visibility"): the page is
+visible until `hide()`.
+
+**Members**
+
+- `var isVisible: Bool`
+  `true` until `hide()`. Reactive, like the browser's.
+- `func hide()`
+  Hides the page, as switching to another tab does.
+- `func show()`
+  Shows the page again.
+
+## TestPreferences
+
+```k,ignore
+@TestDefault(replaces: Preferences)
+public service TestPreferences implements Preferences
+```
+
+The default [`Preferences`](k-device.md#preferences) in `k test`
+(`docs/design/45-web-platform.md`, "Preferences"): no preference is set
+until the test sets one. Each member is reactive, like the browser's.
+
+**Members**
+
+- `var prefersDark: Bool`
+  `false` until `set(prefersDark:)`.
+- `var prefersReducedMotion: Bool`
+  `false` until `set(prefersReducedMotion:)`.
+- `var prefersMoreContrast: Bool`
+  `false` until `set(prefersMoreContrast:)`.
+- `var forcedColors: Bool`
+  `false` until `set(forcedColors:)`.
+- `func set(prefersDark value: Bool)`
+  Sets `prefersDark`, as switching the system to dark mode does.
+- `func set(prefersReducedMotion value: Bool)`
+  Sets `prefersReducedMotion`.
+- `func set(prefersMoreContrast value: Bool)`
+  Sets `prefersMoreContrast`.
+- `func set(forcedColors value: Bool)`
+  Sets `forcedColors`.
+
 ## TestRemote
 
 ```k,ignore
@@ -541,4 +627,32 @@ picks a target unless the test says otherwise.
 - `func setSupported(_ value: Bool)`
   Sets `isSupported`; while it is `false` every share throws
   `.unsupported`, and a [`k.device.ShareButton`](k-device.md#sharebutton) copies instead.
+
+## TestViewport
+
+```k,ignore
+@TestDefault(replaces: Viewport)
+public service TestViewport implements Viewport
+```
+
+The default [`Viewport`](k-device.md#viewport) in `k test`
+(`docs/design/45-web-platform.md`, "Viewport"): a 1280×800 viewport
+with a fine pointer that can hover, until the test changes one. Each
+member is reactive, like the browser's.
+
+**Members**
+
+- `var size: ViewportSize?`
+  1280×800 until `resize(width:height:)`.
+- `var pointer: PointerKind?`
+  `.fine` until `set(pointer:)`.
+- `var canHover: Bool?`
+  `true` until `set(canHover:)`.
+- `func resize(width: Length, height: Length)`
+  Resizes the viewport, as turning a phone or resizing the window
+  does.
+- `func set(pointer value: PointerKind)`
+  Sets the primary pointer.
+- `func set(canHover value: Bool)`
+  Sets whether the primary pointer can hover.
 

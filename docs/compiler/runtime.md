@@ -150,6 +150,8 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | `clipboard.[hash].js` | `clipboard.js` (part `Clipboard`), shipped only to apps whose client copies (`Clipboard`, `CopyButton`) | ≤ 1.25 KB (`CLIPBOARD_SIZE_BUDGET`) | 1,010 B |
 | `share.[hash].js` | `share.js` (part `Share`), shipped only to apps whose client shares (`Share`, `ShareButton`) | ≤ 1.25 KB (`SHARE_SIZE_BUDGET`) | 1,139 B |
 | `geolocation.[hash].js` | `geolocation.js` (part `Geolocation`), shipped only to apps whose client injects `Geolocation` | ≤ 1.25 KB (`GEOLOCATION_SIZE_BUDGET`) | 1,064 B |
+| `environment.[hash].js` | `environment.js` (part `Environment`), shipped only to apps whose client injects `PageVisibility`, `Connectivity`, `Preferences` or `Viewport` | ≤ 1.25 KB (`ENVIRONMENT_SIZE_BUDGET`) | 1,016 B |
+| `observe.[hash].js` | `observe.js` (part `Observe`), a runtime feature shipped only to clients whose views use `appeared`, `disappeared` or `resized` | ≤ 1 KB (`OBSERVE_SIZE_BUDGET`) | 728 B |
 | `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
 | `streams.[hash].js` | `streams.js` (part `Streams`), shipped only to apps with a streaming rpc | ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | 569 B |
 | `http.[hash].js` | `http.js` (part `Http`), shipped only to apps whose client builds or reads an `HttpResponse` | ≤ 1.5 KB (`HTTP_SIZE_BUDGET`) | 1,175 B |
@@ -831,6 +833,66 @@ for `Geolocation`:
 - The server binds `Geolocation` to `$s.clientPlatform(...)` (`app.js`) for a client-only service it
   constructs while rendering. The test double is the kit's `testGeolocation`; `Position.sample` is
   `$k.native("k.device.Position$sample")`, which only the kit answers.
+
+### 12.8 The environment services
+
+`environment.js` (part `Environment`), a feature chunk, holds the browser bodies of `k.device.PageVisibility`,
+`Connectivity`, `Preferences` and `Viewport` ([45-web-platform.md](../design/45-web-platform.md#page-visibility)),
+which the client entry's `$App` constructs for those names (`Preferences(data)` with the `k-data` payload).
+They are stdlib services, not platform interfaces: there is no `Browser…` implementation to bind, and in
+`k test` the container binds each name to its `@TestDefault` double (`TestPageVisibility`, …), as it binds
+`Clock` to `TestClock`.
+
+- Every member is a signal (`liveValue` in the file) whose `refresh()` re-reads the browser and sets the value
+  only when it isn't `equals` to the old one. While the first page hydrates it holds the server's value
+  and is refreshed by `afterHydration`, so text that read it re-renders after the pass rather than
+  mismatching: `isVisible` and `isOnline` `true`; `prefersDark` and `prefersReducedMotion` the server's
+  (`k-data`'s `p`, below), the other preferences `false`; `size`, `pointer` and `canHover` `null`.
+- `isVisible` is `document.visibilityState !== "hidden"`, refreshed on `visibilitychange` and `pageshow` (a
+  page restored from the back-forward cache).
+- `isOnline` is `navigator.onLine !== false`, refreshed on `online` and `offline`. The service wraps
+  `fetch` when it is constructed: a request to a path starting with `/` (the app's rpcs) that rejects with
+  anything but an `AbortError` sets it to `false`, and one that gets a response sets it to `true`. That is
+  how a failed rpc takes the app offline without the runtime chunk knowing about `Connectivity`.
+- Each preference follows `matchMedia("(prefers-color-scheme: dark)")`, `(prefers-reduced-motion:
+  reduce)`, `(prefers-contrast: more)` and `(forced-colors: active)` and their `change` events.
+- `size` is `{width: "<innerWidth>px", height: "<innerHeight>px"}` (`Length`s are CSS strings),
+  `pointer` the first of `(pointer: fine)`, `coarse`, `none` that matches as `PointerKind`'s
+  `unitCase`, `canHover` `(hover: hover)`. A `resize`, or a `change` of those queries, schedules one
+  `requestAnimationFrame` that refreshes all three.
+- On the server (`app.js`): `$s.serverEnvironment("PageVisibility" | "Connectivity" | "Viewport")` answers
+  the constant server values, and `$s.serverPreferences(this.$r)` reads the `Sec-CH-Prefers-Color-Scheme`
+  and `Sec-CH-Prefers-Reduced-Motion` request headers. Reading any of its members sets `st.prefs`, which
+  adds `Accept-CH` and `Vary` with those two hints to the response and `p: [dark, reducedMotion]` to its
+  `k-data`.
+- The test doubles are the kit's `testPageVisibility`, `testConnectivity`, `testPreferences` and
+  `testViewport`; each change flushes. `testConnectivity`'s `goOffline()` sets the kit's `offline`
+  flag, with which the test's in-process `fetch` rejects with a `TypeError`, so rpcs from the browser
+  container fail with `rpcFailure(.offline)` until `goOnline()`.
+
+### 12.9 Element events
+
+`observe.js` (part `Observe`) is a runtime feature with a chunk of its own, like `forms.js`: lowering
+calls `$k.observeElement(el, "appeared" | "disappeared", handler, threshold, margin)` and
+`$k.observeElement(el, "resized", handler)` for the `.on(appeared:)`, `.on(disappeared:)` and
+`.on(resized:)` of an element, and the bundler routes those calls to `observe.[hash].js`
+([45-web-platform.md](../design/45-web-platform.md#element-events)).
+
+- One `IntersectionObserver` per distinct `threshold` (`appearThreshold`, a `Percent`, divided by 100;
+  `0` by default) and `rootMargin` (`appearMargin`, a CSS length; `"0px"`), and one `ResizeObserver`, are
+  shared by every element. An observer is made again when the global constructor changed, which each
+  `k test` test does.
+- Each observed element keeps whether it is visible and its handler sets. An intersection entry is
+  visible when `isIntersecting` and `intersectionRatio >= threshold`; `appeared` runs on a change to
+  visible and `disappeared` on a change back, so the first report of an element off screen runs nothing.
+  A resize entry runs `resized` with `{width, height}` of its `contentRect` in pixels.
+- The element is observed from its creation; the browser reports it once it is in the document. A
+  handler runs as `on`'s do (inside `batch`, never once its owner is disposed, dropping `CANCELLED`); the
+  owner's cleanup removes it, and unobserves the element when it has no handler left. Without the
+  observer classes nothing happens. Async handlers of `resized` receive the payload after the lifetime
+  (`$p` in `payload_handler`, `view.rs`).
+- The kit installs fake observer classes per test that report only what a handle's `appear()`,
+  `disappear()` and `resize(width:height:)` say.
 
 ---
 

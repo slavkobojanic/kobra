@@ -10,6 +10,7 @@ Import each declaration by name, for example `import k.ui.AriaRole`.
 | [`AriaRole`](#ariarole) | The roles `.role(...)` accepts: only roles no semantic element expresses (`docs/design/05-views.md`, "Attributes are per element"). |
 | [`Axis`](#axis) | A layout direction, such as [`Stack.axis`](#stack). |
 | [`ButtonType`](#buttontype) | The `.type(...)` attribute of `button` (`docs/design/05-views.md`). |
+| [`ElementSize`](#elementsize) | The size of an element's content box, the payload of the `resized` event every element has (`docs/design/45-web-platform.md`, "Element events"). |
 | [`ErrorBoundary`](#errorboundary) | Catches panics in its content and renders `fallback` instead (`docs/design/09-errors.md`, "Panics"). |
 | [`Grid`](#grid) | Lays out its content in a grid of equal columns. |
 | [`Icon`](#icon) | An icon from the bundled icon set. |
@@ -81,6 +82,23 @@ The `.type(...)` attribute of `button` (`docs/design/05-views.md`).
   Does nothing by itself; needed on a non-submitting button in a form.
 - `case reset`
   Resets the enclosing form.
+
+## ElementSize
+
+```k,ignore
+public struct ElementSize implements Equatable
+```
+
+The size of an element's content box, the payload of the `resized`
+event every element has (`docs/design/45-web-platform.md`, "Element
+events").
+
+**Members**
+
+- `let width: Length`
+  The width in CSS pixels.
+- `let height: Length`
+  The height in CSS pixels.
 
 ## ErrorBoundary
 

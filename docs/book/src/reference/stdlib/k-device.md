@@ -14,6 +14,7 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`Clipboard`](#clipboard) | Plain text on the system clipboard (`docs/design/45-web-platform.md`, "Clipboard"). |
 | [`ClipboardReadError`](#clipboardreaderror) | Why [`Clipboard.readText()`](#clipboard) read nothing (`docs/design/45-web-platform.md`, "Clipboard"). |
 | [`ClipboardWriteError`](#clipboardwriteerror) | Why [`Clipboard.write(text:)`](#clipboard) didn't copy (`docs/design/45-web-platform.md`, "Clipboard"). |
+| [`Connectivity`](#connectivity) | Whether the device is online (`docs/design/45-web-platform.md`, "Connectivity"). |
 | [`CopyButton`](#copybutton) | A button that copies `text` to the clipboard (`docs/design/45-web-platform.md`, "CopyButton"): `CopyButton(text: invite.url, label: "Copy invite link")`. |
 | [`File`](#file) | A file the user chose, or one the app made to save (`docs/design/42-files.md`). |
 | [`FileOpenError`](#fileopenerror) | Why [`Files.open`](#files) or [`Files.openAll`](#files) returned no file (`docs/design/42-files.md`). |
@@ -23,8 +24,11 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`Geolocation`](#geolocation) | The device's position (`docs/design/45-web-platform.md`, "Geolocation"). |
 | [`LocationAccuracy`](#locationaccuracy) | How exact a position [`Geolocation`](#geolocation) asks for (`docs/design/45-web-platform.md`, "Geolocation"). |
 | [`LocationError`](#locationerror) | Why [`Geolocation`](#geolocation) has no position (`docs/design/45-web-platform.md`, "Geolocation"). |
+| [`PageVisibility`](#pagevisibility) | Whether the page is on screen (`docs/design/45-web-platform.md`, "Page visibility"). |
 | [`PermissionState`](#permissionstate) | Whether the app may use a permissioned browser feature (`docs/design/45-web-platform.md`, "Permissions"). |
+| [`PointerKind`](#pointerkind) | The primary pointing device, [`Viewport.pointer`](#viewport). |
 | [`Position`](#position) | Where the device is (`docs/design/45-web-platform.md`, "Geolocation"): plain numbers with their unit in the name. |
+| [`Preferences`](#preferences) | The user's system preferences that change behaviour (`docs/design/45-web-platform.md`, "Preferences"). |
 | [`Share`](#share) | The system share sheet (`docs/design/45-web-platform.md`, "Web Share"). |
 | [`ShareButton`](#sharebutton) | A button that shares `content` (`docs/design/45-web-platform.md`, "ShareButton"): `ShareButton(content: .page(.recipe(id: recipe.id), title: recipe.title), label: "Share recipe")`. |
 | [`ShareButtonFailure`](#sharebuttonfailure) | Why a [`ShareButton`](#sharebutton) neither shared nor copied (`docs/design/45-web-platform.md`, "ShareButton"). |
@@ -32,6 +36,8 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`ShareError`](#shareerror) | Why [`Share.share(_:)`](#share) didn't share (`docs/design/45-web-platform.md`, "Web Share"). |
 | [`Subscription`](#subscription) | A running callback subscription, such as a handler listening for messages from the app's other tabs (`docs/design/45-web-platform.md`, "Ownership and lifetime"). |
 | [`TabChannel`](#tabchannel) | A channel between the app's tabs, paired with the type of its messages: `TabChannel<CartChange> = TabChannel(name: "cart")` (`docs/design/45-web-platform.md`, "Messages between tabs"). |
+| [`Viewport`](#viewport) | The layout viewport and the primary pointer (`docs/design/45-web-platform.md`, "Viewport"), for decisions CSS can't make; layout by width belongs in style blocks' media and container queries. |
+| [`ViewportSize`](#viewportsize) | The size of the layout viewport, [`Viewport.size`](#viewport). |
 
 ## BrowserClipboard
 
@@ -191,6 +197,27 @@ Why [`Clipboard.write(text:)`](#clipboard) didn't copy
   is `false`).
 - `case denied`
   The browser refused: a policy, or no user's action.
+
+## Connectivity
+
+```k,ignore
+public service Connectivity
+```
+
+Whether the device is online (`docs/design/45-web-platform.md`,
+"Connectivity"). A stdlib service in `.app` scope, usable on both sides:
+inject it with `@Inject let connectivity: Connectivity`, and
+[`k.test.TestConnectivity`](k-test.md#testconnectivity) replaces it in tests.
+
+**Members**
+
+- `var isOnline: Bool`
+  `false` when the device has no network (`navigator.onLine`), or
+  when the app's last request to its server failed for want of one,
+  until the browser's `online` event or the next request that
+  succeeds. `false` is certain and `true` is a hint: calls still
+  handle `rpcFailure(.offline)`. Reactive. `true` during server
+  rendering.
 
 ## CopyButton
 
@@ -445,6 +472,25 @@ Why [`Geolocation`](#geolocation) has no position
 - `case timeout`
   No position came within the timeout.
 
+## PageVisibility
+
+```k,ignore
+public service PageVisibility
+```
+
+Whether the page is on screen (`docs/design/45-web-platform.md`, "Page
+visibility"). A stdlib service in `.app` scope, usable on both sides:
+inject it with `@Inject let visibility: PageVisibility`, and
+[`k.test.TestPageVisibility`](k-test.md#testpagevisibility) replaces it in tests.
+
+**Members**
+
+- `var isVisible: Bool`
+  `false` while the tab is in the background, minimized or the screen
+  is locked (`document.visibilityState`). Reactive: an effect that
+  reads it starts and stops work with the page's visibility. `true`
+  during server rendering.
+
 ## PermissionState
 
 ```k,ignore
@@ -465,6 +511,23 @@ interface exposes it as a reactive `permission` member; only its
 - `case denied`
   The user, a browser setting or a policy refused it; only the
   browser's site settings can change it now.
+
+## PointerKind
+
+```k,ignore
+public enum PointerKind implements Equatable
+```
+
+The primary pointing device, [`Viewport.pointer`](#viewport).
+
+**Members**
+
+- `case fine`
+  A mouse or a trackpad (`pointer: fine`).
+- `case coarse`
+  A finger (`pointer: coarse`).
+- `case none`
+  No pointing device (`pointer: none`): keyboard or voice only.
 
 ## Position
 
@@ -495,6 +558,36 @@ plain numbers with their unit in the name.
 - `static func sample(latitude: Double, longitude: Double) -> Position`
   A position for tests: 1 km accuracy, nothing else known, measured
   at the [`k.test.TestClock`](k-test.md#testclock)'s time. It exists only in `k test`.
+
+## Preferences
+
+```k,ignore
+public service Preferences
+```
+
+The user's system preferences that change behaviour
+(`docs/design/45-web-platform.md`, "Preferences"). Styling doesn't need
+it: a theme's variants and style blocks' media queries follow the same
+preferences in CSS. A stdlib service in `.app` scope, usable on both
+sides: inject it with `@Inject let preferences: Preferences`, and
+[`k.test.TestPreferences`](k-test.md#testpreferences) replaces it in tests.
+
+Each member is reactive, following its media query. During server
+rendering the dark and reduced-motion members come from the
+`Sec-CH-Prefers-Color-Scheme` and `Sec-CH-Prefers-Reduced-Motion`
+client hints where the browser sends them, and every member is `false`
+otherwise.
+
+**Members**
+
+- `var prefersDark: Bool`
+  `prefers-color-scheme: dark`.
+- `var prefersReducedMotion: Bool`
+  `prefers-reduced-motion: reduce`.
+- `var prefersMoreContrast: Bool`
+  `prefers-contrast: more`.
+- `var forcedColors: Bool`
+  `forced-colors: active` (Windows contrast themes).
 
 ## Share
 
@@ -646,4 +739,45 @@ the same name must carry the same message type.
     the same channel.
 - `var name: String`
   The channel's name.
+
+## Viewport
+
+```k,ignore
+public service Viewport
+```
+
+The layout viewport and the primary pointer
+(`docs/design/45-web-platform.md`, "Viewport"), for decisions CSS can't
+make; layout by width belongs in style blocks' media and container
+queries. A stdlib service in `.app` scope, usable on both sides: inject
+it with `@Inject let viewport: Viewport`, and [`k.test.TestViewport`](k-test.md#testviewport)
+replaces it in tests.
+
+Every member is `nil` during server rendering, which doesn't know the
+screen, and is reactive in the browser. Changes are coalesced to one
+per animation frame.
+
+**Members**
+
+- `var size: ViewportSize?`
+  The layout viewport (`innerWidth`, `innerHeight`).
+- `var pointer: PointerKind?`
+  The primary pointer (`pointer: fine`, `coarse` or `none`).
+- `var canHover: Bool?`
+  Whether the primary pointer can hover (`hover: hover`).
+
+## ViewportSize
+
+```k,ignore
+public struct ViewportSize implements Equatable
+```
+
+The size of the layout viewport, [`Viewport.size`](#viewport).
+
+**Members**
+
+- `let width: Length`
+  The width in CSS pixels.
+- `let height: Length`
+  The height in CSS pixels.
 

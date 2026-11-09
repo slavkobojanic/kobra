@@ -1,7 +1,7 @@
 import accounts.AuthService
 
-/// The frame around every page: the app name, and either account links or
-/// the sign-out button.
+/// The frame around every page: the app name, either account links or the
+/// sign-out button, and a banner while the device is offline.
 ///
 /// `App.k` makes this the default layout, so pages don't declare it.
 public layout AppLayout {
@@ -50,6 +50,8 @@ public layout AppLayout {
             .label("Account")
         }
         .class(.bar)
+
+        OfflineBanner()
 
         if let problem {
             paragraph { problem }

@@ -798,8 +798,14 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
   fallback copy, the server's markup and hydration), and `geolocation.test.js` (`BrowserGeolocation`
   against scripted `navigator.geolocation` and `navigator.permissions`: an insecure context, reads that
   never prompt, the prompt by one position request, each error code, Gecko's allow-once, no Permissions
-  API, WebKit's missing `change` event, and watches ending on revocation and with their owner) test the
-  chunks of [runtime.md §12.3–12.7](runtime.md#123-drag-and-drop).
+  API, WebKit's missing `change` event, and watches ending on revocation and with their owner),
+  `environment.test.js` (the environment services against a scripted `document.visibilityState`,
+  `navigator.onLine`, `matchMedia`, `innerWidth` and `requestAnimationFrame`: each event, the back-forward
+  cache's `pageshow`, a failed rpc taking the app offline until one succeeds or `online` fires, aborts and
+  other origins not counting, resizes coalesced per frame, and the server's values while hydrating) and
+  `observe.test.js` (the element events against scripted observers: entries and exits, thresholds, one
+  observer per option set, sizes, and disposal) test the chunks of
+  [runtime.md §12.3–12.9](runtime.md#123-drag-and-drop).
 - **Cancellation**: `cancellation.test.js` pins the ownership of async work (design 03, "Async work is
   owned"): `live` and `CANCELLED`, a body stopped at an `await` (and a `catch`) whose owner was disposed
   after the promise settled, an effect re-run and a load stopping their superseded run, `on` keeping a
@@ -991,7 +997,8 @@ timers).
   from the server's HTML, reading the position set by `Emulation.setGeolocationOverride` with the
   permission granted by `Browser.grantPermissions`, and opening `LocalWeather` there),
   `notes` (one command, sign up, create, edit, delete, sign out and in; two apps on `localhost` keeping
-  their own sessions; `k dev` stopping promptly with a `watch()` stream open), `stack` (pay from the
+  their own sessions; `k dev` stopping promptly with a `watch()` stream open; the offline banner appearing
+  under `Network.emulateNetworkConditions` offline and going when the network is back), `stack` (pay from the
   shop page through paybox) and `shop` (buy a mug, pay through paybox on non-default ports, the receipt
   turning paid, the confirmation in the mail catcher). And one red test per open defect (§4.5).
 
@@ -1705,7 +1712,8 @@ format change is a reviewed diff):
   every test must pass: `Clipboard`, `Share`, `CopyButton` and `ShareButton` against `TestClipboard`
   and `TestShare`; and `fixtures/locating`, every test must pass: `Geolocation` against
   `TestGeolocation`, the prompt from a click, refusals, no fix, and a `watch` in an effect ending when
-  the permission is revoked): each bug of the test bundle or
+  the permission is revoked; and `fixtures/environment`, every test must pass: the environment services
+  against their doubles and the element events driven from handles): each bug of the test bundle or
   the kit that an example exposed, pinned before it was fixed: a chained enum page parameter given as an
   implicit member, `Page.x` with only optional parameters, a group helper named like the tested
   service's function, a labelled argument after a default, `expect throws` checking the case, a

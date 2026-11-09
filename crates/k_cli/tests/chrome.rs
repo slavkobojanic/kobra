@@ -1271,6 +1271,41 @@ fn notes_two_apps_on_localhost_keep_their_own_sessions() {
     drop(tab);
 }
 
+/// The layout's offline banner (`Connectivity`, 45-web-platform.md) appears
+/// when the browser loses its network, emulated over DevTools as a real
+/// disconnection is (`navigator.onLine` turns `false` and `offline` fires),
+/// and goes when the network is back.
+#[test]
+fn notes_shows_an_offline_banner_while_the_network_is_gone() {
+    let dir = Scratch::new("notes-offline");
+    let mut tab = tab!(dir);
+    let (_k, origin) = notes(&dir.0.join("notes"), true);
+    sign_up(&mut tab, &origin, "ada@example.com");
+    let banner = "You're offline. K Notes can't save changes until the connection is back.";
+    assert!(
+        !tab.visible_text().contains(banner),
+        "no banner while online"
+    );
+    let conditions = |offline: bool| {
+        json!({
+            "offline": offline,
+            "latency": 0,
+            "downloadThroughput": -1,
+            "uploadThroughput": -1,
+        })
+    };
+    tab.cdp.call("Network.enable", json!({}));
+    tab.cdp
+        .call("Network.emulateNetworkConditions", conditions(true));
+    tab.wait_text(banner);
+    tab.cdp
+        .call("Network.emulateNetworkConditions", conditions(false));
+    tab.wait_no_text(banner);
+    // The list's stream drops while the network is gone; that is expected.
+    tab.allow_errors();
+    drop(tab);
+}
+
 /// Stopping the server with a page's live stream open finishes promptly
 /// instead of waiting out the whole shutdown grace (notes-4).
 #[test]

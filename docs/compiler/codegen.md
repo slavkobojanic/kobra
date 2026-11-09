@@ -1044,12 +1044,15 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   *and* the names it imports, so changing a dependency renames its dependents. The entry imports the
   services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
 - **Feature chunks**: `charts.[hash].js`, `drag.[hash].js`, `files.[hash].js`, `clipboard.[hash].js`,
-  `share.[hash].js`, `geolocation.[hash].js`, `keys.[hash].js`, `http.[hash].js` and `streams.[hash].js` (`runtime/charts.js`, …),
+  `share.[hash].js`, `geolocation.[hash].js`, `environment.[hash].js`, `keys.[hash].js`, `http.[hash].js` and
+  `streams.[hash].js` (`runtime/charts.js`, …),
   emitted only when a client chunk or the client entry uses a symbol they implement
   (`k.charts.LineChart`; `k.drag.ReorderableList`, `Draggable`, `DropTarget`, `DragKind(name:)`;
   `k.ui.KeyboardShortcut`; `k.device.CopyButton` and `ShareButton`; `streamed`; and
   `k.device.BrowserFiles`, `BrowserClipboard`, `BrowserShare` and `BrowserGeolocation`, which the entry's
-  `$App` constructs for `Files`, `Clipboard`, `Share` and `Geolocation`), with their imports of other
+  `$App` constructs for `Files`, `Clipboard`, `Share` and `Geolocation`, and the stdlib services
+  `PageVisibility`, `Connectivity`, `Preferences` and `Viewport`, which it constructs under their own
+  names), with their imports of other
   runtime files pointing at the runtime chunk; the chunks that use them import those symbols from them
   (`import { LineChart } from "../charts.[hash].js";`, and from the entry
   `import { BrowserFiles } from "./files.[hash].js";`) instead of binding `$k.native`
@@ -1063,7 +1066,19 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   server's container binds the interface to `$s.clientPlatform("k.device.Geolocation")` (`bound_services`
   in `server.rs`; `ProgramView` records the side of the stdlib's client-only interfaces for it), whose `isSupported` is `false` and `permission` `.prompt`; every other member panics with
   its name, and is `K4012` at compile time ([45-web-platform.md](../design/45-web-platform.md#server-rendering-and-the-server)).
-- **Runtime feature chunks**: `forms.[hash].js` (`runtime/forms.js`) and `money.[hash].js`
+- **The environment services on the server** (45-web-platform.md, "Server rendering and the server"):
+  the server's container binds `PageVisibility`, `Connectivity` and `Viewport` to
+  `$s.serverEnvironment("<name>")` and `Preferences` to `$s.serverPreferences(this.$r)`
+  (`server_platform_service` in `server.rs`). In the `.test` environment the browser's container binds a
+  stdlib service that a `@TestDefault` double replaces (`Clock`, and these four) to that double's getter,
+  so `@Inject let c: TestConnectivity` in a test and `Connectivity` in the code under test are one
+  instance.
+- **Element events**: `.on(appeared:)`, `.on(disappeared:)` and `.on(resized:)` on an element lower to
+  `$k.observeElement(el, "<event>", handler[, threshold, margin])`, with the element's
+  `.appearThreshold(_:)` and `.appearMargin(_:)` as the last two arguments (`null` when absent);
+  neither option becomes an HTML attribute, and the server renders the element without either.
+- **Runtime feature chunks**: `forms.[hash].js` (`runtime/forms.js`), `observe.[hash].js` (`runtime/observe.js`,
+  `$k.observeElement`) and `money.[hash].js`
   (`runtime/money.js`) hold runtime functions that lowering calls as members of `$k` (`$k.createForm`,
   `$k.fieldParser`, `$k.decimal`, `$k.money`, `$k.moneyCodecs.money`; the codecs of `Decimal`, `Currency`
   and `Money` are `$k.moneyCodecs.*`, not `$k.codecs.*`). Before printing a shared, page or entry chunk

@@ -74,6 +74,7 @@
 - [Keyboard shortcuts](apps/keyboard-shortcuts.md)
 - [Copying and sharing](apps/clipboard-and-sharing.md)
 - [The user's location](apps/location.md)
+- [The page and the device](apps/environment.md)
 - [Testing](apps/testing.md)
 - [Packages](apps/packages.md)
 - [Workspaces and services](apps/workspaces.md)

@@ -42,6 +42,8 @@ export {
   responseHeaders,
   route,
   session,
+  serverEnvironment,
+  serverPreferences,
   serviceCaller,
   sessionManager,
   shareState,

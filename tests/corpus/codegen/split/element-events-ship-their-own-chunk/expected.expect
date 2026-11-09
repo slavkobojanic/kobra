@@ -1,0 +1,13 @@
+# docs/design/45-web-platform.md, "Element events"; docs/compiler/codegen.md §16: the observer
+# events are a runtime feature with a chunk of its own, shipped only to a client that uses one; the
+# options become the shared observer's threshold (a percentage) and root margin. The server
+# renders the elements without them.
+client contains // file: observe.[hash].js
+client contains from "../observe.[hash].js";
+client contains observeElement(
+client contains "appeared",
+client contains 50, "400px")
+client contains "resized",
+client contains export function observeElement(
+client lacks environment.[hash].js
+server lacks observeElement

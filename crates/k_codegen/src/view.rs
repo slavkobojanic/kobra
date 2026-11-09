@@ -232,6 +232,10 @@ pub(crate) struct Elem {
     pub label: Option<Label>,
     /// Reactive style values: `(custom property, expression)`.
     pub styles: Vec<(String, ast::Expr)>,
+    /// The options of the `appeared` and `disappeared` events:
+    /// `appearThreshold` and `appearMargin` (45-web-platform.md, "Element
+    /// events").
+    pub appear: Vec<(String, ast::Expr)>,
 }
 
 /// The visible `<label>` of a form control: literal text, or a text that
@@ -714,6 +718,11 @@ impl Tree<'_, '_, '_> {
                 "class" => {
                     if let Some(v) = value {
                         self.classes(&v, &mut el.classes);
+                    }
+                }
+                "appearThreshold" | "appearMargin" => {
+                    if let Some(v) = value {
+                        el.appear.push((m.clone(), v));
                     }
                 }
                 "label" => {
@@ -1654,10 +1663,33 @@ impl Client<'_, '_, '_> {
         self.element_events(node, el);
     }
 
-    /// Attaches the element's event handlers with `$k.on`.
+    /// Attaches the element's event handlers with `$k.on`, and its
+    /// `appeared`, `disappeared` and `resized` handlers with
+    /// `$k.observeElement` (the observe chunk's, 45-web-platform.md,
+    /// "Element events").
     fn element_events(&mut self, node: &Expr, el: &Elem) {
         for (event, h) in &el.events {
             let loc = self.b.loc(h.syntax());
+            if matches!(event.as_str(), "appeared" | "disappeared" | "resized") {
+                let handler = self.payload_handler(h);
+                let option = |this: &mut Self, name: &str| -> Expr {
+                    el.appear
+                        .iter()
+                        .find(|(n, _)| n == name)
+                        .map_or(Expr::Null, |(_, v)| this.b.expr(v))
+                };
+                let mut args = vec![node.clone(), js::str(event.clone()), handler];
+                if event != "resized" {
+                    let threshold = option(self, "appearThreshold");
+                    let margin = option(self, "appearMargin");
+                    args.push(threshold);
+                    args.push(margin);
+                }
+                self.b
+                    .stmts
+                    .push(Stmt::Expr(js::at(loc, rt("observeElement", args))));
+                continue;
+            }
             let handler = self.handler(h);
             let event = match event.as_str() {
                 "mouseenter" | "mouseleave" | "keydown" | "keyup" | "click" | "focus" | "blur"
@@ -1669,6 +1701,44 @@ impl Client<'_, '_, '_> {
                 rt("on", vec![node.clone(), js::str(event), handler]),
             )));
         }
+    }
+
+    /// A handler whose event has a payload (`resized`'s `ElementSize`):
+    /// as [`Self::handler`], but an async function or lambda receives the
+    /// payload after the component's lifetime.
+    fn payload_handler(&mut self, h: &ast::Expr) -> Expr {
+        let f = match h {
+            ast::Expr::LambdaExpr(l)
+                if l.syntax()
+                    .descendants()
+                    .any(|n| n.kind() == SyntaxKind::AwaitExpr) =>
+            {
+                self.b.lambda(l, None)
+            }
+            ast::Expr::NameExpr(n) => {
+                let resolved = n
+                    .name()
+                    .and_then(|tok| self.b.g.resolved(self.b.file, tok.text_range()));
+                match resolved {
+                    Some(Resolved::Member(m))
+                        if self
+                            .b
+                            .g
+                            .view
+                            .member(m)
+                            .signature
+                            .as_ref()
+                            .is_some_and(|s| s.is_async) =>
+                    {
+                        id(mangle(&self.b.g.view.member(m).name))
+                    }
+                    _ => return self.handler(h),
+                }
+            }
+            _ => return self.handler(h),
+        };
+        let life = self.lifetime_name();
+        js::arrow(vec![Param::new("$p")], call(f, vec![id(life), id("$p")]))
     }
 
     /// An event handler: a lambda, a function reference (async ones get

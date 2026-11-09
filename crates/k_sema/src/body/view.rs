@@ -911,8 +911,7 @@ impl Checker<'_, '_, '_> {
         let args = self.collect_args(call);
         if name == "on" {
             let events: Vec<(String, Ty)> = def
-                .events
-                .iter()
+                .all_events()
                 .map(|e| {
                     let payload = self.cx.fw.table_ty(self.cx, e.payload, &Ty::Error);
                     (e.name.to_owned(), payload)

@@ -76,6 +76,10 @@ test AddToCart {
 | `Files` | `TestFiles` | opens no picker and starts no download; `choose(_:)` says what the user picks, `saved` holds what was saved ([42-files.md](42-files.md#tests-testfiles)) |
 | `Clipboard` | `TestClipboard` | a clipboard in memory, empty for every test; `text` is what it holds, `set(text:)` copies as another application would, `failWrites(error:)`, `failReads(error:)`, `setSupported(_:)` ([45-web-platform.md](45-web-platform.md#copybutton)) |
 | `Geolocation` | `TestGeolocation` | prompts nobody and reads no real position; supported, `permission` `.prompt`, prompts answered `.granted`, no fix until `move(to:)`; `answerPrompts(with:)`, `setPermission(_:)`, `failNext(error:)`, `setSupported(_:)`, `prompts`, `lastAccuracy` ([45-web-platform.md](45-web-platform.md#geolocation)) |
+| `PageVisibility` | `TestPageVisibility` | visible until `hide()`; `show()` ([45-web-platform.md](45-web-platform.md#page-visibility)) |
+| `Connectivity` | `TestConnectivity` | online until `goOffline()`, which also fails the browser's rpcs with `rpcFailure(.offline)` until `goOnline()` ([45-web-platform.md](45-web-platform.md#connectivity)) |
+| `Preferences` | `TestPreferences` | no preference set; `set(prefersDark:)`, `set(prefersReducedMotion:)`, `set(prefersMoreContrast:)`, `set(forcedColors:)` ([45-web-platform.md](45-web-platform.md#preferences)) |
+| `Viewport` | `TestViewport` | 1280×800, a fine pointer that can hover; `resize(width:height:)`, `set(pointer:)`, `set(canHover:)` ([45-web-platform.md](45-web-platform.md#viewport)) |
 | `Share` | `TestShare` | opens no sheet; `shared` records every share, `cancelNext()`, `failNext(error:)`, `setSupported(_:)` ([45-web-platform.md](45-web-platform.md#sharebutton)) |
 
 - **A test reaches a default with `@Inject`,** by its concrete type: `@Inject let clock: TestClock`, `@Inject let mailer: RecordingEmailProvider`.

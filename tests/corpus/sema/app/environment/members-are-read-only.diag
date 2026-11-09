@@ -1,0 +1,2 @@
+error[K4006] 9:26-9:47: only `Connectivity`'s own methods write its field `isOnline`
+  label <stdlib>/k/device/Connectivity.k:13:9-13:17: declared here

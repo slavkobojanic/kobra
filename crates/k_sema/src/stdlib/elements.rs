@@ -22,7 +22,12 @@
 //! not here.
 
 /// The stdlib declarations element types may name besides the prelude.
-pub const TYPE_SCOPE: &[&str] = &["k.ui.AriaRole", "k.ui.ButtonType", "k.ui.ImageLoading"];
+pub const TYPE_SCOPE: &[&str] = &[
+    "k.ui.AriaRole",
+    "k.ui.ButtonType",
+    "k.ui.ElementSize",
+    "k.ui.ImageLoading",
+];
 
 /// A named argument or chained attribute of an element.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -94,7 +99,9 @@ pub struct ElementDef {
 }
 
 /// Attributes every element has: `.class(...)` (typed class references,
-/// set once) and `.hidden(Bool)`.
+/// set once), `.hidden(Bool)`, and the options of the `appeared` and
+/// `disappeared` events (`docs/design/45-web-platform.md`, "Element
+/// events").
 pub const UNIVERSAL_ATTRIBUTES: &[Param] = &[
     Param {
         label: "class",
@@ -105,6 +112,33 @@ pub const UNIVERSAL_ATTRIBUTES: &[Param] = &[
         label: "hidden",
         ty: "Bool",
         doc: "hides the element from everyone, including assistive technology",
+    },
+    Param {
+        label: "appearThreshold",
+        ty: "Percent",
+        doc: "how much of the element must be visible for `appeared`; `0%` (any pixel) by default",
+    },
+    Param {
+        label: "appearMargin",
+        ty: "Length",
+        doc: "grows the viewport on every side for `appeared` and `disappeared`, to start loading before the element is on screen; `0px` by default",
+    },
+];
+
+/// Events every element fires, observed after mount and never on the
+/// server (`docs/design/45-web-platform.md`, "Element events").
+pub const UNIVERSAL_EVENTS: &[Event] = &[
+    Event {
+        name: "appeared",
+        payload: "Void",
+    },
+    Event {
+        name: "disappeared",
+        payload: "Void",
+    },
+    Event {
+        name: "resized",
+        payload: "ElementSize",
     },
 ];
 
@@ -619,10 +653,17 @@ impl ElementDef {
             .find(|p| p.label == label)
     }
 
-    /// Returns the event `name` of this element.
+    /// Returns the event `name` of this element, including the universal
+    /// ones.
     #[must_use]
     pub fn event(&self, name: &str) -> Option<&'static Event> {
+        self.all_events().find(|e| e.name == name)
+    }
+
+    /// The events `.on(…)` accepts on this element: its own, then the
+    /// [`UNIVERSAL_EVENTS`].
+    pub fn all_events(&self) -> impl Iterator<Item = &'static Event> {
         let events: &'static [Event] = self.events;
-        events.iter().find(|e| e.name == name)
+        events.iter().chain(UNIVERSAL_EVENTS)
     }
 }

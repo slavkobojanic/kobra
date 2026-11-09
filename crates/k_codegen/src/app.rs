@@ -736,14 +736,18 @@ pub(crate) fn client_containers(
                 }
                 None => rt("native", vec![js::str(qualified)]),
             }
-        } else if testing && qualified == "k.time.Clock" {
-            // One virtual clock per test, whichever name reaches it.
-            if let Some(clock) = g.view.lookup("k.test.TestClock") {
-                if !wanted.contains(&clock) {
-                    wanted.push(clock);
-                }
+        } else if let Some(double) = testing
+            .then(|| test_default(g, t))
+            .flatten()
+            .filter(|&d| d != t)
+        {
+            // A stdlib service with a `k.test` double (`Clock`, and the
+            // environment services of 45-web-platform.md): one instance per
+            // test, whichever name reaches it.
+            if !wanted.contains(&double) {
+                wanted.push(double);
             }
-            member(this("$a"), "TestClock")
+            member(this("$a"), g.name(double))
         } else {
             app_memo(&name, platform_service(b, &qualified))
         };
@@ -838,10 +842,22 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         "k.device.BrowserFiles"
         | "k.device.BrowserClipboard"
         | "k.device.BrowserShare"
-        | "k.device.BrowserGeolocation" => match b.g.view.lookup(qualified) {
+        | "k.device.BrowserGeolocation"
+        | "k.device.PageVisibility"
+        | "k.device.Connectivity"
+        | "k.device.Viewport" => match b.g.view.lookup(qualified) {
             Some(d) => {
                 let name = b.g.name(d);
                 call(b.use_decl(d, name), vec![])
+            }
+            None => rt("native", vec![js::str(qualified)]),
+        },
+        // The environment chunk's (runtime.md §12.8): during hydration the
+        // preferences the server rendered with (`k-data`'s `p`).
+        "k.device.Preferences" => match b.g.view.lookup(qualified) {
+            Some(d) => {
+                let name = b.g.name(d);
+                call(b.use_decl(d, name), vec![data])
             }
             None => rt("native", vec![js::str(qualified)]),
         },
@@ -851,6 +867,10 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         "k.test.TestClipboard" => crate::suite::kit_call("testClipboard", vec![]),
         "k.test.TestShare" => crate::suite::kit_call("testShare", vec![]),
         "k.test.TestGeolocation" => crate::suite::kit_call("testGeolocation", vec![]),
+        "k.test.TestPageVisibility" => crate::suite::kit_call("testPageVisibility", vec![]),
+        "k.test.TestConnectivity" => crate::suite::kit_call("testConnectivity", vec![]),
+        "k.test.TestPreferences" => crate::suite::kit_call("testPreferences", vec![]),
+        "k.test.TestViewport" => crate::suite::kit_call("testViewport", vec![]),
         "k.test.MemoryStorage" => crate::suite::kit_call(
             "memoryStorage",
             enums(

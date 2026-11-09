@@ -198,6 +198,8 @@ export class RequestState {
     this.clientAddress = request.remote ?? "";
     /** The verified calling service of a `ServiceAuthenticated` rpc, or `null`. */
     this.serviceCaller = null;
+    /** `[prefersDark, prefersReducedMotion]` once K code read `Preferences`, else `null`. */
+    this.prefs = null;
     /**
      * The running test of `k test`, or `null` (21-testing.md): its virtual
      * clock, its per-test instances, its group's server container and its
@@ -555,6 +557,9 @@ function finish(st, response, rpc) {
   if (rpc && st.sessionChanged) headers.push(["x-k-session", JSON.stringify(st.mirror())]);
   const isPrivate = rpc || st.sessionRead || st.sessionChanged;
   if (isPrivate && !headers.some(([n]) => n === "cache-control")) headers.push(["cache-control", PRIVATE]);
+  // A page rendered with the preferences asks for their client hints, which
+  // Chromium sends from the next request on.
+  if (st.prefs) headers.push(["accept-ch", PREFERENCE_HINTS], ["vary", PREFERENCE_HINTS]);
   if (st.method === "HEAD") response.body = "";
   return response;
 }
@@ -1243,6 +1248,8 @@ async function renderPage(st, r, params) {
   spec.appMeta?.(appMeta);
   const meta = mergeMeta([appMeta, ...layoutMetas, pageMeta]);
   data.session = st.mirror();
+  // The preferences rendered with, which the browser keeps while hydrating.
+  if (st.prefs) data.p = st.prefs;
   // The document carries the mirror, so one rendered for a signed-in user
   // is private even when nothing on it read `Session`.
   if (data.session.user !== null) st.sessionRead = true;
@@ -1816,6 +1823,56 @@ export function testClient(st, E, S, codes) {
       return received(E, statusOf(o.status), o.status, o.headers, body);
     },
   };
+}
+
+/** The client hints `Preferences` reads during server rendering. */
+const PREFERENCE_HINTS = "Sec-CH-Prefers-Color-Scheme, Sec-CH-Prefers-Reduced-Motion";
+
+/**
+ * The server's `k.device.Preferences` (45-web-platform.md, "Preferences"):
+ * dark mode and reduced motion from the `Sec-CH-Prefers-Color-Scheme` and
+ * `Sec-CH-Prefers-Reduced-Motion` client hints, `false` without them, and
+ * the other members `false`. Reading it marks the request (`st.prefs`), so
+ * the response asks for the hints (`Accept-CH`, `Vary`) and its `k-data`
+ * carries the values rendered with (`p`), which the browser keeps until
+ * hydration has finished.
+ * @param {RequestState|null} st
+ */
+export function serverPreferences(st) {
+  const hint = (name, value) => st?.headers?.some?.(([n, v]) => n.toLowerCase() === name && v.replaceAll('"', "").trim() === value) === true;
+  const p = [hint("sec-ch-prefers-color-scheme", "dark"), hint("sec-ch-prefers-reduced-motion", "reduce")];
+  let read = false;
+  const mark = (v) => {
+    if (!read && st) st.prefs = p;
+    read = true;
+    return v;
+  };
+  return {
+    get prefersDark() {
+      return mark(p[0]);
+    },
+    get prefersReducedMotion() {
+      return mark(p[1]);
+    },
+    get prefersMoreContrast() {
+      return mark(false);
+    },
+    get forcedColors() {
+      return mark(false);
+    },
+  };
+}
+
+/**
+ * The server's `k.device.PageVisibility`, `Connectivity` and `Viewport`
+ * (45-web-platform.md): during server rendering the page is visible and
+ * online, and the viewport and pointer are unknown (`nil`).
+ * @param {string} name the service's name
+ */
+export function serverEnvironment(name) {
+  if (name === "PageVisibility") return { isVisible: true };
+  if (name === "Connectivity") return { isOnline: true };
+  return { size: null, pointer: null, canHover: null };
 }
 
 /**

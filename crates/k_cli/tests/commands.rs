@@ -1265,6 +1265,32 @@ fn test_locates_through_the_geolocation_double() {
 }
 
 #[test]
+fn test_follows_the_environment_doubles_and_element_events() {
+    // `PageVisibility`, `Connectivity`, `Preferences` and `Viewport`
+    // against their doubles, and `appeared`, `disappeared` and `resized`
+    // driven from handles (45-web-platform.md): an effect that stops while
+    // the page is hidden, an offline banner, each preference, a phone-sized
+    // viewport with a finger, infinite scroll, and measurements passed to
+    // sync and async handlers.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/environment");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("0 failed"), "{text}");
+    for name in [
+        "PASS  OfflineBanner › going offline shows the banner, and coming back hides it",
+        "PASS  Refresher › it refreshes while the page is visible and pauses while hidden",
+        "PASS  Motion › each preference follows the system",
+        "PASS  Layout › a phone gets the sheet and taps",
+        "PASS  Feed › appeared fires on each entry, disappeared on each exit",
+        "PASS  Measured › an async handler gets the size too",
+    ] {
+        assert!(text.contains(name), "{name}\n{text}");
+    }
+}
+
+#[test]
 fn test_expect_throws_checks_the_case_it_names() {
     // A qualified case pattern (`Choice.second`) was read as its type's
     // name, which matched any error.

@@ -727,6 +727,7 @@ fn named_runtime_imports(stmts: &mut Vec<Stmt>) {
 const RUNTIME_FEATURES: &[(&str, &str)] = &[
     ("forms", "k:/runtime/forms.js"),
     ("money", "k:/runtime/money.js"),
+    ("observe", "k:/runtime/observe.js"),
 ];
 
 /// The index in [`RUNTIME_FEATURES`] of the file exporting each name,
@@ -807,6 +808,7 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("clipboard", "k:/runtime/clipboard.js", "k/device"),
     ("share", "k:/runtime/share.js", "k/device"),
     ("geolocation", "k:/runtime/geolocation.js", "k/device"),
+    ("environment", "k:/runtime/environment.js", "k/device"),
     ("keys", "k:/runtime/keys.js", "k/ui"),
     ("streams", "k:/runtime/streams.js", "k/core"),
     ("http", "k:/runtime/http.js", "k/http"),

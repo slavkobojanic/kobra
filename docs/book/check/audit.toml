@@ -420,6 +420,15 @@ unpinned = [
     "`.coarse` is lighter on the battery (a property of the device, not of K)",
 ]
 
+[pages."apps/environment.md"]
+commit = "3a8c7ed"
+date = "2026-11-10"
+note = "new with PageVisibility, Connectivity, Preferences, Viewport and the element events; written against the working tree on top of 3a8c7ed, the behaviour checked with `k test` on crates/k_cli/tests/fixtures/environment and examples/notes, and in Chrome by chrome.rs's notes_shows_an_offline_banner_while_the_network_is_gone"
+unpinned = [
+    "a theme's variants and style blocks' media queries follow the same preferences from the first paint (07-themes-and-units.md's, not re-checked here)",
+    "`Preferences` reads the client hints during server rendering only where the browser sends them (Chromium, from the second request on)",
+]
+
 [pages."apps/testing.md"]
 commit = "0dd7625"
 date = "2026-11-09"

@@ -25,7 +25,7 @@ notes/
     ├── notes/              Note, Tag, repositories, NotesProtocol, NotesApi, NoteChanges,
     │                       NotesService, NoteDraft, the Notes, NewNote and EditNote pages
     ├── search/             Searchable, an interface with a default method
-    ├── shell/              AppLayout and NotesTheme
+    ├── shell/              AppLayout, OfflineBanner and NotesTheme
     └── testing/            Samples: AccountId.ada, NoteSummary fixtures
 ```
 
@@ -162,6 +162,14 @@ do {
 Every write publishes inside its transaction, and the publish waits for the commit. The page follows
 the stream from an effect, and reconnects on demand. [Server streaming](../apps/streaming.md) shows each
 piece.
+
+## Offline
+
+`AppLayout` shows an `OfflineBanner` while `Connectivity.isOnline` is `false`: when the browser loses
+its network, or a call to the server just failed for want of one. The pages still handle
+`rpcFailure(.offline)` on every call, because the banner is a hint and a call can fail anyway. Tests
+take the browser offline with `TestConnectivity.goOffline()`, which also makes their rpcs fail; see
+[The page and the device](../apps/environment.md).
 
 ## Accounts
 
