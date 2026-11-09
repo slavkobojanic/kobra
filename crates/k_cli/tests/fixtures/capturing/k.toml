@@ -1,0 +1,8 @@
+# `k.media` against real Chrome with fake devices
+# (docs/design/46-media-and-rtc.md, "Testing the stdlib against real
+# browsers"; crates/k_cli/tests/chrome.rs): each button captures or
+# records one way and says what happened in the status line. Its `k test`
+# suite runs the same buttons against the doubles.
+[package]
+name = "capturing"
+k = "0.1"

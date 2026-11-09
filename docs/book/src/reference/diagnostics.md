@@ -4257,6 +4257,68 @@ error[K3111]: `key` belongs to loops in views
 
 **Fix:** Remove the `key` clause; it belongs only to a `for` in a view.
 
+### K3112 `missing-captions`
+
+**Warning.** A `video` playing a file or a URL has no `.captions(…)`; add a track, or `.captions(.notNeeded)` for a video without speech.
+
+Example (`tests/corpus/sema/app/media/video-needs-captions.k`):
+
+```k,ignore
+// A `video` playing a file or a URL needs captions (K3112, WCAG 1.2.2); a live stream is exempt,
+// and `.captions(.notNeeded)` says a video has no speech (46-media-and-rtc.md, "Showing and
+// playing media").
+import k.device.File
+import k.media.MediaController
+import k.media.MediaStream
+
+component Player {
+    @Prop let clip: File
+    @Prop let camera: MediaStream
+
+    let player = MediaController()
+
+    view {
+        video(source: .file(clip))
+        video(source: .url(Url("https://k.dev/talk.mp4")))
+            .label("The talk")
+        video(source: .stream(camera))
+            .mirrored(true)
+            .label("Your camera")
+        video(source: .file(clip))
+            .captions(.notNeeded)
+            .controller(player)
+        video(source: .url(Url("https://k.dev/talk.mp4")))
+            .captions(.track(url: Url("https://k.dev/talk.vtt"), language: "en", label: "English"))
+        audio(source: .file(clip))
+            .label("Memo")
+            .on(ended: { player.pause() })
+            .on(playbackBlocked: { player.pause() })
+    }
+}
+```
+
+```text
+warning[K3112]: a video from a file or URL needs captions
+  --> src/corpus/video-needs-captions.k:15:23
+   |
+15 |         video(source: .file(clip))
+   |                       ^^^^^^^^^^^
+   |
+   = help: add `.captions(.track(url:language:label:))`, or `.captions(.notNeeded)` for a video without speech
+   = fix: Insert `.captions(.notNeeded)`
+
+warning[K3112]: a video from a file or URL needs captions
+  --> src/corpus/video-needs-captions.k:16:23
+   |
+16 |         video(source: .url(Url("https://k.dev/talk.mp4")))
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: add `.captions(.track(url:language:label:))`, or `.captions(.notNeeded)` for a video without speech
+   = fix: Insert `.captions(.notNeeded)`
+```
+
+**Fix:** Add `.captions(.track(url: …, language: "en", label: "English"))` with a WebVTT file, or `.captions(.notNeeded)` for a video without speech (the quick fix inserts the latter).
+
 ### K3201 `unknown-css-property`
 
 **Error.** A style declaration names a property that doesn't exist.
@@ -6289,6 +6351,50 @@ error[K4032]: a secret key in a config is held as `Secret<Ed25519PrivateKey>`, s
 ```
 
 **Fix:** Declare the field `Secret<Ed25519PrivateKey>` (the quick fix does this); `Secret<K>` has the key's operations, so the code that uses it needs no `reveal()`. A public key needs no `Secret`.
+
+### K4033 `client-only-on-server`
+
+**Error.** A browser-only stdlib type (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`) is named in a server-only declaration.
+
+Example (`tests/corpus/sema/app/media/client-only-on-server.k`):
+
+```k,ignore
+// A stream, a recording session or a meter exists only in the browser: naming one in a
+// server-only declaration is K4033 (46-media-and-rtc.md, "Server and client"). A `Recording` is a
+// value and may be named anywhere.
+import k.media.MediaStream
+import k.media.Recording
+import k.media.RecordingSession
+
+@Scope(.server)
+service Archive {
+    func keep(stream: MediaStream) {
+        stream.stop()
+    }
+
+    func store(recording: Recording) -> Int {
+        return recording.file.bytes.count
+    }
+
+    var current: RecordingSession? = nil
+}
+```
+
+```text
+error[K4033]: `MediaStream` exists only in the browser, but `Archive` runs on the server
+  --> src/corpus/client-only-on-server.k:10:23
+   |
+10 |     func keep(stream: MediaStream) {
+   |                       ^^^^^^^^^^^
+
+error[K4033]: `RecordingSession` exists only in the browser, but `Archive` runs on the server
+  --> src/corpus/client-only-on-server.k:18:18
+   |
+18 |     var current: RecordingSession? = nil
+   |                  ^^^^^^^^^^^^^^^^
+```
+
+**Fix:** Keep the stream, track, controller, meter or recording session in a client-only service, and send the server what it can store: a `Recording`'s `File` bytes, not the session.
 
 ## K5000–K5499: Pages and routing
 

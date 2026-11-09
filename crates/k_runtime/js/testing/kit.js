@@ -45,6 +45,7 @@ import { install as installDom } from "./dom.js";
 import { createFront, testChannel as scriptedChannel } from "./channels.js";
 import { TestWebSocketServer, testWebSocketClient as scriptedSockets } from "../runtime/websocket.js";
 import { setTesting as cryptoTesting } from "../runtime/crypto.js";
+import { audioMeter, mediaStream, mediaTrack, recordedTracks, recordingSession } from "../runtime/media.js";
 
 // `k test`'s fast passphrase salts (33-crypto.md, "Testing"): 1,000
 // iterations, which parse only here.
@@ -56,7 +57,7 @@ cryptoTesting(true);
  * The running test: its container, its screens, and the errors thrown by
  * work it scheduled (effects flushed in a microtask).
  */
-let current = { container: null, screens: [], errors: [], clock: null, server: null, offline: false, front: null, context: null, sockets: null };
+let current = { container: null, screens: [], errors: [], clock: null, server: null, offline: false, front: null, context: null, sockets: null, media: null };
 
 /**
  * Starts a test with `container` (the generated browser container): the
@@ -67,7 +68,7 @@ let current = { container: null, screens: [], errors: [], clock: null, server: n
  * @param {object|null} [server]
  */
 export function begin(container, clock = null, server = null) {
-  current = { container, screens: [], errors: [], clock, server, offline: false, front: null, context: null, sockets: null };
+  current = { container, screens: [], errors: [], clock, server, offline: false, front: null, context: null, sockets: null, media: null };
 }
 
 /**
@@ -578,6 +579,7 @@ function report(el, C, entry) {
 /** Unmounts every view the running test rendered. */
 function end() {
   for (const s of current.screens.splice(0)) s.unmount();
+  stopTestMedia();
   current.front?.reset();
   channelEnv({ socket: noSocket, browser: () => null });
   active = null;
@@ -1197,6 +1199,7 @@ class Screen extends Queries {
   unmount() {
     if (this.host === null) return;
     this.dispose?.();
+    stopTestMedia();
     this.host.remove();
     this.host = null;
     flush();
@@ -1661,6 +1664,308 @@ export function testGeolocation() {
     },
     setSupported(value) {
       supported = value === true;
+    },
+  };
+}
+
+// ------------------------------------------------------------ media
+
+/**
+ * Ties a test stream to its owner, as the browser's `ownStream` does:
+ * `.owner` stops it when `c` aborts (its component unmounts); `.service`
+ * when a screen of the test unmounts, or the test ends.
+ * @param {object} stream
+ * @param {AbortSignal|null} c
+ * @param {{$: number}|null} lifetime
+ */
+function ownTestStream(stream, c, lifetime) {
+  if (c?.aborted) {
+    stream.stop();
+    return stream;
+  }
+  if (lifetime?.$ === 1) (current.media ??= new Set()).add(stream);
+  else c?.addEventListener("abort", () => stream.stop());
+  return stream;
+}
+
+/** Stops the test's `.service` streams (a screen unmounted, or the test ended). */
+function stopTestMedia() {
+  for (const s of current.media ?? []) s.stop();
+  current.media?.clear();
+}
+
+/**
+ * `k.test.TestSource`: the sound a test device makes on `clock`, as
+ * segments `[from, to, level]` in milliseconds; the latest that covers
+ * the time wins, and silence otherwise. `tracks` are the live tracks it
+ * feeds.
+ * @param {object} clock the `TestClock`
+ */
+function testSource(clock) {
+  const segments = [];
+  const tracks = new Set();
+  const at = () => clock.now.ms;
+  return {
+    speak(level, d) {
+      segments.push([at(), at() + d, Math.max(0, Math.min(1, level))]);
+    },
+    silence(d) {
+      segments.push([at(), at() + d, 0]);
+    },
+    stopSharing() {
+      batch(() => {
+        for (const t of [...tracks]) if (t.$screen) t.$end(2);
+      });
+      flush();
+    },
+    $levelAt(ms) {
+      for (let i = segments.length - 1; i >= 0; i--) {
+        const [from, to, level] = segments[i];
+        if (ms >= from && ms < to) return level;
+      }
+      return 0;
+    },
+    $tracks: tracks,
+  };
+}
+
+/** The test devices: `[id, kind tag, label]`. */
+const TEST_DEVICES = [
+  ["test-microphone", 0, "Test Microphone"],
+  ["test-camera", 1, "Test Camera"],
+  ["test-speaker", 2, "Test Speaker"],
+];
+
+/**
+ * `k.test.TestMediaDevices`: no prompt, no device (46-media-and-rtc.md,
+ * "Tests"). Supported; both permissions `.prompt` (reactive); prompts
+ * answered `.granted`; one test microphone, camera and speaker, labelled
+ * once a kind was granted. Captures return synthetic streams of
+ * `mediaTrack` handles fed by the devices' `TestSource`s; `liveTracks`
+ * are those not yet ended.
+ */
+export function testMediaDevices() {
+  const clock = sharedClock();
+  const perms = [signal(unitCase(0)), signal(unitCase(0))];
+  const plugged = signal(TEST_DEVICES.map(([id, kind, label]) => ({ id, kind, label })));
+  const labelled = signal(false);
+  let supported = true;
+  let answer = unitCase(1);
+  let prompts = 0;
+  let failure = null;
+  let cancelScreen = false;
+  const captures = [];
+  const live = new Set();
+  const sources = { microphone: testSource(clock), camera: testSource(clock), screen: testSource(clock) };
+  /** `[camera?, microphone?]` permission indexes of a request. */
+  const kinds = (r) => (r.$ === 0 ? [1] : r.$ === 1 ? [0] : [0, 1]);
+  const track = (kind, id, label, source, screen) => {
+    const t = { kind: kind === 1 ? "video" : "audio", label, enabled: true, muted: false, stop() {} };
+    const settings = kind === 1
+      ? { size: { width: 1280, height: 720 }, frameRate: 30, sampleRate: null, channelCount: null, echoCancellation: null, noiseSuppression: null, autoGainControl: null }
+      : { size: null, frameRate: null, sampleRate: 48000, channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    const h = mediaTrack(t, { device: id, screen, settings });
+    h.$source = source;
+    h.$screen = screen;
+    live.add(h);
+    source.$tracks.add(h);
+    h.$ends.add(() => {
+      live.delete(h);
+      source.$tracks.delete(h);
+    });
+    return h;
+  };
+  const device = (choice, kind) => {
+    const id = choice?.value ?? TEST_DEVICES[kind][0];
+    const d = plugged.peek().find((x) => x.id === id && x.kind === kind);
+    if (!d) throw unitCase(4);
+    return d;
+  };
+  const now = (names) => {
+    const s = names.map((i) => perms[i].peek().$);
+    return unitCase(s.includes(2) ? 2 : s.every((x) => x === 1) ? 1 : 0);
+  };
+  return {
+    get isSupported() {
+      return supported;
+    },
+    get cameraPermission() {
+      return perms[0].get();
+    },
+    get microphonePermission() {
+      return perms[1].get();
+    },
+    get devices() {
+      const named = labelled.get();
+      return plugged.get().map((d) => ({ id: { value: d.id }, kind: unitCase(d.kind), label: named ? d.label : null }));
+    },
+    get prompts() {
+      return prompts;
+    },
+    get captures() {
+      return [...captures];
+    },
+    get liveTracks() {
+      return [...live];
+    },
+    get microphone() {
+      return sources.microphone;
+    },
+    get camera() {
+      return sources.camera;
+    },
+    async requestAccess(_c, request) {
+      const names = kinds(request);
+      if (!supported || now(names).$ !== 0) return now(names);
+      prompts++;
+      batch(() => {
+        for (const i of names) if (perms[i].peek().$ === 0) perms[i].set(answer);
+        if (answer.$ === 1) labelled.set(true);
+      });
+      return now(names);
+    },
+    async capture(c, request, lifetime) {
+      captures.push(request);
+      if (!supported) throw unitCase(0);
+      if (failure !== null) throw failure;
+      for (const i of kinds(request)) {
+        const p = perms[i].peek().$;
+        if (p !== 1) throw unitCase(p === 0 ? 1 : 2);
+      }
+      const audio = request.$ === 0 || request.$ === 2 ? request._0 : null;
+      const video = request.$ === 1 ? request._0 : request.$ === 2 ? request._1 : null;
+      const mic = audio && device(audio.device, 0);
+      const cam = video && device(video.device, 1);
+      const tracks = [];
+      if (mic) tracks.push(track(0, mic.id, mic.label, sources.microphone, false));
+      if (cam) tracks.push(track(1, cam.id, cam.label, sources.camera, false));
+      return ownTestStream(mediaStream(tracks, null), c, lifetime);
+    },
+    async captureScreen(c, request, lifetime) {
+      if (!supported) throw unitCase(0);
+      if (cancelScreen) {
+        cancelScreen = false;
+        throw unitCase(3);
+      }
+      if (failure !== null) throw failure;
+      const tracks = [track(1, null, "Test Screen", sources.screen, true)];
+      if (request?.audio === true) tracks.push(track(0, null, "Test Screen Audio", sources.screen, true));
+      return ownTestStream(mediaStream(tracks, null), c, lifetime);
+    },
+    setPermission(kind, state) {
+      const i = kind.$ === 0 ? 0 : 1;
+      batch(() => {
+        perms[i].set(state);
+        if (state.$ === 1) labelled.set(true);
+        // A permission revoked while capturing ends the kind's tracks.
+        if (state.$ !== 1) for (const t of [...live]) if (!t.$screen && t.kind.$ === (i === 0 ? 1 : 0)) t.$end(2);
+      });
+      flush();
+    },
+    answerPrompts(a) {
+      answer = a;
+    },
+    failCaptures(e) {
+      failure = e;
+    },
+    cancelScreenPicker() {
+      cancelScreen = true;
+    },
+    add(d) {
+      plugged.set([...plugged.peek(), { id: d.id.value, kind: d.kind.$, label: d.label ?? d.id.value }]);
+      flush();
+    },
+    remove(id) {
+      batch(() => {
+        plugged.set(plugged.peek().filter((d) => d.id !== id.value));
+        for (const t of [...live]) if (t.device?.value === id.value) t.$end(1);
+      });
+      flush();
+    },
+    setSupported(v) {
+      supported = v === true;
+    },
+  };
+}
+
+/**
+ * `k.test.TestRecorder`: records 100 bytes a second of a synthetic
+ * stream while recording, on the test's clock; the file is those bytes
+ * (`i % 251`), `audio/webm` or `video/webm` (or the `.exact` type).
+ */
+export function testRecorder() {
+  const clock = sharedClock();
+  let started = 0;
+  let next = null;
+  return {
+    get started() {
+      return started;
+    },
+    supports(format) {
+      return format.$ !== 3 || next?.$ !== 0;
+    },
+    start(stream, format, limit) {
+      const e = next;
+      next = null;
+      if (e !== null) throw e;
+      if (recordedTracks(stream, format) === null) throw unitCase(1);
+      started++;
+      let total = 0;
+      let session = null;
+      const mediaType = format.$ === 3 ? format.mediaType : format.$ === 2 ? "video/webm" : "audio/webm";
+      const rec = {
+        start() {},
+        pause() {},
+        resume() {},
+        stop: () => ({ bytes: Uint8Array.from({ length: total }, (_, i) => i % 251), mediaType }),
+      };
+      const data = rec;
+      session = recordingSession(stream, format, limit, rec, () => clock.now.ms, (f) =>
+        clock.every(1000, () => {
+          if (session?.state.$ === 0) {
+            total += 100;
+            data.data(100);
+          }
+          f();
+        }),
+      );
+      return session;
+    },
+    failNext(e) {
+      next = e;
+    },
+  };
+}
+
+/**
+ * `k.test.TestAudio`: a meter reads the level its stream's microphone's
+ * `TestSource` scripts, sampled 30 times a second of the test's clock;
+ * `play` records its source and resolves at once.
+ */
+export function testAudio() {
+  const clock = sharedClock();
+  const played = [];
+  return {
+    get played() {
+      return [...played];
+    },
+    meter(stream, lifetime) {
+      const t = stream.audioTracks[0];
+      if (!t) throw unitCase(1);
+      // The RMS whose level, on the meter's -60 dB scale, is the scripted one.
+      const sample = () => {
+        const l = t.$source?.$levelAt(clock.now.ms) ?? 0;
+        return l <= 0 ? 0 : 10 ** ((l * 60 - 60) / 20);
+      };
+      const m = audioMeter(stream, sample, (n) => Array.from({ length: Math.max(0, n) }, () => 0), () => clock.now.ms, (f) => {
+        const h = clock.every(34, f);
+        return () => h.cancel();
+      });
+      if (lifetime?.$ !== 1) onCleanup(m.stop);
+      return m;
+    },
+    async play(_c, source) {
+      played.push(source);
     },
   };
 }

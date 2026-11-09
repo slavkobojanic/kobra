@@ -157,6 +157,8 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | `k-sw.js` (at the root) | `sw.js` (part `ServiceWorker`), the service worker emitted next to the notifications chunk; fetched by the browser's worker updates, never by a page load | ≤ 640 B (`SERVICE_WORKER_SIZE_BUDGET`) | 497 B |
 | `environment.[hash].js` | `environment.js` (part `Environment`), shipped only to apps whose client injects `PageVisibility`, `Connectivity`, `Preferences` or `Viewport` | ≤ 1.25 KB (`ENVIRONMENT_SIZE_BUDGET`) | 1,016 B |
 | `observe.[hash].js` | `observe.js` (part `Observe`), a runtime feature shipped only to clients whose views use `appeared`, `disappeared` or `resized` | ≤ 1 KB (`OBSERVE_SIZE_BUDGET`) | 728 B |
+| `media.[hash].js` | `media.js` (part `Media`), shipped only to pages whose client uses `k.media` ([§12.14](#1214-media)); a release build minifies it to about 4.4 KB | ≤ 6 KB (`MEDIA_SIZE_BUDGET`) | 5,702 B |
+| `playback.[hash].js` | `playback.js` (part `Playback`), a runtime feature shipped only to clients with a `video` or `audio` element | ≤ 1 KB (`PLAYBACK_SIZE_BUDGET`) | 858 B |
 | `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
 | `streams.[hash].js` | `streams.js` (part `Streams`), shipped only to apps with a streaming rpc | ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | 569 B |
 | `channels.[hash].js` | `channels.js` (part `Channels`), the frame codec and the channels' client ([§8.2](#82-channels)), shipped only to apps whose client calls a channel rpc; a release build links the unused Protobuf codec out (3.2 KB gzip minified in a one-channel app) | ≤ 4.5 KB (`CHANNELS_SIZE_BUDGET`) | 4,302 B |
@@ -1140,6 +1142,60 @@ The server imports it from `outbound.js`, and the kit from `testing/kit.js`.
   uses too, so the browser and the server of one test share it.
 
 ---
+
+### 12.14 Media
+
+`media.js` (part `Media`), a feature chunk, is `k.media` in the browser
+([46-media-and-rtc.md](../design/46-media-and-rtc.md)): `BrowserMediaDevices`, `BrowserRecorder` and
+`BrowserAudio`, which the client entry's `$App` constructs for `MediaDevices`, `Recorder` and `Audio`
+(deferred to the pages that reach them, as for `Geolocation`), `MediaController` (`new MediaController()`)
+and the `LevelMeter` component. `playback.js` (part `Playback`) is the `video` and `audio` elements'
+binding, a runtime feature like `observe.js`.
+
+- **Handles.** A stream, track, session and meter are objects whose getters read signals (`mediaStream`,
+  `mediaTrack`, `recordingSession`, `audioMeter`, shared with the test kit's doubles) and whose `equals`
+  is identity. A track ends once (`$end`): `.stopped` from `stop()`, `.deviceLost` from the browser's
+  `ended` event, `.endedByUser` for a screen track; its `$ends` callbacks stop the sessions and meters
+  that use it.
+- **Permissions.** `cameraPermission` and `microphonePermission` are signals, `.prompt` until
+  `navigator.permissions.query({name: "camera" | "microphone"})` answers, then kept by its `change`
+  event and re-read on `visibilitychange`; a grant a capture saw counts for the page's life (Gecko
+  doesn't know `camera` in the Permissions API). `devices` is `enumerateDevices` after hydration, on
+  `devicechange` and after a grant, with `label` `nil` while the browser hides it.
+- **`requestAccess(c, request)`** returns at once unless a requested kind is `prompt`; then it calls
+  `getUserMedia`, which prompts, and holds the stream for 5 s: a `capture` of the same constraints takes
+  it over. A `NotAllowedError` re-reads the permissions: `denied`, or `prompt` when the user dismissed
+  the prompt.
+- **`capture(c, request, lifetime)`** reads the permissions first and throws `notAsked` (`unitCase(1)`)
+  or `denied` (`2`) without calling the browser; `captureError` maps `getUserMedia`'s rejections
+  (`NotAllowedError` 2, or 3 from the screen picker; `NotFoundError` and an `OverconstrainedError` on
+  `deviceId` 4; `NotReadableError` and `AbortError` 5; another `OverconstrainedError`
+  `{$: 6, setting}`; anything else 0). `ownStream` ties the result to its owner: `.owner` stops it
+  when `c` aborts, `.service` when the page's path changes (the history's `pushState`, `replaceState`
+  and `popstate`) or the document is hidden for good (`pagehide`); a stream whose `c` already aborted
+  is stopped and the call rejects with `CANCELLED`.
+- **`BrowserRecorder.start`** checks the tracks the format records (`noTrack`, `1`), picks the media
+  type with `recordingType` (the WebM form, else MP4, else the browser's choice; `null`, so
+  `unsupportedFormat`, for an `.exact` type it can't record), and records a `MediaRecorder` of those
+  tracks with a timeslice of 1 s, so `size` follows each `dataavailable`. `elapsed` counts
+  `performance.now()` in whole seconds, paused time excluded; the limit and the stream's end stop it
+  by themselves. `stop(c, keepStream)` resolves with `{file: {name, mediaType, bytes}, duration,
+  format}`, the media type without its codecs.
+- **`BrowserAudio`** has one `AudioContext`, made on the first meter and resumed on the page's first
+  `pointerdown` or `keydown`. A meter reads an `AnalyserNode`'s time-domain data each animation frame,
+  at most 30 times a second: `level` is the RMS on a -60 dB to 0 dB scale, `peak` the highest of the
+  last 1.5 s, `isSpeaking` after 150 ms above 0.3. `play(c, source)` plays through an element of its
+  own.
+- **`mediaElement(el, source, options)`** sets `playsinline`, then in one effect binds the source
+  (`srcObject` for a stream, which starts by itself; an object URL for a file, revoked when the source
+  changes or the element unmounts; `src` for a URL), `controls` (by default for a file or URL) and
+  `muted` (a local stream unless `.monitor(true)`), and in effects of their own `loop`, the mirror
+  (`transform: scaleX(-1)`), `poster`, the captions' `<track>` and the controller (`$attach`,
+  `$detach`). A stream whose `play()` the browser refuses dispatches `playbackblocked`.
+- On the server `MediaDevices`, `Recorder` and `Audio` are `$s.clientPlatform(...)`, whose
+  `cameraPermission` and `microphonePermission` read `.prompt` and `devices` `[]`;
+  `natives["k.media.MediaController"]` is an idle controller, and `LevelMeter` renders an empty
+  `role="meter"`. The doubles are the kit's `testMediaDevices`, `testRecorder` and `testAudio`.
 
 ## 14. Performance budgets
 

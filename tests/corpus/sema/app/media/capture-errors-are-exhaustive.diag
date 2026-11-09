@@ -1,0 +1,8 @@
+error[K2206] 12:9-12:11: the `catch` clauses don't handle every error
+  note: missing: `.unsatisfiable(_)`
+  fix "Insert the missing `catch` clauses" maybe-incorrect
+    edit 18:10-18:10 " catch .unsatisfiable(_) {\n        }"
+error[K2203] 22:18-22:56: `k.media.CaptureError` is neither caught nor declared in `throws`
+  label 21:10-21:21: declared here without `throws k.media.CaptureError`
+  fix "Add `throws CaptureError`" maybe-incorrect
+    edit 21:29-21:29 " throws CaptureError"

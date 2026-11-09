@@ -78,6 +78,7 @@
 - [Notifications](apps/notifications.md)
 - [The page and the device](apps/environment.md)
 - [Other tabs and the screen](apps/tabs-and-screen.md)
+- [Camera, microphone and recording](apps/media.md)
 - [Testing](apps/testing.md)
 - [Packages](apps/packages.md)
 - [Workspaces and services](apps/workspaces.md)
@@ -94,6 +95,7 @@
 - [Shop: a workspace of services with paybox](examples/shop.md)
 - [Stack: the smallest system of services](examples/stack.md)
 - [Kanban: drag and drop in the browser](examples/kanban.md)
+- [Memos: recording voice memos](examples/memos.md)
 
 # Reference
 
@@ -113,6 +115,7 @@
     - [`k.drag`](reference/stdlib/k-drag.md)
     - [`k.encoding`](reference/stdlib/k-encoding.md)
     - [`k.http`](reference/stdlib/k-http.md)
+    - [`k.media`](reference/stdlib/k-media.md)
     - [`k.observe`](reference/stdlib/k-observe.md)
     - [`k.rpc`](reference/stdlib/k-rpc.md)
     - [`k.server`](reference/stdlib/k-server.md)

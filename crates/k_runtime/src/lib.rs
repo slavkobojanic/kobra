@@ -189,6 +189,21 @@ pub const ENVIRONMENT_SIZE_BUDGET: usize = 1280;
 /// to apps whose client uses one (`docs/compiler/performance.md` §11.3).
 pub const OBSERVE_SIZE_BUDGET: usize = 1024;
 
+/// The largest `k.media` in the browser ([`Part::Media`]:
+/// `BrowserMediaDevices`, `BrowserRecorder`, `BrowserAudio`, the stream,
+/// track, session and meter handles, `MediaController` and `LevelMeter`)
+/// may be, measured like [`CORE_SIZE_BUDGET`] (6 KB; about 5.6 KB
+/// compacted, and a release build minifies it to about 4.4 KB). It ships in
+/// its own chunk, only to pages whose client uses `k.media`
+/// (`docs/compiler/performance.md` §11.3).
+pub const MEDIA_SIZE_BUDGET: usize = 6 * 1024;
+
+/// The largest the `video` and `audio` elements' binding in the browser
+/// ([`Part::Playback`]) may be, measured like [`CORE_SIZE_BUDGET`] (1 KB).
+/// It ships in a chunk of its own, only to pages with a `video` or
+/// `audio` element (`docs/compiler/performance.md` §11.3).
+pub const PLAYBACK_SIZE_BUDGET: usize = 1024;
+
 /// The largest `k.ui.KeyboardShortcut` in the browser ([`Part::Keys`]) may
 /// be, measured like [`CORE_SIZE_BUDGET`] (512 B). It ships in its own
 /// chunk, only to apps that use keyboard shortcuts
@@ -289,6 +304,16 @@ pub enum Part {
     /// uses one, and measured on its own ([`OBSERVE_SIZE_BUDGET`]).
     /// Generated code reaches it as `$k_observe`, not `$k`.
     Observe,
+    /// `k.media` in the browser (`BrowserMediaDevices`, `BrowserRecorder`,
+    /// `BrowserAudio`, `MediaController`, `LevelMeter`): shipped as its own
+    /// client chunk, only to pages whose client uses it, and measured on
+    /// its own ([`MEDIA_SIZE_BUDGET`]).
+    Media,
+    /// The `video` and `audio` elements' binding in the browser: shipped as
+    /// its own client chunk, only to pages with one, and measured on its
+    /// own ([`PLAYBACK_SIZE_BUDGET`]). Generated code reaches it as
+    /// `$k_playback`, not `$k`.
+    Playback,
     /// `k.ui.KeyboardShortcut` in the browser: shipped as its own client
     /// chunk, only to apps that use it, and measured on its own
     /// ([`KEYS_SIZE_BUDGET`]).
@@ -400,6 +425,8 @@ const MODULES: &[Module] = modules![
     WakeLock "runtime/wakelock.js",
     Environment "runtime/environment.js",
     Observe "runtime/observe.js",
+    Media "runtime/media.js",
+    Playback "runtime/playback.js",
     Keys "runtime/keys.js",
     Streams "runtime/streams.js",
     Channels "runtime/channels.js",

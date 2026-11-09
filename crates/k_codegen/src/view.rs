@@ -236,6 +236,12 @@ pub(crate) struct Elem {
     /// `appearThreshold` and `appearMargin` (45-web-platform.md, "Element
     /// events").
     pub appear: Vec<(String, ast::Expr)>,
+    /// A `video` or `audio` element's source and playback options
+    /// (`source`, `controls`, `muted`, `monitor`, `loops`, `mirrored`,
+    /// `poster`, `captions`, `controller`), bound by the playback chunk's
+    /// `$k.mediaElement` rather than as attributes (46-media-and-rtc.md,
+    /// "Showing and playing media").
+    pub media: Vec<(String, ast::Expr)>,
 }
 
 /// The visible `<label>` of a form control: literal text, or a text that
@@ -664,6 +670,7 @@ impl Tree<'_, '_, '_> {
                             }
                         }
                     }
+                    "source" if is_media(name) => el.media.push(("source".into(), v.clone())),
                     "source" => el
                         .attrs
                         .push(("src".into(), self.attr_value(&v, AttrKind::Text))),
@@ -723,6 +730,14 @@ impl Tree<'_, '_, '_> {
                 "appearThreshold" | "appearMargin" => {
                     if let Some(v) = value {
                         el.appear.push((m.clone(), v));
+                    }
+                }
+                "controls" | "muted" | "monitor" | "loops" | "mirrored" | "poster" | "captions"
+                | "controller"
+                    if is_media(name) =>
+                {
+                    if let Some(v) = value {
+                        el.media.push((m.clone(), v));
                     }
                 }
                 "label" => {
@@ -1668,6 +1683,7 @@ impl Client<'_, '_, '_> {
     /// `$k.observeElement` (the observe chunk's, 45-web-platform.md,
     /// "Element events").
     fn element_events(&mut self, node: &Expr, el: &Elem) {
+        self.media_binding(node, el);
         for (event, h) in &el.events {
             let loc = self.b.loc(h.syntax());
             if matches!(event.as_str(), "appeared" | "disappeared" | "resized") {
@@ -1700,6 +1716,44 @@ impl Client<'_, '_, '_> {
                 loc,
                 rt("on", vec![node.clone(), js::str(event), handler]),
             )));
+        }
+    }
+
+    /// Binds a `video` or `audio` element's source and options with
+    /// `$k.mediaElement(el, source, options)` (the playback chunk's,
+    /// 46-media-and-rtc.md, "Showing and playing media"): `source` and
+    /// each option are functions the binding reads in its own effects, so
+    /// changing one rebinds only that part.
+    fn media_binding(&mut self, node: &Expr, el: &Elem) {
+        let Some((_, source)) = el.media.iter().find(|(n, _)| n == "source") else {
+            return;
+        };
+        let source = source.clone();
+        let mut options = Vec::new();
+        for (name, v) in el.media.iter().filter(|(n, _)| n != "source") {
+            options.push(Prop::KeyValue(name.clone(), self.thunk(v)));
+        }
+        let loc = self.b.loc(source.syntax());
+        let source = self.thunk(&source);
+        self.b.stmts.push(Stmt::Expr(js::at(
+            loc,
+            rt(
+                "mediaElement",
+                vec![node.clone(), source, Expr::Object(options, false)],
+            ),
+        )));
+    }
+
+    /// `() => value` for an expression the runtime reads in an effect of
+    /// its own.
+    fn thunk(&mut self, v: &ast::Expr) -> Expr {
+        let (pre, e) = self.b.capture(|b| b.expr(v));
+        if pre.is_empty() {
+            js::arrow(vec![], e)
+        } else {
+            let mut stmts = pre;
+            stmts.push(Stmt::Return(Some(e)));
+            js::arrow_block(vec![], stmts, false)
         }
     }
 
@@ -3096,6 +3150,7 @@ fn build(
             .any(|c| !matches!(c, ClassPart::Static(_)))
         || !el.styles.is_empty()
         || !el.events.is_empty()
+        || !el.media.is_empty()
         || el.control.is_some()
         || has_autofocus(el)
         || (!root && el.label.is_some());
@@ -3179,4 +3234,9 @@ fn step(path: &mut Vec<Step>, first: &mut bool) {
 #[allow(dead_code)]
 pub(crate) fn has_token_kind(node: &SyntaxNode, kind: SyntaxKind) -> bool {
     has_token(node, kind)
+}
+
+/// `true` for the elements whose source is a `MediaSource`.
+fn is_media(name: &str) -> bool {
+    matches!(name, "audio" | "video")
 }

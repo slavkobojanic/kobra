@@ -55,6 +55,11 @@ pub(crate) fn static_value(b: &mut Body<'_, '_>, m: MemberId) -> Option<Expr> {
         ("k.core.Color", "transparent") => js::str("transparent"),
         // A `TimeZone` is its IANA name (runtime.md §12).
         ("k.time.TimeZone", "utc") => js::str("UTC"),
+        // `CaptureRequest`'s defaults (46-media-and-rtc.md, "Requests"):
+        // `.audio(AudioCapture())`, `.video(VideoCapture())` and both.
+        ("k.media.CaptureRequest", "microphone") => capture_request(0),
+        ("k.media.CaptureRequest", "camera") => capture_request(1),
+        ("k.media.CaptureRequest", "cameraAndMicrophone") => capture_request(2),
         ("k.time.TimeZone", "local") if b.target == crate::cx::Target::Server => {
             // The request's zone needs the render context, which only a
             // view's body has; anywhere else the server uses UTC.
@@ -74,6 +79,42 @@ pub(crate) fn static_value(b: &mut Body<'_, '_>, m: MemberId) -> Option<Expr> {
         ("k.time.TimeZone", "local") => rt("localTimeZone", vec![]),
         _ => return None,
     })
+}
+
+/// A `CaptureRequest` case (`tag` 0 `audio`, 1 `video`, 2 `audioAndVideo`)
+/// with the default `AudioCapture()` and `VideoCapture()`, as the
+/// stdlib's static lets declare them.
+fn capture_request(tag: u8) -> Expr {
+    let audio = || {
+        Expr::Object(
+            vec![
+                js::Prop::KeyValue("device".into(), Expr::Null),
+                js::Prop::KeyValue("echoCancellation".into(), Expr::Bool(true)),
+                js::Prop::KeyValue("noiseSuppression".into(), Expr::Bool(true)),
+                js::Prop::KeyValue("autoGainControl".into(), Expr::Bool(true)),
+            ],
+            false,
+        )
+    };
+    let video = || {
+        Expr::Object(
+            ["device", "facing", "size", "frameRate"]
+                .iter()
+                .map(|k| js::Prop::KeyValue((*k).into(), Expr::Null))
+                .collect(),
+            false,
+        )
+    };
+    let mut props = vec![js::Prop::KeyValue("$".into(), Expr::Num(f64::from(tag)))];
+    match tag {
+        0 => props.push(js::Prop::KeyValue("_0".into(), audio())),
+        1 => props.push(js::Prop::KeyValue("_0".into(), video())),
+        _ => {
+            props.push(js::Prop::KeyValue("_0".into(), audio()));
+            props.push(js::Prop::KeyValue("_1".into(), video()));
+        }
+    }
+    Expr::Object(props, false)
 }
 
 /// A theme token as CSS text: `var(--k-color-primary)`.

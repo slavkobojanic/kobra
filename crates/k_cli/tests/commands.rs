@@ -1189,6 +1189,27 @@ fn test_runs_the_notes_example() {
 }
 
 #[test]
+fn test_runs_the_memos_example() {
+    // `MediaDevices`, `Recorder` and `Audio` against their doubles
+    // (46-media-and-rtc.md, "Tests"): a blocked microphone, a recorded memo
+    // stored through the in-process server, paused time, a microphone
+    // unplugged mid-recording, and leaving the page turning it off.
+    assert_example_passes("memos");
+}
+
+#[test]
+fn test_runs_the_capturing_fixture() {
+    // The real-Chrome fixture's buttons against the doubles: `.notAsked`
+    // before asking, one prompt, `.denied` without one, a missing chosen
+    // device, a recording on the `TestClock`, and an unsupported browser.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/capturing");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(text.contains("6 passed; 0 failed"), "{text}");
+}
+
+#[test]
 fn test_runs_the_huddle_example() {
     // Channels end to end in-process: two people in one room through
     // `TestPeers`, the dropped, forgotten and offline connection through

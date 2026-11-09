@@ -310,6 +310,7 @@ Messages and detail lines for this range that the corpus pins exactly:
 | K3109 | `invalid-heading-level` | error | The `level:` argument expression (not an integer literal from 1 to 6). | — |
 | K3110 | `redundant-role` | error | The implicit member expression, from `.` to the name; help ``use `nav` `` naming the element. | — |
 | K3111 | `key-outside-view` | error | From `key` to the end of the key expression. | Remove the `key` clause, with the space before it (machine-applicable). |
+| K3112 | `missing-captions` | warning | The `source:` argument of a `video` whose source is written `.file(…)` or `.url(…)` (an implicit member, called or not) and that chains no `.captions(…)` (WCAG 1.2.2, [46-media-and-rtc.md](../design/46-media-and-rtc.md#showing-and-playing-media-video-and-audio)). A `.stream(…)` source, and a source the compiler can't see the case of, are not reported; help names both `Captions` cases. | Insert `.captions(.notNeeded)` right after the element's argument list (maybe-incorrect: a video with speech needs a `.track`). |
 
 ### Styles (K3200–K3299)
 
@@ -358,6 +359,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K3101 | fix ``Replace `a` with `link` `` (maybe-incorrect); for `h1`–`h6` without an argument list the replacement is `heading(level: n)` |
 | K3106 | fix ``Insert ` key item.id` `` (maybe-incorrect), naming the loop variable |
 | K3111 | fix ``Remove the `key` clause`` |
+| K3112 | help naming `.captions(.track(url:language:label:))` and `.captions(.notNeeded)`; fix ``Insert `.captions(.notNeeded)` `` (maybe-incorrect) |
 | K3201 | fix ``Replace `font-size` with `fontSize` `` (machine-applicable for the camel-case form, maybe-incorrect for the closest name) |
 | K3214 | fix ``Replace `space-between` with `spaceBetween` `` (machine-applicable) |
 | K3210 | fix `Remove the braces` |
@@ -403,6 +405,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K4030 | `user-action-required` | error | The call of a `@UserAction` member, or of a function inferred user-action-only (it calls one before its first `await`), in a context that isn't a user's action (an `@Effect`, `init()`, a field, `@Load` or `@Derived` initializer, a view, a timer callback, a lambda passed as a value, a handler of an event that isn't activation-triggering), with help; or such a call after an `await` in a function or user's action, with a label at the `await`; or a second call of a consuming member (`@UserAction(consuming: true)`) on one path, with a label at the first; or a user-action-only function used as a value anywhere but directly in `.on(…)` of an activation-triggering event or `form.handle(…)`: the reference; or a user-action-only function implementing an interface member not declared `@UserAction`: its name, with a label at the requirement. A note gives the path to the `@UserAction` member when it goes through other functions. Test suites aren't checked. | On the last form, declare the requirement `@UserAction` (maybe-incorrect). |
 | K4031 | `handshake-header-on-client` | error | The name of a `headers`, `secretHeaders` or `bearerToken` setter of `k.http.WebSocketRequest` chained in a declaration that may run in the browser (shared or client-only, as `di::side` computes it), since a browser can't send headers on a WebSocket handshake ([44-channels.md](../design/44-channels.md#raw-websockets-khttp)). | — |
 | K4032 | `bare-private-key-in-config` | error | The type of a config field that holds a secret or private key of `k.crypto` (`AesGcmKey`, `Ed25519PrivateKey`, `EcdsaP256PrivateKey`, `X25519PrivateKey`, bare, optional or as a list's element) without `Secret<…>`, which it needs so the key may come from `NAME_FILE` and is never printed ([33-crypto.md](../design/33-crypto.md#keys-in-configuration)); help names the forwarded operation. Public key types are plain `ConfigValue`s. | Wrap the type in `Secret<…>`, keeping a trailing `?` outside (machine-applicable). |
+| K4033 | `client-only-on-server` | error | Each reference, in a server-only declaration (a protocol implementation, a `@Scope(.server)` or `.request` service, a job, an entity, a repository, a config, an endpoint page: `di::side`), to a stdlib type marked `@ClientOnly` that is a class, struct, enum or component (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`; [46-media-and-rtc.md](../design/46-media-and-rtc.md#server-and-client)). A client-only service or interface named there is K4008's (through its injection) or K4007's. | — |
 
 ### Pages and routing (K5000–K5499)
 

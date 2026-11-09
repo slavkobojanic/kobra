@@ -1,0 +1,18 @@
+# docs/design/46-media-and-rtc.md, docs/compiler/codegen.md §16: `k.media`'s browser bodies are
+# the media chunk's, and the `video` and `audio` elements' binding the playback chunk's: neither
+# is in the runtime chunk, so an app without media ships neither. The containers bind
+# `MediaDevices` and `Recorder` to `BrowserMediaDevices` and `BrowserRecorder` with no `use` rule,
+# and only once a page that reaches them (`Home`, not `About`) loads (codegen.md §16, as for
+# `Geolocation`).
+client contains // file: media.[hash].js
+client contains // file: playback.[hash].js
+client contains export function BrowserMediaDevices(
+client contains export function mediaElement(
+client contains get MediaDevices() {
+client contains get Recorder() {
+client contains $k_playback.mediaElement(
+client lacks $k.native("k.media.
+server contains $s.clientPlatform("k.media.MediaDevices")
+client contains let BrowserMediaDevices;
+client contains import { BrowserMediaDevices as $f_BrowserMediaDevices } from "../media.[hash].js";
+client contains BrowserMediaDevices = m.BrowserMediaDevices$feature;

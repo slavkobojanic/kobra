@@ -543,6 +543,57 @@ impl Checker<'_, '_, '_> {
         for link in links {
             self.element_link(def, link, &mut set);
         }
+        if def.name == "video" && !set.contains_key("captions") {
+            if let Some(c) = call {
+                self.missing_captions(c);
+            }
+        }
+    }
+
+    /// K3112: a `video` playing a file or a URL without `.captions(…)`
+    /// (WCAG 1.2.2; `docs/design/46-media-and-rtc.md`, "Showing and
+    /// playing media"). A live stream is exempt, and so is a source the
+    /// compiler can't see the case of.
+    fn missing_captions(&mut self, call: &ast::CallExpr) {
+        let Some(list) = call.arg_list() else { return };
+        let Some(value) = list
+            .args()
+            .find(|a| a.label().is_some_and(|l| l.text() == "source"))
+            .and_then(|a| a.value())
+        else {
+            return;
+        };
+        let callee = match &value {
+            ast::Expr::CallExpr(c) => c.callee(),
+            other => Some(other.clone()),
+        };
+        let case = callee.and_then(|e| {
+            e.syntax()
+                .last_token()
+                .filter(|t| t.kind().is_name_like())
+                .map(|t| t.text().to_owned())
+        });
+        if !matches!(case.as_deref(), Some("file" | "url")) {
+            return;
+        }
+        let at = list.syntax().text_range().end();
+        let file = self.span(call.syntax().text_range()).file;
+        self.report(
+            Diagnostic::new(
+                codes::MISSING_CAPTIONS,
+                self.span(value.syntax().text_range()),
+                "a video from a file or URL needs captions",
+            )
+            .with_help("add `.captions(.track(url:language:label:))`, or `.captions(.notNeeded)` for a video without speech")
+            .with_fix(
+                Fix::replace(
+                    "Insert `.captions(.notNeeded)`",
+                    Span::empty(file, at),
+                    ".captions(.notNeeded)",
+                )
+                .maybe_incorrect(),
+            ),
+        );
     }
 
     /// K3101 with the K element an HTML name stands for (`a` → `link`, `h2` → `heading(level: 2)`), or the closest element.

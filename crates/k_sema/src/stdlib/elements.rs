@@ -27,6 +27,9 @@ pub const TYPE_SCOPE: &[&str] = &[
     "k.ui.ButtonType",
     "k.ui.ElementSize",
     "k.ui.ImageLoading",
+    "k.media.Captions",
+    "k.media.MediaController",
+    "k.media.MediaSource",
 ];
 
 /// A named argument or chained attribute of an element.
@@ -219,6 +222,76 @@ const TEXT_INPUT_ATTRIBUTES: &[Param] = &[LABEL, PLACEHOLDER, DISABLED, AUTOFOCU
 /// The attributes of other form controls.
 const CONTROL_ATTRIBUTES: &[Param] = &[LABEL, DISABLED, AUTOFOCUS];
 
+/// The attributes `audio` and `video` share
+/// (`docs/design/46-media-and-rtc.md`, "Showing and playing media").
+const MEDIA_ATTRIBUTES: &[Param] = &[
+    Param {
+        label: "label",
+        ty: "String",
+        doc: "the accessible name; tests find the element by it",
+    },
+    Param {
+        label: "controls",
+        ty: "Bool",
+        doc: "the browser's controls; `true` by default for a file or URL, `false` for a stream",
+    },
+    Param {
+        label: "muted",
+        ty: "Bool",
+        doc: "plays without sound",
+    },
+    Param {
+        label: "monitor",
+        ty: "Bool",
+        doc: "plays a local stream's sound, which is muted by default to avoid feedback",
+    },
+    Param {
+        label: "loops",
+        ty: "Bool",
+        doc: "starts again at the end",
+    },
+    Param {
+        label: "controller",
+        ty: "MediaController",
+        doc: "drives playback from code; a controller drives one element",
+    },
+];
+/// The attributes of `video`: those of [`MEDIA_ATTRIBUTES`] and its own.
+const VIDEO_ATTRIBUTES: &[Param] = &[
+    MEDIA_ATTRIBUTES[0],
+    MEDIA_ATTRIBUTES[1],
+    MEDIA_ATTRIBUTES[2],
+    MEDIA_ATTRIBUTES[3],
+    MEDIA_ATTRIBUTES[4],
+    MEDIA_ATTRIBUTES[5],
+    Param {
+        label: "mirrored",
+        ty: "Bool",
+        doc: "flips the picture horizontally, for a self-view",
+    },
+    Param {
+        label: "poster",
+        ty: "Url",
+        doc: "the picture shown before it plays",
+    },
+    Param {
+        label: "captions",
+        ty: "Captions",
+        doc: "`.track(url:language:label:)`, or `.notNeeded` for a video without speech; a file or URL without it is K3112",
+    },
+];
+/// The events of `audio` and `video`.
+const MEDIA_EVENTS: &[Event] = &[
+    Event {
+        name: "ended",
+        payload: "Void",
+    },
+    Event {
+        name: "playbackBlocked",
+        payload: "Void",
+    },
+];
+
 /// Defines a plain content element with no required arguments.
 const fn content(name: &'static str, html: &'static str) -> ElementDef {
     ElementDef {
@@ -254,11 +327,11 @@ pub const ELEMENTS: &[ElementDef] = &[
         html: "audio",
         forms: &[&[Param {
             label: "source",
-            ty: "Url",
-            doc: "the audio file",
+            ty: "MediaSource",
+            doc: "what it plays: `.stream(…)`, `.file(…)` or `.url(…)` (46-media-and-rtc.md)",
         }]],
-        attributes: &[],
-        events: &[],
+        attributes: MEDIA_ATTRIBUTES,
+        events: MEDIA_EVENTS,
         content: Content::None,
         category: Category::Media,
     },
@@ -557,11 +630,11 @@ pub const ELEMENTS: &[ElementDef] = &[
         html: "video",
         forms: &[&[Param {
             label: "source",
-            ty: "Url",
-            doc: "the video file",
+            ty: "MediaSource",
+            doc: "what it plays: `.stream(…)`, `.file(…)` or `.url(…)` (46-media-and-rtc.md)",
         }]],
-        attributes: &[],
-        events: &[],
+        attributes: VIDEO_ATTRIBUTES,
+        events: MEDIA_EVENTS,
         content: Content::None,
         category: Category::Media,
     },

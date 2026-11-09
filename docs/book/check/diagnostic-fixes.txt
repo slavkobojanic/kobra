@@ -147,6 +147,7 @@ K3108: Write one `.on(…)` call per event.
 K3109: Use an integer literal from 1 to 6.
 K3110: Use the semantic element instead of `.role(…)`, such as `button` for `.role(.button)`.
 K3111: Remove the `key` clause; it belongs only to a `for` in a view.
+K3112: Add `.captions(.track(url: …, language: "en", label: "English"))` with a WebVTT file, or `.captions(.notNeeded)` for a video without speech (the quick fix inserts the latter).
 K3201: Use the camelCase name of a real CSS property; the quick fix suggests the closest one.
 K3202: Use a value the property accepts; the message shows the property's grammar.
 K3203: Declare the class in the style block, or correct the reference; the quick fix suggests the closest class.
@@ -200,6 +201,7 @@ K4029: Remove the annotation: the whole app already renders in the browser.
 K4030: Call it from a click, submit or key handler, before the handler's first `await`, directly or through functions it calls; load what it needs earlier, in `@Load`.
 K4031: Set handshake headers only in a server-only service (`@Scope(.server)`, or one a protocol's implementation injects), which can bridge the feed to the browser through a `Broadcast`; a browser's socket can carry a token in the URL's query or its first message instead.
 K4032: Declare the field `Secret<Ed25519PrivateKey>` (the quick fix does this); `Secret<K>` has the key's operations, so the code that uses it needs no `reveal()`. A public key needs no `Secret`.
+K4033: Keep the stream, track, controller, meter or recording session in a client-only service, and send the server what it can store: a `Recording`'s `File` bytes, not the session.
 K5001: Give one of the pages or endpoints another URL, or another name.
 K5002: Use `String`, `Int`, `Uuid`, `Page`, a payload-free enum or an optional of these.
 K5003: Name every path parameter once in the template, as `{name}`, and declare a `@Param` for each.

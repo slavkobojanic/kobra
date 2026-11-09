@@ -127,6 +127,12 @@ pub struct Tab {
 /// Starts Chrome, or returns `None` after saying why the test is skipped.
 /// With `K_REQUIRE_CHROME=1` (CI) a missing Chrome fails instead.
 pub fn chrome(scratch: &Path) -> Option<Tab> {
+    chrome_with(scratch, &[])
+}
+
+/// [`chrome`] with `extra` command-line flags, such as Chrome's fake
+/// media devices.
+pub fn chrome_with(scratch: &Path, extra: &[&str]) -> Option<Tab> {
     let binary = match chrome_binary() {
         Ok(b) => b,
         Err(why) => {
@@ -138,12 +144,12 @@ pub fn chrome(scratch: &Path) -> Option<Tab> {
             return None;
         }
     };
-    Some(Tab::start(&binary, scratch))
+    Some(Tab::start(&binary, scratch, extra))
 }
 
 impl Tab {
-    fn start(binary: &Path, scratch: &Path) -> Tab {
-        let mut chrome = Chrome::launch(binary, scratch);
+    fn start(binary: &Path, scratch: &Path, extra: &[&str]) -> Tab {
+        let mut chrome = Chrome::launch_with(binary, scratch, extra);
         let url = chrome.page_url();
         let port = chrome.port;
         Tab::attach(&url, Some(chrome), port)

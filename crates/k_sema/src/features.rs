@@ -123,6 +123,11 @@ pub const FEATURES: &[Feature] = &[
         "45-web-platform.md",
     ),
     planned(
+        "k-rtc",
+        "`k.rtc`: peer-to-peer calls and typed data channels, signalled over the app's own channel",
+        "46-media-and-rtc.md",
+    ),
+    planned(
         "job-run-check",
         "Rejecting a call to a job's `run` outside the worker and tests",
         "30-background-jobs.md",

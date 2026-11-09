@@ -107,6 +107,11 @@ impl StaticSite {
     /// Builds `examples/<example>` into `dir` and serves it.
     pub fn start(example: &str, dir: &Path) -> StaticSite {
         let dist = build(example, dir);
+        StaticSite::serve(&dist)
+    }
+
+    /// Serves `dist/public`.
+    fn serve(dist: &Path) -> StaticSite {
         let host = StaticHost::serve(listener(), &dist.join("public"));
         let origin = format!("http://localhost:{}", host.addr.port());
         StaticSite {

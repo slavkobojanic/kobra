@@ -12,10 +12,11 @@ use k_runtime::{
     CHANNELS_SIZE_BUDGET, CHARTS_SIZE_BUDGET, CLIPBOARD_SIZE_BUDGET, CORE_SIZE_BUDGET,
     CRYPTO_SIZE_BUDGET, DRAG_SIZE_BUDGET, ENVIRONMENT_SIZE_BUDGET, FILES_SIZE_BUDGET,
     FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET, HTTP_SIZE_BUDGET,
-    KEYS_SIZE_BUDGET, MONEY_SIZE_BUDGET, NOTIFICATIONS_SIZE_BUDGET, OBSERVE_SIZE_BUDGET, Part,
-    SERVICE_WORKER_SIZE_BUDGET, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
-    STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact,
-    compacted_sources, module, modules, resolve,
+    KEYS_SIZE_BUDGET, MEDIA_SIZE_BUDGET, MONEY_SIZE_BUDGET, NOTIFICATIONS_SIZE_BUDGET,
+    OBSERVE_SIZE_BUDGET, PLAYBACK_SIZE_BUDGET, Part, SERVICE_WORKER_SIZE_BUDGET,
+    SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET,
+    TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact, compacted_sources,
+    module, modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -183,6 +184,8 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::WakeLock
                 | Part::Environment
                 | Part::Observe
+                | Part::Media
+                | Part::Playback
                 | Part::Keys
                 | Part::Streams
                 | Part::Channels
@@ -481,6 +484,36 @@ fn the_element_events_meet_their_size_budget() {
 }
 
 #[test]
+fn media_meets_its_size_budget() {
+    let media = compacted_sources(&[Part::Media]).expect("compacts");
+    let size = gzip_len(&media);
+    eprintln!(
+        "media: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {MEDIA_SIZE_BUDGET})",
+        raw_len(&[Part::Media]),
+        media.len()
+    );
+    assert!(
+        size <= MEDIA_SIZE_BUDGET,
+        "media is {size} bytes gzip, over the {MEDIA_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn the_media_elements_binding_meets_its_size_budget() {
+    let playback = compacted_sources(&[Part::Playback]).expect("compacts");
+    let size = gzip_len(&playback);
+    eprintln!(
+        "playback: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {PLAYBACK_SIZE_BUDGET})",
+        raw_len(&[Part::Playback]),
+        playback.len()
+    );
+    assert!(
+        size <= PLAYBACK_SIZE_BUDGET,
+        "the media elements' binding is {size} bytes gzip, over the {PLAYBACK_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
 fn notifications_meet_their_size_budget() {
     let notifications = compacted_sources(&[Part::Notifications]).expect("compacts");
     let size = gzip_len(&notifications);
@@ -700,6 +733,8 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::WakeLock
                 | Part::Environment
                 | Part::Observe
+                | Part::Media
+                | Part::Playback
                 | Part::Keys
                 | Part::Streams
                 | Part::Channels

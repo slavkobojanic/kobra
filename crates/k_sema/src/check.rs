@@ -191,6 +191,7 @@ pub(crate) fn analyze(
     };
     let names = crate::ty::NameTable::new(&program);
     crate::di::client_references(&cx, &names);
+    crate::di::server_references(&cx, &names);
     let sides = crate::di::sides(&cx);
     unused_imports(&cx);
     cx.fw.styles_checked.set(true);

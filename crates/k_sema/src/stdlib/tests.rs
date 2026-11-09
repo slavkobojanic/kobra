@@ -92,6 +92,7 @@ fn every_module_is_below_k() {
         "k.encoding",
         "k.http",
         "k.internal",
+        "k.media",
         "k.observe",
         "k.rpc",
         "k.server",

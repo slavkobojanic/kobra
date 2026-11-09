@@ -15,7 +15,8 @@ component Gallery {
         textArea(value: bind query)
         numberField(value: bind count)
         checkbox(isChecked: bind isShown)
-        audio(source: Url("https://k.dev/a.mp3"))
-        video(source: Url("https://k.dev/v.mp4"))
+        audio(source: .url(Url("https://k.dev/a.mp3")))
+        video(source: .url(Url("https://k.dev/v.mp4")))
+            .captions(.notNeeded)
     }
 }

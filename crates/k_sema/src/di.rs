@@ -689,7 +689,15 @@ fn injected_side(cx: &Cx<'_, '_>, ty: &Ty) -> Sides {
 /// The members of a client-only platform interface that code may read
 /// while the server renders, which reads `false` and `.prompt` from them
 /// (45-web-platform.md, "Server rendering and the server").
-pub(crate) const SERVER_READABLE: &[&str] = &["isSupported", "permission"];
+pub(crate) const SERVER_READABLE: &[&str] = &[
+    "isSupported",
+    "permission",
+    // `MediaDevices` (46-media-and-rtc.md, "Capture"): `.prompt` and `.prompt`
+    // during server rendering, and no devices.
+    "cameraPermission",
+    "microphonePermission",
+    "devices",
+];
 
 /// Returns `true` when `field` is a `@Derived` field whose initializer
 /// reads nothing client-only but [`SERVER_READABLE`] members of the
@@ -1497,6 +1505,79 @@ fn use_rules(cx: &Cx<'_, '_>) {
                 "the `use` rules for this interface leave environments uncovered",
             )
             .with_note(format!("no rule covers {}", names.join(", "))),
+        );
+    }
+}
+
+/// K4033: a client-only stdlib type that isn't a service or an interface
+/// (`k.media.MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`,
+/// `RecordingSession`; 46-media-and-rtc.md, "Server and client") named in
+/// a server-only declaration: such values only exist in the browser.
+/// Injections are K4008's.
+pub(crate) fn server_references(cx: &Cx<'_, '_>, names: &crate::ty::NameTable) {
+    let p = cx.p;
+    let mut by_name: HashMap<&str, DeclId> = HashMap::new();
+    for i in 0..p.decls.len() {
+        let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
+        let decl = p.decl(d);
+        if p.is_stdlib(d)
+            && decl.has_annotation("ClientOnly")
+            && matches!(
+                decl.named_kind(),
+                Some(K::Class | K::Struct | K::Enum | K::Component)
+            )
+        {
+            by_name.entry(names.decl(d)).or_insert(d);
+        }
+    }
+    if by_name.is_empty() {
+        return;
+    }
+    let mut refs_by_file: HashMap<FileId, Vec<(TextRange, DeclId)>> = HashMap::new();
+    let live = cx.resolutions.borrow();
+    let chunks = cx.body_resolutions.borrow();
+    for ((f, r), res) in live.iter().chain(chunks.iter().flat_map(|c| c.iter())) {
+        if let Resolution::Declaration { name } = res {
+            if let Some(d) = by_name.get(name.as_str()) {
+                refs_by_file.entry(*f).or_default().push((*r, *d));
+            }
+        }
+    }
+    drop(live);
+    drop(chunks);
+    let mut out = Vec::new();
+    for file in &p.files {
+        if file.stdlib {
+            continue;
+        }
+        let Some(refs) = refs_by_file.get(&file.id) else {
+            continue;
+        };
+        for &d in &file.decls {
+            let decl = p.decl(d);
+            if decl.named_kind().is_none() || side(cx, d).side() != Side::ServerOnly {
+                continue;
+            }
+            let range = decl.node.text_range();
+            for (r, t) in refs {
+                if range.contains_range(*r) {
+                    out.push((decl.file, *r, *t, d));
+                }
+            }
+        }
+    }
+    out.sort_by_key(|(f, r, _, _)| (f.0, r.start(), r.end()));
+    out.dedup_by_key(|(f, r, _, _)| (f.0, *r));
+    for (f, r, t, d) in out {
+        cx.error(
+            f,
+            codes::CLIENT_ONLY_ON_SERVER,
+            r,
+            format!(
+                "`{}` exists only in the browser, but `{}` runs on the server",
+                p.decl(t).name,
+                p.decl(d).name
+            ),
         );
     }
 }

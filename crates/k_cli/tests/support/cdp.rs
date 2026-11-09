@@ -560,6 +560,12 @@ pub struct Chrome {
 impl Chrome {
     /// Launches Chrome at `binary` with a fresh profile below `scratch`.
     pub fn launch(binary: &Path, scratch: &Path) -> Chrome {
+        Chrome::launch_with(binary, scratch, &[])
+    }
+
+    /// [`Chrome::launch`] with `extra` command-line flags (the fake media
+    /// devices, a host resolver rule).
+    pub fn launch_with(binary: &Path, scratch: &Path, extra: &[&str]) -> Chrome {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let profile = scratch.join(format!("chrome-profile-{}-{n}", std::process::id()));
@@ -587,8 +593,9 @@ impl Chrome {
                 "--password-store=basic",
                 "--use-mock-keychain",
                 "--window-size=1280,900",
-                "about:blank",
             ])
+            .args(extra)
+            .arg("about:blank")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

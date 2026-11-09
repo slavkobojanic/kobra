@@ -17,6 +17,7 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`RecordingJobQueue`](#recordingjobqueue) | The default [`JobQueue`](k-server.md#jobqueue) in `k test`: it stores jobs without running them; [`InlineJobQueue`](#inlinejobqueue) runs them instead. |
 | [`render`](#render) | Mounts `view` in the test's browser container (`docs/design/21-testing.md`, "Rendering and querying"). |
 | [`Screen`](#screen) | A rendered view, returned by `render(_:)`. |
+| [`TestAudio`](#testaudio) | The default [`Audio`](k-media.md#audio) in `k test`: a meter reports the level its stream's [`TestSource`](#testsource) scripts, and `play` records what it played. |
 | [`TestChannel`](#testchannel) | A scripted channel for a client service tested without a server (`docs/design/44-channels.md`, "TestChannel"): the test plays the server. |
 | [`TestChannels`](#testchannels) | The test's channel connection in `k test` (`docs/design/44-channels.md`, "Testing"): the in-process socket between the test's browser and its server. |
 | [`TestClient`](#testclient) | Sends requests through the whole server stack in-process: routing, guards, server rendering and endpoint pages (`docs/design/21-testing.md`, "HTTP-level tests"). |
@@ -27,13 +28,16 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`TestGeolocation`](#testgeolocation) | The default [`Geolocation`](k-device.md#geolocation) in `k test` (`docs/design/45-web-platform.md`, "Geolocation"): no prompt opens and the machine's position is never read. |
 | [`TestHttpClient`](#testhttpclient) | The default [`HttpClient`](k-http.md#httpclient) in `k test`: it answers only requests it has a canned response for, and fails the test on any other. |
 | [`TestKeys`](#testkeys) | Fixture keys by number (`docs/design/33-crypto.md`, "Testing"): the same key for the same number in every test and every run, such as `TestKeys.ed25519(1)`. |
+| [`TestMediaDevices`](#testmediadevices) | The default [`MediaDevices`](k-media.md#mediadevices) in `k test` (`docs/design/46-media-and-rtc.md`, "Tests"): no prompt appears and no device opens. |
 | [`TestNotifications`](#testnotifications) | The default [`Notifications`](k-device.md#notifications) in `k test` (`docs/design/45-web-platform.md`, "Notifications"): no prompt opens and nothing reaches the operating system. |
 | [`TestPageVisibility`](#testpagevisibility) | The default [`PageVisibility`](k-device.md#pagevisibility) in `k test` (`docs/design/45-web-platform.md`, "Page visibility"): the page is visible until `hide()`. |
 | [`TestPeer`](#testpeer) | Another browser in the same test ([`TestPeers`](#testpeers)): its own session, cookie and channel socket, sharing the test's server, database and clock. |
 | [`TestPeers`](#testpeers) | More browsers in one test (`docs/design/44-channels.md`, "TestPeer"): realtime features are about other people, so a test can sign in a second person and act as them against the same server, database and clock. |
 | [`TestPreferences`](#testpreferences) | The default [`Preferences`](k-device.md#preferences) in `k test` (`docs/design/45-web-platform.md`, "Preferences"): no preference is set until the test sets one. |
+| [`TestRecorder`](#testrecorder) | The default [`Recorder`](k-media.md#recorder) in `k test`: records a synthetic stream into a small, deterministic file (100 bytes a second) whose duration follows the [`TestClock`](#testclock). |
 | [`TestRemote`](#testremote) | The `.test` binding of every `remote` rule, also when the serving app is a member of the same workspace (`docs/design/40-workspaces-and-services.md`): an in-process double of protocol `P` whose every rpc fails with `rpcFailure(.offline)` ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so each service's tests stay hermetic and never open a socket. |
 | [`TestShare`](#testshare) | The default [`Share`](k-device.md#share) in `k test` (`docs/design/45-web-platform.md`, "Web Share"): no sheet opens; every share is recorded, and the user picks a target unless the test says otherwise. |
+| [`TestSource`](#testsource) | What a test device produces, on the [`TestClock`](#testclock) (`docs/design/46-media-and-rtc.md`, "Tests"). |
 | [`TestTabMessaging`](#testtabmessaging) | The default [`TabMessaging`](k-device.md#tabmessaging) in `k test` (`docs/design/45-web-platform.md`, "Messages between tabs"): there are no other tabs. |
 | [`TestViewport`](#testviewport) | The default [`Viewport`](k-device.md#viewport) in `k test` (`docs/design/45-web-platform.md`, "Viewport"): a 1280×800 viewport with a fine pointer that can hover, until the test changes one. |
 | [`TestWakeLock`](#testwakelock) | The screen wake lock in `k test` (`docs/design/45-web-platform.md`, "KeepScreenAwake"): a mounted [`k.device.KeepScreenAwake`](k-device.md#keepscreenawake) holds it, never the machine's screen. |
@@ -379,6 +383,25 @@ A rendered view, returned by `render(_:)`. It supports every query of
 - `func links() -> List<Element>`
   Returns every link, in document order.
 
+## TestAudio
+
+```k,ignore
+@TestDefault(replaces: Audio)
+public service TestAudio implements Audio
+```
+
+The default [`Audio`](k-media.md#audio) in `k test`: a meter reports the level its
+stream's [`TestSource`](#testsource) scripts, and `play` records what it played.
+
+**Members**
+
+- `var played: List<MediaSource>`
+  Every source given to `play`, oldest first.
+- `func meter(for stream: MediaStream, lifetime: CaptureLifetime = .owner) throws AudioError -> AudioMeter`
+  A meter reading the scripted level of the stream's microphone.
+- `func play(_ source: MediaSource) async throws PlaybackError`
+  Records `source` in `played` and resolves at once.
+
 ## TestChannel
 
 ```k,ignore
@@ -692,6 +715,68 @@ same key for the same number in every test and every run, such as
 
   - Returns: the key.
 
+## TestMediaDevices
+
+```k,ignore
+@TestDefault(replaces: MediaDevices)
+public service TestMediaDevices implements MediaDevices
+```
+
+The default [`MediaDevices`](k-media.md#mediadevices) in `k test`
+(`docs/design/46-media-and-rtc.md`, "Tests"): no prompt appears and no
+device opens. There is one test microphone, camera and speaker; every
+permission starts at `.prompt`, the user answers prompts with
+`.granted`, and captures return synthetic streams.
+
+**Members**
+
+- `var isSupported: Bool`
+  `true` unless `setSupported(_:)` said otherwise.
+- `var cameraPermission: PermissionState`
+  The camera's permission; reactive.
+- `var microphonePermission: PermissionState`
+  The microphone's permission; reactive.
+- `var devices: List<MediaDevice>`
+  The plugged-in devices: `test-microphone`, `test-camera` and
+  `test-speaker`, labelled once a capture was granted.
+- `var prompts: Int`
+  The number of `requestAccess(for:)` calls that showed a prompt.
+- `var captures: List<CaptureRequest>`
+  Every request made to `capture(_:lifetime:)`, oldest first.
+- `var liveTracks: List<MediaTrack>`
+  The tracks not yet stopped, to check that leaving a page released
+  the devices.
+- `var microphone: TestSource`
+  What the default microphone produces.
+- `var camera: TestSource`
+  What the default camera produces.
+- `func requestAccess(for request: CaptureRequest) async -> PermissionState`
+  Asks while a requested kind is `.prompt`, counting it in
+  `prompts` and answering what `answerPrompts(with:)` set.
+- `func capture(_ request: CaptureRequest, lifetime: CaptureLifetime = .owner) async throws CaptureError -> MediaStream`
+  A synthetic stream of the requested devices, or what
+  `failCaptures(with:)` set, `.notAsked` or `.denied`.
+- `func captureScreen(_ request: ScreenCapture = ScreenCapture(), lifetime: CaptureLifetime = .owner) async throws CaptureError -> MediaStream`
+  A synthetic screen stream, or `.cancelled` after
+  `cancelScreenPicker()`.
+- `func setPermission(_ kind: CaptureKind, to state: PermissionState)`
+  Changes a permission as the site's settings would; views reading it
+  update.
+- `func answerPrompts(with answer: PermissionState)`
+  How the simulated user answers the next prompts; `.granted` by
+  default.
+- `func failCaptures(with error: CaptureError)`
+  Makes every following capture throw `error`.
+- `func cancelScreenPicker()`
+  Makes the next `captureScreen(_:lifetime:)` throw `.cancelled`.
+- `func add(_ device: MediaDevice)`
+  Plugs in a device.
+- `func remove(_ id: MediaDeviceId)`
+  Unplugs a device: its live tracks end with `.deviceLost`.
+- `func setSupported(_ value: Bool)`
+  Sets `isSupported`; while it is `false` every capture throws
+  `.unsupported`.
+
 ## TestNotifications
 
 ```k,ignore
@@ -827,6 +912,28 @@ until the test sets one. Each member is reactive, like the browser's.
 - `func set(forcedColors value: Bool)`
   Sets `forcedColors`.
 
+## TestRecorder
+
+```k,ignore
+@TestDefault(replaces: Recorder)
+public service TestRecorder implements Recorder
+```
+
+The default [`Recorder`](k-media.md#recorder) in `k test`: records a synthetic stream into a
+small, deterministic file (100 bytes a second) whose duration follows
+the [`TestClock`](#testclock).
+
+**Members**
+
+- `var started: Int`
+  The number of recordings started.
+- `func start(_ stream: MediaStream, format: RecordingFormat, limit: RecordingLimit = RecordingLimit()) throws RecordingError -> RecordingSession`
+  A session whose `elapsed` follows the test clock.
+- `func supports(_ format: RecordingFormat) -> Bool`
+  `true`, unless `failNext(with:)` set `.unsupportedFormat`.
+- `func failNext(with error: RecordingError)`
+  Makes the next `start` throw `error`.
+
 ## TestRemote
 
 ```k,ignore
@@ -871,6 +978,27 @@ picks a target unless the test says otherwise.
 - `func setSupported(_ value: Bool)`
   Sets `isSupported`; while it is `false` every share throws
   `.unsupported`, and a [`k.device.ShareButton`](k-device.md#sharebutton) copies instead.
+
+## TestSource
+
+```k,ignore
+public class TestSource
+```
+
+What a test device produces, on the [`TestClock`](#testclock)
+(`docs/design/46-media-and-rtc.md`, "Tests"). Video frames are a solid
+test pattern: tests check streams, states and labels, never pixels.
+
+**Members**
+
+- `func speak(level: Double, for duration: Duration)`
+  Plays sound at `level` (`0.0...1.0`) for `duration`, from now on
+  the test clock; a meter on the source reads it.
+- `func silence(for duration: Duration)`
+  Plays silence for `duration`.
+- `func stopSharing()`
+  Ends the source's live screen tracks with `.endedByUser`, as the
+  browser's "Stop sharing" button does.
 
 ## TestTabMessaging
 

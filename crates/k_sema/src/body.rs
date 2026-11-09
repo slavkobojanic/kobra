@@ -6976,9 +6976,12 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             Some(DeclarationKind::Struct | DeclarationKind::Entity | DeclarationKind::Config)
         );
         let params: Vec<SigParam> = if memberwise {
+            // A `@Native` field of a stdlib struct is computed (`File.size`),
+            // so it is no parameter.
             self.cx
                 .stored_fields(d)
                 .iter()
+                .filter(|f| !self.cx.p.member(**f).has_annotation("Native"))
                 .map(|f| {
                     let m = self.cx.p.member(*f);
                     SigParam {

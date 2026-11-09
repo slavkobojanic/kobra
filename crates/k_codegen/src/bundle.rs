@@ -932,6 +932,7 @@ const RUNTIME_FEATURES: &[(&str, &str)] = &[
     ("forms", "k:/runtime/forms.js"),
     ("money", "k:/runtime/money.js"),
     ("observe", "k:/runtime/observe.js"),
+    ("playback", "k:/runtime/playback.js"),
 ];
 
 /// The index in [`RUNTIME_FEATURES`] of the file exporting each name,
@@ -1016,6 +1017,7 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("notifications", "k:/runtime/notifications.js", "k/device"),
     ("wakelock", "k:/runtime/wakelock.js", "k/device"),
     ("environment", "k:/runtime/environment.js", "k/device"),
+    ("media", "k:/runtime/media.js", "k/media"),
     ("keys", "k:/runtime/keys.js", "k/ui"),
     ("streams", "k:/runtime/streams.js", "k/core"),
     ("channels", "k:/runtime/channels.js", "k/rpc"),

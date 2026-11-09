@@ -1,0 +1,8 @@
+warning[K3112] 15:23-15:34: a video from a file or URL needs captions
+  help: add `.captions(.track(url:language:label:))`, or `.captions(.notNeeded)` for a video without speech
+  fix "Insert `.captions(.notNeeded)`" maybe-incorrect
+    edit 15:35-15:35 ".captions(.notNeeded)"
+warning[K3112] 16:23-16:58: a video from a file or URL needs captions
+  help: add `.captions(.track(url:language:label:))`, or `.captions(.notNeeded)` for a video without speech
+  fix "Insert `.captions(.notNeeded)`" maybe-incorrect
+    edit 16:59-16:59 ".captions(.notNeeded)"

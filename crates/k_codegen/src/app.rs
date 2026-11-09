@@ -833,6 +833,9 @@ pub(crate) fn client_containers(
                     "k.device.Clipboard" => "k.device.BrowserClipboard",
                     "k.device.Share" => "k.device.BrowserShare",
                     "k.device.Geolocation" => "k.device.BrowserGeolocation",
+                    "k.media.MediaDevices" => "k.media.BrowserMediaDevices",
+                    "k.media.Recorder" => "k.media.BrowserRecorder",
+                    "k.media.Audio" => "k.media.BrowserAudio",
                     "k.device.TabMessaging" => "k.device.BrowserTabMessaging",
                     "k.device.Notifications" => "k.device.BrowserNotifications",
                     "k.crypto.KeyStore" => "k.crypto.BrowserKeyStore",
@@ -956,6 +959,9 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         | "k.device.BrowserClipboard"
         | "k.device.BrowserShare"
         | "k.device.BrowserGeolocation"
+        | "k.media.BrowserMediaDevices"
+        | "k.media.BrowserRecorder"
+        | "k.media.BrowserAudio"
         | "k.device.PageVisibility"
         | "k.device.Connectivity"
         | "k.device.Viewport" => match b.g.view.lookup(qualified) {
@@ -1033,6 +1039,11 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         "k.test.TestClipboard" => crate::suite::kit_call("testClipboard", vec![]),
         "k.test.TestShare" => crate::suite::kit_call("testShare", vec![]),
         "k.test.TestGeolocation" => crate::suite::kit_call("testGeolocation", vec![]),
+        // The media doubles share the test's clock (46-media-and-rtc.md,
+        // "Tests"; runtime.md §12.14).
+        "k.test.TestMediaDevices" => crate::suite::kit_call("testMediaDevices", vec![]),
+        "k.test.TestRecorder" => crate::suite::kit_call("testRecorder", vec![]),
+        "k.test.TestAudio" => crate::suite::kit_call("testAudio", vec![]),
         "k.test.TestTabMessaging" => crate::suite::kit_call("testTabMessaging", vec![]),
         // `click` opens the notification's page with `Page$href`.
         "k.test.TestNotifications" => {
@@ -1625,7 +1636,7 @@ pub(crate) fn native_component_dependencies(g: &Gen<'_>, d: DeclId) -> Vec<DeclI
         let Some(name) = n.name() else { continue };
         if !matches!(
             name.text(),
-            "CopyButton" | "ShareButton" | "KeepScreenAwake"
+            "CopyButton" | "ShareButton" | "KeepScreenAwake" | "LevelMeter"
         ) {
             continue;
         }
@@ -1635,6 +1646,9 @@ pub(crate) fn native_component_dependencies(g: &Gen<'_>, d: DeclId) -> Vec<DeclI
         let services: &[&str] = match g.view.qualified_name(c).as_str() {
             "k.device.CopyButton" => &["k.device.Clipboard", "k.time.Clock"],
             "k.device.ShareButton" => &["k.device.Share", "k.device.Clipboard", "k.time.Clock"],
+            // It says the level at most once a second on the `Clock`
+            // (46-media-and-rtc.md, "Audio").
+            "k.media.LevelMeter" => &["k.time.Clock"],
             // In the browser it holds the screen's lock itself; `k test`
             // gives it `TestWakeLock` (45-web-platform.md, "KeepScreenAwake").
             "k.device.KeepScreenAwake" if g.options.environment == crate::Environment::Test => {

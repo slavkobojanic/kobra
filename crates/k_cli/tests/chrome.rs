@@ -2078,3 +2078,222 @@ fn notes_keeps_a_private_note_sealed_in_the_vault() {
     });
     drop(tab);
 }
+
+// ------------------------------------------------------------ media
+
+/// Chrome's fake camera and microphone (46-media-and-rtc.md, "Testing the
+/// stdlib against real browsers"), and `insecure.test` resolving to
+/// loopback: an `http` origin that isn't `localhost`, so not a secure
+/// context.
+const FAKE_DEVICES: &[&str] = &[
+    "--use-fake-device-for-media-stream",
+    "--autoplay-policy=no-user-gesture-required",
+    "--host-resolver-rules=MAP insecure.test 127.0.0.1",
+];
+
+/// [`FAKE_DEVICES`] with every prompt answered "Allow".
+const FAKE_MEDIA: &[&str] = &[
+    "--use-fake-device-for-media-stream",
+    "--use-fake-ui-for-media-stream",
+    "--autoplay-policy=no-user-gesture-required",
+    "--host-resolver-rules=MAP insecure.test 127.0.0.1",
+];
+
+/// The capturing fixture (`fixtures/capturing`) under `k dev`.
+struct Lab {
+    _k: Proc,
+    origin: String,
+}
+
+/// The capturing fixture under `k dev`, and a Chrome with `flags`.
+fn capture_lab(dir: &Scratch, flags: &[&str]) -> Option<(Tab, Lab)> {
+    let tab = page::chrome_with(&dir.0, flags)?;
+    let fixture =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/capturing");
+    copy_project(&fixture, &dir.0.join("capturing"));
+    let (k, port) = Proc::serve(
+        &["dev", "."],
+        1,
+        &dir.0.join("capturing"),
+        &[],
+        &[],
+        Duration::from_secs(120),
+    );
+    Some((
+        tab,
+        Lab {
+            _k: k,
+            origin: format!("http://localhost:{port}"),
+        },
+    ))
+}
+
+/// Whether this Chrome opens its fake devices here. On macOS, Chrome asks
+/// the system for the microphone even when it is fake (the fake camera
+/// opens without asking; checked with Chrome's own flags and a fake audio
+/// file, 2026-11), and a process that was never granted it (a terminal or an agent's sandbox
+/// without the permission) waits forever: the tests that need a live
+/// stream are then skipped with a message, unless
+/// `K_REQUIRE_MEDIA=1` (CI) makes them fail.
+fn can_capture(tab: &mut Tab) -> bool {
+    let answer = tab.eval(
+        "Promise.race([navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => (s.getTracks().forEach((t) => t.stop()), 'ok'), (e) => e.name), new Promise((r) => setTimeout(() => r('timeout'), 5000))])",
+    );
+    if answer == json!("ok") {
+        return true;
+    }
+    assert!(
+        std::env::var("K_REQUIRE_MEDIA").as_deref() != Ok("1"),
+        "K_REQUIRE_MEDIA=1 but Chrome's fake devices answered {answer}"
+    );
+    eprintln!(
+        "skipped: Chrome's fake devices answered {answer} (on macOS, the process that runs the tests needs camera and microphone access); this part did not run"
+    );
+    false
+}
+
+/// Clicks the lab's button `name` and waits for its status line to start
+/// with `expected`.
+fn lab_click(tab: &mut Tab, name: &str, expected: &str) -> String {
+    let button = tab.role("button", name);
+    tab.wait_handles_click(&button);
+    tab.click(&button);
+    tab.wait(
+        &format!("the status after {name:?} to start with {expected:?}"),
+        |t| {
+            let status = t.eval("document.querySelector('[role=status]')?.innerText ?? ''");
+            let text = status.as_str().unwrap_or_default().to_owned();
+            text.starts_with(expected).then_some(text)
+        },
+    )
+}
+
+/// The `CaptureError` rows Chrome can be made to produce (46, "Errors"),
+/// through the production `BrowserMediaDevices`: before any answer the
+/// permission is `prompt`, so a capture is `.notAsked` without calling the
+/// browser; a refused permission is `.denied`, and `requestAccess` answers
+/// it without prompting; an `http` origin other than `localhost` is
+/// `.unsupported`, with `isSupported` false; and once allowed, a chosen
+/// device that isn't there is `.notFound` (Chrome's `OverconstrainedError`
+/// on `deviceId`), where this Chrome can open its fake devices.
+#[test]
+fn media_capture_errors_in_chrome() {
+    let dir = Scratch::new("media-errors");
+    let Some((mut tab, lab)) = capture_lab(&dir, FAKE_DEVICES) else {
+        return;
+    };
+    tab.open(&format!("{}/", lab.origin));
+    tab.wait_text("supported");
+    lab_click(&mut tab, "Capture", "capture failed: notAsked");
+    for name in ["microphone", "camera"] {
+        tab.cdp.call(
+            "Browser.setPermission",
+            json!({ "origin": lab.origin, "permission": { "name": name }, "setting": "denied" }),
+        );
+    }
+    tab.reload();
+    tab.wait_text("supported");
+    lab_click(&mut tab, "Ask", "access denied");
+    lab_click(&mut tab, "Capture", "capture failed: denied");
+    let insecure = lab.origin.replace("localhost", "insecure.test");
+    tab.open(&format!("{insecure}/"));
+    tab.wait_text("unsupported");
+    lab_click(&mut tab, "Capture", "capture failed: unsupported");
+    for name in ["microphone", "camera"] {
+        tab.cdp.call(
+            "Browser.setPermission",
+            json!({ "origin": lab.origin, "permission": { "name": name }, "setting": "granted" }),
+        );
+    }
+    tab.open(&format!("{}/", lab.origin));
+    tab.wait_text("supported");
+    if can_capture(&mut tab) {
+        lab_click(&mut tab, "Capture", "captured 1 audio");
+        lab_click(&mut tab, "Capture missing", "capture failed: notFound");
+    }
+    drop(tab);
+}
+
+/// `.voice`, `.audio` and `.video` each record two seconds of Chrome's fake
+/// devices in their WebM form, and the file, played back in a `video`
+/// element, decodes to about two seconds (46, "Recording").
+#[test]
+fn media_records_each_named_format_in_chrome() {
+    let dir = Scratch::new("media-record");
+    let Some((mut tab, lab)) = capture_lab(&dir, FAKE_MEDIA) else {
+        return;
+    };
+    tab.open(&format!("{}/", lab.origin));
+    tab.wait_text("supported");
+    if !can_capture(&mut tab) {
+        return;
+    }
+    lab_click(&mut tab, "Ask", "access granted");
+    for (button, media) in [
+        ("Record voice", "audio/webm"),
+        ("Record audio", "audio/webm"),
+        ("Record video", "video/webm"),
+    ] {
+        let status = lab_click(&mut tab, button, "recorded");
+        assert_eq!(
+            status,
+            format!("recorded {media} recording.webm"),
+            "{button}"
+        );
+        // MediaRecorder's WebM has no duration in its header: seeking past
+        // the end makes Chrome scan the file and report it.
+        let duration = tab.eval(
+            "(async () => { const v = document.querySelector('video[aria-label=Playback]'); if (v.readyState < 1) await new Promise((r) => v.addEventListener('loadedmetadata', r, { once: true })); if (!Number.isFinite(v.duration)) { v.currentTime = 1e9; await new Promise((r) => v.addEventListener('durationchange', r, { once: true })); } return v.duration; })()",
+        );
+        let seconds = duration.as_f64().unwrap_or(0.0);
+        assert!(
+            (1.5..3.5).contains(&seconds),
+            "{button}: the recording decodes to {seconds} s"
+        );
+    }
+    drop(tab);
+}
+
+/// The memos example (46, "Example apps") under `k dev`: the first click
+/// on Record asks (Chrome's fake UI allows), the level meter shows while
+/// recording, Stop stores the memo, and its row plays it back from the
+/// server's copy.
+#[test]
+fn memos_records_a_memo_and_plays_it_back() {
+    let dir = Scratch::new("memos-flow");
+    let Some(mut tab) = page::chrome_with(&dir.0, FAKE_MEDIA) else {
+        return;
+    };
+    copy_example("memos", &dir.0.join("memos"));
+    let (_k, port) = Proc::serve(
+        &["dev", "."],
+        1,
+        &dir.0.join("memos"),
+        &[],
+        &["DATABASE_URL"],
+        Duration::from_secs(120),
+    );
+    tab.open(&format!("http://localhost:{port}/"));
+    tab.wait_text("No memos yet.");
+    if !can_capture(&mut tab) {
+        return;
+    }
+    let record = tab.role("button", "Record");
+    tab.wait_handles_click(&record);
+    tab.click(&record);
+    tab.role("meter", "Microphone level");
+    tab.wait_text("Recording 0:02");
+    let stop = tab.role("button", "Stop");
+    tab.click(&stop);
+    tab.role("button", "Download");
+    tab.wait_text("0:02");
+    let duration = tab.eval(
+        "(async () => { for (let i = 0; i < 100 && !document.querySelector('audio'); i++) await new Promise((r) => setTimeout(r, 50)); const a = document.querySelector('audio'); if (a.readyState < 1) await new Promise((r) => a.addEventListener('loadedmetadata', r, { once: true })); if (!Number.isFinite(a.duration)) { a.currentTime = 1e9; await new Promise((r) => a.addEventListener('durationchange', r, { once: true })); } return a.duration; })()",
+    );
+    let seconds = duration.as_f64().unwrap_or(0.0);
+    assert!(
+        (1.5..4.0).contains(&seconds),
+        "the memo plays back {seconds} s"
+    );
+    drop(tab);
+}

@@ -2053,6 +2053,16 @@ export const natives = {
   // They render their button; it copies or shares once the browser runs.
   "k.device.CopyButton$ssr": statusButtonSsr,
   "k.device.ShareButton$ssr": statusButtonSsr,
+  // A level meter renders empty; it follows its meter once the browser
+  // runs (46-media-and-rtc.md, "Audio").
+  "k.media.LevelMeter$ssr": (props, _ctx, out) => {
+    out.raw(`<div class="k-level-meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="${escapeAttribute(String(props.label()))}"></div>`);
+  },
+  // A component that drives an element makes its controller while the
+  // server renders: an idle one, which never plays there.
+  "k.media.MediaController": function MediaController() {
+    return { state: unitCase(0), currentTime: 0, duration: null, volume: 1 };
+  },
   "k.crypto.Password": password,
   // `Hash`, `Hmac`, `SecureRandom`, `ConstantTime` and the key types
   // (`crypto.js`), as in the browser's chunk, over the server's ops.
@@ -2235,14 +2245,23 @@ export function serverEnvironment(name) {
  * (`k.device.Geolocation`, 45-web-platform.md, "Server rendering and the
  * server"): a client-only service that injects it is constructed while the
  * server renders, and may read `isSupported`, `false` here, and
- * `permission`, `.prompt` (`PermissionState`'s `unitCase(0)`). Anything
- * else is K4012 at compile time, and panics with its name here.
+ * `permission`, `.prompt` (`PermissionState`'s `unitCase(0)`), or for
+ * `k.media.MediaDevices` `cameraPermission` and `microphonePermission`,
+ * `.prompt`, and `devices`, empty. Anything else is K4012 at compile time,
+ * and panics with its name here.
  * @param {string} name
  */
 export function clientPlatform(name) {
   const missing = missingNative(name);
   return new Proxy(missing, {
-    get: (_t, key) => (key === "isSupported" ? false : key === "permission" ? unitCase(0) : missing[key]),
+    get: (_t, key) =>
+      key === "isSupported"
+        ? false
+        : key === "permission" || key === "cameraPermission" || key === "microphonePermission"
+          ? unitCase(0)
+          : key === "devices"
+            ? []
+            : missing[key],
   });
 }
 

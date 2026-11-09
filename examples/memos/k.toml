@@ -1,0 +1,15 @@
+# Format: docs/design/24-projects.md
+#
+# The manifest holds only what can't be expressed in K. The database URL comes
+# from the environment, never from this committed file (see .env.example and
+# docs/design/25-config-and-secrets.md).
+
+[package]
+name = "memos"
+title = "Memos"
+description = "A voice memo recorder: record with a live level meter, keep memos on the server, play them back."
+k = "0.1"
+version = "0.1.0"
+
+# Only the standard library is used, so there are no [dependencies] or
+# [aliases].

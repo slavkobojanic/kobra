@@ -438,6 +438,17 @@ unpinned = [
     "`Preferences` reads the client hints during server rendering only where the browser sends them (Chromium, from the second request on)",
 ]
 
+[pages."apps/media.md"]
+commit = "a0e5b2b"
+date = "2026-11-10"
+note = "new with k.media; written against the working tree on top of a0e5b2b, the behaviour checked with `k test` on examples/memos and crates/k_cli/tests/fixtures/capturing, media.test.js against scripted browsers, and in Chrome by chrome.rs's media_* and memos_* tests"
+unpinned = [
+    "Firefox records WebM and Safari MP4 (only Chromium runs in the real-browser suite; the choice is media.test.js's scripted `isTypeSupported`)",
+    "the screen picker and `.cancelled` in a real browser (headless Chrome shows no picker; the double and the scripted error mapping cover it)",
+    "`Audio.play(_:)` resolving when the sound ends in a real browser",
+    "on a machine where Chrome can't open its fake devices (macOS without camera and microphone access for the test process) the real-browser recording checks are skipped",
+]
+
 [pages."apps/tabs-and-screen.md"]
 commit = "f151803"
 date = "2026-11-10"
@@ -521,6 +532,14 @@ commit = "0dd7625"
 date = "2026-11-09"
 unpinned = [
     "`k dev` at the root serves paybox on the first port and shop on the next",
+]
+
+[pages."examples/memos.md"]
+commit = "a0e5b2b"
+date = "2026-11-10"
+note = "new with examples/memos; written against the working tree on top of a0e5b2b; `k test`, `k check` and `k build` run on the example"
+unpinned = [
+    "`k dev` serves on port 8080 with a SQLite file at `.k/memos.db` (the dev server's defaults, as for the other examples)",
 ]
 
 [pages."examples/huddle.md"]
@@ -610,6 +629,11 @@ note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book
 [pages."reference/stdlib/k-http.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-media.md"]
+commit = "a0e5b2b"
+date = "2026-11-10"
 note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
 
 [pages."reference/stdlib/k-observe.md"]

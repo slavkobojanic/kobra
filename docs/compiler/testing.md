@@ -830,7 +830,10 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
   second or opening a new tab when it can't, a notification without a page only focusing, no tab open,
   and a refused `focus`) and
   `observe.test.js` (the element events against scripted observers: entries and exits, thresholds, one
-  observer per option set, sizes, and disposal) test the chunks of
+  observer per option set, sizes, and disposal) and `media.test.js` (`k.media` against scripted
+  `mediaDevices`, `permissions`, `MediaRecorder` and `Blob`: an insecure context, `.notAsked` without
+  calling the browser, the held stream a capture takes over, each `CaptureError` mapping, owners
+  stopping streams, recordings, the controller and the `video` and `audio` binding) test the chunks of
   [runtime.md §12.3–12.12](runtime.md#123-drag-and-drop).
 - **Cancellation**: `cancellation.test.js` pins the ownership of async work (design 03, "Async work is
   owned"): `live` and `CANCELLED`, a body stopped at an `await` (and a `catch`) whose owner was disposed
@@ -983,6 +986,15 @@ timers).
   test with `--headless=new` and a throwaway profile below Cargo's `CARGO_TARGET_TMPDIR`. Without one,
   each test prints `skipped: no Chrome found …` and passes; with `K_REQUIRE_CHROME=1` (CI) a missing
   Chrome fails it.
+- **Media** (46-media-and-rtc.md): the media tests start their Chrome with
+  `--use-fake-device-for-media-stream` (and `--use-fake-ui-for-media-stream` where every prompt should be
+  answered "Allow"), and map `insecure.test` to loopback for an `http` origin that isn't a secure
+  context. They provoke `.notAsked`, `.denied` (`Browser.setPermission`) and `.unsupported` without a
+  live stream; the parts that need one (`.notFound`, recording each named format and decoding it in a
+  `video` element, the memos walkthrough) first check that `getUserMedia` answers within 5 s. On macOS
+  Chrome asks the system for the camera and microphone even when they are fake, and a test process that
+  was never granted them waits forever: those parts then print `skipped: …` and pass, unless
+  `K_REQUIRE_MEDIA=1` makes them fail.
 - **The protocol client** (`tests/support/cdp.rs`): the DevTools protocol over a WebSocket, both
   written for the tests on `std::net` and `serde_json` (no new dependency: one loopback connection needs
   a masked text frame out and possibly fragmented text frames in). A reader thread forwards responses

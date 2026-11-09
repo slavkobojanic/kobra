@@ -1087,8 +1087,8 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
 - **Feature chunks**: `charts.[hash].js`, `drag.[hash].js`, `files.[hash].js`, `clipboard.[hash].js`,
   `share.[hash].js`, `geolocation.[hash].js`, `tabs.[hash].js`, `notifications.[hash].js`, `wakelock.[hash].js`,
-  `environment.[hash].js`, `keys.[hash].js`, `http.[hash].js`, `streams.[hash].js`, `channels.[hash].js` and
-  `websocket.[hash].js` (`runtime/charts.js`, …),
+  `environment.[hash].js`, `media.[hash].js`, `keys.[hash].js`, `http.[hash].js`, `streams.[hash].js`,
+  `channels.[hash].js` and `websocket.[hash].js` (`runtime/charts.js`, …),
   emitted only when a client chunk or the client entry uses a symbol they implement
   (`k.charts.LineChart`; `k.drag.ReorderableList`, `Draggable`, `DropTarget`, `DragKind(name:)`;
   `k.ui.KeyboardShortcut`; `k.device.CopyButton`, `ShareButton` and `KeepScreenAwake`; `streamed`;
@@ -1138,8 +1138,14 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   `$k.observeElement(el, "<event>", handler[, threshold, margin])`, with the element's
   `.appearThreshold(_:)` and `.appearMargin(_:)` as the last two arguments (`null` when absent);
   neither option becomes an HTML attribute, and the server renders the element without either.
+- **Media elements**: `video(source:)` and `audio(source:)` take a `MediaSource` (46-media-and-rtc.md).
+  The source and the media options (`.controls`, `.muted`, `.monitor`, `.loops`, `.mirrored`, `.poster`,
+  `.captions`, `.controller`) become no attributes: the element is bound by
+  `$k.mediaElement(el, () => source, { option: () => value, … })`, each a function the binding reads in
+  an effect of its own. `.label` is still `aria-label`, and `.on(ended:)` and `.on(playbackBlocked:)`
+  are `$k.on` listeners (the binding dispatches `playbackblocked`). The server renders the bare element.
 - **Runtime feature chunks**: `forms.[hash].js` (`runtime/forms.js`), `observe.[hash].js` (`runtime/observe.js`,
-  `$k.observeElement`) and `money.[hash].js`
+  `$k.observeElement`), `playback.[hash].js` (`runtime/playback.js`, `$k.mediaElement`) and `money.[hash].js`
   (`runtime/money.js`) hold runtime functions that lowering calls as members of `$k` (`$k.createForm`,
   `$k.fieldParser`, `$k.decimal`, `$k.money`, `$k.moneyCodecs.money`; the codecs of `Decimal`, `Currency`
   and `Money` are `$k.moneyCodecs.*`, not `$k.codecs.*`). Before printing a shared, page or entry chunk

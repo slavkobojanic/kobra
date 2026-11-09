@@ -569,6 +569,9 @@ codes! {
     /// A `key` clause belongs to a `for` in a view.
     KEY_OUTSIDE_VIEW = 3111, "key-outside-view", Error,
         "A `key` clause belongs to a `for` in a view.";
+    /// A `video` playing a file or a URL has no `.captions(…)`.
+    MISSING_CAPTIONS = 3112, "missing-captions", Warning,
+        "A `video` playing a file or a URL has no `.captions(…)`; add a track, or `.captions(.notNeeded)` for a video without speech.";
 
     // ---------------------------------------------------------------- styles
     /// A style declaration names a property that doesn't exist.
@@ -734,6 +737,9 @@ codes! {
     /// A config field holds a secret or private key without `Secret<…>`.
     BARE_PRIVATE_KEY_IN_CONFIG = 4032, "bare-private-key-in-config", Error,
         "A config field holds a secret or private key (`AesGcmKey`, `Ed25519PrivateKey`, `EcdsaP256PrivateKey`, `X25519PrivateKey`) that isn't wrapped in `Secret<…>`.";
+    /// A browser-only stdlib type (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`) is named in a server-only declaration.
+    CLIENT_ONLY_ON_SERVER = 4033, "client-only-on-server", Error,
+        "A browser-only stdlib type (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`) is named in a server-only declaration.";
 
     // ---------------------------------------------------------------- pages and routing
     /// Two pages or endpoints have the same URL.

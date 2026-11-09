@@ -333,7 +333,12 @@ fn member_fns(b: &mut Body<'_, '_>, d: DeclId, self_mode: &SelfMode) -> Vec<Stmt
 /// stored field, in order, with the field's default.
 pub(crate) fn memberwise_constructor(b: &mut Body<'_, '_>, d: DeclId) -> Stmt {
     let name = b.g.name(d);
-    let fields = b.g.stored_fields(d);
+    // A `@Native` field of a stdlib struct is computed (`File.size`).
+    let fields: Vec<MemberId> =
+        b.g.stored_fields(d)
+            .into_iter()
+            .filter(|&f| !b.g.view.member(f).has_annotation("Native"))
+            .collect();
     b.push_fn_scope();
     let mut ps = Vec::new();
     let mut props = Vec::new();

@@ -491,6 +491,8 @@ fn shipped_client_assets() {
         ("wakelock.", k_runtime::WAKE_LOCK_SIZE_BUDGET),
         ("environment.", k_runtime::ENVIRONMENT_SIZE_BUDGET),
         ("observe.", k_runtime::OBSERVE_SIZE_BUDGET),
+        ("media.", k_runtime::MEDIA_SIZE_BUDGET),
+        ("playback.", k_runtime::PLAYBACK_SIZE_BUDGET),
         ("keys.", k_runtime::KEYS_SIZE_BUDGET),
         ("streams.", k_runtime::STREAMS_SIZE_BUDGET),
         ("channels.", k_runtime::CHANNELS_SIZE_BUDGET),
@@ -500,7 +502,7 @@ fn shipped_client_assets() {
         ("forms.", k_runtime::FORMS_SIZE_BUDGET),
         ("money.", k_runtime::MONEY_SIZE_BUDGET),
     ];
-    for name in ["todos", "weather", "notes", "shop", "kanban"] {
+    for name in ["todos", "weather", "notes", "shop", "kanban", "memos"] {
         let dir = TempDir::new(name);
         let (dist, _) = build(name, &dir.0);
         let mut files = Vec::new();
@@ -562,5 +564,19 @@ fn shipped_client_assets() {
             runtime <= budget,
             "{name}: the runtime chunk is {runtime} bytes gzip (budget {budget})"
         );
+        // The memo recorder's whole client: its own code, the runtime, the
+        // media and playback chunks and the styles (46-media-and-rtc.md,
+        // "Example apps").
+        if name == "memos" {
+            assert!(
+                gz <= MEMOS_CLIENT_BUDGET,
+                "memos: the client is {gz} bytes gzip (budget {MEMOS_CLIENT_BUDGET})"
+            );
+        }
     }
 }
+
+/// The largest the memos example's shipped client may be, gzip, every
+/// file of `dist/public` but source maps (about 23 KB as built, 2 KB under
+/// this).
+const MEMOS_CLIENT_BUDGET: usize = 25 * 1024;
