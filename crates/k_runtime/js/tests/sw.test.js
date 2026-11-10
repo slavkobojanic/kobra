@@ -8,7 +8,8 @@
  * includeUncontrolled: true})`, which lists the most recently focused tab first in Chromium;
  * `WindowClient.focus`, which rejects once the click's activation has lapsed; `postMessage` with a
  * transferred port; `WindowClient.navigate`, which rejects for a tab the worker doesn't control;
- * and `clients.openWindow` when the app has no tab. Each test runs in an isolate of its own, so
+ * and `clients.openWindow` when the app has no tab; and `push` (docs/design/50-push.md), whose
+ * `PushMessageData.json()` throws for text that isn't JSON. Each test runs in an isolate of its own, so
  * the worker's script is evaluated once per test, against that test's scope.
  */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
@@ -52,6 +53,13 @@ async function worker(tabs) {
     addEventListener: (type, f) => (listeners[type] ??= []).push(f),
     skipWaiting: async () => {
       scope.skipped++;
+    },
+    shown: [],
+    registration: {
+      scope: "https://app.example/",
+      showNotification: async (title, options) => {
+        scope.shown.push({ title, ...options });
+      },
     },
     clients: {
       matchAll: async (options) => {
@@ -161,4 +169,34 @@ test("a focus the browser refuses still opens the page", async () => {
   const sw = await worker([current]);
   await sw.dispatch("notificationclick", click({ url: "/reports/7", from: "/" }));
   assertDeepEq(current.log, [["message", { k: "open", url: "/reports/7" }]]);
+});
+
+/** A `push` event carrying `text` (no data for `null`). */
+function push(text) {
+  return { data: text === null ? null : { json: () => JSON.parse(text) } };
+}
+
+test("a push shows its SystemNotification, and a click on it opens its page", async () => {
+  const sw = await worker([]);
+  await sw.dispatch("push", push(JSON.stringify({ title: "Sam", body: "Lunch?", tag: "general", url: "/rooms/general" })));
+  assertDeepEq(sw.shown, [{ title: "Sam", body: "Lunch?", tag: "general", data: { url: "/rooms/general", from: "/" } }]);
+  await sw.dispatch("notificationclick", click(sw.shown[0].data));
+  assertDeepEq(sw.opened, ["/rooms/general"]);
+});
+
+test("a push without a page or body shows the title alone", async () => {
+  const sw = await worker([]);
+  await sw.dispatch("push", push(JSON.stringify({ title: "Done", body: null, tag: null, url: null })));
+  assertDeepEq(sw.shown, [{ title: "Done", body: undefined, tag: undefined, data: { url: null, from: "/" } }]);
+});
+
+test("a push that isn't the stdlib's JSON still shows something, titled with the site", async () => {
+  const sw = await worker([]);
+  await sw.dispatch("push", push("not json"));
+  await sw.dispatch("push", push(null));
+  await sw.dispatch("push", push(JSON.stringify({ body: "no title" })));
+  assertDeepEq(
+    sw.shown.map((n) => n.title),
+    ["app.example", "app.example", "app.example"],
+  );
 });

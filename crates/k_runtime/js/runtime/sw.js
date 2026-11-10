@@ -6,7 +6,7 @@
  * at the site's root for an app whose client ships the notifications
  * chunk (codegen.md §19). A classic worker script: no imports, no app
  * code, and no `fetch` handler, so it never stands between the app and
- * the network. The Tier 2 push and offline work extends it.
+ * the network. The offline work (Tier 2) will extend it.
  *
  * - `install` and `activate` take over at once (`skipWaiting`,
  *   `clients.claim`), so a new build's worker replaces the old one without
@@ -20,6 +20,12 @@
  *   which reloads it at the URL. With no tab open, a new one opens at the
  *   URL. A notification without a page (`url: null`) only focuses the tab,
  *   or opens the page that showed it (`from`).
+ * - `push` (docs/design/50-push.md) shows the message `WebPush` sent, the
+ *   JSON `{title, body, tag, url}` of a `SystemNotification` whose page
+ *   the server turned into its path, with `from` `/`, so a click opens it
+ *   as above. A message that isn't that JSON is shown with the site's
+ *   host as its title: a push that shows nothing costs the site its push
+ *   permission in Chromium.
  */
 
 /** How long a tab has to say it opened the page itself, in milliseconds. */
@@ -33,6 +39,19 @@ self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const data = e.notification.data ?? {};
   e.waitUntil(open(data.url ?? null, data.from ?? "/"));
+});
+
+self.addEventListener("push", (e) => {
+  let m = null;
+  try {
+    m = e.data ? e.data.json() : null;
+  } catch {
+    // Not the stdlib's JSON.
+  }
+  const ok = m !== null && typeof m === "object" && typeof m.title === "string";
+  const title = ok ? m.title : self.registration.scope.split("/")[2];
+  const options = { body: (ok && m.body) || undefined, tag: (ok && m.tag) || undefined, data: { url: (ok && m.url) || null, from: "/" } };
+  e.waitUntil(self.registration.showNotification(title, options));
 });
 
 /**

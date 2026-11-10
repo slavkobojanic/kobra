@@ -5,7 +5,9 @@
  * (docs/compiler/server.md §18): `k.http.FetchHttpClient` over `op_k_fetch`,
  * the `k.test.TestHttpClient` double, `k.server.SmtpEmailProvider` over
  * `op_k_smtp_send` and the `k.test.RecordingEmailProvider` double,
- * `k.http.StandardWebSocketClient` over the `op_k_ws_*` ops. The
+ * `k.http.StandardWebSocketClient` over the `op_k_ws_*` ops,
+ * `k.server.VapidWebPush` over `op_k_push_encrypt`, `op_k_push_vapid` and
+ * `op_k_fetch`, and the `k.test.RecordingWebPush` double. The
  * generated request container constructs them, passing the generated
  * stdlib enums whose cases they return and throw.
  *
@@ -22,6 +24,7 @@ import { KPanic, panic } from "./values.js";
 import { DecodeFailure, Secret, stringify, toJSON } from "./std.js";
 import { headerView } from "./http.js";
 import { openedSocket } from "./websocket.js";
+import { b64url, fromB64url } from "./crypto.js";
 
 export { testWebSocketClient, TestWebSocketServer } from "./websocket.js";
 
@@ -539,6 +542,197 @@ export function recordingEmailProvider(EmailError) {
     },
   };
 }
+
+// ------------------------------------------------------------------- push
+
+/** The largest message one `aes128gcm` record holds (`k_server::push::MAX_PLAINTEXT`). */
+const PUSH_MAX_PLAINTEXT = 3993;
+
+/** How long a VAPID token is valid, and how long one is reused, in seconds. */
+const VAPID_LIFE = 12 * 3600;
+const VAPID_REUSE = 11 * 3600;
+
+/** `timeToLive`'s default, one day, in milliseconds. */
+const PUSH_TTL = 86400000;
+
+/**
+ * VAPID tokens by push service origin and signing key, kept for the
+ * isolate: a `VapidWebPush` is made per request container, and a token is
+ * good for every request the isolate serves in its 11 hours.
+ */
+const vapidTokens = new Map();
+
+/** `scheme://authority` at the start of a push endpoint. */
+const PUSH_ENDPOINT = new RegExp("^(https?)://([^/?#]+)", "i");
+
+/** Loopback hosts, the only ones a push endpoint may reach over `http`. */
+const LOOPBACK = ["localhost", "127.0.0.1", "[::1]"];
+
+/**
+ * The push service origin of `endpoint` (the VAPID `aud`), or `null` when
+ * it isn't `https` (or `http` to a loopback host).
+ * @param {string} endpoint
+ * @returns {string|null}
+ */
+export function pushOrigin(endpoint) {
+  const m = PUSH_ENDPOINT.exec(String(endpoint));
+  if (!m) return null;
+  const scheme = m[1].toLowerCase();
+  const authority = m[2].toLowerCase();
+  if (authority.includes("@")) return null;
+  const host = authority.startsWith("[") ? authority.slice(0, authority.indexOf("]") + 1) : authority.split(":")[0];
+  if (scheme !== "https" && !LOOPBACK.includes(host)) return null;
+  return `${scheme}://${authority}`;
+}
+
+/**
+ * The JSON text `k-sw.js` shows: a `SystemNotification` with its page
+ * turned into the page's path.
+ * @param {object} n a `SystemNotification`
+ * @param {((page: object) => string)|null} href the app's `Page$href`
+ */
+export function pushPayload(n, href) {
+  return JSON.stringify({
+    title: String(n.title),
+    body: n.body ?? null,
+    tag: n.tag ?? null,
+    url: n.opens == null || !href ? null : href(n.opens),
+  });
+}
+
+/**
+ * The server's `k.server.VapidWebPush` (docs/design/50-push.md): `send`
+ * encrypts the message to the subscription (RFC 8291), signs a VAPID token
+ * for the push service's origin (RFC 8292), reusing one per origin for 11
+ * of its 12 hours across the isolate's requests, and posts it (RFC 8030). It resolves on any `2xx` and
+ * throws `WebPushError`'s cases otherwise. `serverKey` is the configured
+ * key's public half, `null` without one. `io` stands in for the ops in
+ * tests: `{encrypt(p256dh, auth, plaintext), vapid(scalar, aud, exp, sub),
+ * fetch(id, wire), now()}`.
+ * @param {object} E the generated `WebPushError` enum
+ * @param {() => {privateKey: unknown, contact: string|null}} config the container's `PushConfig`
+ * @param {((page: object) => string)|null} href the app's `Page$href`
+ * @param {object} [io]
+ */
+export function vapidWebPush(E, config, href, io) {
+  const encrypt = io?.encrypt ?? ((p, a, m) => ops.op_k_push_encrypt(p, a, m));
+  const vapid = io?.vapid ?? ((k, aud, exp, sub) => ops.op_k_push_vapid(k, aud, exp, sub));
+  const post =
+    io?.fetch ?? ((id, w) => ops.op_k_fetch(id, { method: "POST", url: w.url, headers: w.headers, timeoutMs: w.timeoutMs }, w.body, true));
+  const now = io?.now ?? (() => Date.now());
+  /** `{secret, pub, contact}` of the configured key, or `null`; read once. */
+  let identity;
+  const resolve = () => {
+    if (identity !== undefined) return identity;
+    const c = config();
+    const k = c?.privateKey instanceof Secret ? c.privateKey.reveal() : c?.privateKey;
+    identity = k ? { secret: k.secret, pub: k.pub, contact: c.contact ?? "" } : null;
+    return identity;
+  };
+  const tokens = io ? new Map() : vapidTokens;
+  /** The `Authorization` value for push service `aud`, reused while fresh. */
+  const authorization = (id, aud) => {
+    const t = Math.floor(now() / 1000);
+    const at = `${aud} ${b64url(id.pub)} ${id.contact}`;
+    const kept = tokens.get(at);
+    if (kept && kept.until > t) return kept.value;
+    const value = vapid(id.secret, aud, t + VAPID_LIFE, id.contact);
+    if (!value) panic("VapidWebPush: K_PUSH_PRIVATE_KEY isn't a P-256 private key");
+    tokens.set(at, { value, until: t + VAPID_REUSE });
+    return value;
+  };
+  return {
+    /** The configured key's public half, base64url of its point, or `null`. */
+    get serverKey() {
+      const id = resolve();
+      return id ? b64url(id.pub) : null;
+    },
+    /**
+     * Sends `n` to `sub`, kept by the push service for `ttl` milliseconds.
+     * @param {unknown} _c the cancellation context (unused)
+     * @param {object} n a `SystemNotification`
+     * @param {{endpoint: string, p256dh: string, auth: string}} sub a `PushSubscription`
+     * @param {number} [ttl] a `Duration`; one day when left out
+     */
+    async send(_c, n, sub, ttl) {
+      const id = resolve();
+      if (!id) throw E.notConfigured;
+      const aud = pushOrigin(sub.endpoint);
+      const p256dh = fromB64url(String(sub.p256dh));
+      const auth = fromB64url(String(sub.auth));
+      if (!aud || !p256dh || !auth) throw E.invalidSubscription;
+      const plaintext = new TextEncoder().encode(pushPayload(n, href));
+      if (plaintext.length > PUSH_MAX_PLAINTEXT) throw E.tooLarge;
+      const body = encrypt(p256dh, auth, plaintext);
+      if (!body) throw E.invalidSubscription;
+      const seconds = Math.max(0, Math.floor((ttl ?? PUSH_TTL) / 1000));
+      const headers = [
+        ["authorization", authorization(id, aud)],
+        ["content-encoding", "aes128gcm"],
+        ["content-type", "application/octet-stream"],
+        ["ttl", String(seconds)],
+      ];
+      const o = await post(nextFetch++, { url: String(sub.endpoint), headers, body: new Uint8Array(body), timeoutMs: 30000 });
+      if (o.kind !== "response") {
+        logWarning(`WebPush: ${aud} ${o.kind === "timeout" ? "timed out" : (o.message ?? "is unreachable")}`);
+        throw E.unavailable;
+      }
+      const status = o.status;
+      if (status >= 200 && status < 300) return;
+      if (status === 404 || status === 410) throw E.expired;
+      if (status === 413) throw E.tooLarge;
+      if (status === 429 || status >= 500) throw E.unavailable;
+      throw E.rejected(status);
+    },
+  };
+}
+
+/**
+ * `k.test.RecordingWebPush` (docs/design/50-push.md, "Tests"): keeps every
+ * message sent as a `SentPush`, oldest first. `serverKey` is a fixed
+ * point (RFC 8291's example application server key) until
+ * `setConfigured(false)`; `expire(sub)` makes later sends to `sub` throw
+ * `expired`, `simulateFailure(e)` every later send throw `e`.
+ * @param {object} E the generated `WebPushError` enum
+ */
+export function recordingWebPush(E) {
+  const sent = [];
+  const expired = new Set();
+  let failure;
+  let configured = true;
+  return {
+    get serverKey() {
+      return configured ? TEST_PUSH_KEY : null;
+    },
+    /** A copy of every message sent so far, oldest first. */
+    get sent() {
+      return sent.slice();
+    },
+    async send(_c, n, sub, ttl) {
+      if (!configured) throw E.notConfigured;
+      if (failure !== undefined) throw failure;
+      if (!pushOrigin(sub.endpoint)) throw E.invalidSubscription;
+      if (expired.has(String(sub.endpoint))) throw E.expired;
+      if (new TextEncoder().encode(pushPayload(n, null)).length > PUSH_MAX_PLAINTEXT) throw E.tooLarge;
+      sent.push({ message: n, subscription: sub, timeToLive: ttl ?? PUSH_TTL });
+    },
+    expire(sub) {
+      expired.add(String(sub.endpoint));
+    },
+    simulateFailure(error) {
+      failure = error;
+    },
+    stopFailing() {
+      failure = undefined;
+    },
+    setConfigured(value) {
+      configured = value === true;
+    },
+  };
+}
+
+/** `RecordingWebPush.serverKey`: RFC 8291's example application server public key. */
+export const TEST_PUSH_KEY = "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
 
 // ------------------------------------------------------------------- jobs
 

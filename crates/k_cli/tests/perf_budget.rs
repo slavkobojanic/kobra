@@ -488,6 +488,8 @@ fn shipped_client_assets() {
         ("geolocation.", k_runtime::GEOLOCATION_SIZE_BUDGET),
         ("tabs.", k_runtime::TABS_SIZE_BUDGET),
         ("notifications.", k_runtime::NOTIFICATIONS_SIZE_BUDGET),
+        ("push.", k_runtime::PUSH_SIZE_BUDGET),
+        ("keycodec.", k_runtime::PUSH_SIZE_BUDGET),
         ("wakelock.", k_runtime::WAKE_LOCK_SIZE_BUDGET),
         ("environment.", k_runtime::ENVIRONMENT_SIZE_BUDGET),
         ("observe.", k_runtime::OBSERVE_SIZE_BUDGET),
@@ -504,7 +506,7 @@ fn shipped_client_assets() {
         ("money.", k_runtime::MONEY_SIZE_BUDGET),
     ];
     for name in [
-        "todos", "weather", "notes", "shop", "kanban", "memos", "call",
+        "todos", "weather", "notes", "shop", "kanban", "memos", "call", "huddle",
     ] {
         let dir = TempDir::new(name);
         let (dist, _) = build(name, &dir.0);

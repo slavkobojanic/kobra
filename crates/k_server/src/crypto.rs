@@ -390,6 +390,12 @@ pub fn is_config_key_type(name: &str) -> bool {
     )
 }
 
+/// Unpadded base64url text (RFC 4648 §5) as bytes, or `None`.
+#[must_use]
+pub fn from_base64url(text: &str) -> Option<Vec<u8>> {
+    decode64(text, true)
+}
+
 /// Base64 text as bytes: unpadded base64url when `url`, else standard
 /// base64 with optional padding; `None` for anything else.
 fn decode64(text: &str, url: bool) -> Option<Vec<u8>> {

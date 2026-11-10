@@ -52,5 +52,6 @@ mod examples;
 mod lsp;
 mod new;
 mod perf_budget;
+mod push;
 mod version;
 mod workspaces;

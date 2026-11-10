@@ -11,6 +11,7 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`BrowserFiles`](#browserfiles) | The standard [`Files`](#files): the browser's file picker (an `input` of type `file`) and downloads through an object URL. |
 | [`BrowserGeolocation`](#browsergeolocation) | The standard [`Geolocation`](#geolocation): the browser's Geolocation API (`navigator.geolocation`), with the permission read from the Permissions API. |
 | [`BrowserNotifications`](#browsernotifications) | The standard [`Notifications`](#notifications): shown through the app's service worker registration's `showNotification`, since Chromium on Android has no `new Notification()`. |
+| [`BrowserPushSubscriptions`](#browserpushsubscriptions) | The standard [`PushSubscriptions`](#pushsubscriptions): the Push API on the registration of the app's service worker, `/k-sw.js`, which `k build` emits for an app whose client reaches this service. |
 | [`BrowserShare`](#browsershare) | The standard [`Share`](#share): the browser's Web Share API (`navigator.share`). |
 | [`BrowserTabMessaging`](#browsertabmessaging) | The standard [`TabMessaging`](#tabmessaging): the browser's `BroadcastChannel`, one per channel name, namespaced per app as storage keys are. |
 | [`Clipboard`](#clipboard) | Plain text on the system clipboard (`docs/design/45-web-platform.md`, "Clipboard"). |
@@ -34,6 +35,9 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`PointerKind`](#pointerkind) | The primary pointing device, [`Viewport.pointer`](#viewport). |
 | [`Position`](#position) | Where the device is (`docs/design/45-web-platform.md`, "Geolocation"): plain numbers with their unit in the name. |
 | [`Preferences`](#preferences) | The user's system preferences that change behaviour (`docs/design/45-web-platform.md`, "Preferences"). |
+| [`PushError`](#pusherror) | Why [`PushSubscriptions.subscribe(serverKey:)`](#pushsubscriptions) didn't subscribe (`docs/design/50-push.md`). |
+| [`PushSubscription`](#pushsubscription) | A browser's subscription with its push service (`docs/design/50-push.md`), which [`k.server.WebPush.send(_:to:timeToLive:)`](k-server.md#webpush) sends to. |
+| [`PushSubscriptions`](#pushsubscriptions) | Push messages from the app's server to this browser (`docs/design/50-push.md`): the browser's subscription with its push service, which the server sends to through [`k.server.WebPush`](k-server.md#webpush) even while no tab of the app is open. |
 | [`Share`](#share) | The system share sheet (`docs/design/45-web-platform.md`, "Web Share"). |
 | [`ShareButton`](#sharebutton) | A button that shares `content` (`docs/design/45-web-platform.md`, "ShareButton"): `ShareButton(content: .page(.recipe(id: recipe.id), title: recipe.title), label: "Share recipe")`. |
 | [`ShareButtonFailure`](#sharebuttonfailure) | Why a [`ShareButton`](#sharebutton) neither shared nor copied (`docs/design/45-web-platform.md`, "ShareButton"). |
@@ -142,6 +146,36 @@ Notifications API.
 - `func show(_ notification: SystemNotification) async throws NotificationError`
   Shows a notification through the service worker; see
   [`Notifications.show(_:)`](#notifications).
+
+## BrowserPushSubscriptions
+
+```k,ignore
+@ClientOnly
+public service BrowserPushSubscriptions implements PushSubscriptions
+```
+
+The standard [`PushSubscriptions`](#pushsubscriptions): the Push API on the registration of
+the app's service worker, `/k-sw.js`, which `k build` emits for an app
+whose client reaches this service.
+
+**Members**
+
+- `var isSupported: Bool`
+  `true` in a secure context with service workers and the Push API;
+  see [`PushSubscriptions.isSupported`](#pushsubscriptions).
+- `var permission: PermissionState`
+  The site's notification permission; see
+  [`PushSubscriptions.permission`](#pushsubscriptions).
+- `@UserAction func requestAccess() async -> PermissionState`
+  Shows the browser's notification prompt; see
+  [`PushSubscriptions.requestAccess()`](#pushsubscriptions).
+- `func subscribe(serverKey: EcdsaP256PublicKey) async throws PushError -> PushSubscription`
+  Subscribes through the service worker's push manager; see
+  [`PushSubscriptions.subscribe(serverKey:)`](#pushsubscriptions).
+- `func current() async -> PushSubscription?`
+  See [`PushSubscriptions.current()`](#pushsubscriptions).
+- `func unsubscribe() async`
+  See [`PushSubscriptions.unsubscribe()`](#pushsubscriptions).
 
 ## BrowserShare
 
@@ -727,6 +761,103 @@ otherwise.
   `prefers-contrast: more`.
 - `var forcedColors: Bool`
   `forced-colors: active` (Windows contrast themes).
+
+## PushError
+
+```k,ignore
+public enum PushError implements Error, Equatable
+```
+
+Why [`PushSubscriptions.subscribe(serverKey:)`](#pushsubscriptions) didn't subscribe
+(`docs/design/50-push.md`).
+
+**Members**
+
+- `case unsupported`
+  This browser or context can't receive push messages.
+- `case notAsked`
+  The user hasn't been asked yet: call
+  [`PushSubscriptions.requestAccess()`](#pushsubscriptions) from a user's action first.
+- `case denied`
+  The user, a browser setting or a policy refused notifications.
+- `case unavailable`
+  The browser couldn't reach its push service, or it refused.
+
+## PushSubscription
+
+```k,ignore
+public struct PushSubscription implements Equatable, Hashable, Codable
+```
+
+A browser's subscription with its push service
+(`docs/design/50-push.md`), which [`k.server.WebPush.send(_:to:timeToLive:)`](k-server.md#webpush)
+sends to. `Codable`, so the browser sends it to its server by rpc and
+the server stores it, as an entity's JSON column. The endpoint is a
+capability: treat it as private to the user.
+
+**Members**
+
+- `let endpoint: Url`
+  The push service's URL for this subscription.
+- `let p256dh: String`
+  The browser's P-256 ECDH public key, base64url: messages are
+  encrypted to it.
+- `let auth: String`
+  The 16-byte authentication secret, base64url.
+
+## PushSubscriptions
+
+```k,ignore
+@Platform(side: .client)
+public interface PushSubscriptions
+```
+
+Push messages from the app's server to this browser
+(`docs/design/50-push.md`): the browser's subscription with its push
+service, which the server sends to through [`k.server.WebPush`](k-server.md#webpush) even
+while no tab of the app is open. A client-only platform interface:
+[`BrowserPushSubscriptions`](#browserpushsubscriptions) is injected with no `use` rule, and
+[`k.test.TestPushSubscriptions`](k-test.md#testpushsubscriptions) replaces it in tests.
+
+Push uses the notification permission, so `requestAccess()` is the
+same prompt as [`Notifications.requestAccess()`](#notifications), and only it prompts,
+only from a user's action. `subscribe(serverKey:)` never prompts:
+while the permission is `.prompt` it throws [`PushError.notAsked`](#pusherror).
+
+Each push is shown by the app's service worker, `/k-sw.js`, as a
+[`SystemNotification`](#systemnotification); a click opens its page as for a local one.
+
+**Members**
+
+- `var isSupported: Bool`
+  Whether this browser can receive push messages here: `false`
+  outside a secure context, without service workers or the Push API,
+  in a Safari tab on iOS, and during server rendering.
+- `var permission: PermissionState`
+  The notification permission push needs. Reactive; `.prompt` during
+  server rendering.
+- `@UserAction func requestAccess() async -> PermissionState`
+  Asks the user for the notification permission, unless
+  `permission` already says `.granted` or `.denied`.
+
+  - Returns: the new permission: `.prompt` again when the user
+    dismissed the prompt.
+- `func subscribe(serverKey: EcdsaP256PublicKey) async throws PushError -> PushSubscription`
+  Subscribes this browser for messages signed with `serverKey`, the
+  server's [`k.server.WebPush.serverKey`](k-server.md#webpush). The same subscription
+  again when it already has one with this key; one made with another
+  key is replaced.
+
+  - Throws: [`PushError.unsupported`](#pusherror) where `isSupported` is
+    `false`, `.notAsked` before `requestAccess()`, `.denied` when
+    the user refused, and `.unavailable` when the browser couldn't
+    reach its push service.
+- `func current() async -> PushSubscription?`
+  This browser's subscription, or `nil` when it has none (it never
+  subscribed, unsubscribed, or the browser dropped it).
+- `func unsubscribe() async`
+  Ends this browser's subscription; nothing when it has none. The
+  server learns of it as [`k.server.WebPushError.expired`](k-server.md#webpusherror).
 
 ## Share
 

@@ -49,6 +49,75 @@ The browser shows notifications through a service worker. `k build` writes one, 
 and `dist/app` serve it at `/k-sw.js`. Serve it from the site's root, as the build lays it out: a
 worker served from a deeper path can't open the app's pages.
 
+## Push messages from the server
+
+A notification can also come from the app's **server**, while no tab of the app is open, as a Web Push
+message. The browser subscribes through the client-only **`PushSubscriptions`** (`k.device`), the server
+sends through the server-only **`WebPush`** (`k.server`), and `k-sw.js` shows what arrives as a
+`SystemNotification`, opening its page on a click like a local one. The design is in
+`docs/design/50-push.md`.
+
+No account is needed. Every browser vendor's push service accepts a sender identified by its own VAPID
+key, which the app makes with `k keys new p256-ecdsa` and configures as `K_PUSH_PRIVATE_KEY` (a file in
+containers, `K_PUSH_PRIVATE_KEY_FILE`), with an optional `K_PUSH_CONTACT` (`mailto:` or `https:`) that
+push services may use to reach whoever runs the app. Each message is encrypted to the browser, so the
+push service can't read it. Without a key, `WebPush.serverKey` is `nil` and every `send` throws
+`.notConfigured`, so `k dev` needs no setup.
+
+In the browser, `requestAccess()` is the notification prompt, the same one `Notifications` shows, and
+`subscribe(serverKey:)` never prompts: it throws `PushError.notAsked` while the permission is `.prompt`.
+So a click can ask first and then fetch the server's key by rpc:
+
+```k
+// examples/huddle/src/chat/RoomAlerts.k
+    func turnOn(room: String) async {
+        problem = nil
+
+        if push.permission == .prompt {
+            await push.requestAccess()
+        }
+
+        do {
+            guard let key = try await alerts.serverKey() else {
+                problem = "This server doesn't send notifications."
+                return
+            }
+            let subscription = try await push.subscribe(serverKey: key)
+            try await alerts.follow(room: room, subscription: subscription)
+            isOn = true
+        } catch .notAsked {
+// ...
+    }
+```
+
+A `PushSubscription` (`endpoint`, `p256dh`, `auth`) is a `Codable` value: the app sends it to its
+server by rpc and stores it. The server sends to it, usually from a [background job](jobs.md), and
+deletes it when the push service says it is gone (`WebPushError.expired`):
+
+```k
+// examples/huddle/src/chat/RoomAlertJob.k
+            do {
+                try await push.send(message, to: alerts.subscription(of: alert), timeToLive: 1.hours)
+            } catch .expired, .invalidSubscription {
+                // The browser unsubscribed, or the subscription was never good.
+                await alerts.delete(alert)
+            } catch .unavailable {
+                unavailable = true
+// ...
+            }
+```
+
+- **`WebPushError`** is `.expired` (delete the subscription), `.unavailable` (offline, timed out, `429`
+  or `5xx`: retry), `.rejected(status:)`, `.tooLarge` (over the 4,096 bytes push services take),
+  `.invalidSubscription` (bad keys, or an endpoint that isn't `https`) and `.notConfigured`.
+- **`timeToLive`** (a day by default) is how long the push service keeps a message for a browser that is
+  offline.
+- **`subscribe` again with the same key returns the same subscription;** one made with another key (the
+  server's key changed) is replaced. `current()` answers the browser's subscription, `unsubscribe()` ends
+  it.
+- `PushSubscriptions` is client-only and `WebPush` server-only; `isSupported` is `false` where the
+  browser has no Push API, in a Safari tab on iOS and while the server renders.
+
 ## Testing
 
 `k test` puts **`TestNotifications`** in place of the browser's: nothing reaches the operating system.
@@ -75,3 +144,25 @@ expect screen.currentPage == .home
 user answers, `setPermission(_:)` changes the site's settings and `setSupported(_:)` makes `show`
 throw `.unsupported`. `click(_:)` plays the user clicking a notification that was shown, which opens
 its page.
+
+For push, **`TestPushSubscriptions`** stands in for the browser and **`RecordingWebPush`** for the
+server's sender. `TestPushSubscriptions` has the same `prompts`, `answerPrompts(with:)`, `setPermission(_:)`
+and `setSupported(_:)`, the `subscription` it made (endpoint `https://push.test/subscriptions/<n>`) and the
+`serverKey` it was made with, and `failNextSubscribe(error:)`. `RecordingWebPush` keeps every message in
+`sent` (each a `SentPush` with its `message`, `subscription` and `timeToLive`) and has a fixed
+`serverKey`; `expire(_:)` makes later sends to a subscription throw `.expired`, `simulateFailure(error:)`
+and `stopFailing()` fail every send, and `setConfigured(false)` plays a server without a key:
+
+```k
+// examples/huddle/src/chat/RoomAlertJob.test.k
+    test "an expired subscription is deleted, and the others are still told" {
+        let gone = await follow("bob", browser: 1)
+        let cy = await follow("cy", browser: 2)
+        push.expire(alerts.subscription(of: gone))
+
+        try await job.run(payload: NewMessageAlert(room: "general", author: "ana", text: "Lunch?"))
+
+        expect reached() == [alerts.subscription(of: cy)]
+        expect (await alerts.of(room: "general")).map { a => a.member } == ["cy"]
+    }
+```

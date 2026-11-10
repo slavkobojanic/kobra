@@ -168,6 +168,12 @@ impl Tab {
         Tab::attach(&url, None, self.port)
     }
 
+    /// The browser's DevTools port, for connecting to another target (a
+    /// service worker) with [`super::cdp::target_url`].
+    pub fn devtools_port(&self) -> u16 {
+        self.port
+    }
+
     /// Makes this tab the browser's active one, as clicking its tab would:
     /// a background tab still runs its scripts, but Chrome doesn't keep
     /// its accessibility tree current.

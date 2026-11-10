@@ -1,0 +1,7 @@
+# Web Push with its test doubles, `TestPushSubscriptions` and
+# `RecordingWebPush` (docs/design/50-push.md, "Tests"): every test here must
+# pass. `k run` on it is also what `commands.rs`' fake push service and
+# `chrome.rs`' push tests drive.
+[package]
+name = "pushing"
+k = "0.1"

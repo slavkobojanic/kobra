@@ -569,7 +569,9 @@ the runtime's own implementation, except that `KeyStore` is the browser's only. 
 secret key, and export. The browser loads the cryptography code only on pages that use it. Ed25519 and X25519 need a browser
 whose Web Crypto has them, as current Chrome, Firefox and Safari do.
 
-## What's next
+## Push messages
 
-> **Planned** (web-push). `WebPush`, which sends Web Push notifications with VAPID signatures and payload
-> encryption, with no third-party account.
+`WebPush`, which sends Web Push notifications signed with the app's own VAPID key (an
+`EcdsaP256PrivateKey` from `k keys new p256-ecdsa`) and encrypted to each browser, is in
+[Notifications](notifications.md#push-messages-from-the-server). Its encryption is internal: `k.crypto` adds no
+API for it.

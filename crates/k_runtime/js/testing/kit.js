@@ -12,7 +12,7 @@
  *   synchronous updates.
  * - The hermetic defaults of `k.test`: `TestClock` (virtual time),
  *   `MemoryStorage`, `TestHttpClient`, `TestFiles`, `TestClipboard`,
- *   `TestShare`, `TestGeolocation`, `TestNotifications`, `TestTabMessaging`,
+ *   `TestShare`, `TestGeolocation`, `TestNotifications`, `TestPushSubscriptions`, `TestTabMessaging`,
  *   `TestWakeLock`,
  *   `TestPageVisibility`, `TestConnectivity`, `TestPreferences`,
  *   `TestViewport`,
@@ -2161,6 +2161,90 @@ export function testNotifications(href) {
       }
       if (n.opens != null && href) navigate(href(n.opens));
       flush();
+    },
+  };
+}
+
+/**
+ * `k.test.TestPushSubscriptions`: no prompt opens and no push service is
+ * contacted (docs/design/50-push.md, "Tests"). Supported, `permission`
+ * `.prompt` (reactive), prompts answered `.granted`. `subscribe` throws
+ * `PushError` `0` (`unsupported`), `1` (`notAsked`), `2` (`denied`) as the
+ * browser would, or what `failNextSubscribe` set; otherwise it keeps the
+ * subscription it has for the same key, and makes a new one (endpoint
+ * `https://push.test/subscriptions/<n>`, RFC 8291's example keys) for a
+ * first or another key.
+ */
+export function testPushSubscriptions() {
+  const permission = signal(unitCase(0));
+  const supported = signal(true);
+  let answer = unitCase(1);
+  let prompts = 0;
+  let made = 0;
+  let subscription = null;
+  let key = null;
+  let failure = null;
+  return {
+    get isSupported() {
+      return supported.get();
+    },
+    get permission() {
+      return permission.get();
+    },
+    get prompts() {
+      return prompts;
+    },
+    get subscription() {
+      return subscription;
+    },
+    get serverKey() {
+      return key;
+    },
+    async requestAccess(_c) {
+      if (!supported.peek() || permission.peek().$ !== 0) return permission.peek();
+      prompts++;
+      permission.set(answer);
+      return answer;
+    },
+    async subscribe(_c, serverKey) {
+      if (!supported.peek()) throw unitCase(0);
+      const p = permission.peek().$;
+      if (p !== 1) throw unitCase(p === 0 ? 1 : 2);
+      if (failure !== null) {
+        const e = failure;
+        failure = null;
+        throw e;
+      }
+      if (subscription === null || key !== serverKey) {
+        made++;
+        subscription = {
+          endpoint: `https://push.test/subscriptions/${made}`,
+          p256dh: "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
+          auth: "BTBZMqHH6r4Tts7J_aSIgg",
+        };
+      }
+      key = serverKey;
+      return subscription;
+    },
+    async current(_c) {
+      return subscription;
+    },
+    async unsubscribe(_c) {
+      subscription = null;
+    },
+    answerPrompts(p) {
+      answer = p;
+    },
+    setPermission(p) {
+      permission.set(p);
+      flush();
+    },
+    setSupported(value) {
+      supported.set(value === true);
+      flush();
+    },
+    failNextSubscribe(error) {
+      failure = error;
     },
   };
 }

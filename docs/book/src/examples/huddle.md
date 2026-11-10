@@ -3,16 +3,19 @@
 `examples/huddle` is a small team chat: sign in with a name, pick a room, and talk. Messages arrive
 live in every tab over a [channel](../apps/channels.md), survive a dropped connection, and are stored
 in SQLite in development and Postgres in production. Each room shows who is in it and who is typing.
-It is the example of channels; its README walks through every file.
+A room's **Notify me of new messages** sends a [push notification](../apps/notifications.md#push-messages-from-the-server)
+for each new message while you're away. It is the example of channels and of Web Push; its README walks
+through every file.
 
 ```text
 huddle/
 ├── App.k, k.toml
 ├── Dockerfile, docker-compose.yml, deploy/nginx.conf
-├── migrations/0001_create_messages.k
+├── migrations/0001_create_messages.k, 0002_create_room_alerts.k
 └── src/
     ├── accounts/   signing in with a name: AuthProtocol, AuthApi, AuthService, SignIn
-    ├── chat/       the room channel: ChatProtocol, ChatApi, RoomEvents, RoomPresence, RoomService, Lobby, Room
+    ├── chat/       the room channel: ChatProtocol, ChatApi, RoomEvents, RoomPresence, RoomService, Lobby, Room;
+    │               push: AlertsProtocol, AlertsApi, RoomAlert, RoomAlertJob, RoomAlerts, AlertSwitch
     └── shell/      AppLayout, HuddleTheme
 ```
 
@@ -52,7 +55,8 @@ public enum ChatCommand implements Codable, Equatable {
 
 `ChatApi.room(name:)` subscribes to the room's `Broadcast` before reading the stored messages, sends
 the snapshot first, and handles each command in order. A post is stored and published inside one
-transaction, so its echo goes out only once the message is stored:
+transaction, so its echo goes out only once the message is stored, and so does the job that pushes it to
+the room's followers ([below](#push-notifications)):
 
 ```k
 // examples/huddle/src/chat/ChatApi.k
@@ -71,6 +75,9 @@ transaction, so its echo goes out only once the message is stored:
                     // Held until the commit, so nobody sees a message that
                     // wasn't stored.
                     events.publish(room: room, event: .posted(message: chatMessage(message: message), clientId: clientId))
+
+                    // Pushed to the room's followers once it commits.
+                    await jobs.enqueue(RoomAlertJob.kind, payload: NewMessageAlert(room: room, author: author, text: trimmed))
                 }
 ```
 
@@ -122,6 +129,30 @@ the person decides.
             throw CommandError.rpcFailure(failure)
 ```
 
+## Push notifications
+
+A room's **Notify me of new messages** subscribes the browser with `PushSubscriptions` and stores the
+subscription for the signed-in person and the room (`RoomAlert`, through `AlertsProtocol`). Posting a
+message enqueues a `RoomAlertJob` in the transaction that stores it, and the job pushes the message with
+`WebPush` to the room's other followers who aren't in the room right now. A click on the notification
+opens the room. One notification per room stays on screen, since each has the tag `room-<name>`, and a
+subscription the push service says is gone is deleted.
+
+The switch shows only when the server has a VAPID key. To try it, make one and put it in `.env`:
+
+```bash
+k keys new p256-ecdsa      # prints the private JWK, then the public one
+```
+
+```text
+K_PUSH_PRIVATE_KEY={"kty":"EC","crv":"P-256",…}
+K_PUSH_CONTACT=mailto:you@example.com
+```
+
+Your browser's push service delivers the message, so this needs a browser that can reach it (Chrome's,
+Firefox's or Apple's); no account is involved. `.env` is read only in development; a deployment sets
+the same variables, the key preferably as a file with `K_PUSH_PRIVATE_KEY_FILE`.
+
 ## Two replicas
 
 `docker-compose.yml` runs Huddle as in production, with no account anywhere: Postgres, two replicas of
@@ -150,4 +181,7 @@ can't open a room. It
 drops the connection with `TestChannels` (the banner shows, then the missed message arrives once), makes
 the server forget it (a new snapshot), and takes the browser offline with `TestConnectivity` (a message
 marked **Not sent.**, then retried). `src/chat/RoomService.test.k` tests `RoomService` alone against a
-scripted `TestChannel`.
+scripted `TestChannel`. `src/chat/AlertSwitch.test.k` turns a room's notifications on and off with
+`TestPushSubscriptions` and checks that a posted message is handed to the job, and
+`src/chat/RoomAlertJob.test.k` runs the job against `RecordingWebPush`: the author and the people in the
+room aren't told, an expired subscription is deleted, an outage is retried.

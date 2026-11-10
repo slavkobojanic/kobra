@@ -1,0 +1,15 @@
+# docs/design/50-push.md, docs/compiler/codegen.md §16: `BrowserPushSubscriptions` is the push
+# chunk's, bound with no `use` rule; decoding the server's key takes `EcdsaP256PublicKey$codec`
+# from the small key codec chunk, never the crypto chunk; the build emits the service worker,
+# whose `push` handler shows the messages, at the site's root; and the server binds `WebPush` to
+# `VapidWebPush` with `PushConfig` and the pages' `href`.
+client contains // file: push.[hash].js
+client contains export function BrowserPushSubscriptions(
+client contains // file: keycodec.[hash].js
+client contains export const EcdsaP256PublicKey$codec
+client lacks // file: crypto.[hash].js
+client lacks $k.native("k.device.
+root contains // file: k-sw.js
+root contains addEventListener("push"
+server contains $s.vapidWebPush(
+server contains get PushConfig() {

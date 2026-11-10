@@ -362,6 +362,7 @@ date = "2026-11-09"
 [pages."apps/crypto.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of c774295 (2026-11-10): the Planned `web-push` note replaced by a pointer to Notifications' push section"
 
 [pages."apps/money.md"]
 commit = "0dd7625"
@@ -423,7 +424,7 @@ unpinned = [
 [pages."apps/notifications.md"]
 commit = "37f5be6"
 date = "2026-11-10"
-note = "new with Notifications; written against the working tree on top of 37f5be6, the behaviour checked with `k test` on crates/k_cli/tests/fixtures/notifying and examples/todos, and in Chrome by chrome.rs's todos_reminds_through_the_service_worker"
+note = "new with Notifications; written against the working tree on top of 37f5be6, the behaviour checked with `k test` on crates/k_cli/tests/fixtures/notifying and examples/todos, and in Chrome by chrome.rs's todos_reminds_through_the_service_worker; the push sections written on top of c774295 (2026-11-10), checked with `k test` on fixtures/pushing and examples/huddle, push.rs's fake push service and chrome.rs's push tests"
 unpinned = [
     "a click on a real notification focuses the app's tab and opens its page (sw.test.js scripts the worker scope; no real-browser test can click a system notification)",
     "a worker served from a deeper path can't open the app's pages (a property of service worker scopes)",
@@ -557,7 +558,7 @@ unpinned = [
 [pages."examples/huddle.md"]
 commit = "5d4c801"
 date = "2026-11-10"
-note = "new with examples/huddle; written against the working tree on top of 5d4c801; `k dev`, `k test` and `k build` run on the example"
+note = "new with examples/huddle; written against the working tree on top of 5d4c801; `k dev`, `k test` and `k build` run on the example; push notifications added on top of c774295 (2026-11-10), `k test` and `k check` run on the example"
 unpinned = [
     "stopping and restarting `k dev` while a room is open shows Reconnecting…, then the new snapshot (seen by hand in development, not in a browser test)",
 ]

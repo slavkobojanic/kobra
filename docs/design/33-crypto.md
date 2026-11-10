@@ -590,7 +590,7 @@ test VaultService {
 
 ## Decided while implementing
 
-**Round 1: the crypto core.** The key types, `Sealed`, HKDF and PBKDF2, key wrapping, Ed25519 and ECDSA P-256 signatures, X25519 agreement, `Envelope` and `EnvelopedKey`, `ConstantTime`, raw import and export, `Secret<K>`'s forwarded operations, both backends and the test support. JWK and PEM (`crypto-key-formats`, with `RsaPublicKey` and `k keys new`), key types as `ConfigValue`s (`crypto-config-keys`), JWS and JWT (`jwt`), `KeyStore` and `MemoryKeyStore` (`key-store`) and the notes vault (`notes-vault`) came in round 2 (below); `WebPush` (`web-push`) is still **Planned**.
+**Round 1: the crypto core.** The key types, `Sealed`, HKDF and PBKDF2, key wrapping, Ed25519 and ECDSA P-256 signatures, X25519 agreement, `Envelope` and `EnvelopedKey`, `ConstantTime`, raw import and export, `Secret<K>`'s forwarded operations, both backends and the test support. JWK and PEM (`crypto-key-formats`, with `RsaPublicKey` and `k keys new`), key types as `ConfigValue`s (`crypto-config-keys`), JWS and JWT (`jwt`), `KeyStore` and `MemoryKeyStore` (`key-store`) and the notes vault (`notes-vault`) came in round 2 (below); `WebPush` (`web-push`) came with [50-push.md](50-push.md), its ECDH and AES-128-GCM internal to it (`k_server::push`).
 
 **Runtime values** (`crates/k_runtime/js/runtime/crypto.js`)
 
@@ -637,7 +637,7 @@ test VaultService {
 - The same Chrome test runs the differential: 400 random inputs each way, sealed, signed with Ed25519 and ECDSA, and enveloped by one side and opened and verified by the other (Web Crypto against an in-process isolate on `ops`).
 - Golden files for the wire formats (`crates/k_server/tests/crypto_wire.rs`), which also open each golden value again; a run corpus case (`tests/corpus/run/stdlib/crypto-key-types.k`) for RFC vectors through the K API; sema corpus cases for the type rules; and `k test` on `crates/k_cli/tests/fixtures/sealing` for seeded randomness, fast salts, `TestKeys`, `OpenError` and `Secret<K>`.
 
-**Round 2: key formats, configured keys, JOSE, `KeyStore` and the notes vault.** It finished the features left Planned above except `web-push` (`crypto-key-formats`, `crypto-config-keys`, `jwt`, `key-store` and `notes-vault` left the feature table).
+**Round 2: key formats, configured keys, JOSE, `KeyStore` and the notes vault.** It finished the features left Planned above except `web-push`, built later in [50-push.md](50-push.md) (`crypto-key-formats`, `crypto-config-keys`, `jwt`, `key-store` and `notes-vault` left the feature table).
 
 *Key formats* (`crypto.js`, "DER, PEM and JWK")
 

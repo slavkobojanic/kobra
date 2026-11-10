@@ -1241,6 +1241,29 @@ server's half: `SignallingRelay` and `iceServers` ([server.md §20](server.md#20
 - A `.service` lifetime closes the call when the page's path changes or the document is hidden for
   good, as for a `.service` stream; `.owner` when the run's `c` aborts.
 
+### 12.16 Push subscriptions
+
+`push.js` (part `Push`), a feature chunk, is `k.device.BrowserPushSubscriptions`
+([50-push.md](../design/50-push.md)), constructed by the client entry's `$App` for `PushSubscriptions` as
+`BrowserPushSubscriptions()`; it registers the same `/k-sw.js` as §12.12, which handles `push`.
+
+- `isSupported` is a secure context with `Notification`, `PushManager` and `navigator.serviceWorker`;
+  `permission` is the notification permission, read as in §12.12, and `requestAccess(c)` is
+  `Notification.requestPermission()`.
+- `subscribe(c, key)` throws `unitCase(0)` (`unsupported`), `1` (`notAsked`) or `2` (`denied`) without calling
+  the browser, registers the worker once per page, then keeps `pushManager.getSubscription()` when its
+  `options.applicationServerKey` is the key's bytes, or unsubscribes it and calls `subscribe({userVisibleOnly:
+  true, applicationServerKey})`. A rejection is `3` (`unavailable`), or `2` when the permission is now
+  denied. The result is `{endpoint, p256dh, auth}` from `toJSON()`.
+- `current(c)` and `unsubscribe(c)` use `getRegistration("/")` and never register the worker.
+- **`keycodec.js`** (part `KeyCodec`) exports `EcdsaP256PublicKey$codec` alone: the key is held as its text,
+  so the codec checks the 87-character base64url form of a `0x04` point. It is ahead of `crypto` in
+  `FEATURE_CHUNKS`, so a client that receives the server's key by rpc doesn't load the crypto chunk for it.
+- **The worker's `push`** reads `e.data.json()` as `{title, body, tag, url}` and shows it inside
+  `waitUntil` with `data: {url, from: "/"}`, so `notificationclick` opens it as a local notification; a
+  message that isn't that JSON is shown titled with the scope's host.
+- **The server half** is `outbound.js`' `vapidWebPush` ([server.md §18](server.md#18-outgoing-http-and-email)).
+
 ## 14. Performance budgets
 
 | Area | Budget | Measured (release, Apple M-series) |

@@ -770,6 +770,28 @@ and `Bytes.parse(base64:)` are server natives. The shop's Stripe webhook verific
 
 ---
 
+### Push: `VapidWebPush`
+
+[50-push.md](../design/50-push.md). On the server `WebPush` binds to `VapidWebPush`
+(`$s.vapidWebPush(WebPushError, () => PushConfig, Page$href)`), which makes a build list `PushConfig`
+(`K_PUSH_PRIVATE_KEY`, `K_PUSH_CONTACT`); a test build binds `RecordingWebPush`.
+
+- **`send`** checks the key (`.notConfigured`), the endpoint (`https`, or `http` to `localhost`,
+  `127.0.0.1` or `[::1]`; else `.invalidSubscription`) and the size (a JSON payload `{title, body, tag,
+  url}`, `url` from `Page$href`, of at most 3,993 bytes, else `.tooLarge`), then calls
+  **`op_k_push_encrypt`** (`k_server::push::encrypt`: RFC 8291 `aes128gcm`, one record, a fresh P-256 key
+  and salt) and **`op_k_push_vapid`** (`k_server::push::vapid_authorization`: an ES256 JWT with `aud` the
+  endpoint's origin, `exp` 12 hours ahead and `sub` the contact). The token is kept per origin, key and
+  contact for 11 hours, per isolate. The request goes through `op_k_fetch` as `POST` with `TTL`,
+  `Content-Encoding: aes128gcm` and `Authorization: vapid t=…, k=…`, timing out after 30 s.
+- **Answers:** `2xx` resolves; `404` and `410` are `.expired`, `413` `.tooLarge`, `429` and `5xx`
+  `.unavailable` (as are `offline` and `timeout`, logged at warning level), anything else
+  `.rejected(status:)`.
+- **Startup** checks that `K_PUSH_CONTACT` is a `mailto:` or `https:` URL (`config::push_rules`, exit 78).
+  The key's shape is checked like every configured key (33-crypto.md).
+- **`RecordingWebPush`** (`$s.recordingWebPush(WebPushError)`), one per test: `sent`, `expire`,
+  `simulateFailure`, `stopFailing`, `setConfigured`, and a fixed `serverKey`.
+
 ## 19. Debugging the server
 
 `k run --inspect[=port]` and `k dev --inspect[=port]` (port 9229 by default) set

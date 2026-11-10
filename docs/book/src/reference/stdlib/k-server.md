@@ -18,6 +18,7 @@ Import each declaration by name, for example `import k.server.DatabaseJobQueue`.
 | [`JobName`](#jobname) | A job's stable name for its rows in the queue: `@JobName("order-confirmation")`. |
 | [`JobQueue`](#jobqueue) | Enqueues background jobs, in the enqueuing transaction. |
 | [`PublicUrls`](#publicurls) | Absolute URLs from the public origin `K_PUBLIC_ORIGIN` (`docs/design/12-routing.md`, "Absolute URLs"). |
+| [`PushConfig`](#pushconfig) | The app's VAPID identity (`docs/design/50-push.md`), read by [`VapidWebPush`](#vapidwebpush), required only when the app reaches [`WebPush`](#webpush). |
 | [`Retry`](#retry) | A job's retry policy: up to `attempts` runs, waiting `backoff` and then doubling, with jitter. |
 | [`Schedule`](#schedule) | Runs a [`Job`](#job) whose payload is [`Void`](k-core.md#void) on a schedule: `@Schedule(.daily(at: TimeOfDay("03:00")))`. |
 | [`ScheduleTime`](#scheduletime) | When a scheduled job ([`Schedule`](#schedule)) runs. |
@@ -25,6 +26,9 @@ Import each declaration by name, for example `import k.server.DatabaseJobQueue`.
 | [`SmtpConfig`](#smtpconfig) | SMTP settings, required only when [`SmtpEmailProvider`](#smtpemailprovider) is reachable (`docs/design/31-email.md`, "SMTP configuration"). |
 | [`SmtpEmailProvider`](#smtpemailprovider) | The standard [`EmailProvider`](#emailprovider), over SMTP with [`SmtpConfig`](#smtpconfig). |
 | [`SmtpSecurity`](#smtpsecurity) | How [`SmtpEmailProvider`](#smtpemailprovider) secures its connection. |
+| [`VapidWebPush`](#vapidwebpush) | The standard [`WebPush`](#webpush): RFC 8030 requests with RFC 8291 encryption and an RFC 8292 VAPID token, signed with [`PushConfig.privateKey`](#pushconfig). |
+| [`WebPush`](#webpush) | Sends push messages to browsers' subscriptions (`docs/design/50-push.md`), shown there by the app's service worker as a [`SystemNotification`](k-device.md#systemnotification) even while no tab of the app is open. |
+| [`WebPushError`](#webpusherror) | Why [`WebPush.send(_:to:timeToLive:)`](#webpush) didn't deliver (`docs/design/50-push.md`). |
 
 ## DatabaseJobQueue
 
@@ -222,6 +226,16 @@ Absolute URLs from the public origin `K_PUBLIC_ORIGIN`
 - `func absolute(endpoint: Endpoint) -> Url`
   Returns the absolute URL of an endpoint page ([`k.core.Endpoint`](k-core.md#endpoint)).
 
+## PushConfig
+
+```k,ignore
+public config PushConfig
+```
+
+The app's VAPID identity (`docs/design/50-push.md`), read by
+[`VapidWebPush`](#vapidwebpush), required only when the app reaches [`WebPush`](#webpush).
+Server-only, like every config.
+
 ## Retry
 
 ```k,ignore
@@ -317,4 +331,81 @@ How [`SmtpEmailProvider`](#smtpemailprovider) secures its connection.
   TLS from the start.
 - `case none`
   No encryption; for local catchers only.
+
+## VapidWebPush
+
+```k,ignore
+@ServerOnly
+public service VapidWebPush implements WebPush
+```
+
+The standard [`WebPush`](#webpush): RFC 8030 requests with RFC 8291 encryption
+and an RFC 8292 VAPID token, signed with [`PushConfig.privateKey`](#pushconfig).
+
+**Members**
+
+- `var serverKey: EcdsaP256PublicKey?`
+  See [`WebPush.serverKey`](#webpush).
+- `func send(_ message: SystemNotification, to subscription: PushSubscription, timeToLive: Duration = 1.days) async throws WebPushError`
+  See [`WebPush.send(_:to:timeToLive:)`](#webpush).
+
+## WebPush
+
+```k,ignore
+@Platform(side: .server)
+public interface WebPush
+```
+
+Sends push messages to browsers' subscriptions
+(`docs/design/50-push.md`), shown there by the app's service worker as
+a [`SystemNotification`](k-device.md#systemnotification) even while no tab of the app is open. A
+server-only platform interface: [`VapidWebPush`](#vapidwebpush) is injected with no
+`use` rule, and [`k.test.RecordingWebPush`](k-test.md#recordingwebpush) replaces it in tests.
+
+No third-party account: the app identifies itself to every browser
+vendor's push service with its own VAPID key, `K_PUSH_PRIVATE_KEY`
+([`PushConfig`](#pushconfig)), made with `k keys new p256-ecdsa`, and each message
+is encrypted to the subscription, so the push service can't read it.
+
+**Members**
+
+- `var serverKey: EcdsaP256PublicKey?`
+  The public half of the configured key, which the browser subscribes
+  with ([`k.device.PushSubscriptions.subscribe(serverKey:)`](k-device.md#pushsubscriptions)); `nil`
+  when `K_PUSH_PRIVATE_KEY` isn't set.
+- `func send(_ message: SystemNotification, to subscription: PushSubscription, timeToLive: Duration = 1.days) async throws WebPushError`
+  Sends `message` to `subscription`. The push service keeps it for
+  at most `timeToLive` while the browser is offline.
+
+  - Throws: [`WebPushError.expired`](#webpusherror) when the subscription is gone
+    (delete it), `.unavailable` for a failure worth retrying, and the
+    other cases for one that isn't.
+
+## WebPushError
+
+```k,ignore
+public enum WebPushError implements Error, Equatable
+```
+
+Why [`WebPush.send(_:to:timeToLive:)`](#webpush) didn't deliver
+(`docs/design/50-push.md`).
+
+**Members**
+
+- `case expired`
+  The subscription is gone (the push service answered `404` or
+  `410`): delete it.
+- `case unavailable`
+  The push service couldn't be reached, timed out, or answered `429`
+  or a `5xx`: try again later.
+- `case rejected(status: Int)`
+  The push service refused the message with `status`, such as `403`
+  when the subscription was made with another key.
+- `case tooLarge`
+  The encrypted message is over the 4,096 bytes push services take.
+- `case invalidSubscription`
+  The subscription's keys are malformed, or its endpoint isn't
+  `https`.
+- `case notConfigured`
+  `K_PUSH_PRIVATE_KEY` isn't set.
 

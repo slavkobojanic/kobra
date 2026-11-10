@@ -752,6 +752,22 @@ fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Func
                     ],
                 ),
             )
+        } else if qualified == "k.server.VapidWebPush" {
+            // It reads the deployment's `PushConfig` and turns a
+            // notification's page into its path for the service worker
+            // (docs/design/50-push.md).
+            if let Some(config) = g.view.lookup("k.server.PushConfig")
+                && !wanted.contains(&config)
+            {
+                wanted.push(config);
+            }
+            let mut args = stdlib_enums(b, &["k.server.WebPushError"]);
+            args.push(js::arrow(vec![], this("PushConfig")));
+            args.push(match g.view.lookup("k.core.Page") {
+                Some(p) => b.use_decl(p, "Page$href".into()),
+                None => Expr::Null,
+            });
+            memo(&name, srt("vapidWebPush", args))
         } else if let Some(body) = server_platform_service(b, &qualified) {
             if tests(g) && qualified.starts_with("k.test.") && qualified != "k.test.InlineJobQueue"
             {
@@ -783,6 +799,8 @@ fn stdlib_default(g: &Gen<'_>, qualified: &str) -> Option<DeclId> {
         ("k.http.WebSocketClient", true) => "k.test.TestWebSocketClient",
         ("k.server.EmailProvider", false) => "k.server.SmtpEmailProvider",
         ("k.server.EmailProvider", true) => "k.test.RecordingEmailProvider",
+        ("k.server.WebPush", false) => "k.server.VapidWebPush",
+        ("k.server.WebPush", true) => "k.test.RecordingWebPush",
         ("k.server.JobQueue", false) => "k.server.DatabaseJobQueue",
         ("k.server.JobQueue", true) => "k.test.RecordingJobQueue",
         _ => return None,
@@ -856,6 +874,10 @@ fn server_platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Option<Expr
         "k.test.RecordingEmailProvider" => srt(
             "recordingEmailProvider",
             stdlib_enums(b, &["k.server.EmailError"]),
+        ),
+        "k.test.RecordingWebPush" => srt(
+            "recordingWebPush",
+            stdlib_enums(b, &["k.server.WebPushError"]),
         ),
         "k.server.DatabaseJobQueue" => srt("jobQueue", vec![this("Database")]),
         "k.test.RecordingJobQueue" => srt("recordingJobQueue", vec![]),
@@ -2618,6 +2640,21 @@ fn stdlib_configs(g: &Gen<'_>) -> Vec<&'static str> {
     });
     if serves_channel {
         out.push("k/rpc/ChannelConfig.k");
+    }
+    // `PushConfig` when the reachable graph pushes through the stdlib's
+    // VAPID sender (docs/design/50-push.md).
+    let vapid = g.view.lookup("k.server.VapidWebPush");
+    let web_push = g.view.lookup("k.server.WebPush");
+    let pushes = reached.iter().any(|&d| {
+        injected(g, d).into_iter().any(|t| {
+            Some(t) == vapid
+                || (Some(t) == web_push
+                    && binding(g, &rules, t).or_else(|| stdlib_default(g, "k.server.WebPush"))
+                        == vapid)
+        })
+    });
+    if pushes {
+        out.push("k/server/PushConfig.k");
     }
     // `TurnConfig` when the app issues ICE servers (46-media-and-rtc.md,
     // "STUN and TURN without third-party accounts").

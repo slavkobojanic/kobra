@@ -1319,7 +1319,7 @@ dist/
   manifest.json               the Manifest, pretty JSON
   public/
     index.html                static-only apps only
-    k-sw.js                   the service worker, only for apps whose client notifies
+    k-sw.js                   the service worker, only for apps whose client notifies or subscribes to push
     assets/
       runtime.3f2a1b9c.js     hashed client files: chunks, stylesheets, source maps
       app.9c1d2e3f.js
@@ -1334,8 +1334,8 @@ dist/
 - `dist/public` holds the same client assets for teams that serve them from a CDN.
 - Hashed files are served with `Cache-Control: public, max-age=31536000, immutable`.
 - **The service worker, `k-sw.js`** (`Output::root`, `bundle::service_worker`): emitted for an app whose
-  client ships the notifications chunk ([45-web-platform.md](../design/45-web-platform.md#notifications)),
-  which registers it. It is `runtime/sw.js` as written (compacted in a release build, so dev and release
+  client ships the notifications or the push chunk ([45-web-platform.md](../design/45-web-platform.md#notifications),
+  [50-push.md](../design/50-push.md)), which register it. It is `runtime/sw.js` as written (compacted in a release build, so dev and release
   differ only in whitespace and comments), a classic worker script with no imports and no app code, so no
   build hash or source map, and the same text in every app.
   - **At the site's root, not below `/assets/`:** a worker controls only URLs below its script's

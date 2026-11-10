@@ -548,6 +548,7 @@ pub fn resolve(
         }
     }
     turn_rules(&values, &mut problems);
+    push_rules(&values, &mut problems);
     if problems.is_empty() {
         Ok(values)
     } else {
@@ -583,6 +584,26 @@ fn turn_rules(values: &BTreeMap<String, ConfigValue>, problems: &mut Vec<Problem
         problems.push(problem(
             "is set without K_TURN_SECRET (or K_TURN_SECRET_FILE), which signs the TURN credentials (required by k.rtc.TurnConfig.secret)".to_owned(),
         ));
+    }
+}
+
+/// `k.server.PushConfig`'s own rule (`docs/design/50-push.md`): the VAPID
+/// subject `K_PUSH_CONTACT` is a `mailto:` or `https:` URL (RFC 8292 §2.1).
+fn push_rules(values: &BTreeMap<String, ConfigValue>, problems: &mut Vec<Problem>) {
+    let Some(ConfigValue::String(contact)) = values.get("K_PUSH_CONTACT") else {
+        return;
+    };
+    let ok = contact
+        .strip_prefix("mailto:")
+        .is_some_and(|a| a.contains('@'))
+        || contact
+            .strip_prefix("https://")
+            .is_some_and(|h| !h.is_empty());
+    if !ok {
+        problems.push(Problem {
+            env: "K_PUSH_CONTACT".to_owned(),
+            message: format!("{contact:?} isn't a mailto: or https: URL (the VAPID subject push services reach the app's operator at)"),
+        });
     }
 }
 
@@ -659,6 +680,48 @@ mod tests {
             Some(ConfigKind::Key("Ed25519PrivateKey".to_owned()))
         );
         assert_eq!(ConfigKind::from_manifest("", none, None), None);
+    }
+
+    #[test]
+    fn the_push_contact_is_a_mailto_or_https_url() {
+        struct Env(Vec<(&'static str, &'static str)>);
+        impl Environment for Env {
+            fn var(&self, name: &str) -> Option<String> {
+                self.0
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| (*v).to_owned())
+            }
+            fn read_file(&self, path: &str) -> Result<String, String> {
+                Err(format!("no file {path}"))
+            }
+        }
+        let fields = [ConfigField::from_manifest(
+            "K_PUSH_CONTACT",
+            "k.server.PushConfig.contact",
+            "String?",
+            false,
+            false,
+            None,
+            &[],
+            None,
+        )
+        .expect("a string")];
+        assert!(resolve(&fields, &Env(vec![])).is_ok(), "no contact is fine");
+        for good in ["mailto:ops@example.org", "https://example.org/contact"] {
+            assert!(
+                resolve(&fields, &Env(vec![("K_PUSH_CONTACT", good)])).is_ok(),
+                "{good}"
+            );
+        }
+        for bad in ["ops@example.org", "http://example.org", "mailto:"] {
+            let p = resolve(&fields, &Env(vec![("K_PUSH_CONTACT", bad)])).expect_err(bad);
+            assert!(
+                p[0].message.contains("isn't a mailto: or https: URL"),
+                "{}",
+                p[0].message
+            );
+        }
     }
 
     #[test]

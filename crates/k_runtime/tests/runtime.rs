@@ -13,10 +13,10 @@ use k_runtime::{
     CRYPTO_SIZE_BUDGET, DRAG_SIZE_BUDGET, ENVIRONMENT_SIZE_BUDGET, FILES_SIZE_BUDGET,
     FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET, HTTP_SIZE_BUDGET,
     KEYS_SIZE_BUDGET, MEDIA_SIZE_BUDGET, MONEY_SIZE_BUDGET, NOTIFICATIONS_SIZE_BUDGET,
-    OBSERVE_SIZE_BUDGET, PLAYBACK_SIZE_BUDGET, Part, RTC_SIZE_BUDGET, SERVICE_WORKER_SIZE_BUDGET,
-    SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET,
-    TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact, compacted_sources,
-    module, modules, resolve,
+    OBSERVE_SIZE_BUDGET, PLAYBACK_SIZE_BUDGET, PUSH_SIZE_BUDGET, Part, RTC_SIZE_BUDGET,
+    SERVICE_WORKER_SIZE_BUDGET, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
+    STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact,
+    compacted_sources, module, modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -181,6 +181,8 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Geolocation
                 | Part::Tabs
                 | Part::Notifications
+                | Part::Push
+                | Part::KeyCodec
                 | Part::WakeLock
                 | Part::Environment
                 | Part::Observe
@@ -545,6 +547,23 @@ fn notifications_meet_their_size_budget() {
 }
 
 #[test]
+fn push_meets_its_size_budget() {
+    // The subscriptions and the server key's codec, which a page that
+    // subscribes loads together.
+    let push = compacted_sources(&[Part::Push, Part::KeyCodec]).expect("compacts");
+    let size = gzip_len(&push);
+    eprintln!(
+        "push: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {PUSH_SIZE_BUDGET})",
+        raw_len(&[Part::Push, Part::KeyCodec]),
+        push.len()
+    );
+    assert!(
+        size <= PUSH_SIZE_BUDGET,
+        "push subscriptions are {size} bytes gzip, over the {PUSH_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
 fn the_service_worker_meets_its_size_budget() {
     let worker = compacted_sources(&[Part::ServiceWorker]).expect("compacts");
     let size = gzip_len(&worker);
@@ -746,6 +765,8 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::Geolocation
                 | Part::Tabs
                 | Part::Notifications
+                | Part::Push
+                | Part::KeyCodec
                 | Part::WakeLock
                 | Part::Environment
                 | Part::Observe

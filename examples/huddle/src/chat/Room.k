@@ -77,6 +77,8 @@ public page Room requires Authenticated {
     view {
         heading(level: 1) { "#{name}" }
 
+        AlertSwitch(room: name)
+
         if let banner = room.banner {
             paragraph { banner }
                 .class(.banner)

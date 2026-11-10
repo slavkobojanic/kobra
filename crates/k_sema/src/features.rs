@@ -118,11 +118,6 @@ pub const FEATURES: &[Feature] = &[
         "33-crypto.md",
     ),
     planned(
-        "web-push",
-        "`WebPush`: Web Push with VAPID and payload encryption, without a third-party account",
-        "45-web-platform.md",
-    ),
-    planned(
         "job-run-check",
         "Rejecting a call to a job's `run` outside the worker and tests",
         "30-background-jobs.md",

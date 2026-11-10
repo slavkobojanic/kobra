@@ -2,6 +2,7 @@ import k.auth.Session
 import k.crypto.Uuid
 import k.db.Database
 import k.rpc.Channel
+import k.server.JobQueue
 import k.time.Clock
 
 /// The server side of `ChatProtocol`.
@@ -16,6 +17,7 @@ public service ChatApi implements ChatProtocol {
     @Inject let session: Session
     @Inject let database: Database
     @Inject let clock: Clock
+    @Inject let jobs: JobQueue
 
     rpc room(name: String) async throws RoomError -> Channel<ChatCommand, ChatEvent, CommandError> {
         guard Rooms.names.contains(name) else {
@@ -68,6 +70,9 @@ public service ChatApi implements ChatProtocol {
                     // Held until the commit, so nobody sees a message that
                     // wasn't stored.
                     events.publish(room: room, event: .posted(message: chatMessage(message: message), clientId: clientId))
+
+                    // Pushed to the room's followers once it commits.
+                    await jobs.enqueue(RoomAlertJob.kind, payload: NewMessageAlert(room: room, author: author, text: trimmed))
                 }
             }
 

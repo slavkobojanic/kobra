@@ -213,7 +213,7 @@ A wrapper reaches Tier 1 when it is Baseline in all three engines (or degrades t
 | Web Share: files | 2 | `ShareContent(files:)` | `canShare` per file type differs across engines |
 | Permissions | **1** | `PermissionState` (`k.device`) | the [model](#permissions) above; no free-standing `permissions.query` |
 | Notifications (local) | **1** | `Notifications` (`k.device`) | [below](#notifications) |
-| Push | 2 | `PushSubscriptions` (client), `WebPush` (server) | [direction below](#push-tier-2): self-hosted VAPID, no account |
+| Push | 2 | `PushSubscriptions` (client), `WebPush` (server) | [50-push.md](50-push.md): self-hosted VAPID, no account |
 | Geolocation | **1** | `Geolocation` (`k.device`) | [below](#geolocation) |
 | Page visibility and lifecycle | **1** | `PageVisibility` (`k.device`) | [below](#page-visibility) |
 | Online/offline | **1** | `Connectivity` (`k.device`) | [below](#connectivity) |
@@ -472,7 +472,7 @@ emitted as `/k-sw.js`; `TestNotifications` in the test kit):
 
 ### Push (Tier 2)
 
-Recorded so Tier 1 doesn't close it off; push gets its own design file.
+Recorded so Tier 1 doesn't close it off. **Push is designed and built in [50-push.md](50-push.md),** which follows this direction with one change: `subscribe(serverKey:)` isn't `@UserAction`; `PushSubscriptions.requestAccess()` is the prompt, as for `Notifications`.
 
 - **No third-party account.** Web Push uses the browser vendor's push service, which accepts any sender identified by a VAPID key pair (RFC 8292). The app generates its own pair with `k keys new p256-ecdsa` ([33-crypto.md](33-crypto.md#keys-in-configuration)), the private key is a `Secret<EcdsaP256PrivateKey>` in a server-only `PushConfig` ([25-config-and-secrets.md](25-config-and-secrets.md)), and the server derives the public key from it and hands only that half to `subscribe` in the browser.
 - **Client:** `PushSubscriptions`, client-only: `isSupported`, `permission` (the notification permission), `@UserAction subscribe() async throws PushError -> PushSubscription`, `unsubscribe()`. `PushSubscription` is `Codable`, so the app sends it to its server by rpc and stores it as an entity.
@@ -832,7 +832,8 @@ public interface TabMessaging {
 | `CopyButton`, `ShareButton`, `KeepScreenAwake` | both: render on the server, act in the browser | component | the doubles of what they use; `TestWakeLock` |
 | `PageVisibility`, `Connectivity`, `Preferences`, `Viewport` | both, `.app` scope, with server values | stdlib service | `TestPageVisibility`, `TestConnectivity`, `TestPreferences`, `TestViewport` |
 | `appeared`, `disappeared`, `resized` | browser only; never fire on the server | element event | handle actions |
-| `WebPush` (Tier 2) | server-only | platform interface | `RecordingWebPush` |
+| `WebPush` (Tier 2, [50](50-push.md)) | server-only | platform interface | `RecordingWebPush` |
+| `PushSubscriptions` (Tier 2, [50](50-push.md)) | client-only | platform interface | `TestPushSubscriptions` |
 
 ## Why
 

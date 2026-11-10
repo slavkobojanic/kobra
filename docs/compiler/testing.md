@@ -1833,7 +1833,11 @@ format change is a reviewed diff):
   `messages`, and `KeepScreenAwake` against `TestWakeLock`; and `fixtures/notifying`, every test must
   pass: `Notifications` against `TestNotifications`, the prompt from a click, a show that never prompts,
   refused, dismissed and blocked permissions, a click opening the notification's page, and a
-  `SystemNotification` with its page through JSON; and `fixtures/realtime`, every test must pass: channels
+  `SystemNotification` with its page through JSON; and `fixtures/pushing`, every test must pass:
+  `PushSubscriptions` against `TestPushSubscriptions` and `WebPush` against `RecordingWebPush` (the prompt
+  from a click, subscribing with the server's key, a refused, dismissed or unsupported browser, a server
+  without a key, expired subscriptions, failures, `PushSubscription` through JSON), and the same fixture under
+  `k run` against `push.rs`' fake push service; and `fixtures/realtime`, every test must pass: channels
   in-process through `TestChannels` (resume without loss, a restart with a new snapshot, offline, hours
   of heartbeats, `open`), `TestPeers` (a second browser posting, refused, a guest, sessions ended by
   `endAll` and by the peer's own sign-out) and `TestChannel` for a service alone; and `fixtures/feeds`, every

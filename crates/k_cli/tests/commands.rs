@@ -1473,6 +1473,30 @@ fn test_notifies_through_the_notifications_double() {
 }
 
 #[test]
+fn test_pushes_through_the_push_doubles() {
+    // `PushSubscriptions` against `TestPushSubscriptions` and `WebPush`
+    // against `RecordingWebPush` (docs/design/50-push.md, "Tests"): the
+    // prompt from a click, subscribing with the server's key, a refused,
+    // dismissed or unsupported browser, a server without a key, expired
+    // subscriptions, failures and `PushSubscription` as a `Codable` value.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pushing");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("18 passed; 0 failed"), "{text}");
+    for name in [
+        "PASS  PushAlerts › turning on asks once, then subscribes with the server's key",
+        "PASS  PushAlerts › without a server key nothing is subscribed",
+        "PASS  AlertsApi › an expired subscription says so, and the others still get it",
+        "PASS  AlertsApi › a ping is recorded with its page and time to live",
+        "PASS  AlertSwitch › the click asks and subscribes",
+    ] {
+        assert!(text.contains(name), "{name}\n{text}");
+    }
+}
+
+#[test]
 fn test_expect_throws_checks_the_case_it_names() {
     // A qualified case pattern (`Choice.second`) was read as its type's
     // name, which matched any error.

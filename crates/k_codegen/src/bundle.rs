@@ -820,18 +820,27 @@ fn bind_deferred(stmts: &mut [Stmt], deferred: &[Deferred]) {
 }
 
 /// The service worker `k-sw.js` (`k:/runtime/sw.js`, runtime.md §12.12)
-/// for a client that ships the notifications chunk, which registers it:
+/// for a client that ships the notifications or the push chunk, which
+/// register it (docs/design/50-push.md):
 /// served at the site's root so its scope is the whole app, under a fixed
 /// name, since a registration is keyed by its script's URL, and
 /// compacted in a release build like the runtime. The browser installs a
 /// new worker when the bytes it fetches differ, so it carries no build
 /// hash. Empty for every other client (codegen.md §19).
 pub(crate) fn service_worker(g: &Gen<'_>, client: &[OutputFile]) -> Option<OutputFile> {
-    let (stem, _, _) = FEATURE_CHUNKS
+    let registers = FEATURE_CHUNKS
         .iter()
-        .find(|(_, specifier, _)| *specifier == "k:/runtime/notifications.js")?;
-    let prefix = format!("{stem}.");
-    if !client.iter().any(|f| f.path.starts_with(&prefix)) {
+        .filter(|(_, specifier, _)| {
+            matches!(
+                *specifier,
+                "k:/runtime/notifications.js" | "k:/runtime/push.js"
+            )
+        })
+        .any(|(stem, _, _)| {
+            let prefix = format!("{stem}.");
+            client.iter().any(|f| f.path.starts_with(&prefix))
+        });
+    if !registers {
         return None;
     }
     let source = k_runtime::module("k:/runtime/sw.js")?.source;
@@ -1015,6 +1024,7 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("geolocation", "k:/runtime/geolocation.js", "k/device"),
     ("tabs", "k:/runtime/tabs.js", "k/device"),
     ("notifications", "k:/runtime/notifications.js", "k/device"),
+    ("push", "k:/runtime/push.js", "k/device"),
     ("wakelock", "k:/runtime/wakelock.js", "k/device"),
     ("environment", "k:/runtime/environment.js", "k/device"),
     ("media", "k:/runtime/media.js", "k/media"),
@@ -1024,6 +1034,9 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("channels", "k:/runtime/channels.js", "k/rpc"),
     ("http", "k:/runtime/http.js", "k/http"),
     ("websocket", "k:/runtime/websocket.js", "k/http"),
+    // Before `crypto`, so a client that only decodes a push server key
+    // takes this one (docs/design/50-push.md, "As built").
+    ("keycodec", "k:/runtime/keycodec.js", "k/crypto"),
     ("crypto", "k:/runtime/crypto.js", "k/crypto"),
 ];
 

@@ -14,6 +14,29 @@ params = []
 returns = "Void"
 throws = "RpcOnlyError"
 
+[protocols."chat.AlertsProtocol"]
+service = "huddle.chat.AlertsProtocol"
+
+[protocols."chat.AlertsProtocol".rpcs.follow]
+params = [{ name = "room", type = "String" }, { name = "subscription", type = "PushSubscription" }]
+returns = "Void"
+throws = "chat.RoomError"
+
+[protocols."chat.AlertsProtocol".rpcs.isFollowing]
+params = [{ name = "room", type = "String" }, { name = "subscription", type = "PushSubscription" }]
+returns = "Bool"
+throws = "RpcOnlyError"
+
+[protocols."chat.AlertsProtocol".rpcs.serverKey]
+params = []
+returns = "EcdsaP256PublicKey?"
+throws = "RpcOnlyError"
+
+[protocols."chat.AlertsProtocol".rpcs.unfollow]
+params = [{ name = "room", type = "String" }, { name = "subscription", type = "PushSubscription" }]
+returns = "Void"
+throws = "RpcOnlyError"
+
 [protocols."chat.ChatProtocol"]
 service = "huddle.chat.ChatProtocol"
 

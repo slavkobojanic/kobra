@@ -235,10 +235,12 @@ const SERVER_STDLIB: &[&str] = &[
     "k.test.TestClient",
     "k.test.RecordingEmailProvider",
     "k.test.RecordingJobQueue",
+    "k.test.RecordingWebPush",
     "k.test.InlineJobQueue",
     "k.server.PublicUrls",
     "k.server.JobQueue",
     "k.server.EmailProvider",
+    "k.server.WebPush",
     "k.db.Database",
 ];
 

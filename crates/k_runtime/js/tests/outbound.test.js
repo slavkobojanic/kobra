@@ -4,7 +4,8 @@
  * The server's I/O platform services (docs/compiler/server.md §18):
  * `FetchHttpClient` over a stand-in for `op_k_fetch`, the `TestHttpClient`
  * double, `SmtpEmailProvider` over a stand-in for `op_k_smtp_send`, and the
- * `RecordingEmailProvider` double. The ops themselves are tested in Rust
+ * `RecordingEmailProvider` double, and `VapidWebPush` over stand-ins for the push ops and
+ * `op_k_fetch` with the `RecordingWebPush` double (docs/design/50-push.md). The ops themselves are tested in Rust
  * (`crates/k_server/tests/outbound.rs`).
  */
 import { assert, assertDeepEq, assertEq, test } from "k:testing";
@@ -17,12 +18,14 @@ import {
   natives,
   recordingEmailProvider,
   recordingJobQueue,
+  recordingWebPush,
   runJobBody,
   response,
   responseBody,
   smtpEmailProvider,
   smtpSettings,
   testHttpClient,
+  vapidWebPush,
   wireEmail,
   wireRequest,
 } from "k:runtime/server";
@@ -229,6 +232,131 @@ test("RecordingEmailProvider keeps messages and simulates failures", async () =>
   mailer.simulateFailure(EmailError.unavailable);
   assertEq(await rejection(mailer.send(null, email({}))), EmailError.unavailable);
   assertEq(mailer.sent.length, 1);
+});
+
+// ------------------------------------------------------------------- push
+
+const WebPushError = {
+  expired: unitCase(0),
+  unavailable: unitCase(1),
+  rejected: (status) => ({ $: 2, status }),
+  tooLarge: unitCase(3),
+  invalidSubscription: unitCase(4),
+  notConfigured: unitCase(5),
+};
+const POINT = "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4";
+const subscription = (endpoint = "https://push.example/s/1") => ({ endpoint, p256dh: POINT, auth: "BTBZMqHH6r4Tts7J_aSIgg" });
+const pushHref = (p) => `/rooms/${p.name}`;
+
+/**
+ * A `VapidWebPush` over stand-ins: `answers` are the statuses (or `{kind}` outcomes) the push
+ * service gives, `posted` records each request, `signed` each token signed; `clock` is seconds.
+ */
+function pusher({ key = true, contact = "mailto:ops@example.org" } = {}) {
+  const t = { answers: [], posted: [], signed: [], clock: 1_700_000_000 };
+  const config = () => ({ privateKey: key ? new Secret({ secret: new Uint8Array(32).fill(1), pub: new Uint8Array(65).fill(4) }) : null, contact });
+  t.push = vapidWebPush(WebPushError, config, pushHref, {
+    encrypt: (p256dh, auth, plaintext) => (p256dh.length === 65 ? Uint8Array.from([...plaintext, 2]) : null),
+    vapid: (_k, aud, exp, sub) => (t.signed.push([aud, exp, sub]), `vapid t=${t.signed.length}, k=x`),
+    fetch: async (_id, w) => {
+      t.posted.push(w);
+      const a = t.answers.shift() ?? 201;
+      return typeof a === "number" ? { kind: "response", status: a, headers: [], body: new Uint8Array(0) } : a;
+    },
+    now: () => t.clock * 1000,
+  });
+  return t;
+}
+
+test("VapidWebPush posts the message with TTL, aes128gcm and a VAPID token for the origin", async () => {
+  const t = pusher();
+  await t.push.send(null, { title: "Sam", body: "Lunch?", tag: "general", opens: { $: 0, name: "general" } }, subscription(), 60000);
+  assertEq(t.posted.length, 1);
+  const w = t.posted[0];
+  assertEq(w.url, "https://push.example/s/1");
+  assertDeepEq(w.headers, [
+    ["authorization", "vapid t=1, k=x"],
+    ["content-encoding", "aes128gcm"],
+    ["content-type", "application/octet-stream"],
+    ["ttl", "60"],
+  ]);
+  const text = new TextDecoder().decode(w.body.subarray(0, -1));
+  assertDeepEq(JSON.parse(text), { title: "Sam", body: "Lunch?", tag: "general", url: "/rooms/general" });
+  assertDeepEq(t.signed, [["https://push.example", 1_700_000_000 + 12 * 3600, "mailto:ops@example.org"]]);
+  assertEq(t.push.serverKey.length, 87);
+});
+
+test("VapidWebPush reuses a token for 11 hours, per push service", async () => {
+  const t = pusher();
+  const n = { title: "Hi", body: null, tag: null, opens: null };
+  await t.push.send(null, n, subscription());
+  assertEq(t.posted[0].headers[3][1], "86400", "a day by default");
+  t.clock += 10 * 3600;
+  await t.push.send(null, n, subscription());
+  await t.push.send(null, n, subscription("https://other.example/s/1"));
+  assertEq(t.signed.length, 2, "one token per origin");
+  t.clock += 2 * 3600;
+  await t.push.send(null, n, subscription());
+  assertEq(t.signed.length, 3, "a new token after 11 hours");
+});
+
+test("VapidWebPush maps the push service's answers to WebPushError", async () => {
+  const n = { title: "Hi", body: null, tag: null, opens: null };
+  for (const [answer, error] of [
+    [410, WebPushError.expired],
+    [404, WebPushError.expired],
+    [413, WebPushError.tooLarge],
+    [429, WebPushError.unavailable],
+    [502, WebPushError.unavailable],
+    [403, WebPushError.rejected(403)],
+    [{ kind: "offline", message: "refused" }, WebPushError.unavailable],
+    [{ kind: "timeout" }, WebPushError.unavailable],
+  ]) {
+    const t = pusher();
+    t.answers.push(answer);
+    assertDeepEq(await rejection(t.push.send(null, n, subscription())), error, JSON.stringify(answer));
+  }
+  const ok = pusher();
+  ok.answers.push(200, 202);
+  await ok.push.send(null, n, subscription());
+  await ok.push.send(null, n, subscription());
+});
+
+test("VapidWebPush refuses what it can't send before sending anything", async () => {
+  const n = { title: "Hi", body: null, tag: null, opens: null };
+  const t = pusher();
+  assertEq(await rejection(t.push.send(null, n, subscription("http://push.example/s/1"))), WebPushError.invalidSubscription);
+  assertEq(await rejection(t.push.send(null, n, { ...subscription(), p256dh: "AAAA" })), WebPushError.invalidSubscription);
+  assertEq(await rejection(t.push.send(null, n, { ...subscription(), auth: "not base64url!" })), WebPushError.invalidSubscription);
+  assertEq(await rejection(t.push.send(null, { ...n, body: "x".repeat(4000) }, subscription())), WebPushError.tooLarge);
+  assertEq(t.posted.length, 0);
+  // `http` only to loopback, for a local push service.
+  await t.push.send(null, n, subscription("http://127.0.0.1:5300/s/1"));
+  assertEq(t.signed[0][0], "http://127.0.0.1:5300");
+  const none = pusher({ key: false });
+  assertEq(none.push.serverKey, null);
+  assertEq(await rejection(none.push.send(null, n, subscription())), WebPushError.notConfigured);
+  const anonymous = pusher({ contact: null });
+  await anonymous.push.send(null, n, subscription());
+  assertEq(anonymous.signed[0][2], "");
+});
+
+test("RecordingWebPush records, expires, fails and unconfigures as the doc says", async () => {
+  const push = recordingWebPush(WebPushError);
+  const n = { title: "Hi", body: null, tag: null, opens: null };
+  assertEq(push.serverKey.length, 87);
+  await push.send(null, n, subscription());
+  assertDeepEq(push.sent, [{ message: n, subscription: subscription(), timeToLive: 86400000 }]);
+  push.expire(subscription());
+  assertEq(await rejection(push.send(null, n, subscription())), WebPushError.expired);
+  push.simulateFailure(WebPushError.unavailable);
+  assertEq(await rejection(push.send(null, n, subscription("https://push.example/s/2"))), WebPushError.unavailable);
+  push.stopFailing();
+  await push.send(null, n, subscription("https://push.example/s/2"), 1000);
+  push.setConfigured(false);
+  assertEq(push.serverKey, null);
+  assertEq(await rejection(push.send(null, n, subscription("https://push.example/s/2"))), WebPushError.notConfigured);
+  assertEq(push.sent.length, 2);
 });
 
 // ------------------------------------------------------------------- jobs

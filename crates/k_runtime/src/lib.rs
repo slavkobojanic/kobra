@@ -164,11 +164,20 @@ pub const TABS_SIZE_BUDGET: usize = 640;
 /// §11.3).
 pub const NOTIFICATIONS_SIZE_BUDGET: usize = 1024;
 
+/// The largest `k.device`'s push subscriptions in the browser
+/// ([`Part::Push`]: `BrowserPushSubscriptions`) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (1.5 KB), together with [`Part::KeyCodec`], which
+/// a page that subscribes loads with it. Each ships in its own chunk, only
+/// to apps whose client injects `PushSubscriptions` or decodes an
+/// `EcdsaP256PublicKey` (`docs/compiler/performance.md` §11.3).
+pub const PUSH_SIZE_BUDGET: usize = 1536;
+
 /// The largest the service worker `k-sw.js` ([`Part::ServiceWorker`]) may
-/// be, measured like [`CORE_SIZE_BUDGET`] (640 B). It is fetched when the
-/// app first notifies and then on the browser's update checks, never by a
-/// page load (`docs/compiler/performance.md` §11.3).
-pub const SERVICE_WORKER_SIZE_BUDGET: usize = 640;
+/// be, measured like [`CORE_SIZE_BUDGET`] (768 B; 640 B before its `push`
+/// handler, `docs/design/50-push.md`). It is fetched when the app first
+/// notifies or subscribes and then on the browser's update checks, never
+/// by a page load (`docs/compiler/performance.md` §11.3).
+pub const SERVICE_WORKER_SIZE_BUDGET: usize = 768;
 
 /// The largest `k.device.KeepScreenAwake` in the browser
 /// ([`Part::WakeLock`]) may be, measured like [`CORE_SIZE_BUDGET`]
@@ -291,6 +300,15 @@ pub enum Part {
     /// `Notifications`, and measured on its own
     /// ([`NOTIFICATIONS_SIZE_BUDGET`]).
     Notifications,
+    /// `k.crypto.EcdsaP256PublicKey`'s codec on its own: a client chunk
+    /// for apps that receive a push server key and use nothing else of
+    /// `k.crypto`, measured with [`PUSH_SIZE_BUDGET`].
+    KeyCodec,
+    /// `k.device`'s push subscriptions in the browser
+    /// (`BrowserPushSubscriptions`): shipped as its own client chunk, only
+    /// to apps whose client injects `PushSubscriptions`, and measured on
+    /// its own ([`PUSH_SIZE_BUDGET`]).
+    Push,
     /// The service worker `k-sw.js` that shows notifications and opens
     /// their pages: a classic worker script served at the site's root, not
     /// a module of any bundle, emitted for apps that ship
@@ -433,6 +451,7 @@ const MODULES: &[Module] = modules![
     Geolocation "runtime/geolocation.js",
     Tabs "runtime/tabs.js",
     Notifications "runtime/notifications.js",
+    Push "runtime/push.js",
     ServiceWorker "runtime/sw.js",
     WakeLock "runtime/wakelock.js",
     Environment "runtime/environment.js",
@@ -445,6 +464,7 @@ const MODULES: &[Module] = modules![
     Channels "runtime/channels.js",
     Http "runtime/http.js",
     WebSocket "runtime/websocket.js",
+    KeyCodec "runtime/keycodec.js",
     Crypto "runtime/crypto.js",
     Forms "runtime/forms.js",
     Money "runtime/money.js",

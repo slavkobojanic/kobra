@@ -2,7 +2,7 @@
 
 A small team chat written in K: sign in with a name, pick a room, and talk. Messages arrive live in every tab over a **channel**, survive a dropped connection, and are stored in SQLite (Postgres in production). Each room shows who is in it and who is typing, across every replica of the app.
 
-It is a teaching example for channels ([`docs/design/44-channels.md`](../../docs/design/44-channels.md)), the typed, two-way connection between a browser tab and its server. It is deliberately small: unread counts and moderators come with later steps, so they aren't here yet.
+It is a teaching example for channels ([`docs/design/44-channels.md`](../../docs/design/44-channels.md)), the typed, two-way connection between a browser tab and its server, and for Web Push ([`docs/design/50-push.md`](../../docs/design/50-push.md)): a room's **Notify me of new messages** tells you about new messages while no tab is open. It is deliberately small: unread counts and moderators come with later steps, so they aren't here yet.
 
 ## Running it
 
@@ -13,6 +13,8 @@ It is a teaching example for channels ([`docs/design/44-channels.md`](../../docs
 | `k check` | Checks the code, runs the tests, and checks `rpc.lock` against the protocols. |
 | `k build` | Builds `dist/`, with a `dist/app` that serves the pages, the rpcs and the channels' WebSocket. |
 | `docker compose up --build --wait` | Runs it as in production: Postgres, two replicas (`app1`, `app2`) and nginx on `http://localhost:8080`. See [Two replicas](#two-replicas). |
+
+To try push notifications, give the server a VAPID key: run `k keys new p256-ecdsa` and put the private JWK it prints in `.env` as `K_PUSH_PRIVATE_KEY`, with `K_PUSH_CONTACT=mailto:you@example.com` (see [Push notifications](#push-notifications)). Without a key the switch isn't shown.
 
 To see a reconnect, stop `k dev` while a room is open and start it again: the page shows **Reconnecting…**, then catches up from the new snapshot.
 
@@ -32,6 +34,7 @@ To see a reconnect, stop `k dev` while a room is open and start it again: the pa
 | **Typing indicators** as an ordinary command and event, shown for 5 seconds on the injected `Clock` | `src/chat/RoomService.k`, `src/chat/Room.k` |
 | Two replicas behind nginx sharing messages and presence over Postgres `LISTEN`/`NOTIFY` | `docker-compose.yml`, `deploy/nginx.conf`, `Dockerfile` |
 | Sign-in with `SessionManager` and the `Authenticated` guard on the whole protocol | `src/accounts/AuthApi.k`, `src/chat/ChatProtocol.k` |
+| **Web Push**: a "Notify me" switch that subscribes with `PushSubscriptions` and the server's key, subscriptions stored per room, and a background job that pushes each new message with `WebPush`, deleting expired subscriptions | `src/chat/RoomAlerts.k`, `src/chat/AlertSwitch.k`, `src/chat/AlertsApi.k`, `src/chat/RoomAlertJob.k` |
 | Two-person tests with `TestPeers`, connection tests with `TestChannels` and `TestConnectivity`, and a scripted `TestChannel` | `src/chat/Room.test.k`, `src/chat/RoomService.test.k` |
 
 ## How it works
@@ -67,6 +70,14 @@ The runtime owns the connection; the page only shows `RoomService.banner`, which
 - **A long drop or a restarted server** restarts the channel: the guard and the handler run again, and the new snapshot brings the room up to date.
 - **A message sent while disconnected** waits at most 10 seconds. If it couldn't be delivered, it stays in the list marked **Not sent.** with a **Retry** button, so the person decides whether to send it again: after a restart the runtime can't know whether the server handled it.
 
+### Push notifications
+
+A room's **Notify me of new messages** (`AlertSwitch`, rendered in the browser only) calls `RoomAlerts.turnOn(room:)` from the click: `PushSubscriptions.requestAccess()` shows the notification prompt the first time, the server's key comes from `AlertsProtocol.serverKey()` (the public half of `K_PUSH_PRIVATE_KEY`), `subscribe(serverKey:)` subscribes the browser, and `follow(room:subscription:)` stores a `RoomAlert` for the signed-in person, the room and the browser's endpoint. **Stop notifying me** deletes it.
+
+Posting a message enqueues a `RoomAlertJob` with the message, in the transaction that stores it. The job pushes `"ana in #general"` and the text to the room's followers, except the author and anyone in the room right now (`RoomPresence`), with the tag `room-<name>`, so one notification per room stays on screen, and `opens: .room(name:)`, so a click opens the room. A subscription the push service says is gone (`WebPushError.expired`) is deleted; an unavailable push service retries the job with backoff.
+
+The browser's push service (Google's for Chrome, Mozilla's for Firefox, Apple's for Safari) carries the message, encrypted so it can't read it; the app is identified by its own key, with no account. In production set `K_PUSH_PRIVATE_KEY_FILE` to a file holding the key.
+
 ## Two replicas
 
 `docker-compose.yml` runs Postgres, two replicas of the app and nginx with plain round robin; `deploy/nginx.conf` passes the WebSocket upgrade (`proxy_http_version 1.1`, `Upgrade`, `Connection "upgrade"`, `proxy_read_timeout 75s`). Nothing needs configuring for the replicas to talk:
@@ -89,6 +100,7 @@ deploy/nginx.conf        round robin with the WebSocket upgrade
 schema.lock              database schema, generated by `k migrate`
 migrations/
   0001_create_messages.k
+  0002_create_room_alerts.k
 src/
   accounts/              module accounts: signing in and out
     AccountId.k            struct: the session user's id, the name they chose
@@ -115,6 +127,14 @@ src/
     RoomService.k          client service: follows a room, optimistic sends
     Lobby.k                page at "/": the rooms
     Room.k                 page at "/room/{name}": one room, live
+    AlertsProtocol.k       protocol: the server's push key, follow and unfollow a room
+    AlertsApi.k            server implementation
+    RoomAlert.k            entity: a browser following a room
+    RoomAlertRepository.k  repository
+    NewMessageAlert.k      struct: the job's payload
+    RoomAlertJob.k         job: pushes a new message to the room's followers
+    RoomAlerts.k           client service: the browser's subscription and the switch's state
+    AlertSwitch.k          component: "Notify me of new messages"
     *.test.k               tests
   shell/
     AppLayout.k            layout: the app's name and who is signed in
@@ -128,6 +148,7 @@ Channels run in `k test` in-process, through the real frames, guards, handlers a
 - **`TestPeers`** opens a second browser with its own session against the same server, database and clock: `let bob = await peers.signIn(userId: AccountId(name: "bob"))`, then `let chat: ChatProtocol = bob.client()`. `Room.test.k` uses it for "a message posted by one person appears for another", "only a message's author can delete it", presence ("the people in the room are listed, and leave when their channel closes") and typing.
 - **`TestChannels`** controls the test's own connection: `network.drop()` drops it (it resumes after its backoff on the `TestClock`), `network.drop(resumable: false)` makes the server forget it (it restarts with a new snapshot), and `network.open` lists the open channels.
 - **`TestConnectivity.goOffline()`** drops the connection and stops reconnecting until `goOnline()`.
+- **`TestPushSubscriptions`** and **`RecordingWebPush`** replace the browser's push subscription and the server's sender: `AlertSwitch.test.k` turns a room's notifications on and off and checks that a posted message is handed to the job (`RecordingJobQueue`), and `RoomAlertJob.test.k` runs the job: the author and the people in the room aren't told, an expired subscription is deleted, an outage is retried, a server without a key fails the job.
 - **`TestChannel<C, S, E>`** is a scripted channel for testing `RoomService` without a server: `RoomService.test.k` delivers events, refuses the next message, drops and closes it.
 
 ## Design documents used
@@ -137,3 +158,5 @@ Channels run in `k test` in-process, through the real frames, guards, handlers a
 - [38-deployment.md](../../docs/design/38-deployment.md): `dist/app`, images and replicas
 - [26-auth-and-sessions.md](../../docs/design/26-auth-and-sessions.md): `SessionManager` and guards
 - [21-testing.md](../../docs/design/21-testing.md): tests on the real stack in-process
+- [50-push.md](../../docs/design/50-push.md): `PushSubscriptions`, `WebPush` and the service worker
+- [30-background-jobs.md](../../docs/design/30-background-jobs.md): `RoomAlertJob`

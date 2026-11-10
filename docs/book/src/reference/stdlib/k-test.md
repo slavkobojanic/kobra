@@ -16,8 +16,10 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`OpenChannel`](#openchannel) | A channel open on the test's connection ([`TestChannels.open`](#testchannels)). |
 | [`RecordingEmailProvider`](#recordingemailprovider) | The default [`EmailProvider`](k-server.md#emailprovider) in `k test`: it keeps sent messages. |
 | [`RecordingJobQueue`](#recordingjobqueue) | The default [`JobQueue`](k-server.md#jobqueue) in `k test`: it stores jobs without running them; [`InlineJobQueue`](#inlinejobqueue) runs them instead. |
+| [`RecordingWebPush`](#recordingwebpush) | The default [`WebPush`](k-server.md#webpush) in `k test` (`docs/design/50-push.md`): nothing is sent; every message is recorded. |
 | [`render`](#render) | Mounts `view` in the test's browser container (`docs/design/21-testing.md`, "Rendering and querying"). |
 | [`Screen`](#screen) | A rendered view, returned by `render(_:)`. |
+| [`SentPush`](#sentpush) | One message [`RecordingWebPush`](#recordingwebpush) recorded. |
 | [`TestAudio`](#testaudio) | The default [`Audio`](k-media.md#audio) in `k test`: a meter reports the level its stream's [`TestSource`](#testsource) scripts, and `play` records what it played. |
 | [`TestCallPeer`](#testcallpeer) | The other side of a call in a test ([`TestPeerConnections`](#testpeerconnections)): a peer connection the test drives, joined through the app's own protocol. |
 | [`TestChannel`](#testchannel) | A scripted channel for a client service tested without a server (`docs/design/44-channels.md`, "TestChannel"): the test plays the server. |
@@ -37,6 +39,7 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`TestPeerConnections`](#testpeerconnections) | The default [`PeerConnections`](k-rtc.md#peerconnections) in `k test` (`docs/design/46-media-and-rtc.md`, "Loopback peers"): the real negotiation over the real channel and relay, with an in-process media engine, so nothing leaves the process. |
 | [`TestPeers`](#testpeers) | More browsers in one test (`docs/design/44-channels.md`, "TestPeer"): realtime features are about other people, so a test can sign in a second person and act as them against the same server, database and clock. |
 | [`TestPreferences`](#testpreferences) | The default [`Preferences`](k-device.md#preferences) in `k test` (`docs/design/45-web-platform.md`, "Preferences"): no preference is set until the test sets one. |
+| [`TestPushSubscriptions`](#testpushsubscriptions) | The default [`PushSubscriptions`](k-device.md#pushsubscriptions) in `k test` (`docs/design/50-push.md`): no prompt opens and no push service is contacted. |
 | [`TestRecorder`](#testrecorder) | The default [`Recorder`](k-media.md#recorder) in `k test`: records a synthetic stream into a small, deterministic file (100 bytes a second) whose duration follows the [`TestClock`](#testclock). |
 | [`TestRemote`](#testremote) | The `.test` binding of every `remote` rule, also when the serving app is a member of the same workspace (`docs/design/40-workspaces-and-services.md`): an in-process double of protocol `P` whose every rpc fails with `rpcFailure(.offline)` ([`k.rpc.RpcFailure.offline`](k-rpc.md#rpcfailure)), so each service's tests stay hermetic and never open a socket. |
 | [`TestShare`](#testshare) | The default [`Share`](k-device.md#share) in `k test` (`docs/design/45-web-platform.md`, "Web Share"): no sheet opens; every share is recorded, and the user picks a target unless the test says otherwise. |
@@ -339,6 +342,38 @@ them; [`InlineJobQueue`](#inlinejobqueue) runs them instead.
 - `func payloads<Payload>(of kind: JobKind<Payload>) -> List<Payload> where Payload implements Codable`
   Returns the payloads enqueued for `kind`, in order.
 
+## RecordingWebPush
+
+```k,ignore
+@TestDefault(replaces: WebPush)
+public service RecordingWebPush implements WebPush
+```
+
+The default [`WebPush`](k-server.md#webpush) in `k test` (`docs/design/50-push.md`):
+nothing is sent; every message is recorded.
+
+**Members**
+
+- `var serverKey: EcdsaP256PublicKey?`
+  A fixed test key, so a page that offers push only with a key
+  offers it in tests; `nil` after `setConfigured(false)`.
+- `var sent: List<SentPush>`
+  Every message sent so far, oldest first.
+- `func send(_ message: SystemNotification, to subscription: PushSubscription, timeToLive: Duration = 1.days) async throws WebPushError`
+  Records the message in `sent`, or throws `.expired` for an
+  `expire(_:)`d subscription, the failure set by
+  `simulateFailure(error:)`, or `.notConfigured`.
+- `func expire(_ subscription: PushSubscription)`
+  Makes later sends to `subscription` throw `.expired`, as a push
+  service answers `410` for one the browser dropped.
+- `func simulateFailure(error: WebPushError)`
+  Makes every later send throw `error`.
+- `func stopFailing()`
+  Undoes `simulateFailure(error:)`.
+- `func setConfigured(_ value: Bool)`
+  `false` plays a server without `K_PUSH_PRIVATE_KEY`: `serverKey`
+  is `nil` and every send throws `.notConfigured`.
+
 ## render
 
 ```k,ignore
@@ -419,6 +454,23 @@ A rendered view, returned by `render(_:)`. It supports every query of
   Returns every heading, in document order.
 - `func links() -> List<Element>`
   Returns every link, in document order.
+
+## SentPush
+
+```k,ignore
+public struct SentPush implements Equatable
+```
+
+One message [`RecordingWebPush`](#recordingwebpush) recorded.
+
+**Members**
+
+- `let message: SystemNotification`
+  What was sent.
+- `let subscription: PushSubscription`
+  Where to.
+- `let timeToLive: Duration`
+  The time to live it was sent with.
 
 ## TestAudio
 
@@ -1003,6 +1055,51 @@ until the test sets one. Each member is reactive, like the browser's.
   Sets `prefersMoreContrast`.
 - `func set(forcedColors value: Bool)`
   Sets `forcedColors`.
+
+## TestPushSubscriptions
+
+```k,ignore
+@TestDefault(replaces: PushSubscriptions)
+public service TestPushSubscriptions implements PushSubscriptions
+```
+
+The default [`PushSubscriptions`](k-device.md#pushsubscriptions) in `k test`
+(`docs/design/50-push.md`): no prompt opens and no push service is
+contacted. The browser is capable, the permission starts at `.prompt`,
+and the user answers prompts with `.granted`. A subscription it makes
+has the endpoint `https://push.test/subscriptions/<n>` and fixed keys.
+
+**Members**
+
+- `var isSupported: Bool`
+  `true` unless `setSupported(_:)` said otherwise.
+- `var permission: PermissionState`
+  `.prompt` until a prompt is answered or `setPermission(_:)`
+  changes it. Reactive.
+- `var prompts: Int`
+  The number of `requestAccess()` calls that asked the user.
+- `var subscription: PushSubscription?`
+  The browser's subscription now, what `current()` answers.
+- `var serverKey: EcdsaP256PublicKey?`
+  The key the last `subscribe(serverKey:)` used.
+- `func requestAccess() async -> PermissionState`
+  Asks while `permission` is `.prompt`, counting it in `prompts`.
+- `func subscribe(serverKey: EcdsaP256PublicKey) async throws PushError -> PushSubscription`
+  Subscribes as the browser would, or throws `.unsupported`,
+  `.notAsked`, `.denied` or what `failNextSubscribe(error:)` set.
+- `func current() async -> PushSubscription?`
+  `subscription`.
+- `func unsubscribe() async`
+  Clears `subscription`.
+- `func answerPrompts(with answer: PermissionState)`
+  How the user answers the next prompts; `.granted` by default.
+- `func setPermission(_ permission: PermissionState)`
+  Changes `permission` as the site's settings would.
+- `func setSupported(_ value: Bool)`
+  Sets `isSupported`.
+- `func failNextSubscribe(error: PushError)`
+  Makes the next `subscribe(serverKey:)` throw `error`, as a
+  browser that can't reach its push service throws `.unavailable`.
 
 ## TestRecorder
 

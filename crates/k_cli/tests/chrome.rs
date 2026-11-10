@@ -2745,3 +2745,213 @@ fn rtc_replace_swaps_the_camera_without_renegotiating_in_chrome() {
 // stdlib against real browsers") needs a network namespace to drop them
 // in; macOS has none, so it isn't here. `rtc.test.js` and `examples/call`'s
 // tests restart ICE over the in-process engine.
+
+// ==================================================================== push
+
+/// Chrome's flags for the push tests: every host name but the loopback
+/// ones fails to resolve, so Chrome's own push client can't reach a
+/// vendor's push service (docs/design/50-push.md: no test contacts one),
+/// whatever `--disable-background-networking` leaves running.
+const NO_PUSH_SERVICE: &str =
+    "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1";
+
+/// The `pushing` fixture under `k run` with a VAPID key, and a tab on it
+/// with the notification permission granted, as a user's earlier "Allow"
+/// would.
+fn pushing(dir: &Scratch) -> Option<(Proc, String, Tab)> {
+    copy_project(&repo().join("crates/k_cli/tests/fixtures/pushing"), &dir.0);
+    let (private, _) = k_server::crypto::new_key_jwks("p256-ecdsa")
+        .unwrap()
+        .unwrap();
+    let (k, port) = Proc::serve(
+        &["run"],
+        1,
+        &dir.0,
+        &[("K_PUSH_PRIVATE_KEY", private)],
+        &["K_PUSH_PRIVATE_KEY_FILE", "K_PUSH_CONTACT"],
+        Duration::from_secs(120),
+    );
+    let origin = format!("http://localhost:{port}");
+    let mut tab = page::chrome_with(&dir.0, &[NO_PUSH_SERVICE])?;
+    tab.cdp.call(
+        "Browser.grantPermissions",
+        json!({ "origin": origin, "permissions": ["notifications"] }),
+    );
+    Some((k, origin, tab))
+}
+
+/// "Notify me" in real Chrome, as far as is local: the click registers
+/// `/k-sw.js` and calls `pushManager.subscribe` with `userVisibleOnly` and
+/// the server's key (the public half of `K_PUSH_PRIVATE_KEY`, from the
+/// fixture's rpc). Completing the subscription needs Chrome's push
+/// service, which only Google runs and which this test must not contact.
+/// With every other host unresolvable, the Chrome this was built against
+/// keeps the subscription waiting (still pending after 8 seconds), so the
+/// test checks everything up to the push manager. A Chrome that rejects
+/// instead must make the page say `unavailable` (`PushError.unavailable`),
+/// and one that subscribes without its push service must return the
+/// browser's keys.
+#[test]
+fn push_subscribe_reaches_the_push_manager_with_the_servers_key_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("push-subscribe");
+    let Some((_k, origin, mut tab)) = pushing(&dir) else {
+        return;
+    };
+    tab.cdp.call(
+        "Page.addScriptToEvaluateOnNewDocument",
+        json!({ "source": "(() => { const calls = globalThis.__kSubscribes = []; const subscribe = PushManager.prototype.subscribe; \
+            PushManager.prototype.subscribe = function (o) { const call = { visible: o.userVisibleOnly, key: Array.from(new Uint8Array(o.applicationServerKey)) }; calls.push(call); \
+            return subscribe.call(this, o).then((s) => { call.ok = s.toJSON(); return s; }, (e) => { call.error = e.name; throw e; }); }; })();" }),
+    );
+    tab.open(&format!("{origin}/"));
+    let button = tab.role("button", "Notify me");
+    tab.click(&button);
+    tab.wait("the page calls pushManager.subscribe", |t| {
+        t.eval("globalThis.__kSubscribes.length")
+            .as_u64()
+            .is_some_and(|n| n > 0)
+            .then_some(())
+    });
+    // Chrome may answer at once or keep retrying its push service; give it
+    // a few seconds, and treat no answer as "can't finish locally".
+    let settled = Instant::now() + Duration::from_secs(8);
+    let said = loop {
+        let s = tab.eval("document.querySelector('[role=status]')?.textContent ?? ''");
+        let s = s.as_str().unwrap_or_default().to_owned();
+        if !s.is_empty() || Instant::now() > settled {
+            break s;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let calls = tab.eval("globalThis.__kSubscribes");
+    let call = &calls[0];
+    assert_eq!(call["visible"], json!(true), "{calls}");
+    let key = tab.eval(
+        "fetch('/pushing.alerts.AlertsProtocol/ServerKey', { method: 'POST', headers: { 'content-type': 'application/json', 'connect-protocol-version': '1' }, body: '{}' }).then((r) => r.json()).then((j) => j.value)",
+    );
+    let key = k_server::crypto::from_base64url(key.as_str().unwrap()).unwrap();
+    let sent: Vec<u8> = call["key"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| u8::try_from(b.as_u64().unwrap()).unwrap())
+        .collect();
+    assert_eq!(sent, key, "subscribed with the server's key");
+    let scope = tab.eval("navigator.serviceWorker.getRegistration('/').then((r) => r && r.active && r.active.scriptURL)");
+    assert_eq!(scope, json!(format!("{origin}/k-sw.js")));
+    match said.as_str() {
+        "" => {
+            assert!(call.get("ok").is_none(), "{calls}");
+            eprintln!(
+                "push subscribe: Chrome's subscribe is still waiting for its push service after 8 s; checked up to the push manager"
+            );
+        }
+        "unavailable" => {
+            assert!(call["error"].is_string(), "the browser refused: {calls}");
+            eprintln!(
+                "push subscribe: Chrome needs its push service to finish subscribing ({}); checked up to the push manager",
+                call["error"]
+            );
+        }
+        "on" => {
+            assert!(call["ok"]["keys"]["p256dh"].is_string(), "{calls}");
+            assert!(call["ok"]["keys"]["auth"].is_string(), "{calls}");
+        }
+        other => panic!("the page said {other:?}: {calls}"),
+    }
+    tab.allow_errors();
+    drop(tab);
+}
+
+/// A push message reaches `k-sw.js` and is shown: the page registers the
+/// worker (by trying to subscribe), DevTools delivers the JSON a
+/// `WebPush.send` encrypts (`ServiceWorker.deliverPushMessage`, which hands
+/// it to the worker's `push` event as the browser does after decrypting),
+/// and the worker shows it as the `SystemNotification` it is, with its page
+/// for the click. What the worker showed is recorded inside the worker,
+/// once Chrome has shown it, rather than read back with
+/// `getNotifications()` (see `todos_reminds_through_the_service_worker`).
+#[test]
+fn push_message_is_shown_by_the_service_worker_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("push-deliver");
+    let Some((_k, origin, mut tab)) = pushing(&dir) else {
+        return;
+    };
+    tab.cdp.call("ServiceWorker.enable", json!({}));
+    tab.open(&format!("{origin}/"));
+    let button = tab.role("button", "Notify me");
+    tab.click(&button);
+    tab.wait("the service worker is active", |t| {
+        (t.eval("navigator.serviceWorker.getRegistration('/').then((r) => !!(r && r.active))")
+            == json!(true))
+        .then_some(())
+    });
+    // Chrome's own extensions have service workers too: ours is the one
+    // running `/k-sw.js`.
+    let script = format!("{origin}/k-sw.js");
+    let ours = |v: &Value| {
+        v["scriptURL"] == script.as_str()
+            && v["runningStatus"] == "running"
+            && v["targetId"].is_string()
+    };
+    let version = tab
+        .cdp
+        .wait_event_where(
+            "ServiceWorker.workerVersionUpdated",
+            0,
+            Duration::from_secs(30),
+            |p| {
+                p["versions"]
+                    .as_array()
+                    .is_some_and(|vs| vs.iter().any(ours))
+            },
+        )
+        .expect("the worker runs");
+    let running = version["versions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| ours(v))
+        .unwrap()
+        .clone();
+    let registration = running["registrationId"].as_str().unwrap().to_owned();
+    let target = running["targetId"].as_str().unwrap().to_owned();
+    let mut worker = cdp::Cdp::connect(&cdp::target_url(tab.devtools_port(), &target)).unwrap();
+    worker.call(
+        "Runtime.evaluate",
+        json!({ "expression": "(() => { const shown = self.__kShown = []; const show = self.registration.showNotification.bind(self.registration); \
+            self.registration.showNotification = (title, o) => show(title, o).then(() => { shown.push([title, o.body ?? null, o.tag ?? null, o.data]); }); return true; })()" }),
+    );
+    let message = json!({ "title": "Ping", "body": "Hello from the server", "tag": "ping", "url": "/reports/7" });
+    tab.cdp.call(
+        "ServiceWorker.deliverPushMessage",
+        json!({ "origin": origin, "registrationId": registration, "data": message.to_string() }),
+    );
+    let deadline = Instant::now() + page::WAIT;
+    let shown = loop {
+        let r = worker.call(
+            "Runtime.evaluate",
+            json!({ "expression": "JSON.stringify(self.__kShown)", "returnByValue": true }),
+        );
+        let shown: Value =
+            serde_json::from_str(r["result"]["value"].as_str().unwrap_or("[]")).unwrap();
+        if shown.as_array().is_some_and(|a| !a.is_empty()) {
+            break shown;
+        }
+        assert!(Instant::now() < deadline, "the worker showed nothing: {r}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(
+        shown,
+        json!([["Ping", "Hello from the server", "ping", { "url": "/reports/7", "from": "/" }]])
+    );
+    tab.allow_errors();
+    drop(worker);
+    drop(tab);
+}
