@@ -1744,11 +1744,7 @@ fn a_client_rendered_app_starts_its_session_from_the_shell() {
         went(&mut tab),
         serde_json::json!([["/admin"], ["/account"]])
     );
-    lacks(
-        &tab.html(),
-        "<h1>Admin</h1>",
-        "the admin page never rendered",
-    );
+    lacks(&tab.html(), ">Admin</h1>", "the admin page never rendered");
 }
 
 #[test]
@@ -1778,7 +1774,13 @@ fn a_client_rendered_app_leaves_a_guarded_page_for_the_server_on_sign_out() {
     // An admin's mirror lists the role, so the admin page opens here.
     tab.run("sim.click(\"a\", \"Admin\");");
     assert_eq!(went(&mut tab), serde_json::json!([[], ["/admin"]]));
-    contains(&tab.html(), "<h1>Admin</h1>", "the admin page");
+    // A navigation focuses the new page's heading, which takes the focus
+    // from code with `tabindex="-1"` (53-element-references.md).
+    contains(
+        &tab.html(),
+        "<h1 tabindex=\"-1\">Admin</h1>",
+        "the admin page",
+    );
     tab.run("sim.click(\"a\", \"Home\");");
     tab.run("sim.click(\"a\", \"Account\");");
     contains(&tab.text(), "Account of grace", "back on the account page");

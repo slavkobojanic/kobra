@@ -127,7 +127,7 @@ function rememberTimeZone(doc) {
  * inserted by hand into its parent's range).
  */
 function currentRange() {
-  let r = active[active.length - 1];
+  let r = active.at(-1);
   if (r && (r.next === null || r.next === r.end) && pending.size > 0) {
     const [start, [end, held]] = pending.entries().next().value;
     pending.delete(start);
@@ -149,7 +149,7 @@ function currentRange() {
 function claimNode(type, make) {
   // The active range itself: an exhausted range must not pull in a held
   // block range (`currentRange`), which belongs to a template's block.
-  const r = hydrating ? active[active.length - 1] : null;
+  const r = hydrating ? active.at(-1) : null;
   const n = r ? r.next : null;
   if (n && n !== r.end && n.nodeType === type && (type === 3 || n.data === "")) {
     r.next = n.nextSibling;
@@ -186,7 +186,7 @@ export function separator() {
  * @returns {{node: DocumentFragment, start: Comment, end: Comment}|null}
  */
 export function claimMarkers() {
-  const r = hydrating ? active[active.length - 1] : null;
+  const r = hydrating ? active.at(-1) : null;
   const start = r ? r.next : null;
   if (!start || start === r.end || start.nodeType !== 8 || start.data !== "[") return null;
   const end = closing(start);
@@ -226,8 +226,13 @@ export function claimRange(start, end, fn) {
   }
 }
 
-/** Removes `n` and its following siblings up to (not including) `end`. */
-function drop(n, end) {
+/**
+ * Removes `n` and its following siblings up to (not including) `end`, or
+ * to the last sibling when `end` is `null`.
+ * @param {Node|null} n
+ * @param {Node|null} end
+ */
+export function drop(n, end) {
   while (n !== null && n !== end) {
     const next = n.nextSibling;
     n.parentNode.removeChild(n);
@@ -314,10 +319,20 @@ function reconcile(t, s) {
  * @returns {Element|null}
  */
 export function claimRaw(tag) {
-  if (!hydrating) return null;
+  return hydrating ? claimNext((n) => n.localName === tag) : null;
+}
+
+/**
+ * Claims the next server node of the current range when `fits` accepts
+ * it; otherwise drops the range's server content (a mismatch) and returns
+ * `null`.
+ * @param {(n: Node) => boolean} fits
+ * @returns {Node|null}
+ */
+function claimNext(fits) {
   const range = currentRange();
   const node = range ? range.next : null;
-  if (node && node !== range.end && node.localName === tag) {
+  if (node && node !== range.end && fits(node)) {
     range.next = node.nextSibling;
     return node;
   }
@@ -337,17 +352,8 @@ export function claimRaw(tag) {
  * @returns {Element}
  */
 export function claimTemplate(prepared) {
-  const range = currentRange();
-  const node = range ? range.next : null;
-  if (node && node !== range.end && sameShape(prepared, node)) {
-    range.next = node.nextSibling;
-    reconcile(prepared, node);
-    return node;
-  }
-  // A mismatch: drop what the server rendered here and render fresh.
-  if (range) {
-    drop(range.next, range.end);
-    range.next = range.end;
-  }
-  return /** @type {Element} */ (prepared.cloneNode(true));
+  const node = claimNext((n) => sameShape(prepared, n));
+  if (node) reconcile(prepared, node);
+  // A mismatch rendered fresh.
+  return node ?? /** @type {Element} */ (prepared.cloneNode(true));
 }

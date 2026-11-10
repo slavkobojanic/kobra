@@ -506,6 +506,7 @@ fn shipped_client_assets() {
         ("websocket.", k_runtime::WEBSOCKET_SIZE_BUDGET),
         ("crypto.", k_runtime::CRYPTO_SIZE_BUDGET),
         ("forms.", k_runtime::FORMS_SIZE_BUDGET),
+        ("load.", k_runtime::LOAD_SIZE_BUDGET),
         ("money.", k_runtime::MONEY_SIZE_BUDGET),
     ];
     for name in [

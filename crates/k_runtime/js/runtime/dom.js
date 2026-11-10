@@ -8,7 +8,7 @@
  */
 
 import { batch, computed, getOwner, renderEffect, runWithOwner, scope, signal, untrack } from "./signals.js";
-import { claimRange, claimTemplate, isHydrating } from "./hydrate.js";
+import { claimRange, claimTemplate, drop, isHydrating } from "./hydrate.js";
 import { CANCELLED } from "./values.js";
 
 /**
@@ -83,12 +83,20 @@ export function attr(element, name, value) {
 
 /**
  * Sets a DOM property (`value`, `checked`), writing only when it changed.
+ * While hydrating, a text field whose `value` is no longer its markup's
+ * (`defaultValue`) holds text typed before the page's scripts ran: it is
+ * kept, and an `input` event in a microtask hands it to the field's
+ * binding, as if typed then (docs/design/15-forms-and-validation.md,
+ * "Text typed before the page's scripts ran is kept").
  * @param {Element} element
  * @param {string} name
  * @param {unknown} value
  */
 export function prop(element, name, value) {
-  if (element[name] !== value) element[name] = value;
+  if (element[name] === value) return;
+  if (name === "value" && isHydrating() && typeof element.defaultValue === "string" && element.value !== element.defaultValue) {
+    queueMicrotask(() => element.dispatchEvent(new Event("input", { bubbles: true })));
+  } else element[name] = value;
 }
 
 /**
@@ -191,12 +199,7 @@ export function on(target, event, handler) {
  * @param {Node} end
  */
 export function clear(start, end) {
-  const parent = end.parentNode;
-  for (let n = start.nextSibling; n !== null && n !== end;) {
-    const next = n.nextSibling;
-    parent.removeChild(n);
-    n = next;
-  }
+  drop(start.nextSibling, end);
 }
 
 /**

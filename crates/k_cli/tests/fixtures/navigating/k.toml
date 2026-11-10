@@ -1,0 +1,10 @@
+# Navigation focus, scroll restoration and text typed before hydration
+# (docs/design/53-element-references.md, "Focus the framework moves";
+# docs/design/15-forms-and-validation.md). `chrome.rs`' navigating tests
+# serve it with `k dev`, server-rendered: a navigation focuses the new
+# page's heading and starts it at the top, Back puts the page back where it
+# was scrolled, and text typed into a plain `bind` field before the page's
+# scripts ran is kept and reaches the state.
+[package]
+name = "navigating"
+k = "0.1"

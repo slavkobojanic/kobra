@@ -17,7 +17,6 @@ with a Planned note naming the feature's id, and this table is generated from th
 | Modifiers (`.tooltip()`, `.animate()`, `.track()`), applied in the order written | `modifiers` | [Components](../apps/components.md#required-arguments-are-named-optional-ones-are-chained), [Views and built-in elements](../apps/views.md#modifiers) |
 | Warnings for an effect that reads no reactive value, and for state read after an `await` | `effect-lints` | [Reactivity](../apps/reactivity.md#effect) |
 | Warnings for a second landmark of a kind without a name, and a `.label` missing the visible text | `a11y-lints` | [Views and built-in elements](../apps/views.md#attributes-are-per-element) |
-| The router moving the focus to a new page's level-1 heading and restoring the scroll position on back and forward | `navigation-focus` | [Views and built-in elements](../apps/views.md#focus-and-scrolling) |
 | A warning when a wire error carries a server-only type or a third party's response body | `error-payload-lint` | [Async data loading](../apps/async-data.md#server-rendering), [Protocols and RPC](../apps/protocols.md#status-codes), [Calling HTTP APIs](../apps/http.md#errors) |
 | `dist/app` reporting `[package] version` in its logs and metrics | `app-version` | [Project layout](../getting-started/project-layout.md#ktoml) |
 | A warning when a `GET` or `HEAD` handler that uses the session signs in, signs out or writes | `safe-method-lint` | [Authentication and sessions](../apps/auth.md#request-forgery) |

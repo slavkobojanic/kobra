@@ -958,8 +958,9 @@ GET /_k/channels ── Origin = K_PUBLIC_ORIGIN? (403) ── upgrade + k.chann
   `Server::channels().metrics`) of counters, gauges, histograms and the last 256 spans, rendered in the
   Prometheus text format. The `Hub` records the `k_channel_*` metrics and the `k.channel.open` /
   `k.channel.message` spans where it already handles the frames; a receiver of another replica's element
-  records `now - t` in `k_broadcast_lag_seconds`. The names and labels are in 44-channels.md, "Decided
-  while implementing". Nothing exports them yet.
+  records `now - t` in `k_broadcast_lag_seconds`, and a `rcvd`'s `skipped` count (the messages of an
+  unknown case the tab skipped) in `k_channel_unknown_total{method}`. The names and labels are in
+  44-channels.md, "Decided while implementing" and "The unknown-case metric". Nothing exports them yet.
 - **`ServerOptions::dev_tools`** (`k dev`, `k run`; never `dist/app`) turns on the open and close lines
   (`Hub::enable_dev`, written to the server's log output and kept for `Hub::log_lines`), the last 8
   messages per channel, and `GET /_k/dev/channels`, the inspector (`devtools.rs`), answered by the HTTP

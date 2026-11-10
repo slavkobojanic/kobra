@@ -640,9 +640,9 @@ Measured 2026-11-07, release build, 14-core Apple M-series:
 | Codegen linear in project size (10k → 100k ≤ 14×) | 10.7× | met (was 55×) |
 | Cold `k build` of 100k lines ≤ 2.5 s, codegen ≤ 0.6 s of it | 332 ms (codegen 230 ms) on 8 threads | met |
 | `k check`'s lockfile checks on 100k lines ≤ 100 ms (a tenth of the cold check budget) | 1.4 ms (136 pages compared with `routes.lock`; the project has no entities) | met |
-| Client runtime ≤ 5 KB core / ≤ 10 KB full (compressed) | core 42.9 KB raw, 15.2 KB compacted, **4,651 B** gzip; full 82.5 KB raw, 29.4 KB compacted, **9,378 B** gzip (budget 10,240; 9,344 B before nothing a disposed component made could run, `bound`, `on`'s owner check and the rpc client releasing its abort listener, design 03 "What a component leaves behind"; 9,126 B as last recorded, before the previous round's cancellation on unmount; 9,123 B before the router took a client-rendered shell's session mirror, 26-auth-and-sessions.md; 9,022 B before the ownership of async work, `live`, `own` and `CANCELLED`, design 03 "Async work is owned"; 8,666 B before the router checked page guards against the `Session` mirror, 26-auth-and-sessions.md "In the browser"; was 10,123 before `@Form` support moved to the `forms` feature chunk, §11.4) | met, **862 B of headroom** (896 B before the "leaves behind" round, 1,114 B before the previous round, 1,117 B before the client-rendered session round, 1,218 B before the async-ownership round, 1,574 B before the page-guard round, 117 B before the forms round). The cut: `forms.js` (`createForm`, the field parsers and constraint rules, 1,457 B of the full runtime) ships only to apps with a `@Form`, as `forms.[hash].js`; no budget changed. Earlier rounds (§11.4, "Runtime size"): the compactor drops the spaces and line breaks that separate no tokens, which saved 520 B on the full runtime and 495 B on the stdlib bodies; the budget measures the parts as the runtime chunk ships them, without the links between files that the bundler removes (`index.js`'s re-exports and every `import` line, 344 B); and server streams in the browser moved to a chunk of their own (`streams.js`), which only apps with a streaming rpc ship |
+| Client runtime ≤ 5 KB core / ≤ 10 KB full (compressed) | core 45.2 KB raw, 15.2 KB compacted, **4,866 B** gzip; full 85.9 KB raw, 29.7 KB compacted, **9,723 B** gzip (budget 10,240; 10,238 B before the round of §11.4 "Room in the full runtime", which took it to 9,306 B before building the navigation focus and scroll restoration and plain `bind` text kept through hydration on it; earlier: 9,378 B before element references, 9,344 B before nothing a disposed component made could run, `bound`, `on`'s owner check and the rpc client releasing its abort listener, design 03 "What a component leaves behind"; 9,126 B as last recorded, before the previous round's cancellation on unmount; 9,123 B before the router took a client-rendered shell's session mirror, 26-auth-and-sessions.md; 9,022 B before the ownership of async work, `live`, `own` and `CANCELLED`, design 03 "Async work is owned"; 8,666 B before the router checked page guards against the `Session` mirror, 26-auth-and-sessions.md "In the browser"; was 10,123 before `@Form` support moved to the `forms` feature chunk, §11.4) | met, **517 B of headroom** (934 B after the room round, before the two features; 2 B before it). The cut: `load.js` (`createLoads`, 870 B of the full runtime) became the `load` feature chunk (`LOAD_SIZE_BUDGET`, 1.25 KB; 1,125 B), which development and test clients import from the page chunks with a load, while a linked release build keeps it in its runtime chunk (codegen.md §17.1). met, **862 B of headroom** (896 B before the "leaves behind" round, 1,114 B before the previous round, 1,117 B before the client-rendered session round, 1,218 B before the async-ownership round, 1,574 B before the page-guard round, 117 B before the forms round). The cut: `forms.js` (`createForm`, the field parsers and constraint rules, 1,457 B of the full runtime) ships only to apps with a `@Form`, as `forms.[hash].js`; no budget changed. Earlier rounds (§11.4, "Runtime size"): the compactor drops the spaces and line breaks that separate no tokens, which saved 520 B on the full runtime and 495 B on the stdlib bodies; the budget measures the parts as the runtime chunk ships them, without the links between files that the bundler removes (`index.js`'s re-exports and every `import` line, 344 B); and server streams in the browser moved to a chunk of their own (`streams.js`), which only apps with a streaming rpc ship |
 | Browser services ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | `services.js` 11.1 KB raw, 5.3 KB compacted, **2,340 B** gzip (was 2,124: the browser's `EmailAddress` natives and `FetchHttpClient`'s `HttpHeaders`) | met |
-| Stdlib bodies ≤ 10 KB | 62.8 KB raw, 26.2 KB compacted, **8,554 B** gzip (8,426 B before `TimeOfDay`'s parser, accessors and codec, 35-time.md; 8,398 B before `live`, design 03 "Async work is owned"; was 10,159) | met, **1,686 B of headroom** (1,814 B before the `TimeOfDay` round, 81 B before the money round). The cut: `Decimal`, `Money`, `Currency` and their three codecs (1,586 B of the stdlib bodies) moved from `std.js` to the `money` feature chunk (§11.4), which only apps whose client code builds, reads or decodes one ship; the unused `unNone` was dropped (8 B). No budget changed |
+| Stdlib bodies ≤ 10 KB | 69.2 KB raw, 28.4 KB compacted, **9,113 B** gzip (8,962 B before each builtin codec became an export of its own, codegen.md §17.1, which costs the unlinked bodies their names and takes 0.7–1.3 KB off every release client, §11.7; 8,554 B as last recorded; 8,426 B before `TimeOfDay`'s parser, accessors and codec, 35-time.md; 8,398 B before `live`, design 03 "Async work is owned"; was 10,159) | met, **1,127 B of headroom** (1,686 B as last recorded; 1,814 B before the `TimeOfDay` round, 81 B before the money round). The cut: `Decimal`, `Money`, `Currency` and their three codecs (1,586 B of the stdlib bodies) moved from `std.js` to the `money` feature chunk (§11.4), which only apps whose client code builds, reads or decodes one ship; the unused `unNone` was dropped (8 B). No budget changed |
 | `k.charts` ≤ 3 KB (`CHARTS_SIZE_BUDGET`) | `charts.js` 8.9 KB raw, 5.1 KB compacted, **2,306 B** gzip | met. **New budget, justified:** `LineChart` (37-charts.md) is the first stdlib component the runtime draws, on both sides, and only apps that chart anything use it, so it ships as a chunk of its own (`charts.[hash].js`) to those apps only and counts against no existing budget; like the browser services it grows with the stdlib, not with the framework. 3 KB leaves room for the other chart kinds design 37 lists |
 | Server streams in the browser ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | `streams.js` 3.2 KB raw, 1.1 KB compacted, **569 B** gzip | met. **New budget, justified:** reading a server stream (29-server-streaming.md) is needed only by apps with a streaming rpc (notes, of the examples), so it ships as `streams.[hash].js` to those apps only; the budget is about twice what it is today |
 | `HttpResponse` in the browser ≤ 1.5 KB (`HTTP_SIZE_BUDGET`) | `http.js` 7.3 KB raw, 3.0 KB compacted, **1,175 B** gzip | met. **New budget, justified:** building and reading an `HttpResponse` alike on both sides (a test fake of `HttpClient` builds responses that the code under test reads, 32-http-client.md) first put these bodies in the stdlib bodies, which then measured 10,720 B against their 10,240 B budget. Instead of raising that budget they moved to a feature chunk of their own, like `charts` and `streams`: only apps whose client code builds or reads a response ship it (the examples' production builds don't; their test bundles do), so it counts against no other part, and the stdlib bodies are back at 9,837 B. The server has the same bodies in `$s.natives`
@@ -666,6 +666,7 @@ Measured 2026-11-07, release build, 14-core Apple M-series:
 | `KeyboardShortcut` ≤ 512 B (`KEYS_SIZE_BUDGET`) | `keys.js` 1.6 KB raw, 0.6 KB compacted, **384 B** gzip | met. **New budget, justified:** 43-keyboard-shortcuts.md; a chunk of its own (`keys.[hash].js`) for apps with shortcuts, rather than 384 B more in every client's runtime chunk |
 | `ElementRef` ≤ 512 B (`REFS_SIZE_BUDGET`) | `refs.js` 2.1 KB raw, 0.7 KB compacted, **434 B** gzip | met. **New budget, justified:** 53-element-references.md; a chunk of its own (`refs.[hash].js`) for clients that make a reference, since the full client runtime has 2 B of headroom. The failed-submit focus took `forms.js` from 1,807 B to 1,971 B, inside `FORMS_SIZE_BUDGET` |
 | `@Form` support ≤ 2 KB (`FORMS_SIZE_BUDGET`) | `forms.js` 11.0 KB raw, 4.6 KB compacted, **1,807 B** gzip (shipped `forms.[hash].js` 1,866 B: notes, shop, kanban) | met. **New budget, justified:** `forms.js` was 1,457 B of the full client runtime, which had 117 B of headroom left; only apps with a `@Form` need it, so instead of raising `FULL_SIZE_BUDGET` it moved to a feature chunk of its own (`forms.[hash].js`), like `streams` and `http`, and counts against no other part. 2 KB leaves about 240 B of room to grow |
+| `@Load` support ≤ 1.25 KB (`LOAD_SIZE_BUDGET`) | `load.js` 8.0 KB raw, 3.1 KB compacted, **1,125 B** gzip | met. **New budget, justified:** `load.js` was 870 B of the full client runtime (by the marginal measure of §11.8), whose 2 B of headroom held back the navigation focus, scroll restoration and plain `bind` text kept through hydration. Only pages with a `@Load` need it, so instead of raising `FULL_SIZE_BUDGET` it is a feature chunk, `load.[hash].js`, for development and test clients, and counts against no other part. A linked release client keeps it in the runtime chunk (codegen.md §17.1), since the linker leaves it out of apps without a load already; as a chunk of its own it cost shop 433 B more gzip. No other budget changed |
 | `k.crypto` in the browser ≤ 13 KB (`CRYPTO_SIZE_BUDGET`) | `crypto.js` 75 KB raw (half of it comments), 42.8 KB compacted, **12,384 B** gzip (7,149 B before JWK, PEM, RSA, JOSE and `KeyStore`); a release build minifies the chunk to about 6.9 KB, and a release page that seals and opens ships about 3.5 KB of the core | met. **New budget, justified:** the key types, `Sealed`, HPKE for `Envelope`, both backends' glue and the codecs ([33-crypto.md](../design/33-crypto.md#decided-while-implementing)) are a feature chunk of their own, imported only by the page chunks that use them, so they count against no other part and the shipped runtime doesn't grow. **Raised, justified** (8 KB to 13 KB, 2026-11-10): the second round of 33 (key formats, RSA verification, JWS and JWT, the browser key store) went into the same chunk, because a feature chunk can't import another, and it still ships only to pages that use `k.crypto` |
 | `Decimal` and `Money` ≤ 2.5 KB (`MONEY_SIZE_BUDGET`) | `money.js` 14.4 KB raw, 6.2 KB compacted, **2,164 B** gzip (shop's shipped `money.[hash].js` 2,218 B) | met. **New budget, justified:** the exact types were 1,586 B of the stdlib bodies, which had 81 B of headroom; only apps whose client code builds, reads or decodes a `Decimal`, `Money` or `Currency` ship them (shop, of the examples), so they moved to `money.[hash].js` instead of raising `STDLIB_SIZE_BUDGET`. 2.5 KB leaves about 400 B of room to grow |
 | Shipped `runtime.<hash>.js` (full runtime + stdlib + browser services) ≤ 23 KB | 60,806 B raw, **19,223 B** gzip as todos ships it before the "leaves behind" round (18,858 B as last recorded; 18,730 B before the ownership of async work; 18,388 B before the router checked page guards; was 21,053 before `forms` and `money` became feature chunks) | met; the feature chunks are separate files (weather's `charts` 2,352 B gzip, notes' `streams` 597 B, `forms` 1,866 B for notes, shop and kanban, shop's `money` 2,218 B). **Budget change (stage 3b), justified:** the chunk's budget was defined as the sum of its parts' budgets (`FULL_SIZE_BUDGET + STDLIB_SIZE_BUDGET`, 20 KB) and the chunk gained a part, the browser's DI support and the client bodies of `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient` and `Session` (`services.js`). Without them every page that injects anything failed in the browser, so they are not optional, and like the stdlib bodies they grow with the stdlib, not the framework; they get their own 3 KB budget, and the chunk's budget stays the sum of its parts (23 KB). No existing part's budget was raised |
@@ -744,16 +745,42 @@ executable, later ones 50–70 ms for the examples.
      lines/s on the 100k-line project (budget 200,000).
   Repeated `;}` and line breaks after `}` were measured too: removing them would save under 50 B after
   gzip, not worth the parser they need.
+- **Room in the full runtime** (2026-11-10, 10,238 B of 10,240 B, which held back the router's focus and
+  scroll and plain `bind` text kept through hydration). Measured first with §11.8's report:
+  1. *`@Load` as a feature chunk*: `createLoads` alone was 830 B of the marginal cost (the file 870 B),
+     needed only by pages with a load: `load.js` is part `Load`, reached as `$k_load` like `$k_forms`
+     (`bundle::RUNTIME_FEATURES`): about 10,238 → 9,370 B. A linked release build keeps it in the runtime chunk
+     (`bundle::LINKED_IN_RUNTIME`): there the linker drops it from apps without a load already, and as a
+     chunk of its own it cost shop 433 B (it shares most of its gzip context with the signals it calls).
+  2. *Duplicated helpers* (no behaviour change; every JS test is the guard): signals tracked the running
+     node in `observer` beside the list of its new sources, always set together, so `newSources` alone
+     says whether something tracks, and `untrack`, `root`, `scope` and `runWithOwner` share one owner and
+     tracking switch (`withOwner`); hydration's `claimRaw` and `claimTemplate` share `claimNext`; `clear`
+     and the router's slot clearing reuse hydration's `drop`; the store's path comparison is one `every`.
+     Together with the chunk, 10,238 → 9,306 B (shop's release client 60 B smaller). Two more were
+     measured and reverted because gzip liked the repetition better: one setter for `createLoads`' three
+     signals and one response path in `rpc` (together 11 B larger, and no smaller in release).
+  3. *The two features* then took it to 9,723 B (router 354 B, the typed-text check in `prop` 70 B).
+  4. *A minifier-unfriendly table* (release only): generated code read builtin codecs as
+     `$k.codecs.int`, so every release client kept the whole `codecs` object, 711 B gzip of shop's
+     runtime chunk by marginal cost and the largest single item. Each codec is now an export of its own
+     (`codecs$int`, marked `/* @__PURE__ */` where a call makes it), imported by name in linked builds
+     (codegen.md §17.1): shop 30,708 → 29,952 B, todos 18,721 → 17,430 B, weather 30,487 → 29,350 B. That
+     made room for the router's 300 B in every release client, which shop (65 B under its budget before)
+     couldn't otherwise take; no example budget changed.
 - **`ServerBroadcast` elements** crossed worker isolates as structural JSON, so an element with a `Date`
   or a `Uuid` (a `NoteChange`) failed the stream's encoder and ended the stream at its first published
   element. They now cross in their codec's encoding (codegen.md §15).
 
 ### 11.5 Open costs
 
-- The full client runtime has 862 B of gzip headroom and the stdlib bodies 1,686 B. The next
-  candidates for a cut: the release-build name shortener (deferred in codegen.md §1), and more runtime
-  feature chunks through the same `$k_<stem>` routing (`load.js`, 631 B, for apps without `@Load`; the
-  `streams` section of `std.js`, 480 B, for apps without a `Stream`).
+- The full client runtime has 517 B of gzip headroom and the stdlib bodies 1,127 B. The next
+  candidates for a cut, by the marginal measure of §11.8: the store (`store.js`, 351 B, for clients
+  without struct `@State`), `<meta name="description">` upkeep (`showDescription`, `metaEntry`, about
+  170 B), the guards' mirror checks (`allows`, `refuses`, `leave`, about 120 B, for apps without
+  `requires`), and the `streams` section of `std.js`, 480 B, for apps without a `Stream`. Each would be a
+  `$k_<stem>` chunk in development builds only, like `load`, since in release a chunk of its own costs
+  more than the linker already saves.
 - Hydration and keyed lists are measured against the test DOM, not a browser. A browser run through the
   DevTools protocol (architecture.md §13) should re-baseline them when it exists.
 - `dist/app` cold start creates one isolate per core without a V8 snapshot (about 3.4 ms each, in
@@ -772,6 +799,7 @@ executable, later ones 50–70 ms for the examples.
 | 2026-11-08 | `forms` and `money` feature chunks (full runtime 8,666 B, stdlib bodies 8,398 B, runtime chunk 18,388 B gzip) | — | — | — | — | — | — |
 | 2026-11-08 | Page guards in the browser (full runtime 9,022 B, runtime chunk 18,730 B gzip); checked literals and handler guards (compile-time only, no runtime change) | — | — | — | — | — | — |
 | 2026-11-09 | Release linking and minification (§11.7): todos ships 15,872 B gzip (was 26,926), its runtime chunk 9,895 B (was 19,972); release generation +2–7 ms per example | — | — | — | — | — | — |
+| 2026-11-10 | Room in the full runtime (§11.4): the `load` chunk and shared helpers (full runtime 10,238 → 9,306 B), then navigation focus, scroll restoration and plain `bind` text kept through hydration (9,723 B); builtin codecs exported one by one (shop ships 29,952 B, was 30,435) | — | — | — | — | — | — |
 
 ### 11.7 Shipped client per app (release builds)
 
@@ -797,6 +825,14 @@ else). Each is the 2026-11-09 measurement plus about 10%, rounded:
 | `shop/paybox` | 5,500 B | 4,894 B |
 | `stack/shop` | 12,000 B | 10,644 B |
 | `stack/paybox` | 5,500 B | 4,894 B |
+
+**2026-11-10, the room round** (§11.4, "Room in the full runtime"), measured by the same test: before
+→ after the round (the router's focus and scroll, plain `bind` text kept, the unknown-case receipt and
+the builtin codecs exported one by one). todos 18,377 → 17,430 B, kanban 32,122 → 31,524 B, weather
+30,153 → 29,350 B, notes 41,980 → 42,407 B (it uses the `crypto` chunk, which imports the `codecs` table,
+so it keeps the table and the separate exports; within its budget), huddle 24,502 → 23,844 B, memos
+23,427 → 22,588 B, call 30,197 → 29,287 B, shop 30,435 → 29,952 B, paybox 4,934 → 5,251 B (a one-page
+client: the router's 300 B outweigh its few codecs), stack/shop 10,685 → 9,315 B. No budget changed.
 
 **Raised, justified:** weather's budget went from 28,500 B to 33,000 B on 2026-11-10 with "Use my
 location" (45-web-platform.md): it had grown to 26,965 B before, and the geolocation chunk (1,064 B),
@@ -868,6 +904,26 @@ chunk as `modulepreload` (codegen.md §17.6), so a cold load fetches them in one
 **Not done:** short aliases for names exported across chunks (codegen.md §17.2, about 2–4%), mapping
 the minified code back to `.k` sources (codegen.md §18), and property renaming, which needs every wire
 format quoted (encoders are, §17.3) and gains little over oxc.
+
+### 11.8 Measuring the runtime
+
+```sh
+cargo test -p k_runtime --test it -- size_report:: --ignored --nocapture        # the full client runtime
+K_SIZE_PARTS=Stdlib cargo test -p k_runtime --test it -- size_report:: --ignored --nocapture
+K_SIZE_TOP=200 cargo test -p k_runtime --test it -- size_report:: --ignored --nocapture   # more rows
+```
+
+`crates/k_runtime/tests/size_report.rs` splits the measured parts (the full client runtime by default;
+`K_SIZE_PARTS` takes `Part` names, comma-separated) at their top-level declarations, each with the
+comment above it, compacts each piece as the budget test does, and prints for every file and every
+declaration its **marginal** gzip cost: the size of everything minus the size without that piece. That
+is what moving or removing the piece would save; the marginal costs add up to more than the total,
+since gzip shares repeated text between pieces. A file's "alone" column is its size compressed by itself,
+roughly what it would weigh as a chunk of its own. The report is `#[ignore]`d: it checks nothing.
+
+For a release client the same question is asked of the minified chunk: build the app with `k build`,
+then split `dist/public/assets/runtime.<hash>.js` at its top-level statements and remove each in turn;
+that is how the `codecs` table of §11.4 was found.
 
 ---
 

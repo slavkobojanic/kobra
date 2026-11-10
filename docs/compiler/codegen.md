@@ -1247,6 +1247,17 @@ the codegen corpus (`Profile::Test`) keep the readable output above, so goldens 
   `import { template as $k$template } from "./runtime.[hash].js"` (`bundle::named_runtime_imports`).
   Names starting `$k$` are never generated otherwise. A chunk that still uses a namespace as a value
   would keep its namespace import, which keeps every export of that file (none does today).
+- **Builtin codecs** are imported one by one: `$k.codecs.int` becomes `$k$codecs$int`, imported as
+  `codecs$int`, an export of `std.js` of its own (`bundle::builtin_codecs` reads their names from the
+  source), so the table of them all (`codecs`) and every codec the app doesn't use can go; the ones made
+  by a call (`prim(…)`, `typedText(…)`) are marked `/* @__PURE__ */` for the minifier. A chunk that uses
+  the table itself (the `crypto` chunk compares with `codecs.bytes`) still imports `codecs`, whose
+  entries are the same objects. This took 750 B gzip off shop and 1,290 B off todos
+  (performance.md §11.7).
+- **`@Load` stays in the runtime chunk.** Development and test clients reach `createLoads` through the
+  `load` chunk (`$k_load`, like `$k_forms`); a linked client keeps it on `$k` (`bundle::LINKED_IN_RUNTIME`,
+  and `runtime_chunk` includes `load.js`), because the linker already leaves it out of an app without a
+  load, and an app with one reaches it from most pages: as a chunk of its own it cost shop 433 B gzip.
 - **Natives** are bound directly: `const Uuid$random = $k.native_k_crypto_Uuid$random` for a native the
   browser implements (each is its own export of `services.js`, `native_` and the qualified name with `_`
   for `.`), `$k.missingNative("k.server.JobQueue")` for one it doesn't, so `native()`'s lookup table, and

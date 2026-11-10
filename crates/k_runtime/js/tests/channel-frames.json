@@ -198,6 +198,23 @@
       "binary": "32040801100e"
     },
     {
+      "name": "rcvd with skipped unknown cases",
+      "frame": {
+        "kind": "rcvd",
+        "ch": 1,
+        "seq": 14,
+        "skipped": 2
+      },
+      "json": "{\"rcvd\":{\"ch\":1,\"seq\":14,\"skipped\":2}}",
+      "binaryFrame": {
+        "kind": "rcvd",
+        "ch": 1,
+        "seq": 14,
+        "skipped": 2
+      },
+      "binary": "32060801100e1802"
+    },
+    {
       "name": "resume",
       "frame": {
         "kind": "resume",
@@ -368,6 +385,10 @@
     {
       "name": "a fractional sequence number",
       "json": "{\"rcvd\":{\"ch\":1,\"seq\":1.5}}"
+    },
+    {
+      "name": "a negative skipped count",
+      "json": "{\"rcvd\":{\"ch\":1,\"seq\":1,\"skipped\":-1}}"
     },
     {
       "name": "a sequence number beyond 2^53 - 1",

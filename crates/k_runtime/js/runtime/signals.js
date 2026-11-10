@@ -31,9 +31,11 @@ const CHECK = 1;
 /** Node state: a direct source changed; the node must run again. */
 const DIRTY = 2;
 
-/** The node whose run is collecting dependencies, or `null`. */
-let observer = null;
-/** The sources read by `observer` in its current run. */
+/**
+ * The sources read by the node whose run is collecting dependencies, or
+ * `null` when nothing is (the running node itself is never needed: its
+ * sources are linked when its run ends).
+ */
 let newSources = null;
 /** The owner that new nodes and cleanups attach to, or `null`. */
 let owner = null;
@@ -182,9 +184,7 @@ function handleError(from, error) {
  * @param {Node} node the node being read
  */
 function track(node) {
-  if (observer !== null && newSources !== null && !newSources.includes(node)) {
-    newSources.push(node);
-  }
+  if (newSources !== null && !newSources.includes(node)) newSources.push(node);
 }
 
 /**
@@ -256,20 +256,13 @@ function run(node) {
     node.abort.abort();
     node.abort = null;
   }
-  const previousObserver = observer;
   const previousSources = newSources;
   const previousOwner = owner;
-  observer = node;
-  newSources = [];
+  const sources = (newSources = []);
   owner = node;
   let result;
   try {
-    if (node.kind >= 2 && node.fn.length > 0) {
-      node.abort = new AbortController();
-      result = node.fn(node.abort.signal);
-    } else {
-      result = node.fn(node.value);
-    }
+    result = node.kind >= 2 && node.fn.length > 0 ? node.fn((node.abort = new AbortController()).signal) : node.fn(node.value);
   } catch (error) {
     // A computed value rethrows to its reader and stays DIRTY, so the next
     // read retries; an effect reports to its error boundary.
@@ -279,8 +272,7 @@ function run(node) {
     if (error !== CANCELLED) handleError(node, error);
     result = undefined;
   } finally {
-    relink(node, newSources);
-    observer = previousObserver;
+    relink(node, sources);
     newSources = previousSources;
     owner = previousOwner;
   }
@@ -516,14 +508,27 @@ function endBatch() {
  * @returns {T}
  */
 export function untrack(fn) {
-  const previousObserver = observer;
+  return withOwner(owner, null, fn);
+}
+
+/**
+ * Runs `fn` with `o` as the current owner and `sources` collecting what it
+ * reads (`null`: untracked), restoring both afterwards.
+ * @template T
+ * @param {object|null} o
+ * @param {Node[]|null} sources
+ * @param {() => T} fn
+ * @returns {T}
+ */
+function withOwner(o, sources, fn) {
+  const previousOwner = owner;
   const previousSources = newSources;
-  observer = null;
-  newSources = null;
+  owner = o;
+  newSources = sources;
   try {
     return fn();
   } finally {
-    observer = previousObserver;
+    owner = previousOwner;
     newSources = previousSources;
   }
 }
@@ -546,19 +551,7 @@ export function onCleanup(fn) {
  */
 export function root(fn) {
   const scope = new Owner(null);
-  const previousOwner = owner;
-  const previousObserver = observer;
-  const previousSources = newSources;
-  owner = scope;
-  observer = null;
-  newSources = null;
-  try {
-    return fn(() => scope.dispose());
-  } finally {
-    owner = previousOwner;
-    observer = previousObserver;
-    newSources = previousSources;
-  }
+  return withOwner(scope, null, () => fn(() => scope.dispose()));
 }
 
 /**
@@ -571,13 +564,7 @@ export function root(fn) {
  */
 export function scope(fn) {
   const child = new Owner(owner);
-  const previousOwner = owner;
-  owner = child;
-  try {
-    return fn(() => child.dispose());
-  } finally {
-    owner = previousOwner;
-  }
+  return withOwner(child, newSources, () => fn(() => child.dispose()));
 }
 
 /**
@@ -601,7 +588,7 @@ export function catchError(fn, handler) {
  * @returns {boolean}
  */
 export function isTracking() {
-  return observer !== null;
+  return newSources !== null;
 }
 
 /**
@@ -622,17 +609,5 @@ export function getOwner() {
  * @returns {T}
  */
 export function runWithOwner(o, fn) {
-  const previousOwner = owner;
-  const previousObserver = observer;
-  const previousSources = newSources;
-  owner = o;
-  observer = null;
-  newSources = null;
-  try {
-    return fn();
-  } finally {
-    owner = previousOwner;
-    observer = previousObserver;
-    newSources = previousSources;
-  }
+  return withOwner(o, null, fn);
 }

@@ -487,8 +487,12 @@ view {
   Where the focus goes after adding an item or closing an editor is the app's choice, made with a
   reference: the todos example returns it to the new-todo field, kanban to the card's Edit button.
 
-> **Planned** (navigation-focus). After a client-side navigation the router will move the focus to the
-> new page's level-1 heading and restore the scroll position on back and forward; neither is built yet.
+- **A navigation moves the focus and the scroll by itself.** When a link or `Router.navigate` shows
+  another page, the router focuses that page's first level-1 heading (it gets `tabindex="-1"`), so a
+  screen reader announces where the user landed, and the page starts at the top, or at the element of
+  the URL's `#fragment`. Back and Forward put each page where it was scrolled when it was left, and a
+  reload keeps the position. The same page with other parameters (a filter in the query) is updated in
+  place and keeps both, so typing into a search field that updates the URL never loses the focus.
 
 ### Modifiers
 

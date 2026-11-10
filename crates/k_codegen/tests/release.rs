@@ -236,6 +236,36 @@ fn the_runtime_chunk_carries_only_what_the_app_reaches() {
     );
 }
 
+/// `@Load` support is a chunk of its own in development builds, which
+/// aren't shaken, but a linked release build keeps it in the runtime chunk,
+/// where only apps with a load keep it (performance.md §11.3); and a
+/// release client keeps only the builtin codecs it uses, not their table.
+#[test]
+fn release_runtime_chunks_carry_the_loads_and_only_the_codecs_used() {
+    let shop = build("shop/shop", Profile::Release);
+    assert!(
+        !shop.client.iter().any(|f| f.path.starts_with("load.")),
+        "a release build ships no load chunk"
+    );
+    let runtime = &file(&shop, "runtime.", ".js").contents;
+    assert!(runtime.contains(".after.some("), "{runtime}");
+    let dev = build("shop/shop", Profile::Development);
+    assert!(
+        dev.client.iter().any(|f| f.path.starts_with("load.")),
+        "a development build ships the load chunk"
+    );
+    assert!(
+        !file(&dev, "runtime.", ".js")
+            .contents
+            .contains("function createLoads(")
+    );
+    // Todos decodes no `Color`: its runtime has no color codec (the
+    // message is that codec's own).
+    let todos = build("todos", Profile::Release);
+    let runtime = &file(&todos, "runtime.", ".js").contents;
+    assert!(!runtime.contains("`a color`"), "{runtime}");
+}
+
 #[test]
 fn development_and_test_builds_keep_readable_namespace_imports() {
     let dev = build("todos", Profile::Development);

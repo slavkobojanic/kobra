@@ -261,6 +261,13 @@ pub const FORMS_SIZE_BUDGET: usize = 2 * 1024;
 /// (`docs/compiler/performance.md` §11.3).
 pub const MONEY_SIZE_BUDGET: usize = 2560;
 
+/// The largest the `@Load` state machine in the browser ([`Part::Load`]:
+/// `createLoads`) may be, measured like [`CORE_SIZE_BUDGET`] (1.25 KB). It
+/// ships in its own chunk, imported by the page chunks that have a load,
+/// so it counts against no other budget (`docs/compiler/performance.md`
+/// §11.3).
+pub const LOAD_SIZE_BUDGET: usize = 1280;
+
 /// The part of the runtime a module belongs to, which decides the bundles
 /// it ships in and the size budget it counts against.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -268,10 +275,15 @@ pub enum Part {
     /// Signals, the DOM renderer, hydration and values: every client page
     /// needs them. Counts against [`CORE_SIZE_BUDGET`].
     Core,
-    /// The router, the RPC client, `@Load`, stores, keyed lists and view
-    /// helpers: shipped with every client in the runtime chunk. Counts
-    /// against [`FULL_SIZE_BUDGET`] with the core.
+    /// The router, the RPC client, stores, keyed lists and view helpers:
+    /// shipped with every client in the runtime chunk. Counts against
+    /// [`FULL_SIZE_BUDGET`] with the core.
     Extended,
+    /// The `@Load` state machine in the browser (`createLoads`): shipped as
+    /// its own client chunk, imported by the chunks whose code has a load,
+    /// and measured on its own ([`LOAD_SIZE_BUDGET`]). Generated code
+    /// reaches it as `$k_load`, not `$k`.
+    Load,
     /// `@Form` state in the browser (`createForm`, field parsers,
     /// constraint rules): shipped as its own client chunk, only to apps
     /// with a `@Form`, and measured on its own ([`FORMS_SIZE_BUDGET`]).
@@ -471,7 +483,7 @@ const MODULES: &[Module] = modules![
     Core "runtime/dom.js",
     Extended "runtime/router.js",
     Extended "runtime/rpc.js",
-    Extended "runtime/load.js",
+    Load "runtime/load.js",
     Extended "runtime/store.js",
     Extended "runtime/list.js",
     Extended "runtime/view.js",

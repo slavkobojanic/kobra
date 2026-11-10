@@ -3420,3 +3420,120 @@ fn scroll_into_view_reaches_an_element_in_chrome() {
         json!("-1")
     );
 }
+
+// ============================================================ navigating
+
+/// The `navigating` fixture (the router's focus and scroll, text typed
+/// before hydration), served server-rendered by `k dev`, and its origin.
+fn navigating(dir: &Scratch) -> (Proc, String) {
+    let root = dir.0.join("navigating");
+    copy_project(
+        &repo().join("crates/k_cli/tests/fixtures/navigating"),
+        &root,
+    );
+    let (k, port) = Proc::serve(
+        &["dev", "."],
+        1,
+        &root,
+        &[],
+        &["DATABASE_URL"],
+        Duration::from_secs(120),
+    );
+    (k, format!("http://localhost:{port}"))
+}
+
+/// A navigation moves the focus to the new page's `h1` (made focusable
+/// with `tabindex="-1"`) and starts the page at the top; Back shows the
+/// start page where it was scrolled when it was left, Forward the other
+/// page at its top (53-element-references.md, "Focus the framework moves").
+#[test]
+fn navigation_focuses_the_heading_and_restores_the_scroll_in_chrome() {
+    let dir = Scratch::new("navigating-scroll");
+    let mut tab = tab!(dir);
+    let (k, origin) = navigating(&dir);
+    tab.open(&format!("{origin}/"));
+    let link = tab.role("link", "About");
+    // The router handles link clicks on its container; it is running once
+    // it has taken over the scroll restoration.
+    tab.wait_js(
+        "history.scrollRestoration === 'manual'",
+        "the router running",
+    );
+    tab.on(
+        &link,
+        "function() { this.scrollIntoView({ block: 'center' }); }",
+        &[],
+    );
+    let left = tab.eval("scrollY").as_f64().unwrap_or(0.0);
+    assert!(left > 1000.0, "the link is far down: {left}");
+    tab.click(&link);
+    let about = tab.role("heading", "About");
+    tab.wait("the heading has the focus", |t| {
+        t.is_focused(&about).then_some(())
+    });
+    assert_eq!(
+        tab.on(
+            &about,
+            "function() { return this.getAttribute('tabindex'); }",
+            &[]
+        ),
+        json!("-1")
+    );
+    assert_eq!(
+        tab.eval("scrollY"),
+        json!(0),
+        "the new page starts at the top"
+    );
+    assert_eq!(tab.path(), "/about");
+    tab.eval("history.back()");
+    let home = tab.role("heading", "Home");
+    tab.wait("the start page back where it was", |t| {
+        let y = t.eval("scrollY").as_f64().unwrap_or(0.0);
+        ((y - left).abs() < 2.0).then_some(())
+    });
+    assert!(tab.is_focused(&home), "the focus is on {}", tab.focused());
+    tab.eval("history.forward()");
+    tab.role("heading", "About");
+    tab.wait("the other page at its top", |t| {
+        (t.eval("scrollY") == json!(0)).then_some(())
+    });
+    drop(k);
+}
+
+/// Text typed into a server-rendered field bound with a plain `bind`,
+/// before the page's scripts ran (a slow load), is kept by hydration and
+/// reaches the state, as if typed then (15-forms-and-validation.md).
+#[test]
+fn text_typed_before_hydration_is_kept_in_chrome() {
+    let dir = Scratch::new("navigating-typed");
+    let mut tab = tab!(dir);
+    let (k, origin) = navigating(&dir);
+    // The app's entry doesn't load: the page is the server's markup only.
+    tab.cdp.call("Network.enable", json!({}));
+    tab.cdp.call(
+        "Network.setBlockedURLs",
+        json!({ "urls": ["*/assets/app.*"] }),
+    );
+    tab.open(&format!("{origin}/"));
+    let field = tab.role("textbox", "Note");
+    tab.fill(&field, "typed early");
+    assert_eq!(
+        tab.eval("document.body.innerText.includes('Note: typed early')"),
+        json!(false)
+    );
+    // Now the scripts run (the module again, under another URL: the
+    // browser remembers the blocked one as failed).
+    tab.cdp
+        .call("Network.setBlockedURLs", json!({ "urls": [] }));
+    tab.eval(
+        "(() => { const s = document.createElement('script'); s.type = 'module'; \
+         s.src = document.querySelector('script[type=module]').src + '?late'; document.body.append(s); })()",
+    );
+    tab.wait_text("Note: typed early");
+    assert_eq!(
+        tab.on(&field, "function() { return this.value; }", &[]),
+        json!("typed early"),
+        "hydration kept the typed text"
+    );
+    drop(k);
+}

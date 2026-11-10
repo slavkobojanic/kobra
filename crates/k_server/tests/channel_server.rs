@@ -876,6 +876,24 @@ const ROOM: &str = "/chans.chat.ChatProtocol/Room";
 // open sockets and channels per method, messages each way, refusals by
 // case, the acknowledgement latency, closes by reason, resumes versus
 // restarts, and a span for each open and each handled message.
+/// A client's `rcvd` reports the messages of an `S` case it didn't know
+/// and skipped (a stale tab), which the server counts per method in
+/// `k_channel_unknown_total` (44-channels.md, "rpc.lock").
+#[test]
+fn skipped_unknown_cases_are_counted_from_receipts() {
+    let server = start(None);
+    let metrics = server.channels().metrics.clone();
+    let mut c = Client::connect(server.local_addr());
+    c.opened(1, "Room", json!({ "id": "unknown" }));
+    c.expect("msg");
+    let unknown = || metrics.counter("k_channel_unknown_total", &[("method", ROOM)]);
+    c.send(json!({ "rcvd": { "ch": 1, "seq": 1 } }));
+    c.send(json!({ "rcvd": { "ch": 1, "seq": 1, "skipped": 2 } }));
+    eventually("the skipped cases counted", || unknown() == 2);
+    c.send(json!({ "rcvd": { "ch": 1, "seq": 1, "skipped": 1 } }));
+    eventually("and added up", || unknown() == 3);
+}
+
 #[test]
 fn channels_record_metrics_and_spans_for_opens_messages_refusals_and_closes() {
     let server = start(None);

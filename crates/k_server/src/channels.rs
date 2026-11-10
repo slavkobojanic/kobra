@@ -32,7 +32,7 @@
 //! message Refused { uint32 ch = 1; bytes error = 2; }
 //! message Msg     { uint32 ch = 1; uint64 seq = 2; bytes value = 3; }
 //! message Ack     { uint32 ch = 1; uint64 seq = 2; optional bytes error = 3; }
-//! message Rcvd    { uint32 ch = 1; uint64 seq = 2; }
+//! message Rcvd    { uint32 ch = 1; uint64 seq = 2; uint64 skipped = 3; }
 //! message Resume  { uint32 ch = 1; string token = 2; uint64 received = 3; uint64 sent = 4; }
 //! message Close   { uint32 ch = 1; Reason reason = 2; }
 //! message Session { optional bytes user = 1; }
@@ -164,6 +164,11 @@ pub enum Frame<P> {
         ch: u32,
         /// The highest sequence number received.
         seq: u64,
+        /// How many of the messages since the last `rcvd` were of an `S`
+        /// case the client doesn't know, and skipped (a stale tab;
+        /// 44-channels.md, "rpc.lock"). Left out of the frame when 0, and
+        /// 0 from a client that doesn't count them.
+        skipped: u64,
     },
     /// Client: reattaches channel `ch` after a drop.
     Resume {
@@ -248,7 +253,10 @@ pub fn encode_json(frame: &Frame<Value>) -> String {
             Some(e) => format!(r#""ch":{ch},"seq":{seq},"error":{e}"#),
             None => format!(r#""ch":{ch},"seq":{seq}"#),
         },
-        Frame::Rcvd { ch, seq } => format!(r#""ch":{ch},"seq":{seq}"#),
+        Frame::Rcvd { ch, seq, skipped } => match skipped {
+            0 => format!(r#""ch":{ch},"seq":{seq}"#),
+            n => format!(r#""ch":{ch},"seq":{seq},"skipped":{n}"#),
+        },
         Frame::Resume {
             ch,
             token,
@@ -343,6 +351,10 @@ pub fn decode_json(text: &str) -> Result<Frame<Value>, FrameError> {
         "rcvd" => Frame::Rcvd {
             ch: ch(take("ch"))?,
             seq: uint(take("seq"), "seq")?,
+            skipped: match take("skipped") {
+                None => 0,
+                v => uint(v, "skipped")?,
+            },
         },
         "resume" => Frame::Resume {
             ch: ch(take("ch"))?,
@@ -435,9 +447,10 @@ pub fn encode_binary(frame: &Frame<Vec<u8>>) -> Vec<u8> {
             }
             5
         }
-        Frame::Rcvd { ch, seq } => {
+        Frame::Rcvd { ch, seq, skipped } => {
             uint_field(b, 1, u64::from(*ch));
             uint_field(b, 2, *seq);
+            uint_field(b, 3, *skipped);
             6
         }
         Frame::Resume {
@@ -634,6 +647,7 @@ pub fn decode_binary(bytes: &[u8]) -> Result<Frame<Vec<u8>>, FrameError> {
         6 => Frame::Rcvd {
             ch: m.ch()?,
             seq: m.uint(2)?,
+            skipped: m.uint(3)?,
         },
         7 => Frame::Resume {
             ch: m.ch()?,

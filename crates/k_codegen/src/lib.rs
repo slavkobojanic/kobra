@@ -785,10 +785,15 @@ pub(crate) fn runtime_chunk(profile: Profile, entry: &Entry) -> String {
     }
     let mut out = String::new();
     for m in k_runtime::modules() {
-        if !matches!(
-            m.part,
-            Part::Core | Part::Extended | Part::Stdlib | Part::Services
-        ) {
+        // A linked release client keeps `@Load` support here, shaken like
+        // the rest (`bundle::LINKED_IN_RUNTIME`); others load its chunk.
+        let linked_in = profile == Profile::Release && *entry == Entry::App && m.part == Part::Load;
+        if !linked_in
+            && !matches!(
+                m.part,
+                Part::Core | Part::Extended | Part::Stdlib | Part::Services
+            )
+        {
             continue;
         }
         let text = k_runtime::strip_links(m.source);

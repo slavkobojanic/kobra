@@ -1,4 +1,4 @@
-client contains $k.createLoads(
+client contains $k_load.createLoads(
 client contains name: "product", after: []
 client contains name: "reviews", after: ["product"]
 client contains <span>Loading…</span>

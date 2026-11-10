@@ -12,7 +12,7 @@
  */
 import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import {
-  READY, afterHydration, afterPass, batch, branch, clientReady, createLoads, markers, each, effect, hydrate, isHydrating, loadCtx, loadsOf, on, readData, renderEffect, signal, template, text, when,
+  READY, afterHydration, afterPass, batch, branch, clientReady, createLoads, markers, each, effect, flush, hydrate, isHydrating, loadCtx, loadsOf, on, prop, readData, renderEffect, signal, template, text, when,
 } from "k:runtime";
 import { CLOSE, OPEN, Out, SEPARATOR, serializeData } from "k:runtime/server";
 
@@ -397,4 +397,44 @@ test("each component instance with loads reads its own k-data entry, as the serv
   // An instance created after the pass draws a key the server never
   // wrote, so it reads nothing and runs its loads.
   assertEq(loadsOf(loadCtx({ key: "0", data })), null, HYDRATE);
+});
+
+// A plain `bind` outside a `@Form` (15-forms-and-validation.md, "Text typed
+// before the page's scripts ran is kept"): the compiler emits a `prop`
+// effect for the field's value and an `input` handler that stores it. While
+// hydrating, a field whose value is no longer its markup's keeps the typed
+// text, and the binding takes it once the pass is over; an untouched field,
+// and every field afterwards, shows the state's text.
+test("hydration keeps text typed into a plain bound field, and the binding takes it", async () => {
+  const doc = globalThis.document;
+  const container = doc.createElement("div");
+  container.innerHTML = '<p><input value="draft"><input value=""></p>';
+  doc.body.appendChild(container);
+  const [typed, untouched] = [container.firstChild.firstChild, container.firstChild.lastChild];
+  typed.defaultValue = "draft";
+  typed.value = "draft, edited";
+  untouched.defaultValue = "";
+  untouched.value = "";
+  const note = signal("draft");
+  const other = signal("");
+  const view = template("<p><input><input></p>");
+  hydrate(container, () => {
+    const p = view();
+    const [a, b] = [p.firstChild, p.lastChild];
+    renderEffect(() => prop(a, "value", note.get()));
+    on(a, "input", () => note.set(a.value));
+    renderEffect(() => prop(b, "value", other.get()));
+    on(b, "input", () => other.set(b.value));
+    return p;
+  }, null);
+  assertEq(typed.value, "draft, edited", "hydration leaves the typed text");
+  await tick();
+  assertEq(note.peek(), "draft, edited", "and the binding has it");
+  assertEq(other.peek(), "", "the untouched field's state is unchanged");
+  other.set("hello");
+  flush();
+  assertEq(untouched.value, "hello");
+  note.set("");
+  flush();
+  assertEq(typed.value, "", "after hydration the state's text shows again");
 });

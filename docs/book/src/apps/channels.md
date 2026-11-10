@@ -307,7 +307,9 @@ seconds. `k build` never includes it: a deployed app answers that URL like any u
 **Metrics** are kept by every server, development or deployed: open sockets (`k_channel_sockets`) and
 channels per method (`k_channel_open`), messages each way (`k_channel_messages_total`), refusals by
 case (`k_channel_refusals_total`), acknowledgement latency (`k_channel_ack_seconds`), closes by reason
-(`k_channel_closes_total`), resumes versus restarts (`k_channel_reconnects_total`) and, with several
+(`k_channel_closes_total`), resumes versus restarts (`k_channel_reconnects_total`), messages of a case
+an old tab didn't know and skipped (`k_channel_unknown_total`, which each tab reports with its receipts)
+and, with several
 replicas, how late broadcasts arrive from the others (`k_broadcast_lag_seconds`). Each open and each
 handled message is also a trace span (`k.channel.open`, `k.channel.message`). Sending them to a
 metrics or tracing system comes with metrics in `k.observe` (**Planned** observe-metrics); until then

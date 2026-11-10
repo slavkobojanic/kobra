@@ -1036,13 +1036,21 @@ impl Hub {
     }
 
     /// The client received channel `ch`'s messages up to `seq`: trims the
-    /// outgoing buffer.
-    fn received(&self, sock: u64, ch: u32, seq: u64) {
+    /// outgoing buffer, and counts the `skipped` ones of a case it didn't
+    /// know in `k_channel_unknown_total{method}` (44-channels.md).
+    fn received(&self, sock: u64, ch: u32, seq: u64, skipped: u64) {
         let mut st = self.state();
         let Some(&id) = st.sockets.get(&sock).and_then(|s| s.channels.get(&ch)) else {
             return;
         };
         if let Some(chan) = st.channels.get_mut(&id) {
+            if skipped > 0 {
+                self.metrics.count(
+                    "k_channel_unknown_total",
+                    &[("method", &chan.method)],
+                    skipped,
+                );
+            }
             while chan.buffer.front().is_some_and(|(s, _, _)| *s <= seq) {
                 if let Some((_, _, size)) = chan.buffer.pop_front() {
                     chan.buffer_bytes -= size;
@@ -1468,8 +1476,8 @@ impl Front {
                 Opening::Protocol => false,
             },
             Frame::Msg { ch, seq, value } => self.hub.message(sock, ch, seq, &value).is_ok(),
-            Frame::Rcvd { ch, seq } => {
-                self.hub.received(sock, ch, seq);
+            Frame::Rcvd { ch, seq, skipped } => {
+                self.hub.received(sock, ch, seq, skipped);
                 true
             }
             Frame::Resume {

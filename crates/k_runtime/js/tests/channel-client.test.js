@@ -185,6 +185,23 @@ test("server messages arrive in order; a repeated one and a case this tab doesn'
   assertDeepEq(await take(ch, 2), [{ case: "one" }, { case: "three" }]);
 });
 
+// The skipped messages are reported with the next receipt, which the server
+// counts in `k_channel_unknown_total` (44-channels.md, "rpc.lock"), and
+// only once.
+test("the receipt after a skipped case reports how many were skipped", async () => {
+  const n = network();
+  const ch = await opened(n);
+  n.say({ kind: "msg", ch: 1, seq: 1, value: { case: "unknown" } });
+  n.say({ kind: "msg", ch: 1, seq: 2, value: { case: "unknown" } });
+  n.say({ kind: "msg", ch: 1, seq: 3, value: { case: "three" } });
+  assertDeepEq(await take(ch, 1), [{ case: "three" }]);
+  n.advance(1000);
+  assertDeepEq(n.sent("rcvd"), [{ kind: "rcvd", ch: 1, seq: 3, skipped: 2 }]);
+  n.say({ kind: "msg", ch: 1, seq: 4, value: { case: "four" } });
+  n.advance(1000);
+  assertDeepEq(n.sent("rcvd")[1], { kind: "rcvd", ch: 1, seq: 4 });
+});
+
 test("a refused open is the server's error; the socket closes with no channel left", async () => {
   const n = network();
   const p = openChannel("/t.P/Room", { id: "closed" }, null, codec);

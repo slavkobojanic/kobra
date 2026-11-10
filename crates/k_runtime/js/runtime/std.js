@@ -1902,114 +1902,187 @@ function typedText(parse, what) {
 /** A byte: an integer in `0...255`. */
 const isByte = (x) => Number.isInteger(x) && x >= 0 && x <= 255;
 
-/** The codecs of builtin types (docs/design/28-rpc-wire-format.md). */
-export const codecs = {
-  int: prim((j) => Number.isSafeInteger(j), "an integer"),
-  double: {
-    encode: (v) => new JsonDouble(v),
-    decode: (j, p) => (typeof j === "number" ? j : decodeFail(p, "expected a number")),
+/*
+ * The codecs of builtin types (docs/design/28-rpc-wire-format.md), one
+ * export each, so a linked release client keeps only the ones it uses
+ * (generated code reaches `codecs.int` as `codecs$int` there,
+ * docs/compiler/codegen.md §17.1); `codecs` holds them all.
+ */
+
+/** The codec of `int` values (`codecs.int`). */
+export const codecs$int = /* @__PURE__ */ prim((j) => Number.isSafeInteger(j), "an integer");
+
+/** The codec of `double` values (`codecs.double`). */
+export const codecs$double = {
+  encode: (v) => new JsonDouble(v),
+  decode: (j, p) => (typeof j === "number" ? j : decodeFail(p, "expected a number")),
+};
+
+/** The codec of `string` values (`codecs.string`). */
+export const codecs$string = { .../* @__PURE__ */ prim((j) => typeof j === "string", "a string"), key: true };
+
+/** The codec of `email` values (`codecs.email`). */
+export const codecs$email = /* @__PURE__ */ typedText(parseEmail, "an email address");
+
+/** The codec of `url` values (`codecs.url`). */
+export const codecs$url = /* @__PURE__ */ typedText(parseUrl, "an absolute http(s) URL");
+
+/** The codec of `uuid` values (`codecs.uuid`). */
+export const codecs$uuid = /* @__PURE__ */ typedText(parseUuid, "a UUID");
+
+/** The codec of `color` values (`codecs.color`). */
+export const codecs$color = /* @__PURE__ */ typedText(parseColor, "a color");
+
+/** The codec of `timeZone` values (`codecs.timeZone`). */
+export const codecs$timeZone = /* @__PURE__ */ typedText(parseTimeZone, "an IANA time zone");
+
+/** The codec of `timeOfDay` values (`codecs.timeOfDay`). */
+export const codecs$timeOfDay = /* @__PURE__ */ typedText(parseTimeOfDay, "a time of day as HH:MM");
+
+/** The codec of `bool` values (`codecs.bool`). */
+export const codecs$bool = /* @__PURE__ */ prim((j) => typeof j === "boolean", "a boolean");
+
+/** The codec of `duration` values (`codecs.duration`). */
+export const codecs$duration = /* @__PURE__ */ prim((j) => typeof j === "number", "a duration in milliseconds");
+
+/** The codec of `any` values (`codecs.any`). */
+export const codecs$any = { encode: (v) => toJSON(v), decode: (j) => j };
+
+/** The codec of `bytes` values (`codecs.bytes`). */
+export const codecs$bytes = {
+  encode: (v) => Array.from(v),
+  decode: (j, p) => (Array.isArray(j) && j.every(isByte) ? Uint8Array.from(j) : decodeFail(p, "expected bytes")),
+};
+
+/** The codec of `date` values (`codecs.date`). */
+export const codecs$date = {
+  encode: (v) => v.toJSON(),
+  decode: (j, p) => (typeof j === "string" && parseInstant(j)) || decodeFail(p, "expected an RFC 3339 timestamp"),
+};
+
+/**
+ * The codec of `optional` values (`codecs.optional`).
+ *
+ * @param {{encode: Function, decode: Function}} c
+ * @returns {{encode: Function, decode: Function}}
+ */
+export const codecs$optional = (c) => ({
+  encode: (v) => (v === null || v === NONE ? null : c.encode(v)),
+  decode: (j, p) => (j === null || j === undefined ? null : c.decode(j, p)),
+});
+
+/**
+ * The codec of `list` values (`codecs.list`).
+ *
+ * @param {{encode: Function, decode: Function}} c
+ * @returns {{encode: Function, decode: Function}}
+ */
+export const codecs$list = (c) => ({
+  encode: (v) => v.map((x) => c.encode(x)),
+  decode: (j, p) => (Array.isArray(j) ? j.map((x, i) => c.decode(x, `${p}[${i}]`)) : decodeFail(p, "expected an array")),
+});
+
+/**
+ * The codec of `set` values (`codecs.set`).
+ *
+ * @param {{encode: Function, decode: Function}} c
+ * @param {boolean} primitive
+ * @returns {{encode: Function, decode: Function}}
+ */
+export const codecs$set = (c, primitive) => ({
+  encode: (v) => [...v].map((x) => c.encode(x)),
+  decode: (j, p) => {
+    if (!Array.isArray(j)) decodeFail(p, "expected an array");
+    const s = primitive ? new Set() : new HashSet();
+    j.forEach((x, i) => s.add(c.decode(x, `${p}[${i}]`)));
+    return s;
   },
-  string: { ...prim((j) => typeof j === "string", "a string"), key: true },
-  email: typedText(parseEmail, "an email address"),
-  url: typedText(parseUrl, "an absolute http(s) URL"),
-  uuid: typedText(parseUuid, "a UUID"),
-  color: typedText(parseColor, "a color"),
-  timeZone: typedText(parseTimeZone, "an IANA time zone"),
-  timeOfDay: typedText(parseTimeOfDay, "a time of day as HH:MM"),
-  bool: prim((j) => typeof j === "boolean", "a boolean"),
-  duration: prim((j) => typeof j === "number", "a duration in milliseconds"),
-  any: { encode: (v) => toJSON(v), decode: (j) => j },
-  bytes: {
-    encode: (v) => Array.from(v),
-    decode: (j, p) => (Array.isArray(j) && j.every(isByte) ? Uint8Array.from(j) : decodeFail(p, "expected bytes")),
+});
+
+/**
+ * The codec of `map` values (`codecs.map`).
+ *
+ * Maps whose keys are text (`String`, `Uuid`, …: a codec with `key`) are
+ * JSON objects; other keys are `[key, value]` pairs. Each shape decodes
+ * only from itself, and an encoded object has no prototype, so a
+ * `__proto__` key is an entry like any other.
+ * @param {{encode: Function, decode: Function, key?: boolean}} kc
+ * @param {{encode: Function, decode: Function}} vc
+ * @param {boolean} primitive
+ * @returns {{encode: Function, decode: Function}}
+ */
+export const codecs$map = (kc, vc, primitive) => ({
+  encode: (m) => {
+    if (!kc.key) return [...m].map(([k, v]) => [kc.encode(k), vc.encode(v)]);
+    const o = Object.create(null);
+    for (const [k, v] of m) o[k] = vc.encode(v);
+    return o;
   },
-  date: {
-    encode: (v) => v.toJSON(),
-    decode: (j, p) => (typeof j === "string" && parseInstant(j)) || decodeFail(p, "expected an RFC 3339 timestamp"),
-  },
-  /**
-   * @param {{encode: Function, decode: Function}} c
-   * @returns {{encode: Function, decode: Function}}
-   */
-  optional: (c) => ({
-    encode: (v) => (v === null || v === NONE ? null : c.encode(v)),
-    decode: (j, p) => (j === null || j === undefined ? null : c.decode(j, p)),
-  }),
-  /**
-   * @param {{encode: Function, decode: Function}} c
-   * @returns {{encode: Function, decode: Function}}
-   */
-  list: (c) => ({
-    encode: (v) => v.map((x) => c.encode(x)),
-    decode: (j, p) => (Array.isArray(j) ? j.map((x, i) => c.decode(x, `${p}[${i}]`)) : decodeFail(p, "expected an array")),
-  }),
-  /**
-   * @param {{encode: Function, decode: Function}} c
-   * @param {boolean} primitive
-   * @returns {{encode: Function, decode: Function}}
-   */
-  set: (c, primitive) => ({
-    encode: (v) => [...v].map((x) => c.encode(x)),
-    decode: (j, p) => {
-      if (!Array.isArray(j)) decodeFail(p, "expected an array");
-      const s = primitive ? new Set() : new HashSet();
-      j.forEach((x, i) => s.add(c.decode(x, `${p}[${i}]`)));
-      return s;
-    },
-  }),
-  /**
-   * Maps whose keys are text (`String`, `Uuid`, …: a codec with `key`) are
-   * JSON objects; other keys are `[key, value]` pairs. Each shape decodes
-   * only from itself, and an encoded object has no prototype, so a
-   * `__proto__` key is an entry like any other.
-   * @param {{encode: Function, decode: Function, key?: boolean}} kc
-   * @param {{encode: Function, decode: Function}} vc
-   * @param {boolean} primitive
-   * @returns {{encode: Function, decode: Function}}
-   */
-  map: (kc, vc, primitive) => ({
-    encode: (m) => {
-      if (!kc.key) return [...m].map(([k, v]) => [kc.encode(k), vc.encode(v)]);
-      const o = Object.create(null);
-      for (const [k, v] of m) o[k] = vc.encode(v);
-      return o;
-    },
-    decode: (j, p) => {
-      const m = primitive ? new Map() : new HashMap();
-      if (!kc.key) {
-        if (!Array.isArray(j)) decodeFail(p, "expected an array of [key, value] pairs");
-        j.forEach((e, i) => {
-          const at = `${p}[${i}]`;
-          if (!Array.isArray(e) || e.length !== 2) decodeFail(at, "expected a [key, value] pair");
-          m.set(kc.decode(e[0], at + "[0]"), vc.decode(e[1], at + "[1]"));
-        });
-        return m;
-      }
-      expectObject(j, p);
-      for (const k of Object.keys(j)) m.set(kc.decode(k, p), vc.decode(j[k], `${p}.${k}`));
+  decode: (j, p) => {
+    const m = primitive ? new Map() : new HashMap();
+    if (!kc.key) {
+      if (!Array.isArray(j)) decodeFail(p, "expected an array of [key, value] pairs");
+      j.forEach((e, i) => {
+        const at = `${p}[${i}]`;
+        if (!Array.isArray(e) || e.length !== 2) decodeFail(at, "expected a [key, value] pair");
+        m.set(kc.decode(e[0], at + "[0]"), vc.decode(e[1], at + "[1]"));
+      });
       return m;
-    },
-  }),
-  /**
-   * @param {{encode: Function, decode: Function}[]} cs
-   * @returns {{encode: Function, decode: Function}}
-   */
-  tuple: (cs) => ({
-    encode: (v) => cs.map((c, i) => c.encode(v[i])),
-    decode: (j, p) => (Array.isArray(j) && j.length === cs.length ? cs.map((c, i) => c.decode(j[i], `${p}[${i}]`)) : decodeFail(p, "expected an array")),
-  }),
-  /**
-   * @param {{encode: Function, decode: Function}} c
-   * @param {boolean} closed
-   * @returns {{encode: Function, decode: Function}}
-   */
-  range: (c, closed) => ({
-    encode: (r) => ({ lowerBound: c.encode(r.lo), upperBound: c.encode(r.hi) }),
-    decode: (j, p) => {
-      expectObject(j, p);
-      return new Range(c.decode(j.lowerBound, p), c.decode(j.upperBound, p), closed);
-    },
-  }),
+    }
+    expectObject(j, p);
+    for (const k of Object.keys(j)) m.set(kc.decode(k, p), vc.decode(j[k], `${p}.${k}`));
+    return m;
+  },
+});
+
+/**
+ * The codec of `tuple` values (`codecs.tuple`).
+ *
+ * @param {{encode: Function, decode: Function}[]} cs
+ * @returns {{encode: Function, decode: Function}}
+ */
+export const codecs$tuple = (cs) => ({
+  encode: (v) => cs.map((c, i) => c.encode(v[i])),
+  decode: (j, p) => (Array.isArray(j) && j.length === cs.length ? cs.map((c, i) => c.decode(j[i], `${p}[${i}]`)) : decodeFail(p, "expected an array")),
+});
+
+/**
+ * The codec of `range` values (`codecs.range`).
+ *
+ * @param {{encode: Function, decode: Function}} c
+ * @param {boolean} closed
+ * @returns {{encode: Function, decode: Function}}
+ */
+export const codecs$range = (c, closed) => ({
+  encode: (r) => ({ lowerBound: c.encode(r.lo), upperBound: c.encode(r.hi) }),
+  decode: (j, p) => {
+    expectObject(j, p);
+    return new Range(c.decode(j.lowerBound, p), c.decode(j.upperBound, p), closed);
+  },
+});
+
+/** The codecs of builtin types, by name (docs/design/28-rpc-wire-format.md). */
+export const codecs = {
+  int: codecs$int,
+  double: codecs$double,
+  string: codecs$string,
+  email: codecs$email,
+  url: codecs$url,
+  uuid: codecs$uuid,
+  color: codecs$color,
+  timeZone: codecs$timeZone,
+  timeOfDay: codecs$timeOfDay,
+  bool: codecs$bool,
+  duration: codecs$duration,
+  any: codecs$any,
+  bytes: codecs$bytes,
+  date: codecs$date,
+  optional: codecs$optional,
+  list: codecs$list,
+  set: codecs$set,
+  map: codecs$map,
+  tuple: codecs$tuple,
+  range: codecs$range,
 };
 
 /** `Json.encode` and `Json.decode` (k.encoding.Json). */

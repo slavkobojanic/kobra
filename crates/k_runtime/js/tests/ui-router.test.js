@@ -884,3 +884,203 @@ test("a guarded page's handler awaiting an rpc stops when the session ends", asy
   assert(log.includes("leave account"), "the page was disposed");
   assertDeepEq(read, [], "nothing after the await ran on the disposed page");
 });
+
+// ---------------------------------------------------------------- focus and scroll
+
+/**
+ * A fake browser with a history of entries and states, a window scroll
+ * position and `pagehide` (53-element-references.md, "Focus the framework
+ * moves"): `back()`/`forward()` move through the entries and dispatch
+ * `popstate` with the entry's state, as browsers do, without scrolling
+ * (`scrollRestoration` is the router's to set). `earlier` are the entries
+ * before the current one, as a reload keeps them.
+ */
+function historyBrowser(path, state = null, earlier = []) {
+  const b = browser(path);
+  const entries = [...earlier, { url: path, state }];
+  let at = earlier.length;
+  const listeners = new Map();
+  globalThis.addEventListener = (type, fn) => listeners.set(type, [...(listeners.get(type) ?? []), fn]);
+  const go = (url) => {
+    const q = url.indexOf("?");
+    b.location.pathname = q < 0 ? url : url.slice(0, q);
+    b.location.search = q < 0 ? "" : url.slice(q);
+  };
+  const copy = (v) => (v == null ? null : JSON.parse(JSON.stringify(v)));
+  const history = {
+    scrollRestoration: "auto",
+    get state() { return entries[at].state; },
+    pushState(s, title, url) {
+      entries.splice(at + 1);
+      entries.push({ url: String(url), state: copy(s) });
+      at++;
+      b.pushed.push(String(url));
+      go(String(url));
+    },
+    replaceState(s, title, url) {
+      entries[at] = { url: url === undefined ? entries[at].url : String(url), state: copy(s) };
+    },
+  };
+  globalThis.history = history;
+  const scroll = { x: 0, y: 0 };
+  Object.defineProperty(globalThis, "scrollX", { get: () => scroll.x, configurable: true });
+  Object.defineProperty(globalThis, "scrollY", { get: () => scroll.y, configurable: true });
+  globalThis.scrollTo = (x, y) => { scroll.x = x; scroll.y = y; };
+  const move = (by) => {
+    at += by;
+    go(entries[at].url.split("#")[0]);
+    for (const fn of listeners.get("popstate") ?? []) fn({ type: "popstate", state: entries[at].state });
+  };
+  const fire = (type) => { for (const fn of listeners.get(type) ?? []) fn({ type }); };
+  return { ...b, history, entries, scroll, back: () => move(-1), forward: () => move(1), fire };
+}
+
+/** A route whose page is a `main` with an `h1` naming it, and `links`. */
+function headed(name, segments, options = {}) {
+  return {
+    name,
+    parse: parser(segments),
+    load: async () => ({
+      render() {
+        const doc = globalThis.document;
+        const main = doc.createElement("main");
+        const h1 = doc.createElement("h1");
+        if (options.tabindex !== undefined) h1.setAttribute("tabindex", options.tabindex);
+        h1.textContent = name;
+        main.appendChild(h1);
+        if (options.target) {
+          const p = doc.createElement("p");
+          p.setAttribute("id", options.target);
+          main.appendChild(p);
+        }
+        return main;
+      },
+    }),
+  };
+}
+
+const HEADED = () => [
+  headed("home", []),
+  headed("product", ["product", ":id"]),
+  headed("pricing", ["pricing"], { tabindex: "0", target: "plans" }),
+];
+
+// The first page is the document's: the browser placed the focus and the
+// scroll, so the router moves neither.
+test("the first page keeps the focus and the scroll where they are", async () => {
+  const b = historyBrowser("/");
+  b.scroll.y = 120;
+  const { container } = app();
+  const before = globalThis.document.activeElement;
+  await startRouter(HEADED(), container);
+  assertEq(globalThis.document.activeElement, before);
+  assertEq(b.scroll.y, 120);
+  assertEq(container.getElementsByTagName("h1")[0].hasAttribute("tabindex"), false);
+});
+
+// A navigation to another page focuses its first `h1`, which gets
+// `tabindex="-1"` so it can take the focus without becoming a Tab stop, and
+// starts the page at the top.
+test("a navigation focuses the new page's heading and starts at the top", async () => {
+  const b = historyBrowser("/");
+  const { container } = app();
+  await startRouter(HEADED(), container);
+  b.scroll.y = 500;
+  await navigate("/product/7");
+  const h1 = container.getElementsByTagName("h1")[0];
+  assertEq(h1.textContent, "product");
+  assertEq(h1.getAttribute("tabindex"), "-1");
+  assertEq(globalThis.document.activeElement, h1);
+  assertDeepEq([b.scroll.x, b.scroll.y], [0, 0]);
+});
+
+// A heading that is already focusable keeps its own `tabindex`.
+test("a heading's own tabindex is kept", async () => {
+  historyBrowser("/");
+  const { container } = app();
+  await startRouter(HEADED(), container);
+  await navigate("/pricing");
+  const h1 = container.getElementsByTagName("h1")[0];
+  assertEq(h1.getAttribute("tabindex"), "0");
+  assertEq(globalThis.document.activeElement, h1);
+});
+
+// A URL with a fragment starts at the fragment's element instead of the top.
+test("a navigation to a fragment scrolls to its element", async () => {
+  const b = historyBrowser("/");
+  const { container } = app();
+  await startRouter(HEADED(), container);
+  b.scroll.y = 300;
+  await navigate("/pricing#plans");
+  const p = globalThis.document.getElementById("plans");
+  assertDeepEq(p.scrolledIntoView, {});
+  assertEq(b.scroll.y, 300, "scrollIntoView did the scrolling");
+});
+
+// Back and Forward put each page where it was scrolled when it was left.
+test("back and forward restore the scroll position of each page", async () => {
+  const b = historyBrowser("/");
+  const { container } = app();
+  await startRouter(HEADED(), container);
+  assertEq(b.history.scrollRestoration, "manual");
+  b.scroll.y = 400;
+  await navigate("/product/7");
+  assertEq(b.scroll.y, 0);
+  b.scroll.y = 250;
+  b.back();
+  await tick();
+  assertEq(container.getElementsByTagName("h1")[0].textContent, "home");
+  assertEq(b.scroll.y, 400);
+  assertEq(globalThis.document.activeElement, container.getElementsByTagName("h1")[0]);
+  b.forward();
+  await tick();
+  assertEq(container.getElementsByTagName("h1")[0].textContent, "product");
+  assertEq(b.scroll.y, 250);
+});
+
+// The same page with other parameters updates in place: the focus and the
+// scroll stay where the user is (a filter typed into the query).
+test("an update in place keeps the focus and the scroll", async () => {
+  const b = historyBrowser("/product/7?tab=details");
+  const { container } = app();
+  await startRouter(HEADED(), container);
+  const h1 = container.getElementsByTagName("h1")[0];
+  const field = globalThis.document.createElement("input");
+  globalThis.document.body.appendChild(field);
+  field.focus();
+  b.scroll.y = 640;
+  await navigate("/product/7?tab=reviews");
+  assertEq(container.getElementsByTagName("h1")[0], h1, "the page stayed mounted");
+  assertEq(globalThis.document.activeElement, field);
+  assertEq(b.scroll.y, 640);
+});
+
+// Leaving the document records the position in the entry's state, and the
+// first page after a reload of that entry is put back there.
+test("a reload restores the position the page was left at", async () => {
+  const b = historyBrowser("/");
+  await startRouter(HEADED(), app().container);
+  b.scroll.y = 900;
+  b.fire("pagehide");
+  const state = b.history.state;
+  assertDeepEq(state.p, [0, 900]);
+  const again = historyBrowser("/", state);
+  await startRouter(HEADED(), app().container);
+  assertEq(again.scroll.y, 900);
+});
+
+// Going back to an entry made after a reload, whose position only the
+// entry's state has, restores it from there.
+test("back after a reload restores the position from the entry's state", async () => {
+  const b = historyBrowser("/");
+  const { container } = app();
+  await startRouter(HEADED(), container);
+  b.scroll.y = 75;
+  await navigate("/pricing");
+  const [home, pricing] = b.entries;
+  const again = historyBrowser("/pricing", pricing.state, [home]);
+  await startRouter(HEADED(), app().container);
+  again.back();
+  await tick();
+  assertEq(again.scroll.y, 75);
+});

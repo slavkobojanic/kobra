@@ -1,0 +1,8 @@
+# docs/compiler/performance.md §11.3: `@Load` support is a feature chunk of its own,
+# `load.[hash].js`, imported by the page chunks with a load; the runtime chunk doesn't carry it.
+# A linked release build keeps it in the runtime chunk instead (codegen.md §17.1).
+client contains // file: load.[hash].js
+client contains export function createLoads(
+client contains $k_load.createLoads(
+client contains import * as $k_load from "../load.[hash].js";
+client lacks $k.createLoads(

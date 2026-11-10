@@ -65,6 +65,7 @@ fn frame<P>(v: &Value, payload: &dyn Fn(&Value) -> Option<P>) -> Frame<P> {
         "rcvd" => Frame::Rcvd {
             ch: ch(),
             seq: n("seq"),
+            skipped: v["skipped"].as_u64().unwrap_or(0),
         },
         "resume" => Frame::Resume {
             ch: ch(),

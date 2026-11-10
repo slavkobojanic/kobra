@@ -7,3 +7,4 @@
 //! ```
 
 mod runtime;
+mod size_report;

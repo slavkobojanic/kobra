@@ -39,7 +39,7 @@ No npm, no bundler, no transpiler: the files are shipped as written (compacted i
 | View helpers (`child`, `slotMarkers`, `markers`, `lifetime`, `paramProps`, `withQuery`, `loadsOf`, `clientReady`, `joinClasses`, `title`) | `runtime/view.js` | **implemented** (extended) |
 | Path stores for `@State` structs | `runtime/store.js` | **implemented** (extended) |
 | Services in the browser: `provide` (component scope), `afterHydration` (client-only `init()`), `Clock`, `Theme`, `BrowserStorage`, `FetchHttpClient`, the `Session` mirror, browser `@Native` members (`native`, `native_<name>`, `missingNative`) | `runtime/services.js` | **implemented** (part `Services`, [§12.1](#121-services-in-the-browser)) |
-| Router (layouts kept across navigations, `document.title`, page guards against the `Session` mirror), RPC client, `@Load` (hydrating a failed render too) | `router.js`, `rpc.js`, `load.js` | **implemented** (extended) |
+| Router (layouts kept across navigations, `document.title`, page guards against the `Session` mirror, the focus and scroll after a navigation), RPC client, `@Load` (hydrating a failed render too; `load.js` is part `Load`, generated code reaches it as `$k_load`) | `router.js`, `rpc.js`, `load.js` | **implemented** (extended; `load.js` its own chunk) |
 | `@Form` state: `createForm`, field parsers, constraint rules | `runtime/forms.js` | **implemented** (part `Forms`, a chunk of its own reached as `$k_forms`, [§9](#9-forms)) |
 | `Decimal`, `Money`, `Currency` and their codecs (`moneyCodecs`) | `runtime/money.js` | **implemented** (part `Money`, a chunk of its own reached as `$k_money`, [§12](#12-native-stdlib-bodies)) |
 | Server streams in the browser (`streamed`: the request envelope, the response read as it arrives) | `runtime/streams.js` | **implemented** (part `Streams`, a chunk of its own, [§8](#8-rpc-client)) |
@@ -143,9 +143,9 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 
 | Bundle | Parts | Budget | Today |
 |---|---|---|---|
-| core | signals, values, hydration, DOM bindings and `when`/`branch` | ≤ 5 KB (`CORE_SIZE_BUDGET`) | 4,602 B |
-| full client | core + keyed lists, view helpers, path stores, router, RPC client, `@Load` + entry | ≤ 10 KB (`FULL_SIZE_BUDGET`) | 9,123 B (1,117 B headroom) |
-| stdlib bodies | `std.js` (part `Stdlib`), measured on its own because it grows with the stdlib | ≤ 10 KB (`STDLIB_SIZE_BUDGET`) | 8,426 B (1,814 B headroom) |
+| core | signals, values, hydration, DOM bindings and `when`/`branch` | ≤ 5 KB (`CORE_SIZE_BUDGET`) | 4,866 B |
+| full client | core + keyed lists, view helpers, path stores, router, RPC client + entry | ≤ 10 KB (`FULL_SIZE_BUDGET`) | 9,723 B (517 B headroom; 10,238 B before `@Load` became the `load` chunk, performance.md §11.3) |
+| stdlib bodies | `std.js` (part `Stdlib`), measured on its own because it grows with the stdlib | ≤ 10 KB (`STDLIB_SIZE_BUDGET`) | 9,113 B (1,127 B headroom; 8,962 B before each builtin codec became an export of its own) |
 | browser services | `services.js` (part `Services`): the client DI helpers and the browser bodies of the stdlib's platform services | ≤ 3 KB (`SERVICES_SIZE_BUDGET`) | 2,333 B |
 | shipped `runtime.<hash>.js` | full client + stdlib bodies + browser services, as `k build` writes it | ≤ 23 KB (the sum of the three; `crates/k_cli/tests/perf_budget.rs`) | 18,858 B gzip |
 | `charts.[hash].js` | `charts.js` (part `Charts`), shipped only to apps that chart | ≤ 3 KB (`CHARTS_SIZE_BUDGET`) | 2,306 B |
@@ -164,8 +164,9 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
 | `refs.[hash].js` | `refs.js` (part `Refs`), shipped only to clients that make an `ElementRef` ([§12.19](#1219-element-references)) | ≤ 512 B (`REFS_SIZE_BUDGET`) | 434 B |
 | `streams.[hash].js` | `streams.js` (part `Streams`), shipped only to apps with a streaming rpc | ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | 569 B |
-| `channels.[hash].js` | `channels.js` (part `Channels`), the frame codec and the channels' client ([§8.2](#82-channels)), shipped only to apps whose client calls a channel rpc; a release build links the unused Protobuf codec out (3.2 KB gzip minified in a one-channel app) | ≤ 4.5 KB (`CHANNELS_SIZE_BUDGET`) | 4,302 B |
+| `channels.[hash].js` | `channels.js` (part `Channels`), the frame codec and the channels' client ([§8.2](#82-channels)), shipped only to apps whose client calls a channel rpc; a release build links the unused Protobuf codec out (3.2 KB gzip minified in a one-channel app) | ≤ 4.5 KB (`CHANNELS_SIZE_BUDGET`) | 4,409 B |
 | `http.[hash].js` | `http.js` (part `Http`), shipped only to apps whose client builds or reads an `HttpResponse` | ≤ 1.5 KB (`HTTP_SIZE_BUDGET`) | 1,175 B |
+| `load.[hash].js` | `load.js` (part `Load`), the `@Load` state machine, imported by the page chunks with a load; a linked release build keeps it in the runtime chunk instead, shaken like the rest | ≤ 1.25 KB (`LOAD_SIZE_BUDGET`) | 1,125 B |
 | `forms.[hash].js` | `forms.js` (part `Forms`), shipped only to apps with a `@Form` | ≤ 2 KB (`FORMS_SIZE_BUDGET`) | 1,971 B (1,807 B before a failed submit focused its first invalid field, 53-element-references.md) |
 | `money.[hash].js` | `money.js` (part `Money`), shipped only to apps whose client uses `Decimal`, `Money` or `Currency` | ≤ 2.5 KB (`MONEY_SIZE_BUDGET`) | 2,164 B |
 
@@ -308,7 +309,11 @@ deep-clones its single root element, or claims the server-rendered node during h
 
 ### 5.2 Bindings
 
-`text(node, value)` and `prop(el, name, value)` write only on change; `attr` removes the attribute for
+`text(node, value)` and `prop(el, name, value)` write only on change. While hydrating, `prop(el,
+"value", …)` on a field whose `value` is no longer its `defaultValue` (text typed before the page's scripts
+ran) leaves it, and dispatches a bubbling `input` event in a microtask, so the field's binding takes the
+text as if typed then ([15-forms-and-validation.md](../design/15-forms-and-validation.md#rules); a
+`select`, which has no `defaultValue`, is set as before); `attr` removes the attribute for
 `null`/`false` and writes `""` for `true`; `classList(el, static, dynamic)` writes the joined class names
 when they change; `style(el, "--k-…", value)` sets or removes a custom property. Each binding is wrapped
 by codegen in one `renderEffect`.
@@ -564,8 +569,10 @@ panics: "channels open only in the browser".
   sent while the channel isn't open waits at most 10 s (then `offline`) and at most 32 wait (the 33rd is
   `offline` at once). A cancelled send that wasn't transmitted is withdrawn; one that was ignores its answer.
 - **Receiving.** A `msg` at or below the last received number is skipped (a replay overlap); one that
-  doesn't decode (a case this tab doesn't know) is skipped with a console warning. Receipts (`rcvd` with
-  the last number) go at most a second after a message and with every heartbeat reply.
+  doesn't decode (a case this tab doesn't know) is skipped with a console warning and counted. Receipts
+  (`rcvd` with the last number, and `skipped`, the count since the last receipt, when not 0, which the
+  server adds to `k_channel_unknown_total`) go at most a second after a message and with every heartbeat
+  reply.
 - **Heartbeats.** A server `beat` is answered with a `beat`. A socket that delivered nothing for 60 s is
   closed and handled as a drop.
 - **Dropped socket.** Channels opening for the first time fail `offline`; the others go
@@ -673,7 +680,19 @@ feature chunk (§1): only apps with a `@Form` ship it, and their generated code 
 - A route is `{ name, guards?, parse(url) → params | null, load() → Promise<{ layouts, render(params, ctx) }> }`,
   `layouts` the page's layout components, outermost first; the router reads `globalThis.location`, pushes
   with `globalThis.history.pushState`, listens for `popstate` and intercepts clicks on `a` elements with an
-  `href` inside the container. Scroll restoration is *not yet written*.
+  `href` inside the container.
+- **Focus and scroll after a navigation** ([53-element-references.md](../design/53-element-references.md#focus-the-framework-moves)).
+  `startRouter` sets `history.scrollRestoration = "manual"`. Each history entry the router makes carries
+  `{i}`, its index; `remember` records the page's `[scrollX, scrollY]` under the current index in memory
+  and, before a push and on `pagehide`, in the entry's state as `{i, p}` too (a `popstate` has already
+  changed the entry, so it records in memory only). Once a navigation is shown (`arrive`): when another
+  page was mounted, its first `h1` in the container gets `tabindex="-1"` (unless it has a `tabindex`) and
+  `focus({preventScroll: true})`; a push scrolls to the element whose `id` is the URL's fragment, else to
+  the top; a `popstate` scrolls to the remembered position of the entry it lands on (memory, else the
+  entry's `p`, else the top), and to nothing for an entry the router didn't make; the first page scrolls
+  to its entry's `p` when it has one (a reload). The same page updated in place keeps the focus, and
+  keeps the scroll on a push. A page whose content arrives later (a `@Load` still loading) is scrolled
+  before it has its height, so a position below the fold of its `loading` view is clamped.
 - **Layouts stay mounted.** The router renders each layout (layout `i` with `k-data` key `"L{i}"`) and the
   page (`"0"`) in a root of its own. A layout's slot records its markers when it renders (`slotMarkers()`,
   set by `child` while a child range renders). On a navigation the layouts the new page shares with the

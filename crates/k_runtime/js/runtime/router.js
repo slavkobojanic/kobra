@@ -12,6 +12,13 @@
  * context. The table is sorted by specificity, so
  * the first route whose `parse` matches wins.
  *
+ * After a navigation shows another page, the focus moves to its first
+ * `h1` (given `tabindex="-1"`), so a screen reader announces it, and the
+ * page starts at the top (at its `#fragment`'s element, if any); Back and
+ * Forward put the page where it was scrolled when it was left, as a reload
+ * does. The same page with other parameters, updated in place, keeps both
+ * (docs/design/53-element-references.md, "Focus the framework moves").
+ *
  * `guards` are the page's `requires` the browser can check against the
  * `Session` mirror (docs/design/26-auth-and-sessions.md): `["auth"]` and
  * `["role", caseName]`. A page they refuse is never rendered in the
@@ -21,7 +28,7 @@
  * shown page requires (sign-out, `endAll`, an ended session).
  */
 
-import { hydrate } from "./hydrate.js";
+import { drop, hydrate } from "./hydrate.js";
 import { gateSession, seedSession, sessionMirror } from "./rpc.js";
 import { batch, root, signal } from "./signals.js";
 import { splitTarget } from "./std.js";
@@ -46,6 +53,40 @@ const SCHEME = new RegExp("^[a-zA-Z][a-zA-Z0-9+.-]*:");
 function allows(guards, m) {
   const u = m.user;
   return !guards?.length || (!!u && guards.every((g) => g[0] !== "role" || u.roles?.includes?.(g[1]) === true));
+}
+
+/**
+ * Records where the page shown is scrolled (`[x, y]`) under its history
+ * entry's index: in memory, and with `write` in the entry's state too,
+ * which a reload keeps (not after `popstate`, when the entry has changed).
+ */
+function remember(r, write) {
+  const g = globalThis;
+  const p = (r.pos[r.i] = [g.scrollX, g.scrollY]);
+  if (write) g.history?.replaceState?.({ i: r.i, p }, "");
+}
+
+/**
+ * The focus and scroll position once a navigation to `url` is shown. When
+ * another page was `mounted`, its first `h1` takes the focus. `pos` is
+ * where to scroll: `[x, y]`; `true`, for a pushed navigation, the element
+ * of the URL's `#fragment`, else the top, unless the page was updated in
+ * place; `undefined` leaves the scroll as it is.
+ */
+function arrive(r, url, mounted, pos) {
+  const c = r.container;
+  const h = mounted && c.getElementsByTagName("h1")[0];
+  if (h) {
+    if (!h.hasAttribute("tabindex")) h.setAttribute("tabindex", "-1");
+    h.focus({ preventScroll: true });
+  }
+  if (pos === true) {
+    if (!mounted) return;
+    const at = url.includes("#") && c.ownerDocument.getElementById(url.split("#")[1]);
+    if (at) return at.scrollIntoView();
+    pos = [0, 0];
+  }
+  if (pos) globalThis.scrollTo?.(...pos);
 }
 
 /**
@@ -136,7 +177,7 @@ function refuses(match) {
  * answered the document, a page whose guards the mirror refuses is a
  * full page load instead.
  */
-async function show(url, first) {
+async function show(url, first, pos) {
   const r = router;
   if (r === null || r.left) return;
   const id = ++r.navigation;
@@ -149,6 +190,7 @@ async function show(url, first) {
   const data = r.data;
   r.data = null;
   const layouts = page.layouts ?? [];
+  let mounted = false;
   batch(() => {
     let kept = 0;
     while (kept < r.mounted.length && kept < layouts.length && r.mounted[kept].layout === layouts[kept]) kept++;
@@ -158,6 +200,7 @@ async function show(url, first) {
       r.params.update(match.params);
       return;
     }
+    mounted = !first;
     r.page?.();
     r.page = null;
     while (r.mounted.length > kept) r.mounted.pop().dispose();
@@ -173,14 +216,11 @@ async function show(url, first) {
     }
     const [start, end] = kept ? r.mounted[kept - 1].slot : [null, null];
     const parent = kept ? end.parentNode : container;
-    for (let n = kept ? start.nextSibling : container.firstChild; n !== null && n !== end;) {
-      const next = n.nextSibling;
-      parent.removeChild(n);
-      n = next;
-    }
+    drop(kept ? start.nextSibling : container.firstChild, end);
     const node = mountRoute(r, page, match.params, ctx, kept);
     if (node) parent.insertBefore(node, end);
   });
+  arrive(r, url, mounted, pos);
 }
 
 /** The `a` element a click landed in, inside `container`, if any. */
@@ -205,8 +245,12 @@ function linkOf(target, container) {
  * @returns {Promise<void>} settles once the first page is shown
  */
 export function startRouter(routes, container, options) {
-  const r = { routes, container, mounted: [], page: null, navigation: 0, notFound: options?.notFound ?? null, data: options?.data ?? null, c: options?.c ?? Object };
+  const h = globalThis.history;
+  const r = { routes, container, mounted: [], page: null, navigation: 0, notFound: options?.notFound ?? null, data: options?.data ?? null, c: options?.c ?? Object, i: h?.state?.i ?? 0, pos: [] };
   router = r;
+  // The router puts each page where it was (`arrive`), the first one after
+  // a reload too, so the browser's restoring doesn't jump before it.
+  if (h) h.scrollRestoration = "manual";
   // The guards read who is signed in from the document's mirror, whether
   // or not anything has read `Session` yet.
   seedSession(r.data ?? options?.session);
@@ -237,12 +281,16 @@ export function startRouter(routes, container, options) {
     navigate(path);
   });
   if (typeof globalThis.addEventListener === "function") {
-    globalThis.addEventListener("popstate", () => {
+    globalThis.addEventListener("popstate", (e) => {
       const l = globalThis.location;
-      show(l.pathname + l.search);
+      const s = e.state;
+      remember(r);
+      r.i = s?.i;
+      show(l.pathname + l.search, false, s && (r.pos[s.i] ?? s.p ?? [0, 0]));
     });
+    globalThis.addEventListener("pagehide", () => remember(r, true));
   }
-  return show(loc ? loc.pathname + loc.search : "/", true);
+  return show(loc ? loc.pathname + loc.search : "/", true, h?.state?.p);
 }
 
 /**
@@ -267,6 +315,9 @@ export function navigate(url) {
   // A page the mirror refuses is loaded, not pushed: the load makes the
   // history entry, so Back returns to the page shown now.
   if (r && refuses(matchOf(r, path))) return leave(r, path);
-  if (globalThis.history) globalThis.history.pushState(null, "", path);
-  return show(path);
+  if (globalThis.history) {
+    if (r) remember(r, true);
+    globalThis.history.pushState({ i: r ? ++r.i : 0 }, "", path);
+  }
+  return show(path, false, true);
 }

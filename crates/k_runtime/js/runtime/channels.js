@@ -8,7 +8,7 @@
  * **Frames** are pure encode and decode, the same codec as the Rust front's (`k_server::channels`),
  * both tested against `tests/channel-frames.json`. A frame is `{ kind, ch, … }` with the kind's
  * fields: `open` (`method`, `request`), `opened` (`resume`), `refused` (`error`), `msg` (`seq`,
- * `value`), `ack` (`seq`, `error` when refused), `rcvd` (`seq`), `resume` (`token`, `received`,
+ * `value`), `ack` (`seq`, `error` when refused), `rcvd` (`seq`, `skipped` when not 0), `resume` (`token`, `received`,
  * `sent`), `close` (`reason`), `session` (`user`, `null` for a guest; no `ch`) and `beat` (no
  * fields). Payloads are already-encoded messages of the app's protocols: JSON values in JSON
  * frames (development) and `Uint8Array`s in binary frames (production, the Protobuf message
@@ -46,7 +46,7 @@ const CHANNEL_FIELDS = {
   refused: [["ch", "c"], ["error", "p"]],
   msg: [["ch", "c"], ["seq", "n"], ["value", "p"]],
   ack: [["ch", "c"], ["seq", "n"], ["error", "o"]],
-  rcvd: [["ch", "c"], ["seq", "n"]],
+  rcvd: [["ch", "c"], ["seq", "n"], ["skipped", "n"]],
   resume: [["ch", "c"], ["token", "s"], ["received", "n"], ["sent", "n"]],
   close: [["ch", "c"], ["reason", "r"]],
   session: [["user", "o"]],
@@ -118,9 +118,10 @@ export function decodeChannelFrame(text) {
     const v = body[key];
     if (t === "o") frame[key] = v ?? null;
     else if (t === "p") frame[key] = v === undefined ? badFrame(`\`${kind}.${key}\` is missing`) : v;
-    else frame[key] = channelScalar(kind, key, t, v);
+    else frame[key] = channelScalar(kind, key, t, key === "skipped" ? v ?? 0 : v);
   }
   if (kind === "ack" && frame.error === null) delete frame.error;
+  if (frame.skipped === 0) delete frame.skipped;
   return frame;
 }
 
@@ -248,6 +249,7 @@ export function decodeChannelFrameBinary(bytes) {
     }
   });
   if (kind === "ack" && frame.error === null) delete frame.error;
+  if (frame.skipped === 0) delete frame.skipped;
   return frame;
 }
 
@@ -344,6 +346,8 @@ class Channel {
     /** The last server message received, and the last one confirmed with `rcvd`. */
     this.got = 0;
     this.told = 0;
+    /** Messages of an unknown case skipped since the last `rcvd`. */
+    this.skipped = 0;
     /** The last sequence number transmitted, and the sends not acknowledged yet, in order. */
     this.seq = 0;
     this.out = [];
@@ -483,7 +487,9 @@ class Channel {
         v = this.codec.decode(f.value);
       } catch (e) {
         // A case this tab doesn't know (a newer server): skipped (44-channels.md, "rpc.lock").
+        // Counted, and reported with the next `rcvd` (`k_channel_unknown_total`).
         console.warn("a channel message was skipped:", e);
+        this.skipped++;
         return;
       }
       this.messages.push(v);
@@ -641,7 +647,10 @@ class Hub {
     env.cancel(this.rcvd);
     this.rcvd = null;
     for (const c of this.chans.values()) {
-      if (c.on && c.got > c.told) this.put({ kind: "rcvd", ch: c.ch, seq: (c.told = c.got) });
+      if (c.on && c.got > c.told) {
+        this.put({ kind: "rcvd", ch: c.ch, seq: (c.told = c.got), skipped: c.skipped || undefined });
+        c.skipped = 0;
+      }
     }
   }
 

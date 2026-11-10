@@ -179,6 +179,21 @@ export class Node {
     if (value !== "") this.appendChild(this.ownerDocument.createTextNode(value));
   }
 
+  /**
+   * The descendant elements named `tag` (lower case), in document order,
+   * as an array (a browser's is a live collection).
+   * @param {string} tag
+   * @returns {Element[]}
+   */
+  getElementsByTagName(tag) {
+    const out = [];
+    for (let c = this._first; c !== null; c = c._next) {
+      if (c.nodeType === 1 && c.localName === tag) out.push(c);
+      out.push(...c.getElementsByTagName(tag));
+    }
+    return out;
+  }
+
   /** Copies the node, and its subtree when `deep`. */
   cloneNode(deep) {
     const copy = this.shallowClone();

@@ -84,15 +84,7 @@ export class Store {
     batch(() => {
       for (const entry of this.paths.values()) {
         const p = entry.path;
-        const n = Math.min(p.length, path.length);
-        let related = true;
-        for (let i = 0; i < n; i++) {
-          if (p[i] !== path[i]) {
-            related = false;
-            break;
-          }
-        }
-        if (related) entry.signal.set(pathGet(this.value, p));
+        if (p.every((k, i) => i >= path.length || k === path[i])) entry.signal.set(pathGet(this.value, p));
       }
     });
   }

@@ -525,7 +525,20 @@ pub(crate) fn client_files(
             (text, name)
         })
         .collect();
-    let feature_names: Vec<&str> = runtime_features.iter().map(|(_, n)| n.as_str()).collect();
+    // A linked release client keeps a feature `LINKED_IN_RUNTIME` names in
+    // the runtime chunk, where the linker keeps it only for apps that
+    // reach it: an empty name leaves its uses on `$k`.
+    let feature_names: Vec<&str> = runtime_features
+        .iter()
+        .zip(RUNTIME_FEATURES)
+        .map(|((_, n), (stem, _))| {
+            if release && LINKED_IN_RUNTIME.contains(stem) {
+                ""
+            } else {
+                n.as_str()
+            }
+        })
+        .collect();
     let deferred = deferred_features(g, items, pages, entry.as_ref(), &features);
     let mut used_features = BTreeSet::new();
     let mut shared_decls: Vec<DeclId> = items
@@ -886,6 +899,19 @@ fn runtime_namespace(name: &str) -> bool {
 fn named_runtime_imports(stmts: &mut Vec<Stmt>) {
     let mut used: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     js::walk_exprs_mut(stmts, &mut |e| {
+        // A builtin codec is an export of its own (`codecs$int`), so the
+        // table of them all (`codecs`) goes from an app that doesn't use it.
+        if let js::Expr::Member(base, name) = e
+            && let js::Expr::Member(table, t) = &**base
+            && t == "codecs"
+            && matches!(&**table, js::Expr::Ident(k) if k == "$k")
+            && builtin_codecs().contains(name.as_str())
+        {
+            let export = format!("codecs${name}");
+            used.entry("$k".into()).or_default().insert(export.clone());
+            *e = js::id(format!("$k${export}"));
+            return;
+        }
         if let js::Expr::Member(base, name) = e
             && let js::Expr::Ident(ns) = &**base
             && runtime_namespace(ns)
@@ -931,6 +957,21 @@ fn named_runtime_imports(stmts: &mut Vec<Stmt>) {
     }
 }
 
+/// The builtin codecs the runtime exports one by one (`codecs$int`, in
+/// `runtime/std.js`), by name, read once from the embedded source.
+fn builtin_codecs() -> &'static BTreeSet<String> {
+    static NAMES: std::sync::OnceLock<BTreeSet<String>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        let source = k_runtime::module("k:/runtime/std.js").map_or("", |m| m.source);
+        source
+            .lines()
+            .filter_map(|l| l.strip_prefix("export const codecs$"))
+            .filter_map(|l| l.split(' ').next())
+            .map(str::to_owned)
+            .collect()
+    })
+}
+
 /// Runtime files that generated code calls through `$k` but that ship as
 /// client chunks of their own, only to clients with a file that uses one
 /// of their exports: `(chunk stem, runtime specifier)` (runtime.md §2).
@@ -939,10 +980,19 @@ fn named_runtime_imports(stmts: &mut Vec<Stmt>) {
 /// `k:runtime`, which re-exports them.
 const RUNTIME_FEATURES: &[(&str, &str)] = &[
     ("forms", "k:/runtime/forms.js"),
+    ("load", "k:/runtime/load.js"),
     ("money", "k:/runtime/money.js"),
     ("observe", "k:/runtime/observe.js"),
     ("playback", "k:/runtime/playback.js"),
 ];
+
+/// The [`RUNTIME_FEATURES`] that a linked release client
+/// ([`linked`]) keeps in its runtime chunk instead of a chunk of their own
+/// (`crate::runtime_chunk`): the linker already leaves them out of every
+/// app that doesn't reach them, and an app that does reaches them from
+/// most of its pages, where a chunk of their own costs more than it saves
+/// (shop: 433 B gzip more for `load`, docs/compiler/performance.md §11.3).
+pub(crate) const LINKED_IN_RUNTIME: &[&str] = &["load"];
 
 /// The index in [`RUNTIME_FEATURES`] of the file exporting each name,
 /// built once from the embedded sources.
@@ -990,6 +1040,7 @@ fn route_runtime_features(
         if let js::Expr::Member(base, name) = e
             && matches!(&**base, js::Expr::Ident(k) if k == "$k")
             && let Some(&i) = exports.get(name.as_str())
+            && names.get(i).is_some_and(|n| !n.is_empty())
         {
             **base = js::id(format!("$k_{}", RUNTIME_FEATURES[i].0));
             here.insert(i);
