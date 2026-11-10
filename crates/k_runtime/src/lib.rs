@@ -172,6 +172,12 @@ pub const NOTIFICATIONS_SIZE_BUDGET: usize = 1024;
 /// `EcdsaP256PublicKey` (`docs/compiler/performance.md` §11.3).
 pub const PUSH_SIZE_BUDGET: usize = 1536;
 
+/// The largest `k.auth`'s passkeys in the browser ([`Part::Passkeys`]:
+/// `BrowserPasskeys`) may be, measured like [`CORE_SIZE_BUDGET`] (1.25 KB).
+/// It ships in its own chunk, only to apps whose client injects `Passkeys`
+/// (`docs/design/51-passkeys.md`, `docs/compiler/performance.md` §11.3).
+pub const PASSKEYS_SIZE_BUDGET: usize = 1280;
+
 /// The largest the service worker `k-sw.js` ([`Part::ServiceWorker`]) may
 /// be, measured like [`CORE_SIZE_BUDGET`] (768 B; 640 B before its `push`
 /// handler, `docs/design/50-push.md`). It is fetched when the app first
@@ -309,6 +315,10 @@ pub enum Part {
     /// to apps whose client injects `PushSubscriptions`, and measured on
     /// its own ([`PUSH_SIZE_BUDGET`]).
     Push,
+    /// `k.auth`'s passkeys in the browser (`BrowserPasskeys`): shipped as
+    /// its own client chunk, only to apps whose client injects `Passkeys`,
+    /// and measured on its own ([`PASSKEYS_SIZE_BUDGET`]).
+    Passkeys,
     /// The service worker `k-sw.js` that shows notifications and opens
     /// their pages: a classic worker script served at the site's root, not
     /// a module of any bundle, emitted for apps that ship
@@ -452,6 +462,7 @@ const MODULES: &[Module] = modules![
     Tabs "runtime/tabs.js",
     Notifications "runtime/notifications.js",
     Push "runtime/push.js",
+    Passkeys "runtime/passkeys.js",
     ServiceWorker "runtime/sw.js",
     WakeLock "runtime/wakelock.js",
     Environment "runtime/environment.js",

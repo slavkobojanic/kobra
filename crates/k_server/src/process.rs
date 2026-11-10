@@ -290,8 +290,18 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// The operating system refused to provide randomness (a host failure the
 /// caller turns into a panic of the request).
 pub fn random_token() -> Result<String, String> {
-    let mut bytes = [0u8; 32];
+    random_token_with(&[])
+}
+
+/// The base64url of 32 random bytes followed by `extra`.
+///
+/// # Errors
+///
+/// The operating system has no randomness to give.
+pub fn random_token_with(extra: &[u8]) -> Result<String, String> {
+    let mut bytes = vec![0u8; 32];
     getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
+    bytes.extend_from_slice(extra);
     Ok(base64url(&bytes))
 }
 
@@ -549,8 +559,15 @@ impl ProcessState {
     /// # Errors
     ///
     /// No randomness was available.
+    #[cfg(test)]
     fn issue_state_memory(&self, id: &str) -> Result<Option<String>, String> {
-        let state = random_token()?;
+        self.issue_challenge_memory(id, &[])
+    }
+
+    /// [`Self::issue_state_memory`] with `extra` after the 32 random
+    /// bytes ([`Self::session_issue_challenge`]).
+    fn issue_challenge_memory(&self, id: &str, extra: &[u8]) -> Result<Option<String>, String> {
+        let state = random_token_with(extra)?;
         let mut sessions = lock(&self.sessions);
         let Some(row) = sessions.get_mut(id) else {
             return Ok(None);
@@ -702,10 +719,28 @@ impl ProcessState {
     ///
     /// No randomness, or a database failure.
     pub async fn session_issue_state(&self, token: &str) -> Result<Option<String>, String> {
+        self.session_issue_challenge(token, &[]).await
+    }
+
+    /// [`Self::session_issue_state`] for a passkey challenge
+    /// (`docs/design/51-passkeys.md`, "Challenges"): the state is the
+    /// base64url of 32 random bytes followed by `extra` (the ceremony and
+    /// the user handle), so what follows the random part is bound to the
+    /// session as firmly as the random part is. It replaces the session's
+    /// OAuth state, and is taken by [`Self::session_consume_state`].
+    ///
+    /// # Errors
+    ///
+    /// No randomness, or a database failure.
+    pub async fn session_issue_challenge(
+        &self,
+        token: &str,
+        extra: &[u8],
+    ) -> Result<Option<String>, String> {
         let Some(db) = self.database() else {
-            return self.issue_state_memory(token);
+            return self.issue_challenge_memory(token, extra);
         };
-        let state = random_token()?;
+        let state = random_token_with(extra)?;
         let expires = crate::jobs::now_ms()
             + i64::try_from(OAUTH_STATE_LIFETIME.as_millis()).unwrap_or(i64::MAX);
         let n = db

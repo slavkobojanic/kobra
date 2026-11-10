@@ -879,6 +879,9 @@ fn server_platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Option<Expr
             "recordingWebPush",
             stdlib_enums(b, &["k.server.WebPushError"]),
         ),
+        // Challenges in the request's session, checks in Rust ops
+        // (docs/design/51-passkeys.md).
+        "k.auth.PasskeyVerifier" => srt("passkeyVerifier", vec![this("$r")]),
         "k.server.DatabaseJobQueue" => srt("jobQueue", vec![this("Database")]),
         "k.test.RecordingJobQueue" => srt("recordingJobQueue", vec![]),
         "k.test.InlineJobQueue" => srt(

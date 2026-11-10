@@ -48,6 +48,7 @@ export {
   serverPreferences,
   serviceCaller,
   sessionManager,
+  passkeyVerifier,
   shareState,
   splitTarget,
   testClient,

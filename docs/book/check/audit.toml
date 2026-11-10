@@ -326,7 +326,7 @@ date = "2026-11-09"
 [pages."apps/auth.md"]
 commit = "0dd7625"
 date = "2026-11-09"
-note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: K5507, the client-rendered session mirror and its guards; no findings"
+note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: K5507, the client-rendered session mirror and its guards; no findings. The Passkeys section added on top of f5e8872 (2026-11-10), written against the working tree: its excerpts are checked against examples/notes, its claims against `k_server::passkey`, `app.js`' `passkeyVerifier` and the notes and `passkeys` fixture tests"
 unpinned = [
     "the session cookie is `k_session_<port>` on an `http` origin with a port",
 ]
@@ -522,6 +522,7 @@ date = "2026-11-09"
 [pages."examples/notes.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of f5e8872 (2026-11-10): the Passkeys section and the layout's new files, against examples/notes and its PasskeyService tests"
 
 [pages."examples/shop.md"]
 commit = "0dd7625"

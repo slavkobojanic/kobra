@@ -29,7 +29,7 @@ public page SignIn {
             try await auth.signIn(credentials: credentials.value)
 
             Router.navigate(to: returnTo)
-        } catch .invalidCredentials {
+        } catch .invalidCredentials, .passkeyNotAccepted {
             problem = "That email and password don't match an account."
         } catch .rpcFailure(.invalid(let failure)) {
             throw failure
@@ -66,6 +66,8 @@ public page SignIn {
         }
         .class(.form)
         .on(submit: credentials.handle(submit))
+
+        PasskeySignIn(returnTo: returnTo)
 
         paragraph {
             "New here? "

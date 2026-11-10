@@ -1,4 +1,11 @@
+import k.auth.PasskeyAssertion
+import k.auth.PasskeyCreationOptions
+import k.auth.PasskeyCredential
+import k.auth.PasskeyRegistration
+import k.auth.PasskeyRequestOptions
+import k.auth.PasskeyVerifier
 import k.auth.SessionManager
+import k.db.Database
 import k.crypto.Password
 import k.crypto.Uuid
 import k.rpc.RpcOnlyError
@@ -14,6 +21,9 @@ public service AuthApi implements AuthProtocol {
     @Inject let accounts: AccountRepository
     @Inject let sessions: SessionManager
     @Inject let clock: Clock
+    @Inject let verifier: PasskeyVerifier
+    @Inject let passkeys: PasskeyRepository
+    @Inject let database: Database
 
     rpc isEmailAvailable(email: EmailAddress) async throws RpcOnlyError -> Bool {
         let existing = await accounts.byEmail(email: normalized(email: email))
@@ -55,6 +65,78 @@ public service AuthApi implements AuthProtocol {
         }
 
         await sessions.signIn(userId: account.id)
+    }
+
+    rpc passkeySignUpOptions() async throws RpcOnlyError -> PasskeyCreationOptions {
+        return await verifier.registrationOptions()
+    }
+
+    rpc signUpWithPasskey(email: EmailAddress, registration: PasskeyRegistration) async throws SignUpError {
+        // Every check (the session's challenge, the origin, the user
+        // verification, the key) passes, or nothing is stored.
+        let credential = try await verified(registration)
+        let account = Account(
+            id: AccountId(value: Uuid.random()),
+            email: normalized(email: email),
+            passwordHash: Password.unusableHash,
+            createdAt: clock.now
+        )
+
+        // The account and its passkey are created together, or neither.
+        try await database.transaction {
+            do {
+                try await accounts.insert(account)
+            } catch .email {
+                throw SignUpError.emailTaken
+            }
+            do {
+                try await passkeys.insert(Passkey(
+                    id: Uuid.random(),
+                    accountId: account.id,
+                    credentialId: credential.id,
+                    publicKey: credential.publicKey,
+                    signCount: credential.signCount,
+                    userHandle: credential.userHandle,
+                    backupEligible: credential.backupEligible,
+                    backedUp: credential.backedUp,
+                    createdAt: clock.now,
+                    lastUsedAt: nil
+                ))
+            } catch .credentialId {
+                throw SignUpError.passkeyNotAccepted
+            }
+        }
+
+        await sessions.signIn(userId: account.id)
+    }
+
+    /// The verified credential of a registration, or `.passkeyNotAccepted`
+    /// whichever check refused it: the browser learns nothing more.
+    private func verified(_ registration: PasskeyRegistration) async throws SignUpError -> PasskeyCredential {
+        do {
+            return try await verifier.verifyRegistration(registration)
+        } catch _ {
+            throw SignUpError.passkeyNotAccepted
+        }
+    }
+
+    rpc passkeySignInOptions() async throws RpcOnlyError -> PasskeyRequestOptions {
+        return await verifier.signInOptions()
+    }
+
+    rpc signInWithPasskey(assertion: PasskeyAssertion) async throws SignInError {
+        guard let passkey = await passkeys.byCredentialId(assertion.credentialId) else {
+            throw SignInError.passkeyNotAccepted
+        }
+
+        do {
+            let used = try await verifier.verifySignIn(assertion, credential: passkey.credential())
+            await passkeys.recordUse(passkey, signCount: used.signCount, backedUp: used.backedUp, at: clock.now)
+        } catch _ {
+            throw SignInError.passkeyNotAccepted
+        }
+
+        await sessions.signIn(userId: passkey.accountId)
     }
 
     rpc signOut() async throws RpcOnlyError {

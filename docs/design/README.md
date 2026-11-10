@@ -68,12 +68,14 @@ K borrows ideas, not syntax. Where another language does something well, K adapt
 | 48 | Releases, versioning and upgrades | [48-releases-and-versioning.md](48-releases-and-versioning.md) |
 | 49 | Documentation and the docs site | [49-documentation.md](49-documentation.md) |
 | 50 | Web Push | [50-push.md](50-push.md) |
+| 51 | Passkeys | [51-passkeys.md](51-passkeys.md) |
 
 ## Decisions still open
 
 No cross-cutting decision is open. The most recent ones:
 
 - **Web Push needs no account:** `PushSubscriptions` in the browser (`requestAccess()` is the notification prompt, `subscribe(serverKey:)` never prompts), `WebPush` on the server with a self-generated VAPID key in `K_PUSH_PRIVATE_KEY`, RFC 8291 encryption inside it, and `k-sw.js` showing each push as a `SystemNotification`. Huddle pushes new messages from a background job. See [50-push.md](50-push.md).
+- **Passkeys need no account either:** `Passkeys` in the browser (`register` and `signIn` are `@UserAction`, so options are fetched before the click), `PasskeyVerifier` on the server (ES256, EdDSA and RS256, attestation `"none"`, user verification required, the counter checked, CBOR and signatures in Rust), challenges single-use in the session row, credentials in the app's own entity, and `TestAuthenticator` in `k test` signing real assertions. Notes signs up and in with a passkey. See [51-passkeys.md](51-passkeys.md).
 - **A component can render in the browser only:** `@Rendering(.client)` on a component makes the server render its `loading` block, and the browser swaps in `view` right after hydration, once the client-only services' `init()`s have run. Its subtree may read client-only services without `K4012`/`K4013`, and `K4013` now offers this fix first. See [47-client-rendered-components.md](47-client-rendered-components.md).
 - **`reload()` can keep a load:** `@Load(keepOnReload: true)` keeps a value whose inputs haven't changed, so a refresh after server rendering doesn't look up the weather dashboard's place again (weather-E3). See [14-async-data.md](14-async-data.md#reloading-reload).
 - **K has one version for everything it ships, and a project pins it:** semver with Cargo's pre-1.0 meaning (a minor may break, always with a migration; a patch adds no diagnostics), `k = "0.6"` as a caret requirement with the exact toolchain in `k.lock`, delegation to an installed matching toolchain and never an implicit download, `k fix` and `k upgrade`, a `format` key in every lockfile, adjacent minors compatible on the wire, changelog fragments in `changes/` that name the book pages they change, and docs built from each release tag at `/0.N/`. Hosting, CI, signing and the name need the owner's sign-off, listed once in the topic. See [48-releases-and-versioning.md](48-releases-and-versioning.md).
@@ -102,7 +104,7 @@ These were explicitly deferred and may be revisited:
 - An edge deployment target ([13-tooling.md](13-tooling.md))
 - A design-system component library ([20-standard-library.md](20-standard-library.md))
 - Interceptor syntax in `App.k`, and per-page rendering modes ([23-app-structure.md](23-app-structure.md))
-- OAuth providers and passkeys ([26-auth-and-sessions.md](26-auth-and-sessions.md))
+- OAuth providers ([26-auth-and-sessions.md](26-auth-and-sessions.md)); passkeys are designed in [51-passkeys.md](51-passkeys.md)
 - Typed IndexedDB collections, session storage and cookies in `k.storage` ([36-local-storage.md](36-local-storage.md))
 - Development-only seed data and online migrations ([19-persistence.md](19-persistence.md))
 

@@ -346,12 +346,17 @@ fn migrate_new_writes_the_first_migration_and_the_lock() {
 fn migrate_new_adds_a_column_with_the_fields_default() {
     let dir = TempDir::new("migrate_pinning");
     copy_example("notes", &dir.0);
-    // Back to a state without pinning. The vault's migration stays, as
-    // number 2, so pinning comes after it.
+    // Back to a state without pinning. The vault's and the passkeys'
+    // migrations stay, as numbers 2 and 3, so pinning comes after them.
     fs::remove_file(dir.0.join("migrations/0002_add_note_pinning.k")).unwrap();
     fs::rename(
         dir.0.join("migrations/0003_add_the_private_vault.k"),
         dir.0.join("migrations/0002_add_the_private_vault.k"),
+    )
+    .unwrap();
+    fs::rename(
+        dir.0.join("migrations/0004_add_passkeys.k"),
+        dir.0.join("migrations/0003_add_passkeys.k"),
     )
     .unwrap();
     let lock_path = dir.0.join("schema.lock");
@@ -359,6 +364,7 @@ fn migrate_new_adds_a_column_with_the_fields_default() {
     let lock = lock
         .replace("    \"0002_add_note_pinning\",\n", "")
         .replace("0003_add_the_private_vault", "0002_add_the_private_vault")
+        .replace("0004_add_passkeys", "0003_add_passkeys")
         .replace(
             "    { field = \"isPinned\", name = \"is_pinned\", type = \"boolean\", default = false },\n",
             "",
@@ -368,9 +374,9 @@ fn migrate_new_adds_a_column_with_the_fields_default() {
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert_eq!(
         stdout(&out),
-        "wrote migrations/0003_add_note_pinning.k\nwrote schema.lock\n"
+        "wrote migrations/0004_add_note_pinning.k\nwrote schema.lock\n"
     );
-    let migration = fs::read_to_string(dir.0.join("migrations/0003_add_note_pinning.k")).unwrap();
+    let migration = fs::read_to_string(dir.0.join("migrations/0004_add_note_pinning.k")).unwrap();
     assert_golden(&migration, "migrate-add-note-pinning.k");
     let lock = k_db::lock::SchemaLock::parse(&fs::read_to_string(&lock_path).unwrap()).unwrap();
     assert_eq!(
@@ -378,7 +384,8 @@ fn migrate_new_adds_a_column_with_the_fields_default() {
         [
             "0001_create_accounts_and_notes",
             "0002_add_the_private_vault",
-            "0003_add_note_pinning"
+            "0003_add_passkeys",
+            "0004_add_note_pinning"
         ]
     );
     let pinned = lock.tables["note"]
@@ -960,18 +967,18 @@ fn migrate_status_and_apply_use_the_development_database() {
     assert_eq!(status.status.code(), Some(0), "{}", stderr(&status));
     assert_eq!(
         stdout(&status),
-        "pending  0001_create_accounts_and_notes\npending  0002_add_note_pinning\npending  0003_add_the_private_vault\n"
+        "pending  0001_create_accounts_and_notes\npending  0002_add_note_pinning\npending  0003_add_the_private_vault\npending  0004_add_passkeys\n"
     );
     let apply = k(&["migrate", "apply"], &dir.0);
     assert_eq!(apply.status.code(), Some(0), "{}", stderr(&apply));
     assert_eq!(
         stdout(&apply),
-        "applied migration 0001_create_accounts_and_notes\napplied migration 0002_add_note_pinning\napplied migration 0003_add_the_private_vault\n"
+        "applied migration 0001_create_accounts_and_notes\napplied migration 0002_add_note_pinning\napplied migration 0003_add_the_private_vault\napplied migration 0004_add_passkeys\n"
     );
     let status = k(&["migrate", "status"], &dir.0);
     assert_eq!(
         stdout(&status),
-        "applied  0001_create_accounts_and_notes\napplied  0002_add_note_pinning\napplied  0003_add_the_private_vault\n"
+        "applied  0001_create_accounts_and_notes\napplied  0002_add_note_pinning\napplied  0003_add_the_private_vault\napplied  0004_add_passkeys\n"
     );
     let again = k(&["migrate", "apply"], &dir.0);
     assert_eq!(stdout(&again), "the database is up to date\n");
@@ -1491,6 +1498,32 @@ fn test_pushes_through_the_push_doubles() {
         "PASS  AlertsApi › an expired subscription says so, and the others still get it",
         "PASS  AlertsApi › a ping is recorded with its page and time to live",
         "PASS  AlertSwitch › the click asks and subscribes",
+    ] {
+        assert!(text.contains(name), "{name}\n{text}");
+    }
+}
+
+#[test]
+fn test_signs_up_and_in_with_the_test_authenticator() {
+    // `Passkeys` against `TestAuthenticator` and the real `PasskeyVerifier`
+    // (docs/design/51-passkeys.md, "Tests"): real CBOR and signatures for
+    // ES256, EdDSA and RS256, a dismissed sheet, an unsupported browser,
+    // another origin, no user verification, a used, replaced or
+    // other-ceremony challenge, a regressed counter, a swapped user handle,
+    // a forged signature and an excluded credential.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/passkeys");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("21 passed; 0 failed"), "{text}");
+    for name in [
+        "PASS  PasskeyFlow › signing in after signing out uses the passkey",
+        "PASS  PasskeyFlow › RS256 signs up and in",
+        "PASS  PasskeyFlow › a passkey from another origin is refused",
+        "PASS  PasskeyFlow › a used challenge can't be used again",
+        "PASS  PasskeyFlow › a counter that goes back is a cloned passkey",
+        "PASS  PasskeyPanel › the clicks sign up, out and in",
     ] {
         assert!(text.contains(name), "{name}\n{text}");
     }

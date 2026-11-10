@@ -1837,7 +1837,12 @@ format change is a reviewed diff):
   `PushSubscriptions` against `TestPushSubscriptions` and `WebPush` against `RecordingWebPush` (the prompt
   from a click, subscribing with the server's key, a refused, dismissed or unsupported browser, a server
   without a key, expired subscriptions, failures, `PushSubscription` through JSON), and the same fixture under
-  `k run` against `push.rs`' fake push service; and `fixtures/realtime`, every test must pass: channels
+  `k run` against `push.rs`' fake push service; and `fixtures/passkeys`, every test must pass: `Passkeys`
+  against `TestAuthenticator` (real CBOR, keys and signatures from `op_k_passkey_test_register` and
+  `_assert`) and the real `PasskeyVerifier`: sign-up and sign-in with ES256, EdDSA and RS256, a dismissed
+  sheet, an unsupported browser, another origin, no user verification, a used, replaced or other-ceremony
+  challenge, a regressed counter, a swapped user handle, a forged signature and an excluded credential,
+  and the same fixture under `k run` in Chrome with DevTools' virtual authenticator; and `fixtures/realtime`, every test must pass: channels
   in-process through `TestChannels` (resume without loss, a restart with a new snapshot, offline, hours
   of heartbeats, `open`), `TestPeers` (a second browser posting, refused, a guest, sessions ended by
   `endAll` and by the peer's own sign-out) and `TestChannel` for a service alone; and `fixtures/feeds`, every

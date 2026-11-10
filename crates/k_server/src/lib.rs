@@ -107,6 +107,7 @@ pub mod jobs;
 pub mod metrics;
 pub mod ops;
 pub mod outbound;
+pub mod passkey;
 pub mod process;
 pub mod proxy;
 pub mod push;

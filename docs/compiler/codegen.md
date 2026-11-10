@@ -1096,7 +1096,8 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   `k.device.BrowserFiles`, `BrowserClipboard`, `BrowserShare`, `BrowserGeolocation`, `BrowserTabMessaging` and
   `BrowserNotifications`, which the entry's `$App` constructs for `Files`, `Clipboard`, `Share`, `Geolocation`,
   `TabMessaging` and `Notifications`, and `k.http.StandardWebSocketClient(WebSocketError, WebSocketMessage,
-  WebSocketState)` for `WebSocketClient`
+  WebSocketState)` for `WebSocketClient`, and `k.auth.BrowserPasskeys` (`passkeys.[hash].js`) for `Passkeys`
+  ([51-passkeys.md](../design/51-passkeys.md))
   (`BrowserTabMessaging("<storage namespace>", import.meta.url)`: the entry's URL names the build;
   `BrowserNotifications(Page$href)`: a notification's page becomes its URL), and the stdlib services
   `PageVisibility`, `Connectivity`, `Preferences` and `Viewport`, which it constructs under their own

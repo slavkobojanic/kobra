@@ -713,7 +713,7 @@ test VaultService {
 
 - **Streaming encryption** of large files (`Stream<Bytes>`), for example as chunked AES-GCM with the STREAM construction, together with streaming in [42-files.md](42-files.md).
 - **Key commitment.** AES-GCM isn't key-committing, which matters for messages encrypted to several recipients ("invisible salamanders"). A committing variant could become `Sealed` format version 2.
-- **Passkeys and WebAuthn** will reuse `EcdsaP256PublicKey` and `Ed25519PublicKey` for credential public keys, when [26-auth-and-sessions.md](26-auth-and-sessions.md) takes them up.
+- Resolved by [51-passkeys.md](51-passkeys.md): passkeys keep a credential's public key as its COSE key text rather than as `EcdsaP256PublicKey` or `Ed25519PublicKey` (a credential may be any of three algorithms, RS256 among them, and only the verifier reads it), and their signatures are checked by `ring` inside `k_server::passkey`, not through `k.crypto`.
 - **A caching `JwksClient`** for identity providers, with OAuth.
 - Resolved while reconciling with 45 and 46: `persist()` became the `@UserAction` `requestPersistence()`, because Firefox prompts for it; the public ECDH P-256 types were cut (their one use, Web Push, is internal), which also drops the `p256` crate; and the browser-side vector and differential tests run in the planned real-browser suite rather than `browser.rs`, which drives a fake DOM.
 - **Older browsers without Ed25519 or X25519 in Web Crypto:** K either refuses to run there, with a clear message, or gives these keys no fallback. This follows the browser baseline in [38-deployment.md](38-deployment.md).

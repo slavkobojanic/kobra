@@ -1025,6 +1025,7 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("tabs", "k:/runtime/tabs.js", "k/device"),
     ("notifications", "k:/runtime/notifications.js", "k/device"),
     ("push", "k:/runtime/push.js", "k/device"),
+    ("passkeys", "k:/runtime/passkeys.js", "k/auth"),
     ("wakelock", "k:/runtime/wakelock.js", "k/device"),
     ("environment", "k:/runtime/environment.js", "k/device"),
     ("media", "k:/runtime/media.js", "k/media"),

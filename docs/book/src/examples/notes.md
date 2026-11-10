@@ -1,7 +1,7 @@
 # Notes: a full-stack app with accounts
 
 `examples/notes` is a notes app with everything a real full-stack app needs: accounts with email and
-password, notes with tags in SQLite, a list that stays live across browser tabs, editing that
+password or a passkey, notes with tags in SQLite, a list that stays live across browser tabs, editing that
 never silently overwrites a change made elsewhere, and a private vault whose text the server can't read.
 
 Where the [weather example](weather.md) talks to someone else's API, this one owns both ends: a
@@ -18,11 +18,12 @@ k dev examples/notes      # http://localhost:8080; the database is .k/notes.db, 
 notes/
 ├── App.k                   @Layout(AppLayout), @SignInPage(.signIn)
 ├── migrations/             0001_create_accounts_and_notes.k, 0002_add_note_pinning.k,
-│                           0003_add_the_private_vault.k
+│                           0003_add_the_private_vault.k, 0004_add_passkeys.k
 ├── schema.lock  routes.lock  rpc.lock
 └── src/
     ├── accounts/           AccountId, Account, AccountRepository, AuthProtocol, AuthApi,
-    │                       AuthService, Credentials, SignUpRequest, SignIn, SignUp
+    │                       AuthService, Credentials, SignUpRequest, SignIn, SignUp,
+│                       Passkey, PasskeyRepository, PasskeyService, PasskeySignUp, PasskeySignIn
     ├── notes/              Note, Tag, repositories, NotesProtocol, NotesApi, NoteChanges,
     │                       NotesService, NoteDraft, the Notes, NewNote and EditNote pages
     ├── search/             Searchable, an interface with a default method
@@ -179,6 +180,31 @@ take the browser offline with `TestConnectivity.goOffline()`, which also makes t
 `AuthApi` hashes passwords with Argon2id, verifies against a hash even when the email is unknown (so
 response time reveals nothing), and lets the unique index on the email decide a race between two
 sign-ups. [Authentication and sessions](../apps/auth.md) walks through it.
+
+## Passkeys
+
+Next to the password, the sign-up page offers **Sign up with a passkey** and the sign-in page **Sign in
+with a passkey** ([Authentication and sessions](../apps/auth.md#passkeys)). A passkey account has no
+password: its `passwordHash` is `Password.unusableHash`, which no password matches.
+
+```k
+// examples/notes/src/accounts/AuthApi.k
+    rpc signUpWithPasskey(email: EmailAddress, registration: PasskeyRegistration) async throws SignUpError {
+        // Every check (the session's challenge, the origin, the user
+        // verification, the key) passes, or nothing is stored.
+        let credential = try await verified(registration)
+```
+
+- **The challenge comes first.** `PasskeySignUp` and `PasskeySignIn` fetch their options from an
+  `@Effect` as the page opens, because the device's sheet may only open from the click; after any
+  attempt, `PasskeyService` fetches the next challenge, since each one is good once.
+- **The account and its `Passkey` row are inserted in one transaction,** and both the email and the
+  credential id are `@Unique`, so a race creates neither twice (`migrations/0004_add_passkeys.k`).
+- **Every refusal reads the same to the browser:** `SignUpError.passkeyNotAccepted` and
+  `SignInError.passkeyNotAccepted` say "not accepted" whichever check failed, and the server keeps the
+  reason.
+- `PasskeyService.test.k` signs up, out and in with `TestAuthenticator`, and checks that another site's
+  passkey, a dismissed sheet and a cloned passkey's counter are refused.
 
 ## The private vault
 

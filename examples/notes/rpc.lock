@@ -9,8 +9,23 @@ params = [{ name = "email", type = "EmailAddress" }]
 returns = "Bool"
 throws = "RpcOnlyError"
 
+[protocols."accounts.AuthProtocol".rpcs.passkeySignInOptions]
+params = []
+returns = "PasskeyRequestOptions"
+throws = "RpcOnlyError"
+
+[protocols."accounts.AuthProtocol".rpcs.passkeySignUpOptions]
+params = []
+returns = "PasskeyCreationOptions"
+throws = "RpcOnlyError"
+
 [protocols."accounts.AuthProtocol".rpcs.signIn]
 params = [{ name = "credentials", type = "accounts.Credentials" }]
+returns = "Void"
+throws = "accounts.SignInError"
+
+[protocols."accounts.AuthProtocol".rpcs.signInWithPasskey]
+params = [{ name = "assertion", type = "PasskeyAssertion" }]
 returns = "Void"
 throws = "accounts.SignInError"
 
@@ -21,6 +36,11 @@ throws = "RpcOnlyError"
 
 [protocols."accounts.AuthProtocol".rpcs.signUp]
 params = [{ name = "request", type = "accounts.SignUpRequest" }]
+returns = "Void"
+throws = "accounts.SignUpError"
+
+[protocols."accounts.AuthProtocol".rpcs.signUpWithPasskey]
+params = [{ name = "email", type = "EmailAddress" }, { name = "registration", type = "PasskeyRegistration" }]
 returns = "Void"
 throws = "accounts.SignUpError"
 
@@ -89,12 +109,14 @@ fields = [
 [types."accounts.SignInError"]
 cases = [
     { name = "invalidCredentials" },
+    { name = "passkeyNotAccepted" },
     { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
 ]
 
 [types."accounts.SignUpError"]
 cases = [
     { name = "emailTaken" },
+    { name = "passkeyNotAccepted" },
     { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
 ]
 

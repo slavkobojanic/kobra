@@ -8,6 +8,7 @@ migrations = [
     "0001_create_accounts_and_notes",
     "0002_add_note_pinning",
     "0003_add_the_private_vault",
+    "0004_add_passkeys",
 ]
 
 [tables.account]
@@ -39,6 +40,21 @@ columns = [
     { field = "id", name = "id", type = "uuid", primaryKey = true },
     { field = "note", name = "note_id", type = "uuid", references = "note.id", indexed = true },
     { field = "label", name = "label", type = "text" },
+]
+
+[tables.passkey]
+entity = "accounts.Passkey"
+columns = [
+    { field = "id", name = "id", type = "uuid", primaryKey = true },
+    { field = "accountId", name = "account_id", type = "uuid" },
+    { field = "credentialId", name = "credential_id", type = "text", unique = true },
+    { field = "publicKey", name = "public_key", type = "text" },
+    { field = "signCount", name = "sign_count", type = "integer" },
+    { field = "userHandle", name = "user_handle", type = "text" },
+    { field = "backupEligible", name = "backup_eligible", type = "boolean" },
+    { field = "backedUp", name = "backed_up", type = "boolean" },
+    { field = "createdAt", name = "created_at", type = "timestamp" },
+    { field = "lastUsedAt", name = "last_used_at", type = "timestamp", nullable = true },
 ]
 
 [tables.vault]

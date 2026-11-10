@@ -72,7 +72,7 @@ These were explicitly deferred and may be revisited:
 - An edge deployment target (`k build --target edge`).
 - A design-system component library.
 - Interceptor syntax in `App.k`, and per-page rendering modes.
-- OAuth providers and passkeys.
+- OAuth providers.
 - Typed IndexedDB collections, session storage and cookies in `k.storage`.
 - Online migrations for large tables.
 

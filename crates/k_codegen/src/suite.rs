@@ -232,6 +232,7 @@ pub(crate) fn rule_types(g: &Gen<'_>, d: DeclId) -> Vec<DeclId> {
 /// only on the server (21-testing.md, "Which side a test runs on").
 const SERVER_STDLIB: &[&str] = &[
     "k.auth.SessionManager",
+    "k.auth.PasskeyVerifier",
     "k.test.TestClient",
     "k.test.RecordingEmailProvider",
     "k.test.RecordingJobQueue",

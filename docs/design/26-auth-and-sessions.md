@@ -173,6 +173,10 @@ An OAuth provider sends the user back to a fixed URL, so the callback is an endp
 - The callback page injects `Session`, and a server-side service it calls checks `consumeState(state)` before calling `signIn`. The state lives in the server-side session row, so no hand-written cookie is needed and login CSRF is prevented.
 - The callback ends with `HttpResponse.redirect(to: .home)`.
 
+## Passkeys
+
+Passkeys (WebAuthn) are [51-passkeys.md](51-passkeys.md): the browser's `Passkeys` runs the ceremonies, the server's `PasskeyVerifier` issues challenges into the current session (single-use, ten minutes, like `issueState()`) and verifies what comes back, and the app stores each credential in its own entity and calls `sessions.signIn(userId:)` after a verified sign-in, as after a password check.
+
 ## Passwords
 
 `Password.hash(password:)` and `Password.verify(password:hash:)` (Argon2id, server-only, `async`) and `Password.unusableHash` are in `k.crypto` ([33-crypto.md](33-crypto.md#passwords)). Logging a field named `password`, or one whose type is `Secret<…>`, is a compile-time warning.
@@ -194,6 +198,6 @@ An OAuth provider sends the user back to a fixed URL, so the callback is an endp
 
 ## Open questions
 
-- OAuth providers and passkeys: the provider interfaces and the stdlib's own callback services.
+- OAuth providers: the provider interfaces and the stdlib's own callback services. Passkeys are designed and built in [51-passkeys.md](51-passkeys.md): `Passkeys` in the browser, `PasskeyVerifier` on the server, challenges in the session row, and a `SessionManager.signIn(userId:)` after a verified assertion.
 - Whether `RateLimit` should key on the account rather than the session for signed-in users.
 - A dedicated guard for token-authenticated endpoints (`requires BearerToken(…)`), instead of checking the token in the handler.

@@ -490,6 +490,7 @@ fn shipped_client_assets() {
         ("notifications.", k_runtime::NOTIFICATIONS_SIZE_BUDGET),
         ("push.", k_runtime::PUSH_SIZE_BUDGET),
         ("keycodec.", k_runtime::PUSH_SIZE_BUDGET),
+        ("passkeys.", k_runtime::PASSKEYS_SIZE_BUDGET),
         ("wakelock.", k_runtime::WAKE_LOCK_SIZE_BUDGET),
         ("environment.", k_runtime::ENVIRONMENT_SIZE_BUDGET),
         ("observe.", k_runtime::OBSERVE_SIZE_BUDGET),

@@ -39,7 +39,7 @@ import { received } from "../runtime/outbound.js";
 import { hasNative, native as browserNative } from "../runtime/services.js";
 import { sessionMirror, takeMirror } from "../runtime/rpc.js";
 import { navigate } from "../runtime/router.js";
-import { RequestState, sessionManager, natives as serverNatives } from "../runtime/app.js";
+import { RequestState, info as serverInfo, sessionManager, natives as serverNatives } from "../runtime/app.js";
 import { channelEnv } from "../runtime/channels.js";
 import { install as installDom } from "./dom.js";
 import { createFront, testChannel as scriptedChannel } from "./channels.js";
@@ -130,6 +130,7 @@ const TRACKED_OPS = [
   "op_k_session_delete",
   "op_k_session_end_all",
   "op_k_session_issue_state",
+  "op_k_session_issue_challenge",
   "op_k_session_consume_state",
   "op_k_rate_limit",
   "op_k_password_hash",
@@ -2245,6 +2246,102 @@ export function testPushSubscriptions() {
     },
     failNextSubscribe(error) {
       failure = error;
+    },
+  };
+}
+
+/**
+ * `k.test.TestAuthenticator`: a working authenticator for `Passkeys`
+ * (docs/design/51-passkeys.md, "Tests"). The CBOR, the keys and the
+ * signatures are `k_server::passkey`'s test ceremonies
+ * (`op_k_passkey_test_register` and `_assert`), so the server's real
+ * verifier checks what this produces. It holds `{id, algorithm, key,
+ * userHandle, rpId}` per passkey (key `n` is the `n`th passkey made), its
+ * counter starts at 0 and counts each assertion, and its client data names
+ * the public origin unless `setOrigin` says otherwise. `PasskeyAlgorithm`
+ * `0` is `es256`, `1` `edDSA`, `2` `rs256`; `PasskeyError` `0`
+ * `unsupported`, `1` `cancelled`, `2` `alreadyRegistered`.
+ */
+export function testAuthenticator() {
+  const ops = globalThis.Deno?.core?.ops;
+  const ALGORITHMS = ["es256", "edDSA", "rs256"];
+  let supported = true;
+  let algorithm = 0;
+  let dismiss = false;
+  let verified = true;
+  let origin = null;
+  let count = 0;
+  let prompts = 0;
+  let made = 0;
+  let held = [];
+  /** One ceremony: its JSON result, or a panic naming what failed. */
+  const ceremony = (op, input) => {
+    if (!ops?.[op]) throw new KPanic("TestAuthenticator: no passkey ops here");
+    const out = ops[op](JSON.stringify({ ...input, origin: origin ?? serverInfo().publicOrigin.replace(new RegExp("/+$"), ""), userVerified: verified }));
+    if (out === "") throw new KPanic("TestAuthenticator: the ceremony's input was refused");
+    return JSON.parse(out);
+  };
+  /** Opens the sheet: `.unsupported`, or `.cancelled` once after `dismissNext`. */
+  const sheet = () => {
+    if (!supported) throw unitCase(0);
+    prompts++;
+    if (dismiss) {
+      dismiss = false;
+      throw unitCase(1);
+    }
+  };
+  return {
+    get isSupported() {
+      return supported;
+    },
+    get passkeys() {
+      return held.map((p) => p.id);
+    },
+    get prompts() {
+      return prompts;
+    },
+    async register(_c, o, _name) {
+      sheet();
+      const excluded = new Set(o.excluded ?? []);
+      if (held.some((p) => p.rpId === o.rpId && excluded.has(p.id))) throw unitCase(2);
+      const key = ++made;
+      const out = ceremony("op_k_passkey_test_register", { algorithm: ALGORITHMS[algorithm], key, rpId: o.rpId, challenge: o.challenge, signCount: 0 });
+      // A device keeps one passkey per site and user handle.
+      held = held.filter((p) => !(p.rpId === o.rpId && p.userHandle === o.userHandle));
+      held.push({ id: out.credentialId, algorithm: ALGORITHMS[algorithm], key, userHandle: o.userHandle, rpId: o.rpId });
+      return { credentialId: out.credentialId, clientDataJSON: out.clientDataJSON, attestationObject: out.attestationObject };
+    },
+    async signIn(_c, o) {
+      sheet();
+      const allowed = o.allowed ?? [];
+      const usable = held.filter((p) => p.rpId === o.rpId && (allowed.length === 0 || allowed.includes(p.id)));
+      const p = usable[usable.length - 1];
+      if (!p) throw unitCase(1);
+      count++;
+      const out = ceremony("op_k_passkey_test_assert", { algorithm: p.algorithm, key: p.key, rpId: o.rpId, challenge: o.challenge, signCount: count });
+      return { credentialId: p.id, clientDataJSON: out.clientDataJSON, authenticatorData: out.authenticatorData, signature: out.signature, userHandle: p.userHandle };
+    },
+    useAlgorithm(a) {
+      algorithm = a.$;
+    },
+    dismissNext() {
+      dismiss = true;
+    },
+    setUserVerified(value) {
+      verified = value === true;
+    },
+    setOrigin(o) {
+      origin = String(o);
+    },
+    setSignCount(n) {
+      // The next assertion reports `n`.
+      count = n - 1;
+    },
+    forgetPasskeys() {
+      held = [];
+    },
+    setSupported(value) {
+      supported = value === true;
     },
   };
 }

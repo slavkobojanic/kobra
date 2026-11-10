@@ -239,7 +239,7 @@ do {
     try await auth.signIn(credentials: credentials.value)
 
     Router.navigate(to: returnTo)
-} catch .invalidCredentials {
+} catch .invalidCredentials, .passkeyNotAccepted {
     problem = "That email and password don't match an account."
 } catch .rpcFailure(.invalid(let failure)) {
     throw failure
@@ -330,7 +330,92 @@ An OAuth provider sends the user back to a fixed URL, so the callback is an
 service it calls checks `consumeState(state)` before calling `signIn`. It ends with
 `HttpResponse.redirect(to: .home)`.
 
-OAuth providers and passkeys themselves are deferred by the design.
+OAuth providers themselves are deferred by the design.
+
+## Passkeys
+
+A passkey is a key pair the person's device keeps for your site and unlocks with a fingerprint, a face
+or the device's PIN. K's passkeys are WebAuthn with no third party: the relying party is your app (its
+id is the host of `K_PUBLIC_ORIGIN`), and nothing is fetched from a vendor. Two stdlib services split the
+work, one per side, and your app stores the credentials in an entity of its own:
+
+- **`Passkeys`** (client-only, `k.auth`) runs the two ceremonies in the browser:
+  `register(_:name:)` makes a passkey and `signIn(_:)` uses one. Both open the device's passkey sheet, so
+  both are `@UserAction`: call them from a click, before any other `await`.
+- **`PasskeyVerifier`** (server-only, `k.auth`) issues each ceremony's challenge into the current
+  session and checks what the browser returns: the origin, the RP id, user verification, the signature
+  (ES256, EdDSA or RS256) and the signature counter. A refusal is a `PasskeyVerificationError`.
+- **A verified sign-in signs nobody in.** You look the credential up, verify, and call
+  `sessions.signIn(userId:)` yourself, exactly as after checking a password.
+
+Because the sheet may only open from the click, the options (and their challenge) are fetched before
+it, from an effect:
+
+```k
+// examples/notes/src/accounts/PasskeySignIn.k
+    @Effect
+    func prepare() async {
+        await passkeys.prepareSignIn()
+    }
+```
+
+```k
+// examples/notes/src/accounts/PasskeyService.k
+        do {
+            let assertion = try await passkeys.signIn(options)
+            problem = await signInWith(assertion: assertion)
+        } catch let refusal {
+            problem = deviceProblem(refusal, making: false)
+        }
+```
+
+On the server, the rpc finds the stored credential by its id, verifies, writes back the new counter and
+signs the account in:
+
+```k
+// examples/notes/src/accounts/AuthApi.k
+    rpc signInWithPasskey(assertion: PasskeyAssertion) async throws SignInError {
+        guard let passkey = await passkeys.byCredentialId(assertion.credentialId) else {
+            throw SignInError.passkeyNotAccepted
+        }
+
+        do {
+            let used = try await verifier.verifySignIn(assertion, credential: passkey.credential())
+            await passkeys.recordUse(passkey, signCount: used.signCount, backedUp: used.backedUp, at: clock.now)
+        } catch _ {
+            throw SignInError.passkeyNotAccepted
+        }
+
+        await sessions.signIn(userId: passkey.accountId)
+    }
+```
+
+- **Challenges are single-use, bound to the session and good for ten minutes.** Each options call
+  replaces the session's previous challenge, and the next verification consumes it whether it succeeds
+  or not, so fetch new options after every attempt.
+- **Store a `PasskeyCredential`'s fields in your own entity,** with the credential id `@Unique`: an
+  entity column can't hold a struct. Every field is base64url text, a number or a flag.
+- **Attestation is `"none"`.** K never checks which make of device holds the key: that would need a
+  vendor's metadata service, and synced passkeys don't attest anyway.
+- **Catch the device's errors and the server's in a `do` each.** `PasskeyError` (the sheet was
+  dismissed, the browser has no WebAuthn) and your rpc's error enum are different types; the notes
+  example sends the passkey to the server from a helper with its own `do`.
+
+In tests, `TestAuthenticator` (from `k.test`) replaces `Passkeys`. It is a working authenticator: it
+holds real keys, writes real CBOR and signs real assertions, so the real `PasskeyVerifier` checks them.
+`setOrigin(_:)` plays a phishing page, `setUserVerified(false)` a security key without a PIN,
+`setSignCount(_:)` a cloned passkey and `dismissNext()` a dismissed sheet:
+
+```k
+// examples/notes/src/accounts/PasskeyService.test.k
+    test "a passkey made on another site isn't accepted" {
+        authenticator.setOrigin("https://k-notes.example.evil")
+        await passkeys.prepareSignUp()
+
+        expect await passkeys.signUp(email: EmailAddress("ada@example.com")) == "That passkey wasn't accepted. Try again."
+        expect session.user == nil
+    }
+```
 
 ## Passwords
 

@@ -244,7 +244,7 @@ A wrapper reaches Tier 1 when it is Baseline in all three engines (or degrades t
 | Speech synthesis | 2 | `Speech.speak(_:)` | Baseline, local voices, no account; voices differ per device |
 | Speech recognition | 3 | | Chromium streams audio to its vendor's servers, which is third-party processing; Gecko lacks it. Revisit when on-device recognition ships in two engines |
 | Intl: numbers, dates, plurals, lists, collation, segmentation | covered | `k.i18n`, `k.time` ([35](35-time.md)), `String` | always in the metadata locale ([22](22-metadata.md)), on both sides, so server and browser output agree; the server runtime ships full ICU data |
-| WebAuthn, passkeys | 2 | `Passkeys` (client, `@UserAction`), verification in `k.auth` | [26](26-auth-and-sessions.md#open-questions) deferred them; attestation parsing and signature checks with Web Crypto, no third-party account |
+| WebAuthn, passkeys | 2 | `Passkeys` (client, `@UserAction`), `PasskeyVerifier` (server, `k.auth`) | [51-passkeys.md](51-passkeys.md): attestation `"none"`, verification in Rust ops on the server (the server has no Web Crypto), no third-party account |
 | Credential Management (stored passwords) | Not wrapping | | autocomplete attributes on the form fields already cover it ([15](15-forms-and-validation.md)) |
 | Payment Request | Not wrapping | | every payment method needs a payment processor or merchant account; vendor integrations are git packages ([20](20-standard-library.md)) |
 | Canvas 2D | 2 | `k.graphics` | charts stay SVG ([37](37-charts.md)) for accessibility and server rendering |
@@ -834,6 +834,8 @@ public interface TabMessaging {
 | `appeared`, `disappeared`, `resized` | browser only; never fire on the server | element event | handle actions |
 | `WebPush` (Tier 2, [50](50-push.md)) | server-only | platform interface | `RecordingWebPush` |
 | `PushSubscriptions` (Tier 2, [50](50-push.md)) | client-only | platform interface | `TestPushSubscriptions` |
+| `Passkeys` (Tier 2, [51](51-passkeys.md)) | client-only | platform interface | `TestAuthenticator` |
+| `PasskeyVerifier` (Tier 2, [51](51-passkeys.md)) | server-only | stdlib service | none: the real verifier checks `TestAuthenticator`'s signatures |
 
 ## Why
 

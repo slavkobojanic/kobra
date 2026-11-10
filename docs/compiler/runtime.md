@@ -1264,6 +1264,28 @@ server's half: `SignallingRelay` and `iceServers` ([server.md §20](server.md#20
   message that isn't that JSON is shown titled with the scope's host.
 - **The server half** is `outbound.js`' `vapidWebPush` ([server.md §18](server.md#18-outgoing-http-and-email)).
 
+### 12.17 Passkeys
+
+`passkeys.js` (part `Passkeys`), a feature chunk, is `k.auth.BrowserPasskeys`
+([51-passkeys.md](../design/51-passkeys.md)), constructed by the client entry's `$App` for `Passkeys` as
+`BrowserPasskeys()`. It only moves bytes: every check is the server's.
+
+- `isSupported` is a secure context with `PublicKeyCredential` and `navigator.credentials`.
+- `register(c, options, name)` calls `navigator.credentials.create({publicKey})` with the options'
+  challenge and user handle as bytes, `rp: {id: rpId, name: rpName}`, `name` as the user's `name` and
+  `displayName`, `pubKeyCredParams` EdDSA (`-8`), ES256 (`-7`) and RS256 (`-257`), `excludeCredentials`,
+  `authenticatorSelection: {residentKey: "required", userVerification: "required"}`, `attestation: "none"` and a 300,000 ms timeout, and returns `{credentialId,
+  clientDataJSON, attestationObject}` as base64url.
+- `signIn(c, options)` calls `get({publicKey: {challenge, rpId, allowCredentials, userVerification:
+  "required", timeout}})` and returns `{credentialId, clientDataJSON, authenticatorData, signature,
+  userHandle}` (`userHandle` `null` when the authenticator sent none).
+- `PasskeyError`: `unitCase(0)` `unsupported` without calling the browser; a rejection is `1`
+  (`cancelled`) for `NotAllowedError` and `AbortError`, `2` (`alreadyRegistered`) for
+  `InvalidStateError`, else `3` (`failed`). Both members call the browser before their first `await`, so
+  the click's activation reaches it.
+- **The server half** is `app.js`' `passkeyVerifier` ([server.md, "Passkeys"](server.md#passkeys-passkeyverifier)),
+  and the test double `kit.js`' `testAuthenticator` ([testing.md](testing.md)).
+
 ## 14. Performance budgets
 
 | Area | Budget | Measured (release, Apple M-series) |

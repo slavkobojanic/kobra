@@ -467,6 +467,7 @@ export function sessionManager(st) {
       if (!st.sessionId) {
         st.sessionId = await ops.op_k_session_create(null, []);
         st.setCookie = st.cookie(st.sessionId);
+        changed();
       }
       const state = await ops.op_k_session_issue_state(st.sessionId);
       if (state === null) throw new KPanic("sessions: the session to bind the OAuth state to is gone");
@@ -477,6 +478,128 @@ export function sessionManager(st) {
       st.user();
       if (!st.sessionId) return false;
       return ops.op_k_session_consume_state(st.sessionId, String(state));
+    },
+  };
+}
+
+// --------------------------------------------------------------- passkeys
+
+/** The ceremony byte after a passkey challenge's random part. */
+const PASSKEY_REGISTER = 1;
+const PASSKEY_SIGN_IN = 2;
+
+/** `PasskeyVerificationError`'s cases, in order, by the ops' names. */
+const PASSKEY_REFUSALS = [
+  "challengeMismatch",
+  "originMismatch",
+  "rpIdMismatch",
+  "userNotVerified",
+  "unsupportedAlgorithm",
+  "invalidSignature",
+  "signCountRegressed",
+  "credentialMismatch",
+  "malformed",
+];
+
+/** The `PasskeyVerificationError` case named `name`. */
+const passkeyRefusal = (name) => unitCase(Math.max(0, PASSKEY_REFUSALS.indexOf(name)));
+
+/**
+ * The `k.auth.PasskeyVerifier` of a request (docs/design/51-passkeys.md):
+ * challenges are the session's state (`op_k_session_issue_challenge`,
+ * taken once by `op_k_session_consume_state`) with the ceremony and, for
+ * a registration, the user handle after their 32 random bytes; the checks
+ * are `op_k_passkey_verify_*` (`k_server::passkey`). The relying party is
+ * the public origin and its host. User verification is always required.
+ * @param {RequestState} st
+ */
+export function passkeyVerifier(st) {
+  const origin = () => {
+    let o = info().publicOrigin;
+    while (o.endsWith("/")) o = o.slice(0, -1);
+    return o;
+  };
+  // The origin's host without its port (the server has no `URL`).
+  const rpId = () => {
+    const o = origin();
+    let host = o.slice(o.indexOf("://") + 3);
+    const end = host.search(new RegExp("[/?#]"));
+    if (end >= 0) host = host.slice(0, end);
+    const port = host.startsWith("[") ? host.indexOf("]") + 1 : host.lastIndexOf(":");
+    return (port > 0 && port < host.length ? host.slice(0, port) : host).toLowerCase();
+  };
+  /** A challenge for `ceremony` (and `extra`) in this browser's session. */
+  const issue = async (ceremony, extra) => {
+    st.user();
+    if (!st.sessionId) {
+      st.sessionId = await ops.op_k_session_create(null, []);
+      st.setCookie = st.cookie(st.sessionId);
+      // A test's later requests carry the guest session, as a browser's would.
+      st.test?.sessionChanged?.(st);
+    }
+    const challenge = await ops.op_k_session_issue_challenge(st.sessionId, Uint8Array.of(ceremony, ...extra));
+    if (challenge === null) throw new KPanic("passkeys: the session to bind the challenge to is gone");
+    return challenge;
+  };
+  /**
+   * Takes the challenge `clientDataJSON` names: its bytes after the random
+   * part, when it was issued to this session for `ceremony`, else throws
+   * `.challengeMismatch` (or `.malformed`).
+   */
+  const take = async (clientDataJSON, ceremony) => {
+    const json = crypto.fromB64url(clientDataJSON);
+    let challenge = null;
+    try {
+      if (json) challenge = JSON.parse(utf8(json))?.challenge;
+    } catch {
+      // Not UTF-8 JSON: malformed, below.
+    }
+    const raw = typeof challenge === "string" ? crypto.fromB64url(challenge) : null;
+    if (raw === null) throw passkeyRefusal("malformed");
+    st.user();
+    const issued = st.sessionId ? await ops.op_k_session_consume_state(st.sessionId, challenge) : false;
+    if (!issued || raw.length < 33 || raw[32] !== ceremony) throw passkeyRefusal("challengeMismatch");
+    return { challenge, extra: raw.subarray(33) };
+  };
+  /** Runs an op, returning its `ok` or throwing its refusal. */
+  const check = (op, input) => {
+    const out = JSON.parse(op(JSON.stringify({ ...input, rpId: rpId(), origin: origin(), requireUserVerification: true })));
+    if (out.error) throw passkeyRefusal(out.error);
+    return out.ok;
+  };
+  return {
+    async registrationOptions(_c, userHandle, excluding) {
+      const handle = userHandle == null ? crypto.random(32) : crypto.fromB64url(userHandle);
+      if (handle === null || handle.length < 1 || handle.length > 64) throw new KPanic("passkeys: a user handle is 1 to 64 bytes of base64url");
+      const challenge = await issue(PASSKEY_REGISTER, handle);
+      return { challenge, rpId: rpId(), rpName: rpId(), userHandle: crypto.b64url(handle), excluded: [...(excluding ?? [])] };
+    },
+    async verifyRegistration(_c, r) {
+      const { challenge, extra } = await take(r.clientDataJSON, PASSKEY_REGISTER);
+      const ok = check(ops.op_k_passkey_verify_registration, {
+        clientDataJSON: r.clientDataJSON,
+        attestationObject: r.attestationObject,
+        credentialId: r.credentialId,
+        challenge,
+      });
+      return { id: ok.id, publicKey: ok.publicKey, signCount: ok.signCount, userHandle: crypto.b64url(extra), backupEligible: ok.backupEligible, backedUp: ok.backedUp };
+    },
+    async signInOptions(_c, allowing) {
+      const challenge = await issue(PASSKEY_SIGN_IN, []);
+      return { challenge, rpId: rpId(), allowed: [...(allowing ?? [])] };
+    },
+    async verifySignIn(_c, a, credential) {
+      const { challenge } = await take(a.clientDataJSON, PASSKEY_SIGN_IN);
+      if (a.credentialId !== credential.id || (a.userHandle != null && a.userHandle !== credential.userHandle)) throw passkeyRefusal("credentialMismatch");
+      const ok = check(ops.op_k_passkey_verify_assertion, {
+        clientDataJSON: a.clientDataJSON,
+        authenticatorData: a.authenticatorData,
+        signature: a.signature,
+        publicKey: credential.publicKey,
+        signCount: credential.signCount,
+        challenge,
+      });
+      return { ...credential, signCount: ok.signCount, backupEligible: ok.backupEligible, backedUp: ok.backedUp };
     },
   };
 }

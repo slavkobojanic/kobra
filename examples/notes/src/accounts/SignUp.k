@@ -24,6 +24,8 @@ public page SignUp {
             Router.navigate(to: .notes)
         } catch .emailTaken {
             problem = "An account with this email was created a moment ago. Sign in instead."
+        } catch .passkeyNotAccepted {
+            problem = "That passkey wasn't accepted. Try again."
         } catch .rpcFailure(.invalid(let failure)) {
             throw failure
         } catch .rpcFailure(.rejected) {
@@ -62,6 +64,8 @@ public page SignUp {
         }
         .class(.form)
         .on(submit: request.handle(submit))
+
+        PasskeySignUp()
 
         paragraph {
             "Already have an account? "

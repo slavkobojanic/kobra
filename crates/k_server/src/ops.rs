@@ -16,6 +16,7 @@
 //! | `op_k_utf8_valid` | `(bytes: Uint8Array) => boolean` | `TextDecoder` with `fatal: true` (rpc bodies, `request.text()`) |
 //! | `op_k_session_get` / `_create` / `_delete` / `_end_all` | the session store, async (`k_session` with a database) | `Session`, `SessionManager` |
 //! | `op_k_session_issue_state` / `_consume_state` | `(id) => Promise<state \| null>`, `(id, state) => Promise<boolean>` | OAuth state |
+//! | `op_k_session_issue_challenge` | `(id, extra: Uint8Array) => Promise<state \| null>`: 32 random bytes and `extra`, base64url | passkey challenges |
 //! | `op_k_rate_limit` | `(key, limit, windowMs, nowMs) => Promise<retryAfterSeconds>` (0: allowed; `nowMs` a test's virtual time, else negative) | `RateLimit` |
 //! | `op_k_shared_get` / `op_k_shared_set` | `(key) => json \| null`, `(key, json)` | `@Scope(.server)` state |
 //! | `op_k_broadcast_subscribe` / `_publish` / `_next` / `_close` | keyed broadcasts | `Broadcast` |
@@ -640,6 +641,27 @@ async fn op_k_session_issue_state(
 ) -> Result<serde_json::Value, JsErrorBox> {
     Ok(process_of(&state)
         .session_issue_state(&id)
+        .await
+        .map_err(|e| JsErrorBox::generic(format!("sessions: {e}")))?
+        .map_or(serde_json::Value::Null, serde_json::Value::String))
+}
+
+/// Binds a passkey challenge to a session: 32 random bytes and `extra`,
+/// as base64url, or `null` without the session
+/// (`docs/design/51-passkeys.md`).
+///
+/// # Errors
+///
+/// The session store failed.
+#[op2]
+#[serde]
+async fn op_k_session_issue_challenge(
+    state: Rc<RefCell<OpState>>,
+    #[string] id: String,
+    #[buffer(copy)] extra: Vec<u8>,
+) -> Result<serde_json::Value, JsErrorBox> {
+    Ok(process_of(&state)
+        .session_issue_challenge(&id, &extra)
         .await
         .map_err(|e| JsErrorBox::generic(format!("sessions: {e}")))?
         .map_or(serde_json::Value::Null, serde_json::Value::String))
@@ -1394,6 +1416,7 @@ deno_core::extension!(
         op_k_session_delete,
         op_k_session_end_all,
         op_k_session_issue_state,
+        op_k_session_issue_challenge,
         op_k_session_consume_state,
         op_k_rate_limit,
         op_k_shared_get,
@@ -1432,6 +1455,10 @@ deno_core::extension!(
         crate::crypto::op_k_crypto_rsa_verify,
         crate::push::op_k_push_encrypt,
         crate::push::op_k_push_vapid,
+        crate::passkey::op_k_passkey_verify_registration,
+        crate::passkey::op_k_passkey_verify_assertion,
+        crate::passkey::op_k_passkey_test_register,
+        crate::passkey::op_k_passkey_test_assert,
         op_k_fetch,
         op_k_fetch_abort,
         op_k_ws_connect,

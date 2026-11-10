@@ -792,6 +792,30 @@ and `Bytes.parse(base64:)` are server natives. The shop's Stripe webhook verific
 - **`RecordingWebPush`** (`$s.recordingWebPush(WebPushError)`), one per test: `sent`, `expire`,
   `simulateFailure`, `stopFailing`, `setConfigured`, and a fixed `serverKey`.
 
+### Passkeys: `PasskeyVerifier`
+
+[51-passkeys.md](../design/51-passkeys.md). `PasskeyVerifier` is `$s.passkeyVerifier($r)` (`app.js`),
+memoized per request container like `SessionManager`; a test build uses the same verifier, against
+`TestAuthenticator`'s real signatures.
+
+- **The relying party** is `K_PUBLIC_ORIGIN` (without a trailing slash) and its host without the port,
+  lower-cased; `rpName` is the RP id too.
+- **Challenges** are `op_k_session_issue_challenge(session, extra)` (`ProcessState::session_issue_challenge`):
+  base64url of 32 random bytes, a ceremony byte (`1` registration, `2` sign-in) and, for a registration,
+  the user handle (1 to 64 bytes; 32 random ones when the app passes none). It is stored hashed as the
+  session's OAuth state, replacing any earlier one, for ten minutes (`OAUTH_STATE_LIFETIME`). A guest
+  gets a guest session and its cookie first, as for `issueState()`, and a test's later requests carry it.
+- **Verification** reads the challenge out of the client data JSON, takes it with
+  `op_k_session_consume_state` (so it is used up whatever follows), checks its ceremony byte, then calls
+  **`op_k_passkey_verify_registration`** or **`op_k_passkey_verify_assertion`** (`k_server::passkey`: the
+  client data's type, challenge, origin, `crossOrigin` and `topOrigin`; the authenticator data's RP id
+  hash, UP and UV flags and layout; the COSE key; the signature over `authenticatorData ‖
+  SHA-256(clientDataJSON)`; the counter). User verification is always required. A registration's user
+  handle is the one in the challenge, never the browser's; a sign-in checks the credential id and, when
+  sent, the user handle against the stored credential before the op.
+- **Refusals** are the op's `{error}` name as the `PasskeyVerificationError` case of the same name
+  (`unitCase`, in the enum's order).
+
 ## 19. Debugging the server
 
 `k run --inspect[=port]` and `k dev --inspect[=port]` (port 9229 by default) set

@@ -1,0 +1,7 @@
+# Passkeys with `TestAuthenticator` against the real `PasskeyVerifier`
+# (docs/design/51-passkeys.md, "Tests"): every test here must pass. `k run`
+# on it is also what `chrome.rs`' passkey tests drive, with Chrome's
+# virtual authenticator.
+[package]
+name = "passkeys"
+k = "0.1"

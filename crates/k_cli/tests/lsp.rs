@@ -698,7 +698,7 @@ fn inlay_hints_show_derived_page_urls() {
         .map(|e| e.path())
         .find(|p| {
             let t = std::fs::read_to_string(p).unwrap_or_default();
-            t.contains("page ")
+            t.contains("public page ")
                 && !t.contains(" at \"")
                 && !p.to_string_lossy().ends_with(".test.k")
         })

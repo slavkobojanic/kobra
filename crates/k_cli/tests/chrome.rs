@@ -1261,6 +1261,10 @@ fn notes(dir: &std::path::Path, with_env: bool) -> (Proc, String) {
 /// Signs up as `email` on the sign-up page and waits for the notes list.
 fn sign_up(tab: &mut Tab, origin: &str, email: &str) {
     tab.open(&format!("{origin}/sign-up"));
+    // The passkey offer appears once its challenge has bound a guest
+    // session (docs/design/51-passkeys.md): signing up before that answer
+    // arrives would race its cookie.
+    tab.role("button", "Sign up with a passkey");
     let field = tab.role("textbox", "Email");
     tab.fill(&field, email);
     let password = tab.css("input[type=password]");
@@ -1342,6 +1346,8 @@ fn notes_signs_up_and_creates_edits_and_deletes_a_note() {
         .wait_event("Page.loadEventFired", since, Duration::from_secs(30))
         .expect("the sign-in page loads after signing out");
     assert_eq!(tab.path(), "/sign-in");
+    // As in `sign_up`: the passkey challenge's guest session first.
+    tab.role("button", "Sign in with a passkey");
     let email = tab.role("textbox", "Email");
     tab.fill(&email, "ada@example.com");
     let password = tab.css("input[type=password]");
@@ -2953,5 +2959,131 @@ fn push_message_is_shown_by_the_service_worker_in_chrome() {
     );
     tab.allow_errors();
     drop(worker);
+    drop(tab);
+}
+
+// ================================================================ passkeys
+
+/// The `passkeys` fixture under `k run` (its public origin
+/// `http://localhost:<port>`), and a tab with Chrome's virtual
+/// authenticator (docs/design/51-passkeys.md, "Tests"): CTAP2 over the
+/// internal transport, with resident keys and user verification, which
+/// answers a ceremony without a sheet, as a platform authenticator whose
+/// user always agrees.
+fn passkeys(dir: &Scratch) -> Option<(Proc, u16, Tab, String)> {
+    copy_project(&repo().join("crates/k_cli/tests/fixtures/passkeys"), &dir.0);
+    let (k, port) = Proc::serve(&["run"], 1, &dir.0, &[], &[], Duration::from_secs(120));
+    let mut tab = page::chrome(&dir.0)?;
+    tab.cdp.call("WebAuthn.enable", json!({}));
+    let added = tab.cdp.call(
+        "WebAuthn.addVirtualAuthenticator",
+        json!({ "options": {
+            "protocol": "ctap2",
+            "transport": "internal",
+            "hasResidentKey": true,
+            "hasUserVerification": true,
+            "isUserVerified": true,
+            "automaticPresenceSimulation": true,
+        } }),
+    );
+    let id = added["authenticatorId"].as_str()?.to_owned();
+    Some((k, port, tab, id))
+}
+
+/// Waits for the panel's status to say `text`, and returns what it says.
+fn passkey_status(tab: &mut Tab, text: &str) -> String {
+    tab.wait(&format!("the status says {text:?}"), |t| {
+        let s = t.eval("document.querySelector('[role=status]')?.textContent ?? ''");
+        let s = s.as_str().unwrap_or_default().to_owned();
+        (s == text).then_some(s)
+    })
+}
+
+/// A passkey made, signed out, and signed in with in real Chrome: the
+/// clicks run `navigator.credentials.create` and `get` against the virtual
+/// authenticator, the server verifies the registration and the ES256
+/// assertion, and the authenticator holds one resident credential for
+/// `localhost` whose counter the sign-in advanced.
+#[test]
+fn passkeys_sign_up_and_in_with_a_virtual_authenticator_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("passkeys-sign-in");
+    let Some((_k, port, mut tab, authenticator)) = passkeys(&dir) else {
+        return;
+    };
+    tab.open(&format!("http://localhost:{port}/"));
+    passkey_status(&mut tab, "ready");
+    let name = tab.role("textbox", "Name");
+    tab.fill(&name, "ada");
+    let up = tab.role("button", "Sign up with a passkey");
+    tab.click(&up);
+    passkey_status(&mut tab, "signed up");
+    let held = tab.cdp.call(
+        "WebAuthn.getCredentials",
+        json!({ "authenticatorId": authenticator }),
+    );
+    let creds = held["credentials"].as_array().cloned().unwrap_or_default();
+    assert_eq!(creds.len(), 1, "{held}");
+    assert_eq!(creds[0]["isResidentCredential"], json!(true), "{held}");
+    assert_eq!(creds[0]["rpId"], json!("localhost"), "{held}");
+    let out = tab.role("button", "Sign out");
+    tab.click(&out);
+    passkey_status(&mut tab, "signed out");
+    let inn = tab.role("button", "Sign in with a passkey");
+    tab.click(&inn);
+    passkey_status(&mut tab, "signed in as ada");
+    let after = tab.cdp.call(
+        "WebAuthn.getCredentials",
+        json!({ "authenticatorId": authenticator }),
+    );
+    assert!(
+        after["credentials"][0]["signCount"].as_u64().unwrap_or(0) >= 1,
+        "the sign-in counted: {after}"
+    );
+    drop(tab);
+}
+
+/// The same page opened on another origin (`127.0.0.1` while the public
+/// origin is `localhost`), as a phishing copy would be: the server's
+/// options name the RP id `localhost`, which a page on `127.0.0.1` can't
+/// use, so Chrome refuses the ceremony and the authenticator makes no
+/// credential. The server's own origin check (an assertion whose client
+/// data names another origin) is `k test`'s and `k_server::passkey`'s.
+#[test]
+fn passkeys_refuse_a_page_on_another_origin_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("passkeys-origin");
+    let Some((_k, port, mut tab, authenticator)) = passkeys(&dir) else {
+        return;
+    };
+    tab.open(&format!("http://127.0.0.1:{port}/"));
+    passkey_status(&mut tab, "ready");
+    let name = tab.role("textbox", "Name");
+    tab.fill(&name, "eve");
+    let up = tab.role("button", "Sign up with a passkey");
+    tab.click(&up);
+    let said = tab.wait("the sign-up ends", |t| {
+        let s = t.eval("document.querySelector('[role=status]')?.textContent ?? ''");
+        let s = s.as_str().unwrap_or_default().to_owned();
+        (s != "ready").then_some(s)
+    });
+    assert_eq!(
+        said, "failed",
+        "Chrome refuses an RP id the origin can't use"
+    );
+    let held = tab.cdp.call(
+        "WebAuthn.getCredentials",
+        json!({ "authenticatorId": authenticator }),
+    );
+    assert_eq!(
+        held["credentials"].as_array().map_or(0, Vec::len),
+        0,
+        "{held}"
+    );
+    tab.allow_errors();
     drop(tab);
 }

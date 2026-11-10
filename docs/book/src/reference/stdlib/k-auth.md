@@ -10,8 +10,19 @@ Import each declaration by name, for example `import k.auth.Authenticated`.
 | [`Authenticated`](#authenticated) | The guard that refuses callers who aren't signed in. |
 | [`AuthRole`](#authrole) | Marks the app's role enum; [`SessionUser.roles`](#sessionuser) is a `Set` of it. |
 | [`AuthUserId`](#authuserid) | Marks the app's user id type, the type of [`SessionUser.id`](#sessionuser). |
+| [`BrowserPasskeys`](#browserpasskeys) | The standard [`Passkeys`](#passkeys): `navigator.credentials` with a public-key credential, asking for a discoverable credential, user verification and attestation `"none"`. |
 | [`extend Int`](#extend-int) | Rates on whole numbers. |
 | [`GuardRejection`](#guardrejection) | Why a guard refused an rpc call, carried by [`k.rpc.RpcFailure.rejected`](k-rpc.md#rpcfailure). |
+| [`PasskeyAlgorithm`](#passkeyalgorithm) | The signature algorithms passkeys may use here (`docs/design/51-passkeys.md`), in the browser's order of preference. |
+| [`PasskeyAssertion`](#passkeyassertion) | A passkey's signature as the browser reports it (`docs/design/51-passkeys.md`), from [`Passkeys.signIn(_:)`](#passkeys) to [`PasskeyVerifier.verifySignIn(_:credential:)`](#passkeyverifier). |
+| [`PasskeyCreationOptions`](#passkeycreationoptions) | What the browser needs to make a passkey (`docs/design/51-passkeys.md`), from [`PasskeyVerifier.registrationOptions(userHandle:excluding:)`](#passkeyverifier) to [`Passkeys.register(_:name:)`](#passkeys). |
+| [`PasskeyCredential`](#passkeycredential) | A verified passkey: what the app stores for an account (`docs/design/51-passkeys.md`, "Storage"), returned by [`PasskeyVerifier.verifyRegistration(_:)`](#passkeyverifier) and, with its new counter, by [`PasskeyVerifier.verifySignIn(_:credential:)`](#passkeyverifier). |
+| [`PasskeyError`](#passkeyerror) | Why a passkey ceremony in the browser ended without a result (`docs/design/51-passkeys.md`). |
+| [`PasskeyRegistration`](#passkeyregistration) | A new passkey as the browser reports it (`docs/design/51-passkeys.md`), from [`Passkeys.register(_:name:)`](#passkeys) to [`PasskeyVerifier.verifyRegistration(_:)`](#passkeyverifier). |
+| [`PasskeyRequestOptions`](#passkeyrequestoptions) | What the browser needs to sign in with a passkey (`docs/design/51-passkeys.md`), from [`PasskeyVerifier.signInOptions(allowing:)`](#passkeyverifier) to [`Passkeys.signIn(_:)`](#passkeys). |
+| [`Passkeys`](#passkeys) | Passkeys in the browser (`docs/design/51-passkeys.md`): the WebAuthn ceremonies that make a passkey for this site and sign in with one. |
+| [`PasskeyVerificationError`](#passkeyverificationerror) | Why [`PasskeyVerifier`](#passkeyverifier) refused a registration or a sign-in (`docs/design/51-passkeys.md`). |
+| [`PasskeyVerifier`](#passkeyverifier) | Issues passkey challenges and verifies what the browser's [`Passkeys`](#passkeys) returns (`docs/design/51-passkeys.md`). |
 | [`Rate`](#rate) | A number of calls per period, for [`RateLimit`](#ratelimit): `100.perMinute`. |
 | [`RateLimit`](#ratelimit) | The guard that limits how often a client may call: `requires RateLimit(10.perMinute)`. |
 | [`Role`](#role) | The guard that refuses users without a role: `requires Role(.admin)`. |
@@ -54,6 +65,28 @@ Marks the app's user id type, the type of [`SessionUser.id`](#sessionuser). An a
 declares exactly one type implementing it, which [`SessionUserId`](#sessionuserid)
 stands for.
 
+## BrowserPasskeys
+
+```k,ignore
+@ClientOnly
+public service BrowserPasskeys implements Passkeys
+```
+
+The standard [`Passkeys`](#passkeys): `navigator.credentials` with a public-key
+credential, asking for a discoverable credential, user verification
+and attestation `"none"`.
+
+**Members**
+
+- `var isSupported: Bool`
+  `true` in a secure context with WebAuthn; see
+  [`Passkeys.isSupported`](#passkeys).
+- `@UserAction func register(_ options: PasskeyCreationOptions, name: String) async throws PasskeyError -> PasskeyRegistration`
+  `navigator.credentials.create`; see
+  [`Passkeys.register(_:name:)`](#passkeys).
+- `@UserAction func signIn(_ options: PasskeyRequestOptions) async throws PasskeyError -> PasskeyAssertion`
+  `navigator.credentials.get`; see [`Passkeys.signIn(_:)`](#passkeys).
+
 ## extend Int
 
 ```k,ignore
@@ -88,6 +121,316 @@ Why a guard refused an rpc call, carried by [`k.rpc.RpcFailure.rejected`](k-rpc.
 - `case rateLimited(retryAfter: Duration)`
   The client exceeded a [`RateLimit`](#ratelimit); it may call again after
   `retryAfter`.
+
+## PasskeyAlgorithm
+
+```k,ignore
+public enum PasskeyAlgorithm implements Equatable, Hashable
+```
+
+The signature algorithms passkeys may use here
+(`docs/design/51-passkeys.md`), in the browser's order of preference.
+[`k.test.TestAuthenticator.useAlgorithm(_:)`](k-test.md#testauthenticator) picks one.
+
+**Members**
+
+- `case es256`
+  ECDSA on P-256 with SHA-256 (COSE `-7`), what most devices use.
+- `case edDSA`
+  EdDSA on Ed25519 (COSE `-8`).
+- `case rs256`
+  RSASSA-PKCS1-v1_5 with SHA-256 (COSE `-257`), for Windows Hello.
+
+## PasskeyAssertion
+
+```k,ignore
+public struct PasskeyAssertion implements Equatable, Codable
+```
+
+A passkey's signature as the browser reports it
+(`docs/design/51-passkeys.md`), from [`Passkeys.signIn(_:)`](#passkeys) to
+[`PasskeyVerifier.verifySignIn(_:credential:)`](#passkeyverifier). Every field is the
+browser's bytes as base64url.
+
+**Members**
+
+- `let credentialId: String`
+  The id of the credential that signed: look the stored
+  [`PasskeyCredential`](#passkeycredential) up by it.
+- `let clientDataJSON: String`
+  The client data JSON.
+- `let authenticatorData: String`
+  The authenticator data.
+- `let signature: String`
+  The signature over the authenticator data and the client data's
+  hash.
+- `let userHandle: String?`
+  The user handle the passkey was made with, when the device sends it.
+
+## PasskeyCreationOptions
+
+```k,ignore
+public struct PasskeyCreationOptions implements Equatable, Codable
+```
+
+What the browser needs to make a passkey
+(`docs/design/51-passkeys.md`), from
+[`PasskeyVerifier.registrationOptions(userHandle:excluding:)`](#passkeyverifier) to
+[`Passkeys.register(_:name:)`](#passkeys). `Codable`, so it crosses an rpc.
+
+**Members**
+
+- `let challenge: String`
+  The challenge, base64url: issued into the server's session,
+  single-use, valid for ten minutes.
+- `let rpId: String`
+  The relying party's id: the host of `K_PUBLIC_ORIGIN`.
+- `let rpName: String`
+  The relying party's name the device shows: the app's title.
+- `let userHandle: String`
+  The user handle the device stores with the passkey, base64url.
+- `let excluded: List<String>`
+  Credential ids, base64url, that the device must not register again.
+
+## PasskeyCredential
+
+```k,ignore
+public struct PasskeyCredential implements Equatable, Codable
+```
+
+A verified passkey: what the app stores for an account
+(`docs/design/51-passkeys.md`, "Storage"), returned by
+[`PasskeyVerifier.verifyRegistration(_:)`](#passkeyverifier) and, with its new counter,
+by [`PasskeyVerifier.verifySignIn(_:credential:)`](#passkeyverifier). An entity column
+can't hold a struct, so the app's entity has these fields.
+
+**Members**
+
+- `let id: String`
+  The credential id, base64url. Unique: store it in a `@Unique`
+  column.
+- `let publicKey: String`
+  The credential's public key, a COSE_Key as the authenticator wrote
+  it, base64url: ES256, EdDSA (Ed25519) or RS256.
+- `let signCount: Int`
+  The signature counter; `0` for passkeys that don't count.
+- `let userHandle: String`
+  The user handle the passkey was made with, base64url.
+- `let backupEligible: Bool`
+  Whether the passkey may be synced between devices (the BE flag).
+- `let backedUp: Bool`
+  Whether it is synced now (the BS flag).
+
+## PasskeyError
+
+```k,ignore
+public enum PasskeyError implements Error, Equatable
+```
+
+Why a passkey ceremony in the browser ended without a result
+(`docs/design/51-passkeys.md`).
+
+**Members**
+
+- `case unsupported`
+  This browser or context has no WebAuthn.
+- `case cancelled`
+  The sheet was dismissed or timed out, or the device has no passkey
+  for this site. Browsers report these alike, so a site can't probe
+  which passkeys a device holds.
+- `case alreadyRegistered`
+  The device already holds one of the credentials the options
+  exclude: this account's passkey is already on it.
+- `case failed`
+  Anything else, such as an RP id the page's origin can't use.
+
+## PasskeyRegistration
+
+```k,ignore
+public struct PasskeyRegistration implements Equatable, Codable
+```
+
+A new passkey as the browser reports it
+(`docs/design/51-passkeys.md`), from [`Passkeys.register(_:name:)`](#passkeys) to
+[`PasskeyVerifier.verifyRegistration(_:)`](#passkeyverifier). Every field is the
+browser's bytes as base64url; nothing in it is trusted before the
+server verifies it.
+
+**Members**
+
+- `let credentialId: String`
+  The credential id (`rawId`).
+- `let clientDataJSON: String`
+  The client data JSON.
+- `let attestationObject: String`
+  The CBOR attestation object.
+
+## PasskeyRequestOptions
+
+```k,ignore
+public struct PasskeyRequestOptions implements Equatable, Codable
+```
+
+What the browser needs to sign in with a passkey
+(`docs/design/51-passkeys.md`), from
+[`PasskeyVerifier.signInOptions(allowing:)`](#passkeyverifier) to
+[`Passkeys.signIn(_:)`](#passkeys). `Codable`, so it crosses an rpc.
+
+**Members**
+
+- `let challenge: String`
+  The challenge, base64url: issued into the server's session,
+  single-use, valid for ten minutes.
+- `let rpId: String`
+  The relying party's id: the host of `K_PUBLIC_ORIGIN`.
+- `let allowed: List<String>`
+  The credential ids, base64url, the device may use; empty lets it
+  offer every passkey it holds for the site.
+
+## Passkeys
+
+```k,ignore
+@Platform(side: .client)
+public interface Passkeys
+```
+
+Passkeys in the browser (`docs/design/51-passkeys.md`): the WebAuthn
+ceremonies that make a passkey for this site and sign in with one. The
+server checks what they return with [`PasskeyVerifier`](#passkeyverifier). A client-only
+platform interface: [`BrowserPasskeys`](#browserpasskeys) is injected with no `use`
+rule, and [`k.test.TestAuthenticator`](k-test.md#testauthenticator) replaces it in tests.
+
+Both ceremonies open the device's passkey sheet, so both are
+`@UserAction`: fetch the options (and their challenge) from the server
+before the click, in an effect, never after an `await` in the click.
+
+**Members**
+
+- `var isSupported: Bool`
+  Whether this browser can make and use passkeys here: `false`
+  outside a secure context, without WebAuthn, and during server
+  rendering.
+- `@UserAction func register(_ options: PasskeyCreationOptions, name: String) async throws PasskeyError -> PasskeyRegistration`
+  Makes a passkey for this site with the server's `options`, from
+  [`PasskeyVerifier.registrationOptions(userHandle:excluding:)`](#passkeyverifier).
+
+  - Parameters:
+    - options: the server's options, with their challenge.
+    - name: the label the device shows for the passkey, usually the
+      email typed; the server never relies on it.
+  - Returns: the registration to send to
+    [`PasskeyVerifier.verifyRegistration(_:)`](#passkeyverifier).
+  - Throws: [`PasskeyError.unsupported`](#passkeyerror) where `isSupported` is
+    `false`, `.cancelled` when the sheet was dismissed or timed out,
+    `.alreadyRegistered` when the device holds an excluded
+    credential, and `.failed` otherwise.
+- `@UserAction func signIn(_ options: PasskeyRequestOptions) async throws PasskeyError -> PasskeyAssertion`
+  Signs in with a passkey the device holds for this site.
+
+  - Parameter options: the server's options, from
+    [`PasskeyVerifier.signInOptions(allowing:)`](#passkeyverifier).
+  - Returns: the assertion to send to
+    [`PasskeyVerifier.verifySignIn(_:credential:)`](#passkeyverifier).
+  - Throws: [`PasskeyError.unsupported`](#passkeyerror), `.cancelled` when the sheet
+    was dismissed, timed out or the device has no passkey for the
+    site (browsers don't tell these apart), and `.failed`.
+
+## PasskeyVerificationError
+
+```k,ignore
+public enum PasskeyVerificationError implements Error, Equatable
+```
+
+Why [`PasskeyVerifier`](#passkeyverifier) refused a registration or a sign-in
+(`docs/design/51-passkeys.md`). Every case means "don't sign in"; the
+cases say why, for logs and tests.
+
+**Members**
+
+- `case challengeMismatch`
+  The challenge wasn't issued to this session, was used already,
+  expired after ten minutes, or was for the other ceremony. Fetch new
+  options and ask again.
+- `case originMismatch`
+  The ceremony ran on another origin than `K_PUBLIC_ORIGIN`, or in a
+  frame: a phishing page's passkey prompt ends here.
+- `case rpIdMismatch`
+  The authenticator signed for another relying party.
+- `case userNotVerified`
+  The device didn't check the user (the user-present or
+  user-verified flag is unset).
+- `case unsupportedAlgorithm`
+  The passkey's key is none of ES256, EdDSA (Ed25519) and RS256.
+- `case invalidSignature`
+  The signature doesn't verify under the stored key.
+- `case signCountRegressed`
+  The signature counter didn't increase: the passkey may have been
+  cloned.
+- `case credentialMismatch`
+  The assertion is for another credential or user handle than the
+  stored one, or the registration's credential id isn't the one the
+  authenticator wrote.
+- `case malformed`
+  Something doesn't parse: base64url, JSON, CBOR or the
+  authenticator data.
+
+## PasskeyVerifier
+
+```k,ignore
+@ServerOnly
+public service PasskeyVerifier
+```
+
+Issues passkey challenges and verifies what the browser's
+[`Passkeys`](#passkeys) returns (`docs/design/51-passkeys.md`). Server-only,
+injectable only into server-side services.
+
+The relying party is the app: its id is the host of
+`K_PUBLIC_ORIGIN`, its origin `K_PUBLIC_ORIGIN`. Each options call
+issues a challenge into the current session (replacing any earlier
+challenge or OAuth state), and the next verification consumes it,
+whether it succeeds or not. User verification is required, and the
+attestation statement is never read (attestation `"none"`).
+
+A verified sign-in signs nobody in: the app calls
+[`SessionManager.signIn(userId:roles:)`](#sessionmanager) for the account that owns the
+credential.
+
+**Members**
+
+- `func registrationOptions(userHandle: String? = nil, excluding: List<String> = []) async -> PasskeyCreationOptions`
+  Issues a registration challenge.
+
+  - Parameters:
+    - userHandle: the account's user handle, base64url, when it has
+      passkeys already; `nil` for a fresh random one (a sign-up).
+    - excluding: credential ids the device must not register again.
+  - Returns: the options for [`Passkeys.register(_:name:)`](#passkeys).
+- `func verifyRegistration(_ registration: PasskeyRegistration) async throws PasskeyVerificationError -> PasskeyCredential`
+  Verifies a registration against the session's challenge.
+
+  - Parameter registration: what the browser returned.
+  - Returns: the credential to store.
+  - Throws: the [`PasskeyVerificationError`](#passkeyverificationerror) of the first check that
+    failed.
+- `func signInOptions(allowing: List<String> = []) async -> PasskeyRequestOptions`
+  Issues a sign-in challenge.
+
+  - Parameter allowing: the credential ids the device may use; empty
+    for any passkey it holds for the site.
+  - Returns: the options for [`Passkeys.signIn(_:)`](#passkeys).
+- `func verifySignIn(_ assertion: PasskeyAssertion, credential: PasskeyCredential) async throws PasskeyVerificationError -> PasskeyCredential`
+  Verifies an assertion against the session's challenge and the
+  stored credential.
+
+  - Parameters:
+    - assertion: what the browser returned.
+    - credential: the stored credential whose `id` is the
+      assertion's `credentialId`.
+  - Returns: the credential with its new counter and backup state,
+    to store.
+  - Throws: the [`PasskeyVerificationError`](#passkeyverificationerror) of the first check that
+    failed.
 
 ## Rate
 

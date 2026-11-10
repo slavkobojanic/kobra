@@ -840,6 +840,7 @@ pub(crate) fn client_containers(
                     "k.device.TabMessaging" => "k.device.BrowserTabMessaging",
                     "k.device.Notifications" => "k.device.BrowserNotifications",
                     "k.device.PushSubscriptions" => "k.device.BrowserPushSubscriptions",
+                    "k.auth.Passkeys" => "k.auth.BrowserPasskeys",
                     "k.crypto.KeyStore" => "k.crypto.BrowserKeyStore",
                     _ => return None,
                 };
@@ -966,6 +967,7 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         | "k.media.BrowserAudio"
         | "k.rtc.BrowserPeerConnections"
         | "k.device.BrowserPushSubscriptions"
+        | "k.auth.BrowserPasskeys"
         | "k.device.PageVisibility"
         | "k.device.Connectivity"
         | "k.device.Viewport" => match b.g.view.lookup(qualified) {
@@ -1061,6 +1063,7 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
             crate::suite::kit_call("testNotifications", vec![href])
         }
         "k.test.TestPushSubscriptions" => crate::suite::kit_call("testPushSubscriptions", vec![]),
+        "k.test.TestAuthenticator" => crate::suite::kit_call("testAuthenticator", vec![]),
         "k.test.TestWakeLock" => crate::suite::kit_call("testWakeLock", vec![]),
         "k.test.MemoryKeyStore" => crate::suite::kit_call("memoryKeyStore", vec![]),
         "k.test.TestPageVisibility" => crate::suite::kit_call("testPageVisibility", vec![]),

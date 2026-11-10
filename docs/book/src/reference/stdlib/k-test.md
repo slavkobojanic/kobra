@@ -21,6 +21,7 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`Screen`](#screen) | A rendered view, returned by `render(_:)`. |
 | [`SentPush`](#sentpush) | One message [`RecordingWebPush`](#recordingwebpush) recorded. |
 | [`TestAudio`](#testaudio) | The default [`Audio`](k-media.md#audio) in `k test`: a meter reports the level its stream's [`TestSource`](#testsource) scripts, and `play` records what it played. |
+| [`TestAuthenticator`](#testauthenticator) | The default [`Passkeys`](k-auth.md#passkeys) in `k test` (`docs/design/51-passkeys.md`, "Tests"): a working authenticator. |
 | [`TestCallPeer`](#testcallpeer) | The other side of a call in a test ([`TestPeerConnections`](#testpeerconnections)): a peer connection the test drives, joined through the app's own protocol. |
 | [`TestChannel`](#testchannel) | A scripted channel for a client service tested without a server (`docs/design/44-channels.md`, "TestChannel"): the test plays the server. |
 | [`TestChannels`](#testchannels) | The test's channel connection in `k test` (`docs/design/44-channels.md`, "Testing"): the in-process socket between the test's browser and its server. |
@@ -490,6 +491,56 @@ stream's [`TestSource`](#testsource) scripts, and `play` records what it played.
   A meter reading the scripted level of the stream's microphone.
 - `func play(_ source: MediaSource) async throws PlaybackError`
   Records `source` in `played` and resolves at once.
+
+## TestAuthenticator
+
+```k,ignore
+@TestDefault(replaces: Passkeys)
+public service TestAuthenticator implements Passkeys
+```
+
+The default [`Passkeys`](k-auth.md#passkeys) in `k test` (`docs/design/51-passkeys.md`,
+"Tests"): a working authenticator. It holds real key pairs (key `n` of
+[`TestKeys.ecdsaP256(_:)`](#testkeys) and [`TestKeys.ed25519(_:)`](#testkeys), or a fixed
+RSA key), writes real attestation objects and authenticator data, and
+signs real assertions, so the server's real
+[`k.auth.PasskeyVerifier`](k-auth.md#passkeyverifier) checks what it produces.
+
+Its sheet is always accepted, with user verification, at the app's
+origin; its counter starts at `0` and counts each assertion.
+
+**Members**
+
+- `var isSupported: Bool`
+  `true` unless `setSupported(_:)` said otherwise.
+- `var passkeys: List<String>`
+  The credential ids it holds, base64url, oldest first.
+- `var prompts: Int`
+  How many sheets it showed.
+- `func register(_ options: PasskeyCreationOptions, name: String) async throws PasskeyError -> PasskeyRegistration`
+  Makes a passkey as a device would, or throws `.unsupported`,
+  `.cancelled` after `dismissNext()`, or `.alreadyRegistered` for an
+  excluded credential it holds.
+- `func signIn(_ options: PasskeyRequestOptions) async throws PasskeyError -> PasskeyAssertion`
+  Signs with the newest passkey it holds that the options allow, or
+  throws `.cancelled` when it holds none (or after `dismissNext()`).
+- `func useAlgorithm(_ algorithm: PasskeyAlgorithm)`
+  The key type of the next registrations; `.es256` by default.
+- `func dismissNext()`
+  Makes the next ceremony throw `.cancelled`, as a dismissed sheet.
+- `func setUserVerified(_ value: Bool)`
+  `false` leaves the user-verified flag unset, as a security key
+  without a PIN does.
+- `func setOrigin(_ origin: String)`
+  The origin it writes into the client data, as a browser on that
+  page would: a phishing page's, for tests. The app's by default.
+- `func setSignCount(_ count: Int)`
+  The counter the next assertion reports; later ones count on from
+  it. A lower one plays a cloned authenticator.
+- `func forgetPasskeys()`
+  Forgets every passkey: the device holds none.
+- `func setSupported(_ value: Bool)`
+  Sets `isSupported`.
 
 ## TestCallPeer
 
