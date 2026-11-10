@@ -221,10 +221,11 @@ fn fence_start(line: &str) -> &str {
             return rest.trim_start();
         }
     }
-    if let Some((number, rest)) = trimmed.split_once(". ") {
-        if !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()) {
-            return rest.trim_start();
-        }
+    if let Some((number, rest)) = trimmed.split_once(". ")
+        && !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit())
+    {
+        return rest.trim_start();
     }
     trimmed
 }
@@ -426,11 +427,9 @@ pub fn k_version() -> String {
         let line = line.trim();
         if line.starts_with('[') {
             in_package = line == "[workspace.package]";
-        } else if in_package {
-            if let Some(value) = line.strip_prefix("version") {
-                let value = value.trim_start().trim_start_matches('=').trim();
-                return value.trim_matches('"').to_owned();
-            }
+        } else if in_package && let Some(value) = line.strip_prefix("version") {
+            let value = value.trim_start().trim_start_matches('=').trim();
+            return value.trim_matches('"').to_owned();
         }
     }
     String::new()

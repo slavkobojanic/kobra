@@ -494,10 +494,10 @@ impl<'g, 'a> Body<'g, 'a> {
                 self.stmt(s);
             }
         }
-        if n == 0 {
-            if let Dest::Return = dest {
-                self.emit(Stmt::Return(None));
-            }
+        if n == 0
+            && let Dest::Return = dest
+        {
+            self.emit(Stmt::Return(None));
         }
         self.pop_scope();
     }
@@ -1152,40 +1152,39 @@ impl<'g, 'a> Body<'g, 'a> {
                         .lhs()
                         .map_or(iter.syntax().clone(), |l| l.syntax().clone())),
                 )
+                && let (Some(lo), Some(hi)) = (be.lhs(), be.rhs())
             {
-                if let (Some(lo), Some(hi)) = (be.lhs(), be.rhs()) {
-                    let lo = self.expr(&lo);
-                    let hi = self.expr(&hi);
-                    let end = if matches!(hi, Expr::Num(_) | Expr::Ident(_)) {
-                        hi
-                    } else {
-                        let t = self.fresh("end");
-                        self.emit(Stmt::Const(t.clone(), hi));
-                        id(t)
-                    };
-                    let var = match &pattern {
-                        Some(ast::Pattern::IdentPattern(p)) => match p.syntax().first_token() {
-                            Some(t) => self.bind(&t),
-                            None => self.fresh("i"),
-                        },
-                        _ => self.fresh("i"),
-                    };
-                    let cmp = if op == "..<" { "<" } else { "<=" };
-                    self.labels.push(None);
-                    let stmts = match &body {
-                        Some(b) => self.block_stmts(b),
-                        None => Vec::new(),
-                    };
-                    self.labels.pop();
-                    self.emit(Stmt::For(
-                        Box::new(Stmt::Let(var.clone(), Some(lo))),
-                        bin(cmp, id(&var), end),
-                        Expr::Assign("+=", Box::new(id(&var)), Box::new(Expr::Num(1.0))),
-                        stmts,
-                    ));
-                    self.pop_scope();
-                    return;
-                }
+                let lo = self.expr(&lo);
+                let hi = self.expr(&hi);
+                let end = if matches!(hi, Expr::Num(_) | Expr::Ident(_)) {
+                    hi
+                } else {
+                    let t = self.fresh("end");
+                    self.emit(Stmt::Const(t.clone(), hi));
+                    id(t)
+                };
+                let var = match &pattern {
+                    Some(ast::Pattern::IdentPattern(p)) => match p.syntax().first_token() {
+                        Some(t) => self.bind(&t),
+                        None => self.fresh("i"),
+                    },
+                    _ => self.fresh("i"),
+                };
+                let cmp = if op == "..<" { "<" } else { "<=" };
+                self.labels.push(None);
+                let stmts = match &body {
+                    Some(b) => self.block_stmts(b),
+                    None => Vec::new(),
+                };
+                self.labels.pop();
+                self.emit(Stmt::For(
+                    Box::new(Stmt::Let(var.clone(), Some(lo))),
+                    bin(cmp, id(&var), end),
+                    Expr::Assign("+=", Box::new(id(&var)), Box::new(Expr::Num(1.0))),
+                    stmts,
+                ));
+                self.pop_scope();
+                return;
             }
         }
         let ity = self.ty(iter.syntax());
@@ -1216,19 +1215,19 @@ impl<'g, 'a> Body<'g, 'a> {
         }
         self.labels.pop();
         // Simplify `const x = $x1;` into the loop variable.
-        if let Some(Stmt::Const(n, Expr::Ident(v))) = stmts.first() {
-            if *v == var {
-                let n = n.clone();
-                stmts.remove(0);
-                if is_await {
-                    let mut checked = self.live_check();
-                    checked.extend(stmts);
-                    stmts = checked;
-                }
-                self.emit(Stmt::ForOf(n, it, stmts, is_await));
-                self.pop_scope();
-                return;
+        if let Some(Stmt::Const(n, Expr::Ident(v))) = stmts.first()
+            && *v == var
+        {
+            let n = n.clone();
+            stmts.remove(0);
+            if is_await {
+                let mut checked = self.live_check();
+                checked.extend(stmts);
+                stmts = checked;
             }
+            self.emit(Stmt::ForOf(n, it, stmts, is_await));
+            self.pop_scope();
+            return;
         }
         if is_await {
             let mut checked = self.live_check();
@@ -1582,10 +1581,10 @@ impl<'g, 'a> Body<'g, 'a> {
                     .and_then(|i| self.throws_of_call(&crate::db::strip_parens(&strip_await(&i)))),
                 _ => None,
             };
-            if let Some(d) = t.as_ref().and_then(Type::decl) {
-                if !out.contains(&d) {
-                    out.push(d);
-                }
+            if let Some(d) = t.as_ref().and_then(Type::decl)
+                && !out.contains(&d)
+            {
+                out.push(d);
             }
         }
         out
@@ -1630,12 +1629,12 @@ impl<'g, 'a> Body<'g, 'a> {
     fn thrown_type(&self, body: &Option<ast::Block>) -> Type {
         let Some(b) = body else { return Type::Error };
         for n in b.syntax().descendants() {
-            if n.kind() == SyntaxKind::ThrowStmt {
-                if let Some(e) = n.children().find_map(ast::Expr::cast) {
-                    let t = self.ty(e.syntax());
-                    if t.decl().is_some() {
-                        return t;
-                    }
+            if n.kind() == SyntaxKind::ThrowStmt
+                && let Some(e) = n.children().find_map(ast::Expr::cast)
+            {
+                let t = self.ty(e.syntax());
+                if t.decl().is_some() {
+                    return t;
                 }
             }
             if n.kind() != SyntaxKind::TryExpr {
@@ -1721,18 +1720,18 @@ impl<'g, 'a> Body<'g, 'a> {
                 };
                 // A bare name: a binding (in `for`/`let` patterns) or an
                 // enum case without a dot.
-                if let Some(Resolved::Member(m)) = self.resolved(t.text_range()) {
-                    if self.g.view.member(m).kind == MemberKind::Case {
-                        let tag = self.g.case_tag(m);
-                        return (
-                            Some(bin(
-                                "===",
-                                member(value.clone(), "$"),
-                                Expr::Num(tag as f64),
-                            )),
-                            Vec::new(),
-                        );
-                    }
+                if let Some(Resolved::Member(m)) = self.resolved(t.text_range())
+                    && self.g.view.member(m).kind == MemberKind::Case
+                {
+                    let tag = self.g.case_tag(m);
+                    return (
+                        Some(bin(
+                            "===",
+                            member(value.clone(), "$"),
+                            Expr::Num(tag as f64),
+                        )),
+                        Vec::new(),
+                    );
                 }
                 let n = self.bind(&t);
                 (None, vec![(n, value.clone())])
@@ -2377,17 +2376,16 @@ impl<'g, 'a> Body<'g, 'a> {
             self.arith(bop, current, rhs, &pty, &vt, &pty)
         };
         // A fresh value assigned to a collection var makes it owned again.
-        if let ast::Expr::NameExpr(n) = &place {
-            if let Some(Resolution::Local { name, definition }) =
+        if let ast::Expr::NameExpr(n) = &place
+            && let Some(Resolution::Local { name, definition }) =
                 self.resolution(n.syntax().text_range())
-            {
-                let js = self.local_name(&name, definition.range);
-                if self.collection_vars.contains(&js) {
-                    if self.is_fresh(&value) && op == "=" {
-                        self.owned.insert(js.clone());
-                    } else {
-                        self.owned.remove(&js);
-                    }
+        {
+            let js = self.local_name(&name, definition.range);
+            if self.collection_vars.contains(&js) {
+                if self.is_fresh(&value) && op == "=" {
+                    self.owned.insert(js.clone());
+                } else {
+                    self.owned.remove(&js);
                 }
             }
         }
@@ -2429,13 +2427,12 @@ impl<'g, 'a> Body<'g, 'a> {
                 let Some(name) = m.name() else { return };
                 let rty = self.ty(recv.syntax());
                 let resolved = self.resolved(name.text_range());
-                if let Some(Resolved::Member(mid)) = resolved {
-                    if self.is_component_member(mid)
-                        && matches!(recv, ast::Expr::NameExpr(ref n) if n.name().is_some_and(|t| t.kind() == SyntaxKind::SelfKw))
-                    {
-                        self.store_member(mid, None, value);
-                        return;
-                    }
+                if let Some(Resolved::Member(mid)) = resolved
+                    && self.is_component_member(mid)
+                    && matches!(recv, ast::Expr::NameExpr(ref n) if n.name().is_some_and(|t| t.kind() == SyntaxKind::SelfKw))
+                {
+                    self.store_member(mid, None, value);
+                    return;
                 }
                 let field = name.text().to_owned();
                 if self.is_form_value(&recv, &rty) {
@@ -2446,14 +2443,14 @@ impl<'g, 'a> Body<'g, 'a> {
                     )));
                     return;
                 }
-                if let Some((st, path)) = self.store_path(place) {
-                    if !self.ssr {
-                        self.emit(Stmt::Expr(call(
-                            member(id(st), "set"),
-                            vec![Expr::Array(path.into_iter().map(js::str).collect()), value],
-                        )));
-                        return;
-                    }
+                if let Some((st, path)) = self.store_path(place)
+                    && !self.ssr
+                {
+                    self.emit(Stmt::Expr(call(
+                        member(id(st), "set"),
+                        vec![Expr::Array(path.into_iter().map(js::str).collect()), value],
+                    )));
+                    return;
                 }
                 if self.self_mode == SelfMode::StructInit && is_self(&recv) {
                     self.emit(Stmt::Expr(js::assign(id(mangle(&field)), value)));
@@ -2469,10 +2466,10 @@ impl<'g, 'a> Body<'g, 'a> {
                     self.store(&recv, rebuilt);
                 } else {
                     // A class or service: assign in place.
-                    if let Some(Resolved::Member(mid)) = resolved {
-                        if self.store_reactive(mid, &recv, value.clone()) {
-                            return;
-                        }
+                    if let Some(Resolved::Member(mid)) = resolved
+                        && self.store_reactive(mid, &recv, value.clone())
+                    {
+                        return;
                     }
                     let r = self.expr(&recv);
                     self.emit(Stmt::Expr(js::assign(member(r, field), value)));
@@ -2729,29 +2726,27 @@ impl<'g, 'a> Body<'g, 'a> {
         // A list's elements, also of an optional list (`List<Card>` as a
         // `List<Priced>?`, sema's covariance rules in sema.md §9.6).
         let optional = matches!(from, Type::Optional(_));
-        if let (Type::Named(fd, fa), Type::Named(td, ta)) = (source, target) {
-            if fd == td && self.g.is_list(source) {
-                if let (Some(fe), Some(te)) = (fa.first(), ta.first()) {
-                    if self.g.is_interface(te.unwrap_optional())
-                        && self.g.is_value_type(fe.unwrap_optional())
-                    {
-                        let conv = self.coerce(id("v"), fe, te);
-                        let map = |list: Expr| {
-                            call(
-                                member(list, "map"),
-                                vec![js::arrow(vec![Param::new("v")], conv.clone())],
-                            )
-                        };
-                        if optional {
-                            return rt(
-                                "mapOpt",
-                                vec![e, js::arrow(vec![Param::new("l")], map(id("l")))],
-                            );
-                        }
-                        return map(e);
-                    }
-                }
+        if let (Type::Named(fd, fa), Type::Named(td, ta)) = (source, target)
+            && fd == td
+            && self.g.is_list(source)
+            && let (Some(fe), Some(te)) = (fa.first(), ta.first())
+            && self.g.is_interface(te.unwrap_optional())
+            && self.g.is_value_type(fe.unwrap_optional())
+        {
+            let conv = self.coerce(id("v"), fe, te);
+            let map = |list: Expr| {
+                call(
+                    member(list, "map"),
+                    vec![js::arrow(vec![Param::new("v")], conv.clone())],
+                )
+            };
+            if optional {
+                return rt(
+                    "mapOpt",
+                    vec![e, js::arrow(vec![Param::new("l")], map(id("l")))],
+                );
             }
+            return map(e);
         }
         e
     }
@@ -3058,14 +3053,12 @@ impl<'g, 'a> Body<'g, 'a> {
     /// A binding pair `{ get, set }` over a place (`bind x`).
     pub(crate) fn binding_pair(&mut self, place: &ast::Expr) -> Expr {
         // Forward an existing binding unchanged.
-        if let ast::Expr::NameExpr(n) = place {
-            if let Some(tok) = n.name() {
-                if let Some(Resolved::Member(m)) = self.resolved(tok.text_range()) {
-                    if let Some(MemberAccess::Binding(name)) = self.access.get(&m) {
-                        return member(id("props"), name.clone());
-                    }
-                }
-            }
+        if let ast::Expr::NameExpr(n) = place
+            && let Some(tok) = n.name()
+            && let Some(Resolved::Member(m)) = self.resolved(tok.text_range())
+            && let Some(MemberAccess::Binding(name)) = self.access.get(&m)
+        {
+            return member(id("props"), name.clone());
         }
         if let Some(store) = self.store_path(place) {
             let (s, path) = store;
@@ -3213,16 +3206,16 @@ impl<'g, 'a> Body<'g, 'a> {
                     _ => {}
                 },
                 rowan::NodeOrToken::Node(n) => {
-                    if n.kind() == SyntaxKind::Interpolation {
-                        if let Some(e) = n.children().find_map(ast::Expr::cast) {
-                            if !text.is_empty() {
-                                parts.push(TemplatePart::Text(std::mem::take(&mut text)));
-                            }
-                            let t = self.ty(e.syntax());
-                            let x = self.expr(&e);
-                            let f = self.text_of(x, &t);
-                            parts.push(TemplatePart::Expr(f));
+                    if n.kind() == SyntaxKind::Interpolation
+                        && let Some(e) = n.children().find_map(ast::Expr::cast)
+                    {
+                        if !text.is_empty() {
+                            parts.push(TemplatePart::Text(std::mem::take(&mut text)));
                         }
+                        let t = self.ty(e.syntax());
+                        let x = self.expr(&e);
+                        let f = self.text_of(x, &t);
+                        parts.push(TemplatePart::Expr(f));
                     }
                 }
             }
@@ -3489,24 +3482,24 @@ impl<'g, 'a> Body<'g, 'a> {
         let n = stmts.len();
         let mut tail: Option<Expr> = None;
         for (i, s) in stmts.iter().enumerate() {
-            if i + 1 == n {
-                if let ast::Stmt::Expr(e) = s {
-                    if ret_void {
-                        self.mapped(e.syntax(), |b| b.expr_stmt(e));
-                    } else if self.is_statementy(e) {
-                        self.mapped(e.syntax(), |b| b.expr_into(e, &Dest::Return));
-                    } else {
-                        let x = self.expr(e);
-                        let from = self.ty(e.syntax());
-                        let to = match &lt {
-                            Type::Func(f) => f.ret.clone(),
-                            _ => Type::Error,
-                        };
-                        let x = self.coerce(x, &from, &to);
-                        tail = Some(self.at(e.syntax(), x));
-                    }
-                    continue;
+            if i + 1 == n
+                && let ast::Stmt::Expr(e) = s
+            {
+                if ret_void {
+                    self.mapped(e.syntax(), |b| b.expr_stmt(e));
+                } else if self.is_statementy(e) {
+                    self.mapped(e.syntax(), |b| b.expr_into(e, &Dest::Return));
+                } else {
+                    let x = self.expr(e);
+                    let from = self.ty(e.syntax());
+                    let to = match &lt {
+                        Type::Func(f) => f.ret.clone(),
+                        _ => Type::Error,
+                    };
+                    let x = self.coerce(x, &from, &to);
+                    tail = Some(self.at(e.syntax(), x));
                 }
+                continue;
             }
             self.stmt(s);
         }
@@ -3616,10 +3609,10 @@ impl<'g, 'a> Body<'g, 'a> {
         // `if let user` naming a member (a `@State` or `@Derived` of a
         // component, whose JS local is the signal) reads the member's
         // value, so a `@Derived` initializer tracks it.
-        if let Some(Resolved::Member(m)) = self.resolved(n.text_range()) {
-            if self.access.contains_key(&m) {
-                return self.implicit_self_member(m);
-            }
+        if let Some(Resolved::Member(m)) = self.resolved(n.text_range())
+            && self.access.contains_key(&m)
+        {
+            return self.implicit_self_member(m);
         }
         if let Some(local) = self.local_by_name(n.text()) {
             return id(local);
@@ -3639,16 +3632,15 @@ impl<'g, 'a> Body<'g, 'a> {
             // context is the component's lifetime, so the value takes the
             // arguments of the K function type alone.
             let info = self.g.view.member(m);
-            if let MemberAccess::Local(n) = &acc {
-                if info.kind == MemberKind::Func
-                    && self.self_mode == SelfMode::Component
-                    && self.target == Target::Client
-                    && !self.ssr
-                    && info.signature.as_ref().is_some_and(|s| s.is_async)
-                {
-                    self.uses_life = true;
-                    return rt("own", vec![id(n.clone()), id("$life")]);
-                }
+            if let MemberAccess::Local(n) = &acc
+                && info.kind == MemberKind::Func
+                && self.self_mode == SelfMode::Component
+                && self.target == Target::Client
+                && !self.ssr
+                && info.signature.as_ref().is_some_and(|s| s.is_async)
+            {
+                self.uses_life = true;
+                return rt("own", vec![id(n.clone()), id("$life")]);
             }
             return self.read_access(&acc);
         }
@@ -3813,10 +3805,10 @@ impl<'g, 'a> Body<'g, 'a> {
             return member(o, info.name.clone());
         }
         let od = self.g.view.decl(owner);
-        if od.stdlib {
-            if let Some(e) = crate::native::static_value(self, m) {
-                return e;
-            }
+        if od.stdlib
+            && let Some(e) = crate::native::static_value(self, m)
+        {
+            return e;
         }
         match od.named_kind() {
             Some(DeclarationKind::Class | DeclarationKind::Service) => {
@@ -3960,10 +3952,10 @@ impl<'g, 'a> Body<'g, 'a> {
             None => {}
         }
         // A token or case by name on the expected type.
-        if let Some(d) = t.unwrap_optional().decl() {
-            if let Some(m) = self.g.find_member(d, name.text()) {
-                return self.static_ref(m);
-            }
+        if let Some(d) = t.unwrap_optional().decl()
+            && let Some(m) = self.g.find_member(d, name.text())
+        {
+            return self.static_ref(m);
         }
         crate::native::token_value(self, &t, name.text())
     }
@@ -4271,29 +4263,29 @@ impl<'g, 'a> Body<'g, 'a> {
                 }
                 return self.static_ref(mid);
             }
-            if let Some(acc) = self.access.get(&mid).cloned() {
-                if matches!(&recv, ast::Expr::NameExpr(n) if n.name().is_some_and(|t| t.kind() == SyntaxKind::SelfKw))
-                {
-                    return self.read_access(&acc);
-                }
+            if let Some(acc) = self.access.get(&mid).cloned()
+                && matches!(&recv, ast::Expr::NameExpr(n) if n.name().is_some_and(|t| t.kind() == SyntaxKind::SelfKw))
+            {
+                return self.read_access(&acc);
             }
         }
         if let Some(Resolution::Token { name: tok, .. }) = self.resolution(name.text_range()) {
             let t = self.ty(m.syntax());
             return crate::native::token_value(self, &t, &tok);
         }
-        if self.self_mode == SelfMode::StructInit && is_self(&recv) {
-            if let Some(Resolved::Member(mid)) = resolved {
-                return self.implicit_self_member(mid);
-            }
+        if self.self_mode == SelfMode::StructInit
+            && is_self(&recv)
+            && let Some(Resolved::Member(mid)) = resolved
+        {
+            return self.implicit_self_member(mid);
         }
-        if !self.ssr {
-            if let Some((st, path)) = self.store_path(&ast::Expr::MemberExpr(m.clone())) {
-                return call(
-                    member(id(st), "get"),
-                    vec![Expr::Array(path.into_iter().map(js::str).collect())],
-                );
-            }
+        if !self.ssr
+            && let Some((st, path)) = self.store_path(&ast::Expr::MemberExpr(m.clone()))
+        {
+            return call(
+                member(id(st), "get"),
+                vec![Expr::Array(path.into_iter().map(js::str).collect())],
+            );
         }
         let base = rty.unwrap_optional().clone();
         if self.is_form_value(&recv, &base) {
@@ -4311,10 +4303,10 @@ impl<'g, 'a> Body<'g, 'a> {
             );
         }
         // Fold number extensions on constants: `10.minutes`.
-        if let ast::Expr::Literal(_) = &recv {
-            if let Some(v) = crate::native::fold_number_member(self, &recv, name.text(), &base) {
-                return v;
-            }
+        if let ast::Expr::Literal(_) = &recv
+            && let Some(v) = crate::native::fold_number_member(self, &recv, name.text(), &base)
+        {
+            return v;
         }
         let r = self.expr(&recv);
         if optional {
@@ -4326,14 +4318,13 @@ impl<'g, 'a> Body<'g, 'a> {
     /// `true` if `e` is a name that resolves to a type declaration (anything
     /// but a function or a constant), so `T.name` is static access.
     fn is_type_name(&self, e: &ast::Expr) -> bool {
-        if let ast::Expr::NameExpr(n) = e {
-            if let Some(t) = n.name() {
-                if let Some(Resolved::Decl(d)) = self.resolved(t.text_range()) {
-                    return self.g.view.decl(d).named_kind().is_some_and(|k| {
-                        !matches!(k, DeclarationKind::Function | DeclarationKind::Constant)
-                    });
-                }
-            }
+        if let ast::Expr::NameExpr(n) = e
+            && let Some(t) = n.name()
+            && let Some(Resolved::Decl(d)) = self.resolved(t.text_range())
+        {
+            return self.g.view.decl(d).named_kind().is_some_and(|k| {
+                !matches!(k, DeclarationKind::Function | DeclarationKind::Constant)
+            });
         }
         false
     }
@@ -4555,36 +4546,34 @@ impl<'g, 'a> Body<'g, 'a> {
         };
         let result_ty = self.ty(c.syntax());
         // Builtin pseudo-functions.
-        if let ast::Expr::NameExpr(n) = &callee {
-            if let Some(tok) = n.name() {
-                // `reload()` of a declaration's `@Load` group, also from
-                // inside closures (an effect's timer).
-                let generated = match self.resolution(tok.text_range()) {
-                    None => true,
-                    // The generated `reload()`, unless the declaration has
-                    // a function of that name.
-                    Some(Resolution::Member { name, .. }) => {
-                        name == "reload()"
-                            && !self.owner.is_some_and(|d| {
-                                self.g.view.decl(d).members.iter().any(|&m| {
-                                    let mi = self.g.view.member(m);
-                                    mi.name == "reload" && mi.kind == MemberKind::Func
-                                })
+        if let ast::Expr::NameExpr(n) = &callee
+            && let Some(tok) = n.name()
+        {
+            // `reload()` of a declaration's `@Load` group, also from
+            // inside closures (an effect's timer).
+            let generated = match self.resolution(tok.text_range()) {
+                None => true,
+                // The generated `reload()`, unless the declaration has
+                // a function of that name.
+                Some(Resolution::Member { name, .. }) => {
+                    name == "reload()"
+                        && !self.owner.is_some_and(|d| {
+                            self.g.view.decl(d).members.iter().any(|&m| {
+                                let mi = self.g.view.member(m);
+                                mi.name == "reload" && mi.kind == MemberKind::Func
                             })
-                    }
-                    Some(_) => false,
-                };
-                if generated
-                    && tok.text() == "reload"
-                    && matches!(self.self_mode, SelfMode::Component)
-                {
-                    return call(member(id("$loads"), "reload"), vec![]);
+                        })
                 }
-                if self.resolution(tok.text_range()).is_none() {
-                    if let Some(e) = crate::native::builtin_call(self, tok.text(), c) {
-                        return e;
-                    }
-                }
+                Some(_) => false,
+            };
+            if generated && tok.text() == "reload" && matches!(self.self_mode, SelfMode::Component)
+            {
+                return call(member(id("$loads"), "reload"), vec![]);
+            }
+            if self.resolution(tok.text_range()).is_none()
+                && let Some(e) = crate::native::builtin_call(self, tok.text(), c)
+            {
+                return e;
             }
         }
         match &callee {
@@ -4667,21 +4656,20 @@ impl<'g, 'a> Body<'g, 'a> {
                         {
                             return self.call_static(m, c, &result_ty);
                         }
-                        if let Some(acc) = self.access.get(&m).cloned() {
-                            if matches!(&recv, ast::Expr::NameExpr(n) if n.name().is_some_and(|t| t.kind() == SyntaxKind::SelfKw))
-                            {
-                                let f = match acc {
-                                    MemberAccess::Local(n) => id(n),
-                                    other => self.read_access(&other),
-                                };
-                                let sig = info.signature.clone();
-                                let mut args = Vec::new();
-                                if sig.as_ref().is_some_and(|s| s.is_async) {
-                                    args.push(self.c_expr());
-                                }
-                                args.extend(self.call_args(c, sig.as_ref(), &|t| t.clone()));
-                                return call(f, args);
+                        if let Some(acc) = self.access.get(&m).cloned()
+                            && matches!(&recv, ast::Expr::NameExpr(n) if n.name().is_some_and(|t| t.kind() == SyntaxKind::SelfKw))
+                        {
+                            let f = match acc {
+                                MemberAccess::Local(n) => id(n),
+                                other => self.read_access(&other),
+                            };
+                            let sig = info.signature.clone();
+                            let mut args = Vec::new();
+                            if sig.as_ref().is_some_and(|s| s.is_async) {
+                                args.push(self.c_expr());
                             }
+                            args.extend(self.call_args(c, sig.as_ref(), &|t| t.clone()));
+                            return call(f, args);
                         }
                         // A chained field of a `@Builder` struct
                         // (`request.query(q)`): a copy with the field set.
@@ -4856,10 +4844,11 @@ impl<'g, 'a> Body<'g, 'a> {
                 }
                 let st = subst.clone();
                 args.extend(self.call_args(c, sig.as_ref(), &move |t| subst_map(t, &st)));
-                if info.stdlib && self.g.view.qualified_name(d) == "k.test.render" {
-                    if let Some(e) = crate::suite::render_call(self, c) {
-                        return e;
-                    }
+                if info.stdlib
+                    && self.g.view.qualified_name(d) == "k.test.render"
+                    && let Some(e) = crate::suite::render_call(self, c)
+                {
+                    return e;
                 }
                 let f = if info.stdlib {
                     match crate::native::function(self, d) {
@@ -4872,10 +4861,10 @@ impl<'g, 'a> Body<'g, 'a> {
                 call(f, args)
             }
             Some(DeclarationKind::Struct | DeclarationKind::Entity) => {
-                if info.stdlib {
-                    if let Some(e) = crate::native::construct(self, d, c, result_ty) {
-                        return e;
-                    }
+                if info.stdlib
+                    && let Some(e) = crate::native::construct(self, d, c, result_ty)
+                {
+                    return e;
                 }
                 let inits: Vec<MemberId> = info
                     .members
@@ -4900,10 +4889,10 @@ impl<'g, 'a> Body<'g, 'a> {
                 call(f, args)
             }
             Some(DeclarationKind::Class) => {
-                if info.stdlib {
-                    if let Some(e) = crate::native::construct(self, d, c, result_ty) {
-                        return e;
-                    }
+                if info.stdlib
+                    && let Some(e) = crate::native::construct(self, d, c, result_ty)
+                {
+                    return e;
                 }
                 let inits: Vec<MemberId> = info
                     .members
@@ -4928,10 +4917,10 @@ impl<'g, 'a> Body<'g, 'a> {
                 Expr::New(Box::new(cls), args)
             }
             _ => {
-                if info.stdlib {
-                    if let Some(e) = crate::native::construct(self, d, c, result_ty) {
-                        return e;
-                    }
+                if info.stdlib
+                    && let Some(e) = crate::native::construct(self, d, c, result_ty)
+                {
+                    return e;
                 }
                 let f = self.decl_ref(d);
                 let args = self.call_args(c, None, &|t| t.clone());
@@ -4993,10 +4982,10 @@ impl<'g, 'a> Body<'g, 'a> {
             let o = self.decl_ref(info.owner);
             return call(member(o, info.name.clone()), args);
         }
-        if owner.stdlib {
-            if let Some(e) = crate::native::static_call(self, m, c, result_ty) {
-                return e;
-            }
+        if owner.stdlib
+            && let Some(e) = crate::native::static_call(self, m, c, result_ty)
+        {
+            return e;
         }
         let sig = info.signature.clone();
         let mut args = Vec::new();
@@ -5128,27 +5117,25 @@ impl<'g, 'a> Body<'g, 'a> {
         if owner.named_kind() == Some(DeclarationKind::Interface)
             && self.g.is_value_type(base)
             && !self.g.is_interface(base)
+            && let Some(d) = base.decl()
         {
-            if let Some(d) = base.decl() {
-                let implementation = self.g.find_member(d, &info.name).filter(|&x| {
-                    let xi = self.g.view.member(x);
-                    xi.owner != info.owner
-                        && matches!(xi.kind, MemberKind::Func | MemberKind::Computed)
-                });
-                let mut a = args;
-                a.extend(user_args);
-                if let Some(imp) = implementation {
-                    let f = self.fn_ref(imp);
-                    let mut all = vec![recv];
-                    all.extend(a);
-                    return call(f, all);
-                }
-                let boxed = self.coerce(recv, base, &Type::Named(info.owner, Vec::new()));
-                let f = self.fn_ref(m);
-                let mut all = vec![boxed];
+            let implementation = self.g.find_member(d, &info.name).filter(|&x| {
+                let xi = self.g.view.member(x);
+                xi.owner != info.owner && matches!(xi.kind, MemberKind::Func | MemberKind::Computed)
+            });
+            let mut a = args;
+            a.extend(user_args);
+            if let Some(imp) = implementation {
+                let f = self.fn_ref(imp);
+                let mut all = vec![recv];
                 all.extend(a);
                 return call(f, all);
             }
+            let boxed = self.coerce(recv, base, &Type::Named(info.owner, Vec::new()));
+            let f = self.fn_ref(m);
+            let mut all = vec![boxed];
+            all.extend(a);
+            return call(f, all);
         }
         if info.kind == MemberKind::Field || info.kind == MemberKind::Computed {
             // A field of function type.
@@ -5158,14 +5145,14 @@ impl<'g, 'a> Body<'g, 'a> {
             return call(f, a);
         }
         // A type parameter with an interface constraint: the witness.
-        if let Type::Param(g) = base {
-            if let Some(w) = self.witnesses.get(g).cloned() {
-                let name = self.g.member_name(m);
-                let mut a = vec![recv];
-                a.extend(args);
-                a.extend(user_args);
-                return call(member(id(w), name), a);
-            }
+        if let Type::Param(g) = base
+            && let Some(w) = self.witnesses.get(g).cloned()
+        {
+            let name = self.g.member_name(m);
+            let mut a = vec![recv];
+            a.extend(args);
+            a.extend(user_args);
+            return call(member(id(w), name), a);
         }
         let owner_is_value = matches!(
             owner.named_kind(),
@@ -5320,10 +5307,10 @@ impl<'g, 'a> Body<'g, 'a> {
 
     /// The method table of type `t` for interface `iface`.
     pub(crate) fn method_table(&mut self, t: &Type, iface: DeclId) -> Expr {
-        if let Type::Param(g) = t {
-            if let Some(w) = self.witnesses.get(g) {
-                return id(w.clone());
-            }
+        if let Type::Param(g) = t
+            && let Some(w) = self.witnesses.get(g)
+        {
+            return id(w.clone());
         }
         match t.decl() {
             Some(d) if self.g.is_value_type(t) => {

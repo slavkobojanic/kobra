@@ -5,15 +5,15 @@ view uses them directly, with no service. The design is in `docs/design/45-web-p
 
 ```k
 // examples/kanban/src/pages/CardEditor.k
-@Derived let link: String = if let url = ShareContent.page(.boardPage(id: board.value).card("{card.id.value}")).url {
-    "{url}"
-} else {
-    ""
-}
+@Inject let urls: PublicUrls
+// ...
+@Derived let link: String = "{urls.absolute(.boardPage(id: board.value).card("{card.id.value}"))}"
 // ...
 CopyButton(text: link, label: "Copy link to {card.title}")
 ```
 
+- The link is absolute: `PublicUrls.absolute(_:)` ([Pages and routing](routing.md#absolute-urls-publicurls))
+  builds it from the typed page, against the page's origin in the browser.
 - `CopyButton(text:label:)` renders a button named `label`. A click copies `text` as it is at that
   moment, and the button says "Copied" for two seconds, which screen readers announce too.
 - It fires `copied`, and `failed` with a `ClipboardWriteError` (`.denied` or `.unsupported`). When
@@ -74,7 +74,8 @@ screen.button(named: "Edit A").click()
 screen.button(named: "Copy link to A").click()
 await screen.settle()
 
-expect (clipboard.text ?? "").endsWith("/boards/{id.value}?card={card.id.value}")
+// Absolute, against the page's origin (`PublicUrls` in the browser).
+expect clipboard.text == "http://localhost/boards/{id.value}?card={card.id.value}"
 expect screen.button(named: "Copy link to A").text == "Copied"
 ```
 

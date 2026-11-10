@@ -43,26 +43,26 @@ pub fn locate(path: &Path) -> Option<Located> {
     let mut below: Vec<String> = Vec::new();
     for dir in absolute.ancestors() {
         let manifest = dir.join("k.toml");
-        if let Ok(text) = fs::read_to_string(&manifest) {
-            if Workspace::is_workspace_manifest(&text) {
-                let root = normalize(&relative);
-                let rest: Vec<String> = below.iter().rev().cloned().collect();
-                if rest.is_empty() {
-                    return Some(Located { root, member: None });
-                }
-                let rel = rest.join("/");
-                let (manifest, _) = k_sema::workspace::parse_manifest("k.toml", &text, true, false);
-                let member = manifest
-                    .members
-                    .iter()
-                    .map(|(m, _)| m.trim_matches('/').trim_start_matches("./").to_owned())
-                    .filter(|m| rel == *m || rel.starts_with(&format!("{m}/")))
-                    .max_by_key(String::len)?;
-                return Some(Located {
-                    root,
-                    member: Some(member),
-                });
+        if let Ok(text) = fs::read_to_string(&manifest)
+            && Workspace::is_workspace_manifest(&text)
+        {
+            let root = normalize(&relative);
+            let rest: Vec<String> = below.iter().rev().cloned().collect();
+            if rest.is_empty() {
+                return Some(Located { root, member: None });
             }
+            let rel = rest.join("/");
+            let (manifest, _) = k_sema::workspace::parse_manifest("k.toml", &text, true, false);
+            let member = manifest
+                .members
+                .iter()
+                .map(|(m, _)| m.trim_matches('/').trim_start_matches("./").to_owned())
+                .filter(|m| rel == *m || rel.starts_with(&format!("{m}/")))
+                .max_by_key(String::len)?;
+            return Some(Located {
+                root,
+                member: Some(member),
+            });
         }
         if let Some(name) = dir.file_name() {
             below.push(name.to_string_lossy().into_owned());

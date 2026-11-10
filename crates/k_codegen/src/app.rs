@@ -80,20 +80,19 @@ pub(crate) fn params(g: &Gen<'_>, page: DeclId) -> Vec<(MemberId, String, Type, 
 /// `/home`; only `at "/"` names the root), required parameters as path
 /// segments in declaration order.
 pub(crate) fn template(g: &Gen<'_>, page: DeclId) -> String {
-    if let Some(node) = g.decl_node(page) {
-        if let Some(at) = node.children().find(|c| c.kind() == SyntaxKind::AtClause) {
-            if let Some(s) = at.children().find_map(ast::StringLit::cast) {
-                if let Some(v) = s.plain_value() {
-                    return v;
-                }
-                // `"/articles/{slug}"` parses as an interpolation; its source
-                // text is the template.
-                let text = s.syntax().text().to_string();
-                let t = text.trim_matches('"');
-                if t.starts_with('/') {
-                    return t.to_owned();
-                }
-            }
+    if let Some(node) = g.decl_node(page)
+        && let Some(at) = node.children().find(|c| c.kind() == SyntaxKind::AtClause)
+        && let Some(s) = at.children().find_map(ast::StringLit::cast)
+    {
+        if let Some(v) = s.plain_value() {
+            return v;
+        }
+        // `"/articles/{slug}"` parses as an interpolation; its source
+        // text is the template.
+        let text = s.syntax().text().to_string();
+        let t = text.trim_matches('"');
+        if t.starts_with('/') {
+            return t.to_owned();
         }
     }
     let name = &g.view.decl(page).name;
@@ -820,10 +819,8 @@ pub(crate) fn client_containers(
             // The app's `use` rule or single implementation, else the
             // stdlib's default implementation.
             let imp = binding(g, &rules, t).or_else(|| {
-                if testing {
-                    if let Some(d) = test_default(g, t) {
-                        return Some(d);
-                    }
+                if testing && let Some(d) = test_default(g, t) {
+                    return Some(d);
                 }
                 let default = match qualified.as_str() {
                     "k.storage.LocalStorage" => "k.storage.BrowserStorage",
@@ -999,6 +996,32 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
     match qualified {
         "k.time.Clock" => rt("clock", vec![data]),
         "k.ui.Theme" => rt("theme", vec![]),
+        // Absolute URLs in the browser (12-routing.md, "Absolute URLs"):
+        // the page's path against `location.origin`, which is the public
+        // origin. Endpoint pages are server-only, so `absolute(endpoint:)`
+        // is a stand-in here and the bundle never holds `Endpoint$href`.
+        "k.server.PublicUrls" => {
+            let href = match b.g.view.lookup("k.core.Page") {
+                Some(p) => call(b.use_decl(p, "Page$href".into()), vec![id("p")]),
+                None => id("p"),
+            };
+            Expr::Object(
+                vec![
+                    Prop::KeyValue(
+                        "absolute".into(),
+                        js::arrow(vec![Param::new("p")], rt("pageUrl", vec![href])),
+                    ),
+                    Prop::KeyValue(
+                        "absolute$endpoint".into(),
+                        rt(
+                            "missingNative",
+                            vec![js::str("k.server.PublicUrls.absolute(endpoint:)")],
+                        ),
+                    ),
+                ],
+                false,
+            )
+        }
         "k.auth.Session" => rt("session", vec![data]),
         "k.http.FetchHttpClient" => rt(
             "fetchHttpClient",
@@ -1269,12 +1292,12 @@ fn load_deps(b: &Body<'_, '_>, init: &ast::Expr, loads: &[MemberId]) -> Vec<Stri
         if n.kind() != SyntaxKind::NameExpr {
             continue;
         }
-        if let Some(Resolved::Member(m)) = b.g.resolved(b.file, n.text_range()) {
-            if loads.contains(&m) {
-                let name = b.g.view.member(m).name.clone();
-                if !out.contains(&name) {
-                    out.push(name);
-                }
+        if let Some(Resolved::Member(m)) = b.g.resolved(b.file, n.text_range())
+            && loads.contains(&m)
+        {
+            let name = b.g.view.member(m).name.clone();
+            if !out.contains(&name) {
+                out.push(name);
             }
         }
     }
@@ -1534,11 +1557,12 @@ pub(crate) fn ssr_loads(b: &mut Body<'_, '_>, d: DeclId, loads: &[MemberId]) -> 
 /// Encodes `x` of type `t`: `T$encode(x)` for named codecs, else through the
 /// codec object.
 pub(crate) fn encode_expr(b: &mut Body<'_, '_>, t: &Type, x: Expr) -> Expr {
-    if let Some(d) = t.decl() {
-        if crate::codec::has_codec(b.g, d) && b.g.view.decl(d).generics.is_empty() {
-            let f = b.use_decl(d, format!("{}$encode", b.g.name(d)));
-            return call(f, vec![x]);
-        }
+    if let Some(d) = t.decl()
+        && crate::codec::has_codec(b.g, d)
+        && b.g.view.decl(d).generics.is_empty()
+    {
+        let f = b.use_decl(d, format!("{}$encode", b.g.name(d)));
+        return call(f, vec![x]);
     }
     let c = crate::codec::codec_expr(b, t);
     call(member(c, "encode"), vec![x])
@@ -1619,25 +1643,25 @@ pub(crate) fn form(b: &mut Body<'_, '_>, m: MemberId, init: Option<&ast::Expr>) 
     }
     // Initial raw text: `.empty(name: x, age: 18)`.
     let mut initial = Vec::new();
-    if let Some(ast::Expr::CallExpr(c)) = init {
-        if let Some(list) = c.arg_list() {
-            for a in list.args() {
-                if let (Some(l), Some(v)) = (a.label(), a.value()) {
-                    let x = match &v {
-                        ast::Expr::Literal(lit) => {
-                            js::str(lit.token().map(|t| t.text().to_owned()).unwrap_or_default())
-                        }
-                        ast::Expr::StringLit(s) if s.is_plain() => {
-                            js::str(s.plain_value().unwrap_or_default())
-                        }
-                        other => {
-                            let t = b.ty(other.syntax());
-                            let x = b.expr(other);
-                            b.text_of(x, &t)
-                        }
-                    };
-                    initial.push(Prop::KeyValue(l.text().to_owned(), x));
-                }
+    if let Some(ast::Expr::CallExpr(c)) = init
+        && let Some(list) = c.arg_list()
+    {
+        for a in list.args() {
+            if let (Some(l), Some(v)) = (a.label(), a.value()) {
+                let x = match &v {
+                    ast::Expr::Literal(lit) => {
+                        js::str(lit.token().map(|t| t.text().to_owned()).unwrap_or_default())
+                    }
+                    ast::Expr::StringLit(s) if s.is_plain() => {
+                        js::str(s.plain_value().unwrap_or_default())
+                    }
+                    other => {
+                        let t = b.ty(other.syntax());
+                        let x = b.expr(other);
+                        b.text_of(x, &t)
+                    }
+                };
+                initial.push(Prop::KeyValue(l.text().to_owned(), x));
             }
         }
     }
@@ -1689,12 +1713,11 @@ pub(crate) fn form_dependencies(g: &Gen<'_>, d: DeclId) -> Vec<DeclId> {
                 continue;
             };
             for a in node.children().filter_map(ast::Annotation::cast) {
-                if a.name().is_some_and(|n| n.text() == "Check") {
-                    if let Some((service, _, _)) = browser_check(g, s, a.arg_list().as_ref()) {
-                        if !out.contains(&service) {
-                            out.push(service);
-                        }
-                    }
+                if a.name().is_some_and(|n| n.text() == "Check")
+                    && let Some((service, _, _)) = browser_check(g, s, a.arg_list().as_ref())
+                    && !out.contains(&service)
+                {
+                    out.push(service);
                 }
             }
         }
@@ -1742,10 +1765,10 @@ pub(crate) fn native_component_dependencies(g: &Gen<'_>, d: DeclId) -> Vec<DeclI
             _ => continue,
         };
         for s in services {
-            if let Some(t) = g.view.lookup(s) {
-                if !out.contains(&t) {
-                    out.push(t);
-                }
+            if let Some(t) = g.view.lookup(s)
+                && !out.contains(&t)
+            {
+                out.push(t);
             }
         }
     }

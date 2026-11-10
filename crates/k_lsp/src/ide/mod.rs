@@ -146,14 +146,14 @@ fn binding_at(
     for (_, resolution) in refs {
         if let Resolution::Local { definition, .. } | Resolution::Parameter { definition, .. } =
             &**resolution
+            && definition.file == file
+            && definition.range.contains_inclusive(offset)
         {
-            if definition.file == file && definition.range.contains_inclusive(offset) {
-                return Some(Symbol {
-                    resolution: (**resolution).clone(),
-                    range: definition.range,
-                    is_definition: true,
-                });
-            }
+            return Some(Symbol {
+                resolution: (**resolution).clone(),
+                range: definition.range,
+                is_definition: true,
+            });
         }
     }
     let root = syntax(analysis, file)?;

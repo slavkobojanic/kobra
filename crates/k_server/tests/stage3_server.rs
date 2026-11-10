@@ -1774,8 +1774,22 @@ fn stream_error_code(
 ) -> Result<String, String> {
     let mut s = OpenStream::open(addr, method, message, extra)?;
     if s.status != 200 {
+        // The unary error body, by its length: the connection stays open
+        // (keep-alive), so reading to its end would wait out the read
+        // timeout.
         let mut body = Vec::new();
-        let _ = s.reader.read_to_end(&mut body);
+        match s
+            .header("content-length")
+            .and_then(|n| n.parse::<usize>().ok())
+        {
+            Some(n) => {
+                body.resize(n, 0);
+                s.reader.read_exact(&mut body).map_err(|e| e.to_string())?;
+            }
+            None => {
+                let _ = s.reader.read_to_end(&mut body);
+            }
+        }
         let json: serde_json::Value =
             serde_json::from_slice(&body).map_err(|e| format!("{}: {e}", s.status))?;
         return json["code"]
@@ -2159,10 +2173,10 @@ fn spawn_app(app: &Path, args: &[&str], env: &[(&str, String)]) -> Result<Child,
 fn wait_for(addr: SocketAddr, within: Duration) -> Result<Duration, String> {
     let started = Instant::now();
     while started.elapsed() < within {
-        if let Ok(r) = send(addr, "GET", "/health", &[], b"") {
-            if r.status == 200 {
-                return Ok(started.elapsed());
-            }
+        if let Ok(r) = send(addr, "GET", "/health", &[], b"")
+            && r.status == 200
+        {
+            return Ok(started.elapsed());
         }
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -2567,12 +2581,13 @@ fn the_session_cookie_is_named_after_the_port_of_an_http_origin() {
         "/",
         &h(&[(
             "cookie",
-            "k_session=other-app; k_session_5203=mine; k_theme=x",
+            "k_session=other-app; k_session_5203=mine; k_theme=x; k_theme_5203=dark",
         )]),
         b"",
     )
     .expect("served");
-    assert_eq!(text(&r), "k_session=mine; k_theme=x");
+    // The theme cookie is scoped alike (07-themes-and-units.md).
+    assert_eq!(text(&r), "k_session=mine; k_theme=dark");
     let set: Vec<&str> = r
         .headers
         .iter()
@@ -2583,7 +2598,7 @@ fn the_session_cookie_is_named_after_the_port_of_an_http_origin() {
         set,
         vec![
             "k_session_5203=fresh; Path=/; HttpOnly",
-            "k_theme=dark; Path=/"
+            "k_theme_5203=dark; Path=/"
         ]
     );
     server.shutdown().expect("stops");

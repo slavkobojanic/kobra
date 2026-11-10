@@ -721,11 +721,10 @@ fn page_render(b: &mut Body<'_, '_>, arg: &ast::Expr) -> Option<Expr> {
                 .and_then(|m| b.g.view.member(m).ty.clone());
         if let (Some(case), Some(owner)) =
             (case, ty.as_ref().and_then(|t| t.unwrap_optional().decl()))
+            && let Some(m) = b.g.find_member(owner, &case)
         {
-            if let Some(m) = b.g.find_member(owner, &case) {
-                let v = b.static_ref(m);
-                b.set_override(value.syntax().text_range(), v);
-            }
+            let v = b.static_ref(m);
+            b.set_override(value.syntax().text_range(), v);
         }
     }
     comp.args.extend(chained.into_iter().rev());

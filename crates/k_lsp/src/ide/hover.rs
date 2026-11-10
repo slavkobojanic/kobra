@@ -221,10 +221,10 @@ fn variant_values(analysis: &Analysis, def: Span, name: &str) -> Vec<(String, St
             .filter(|n| n.kind() == SyntaxKind::ThemeOverride)
         {
             let text = o.text().to_string();
-            if let Some((target, value)) = text.split_once('=') {
-                if target.trim() == name {
-                    out.push((variant_name.text().to_owned(), value.trim().to_owned()));
-                }
+            if let Some((target, value)) = text.split_once('=')
+                && target.trim() == name
+            {
+                out.push((variant_name.text().to_owned(), value.trim().to_owned()));
             }
         }
     }
@@ -290,10 +290,10 @@ fn decl_hover(
     if let Some(url) = analysis.page_url(d)? {
         facts.push(format!("URL: `{url}`"));
     }
-    if let Some(side) = info.side {
-        if side != k_sema::Side::Shared {
-            facts.push(format!("Side: {side}"));
-        }
+    if let Some(side) = info.side
+        && side != k_sema::Side::Shared
+    {
+        facts.push(format!("Side: {side}"));
     }
     // `@Rendering(.client)` on a component (`.server` there is K4027).
     if info.named_kind() == Some(k_sema::stdlib::DeclarationKind::Component)
@@ -325,6 +325,9 @@ fn member_hover(
     let info = view.member(m);
     let owner = render::owner_name(view, m);
     code(md, &format!("// in {owner}\n{}", render::member(view, m)));
+    if let Some(note) = user_action_note(info) {
+        let _ = writeln!(md, "\n{note}");
+    }
     if let Some(deps) = reactive::dependencies(analysis, view, m)? {
         md.push('\n');
         match deps {
@@ -349,6 +352,17 @@ fn member_hover(
         docs_of(analysis, view.decl(info.owner).file, range, link, md);
     }
     Ok(())
+}
+
+/// What hover and signature help say about a member marked `@UserAction`
+/// (`docs/design/45-web-platform.md`, "User activation"): browsers allow
+/// it only during a user's action, which the compiler checks (K4030).
+#[must_use]
+pub fn user_action_note(info: &k_sema::view::MemberInfo) -> Option<&'static str> {
+    info.has_annotation("UserAction").then_some(
+        "**Needs a user's action:** call it from a click, submit or key handler \
+         (or a component event declared `@UserAction`), before the handler's first `await`.",
+    )
 }
 
 /// Appends the rendered doc comment of the item at `range` in `file`.
@@ -479,10 +493,10 @@ fn link_target(analysis: &Analysis, file: FileId, start: usize, name: &str) -> O
             TextSize::from(u32::try_from(offset).ok()?),
             TextSize::from(u32::try_from(len).ok()?),
         );
-        if let Ok(Some(resolution)) = analysis.resolve_at(file, range) {
-            if let Ok(Some(def)) = analysis.definition(&resolution) {
-                return Some(def);
-            }
+        if let Ok(Some(resolution)) = analysis.resolve_at(file, range)
+            && let Ok(Some(def)) = analysis.definition(&resolution)
+        {
+            return Some(def);
         }
     }
     None

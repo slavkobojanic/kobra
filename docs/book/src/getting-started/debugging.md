@@ -129,7 +129,8 @@ code straight to your `.k` lines and names, so you can debug the shipped code to
 your source text, which `k run` serves next to the app.
 
 In production, the maps are written next to the files in `dist/public/assets`, but the server built
-with the app serves them only when `K_PUBLIC_SOURCE_MAPS` is `true`. A source map reveals how your code
+with the app serves them only when `K_PUBLIC_SOURCE_MAPS` (`ServerConfig.publicSourceMaps`, see
+[Configuration](../apps/config.md)) is `true`. A source map reveals how your code
 is structured and what your files are called, so publishing them is your choice. On a static host,
 delete the `*.map` files before you upload if you don't want them public. The server's own stack traces
 are mapped either way: its maps are inside the server and never sent to browsers.

@@ -436,10 +436,10 @@ fn collect_style_names(block: &SyntaxNode, info: &mut StyleInfo) {
         };
         match kind(node.kind()) {
             SyntaxKind::ClassSelector => {
-                if let Some((_, text, range)) = tokens().find(|(k, _, _)| k.is_name_like()) {
-                    if !info.has_class(text) {
-                        info.classes.push((text.to_owned(), range));
-                    }
+                if let Some((_, text, range)) = tokens().find(|(k, _, _)| k.is_name_like())
+                    && !info.has_class(text)
+                {
+                    info.classes.push((text.to_owned(), range));
                 }
             }
             SyntaxKind::KeyframesRule => {
@@ -822,15 +822,15 @@ fn service_inits(cx: &Cx<'_, '_>, decl: DeclId) {
             continue;
         }
         seen = true;
-        if let Some(list) = node.children().find(|c| c.kind() == SyntaxKind::ParamList) {
-            if list.children().any(|c| c.kind() == SyntaxKind::Param) {
-                cx.error(
-                    d.file,
-                    codes::INVALID_SERVICE_INIT,
-                    list.text_range(),
-                    "a service's `init()` takes no parameters: its inputs are its dependencies",
-                );
-            }
+        if let Some(list) = node.children().find(|c| c.kind() == SyntaxKind::ParamList)
+            && list.children().any(|c| c.kind() == SyntaxKind::Param)
+        {
+            cx.error(
+                d.file,
+                codes::INVALID_SERVICE_INIT,
+                list.text_range(),
+                "a service's `init()` takes no parameters: its inputs are its dependencies",
+            );
         }
         if let Some(clause) = node
             .children()
@@ -1319,24 +1319,25 @@ fn theme_token(
                     name: name.text().to_owned(),
                 },
             );
-            if let (Some(t), Some(declared)) = (&ty_node, &declared) {
-                if !declared.contains_error() && declared.decl() != Some(cat) {
-                    let cname = p.decl(cat).name.clone();
-                    let written = declared.render(p);
-                    cx.report(
-                        file,
-                        Diagnostic::new(
-                            codes::TOKEN_CATEGORY_MISMATCH,
-                            p.span(file, t.syntax().text_range()),
-                            format!("`{}` tokens are `{cname}`", category.text()),
-                        )
-                        .with_fix(Fix::replace(
-                            format!("Replace `{written}` with `{cname}`"),
-                            p.span(file, t.syntax().text_range()),
-                            cname,
-                        )),
-                    );
-                }
+            if let (Some(t), Some(declared)) = (&ty_node, &declared)
+                && !declared.contains_error()
+                && declared.decl() != Some(cat)
+            {
+                let cname = p.decl(cat).name.clone();
+                let written = declared.render(p);
+                cx.report(
+                    file,
+                    Diagnostic::new(
+                        codes::TOKEN_CATEGORY_MISMATCH,
+                        p.span(file, t.syntax().text_range()),
+                        format!("`{}` tokens are `{cname}`", category.text()),
+                    )
+                    .with_fix(Fix::replace(
+                        format!("Replace `{written}` with `{cname}`"),
+                        p.span(file, t.syntax().text_range()),
+                        cname,
+                    )),
+                );
             }
         }
     }

@@ -145,24 +145,21 @@ const ENVIRONMENTS: &[&str] = &["development", "test", "production"];
 pub(crate) fn scope_of(cx: &Cx<'_, '_>, d: DeclId) -> String {
     let decl = cx.p.decl(d);
     for a in decl.node.children().filter_map(ast::Annotation::cast) {
-        if a.name().is_some_and(|n| n.text() == "Scope") {
-            if let Some(arg) = a
+        if a.name().is_some_and(|n| n.text() == "Scope")
+            && let Some(arg) = a
                 .arg_list()
                 .and_then(|l| l.args().next())
                 .and_then(|a| a.value())
-            {
-                if let Some(name) = arg
-                    .syntax()
-                    .descendants_with_tokens()
-                    .filter_map(rowan::NodeOrToken::into_token)
-                    .find(|t| t.kind() == SyntaxKind::Ident)
-                {
-                    // An unknown scope is K2006 at the argument; it counts
-                    // as the default.
-                    if ["app", "request", "route", "component", "server"].contains(&name.text()) {
-                        return name.text().to_owned();
-                    }
-                }
+            && let Some(name) = arg
+                .syntax()
+                .descendants_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .find(|t| t.kind() == SyntaxKind::Ident)
+        {
+            // An unknown scope is K2006 at the argument; it counts
+            // as the default.
+            if ["app", "request", "route", "component", "server"].contains(&name.text()) {
+                return name.text().to_owned();
             }
         }
     }
@@ -819,10 +816,11 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
             if !layering(cx, d, kind, &what, decl.file, range) {
                 continue;
             }
-            if let Injectable::Interface(iface) = &what {
-                if kind != Some(K::TestSuite) && choices(cx, *iface).is_empty() {
-                    missing_or_ambiguous(cx, decl.file, range, *iface);
-                }
+            if let Injectable::Interface(iface) = &what
+                && kind != Some(K::TestSuite)
+                && choices(cx, *iface).is_empty()
+            {
+                missing_or_ambiguous(cx, decl.file, range, *iface);
             }
             if let Injectable::Protocol(proto) = &what {
                 missing_remote_rule(cx, kind, decl.file, range, *proto);
@@ -1537,10 +1535,10 @@ pub(crate) fn server_references(cx: &Cx<'_, '_>, names: &crate::ty::NameTable) {
     let live = cx.resolutions.borrow();
     let chunks = cx.body_resolutions.borrow();
     for ((f, r), res) in live.iter().chain(chunks.iter().flat_map(|c| c.iter())) {
-        if let Resolution::Declaration { name } = res {
-            if let Some(d) = by_name.get(name.as_str()) {
-                refs_by_file.entry(*f).or_default().push((*r, *d));
-            }
+        if let Resolution::Declaration { name } = res
+            && let Some(d) = by_name.get(name.as_str())
+        {
+            refs_by_file.entry(*f).or_default().push((*r, *d));
         }
     }
     drop(live);
@@ -1612,10 +1610,10 @@ pub(crate) fn client_references(cx: &Cx<'_, '_>, names: &crate::ty::NameTable) {
     let live = cx.resolutions.borrow();
     let chunks = cx.body_resolutions.borrow();
     for ((f, r), res) in live.iter().chain(chunks.iter().flat_map(|c| c.iter())) {
-        if let Resolution::Declaration { name } = res {
-            if let Some(d) = by_name.get(name.as_str()) {
-                refs_by_file.entry(*f).or_default().push((*r, *d));
-            }
+        if let Resolution::Declaration { name } = res
+            && let Some(d) = by_name.get(name.as_str())
+        {
+            refs_by_file.entry(*f).or_default().push((*r, *d));
         }
     }
     drop(live);
@@ -1679,18 +1677,16 @@ pub(crate) fn client_references(cx: &Cx<'_, '_>, names: &crate::ty::NameTable) {
                     );
                     // Through what it is server-only, when that is a
                     // `remote` client deeper down (40-workspaces-and-services.md).
-                    if let Some(path) = server_path(cx, *d, &mut HashSet::new()) {
-                        if path.decls.len() > 1
-                            && path
-                                .decls
-                                .last()
-                                .is_some_and(|&l| p.decl(l).named_kind() == Some(K::Protocol))
-                        {
-                            let names: Vec<String> =
-                                path.decls.iter().map(|t| p.decl_name(*t)).collect();
-                            diag =
-                                diag.with_note(format!("{} ({})", names.join(" → "), path.reason));
-                        }
+                    if let Some(path) = server_path(cx, *d, &mut HashSet::new())
+                        && path.decls.len() > 1
+                        && path
+                            .decls
+                            .last()
+                            .is_some_and(|&l| p.decl(l).named_kind() == Some(K::Protocol))
+                    {
+                        let names: Vec<String> =
+                            path.decls.iter().map(|t| p.decl_name(*t)).collect();
+                        diag = diag.with_note(format!("{} ({})", names.join(" → "), path.reason));
                     }
                     cx.report(fix, diag);
                 }

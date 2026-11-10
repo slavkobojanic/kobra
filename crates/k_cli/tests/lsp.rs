@@ -225,10 +225,10 @@ impl Client {
                         .cloned()
                         .unwrap_or_default()
                 });
-            if let Some(list) = found {
-                if pred(&list) {
-                    return list;
-                }
+            if let Some(list) = found
+                && pred(&list)
+            {
+                return list;
             }
             let message = self.receive(deadline);
             if message.get("method").is_some() && message.get("id").is_none() {

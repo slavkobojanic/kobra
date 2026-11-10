@@ -298,6 +298,19 @@ impl Client {
             .unwrap_or_else(|| panic!("expected {kind}, got {f}"))
     }
 
+    /// The next acknowledgement, skipping echoes: a broadcast published
+    /// while a message is handled may reach the sender before or after its
+    /// acknowledgement (44, "The server acknowledges each message").
+    fn ack(&mut self) -> Value {
+        loop {
+            let f = self.frame();
+            if let Some(a) = f.get("ack") {
+                return a.clone();
+            }
+            assert!(f.get("msg").is_some(), "expected ack, got {f}");
+        }
+    }
+
     /// Opens channel `ch` and returns its resume token.
     fn opened(&mut self, ch: u32, method: &str, request: Value) -> String {
         self.open(ch, method, request);
@@ -631,7 +644,7 @@ fn a_message_over_the_size_limit_or_a_binary_frame_closes_the_socket() {
     c.opened(1, "Room", json!({ "id": "big" }));
     c.expect("msg");
     c.msg(1, 1, post(&"x".repeat(1500)));
-    assert!(c.expect("ack").get("error").is_none());
+    assert!(c.ack().get("error").is_none());
     c.msg(1, 2, post(&"x".repeat(5000)));
     assert_eq!(c.closed().map(|(code, _)| code), Some(1009));
     let mut c = Client::connect(addr);

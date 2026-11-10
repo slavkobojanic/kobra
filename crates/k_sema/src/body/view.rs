@@ -322,15 +322,15 @@ impl Checker<'_, '_, '_> {
             );
             return;
         }
-        if let Some(only) = self.view_ctx.only {
-            if !element.is_some_and(|e| only.contains(&e)) {
-                let names: Vec<String> = only.iter().map(|n| format!("`{n}`")).collect();
-                self.err(
-                    codes::CONTENT_NOT_ALLOWED,
-                    child.text_range(),
-                    format!("only {} may appear here", names.join(", ")),
-                );
-            }
+        if let Some(only) = self.view_ctx.only
+            && !element.is_some_and(|e| only.contains(&e))
+        {
+            let names: Vec<String> = only.iter().map(|n| format!("`{n}`")).collect();
+            self.err(
+                codes::CONTENT_NOT_ALLOWED,
+                child.text_range(),
+                format!("only {} may appear here", names.join(", ")),
+            );
         }
     }
 
@@ -348,16 +348,18 @@ impl Checker<'_, '_, '_> {
         // `metadata { … }` inside `failed` (or `loading`) content is the
         // statement form of a metadata block (sema.md §12.9), where
         // `status(_:)` is allowed.
-        if name.text() == "metadata" && links.is_empty() && self.find_local("metadata").is_none() {
-            if let Some(l) = call.as_ref().and_then(ast::CallExpr::trailing_lambda) {
-                let stmts: Vec<ast::Stmt> = l.statements().collect();
-                let saved = std::mem::replace(&mut self.view_on, false);
-                self.push_scope();
-                self.metadata_stmts(&stmts, true);
-                self.pop_scope();
-                self.view_on = saved;
-                return;
-            }
+        if name.text() == "metadata"
+            && links.is_empty()
+            && self.find_local("metadata").is_none()
+            && let Some(l) = call.as_ref().and_then(ast::CallExpr::trailing_lambda)
+        {
+            let stmts: Vec<ast::Stmt> = l.statements().collect();
+            let saved = std::mem::replace(&mut self.view_on, false);
+            self.push_scope();
+            self.metadata_stmts(&stmts, true);
+            self.pop_scope();
+            self.view_on = saved;
+            return;
         }
         if name.text() == "status"
             && self.metadata_entry("status").is_some()
@@ -543,10 +545,11 @@ impl Checker<'_, '_, '_> {
         for link in links {
             self.element_link(def, link, &mut set);
         }
-        if def.name == "video" && !set.contains_key("captions") {
-            if let Some(c) = call {
-                self.missing_captions(c);
-            }
+        if def.name == "video"
+            && !set.contains_key("captions")
+            && let Some(c) = call
+        {
+            self.missing_captions(c);
         }
     }
 
@@ -607,10 +610,11 @@ impl Checker<'_, '_, '_> {
         );
         if let Some(k) = elements::html_suggestion(text) {
             let mut replacement = k.to_owned();
-            if k == "heading" && call.is_none_or(|c| c.arg_list().is_none()) {
-                if let Some(level) = text.strip_prefix('h') {
-                    replacement = format!("heading(level: {level})");
-                }
+            if k == "heading"
+                && call.is_none_or(|c| c.arg_list().is_none())
+                && let Some(level) = text.strip_prefix('h')
+            {
+                replacement = format!("heading(level: {level})");
             }
             d = d.with_fix(
                 Fix::replace(
@@ -1202,15 +1206,15 @@ impl Checker<'_, '_, '_> {
         if t.contains_error() {
             return;
         }
-        if let Ty::Func(f) = &t {
-            if f.throws.as_ref().is_some_and(|t| !matches!(t, Ty::Never)) {
-                self.err(
-                    codes::THROWING_HANDLER,
-                    e.syntax().text_range(),
-                    "an event handler can't throw: nothing could catch its error",
-                );
-                return;
-            }
+        if let Ty::Func(f) = &t
+            && f.throws.as_ref().is_some_and(|t| !matches!(t, Ty::Never))
+        {
+            self.err(
+                codes::THROWING_HANDLER,
+                e.syntax().text_range(),
+                "an event handler can't throw: nothing could catch its error",
+            );
+            return;
         }
         if !self.assignable(&t, &expected, None) {
             self.mismatch(e, &t, &expected);
@@ -1283,12 +1287,11 @@ impl Checker<'_, '_, '_> {
                 } else {
                     self.plain(|s| s.infer(e, None));
                 }
-                if let ast::Expr::NameExpr(n) = e {
-                    if let Some(Target::Member(m)) = self.targets.get(&n.syntax().text_range()) {
-                        if self.cx.p.member(*m).has_annotation("Stylable") {
-                            self.cx.fw.applied_stylables.borrow_mut().insert(*m);
-                        }
-                    }
+                if let ast::Expr::NameExpr(n) = e
+                    && let Some(Target::Member(m)) = self.targets.get(&n.syntax().text_range())
+                    && self.cx.p.member(*m).has_annotation("Stylable")
+                {
+                    self.cx.fw.applied_stylables.borrow_mut().insert(*m);
                 }
             }
         }

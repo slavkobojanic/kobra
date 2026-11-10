@@ -176,10 +176,10 @@ pub(crate) fn reactive_values(
                 .descendants()
                 .filter(|n| n.kind() == SyntaxKind::Interpolation)
             {
-                if classes_here.iter().any(|c| names.contains(c)) {
-                    if let Some(e) = i.children().find_map(ast::Expr::cast) {
-                        out.push((reactive_property(b.g, owner, index), e));
-                    }
+                if classes_here.iter().any(|c| names.contains(c))
+                    && let Some(e) = i.children().find_map(ast::Expr::cast)
+                {
+                    out.push((reactive_property(b.g, owner, index), e));
                 }
                 index += 1;
             }
@@ -490,10 +490,10 @@ fn fallback_stack(family: &str) -> &'static str {
 /// default serif when the family isn't installed; every other value is its
 /// literal text.
 fn token_value(category: &str, n: &SyntaxNode) -> String {
-    if category == "font" {
-        if let Some(text) = font_shorthand(n) {
-            return text;
-        }
+    if category == "font"
+        && let Some(text) = font_shorthand(n)
+    {
+        return text;
     }
     literal_text(n)
 }
@@ -1188,12 +1188,12 @@ impl Printer<'_, '_> {
                         .unwrap_or_default();
                     // `.primary.mix(.white, 20%)`: 20% white mixed into
                     // the color (07-themes-and-units.md, "Colors").
-                    if method == "mix" {
-                        if let [other, amount] = args.as_slice() {
-                            let other = self.expr_text(prop, other);
-                            let amount = self.expr_text(prop, amount);
-                            return format!("color-mix(in srgb, {recv}, {other} {amount})");
-                        }
+                    if method == "mix"
+                        && let [other, amount] = args.as_slice()
+                    {
+                        let other = self.expr_text(prop, other);
+                        let amount = self.expr_text(prop, amount);
+                        return format!("color-mix(in srgb, {recv}, {other} {amount})");
                     }
                     if method == "opacity" {
                         let pct = arg

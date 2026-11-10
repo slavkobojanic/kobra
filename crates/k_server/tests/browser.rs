@@ -768,11 +768,8 @@ fn todos_adds_toggles_deletes_and_filters_todos_and_switches_the_theme() {
         "k-theme-dark",
         "dark root class",
     );
-    contains(
-        theme[1].as_str().unwrap_or(""),
-        "k_theme=dark",
-        "theme cookie",
-    );
+    contains(theme[1].as_str().unwrap_or(""), "k_theme", "theme cookie");
+    contains(theme[1].as_str().unwrap_or(""), "=dark", "theme cookie");
     lacks(
         theme[2].as_str().unwrap_or(""),
         "k-theme-dark",

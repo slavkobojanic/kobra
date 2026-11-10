@@ -1181,17 +1181,21 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             self.block_stmts(&body);
             let ret = sig.ret.clone();
             let void = self.is_void(&ret);
-            if self.flow.reachable && !is_init && !void && !ret.is_error() && !tests {
-                if let Some(close) = token(body.syntax(), SyntaxKind::RBrace) {
-                    self.err(
-                        codes::MISSING_RETURN,
-                        close.text_range(),
-                        format!(
-                            "missing `return` in a function returning `{}`",
-                            ret.render(self.cx.p)
-                        ),
-                    );
-                }
+            if self.flow.reachable
+                && !is_init
+                && !void
+                && !ret.is_error()
+                && !tests
+                && let Some(close) = token(body.syntax(), SyntaxKind::RBrace)
+            {
+                self.err(
+                    codes::MISSING_RETURN,
+                    close.text_range(),
+                    format!(
+                        "missing `return` in a function returning `{}`",
+                        ret.render(self.cx.p)
+                    ),
+                );
             }
         }
         self.pop_fn();
@@ -1469,18 +1473,18 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
     /// Binding a variable to itself is a no-op (no cycle is created); an
     /// unknown `v` is ignored.
     fn bind(&mut self, v: u32, ty: Ty, origin: Option<TextRange>) {
-        if let Ty::Var(w) = ty {
-            if w == v {
-                return;
-            }
+        if let Ty::Var(w) = ty
+            && w == v
+        {
+            return;
         }
         if let Some(slot) = self.vars.get_mut(v as usize) {
             *slot = Some(ty);
         }
-        if let Some(slot) = self.origins.get_mut(v as usize) {
-            if slot.is_none() {
-                *slot = origin;
-            }
+        if let Some(slot) = self.origins.get_mut(v as usize)
+            && slot.is_none()
+        {
+            *slot = origin;
         }
     }
 
@@ -1547,11 +1551,13 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         if wild(&a) || wild(&e) {
             return true;
         }
-        if let (Ty::Named(d, _), Some(v)) = (&a, self.deopt(&e).decl()) {
-            if Some(v) == self.cx.b.view && self.cx.implements(&a, v) && *d != v {
-                // Components, pages and layouts are values of `View`.
-                return true;
-            }
+        if let (Ty::Named(d, _), Some(v)) = (&a, self.deopt(&e).decl())
+            && Some(v) == self.cx.b.view
+            && self.cx.implements(&a, v)
+            && *d != v
+        {
+            // Components, pages and layouts are values of `View`.
+            return true;
         }
         match (&a, &e) {
             (Ty::Error, Ty::Var(v)) | (Ty::Var(v), Ty::Error) => {
@@ -1587,10 +1593,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 self.named_assignable(*d1, &a, &e, origin)
             }
             (_, Ty::Named(i, _)) if self.cx.is_interface(*i) => {
-                if let Ty::Named(d, _) = &a {
-                    if self.cx.is_interface(*d) && !self.cx.declares(*d, *i) {
-                        return false;
-                    }
+                if let Ty::Named(d, _) = &a
+                    && self.cx.is_interface(*d)
+                    && !self.cx.declares(*d, *i)
+                {
+                    return false;
                 }
                 let a = self.resolve(&a);
                 if !self.conv.values && self.changes_representation(&a, *i) {
@@ -1854,11 +1861,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 self.stmt(stmt);
             }
         }
-        if stmts.is_empty() {
-            if let (Some(exp), true) = (expected, report) {
-                let void = builtin(self.cx.b.void);
-                let _ = self.assignable(&void, exp, None);
-            }
+        if stmts.is_empty()
+            && let (Some(exp), true) = (expected, report)
+        {
+            let void = builtin(self.cx.b.void);
+            let _ = self.assignable(&void, exp, None);
         }
         self.pop_scope();
         ty
@@ -1994,14 +2001,13 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         };
         // A plain assignment to a deferred local is a write, not a read.
         let mut deferred_target = None;
-        if let ast::Expr::NameExpr(n) = &lhs {
-            if let Some(name) = n.name() {
-                if let Some(id) = self.find_local(name.text()) {
-                    if self.locals[id].deferred && !compound {
-                        deferred_target = Some(id);
-                    }
-                }
-            }
+        if let ast::Expr::NameExpr(n) = &lhs
+            && let Some(name) = n.name()
+            && let Some(id) = self.find_local(name.text())
+            && self.locals[id].deferred
+            && !compound
+        {
+            deferred_target = Some(id);
         }
         let lhs_ty = if let Some(id) = deferred_target {
             let range = lhs.syntax().text_range();
@@ -2138,21 +2144,20 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     // Through a class reference, the receiver's binding
                     // doesn't matter.
                     let recv_ty = self.type_of_node(recv.syntax().text_range());
-                    if let Some(d) = recv_ty.as_ref().and_then(|t| self.deopt(t).decl()) {
-                        if self.cx.is_class(d) {
-                            return;
-                        }
+                    if let Some(d) = recv_ty.as_ref().and_then(|t| self.deopt(t).decl())
+                        && self.cx.is_class(d)
+                    {
+                        return;
                     }
                     if matches!(recv_ty, Some(Ty::Meta(_))) {
                         return;
                     }
-                    if let ast::Expr::NameExpr(n) = &recv {
-                        if n.syntax()
+                    if let ast::Expr::NameExpr(n) = &recv
+                        && n.syntax()
                             .first_token()
                             .is_some_and(|t| t.kind() == SyntaxKind::SelfKw)
-                        {
-                            return;
-                        }
+                    {
+                        return;
                     }
                     current = recv;
                 }
@@ -2366,12 +2371,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
     /// Sends a thrown error to its handler (sema.md §10).
     fn throw_error(&mut self, ty: Ty, covered: Vec<Vec<Pat>>, at: TextRange, from_try: bool) {
         let fcx = self.fcx();
-        if from_try {
-            if let Some(t) = fcx.tries.last() {
-                if t.has_else {
-                    return;
-                }
-            }
+        if from_try
+            && let Some(t) = fcx.tries.last()
+            && t.has_else
+        {
+            return;
         }
         if let Some(d) = fcx.dos.last_mut() {
             if d.accepts_any {
@@ -2484,13 +2488,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
     ///
     /// With `from_try`, a `try` reports at most once.
     fn unhandled(&mut self, ty: &Ty, at: TextRange, from_try: bool) {
-        if from_try {
-            if let Some(t) = self.fcx().tries.last_mut() {
-                if t.reported {
-                    return;
-                }
-                t.reported = true;
+        if from_try && let Some(t) = self.fcx().tries.last_mut() {
+            if t.reported {
+                return;
             }
+            t.reported = true;
         }
         let rendered = ty.render(self.cx.p);
         let mut d = Diagnostic::new(
@@ -2602,14 +2604,14 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         let before = self.flow.clone();
         if let Some(block) = else_block {
             self.block_stmts(&block);
-            if self.flow.reachable {
-                if let Some(kw) = token(node, SyntaxKind::ElseKw) {
-                    self.err(
-                        codes::GUARD_DOES_NOT_EXIT,
-                        kw.text_range(),
-                        "the `else` block of a `guard` must exit",
-                    );
-                }
+            if self.flow.reachable
+                && let Some(kw) = token(node, SyntaxKind::ElseKw)
+            {
+                self.err(
+                    codes::GUARD_DOES_NOT_EXIT,
+                    kw.text_range(),
+                    "the `else` block of a `guard` must exit",
+                );
             }
         }
         self.flow = before;
@@ -2686,28 +2688,26 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 d = d.with_fix(if in_async { fix } else { fix.maybe_incorrect() });
                 self.report(d);
             }
-        } else if is_await {
-            if let Some(kw) = token(node, SyntaxKind::AwaitKw) {
-                if is_collection {
-                    let end = kw.text_range().end() + TextSize::from(1);
-                    let d = Diagnostic::new(
-                        codes::FOR_AWAIT_NOT_STREAM,
-                        self.span(kw.text_range()),
-                        "`for await` reads a `Stream`, not a collection",
-                    )
-                    .with_fix(Fix::replace(
-                        "Remove `await `",
-                        self.span(TextRange::new(kw.text_range().start(), end)),
-                        "",
-                    ));
-                    self.report(d);
-                } else if is_stream && !in_async {
-                    self.err(
-                        codes::FOR_AWAIT_NOT_STREAM,
-                        kw.text_range(),
-                        "`for await` is allowed only in an async function",
-                    );
-                }
+        } else if is_await && let Some(kw) = token(node, SyntaxKind::AwaitKw) {
+            if is_collection {
+                let end = kw.text_range().end() + TextSize::from(1);
+                let d = Diagnostic::new(
+                    codes::FOR_AWAIT_NOT_STREAM,
+                    self.span(kw.text_range()),
+                    "`for await` reads a `Stream`, not a collection",
+                )
+                .with_fix(Fix::replace(
+                    "Remove `await `",
+                    self.span(TextRange::new(kw.text_range().start(), end)),
+                    "",
+                ));
+                self.report(d);
+            } else if is_stream && !in_async {
+                self.err(
+                    codes::FOR_AWAIT_NOT_STREAM,
+                    kw.text_range(),
+                    "`for await` is allowed only in an async function",
+                );
             }
         }
         self.push_scope();
@@ -2761,17 +2761,17 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     if t.contains_error() {
                         return;
                     }
-                    if let Some(h) = self.cx.b.hashable {
-                        if !self.cx.implements(&t, h) {
-                            self.err(
-                                codes::UNSATISFIED_CONSTRAINT,
-                                key.syntax().text_range(),
-                                format!(
-                                    "a `key` must be `Hashable`; `{}` isn't",
-                                    t.render(self.cx.p)
-                                ),
-                            );
-                        }
+                    if let Some(h) = self.cx.b.hashable
+                        && !self.cx.implements(&t, h)
+                    {
+                        self.err(
+                            codes::UNSATISFIED_CONSTRAINT,
+                            key.syntax().text_range(),
+                            format!(
+                                "a `key` must be `Hashable`; `{}` isn't",
+                                t.render(self.cx.p)
+                            ),
+                        );
                     }
                     return;
                 }
@@ -2901,26 +2901,26 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
     /// unknown type. Flow after the statement is the state before the block.
     fn expect_throws(&mut self, node: &SyntaxNode) {
         let mut expected_error: Option<DeclId> = None;
-        if let Some(p) = node.children().find_map(ast::Pattern::cast) {
-            if let ast::Pattern::EnumCasePattern(e) = &p {
-                // `expect throws CartError.outOfStock`: resolve the enum.
-                let idents: Vec<SyntaxToken> = e
-                    .syntax()
-                    .children_with_tokens()
-                    .filter_map(rowan::NodeOrToken::into_token)
-                    .filter(|t| t.kind() == SyntaxKind::Ident)
-                    .collect();
-                if idents.len() >= 2 {
-                    if let Found::Decl(d) = self.cx.lookup(self.file(), idents[0].text()) {
-                        expected_error = Some(d);
-                        self.note_res(idents[0].text_range(), self.cx.decl_resolution(d));
-                        let ty = Ty::named(d);
-                        self.quiet += 1;
-                        let mut binds = Vec::new();
-                        let _ = self.pattern(&p, &ty, &mut binds);
-                        self.quiet -= 1;
-                    }
-                }
+        if let Some(p) = node.children().find_map(ast::Pattern::cast)
+            && let ast::Pattern::EnumCasePattern(e) = &p
+        {
+            // `expect throws CartError.outOfStock`: resolve the enum.
+            let idents: Vec<SyntaxToken> = e
+                .syntax()
+                .children_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .filter(|t| t.kind() == SyntaxKind::Ident)
+                .collect();
+            if idents.len() >= 2
+                && let Found::Decl(d) = self.cx.lookup(self.file(), idents[0].text())
+            {
+                expected_error = Some(d);
+                self.note_res(idents[0].text_range(), self.cx.decl_resolution(d));
+                let ty = Ty::named(d);
+                self.quiet += 1;
+                let mut binds = Vec::new();
+                let _ = self.pattern(&p, &ty, &mut binds);
+                self.quiet -= 1;
             }
         }
         if let Some(block) = node.children().find_map(ast::Block::cast) {
@@ -2937,14 +2937,15 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 let t = self.resolve(&t.ty);
                 t.contains_error() || expected_error.is_none_or(|e| t.decl() == Some(e))
             });
-            if !can_throw && !done.saw_unknown {
-                if let Some(kw) = token(node, SyntaxKind::ExpectKw) {
-                    self.err(
-                        codes::EXPECT_THROWS_CANNOT_THROW,
-                        kw.text_range(),
-                        "this block can't throw the expected error",
-                    );
-                }
+            if !can_throw
+                && !done.saw_unknown
+                && let Some(kw) = token(node, SyntaxKind::ExpectKw)
+            {
+                self.err(
+                    codes::EXPECT_THROWS_CANNOT_THROW,
+                    kw.text_range(),
+                    "this block can't throw the expected error",
+                );
             }
         }
     }
@@ -3114,30 +3115,32 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     catch_all_binding = Some(id);
                 }
             }
-            if let Some(g) = &guard {
-                if let Some(e) = g.children().find_map(ast::Expr::cast) {
-                    self.check(&e, &builtin(self.cx.b.bool_));
-                }
+            if let Some(g) = &guard
+                && let Some(e) = g.children().find_map(ast::Expr::cast)
+            {
+                self.check(&e, &builtin(self.cx.b.bool_));
             }
             if let Some(b) = clause.children().find_map(ast::Block::cast) {
                 self.block_stmts(&b);
             }
-            if let Some(id) = catch_all_binding {
-                if !self.locals[id].used && guard.is_none() && !broken {
-                    let range = patterns[0].syntax().text_range();
-                    let d = Diagnostic::new(
-                        codes::UNUSED_CATCH_ALL_BINDING,
-                        self.span(range),
-                        "the catch-all binding is never used",
-                    )
-                    .with_fix(Fix::replace(
-                        "Replace the pattern with `_`",
-                        self.span(range),
-                        "_",
-                    ));
-                    if catch_all_seen && rows_per_type.len() == types.len() {
-                        self.report(d);
-                    }
+            if let Some(id) = catch_all_binding
+                && !self.locals[id].used
+                && guard.is_none()
+                && !broken
+            {
+                let range = patterns[0].syntax().text_range();
+                let d = Diagnostic::new(
+                    codes::UNUSED_CATCH_ALL_BINDING,
+                    self.span(range),
+                    "the catch-all binding is never used",
+                )
+                .with_fix(Fix::replace(
+                    "Replace the pattern with `_`",
+                    self.span(range),
+                    "_",
+                ));
+                if catch_all_seen && rows_per_type.len() == types.len() {
+                    self.report(d);
                 }
             }
             self.pop_scope();
@@ -4127,44 +4130,43 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
         // `.empty` of a `Validatable` struct, valid only as a `@Form`
         // initializer (K7002); `.empty(field: value, …)` sets any fields.
-        if name.text() == "empty" {
-            if let Some(v) = self.cx.p.lookup_qualified("k.validation.Validatable") {
-                if self.cx.declares(decl, v) {
-                    if !self.form_init {
-                        self.err(
-                            codes::EMPTY_OUTSIDE_FORM,
-                            range,
-                            "`.empty` is valid only as a `@Form` field's initializer",
-                        );
-                    }
-                    if !called {
-                        return (target.clone(), None);
-                    }
-                    let params = self
-                        .cx
-                        .stored_fields(decl)
-                        .iter()
-                        .map(|f| {
-                            let m = self.cx.p.member(*f);
-                            SigParam {
-                                label: Some(m.name.clone()),
-                                name: m.name.clone(),
-                                ty: apply(&self.cx.field_ty(*f), &subst),
-                                has_default: true,
-                                name_range: m.name_range,
-                            }
-                        })
-                        .collect();
-                    let sig = Rc::new(Sig {
-                        generics: Vec::new(),
-                        params,
-                        is_async: false,
-                        throws: None,
-                        ret: target.clone(),
-                    });
-                    return (target.clone(), Some((sig, Vec::new())));
-                }
+        if name.text() == "empty"
+            && let Some(v) = self.cx.p.lookup_qualified("k.validation.Validatable")
+            && self.cx.declares(decl, v)
+        {
+            if !self.form_init {
+                self.err(
+                    codes::EMPTY_OUTSIDE_FORM,
+                    range,
+                    "`.empty` is valid only as a `@Form` field's initializer",
+                );
             }
+            if !called {
+                return (target.clone(), None);
+            }
+            let params = self
+                .cx
+                .stored_fields(decl)
+                .iter()
+                .map(|f| {
+                    let m = self.cx.p.member(*f);
+                    SigParam {
+                        label: Some(m.name.clone()),
+                        name: m.name.clone(),
+                        ty: apply(&self.cx.field_ty(*f), &subst),
+                        has_default: true,
+                        name_range: m.name_range,
+                    }
+                })
+                .collect();
+            let sig = Rc::new(Sig {
+                generics: Vec::new(),
+                params,
+                is_async: false,
+                throws: None,
+                ret: target.clone(),
+            });
+            return (target.clone(), Some((sig, Vec::new())));
         }
         // Generated declarations whose members the checker doesn't know.
         if self.cx.p.decl(decl).has_annotation("Generated")
@@ -4321,20 +4323,21 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         let b = &self.cx.b;
         let map = b.map.unwrap_or(DeclId(0));
         let expected = expected.map(|e| self.deopt(e));
-        if let Some(Ty::Named(d, args)) = &expected {
-            if Some(*d) == b.map && args.len() == 2 {
-                let (k, v) = (args[0].clone(), args[1].clone());
-                for entry in &entries {
-                    let mut exprs = entry.children().filter_map(ast::Expr::cast);
-                    if let Some(key) = exprs.next() {
-                        self.check(&key, &k);
-                    }
-                    if let Some(value) = exprs.next() {
-                        self.check(&value, &v);
-                    }
+        if let Some(Ty::Named(d, args)) = &expected
+            && Some(*d) == b.map
+            && args.len() == 2
+        {
+            let (k, v) = (args[0].clone(), args[1].clone());
+            for entry in &entries {
+                let mut exprs = entry.children().filter_map(ast::Expr::cast);
+                if let Some(key) = exprs.next() {
+                    self.check(&key, &k);
                 }
-                return Ty::generic(map, vec![k, v]);
+                if let Some(value) = exprs.next() {
+                    self.check(&value, &v);
+                }
             }
+            return Ty::generic(map, vec![k, v]);
         }
         if entries.is_empty() {
             self.err(
@@ -4357,17 +4360,18 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     None => {
                         let t = self.infer(&key, None);
                         let t = self.resolve(&t);
-                        if let Some(h) = self.cx.b.hashable {
-                            if !t.contains_error() && !self.cx.implements(&t, h) {
-                                self.err(
-                                    codes::UNSATISFIED_CONSTRAINT,
-                                    key.syntax().text_range(),
-                                    format!(
-                                        "map keys must be `Hashable`; `{}` is not",
-                                        t.render(self.cx.p)
-                                    ),
-                                );
-                            }
+                        if let Some(h) = self.cx.b.hashable
+                            && !t.contains_error()
+                            && !self.cx.implements(&t, h)
+                        {
+                            self.err(
+                                codes::UNSATISFIED_CONSTRAINT,
+                                key.syntax().text_range(),
+                                format!(
+                                    "map keys must be `Hashable`; `{}` is not",
+                                    t.render(self.cx.p)
+                                ),
+                            );
                         }
                         kt = Some(t);
                     }
@@ -4447,28 +4451,27 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 .and_then(|r| r.ty())
                 .map(|t| self.cx.resolve_type(self.file(), &self.owner.generics, &t));
         }
-        if let Some(f) = &expected_fn {
-            if params.len() > f.params.len()
+        if let Some(f) = &expected_fn
+            && (params.len() > f.params.len()
                 || (!params.is_empty() && params.len() != f.params.len())
-                || (params.is_empty() && !f.params.is_empty())
-            {
-                // Wrong arity: check the body for its own errors only.
-                let tys: Vec<(String, TextRange, Ty)> = params
-                    .iter()
-                    .map(|(n, r, t)| (n.clone(), *r, t.clone().unwrap_or(Ty::Error)))
-                    .collect();
-                self.lambda_body(l, tys, None, None, false, None);
-                self.err(
-                    codes::TYPE_MISMATCH,
-                    range,
-                    format!(
-                        "expected `{}`, found a lambda with {} parameter(s)",
-                        Ty::Func(f.clone()).render(self.cx.p),
-                        params.len()
-                    ),
-                );
-                return Ty::Error;
-            }
+                || (params.is_empty() && !f.params.is_empty()))
+        {
+            // Wrong arity: check the body for its own errors only.
+            let tys: Vec<(String, TextRange, Ty)> = params
+                .iter()
+                .map(|(n, r, t)| (n.clone(), *r, t.clone().unwrap_or(Ty::Error)))
+                .collect();
+            self.lambda_body(l, tys, None, None, false, None);
+            self.err(
+                codes::TYPE_MISMATCH,
+                range,
+                format!(
+                    "expected `{}`, found a lambda with {} parameter(s)",
+                    Ty::Func(f.clone()).render(self.cx.p),
+                    params.len()
+                ),
+            );
+            return Ty::Error;
         }
         let mut param_tys = Vec::new();
         let mut unknown = false;
@@ -4766,24 +4769,22 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             let case_kw = token(arm, SyntaxKind::CaseKw);
             let top_wild =
                 patterns.len() == 1 && matches!(patterns[0], ast::Pattern::WildcardPattern(_));
-            if top_wild {
-                if let Some(kw) = &case_kw {
-                    let r = TextRange::new(
-                        kw.text_range().start(),
-                        patterns[0].syntax().text_range().end(),
-                    );
-                    let d = Diagnostic::new(
-                        codes::WILDCARD_CASE_ARM,
-                        self.span(r),
-                        "write `default` instead of `case _`",
-                    )
-                    .with_fix(Fix::replace(
-                        "Replace with `default`",
-                        self.span(r),
-                        "default",
-                    ));
-                    self.report(d);
-                }
+            if top_wild && let Some(kw) = &case_kw {
+                let r = TextRange::new(
+                    kw.text_range().start(),
+                    patterns[0].syntax().text_range().end(),
+                );
+                let d = Diagnostic::new(
+                    codes::WILDCARD_CASE_ARM,
+                    self.span(r),
+                    "write `default` instead of `case _`",
+                )
+                .with_fix(Fix::replace(
+                    "Replace with `default`",
+                    self.span(r),
+                    "default",
+                ));
+                self.report(d);
             }
             let mut unreachable = false;
             if !broken {
@@ -4859,10 +4860,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     binding_local = Some(id);
                 }
             }
-            if let Some(g) = &guard {
-                if let Some(e) = g.children().find_map(ast::Expr::cast) {
-                    self.check(&e, &builtin(self.cx.b.bool_));
-                }
+            if let Some(g) = &guard
+                && let Some(e) = g.children().find_map(ast::Expr::cast)
+            {
+                self.check(&e, &builtin(self.cx.b.bool_));
             }
             if let Some(block) = arm.children().find_map(ast::Block::cast) {
                 let stmts: Vec<ast::Stmt> = block.statements().collect();
@@ -4877,24 +4878,25 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     self.value_stmts(&stmts, None, false);
                 }
             }
-            if let Some(id) = binding_local {
-                if !self.locals[id].used && !unreachable && guard.is_none() {
-                    if let (Some(kw), Some(p)) = (&case_kw, patterns.first()) {
-                        let pr = p.syntax().text_range();
-                        let head = TextRange::new(kw.text_range().start(), pr.end());
-                        let d = Diagnostic::new(
-                            codes::UNUSED_CATCH_ALL_BINDING,
-                            self.span(pr),
-                            "the catch-all binding is never used",
-                        )
-                        .with_fix(Fix::replace(
-                            "Replace the arm head with `default`",
-                            self.span(head),
-                            "default",
-                        ));
-                        self.report(d);
-                    }
-                }
+            if let Some(id) = binding_local
+                && !self.locals[id].used
+                && !unreachable
+                && guard.is_none()
+                && let (Some(kw), Some(p)) = (&case_kw, patterns.first())
+            {
+                let pr = p.syntax().text_range();
+                let head = TextRange::new(kw.text_range().start(), pr.end());
+                let d = Diagnostic::new(
+                    codes::UNUSED_CATCH_ALL_BINDING,
+                    self.span(pr),
+                    "the catch-all binding is never used",
+                )
+                .with_fix(Fix::replace(
+                    "Replace the arm head with `default`",
+                    self.span(head),
+                    "default",
+                ));
+                self.report(d);
             }
             if is_catch_all && guard.is_none() {
                 catch_all_seen = true;
@@ -5164,10 +5166,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                         Some(p) => self.pattern(&p, inner, binds)?,
                         None => Pat::Wild,
                     };
-                    if let Some(o) = self.cx.b.optional {
-                        if let Some(&m) = self.cx.p.decl(o).member_names.get("some") {
-                            self.note_res(name.text_range(), self.cx.member_resolution(m));
-                        }
+                    if let Some(o) = self.cx.b.optional
+                        && let Some(&m) = self.cx.p.decl(o).member_names.get("some")
+                    {
+                        self.note_res(name.text_range(), self.cx.member_resolution(m));
                     }
                     return Some(Pat::Ctor(pattern::Ctor::Some, vec![sub]));
                 }
@@ -5294,25 +5296,28 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             .as_ref()
             .map_or(Ty::Error, |e| self.infer(e, expected));
         let t = self.fcx().tries.pop();
-        if let Some(t) = t {
-            if !t.saw_throwing && !t.saw_unknown && operand.is_some() && !ty.contains_error() {
-                let mut d = Diagnostic::new(
-                    codes::NEEDLESS_TRY,
-                    self.span(try_kw),
-                    "nothing in this expression can throw",
-                );
-                if else_block.is_none() {
-                    let end = operand
-                        .as_ref()
-                        .map_or(try_kw.end(), |o| o.syntax().text_range().start());
-                    d = d.with_fix(Fix::replace(
-                        "Remove `try `",
-                        self.span(TextRange::new(try_kw.start(), end)),
-                        "",
-                    ));
-                }
-                self.report(d);
+        if let Some(t) = t
+            && !t.saw_throwing
+            && !t.saw_unknown
+            && operand.is_some()
+            && !ty.contains_error()
+        {
+            let mut d = Diagnostic::new(
+                codes::NEEDLESS_TRY,
+                self.span(try_kw),
+                "nothing in this expression can throw",
+            );
+            if else_block.is_none() {
+                let end = operand
+                    .as_ref()
+                    .map_or(try_kw.end(), |o| o.syntax().text_range().start());
+                d = d.with_fix(Fix::replace(
+                    "Remove `try `",
+                    self.span(TextRange::new(try_kw.start(), end)),
+                    "",
+                ));
             }
+            self.report(d);
         }
         if let Some(block) = else_block {
             let stmts: Vec<ast::Stmt> = block.statements().collect();
@@ -5605,38 +5610,38 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     (None, Some(v)) => (Some(v), &lhs, l.clone()),
                     _ => (None, &lhs, l.clone()),
                 };
-                if let Some(v) = lit_value {
-                    if self.is_bool(&other_ty) {
-                        let negate = (op == Some(SyntaxKind::EqEq)) != v;
-                        let text = self.text(other.syntax().text_range()).to_owned();
-                        let replacement = if negate {
-                            if matches!(
-                                other,
-                                ast::Expr::BinaryExpr(_)
-                                    | ast::Expr::PrefixExpr(_)
-                                    | ast::Expr::TryExpr(_)
-                                    | ast::Expr::AwaitExpr(_)
-                            ) {
-                                format!("not ({text})")
-                            } else {
-                                format!("not {text}")
-                            }
+                if let Some(v) = lit_value
+                    && self.is_bool(&other_ty)
+                {
+                    let negate = (op == Some(SyntaxKind::EqEq)) != v;
+                    let text = self.text(other.syntax().text_range()).to_owned();
+                    let replacement = if negate {
+                        if matches!(
+                            other,
+                            ast::Expr::BinaryExpr(_)
+                                | ast::Expr::PrefixExpr(_)
+                                | ast::Expr::TryExpr(_)
+                                | ast::Expr::AwaitExpr(_)
+                        ) {
+                            format!("not ({text})")
                         } else {
-                            text
-                        };
-                        let d = Diagnostic::new(
-                            codes::BOOL_LITERAL_COMPARISON,
-                            self.span(range),
-                            "comparing a `Bool` with a literal",
-                        )
-                        .with_fix(Fix::replace(
-                            format!("Simplify to `{replacement}`"),
-                            self.span(range),
-                            replacement,
-                        ));
-                        self.report(d);
-                        return bool_ty;
-                    }
+                            format!("not {text}")
+                        }
+                    } else {
+                        text
+                    };
+                    let d = Diagnostic::new(
+                        codes::BOOL_LITERAL_COMPARISON,
+                        self.span(range),
+                        "comparing a `Bool` with a literal",
+                    )
+                    .with_fix(Fix::replace(
+                        format!("Simplify to `{replacement}`"),
+                        self.span(range),
+                        replacement,
+                    ));
+                    self.report(d);
+                    return bool_ty;
                 }
                 let is_nil = |e: &ast::Expr| matches!(e, ast::Expr::Literal(x) if x.token().is_some_and(|t| t.kind() == SyntaxKind::NilKw));
                 if is_nil(&lhs) || is_nil(&rhs) {
@@ -5970,10 +5975,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 .first_token()
                 .is_some_and(|t| t.kind() == SyntaxKind::SelfKw)
             && recv.syntax().text_range().len() == TextSize::from(4)
+            && let Some(Target::Member(field)) = self.targets.get(&name.text_range()).copied()
         {
-            if let Some(Target::Member(field)) = self.targets.get(&name.text_range()).copied() {
-                self.loading_read(field, name.text_range());
-            }
+            self.loading_read(field, name.text_range());
         }
         self.client_state_read(m, &name);
         self.client_only_read(m, &name);
@@ -6230,28 +6234,28 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             // value.
             base = (**inner).clone();
             lifted = true;
-        } else if let Ty::Optional(inner) = &base {
-            if !matches!(&**inner, Ty::Error) {
-                // K2017: a member of an optional without `?.`.
-                let probe =
-                    self.cx
-                        .lookup_member(self.file(), self.owner.decl, inner, name.text(), false);
-                if !matches!(probe, MemberFound::Missing) {
-                    if let Some(dot) = token(node, SyntaxKind::Dot) {
-                        let d = Diagnostic::new(
-                            codes::UNWRAP_REQUIRED,
-                            self.span(recv.syntax().text_range()),
-                            "the value may be `nil`: use `?.` or unwrap it first",
-                        )
-                        .with_fix(
-                            Fix::replace("Use `?.`", self.span(dot.text_range()), "?.")
-                                .maybe_incorrect(),
-                        );
-                        self.report(d);
-                    }
-                    base = (**inner).clone();
-                    lifted = true;
+        } else if let Ty::Optional(inner) = &base
+            && !matches!(&**inner, Ty::Error)
+        {
+            // K2017: a member of an optional without `?.`.
+            let probe =
+                self.cx
+                    .lookup_member(self.file(), self.owner.decl, inner, name.text(), false);
+            if !matches!(probe, MemberFound::Missing) {
+                if let Some(dot) = token(node, SyntaxKind::Dot) {
+                    let d = Diagnostic::new(
+                        codes::UNWRAP_REQUIRED,
+                        self.span(recv.syntax().text_range()),
+                        "the value may be `nil`: use `?.` or unwrap it first",
+                    )
+                    .with_fix(
+                        Fix::replace("Use `?.`", self.span(dot.text_range()), "?.")
+                            .maybe_incorrect(),
+                    );
+                    self.report(d);
                 }
+                base = (**inner).clone();
+                lifted = true;
             }
         }
         let (statics, target) = match &base {
@@ -6261,21 +6265,18 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         let mut found =
             self.cx
                 .lookup_member(self.file(), self.owner.decl, &target, name.text(), statics);
-        if called {
-            if let (MemberFound::Member(m, subst), Some(d)) = (&found, target.decl()) {
-                let kind = self.cx.p.member(*m).kind;
-                if !matches!(kind, MemberKind::Func | MemberKind::Case | MemberKind::Rpc) {
-                    if let Some(f) = self
-                        .cx
-                        .p
-                        .decl(d)
-                        .funcs
-                        .get(name.text())
-                        .and_then(|f| f.first())
-                    {
-                        found = MemberFound::Member(*f, subst.clone());
-                    }
-                }
+        if called && let (MemberFound::Member(m, subst), Some(d)) = (&found, target.decl()) {
+            let kind = self.cx.p.member(*m).kind;
+            if !matches!(kind, MemberKind::Func | MemberKind::Case | MemberKind::Rpc)
+                && let Some(f) = self
+                    .cx
+                    .p
+                    .decl(d)
+                    .funcs
+                    .get(name.text())
+                    .and_then(|f| f.first())
+            {
+                found = MemberFound::Member(*f, subst.clone());
             }
         }
         if lifted {
@@ -6285,12 +6286,13 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             }
         }
         let wrap = |t: Ty| if lifted { Ty::optional(t) } else { t };
-        if let MemberFound::Member(m, _) = &found {
-            if self.is_session_user(*m) && self.guarded() {
-                let t = self.cx.member_value_ty(*m, &[]);
-                self.note_res(name.text_range(), self.cx.member_resolution(*m));
-                return (wrap(self.deopt(&t)), None, lifted);
-            }
+        if let MemberFound::Member(m, _) = &found
+            && self.is_session_user(*m)
+            && self.guarded()
+        {
+            let t = self.cx.member_value_ty(*m, &[]);
+            self.note_res(name.text_range(), self.cx.member_resolution(*m));
+            return (wrap(self.deopt(&t)), None, lifted);
         }
         match found {
             MemberFound::Member(member, subst) => {
@@ -6595,10 +6597,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     self.args_unchecked(&args);
                     return Ty::Error;
                 };
-                if name.text() == "copy" {
-                    if let Some(t) = self.copy_call(&recv_ty, &name, &node, &args) {
-                        return t;
-                    }
+                if name.text() == "copy"
+                    && let Some(t) = self.copy_call(&recv_ty, &name, &node, &args)
+                {
+                    return t;
                 }
                 if let Some(t) = self.page_modifier(&recv_ty, &name, &node, &args) {
                     return t;
@@ -7525,22 +7527,22 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
     fn args_unchecked_inner(&mut self, args: &[Arg]) {
         for a in args {
             if let Some(e) = &a.expr {
-                if a.is_lambda {
-                    if let ast::Expr::LambdaExpr(l) = e {
-                        let params: Vec<(String, TextRange, Ty)> = l
-                            .param_list()
-                            .map(|list| {
-                                list.syntax()
-                                    .children()
-                                    .filter(|c| c.kind() == SyntaxKind::LambdaParam)
-                                    .filter_map(|p| token(&p, SyntaxKind::Ident))
-                                    .map(|n| (n.text().to_owned(), n.text_range(), Ty::Error))
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        self.lambda_body(l, params, None, Some(Ty::Error), true, None);
-                        continue;
-                    }
+                if a.is_lambda
+                    && let ast::Expr::LambdaExpr(l) = e
+                {
+                    let params: Vec<(String, TextRange, Ty)> = l
+                        .param_list()
+                        .map(|list| {
+                            list.syntax()
+                                .children()
+                                .filter(|c| c.kind() == SyntaxKind::LambdaParam)
+                                .filter_map(|p| token(&p, SyntaxKind::Ident))
+                                .map(|n| (n.text().to_owned(), n.text_range(), Ty::Error))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    self.lambda_body(l, params, None, Some(Ty::Error), true, None);
+                    continue;
                 }
                 self.infer(e, None);
             }

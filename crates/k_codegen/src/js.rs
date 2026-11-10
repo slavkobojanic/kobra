@@ -565,14 +565,14 @@ pub fn print_module_mapped(stmts: &[Stmt], options: PrintOptions) -> (String, Ve
     };
     let mut prev: Option<&Stmt> = None;
     for s in stmts {
-        if !p.compact {
-            if let Some(prev) = prev {
-                let imports = |s: &Stmt| matches!(s, Stmt::Import(..) | Stmt::ImportAll(..));
-                let blank = !(imports(prev) && imports(s))
-                    && !(is_simple_const(prev) && is_simple_const(s));
-                if blank {
-                    p.out.push('\n');
-                }
+        if !p.compact
+            && let Some(prev) = prev
+        {
+            let imports = |s: &Stmt| matches!(s, Stmt::Import(..) | Stmt::ImportAll(..));
+            let blank =
+                !(imports(prev) && imports(s)) && !(is_simple_const(prev) && is_simple_const(s));
+            if blank {
+                p.out.push('\n');
             }
         }
         p.stmt(s);

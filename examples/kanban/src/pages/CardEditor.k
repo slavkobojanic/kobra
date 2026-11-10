@@ -4,7 +4,7 @@ import board.Card
 import board.CardDraft
 import board.Priority
 import k.device.CopyButton
-import k.device.ShareContent
+import k.server.PublicUrls
 import k.validation.Form
 
 /// Edits a card in place: its title and notes through a `@Form` of
@@ -33,13 +33,11 @@ component CardEditor {
 
     @State var priority: Priority = card.priority
 
-    /// The card's link, absolute: `ShareContent.page` makes a page's URL
-    /// absolute against the page's origin.
-    @Derived let link: String = if let url = ShareContent.page(.boardPage(id: board.value).card("{card.id.value}")).url {
-        "{url}"
-    } else {
-        ""
-    }
+    @Inject let urls: PublicUrls
+
+    /// The card's link, absolute: in the browser `PublicUrls` builds it
+    /// against the page's origin, from the typed page as `link(to:)` does.
+    @Derived let link: String = "{urls.absolute(.boardPage(id: board.value).card("{card.id.value}"))}"
 
     func save() {
         boards.updateCard(board: board, card: card.id, draft: input.value, priority: priority)

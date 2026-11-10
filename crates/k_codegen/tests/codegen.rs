@@ -480,6 +480,26 @@ fn the_client_entry_builds_the_browser_container() {
     assert!(!entry.contains("class $Route"), "no route-scoped services");
 }
 
+/// `PublicUrls` in the browser (12-routing.md, "Absolute URLs"): the
+/// page's typed URL against `location.origin` with the runtime's
+/// `pageUrl`, and no endpoint URLs, which are server-only.
+#[test]
+fn the_browser_container_builds_absolute_page_urls() {
+    let files = example_client("kanban");
+    let entry = entry_of(&files);
+    for needle in [
+        "get PublicUrls() {",
+        "absolute: (p) => $k.pageUrl(Page$href(p))",
+        "absolute$endpoint: $k.missingNative(\"k.server.PublicUrls.absolute(endpoint:)\")",
+    ] {
+        assert!(entry.contains(needle), "missing {needle:?} in\n{entry}");
+    }
+    assert!(
+        files.iter().all(|f| !f.contents.contains("Endpoint$href")),
+        "no endpoint URLs in the browser"
+    );
+}
+
 #[test]
 fn a_server_rendered_entry_starts_clock_session_and_rpc_clients_from_k_data() {
     let files = example_client("notes");

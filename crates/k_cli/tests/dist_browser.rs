@@ -755,11 +755,8 @@ fn todos_dist_app_renders_adds_a_todo_and_switches_the_theme_in_the_browser() {
         "k-theme-dark",
         "dark root class",
     );
-    contains(
-        theme[1].as_str().unwrap_or(""),
-        "k_theme=dark",
-        "theme cookie",
-    );
+    contains(theme[1].as_str().unwrap_or(""), "k_theme", "theme cookie");
+    contains(theme[1].as_str().unwrap_or(""), "=dark", "theme cookie");
 }
 
 #[test]

@@ -118,4 +118,4 @@ pub mod testing;
 pub mod websocket;
 
 pub use engine::{Engine, EngineError, EngineOptions, HeapUsage, JsModule, LogLine, Output};
-pub use http::{RestartPolicy, Server, ServerBundle, ServerError, ServerOptions};
+pub use http::{ReadTimeouts, RestartPolicy, Server, ServerBundle, ServerError, ServerOptions};

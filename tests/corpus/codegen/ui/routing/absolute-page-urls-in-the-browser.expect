@@ -1,0 +1,4 @@
+client contains const urls = ctx.c.PublicUrls;
+client contains urls.absolute(Page.product(7))
+client lacks Endpoint
+server contains urls.absolute(Page.product(7))

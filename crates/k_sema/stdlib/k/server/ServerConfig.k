@@ -17,4 +17,9 @@ public config ServerConfig {
     /// `16...16384`. A worker that reaches it is terminated alone: its
     /// requests in flight answer 503 and a fresh isolate replaces it.
     @Range(16...16384) @Env("K_WORKER_HEAP_MB") let workerHeapMb: Int = 256
+    /// Whether `dist/app` serves the client's source maps (`.map` files of
+    /// `dist/public`). Off by default: they reveal the code's structure and
+    /// the `.k` file names. The server's own stack traces are mapped either
+    /// way.
+    @Env("K_PUBLIC_SOURCE_MAPS") let publicSourceMaps: Bool = false
 }

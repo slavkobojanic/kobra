@@ -1028,10 +1028,10 @@ impl Workspace {
         let mut pending: Vec<(usize, &Analysis, Vec<Diagnostic>)> = Vec::new();
         for (member, analysis) in analyses {
             for (_, path) in analysis.files() {
-                if let Some(real) = self.real_path(*member, path) {
-                    if let Some(text) = analysis.file_id(path).and_then(|id| analysis.text(id)) {
-                        texts.insert(real, text.to_owned());
-                    }
+                if let Some(real) = self.real_path(*member, path)
+                    && let Some(text) = analysis.file_id(path).and_then(|id| analysis.text(id))
+                {
+                    texts.insert(real, text.to_owned());
                 }
             }
             let mut diagnostics = analysis.diagnostics()?;

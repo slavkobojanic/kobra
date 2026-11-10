@@ -445,13 +445,13 @@ impl<'p, 'a> Cx<'p, 'a> {
             }
             name.push(')');
         }
-        if m.kind == MemberKind::Token {
-            if let Some(category) = m.category.as_deref().and_then(|c| self.token_category(c)) {
-                return Resolution::Token {
-                    category: self.p.decl_name(category),
-                    name: m.name.clone(),
-                };
-            }
+        if m.kind == MemberKind::Token
+            && let Some(category) = m.category.as_deref().and_then(|c| self.token_category(c))
+        {
+            return Resolution::Token {
+                category: self.p.decl_name(category),
+                name: m.name.clone(),
+            };
         }
         Resolution::Member {
             owner: self.p.decl_name(owner),
@@ -463,10 +463,10 @@ impl<'p, 'a> Cx<'p, 'a> {
     /// for extension members.
     pub(crate) fn member_owner_type(&self, member: MemberId) -> DeclId {
         let owner = self.p.member(member).owner;
-        if self.p.decl(owner).kind == DeclKind::Extension {
-            if let Some(d) = self.ext_target(owner).decl() {
-                return d;
-            }
+        if self.p.decl(owner).kind == DeclKind::Extension
+            && let Some(d) = self.ext_target(owner).decl()
+        {
+            return d;
         }
         owner
     }
@@ -692,10 +692,10 @@ impl<'p, 'a> Cx<'p, 'a> {
         let mut candidates: Vec<DeclId> = Vec::new();
         if let Some(m) = info.module {
             let module = &self.p.modules[m.0 as usize];
-            if info.is_test {
-                if let Some(list) = module.test_names.get(name) {
-                    candidates.extend(list);
-                }
+            if info.is_test
+                && let Some(list) = module.test_names.get(name)
+            {
+                candidates.extend(list);
             }
             if let Some(list) = module.names.get(name) {
                 candidates.extend(list);
@@ -732,15 +732,15 @@ impl<'p, 'a> Cx<'p, 'a> {
         if let Some(d) = hidden {
             return Found::NotVisible(d);
         }
-        if info.is_test {
-            if let Some(&d) = self.p.qualified.get(&format!("k.test.{name}")) {
-                return Found::Decl(d);
-            }
+        if info.is_test
+            && let Some(&d) = self.p.qualified.get(&format!("k.test.{name}"))
+        {
+            return Found::Decl(d);
         }
-        if info.stdlib {
-            if let Some(&d) = self.p.internal.get(name) {
-                return Found::Decl(d);
-            }
+        if info.stdlib
+            && let Some(&d) = self.p.internal.get(name)
+        {
+            return Found::Decl(d);
         }
         if let Some(&d) = self.p.prelude.get(name) {
             return Found::Decl(d);
@@ -793,10 +793,10 @@ impl<'p, 'a> Cx<'p, 'a> {
             }
         }
         for import in &self.imports[file.0 as usize] {
-            if let ImportRes::Bound(n, d) = import {
-                if keep(*d) {
-                    names.push(n);
-                }
+            if let ImportRes::Bound(n, d) = import
+                && keep(*d)
+            {
+                names.push(n);
             }
         }
         for (n, d) in &self.p.prelude {
@@ -1051,10 +1051,10 @@ impl<'p, 'a> Cx<'p, 'a> {
             let found = self.p.lookup_qualified(&text.join("."));
             if found.is_none() {
                 // `Product.UniqueViolation`: types generated for an entity.
-                if let Found::Decl(d) = self.lookup(file, first.text()) {
-                    if self.p.decl(d).named_kind() == Some(DeclarationKind::Entity) {
-                        return Ty::Error;
-                    }
+                if let Found::Decl(d) = self.lookup(file, first.text())
+                    && self.p.decl(d).named_kind() == Some(DeclarationKind::Entity)
+                {
+                    return Ty::Error;
                 }
             }
             found
@@ -1088,29 +1088,29 @@ impl<'p, 'a> Cx<'p, 'a> {
             return Ty::named(alias);
         }
         let params = &self.p.decl(decl).generics;
-        if let Some(list) = path.generic_arg_list() {
-            if list.types().count() != params.len() {
-                let message = if params.is_empty() {
-                    format!(
-                        "`{}` isn't generic: it takes no type arguments",
-                        last.text()
-                    )
-                } else {
-                    format!(
-                        "`{}` takes {} type argument{}, found {}",
-                        last.text(),
-                        params.len(),
-                        if params.len() == 1 { "" } else { "s" },
-                        list.types().count()
-                    )
-                };
-                self.error(
-                    file,
-                    codes::TYPE_ARGUMENT_COUNT,
-                    list.syntax().text_range(),
-                    message,
-                );
-            }
+        if let Some(list) = path.generic_arg_list()
+            && list.types().count() != params.len()
+        {
+            let message = if params.is_empty() {
+                format!(
+                    "`{}` isn't generic: it takes no type arguments",
+                    last.text()
+                )
+            } else {
+                format!(
+                    "`{}` takes {} type argument{}, found {}",
+                    last.text(),
+                    params.len(),
+                    if params.len() == 1 { "" } else { "s" },
+                    list.types().count()
+                )
+            };
+            self.error(
+                file,
+                codes::TYPE_ARGUMENT_COUNT,
+                list.syntax().text_range(),
+                message,
+            );
         }
         let mut tys: Vec<Ty> = args.iter().map(|(t, _)| t.clone()).collect();
         tys.resize(params.len(), Ty::Error);
@@ -1121,19 +1121,19 @@ impl<'p, 'a> Cx<'p, 'a> {
                 continue;
             };
             for constraint in self.constraints(*g).iter() {
-                if let Some(iface) = constraint.decl() {
-                    if !self.implements(arg, iface) {
-                        self.error(
-                            file,
-                            codes::UNSATISFIED_CONSTRAINT,
-                            *arg_range,
-                            format!(
-                                "`{}` doesn't implement `{}`",
-                                arg.render(self.p),
-                                self.p.decl_name(iface)
-                            ),
-                        );
-                    }
+                if let Some(iface) = constraint.decl()
+                    && !self.implements(arg, iface)
+                {
+                    self.error(
+                        file,
+                        codes::UNSATISFIED_CONSTRAINT,
+                        *arg_range,
+                        format!(
+                            "`{}` doesn't implement `{}`",
+                            arg.render(self.p),
+                            self.p.decl_name(iface)
+                        ),
+                    );
                 }
             }
         }
@@ -1169,24 +1169,23 @@ impl<'p, 'a> Cx<'p, 'a> {
             }
         };
         let mut out = Vec::new();
-        if let Some(node) = node {
-            if let Some(clause) = node
+        if let Some(node) = node
+            && let Some(clause) = node
                 .children()
                 .find(|c| c.kind() == SyntaxKind::WhereClause)
+        {
+            for predicate in clause
+                .children()
+                .filter(|c| c.kind() == SyntaxKind::WherePredicate)
             {
-                for predicate in clause
-                    .children()
-                    .filter(|c| c.kind() == SyntaxKind::WherePredicate)
+                let name = predicate
+                    .children_with_tokens()
+                    .filter_map(rowan::NodeOrToken::into_token)
+                    .find(|t| t.kind() == SyntaxKind::Ident);
+                if name.is_some_and(|n| n.text() == generic.name)
+                    && let Some(t) = predicate.children().find_map(ast::Type::cast)
                 {
-                    let name = predicate
-                        .children_with_tokens()
-                        .filter_map(rowan::NodeOrToken::into_token)
-                        .find(|t| t.kind() == SyntaxKind::Ident);
-                    if name.is_some_and(|n| n.text() == generic.name) {
-                        if let Some(t) = predicate.children().find_map(ast::Type::cast) {
-                            out.push(self.resolve_type_quiet(file, &scope, &t));
-                        }
-                    }
+                    out.push(self.resolve_type_quiet(file, &scope, &t));
                 }
             }
         }
@@ -1697,10 +1696,11 @@ impl<'p, 'a> Cx<'p, 'a> {
         match recv {
             Ty::Named(d, args) => {
                 let found = self.lookup_in_decl(file, body_owner, *d, args, name, statics);
-                if matches!(found, MemberFound::Missing) && !statics {
-                    if let Some(key) = self.secret_key_forwarding(*d, args, name) {
-                        return self.lookup_in_decl(file, body_owner, key, &[], name, false);
-                    }
+                if matches!(found, MemberFound::Missing)
+                    && !statics
+                    && let Some(key) = self.secret_key_forwarding(*d, args, name)
+                {
+                    return self.lookup_in_decl(file, body_owner, key, &[], name, false);
                 }
                 found
             }
@@ -1798,12 +1798,11 @@ impl<'p, 'a> Cx<'p, 'a> {
             };
             return self.check_member(m, body_owner, statics, subst);
         }
-        if statics {
-            if let Some(tokens) = self.tokens.get(&decl) {
-                if let Some(&t) = tokens.iter().find(|t| self.p.member(**t).name == name) {
-                    return MemberFound::Token(t);
-                }
-            }
+        if statics
+            && let Some(tokens) = self.tokens.get(&decl)
+            && let Some(&t) = tokens.iter().find(|t| self.p.member(**t).name == name)
+        {
+            return MemberFound::Token(t);
         }
         // Interfaces it implements (default methods and requirements).
         let mut seen = HashSet::new();
@@ -1837,10 +1836,10 @@ impl<'p, 'a> Cx<'p, 'a> {
             }
             for (g, a) in &ext_subst {
                 for c in self.constraints(*g).iter() {
-                    if let Some(i) = c.decl() {
-                        if !self.implements(a, i) {
-                            return MemberFound::Unsatisfied(m);
-                        }
+                    if let Some(i) = c.decl()
+                        && !self.implements(a, i)
+                    {
+                        return MemberFound::Unsatisfied(m);
                     }
                 }
             }

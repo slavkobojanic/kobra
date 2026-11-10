@@ -176,10 +176,10 @@ pub(crate) fn implementations(view: &ProgramView, decl: DeclId) -> Vec<DeclId> {
     for (i, info) in view.decls.iter().enumerate() {
         let id = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
         for t in &info.implements {
-            if let Some(Type::Named(iface, _)) = Some(t.unwrap_optional()) {
-                if let Some(list) = direct.get_mut(iface.0 as usize) {
-                    list.push(id);
-                }
+            if let Some(Type::Named(iface, _)) = Some(t.unwrap_optional())
+                && let Some(list) = direct.get_mut(iface.0 as usize)
+            {
+                list.push(id);
             }
         }
     }
@@ -188,12 +188,13 @@ pub(crate) fn implementations(view: &ProgramView, decl: DeclId) -> Vec<DeclId> {
     let mut queue = VecDeque::from([decl]);
     while let Some(next) = queue.pop_front() {
         for &d in direct.get(next.0 as usize).into_iter().flatten() {
-            if let Some(flag) = seen.get_mut(d.0 as usize) {
-                if !*flag && d != decl {
-                    *flag = true;
-                    out.push(d);
-                    queue.push_back(d);
-                }
+            if let Some(flag) = seen.get_mut(d.0 as usize)
+                && !*flag
+                && d != decl
+            {
+                *flag = true;
+                out.push(d);
+                queue.push_back(d);
             }
         }
     }
@@ -208,10 +209,10 @@ pub(crate) fn page_url(analysis: &Analysis, view: &ProgramView, decl: DeclId) ->
     if info.named_kind() != Some(DeclarationKind::Page) {
         return None;
     }
-    if let Some(node) = decl_node(analysis, info.file, info.range) {
-        if let Some(template) = template(&node) {
-            return Some(template);
-        }
+    if let Some(node) = decl_node(analysis, info.file, info.range)
+        && let Some(template) = template(&node)
+    {
+        return Some(template);
     }
     let mut url = format!("/{}", crate::routing::kebab(&info.name));
     for &m in &info.members {

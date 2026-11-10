@@ -32,7 +32,7 @@ use k_sema::{AnalysisHost, Options as SemaOptions, ProjectPath};
 use k_server::config::{ConfigField, report, resolve};
 use k_server::http::StaticAsset;
 use k_server::testing::{run_script, send};
-use k_server::{JsModule, Output as LogOutput, Server, ServerBundle, ServerOptions};
+use k_server::{JsModule, Output as LogOutput, ReadTimeouts, Server, ServerBundle, ServerOptions};
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -425,7 +425,7 @@ fn an_rpc_body_that_is_not_utf8_is_invalid_argument() {
 /// server closed the connection.
 fn closed_within(stream: &mut TcpStream, limit: Duration) -> bool {
     let start = Instant::now();
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(20)));
     let mut buf = [0u8; 1024];
     while start.elapsed() < limit {
         match stream.read(&mut buf) {
@@ -440,25 +440,46 @@ fn closed_within(stream: &mut TcpStream, limit: Duration) -> bool {
     false
 }
 
+/// Short read timeouts for the slowloris tests: the server's defaults
+/// (10 s for headers, 20 s for a body; `ReadTimeouts::default`) are the
+/// same code path, only longer.
+fn short_reads(o: &mut ServerOptions) {
+    o.read_timeouts = ReadTimeouts {
+        header: Duration::from_millis(150),
+        body: Duration::from_millis(150),
+    };
+}
+
 /// Slowloris: hyper's `http1::Builder` is created without a timer, so it
 /// has no header read timeout, and a client that never finishes its
 /// request headers holds a connection (and a task) forever. A server must
 /// drop a connection whose headers haven't arrived after a bounded time
-/// (hyper's own default, 30 s, once a timer is set).
+/// (`ServerOptions::read_timeouts`, 10 s by default).
 #[test]
 fn a_connection_that_never_finishes_its_headers_is_closed() {
+    assert_eq!(
+        ReadTimeouts::default(),
+        ReadTimeouts {
+            header: k_server::front::HEADER_READ_TIMEOUT,
+            body: k_server::front::BODY_READ_TIMEOUT,
+        }
+    );
     passing(|| {
-        let server = start("rpc-decoding")?;
+        let server = start_with("rpc-decoding", short_reads)?;
         let mut stream = TcpStream::connect(server.local_addr()).map_err(|e| e.to_string())?;
         stream
             .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nX-Slow: ")
             .map_err(|e| e.to_string())?;
-        let closed = closed_within(&mut stream, Duration::from_secs(35));
+        let start = Instant::now();
+        let closed = closed_within(&mut stream, Duration::from_secs(10));
         let _ = server.shutdown();
         if closed {
             Ok(())
         } else {
-            Err("the half-sent request was still open after 35 s".to_owned())
+            Err(format!(
+                "the half-sent request was still open after {:?}",
+                start.elapsed()
+            ))
         }
     });
 }
@@ -468,7 +489,7 @@ fn a_connection_that_never_finishes_its_headers_is_closed() {
 #[test]
 fn a_request_body_that_stalls_is_given_up() {
     passing(|| {
-        let server = start("rpc-decoding")?;
+        let server = start_with("rpc-decoding", short_reads)?;
         let mut stream = TcpStream::connect(server.local_addr()).map_err(|e| e.to_string())?;
         stream
             .write_all(
@@ -477,12 +498,12 @@ fn a_request_body_that_stalls_is_given_up() {
                   Content-Length: 10\r\n\r\n{",
             )
             .map_err(|e| e.to_string())?;
-        let closed = closed_within(&mut stream, Duration::from_secs(35));
+        let closed = closed_within(&mut stream, Duration::from_secs(10));
         let _ = server.shutdown();
         if closed {
             Ok(())
         } else {
-            Err("the stalled body was still being waited for after 35 s".to_owned())
+            Err("the stalled body was still being waited for after 10 s".to_owned())
         }
     });
 }

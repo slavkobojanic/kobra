@@ -249,10 +249,10 @@ impl Client {
                         .cloned()
                         .unwrap_or_default()
                 });
-            if let Some(list) = latest {
-                if pred(&list) {
-                    return list;
-                }
+            if let Some(list) = latest
+                && pred(&list)
+            {
+                return list;
             }
             assert!(
                 Instant::now() < deadline,

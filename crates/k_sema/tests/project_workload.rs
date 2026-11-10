@@ -209,7 +209,7 @@ fn match_project(cases: usize, arms: &str) -> Vec<File> {
 }
 
 fn arm(c: usize) -> String {
-    if c % 3 == 0 {
+    if c.is_multiple_of(3) {
         format!("        case .c{c}(let value) {{ value }}\n")
     } else {
         format!("        case .c{c} {{ {c} }}\n")

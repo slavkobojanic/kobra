@@ -417,16 +417,16 @@ pub fn check_raw_request(addr: SocketAddr, bytes: &[u8]) -> Result<(), String> {
     let _ = stream.shutdown(Shutdown::Write);
     let mut answer = Vec::new();
     let read = stream.read_to_end(&mut answer);
-    if let Err(e) = &read {
-        if matches!(
+    if let Err(e) = &read
+        && matches!(
             e.kind(),
             std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-        ) {
-            return Err(format!(
-                "no answer within 5 s to {:?}",
-                String::from_utf8_lossy(bytes)
-            ));
-        }
+        )
+    {
+        return Err(format!(
+            "no answer within 5 s to {:?}",
+            String::from_utf8_lossy(bytes)
+        ));
     }
     // The first response's status line (a later one of pipelined requests
     // can't be found without parsing bodies, which may echo anything).

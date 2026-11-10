@@ -486,10 +486,10 @@ impl Engine {
                 self.runtime.v8_isolate().cancel_terminate_execution();
                 return Err(EngineError::Timeout(limit));
             }
-            if let Err(EngineError::Uncaught(m)) = &outcome {
-                if m.contains("execution terminated") {
-                    return Err(EngineError::Timeout(limit));
-                }
+            if let Err(EngineError::Uncaught(m)) = &outcome
+                && m.contains("execution terminated")
+            {
+                return Err(EngineError::Timeout(limit));
             }
         }
         outcome?;

@@ -1365,10 +1365,10 @@ impl ProcessDatabase {
         let mut gone: Vec<(String, String)> = Vec::new();
         for r in rows {
             let mut it = r.into_iter();
-            if let (Some(Value::Text(k)), Some(Value::Text(m))) = (it.next(), it.next()) {
-                if !gone.contains(&(k.clone(), m.clone())) {
-                    gone.push((k, m));
-                }
+            if let (Some(Value::Text(k)), Some(Value::Text(m))) = (it.next(), it.next())
+                && !gone.contains(&(k.clone(), m.clone()))
+            {
+                gone.push((k, m));
             }
         }
         let mut left = Vec::new();

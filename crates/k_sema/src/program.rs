@@ -661,10 +661,10 @@ impl<'a> Program<'a> {
     fn build_prelude(&mut self) {
         if let Some(&core) = self.module_by_path.get(CORE_MODULE) {
             for (name, decls) in &self.modules[core.0 as usize].names {
-                if let Some(&d) = decls.first() {
-                    if self.decls[d.0 as usize].visibility == Visibility::Public {
-                        self.prelude.insert(name.clone(), d);
-                    }
+                if let Some(&d) = decls.first()
+                    && self.decls[d.0 as usize].visibility == Visibility::Public
+                {
+                    self.prelude.insert(name.clone(), d);
                 }
             }
         }
@@ -726,11 +726,11 @@ impl<'a> Program<'a> {
     /// nominal type it writes).
     pub(crate) fn write_decl_name(&self, id: DeclId, out: &mut String) {
         let decl = self.decl(id);
-        if self.prelude.get(&decl.name) != Some(&id) {
-            if let Some(m) = self.decl_module(id) {
-                out.push_str(&self.modules[m.0 as usize].path);
-                out.push('.');
-            }
+        if self.prelude.get(&decl.name) != Some(&id)
+            && let Some(m) = self.decl_module(id)
+        {
+            out.push_str(&self.modules[m.0 as usize].path);
+            out.push('.');
         }
         out.push_str(&decl.name);
     }

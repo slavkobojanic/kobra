@@ -962,12 +962,12 @@ fn unresolved(
         if !declared_here {
             return Some(format!("`{base}`: `{module}` declares no `{declaration}`"));
         }
-        if let Some(member) = segments.get(depth + 1) {
-            if !member_exists(declaration, member) {
-                return Some(format!(
-                    "`{base}`: `{declaration}` has no member `{member}`"
-                ));
-            }
+        if let Some(member) = segments.get(depth + 1)
+            && !member_exists(declaration, member)
+        {
+            return Some(format!(
+                "`{base}`: `{declaration}` has no member `{member}`"
+            ));
         }
         return None;
     }
@@ -1067,10 +1067,10 @@ fn codes_with_pinned_fixes() -> BTreeSet<String> {
                             .split_once('[')
                             .and_then(|(_, rest)| rest.split_once(']'))
                             .map(|(code, _)| code.to_owned());
-                    } else if line.trim_start().starts_with("fix ") {
-                        if let Some(code) = &current {
-                            out.insert(code.clone());
-                        }
+                    } else if line.trim_start().starts_with("fix ")
+                        && let Some(code) = &current
+                    {
+                        out.insert(code.clone());
                     }
                 }
             }

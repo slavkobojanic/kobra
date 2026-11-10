@@ -238,6 +238,30 @@ pub struct ServerOptions {
     pub heap_limit: usize,
     /// How dead worker isolates are restarted. Tests shorten it.
     pub restarts: RestartPolicy,
+    /// How long a connection may take to send a request's headers
+    /// ([`front::HEADER_READ_TIMEOUT`]) and a request its body
+    /// ([`front::BODY_READ_TIMEOUT`]). Tests shorten them.
+    pub read_timeouts: ReadTimeouts,
+}
+
+/// The slowloris bounds of the HTTP front (server.md §5): a connection
+/// that doesn't finish its headers within `header` is closed, a body that
+/// doesn't arrive within `body` is answered `408` and closed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ReadTimeouts {
+    /// The header read timeout.
+    pub header: Duration,
+    /// The body read timeout.
+    pub body: Duration,
+}
+
+impl Default for ReadTimeouts {
+    fn default() -> ReadTimeouts {
+        ReadTimeouts {
+            header: front::HEADER_READ_TIMEOUT,
+            body: front::BODY_READ_TIMEOUT,
+        }
+    }
 }
 
 impl ServerOptions {
@@ -268,6 +292,7 @@ impl ServerOptions {
             replicas: crate::replicas::ReplicaTimings::default(),
             heap_limit: DEFAULT_WORKER_HEAP_BYTES,
             restarts: RestartPolicy::default(),
+            read_timeouts: ReadTimeouts::default(),
         }
     }
 }
@@ -430,6 +455,8 @@ const WORKER_DIED: &str = "the worker serving the request was restarted; retry";
 struct Shared {
     /// The front's checks ([`front::check`]).
     policy: FrontPolicy,
+    /// [`ServerOptions::read_timeouts`].
+    read_timeouts: ReadTimeouts,
     /// [`ServerOptions::forgery_exempt`], split into segments.
     exempt: Vec<Vec<String>>,
     /// The static assets, by request path.
@@ -772,7 +799,7 @@ fn finish(mut r: Response<Body>, rpc: bool) -> Response<Body> {
 
 /// Answers one request: a static asset for `GET`/`HEAD` when one matches;
 /// otherwise the front's checks ([`front::check`]), the body read within
-/// [`front::BODY_READ_TIMEOUT`] and the body limit (`408` and `413`), and
+/// [`ServerOptions::read_timeouts`] and the body limit (`408` and `413`), and
 /// then a worker chosen round robin. `503` when no worker takes it (at
 /// shutdown). Never fails: every outcome is a response.
 async fn handle(
@@ -811,25 +838,26 @@ async fn handle(
     let rpc = shared.policy.rpc_paths.contains(&bare_path);
     // Every rpc-shaped answer is private, the 404 of an unknown rpc too.
     let rpc_shaped = rpc || front::looks_like_rpc(&bare_path);
-    if (method == "GET" || method == "HEAD") && !rpc {
-        if let Some(asset) = shared.assets.get(&bare_path) {
-            let body = if method == "HEAD" {
-                Bytes::new()
-            } else {
-                asset.body.clone()
-            };
-            let mut r = simple(200, &asset.content_type, body);
-            let cache = if asset.immutable {
-                "public, max-age=31536000, immutable"
-            } else {
-                "no-cache"
-            };
-            r.headers_mut().insert(
-                hyper::header::CACHE_CONTROL,
-                hyper::header::HeaderValue::from_static(cache),
-            );
-            return Ok(finish(r, false));
-        }
+    if (method == "GET" || method == "HEAD")
+        && !rpc
+        && let Some(asset) = shared.assets.get(&bare_path)
+    {
+        let body = if method == "HEAD" {
+            Bytes::new()
+        } else {
+            asset.body.clone()
+        };
+        let mut r = simple(200, &asset.content_type, body);
+        let cache = if asset.immutable {
+            "public, max-age=31536000, immutable"
+        } else {
+            "no-cache"
+        };
+        r.headers_mut().insert(
+            hyper::header::CACHE_CONTROL,
+            hyper::header::HeaderValue::from_static(cache),
+        );
+        return Ok(finish(r, false));
     }
     // A session-free endpoint never sees cookies (so it needs no forgery
     // check); rpcs and pages always do.
@@ -855,7 +883,7 @@ async fn handle(
         // of a reset connection.
         let cap = shared.policy.max_body_bytes.saturating_mul(2);
         let _ = tokio::time::timeout(
-            front::BODY_READ_TIMEOUT,
+            shared.read_timeouts.body,
             Limited::new(request.into_body(), cap).collect(),
         )
         .await;
@@ -872,7 +900,7 @@ async fn handle(
     }
     let mut incoming = request.into_body();
     let read = tokio::time::timeout(
-        front::BODY_READ_TIMEOUT,
+        shared.read_timeouts.body,
         Limited::new(&mut incoming, shared.policy.max_body_bytes).collect(),
     )
     .await;
@@ -894,7 +922,7 @@ async fn handle(
         Ok(Err(_)) => {
             let cap = shared.policy.max_body_bytes;
             let _ = tokio::time::timeout(
-                front::BODY_READ_TIMEOUT,
+                shared.read_timeouts.body,
                 Limited::new(&mut incoming, cap).collect(),
             )
             .await;
@@ -1203,6 +1231,7 @@ impl Server {
             dev_tools: options.dev_tools.then(|| Arc::clone(&process)),
             streams: std::sync::Mutex::new(Some(Vec::new())),
             session_cookie: front::public_session_cookie(&options.public_origin),
+            read_timeouts: options.read_timeouts,
         });
         // The jobs worker: with jobs and a database, after every isolate
         // started (it hands runs to them like requests).
@@ -1421,7 +1450,7 @@ impl Drop for Server {
 }
 
 /// Accepts connections until `stop` fires, serving each over HTTP/1.1 with
-/// the header read timeout ([`front::HEADER_READ_TIMEOUT`]) and upgrades
+/// the header read timeout ([`ServerOptions::read_timeouts`]) and upgrades
 /// (the channels' socket), then shuts down within `grace`: the channels'
 /// sockets close with "going away" and their running receive functions
 /// finish ([`crate::sockets::Front::shut_down`]), open streams end, and
@@ -1447,6 +1476,7 @@ async fn accept_loop(
         tokio::select! {
             accepted = listener.accept() => {
                 let Ok((stream, peer)) = accepted else { continue };
+                let header_timeout = shared.read_timeouts.header;
                 let shared = Arc::clone(&shared);
                 let service = service_fn(move |req| handle(Arc::clone(&shared), peer, req));
                 let mut signal = signal.clone();
@@ -1455,7 +1485,7 @@ async fn accept_loop(
                     // a client that never finishes its headers is dropped.
                     let connection = http1::Builder::new()
                         .timer(TokioTimer::new())
-                        .header_read_timeout(front::HEADER_READ_TIMEOUT)
+                        .header_read_timeout(header_timeout)
                         .serve_connection(TokioIo::new(stream), service)
                         .with_upgrades();
                     tokio::pin!(connection);

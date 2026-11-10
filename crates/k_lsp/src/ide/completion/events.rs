@@ -161,10 +161,10 @@ pub(super) fn component_of(
     let Some((range, name)) = name_of(base) else {
         return Ok(None);
     };
-    if let Some(r @ Resolution::Declaration { .. }) = analysis.resolve_at(file, range)? {
-        if let Some(Resolved::Decl(d)) = view.resolve(&r) {
-            return Ok(Some(d));
-        }
+    if let Some(r @ Resolution::Declaration { .. }) = analysis.resolve_at(file, range)?
+        && let Some(Resolved::Decl(d)) = view.resolve(&r)
+    {
+        return Ok(Some(d));
     }
     let module = view
         .decls

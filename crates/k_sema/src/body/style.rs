@@ -330,15 +330,15 @@ impl Matcher<'_> {
                 }
             }
             Grammar::Func(name, inner) => {
-                if let Some(Comp::Func(n, args)) = self.comps.get(pos) {
-                    if n == name {
-                        let mut m = Matcher {
-                            comps: args,
-                            far: 0,
-                        };
-                        if m.ends(inner, 0).contains(&args.len()) {
-                            out.push(pos + 1);
-                        }
+                if let Some(Comp::Func(n, args)) = self.comps.get(pos)
+                    && n == name
+                {
+                    let mut m = Matcher {
+                        comps: args,
+                        far: 0,
+                    };
+                    if m.ends(inner, 0).contains(&args.len()) {
+                        out.push(pos + 1);
                     }
                 }
                 if matches!(self.comps.get(pos), Some(Comp::Any)) {

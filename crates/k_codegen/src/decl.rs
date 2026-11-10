@@ -245,11 +245,11 @@ pub(crate) fn getter_stmts(b: &mut Body<'_, '_>, field: &SyntaxNode) -> Vec<Stmt
     let (out, ()) = b.capture(|b| {
         let n = stmts.len();
         for (i, s) in stmts.iter().enumerate() {
-            if i + 1 == n {
-                if let ast::Stmt::Expr(e) = s {
-                    b.return_value(e);
-                    continue;
-                }
+            if i + 1 == n
+                && let ast::Stmt::Expr(e) = s
+            {
+                b.return_value(e);
+                continue;
             }
             b.stmt(s);
         }

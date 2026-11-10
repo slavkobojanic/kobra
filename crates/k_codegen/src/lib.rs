@@ -399,15 +399,15 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
         }
     }
     // The `Page` enum is the routing table of a project with pages.
-    if !app::pages(g).is_empty() {
-        if let Some(p) = g.view.lookup("k.core.Page") {
-            for target in [Target::Server, Target::Client] {
-                if let Some(item) = decl::lower(g, p, target) {
-                    match target {
-                        Target::Server => server.insert(p, item),
-                        Target::Client => client.insert(p, item),
-                    };
-                }
+    if !app::pages(g).is_empty()
+        && let Some(p) = g.view.lookup("k.core.Page")
+    {
+        for target in [Target::Server, Target::Client] {
+            if let Some(item) = decl::lower(g, p, target) {
+                match target {
+                    Target::Server => server.insert(p, item),
+                    Target::Client => client.insert(p, item),
+                };
             }
         }
     }
@@ -676,12 +676,12 @@ fn rpc_paths_in(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for line in text.lines() {
         let t = line.trim();
-        if let Some(rest) = t.strip_prefix("\"/") {
-            if let Some(end) = rest.find('"') {
-                let path = &rest[..end];
-                if path.contains('/') && path.contains('.') {
-                    out.push(format!("/{path}"));
-                }
+        if let Some(rest) = t.strip_prefix("\"/")
+            && let Some(end) = rest.find('"')
+        {
+            let path = &rest[..end];
+            if path.contains('/') && path.contains('.') {
+                out.push(format!("/{path}"));
             }
         }
     }

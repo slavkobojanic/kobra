@@ -140,7 +140,8 @@ user guide is the book's Debugging chapter.
   the linker composes that map with the chunk's K map, so minified code maps straight to `.k` lines and
   names. **Decision on publishing:** release maps are always written next to their chunks in
   `dist/public/assets` (`stem.<hash>.js.map`, referenced by the chunk), without the K text. `dist/app`
-  serves them only when `K_PUBLIC_SOURCE_MAPS=true`: they reveal the code's structure and file names, so
+  serves them only when `ServerConfig.publicSourceMaps` is `true` (`K_PUBLIC_SOURCE_MAPS`, a `Bool`, default
+  `false`; [25-config-and-secrets.md](25-config-and-secrets.md)): they reveal the code's structure and file names, so
   they are opt-in in production, while a team that wants production debugging opts in or loads the map
   files into DevTools by hand. A static host serves whatever `dist/public` holds: delete the `*.map` files
   before uploading to keep them private. The server's modules carry their maps inline and always map

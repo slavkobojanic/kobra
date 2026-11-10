@@ -423,10 +423,10 @@ fn merge(now: &Lock, recorded: &Lock) -> Lock {
         used.extend(old_fields.iter().map(|f| f.2));
         *reserved = old_reserved;
         for (field, _, _, _) in &old_fields {
-            if !fields.iter().any(|f| &f.0 == field) {
-                if let Some(old) = old_fields.iter().find(|f| &f.0 == field) {
-                    reserved.insert(old.2);
-                }
+            if !fields.iter().any(|f| &f.0 == field)
+                && let Some(old) = old_fields.iter().find(|f| &f.0 == field)
+            {
+                reserved.insert(old.2);
             }
         }
         let mut next = used.iter().next_back().copied().unwrap_or(0);
@@ -813,12 +813,12 @@ fn compare(
         };
         let new_rpcs = now.protocols.get(name).cloned().unwrap_or_default();
         let mut changes = Vec::new();
-        if let (Some(old), Some(new)) = (recorded.services.get(name), now.services.get(name)) {
-            if old != new {
-                changes.push(format!(
+        if let (Some(old), Some(new)) = (recorded.services.get(name), now.services.get(name))
+            && old != new
+        {
+            changes.push(format!(
                     "its wire name changed from `{old}` to `{new}` (the project's name and the protocol's module are part of it), so deployed callers' paths no longer match"
                 ));
-            }
         }
         let mut types: BTreeSet<String> = BTreeSet::new();
         for (rpc, old) in old_rpcs {

@@ -3,10 +3,9 @@
 # Production code must never panic on user input (see
 # docs/compiler/architecture.md, "Diagnostics"), so `unwrap_used` and `panic`
 # are warnings in the workspace lints. Tests may unwrap and panic freely.
-# The workspace needs Rust 1.97 since k_codegen's minifier (oxc) does
-# (Cargo.toml `rust-version`); lints still target 1.85 until the
-# let-chain style they would then suggest is applied across the crates.
-msrv = "1.85"
+# Lints target the same Rust as Cargo.toml `rust-version` (1.97, which
+# k_codegen's minifier, oxc, needs); keep the two in step.
+msrv = "1.97"
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true

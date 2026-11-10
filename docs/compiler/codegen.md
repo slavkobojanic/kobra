@@ -841,6 +841,11 @@ generated code is plain construction.
   $k.startRouter(routes, container, { c: () => new $Route(app), data });  // `c: () => app` without $Route
   ```
 
+  **`k.server.PublicUrls`** in the browser is an object literal in the entry, `{ absolute: (p) =>
+  $k.pageUrl(Page$href(p)), absolute$endpoint: $k.missingNative("…") }`: the page's path against
+  `location.origin` with the runtime's existing `pageUrl` (no runtime bytes of its own), and no
+  `Endpoint$href`, which is server-only (`the_browser_container_builds_absolute_page_urls`).
+
   Under `@Rendering(.client)` the payload is the shell's, which holds only the `Session` mirror, and
   the router is given it as `session: data` instead of `data`: its guards start from the mirror, and
   there is nothing to hydrate (`codegen/ui/hydration/client-rendered-app`).

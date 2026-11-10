@@ -17,7 +17,7 @@ Import each declaration by name, for example `import k.server.DatabaseJobQueue`.
 | [`JobKind`](#jobkind) | The typed handle of a job, `OrderConfirmationJob.kind`, used to enqueue it ([`JobQueue.enqueue`](#jobqueue)) and to inspect it in tests. |
 | [`JobName`](#jobname) | A job's stable name for its rows in the queue: `@JobName("order-confirmation")`. |
 | [`JobQueue`](#jobqueue) | Enqueues background jobs, in the enqueuing transaction. |
-| [`PublicUrls`](#publicurls) | Absolute URLs from the public origin `K_PUBLIC_ORIGIN` (`docs/design/12-routing.md`, "Absolute URLs"). |
+| [`PublicUrls`](#publicurls) | Absolute URLs of the app's pages (`docs/design/12-routing.md`, "Absolute URLs"), built from typed `Page` values as `link(to:)` is. |
 | [`PushConfig`](#pushconfig) | The app's VAPID identity (`docs/design/50-push.md`), read by [`VapidWebPush`](#vapidwebpush), required only when the app reaches [`WebPush`](#webpush). |
 | [`Retry`](#retry) | A job's retry policy: up to `attempts` runs, waiting `backoff` and then doubling, with jitter. |
 | [`Schedule`](#schedule) | Runs a [`Job`](#job) whose payload is [`Void`](k-core.md#void) on a schedule: `@Schedule(.daily(at: TimeOfDay("03:00")))`. |
@@ -211,20 +211,23 @@ platform interface; [`DatabaseJobQueue`](#databasejobqueue) is the standard one 
 ## PublicUrls
 
 ```k,ignore
-@ServerOnly
 public service PublicUrls
 ```
 
-Absolute URLs from the public origin `K_PUBLIC_ORIGIN`
-(`docs/design/12-routing.md`, "Absolute URLs"). Server-only.
+Absolute URLs of the app's pages (`docs/design/12-routing.md`,
+"Absolute URLs"), built from typed `Page` values as `link(to:)` is.
+
+On the server they start with the public origin `K_PUBLIC_ORIGIN`; in
+the browser with the page's origin, which is the public origin.
 
 **Members**
 
 - `func absolute(_ page: Page) -> Url`
-  Returns the absolute URL of `page` ([`k.core.Page`](k-core.md#page)), for emails and
-  redirects to the app.
+  Returns the absolute URL of `page` ([`k.core.Page`](k-core.md#page)), for emails,
+  push notifications, redirects and links to copy.
 - `func absolute(endpoint: Endpoint) -> Url`
   Returns the absolute URL of an endpoint page ([`k.core.Endpoint`](k-core.md#endpoint)).
+  Server-only, as endpoint pages are.
 
 ## PushConfig
 

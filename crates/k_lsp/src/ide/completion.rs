@@ -530,10 +530,10 @@ fn expected_type(
                 let other = ancestor
                     .children()
                     .find(|c| !c.text_range().contains_range(node.text_range()));
-                if let Some(other) = other {
-                    if let Some(t) = analysis.type_info_at(file, other.text_range())? {
-                        return Ok(Some(t));
-                    }
+                if let Some(other) = other
+                    && let Some(t) = analysis.type_info_at(file, other.text_range())?
+                {
+                    return Ok(Some(t));
                 }
             }
             SyntaxKind::LetStmt => {
@@ -541,10 +541,10 @@ fn expected_type(
                     .children_with_tokens()
                     .filter_map(rowan::NodeOrToken::into_token)
                     .find(|t| t.kind() == SyntaxKind::Ident);
-                if let Some(name) = name {
-                    if let Some(t) = analysis.type_info_at(file, name.text_range())? {
-                        return Ok(Some(t));
-                    }
+                if let Some(name) = name
+                    && let Some(t) = analysis.type_info_at(file, name.text_range())?
+                {
+                    return Ok(Some(t));
                 }
             }
             SyntaxKind::FieldDecl => {
@@ -917,14 +917,13 @@ fn collect_bindings(node: &SyntaxNode, out: &mut Vec<(String, TextRange)>) {
             out.push((t.text().to_owned(), t.text_range()));
         }
     };
-    if node.kind() == SyntaxKind::LetStmt {
-        if let Some(t) = node
+    if node.kind() == SyntaxKind::LetStmt
+        && let Some(t) = node
             .children_with_tokens()
             .filter_map(rowan::NodeOrToken::into_token)
             .find(|t| t.kind() == SyntaxKind::Ident)
-        {
-            push(&t);
-        }
+    {
+        push(&t);
     }
     let mut stack: Vec<SyntaxNode> = node.children().collect();
     while let Some(n) = stack.pop() {

@@ -169,11 +169,12 @@ required; there is no list to keep in sync.
 its default, and whether it is a secret. It prints no values, so it is safe to run anywhere:
 
 ```text
-K_PUBLIC_ORIGIN    Url           optional
-K_SHUTDOWN_GRACE   Duration      optional  default "25s"
-K_TRUSTED_PROXIES  List<String>  optional  default ""
-K_WORKER_HEAP_MB   Int           optional  default "256"
-PORT               Int           optional  default "8080"
+K_PUBLIC_ORIGIN       Url           optional
+K_PUBLIC_SOURCE_MAPS  Bool          optional  default "false"
+K_SHUTDOWN_GRACE      Duration      optional  default "25s"
+K_TRUSTED_PROXIES     List<String>  optional  default ""
+K_WORKER_HEAP_MB      Int           optional  default "256"
+PORT                  Int           optional  default "8080"
 ```
 
 ## Injection
@@ -199,6 +200,7 @@ everything a deployment can set:
 | | `K_SHUTDOWN_GRACE` | `shutdownGrace: Duration` | `25.seconds` |
 | | `K_TRUSTED_PROXIES` | `trustedProxies: List<String>` (CIDR ranges) | empty |
 | | `K_WORKER_HEAP_MB` | `@Range(16...16384) workerHeapMb: Int`: each worker isolate's heap limit, in MiB | `256` |
+| | `K_PUBLIC_SOURCE_MAPS` | `publicSourceMaps: Bool`: whether `dist/app` serves the client's source maps ([Debugging](../getting-started/debugging.md)) | `false` |
 | `DatabaseConfig` (`k.db`) | `DATABASE_URL` | `url: Url` (`postgres://…` or `sqlite:path`) | required in production; `sqlite:.k/<package>.db` in development |
 | | `DATABASE_PASSWORD` | `password: Secret<String>?` | `nil` |
 | `JobConfig` (`k.server`) | `K_JOB_CONCURRENCY` | `concurrency: Int`, 1 to 256 | `4` |

@@ -324,7 +324,7 @@ component ThemeToggle {
 - **Following the operating system:** `variant dark matches .prefersDark { … }` applies the variant
   through a CSS media query until `theme.apply` is called. Because it is CSS, the first paint is already
   right, even when server rendered. `.prefersContrast` works the same way.
-- **An explicit choice is remembered in a cookie** (`k_theme`, holding only the variant name). Server
+- **An explicit choice is remembered in a cookie** (`k_theme`, holding only the variant name; named `k_theme_<port>` on `http://localhost:<port>` and `__Host-k_theme` on `https`, so apps on one host keep their own choice). Server
   rendering reads it, so a server-rendered app shows the chosen scheme from the first paint, with no
   flash. A static build's `index.html` has a tiny inline script that does the same in the browser
   before anything paints, so a reload keeps the scheme there too. It is the same in every app; a

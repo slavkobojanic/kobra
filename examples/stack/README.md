@@ -20,7 +20,9 @@ From this directory:
 k dev
 ```
 
-Then open http://localhost:8081 and press **Pay**. `k dev` builds and serves both apps, paybox on 8080 and
+Then open http://localhost:8081 and press **Pay**. The **Dark mode** switch is remembered in
+`k_theme_8081`, a cookie named after the port as the session cookie is, so another app on `localhost`
+keeps its own choice. `k dev` builds and serves both apps, paybox on 8080 and
 shop on 8081, each line of their output prefixed with the app's name. Each `remote` rule is wired to the
 other app with a development secret generated for the run, so no `.env` is needed. A change anywhere
 rebuilds and restarts both; Ctrl-C stops both.
@@ -54,7 +56,8 @@ stack/
     └── src/
         ├── checkout/           Checkout (calls paybox; server-only), CheckoutApi for the page, Cart
         ├── payments/           PayboxService (a RemoteService config), PaymentEventsApi, PaidOrders
-        └── home/               the page
+        ├── ui/                 ShopTheme (a dark variant that follows the system), ThemeToggle
+        └── home/               the page, with the dark mode switch
 ```
 
 ## In production

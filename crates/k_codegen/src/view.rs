@@ -618,10 +618,10 @@ impl Tree<'_, '_, '_> {
                 };
                 match label.text() {
                     "level" => {
-                        if let ast::Expr::Literal(l) = &v {
-                            if let Some(t) = l.token() {
-                                el.tag = format!("h{}", t.text().trim());
-                            }
+                        if let ast::Expr::Literal(l) = &v
+                            && let Some(t) = l.token()
+                        {
+                            el.tag = format!("h{}", t.text().trim());
                         }
                     }
                     "value" | "text" | "selection" | "isChecked"
@@ -656,21 +656,21 @@ impl Tree<'_, '_, '_> {
                         }
                     }
                     "value" | "text" | "selection" | "isChecked" => {
-                        if let ast::Expr::BindExpr(be) = &v {
-                            if let Some(place) = be.syntax().children().find_map(ast::Expr::cast) {
-                                let checkbox = label.text() == "isChecked";
-                                el.control = Some(Control {
-                                    prop: if checkbox { "checked" } else { "value" },
-                                    event: if checkbox || label.text() == "selection" {
-                                        "change"
-                                    } else {
-                                        "input"
-                                    },
-                                    place,
-                                    number: name == "numberField",
-                                    mode: ControlMode::Place,
-                                });
-                            }
+                        if let ast::Expr::BindExpr(be) = &v
+                            && let Some(place) = be.syntax().children().find_map(ast::Expr::cast)
+                        {
+                            let checkbox = label.text() == "isChecked";
+                            el.control = Some(Control {
+                                prop: if checkbox { "checked" } else { "value" },
+                                event: if checkbox || label.text() == "selection" {
+                                    "change"
+                                } else {
+                                    "input"
+                                },
+                                place,
+                                number: name == "numberField",
+                                mode: ControlMode::Place,
+                            });
                         }
                     }
                     "source" if is_media(name) => el.media.push(("source".into(), v.clone())),
@@ -854,28 +854,26 @@ impl Tree<'_, '_, '_> {
             }
             ast::Expr::WhenExpr(w) => {
                 let mut es = w.syntax().children().filter_map(ast::Expr::cast);
-                if let (Some(ast::Expr::ImplicitMemberExpr(m)), Some(c)) = (es.next(), es.next()) {
-                    if let Some(n) = m.name() {
-                        out.push(ClassPart::When(
-                            crate::css::class_name(self.b.g, self.owner, n.text()),
-                            c,
-                        ));
-                    }
+                if let (Some(ast::Expr::ImplicitMemberExpr(m)), Some(c)) = (es.next(), es.next())
+                    && let Some(n) = m.name()
+                {
+                    out.push(ClassPart::When(
+                        crate::css::class_name(self.b.g, self.owner, n.text()),
+                        c,
+                    ));
                 }
             }
             ast::Expr::CallExpr(c) => {
                 let is_global = matches!(c.callee(), Some(ast::Expr::NameExpr(n)) if n.name().is_some_and(|t| t.text() == "global"));
-                if is_global {
-                    if let Some(ast::Expr::StringLit(s)) = c
+                if is_global
+                    && let Some(ast::Expr::StringLit(s)) = c
                         .arg_list()
                         .and_then(|l| l.args().next())
                         .and_then(|a| a.value())
-                    {
-                        if let Some(t) = s.plain_value() {
-                            out.push(ClassPart::Static(t));
-                            return;
-                        }
-                    }
+                    && let Some(t) = s.plain_value()
+                {
+                    out.push(ClassPart::Static(t));
+                    return;
                 }
                 out.push(ClassPart::Dyn(v.clone()));
             }
@@ -947,10 +945,8 @@ impl Tree<'_, '_, '_> {
                 }
             }
         }
-        if native {
-            if let Some(n) = self.native_component(&comp) {
-                return n;
-            }
+        if native && let Some(n) = self.native_component(&comp) {
+            return n;
         }
         VNode::Component(Box::new(comp))
     }
@@ -1376,13 +1372,13 @@ impl Client<'_, '_, '_> {
                     label_id = Some(uid);
                 }
                 Part::Elem(el) => {
-                    if el.label.is_some() {
-                        if let Some(uid) = label_id.take() {
-                            self.b.stmts.push(Stmt::Expr(rt(
-                                "attr",
-                                vec![id(&node), js::str("id"), id(uid)],
-                            )));
-                        }
+                    if el.label.is_some()
+                        && let Some(uid) = label_id.take()
+                    {
+                        self.b.stmts.push(Stmt::Expr(rt(
+                            "attr",
+                            vec![id(&node), js::str("id"), id(uid)],
+                        )));
                     }
                     self.element_bindings(&id(&node), &el);
                 }
@@ -1637,19 +1633,17 @@ impl Client<'_, '_, '_> {
             // blur) and its error message (15-forms-and-validation.md).
             if c.mode == ControlMode::Place && c.prop == "value" {
                 let (pre, probe) = self.b.capture(|b| b.expr(&c.place));
-                if let (true, Expr::Call(f, args)) = (pre.is_empty(), &probe) {
-                    if let (Expr::Member(field, m), true) = (&**f, args.is_empty()) {
-                        if m == "value"
-                            && matches!(&**field, Expr::Call(g, _)
+                if let (true, Expr::Call(f, args)) = (pre.is_empty(), &probe)
+                    && let (Expr::Member(field, m), true) = (&**f, args.is_empty())
+                    && m == "value"
+                    && matches!(&**field, Expr::Call(g, _)
                                 if matches!(&**g, Expr::Member(_, n) if n == "field"))
-                        {
-                            self.b.stmts.push(Stmt::Expr(call(
-                                member((**field).clone(), "attach"),
-                                vec![node.clone()],
-                            )));
-                            return self.element_events(node, el);
-                        }
-                    }
+                {
+                    self.b.stmts.push(Stmt::Expr(call(
+                        member((**field).clone(), "attach"),
+                        vec![node.clone()],
+                    )));
+                    return self.element_events(node, el);
                 }
             }
             let place = c.place.clone();
@@ -1816,20 +1810,18 @@ impl Client<'_, '_, '_> {
     /// An event handler: a lambda, a function reference (async ones get
     /// the component's lifetime as `$c`), or an expression giving one.
     fn handler(&mut self, h: &ast::Expr) -> Expr {
-        if let ast::Expr::NameExpr(n) = h {
-            if let Some(tok) = n.name() {
-                if let Some(Resolved::Member(m)) = self.b.g.resolved(self.b.file, tok.text_range())
-                {
-                    let mi = self.b.g.view.member(m).clone();
-                    if mi.kind == k_sema::view::MemberKind::Func {
-                        let f = id(mangle(&mi.name));
-                        if mi.signature.as_ref().is_some_and(|s| s.is_async) {
-                            let lt = self.lifetime_name();
-                            return js::arrow(vec![], call(f, vec![id(lt)]));
-                        }
-                        return f;
-                    }
+        if let ast::Expr::NameExpr(n) = h
+            && let Some(tok) = n.name()
+            && let Some(Resolved::Member(m)) = self.b.g.resolved(self.b.file, tok.text_range())
+        {
+            let mi = self.b.g.view.member(m).clone();
+            if mi.kind == k_sema::view::MemberKind::Func {
+                let f = id(mangle(&mi.name));
+                if mi.signature.as_ref().is_some_and(|s| s.is_async) {
+                    let lt = self.lifetime_name();
+                    return js::arrow(vec![], call(f, vec![id(lt)]));
                 }
+                return f;
             }
         }
         if let ast::Expr::LambdaExpr(l) = h {
@@ -2316,14 +2308,14 @@ impl Client<'_, '_, '_> {
                         .children_with_tokens()
                         .filter_map(rowan::NodeOrToken::into_token)
                         .find(|t| t.kind().is_name_like());
-                    if let Some(name) = name {
-                        if let Some(case) = self.b.g.find_member(d, name.text()) {
-                            let tag = self.b.g.case_tag(case);
-                            if let Some(slot) = index_of_tag.get_mut(tag) {
-                                if *slot < 0 {
-                                    *slot = i as i64;
-                                }
-                            }
+                    if let Some(name) = name
+                        && let Some(case) = self.b.g.find_member(d, name.text())
+                    {
+                        let tag = self.b.g.case_tag(case);
+                        if let Some(slot) = index_of_tag.get_mut(tag)
+                            && *slot < 0
+                        {
+                            *slot = i as i64;
                         }
                     }
                 }
@@ -2641,14 +2633,12 @@ impl Ssr<'_, '_, '_> {
             return;
         }
         // Merge with a preceding raw chunk.
-        if let Some(Stmt::Expr(Expr::Call(f, args))) = self.b.stmts.last_mut().map(Stmt::peel_mut) {
-            if matches!(&**f, Expr::Member(o, n) if matches!(&**o, Expr::Ident(x) if x == "out") && n == "raw")
-            {
-                if let Some(Expr::Html(prev)) = args.first_mut() {
-                    prev.push_str(html);
-                    return;
-                }
-            }
+        if let Some(Stmt::Expr(Expr::Call(f, args))) = self.b.stmts.last_mut().map(Stmt::peel_mut)
+            && matches!(&**f, Expr::Member(o, n) if matches!(&**o, Expr::Ident(x) if x == "out") && n == "raw")
+            && let Some(Expr::Html(prev)) = args.first_mut()
+        {
+            prev.push_str(html);
+            return;
         }
         self.b.stmts.push(Stmt::Expr(call(
             member(id("out"), "raw"),
@@ -2837,33 +2827,34 @@ impl Ssr<'_, '_, '_> {
                 self.raw("<!---->");
             }
             // The option matching a dropdown's value is `selected`.
-            if let (VNode::Elem(opt), Some(ctl)) = (c, &el.control) {
-                if el.tag == "select" && opt.tag == "option" {
-                    let value = opt.attrs.iter().find_map(|(n, v)| match v {
-                        AttrVal::Static(Some(t)) if n == "value" => Some(t.clone()),
-                        _ => None,
-                    });
-                    if let Some(v) = value {
-                        let mut o = (**opt).clone();
-                        o.attrs
-                            .push(("selected".into(), AttrVal::Selected(ctl.place.clone(), v)));
-                        self.element(&o);
-                        prev_dyn = false;
-                        continue;
-                    }
+            if let (VNode::Elem(opt), Some(ctl)) = (c, &el.control)
+                && el.tag == "select"
+                && opt.tag == "option"
+            {
+                let value = opt.attrs.iter().find_map(|(n, v)| match v {
+                    AttrVal::Static(Some(t)) if n == "value" => Some(t.clone()),
+                    _ => None,
+                });
+                if let Some(v) = value {
+                    let mut o = (**opt).clone();
+                    o.attrs
+                        .push(("selected".into(), AttrVal::Selected(ctl.place.clone(), v)));
+                    self.element(&o);
+                    prev_dyn = false;
+                    continue;
                 }
             }
             self.node(c);
             prev_dyn = is_dyn;
         }
         // A textarea's value is its content.
-        if el.tag == "textarea" {
-            if let Some(c) = &el.control {
-                let x = control_value(self.b, &c.place, c.mode);
-                self.b
-                    .stmts
-                    .push(Stmt::Expr(call(member(id("out"), "text"), vec![x])));
-            }
+        if el.tag == "textarea"
+            && let Some(c) = &el.control
+        {
+            let x = control_value(self.b, &c.place, c.mode);
+            self.b
+                .stmts
+                .push(Stmt::Expr(call(member(id("out"), "text"), vec![x])));
         }
         self.raw(&end_tag(el));
     }
@@ -2969,21 +2960,22 @@ impl Ssr<'_, '_, '_> {
                 vec![js::str("style"), Expr::Template(parts)],
             )));
         }
-        if let Some(c) = &el.control {
-            if el.tag != "textarea" && el.tag != "select" {
-                let x = control_value(self.b, &c.place, c.mode);
-                let (name, x) = if c.prop == "checked" {
-                    ("checked", x)
-                } else if c.number {
-                    ("value", call(id("String"), vec![x]))
-                } else {
-                    ("value", x)
-                };
-                self.b.stmts.push(Stmt::Expr(call(
-                    member(id("out"), "attribute"),
-                    vec![js::str(name), x],
-                )));
-            }
+        if let Some(c) = &el.control
+            && el.tag != "textarea"
+            && el.tag != "select"
+        {
+            let x = control_value(self.b, &c.place, c.mode);
+            let (name, x) = if c.prop == "checked" {
+                ("checked", x)
+            } else if c.number {
+                ("value", call(id("String"), vec![x]))
+            } else {
+                ("value", x)
+            };
+            self.b.stmts.push(Stmt::Expr(call(
+                member(id("out"), "attribute"),
+                vec![js::str(name), x],
+            )));
         }
         self.raw(">");
     }
@@ -3131,10 +3123,10 @@ impl Ssr<'_, '_, '_> {
                                 .children_with_tokens()
                                 .filter_map(rowan::NodeOrToken::into_token)
                                 .find(|t| t.kind().is_name_like());
-                            if let (Some(name), Some(d)) = (name, sty.decl()) {
-                                if let Some(case) = self.b.g.find_member(d, name.text()) {
-                                    tests.push(Expr::Num(self.b.g.case_tag(case) as f64));
-                                }
+                            if let (Some(name), Some(d)) = (name, sty.decl())
+                                && let Some(case) = self.b.g.find_member(d, name.text())
+                            {
+                                tests.push(Expr::Num(self.b.g.case_tag(case) as f64));
                             }
                         }
                         _ => {}

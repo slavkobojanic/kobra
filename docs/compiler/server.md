@@ -264,7 +264,9 @@ hyper request
 - **Slow clients** (slowloris): a connection must send a request's headers within
   `front::HEADER_READ_TIMEOUT` (10 s, hyper's header read timeout over a tokio timer) and its body
   within `front::BODY_READ_TIMEOUT` (20 s), or it is closed (a stalled body gets `408` and
-  `Connection: close`); no client holds a connection, a task or a worker forever.
+  `Connection: close`); no client holds a connection, a task or a worker forever. Both are
+  `ServerOptions::read_timeouts` (`ReadTimeouts`, defaulting to the two constants), which the slowloris
+  regression tests shorten to 150 ms so they finish in well under a second instead of waiting 10 s and 20 s.
 - **Every response** carries `X-Content-Type-Options: nosniff`; rpc responses also
   `Cache-Control: private, no-store`, as does every response whose rendering read `Session` and every
   document rendered for a signed-in user (its `k-data` carries the mirror).
@@ -359,8 +361,11 @@ server streaming.
   the page's, each entry replaced by a later layer. A page's metadata is evaluated after its loads; when a
   load fails, the `failed` block's own `metadata { }` replaces the page's, which isn't evaluated.
   `canonical(.page)` is made absolute with the public origin; every value is escaped.
-- **`Theme` during server rendering** is `theme(st)` (`app.js`): `current` is the variant the `k_theme`
-  cookie remembers, or `base`; `apply` and `followSystem` do nothing.
+- **`Theme` during server rendering** is `theme(st)` (`app.js`): `current` is the variant the theme
+  cookie remembers, or `base`; `apply` and `followSystem` do nothing. The cookie is `__Host-k_theme` on
+  an `https` origin and `k_theme` otherwise (`themeCookieName`); on an `http` origin with a port the
+  front renames the browser's `k_theme_<port>` to `k_theme` and drops a plain `k_theme`
+  (`front::renamed`, beside `k_session_<port>` and `k_guest_<port>`).
 - **The document**: `<!doctype html><html lang="…" class="…">` (the `locale`; the classes of the
   variant the `k_theme` cookie remembers, `k-theme-set k-theme-<variant>` or `k-theme-set` for `base`,
   when it names one of `spec.themes`; no `class` otherwise), `<head>` with `charset`, `viewport`, in a
@@ -406,7 +411,8 @@ server streaming.
   (`server::reachable` in `k_codegen`: from pages, layouts, components, endpoints and the services that
   implement a protocol or a stdlib interface, through `@Inject`, an interface following its `use` rule
   for that environment), so a config only the production implementation injects isn't required by
-  `k run`/`k dev`. The stdlib's own configs are always listed (`PORT`, `K_PUBLIC_ORIGIN`, `K_SHUTDOWN_GRACE`, `K_TRUSTED_PROXIES`, `DATABASE_URL`,
+  `k run`/`k dev`. The stdlib's own configs are always listed (`PORT`, `K_PUBLIC_ORIGIN`, `K_SHUTDOWN_GRACE`, `K_TRUSTED_PROXIES`, `K_WORKER_HEAP_MB`,
+  `K_PUBLIC_SOURCE_MAPS` (whether `dist/app` serves the client's `.map` assets; `app_mode::public_source_maps`), `DATABASE_URL`,
   `DATABASE_PASSWORD`, `K_JOB_CONCURRENCY`, `K_SESSION_MAX_AGE`, `K_SESSION_IDLE`, SMTP). The runtime reads
   no other variable.
 - For each field: `NAME_FILE` (secrets only, one trailing `\n` or `\r\n` removed) → `NAME` → the default →

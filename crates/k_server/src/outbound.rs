@@ -63,10 +63,10 @@ pub const SMTP_TIMEOUT: Duration = Duration::from_secs(30);
 #[must_use]
 pub fn replace_origin(url: &str, origins: &[(String, String)]) -> String {
     for (from, to) in origins {
-        if let Some(rest) = url.strip_prefix(from.as_str()) {
-            if rest.is_empty() || rest.starts_with('/') || rest.starts_with('?') {
-                return format!("{to}{rest}");
-            }
+        if let Some(rest) = url.strip_prefix(from.as_str())
+            && (rest.is_empty() || rest.starts_with('/') || rest.starts_with('?'))
+        {
+            return format!("{to}{rest}");
         }
     }
     url.to_owned()

@@ -144,13 +144,11 @@ fn locked_names(g: &Gen<'_>) -> Vec<(String, String)> {
             if let (Some(name), Some(value)) = (
                 current.as_ref(),
                 line.strip_prefix("declaration").map(str::trim),
-            ) {
-                if let Some(decl) = value
-                    .strip_prefix('=')
-                    .and_then(|v| string_literal(v.trim()))
-                {
-                    out.push((name.clone(), decl));
-                }
+            ) && let Some(decl) = value
+                .strip_prefix('=')
+                .and_then(|v| string_literal(v.trim()))
+            {
+                out.push((name.clone(), decl));
             }
         }
     }

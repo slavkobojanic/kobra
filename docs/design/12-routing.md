@@ -43,7 +43,7 @@ Router.navigate(to: .product(id: product.id).tab(.reviews))
 ```
 
 - Navigating to a page that doesn't exist, or with missing or wrongly typed parameters, is a compile error.
-- Every `Page` value has `url: Url`, its path and query (`/product/42?tab=reviews`). Absolute URLs are built on the server by `PublicUrls` (below).
+- Every `Page` value has `url: Url`, its path and query (`/product/42?tab=reviews`). Absolute URLs are built by `PublicUrls` (below), on the server and in the browser.
 - **External links and navigation:** `link(url: "https://…")` links out, and `Router.navigate(url: Url)` leaves the app with a full page load, for example to a hosted payment page.
 - **Pages are always referenced as `Page` values:** in `link(to:)`, `Router.navigate(to:)`, `canonical(…)`, `@SignInPage(.signIn)` and `Page`-typed `@Param`s alike.
 - **Navigating to the page already shown, with other parameters, updates it in place:** `.cityWeather(placeId: id).units(.imperial)` from `.cityWeather(placeId: id)` changes the `units` parameter of the mounted page, whose state stays, and re-runs only the loads that read it ([14-async-data.md](14-async-data.md#rules)).
@@ -144,7 +144,7 @@ page StripeWebhook at "/webhooks/stripe" {
 
 ## Absolute URLs: `PublicUrls`
 
-Code that hands a URL to another system (a payment provider's return URL, a link in an email) needs it absolute. **`PublicUrls`** is a server-only stdlib service in `k.server` that builds them from the public origin (`K_PUBLIC_ORIGIN`, [38-deployment.md](38-deployment.md)):
+Code that hands a URL to another system (a payment provider's return URL, a link in an email) needs it absolute. **`PublicUrls`** is a stdlib service in `k.server` that builds them from the public origin (`K_PUBLIC_ORIGIN`, [38-deployment.md](38-deployment.md)):
 
 ```k
 service StoreApi implements StoreProtocol {
@@ -157,4 +157,5 @@ service StoreApi implements StoreProtocol {
 ```
 
 - `absolute(_ page: Page) -> Url` and `absolute(endpoint: Endpoint) -> Url`. Developers still never write URLs.
+- **`absolute(_ page:)` works in the browser too.** There it is the page's URL against `location.origin`, which is the public origin, so a client-rendered app builds a link to copy or share the same type-safe way (kanban's "Copy link"). It is no longer `@ServerOnly`; injecting it no longer makes a service server-only. `absolute(endpoint:)` stays server-only like endpoint pages: the browser never holds `Endpoint$href`, and a service that builds endpoint URLs is server-only (it is `@ServerOnly`, or injects a config or a repository, as real ones do).
 - `canonical(.page)` in `metadata` renders the absolute URL ([22-metadata.md](22-metadata.md)).

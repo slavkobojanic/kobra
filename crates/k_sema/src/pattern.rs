@@ -460,28 +460,28 @@ fn useful_wild(
             _ => None,
         })
         .collect();
-    if let Some(all) = ctors(checker, ty).filter(|all| !all.is_empty()) {
-        if all.iter().all(|(c, _)| heads.contains(c)) {
-            let mut by_head: HashMap<&Ctor, Vec<usize>> = HashMap::new();
-            let mut wild = Vec::new();
-            for (i, r) in rows.iter().enumerate() {
-                match r.first() {
-                    Some(Pat::Ctor(c, _)) => by_head.entry(c).or_default().push(i),
-                    Some(Pat::Wild) => wild.push(i),
-                    _ => {}
-                }
+    if let Some(all) = ctors(checker, ty).filter(|all| !all.is_empty())
+        && all.iter().all(|(c, _)| heads.contains(c))
+    {
+        let mut by_head: HashMap<&Ctor, Vec<usize>> = HashMap::new();
+        let mut wild = Vec::new();
+        for (i, r) in rows.iter().enumerate() {
+            match r.first() {
+                Some(Pat::Ctor(c, _)) => by_head.entry(c).or_default().push(i),
+                Some(Pat::Wild) => wild.push(i),
+                _ => {}
             }
-            return all.into_iter().any(|(c, fields)| {
-                let same = by_head.get(&c).map_or(&[][..], Vec::as_slice);
-                let group: Vec<Vec<Pat>> = merge(same, &wild).map(|i| rows[i].clone()).collect();
-                let spec = specialize(&group, &c, fields.len());
-                let mut v = vec![Pat::Wild; fields.len()];
-                v.extend_from_slice(rest);
-                let mut t = fields;
-                t.extend_from_slice(rest_tys);
-                useful_depth(checker, &spec, &v, &t, depth + 1)
-            });
         }
+        return all.into_iter().any(|(c, fields)| {
+            let same = by_head.get(&c).map_or(&[][..], Vec::as_slice);
+            let group: Vec<Vec<Pat>> = merge(same, &wild).map(|i| rows[i].clone()).collect();
+            let spec = specialize(&group, &c, fields.len());
+            let mut v = vec![Pat::Wild; fields.len()];
+            v.extend_from_slice(rest);
+            let mut t = fields;
+            t.extend_from_slice(rest_tys);
+            useful_depth(checker, &spec, &v, &t, depth + 1)
+        });
     }
     let default: Vec<Vec<Pat>> = rows
         .iter()

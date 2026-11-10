@@ -1551,19 +1551,32 @@ function schemaOrg(d) {
 /**
  * The pre-paint snippet of a client-rendered document (07-themes-and-units.md,
  * "Switching variants at runtime"): gives `<html>` the classes of the
- * variant the `k_theme` cookie remembers, as the browser's `theme()` does,
- * before the first paint. A value that isn't a variant name (a lower camel
+ * variant the theme cookie remembers, as the browser's `theme()` does,
+ * before the first paint. The cookie's name is the app's, as `theme()`
+ * derives it from `location` (`__Host-k_theme`, `k_theme_<port>`, `k_theme`). A value that isn't a variant name (a lower camel
  * case identifier) is no choice. It is the same text in every app, so a
  * Content-Security-Policy can allow it by its hash (38-deployment.md).
  */
 export const themeSnippet =
-  'try{var m=/(?:^|; )k_theme=([^;]*)/.exec(document.cookie),v=m&&decodeURIComponent(m[1]);' +
+  'try{var l=location,n=l.protocol=="https:"?"__Host-k_theme":"k_theme"+(l.port?"_"+l.port:""),' +
+  'm=new RegExp("(?:^|; )"+n+"=([^;]*)").exec(document.cookie),v=m&&decodeURIComponent(m[1]);' +
   'if(v&&/^[a-z][A-Za-z0-9]*$/.test(v)){var e=document.documentElement,c=(e.getAttribute("class")||"").split(" ").filter(Boolean);' +
   'c.push("k-theme-set");if(v!=="base")c.push("k-theme-"+v.replace(/[A-Z]/g,function(x){return"-"+x.toLowerCase()}));' +
   'e.setAttribute("class",c.join(" "))}}catch(x){}';
 
 /**
- * The classes of `<html>` for the variant the request's `k_theme` cookie
+ * The theme cookie's name as the runtime sees it: `__Host-k_theme` on an
+ * `https` origin, else `k_theme` (the front renames an `http` app's
+ * `k_theme_<port>` to it, as it does the session cookie).
+ * @param {RequestState} st
+ * @returns {string}
+ */
+function themeCookieName(st) {
+  return st.cookieName?.startsWith("__Host-") ? "__Host-k_theme" : "k_theme";
+}
+
+/**
+ * The classes of `<html>` for the variant the request's theme cookie
  * remembers (`k-theme-set`, plus `k-theme-<variant>` unless it is `base`),
  * or `""` without a choice, for an app without variants and for a value
  * that names none of `spec.themes`.
@@ -1575,7 +1588,7 @@ function themeClasses(spec, st) {
   if (!spec.themes?.length || !st?.cookies) return "";
   let v;
   try {
-    v = decodeURIComponent(st.cookies.get("k_theme") ?? "");
+    v = decodeURIComponent(st.cookies.get(themeCookieName(st)) ?? "");
   } catch {
     return "";
   }
@@ -2267,7 +2280,7 @@ export function requestTimeZone(ctx) {
 export function theme(st) {
   let current = "base";
   try {
-    current = decodeURIComponent(st.cookies.get("k_theme") ?? "base") || "base";
+    current = decodeURIComponent(st.cookies.get(themeCookieName(st)) ?? "base") || "base";
   } catch {
     // A malformed cookie is no choice.
   }

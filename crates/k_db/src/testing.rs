@@ -66,27 +66,27 @@ pub async fn test_databases() -> Result<Vec<TestDatabase>, DbError> {
         db: Database::connect("sqlite::memory:", &DatabaseOptions::default()).await?,
         schema: None,
     }];
-    if let Ok(url) = std::env::var(POSTGRES_URL_ENV) {
-        if !url.is_empty() {
-            let db = Database::connect(&url, &DatabaseOptions::default()).await?;
-            let schema = format!(
-                "k_test_{}_{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            );
-            db.execute(&format!("CREATE SCHEMA {}", quote_identifier(&schema)), &[])
-                .await?;
-            db.execute(
-                &format!("SET search_path TO {}", quote_identifier(&schema)),
-                &[],
-            )
+    if let Ok(url) = std::env::var(POSTGRES_URL_ENV)
+        && !url.is_empty()
+    {
+        let db = Database::connect(&url, &DatabaseOptions::default()).await?;
+        let schema = format!(
+            "k_test_{}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        db.execute(&format!("CREATE SCHEMA {}", quote_identifier(&schema)), &[])
             .await?;
-            out.push(TestDatabase {
-                name: "postgres",
-                db,
-                schema: Some(schema),
-            });
-        }
+        db.execute(
+            &format!("SET search_path TO {}", quote_identifier(&schema)),
+            &[],
+        )
+        .await?;
+        out.push(TestDatabase {
+            name: "postgres",
+            db,
+            schema: Some(schema),
+        });
     }
     Ok(out)
 }

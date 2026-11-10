@@ -135,6 +135,12 @@ impl ConfigSpec {
                 range: Some((16, 16384)),
                 ..one("K_WORKER_HEAP_MB", "workerHeapMb", "Int", Some("256"))
             },
+            one(
+                "K_PUBLIC_SOURCE_MAPS",
+                "publicSourceMaps",
+                "Bool",
+                Some("false"),
+            ),
         ]
     }
 }

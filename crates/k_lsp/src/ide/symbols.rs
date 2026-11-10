@@ -205,19 +205,19 @@ pub fn workspace_symbols(
             continue;
         }
         let id = k_sema::view::DeclId(u32::try_from(i).unwrap_or(u32::MAX));
-        if !decl.name.is_empty() {
-            if let Some(score) = fuzzy(query, &decl.name) {
-                scored.push((
-                    score,
-                    WorkspaceSymbol {
-                        name: decl.name.clone(),
-                        kind: decl_kind(decl.kind),
-                        file: decl.file,
-                        range: decl.name_range,
-                        container: decl.module.clone(),
-                    },
-                ));
-            }
+        if !decl.name.is_empty()
+            && let Some(score) = fuzzy(query, &decl.name)
+        {
+            scored.push((
+                score,
+                WorkspaceSymbol {
+                    name: decl.name.clone(),
+                    kind: decl_kind(decl.kind),
+                    file: decl.file,
+                    range: decl.name_range,
+                    container: decl.module.clone(),
+                },
+            ));
         }
         if query.is_empty() {
             continue;

@@ -106,6 +106,7 @@ The stdlib's own settings are ordinary `config` declarations, with documented va
 | | `K_SHUTDOWN_GRACE` | `shutdownGrace: Duration` | `25.seconds` |
 | | `K_TRUSTED_PROXIES` | `trustedProxies: List<String>` (CIDR ranges) | empty |
 | | `K_WORKER_HEAP_MB` | `@Range(16...16384) workerHeapMb: Int` (each worker isolate's heap limit, MiB) | `256` |
+| | `K_PUBLIC_SOURCE_MAPS` | `publicSourceMaps: Bool` (whether `dist/app` serves the client's `.map` files; [13-tooling.md](13-tooling.md)) | `false` |
 | `DatabaseConfig` (`k.db`) | `DATABASE_URL` | `url: Url` (`postgres://user@host:5432/db` or `sqlite:path`) | required in production; `sqlite:.k/<package>.db` in development |
 | | `DATABASE_PASSWORD` | `password: Secret<String>?` | `nil` |
 | `JobConfig` (`k.server`) | `K_JOB_CONCURRENCY` | `@Range(1...256) concurrency: Int` | `4` |

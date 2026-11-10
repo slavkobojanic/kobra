@@ -180,27 +180,27 @@ fn resolve(
     let last = segments.len() - 1;
     let seg = |i: usize, resolution: Resolution| (offsets[i], segments[i].len(), resolution);
     // Members and parameters of the documented declaration.
-    if segments.len() == 1 {
-        if let Some(node) = documented {
-            if labels.is_none() {
-                if let Some(list) = node.children().find(|c| c.kind() == SyntaxKind::ParamList) {
-                    let ident = list
-                        .descendants_with_tokens()
-                        .filter_map(rowan::NodeOrToken::into_token)
-                        .find(|t| t.kind() == SyntaxKind::Ident && t.text() == segments[0]);
-                    if let Some(ident) = ident {
-                        let resolution = Resolution::Parameter {
-                            name: segments[0].to_owned(),
-                            definition: cx.p.span(file, ident.text_range()),
-                        };
-                        return Some(vec![seg(0, resolution)]);
-                    }
-                }
+    if segments.len() == 1
+        && let Some(node) = documented
+    {
+        if labels.is_none()
+            && let Some(list) = node.children().find(|c| c.kind() == SyntaxKind::ParamList)
+        {
+            let ident = list
+                .descendants_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .find(|t| t.kind() == SyntaxKind::Ident && t.text() == segments[0]);
+            if let Some(ident) = ident {
+                let resolution = Resolution::Parameter {
+                    name: segments[0].to_owned(),
+                    definition: cx.p.span(file, ident.text_range()),
+                };
+                return Some(vec![seg(0, resolution)]);
             }
-            for decl in context_decls(cx, file, node) {
-                if let Some(m) = member_matches(cx, decl, segments[0], labels.as_deref()) {
-                    return Some(vec![seg(0, cx.member_resolution(m))]);
-                }
+        }
+        for decl in context_decls(cx, file, node) {
+            if let Some(m) = member_matches(cx, decl, segments[0], labels.as_deref()) {
+                return Some(vec![seg(0, cx.member_resolution(m))]);
             }
         }
     }
@@ -274,10 +274,10 @@ fn context_decls(cx: &Cx<'_, '_>, file: FileIx, node: &SyntaxNode) -> Vec<DeclId
         let decl = cx.p.decl(d);
         if decl.node.text_range().contains_range(node.text_range()) {
             out.push(d);
-            if decl.kind == crate::program::DeclKind::Extension {
-                if let Some(t) = cx.ext_target(d).decl() {
-                    out.push(t);
-                }
+            if decl.kind == crate::program::DeclKind::Extension
+                && let Some(t) = cx.ext_target(d).decl()
+            {
+                out.push(t);
             }
         }
     }

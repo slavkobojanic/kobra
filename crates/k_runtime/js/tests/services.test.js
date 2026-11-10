@@ -149,6 +149,7 @@ test("the pre-paint snippet applies the remembered variant", () => {
   const jar = cookies();
   const root$ = globalThis.document.documentElement;
   const run = () => new Function(themeSnippet)();
+  globalThis.location = { protocol: "http:", port: "" };
   root$.setAttribute("class", "");
   run();
   assertEq(root$.getAttribute("class") ?? "", "");
@@ -159,6 +160,61 @@ test("the pre-paint snippet applies the remembered variant", () => {
   jar.set("k_theme", "x%22%20onload%3D");
   run();
   assertEq(root$.getAttribute("class") ?? "", "");
+  // The cookie is the app's, named as `theme()` names it: another app's
+  // on the same host is no choice.
+  jar.set("k_theme", "dark");
+  globalThis.location = { protocol: "http:", port: "5203" };
+  root$.setAttribute("class", "");
+  run();
+  assertEq(root$.getAttribute("class") ?? "", "");
+  jar.set("k_theme_5203", "dark");
+  run();
+  assertEq(root$.getAttribute("class"), "k-theme-set k-theme-dark");
+  globalThis.location = { protocol: "https:", port: "" };
+  root$.setAttribute("class", "");
+  run();
+  assertEq(root$.getAttribute("class") ?? "", "");
+  jar.set("__Host-k_theme", "dark");
+  run();
+  assertEq(root$.getAttribute("class"), "k-theme-set k-theme-dark");
+  delete globalThis.location;
+});
+
+// Browsers scope cookies by host, not port, so the theme cookie is named
+// as the session cookie is (07-themes-and-units.md): `k_theme_<port>` on
+// an `http` origin with a port, `__Host-k_theme` (which must be `secure`)
+// on `https`. Another app's choice on the same host is not this app's.
+test("Theme remembers the choice in a cookie scoped to the app", () => {
+  installDom();
+  const written = [];
+  const jar = cookies();
+  const desc = Object.getOwnPropertyDescriptor(globalThis.document, "cookie");
+  Object.defineProperty(globalThis.document, "cookie", {
+    configurable: true,
+    get: desc.get,
+    set: (text) => {
+      written.push(text);
+      desc.set(text);
+    },
+  });
+  const root$ = globalThis.document.documentElement;
+  try {
+    globalThis.location = { protocol: "http:", port: "5203" };
+    jar.set("k_theme", "dark");
+    root$.setAttribute("class", "");
+    const t = theme();
+    assertEq(t.current, "base", "another app's choice");
+    t.apply("dark");
+    assertEq(jar.get("k_theme_5203"), "dark");
+    assertEq(jar.get("k_theme"), "dark", "the other app's cookie is untouched");
+    assertEq(theme().current, "dark");
+    globalThis.location = { protocol: "https:", port: "" };
+    theme().apply("highContrast");
+    assertEq(jar.get("__Host-k_theme"), "highContrast");
+    assert(written.at(-1).endsWith("; secure"), written.at(-1));
+  } finally {
+    delete globalThis.location;
+  }
 });
 
 test("Theme.apply swaps the root class, remembers the choice and is reactive", () => {

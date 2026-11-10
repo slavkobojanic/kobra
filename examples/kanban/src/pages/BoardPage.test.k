@@ -214,7 +214,8 @@ test BoardPage {
         screen.button(named: "Copy link to A").click()
         await screen.settle()
 
-        expect (clipboard.text ?? "").endsWith("/boards/{id.value}?card={card.id.value}")
+        // Absolute, against the page's origin (`PublicUrls` in the browser).
+        expect clipboard.text == "http://localhost/boards/{id.value}?card={card.id.value}"
         expect screen.button(named: "Copy link to A").text == "Copied"
 
         let opened = render(BoardPage(id: id.value).card("{card.id.value}"))

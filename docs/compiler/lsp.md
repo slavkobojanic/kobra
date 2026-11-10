@@ -207,8 +207,11 @@ The hover of a symbol is Markdown:
 
 1. its declaration as K source in a fenced block: annotations, visibility, keyword, qualified name,
    generics, signature or type, `implements`; a member names its owner (`// in shop.Cart`);
-2. facts: **a page's URL** (`URL: /sign-in`, from `Analysis::page_url`) and a declaration's side of the
-   server/client boundary when it isn't shared;
+2. facts: **a page's URL** (`URL: /sign-in`, from `Analysis::page_url`), a declaration's side of the
+   server/client boundary when it isn't shared, and for a member marked `@UserAction` (at its declaration
+   or a call) that it **needs a user's action** (a click, submit or key handler, or a component event
+   declared `@UserAction`, before the first `await`; K4030, 45-web-platform.md, "User activation";
+   `hover::user_action_note`);
 3. for a `@Derived` field or an `@Effect`, its **reactive dependencies** (design 03-reactivity.md: "the IDE
    shows an effect's dependencies on hover"): the references in its body to reactive members (`@State`,
    `@Derived`, `@Binding`, `@Prop`, `@Param`, `@Load`, computed properties), in source order, as written
@@ -257,7 +260,8 @@ type's initializers, a type's memberwise initializer (its settable stored fields
 forms. The active parameter follows the argument's label, or its position. A callee written with
 explicit type arguments (`decode<User>(`, `KeyName<AesGcmKey>(`) labels the signature with them, its
 generic parameters replaced by the text written (`render::ty_with`); hover on such a name adds "Called as
-`decode<User>(_ text: String) -> User`" below the declaration.
+`decode<User>(_ text: String) -> User`" below the declaration. A `@UserAction` member's signature carries
+hover's user-action note as its `documentation`.
 
 ## 9. Robustness
 

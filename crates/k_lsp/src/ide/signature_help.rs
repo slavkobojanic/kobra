@@ -23,6 +23,9 @@ pub struct SignatureInfo {
     /// Each parameter's byte range in `label`, and its label (`None` for
     /// `_`).
     pub params: Vec<(usize, usize, Option<String>)>,
+    /// A note shown with the signature, as Markdown: that a `@UserAction`
+    /// member needs a user's action.
+    pub documentation: Option<String>,
 }
 
 /// The signatures of a call and the active ones.
@@ -74,7 +77,10 @@ pub fn signature_help(
                 .as_ref()
                 .map(|s| {
                     let subst = given(&s.generics, written.as_deref());
-                    vec![from_signature(view, &view.member(m).name, s, &subst)]
+                    let mut info = from_signature(view, &view.member(m).name, s, &subst);
+                    info.documentation =
+                        super::hover::user_action_note(view.member(m)).map(str::to_owned);
+                    vec![info]
                 })
                 .unwrap_or_default(),
             None => Vec::new(),
@@ -190,10 +196,11 @@ fn current_argument(args: &SyntaxNode, offset: TextSize) -> (usize, Option<Strin
                         .children_with_tokens()
                         .filter_map(rowan::NodeOrToken::into_token)
                         .filter(|t| !t.kind().is_trivia());
-                    if let (Some(first), Some(second)) = (tokens.next(), tokens.next()) {
-                        if is_name(first.kind()) && second.kind() == SyntaxKind::Colon {
-                            label = Some(first.text().to_owned());
-                        }
+                    if let (Some(first), Some(second)) = (tokens.next(), tokens.next())
+                        && is_name(first.kind())
+                        && second.kind() == SyntaxKind::Colon
+                    {
+                        label = Some(first.text().to_owned());
                     }
                 }
             }
@@ -237,7 +244,11 @@ fn from_signature(
         label.push_str(" -> ");
         label.push_str(&ret);
     }
-    SignatureInfo { label, params }
+    SignatureInfo {
+        label,
+        params,
+        documentation: None,
+    }
 }
 
 /// The signatures of calling declaration `d`: a function's signature, a
@@ -303,7 +314,11 @@ fn decl_signatures(
         params.push((start, label.len(), Some(member.name.clone())));
     }
     label.push(')');
-    vec![SignatureInfo { label, params }]
+    vec![SignatureInfo {
+        label,
+        params,
+        documentation: None,
+    }]
 }
 
 /// The forms of built-in element `name`.
@@ -330,7 +345,11 @@ fn element_signatures(name: &str) -> Vec<SignatureInfo> {
                 }
             }
             label.push(')');
-            SignatureInfo { label, params }
+            SignatureInfo {
+                label,
+                params,
+                documentation: None,
+            }
         })
         .collect()
 }

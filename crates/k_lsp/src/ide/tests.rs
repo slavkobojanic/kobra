@@ -761,6 +761,49 @@ fn signature_help_of_calls() {
     assert_eq!(help.active_parameter, 0);
 }
 
+/// A member that needs a user's action, and a click handler calling it.
+const USER_ACTION: &str = "service Opener {\n    /// Opens the door.\n    @UserAction\n    func open(door: Int) {}\n}\n\ncomponent Launch {\n    @Inject let opener: Opener\n\n    view {\n        button { \"Go\" }\n            .on(click: { opener.open(door: 1) })\n    }\n}\n";
+
+/// Hover on a `@UserAction` member, at its declaration or a call, and
+/// signature help in a call to it, say that it needs a user's action
+/// (45-web-platform.md, "User activation").
+#[test]
+fn hover_and_signature_help_say_a_member_needs_a_users_action() {
+    let link = |_: Span| None;
+    for (needle, nth) in [("open(door", 0), ("open(door", 1)] {
+        let f = fixture(&[("src/door/Door.k", &with_cursor(USER_ACTION, needle, nth, 1))]);
+        let h = hover::hover(&f.analysis(), f.file, f.offset, &link)
+            .unwrap()
+            .unwrap();
+        assert!(
+            h.markdown.contains("Needs a user's action"),
+            "{}",
+            h.markdown
+        );
+        assert!(h.markdown.contains("Opens the door."), "{}", h.markdown);
+    }
+    let text = USER_ACTION.replace("open(door: 1)", "open(door: $01)");
+    let f = fixture(&[("src/door/Door.k", &text)]);
+    let help = signature_help::signature_help(&f.analysis(), f.file, f.offset)
+        .unwrap()
+        .expect("signature help in the call");
+    assert_eq!(help.signatures[0].label, "open(door: Int)");
+    assert!(
+        help.signatures[0]
+            .documentation
+            .as_deref()
+            .is_some_and(|d| d.contains("Needs a user's action")),
+        "{:?}",
+        help.signatures[0].documentation
+    );
+    // Another member says nothing of the kind.
+    let f = fixture(&[("src/use/Uses.k", &with_cursor(USES, "Square(side", 0, 1))]);
+    let h = hover::hover(&f.analysis(), f.file, f.offset, &link)
+        .unwrap()
+        .unwrap();
+    assert!(!h.markdown.contains("user's action"), "{}", h.markdown);
+}
+
 /// Generic declarations called with explicit type arguments.
 const GENERIC: &str = "struct Box<T> {\n    let value: T\n}\n\nfunc empty<T>(count: Int) -> List<T> {\n    return []\n}\n\nfunc make() -> Int {\n    let a = empty<String>(count: 1)\n    let b = Box<Int>(value: 2)\n    return a.count + b.value\n}\n";
 

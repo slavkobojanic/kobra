@@ -122,6 +122,7 @@ component ThemeToggle {
 - **`Theme` is client-only** ([10-services.md](10-services.md)). Injecting it into server-only code is a compile error.
 - **Following the operating system:** `variant dark matches .prefersDark { … }` applies the variant through a CSS media query (`prefers-color-scheme`) until `theme.apply` is called. Because it is CSS, the first paint is already right, even when server rendered. `.prefersContrast` works the same way.
 - **An explicit choice is remembered in a cookie** (`k_theme`, not `HttpOnly`, holding only the variant name). Server rendering reads it and renders that variant, so a server-rendered app shows the chosen scheme from the first paint with no flash and no `@Rendering(.client)`.
+  - **The cookie is scoped to the app the way the session cookie is** ([26-auth-and-sessions.md](26-auth-and-sessions.md#cookies-and-caching)): `k_theme_<port>` on an `http` origin with a port, `__Host-k_theme` (with `Secure`) on `https`, plain `k_theme` on an `http` origin without a port. Browsers scope cookies by host, not port, so two apps on `localhost` would otherwise switch each other's theme. The browser derives the name from `location`, so the pre-paint script stays one text in every app. The HTTP front renames `k_theme_<port>` to `k_theme` for the server and drops another app's plain `k_theme`, as it does `k_session`.
   - The document puts the variant's classes on `<html>` itself (`k-theme-set k-theme-<variant>`), for a cookie that names one of the theme's variants.
   - A client-rendered app's document, such as the static `index.html` of `k build`, is rendered once without a cookie. It carries a tiny inline script in `<head>` that applies the cookie's variant before the first paint. The script is the same text in every app, so a Content-Security-Policy allows it by its hash (`examples/kanban/nginx.conf`).
   - The `Theme` service also applies the remembered variant when it is created, so a reload keeps the scheme in any document.
@@ -182,6 +183,4 @@ clock.every(30.seconds) { refresh() }
 ## Open questions
 
 - **Shipped fonts.** An app should be able to ship a font file (for example `fonts/Inter.woff2`), and the compiler would then emit its `@font-face`, a preload tag and a `font-display: swap`. That needs a project asset pipeline, which doesn't exist yet. Until then a family is used only where it is installed.
-- **The `k_theme` cookie is per host**, so two K apps on `localhost` on different ports share it.
-
 - **Scoped variants**, applying a variant to one subtree (for example a dark sidebar in a light app), would need a `.theme(.dark)` modifier.

@@ -201,10 +201,10 @@ impl App {
             }
             let exited = child.try_wait().ok().flatten();
             let mut err = String::new();
-            if exited.is_some() {
-                if let Some(mut e) = child.stderr.take() {
-                    let _ = e.read_to_string(&mut err);
-                }
+            if exited.is_some()
+                && let Some(mut e) = child.stderr.take()
+            {
+                let _ = e.read_to_string(&mut err);
             }
             assert!(
                 exited.is_none(),

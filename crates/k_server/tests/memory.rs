@@ -488,6 +488,44 @@ fn the_server_config_lists_k_worker_heap_mb() {
     );
 }
 
+/// `K_PUBLIC_SOURCE_MAPS` is a `ServerConfig` setting like
+/// `K_WORKER_HEAP_MB` (13-tooling.md, "Source maps in production"): every
+/// app's manifest lists it as a `Bool` defaulting to `false`, so `dist/app
+/// config` shows it and a value that isn't a `Bool` is refused at startup.
+#[test]
+fn the_server_config_lists_k_public_source_maps() {
+    let spec = k_server::app::ConfigSpec::server_defaults()
+        .into_iter()
+        .find(|c| c.env == "K_PUBLIC_SOURCE_MAPS")
+        .expect("listed");
+    assert_eq!(
+        (
+            spec.declared_at.as_str(),
+            spec.ty.as_str(),
+            spec.default.as_deref()
+        ),
+        (
+            "k.server.ServerConfig.publicSourceMaps",
+            "Bool",
+            Some("false")
+        )
+    );
+    let manifest = &memory_app().manifest;
+    let c = manifest
+        .config
+        .iter()
+        .find(|c| c.env == "K_PUBLIC_SOURCE_MAPS")
+        .expect("every app reads it");
+    assert_eq!(
+        (c.declared_at.as_str(), c.ty.as_str(), c.default.as_deref()),
+        (
+            "k.server.ServerConfig.publicSourceMaps",
+            "Bool",
+            Some("false")
+        )
+    );
+}
+
 #[test]
 fn a_worker_that_keeps_dying_is_a_crash_loop_that_stops_the_server() {
     let server = script_server(
@@ -892,7 +930,7 @@ fn an_idle_worker_and_one_under_load_stay_within_the_memory_budget() {
                 let mut conn = Conn::open(addr);
                 let mut n = 0usize;
                 while !done.load(std::sync::atomic::Ordering::Relaxed) {
-                    let path = if (n + c) % 2 == 0 {
+                    let path = if (n + c).is_multiple_of(2) {
                         "/sign-in"
                     } else {
                         "/sign-up"

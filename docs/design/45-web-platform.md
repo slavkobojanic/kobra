@@ -375,7 +375,7 @@ public enum ShareError implements Error, Equatable {
 ```
 
 - **`share` opens the system share sheet** and resolves when the user has picked a target. Whether the target did anything with the content isn't observable.
-- **`ShareContent` is built by `page`, `link` or `text`,** so it always carries something to share; there is no memberwise initializer that would allow an empty one. `page` takes a typed `Page` ([12-routing.md](12-routing.md)) and makes it absolute in the browser, since `PublicUrls` is server-only; `link` takes a `Url`, which is always absolute ([20-standard-library.md](20-standard-library.md#literals-and-parsing)).
+- **`ShareContent` is built by `page`, `link` or `text`,** so it always carries something to share; there is no memberwise initializer that would allow an empty one. `page` takes a typed `Page` ([12-routing.md](12-routing.md)) and makes it absolute in the browser, as `PublicUrls.absolute(_:)` does; `link` takes a `Url`, which is always absolute ([20-standard-library.md](20-standard-library.md#literals-and-parsing)).
 - **It consumes the activation,** so one click shares once.
 
 ### `ShareButton`
@@ -395,7 +395,7 @@ ShareButton(content: .page(.recipe(id: recipe.id), title: recipe.title), label: 
 - **`ShareButton` renders as `CopyButton` does** and reads `Share`, `Clipboard` and `Clock` from its container. A share that worked shows nothing, since the sheet was the feedback; a copy shows "Link copied" for a `url`, "Copied" for text.
 - **`ShareContent` has a `@Native private init()`,** so `ShareContent(url:text:title:)` is `K1301`; its three factories are lowered inline to `{url, text, title}`. `page` makes the URL absolute with `location.origin` (`pageUrl` in `std.js`); during server rendering, where there is no origin, it is the page's path.
 - **A static function may share its name with a property** (`ShareContent.text(_:)` and `content.text`): K2019 already exempted functions, but member lookup took whichever member was declared first, so `.text("hi")` found the field. Lookup now takes the member of the namespace asked for (`lookup_in_decl` in `k_sema`).
-- **Kanban's "Copy link"** (the card editor, [implementation tests](#implementation-tests) item 4) copies `ShareContent.page(.boardPage(id:).card(id)).url`, the one way a client-only app has to make a page's link absolute (`PublicUrls` is server-only); the board page's optional `card` parameter opens that card's editor. A `CopyButton(page:label:)` or a client-side `absolute(_ page:)` would read better; it is an [open question](#open-questions).
+- **Kanban's "Copy link"** (the card editor, [implementation tests](#implementation-tests) item 4) copies `urls.absolute(.boardPage(id:).card(id))`, `PublicUrls` in the browser ([12-routing.md](12-routing.md#absolute-urls-publicurls)), which makes the page's link absolute against `location.origin`; the board page's optional `card` parameter opens that card's editor.
 
 ## Notifications
 
@@ -888,5 +888,4 @@ Resolved while reconciling with 46: **camera and microphone follow the prompt ru
 - **Lazy clipboard writes:** WebKit accepts a `ClipboardItem` whose content is a promise, so a click could copy a link the server creates after the click. A `write(textFrom:)` taking an async producer would make that typed.
 - **WebKit in the real-engine suite.** The bindings also run in the planned real-browser suite shared with [33](33-crypto.md#testing) and [46](46-media-and-rtc.md#testing-the-stdlib-against-real-browsers), with permissions granted by launch flags; WebKit automation is the open part.
 - **The visual viewport** (the on-screen keyboard), for sheets and toolbars on phones.
-- **An absolute page link in the browser.** `PublicUrls.absolute(_:)` is server-only; a client-rendered app gets one only through `ShareContent.page(_:).url`, as kanban's "Copy link" does. A client `absolute(_ page:)` (from `location.origin`) or `CopyButton(page:label:)` would say it directly.
 - **Localized texts** of `CopyButton` and `ShareButton` ("Copied", "Link copied") come from `k.i18n`, as drag announcements will ([41-drag-and-drop.md](41-drag-and-drop.md#open-questions)).

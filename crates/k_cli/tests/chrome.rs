@@ -414,6 +414,15 @@ fn todos_keeps_the_dark_theme_across_a_reload() {
         "document.documentElement.classList.contains('k-theme-dark')",
         "the dark theme",
     );
+    // The choice is this app's alone: its cookie is named after the port,
+    // as the session cookie is (07-themes-and-units.md).
+    assert_eq!(
+        tab.eval(
+            "document.cookie.split('; ').some(c => c === 'k_theme_' + location.port + '=dark')"
+        ),
+        json!(true),
+        "the theme cookie is k_theme_<port>"
+    );
     tab.reload();
     let dark = tab.role("checkbox", "Dark mode");
     assert_eq!(
@@ -1487,14 +1496,18 @@ fn notes_shows_an_offline_banner_while_the_network_is_gone() {
         })
     };
     tab.cdp.call("Network.enable", json!({}));
+    let offline_from = tab.errors().len();
     tab.cdp
         .call("Network.emulateNetworkConditions", conditions(true));
     tab.wait_text(banner);
     tab.cdp
         .call("Network.emulateNetworkConditions", conditions(false));
     tab.wait_no_text(banner);
-    // The list's stream drops while the network is gone; that is expected.
-    tab.allow_errors();
+    // The page's requests (the list's stream among them) fail with
+    // ERR_INTERNET_DISCONNECTED while the network is gone; that error is
+    // expected from the moment it went, even when Chrome reports it late,
+    // and nothing else is.
+    tab.allow_errors_containing(offline_from, "ERR_INTERNET_DISCONNECTED");
     drop(tab);
 }
 

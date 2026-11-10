@@ -125,20 +125,27 @@ pub fn public_session_cookie(public_origin: &str) -> Option<String> {
         .then(|| format!("{SESSION_COOKIE}_{port}"))
 }
 
+/// The theme cookie (`docs/design/07-themes-and-units.md`, "Switching
+/// variants at runtime"), set by the browser and scoped as
+/// [`SESSION_COOKIE`] is: `__Host-k_theme`, `k_theme_<port>`.
+pub const THEME_COOKIE: &str = "k_theme";
+
 /// The runtime's cookie names with their public names for the public
-/// session cookie name `public` (`k_session_8081`, `k_guest_8081`).
-fn renamed(public: &str) -> [(&'static str, String); 2] {
+/// session cookie name `public` (`k_session_8081`, `k_guest_8081`,
+/// `k_theme_8081`).
+fn renamed(public: &str) -> [(&'static str, String); 3] {
     let suffix = public.strip_prefix(SESSION_COOKIE).unwrap_or("");
     [
         (SESSION_COOKIE, public.to_owned()),
         (GUEST_COOKIE, format!("{GUEST_COOKIE}{suffix}")),
+        (THEME_COOKIE, format!("{THEME_COOKIE}{suffix}")),
     ]
 }
 
 /// A request's `Cookie` header value as the runtime sees it, for the
 /// public cookie name `public`: `public=…` becomes `k_session=…` (and the
-/// guest cookie likewise), and a plain `k_session` or `k_guest` (another
-/// app's on the same host) is dropped.
+/// guest and theme cookies likewise), and a plain `k_session`, `k_guest`
+/// or `k_theme` (another app's on the same host) is dropped.
 #[must_use]
 pub fn to_runtime_cookies(value: &str, public: &str) -> String {
     let names = renamed(public);
@@ -495,6 +502,13 @@ mod tests {
             to_public_set_cookie("k_guest=g; Path=/", "k_session_81"),
             "k_guest_81=g; Path=/"
         );
+        // So is the theme cookie the browser sets: another app's on the
+        // same host is not this app's choice.
+        assert_eq!(
+            to_runtime_cookies("k_theme=dark; k_theme_81=highContrast", "k_session_81"),
+            "k_theme=highContrast"
+        );
+        assert_eq!(to_runtime_cookies("k_theme=dark", "k_session_81"), "");
     }
 
     #[test]

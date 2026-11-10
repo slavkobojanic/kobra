@@ -497,6 +497,10 @@ test("the server's Theme reads the k_theme cookie", () => {
   const t = serverTheme(st("dark"));
   t.apply("base");
   assertEq(t.current, "dark");
+  // On https the cookie is `__Host-k_theme`, as the session's is `__Host-`.
+  const secure = (pairs) => ({ cookieName: "__Host-k_session", cookies: new Map(pairs) });
+  assertEq(serverTheme(secure([["__Host-k_theme", "dark"]])).current, "dark");
+  assertEq(serverTheme(secure([["k_theme", "dark"]])).current, "base");
 });
 
 // The remembered variant is on `<html>` before the first paint

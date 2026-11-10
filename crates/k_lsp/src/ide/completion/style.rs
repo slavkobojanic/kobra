@@ -403,17 +403,18 @@ pub(super) fn class_items(
     for node in decl.descendants() {
         match node.kind() {
             SyntaxKind::ClassSelector => {
-                if let Some(t) = first_name(&node) {
-                    if !at_cursor(&t) && !declared.iter().any(|n| n == t.text()) {
-                        declared.push(t.text().to_owned());
-                    }
+                if let Some(t) = first_name(&node)
+                    && !at_cursor(&t)
+                    && !declared.iter().any(|n| n == t.text())
+                {
+                    declared.push(t.text().to_owned());
                 }
             }
             SyntaxKind::ImplicitMemberExpr if used && is_class_reference(&node) => {
-                if let Some(t) = first_name(&node) {
-                    if !at_cursor(&t) {
-                        referenced.push(t.text().to_owned());
-                    }
+                if let Some(t) = first_name(&node)
+                    && !at_cursor(&t)
+                {
+                    referenced.push(t.text().to_owned());
                 }
             }
             _ => {}

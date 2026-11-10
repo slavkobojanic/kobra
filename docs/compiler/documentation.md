@@ -184,9 +184,9 @@ design topic or the code changes):
 3. **Revealed secrets.** [25](../design/25-config-and-secrets.md) tracks values computed from `reveal()`
    through local bindings, with a quick fix to `secret.matches`; `K2001` reads the compared expression only
    and has no fix.
-4. **`K_PUBLIC_SOURCE_MAPS`.** The concurrent source-map change reads an environment variable that no
-   `config` declares, where [25](../design/25-config-and-secrets.md) says the runtime reads the environment
-   only through configs (`getting-started/debugging.md`, `reference/cli.md`; that page was read, not audited).
+4. **`K_PUBLIC_SOURCE_MAPS`.** *Resolved:* it is `ServerConfig.publicSourceMaps: Bool = false`, read
+   through the checked configuration like `K_WORKER_HEAP_MB` and listed by `dist/app config`
+   ([25](../design/25-config-and-secrets.md), [13](../design/13-tooling.md)).
 
 **Already known** (from writing design 49): the `k check`-runs-tests claim on
 `getting-started/first-app.md`, `apps/testing.md` and `reference/design-status.md`; broken anchors in

@@ -467,15 +467,14 @@ fn endpoint_rules(cx: &Cx<'_, '_>, d: DeclId) {
                     | SyntaxKind::LoadingBlock
                     | SyntaxKind::FailedBlock
                     | SyntaxKind::StyleBlock
-            ) {
-                if let Some(kw) = first_token(&child) {
-                    cx.error(
-                        file,
-                        codes::ENDPOINT_MEMBER_NOT_ALLOWED,
-                        kw.text_range(),
-                        format!("an endpoint page has handlers, not a `{}` block", kw.text()),
-                    );
-                }
+            ) && let Some(kw) = first_token(&child)
+            {
+                cx.error(
+                    file,
+                    codes::ENDPOINT_MEMBER_NOT_ALLOWED,
+                    kw.text_range(),
+                    format!("an endpoint page has handlers, not a `{}` block", kw.text()),
+                );
             }
         }
     }

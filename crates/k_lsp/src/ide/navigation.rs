@@ -107,12 +107,11 @@ fn nominal(view: &ProgramView, ty: &Type) -> Option<DeclId> {
         Type::Optional(inner) | Type::Meta(inner) => nominal(view, inner),
         Type::Named(d, args) => {
             let info = view.decls.get(d.0 as usize)?;
-            if info.stdlib {
-                if let Some(arg) = args.iter().find_map(|a| nominal(view, a)) {
-                    if !view.decl(arg).stdlib {
-                        return Some(arg);
-                    }
-                }
+            if info.stdlib
+                && let Some(arg) = args.iter().find_map(|a| nominal(view, a))
+                && !view.decl(arg).stdlib
+            {
+                return Some(arg);
             }
             Some(*d)
         }
@@ -321,10 +320,10 @@ pub fn references(
         if i > 0 {
             // The family's other members are references by their
             // declarations.
-            if let Some(def) = analysis.definition(target)? {
-                if !super::is_stdlib(analysis, def.file) {
-                    rest.push(def);
-                }
+            if let Some(def) = analysis.definition(target)?
+                && !super::is_stdlib(analysis, def.file)
+            {
+                rest.push(def);
             }
         }
         rest.extend(analysis.references(target)?);
@@ -362,10 +361,10 @@ pub fn highlights(
         return Ok(Vec::new());
     };
     let mut out = Vec::new();
-    if let Some(def) = analysis.definition(&symbol.resolution)? {
-        if def.file == file {
-            out.push((def.range, Access::Write));
-        }
+    if let Some(def) = analysis.definition(&symbol.resolution)?
+        && def.file == file
+    {
+        out.push((def.range, Access::Write));
     }
     for (range, resolution) in analysis.file_references(file)? {
         if *resolution == symbol.resolution && !out.iter().any(|(r, _)| *r == range) {
@@ -431,10 +430,10 @@ pub fn member_family(
     }
     let mut out: Vec<(MemberId, Resolution)> = Vec::new();
     for root in roots {
-        if let Some(r) = member_resolution(view, root) {
-            if !out.iter().any(|(id, _)| *id == root) {
-                out.push((root, r));
-            }
+        if let Some(r) = member_resolution(view, root)
+            && !out.iter().any(|(id, _)| *id == root)
+        {
+            out.push((root, r));
         }
         for (id, r) in implementing_resolutions(analysis, view, root)? {
             if !out.iter().any(|(existing, _)| *existing == id) {

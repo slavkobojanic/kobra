@@ -546,12 +546,11 @@ impl<'a> Gen<'a> {
                         continue;
                     }
                     let range = syntax.text_range();
-                    if let Ok(Some(t)) = self.analysis.type_info_at(file, range) {
-                        if let Some(d) = t.decl() {
-                            if self.view.decl(d).named_kind() == Some(DeclarationKind::Protocol) {
-                                out.insert(d);
-                            }
-                        }
+                    if let Ok(Some(t)) = self.analysis.type_info_at(file, range)
+                        && let Some(d) = t.decl()
+                        && self.view.decl(d).named_kind() == Some(DeclarationKind::Protocol)
+                    {
+                        out.insert(d);
                     }
                 }
             }
@@ -606,10 +605,10 @@ impl<'a> Gen<'a> {
     pub(crate) fn owner_prefix(&self, member: MemberId) -> String {
         let owner = self.view.member(member).owner;
         let d = self.view.decl(owner);
-        if d.kind == DeclKind::Extension {
-            if let Some(target) = d.extends.as_ref().and_then(Type::decl) {
-                return self.view.decl(target).name.clone();
-            }
+        if d.kind == DeclKind::Extension
+            && let Some(target) = d.extends.as_ref().and_then(Type::decl)
+        {
+            return self.view.decl(target).name.clone();
         }
         self.name(owner)
     }

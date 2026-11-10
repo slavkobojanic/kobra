@@ -176,7 +176,7 @@ unpinned = [
 [pages."getting-started/debugging.md"]
 commit = "0dd7625"
 date = "2026-11-09"
-note = "added by the concurrent source-map change; read, not audited in round 1(a): its `K_PUBLIC_SOURCE_MAPS` is an environment variable outside any `config`, which deployment.md and config.md say the runtime never reads; targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: source maps and debugging (`/_k/src` paths, `--inspect` and its default port, the VS Code files, `--release` maps, `K_PUBLIC_SOURCE_MAPS`); no findings; `K_PUBLIC_SOURCE_MAPS` is still the open code-versus-design question of documentation.md §5"
+note = "added by the concurrent source-map change; read, not audited in round 1(a): its `K_PUBLIC_SOURCE_MAPS` is an environment variable outside any `config`, which deployment.md and config.md say the runtime never reads; targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recent changes only: source maps and debugging (`/_k/src` paths, `--inspect` and its default port, the VS Code files, `--release` maps, `K_PUBLIC_SOURCE_MAPS`); no findings; `K_PUBLIC_SOURCE_MAPS` is now `ServerConfig.publicSourceMaps` (documentation.md §5 item 4, resolved)"
 
 [pages."tour.md"]
 commit = "0dd7625"

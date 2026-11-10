@@ -138,10 +138,11 @@ pub(crate) fn served_by(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) -> Vec<(DeclId,
         if pdecl.named_kind() != Some(K::Protocol) {
             continue;
         }
-        if let Some(&r) = pdecl.member_names.get(name) {
-            if p.member(r).kind == MemberKind::Rpc && !served.iter().any(|s| s.0 == proto) {
-                served.push((proto, r));
-            }
+        if let Some(&r) = pdecl.member_names.get(name)
+            && p.member(r).kind == MemberKind::Rpc
+            && !served.iter().any(|s| s.0 == proto)
+        {
+            served.push((proto, r));
         }
     }
     served
@@ -344,12 +345,11 @@ fn handler_guards(cx: &Cx<'_, '_>, d: DeclId, m: MemberId) {
             if pdecl.file == file && !moved_here.contains(text) {
                 moved_here.push(text.clone());
             }
-            if let Found::Decl(g) = cx.lookup(file, name) {
-                if let Some(edit) = cx.import_edit(pdecl.file, &qualified(cx, g)) {
-                    if !edits.contains(&edit) {
-                        edits.push(edit);
-                    }
-                }
+            if let Found::Decl(g) = cx.lookup(file, name)
+                && let Some(edit) = cx.import_edit(pdecl.file, &qualified(cx, g))
+                && !edits.contains(&edit)
+            {
+                edits.push(edit);
             }
         }
     }
@@ -567,16 +567,16 @@ fn channel_messages(cx: &Cx<'_, '_>, file: FileIx, ret: &ast::Type, args: &[Ty])
         (0, "a channel's client message"),
         (1, "a channel's server message"),
     ] {
-        if let Some(t) = args.get(i) {
-            if !is_codable(t) {
-                not_codable(cx, file, at(i), t, what);
-            }
+        if let Some(t) = args.get(i)
+            && !is_codable(t)
+        {
+            not_codable(cx, file, at(i), t, what);
         }
     }
-    if let Some(e) = args.get(2) {
-        if !e.contains_error() {
-            error_enum(cx, file, at(2), e, ErrorRole::Refusal);
-        }
+    if let Some(e) = args.get(2)
+        && !e.contains_error()
+    {
+        error_enum(cx, file, at(2), e, ErrorRole::Refusal);
     }
 }
 
@@ -624,25 +624,26 @@ fn error_enum(cx: &Cx<'_, '_>, file: FileIx, range: TextRange, error: &Ty, role:
         )
         .with_label(p.span(edecl.file, edecl.name_range), "declared here");
         let has_case = cases.iter().any(|c| p.member(*c).name == "rpcFailure");
-        if cx.is_enum(e) && !has_case && !p.is_stdlib(e) {
-            if let Some(close) = edecl
+        if cx.is_enum(e)
+            && !has_case
+            && !p.is_stdlib(e)
+            && let Some(close) = edecl
                 .node
                 .descendants_with_tokens()
                 .filter_map(rowan::NodeOrToken::into_token)
                 .filter(|t| t.kind() == SyntaxKind::RBrace)
                 .last()
-            {
-                d = d.with_fix(with_import(
-                    cx,
-                    edecl.file,
-                    "k.rpc.RpcFailure",
-                    Fix::replace(
-                        "Add `case rpcFailure(RpcFailure)`",
-                        Span::empty(p.file(edecl.file).id, close.text_range().start()),
-                        "    case rpcFailure(RpcFailure)\n",
-                    ),
-                ));
-            }
+        {
+            d = d.with_fix(with_import(
+                cx,
+                edecl.file,
+                "k.rpc.RpcFailure",
+                Fix::replace(
+                    "Add `case rpcFailure(RpcFailure)`",
+                    Span::empty(p.file(edecl.file).id, close.text_range().start()),
+                    "    case rpcFailure(RpcFailure)\n",
+                ),
+            ));
         }
         cx.report(file, d);
         return;

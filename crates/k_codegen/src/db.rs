@@ -879,17 +879,17 @@ impl Query<'_> {
             });
         }
         // `row.relation.id`: the foreign key.
-        if name == "id" {
-            if let ast::Expr::MemberExpr(inner) = strip_parens(&recv) {
-                let rel = inner.name()?.text().to_owned();
-                if self.is_row(b, &inner.receiver()?) {
-                    let i = self.entity.fields.iter().position(|f| f.name == rel)?;
-                    if let FieldKind::ToOne { column, .. } = &self.entity.fields[i].kind {
-                        return Some(ColumnRef {
-                            field: i,
-                            columns: vec![column.clone()],
-                        });
-                    }
+        if name == "id"
+            && let ast::Expr::MemberExpr(inner) = strip_parens(&recv)
+        {
+            let rel = inner.name()?.text().to_owned();
+            if self.is_row(b, &inner.receiver()?) {
+                let i = self.entity.fields.iter().position(|f| f.name == rel)?;
+                if let FieldKind::ToOne { column, .. } = &self.entity.fields[i].kind {
+                    return Some(ColumnRef {
+                        field: i,
+                        columns: vec![column.clone()],
+                    });
                 }
             }
         }
@@ -982,17 +982,16 @@ impl Query<'_> {
             ast::Expr::CallExpr(c) => self.call_predicate(b, c),
             _ => {
                 // A Bool field on its own: `note.isPinned`.
-                if let Some(r) = self.column(b, &e) {
-                    if let FieldKind::Column { col: Col::Bool, .. } =
+                if let Some(r) = self.column(b, &e)
+                    && let FieldKind::Column { col: Col::Bool, .. } =
                         &self.entity.fields[r.field].kind
-                    {
-                        let p = self.param(dbc("bool"), Expr::Bool(true), 1);
-                        return Ok(Predicate::Compare {
-                            left: Operand::Column(r.columns[0].clone()),
-                            op: CmpOp::Eq,
-                            right: Operand::Param(p),
-                        });
-                    }
+                {
+                    let p = self.param(dbc("bool"), Expr::Bool(true), 1);
+                    return Ok(Predicate::Compare {
+                        left: Operand::Column(r.columns[0].clone()),
+                        op: CmpOp::Eq,
+                        right: Operand::Param(p),
+                    });
                 }
                 Err("a query condition must compare fields of the row".to_owned())
             }
@@ -1170,20 +1169,20 @@ impl Query<'_> {
                 param: p,
             });
         }
-        if kind == 0 {
-            if let Some(col) = self.column(b, &arg) {
-                if col.columns.len() != 1 {
-                    return Err("a money field can't be looked up in a list".to_owned());
-                }
-                let list = self.value(b, &recv)?;
-                let codec = self.column_codec(b, &col);
-                let value = call(s_member("dbInList"), vec![codec, list]);
-                let p = self.param(dbc("text"), value, 1);
-                return Ok(Predicate::In {
-                    operand: Operand::Column(col.columns[0].clone()),
-                    list: p,
-                });
+        if kind == 0
+            && let Some(col) = self.column(b, &arg)
+        {
+            if col.columns.len() != 1 {
+                return Err("a money field can't be looked up in a list".to_owned());
             }
+            let list = self.value(b, &recv)?;
+            let codec = self.column_codec(b, &col);
+            let value = call(s_member("dbInList"), vec![codec, list]);
+            let p = self.param(dbc("text"), value, 1);
+            return Ok(Predicate::In {
+                operand: Operand::Column(col.columns[0].clone()),
+                list: p,
+            });
         }
         Err(format!(
             "`{name}` must be called on a field of the row (or a list, with a field as argument)"
@@ -1212,13 +1211,12 @@ impl Query<'_> {
             .and_then(|l| l.args().next())
             .and_then(|a| a.value())
             .ok_or("`limit` and `offset` take a count")?;
-        if let ast::Expr::Literal(l) = strip_parens(&arg) {
-            if let Some(n) = l
+        if let ast::Expr::Literal(l) = strip_parens(&arg)
+            && let Some(n) = l
                 .token()
                 .and_then(|t| t.text().replace('_', "").parse::<u64>().ok())
-            {
-                return Ok(Count::Const(n));
-            }
+        {
+            return Ok(Count::Const(n));
         }
         let v = self.value(b, &arg)?;
         Ok(Count::Param(self.param(dbc("int"), v, 1)))
@@ -1386,10 +1384,10 @@ fn this_db() -> Expr {
 /// The result is a promise; the caller awaits it.
 pub(crate) fn awaited(b: &mut Body<'_, '_>, e: &ast::Expr) -> Option<Expr> {
     let e = strip_parens(e);
-    if let ast::Expr::CallExpr(c) = &e {
-        if let Some(x) = repository_write(b, c) {
-            return Some(x);
-        }
+    if let ast::Expr::CallExpr(c) = &e
+        && let Some(x) = repository_write(b, c)
+    {
+        return Some(x);
     }
     let (root, steps) = chain(&e)?;
     let (_, entity_decl) = current_repository(b)?;

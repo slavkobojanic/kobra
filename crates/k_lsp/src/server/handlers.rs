@@ -616,7 +616,12 @@ pub fn signature_help(
         .iter()
         .map(|s| lsp::SignatureInformation {
             label: s.label.clone(),
-            documentation: None,
+            documentation: s.documentation.clone().map(|value| {
+                lsp::Documentation::MarkupContent(lsp::MarkupContent {
+                    kind: lsp::MarkupKind::Markdown,
+                    value,
+                })
+            }),
             parameters: Some(
                 s.params
                     .iter()
@@ -785,10 +790,10 @@ pub fn project_diagnostics(snap: &Snap) -> Result<Vec<(Url, Vec<lsp::Diagnostic>
         }
         // A mounted library file's diagnostics are the library project's
         // to publish (its own analysis reports them).
-        if let Some(k_sema::FileOrigin::Project(path)) = snap.analysis.origin(d.span.file) {
-            if path.dependency().is_some() {
-                continue;
-            }
+        if let Some(k_sema::FileOrigin::Project(path)) = snap.analysis.origin(d.span.file)
+            && path.dependency().is_some()
+        {
+            continue;
         }
         let Some(converted) = diagnostic(snap, d) else {
             continue;

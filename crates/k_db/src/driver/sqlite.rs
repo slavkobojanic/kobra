@@ -38,27 +38,26 @@ impl ToSql for Value {
 /// from SQLite's message (SQLite reports no constraint name), anything else
 /// [`DbError::Statement`].
 fn map_error(error: rusqlite::Error) -> DbError {
-    if let rusqlite::Error::SqliteFailure(e, message) = &error {
-        if e.code == ErrorCode::ConstraintViolation
-            && (e.extended_code == CONSTRAINT_UNIQUE || e.extended_code == CONSTRAINT_PRIMARYKEY)
-        {
-            // "UNIQUE constraint failed: user.email[, user.other]"
-            let mut table = None;
-            let mut columns = Vec::new();
-            if let Some(list) = message.as_deref().and_then(|m| m.split(": ").nth(1)) {
-                for qualified in list.split(", ") {
-                    if let Some((t, c)) = qualified.split_once('.') {
-                        table = Some(t.to_owned());
-                        columns.push(c.to_owned());
-                    }
+    if let rusqlite::Error::SqliteFailure(e, message) = &error
+        && e.code == ErrorCode::ConstraintViolation
+        && (e.extended_code == CONSTRAINT_UNIQUE || e.extended_code == CONSTRAINT_PRIMARYKEY)
+    {
+        // "UNIQUE constraint failed: user.email[, user.other]"
+        let mut table = None;
+        let mut columns = Vec::new();
+        if let Some(list) = message.as_deref().and_then(|m| m.split(": ").nth(1)) {
+            for qualified in list.split(", ") {
+                if let Some((t, c)) = qualified.split_once('.') {
+                    table = Some(t.to_owned());
+                    columns.push(c.to_owned());
                 }
             }
-            return DbError::UniqueViolation {
-                table,
-                columns,
-                constraint: None,
-            };
         }
+        return DbError::UniqueViolation {
+            table,
+            columns,
+            constraint: None,
+        };
     }
     DbError::Statement(error.to_string())
 }

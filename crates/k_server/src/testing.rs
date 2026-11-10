@@ -592,18 +592,18 @@ fn exchange(
 ) -> Result<Vec<String>, String> {
     let response = send(addr, &ex.method, &ex.path, headers, ex.body.as_bytes())?;
     for (n, v) in &response.headers {
-        if n == "set-cookie" {
-            if let Some((name, value)) = v.split(';').next().and_then(|p| p.split_once('=')) {
-                cookies.retain(|(c, _)| c != name.trim());
-                // As a browser does, `Max-Age=0` (or an empty value, how the
-                // server clears a dead session's cookie) deletes the cookie.
-                let deleted = value.trim().is_empty()
-                    || v.split(';')
-                        .skip(1)
-                        .any(|a| a.trim().eq_ignore_ascii_case("max-age=0"));
-                if !deleted {
-                    cookies.push((name.trim().to_owned(), value.trim().to_owned()));
-                }
+        if n == "set-cookie"
+            && let Some((name, value)) = v.split(';').next().and_then(|p| p.split_once('='))
+        {
+            cookies.retain(|(c, _)| c != name.trim());
+            // As a browser does, `Max-Age=0` (or an empty value, how the
+            // server clears a dead session's cookie) deletes the cookie.
+            let deleted = value.trim().is_empty()
+                || v.split(';')
+                    .skip(1)
+                    .any(|a| a.trim().eq_ignore_ascii_case("max-age=0"));
+            if !deleted {
+                cookies.push((name.trim().to_owned(), value.trim().to_owned()));
             }
         }
     }

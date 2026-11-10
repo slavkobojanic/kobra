@@ -51,7 +51,7 @@ API from a local fake. A built `dist/app` never reads it.
 The client `k build` writes is ready to ship as it is. Each app gets only the part of the runtime its
 pages use; every JavaScript file is minified, with a source map next to it (`app.3f2a1b9c.js.map`) that
 maps the minified code straight back to your `.k` lines (the server built with the app serves the maps
-only when `K_PUBLIC_SOURCE_MAPS=true`; see [Debugging](../getting-started/debugging.md)); class names and theme variables are short
+only when `K_PUBLIC_SOURCE_MAPS=true`, a `ServerConfig` setting; see [Debugging](../getting-started/debugging.md)); class names and theme variables are short
 (`_3`, `--k7`); and every page's document preloads the files it needs, so the browser fetches them all
 at once. `k dev` and `k run` serve readable code with the long names (`panel_k3x9a1`), which is easier
 to debug; select elements in tests by role or text, not by class name.

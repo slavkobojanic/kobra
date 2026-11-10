@@ -88,13 +88,12 @@ fn renameable(
         _ => {}
     }
     let view = analysis.program()?;
-    if let Some(Resolved::Member(m)) = view.resolve(resolution) {
-        if view.member(m).range.is_none() {
-            return Ok(Err(
-                "a generated member can't be renamed; rename the declaration it comes from"
-                    .to_owned(),
-            ));
-        }
+    if let Some(Resolved::Member(m)) = view.resolve(resolution)
+        && view.member(m).range.is_none()
+    {
+        return Ok(Err(
+            "a generated member can't be renamed; rename the declaration it comes from".to_owned(),
+        ));
     }
     let Some(definition) = analysis.definition(resolution)? else {
         return Ok(Err(
@@ -192,20 +191,20 @@ pub fn rename(
         if info.named_kind() == Some(DeclarationKind::Page) {
             page_cases(analysis, &old_name, new_name, &mut edits)?;
         }
-        if info.is_public {
-            if let Some(FileOrigin::Project(path)) = analysis.origin(info.file) {
-                let file_name = path.file_name();
-                if file_name.strip_suffix(".k") == Some(old_name.as_str()) {
-                    out.file_renames.push((info.file, format!("{new_name}.k")));
-                }
+        if info.is_public
+            && let Some(FileOrigin::Project(path)) = analysis.origin(info.file)
+        {
+            let file_name = path.file_name();
+            if file_name.strip_suffix(".k") == Some(old_name.as_str()) {
+                out.file_renames.push((info.file, format!("{new_name}.k")));
             }
         }
     }
-    if let Resolution::Parameter { definition, .. } = &symbol.resolution {
-        if implicit_label(analysis, *definition) {
-            edits.remove(&(*definition, new_name.to_owned()));
-            edits.insert((*definition, format!("{old_name} {new_name}")));
-        }
+    if let Resolution::Parameter { definition, .. } = &symbol.resolution
+        && implicit_label(analysis, *definition)
+    {
+        edits.remove(&(*definition, new_name.to_owned()));
+        edits.insert((*definition, format!("{old_name} {new_name}")));
     }
     out.edits = edits.into_iter().collect();
     Ok(Ok(out))

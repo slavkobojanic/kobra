@@ -315,10 +315,10 @@ impl Workspace {
                 if out.iter().any(|(j, _)| *j == i) || p.workspace_root() != Some(&ws_root) {
                     continue;
                 }
-                if let Some(view) = p.view_path(path) {
-                    if view.dependency().is_some() {
-                        out.push((i, view));
-                    }
+                if let Some(view) = p.view_path(path)
+                    && view.dependency().is_some()
+                {
+                    out.push((i, view));
                 }
             }
         }

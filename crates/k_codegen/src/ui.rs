@@ -441,18 +441,17 @@ pub(crate) fn component(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             let view_fn = c.render_fn(&view_nodes, Vec::new(), Vec::new());
             let loading_fn = c.render_fn(&loading_nodes, Vec::new(), Vec::new());
             let mut failed_prefix = Vec::new();
-            if let Some(f) = &failed {
-                if let Some(t) = f
+            if let Some(f) = &failed
+                && let Some(t) = f
                     .descendants_with_tokens()
                     .filter_map(rowan::NodeOrToken::into_token)
                     .find(|t| t.kind() == k_syntax::SyntaxKind::Ident)
-                {
-                    let js_name = c.b.bind(&t);
-                    failed_prefix.push(Stmt::Const(
-                        js_name,
-                        call(member(id("$loads"), "error"), vec![]),
-                    ));
-                }
+            {
+                let js_name = c.b.bind(&t);
+                failed_prefix.push(Stmt::Const(
+                    js_name,
+                    call(member(id("$loads"), "error"), vec![]),
+                ));
             }
             let failed_fn = c.render_fn(&failed_nodes, Vec::new(), failed_prefix);
             let m = c.b.fresh("m");

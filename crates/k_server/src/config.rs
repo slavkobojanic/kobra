@@ -304,10 +304,10 @@ pub fn parse_dotenv(text: &str) -> BTreeMap<String, String> {
 
 impl Environment for DevEnvironment {
     fn var(&self, name: &str) -> Option<String> {
-        if self.with_process {
-            if let Ok(v) = std::env::var(name) {
-                return Some(v);
-            }
+        if self.with_process
+            && let Ok(v) = std::env::var(name)
+        {
+            return Some(v);
         }
         self.dotenv.get(name).cloned()
     }

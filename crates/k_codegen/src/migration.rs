@@ -558,16 +558,16 @@ pub(crate) fn diff(g: &Gen<'_>, lock: &mut SchemaLock) -> (Changes, Vec<Differen
         }
         // One field removed and one added with the same type reads as a
         // rename, which `k migrate rename` records without a migration.
-        if let ([(old, old_ty)], [(new, new_ty)]) = (removed.as_slice(), added.as_slice()) {
-            if old_ty == new_ty {
-                let hint = format!("k migrate rename {qualified}.{old} {new}");
-                for d in differences.iter_mut().filter(|d| {
-                    d.decl == Some(e.decl)
-                        && (d.field.as_deref() == Some(new.as_str())
-                            || (d.field.is_none() && d.message.contains(&format!(".{old}`"))))
-                }) {
-                    d.rename = Some(hint.clone());
-                }
+        if let ([(old, old_ty)], [(new, new_ty)]) = (removed.as_slice(), added.as_slice())
+            && old_ty == new_ty
+        {
+            let hint = format!("k migrate rename {qualified}.{old} {new}");
+            for d in differences.iter_mut().filter(|d| {
+                d.decl == Some(e.decl)
+                    && (d.field.as_deref() == Some(new.as_str())
+                        || (d.field.is_none() && d.message.contains(&format!(".{old}`"))))
+            }) {
+                d.rename = Some(hint.clone());
             }
         }
     }

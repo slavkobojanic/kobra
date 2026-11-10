@@ -122,12 +122,11 @@ fn fixes() -> BTreeMap<String, String> {
 fn diag_codes(text: &str) -> BTreeSet<String> {
     let mut codes = BTreeSet::new();
     for line in text.lines() {
-        if let Some(open) = line.find("[K") {
-            if let Some(code) = line.get(open + 1..open + 6) {
-                if line.get(open + 6..open + 7) == Some("]") {
-                    codes.insert(code.to_owned());
-                }
-            }
+        if let Some(open) = line.find("[K")
+            && let Some(code) = line.get(open + 1..open + 6)
+            && line.get(open + 6..open + 7) == Some("]")
+        {
+            codes.insert(code.to_owned());
         }
     }
     codes
@@ -496,21 +495,19 @@ fn parse_stdlib_file(text: &str) -> Vec<Item> {
             }
         } else if before == 1 && current_public && !line.starts_with('}') {
             let is_private = line.starts_with("private ");
-            if !is_private {
-                if let Some(parent) = items.last_mut() {
-                    let sig = signature_of(line);
-                    let mut signature = annotations.join("\n");
-                    if !signature.is_empty() {
-                        signature.push('\n');
-                    }
-                    signature.push_str(&sig);
-                    parent.members.push(Item {
-                        name: declared_name(&sig),
-                        signature,
-                        doc: doc.join("\n"),
-                        members: Vec::new(),
-                    });
+            if !is_private && let Some(parent) = items.last_mut() {
+                let sig = signature_of(line);
+                let mut signature = annotations.join("\n");
+                if !signature.is_empty() {
+                    signature.push('\n');
                 }
+                signature.push_str(&sig);
+                parent.members.push(Item {
+                    name: declared_name(&sig),
+                    signature,
+                    doc: doc.join("\n"),
+                    members: Vec::new(),
+                });
             }
         }
         depth += opens - closes;

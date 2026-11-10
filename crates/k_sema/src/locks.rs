@@ -1162,13 +1162,13 @@ fn collections(cx: &Cx<'_, '_>, recorded: &StorageLock) {
             .as_ref()
             .and_then(|f| f.as_ref().ok())
             .map(|f| f.0.clone());
-        if let Some(key) = &key {
-            if *key != c.key {
-                always.push(format!(
+        if let Some(key) = &key
+            && *key != c.key
+        {
+            always.push(format!(
                     "the key field changed from `{}` to `{key}`: stored values keep the key they were written with",
                     c.key
                 ));
-            }
         }
         let mut changes = Vec::new();
         if by_name.is_none() {

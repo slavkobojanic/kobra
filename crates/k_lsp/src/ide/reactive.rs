@@ -56,10 +56,8 @@ pub fn dependencies(
     let Some(node) = node_at(&root, range) else {
         return Ok(None);
     };
-    if is_effect {
-        if let Some(explicit) = explicit_dependencies(&node) {
-            return Ok(Some(Dependencies::Explicit(explicit)));
-        }
+    if is_effect && let Some(explicit) = explicit_dependencies(&node) {
+        return Ok(Some(Dependencies::Explicit(explicit)));
     }
     let mut out: Vec<String> = Vec::new();
     for (r, resolution) in analysis.file_references(file)? {

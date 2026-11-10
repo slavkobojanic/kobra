@@ -756,38 +756,38 @@ fn mutate(
     is_list: bool,
     op: impl Fn(Expr) -> Expr,
 ) -> Expr {
-    if let ast::Expr::NameExpr(n) = place {
-        if let Some(tok) = n.name() {
-            if let Some(k_sema::Resolution::Local { name, definition }) =
-                b.g.resolution(b.file, tok.text_range())
-            {
-                let js = b.local_js(&name, definition.range);
-                if !b.is_owned(&js) {
-                    let copy = if is_list {
-                        call(member(id(&js), "slice"), vec![])
-                    } else {
-                        rt("copy", vec![id(&js)])
-                    };
-                    b.stmts.push(Stmt::Expr(js::assign(id(&js), copy)));
-                    b.set_owned(&js);
-                }
-                return op(id(&js));
+    if let ast::Expr::NameExpr(n) = place
+        && let Some(tok) = n.name()
+    {
+        if let Some(k_sema::Resolution::Local { name, definition }) =
+            b.g.resolution(b.file, tok.text_range())
+        {
+            let js = b.local_js(&name, definition.range);
+            if !b.is_owned(&js) {
+                let copy = if is_list {
+                    call(member(id(&js), "slice"), vec![])
+                } else {
+                    rt("copy", vec![id(&js)])
+                };
+                b.stmts.push(Stmt::Expr(js::assign(id(&js), copy)));
+                b.set_owned(&js);
             }
-            if let Some(Resolved::Member(mid)) = b.g.resolved(b.file, tok.text_range()) {
-                if let Some(MemberAccess::Signal(s)) = b.access.get(&mid).cloned() {
-                    if b.ssr {
-                        return Expr::Undefined;
-                    }
-                    let t = b.fresh("c");
-                    b.stmts
-                        .push(Stmt::Const(t.clone(), rt("copy", vec![current])));
-                    let r = b.fresh("r");
-                    b.stmts.push(Stmt::Const(r.clone(), op(id(&t))));
-                    b.stmts
-                        .push(Stmt::Expr(call(member(id(s), "set"), vec![id(&t)])));
-                    return id(r);
-                }
+            return op(id(&js));
+        }
+        if let Some(Resolved::Member(mid)) = b.g.resolved(b.file, tok.text_range())
+            && let Some(MemberAccess::Signal(s)) = b.access.get(&mid).cloned()
+        {
+            if b.ssr {
+                return Expr::Undefined;
             }
+            let t = b.fresh("c");
+            b.stmts
+                .push(Stmt::Const(t.clone(), rt("copy", vec![current])));
+            let r = b.fresh("r");
+            b.stmts.push(Stmt::Const(r.clone(), op(id(&t))));
+            b.stmts
+                .push(Stmt::Expr(call(member(id(s), "set"), vec![id(&t)])));
+            return id(r);
         }
     }
     let t = b.fresh("c");

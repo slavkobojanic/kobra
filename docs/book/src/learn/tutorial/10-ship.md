@@ -168,16 +168,17 @@ no Node.js and no source code. `dist/app config` lists every variable it reads:
 
 ```console
 $ dist/app config
-DATABASE_PASSWORD  Secret<String>?  optional  secret
-DATABASE_URL       Url              required
-K_PUBLIC_ORIGIN    Url              optional
-K_SESSION_IDLE     Duration         optional  default "7d"
-K_SESSION_MAX_AGE  Duration         optional  default "30d"
-K_SHUTDOWN_GRACE   Duration         optional  default "25s"
-K_TRUSTED_PROXIES  List<String>     optional  default ""
-K_WORKER_HEAP_MB   Int              optional  default "256"
-PORT               Int              optional  default "8080"
-SHELF_SIGN_UPS     Bool             optional  default "true"
+DATABASE_PASSWORD     Secret<String>?  optional  secret
+DATABASE_URL          Url              required
+K_PUBLIC_ORIGIN       Url              optional
+K_PUBLIC_SOURCE_MAPS  Bool             optional  default "false"
+K_SESSION_IDLE        Duration         optional  default "7d"
+K_SESSION_MAX_AGE     Duration         optional  default "30d"
+K_SHUTDOWN_GRACE      Duration         optional  default "25s"
+K_TRUSTED_PROXIES     List<String>     optional  default ""
+K_WORKER_HEAP_MB      Int              optional  default "256"
+PORT                  Int              optional  default "8080"
+SHELF_SIGN_UPS        Bool             optional  default "true"
 ```
 
 Most come from K's own configs: `DATABASE_URL` from the database's, `K_SESSION_IDLE` from the sessions'.

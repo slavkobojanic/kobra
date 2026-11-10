@@ -460,11 +460,11 @@ fn generate(program: &mut Program<'_>) {
     }
     for (name, range, decl, is_endpoint) in pages {
         let owner = if is_endpoint { endpoint } else { page };
-        if let Some(owner) = owner {
-            if !program.decl(owner).member_names.contains_key(&name) {
-                let m = program.add_generated(owner, &name, MemberKind::Case, range);
-                program.page_of.insert(m, decl);
-            }
+        if let Some(owner) = owner
+            && !program.decl(owner).member_names.contains_key(&name)
+        {
+            let m = program.add_generated(owner, &name, MemberKind::Case, range);
+            program.page_of.insert(m, decl);
         }
     }
     if let Some(variant) = variant {
@@ -558,17 +558,17 @@ fn project_checks(cx: &Cx<'_, '_>) {
         if file.stdlib {
             continue;
         }
-        if let Some(path) = file.path {
-            if path.kind() == crate::project::FileKind::Stray {
-                cx.report(
-                    fix,
-                    Diagnostic::new(
-                        codes::STRAY_SOURCE_FILE,
-                        Span::empty(file.id, TextSize::from(0)),
-                        "this `.k` file is outside the project layout",
-                    ),
-                );
-            }
+        if let Some(path) = file.path
+            && path.kind() == crate::project::FileKind::Stray
+        {
+            cx.report(
+                fix,
+                Diagnostic::new(
+                    codes::STRAY_SOURCE_FILE,
+                    Span::empty(file.id, TextSize::from(0)),
+                    "this `.k` file is outside the project layout",
+                ),
+            );
         }
         file_rule(cx, fix);
         misplaced(cx, fix);
@@ -627,26 +627,26 @@ fn project_checks(cx: &Cx<'_, '_>) {
             }
             continue;
         }
-        if decl.visibility == Visibility::Private {
-            if let Some(tok) = visibility_token(&decl.node) {
-                let end = next_non_space(p.file(decl.file).text, tok.text_range().end());
-                cx.report(
-                    decl.file,
-                    Diagnostic::new(
-                        codes::PRIVATE_EXTEND,
-                        p.span(decl.file, tok.text_range()),
-                        "an extension can't be `private`",
+        if decl.visibility == Visibility::Private
+            && let Some(tok) = visibility_token(&decl.node)
+        {
+            let end = next_non_space(p.file(decl.file).text, tok.text_range().end());
+            cx.report(
+                decl.file,
+                Diagnostic::new(
+                    codes::PRIVATE_EXTEND,
+                    p.span(decl.file, tok.text_range()),
+                    "an extension can't be `private`",
+                )
+                .with_fix(
+                    Fix::replace(
+                        "Remove `private`",
+                        p.span(decl.file, TextRange::new(tok.text_range().start(), end)),
+                        "",
                     )
-                    .with_fix(
-                        Fix::replace(
-                            "Remove `private`",
-                            p.span(decl.file, TextRange::new(tok.text_range().start(), end)),
-                            "",
-                        )
-                        .maybe_incorrect(),
-                    ),
-                );
-            }
+                    .maybe_incorrect(),
+                ),
+            );
         }
         for &m in &decl.members {
             let member = p.member(m);

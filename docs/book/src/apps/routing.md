@@ -155,8 +155,8 @@ Router.navigate(to: .product(id: product.id).tab(.reviews))
 ## Absolute URLs: `PublicUrls`
 
 Code that hands a URL to another system, such as a payment provider's return URL or a link in an email,
-needs it absolute. **`PublicUrls`** is a server-only standard-library service in `k.server` that builds
-absolute URLs from the app's public origin (`K_PUBLIC_ORIGIN`, see [Deployment](deployment.md)):
+needs it absolute. **`PublicUrls`** is a standard-library service in `k.server` that builds absolute
+URLs from the app's public origin (`K_PUBLIC_ORIGIN`, see [Deployment](deployment.md)):
 
 ```k
 ~import k.rpc.RpcOnlyError
@@ -177,6 +177,26 @@ service StoreApi implements StoreProtocol {
 
 `absolute(_ page: Page) -> Url` and `absolute(endpoint: Endpoint) -> Url` take typed pages, so you
 still never write a URL by hand.
+
+`absolute(_ page:)` also works in the browser, against the page's origin, which is the public origin.
+A component can inject `PublicUrls` to show or copy a link to a page:
+
+```k
+~import k.server.PublicUrls
+~page Product at "/product/{id}" {
+~    @Param let id: Int
+~    view { text { "{id}" } }
+~}
+component ShareLink {
+    @Inject let urls: PublicUrls
+
+    view {
+        text { "{urls.absolute(.product(id: 7))}" }   // https://shop.example/product/7
+    }
+}
+```
+
+Endpoint URLs stay on the server, like endpoint pages: build them in a server-only service.
 
 ## Layouts
 

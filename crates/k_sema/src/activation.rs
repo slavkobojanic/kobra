@@ -758,11 +758,11 @@ fn infer(contexts: &[Context], facts: &mut Facts) {
             let Kind::Function(f) = c.kind else { continue };
             let mut out = Outcome::default();
             let end = facts.eval(&c.body, State::default(), &mut out);
-            if let Some(&(callee, range)) = out.early.first() {
-                if let std::collections::hash_map::Entry::Vacant(e) = facts.ua.entry(f) {
-                    e.insert(Some((callee, range, c.file)));
-                    changed = true;
-                }
+            if let Some(&(callee, range)) = out.early.first()
+                && let std::collections::hash_map::Entry::Vacant(e) = facts.ua.entry(f)
+            {
+                e.insert(Some((callee, range, c.file)));
+                changed = true;
             }
             if end.consumed.is_some() && facts.consuming.insert(f) {
                 changed = true;

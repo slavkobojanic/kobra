@@ -22,6 +22,9 @@ page TenantHook at "/hooks/{tenant}" {
     }
 }
 
+// `PublicUrls` works in the browser too, but endpoint URLs don't: the
+// service that builds them is server-only.
+@ServerOnly
 service Checkout {
     @Inject let urls: PublicUrls
 

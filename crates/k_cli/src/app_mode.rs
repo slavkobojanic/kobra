@@ -180,6 +180,7 @@ fn serve(payload: AppPayload) -> ExitCode {
     let mut options = ServerOptions::new(std::net::SocketAddr::from(([0, 0, 0, 0], port)), bundle);
     options.public_origin = origin;
     options.shutdown_grace = grace;
+    let public_maps = public_source_maps(&values);
     options.config = values;
     options.forgery_exempt = payload.forgery_exempt;
     // The database opens and migrates before any worker starts or the port
@@ -188,11 +189,11 @@ fn serve(payload: AppPayload) -> ExitCode {
     // The jobs worker runs next to the listener (30-background-jobs.md).
     options.jobs = payload.jobs;
     // Source maps ship in `dist/public` but `dist/app` serves them only
-    // when `K_PUBLIC_SOURCE_MAPS=true`: they reveal the code's structure
-    // and the `.k` file names (13-tooling.md, "Source maps in
-    // production"). The server's own maps are inline in its modules and
-    // always map its logged stack traces.
-    let public_maps = public_source_maps(std::env::var("K_PUBLIC_SOURCE_MAPS").ok().as_deref());
+    // with `ServerConfig.publicSourceMaps` (`K_PUBLIC_SOURCE_MAPS=true`,
+    // read above): they reveal the code's structure and the `.k` file
+    // names (13-tooling.md, "Source maps in production"). The server's own
+    // maps are inline in its modules and always map its logged stack
+    // traces.
     options.assets = payload
         .assets
         .into_iter()
@@ -384,14 +385,18 @@ fn jobs_retry(payload: AppPayload, id: &str) -> ExitCode {
     }
 }
 
-/// Whether `K_PUBLIC_SOURCE_MAPS` (its value, if set) asks `dist/app` to
-/// serve the client's source maps: `true`, `1` or `yes`.
-pub fn public_source_maps(value: Option<&str>) -> bool {
+/// Whether the checked configuration asks `dist/app` to serve the
+/// client's source maps: `ServerConfig.publicSourceMaps`
+/// (`K_PUBLIC_SOURCE_MAPS`, a `Bool`, `false` unless set to `true`).
+pub fn public_source_maps(values: &std::collections::BTreeMap<String, ConfigValue>) -> bool {
     matches!(
-        value.map(|v| v.trim().to_ascii_lowercase()).as_deref(),
-        Some("true" | "1" | "yes")
+        values.get(PUBLIC_SOURCE_MAPS_ENV),
+        Some(ConfigValue::Bool(true))
     )
 }
+
+/// The variable of `ServerConfig.publicSourceMaps`.
+pub const PUBLIC_SOURCE_MAPS_ENV: &str = "K_PUBLIC_SOURCE_MAPS";
 
 /// `true` for a content-hashed asset name (`app.3f2a1b9c.js`).
 pub fn is_hashed(path: &str) -> bool {
@@ -400,4 +405,24 @@ pub fn is_hashed(path: &str) -> bool {
         .unwrap_or(path)
         .split('.')
         .any(|p| p.len() == 8 && p.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn source_maps_are_served_only_when_server_config_says_so() {
+        let with = |v: Option<ConfigValue>| {
+            let mut values = BTreeMap::new();
+            if let Some(v) = v {
+                values.insert(PUBLIC_SOURCE_MAPS_ENV.to_owned(), v);
+            }
+            public_source_maps(&values)
+        };
+        assert!(!with(None));
+        assert!(!with(Some(ConfigValue::Bool(false))));
+        assert!(with(Some(ConfigValue::Bool(true))));
+    }
 }

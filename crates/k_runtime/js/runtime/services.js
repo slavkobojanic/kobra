@@ -74,15 +74,26 @@ export function clock(data) {
   };
 }
 
-/** The `k_theme` cookie's variant, or `null`. */
+/**
+ * The theme cookie's name, scoped to the app as the session cookie is
+ * (07-themes-and-units.md): `__Host-k_theme` on `https`, `k_theme_<port>`
+ * on another origin with a port, else `k_theme`.
+ */
+function themeName() {
+  const l = globalThis.location;
+  return l?.protocol == "https:" ? "__Host-k_theme" : "k_theme" + (l?.port ? "_" + l.port : "");
+}
+
+/** The theme cookie's variant, or `null`. */
 function themeCookie() {
-  const m = new RegExp("(?:^|; )k_theme=([^;]*)").exec(globalThis.document?.cookie ?? "");
+  const m = new RegExp("(?:^|; )" + themeName() + "=([^;]*)").exec(globalThis.document?.cookie ?? "");
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-/** Sets the theme cookie (`max-age=0` forgets it). */
+/** Sets the theme cookie (`max-age=0` forgets it); `__Host-` needs `secure`. */
 function setThemeCookie(value, age) {
-  document.cookie = `k_theme=${encodeURIComponent(value)}; path=/; max-age=${age}; samesite=lax`;
+  const n = themeName();
+  document.cookie = `${n}=${encodeURIComponent(value)}; path=/; max-age=${age}; samesite=lax${n[0] == "_" ? "; secure" : ""}`;
 }
 
 /**

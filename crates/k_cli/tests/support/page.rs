@@ -119,6 +119,9 @@ pub struct Tab {
     port: u16,
     /// Console errors already reported by [`Tab::allow_errors`].
     allowed: usize,
+    /// Errors expected in a window ([`Tab::allow_errors_containing`]):
+    /// from the error count `.0` on, those whose text contains `.1`.
+    excused: Vec<(usize, &'static str)>,
     /// Why the last query found nothing (a DevTools error or a command
     /// that took too long), for a wait's timeout message.
     last_miss: Option<String>,
@@ -217,6 +220,7 @@ impl Tab {
             _chrome: chrome,
             port,
             allowed: 0,
+            excused: Vec::new(),
             last_miss: None,
         }
     }
@@ -937,6 +941,14 @@ impl Tab {
         self.allowed = self.errors().len();
     }
 
+    /// Accepts the errors containing `text` from error number `since` on
+    /// ([`Tab::errors`]`().len()` when the window opened), and no others:
+    /// an error a test provokes on purpose for a while, which may still be
+    /// reported after the window closed.
+    pub fn allow_errors_containing(&mut self, since: usize, text: &'static str) {
+        self.excused.push((since, text));
+    }
+
     /// Accepts every error from now on (a test that stops the page's
     /// server: each of the page's retries logs one, for as long as the tab
     /// lives).
@@ -952,7 +964,15 @@ impl Drop for Tab {
         }
         // Let the last events arrive.
         std::thread::sleep(Duration::from_millis(150));
-        let errors: Vec<String> = self.errors().into_iter().skip(self.allowed).collect();
+        let excused = std::mem::take(&mut self.excused);
+        let errors: Vec<String> = self
+            .errors()
+            .into_iter()
+            .enumerate()
+            .skip(self.allowed)
+            .filter(|(i, e)| !excused.iter().any(|(since, t)| i >= since && e.contains(t)))
+            .map(|(_, e)| e)
+            .collect();
         let unanswered = self.cdp.unanswered();
         assert!(
             errors.is_empty(),

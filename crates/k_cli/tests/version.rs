@@ -44,15 +44,13 @@ fn version() -> String {
         let line = line.trim();
         if line.starts_with('[') {
             in_package = line == "[workspace.package]";
-        } else if in_package {
-            if let Some(value) = line.strip_prefix("version") {
-                return value
-                    .trim_start()
-                    .trim_start_matches('=')
-                    .trim()
-                    .trim_matches('"')
-                    .to_owned();
-            }
+        } else if in_package && let Some(value) = line.strip_prefix("version") {
+            return value
+                .trim_start()
+                .trim_start_matches('=')
+                .trim()
+                .trim_matches('"')
+                .to_owned();
         }
     }
     panic!("no `[workspace.package] version` in Cargo.toml");
@@ -251,23 +249,22 @@ fn the_book_names_the_current_version() {
             }
             let at = format!("{}:{}", shown(path), index + 1);
             // `k = "0.1"` in a manifest sample.
-            if lang.as_deref() == Some("toml") {
-                if let Some(value) = trimmed
+            if lang.as_deref() == Some("toml")
+                && let Some(value) = trimmed
                     .strip_prefix(tool.as_str())
                     .and_then(|r| r.trim_start().strip_prefix('='))
-                {
-                    let value = value
-                        .split('#')
-                        .next()
-                        .unwrap_or("")
-                        .trim()
-                        .trim_matches('"');
-                    if value != minor() && value != "{{k_version}}" {
-                        problems.push(format!(
-                            "{at}: `{tool} = \"{value}\"`, expected \"{}\" or \"{{{{k_version}}}}\"",
-                            minor()
-                        ));
-                    }
+            {
+                let value = value
+                    .split('#')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .trim_matches('"');
+                if value != minor() && value != "{{k_version}}" {
+                    problems.push(format!(
+                        "{at}: `{tool} = \"{value}\"`, expected \"{}\" or \"{{{{k_version}}}}\"",
+                        minor()
+                    ));
                 }
             }
             // `k 0.1.0`, as `k --version` prints it.

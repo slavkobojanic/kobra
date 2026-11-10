@@ -692,10 +692,10 @@ fn bound_services(b: &mut Body<'_, '_>, provided: &BTreeSet<String>) -> Vec<Func
             };
             let mut args = vec![href];
             // With endpoint pages, their absolute URLs too.
-            if !crate::app::endpoints(g).is_empty() {
-                if let Some(e) = g.view.lookup("k.core.Endpoint") {
-                    args.push(b.use_decl(e, "Endpoint$href".into()));
-                }
+            if !crate::app::endpoints(g).is_empty()
+                && let Some(e) = g.view.lookup("k.core.Endpoint")
+            {
+                args.push(b.use_decl(e, "Endpoint$href".into()));
             }
             memo(&name, srt("publicUrls", args))
         } else if g.view.decl(t).named_kind() == Some(DeclarationKind::Interface)
@@ -2589,10 +2589,10 @@ fn stdlib_configs(g: &Gen<'_>) -> Vec<&'static str> {
     }) {
         out.push("k/db/DatabaseConfig.k");
     }
-    if let Some(job) = g.view.lookup("k.server.Job") {
-        if g.own.iter().any(|&d| g.implements(d, job)) {
-            out.push("k/server/JobConfig.k");
-        }
+    if let Some(job) = g.view.lookup("k.server.Job")
+        && g.own.iter().any(|&d| g.implements(d, job))
+    {
+        out.push("k/server/JobConfig.k");
     }
     // `SmtpConfig` only when the reachable graph sends email through the
     // stdlib's SMTP provider (31-email.md, "SMTP configuration").

@@ -499,10 +499,10 @@ impl Replay {
     pub fn current_table(&self, name: &str) -> Option<String> {
         let mut current = name.to_owned();
         for r in &self.renames {
-            if let Rename::Table { from, to } = r {
-                if *from == current {
-                    current.clone_from(to);
-                }
+            if let Rename::Table { from, to } = r
+                && *from == current
+            {
+                current.clone_from(to);
             }
         }
         self.tables.contains_key(&current).then_some(current)
@@ -623,13 +623,14 @@ impl Replay {
         if columns.iter().any(|x| x.name == c.name) {
             return Err(format!("table `{table}` already has a column `{}`", c.name));
         }
-        if let Some(r) = &c.references {
-            if r != table && !self.tables.contains_key(r) {
-                return Err(format!(
-                    "`{}` references `{r}`, which doesn't exist",
-                    c.name
-                ));
-            }
+        if let Some(r) = &c.references
+            && r != table
+            && !self.tables.contains_key(r)
+        {
+            return Err(format!(
+                "`{}` references `{r}`, which doesn't exist",
+                c.name
+            ));
         }
         if let Some(d) = &c.default {
             literal(d, &c.ty, Dialect::Sqlite)?;
@@ -1254,11 +1255,11 @@ impl Replay {
         let mut new_default = None;
         for c in next.iter_mut().filter(|c| c.name == column) {
             c.ty = ColumnType::Enumeration(cases.clone());
-            if let (Some((from, to)), Some(Literal::Text(d))) = (default, &c.default) {
-                if d == from {
-                    c.default = Some(Literal::Text(to.clone()));
-                    new_default = Some(to.clone());
-                }
+            if let (Some((from, to)), Some(Literal::Text(d))) = (default, &c.default)
+                && d == from
+            {
+                c.default = Some(Literal::Text(to.clone()));
+                new_default = Some(to.clone());
             }
         }
         out.postgres.push(drop_check_postgres(table, column));
