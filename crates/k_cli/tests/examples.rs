@@ -694,6 +694,20 @@ fn huddle_replicas_share_messages_and_presence_over_postgres() {
         presence("joined", "ana"),
     );
 
+    // Bob's lobby, on replica A: he is a member of #general (his channel
+    // on B joined it), with nothing unread.
+    let mut lobby_on_a = channels_socket(a.port, origin, &bob);
+    let lobby = serde_json::json!({"open": {"ch": 1, "method": "/huddle.chat.LobbyProtocol/Lobby", "request": {}}});
+    lobby_on_a
+        .send(Message::text(lobby.to_string()))
+        .expect("sends");
+    let rooms = frame_until(&mut lobby_on_a, "bob's lobby", is_msg("snapshot"));
+    assert_eq!(
+        rooms["msg"]["value"]["rooms"][0],
+        serde_json::json!({"name": "general", "locked": false, "lastRead": 0, "unread": 0}),
+        "{rooms}"
+    );
+
     let post = serde_json::json!({"msg": {"ch": 1, "seq": 1, "value": {"case": "post", "text": "across", "clientId": "6f1c2a2e-0000-4000-8000-000000000001"}}});
     on_a.send(Message::text(post.to_string())).expect("sends");
     let posted = frame_until(
@@ -712,6 +726,33 @@ fn huddle_replicas_share_messages_and_presence_over_postgres() {
     frame_until(&mut on_a, "the acknowledgement on A", |v| {
         v == &serde_json::json!({"ack": {"ch": 1, "seq": 1}})
     });
+
+    // The lobby counts Ana's message; Bob reads it through B, and his lobby
+    // on A takes the server's count, 0, from the other replica.
+    let counted = frame_until(
+        &mut lobby_on_a,
+        "the post reaches bob's lobby",
+        is_msg("posted"),
+    );
+    assert_eq!(
+        counted["msg"]["value"],
+        serde_json::json!({"case": "posted", "room": "general", "number": 1, "author": "ana"}),
+        "{counted}"
+    );
+    let read =
+        serde_json::json!({"msg": {"ch": 1, "seq": 1, "value": {"case": "read", "upTo": 1}}});
+    on_b.send(Message::text(read.to_string())).expect("sends");
+    let seen = frame_until(
+        &mut lobby_on_a,
+        "bob's reading on B reaches his lobby on A",
+        is_msg("read"),
+    );
+    assert_eq!(
+        seen["msg"]["value"],
+        serde_json::json!({"case": "read", "room": "general", "upTo": 1, "unread": 0}),
+        "{seen}"
+    );
+    let _ = lobby_on_a.close(None);
 
     let typing = serde_json::json!({"msg": {"ch": 1, "seq": 2, "value": "typing"}});
     on_a.send(Message::text(typing.to_string())).expect("sends");

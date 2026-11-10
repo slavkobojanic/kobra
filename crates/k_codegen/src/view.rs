@@ -2140,29 +2140,39 @@ impl Client<'_, '_, '_> {
             .take_while(|c| c.kind() != SyntaxKind::Block)
             .filter(|c| c.kind() == SyntaxKind::LetCondition || ast::Expr::can_cast(c.kind()))
             .collect();
-        let mut test: Option<Expr> = None;
-        for c in &conds {
-            let x = if c.kind() == SyntaxKind::LetCondition {
-                let name = token(c, SyntaxKind::Ident);
-                let value = c.children().find_map(ast::Expr::cast);
-                let v = match (&value, &name) {
-                    (Some(v), _) => self.b.expr(v),
-                    // `if let footer` over a slot or a member.
-                    (None, Some(n)) => self.shorthand(n),
-                    (None, None) => continue,
+        // A condition after a named `let` (`if let n = count, n > 0`) reads
+        // the unwrapped value, so the test is a block that binds it first.
+        let reads_binding = conds
+            .iter()
+            .position(|c| c.kind() == SyntaxKind::LetCondition)
+            .is_some_and(|first| first + 1 < conds.len());
+        let cond = if reads_binding {
+            self.binding_test(&conds)
+        } else {
+            let mut test: Option<Expr> = None;
+            for c in &conds {
+                let x = if c.kind() == SyntaxKind::LetCondition {
+                    let name = token(c, SyntaxKind::Ident);
+                    let value = c.children().find_map(ast::Expr::cast);
+                    let v = match (&value, &name) {
+                        (Some(v), _) => self.b.expr(v),
+                        // `if let footer` over a slot or a member.
+                        (None, Some(n)) => self.shorthand(n),
+                        (None, None) => continue,
+                    };
+                    bin("!==", v, Expr::Null)
+                } else if let Some(e) = ast::Expr::cast(c.clone()) {
+                    self.b.expr(&e)
+                } else {
+                    continue;
                 };
-                bin("!==", v, Expr::Null)
-            } else if let Some(e) = ast::Expr::cast(c.clone()) {
-                self.b.expr(&e)
-            } else {
-                continue;
-            };
-            test = Some(match test {
-                Some(a) => bin("&&", a, x),
-                None => x,
-            });
-        }
-        let cond = js::arrow(vec![], test.unwrap_or(Expr::Bool(true)));
+                test = Some(match test {
+                    Some(a) => bin("&&", a, x),
+                    None => x,
+                });
+            }
+            js::arrow(vec![], test.unwrap_or(Expr::Bool(true)))
+        };
         // Bindings of `if let`: the branch renders again only when a value
         // turns nil, so each binding is read through a getter, `x$()`, as a
         // `for` row reads its item: its uses follow the value while the
@@ -2226,6 +2236,44 @@ impl Client<'_, '_, '_> {
             })
         };
         (cond, then, otherwise)
+    }
+
+    /// The test of an `if` block whose later conditions read an earlier
+    /// `let`'s binding: a function scope that declares each binding, returns
+    /// `false` at the first nil or false condition, and `true` after the
+    /// last.
+    fn binding_test(&mut self, conds: &[SyntaxNode]) -> Expr {
+        self.b.push_fn_scope();
+        let mut body = Vec::new();
+        let fail = || vec![Stmt::Return(Some(Expr::Bool(false)))];
+        for c in conds {
+            if c.kind() == SyntaxKind::LetCondition {
+                let name = token(c, SyntaxKind::Ident);
+                let value = c.children().find_map(ast::Expr::cast);
+                let (stmts, v) = match (&value, &name) {
+                    (Some(v), _) => self.b.capture(|b| b.expr(v)),
+                    (None, Some(n)) => (Vec::new(), self.shorthand(n)),
+                    (None, None) => continue,
+                };
+                body.extend(stmts);
+                let v = match &name {
+                    Some(n) => {
+                        let js_name = self.b.bind(n);
+                        body.push(Stmt::Const(js_name.clone(), v));
+                        id(js_name)
+                    }
+                    None => v,
+                };
+                body.push(Stmt::If(bin("===", v, Expr::Null), fail(), None));
+            } else if let Some(e) = ast::Expr::cast(c.clone()) {
+                let (stmts, x) = self.b.capture(|b| b.expr(&e));
+                body.extend(stmts);
+                body.push(Stmt::If(js::un("!", x), fail(), None));
+            }
+        }
+        body.push(Stmt::Return(Some(Expr::Bool(true))));
+        self.b.pop_fn_scope();
+        js::arrow_block(vec![], body, false)
     }
 
     /// `true` when a shorthand `if let x` names a `@Slot` of the owner.

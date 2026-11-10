@@ -1,5 +1,6 @@
-METHOD  URL                             PAGE                         PARAMS                    GUARDS
-GET     /                               Lobby                                                  Authenticated
-GET     /room/{name}                    Room                         name: String              Authenticated
-GET     /sign-in                        SignIn                       ?returnTo: Page = .lobby
-WS      /huddle.chat.ChatProtocol/Room  CHANNEL (ChatProtocol.room)  name: String              Authenticated
+METHOD  URL                               PAGE                           PARAMS                    GUARDS
+GET     /                                 Lobby                                                    Authenticated
+GET     /room/{name}                      Room                           name: String              Authenticated
+GET     /sign-in                          SignIn                         ?returnTo: Page = .lobby
+WS      /huddle.chat.ChatProtocol/Room    CHANNEL (ChatProtocol.room)    name: String              Authenticated
+WS      /huddle.chat.LobbyProtocol/Lobby  CHANNEL (LobbyProtocol.lobby)                            Authenticated

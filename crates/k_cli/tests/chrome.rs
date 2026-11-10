@@ -1832,6 +1832,115 @@ fn channels_resume_in_chrome_after_the_socket_drops() {
     drop(k);
 }
 
+// ================================================================== huddle
+
+/// The huddle example under `k dev` in a scratch copy (SQLite in `.k/`, no
+/// push key), and its origin.
+fn huddle(dir: &std::path::Path) -> (Proc, String) {
+    copy_example("huddle", dir);
+    let (k, port) = Proc::serve(
+        &["dev", "."],
+        1,
+        dir,
+        &[],
+        &["DATABASE_URL", "K_PUSH_PRIVATE_KEY"],
+        Duration::from_secs(120),
+    );
+    (k, format!("http://localhost:{port}"))
+}
+
+/// Signs `name` in on huddle's sign-in page and waits for the lobby's
+/// rooms, which arrive over its channel.
+fn huddle_sign_in(tab: &mut Tab, origin: &str, name: &str) {
+    tab.open(&format!("{origin}/sign-in"));
+    let field = tab.role("textbox", "Your name");
+    tab.fill(&field, name);
+    let join = tab.role("button", "Join");
+    tab.wait_handles_click(&join);
+    tab.click(&join);
+    tab.role("link", "#general");
+}
+
+/// Posts `text` from the room `tab` shows and waits for its echo.
+fn huddle_post(tab: &mut Tab, text: &str) {
+    let field = tab.role("textbox", "Message");
+    tab.fill(&field, text);
+    tab.press("Enter");
+    tab.role("button", &format!("Delete “{text}”"));
+}
+
+/// Two people in two browsers (two Chromes, so two sessions) on one `k
+/// dev`: Ana creates `#team` and moderates it; Bob joins it once and goes
+/// back to the lobby, where Ana's message shows as unread the moment she
+/// posts it, and the count goes once he has read it. Then Bob posts, Ana
+/// deletes his message as its room's moderator, and it vanishes from
+/// Bob's screen too (docs/design/44-channels.md, "Example app").
+#[test]
+fn huddle_counts_unread_live_and_a_moderator_deletes_for_everyone_in_chrome() {
+    let dir = Scratch::new("huddle-two");
+    for who in ["ana", "bob"] {
+        std::fs::create_dir_all(dir.0.join(who)).unwrap();
+    }
+    let Some(mut ana) = page::chrome(&dir.0.join("ana")) else {
+        return;
+    };
+    let Some(mut bob) = page::chrome(&dir.0.join("bob")) else {
+        return;
+    };
+    let (k, origin) = huddle(&dir.0.join("huddle"));
+
+    huddle_sign_in(&mut ana, &origin, "ana");
+    let name = ana.role("textbox", "Room name");
+    ana.fill(&name, "team");
+    let create = ana.role("button", "Create room");
+    ana.wait_handles_click(&create);
+    ana.click(&create);
+    ana.wait_text("(moderator)");
+    assert_eq!(ana.path(), "/room/team");
+
+    huddle_sign_in(&mut bob, &origin, "bob");
+    let team = bob.role("link", "#team");
+    bob.click(&team);
+    bob.role("textbox", "Message");
+    // Bob's arrival reaches Ana live: presence events decode in the
+    // browser (`PresenceChange`'s codec used to be missing from the
+    // client, so every one was skipped with a warning).
+    ana.role("button", "Remove bob");
+    let lobby = bob.role("link", "All rooms");
+    bob.click(&lobby);
+    bob.role("link", "#team");
+    assert!(!bob.visible_text().contains("unread"), "nothing unread yet");
+
+    huddle_post(&mut ana, "hello bob");
+    bob.wait_text("1 unread");
+
+    let team = bob.role("link", "#team");
+    bob.click(&team);
+    bob.wait_text("hello bob");
+    huddle_post(&mut bob, "oops");
+    let lobby = bob.role("link", "All rooms");
+    bob.click(&lobby);
+    bob.role("link", "#team");
+    assert!(
+        !bob.visible_text().contains("unread"),
+        "read, and his own message doesn't count: {}",
+        bob.visible_text()
+    );
+    let team = bob.role("link", "#team");
+    bob.click(&team);
+    bob.wait_text("oops");
+
+    ana.wait_text("oops");
+    let delete = ana.role("button", "Delete “oops”");
+    ana.click(&delete);
+    ana.wait_no_text("oops");
+    bob.wait_no_text("oops");
+    assert!(bob.visible_text().contains("hello bob"));
+    drop(bob);
+    drop(ana);
+    drop(k);
+}
+
 // ============================================================ stack, shop
 
 #[test]

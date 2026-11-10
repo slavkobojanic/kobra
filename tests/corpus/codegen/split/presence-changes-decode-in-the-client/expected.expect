@@ -1,0 +1,5 @@
+# A stdlib enum reached only from an app codec's payload (`Event.presence`)
+# is generated in the client too, so decoding it doesn't reach the
+# panicking stand-in of a missing native.
+client contains function PresenceChange$codec($w0)
+client lacks $k.native("k.rpc.PresenceChange$codec")

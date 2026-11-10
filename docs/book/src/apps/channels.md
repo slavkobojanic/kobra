@@ -33,17 +33,25 @@ errors all apply to it. Only its result type is new:
 public protocol ChatProtocol requires Authenticated {
     /// Joins a room until the caller leaves it: a snapshot first, then
     /// every event.
+    ///
+    /// - Throws: `RoomError.passwordRequired` for a room with a password
+    ///   the caller hasn't given (see `unlock`), `.removed` for someone a
+    ///   moderator removed.
     rpc room(name: String) throws RoomError -> Channel<ChatCommand, ChatEvent, CommandError>
+
+    /// Gives a room's password, once: the server remembers that the caller
+    /// may join. Five tries a minute, so a password can't be guessed.
+    rpc unlock(room: String, password: String) throws RoomError requires RateLimit(5.perMinute)
 }
 ```
 
 - **`C` and `S` are `Codable`,** usually enums with one case per kind of message, so both sides `match`
-  them exhaustively. Huddle's are `ChatCommand` (`post`, `delete`, `typing`) and `ChatEvent`
-  (`snapshot`, `posted`, `deleted`, `presence`, `typing`).
+  them exhaustively. Huddle's are `ChatCommand` (`post`, `delete`, `typing`, `read`, `promote`, `remove`) and
+  `ChatEvent` (`snapshot`, `posted`, `deleted`, `presence`, `typing`, `moderators`, `removed`).
 - **`E` is an error enum with an `rpcFailure(RpcFailure)` case,** like every rpc error (K5502 without
   one); `RpcOnlyError` serves a channel that refuses nothing of its own.
-- **The rpc's own `throws` is for opening:** `RoomError.noSuchRoom` is thrown by the call that opens the
-  channel. `E` is what each message can be refused with.
+- **The rpc's own `throws` is for opening:** `RoomError.noSuchRoom` (or `.passwordRequired`) is thrown
+  by the call that opens the channel. `E` is what each message can be refused with.
 - A `Channel` is the result of a protocol rpc or its handler only (K5509), never inside another type
   such as `List<Channel<…>>` (K5510).
 
@@ -55,8 +63,22 @@ messages it will send and a function that receives the browser's:
 ```k
 // examples/huddle/src/chat/ChatApi.k
     rpc room(name: String) async throws RoomError -> Channel<ChatCommand, ChatEvent, CommandError> {
-        guard Rooms.names.contains(name) else {
+        guard let room = await rooms.find(name: name) else {
             throw RoomError.noSuchRoom
+        }
+
+        let me = session.user.id.name
+
+        if let membership = await memberships.find(room: name, member: me) {
+            guard not membership.removed else {
+                throw RoomError.removed
+            }
+        } else {
+            guard room.passwordHash == nil else {
+                throw RoomError.passwordRequired
+            }
+
+            await join(room: name, member: me)
         }
 
         // Subscribe before reading, so a message posted or a person arriving
@@ -64,17 +86,23 @@ messages it will send and a function that receives the browser's:
         let live = Stream.merge(
             events.subscribe(room: name),
             presence.watch(room: name).map { change => ChatEvent.presence(change) }
-        )
-        let me = session.user.id.name
+        ).filter { event => stillIn(after: event, me: me) }
 
         // In the room until this channel closes: leaving the page, a
-        // dropped connection that doesn't come back, or signing out.
-        presence.join(room: name, member: Member(name: me))
+        // dropped connection that doesn't come back, signing out, or being
+        // removed.
+        lease = presence.join(room: name, member: Member(name: me))
 
         let stored = await messages.all(room: name)
         let present = await presence.members(room: name)
+        let moderators = await memberships.moderators(room: name)
+        var sending = live
 
-        return Channel(sending: live.startingWith(.snapshot(messages: stored.map(chatMessage), present: present))) { command =>
+        if moderators.isNotEmpty {
+            sending = live.startingWith(.moderators(names: moderators))
+        }
+
+        return Channel(sending: sending.startingWith(.snapshot(messages: stored.map(chatMessage), present: present))) { command =>
             try await handle(command: command, room: name, author: me)
         }
     }
@@ -96,13 +124,16 @@ messages it will send and a function that receives the browser's:
                     throw CommandError.messageGone
                 }
 
-                guard message.author == author else {
-                    throw CommandError.notYourMessage
+                if message.author != author {
+                    guard await isModerator(room: room, name: author) else {
+                        throw CommandError.notYourMessage
+                    }
                 }
 
                 await database.transaction {
                     await messages.delete(message)
                     events.publish(room: room, event: .deleted(id: id))
+                    activity.announce(event: .deleted(room: room, number: message.number, author: message.author))
                 }
             }
 ```
@@ -134,13 +165,27 @@ Calling the rpc from a client service opens the channel and returns it:
 
         await listen(on: opened)
     }
+```
 
-    /// Applies the events of an open channel until it closes.
+It reads the channel's messages until it closes; after each, Huddle tells the server how far the
+person has read ([unread counts](../examples/huddle.md#unread-counts-a-second-channel)):
+
+```k
+// examples/huddle/src/chat/RoomService.k
+    /// Applies the events of an open channel until it closes, and tells
+    /// the server how far this person has read: what the page shows is
+    /// seen. Leaving the loop after a removal closes the channel.
     func listen(on opened: Channel<ChatCommand, ChatEvent, CommandError>) async {
         attach(opened)
 
         for await event in opened.messages {
             apply(event: event)
+
+            if removed {
+                break
+            }
+
+            await markRead()
         }
     }
 ```
@@ -151,14 +196,19 @@ the warning K5513.
 
 ```k
 // examples/huddle/src/chat/Room.k
-    @Effect(on: [name])
+    @Effect(on: [name, unlocks])
     func follow() async {
         problem = nil
+        locked = false
 
         do {
             try await room.follow(room: name)
         } catch .noSuchRoom {
             problem = "There's no room called “{name}”."
+        } catch .passwordRequired, .wrongPassword {
+            locked = true
+        } catch .removed {
+            problem = "A moderator removed you from #{name}."
         } catch .rpcFailure(.rejected) {
             Router.navigate(to: .signIn.returnTo(.room(name: name)))
         } catch .rpcFailure {

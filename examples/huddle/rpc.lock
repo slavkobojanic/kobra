@@ -48,6 +48,22 @@ receive = "chat.ChatEvent"
 refusal = "chat.CommandError"
 throws = "chat.RoomError"
 
+[protocols."chat.ChatProtocol".rpcs.unlock]
+params = [{ name = "room", type = "String" }, { name = "password", type = "String" }]
+returns = "Void"
+throws = "chat.RoomError"
+
+[protocols."chat.LobbyProtocol"]
+service = "huddle.chat.LobbyProtocol"
+
+[protocols."chat.LobbyProtocol".rpcs.lobby]
+kind = "channel"
+params = []
+send = "chat.LobbyCommand"
+receive = "chat.LobbyEvent"
+refusal = "chat.LobbyError"
+throws = "RpcOnlyError"
+
 [types."accounts.SignInError"]
 cases = [
     { name = "invalidName" },
@@ -59,6 +75,9 @@ cases = [
     { name = "post", fields = [{ name = "text", type = "String" }, { name = "clientId", type = "Uuid" }] },
     { name = "delete", fields = [{ name = "id", type = "Uuid" }] },
     { name = "typing" },
+    { name = "read", fields = [{ name = "upTo", type = "Int" }] },
+    { name = "promote", fields = [{ name = "name", type = "String" }] },
+    { name = "remove", fields = [{ name = "name", type = "String" }] },
 ]
 
 [types."chat.ChatEvent"]
@@ -68,6 +87,8 @@ cases = [
     { name = "deleted", fields = [{ name = "id", type = "Uuid" }] },
     { name = "presence", fields = [{ name = "_0", type = "PresenceChange<chat.Member>" }] },
     { name = "typing", fields = [{ name = "name", type = "String" }] },
+    { name = "moderators", fields = [{ name = "names", type = "List<String>" }] },
+    { name = "removed", fields = [{ name = "name", type = "String" }] },
 ]
 
 [types."chat.ChatMessage"]
@@ -84,7 +105,32 @@ cases = [
     { name = "invalidText" },
     { name = "notYourMessage" },
     { name = "messageGone" },
+    { name = "notModerator" },
+    { name = "noSuchMember" },
+    { name = "cannotRemoveModerator" },
+    { name = "removedFromRoom" },
     { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
+
+[types."chat.LobbyCommand"]
+cases = [
+    { name = "create", fields = [{ name = "name", type = "String" }, { name = "password", type = "String?" }] },
+]
+
+[types."chat.LobbyError"]
+cases = [
+    { name = "invalidName" },
+    { name = "nameTaken" },
+    { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
+
+[types."chat.LobbyEvent"]
+cases = [
+    { name = "snapshot", fields = [{ name = "rooms", type = "List<chat.RoomSummary>" }] },
+    { name = "created", fields = [{ name = "room", type = "chat.RoomSummary" }] },
+    { name = "posted", fields = [{ name = "room", type = "String" }, { name = "number", type = "Int" }, { name = "author", type = "String" }] },
+    { name = "deleted", fields = [{ name = "room", type = "String" }, { name = "number", type = "Int" }, { name = "author", type = "String" }] },
+    { name = "read", fields = [{ name = "room", type = "String" }, { name = "upTo", type = "Int" }, { name = "unread", type = "Int" }] },
 ]
 
 [types."chat.Member"]
@@ -95,5 +141,16 @@ fields = [
 [types."chat.RoomError"]
 cases = [
     { name = "noSuchRoom" },
+    { name = "passwordRequired" },
+    { name = "wrongPassword" },
+    { name = "removed" },
     { name = "rpcFailure", fields = [{ name = "_0", type = "RpcFailure" }] },
+]
+
+[types."chat.RoomSummary"]
+fields = [
+    { name = "name", type = "String", number = 1 },
+    { name = "locked", type = "Bool", number = 2 },
+    { name = "lastRead", type = "Int", number = 3 },
+    { name = "unread", type = "Int?", number = 4 },
 ]

@@ -51,7 +51,7 @@ test Room {
         for await event in channel.messages {
             match event {
                 case .snapshot(let all, _) { anas = all.first }
-                case .posted, .deleted, .presence, .typing { }
+                default { }
             }
 
             break
@@ -67,6 +67,32 @@ test Room {
         await screen.settle()
 
         expect not screen.item(containing: "Mine").exists
+    }
+
+    test "a message posted after a deletion gets a number of its own" {
+        await sessions.signIn(userId: AccountId(name: "ana"))
+        let screen = render(Room(name: "general"))
+        await screen.settle()
+
+        for text in ["one", "two"] {
+            screen.textField(labeled: "Message").fill(text)
+            screen.button(named: "Send").click()
+            await screen.settle()
+        }
+        screen.button(named: "Delete “one”").click()
+        await screen.settle()
+        screen.textField(labeled: "Message").fill("three")
+        screen.button(named: "Send").click()
+        await screen.settle()
+
+        let bob = await peers.signIn(userId: AccountId(name: "bob"))
+        let chat: ChatProtocol = bob.client()
+        let channel = try await chat.room(name: "general")
+
+        match await channel.messages.next() {
+            case .snapshot(let all, _) { expect all.map { m => m.number } == [2, 3] }
+            default { expect false }
+        }
     }
 
     test "a dropped connection shows a banner, then catches up without losing a message" {

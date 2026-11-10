@@ -114,8 +114,13 @@ pub(crate) struct Body<'g, 'a> {
     /// Struct-init field locals.
     init_fields: Vec<(String, String)>,
     /// The labels of the enclosing loops, innermost last, which `break` and
-    /// `continue` target; `None` for an unlabelled loop.
+    /// `continue` target; `None` for an unlabelled loop. A loop gets one
+    /// when a `break` inside a `switch` (a `match`) must leave it.
     labels: Vec<Option<String>>,
+    /// How many `switch`es (lowered `match`es) are being lowered.
+    switches: usize,
+    /// `switches` when each enclosing loop began, innermost last.
+    loop_switches: Vec<usize>,
     /// `true` while lowering the server renderer of a component (no
     /// signals: state reads are plain locals).
     pub ssr: bool,
@@ -193,6 +198,8 @@ impl<'g, 'a> Body<'g, 'a> {
             collection_vars: HashSet::new(),
             init_fields: Vec::new(),
             labels: Vec::new(),
+            switches: 0,
+            loop_switches: Vec::new(),
             ssr: false,
             prelude: Vec::new(),
             on_demand: Vec::new(),
@@ -594,6 +601,18 @@ impl<'g, 'a> Body<'g, 'a> {
                 }
             }
             ast::Stmt::Break(_) => {
+                // A JavaScript `break` inside a `switch` leaves the switch
+                // only, so a `break` in a `match` arm names its loop.
+                let in_switch = self
+                    .loop_switches
+                    .last()
+                    .is_some_and(|&d| self.switches > d);
+                if in_switch && self.labels.last() == Some(&None) {
+                    let l = self.fresh("loop");
+                    if let Some(slot) = self.labels.last_mut() {
+                        *slot = Some(l);
+                    }
+                }
                 let label = self.labels.last().cloned().flatten();
                 self.emit(Stmt::Break(label));
             }
@@ -1098,19 +1117,19 @@ impl<'g, 'a> Body<'g, 'a> {
             Some(c) => b.expr(c),
             None => Expr::Bool(true),
         });
-        self.labels.push(None);
+        self.enter_loop();
         let stmts = match &body {
             Some(b) => self.block_stmts(b),
             None => Vec::new(),
         };
-        self.labels.pop();
+        let label = self.leave_loop();
         if pre.is_empty() {
-            self.emit(Stmt::While(c, stmts));
+            self.emit_loop(label, Stmt::While(c, stmts));
         } else {
             let mut inner = pre;
             inner.push(Stmt::If(un("!", c), vec![Stmt::Break(None)], None));
             inner.extend(stmts);
-            self.emit(Stmt::While(Expr::Bool(true), inner));
+            self.emit_loop(label, Stmt::While(Expr::Bool(true), inner));
         }
     }
 
@@ -1171,18 +1190,21 @@ impl<'g, 'a> Body<'g, 'a> {
                     _ => self.fresh("i"),
                 };
                 let cmp = if op == "..<" { "<" } else { "<=" };
-                self.labels.push(None);
+                self.enter_loop();
                 let stmts = match &body {
                     Some(b) => self.block_stmts(b),
                     None => Vec::new(),
                 };
-                self.labels.pop();
-                self.emit(Stmt::For(
-                    Box::new(Stmt::Let(var.clone(), Some(lo))),
-                    bin(cmp, id(&var), end),
-                    Expr::Assign("+=", Box::new(id(&var)), Box::new(Expr::Num(1.0))),
-                    stmts,
-                ));
+                let label = self.leave_loop();
+                self.emit_loop(
+                    label,
+                    Stmt::For(
+                        Box::new(Stmt::Let(var.clone(), Some(lo))),
+                        bin(cmp, id(&var), end),
+                        Expr::Assign("+=", Box::new(id(&var)), Box::new(Expr::Num(1.0))),
+                        stmts,
+                    ),
+                );
                 self.pop_scope();
                 return;
             }
@@ -1208,12 +1230,12 @@ impl<'g, 'a> Body<'g, 'a> {
                 }
             }
         }
-        self.labels.push(None);
+        self.enter_loop();
         let mut stmts = prefix;
         if let Some(b) = &body {
             stmts.extend(self.block_stmts(b));
         }
-        self.labels.pop();
+        let label = self.leave_loop();
         // Simplify `const x = $x1;` into the loop variable.
         if let Some(Stmt::Const(n, Expr::Ident(v))) = stmts.first()
             && *v == var
@@ -1225,7 +1247,7 @@ impl<'g, 'a> Body<'g, 'a> {
                 checked.extend(stmts);
                 stmts = checked;
             }
-            self.emit(Stmt::ForOf(n, it, stmts, is_await));
+            self.emit_loop(label, Stmt::ForOf(n, it, stmts, is_await));
             self.pop_scope();
             return;
         }
@@ -1234,8 +1256,28 @@ impl<'g, 'a> Body<'g, 'a> {
             checked.extend(stmts);
             stmts = checked;
         }
-        self.emit(Stmt::ForOf(var, it, stmts, is_await));
+        self.emit_loop(label, Stmt::ForOf(var, it, stmts, is_await));
         self.pop_scope();
+    }
+
+    /// Starts lowering a loop's body.
+    fn enter_loop(&mut self) {
+        self.labels.push(None);
+        self.loop_switches.push(self.switches);
+    }
+
+    /// Ends a loop's body; returns the label a `break` in a `match` gave it.
+    fn leave_loop(&mut self) -> Option<String> {
+        self.loop_switches.pop();
+        self.labels.pop().flatten()
+    }
+
+    /// Emits a loop, labelled when its body needs the label.
+    fn emit_loop(&mut self, label: Option<String>, s: Stmt) {
+        match label {
+            Some(l) => self.emit(Stmt::Labeled(l, Box::new(s))),
+            None => self.emit(s),
+        }
     }
 
     /// The element type of an iterable type.
@@ -2020,6 +2062,7 @@ impl<'g, 'a> Body<'g, 'a> {
         if switchable {
             let mut cases = Vec::new();
             let mut has_default = false;
+            self.switches += 1;
             for arm in &arms {
                 let pats: Vec<ast::Pattern> =
                     arm.children().filter_map(ast::Pattern::cast).collect();
@@ -2065,6 +2108,7 @@ impl<'g, 'a> Body<'g, 'a> {
                     cases.push(js::Case { tests, body });
                 }
             }
+            self.switches -= 1;
             if !has_default {
                 let unreachable = rt("unreachable", vec![]);
                 let body = match dest {

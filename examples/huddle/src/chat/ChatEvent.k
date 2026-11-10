@@ -14,4 +14,10 @@ public enum ChatEvent implements Codable, Equatable {
     case presence(PresenceChange<Member>)
     /// Someone is typing; shown for a few seconds after the last one.
     case typing(name: String)
+    /// The room's moderators, by name: right after the snapshot of a room
+    /// that has any, and again whenever they change.
+    case moderators(names: List<String>)
+    /// A moderator removed `name` from the room. Their channel hears this
+    /// last.
+    case removed(name: String)
 }

@@ -14,6 +14,13 @@ public repository RoomAlertRepository for RoomAlert {
         return await roomAlerts.first { alert => alert.room == room and alert.endpoint == endpoint }
     }
 
+    /// Deletes every alert of `room` for `member`.
+    func deleteAll(room: String, member: String) async {
+        await roomAlerts
+            .filter { alert => alert.room == room and alert.member == member }
+            .delete()
+    }
+
     /// The subscription `alert` sends to.
     func subscription(of alert: RoomAlert) -> PushSubscription {
         return PushSubscription(endpoint: alert.endpoint, p256dh: alert.p256dh, auth: alert.auth)

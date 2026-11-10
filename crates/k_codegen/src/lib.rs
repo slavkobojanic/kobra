@@ -550,6 +550,17 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
     }
     bundle::settle_on_demand(&mut server, &roots);
     bundle::settle_on_demand(&mut client, &BTreeSet::new());
+    // A settled piece (an app enum's codec) may name a stdlib type nothing
+    // else does (`PresenceChange` in a channel's events): the client gets
+    // its declaration, and its own codec, too.
+    loop {
+        let before = client.len();
+        add_stdlib_decls(g, &mut client, Target::Client, Vec::new(), false);
+        if client.len() == before {
+            break;
+        }
+        bundle::settle_on_demand(&mut client, &BTreeSet::new());
+    }
     output.server = bundle::server_files(g, &server, extra);
     let (pages, entry) = if let Some((stmts, uses)) = client_entry {
         // The entry's uses are roots of the client too.

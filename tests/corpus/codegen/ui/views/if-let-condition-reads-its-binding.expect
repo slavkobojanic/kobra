@@ -1,0 +1,3 @@
+# The client's test declares `count` before comparing it.
+client contains const count = unread.get();
+client lacks unread.get() !== null && count > 0

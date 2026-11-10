@@ -14,21 +14,58 @@ public page Room requires Authenticated {
     @State var draft: String = ""
     @State var problem: String? = nil
 
+    /// `true` while the room asks for its password.
+    @State var locked: Bool = false
+    @State var password: String = ""
+
+    /// One more after the password is accepted, which runs `follow` again.
+    @State var unlocks: Int = 0
+
     /// Follows the room while the page is shown; leaving the page closes the
     /// channel.
-    @Effect(on: [name])
+    @Effect(on: [name, unlocks])
     func follow() async {
         problem = nil
+        locked = false
 
         do {
             try await room.follow(room: name)
         } catch .noSuchRoom {
             problem = "There's no room called “{name}”."
+        } catch .passwordRequired, .wrongPassword {
+            locked = true
+        } catch .removed {
+            problem = "A moderator removed you from #{name}."
         } catch .rpcFailure(.rejected) {
             Router.navigate(to: .signIn.returnTo(.room(name: name)))
         } catch .rpcFailure {
             problem = "Couldn't join #{name}. Check your connection and reload."
         }
+    }
+
+    /// Gives the room's password; once it is accepted the room opens, and
+    /// stays open to this person from then on.
+    func unlock() async {
+        do {
+            try await room.unlock(room: name, password: password)
+            password = ""
+            unlocks += 1
+        } catch .wrongPassword {
+            problem = "That isn't the password of #{name}."
+        } catch .rpcFailure(.rejected(.rateLimited)) {
+            problem = "Too many tries. Wait a minute, then try again."
+        } catch _ {
+            problem = "Couldn't join #{name}. Check your connection and reload."
+        }
+    }
+
+    /// Whether the tab is shown; an effect's dependency is the page's own.
+    @Derived let shown: Bool = room.isSeen
+
+    /// Marks what's on screen read when the tab is shown again.
+    @Effect(on: [shown])
+    func seen() async {
+        await room.markRead()
     }
 
     /// Tells the room this person is typing while the draft changes.
@@ -53,7 +90,7 @@ public page Room requires Authenticated {
         } catch .invalidText {
             draft = text
             problem = "Write 1 to 500 characters."
-        } catch .notYourMessage, .messageGone, .rpcFailure {
+        } catch _ {
             // Shown on the message itself, with a retry button.
         }
     }
@@ -65,8 +102,26 @@ public page Room requires Authenticated {
             problem = "You can only delete your own messages."
         } catch .messageGone {
             // Already gone; its `deleted` event removes it.
-        } catch .invalidText, .rpcFailure {
+        } catch _ {
             problem = "Couldn't delete that message. Try again."
+        }
+    }
+
+    /// A moderator's action on the member `name`, with what to say when it
+    /// is refused.
+    func moderate(name: String, promoting: Bool) async {
+        do {
+            if promoting {
+                try await room.promote(name: name)
+            } else {
+                try await room.remove(name: name)
+            }
+        } catch .notModerator {
+            problem = "Only a moderator can do that."
+        } catch .cannotRemoveModerator {
+            problem = "{name} is a moderator, so they stay."
+        } catch _ {
+            problem = "Couldn't do that. Try again."
         }
     }
 
@@ -79,7 +134,24 @@ public page Room requires Authenticated {
 
         AlertSwitch(room: name)
 
-        if let banner = room.banner {
+        if locked {
+            form {
+                paragraph { "#{name} has a password. You'll be asked for it once." }
+
+                passwordField(value: bind password)
+                    .label("Room password")
+
+                button { "Join #{name}" }
+                    .type(.submit)
+            }
+            .class(.composer)
+            .on(submit: unlock)
+        }
+
+        if room.removed {
+            paragraph { "A moderator removed you from #{name}." }
+                .role(.status)
+        } else if let banner = room.banner {
             paragraph { banner }
                 .class(.banner)
                 .role(.status)
@@ -87,7 +159,20 @@ public page Room requires Authenticated {
 
         list {
             for member in room.present key member.name {
-                item { member.name }
+                item {
+                    text { member.name }
+
+                    if room.moderators.contains(member.name) {
+                        text { " (moderator)" }
+                            .class(.sending)
+                    } else if room.isModerator {
+                        button { "Make {member.name} a moderator" }
+                            .on(click: { await moderate(name: member.name, promoting: true) })
+
+                        button { "Remove {member.name}" }
+                            .on(click: { await moderate(name: member.name, promoting: false) })
+                    }
+                }
             }
         }
         .label("In this room")
@@ -101,7 +186,7 @@ public page Room requires Authenticated {
 
                     text { " {message.text}" }
 
-                    if message.author == auth.user?.id.name {
+                    if message.author == auth.user?.id.name or room.isModerator {
                         button {
                             "Delete"
 
@@ -141,15 +226,17 @@ public page Room requires Authenticated {
                 .class(.typing)
         }
 
-        form {
-            textField(value: bind draft)
-                .label("Message")
+        if not locked and not room.removed {
+            form {
+                textField(value: bind draft)
+                    .label("Message")
 
-            button { "Send" }
-                .type(.submit)
+                button { "Send" }
+                    .type(.submit)
+            }
+            .class(.composer)
+            .on(submit: post)
         }
-        .class(.composer)
-        .on(submit: post)
 
         if let problem {
             paragraph { problem }
@@ -163,7 +250,7 @@ public page Room requires Authenticated {
     func retry(message: PendingMessage) async {
         do {
             try await room.retry(clientId: message.clientId)
-        } catch .invalidText, .notYourMessage, .messageGone, .rpcFailure {
+        } catch _ {
             // Marked failed again on the message.
         }
     }

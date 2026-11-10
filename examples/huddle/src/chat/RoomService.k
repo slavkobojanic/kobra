@@ -1,4 +1,6 @@
+import k.auth.Session
 import k.crypto.Uuid
+import k.device.PageVisibility
 import k.rpc.Channel
 import k.rpc.ChannelState
 import k.time.Clock
@@ -14,6 +16,8 @@ import k.time.TimerHandle
 public service RoomService {
     @Inject let chat: ChatProtocol
     @Inject let clock: Clock
+    @Inject let session: Session
+    @Inject let visibility: PageVisibility
 
     /// The room's messages, oldest first.
     @State var messages: List<ChatMessage> = []
@@ -27,6 +31,21 @@ public service RoomService {
 
     /// Who is typing, in the order they started.
     @State var typing: List<String> = []
+
+    /// The room's moderators, by name.
+    @State var moderators: List<String> = []
+
+    /// `true` once a moderator removed this person: the channel is closed.
+    @State var removed: Bool = false
+
+    /// Whether this person moderates the room.
+    @Derived let isModerator: Bool = moderators.any { m => m == session.user?.id.name }
+
+    /// Whether the room is on screen: a hidden tab's messages aren't seen.
+    @Derived let isSeen: Bool = visibility.isVisible
+
+    /// The newest message number this tab told the server it has seen.
+    private var readUpTo: Int = 0
 
     /// When each name in `typing` stops showing.
     private var typingTimers: Map<String, TimerHandle> = Map()
@@ -50,21 +69,39 @@ public service RoomService {
     /// Follows `room` until the caller is cancelled or the server closes the
     /// channel.
     ///
-    /// - Throws: `RoomError.noSuchRoom`, and `.rpcFailure` when the first
-    ///   open fails (signed out, offline). Later drops don't throw: the
-    ///   runtime reconnects.
+    /// - Throws: `RoomError.noSuchRoom`, `.passwordRequired` (see
+    ///   `unlock(room:password:)`), `.removed`, and `.rpcFailure` when the
+    ///   first open fails (signed out, offline). Later drops don't throw:
+    ///   the runtime reconnects.
     func follow(room: String) async throws RoomError {
         let opened = try await chat.room(name: room)
 
         await listen(on: opened)
     }
 
-    /// Applies the events of an open channel until it closes.
+    /// Gives `room`'s password, so `follow(room:)` may join it.
+    ///
+    /// - Throws: `RoomError.wrongPassword`, and
+    ///   `.rpcFailure(.rejected(.rateLimited(retryAfter:)))` after five
+    ///   tries in a minute.
+    func unlock(room: String, password: String) async throws RoomError {
+        try await chat.unlock(room: room, password: password)
+    }
+
+    /// Applies the events of an open channel until it closes, and tells
+    /// the server how far this person has read: what the page shows is
+    /// seen. Leaving the loop after a removal closes the channel.
     func listen(on opened: Channel<ChatCommand, ChatEvent, CommandError>) async {
         attach(opened)
 
         for await event in opened.messages {
             apply(event: event)
+
+            if removed {
+                break
+            }
+
+            await markRead()
         }
     }
 
@@ -72,6 +109,9 @@ public service RoomService {
     /// hands it a `TestChannel`'s channel and plays the events itself.
     func attach(_ opened: Channel<ChatCommand, ChatEvent, CommandError>) {
         channel = opened
+        moderators = []
+        removed = false
+        readUpTo = 0
     }
 
     /// Posts `text`: it shows as pending at once, and is replaced by the
@@ -115,20 +155,57 @@ public service RoomService {
 
         do {
             try await channel.send(.typing)
-        } catch .invalidText, .notYourMessage, .messageGone, .rpcFailure {
+        } catch _ {
             // Typing is a hint, never worth an error.
         }
     }
 
-    /// Deletes one of this person's messages.
+    /// Deletes one of this person's messages, or, for a moderator, anyone's.
     ///
     /// - Throws: `CommandError.notYourMessage`, `.messageGone`, `.rpcFailure`.
     func delete(message: ChatMessage) async throws CommandError {
+        try await send(.delete(id: message.id))
+    }
+
+    /// Makes the member `name` a moderator; for moderators.
+    ///
+    /// - Throws: `CommandError.notModerator`, `.noSuchMember`, `.rpcFailure`.
+    func promote(name: String) async throws CommandError {
+        try await send(.promote(name: name))
+    }
+
+    /// Removes the member `name` from the room for good; for moderators.
+    ///
+    /// - Throws: `CommandError.notModerator`, `.noSuchMember`,
+    ///   `.cannotRemoveModerator`, `.rpcFailure`.
+    func remove(name: String) async throws CommandError {
+        try await send(.remove(name: name))
+    }
+
+    private func send(_ command: ChatCommand) async throws CommandError {
         guard let channel else {
             throw CommandError.rpcFailure(.offline)
         }
 
-        try await channel.send(.delete(id: message.id))
+        try await channel.send(command)
+    }
+
+    /// Tells the server this person has seen up to the newest message, once
+    /// per new one, while the room is on screen. The page calls it again
+    /// when the tab is shown.
+    func markRead() async {
+        guard let channel, let newest = messages.last, isSeen and newest.number > readUpTo else {
+            return
+        }
+
+        readUpTo = newest.number
+
+        do {
+            try await channel.send(.read(upTo: newest.number))
+        } catch _ {
+            // Sent again with the next message, or after a restart.
+            readUpTo = 0
+        }
     }
 
     /// Applies one event to `messages` and `pending`. Idempotent, so an echo
@@ -138,6 +215,8 @@ public service RoomService {
             case .snapshot(let all, let people) {
                 messages = all
                 present = people
+                // A `moderators` event follows for a room that has any.
+                moderators = []
             }
 
             case .posted(let message, let clientId) {
@@ -163,6 +242,18 @@ public service RoomService {
             case .presence(.left(let member)) {
                 present = present.filter { p => p.name != member.name }
                 stopTyping(name: member.name)
+            }
+
+            case .moderators(let names) {
+                moderators = names
+            }
+
+            case .removed(let name) {
+                present = present.filter { p => p.name != name }
+
+                if name == session.user?.id.name {
+                    removed = true
+                }
             }
 
             case .typing(let name) {
@@ -206,7 +297,8 @@ public service RoomService {
             pending = pending.filter { p => p.clientId != message.clientId }
 
             throw CommandError.invalidText
-        } catch .notYourMessage, .messageGone {
+        } catch _ {
+            // Removed from the room meanwhile: the page says so.
             pending = pending.filter { p => p.clientId != message.clientId }
         }
     }

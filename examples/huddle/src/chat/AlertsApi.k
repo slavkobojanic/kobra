@@ -9,6 +9,7 @@ import k.server.WebPush
 public service AlertsApi implements AlertsProtocol {
     @Inject let alerts: RoomAlertRepository
     @Inject let push: WebPush
+    @Inject let memberships: MembershipRepository
     @Inject let session: Session
 
     rpc serverKey() async throws RpcOnlyError -> EcdsaP256PublicKey? {
@@ -16,8 +17,14 @@ public service AlertsApi implements AlertsProtocol {
     }
 
     rpc follow(room: String, subscription: PushSubscription) async throws RoomError {
-        guard Rooms.names.contains(room) else {
-            throw RoomError.noSuchRoom
+        // Only a member is told about a room's messages: a room with a
+        // password keeps them to the people who gave it.
+        guard let membership = await memberships.find(room: room, member: session.user.id.name) else {
+            throw RoomError.passwordRequired
+        }
+
+        guard not membership.removed else {
+            throw RoomError.removed
         }
 
         let endpoint = subscription.endpoint
