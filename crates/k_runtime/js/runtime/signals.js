@@ -570,16 +570,17 @@ export function scope(fn) {
 /**
  * Installs `handler` as the error boundary of a new child owner and runs
  * `fn` inside it: errors thrown by effects created inside reach `handler`
- * instead of the global error reporter (`ErrorBoundary`).
+ * instead of the global error reporter (`ErrorBoundary`). `fn` gets the
+ * owner's dispose, as `scope`'s does.
  * @template T
- * @param {() => T} fn
+ * @param {(dispose: () => void) => T} fn
  * @param {(error: unknown) => void} handler
  * @returns {T}
  */
 export function catchError(fn, handler) {
-  return scope(() => {
+  return scope((d) => {
     owner.onError = handler;
-    return fn();
+    return fn(d);
   });
 }
 

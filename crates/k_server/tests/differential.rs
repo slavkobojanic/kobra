@@ -364,6 +364,18 @@ fn fixed_findings_stay_fixed() {
             ),
         ),
         (
+            "ranges-in-views: a closed range, server-rendered and hydrated",
+            view(
+                "        list {\n            for i in 1...40 key i {\n                item {\n                    \"{i}\"\n                }\n            }\n        }",
+            ),
+        ),
+        (
+            "ranges-in-views: a half-open range over a prop, and an empty one",
+            view(
+                "        list {\n            for i in 0..<count key i {\n                item {\n                    \"{i} {title}\"\n                }\n            }\n\n            for i in count..<0 key i {\n                item {\n                    \"never\"\n                }\n            }\n        }",
+            ),
+        ),
+        (
             "template-text-nodes-merge: dynamic, static, dynamic",
             view(
                 "        paragraph {\n            title\n\n            \" and \"\n\n            title\n        }",
@@ -375,6 +387,48 @@ fn fixed_findings_stay_fixed() {
         .filter_map(|(finding, outcome)| outcome.err().map(|e| format!("{finding}:\n{e}")))
         .collect();
     assert!(broken.is_empty(), "{}", broken.join("\n\n"));
+}
+
+/// A number beyond the `Double` range is JSON, not `malformed`: an `Int`
+/// can't hold it (`mismatch`), a `Double` reads the infinity `JSON.parse`
+/// gives, which encodes as `null`. Found by
+/// `codable_values_round_trip_and_decode_like_the_reference`, whose
+/// integer-as-exponent mutation rewrote the `1` inside
+/// `9007199254740991` into `90071e099254740991`; the reference decoder
+/// called it malformed, `Json.decode` a mismatch.
+#[test]
+fn an_out_of_range_number_is_json_not_malformed() {
+    use codablegen::{CTy, CVal, Decl, Decoded, case, decode_text};
+    let decls = vec![Decl::Struct(vec![
+        CTy::Int,
+        CTy::Double,
+        CTy::Opt(Box::new(CTy::Double)),
+        CTy::List(Box::new(CTy::Double)),
+    ])];
+    let root = CTy::Named(0);
+    let found = r#"{"f0":90071e099254740991,"f1":0.5,"f2":null,"f3":[]}"#;
+    assert_eq!(decode_text(found, &root, &decls), Decoded::Mismatch);
+    let doubles = r#"{"f0":1,"f1":1e999,"f2":-1E+400,"f3":[2e308,1e-999],"s":"1e999"}"#;
+    assert_eq!(
+        decode_text(doubles, &root, &decls),
+        Decoded::Ok(serde_json::json!({"f0": 1, "f1": null, "f2": null, "f3": [null, 0.0]}))
+    );
+    assert_eq!(
+        decode_text("{\"f0\":1e999x}", &root, &decls),
+        Decoded::Malformed
+    );
+    let value = CVal::Struct(vec![
+        CVal::Int(9_007_199_254_740_991),
+        CVal::Double(0.5),
+        CVal::Nil,
+        CVal::List(Vec::new()),
+    ]);
+    let texts = vec![
+        found.to_owned(),
+        doubles.to_owned(),
+        r#"{"f0":-1e999,"f1":0,"f3":[]}"#.to_owned(),
+    ];
+    codablegen::check(&case(decls, root, value, texts), LIMIT).unwrap();
 }
 
 /// The HTTP oracle holds on the seeds of the `http_request` and `rpc_json`

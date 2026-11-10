@@ -442,6 +442,13 @@ pub fn decode(json: &Value, ty: &CTy, decls: &[Decl]) -> Option<Value> {
 /// format leaves open.
 fn decode_noting(json: &Value, ty: &CTy, decls: &[Decl], unspecified: &mut bool) -> Option<Value> {
     let decode = |j: &Value, t: &CTy, u: &mut bool| decode_noting(j, t, decls, u);
+    if is_huge(json) {
+        return match ty {
+            CTy::Double => Some(Value::Null),
+            CTy::Opt(t) => decode(json, t, unspecified),
+            _ => None,
+        };
+    }
     match ty {
         CTy::Int => {
             let x = json.as_f64()?;
@@ -529,6 +536,98 @@ fn decode_noting(json: &Value, ty: &CTy, decls: &[Decl], unspecified: &mut bool)
     }
 }
 
+/// The key of the object [`tame_huge_numbers`] writes for a number beyond
+/// the `Double` range: no reference encoding has it, and it is only ever
+/// a value, so it never meets a map key or a field.
+pub const HUGE: &str = "\u{0}huge";
+
+fn is_huge(json: &Value) -> bool {
+    json.as_object()
+        .is_some_and(|m| m.len() == 1 && m.contains_key(HUGE))
+}
+
+/// `text` with each JSON number beyond the `Double` range (outside
+/// strings) replaced by `{"\u0000huge": true}`, or `None` when it has none.
+pub fn tame_huge_numbers(text: &str) -> Option<String> {
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let (mut i, mut from, mut any) = (0, 0, false);
+    let mut in_string = false;
+    while i < b.len() {
+        let c = b[i];
+        if in_string {
+            match c {
+                b'\\' => i += 1,
+                b'"' => in_string = false,
+                _ => {}
+            }
+            i += 1;
+            continue;
+        }
+        if c == b'"' {
+            in_string = true;
+            i += 1;
+            continue;
+        }
+        if c == b'-' || c.is_ascii_digit() {
+            let end = i + b[i..]
+                .iter()
+                .take_while(|&&d| {
+                    d.is_ascii_digit() || matches!(d, b'-' | b'+' | b'.' | b'e' | b'E')
+                })
+                .count();
+            let token = &text[i..end];
+            if is_json_number(token) && token.parse::<f64>().is_ok_and(f64::is_infinite) {
+                out.push_str(&text[from..i]);
+                out.push_str(r#"{"\u0000huge":true}"#);
+                from = end;
+                any = true;
+            }
+            i = end;
+            continue;
+        }
+        i += 1;
+    }
+    out.push_str(&text[from..]);
+    any.then_some(out)
+}
+
+/// Whether `t` is exactly a JSON number (RFC 8259 §6).
+fn is_json_number(t: &str) -> bool {
+    let b = t.as_bytes();
+    let mut i = usize::from(b.first() == Some(&b'-'));
+    let digits = |i: &mut usize| {
+        let s = *i;
+        while *i < b.len() && b[*i].is_ascii_digit() {
+            *i += 1;
+        }
+        *i - s
+    };
+    match b.get(i) {
+        Some(b'0') => i += 1,
+        Some(d) if d.is_ascii_digit() => {
+            digits(&mut i);
+        }
+        _ => return false,
+    }
+    if b.get(i) == Some(&b'.') {
+        i += 1;
+        if digits(&mut i) == 0 {
+            return false;
+        }
+    }
+    if matches!(b.get(i), Some(b'e' | b'E')) {
+        i += 1;
+        if matches!(b.get(i), Some(b'+' | b'-')) {
+            i += 1;
+        }
+        if digits(&mut i) == 0 {
+            return false;
+        }
+    }
+    i == b.len()
+}
+
 /// `c<n>` → `n`, rejecting anything else (`c01`, `c`, `x1`).
 fn case_index(name: &str) -> Option<usize> {
     let digits = name.strip_prefix('c')?;
@@ -542,8 +641,21 @@ fn case_index(name: &str) -> Option<usize> {
 }
 
 /// What `Json.decode` must make of `text` for type `ty`.
+///
+/// A number beyond the `Double` range (`1e999`, or `90071e099254740991`,
+/// which mutation 4 writes when the integer it rewrites is a digit of a
+/// longer one) is JSON: RFC 8259 leaves the range to the implementation,
+/// and `JSON.parse` reads it as an infinity. serde_json refuses it ("number
+/// out of range"), so it is read here as [`HUGE`]: never an `Int` (a
+/// `mismatch`), and as a `Double` the infinity, which encodes as `null`
+/// (28-rpc-wire-format.md, "Numbers").
 pub fn decode_text(text: &str, ty: &CTy, decls: &[Decl]) -> Decoded {
-    match serde_json::from_str::<Value>(text) {
+    let parsed = serde_json::from_str::<Value>(text).or_else(|e| {
+        tame_huge_numbers(text)
+            .ok_or(e)
+            .and_then(|t| serde_json::from_str(&t))
+    });
+    match parsed {
         Err(_) => Decoded::Malformed,
         Ok(v) => {
             let mut unspecified = false;
@@ -724,13 +836,22 @@ pub fn generate(u: &mut Unstructured<'_>) -> Case {
     let value = g.value(&root, 0);
     let json = encode(&value, &g.decls, &root);
     let n = g.pick(6);
-    let mut inputs = Vec::new();
-    for _ in 0..n {
-        let text = g.mutate(&json);
-        let expected = decode_text(&text, &root, &g.decls);
-        inputs.push((text, expected));
-    }
+    let texts: Vec<String> = (0..n).map(|_| g.mutate(&json)).collect();
     let decls = g.decls;
+    case(decls, root, value, texts)
+}
+
+/// The case that decodes each of `texts` as a `root`, after round-tripping
+/// `value`.
+pub fn case(decls: Vec<Decl>, root: CTy, value: CVal, texts: Vec<String>) -> Case {
+    let json = encode(&value, &decls, &root);
+    let inputs: Vec<(String, Decoded)> = texts
+        .into_iter()
+        .map(|text| {
+            let expected = decode_text(&text, &root, &decls);
+            (text, expected)
+        })
+        .collect();
     let rt = ty_name(&root);
     let mut source = String::from("import k.encoding.Json\nimport k.http.DecodingError\n\n");
     source.push_str(&declarations(&decls));

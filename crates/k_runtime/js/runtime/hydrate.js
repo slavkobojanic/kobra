@@ -48,6 +48,38 @@ export function uid() {
 }
 
 /**
+ * Whether the server rendered the fallback of the `ErrorBoundary` claiming
+ * here (its content panicked there): claims and removes the `<!--!-->` the
+ * server wrote before it, and the boundary claims the fallback without
+ * rendering the content.
+ * @returns {boolean}
+ */
+export function failedOnServer() {
+  const r = hydrating ? active.at(-1) : null;
+  const n = r ? r.next : null;
+  if (!n || n === r.end || n.nodeType !== 8 || n.data !== "!") return false;
+  r.next = n.nextSibling;
+  n.remove();
+  return true;
+}
+
+/**
+ * Puts back, when called, the label-id and load-key (`loadCtx`) counters
+ * as they are now: an `ErrorBoundary` whose content panics while it renders
+ * calls it before its fallback, so the fallback gets the ids and keys the
+ * server's did (`Out.mark`).
+ * @param {{data?: any}} ctx
+ * @returns {() => void}
+ */
+export function counters(ctx) {
+  const u = nextUid, d = ctx.data, n = d && { ...d.n };
+  return () => {
+    nextUid = u;
+    if (d) d.n = n;
+  };
+}
+
+/**
  * Reads and parses the `<script type="application/json" id="k-data">`
  * element, or returns `null` when the page has none (a static-only app).
  * @param {Document} doc

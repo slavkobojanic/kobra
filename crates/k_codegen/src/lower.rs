@@ -1114,6 +1114,20 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
+    /// The JavaScript iterable of the `for … in` source `iter`: a range's
+    /// values through `$k.rangeValues` (a `Range` isn't iterable), anything
+    /// else (a list, a map's `[k, v]` entries) as it is. Statements, views
+    /// and server renderers share it.
+    pub(crate) fn iterable(&mut self, iter: &ast::Expr) -> Expr {
+        let ity = self.ty(iter.syntax());
+        let it = self.expr(iter);
+        if self.g.is(&ity, self.g.b.half_open) || self.g.is(&ity, self.g.b.closed) {
+            rt("rangeValues", vec![it])
+        } else {
+            it
+        }
+    }
+
     /// Lowers a `for … in` loop: a counted `for (let i = lo; i < hi; i += 1)`
     /// over an `Int` range literal, otherwise `for … of` over the iterable
     /// (ranges through `$k.rangeValues`), destructuring a pattern into
@@ -1175,12 +1189,7 @@ impl<'g, 'a> Body<'g, 'a> {
             }
         }
         let ity = self.ty(iter.syntax());
-        let mut it = self.expr(&iter);
-        if self.g.is(&ity, self.g.b.half_open) || self.g.is(&ity, self.g.b.closed) {
-            it = rt("rangeValues", vec![it]);
-        } else if self.g.is(&ity, self.g.b.map) {
-            // entries are [k, v] pairs
-        }
+        let it = self.iterable(&iter);
         let elem_ty = self.element_type(&ity);
         let var = self.fresh("x");
         let mut prefix = Vec::new();

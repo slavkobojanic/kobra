@@ -27,7 +27,7 @@ export {
 export { attr, autofocus, branch, classList, clear, on, place, prop, style, template, text, walk, when } from "./dom.js";
 export { each } from "./list.js";
 export { bound, child, clientReady, description, joinClasses, lifetime, loadCtx, loadsOf, markers, own, paramProps, slotMarkers, title, withQuery } from "./view.js";
-export { afterPass, hydrate, isHydrating, readData, separator, textNode, uid } from "./hydrate.js";
+export { afterPass, counters, failedOnServer, hydrate, isHydrating, readData, separator, textNode, uid } from "./hydrate.js";
 export { CANCELLED, KPanic, checkInt, equals, intDiv, intRem, isPanic, panic, textOf, unitCase } from "./values.js";
 export * from "./std.js";
 export * from "./money.js";

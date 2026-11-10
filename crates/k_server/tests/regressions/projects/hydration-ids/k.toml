@@ -1,0 +1,7 @@
+# Regressions: label ids and load keys agree between the server render and
+# the hydrating client (docs/compiler/codegen.md §11.1–11.2), with a
+# layout, an `ErrorBoundary` whose content panics, and `for` loops over
+# ranges.
+[package]
+name = "forms"
+k = "0.1"

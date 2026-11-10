@@ -1144,6 +1144,7 @@ notes sign-out race, are in [44-channels.md](../design/44-channels.md#decided-wh
 | `Chrome's DevTools answers` | Chrome bound the port the test picked; nothing stops a program outside the tests' reservations from taking it first, and a dozen fresh profiles start slowly | test | `--remote-debugging-port=0` and `DevToolsActivePort`; 90 s |
 | `textbox named "New todo"` with the field on screen; `weather_switching_units…` | each accessibility query had 5 s; on a loaded machine Chrome answered later, the query was given up and asked again behind the first, and the wait ran out. `weather_switching_units` slept 300 ms before checking that nothing else was fetched | test | queries get the full 30 s; the units test waits for the °F reading, which shows only once every load that re-ran has answered (so an extra request would already have been made) |
 | `notes_stops_promptly…` | slept 500 ms for the stream to open and 300 ms for the page's errors after stopping the server | test | waits for the stream's response (`Network.responseReceived`); `allow_errors_from_now_on` for a page whose server is gone |
+| `collections_share_one_database_across_two_builds_in_two_tabs_in_chrome`: `"1 entries"` never shows (the newer tab stays at `0 entries`) | probes on `indexedDB.open` showed the newer tab's `open(2)` waiting about 23 s for its `upgradeneeded`: the older tab, in the background, handled `versionchange` and closed its connection only then, because Chrome runs a background renderer at a low process priority and a loaded machine starved it; the app gives way correctly (no deadlock, no second upgrade) | test | the test's Chrome keeps background tabs at full priority (`BACKGROUND_TABS_RUN`: `--disable-renderer-backgrounding` and the timer and occlusion flags, as `FAKE_CALL` already did for calls); twelve consecutive runs beside twenty busy processes on 14 cores were clean (about 1.5 s each), where 2 of 12 failed before |
 
 **Result:** ten consecutive runs of all 44 tests at once under a 4× CPU throttle beside the load loop
 were clean, and full `cargo nextest run --workspace` runs with the `chrome` group at 4, 8 and 12 were
@@ -1356,7 +1357,9 @@ that combines into a larger grapheme cluster.
 [codegen.md §5.1](codegen.md)): fields by K name; payload-free cases as their name; payload cases as
 `{"case": name, label: …}`; `nil` as `null`; `Map<String, T>` as an object; decoding ignores unknown keys,
 reads a missing or `null` optional as `nil`, and accepts as an `Int` any JSON number with a safe-integer
-value (`1.0` and `1e2` included: JavaScript can't tell them from `1` and `100`). Map keys include names
+value (`1.0` and `1e2` included: JavaScript can't tell them from `1` and `100`); a number beyond the
+`Double` range is JSON (an `Int` `mismatch`, a `Double` infinity that encodes as `null`), never `malformed`
+([codegen.md §5.1](codegen.md#51-json-codable)). Map keys include names
 special to JavaScript objects (`constructor`, `toString`, `hasOwnProperty`). The mutations replace a node
 by every JSON shape, drop or add keys, write an integer as `1.0` or `1e0`, truncate, pad or append to the
 text, and repeat a key (the last one wins, as in `JSON.parse`). A payload-free case written as

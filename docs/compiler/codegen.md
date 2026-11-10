@@ -228,6 +228,13 @@ used by RPC, `@Load` serialization, jobs, `Json`, local storage and the executio
   its own shape (an array is never an empty map, a pair that isn't a two-element array is a `mismatch` at
   `path[i]`). Text-keyed maps encode into a prototype-less object, so a `__proto__` key is an entry.
 - `Bytes` decode only from arrays of integers in `0...255`.
+- **Numbers beyond the `Double` range are JSON, not `malformed`.** `malformed` means the text isn't
+  JSON (RFC 8259's grammar); `1e999` and `90071e099254740991` are, and RFC 8259 leaves their range to
+  the implementation. `JSON.parse` reads them as an infinity, so an `Int` is a `mismatch` ("an
+  integer": not a safe integer) and a `Double` is the infinity, which encodes as `null` like every
+  non-finite `Double`. **Decision:** the runtime was right; the differential reference decoder
+  (`codablegen`), whose serde_json refuses such numbers, was changed to agree, and
+  `differential::an_out_of_range_number_is_json_not_malformed` pins it.
 
 ---
 
@@ -574,7 +581,19 @@ export function Counter(props, ctx) {
   **`ErrorBoundary`** is a block: on the client `branch(start, end, failed ? 1 : 0, [content, fallback])`,
   where the content arm renders inside `catchError` and a `try`, so a panic while it renders, or later in
   one of its effects, shows the fallback (an empty range without one); on the server a `try` around the
-  content that takes back what the content wrote (`out.chunks.length`) and writes the fallback.
+  content that takes back what the content wrote and writes the fallback. **The fallback starts from the
+  counters the content started from:** the server's `const back = out.mark()` takes back the content's
+  HTML (its label ids with it) and the load keys it drew, and writes `<!--!-->` before the fallback.
+  Hydrating, the client's arm 0 claims that comment (`$k.failedOnServer()`, which removes it) and then
+  the fallback, **without rendering the content** (rendering it claimed the fallback's server nodes and
+  left them beside a second fallback; switching to arm 1 afterwards re-rendered the fallback after the
+  pass, with ids after the whole page's). Otherwise arm 0 takes `$k.counters(ctx)` before the content
+  and, when the content fails while it renders, disposes the content's scope, puts the label-id and
+  load-key counters back and renders the fallback in arm 0 at once, without switching the branch; only
+  when that happens while hydrating a content the server rendered (the server's didn't panic) does it
+  switch to arm 1, which replaces what the content claimed after the pass. A later panic, in an effect
+  of a content that rendered, switches to arm 1 too. **Decision:** rewinding happens only while the
+  content renders, never later, so no id can be handed out twice in a live document.
 
 ---
 
@@ -652,9 +671,13 @@ export function Counter$ssr(props, ctx, out) {
   load group's state.
 - Each component instance has a **hydration key**, its path in the instance tree (`0.2.1`), under which its
   serialized state (load results, form values) is stored in `k-data`.
-- Label ids come from `out.uid()`, a counter per request shared by a page's and its layouts' buffers
-  (never an isolate-global one), so the same page renders the same HTML and the hydrating client, which
-  restarts `uid()` at `k1`, gets the same ids.
+- Label ids come from `out.uid()` (never an isolate-global counter), an id object that the buffer keeps
+  among its chunks and **numbers in document order when the HTML is joined** (`joinHtml`: `k1`, `k2`, …
+  by first appearance), so the same page renders the same HTML and the hydrating client, which restarts
+  `uid()` at `k1` and renders a layout before its page, gets the same ids. The server renders the page
+  first (its loads and status decide the response) and puts its unjoined chunks in the layout's slot;
+  numbering as it rendered gave the page's fields the first ids and the layout's the last, the reverse
+  of the client's.
 
 ### 11.3 Hydration
 

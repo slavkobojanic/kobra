@@ -1,0 +1,4 @@
+server contains rangeValues($k.closedRange(1, 40))
+server contains rangeValues($k.range(0, props.last()))
+client contains rangeValues($k.closedRange(1, 40))
+client contains rangeValues($k.range(0, props.last()))

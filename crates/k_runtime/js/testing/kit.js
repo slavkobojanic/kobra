@@ -3161,6 +3161,13 @@ export async function run(groups, selected, server = null, routes = []) {
   return results;
 }
 
+/** Whether `e` is an `Error` value's box, `{error, text}` and nothing else. */
+function isErrorBox(e) {
+  if (e === null || typeof e !== "object" || typeof e.text !== "string" || !("error" in e)) return false;
+  const keys = Object.keys(e);
+  return keys.length === 2 && keys.includes("error") && keys.includes("text");
+}
+
 /** The failure of a test that ended with `e`. */
 function describe(e, t) {
   if (e && e.kTest) {
@@ -3169,10 +3176,12 @@ function describe(e, t) {
   }
   if (isPanic(e)) return { message: `the test panicked: ${e.message}`, start: t.start, end: t.end, values: [] };
   if (e instanceof Error) return { message: `the test failed with a JavaScript error: ${e.message}`, start: t.start, end: t.end, values: [] };
-  // The error's structure (its case tag `$` and payload), for the report.
+  // An `Error` value is the box `{error, text}` (codegen.md §7): its text,
+  // as the run corpus prints it. Otherwise the error's structure (its case
+  // tag `$` and payload), for the report.
   let shape = "an unprintable value";
   try {
-    shape = JSON.stringify(e) ?? String(e);
+    shape = isErrorBox(e) ? e.text : (JSON.stringify(e) ?? String(e));
   } catch {
     // A cyclic error keeps the placeholder.
   }

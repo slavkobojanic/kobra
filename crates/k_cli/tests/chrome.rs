@@ -3252,6 +3252,18 @@ fn collections_upgrade_adds_an_index_over_stored_values_in_chrome() {
     assert_eq!(notebook_version(&mut tab), json!(2), "one upgrade");
 }
 
+/// Background tabs at a foreground tab's priority, for a test whose
+/// background tab must answer promptly. The newer tab's upgrade waits until
+/// the older tab, in the background, has handled `versionchange` and closed
+/// its connection; Chrome runs a background renderer at a low process
+/// priority, and on a loaded machine (a parallel test run) that took more
+/// than 20 s, past [`page::WAIT`]'s margin, while the app did nothing wrong.
+const BACKGROUND_TABS_RUN: &[&str] = &[
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+];
+
 /// Two tabs of two builds on one database: the newer tab's upgrade isn't
 /// blocked by the older tab, which closes its connection when asked and
 /// reopens it on its next call without upgrading again, so both keep
@@ -3264,7 +3276,9 @@ fn collections_share_one_database_across_two_builds_in_two_tabs_in_chrome() {
     let dir = Scratch::new("collections-tabs");
     let dist = build_notebook(&dir, false);
     let site = StaticSite::serve(&dist);
-    let mut older = tab!(dir);
+    let Some(mut older) = page::chrome_with(&dir.0, BACKGROUND_TABS_RUN) else {
+        return;
+    };
     older.open(&format!("{}/", site.origin));
     older.wait_text("0 entries");
     write_entry(&mut older, "#a", 1);

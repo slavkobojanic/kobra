@@ -1904,14 +1904,29 @@ impl Client<'_, '_, '_> {
                 )));
             }
             VNode::Boundary(content, fallback) => {
-                // A branch between the content (0) and the fallback (1): a
-                // panic while the content renders, or later in one of its
-                // effects (`catchError`), shows the fallback.
+                // A branch between the content (0) and the fallback (1).
+                // Hydrating a fallback the server rendered (`<!--!-->`), arm
+                // 0 claims it without rendering the content. A panic while
+                // the content renders (or in one of its effects as they are
+                // created) shows the fallback inside arm 0, at once: the
+                // content's scope is disposed and the label-id and load-key
+                // counters are put back (`counters`), so the fallback gets
+                // the ids and keys a server render gives it (`out.mark()`);
+                // while hydrating a content the server rendered, arm 1
+                // replaces what it claimed after the pass. A panic later, in
+                // one of the content's effects (`catchError`), switches to
+                // arm 1.
+                // `live` is 0 while the content renders, 1 once it rendered,
+                // -1 when it failed while rendering.
                 let failed = self.b.fresh("failed");
                 self.b.stmts.push(Stmt::Const(
                     failed.clone(),
                     rt("signal", vec![Expr::Bool(false)]),
                 ));
+                let live = self.b.fresh("live");
+                self.b
+                    .stmts
+                    .push(Stmt::Let(live.clone(), Some(Expr::Num(0.0))));
                 let fb = self.b.fresh("fallback");
                 let fallback_fn = match fallback {
                     Some(nodes) => self.render_fn(nodes, Vec::new(), Vec::new()),
@@ -1919,38 +1934,86 @@ impl Client<'_, '_, '_> {
                 };
                 self.b.stmts.push(Stmt::Const(fb.clone(), fallback_fn));
                 let content_fn = self.render_fn(content, Vec::new(), Vec::new());
-                // try { const n = catchError(content, fail); if (!failed.get()) return n; }
-                // catch (e) { fail(); } return fallback ? fallback() : null;
-                // An effect of the content that panics while it is created
-                // shows the fallback at once, too (the arm runs untracked).
-                let fail = call(member(id(&failed), "set"), vec![Expr::Bool(true)]);
+                let content_name = self.b.fresh("content");
+                self.b
+                    .stmts
+                    .push(Stmt::Const(content_name.clone(), content_fn));
+                let fail = js::arrow_block(
+                    vec![],
+                    vec![Stmt::If(
+                        bin(">", id(&live), Expr::Num(0.0)),
+                        vec![Stmt::Expr(call(
+                            member(id(&failed), "set"),
+                            vec![Expr::Bool(true)],
+                        ))],
+                        Some(vec![Stmt::Expr(js::assign(id(&live), Expr::Num(-1.0)))]),
+                    )],
+                    false,
+                );
                 let node = self.b.fresh("node");
+                let back = self.b.fresh("back");
+                let stop = self.b.fresh("stop");
+                let d = self.b.fresh("d");
+                let scoped = js::arrow_block(
+                    vec![Param::new(d.clone())],
+                    vec![
+                        Stmt::Expr(js::assign(id(&stop), id(&d))),
+                        Stmt::Return(Some(call(id(&content_name), vec![]))),
+                    ],
+                    false,
+                );
+                let fallback_now = Stmt::Return(Some(Expr::Cond(
+                    Box::new(id(&fb)),
+                    Box::new(call(id(&fb), vec![])),
+                    Box::new(Expr::Null),
+                )));
                 let arm = js::arrow_block(
                     vec![],
                     vec![
+                        // The server rendered the fallback: claim it.
+                        Stmt::If(
+                            rt("failedOnServer", vec![]),
+                            vec![
+                                Stmt::Expr(js::assign(id(&live), Expr::Num(-1.0))),
+                                fallback_now.clone(),
+                            ],
+                            None,
+                        ),
+                        Stmt::Const(back.clone(), rt("counters", vec![id("ctx")])),
+                        Stmt::Let(stop.clone(), None),
+                        Stmt::Expr(js::assign(id(&live), Expr::Num(0.0))),
                         Stmt::Try(
                             vec![
-                                Stmt::Const(
-                                    node.clone(),
-                                    rt(
-                                        "catchError",
-                                        vec![content_fn, js::arrow(vec![], fail.clone())],
-                                    ),
-                                ),
+                                Stmt::Const(node.clone(), rt("catchError", vec![scoped, fail])),
                                 Stmt::If(
-                                    js::un("!", call(member(id(&failed), "get"), vec![])),
-                                    vec![Stmt::Return(Some(id(node)))],
+                                    js::un("!", id(&live)),
+                                    vec![
+                                        Stmt::Expr(js::assign(id(&live), Expr::Num(1.0))),
+                                        Stmt::Return(Some(id(node))),
+                                    ],
                                     None,
                                 ),
                             ],
                             "e".into(),
-                            vec![Stmt::Expr(fail)],
+                            Vec::new(),
                         ),
-                        Stmt::Return(Some(Expr::Cond(
-                            Box::new(id(&fb)),
-                            Box::new(call(id(&fb), vec![])),
-                            Box::new(Expr::Null),
-                        ))),
+                        Stmt::If(id(&stop), vec![Stmt::Expr(call(id(&stop), vec![]))], None),
+                        // Failing only here while hydrating, the content
+                        // claimed server nodes: arm 1 renders the fallback
+                        // over the range after the pass.
+                        Stmt::If(
+                            rt("isHydrating", vec![]),
+                            vec![
+                                Stmt::Expr(call(
+                                    member(id(&failed), "set"),
+                                    vec![Expr::Bool(true)],
+                                )),
+                                Stmt::Return(Some(Expr::Null)),
+                            ],
+                            None,
+                        ),
+                        Stmt::Expr(call(id(&back), vec![])),
+                        fallback_now,
                     ],
                     false,
                 );
@@ -2338,7 +2401,7 @@ impl Client<'_, '_, '_> {
             .and_then(|k| k.children().find_map(ast::Expr::cast));
         let block = node.children().find(|c| c.kind() == SyntaxKind::Block);
         let items = iter.as_ref().map_or(Expr::Array(Vec::new()), |i| {
-            let (pre, x) = self.b.capture(|b| b.expr(i));
+            let (pre, x) = self.b.capture(|b| b.iterable(i));
             let _ = pre;
             x
         });
@@ -2663,22 +2726,23 @@ impl Ssr<'_, '_, '_> {
             }
             VNode::Boundary(content, fallback) => {
                 // The content, or after a panic the fallback in its place:
-                // what the content wrote so far is taken back.
+                // what the content wrote so far is taken back, with the
+                // load keys it drew (`out.mark()`), as the client's
+                // boundary puts its counters back.
                 self.marker("OPEN");
-                let n = self.b.fresh("n");
+                let n = self.b.fresh("back");
                 self.b.stmts.push(Stmt::Const(
                     n.clone(),
-                    member(member(id("out"), "chunks"), "length"),
+                    call(member(id("out"), "mark"), vec![]),
                 ));
                 let saved = std::mem::take(&mut self.b.stmts);
                 self.nodes(content);
                 let tried = std::mem::take(&mut self.b.stmts);
                 // The fallback may read a K local named `e`.
                 let err = self.b.catch_name();
-                self.b.stmts.push(Stmt::Expr(js::assign(
-                    member(member(id("out"), "chunks"), "length"),
-                    id(&n),
-                )));
+                self.b.stmts.push(Stmt::Expr(call(id(&n), vec![])));
+                // Tells the hydrating client the content failed here.
+                self.raw("<!--!-->");
                 if let Some(f) = fallback {
                     self.nodes(f);
                 }
@@ -3136,7 +3200,7 @@ impl Ssr<'_, '_, '_> {
         let block = node.children().find(|c| c.kind() == SyntaxKind::Block);
         let items = iter
             .as_ref()
-            .map_or(Expr::Array(Vec::new()), |i| self.b.expr(i));
+            .map_or(Expr::Array(Vec::new()), |i| self.b.iterable(i));
         let var = match &pattern {
             Some(ast::Pattern::IdentPattern(p)) => match p.syntax().first_token() {
                 Some(t) => self.b.bind(&t),

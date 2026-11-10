@@ -83,18 +83,32 @@ export function serializeData(data) {
  * for hydration.
  */
 export class Out {
-  /**
-   * @param {{n: number}} [ids] the id counter of the request, shared by the
-   * page's and its layouts' buffers
-   */
-  constructor(ids = { n: 0 }) {
-    /** @type {string[]} */
+  constructor() {
+    /**
+     * The HTML: text, label ids ({@link Uid}), and the chunks of another
+     * buffer (a page's in its layout's slot).
+     * @type {Array<string|Uid|Array<any>>}
+     */
     this.chunks = [];
     /** @type {Record<string, unknown>} */
     this.data = {};
-    this.ids = ids;
     /** @type {Map<string, number>} instances with loads per base key (`loadKey`) */
     this.loadKeys = new Map();
+  }
+
+  /**
+   * What the buffer holds now, as a function that takes back everything
+   * written since: its HTML (label ids included) and the load keys drawn.
+   * An `ErrorBoundary` whose content panics rewinds before its fallback,
+   * as the hydrating client puts its counters back (`counters`).
+   * @returns {() => void}
+   */
+  mark() {
+    const n = this.chunks.length, keys = new Map(this.loadKeys);
+    return () => {
+      this.chunks.length = n;
+      this.loadKeys = keys;
+    };
   }
 
   /**
@@ -113,13 +127,16 @@ export class Out {
   }
 
   /**
-   * A fresh label id (`k1`, `k2`, …), counted per request: rendering the
-   * same page twice gives the same ids, they reveal nothing about other
-   * requests, and they match the hydrating client's (`uid` restarts too).
-   * @returns {string}
+   * A fresh label id. It is numbered (`k1`, `k2`, …) when the HTML is
+   * joined ({@link joinHtml}), in document order: rendering the same page
+   * twice gives the same ids, they reveal nothing about other requests,
+   * and they match the hydrating client's, which renders a layout before
+   * its page (the server renders the page first) and restarts `uid` at
+   * `k1` with each pass.
+   * @returns {Uid}
    */
   uid() {
-    return `k${++this.ids.n}`;
+    return new Uid();
   }
 
   /** Appends trusted, already-escaped HTML. @param {string} html */
@@ -144,11 +161,41 @@ export class Out {
       this.chunks.push(` ${name}`);
       return;
     }
+    if (value instanceof Uid) {
+      this.chunks.push(` ${name}="`, value, '"');
+      return;
+    }
     this.chunks.push(` ${name}="${escapeAttribute(value)}"`);
   }
 
   /** Returns the HTML so far. @returns {string} */
   html() {
-    return this.chunks.join("");
+    return joinHtml(this.chunks);
   }
+}
+
+/** A label id of a server render ({@link Out#uid}), numbered when joined. */
+class Uid {}
+
+/**
+ * The HTML of `chunks`: nested chunks in place, each label id numbered
+ * `k1`, `k2`, … by its first appearance.
+ * @param {Array<string|Uid|Array<any>>} chunks
+ * @returns {string}
+ */
+export function joinHtml(chunks) {
+  const ids = new Map();
+  const out = [];
+  const walk = (cs) => {
+    for (const c of cs) {
+      if (typeof c === "string") out.push(c);
+      else if (Array.isArray(c)) walk(c);
+      else {
+        if (!ids.has(c)) ids.set(c, `k${ids.size + 1}`);
+        out.push(ids.get(c));
+      }
+    }
+  };
+  walk(chunks);
+  return out.join("");
 }

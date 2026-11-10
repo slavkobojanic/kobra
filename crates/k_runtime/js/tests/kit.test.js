@@ -367,6 +367,34 @@ test("the runner gives every test a fresh container and reports each outcome", a
   assertEq(results[3].failure.start, 5);
 });
 
+// An uncaught `Error`-typed value is a box `{error, text}` (codegen.md
+// §7): the report shows its text, as the run corpus' `throws` line does,
+// not the box's JSON.
+test("an uncaught Error value is reported by its text", async () => {
+  class Container {}
+  class Group {
+    constructor(c) {
+      this.c = c;
+    }
+    async $t0() {
+      throw { error: unitCase(1), text: "notFound" };
+    }
+    async $t1() {
+      throw unitCase(2);
+    }
+  }
+  const results = await kit.run(
+    [{ name: "G", file: "src/a/A.test.k", container: () => new Container(), group: Group, tests: [
+      { name: "boxed", method: "$t0", start: 0, end: 1 },
+      { name: "typed", method: "$t1", start: 0, end: 1 },
+    ] }],
+    ["G › boxed", "G › typed"],
+  );
+  assertEq(results[0].failure.message, "the test threw an error it didn't catch");
+  assertDeepEq(results[0].failure.values, [["the error", "notFound"]]);
+  assertDeepEq(results[1].failure.values, [["the error", JSON.stringify(unitCase(2))]]);
+});
+
 // A failed test's watchdog stops with it: with server work of the next
 // test in flight, a watchdog still running for a failed test would spin
 // (the failure settles its race at once) and starve the run.

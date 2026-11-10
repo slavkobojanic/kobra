@@ -107,6 +107,7 @@ parts never mention `Deno.core` or `k:testing` (tested).
 `prop`, `classList`, `style`, `on`, `when`, `branch`, `each`, `walk` (a template node by a path of
 `f`/`n` steps, which release builds use instead of `.firstChild`/`.nextSibling` chains,
 [codegen.md §17.4](codegen.md#174-walking-to-template-nodes)); `hydrate`, `isHydrating`, `readData`, `uid`,
+`counters` (puts the `uid` and `loadCtx` counters back, for an `ErrorBoundary`'s fallback),
 `textNode`, `separator`, `afterPass`, `loadCtx`;
 `KPanic`, `panic`, `isPanic`, `checkInt`, `intDiv`, `intRem`, `equals`, `unitCase`, `textOf`; `startRouter`,
 `navigate`; `child`, `slotMarkers`, `title`, `loadsOf`, `clientReady`, `lifetime`, `own`, `bound`; `CANCELLED`, `live`, `guard`; `rpc`, `rpcError`, `DEFAULT_TIMEOUT_MS`;
@@ -372,7 +373,8 @@ A server-rendered page contains the HTML from the `$ssr` renderers and one data 
   `startRouter` as `session`, which seeds the mirror (`seedSession`) without hydrating
   ([26-auth-and-sessions.md](../design/26-auth-and-sessions.md#in-the-browser)).
 - **Claiming**: `hydrate(container, render, data)` sets hydration mode, restarts `uid()` at `k1` (the
-  server counts ids per request from `k1` too, `Out.uid`) and runs the client factories;
+  server numbers each response's ids from `k1` in document order too, `Out.uid`) and runs the client
+  factories;
   `template()` claims the next unclaimed node of the expected shape instead of cloning, text bindings
   attach to existing text nodes (a `" "` placeholder may have become any text; a text the server left
   empty is created), blocks find their marker pairs and claim their children. Claiming works on ranges:
@@ -732,7 +734,11 @@ feature chunk (§1): only apps with a `@Form` ship it, and their generated code 
   dynamic value through `Out.text` or `Out.attribute`, so SSR output is always escaped; static template
   text was escaped by the compiler.
 - `Out` collects chunks: `raw(html)` (trusted, compiler-escaped), `text(value)`, `attribute(name, value)`
-  (nothing for `null`/`false`, a bare name for `true`), `html()`, and `data` for `k-data`.
+  (nothing for `null`/`false`, a bare name for `true`), `html()`, and `data` for `k-data`. `uid()` is a
+  label id object, numbered `k1`, `k2`, … by first appearance when the chunks are joined (`html()`,
+  `joinHtml(chunks)`, which also joins another buffer's chunks pushed as one: a page's in its layout's
+  slot). `mark()` returns a function that takes back what was written since and the load keys drawn
+  (`ErrorBoundary`).
 - `serializeData(data)` is JSON with `<`, `>`, `&`, U+2028 and U+2029 escaped as `\uXXXX`.
 - The markers `OPEN`, `CLOSE`, `SEPARATOR` are exported for generated renderers.
 
@@ -1082,6 +1088,9 @@ empty comment.
   bug shows), bubbling events with `stopPropagation`, `getElementById` and serialization; focus
   (`focus()`, `blur()`, `document.activeElement`); and boxes only where a test gives them (`el.rect`,
   read by `getBoundingClientRect` and `document.elementFromPoint`).
+- **An uncaught error in a test body** is reported as "the test threw an error it didn't catch" with the
+  error as a value: an `Error`-typed value (the box `{error, text}`, [codegen.md §7](codegen.md)) by its
+  text, as the run corpus' `throws` line prints it, any other typed error as its JSON.
 - **The test kit** (`testing/kit.js`, `k:testing/kit`) is what `k test` runs on: the generated test
   bundle's runtime chunk re-exports the embedded `k:runtime` and the kit (as `$test`), and answers `native`
   from the kit, so generated code, kit and fake DOM share one runtime instance ([codegen.md

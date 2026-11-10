@@ -565,7 +565,7 @@ try {{
 }}
 for (let i = 0; i < 200; i++) await Promise.resolve();
 const root = document.getElementById("k-app");
-Deno.core.ops.op_k_set_result(JSON.stringify({{ text: root.textContent, kept: before !== null && root.firstChild === before, error }}));
+Deno.core.ops.op_k_set_result(JSON.stringify({{ text: root.textContent, html: root.innerHTML, kept: before !== null && root.firstChild === before, error }}));
 "#
     );
     let out = run_js(modules, &main)?;
@@ -1062,6 +1062,96 @@ fn rendering_the_same_page_twice_gives_the_same_html() {
         } else {
             Err(format!("first:  {a}\nsecond: {b}"))
         }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Server-rendered ids and ranges (codegen.md §11.1–11.2)
+// ---------------------------------------------------------------------------
+
+/// The values of `attr="…"` in `html`, in document order.
+fn attribute_values(html: &str, attr: &str) -> Vec<String> {
+    let needle = format!(" {attr}=\"");
+    html.match_indices(&needle)
+        .filter_map(|(i, _)| {
+            let rest = &html[i + needle.len()..];
+            rest.find('"').map(|e| rest[..e].to_owned())
+        })
+        .collect()
+}
+
+/// The `hydration-ids` home page, server-rendered and then hydrated:
+/// `(server body, hydration result)`.
+fn hydrated_home() -> Result<(String, serde_json::Value), String> {
+    let output = client_build("hydration-ids")?;
+    let body = server_body("hydration-ids", "/home")?;
+    let r = client_start(&output, "/home", &body)?;
+    if !r["error"].is_null() {
+        return Err(format!("start-up threw: {r}"));
+    }
+    Ok((body, r))
+}
+
+/// A server-rendered `for i in 1...3` failed the request with "`$k.closedRange`
+/// is not a function or its return value is not iterable": the server
+/// renderer iterated the `Range` itself, which isn't a JavaScript
+/// iterable. Closed and half-open ranges render, and hydrate, their values.
+#[test]
+fn a_for_loop_over_a_range_renders_on_the_server_and_hydrates() {
+    passing(|| {
+        let (body, r) = hydrated_home()?;
+        let rows = "closed 1closed 2closed 3open 0open 1";
+        let text = r["text"].as_str().unwrap_or("");
+        if !body.contains("closed 1</li>") || !body.contains("open 1</li>") {
+            return Err(format!("server body: {body}"));
+        }
+        if !text.contains(rows) {
+            return Err(format!("hydrated: {r}"));
+        }
+        if r["kept"] != serde_json::Value::Bool(true) {
+            return Err(format!("the server's nodes were replaced: {r}"));
+        }
+        Ok(())
+    });
+}
+
+/// Label ids are numbered in document order on both sides. The server
+/// rendered the page before its layout (whose slot holds the page's HTML)
+/// and numbered as it rendered, so the layout's field got the last id
+/// while the hydrating client, which renders the layout first, gave it
+/// `k1`; and a panicking `ErrorBoundary` content's ids weren't taken back
+/// with its HTML, so the fallback's started after them, while the client
+/// re-rendered the fallback after the pass with ids after the whole page's.
+#[test]
+fn label_ids_agree_between_the_server_and_the_hydrated_page() {
+    passing(|| {
+        let (body, r) = hydrated_home()?;
+        let html = r["html"].as_str().unwrap_or("");
+        let server = attribute_values(&body, "for");
+        let client = attribute_values(html, "for");
+        let expected = ["k1", "k2", "k3"];
+        if server != expected {
+            return Err(format!(
+                "server ids {server:?}, expected {expected:?}: {body}"
+            ));
+        }
+        if attribute_values(&body, "id")
+            .iter()
+            .filter(|v| v.starts_with('k') && v[1..].bytes().all(|b| b.is_ascii_digit()))
+            .collect::<Vec<_>>()
+            != expected.iter().collect::<Vec<_>>()
+        {
+            return Err(format!("server control ids: {body}"));
+        }
+        if client != server {
+            return Err(format!(
+                "client ids {client:?}, server ids {server:?}: {html}"
+            ));
+        }
+        if !html.contains("Other") || html.contains("Note") {
+            return Err(format!("the fallback is not what shows: {html}"));
+        }
+        Ok(())
     });
 }
 

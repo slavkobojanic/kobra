@@ -31,7 +31,7 @@ import { SERVICE_TOKEN_HEADER, verifyServiceToken } from "./remote.js";
 import { KPanic, isPanic, panic, unitCase } from "./values.js";
 import { currencyCode } from "./money.js";
 import { DecodeFailure, Instant, NO, Secret, parseEmail, parseQuery, parseTimeZone, parseUuid, route, routeParam, splitTarget, stringify, toJSON } from "./std.js";
-import { Out, escapeAttribute, escapeText, serializeData } from "./ssr.js";
+import { Out, escapeAttribute, escapeText, joinHtml, serializeData } from "./ssr.js";
 import { httpStatus, received, runJobBody, wireRequest } from "./outbound.js";
 import * as http from "./http.js";
 import * as crypto from "./crypto.js";
@@ -1640,25 +1640,27 @@ async function renderPage(st, r, params) {
     return respond(200, HTML, documentHtml(spec, st, mergeMeta([meta]), "", data, r.name ?? null));
   }
   const pageMeta = new Metadata();
-  const ids = { n: 0 };
-  const out = new Out(ids);
+  const out = new Out();
   const ctx = { c: st.c, key: "0", meta: pageMeta, status: 200, failed: null };
   await r.render(props(params), ctx, out);
   const data = { v: 1, now: nowText(st), session: null, c: {} };
   Object.assign(data.c, out.data);
-  let html = out.html();
+  // The page's chunks go into its layouts' slots unjoined, so its label
+  // ids are numbered after the layouts' that come before it (`joinHtml`).
+  let chunks = out.chunks;
   const layoutMetas = [];
   const layouts = r.layouts ?? [];
   for (let i = layouts.length - 1; i >= 0; i--) {
     const lm = new Metadata();
-    const lo = new Out(ids);
-    const inner = html;
+    const lo = new Out();
+    const inner = chunks;
     const lctx = { c: st.c, key: `L${i}`, meta: lm, status: 200, failed: null };
-    await layouts[i]({ content: (o) => o.raw(inner) }, lctx, lo);
+    await layouts[i]({ content: (o) => o.chunks.push(inner) }, lctx, lo);
     Object.assign(data.c, lo.data);
-    html = lo.html();
+    chunks = lo.chunks;
     layoutMetas.unshift(lm);
   }
+  const html = joinHtml(chunks);
   const appMeta = new Metadata();
   spec.appMeta?.(appMeta);
   const meta = mergeMeta([appMeta, ...layoutMetas, pageMeta]);
