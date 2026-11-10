@@ -3145,6 +3145,52 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                     patterns[0],
                     ast::Pattern::WildcardPattern(_) | ast::Pattern::BindingPattern(_)
                 );
+            let unknown = match patterns.as_slice() {
+                [ast::Pattern::WildcardPattern(w)] => {
+                    w.is_unknown().then(|| w.syntax().text_range())
+                }
+                _ => None,
+            };
+            // `catch unknown` runs only for cases the clauses before it
+            // don't name, which once they named every case means a case
+            // added since: a warning, not K2206 or K2302, so the program
+            // still builds (09-errors.md).
+            if let Some(word) = unknown
+                && !broken
+                && !catch_all_seen
+                && !types.is_empty()
+            {
+                let mut missing: Vec<String> = Vec::new();
+                for (i, ty) in types.iter().enumerate() {
+                    for pat in rows_per_type[i].missing(self, ty) {
+                        if !missing.contains(&pat) {
+                            missing.push(pat);
+                        }
+                    }
+                }
+                if !missing.is_empty() {
+                    let indent = self.line_indent(node.text_range().start());
+                    let text: String = missing
+                        .iter()
+                        .map(|pat| format!("catch {pat} {{\n{indent}}} "))
+                        .collect();
+                    let d = Diagnostic::new(
+                        codes::UNKNOWN_CATCH_NOT_EXHAUSTIVE,
+                        self.span(word),
+                        "`catch unknown` catches a case the clauses before it don't name",
+                    )
+                    .with_note(missing_note(&missing))
+                    .with_fix(
+                        Fix::replace(
+                            "Insert the missing `catch` clauses",
+                            self.span(TextRange::empty(catch_kw.start())),
+                            text,
+                        )
+                        .maybe_incorrect(),
+                    );
+                    self.report(d);
+                }
+            }
             for p in &patterns {
                 // Which thrown type does the pattern apply to?
                 let mut applied = false;
@@ -3205,7 +3251,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                         }
                     }
                 }
-                if catch_all_seen || !clause_useful {
+                // `catch unknown` after clauses naming every case is its
+                // point: it waits for a case added later.
+                let waits = unknown.is_some() && !types.is_empty();
+                if catch_all_seen || !(clause_useful || waits) {
                     let d = Diagnostic::new(
                         codes::UNREACHABLE_ARM,
                         self.span(catch_kw),

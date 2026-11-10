@@ -247,6 +247,45 @@ func refresh() async {
 - Like `default` in `match`, a catch-all is a **compile error when unreachable**, meaning every case is
   already handled. `catch` has no `default`; `catch _` takes its place.
 
+### Catching cases added later: `catch unknown`
+
+A list that names every case breaks when the error enum gains one: the new case isn't handled, so the
+`do` is an error (`K2206`) until each list is updated. `catch _` avoids that, but then a new case is
+handled silently, and nobody is told. **`catch unknown`** is the catch-all in between: write it after
+clauses that name every case, and it runs only for a case they don't name.
+
+```k
+enum SaveError implements Error {
+    case offline
+    case conflict
+}
+
+~func save() throws SaveError {}
+~
+func saveNow() -> String {
+    do {
+        try save()
+        return "Saved."
+    } catch .offline {
+        return "You're offline."
+    } catch .conflict {
+        return "Someone else changed it."
+    } catch unknown {
+        return "Couldn't save."
+    }
+}
+```
+
+- **It is never unreachable,** even though every case is named: it waits for one added later.
+- **Once a case is added, the program still builds,** and the new case runs `catch unknown`'s block.
+  The compiler warns (`K2207`) at each such `catch unknown`, listing the cases its clauses no longer
+  name, with a fix that inserts them; `k check` fails on the warning, so CI finds every list.
+- It binds nothing and takes no guard, and it is the last clause. `unknown` is a keyword only right
+  after `catch`, before the block, so `.unknown` stays a case name.
+- Use it where a list of every case is worth keeping, such as an error shown to the user case by case.
+  `match` has no counterpart: a new case of a value enum usually needs new behavior, which `K2301`
+  asks for.
+
 ## Wrapping at layer boundaries
 
 **Errors are wrapped, not unioned.** A service that calls two protocols declares its own error enum and

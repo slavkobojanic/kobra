@@ -339,7 +339,7 @@ the view it checks:
 | `list()`, `alert()`, `status()` | the only element of that kind; `alert` and `status` are live regions |
 | `items()`, `buttons()`, … | plural forms, returning a possibly empty `List` |
 | `screen.title` | the document title from the `metadata` blocks in effect |
-| `screen.currentPage` | the `Page` the router is on, updated by `Router.navigate(to:)` |
+| `screen.currentPage` | the `Page` the router is on, updated by `Router.navigate(to:)` and links |
 | `await screen.settle()` | waits until no `@Load`, async effect or handler is in flight |
 | `screen.unmount()` | unmounts the view, running every `onCleanup` |
 
@@ -364,6 +364,26 @@ the view it checks:
 **`render(SomePage(param: value))` renders a page** without its layout, exactly as the router would after
 navigating to it: its `@Load` fields start at once, and `loading`, `view` or `failed` is shown as they
 resolve. Guards still apply.
+
+**A navigation shows the page it goes to,** inside its layouts, on the screen of the rendered page, as
+the router would in a browser: the page that was shown is unmounted, and after `await screen.settle()`
+the queries find the new one. Huddle's lobby creates a room and checks the room it opened:
+
+```k
+// examples/huddle/src/chat/Lobby.test.k
+        screen.textField(labeled: "Room name").fill(" Team ")
+        screen.button(named: "Create room").click()
+        await screen.settle()
+
+        // The screen shows the room it navigated to, inside the app's
+        // layout, as the browser would.
+        expect screen.currentPage == .room(name: "team")
+        expect screen.heading(named: "#team").exists
+        expect screen.button(named: "Sign out").exists
+```
+
+A test's screens share one browser, so one of them follows the URL: the newest rendered page still
+mounted. A rendered component's screen keeps showing the component; `currentPage` still changes.
 
 ## Time
 

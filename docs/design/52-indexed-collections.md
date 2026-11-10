@@ -142,7 +142,7 @@ indexes = ["savedAt"]
 
 A collection is matched with its entry by name, else by `declaration`:
 
-- **Compatible:** adding an optional field to the value type, a new enum case, a new index, removing an index.
+- **Compatible:** adding an optional or defaulted field to the value type, a new enum case, a new index, removing an index.
 - **`K8009`, unless the collection is marked `@Breaking("reason")`:** a change to the value's recorded shape that stored values wouldn't decode under (as for keys: a field removed, renamed or retyped, a required field added), or a renamed collection (the values stay under the old name). The values users' browsers hold would then read as `.unreadable`, or not at all, which the service must handle.
 - **`K8009` always:** a different key field. Stored records keep the key they were written with, so the same value would have two keys. Declare a new collection under a new name instead; the old store is left in place.
 

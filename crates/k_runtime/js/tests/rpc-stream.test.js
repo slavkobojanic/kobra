@@ -285,6 +285,22 @@ test("Stream.prefix(while:) ends at the first refused element and closes its sou
   assertEq(closed, 1);
 });
 
+test("Stream.prefix(through:) yields the first accepted element, then ends and closes its source", async () => {
+  const src = new PushStream();
+  let closed = 0;
+  src.close = () => closed++;
+  const upTo = streamPrefix(src, async (c, v) => v === 2, true);
+  src.push(1);
+  src.push(2);
+  src.push(3);
+  assertEq(await upTo.next(), 1);
+  assertEq(closed, 0);
+  assertEq(await upTo.next(), 2, "the element that ends it is yielded");
+  assertEq(closed, 1, "the source is closed as it ends");
+  assertEq(await upTo.next(), null, "3 is never read");
+  assertEq(closed, 1);
+});
+
 test("leaving a for await over a derived stream closes its source and cancels the call running", async () => {
   const src = new PushStream();
   let closed = 0;

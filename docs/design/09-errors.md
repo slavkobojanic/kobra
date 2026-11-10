@@ -92,6 +92,32 @@ func refresh() async {
 - It must be the last clause. Like `default` in `match`, it is a **compile error when unreachable**, meaning every case is already handled.
 - `match` has the same pair: `case let other` binds, and `default` doesn't ([08-types.md](08-types.md#match)). `catch` has no `default`, so `catch _` takes its place.
 
+## Cases added later: `catch unknown`
+
+**Decision** (2026-11-11, from huddle: adding a case to an error enum broke every complete catch list at every call site). Error enums grow: a new failure of an rpc, a new `HttpError`. A `do` whose clauses name every case breaks when one is added (K2206), and the only alternative, `catch _`, takes every future case silently. **`catch unknown`** is the catch-all between the two, as Swift's `@unknown default` is for `switch`:
+
+```k
+do {
+    try await notes.save(note)                  // throws SaveError: conflict, tooLarge, rpcFailure
+} catch .conflict {
+    problem = "Someone else changed this note."
+} catch .tooLarge {
+    problem = "The note is too long."
+} catch .rpcFailure {
+    problem = "Couldn't save. Check your connection."
+} catch unknown {
+    problem = "Couldn't save."                  // a case SaveError gains later
+}
+```
+
+- **It runs for the cases the clauses before it don't name,** like `catch _`; it binds nothing, takes no guard and must be last.
+- **It is never unreachable** (no K2302) after clauses that name every case: that is what it is for. After another catch-all it is K2302, as any clause is.
+- **When its clauses don't name every case, it is a warning, K2207 `unknown-catch-not-exhaustive`,** at `unknown`, listing the missing cases, with a fix that inserts their clauses before it. A warning, not an error: the program builds, runs and handles the new case with `catch unknown`'s block, and `k check` (which fails on any problem) still finds every list in CI. A `do` the new case reaches without `catch unknown` is K2206 as before.
+- **`unknown` is a keyword only between `catch` and `{`.** A bare name in a pattern was already K0115, so no program changes meaning; `.unknown` is still a case.
+- **`match` keeps its rules.** A new case of a value enum usually needs new behavior, which K2301 asks for at each `match`; an error, unlike a value, has an obvious fallback (say it failed), and errors are what an outside party (a service in a workspace, the standard library) adds to.
+
+Why: the compiler can't tell a case added later from one forgotten, but the person who wrote the clauses can say "every case I know of, and a fallback for the rest". That keeps the list checked against the enum (the warning names what it gained) without breaking builds when an enum another team or the toolchain owns gains a case, which [48](48-releases-and-versioning.md#open-questions) asked about for `RpcFailure` and `HttpError`. **Alternatives:** `@Extensible` error enums whose every catch needs a catch-all (Rust's `#[non_exhaustive]`): the enum's author would decide for every caller, the catch-all would hide new cases with no warning, and the app's own enums, where the friction was felt, gain nothing; allowing an unreachable `catch _` (new cases silently handled, the same as today's `catch _`); a warning instead of K2206 for every incomplete list (an error forgotten in a list would then reach the function's caller as nothing at all, since the `do` would have to catch it somehow); recording each enum's cases in a lockfile to tell new ones apart (only rpc errors have a lock).
+
 ## Error-generic functions
 
 A function can take a block whose error type it passes through:

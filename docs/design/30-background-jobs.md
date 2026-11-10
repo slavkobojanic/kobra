@@ -110,7 +110,7 @@ service PurgeExpiredCarts implements Job<Void> { … }
 Jobs queued during a rolling deploy are run by the next release, so the queue's format is recorded in **`storage.lock`** with the compatibility rules of `rpc.lock` ([11-protocols-and-rpc.md](11-protocols-and-rpc.md#field-numbers-and-rpclock)). The file's format is specified in [36-local-storage.md](36-local-storage.md#storagelock):
 
 - Each job's name and payload shape are recorded.
-- Adding an optional field to a payload is compatible. Removing or renaming a field, changing its type, or adding a required field is a `k check` error unless the job is marked `@Breaking("reason")`.
+- Adding an optional field, or one with a default, to a payload is compatible (a struct's or a case payload's, as in `rpc.lock`). Removing or renaming a field, changing its type, or adding a required field is a `k check` error unless the job is marked `@Breaking("reason")`.
 - **The comparison is by shape, not by name,** through every type reachable from the payload: renaming the payload struct with the same fields is compatible, removing a case of an enum it uses is not, adding one is. A required field made optional is compatible; an optional one made required is not. The error is `K8003 incompatible-job-payload`, at the payload type of `implements Job<…>`, with one note per incompatible change. `@Breaking` goes on the job service.
 
 ## Tests

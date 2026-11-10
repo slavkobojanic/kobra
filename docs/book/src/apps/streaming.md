@@ -72,11 +72,12 @@ public service NoteChanges {
 |---|---|
 | `filter { … }`, `map { … }` | lazily transformed streams; the lambda may `await` |
 | `prefix(while: { … })` | the elements up to the first the lambda refuses, then the end; the lambda may `await` |
+| `prefix(through: { … })` | the elements up to and including the first the lambda accepts, then the end; the lambda may `await` |
 | `startingWith(value)` | a stream that yields `value` first, then the elements of this one |
 | `Stream.merge(first, second)` | a stream of the elements of both as they arrive, ending when both have (one handler following two broadcasts) |
 | `next() async -> T?` | the next element, or `nil` once the stream has ended |
 
-The lambdas of `filter`, `map` and `prefix(while:)` are async, so they can read the database for each
+The lambdas of `filter`, `map` and both `prefix` operators are async, so they can read the database for each
 element. Huddle's lobby passes on a room's posts only while the person is still a member, checked each
 time, so a moderator's removal on another replica counts at once:
 
@@ -88,7 +89,9 @@ time, so a moderator's removal on another replica counts at once:
 - Each element waits for the call on the one before, so a stream keeps its order and never runs two
   calls at once. Nothing is read ahead of the reader.
 - `prefix(while:)` drops the element its lambda refuses, ends, and closes the stream it reads, which
-  releases a `Broadcast` subscription at once.
+  releases a `Broadcast` subscription at once. `prefix(through:)` keeps the element its lambda
+  accepts, then ends the same way: a channel's last message
+  ([Channels](channels.md#the-server-the-handler)).
 - Closing a derived stream (leaving a `for await`, a channel or a request ending) closes every stream it
   reads, and cancels a call that is waiting at an `await`.
 - A plain function works too: `stream.filter(isVisible)`.

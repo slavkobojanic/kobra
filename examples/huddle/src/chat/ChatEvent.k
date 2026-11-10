@@ -18,6 +18,6 @@ public enum ChatEvent implements Codable, Equatable {
     /// that has any, and again whenever they change.
     case moderators(names: List<String>)
     /// A moderator removed `name` from the room. Their channel hears this
-    /// last.
+    /// last: the server closes it after (`ChannelClose.byServer`).
     case removed(name: String)
 }

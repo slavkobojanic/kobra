@@ -238,6 +238,7 @@ Messages and detail lines for this range that the corpus pins exactly:
 | K2204 | `missing-await` | error | The call or query expression. | Insert `await ` before the covering expression, as for K2201 (machine-applicable inside an async function). |
 | K2205 | `await-outside-async` | error | The `await` token; label: the enclosing signature. | Add `async` to the function (maybe-incorrect). |
 | K2206 | `catch-not-exhaustive` | error | The `do` keyword; a note lists the missing patterns. | Insert `catch` clauses for the missing cases (maybe-incorrect). |
+| K2207 | `unknown-catch-not-exhaustive` | warning | The `unknown` of a `catch unknown` whose earlier clauses don't name every case of the thrown errors (a case was added since); a note lists them ([09-errors.md](../design/09-errors.md#cases-added-later-catch-unknown)). | Insert `catch` clauses for the missing cases before it (maybe-incorrect). |
 
 ### Control flow (K2300–K2399)
 

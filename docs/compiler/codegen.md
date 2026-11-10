@@ -1109,7 +1109,7 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
   is the plain object `{ sending, closed, receiving }` (`closed` `undefined` when left out), which the
   server runtime pumps ([server.md §20](server.md#20-channels)). `Stream.merge(a, b)` is
   `$k.streamMerge(a, b)` on both sides; `filter`, `map` and `prefix(while:)` are `$k.streamFilter`,
-  `$k.streamMap` and `$k.streamPrefix`, whose function is an async K function value (`f($c, v)`), called
+  `$k.streamMap` and `$k.streamPrefix` (`prefix(through:)` is `$k.streamPrefix(s, f, 1)`, told apart by its label), whose function is an async K function value (`f($c, v)`), called
   by the stream with its own `AbortSignal`, aborted when the stream is closed.
 - **Remote clients** ([40-workspaces-and-services.md](../design/40-workspaces-and-services.md)). The
   server emits `P$remote` for every protocol the app calls in another service and doesn't implement
@@ -1581,7 +1581,8 @@ isolate.
   rules (a type operand reads that service from the container, so `@Inject let fake: FakeX` sees the same
   instance; a value operand is memoized). It exports `$groups`: name, file, container factory, class and
   tests (name, method, the range of the name), and `$pages`, the pages' typed URL matchers, for
-  `Screen.currentPage`.
+  `Screen.currentPage`, each with the page's `layouts` (outermost first) and `render(params, ctx)`, as
+  the client route table has them, for the page a navigation shows.
 - All pages go into the shared chunk (the entry imports them). The runtime chunk is
   `export * from "k:runtime"; export * as $test from "k:testing/kit"; export { native } from …`, and a
   feature chunk re-exports its embedded module, so everything shares one runtime instance

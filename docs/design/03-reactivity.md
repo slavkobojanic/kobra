@@ -78,6 +78,8 @@ func track() {
 }
 ```
 
+**A dependency in `on:` is any reactive value the declaration can read** (decided 2026-11-11, from huddle, whose room page had to copy `room.isSeen` into a `@Derived` of its own): a field of its own with a reactive annotation (`@State`, `@Prop`, `@Binding`, `@Derived`, `@Load`, `@Form`, `@Param`), a path into one, or a field of an injected service that is reactive: a `var`, or one with any of those annotations, a service's `@Derived` included. Each is read once per run inside the effect's tracking, so the effect re-runs when it changes, as a body read would. Anything else (a literal, a plain `let` or `var` of a component, a service's plain `let`, a function call) is K2001, since it would never make the effect re-run. Why only these: the dependency list is a promise that a change re-runs the effect, which the compiler can keep only for values it knows are signals. **Alternative:** accepting any expression and tracking whatever it happens to read (it would accept `[clock.now]`, which never changes the effect, without a word).
+
 `@Effect(on: [])` runs once after mount and never re-runs. It is how a page follows a server stream for as long as it is shown ([29-server-streaming.md](29-server-streaming.md)).
 
 ## Async effects

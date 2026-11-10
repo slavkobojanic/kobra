@@ -17,7 +17,8 @@
 //!   factory, class and tests (name, method, and the source range of the
 //!   name, where a test that fails outside an `expect` is reported); and
 //!   `$pages`, the typed URL matchers of the pages, for
-//!   `Screen.currentPage`;
+//!   `Screen.currentPage`, with each page's layouts and renderer, which
+//!   a rendered page's screen shows after a navigation;
 //! * the **server entry** (`k:/app/$server.js`) is the app's, except that
 //!   it exports `$test` instead of serving: the request handler, one
 //!   server container class per group (`$S<N>`, with the group's
@@ -585,19 +586,44 @@ pub(crate) fn entry(g: &Gen<'_>) -> (Vec<Stmt>, BTreeSet<(DeclId, String)>) {
         ));
     }
     stmts.push(Stmt::ExportConst("$groups".into(), Expr::Array(entries)));
-    // The pages by URL, most specific first, for `Screen.currentPage`:
-    // the same typed matchers as the router's (`routes` names the table,
-    // which a `Page` parameter's matcher reads).
+    // The pages by URL, most specific first, for `Screen.currentPage` and
+    // for the page a navigation shows in a rendered page's screen: the
+    // same typed matchers as the router's (`routes` names the table,
+    // which a `Page` parameter's matcher reads), and each page's layouts,
+    // outermost first, and renderer, as the router's table has them.
     let mut routes = Vec::new();
     for p in crate::server::ordered_pages(g) {
         b.file = g.view.decl(p).file;
         let tpl = crate::app::template(g, p);
         let parse = crate::server::matcher(&mut b, p, &tpl);
         let value = crate::server::page_value(&mut b, p);
+        let layouts: Vec<Expr> = crate::server::layouts_of(&b, p)
+            .iter()
+            .map(|l| b.decl_ref(*l))
+            .collect();
+        let page = b.decl_ref(p);
+        let render = js::arrow(
+            vec![Param::new("params"), Param::new("ctx")],
+            call(
+                page,
+                vec![
+                    js::rt("paramProps", vec![id("params")]),
+                    Expr::Object(
+                        vec![
+                            Prop::Spread(id("ctx")),
+                            Prop::KeyValue("key".into(), js::str("0")),
+                        ],
+                        false,
+                    ),
+                ],
+            ),
+        );
         routes.push(Expr::Object(
             vec![
                 Prop::KeyValue("parse".into(), parse),
                 Prop::KeyValue("value".into(), value),
+                Prop::KeyValue("layouts".into(), Expr::Array(layouts)),
+                Prop::KeyValue("render".into(), render),
             ],
             false,
         ));

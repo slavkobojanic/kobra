@@ -157,8 +157,8 @@ impl Checker<'_, '_, '_> {
     }
 
     /// Returns `true` for a reactive place: a field with a reactive
-    /// annotation, a path into one, or a service's state read through an
-    /// injected field.
+    /// annotation, a path into one, or a service's `var` or reactive field
+    /// read through an injected field.
     pub(crate) fn is_reactive_place(&self, e: &ast::Expr) -> bool {
         match e {
             ast::Expr::ParenExpr(p) => p
@@ -180,14 +180,16 @@ impl Checker<'_, '_, '_> {
                 if self.is_reactive_place(&recv) {
                     return true;
                 }
-                // `cart.items`: a service's `@State` or `var` field.
+                // `cart.items`, `room.isSeen`: a service's `var` field or
+                // reactive one (`@State`, `@Derived`, …), which its
+                // injected instance shares with every reader.
                 let Some(name) = m.name() else { return false };
                 match self.targets.get(&name.text_range()) {
                     Some(Target::Member(f)) => {
                         let member = self.cx.p.member(*f);
                         let owner = self.cx.p.decl(member.owner).named_kind();
                         owner == Some(crate::stdlib::DeclarationKind::Service)
-                            && (member.is_var || member.has_annotation("State"))
+                            && (member.is_var || REACTIVE.iter().any(|a| member.has_annotation(a)))
                     }
                     _ => false,
                 }

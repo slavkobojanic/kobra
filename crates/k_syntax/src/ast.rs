@@ -843,6 +843,17 @@ impl EnumDecl {
     }
 }
 
+impl WildcardPattern {
+    /// Returns `true` for `catch unknown`'s pattern: the catch-all for
+    /// cases added after the clauses before it were written.
+    #[must_use]
+    pub fn is_unknown(&self) -> bool {
+        self.syntax
+            .first_token()
+            .is_some_and(|t| t.kind() == SyntaxKind::Ident)
+    }
+}
+
 impl ImplementsClause {
     /// Returns the implemented interfaces, protocols or conformances.
     #[must_use]

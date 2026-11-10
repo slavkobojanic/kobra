@@ -21,7 +21,12 @@ public service LobbyService {
     @State var channel: Channel<LobbyCommand, LobbyEvent, LobbyError>? = nil
 
     /// Follows the lobby until the caller is cancelled (the page is left).
+    /// The list starts empty: the counts kept on an earlier visit stopped
+    /// being kept when that visit's channel closed, so they wait for this
+    /// channel's snapshot instead of showing a stale count.
     func follow() async throws RpcOnlyError {
+        rooms = []
+
         let opened = try await lobby.lobby()
 
         channel = opened

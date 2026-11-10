@@ -95,6 +95,7 @@ K2203: Catch the error with `do`/`catch`, or declare the error type in the funct
 K2204: Add `await` before the call or query (machine-applicable fix).
 K2205: Make the enclosing function `async`, or move the call into an async function or handler.
 K2206: Add `catch` clauses for the missing cases (the quick fix adds them), a `catch let error`, or declare the error in `throws`.
+K2207: Add `catch` clauses for the cases the error gained (the quick fix adds them before `catch unknown`); until then `catch unknown` handles them.
 K2301: Handle the missing cases (the quick fix adds them), or add a `default` arm.
 K2302: Remove the arm, or move it before the arm that already covers its values.
 K2303: Write `default` instead of `case _` (machine-applicable fix).

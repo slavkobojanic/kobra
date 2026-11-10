@@ -405,6 +405,9 @@ codes! {
     /// The `catch` clauses of a `do` don't handle every case of the thrown error.
     CATCH_NOT_EXHAUSTIVE = 2206, "catch-not-exhaustive", Error,
         "The `catch` clauses of a `do` don't handle every case of the thrown error.";
+    /// The clauses before a `catch unknown` don't name every case of the thrown error: a case was added since they were written.
+    UNKNOWN_CATCH_NOT_EXHAUSTIVE = 2207, "unknown-catch-not-exhaustive", Warning,
+        "The clauses before a `catch unknown` don't name every case of the thrown error: a case was added since they were written, and `catch unknown` handles it for now.";
 
     // ---------------------------------------------------------------- control flow
     /// A `match` doesn't handle every value of its subject.

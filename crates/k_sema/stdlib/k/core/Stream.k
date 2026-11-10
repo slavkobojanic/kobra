@@ -16,6 +16,12 @@ public struct Stream<T> {
     /// this stream is closed, so a `Broadcast` subscription is released.
     /// `predicate` may await.
     func prefix(while predicate: (T) async -> Bool) -> Stream<T>
+    /// Returns a stream of the elements up to and including the first for
+    /// which `predicate` is `true`, then ends: that element is yielded,
+    /// and this stream is closed. A channel's `sending` stream ends so,
+    /// which closes the channel `byServer` after its last message
+    /// (`docs/design/44-channels.md`). `predicate` may await.
+    func prefix(through predicate: (T) async -> Bool) -> Stream<T>
     /// Returns a stream that yields `value` first, then the elements of
     /// this one.
     func startingWith(_ value: T) -> Stream<T>

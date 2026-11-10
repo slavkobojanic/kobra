@@ -8,16 +8,14 @@ test Moderation {
     @Inject let sessions: SessionManager
     @Inject let peers: TestPeers
 
-    /// Ana creates `#team` from her own tab (she moderates it) and opens it.
+    /// Ana creates `#team` from her own tab (she moderates it), which
+    /// opens it on the same screen.
     func anasTeam() async -> Screen {
         await sessions.signIn(userId: AccountId(name: "ana"))
-        let lobby = render(Lobby())
-        await lobby.settle()
-        lobby.textField(labeled: "Room name").fill("team")
-        lobby.button(named: "Create room").click()
-        await lobby.settle()
-
-        let screen = render(Room(name: "team"))
+        let screen = render(Lobby())
+        await screen.settle()
+        screen.textField(labeled: "Room name").fill("team")
+        screen.button(named: "Create room").click()
         await screen.settle()
         return screen
     }
@@ -110,7 +108,7 @@ test Moderation {
         }
     }
 
-    test "a removed member hears nothing more and can't come back" {
+    test "a removed member's channel ends with their removal, and they can't come back" {
         let screen = await anasTeam()
         let bob = await bob()
         let chat: ChatProtocol = bob.client()
@@ -126,15 +124,17 @@ test Moderation {
         screen.button(named: "Send").click()
         await screen.settle()
 
+        // The server ends Bob's channel: its removal is the last message,
+        // and the channel closes `byServer`.
         let events = channel.messages
         var last: ChatEvent? = nil
-        var removed = false
-        while not removed {
-            last = await events.next()
-            removed = last == .removed(name: "bob")
+        while let event = await events.next() {
+            last = event
         }
 
-        expect throws CommandError.removedFromRoom {
+        expect last == .removed(name: "bob")
+        expect channel.state == .closed(.byServer)
+        expect throws CommandError.rpcFailure(.offline) {
             try await channel.send(.post(text: "let me in", clientId: Uuid.random()))
         }
         expect throws RoomError.removed {

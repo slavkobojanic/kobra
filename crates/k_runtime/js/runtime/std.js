@@ -2188,7 +2188,8 @@ class MappedStream {
   /**
    * @param {{next: () => Promise<unknown>}} source
    * @param {(c: AbortSignal, v: any) => any} step resolves `[keep, value]`:
-   *   `keep` is truthy to yield `value`, falsy to skip it, `2` to end
+   *   `keep` is truthy to yield `value`, falsy to skip it, `2` to end, `3`
+   *   to yield it and end
    * @param {unknown[]} [initial]
    */
   constructor(source, step, initial) {
@@ -2207,10 +2208,11 @@ class MappedStream {
       const v = this.ended ? null : await this.source.next();
       if (v === null) return null;
       const [keep, value] = await this.step(this.c.signal, v);
-      if (keep === 2) {
-        // `prefix(while:)` ended: the source is no longer read.
+      if (keep > 1) {
+        // A `prefix` ended (`3` yields its last element): the source is no longer read.
         this.ended = true;
         closeChain(this.source);
+        if (keep > 2) return value;
       } else if (keep) return value;
     }
   }
@@ -2248,13 +2250,15 @@ export function streamMap(s, f) {
 }
 
 /**
- * `Stream.prefix(while:)`: ends at the first element `f` refuses.
+ * `Stream.prefix(while:)`: ends at the first element `f` refuses; with
+ * `t`, `prefix(through:)`: ends after the first element `f` accepts.
  * @param {{next: Function}} s
  * @param {(c: AbortSignal, v: any) => Promise<boolean>} f
+ * @param {1} [t]
  * @returns {MappedStream}
  */
-export function streamPrefix(s, f) {
-  return new MappedStream(s, async (c, v) => [(await f(c, v)) || 2, v]);
+export function streamPrefix(s, f, t) {
+  return new MappedStream(s, async (c, v) => [(await f(c, v)) ? 1 + 2 * (t || 0) : t || 2, v]);
 }
 
 /**

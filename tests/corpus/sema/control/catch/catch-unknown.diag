@@ -1,0 +1,10 @@
+warning[K2207] 36:13-36:20: `catch unknown` catches a case the clauses before it don't name
+  note: missing: `.tooLarge`
+  fix "Insert the missing `catch` clauses" maybe-incorrect
+    edit 36:7-36:7 "catch .tooLarge {\n    } "
+error[K2302] 45:7-45:12: this `catch` clause can never run
+  fix "Remove the arm" maybe-incorrect
+    edit 45:6-46:6 ""
+error[K2302] 52:7-52:12: this `catch` clause can never run
+  fix "Remove the arm" maybe-incorrect
+    edit 52:6-53:6 ""

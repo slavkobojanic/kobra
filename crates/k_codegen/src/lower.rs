@@ -1105,18 +1105,16 @@ impl<'g, 'a> Body<'g, 'a> {
         }
     }
 
-    /// Lowers a `while` loop. A condition that needs statements is evaluated at
-    /// the top of `while (true)` and breaks out when false.
+    /// Lowers a `while` loop. A condition that needs statements (an `await`,
+    /// a `let` condition's temporary) is evaluated at the top of
+    /// `while (true)` and breaks out when false, so `while let` binds each
+    /// iteration's value.
     fn while_stmt(&mut self, node: &SyntaxNode) {
-        let cond = node.children().find_map(ast::Expr::cast);
         let body = node.children().find_map(ast::Block::cast);
         if let Some(b) = &body {
             self.kill_aliases(b.syntax());
         }
-        let (pre, c) = self.capture(|b| match &cond {
-            Some(c) => b.expr(c),
-            None => Expr::Bool(true),
-        });
+        let (pre, c) = self.capture(|b| b.conditions(node).0);
         self.enter_loop();
         let stmts = match &body {
             Some(b) => self.block_stmts(b),

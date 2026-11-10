@@ -517,6 +517,8 @@ export function installBrowser(seed = "") {
   globalThis.history = {
     pushState: (_s, _t, url) => {
       location.href = url;
+      // A navigation shows its page, as the router would (21-testing.md).
+      queueMicrotask(follow);
     },
     replaceState: (_s, _t, url) => {
       location.href = url;
@@ -1093,6 +1095,14 @@ class Handle extends Queries {
     }
     const e = event("click");
     el.dispatchEvent(e);
+    // An internal link navigates, as the router makes it in a browser.
+    const link = closestLink(el);
+    const href = link && attr(link, "href");
+    if (href?.startsWith("/") && !href.startsWith("//") && !e.defaultPrevented && !attr(link, "target")) {
+      navigate(href);
+      flush();
+      return;
+    }
     const isSubmit = (tag(el) === "button" && (attr(el, "type") ?? "submit") === "submit") || (tag(el) === "input" && type(el) === "submit");
     const form = isSubmit && !e.defaultPrevented ? formOf(el) : null;
     if (form !== null) submit(form);
@@ -1183,6 +1193,12 @@ class Handle extends Queries {
     to.dispatchEvent(event("click", at(16)));
     flush();
   }
+}
+
+/** The `a` element `el` is in, itself included, if any. */
+function closestLink(el) {
+  for (let n = el; n && n.nodeType === 1; n = n.parentNode) if (tag(n) === "a") return n;
+  return null;
 }
 
 /** `true` when `el` is in a document (the test DOM keeps the focus on removed elements). */
@@ -1289,19 +1305,34 @@ class Screen extends Queries {
  */
 export function render(mount, href) {
   // A rendered page puts the browser on its URL.
-  if (typeof href === "function" && globalThis.location) globalThis.location.href = href();
+  const page = typeof href === "function";
+  if (page && globalThis.location) globalThis.location.href = href();
   const doc = globalThis.document;
   const host = doc.createElement("div");
   doc.body.appendChild(host);
-  let dispose = null;
-  let pending = null;
+  const s = new Screen(host, null);
+  s.page = page;
+  mountIn(s, mount);
+  current.screens.push(s);
+  return s;
+}
+
+/**
+ * Mounts `mount(ctx)` in screen `s`'s container, in a root of its own
+ * that `s.dispose` disposes, and flushes.
+ * @param {Screen} s
+ * @param {(ctx: object) => object} mount
+ */
+function mountIn(s, mount) {
+  const host = s.host;
+  s.pending = null;
   root((d) => {
-    dispose = d;
+    s.dispose = d;
     const node = mount({ c: current.container });
     if (node && typeof node.then === "function") {
       // A page with `@Load` fields renders once its chunk is ready.
       // A page that fails to render fails the test with the reason.
-      pending = node.then(
+      s.pending = node.then(
         (n) => {
           if (n && host.parentNode !== null) host.appendChild(n);
           flush();
@@ -1315,10 +1346,28 @@ export function render(mount, href) {
     }
   });
   flush();
-  const s = new Screen(host, dispose);
-  s.pending = pending;
-  current.screens.push(s);
-  return s;
+}
+
+/**
+ * After a navigation: the newest rendered page's screen still mounted
+ * shows the page of the browser's URL, inside its layouts, outermost
+ * first, as the router renders it; the page it showed is disposed first.
+ * A test's screens share one browser, so one page follows the URL; a
+ * rendered component's screen keeps showing it (21-testing.md).
+ */
+function follow() {
+  const s = current.screens.findLast((x) => x.page && x.host !== null);
+  const loc = globalThis.location;
+  if (!s || !loc) return;
+  const url = { pathname: loc.pathname, search: loc.search };
+  const r = pages.find((p) => p.parse(url) != null);
+  if (!r?.render) return;
+  const params = r.parse(url);
+  const layered = (ctx, i) =>
+    i === r.layouts.length ? r.render(params, ctx) : r.layouts[i]({ content: () => layered(ctx, i + 1) }, { ...ctx, key: `L${i}` });
+  s.dispose?.();
+  s.host.textContent = "";
+  mountIn(s, (ctx) => layered(ctx, 0));
 }
 
 /**

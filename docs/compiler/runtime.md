@@ -1138,7 +1138,10 @@ empty comment.
   (database, sessions, password hashing, rate limits, fetches), and `idle()` ends with one event-loop turn
   (`op_k_test_tick`), so `settle()` and the hang watchdog wait for server work and stream elements;
   a failed test's watchdog stops with it. `Screen.currentPage` matches the browser's URL against the
-  bundle's `$pages`. Server-only stdlib members that test code calls are the server's natives.
+  bundle's `$pages`. The fake `history.pushState` schedules `follow()`: the newest rendered page's
+  screen still mounted disposes its root and mounts the new URL's layouts and page
+  ([21-testing.md](../design/21-testing.md#a-navigation-shows-its-page)); a click on an internal link
+  calls the router's `navigate`, as the router's click handler would. Server-only stdlib members that test code calls are the server's natives.
 - **The table and budget tests** in `crates/k_runtime/tests/runtime.rs` check the module table against the
   files, JSDoc on every export, resolution, the client/server/testing separation and the size budgets.
 - **Browser tests** of the examples (`crates/k_server/tests/browser.rs`) serve each example from a real

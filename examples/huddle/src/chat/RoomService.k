@@ -35,7 +35,8 @@ public service RoomService {
     /// The room's moderators, by name.
     @State var moderators: List<String> = []
 
-    /// `true` once a moderator removed this person: the channel is closed.
+    /// `true` once a moderator removed this person: the server closes the
+    /// channel after telling it.
     @State var removed: Bool = false
 
     /// Whether this person moderates the room.
@@ -90,17 +91,13 @@ public service RoomService {
 
     /// Applies the events of an open channel until it closes, and tells
     /// the server how far this person has read: what the page shows is
-    /// seen. Leaving the loop after a removal closes the channel.
+    /// seen. The server closes the channel after this person's removal,
+    /// its last message.
     func listen(on opened: Channel<ChatCommand, ChatEvent, CommandError>) async {
         attach(opened)
 
         for await event in opened.messages {
             apply(event: event)
-
-            if removed {
-                break
-            }
-
             await markRead()
         }
     }

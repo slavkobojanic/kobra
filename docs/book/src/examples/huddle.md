@@ -173,6 +173,9 @@ replica:
     }
 ```
 
+Counts are kept only while the lobby's channel is open, so each visit to the lobby starts from an empty
+list and shows the counts of its own snapshot, never the ones a previous visit left behind.
+
 Numbers come from a counter on the room, taken in the transaction that stores the message, so a number
 is never reused after a deletion. The lobby's channel passes on only the rooms you are a member of, so a
 password room's activity reaches nobody else. Its stream's `filter` is async and asks the database for
@@ -210,8 +213,9 @@ refuses with a typed error that leaves the channel open:
                 }
 ```
 
-A removed member's channel hears `.removed(name:)` last: nothing more is sent to it, their presence
-lease ends at once, and opening the room again throws `RoomError.removed`.
+A removed member's channel hears `.removed(name:)` last: the server's stream ends there
+(`prefix(through:)`), which closes the channel `byServer` and ends their presence lease at once, and
+opening the room again throws `RoomError.removed`.
 
 A room with a password stores its Argon2id hash (`Password.hash(password:)`). Opening it throws
 `RoomError.passwordRequired` until you give the password once to `unlock(room:password:)`, which

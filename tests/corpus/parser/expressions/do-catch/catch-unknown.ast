@@ -1,0 +1,8 @@
+(SourceFile
+  (FuncDecl func f
+    (ParamList)
+    (Block
+      (DoStmt do
+        (Block (TryExpr try (CallExpr (NameExpr a) (ArgList))))
+        (CatchClause catch (EnumCasePattern x) (Block))
+        (CatchClause catch (WildcardPattern unknown) (Block (CallExpr (NameExpr log) (ArgList))))))))

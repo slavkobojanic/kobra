@@ -229,16 +229,36 @@ impl Stack {
         out
     }
 
-    /// `up --build --wait`: builds the images and waits until every
-    /// service with a health check is healthy.
+    /// Builds the images one service at a time, then `up --wait`: waits
+    /// until every service with a health check is healthy. Replicas that
+    /// share one image tag (huddle's app1 and app2) built in parallel race
+    /// to export it ("image … already exists"), so the builds run in turn;
+    /// the second is a cache hit.
     fn up(&self) {
         let start = Instant::now();
+        let services = self
+            .compose()
+            .args(["config", "--services"])
+            .output()
+            .expect("docker compose config");
+        for service in String::from_utf8_lossy(&services.stdout).lines() {
+            let out = self
+                .compose()
+                .args(["build", service])
+                .output()
+                .expect("docker compose build");
+            assert!(
+                out.status.success(),
+                "docker compose build {service} failed:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
         let timeout = UP_TIMEOUT_SECS.to_string();
         let out = self
             .compose()
             .args([
                 "up",
-                "--build",
+                "--no-build",
                 "--detach",
                 "--wait",
                 "--wait-timeout",
@@ -248,7 +268,7 @@ impl Stack {
             .expect("docker compose up");
         assert!(
             out.status.success(),
-            "docker compose up --build --wait failed after {:?}:\n{}\n{}",
+            "docker compose up --wait failed after {:?}:\n{}\n{}",
             start.elapsed(),
             String::from_utf8_lossy(&out.stderr)
                 .lines()

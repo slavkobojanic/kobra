@@ -14,8 +14,9 @@
 //!   **K8003** at the payload type argument of `implements Job<…>`, one
 //!   note per change, unless the job service is marked
 //!   `@Breaking("reason")`;
-//! * an optional field added, a case added, or a required field made
-//!   optional is compatible.
+//! * an optional or defaulted field added (a struct's or a case
+//!   payload's), a case added, or a required field made optional is
+//!   compatible, as in `rpc.lock`.
 //!
 //! The `[keys.<name>]` entries are compared the same way with each
 //! `StorageKey<T>` constant or field (matched by its `name:` literal, else
@@ -517,7 +518,7 @@ fn storage(cx: &Cx<'_, '_>, lock: &Lockfile) -> Option<StorageLock> {
             diag = diag.with_note(change);
         }
         diag = diag.with_note(
-            "keep the recorded shape (only optional fields and new enum cases are compatible), or mark the job `@Breaking(\"reason\")` once no such job can be queued",
+            "keep the recorded shape (only optional or defaulted fields and new enum cases are compatible), or mark the job `@Breaking(\"reason\")` once no such job can be queued",
         );
         cx.report(decl.file, diag);
     }
@@ -935,7 +936,7 @@ fn keys(cx: &Cx<'_, '_>, recorded: &StorageLock) {
             diag = diag.with_note(change);
         }
         diag = diag.with_note(
-            "keep the recorded name and shape (only optional fields and new enum cases are compatible), or mark the key `@Breaking(\"reason\")` once the service handles `.unreadable`",
+            "keep the recorded name and shape (only optional or defaulted fields and new enum cases are compatible), or mark the key `@Breaking(\"reason\")` once the service handles `.unreadable`",
         );
         cx.report(key.file, diag);
     }
@@ -1116,11 +1117,18 @@ impl Compare<'_, '_, '_> {
         let kind = cx.p.decl(d).named_kind();
         match (shape, kind) {
             (Shape::Struct(fields), Some(K::Struct)) => {
-                let now: Vec<(String, Ty)> = cx
-                    .stored_fields(d)
-                    .into_iter()
-                    .map(|m| (cx.p.member(m).name.clone(), cx.field_ty(m)))
-                    .collect();
+                // A field with a default decodes without its value, as
+                // in `rpc.lock`.
+                let now: Vec<(String, Ty, bool)> =
+                    cx.stored_fields(d)
+                        .into_iter()
+                        .map(|m| {
+                            let defaulted = cx.p.member(m).node.as_ref().is_some_and(|n| {
+                                n.children().any(|c| ast::Expr::can_cast(c.kind()))
+                            });
+                            (cx.p.member(m).name.clone(), cx.field_ty(m), defaulted)
+                        })
+                        .collect();
                 self.fields(name, fields, &now);
             }
             (Shape::Enum(cases), Some(K::Enum)) => {
@@ -1136,7 +1144,7 @@ impl Compare<'_, '_, '_> {
                             .push(format!("case `{case}` of `{name}` was removed or renamed"));
                         continue;
                     };
-                    let fields: Vec<(String, Ty)> = if cx.case_has_payload(*m) {
+                    let fields: Vec<(String, Ty, bool)> = if cx.case_has_payload(*m) {
                         cx.case_sig(*m)
                             .params
                             .iter()
@@ -1145,6 +1153,7 @@ impl Compare<'_, '_, '_> {
                                 (
                                     p.label.clone().unwrap_or_else(|| format!("#{i}")),
                                     p.ty.clone(),
+                                    p.has_default,
                                 )
                             })
                             .collect()
@@ -1177,24 +1186,26 @@ impl Compare<'_, '_, '_> {
         }
     }
 
-    /// Compares recorded fields with the program's `(name, type)` list.
-    fn fields(&mut self, owner: &str, written: &[WrittenField], now: &[(String, Ty)]) {
+    /// Compares recorded fields with the program's `(name, type,
+    /// defaulted)` list: a new field is compatible when it is optional or
+    /// has a default, which the decoder uses for a value without it.
+    fn fields(&mut self, owner: &str, written: &[WrittenField], now: &[(String, Ty, bool)]) {
         for f in written {
             let Some(name) = &f.name else { continue };
-            match now.iter().find(|(n, _)| n == name) {
+            match now.iter().find(|(n, _, _)| n == name) {
                 None => self.changes.push(format!(
                     "field `{name}` of `{owner}` was removed or renamed"
                 )),
-                Some((_, ty)) => self.ty(&f.ty, ty, &format!("field `{name}` of `{owner}`")),
+                Some((_, ty, _)) => self.ty(&f.ty, ty, &format!("field `{name}` of `{owner}`")),
             }
         }
-        for (name, ty) in now {
+        for (name, ty, defaulted) in now {
             if written.iter().any(|f| f.name.as_ref() == Some(name)) {
                 continue;
             }
-            if !matches!(ty, Ty::Optional(_) | Ty::Error) {
+            if !defaulted && !matches!(ty, Ty::Optional(_) | Ty::Error) {
                 self.changes.push(format!(
-                    "required field `{name}` was added to `{owner}`: recorded {} don't have it (an optional field would be compatible)",
+                    "required field `{name}` was added to `{owner}`: recorded {} don't have it (an optional field, or one with a default, would be compatible)",
                     self.subject
                 ));
             }
@@ -1311,7 +1322,7 @@ fn collections(cx: &Cx<'_, '_>, recorded: &StorageLock) {
         diag = diag.with_note(if key_changed {
             "a collection's key field can't change, even with `@Breaking`: declare a new collection under a new name (the old store is left in place)"
         } else {
-            "keep the recorded name and shape (only optional fields and new enum cases are compatible), or mark the collection `@Breaking(\"reason\")` once the service handles `.unreadable`"
+            "keep the recorded name and shape (only optional or defaulted fields and new enum cases are compatible), or mark the collection `@Breaking(\"reason\")` once the service handles `.unreadable`"
         });
         cx.report(d.file, diag);
     }

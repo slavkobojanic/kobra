@@ -132,7 +132,7 @@ A test is one browser talking to one server, in one process:
 | `list()`, `alert()`, `status()` | the only element of that kind. `alert` and `status` are the live regions set with `.role(…)`. |
 | `items()`, `buttons()`, … | plural forms of every query, returning a `List` of handles, possibly empty |
 | `screen.title` | the document title from the `metadata` blocks in effect |
-| `screen.currentPage: Page` | the page the router is on. A `Router.navigate(to:)` from the rendered view updates it; the screen keeps showing the view it rendered. |
+| `screen.currentPage: Page` | the page the router is on. A `Router.navigate(to:)` or a link from the rendered view updates it, and a page's screen shows the page navigated to ([below](#a-navigation-shows-its-page)). |
 | `await screen.settle()` | waits until no `@Load`, async effect or event handler is in flight, apart from work waiting on the `TestClock` or on the next element of an open stream |
 | `screen.unmount()` | unmounts the view, running every `onCleanup` |
 
@@ -144,6 +144,18 @@ A test is one browser talking to one server, in one process:
 - **Actions:** `click()`, `fill(text)` (replaces a field's value and fires input events), `blur()` (moves the focus away, firing `blur` and `focusout`), `press(.enter)`, `press(.escape)` and the other `Key` cases. Pressing Enter in a form field submits the form, as in a browser.
 - **Synchronous updates are flushed by every action,** so a test can `click()` and then `expect` with no `settle()`. `settle()` is needed only for async work.
 - **Streams don't block `settle()`.** An async effect waiting for the next element of an open stream counts as idle once every element already delivered has been processed ([29-server-streaming.md](29-server-streaming.md#tests)).
+
+### A navigation shows its page
+
+**Decision** (2026-11-11, from huddle, whose tests navigated and then rendered the page navigated to by hand): **after a navigation, the screen of a rendered page shows the page of the new URL, inside its layouts, as the router renders it in a browser.** Before, only `currentPage` changed, and the screen kept showing the page that navigated, so a test of a flow across pages rendered each page itself and lost what a real navigation keeps or drops.
+
+- **Which screen:** a test's screens share one browser and one URL, so one screen follows it: the newest rendered page (`render(SomePage(…))`) still mounted. A rendered component's screen keeps showing the component. Several pages mounted at once is a test's arrangement (two tabs sharing one URL), not a browser's.
+- **The page navigated to is rendered with its layouts,** outermost first, as the router does (a page with `@NoLayout` has none); the page that was shown is unmounted first, running its `onCleanup` blocks and cancelling its work. `render(SomePage(…))` itself still renders the page without its layout.
+- **It happens after the navigation's turn,** as the router's does after loading the page's chunk: `await screen.settle()` and then query. The URL, and so `currentPage`, changes at once.
+- **A navigation to the page shown, with other parameters, renders it again,** where the router updates it in place (a query change keeps the page mounted); no example's test depends on the difference yet.
+- **Implementation:** the test bundle's `$pages` table gains each page's `layouts` and `render`, as the router's table has them; the kit's `history.pushState` schedules `follow()`, which disposes the screen's root and mounts the layouts and page in its container. No runtime code changes, so nothing ships.
+
+**Alternatives:** starting the real router in the screen's container (it keeps module state across tests, which would need a reset export in the shipped runtime); a `screen.follow()` a test calls (every flow test would call it, and forgetting it looks like a broken app); rendering every navigation in a new screen (the test's handle would go stale).
 
 ## HTTP-level tests: `TestClient`
 

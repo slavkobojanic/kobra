@@ -317,6 +317,17 @@ fn do_stmt(p: &mut Parser<'_>) {
     while p.at(K::CatchKw) {
         let c = p.start();
         p.bump();
+        // `catch unknown {`: the catch-all for cases added later
+        // (09-errors.md), a `WildcardPattern` spelled `unknown`. The word
+        // is a keyword only right before the block.
+        if p.at_word("unknown") && p.nth(1) == K::LBrace {
+            let w = p.start();
+            p.bump();
+            w.complete(p, K::WildcardPattern);
+            items::required_block(p);
+            c.complete(p, K::CatchClause);
+            continue;
+        }
         loop {
             patterns::pattern(p, false);
             if !p.eat(K::Comma) {

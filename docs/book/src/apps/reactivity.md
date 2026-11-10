@@ -220,6 +220,21 @@ func loadUser() async {
 ~}
 ```
 
+Each dependency is a reactive value: the declaration's own `@State`, `@Prop`, `@Derived` (and the other
+reactive fields), a path into one (`user.name`), or a reactive value of an injected service: its
+`@State`, its `@Derived` or a `var` (`cart.items`, `visibility.isVisible`). Anything else, such as a
+literal or a plain field, is `K2001`. Huddle's room marks what is on screen read whenever the tab is
+shown again:
+
+```k
+// examples/huddle/src/chat/Room.k
+    /// Marks what's on screen read when the tab is shown again.
+    @Effect(on: [room.isSeen])
+    func seen() async {
+        await room.markRead()
+    }
+```
+
 `@Effect(on: [])` runs once after mount and never re-runs, which is how a page follows a long-lived
 stream for as long as it is shown ([Server streaming](streaming.md)).
 

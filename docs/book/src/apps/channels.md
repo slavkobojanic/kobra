@@ -82,11 +82,13 @@ messages it will send and a function that receives the browser's:
         }
 
         // Subscribe before reading, so a message posted or a person arriving
-        // in between shows after the snapshot instead of being lost.
+        // in between shows after the snapshot instead of being lost. The
+        // person's own removal is the last message: the stream ends there,
+        // which closes the channel (`byServer`) and ends its lease.
         let live = Stream.merge(
             events.subscribe(room: name),
             presence.watch(room: name).map { change => ChatEvent.presence(change) }
-        ).filter { event => stillIn(after: event, me: me) }
+        ).prefix(through: { event => event == .removed(name: me) })
 
         // In the room until this channel closes: leaving the page, a
         // dropped connection that doesn't come back, signing out, or being
@@ -113,6 +115,12 @@ messages it will send and a function that receives the browser's:
   topics are `Broadcast` keys; channels add no fan-out of their own. `Stream.merge(_:_:)` combines two
   sources, here the room's events and its [presence](#presence-who-is-here). When the stream ends, the
   server has closed the channel.
+- **Ending the stream is how the server closes one channel,** and its last message says why. Huddle's
+  `prefix(through:)` ([Server streaming](streaming.md#streamt)) passes the person's own
+  removal, then ends: their tab reads `.removed(name:)` like any event, its `messages` loop ends, and
+  `state` is `.closed(.byServer)`. The decision usually comes from another channel (the moderator's,
+  maybe on another replica), which can't reach this one but can publish to the `Broadcast` its stream
+  reads.
 - **The trailing function runs once per browser message, in order, one at a time per channel.** Its
   acknowledgement is sent when it returns, after any transaction in it has committed. Throwing `E`
   refuses that one message, and the channel stays open:
@@ -174,17 +182,13 @@ person has read ([unread counts](../examples/huddle.md#unread-counts-a-second-ch
 // examples/huddle/src/chat/RoomService.k
     /// Applies the events of an open channel until it closes, and tells
     /// the server how far this person has read: what the page shows is
-    /// seen. Leaving the loop after a removal closes the channel.
+    /// seen. The server closes the channel after this person's removal,
+    /// its last message.
     func listen(on opened: Channel<ChatCommand, ChatEvent, CommandError>) async {
         attach(opened)
 
         for await event in opened.messages {
             apply(event: event)
-
-            if removed {
-                break
-            }
-
             await markRead()
         }
     }

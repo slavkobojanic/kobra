@@ -642,7 +642,7 @@ WhileStmt        ::= 'while' conditions Block
 ForStmt          ::= 'for' 'await'? for_pattern 'in' expr_nt KeyClause? Block
 KeyClause        ::= 'key' expr_nt
 DoStmt           ::= 'do' Block CatchClause+
-CatchClause      ::= 'catch' Pattern ( ',' Pattern )* MatchGuard? Block
+CatchClause      ::= 'catch' ( 'unknown' | Pattern ( ',' Pattern )* MatchGuard? ) Block
 ExpectStmt       ::= 'expect' Expr
 ExpectThrowsStmt ::= 'expect' 'throws' Pattern Block
 
@@ -797,6 +797,7 @@ TuplePattern    ::= '(' Pattern ',' Pattern ( ',' Pattern )* ','? ')'
   `IdentPattern` for recovery.
 - Qualified case patterns name the enum: `expect throws CartError.outOfStock { ... }`.
 - A catch-all is `default` in `match`, and `catch let error` or `catch _` in `do`.
+- `catch unknown {` is the catch-all for cases added later ([09-errors.md](../design/09-errors.md#cases-added-later-catch-unknown)). `unknown` is a contextual keyword only between `catch` and `{`; the parser builds a `WildcardPattern` holding the `unknown` identifier token (`WildcardPattern::is_unknown`), so later passes treat it as `catch _` except where sema checks it.
 
 ---
 

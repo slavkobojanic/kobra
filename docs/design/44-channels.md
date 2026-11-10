@@ -152,6 +152,24 @@ A page starts `follow` from an `@Effect(on: [roomId])`, exactly as it follows a 
 - **Validation:** a `Validatable` `C` (or a message whose payload is) is validated before the receiving function runs; a failure refuses the message with `rpcFailure(.invalid(…))`, which a `@Form` shows under its fields ([15-forms-and-validation.md](15-forms-and-validation.md)).
 - **`Channel(sending:closed:receiving:)` has an optional `closed: (ChannelClose) -> Void`** for cleanup on a normal close. It is best-effort, since a crashed process runs nothing; anything that must be undone after a crash (presence, below) uses a lease instead.
 
+### Ending one channel from the server
+
+**A handler ends its channel by ending its `sending` stream, and says why in the last message it sends** (decided 2026-11-11, from huddle's member removal). The stream's end is the close (`ChannelClose.byServer`, after every message before it has been sent), so the client's `messages` loop reads the reason as an ordinary, typed `S` and then ends, and `state` is `.closed(.byServer)`. `Stream.prefix(through:)` ([29](29-server-streaming.md#stream-operators)) is the operator for it: it yields the first element its function accepts and then ends, so the element that ends the channel is delivered.
+
+```k
+// examples/huddle/src/chat/ChatApi.k: the person's own removal is the last message
+let live = Stream.merge(
+    events.subscribe(room: name),
+    presence.watch(room: name).map { change => ChatEvent.presence(change) }
+).prefix(through: { event => event == .removed(name: me) })
+```
+
+- **The decision usually comes from somewhere else:** a moderator's command handled by another channel, often on another replica. That channel can't name this one, but it can publish to a `Broadcast` this one's stream reads, which already crosses replicas. So the stream is where the decision arrives, and ending it is where it acts.
+- **Ending the stream ends the channel's request:** its presence leases are left, the `closed` function runs with `.byServer`, and a message that arrives afterwards is refused `rpcFailure(.offline)` on the client (the channel is closed). A message already on its way when the decision was published still reaches the receiving function, which checks the database when it matters (huddle's commands do).
+- **K5511 stays:** server code still reads no `Channel` member; `close()` is the browser's.
+
+Alternatives rejected: **a server-side `close(reason:)` on the handler's `Channel`** (a new member that K5511 would have to allow on one side only, and it would still need the broadcast to learn the decision from another replica); **a `ChannelClose.byServer(reason)` case carrying an app value** (`ChannelClose` would become generic over `S`, and so would `ChannelState`, for a reason that is already an `S`); **a `closing: (S) -> Bool` parameter of `Channel(sending:…)`** (an operator any stream can use says the same without a channel-only rule).
+
 ### Rooms, topics and broadcast
 
 **Channels add no fan-out mechanism of their own: rooms and topics are `Broadcast` keys** ([29-server-streaming.md](29-server-streaming.md#sharing-events-between-requests)). A room is `Broadcast<RoomId, ChatEvent>`, "every tab of this user" is `Broadcast<AccountId, AccountEvent>`, and a cursor overlay on one board is `Broadcast<BoardId, CursorMove>`. A handler can merge several into its `sending` stream with `Stream.merge(_:_:)`, a new member of `Stream<T>` that yields elements of both as they arrive and ends when both have.
@@ -653,9 +671,15 @@ A later step makes `examples/kanban` collaborative (shared boards with live card
 - **Counts are kept in the browser between snapshots** from `posted`/`deleted(room:number:author:)` and the server's own count in `read(room:upTo:unread:)`; comparing numbers with `lastRead` makes their order across replicas not matter. "Seen" is applied in a visible tab (`PageVisibility`), sent as `ChatCommand.read(upTo:)`.
 - **The lobby passes on only the rooms the person is a member of** (a private `followed` list per channel, extended by their own `read`s), so a password room's activity reaches nobody else. A sync `Stream.filter` with a side effect on the channel's own state did this, as there was no async filter. **Superseded:** `filter` now takes an async function ([29](29-server-streaming.md#stream-operators)), and the lobby asks the database for each post, so a removal counts at once and the per-channel list is gone.
 - **Moderators are per room** (`Membership.moderator`, the creator first), not the `Role(.moderator)` sketched above: a role is global, and a room's creator moderating it needs no administrator. Every action is checked against the database for each command, so a change on another replica counts at once.
-- **Removing a member** can't close their channel from the server (K5511: a server reads no `Channel` members), so their channel's sending stream passes nothing after their own `removed(name:)`, their `PresenceLease` is left, further commands are refused `removedFromRoom`, and their tab closes the channel. A server-side close of one channel, or `Stream.prefix(while:)`, would say this directly; neither was needed to build it.
+- **Removing a member** couldn't close their channel from the server (K5511: a server reads no `Channel` members), so their channel's sending stream passed nothing after their own `removed(name:)`, their `PresenceLease` was left, further commands were refused `removedFromRoom`, and their tab closed the channel. **Superseded:** the stream ends with `prefix(through:)` after the removal ([Ending one channel from the server](#ending-one-channel-from-the-server)), which closes the channel `byServer` and leaves the lease; the per-channel flag and filter are gone, and a command that arrives first is refused `removedFromRoom` by the database's membership.
 - **A password is given once to a unary rpc**, `unlock(room:password:)` with `requires RateLimit(5.perMinute)`, not as a channel parameter: a channel's `RateLimit` limits opens, which would count every reconnect.
 - **Fixed on the way** (each with a corpus case first): a view's `if let x = …, <condition on x>` read `x` before declaring it in the client (`codegen/ui/views/if-let-condition-reads-its-binding`); `break` in a `match` arm lowered to a `switch` left only the switch, so the loop ran on (`run/control-flow/break-in-a-match-arm-leaves-the-loop`); and a stdlib type reached only from an app codec's payload had no codec in the client, so **every `PresenceChange` was skipped in a real browser** and huddle's "In this room" never updated live outside `k test`, whose bundle shares the server's (`codegen/split/presence-changes-decode-in-the-client`, and the Chrome test). Also in the example: message numbers were the count plus one, so a number was reused after a deletion; they are a per-room counter now.
+
+**Language friction, round B** (2026-11-11), from the huddle report above:
+
+- **The flaky lobby count** (`chrome::huddle_counts_unread_live_and_a_moderator_deletes_for_everyone_in_chrome`, "#team 1 unread" for someone who had just read it) was the app's: `LobbyService` is an app-scoped client service, so coming back to the lobby showed the counts kept on the earlier visit until the new channel's snapshot arrived, and those had stopped being kept (a `read` told while the lobby wasn't open reaches no lobby). Under load the snapshot came after the test's check. `follow()` now starts with an empty list, so the lobby shows only counts its own channel keeps; Lobby.test.k's "coming back to the lobby never shows the counts it had when it was left" holds the snapshot back with `TestConnectivity.goOffline()`, which failed before the fix.
+- **Ending one channel from the server** is the section above, with `Stream.prefix(through:)`.
+- **Fixed on the way:** `while let x = await …` lowered only plain conditions, so the loop read `x` without declaring it (a `ReferenceError` in huddle's new moderation test); a `while` condition now lowers through the same `let`-condition code as `if` (`run/control-flow/while-let-awaits-its-value`).
 
 ## Why
 

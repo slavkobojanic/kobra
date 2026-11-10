@@ -1,4 +1,4 @@
 error[K8009] src/notes/OfflineEdits.k:9:17-9:22: the collection `unsavedEdits` changed incompatibly with storage.lock; values users' browsers already hold would read as `.unreadable` or not be found
   note: field `title` of `notes.UnsavedEdit` was removed or renamed
-  note: required field `body` was added to `notes.UnsavedEdit`: recorded values don't have it (an optional field would be compatible)
-  note: keep the recorded name and shape (only optional fields and new enum cases are compatible), or mark the collection `@Breaking("reason")` once the service handles `.unreadable`
+  note: required field `body` was added to `notes.UnsavedEdit`: recorded values don't have it (an optional field, or one with a default, would be compatible)
+  note: keep the recorded name and shape (only optional or defaulted fields and new enum cases are compatible), or mark the collection `@Breaking("reason")` once the service handles `.unreadable`

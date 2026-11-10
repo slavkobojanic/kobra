@@ -29,9 +29,6 @@ public service ChatApi implements ChatProtocol {
     /// channel: the service lives as long as the channel's request.
     private var lease: PresenceLease<Member>? = nil
 
-    /// `true` once a moderator removed this channel's person.
-    private var removed: Bool = false
-
     rpc room(name: String) async throws RoomError -> Channel<ChatCommand, ChatEvent, CommandError> {
         guard let room = await rooms.find(name: name) else {
             throw RoomError.noSuchRoom
@@ -52,11 +49,13 @@ public service ChatApi implements ChatProtocol {
         }
 
         // Subscribe before reading, so a message posted or a person arriving
-        // in between shows after the snapshot instead of being lost.
+        // in between shows after the snapshot instead of being lost. The
+        // person's own removal is the last message: the stream ends there,
+        // which closes the channel (`byServer`) and ends its lease.
         let live = Stream.merge(
             events.subscribe(room: name),
             presence.watch(room: name).map { change => ChatEvent.presence(change) }
-        ).filter { event => stillIn(after: event, me: me) }
+        ).prefix(through: { event => event == .removed(name: me) })
 
         // In the room until this channel closes: leaving the page, a
         // dropped connection that doesn't come back, signing out, or being
@@ -101,26 +100,12 @@ public service ChatApi implements ChatProtocol {
         await memberships.join(room: room, member: me, moderator: false)
     }
 
-    /// Whether `event` still reaches this channel: nothing does after the
-    /// person's own removal, which also takes them out of the room's
-    /// presence. The channel itself stays open until their tab closes it.
-    private func stillIn(after event: ChatEvent, me: String) -> Bool {
-        if removed {
-            return false
-        }
-
-        if event == .removed(name: me) {
-            removed = true
-            lease?.leave()
-        }
-
-        return true
-    }
-
     /// Runs once per command, in order, one at a time per channel, for the
     /// person who opened it.
+    /// A command that arrives after a removal, before the channel has
+    /// closed, is refused by the database's word.
     private func handle(command: ChatCommand, room: String, author: String) async throws CommandError {
-        guard not removed else {
+        guard await memberships.isMember(room: room, member: author) else {
             throw CommandError.removedFromRoom
         }
 

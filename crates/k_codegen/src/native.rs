@@ -646,7 +646,19 @@ pub(crate) fn method(
         ("k.core.Event", "emit") => Expr::OptCall(Box::new(recv), a),
         ("k.core.Stream", "filter") => rt("streamFilter", vec![recv, f0()]),
         ("k.core.Stream", "map") => rt("streamMap", vec![recv, f0()]),
-        ("k.core.Stream", "prefix") => rt("streamPrefix", vec![recv, f0()]),
+        ("k.core.Stream", "prefix") => {
+            // `prefix(through:)` yields the element that ends it.
+            let through =
+                b.g.view
+                    .labels(m)
+                    .first()
+                    .is_some_and(|l| l.as_deref() == Some("through"));
+            let mut args = vec![recv, f0()];
+            if through {
+                args.push(Expr::Num(1.0));
+            }
+            rt("streamPrefix", args)
+        }
         ("k.core.Stream", "startingWith") => rt("streamStartingWith", vec![recv, f0()]),
         ("k.core.Stream", "next") => call(member(recv, "next"), vec![]),
         ("k.core.Url", "appending") => rt("urlAppending", vec![recv, f0()]),

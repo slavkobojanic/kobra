@@ -59,11 +59,8 @@ public page Room requires Authenticated {
         }
     }
 
-    /// Whether the tab is shown; an effect's dependency is the page's own.
-    @Derived let shown: Bool = room.isSeen
-
     /// Marks what's on screen read when the tab is shown again.
-    @Effect(on: [shown])
+    @Effect(on: [room.isSeen])
     func seen() async {
         await room.markRead()
     }

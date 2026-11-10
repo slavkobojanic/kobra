@@ -3,6 +3,7 @@ import k.auth.SessionManager
 import k.crypto.Uuid
 import k.test.TestChannels
 import k.test.TestClock
+import k.test.TestConnectivity
 import k.test.TestPageVisibility
 import k.test.TestPeers
 
@@ -12,6 +13,7 @@ test Lobby {
     @Inject let network: TestChannels
     @Inject let visibility: TestPageVisibility
     @Inject let clock: TestClock
+    @Inject let connectivity: TestConnectivity
 
     /// What the lobby lists, one line per room.
     func rooms(_ screen: Screen) -> List<String> {
@@ -120,6 +122,37 @@ test Lobby {
         expect rooms(screen) == ["#general", "#help", "#random"]
     }
 
+    test "coming back to the lobby never shows the counts it had when it was left" {
+        let screen = await anasLobby()
+        let bob = await peers.signIn(userId: AccountId(name: "bob"))
+        let chat: ChatProtocol = bob.client()
+        let channel = try await chat.room(name: "general")
+        try await channel.send(.post(text: "one", clientId: Uuid.random()))
+        await screen.settle()
+
+        expect rooms(screen) == ["#general 1 unread", "#help", "#random"]
+
+        // Read while the lobby isn't shown: nothing tells the old list.
+        screen.unmount()
+        let room = render(Room(name: "general"))
+        await room.settle()
+        room.unmount()
+
+        // Back to the lobby before its new snapshot arrives.
+        connectivity.goOffline()
+        let again = render(Lobby())
+        await again.settle()
+
+        expect not rooms(again).contains("#general 1 unread")
+
+        again.unmount()
+        connectivity.goOnline()
+        let online = render(Lobby())
+        await online.settle()
+
+        expect rooms(online) == ["#general", "#help", "#random"]
+    }
+
     test "after the server forgot the lobby's channel, a new snapshot has the counts" {
         let screen = await anasLobby()
 
@@ -143,17 +176,35 @@ test Lobby {
         screen.button(named: "Create room").click()
         await screen.settle()
 
+        // The screen shows the room it navigated to, inside the app's
+        // layout, as the browser would.
         expect screen.currentPage == .room(name: "team")
-
-        let room = render(Room(name: "team"))
-        await room.settle()
-
-        expect room.list(named: "In this room").items().map { item => item.text } == ["ana (moderator)"]
+        expect screen.heading(named: "#team").exists
+        expect screen.button(named: "Sign out").exists
+        expect screen.list(named: "In this room").items().map { item => item.text } == ["ana (moderator)"]
 
         let other = render(Lobby())
         await other.settle()
 
         expect rooms(other) == ["#general", "#help", "#random", "#team"]
+    }
+
+    test "a room's link opens it, and the layout's link comes back" {
+        await sessions.signIn(userId: AccountId(name: "ana"))
+        let screen = render(Lobby())
+        await screen.settle()
+
+        screen.link(named: "#help").click()
+        await screen.settle()
+
+        expect screen.currentPage == .room(name: "help")
+        expect screen.heading(named: "#help").exists
+
+        screen.link(named: "Huddle").click()
+        await screen.settle()
+
+        expect screen.currentPage == .lobby
+        expect rooms(screen) == ["#general", "#help", "#random"]
     }
 
     test "a room's name is checked, and taken only once" {

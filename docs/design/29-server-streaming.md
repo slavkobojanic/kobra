@@ -52,6 +52,7 @@ service NoteChanges {
 |---|---|
 | `filter { … }`, `map { … }` | lazily transformed streams; the function may be `async` |
 | `prefix(while: { … })` | the elements up to the first the function refuses, then the end; the function may be `async` |
+| `prefix(through: { … })` | the elements up to and including the first the function accepts, then the end; the function may be `async` |
 | `startingWith(value)` | a stream that yields `value` first, then the elements of this one |
 | `Stream.merge(a, b)` | the elements of both as they arrive ([44-channels.md](44-channels.md)) |
 | `next() async -> T?` | the next element, or `nil` once the stream has ended |
@@ -61,6 +62,7 @@ service NoteChanges {
 - **`filter`, `map` and `prefix(while:)` take an async function, `(T) async -> Bool` or `(T) async -> U`.** A lambda passed to them may `await`, so a channel's stream can check each event against the database (`.filter { event => await memberships.isMember(room: event.room, member: me) }`). A synchronous function or lambda is accepted as it is, since a function that never suspends is a valid async one.
 - **One element at a time, in order.** The function runs for an element only when the reader asks for the next one, and the next element waits until it returns, so a stream never reorders and never runs two calls at once. Nothing reads ahead of the reader.
 - **`prefix(while:)` ends the stream at the first element its function refuses,** dropping that element, and closes the stream it reads, so a `Broadcast` subscription behind it is released at once rather than when the reader goes away.
+- **`prefix(through:)` ends it after the first element its function accepts, yielding that element,** and closes what it reads the same way. It is how a server ends one channel with a last message the client reads as the reason ([44-channels.md](44-channels.md#ending-one-channel-from-the-server)): `prefix(while:)` would drop exactly the element that says why. It is one more step result of the operators' shared runtime class, not a class of its own.
 - **Closing a derived stream closes what it reads, and cancels the call running.** Leaving a `for await` loop, a channel closing, or the end of a request closes the outermost stream; the close reaches every stream it was derived from, and a `filter` or `map` function suspended at an `await` never resumes, like any cancelled async work ([03-reactivity.md](03-reactivity.md#async-work-is-owned)).
 - The functions don't throw: a stream has nowhere to deliver a typed error, and a failure inside one is a panic, which ends a server stream as a failure ([§ Reading a stream](#reading-a-stream-for-await)).
 

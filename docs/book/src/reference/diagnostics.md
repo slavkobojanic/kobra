@@ -2400,6 +2400,84 @@ error[K2206]: the `catch` clauses don't handle every error
 
 **Fix:** Add `catch` clauses for the missing cases (the quick fix adds them), a `catch let error`, or declare the error in `throws`.
 
+### K2207 `unknown-catch-not-exhaustive`
+
+**Warning.** The clauses before a `catch unknown` don't name every case of the thrown error: a case was added since they were written, and `catch unknown` handles it for now.
+
+Example (`tests/corpus/sema/control/catch/catch-unknown.k`):
+
+```k,ignore
+// `catch unknown` follows clauses naming every known case: it runs only
+// for a case added later, so it is never unreachable. Once a case is
+// added, it still catches it, and K2207 (a warning) lists what the
+// clauses before it no longer name.
+enum SaveError implements Error {
+    case offline
+    case conflict
+    case tooLarge
+}
+
+func save() throws SaveError {}
+
+func everyCase() -> String {
+    do {
+        try save()
+        return "saved"
+    } catch .offline {
+        return "offline"
+    } catch .conflict {
+        return "conflict"
+    } catch .tooLarge {
+        return "too large"
+    } catch unknown {
+        return "failed"
+    }
+}
+
+func aCaseWasAdded() -> String {
+    do {
+        try save()
+        return "saved"
+    } catch .offline {
+        return "offline"
+    } catch .conflict {
+        return "conflict"
+    } catch unknown {
+        return "failed"
+    }
+}
+
+func afterACatchAll() {
+    do {
+        try save()
+    } catch _ {
+    } catch unknown {
+    }
+}
+
+func nothingThrown() {
+    do {
+        log()
+    } catch unknown {
+    }
+}
+
+func log() {}
+```
+
+```text
+warning[K2207]: `catch unknown` catches a case the clauses before it don't name
+  --> src/corpus/catch-unknown.k:36:13
+   |
+36 |     } catch unknown {
+   |             ^^^^^^^
+   |
+   = note: missing: `.tooLarge`
+   = fix: Insert the missing `catch` clauses
+```
+
+**Fix:** Add `catch` clauses for the cases the error gained (the quick fix adds them before `catch unknown`); until then `catch unknown` handles them.
+
 ### K2301 `match-not-exhaustive`
 
 **Error.** A `match` doesn't handle every value of its subject.
@@ -9586,7 +9664,7 @@ error[K8003]: the payload of job `order-confirmation` changed incompatibly with 
    |                                             ^^^^^^^^^^^^^^^^^
    |
    = note: field `note` of `store.OrderConfirmation` changed type from `String` to `Int`
-   = note: keep the recorded shape (only optional fields and new enum cases are compatible), or mark the job `@Breaking("reason")` once no such job can be queued
+   = note: keep the recorded shape (only optional or defaulted fields and new enum cases are compatible), or mark the job `@Breaking("reason")` once no such job can be queued
 ```
 
 **Fix:** Keep the payload compatible (add optional fields only), or give the job a new `@JobName` and drain the old queue.
@@ -9893,7 +9971,7 @@ error[K8008]: the storage key `colorScheme` changed incompatibly with storage.lo
   |     ^^^^^^^^^^^
   |
   = note: case `dark` of `appearance.ColorScheme` was removed or renamed
-  = note: keep the recorded name and shape (only optional fields and new enum cases are compatible), or mark the key `@Breaking("reason")` once the service handles `.unreadable`
+  = note: keep the recorded name and shape (only optional or defaulted fields and new enum cases are compatible), or mark the key `@Breaking("reason")` once the service handles `.unreadable`
 ```
 
 **Fix:** Keep the key's name and value shape (add optional fields only), or mark the key `@Breaking("reason")` once its service handles `.unreadable`.

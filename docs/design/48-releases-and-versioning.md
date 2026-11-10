@@ -305,7 +305,7 @@ Each needs the project owner's sign-off before anything is published. The owner 
 
 ## Open questions
 
-- Whether a public standard library enum can be marked as one that will gain cases (Rust's `#[non_exhaustive]`), so adding a case to `RpcFailure` or `HttpError` isn't breaking, or whether every such addition waits for a minor.
+- Whether a public standard library enum can be marked as one that will gain cases (Rust's `#[non_exhaustive]`), so adding a case to `RpcFailure` or `HttpError` isn't breaking, or whether every such addition waits for a minor. A caller can already keep a complete catch list working across such an addition with `catch unknown` ([09](09-errors.md#cases-added-later-catch-unknown)): the build warns (K2207) instead of failing; a `match` over one still breaks.
 - Whether user declarations shadow names in the implicit imports; if they do, adding a name there isn't breaking.
 - Whether `dist/app` should be able to come from a slimmer runtime binary without the compiler ([architecture.md §14](../compiler/architecture.md#14-projects-commands-and-build-outputs)), which would add a second artifact per target.
 - How long a release candidate soaks (one week is assumed) once there are users to test it.

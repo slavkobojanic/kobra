@@ -133,7 +133,7 @@ try storage.write(key: savedTodos, value: items)        // value must be a List<
 A key's name and its value's shape are part of the app's stored format, which outlives every deploy.
 `storage.lock` records the namespace and, for each key, its name and its value type's shape:
 
-- Adding an optional field to the value type is compatible.
+- Adding an optional field, or one with a default, to the value type is compatible.
 - Removing or renaming a field, changing its type, adding a required field, or renaming the key is a
   `k check` error unless the key's declaration is marked `@Breaking("reason")`. Users' existing values
   would then read as `.unreadable`, which the service must handle.
@@ -361,8 +361,8 @@ values already stored, and nothing is deleted, so a deploy can be rolled back. A
 previous build closes its connection when a newer tab upgrades and reopens it on its next call, so two
 tabs of two builds share the database without blocking each other.
 
-`storage.lock` holds a collection to its shape (`K8009`): adding an optional field or an index is
-compatible; removing, renaming or retyping a field, adding a required one or renaming the collection
+`storage.lock` holds a collection to its shape (`K8009`): adding an optional or defaulted field or an
+index is compatible; removing, renaming or retyping a field, adding a required one or renaming the collection
 needs `@Breaking("reason")` on its declaration; changing its key field is refused even then, since stored
 values keep the key they were written with. Declare a new collection instead.
 
