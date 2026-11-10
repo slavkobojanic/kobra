@@ -1261,10 +1261,9 @@ fn notes(dir: &std::path::Path, with_env: bool) -> (Proc, String) {
 /// Signs up as `email` on the sign-up page and waits for the notes list.
 fn sign_up(tab: &mut Tab, origin: &str, email: &str) {
     tab.open(&format!("{origin}/sign-up"));
-    // The passkey offer appears once its challenge has bound a guest
-    // session (docs/design/51-passkeys.md): signing up before that answer
-    // arrives would race its cookie.
-    tab.role("button", "Sign up with a passkey");
+    // Signing up while the passkey offer's challenge is still being
+    // fetched is fine: its guest session has a cookie of its own
+    // (docs/design/26-auth-and-sessions.md, "Guest sessions").
     let field = tab.role("textbox", "Email");
     tab.fill(&field, email);
     let password = tab.css("input[type=password]");
@@ -1346,8 +1345,6 @@ fn notes_signs_up_and_creates_edits_and_deletes_a_note() {
         .wait_event("Page.loadEventFired", since, Duration::from_secs(30))
         .expect("the sign-in page loads after signing out");
     assert_eq!(tab.path(), "/sign-in");
-    // As in `sign_up`: the passkey challenge's guest session first.
-    tab.role("button", "Sign in with a passkey");
     let email = tab.role("textbox", "Email");
     tab.fill(&email, "ada@example.com");
     let password = tab.css("input[type=password]");

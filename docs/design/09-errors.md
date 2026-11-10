@@ -85,6 +85,7 @@ func refresh() async {
 ```
 
 - `name` has the static error type of the `try` expressions in the `do` block (here `WeatherError`), never an untyped `Error`.
+- **A `do` may call into two error types** (a device API's and an rpc's): each `catch` clause names a case of one of them and catches only that enum's case, even where both enums have a case at the same position. A catch-all over two types binds an `Error`, which can be passed on but not matched against a case (K2312): an enum value doesn't carry its enum, so name the cases in `catch` clauses instead.
 - **Each catch-all has one job.** `catch let error` binds; `catch _` doesn't. A `catch let x` whose binding is never used is a compile error with a quick fix to `catch _`.
 - It must be the last clause. Like `default` in `match`, it is a **compile error when unreachable**, meaning every case is already handled.
 - `match` has the same pair: `case let other` binds, and `default` doesn't ([08-types.md](08-types.md#match)). `catch` has no `default`, so `catch _` takes its place.

@@ -177,45 +177,64 @@ fn try_start_with(output: &Output, db: &TempDb, extra: &[(&str, &str)]) -> Resul
     Server::start(o).map_err(|e| e.to_string())
 }
 
-/// A browser: its cookie jar, against one server or another, and the
-/// `X-Forwarded-For` header the proxy in front of it adds, if any.
+/// A browser: its cookie jar (the session cookie and the guest cookie),
+/// against one server or another, and the `X-Forwarded-For` header the
+/// proxy in front of it adds, if any.
 #[derive(Default)]
 struct Browser {
     cookie: Option<String>,
+    guest: Option<String>,
     forwarded_for: Option<String>,
 }
 
 impl Browser {
     fn rpc(&mut self, server: &Server, method: &str, body: &str) -> HttpResponse {
+        let r = self.request(server, method, body);
+        self.take(&r);
+        r
+    }
+
+    /// Sends rpc `method` with the jar's cookies, leaving the jar as it is.
+    fn request(&self, server: &Server, method: &str, body: &str) -> HttpResponse {
         let mut headers = vec![
             ("content-type".to_owned(), "application/json".to_owned()),
             ("connect-protocol-version".to_owned(), "1".to_owned()),
             ("origin".to_owned(), "http://localhost".to_owned()),
         ];
-        if let Some(c) = &self.cookie {
-            headers.push(("cookie".to_owned(), format!("k_session={c}")));
+        let jar: Vec<String> = [("k_session", &self.cookie), ("k_guest", &self.guest)]
+            .into_iter()
+            .filter_map(|(n, v)| v.as_ref().map(|v| format!("{n}={v}")))
+            .collect();
+        if !jar.is_empty() {
+            headers.push(("cookie".to_owned(), jar.join("; ")));
         }
         if let Some(f) = &self.forwarded_for {
             headers.push(("x-forwarded-for".to_owned(), f.clone()));
         }
-        let r = send(
+        send(
             server.local_addr(),
             "POST",
             &format!("/sdb.accounts.AuthProtocol/{method}"),
             &headers,
             body.as_bytes(),
         )
-        .expect("answers");
-        if let Some(v) = r.header("set-cookie") {
-            let value = v
-                .split(';')
-                .next()
-                .and_then(|p| p.split_once('='))
-                .map(|(_, v)| v.to_owned())
-                .unwrap_or_default();
-            self.cookie = (!value.is_empty()).then_some(value);
+        .expect("answers")
+    }
+
+    /// Stores the cookies response `r` sets, as a browser does when it
+    /// arrives.
+    fn take(&mut self, r: &HttpResponse) {
+        for (_, v) in r.headers.iter().filter(|(n, _)| n == "set-cookie") {
+            let Some((name, value)) = v.split(';').next().and_then(|p| p.split_once('=')) else {
+                continue;
+            };
+            let value = (!value.is_empty()).then(|| value.to_owned());
+            match name {
+                "k_session" => self.cookie = value,
+                "k_guest" => self.guest = value,
+                _ => {}
+            }
         }
-        r
     }
 
     fn value(&mut self, server: &Server, method: &str, body: &str) -> serde_json::Value {
@@ -405,7 +424,8 @@ fn oauth_state_is_bound_to_the_session_and_single_use() {
     let state = visitor.value(&a, "StartOAuth", "{}");
     let state = state.as_str().expect("a state").to_owned();
     assert_eq!(state.len(), 43);
-    let guest = visitor.cookie.clone().expect("a guest session cookie");
+    let guest = visitor.guest.clone().expect("a guest session cookie");
+    assert_eq!(visitor.cookie, None, "a guest's cookie of its own");
     assert_eq!(visitor.value(&a, "Status", "{}"), "guest");
     // Another browser can't use it, nor can a wrong state.
     let mut attacker = Browser::default();
@@ -422,7 +442,7 @@ fn oauth_state_is_bound_to_the_session_and_single_use() {
     assert_eq!(visitor.value(&b, "FinishOAuth", &body), true);
     assert_eq!(visitor.value(&a, "FinishOAuth", &body), false, "single use");
     assert_eq!(
-        visitor.cookie.as_deref(),
+        visitor.guest.as_deref(),
         Some(guest.as_str()),
         "the same guest session"
     );
@@ -437,4 +457,49 @@ fn oauth_state_is_bound_to_the_session_and_single_use() {
     assert_eq!(planted.value(&b, "FinishOAuth", &body), false);
     a.shutdown().expect("stops");
     b.shutdown().expect("stops");
+}
+
+/// A first-time visitor's request that issues a guest session (an OAuth
+/// state here, a passkey challenge alike) and a sign-in sent before its
+/// answer each set a cookie, and the browser keeps whichever arrives last:
+/// in either order it stays signed in and keeps the guest's state
+/// (26-auth-and-sessions.md, "Guest sessions").
+#[test]
+fn a_guest_session_issued_beside_a_sign_in_never_signs_it_out() {
+    let output = build();
+    let db = TempDb::new("race");
+    let server = start(&output, &db);
+    for guest_last in [true, false] {
+        let mut browser = Browser::default();
+        let (issued, signed) = std::thread::scope(|s| {
+            let issued = s.spawn(|| browser.request(&server, "StartOAuth", "{}"));
+            let signed = s.spawn(|| browser.request(&server, "SignIn", r#"{"name": "ada"}"#));
+            (
+                issued.join().expect("answers"),
+                signed.join().expect("answers"),
+            )
+        });
+        assert_eq!(issued.status, 200);
+        assert_eq!(signed.status, 200);
+        if guest_last {
+            browser.take(&signed);
+            browser.take(&issued);
+        } else {
+            browser.take(&issued);
+            browser.take(&signed);
+        }
+        assert_eq!(
+            browser.value(&server, "Status", "{}"),
+            "signed in as ada",
+            "guest answer last: {guest_last}"
+        );
+        let j: serde_json::Value = serde_json::from_slice(&issued.body).expect("JSON");
+        let body = serde_json::json!({ "state": j["value"] }).to_string();
+        assert_eq!(
+            browser.value(&server, "FinishOAuth", &body),
+            true,
+            "the guest's state survives: {guest_last}"
+        );
+    }
+    server.shutdown().expect("stops");
 }

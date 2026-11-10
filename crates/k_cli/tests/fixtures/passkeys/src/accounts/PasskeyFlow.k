@@ -1,8 +1,6 @@
 import k.auth.PasskeyCreationOptions
-import k.auth.PasskeyError
 import k.auth.PasskeyRequestOptions
 import k.auth.Passkeys
-import k.rpc.RpcOnlyError
 
 /// The browser's side: options fetched ahead, ceremonies from a click.
 public service PasskeyFlow {
@@ -34,17 +32,26 @@ public service PasskeyFlow {
     }
 
     /// Makes a passkey named `name` and signs up with it. The device's
-    /// errors and the server's are caught in a `do` each: cases of two
-    /// error enums in one `do` would be told apart by position only.
+    /// errors and the server's are caught in one `do`: each clause matches
+    /// its own enum's case, though `PasskeyError.unsupported` and
+    /// `RpcOnlyError.rpcFailure` are both case 0.
     func signUp(name: String) async -> String {
         guard let options = creation else {
             return "not prepared"
         }
         do {
             let registration = try await passkeys.register(options, name: name)
-            return await send { try await auth.signUp(name: name, registration: registration) }
-        } catch let refusal {
-            return problem(refusal)
+            return try await auth.signUp(name: name, registration: registration)
+        } catch .rpcFailure {
+            return "the server didn't answer"
+        } catch .unsupported {
+            return "unsupported"
+        } catch .cancelled {
+            return "cancelled"
+        } catch .alreadyRegistered {
+            return "already registered"
+        } catch .failed {
+            return "failed"
         }
     }
 
@@ -55,18 +62,17 @@ public service PasskeyFlow {
         }
         do {
             let assertion = try await passkeys.signIn(options)
-            return await send { try await auth.signIn(assertion: assertion) }
-        } catch let refusal {
-            return problem(refusal)
-        }
-    }
-
-    /// The server's answer, or that it didn't answer.
-    private func send(_ call: () async throws RpcOnlyError -> String) async -> String {
-        do {
-            return try await call()
-        } catch _ {
+            return try await auth.signIn(assertion: assertion)
+        } catch .rpcFailure {
             return "the server didn't answer"
+        } catch .unsupported {
+            return "unsupported"
+        } catch .cancelled {
+            return "cancelled"
+        } catch .alreadyRegistered {
+            return "already registered"
+        } catch .failed {
+            return "failed"
         }
     }
 
@@ -76,15 +82,5 @@ public service PasskeyFlow {
             try await auth.signOut()
         } catch _ {
         }
-    }
-}
-
-/// What the tests read for a ceremony the device ended.
-func problem(_ refusal: PasskeyError) -> String {
-    match refusal {
-        case .unsupported { return "unsupported" }
-        case .cancelled { return "cancelled" }
-        case .alreadyRegistered { return "already registered" }
-        case .failed { return "failed" }
     }
 }

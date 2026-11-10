@@ -668,6 +668,7 @@ const P_PRIMARY: u8 = 20;
 /// unknown operator gets [`P_EQ`].
 fn binary_prec(op: &str) -> u8 {
     match op {
+        "," => P_SEQ,
         "??" => P_NULLISH,
         "||" => P_OR,
         "&&" => P_AND,
@@ -778,7 +779,7 @@ impl Printer {
         let word = op.bytes().all(|b| b.is_ascii_alphabetic());
         if word {
             self.out.push(' ');
-        } else {
+        } else if op != "," {
             self.sp();
         }
         self.out.push_str(op);

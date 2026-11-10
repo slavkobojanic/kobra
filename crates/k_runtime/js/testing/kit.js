@@ -263,13 +263,18 @@ class TestContext {
     this.memo = new Map();
     /** @type {string|null} the session id the test's browser holds */
     this.cookie = null;
+    /** @type {string|null} the guest session id it holds (`k_guest`) */
+    this.guest = null;
     /** @type {RequestState|null} the state of the test's own server container */
     this.direct = null;
   }
 
   /** The request headers every in-process request of the test carries. */
   cookies() {
-    return this.cookie === null ? [] : [["cookie", `k_session=${this.cookie}`]];
+    const jar = [];
+    if (this.cookie !== null) jar.push(`k_session=${this.cookie}`);
+    if (this.guest !== null) jar.push(`k_guest=${this.guest}`);
+    return jar.length === 0 ? [] : [["cookie", jar.join("; ")]];
   }
 
   /**
@@ -280,8 +285,10 @@ class TestContext {
    */
   sessionChanged(st) {
     this.cookie = st.sessionId;
+    this.guest = st.guestId;
     if (this.direct !== null && st !== this.direct) {
       this.direct.sessionId = st.sessionId;
+      this.direct.guestId = st.guestId;
       this.direct.loaded = st.loaded;
     }
     try {
@@ -2750,10 +2757,12 @@ function newPeer() {
   if (T === null) throw new KPanic("this test has no server: a peer is another browser of the same server");
   const ctx = Object.create(T);
   ctx.cookie = null;
+  ctx.guest = null;
   ctx.direct = null;
   const b = { ctx, mirror: signal({ user: null }), offline: false };
   ctx.sessionChanged = (st) => {
     ctx.cookie = st.sessionId;
+    ctx.guest = st.guestId;
     try {
       b.mirror.set(st.mirror());
     } catch {

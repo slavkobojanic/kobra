@@ -105,6 +105,7 @@ K2308: Drop `return`: the lambda's last expression is its value.
 K2309: Use `break` and `continue` only inside a loop of the same function.
 K2310: Write `for await` (machine-applicable fix), inside an async function.
 K2311: Iterate a `Stream` with `for await`, and everything else with `for`.
+K2312: Catch the case in the `do` that throws it (a `catch` clause tells two error enums apart), or match a value whose type is the enum itself.
 K2401: Use the named case, such as `.notFound` instead of `.other(404)`.
 K2402: Name the currency: `items.sum(in: .usd) { item => item.price }`.
 K2403: Write the value as a literal, `Url("https://api.example.com")`; text known only at run time goes through `Url.parse(text)`, which returns an optional.

@@ -407,10 +407,23 @@ impl ProgramView {
                     owners.extend(exts.iter().copied());
                 }
                 let mut fallback = None;
+                let mut other_kind = None;
                 for o in owners {
                     for &m in &self.decl(o).members {
                         let info = self.member(m);
                         if info.name != base {
+                            continue;
+                        }
+                        // A function's resolution has its labels, a
+                        // property's none: a `static let label` and a
+                        // `func label()` share the name, not the resolution.
+                        let callable = matches!(
+                            info.kind,
+                            MemberKind::Func | MemberKind::Init | MemberKind::Rpc
+                        ) || (info.kind == MemberKind::Generated
+                            && info.name == "copy");
+                        if callable != labels.is_some() {
+                            other_kind.get_or_insert(m);
                             continue;
                         }
                         match labels {
@@ -447,7 +460,7 @@ impl ProgramView {
                         }
                     }
                 }
-                fallback.map(Resolved::Member)
+                fallback.or(other_kind).map(Resolved::Member)
             }
             _ => None,
         }

@@ -437,6 +437,9 @@ codes! {
     /// `for await` iterates only a `Stream`, inside an async function.
     FOR_AWAIT_NOT_STREAM = 2311, "for-await-not-stream", Error,
         "`for await` iterates only a `Stream`, inside an async function.";
+    /// A case pattern names an enum the matched value's type doesn't say it is (`Error`, a type parameter).
+    CASE_OF_UNKNOWN_ENUM = 2312, "case-of-unknown-enum", Error,
+        "A case pattern names an enum the matched value's type doesn't say it is (an `Error`, a type parameter): which enum it is isn't known when the program runs.";
 
     // ---------------------------------------------------------------- stdlib-specific rules
     /// `HttpStatus.other(code)` can't hold a code that has a named case.

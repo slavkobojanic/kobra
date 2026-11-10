@@ -2654,6 +2654,66 @@ error[K2311]: `for await` reads a `Stream`, not a collection
 
 **Fix:** Iterate a `Stream` with `for await`, and everything else with `for`.
 
+### K2312 `case-of-unknown-enum`
+
+**Error.** A case pattern names an enum the matched value's type doesn't say it is (an `Error`, a type parameter): which enum it is isn't known when the program runs.
+
+Example (`tests/corpus/sema/control-flow/case-of-unknown-enum.k`):
+
+```k,ignore
+// A catch-all over two error enums binds an `Error`: its cases can't be
+// matched, since an enum value doesn't carry its enum (K2312 at each case).
+enum DeviceError implements Error {
+    case unsupported
+    case cancelled
+}
+
+enum SignError implements Error {
+    case taken
+    case notAccepted
+}
+
+func device() throws DeviceError -> Int {
+    return 1
+}
+
+func server(n: Int) throws SignError -> Int {
+    return n
+}
+
+func run() -> String {
+    do {
+        return "ok {try server(n: try device())}"
+    } catch let problem {
+        match problem {
+            case DeviceError.cancelled { return "cancelled" }
+            case SignError.notAccepted { return "not accepted" }
+            default { return "other" }
+        }
+    }
+}
+```
+
+```text
+error[K2312]: a value of type `Error` can't be matched against a case of `DeviceError`: which enum it is isn't known when the program runs
+  --> src/corpus/case-of-unknown-enum.k:26:18
+   |
+26 |             case DeviceError.cancelled { return "cancelled" }
+   |                  ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: catch the case in the `do` that throws it, or match a value of the enum's own type
+
+error[K2312]: a value of type `Error` can't be matched against a case of `SignError`: which enum it is isn't known when the program runs
+  --> src/corpus/case-of-unknown-enum.k:27:18
+   |
+27 |             case SignError.notAccepted { return "not accepted" }
+   |                  ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: catch the case in the `do` that throws it, or match a value of the enum's own type
+```
+
+**Fix:** Catch the case in the `do` that throws it (a `catch` clause tells two error enums apart), or match a value whose type is the enum itself.
+
 ### K2401 `named-status-as-other`
 
 **Error.** `HttpStatus.other(code)` can't hold a code that has a named case.

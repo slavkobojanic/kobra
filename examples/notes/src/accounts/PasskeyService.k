@@ -1,7 +1,4 @@
-import k.auth.PasskeyAssertion
 import k.auth.PasskeyCreationOptions
-import k.auth.PasskeyError
-import k.auth.PasskeyRegistration
 import k.auth.PasskeyRequestOptions
 import k.auth.Passkeys
 import k.text.EmailAddress
@@ -55,14 +52,26 @@ public service PasskeyService {
             return "Passkeys aren't ready yet. Try again in a moment."
         }
 
-        // The device's errors and the server's are caught apart: one `do`
-        // per error type.
+        // The device's errors (`PasskeyError`) and the server's
+        // (`SignUpError`) are caught in one `do`, each case by its own enum.
         var problem: String? = nil
         do {
             let registration = try await passkeys.register(options, name: email.address)
-            problem = await createAccount(email: email, registration: registration)
-        } catch let refusal {
-            problem = deviceProblem(refusal, making: true)
+            try await api.signUpWithPasskey(email: email, registration: registration)
+        } catch .cancelled {
+            problem = "No passkey was made. Try again when you're ready."
+        } catch .alreadyRegistered {
+            problem = "This device already has a passkey for this account."
+        } catch .unsupported, .failed {
+            problem = "This browser couldn't make a passkey here."
+        } catch .emailTaken {
+            problem = "An account with this email already exists. Sign in instead."
+        } catch .passkeyNotAccepted {
+            problem = "That passkey wasn't accepted. Try again."
+        } catch .rpcFailure(.rejected) {
+            problem = "Too many attempts. Wait a minute, then try again."
+        } catch .rpcFailure {
+            problem = "Couldn't reach K Notes. Check your connection and try again."
         }
 
         if problem != nil {
@@ -82,59 +91,24 @@ public service PasskeyService {
         var problem: String? = nil
         do {
             let assertion = try await passkeys.signIn(options)
-            problem = await signInWith(assertion: assertion)
-        } catch let refusal {
-            problem = deviceProblem(refusal, making: false)
+            try await api.signInWithPasskey(assertion: assertion)
+        } catch .cancelled {
+            problem = "No passkey was used. If this device has none for K Notes, sign in with your password."
+        } catch .alreadyRegistered {
+            problem = "This device already has a passkey for this account."
+        } catch .unsupported, .failed {
+            problem = "This browser couldn't use a passkey here."
+        } catch .invalidCredentials, .passkeyNotAccepted {
+            problem = "That passkey wasn't accepted."
+        } catch .rpcFailure(.rejected) {
+            problem = "Too many attempts. Wait a minute, then try again."
+        } catch .rpcFailure {
+            problem = "Couldn't reach K Notes. Check your connection and try again."
         }
 
         if problem != nil {
             await prepareSignIn()
         }
         return problem
-    }
-
-    /// Sends a new passkey to the server: `nil` once its account exists
-    /// and is signed in.
-    private func createAccount(email: EmailAddress, registration: PasskeyRegistration) async -> String? {
-        do {
-            try await api.signUpWithPasskey(email: email, registration: registration)
-            return nil
-        } catch .emailTaken {
-            return "An account with this email already exists. Sign in instead."
-        } catch .passkeyNotAccepted {
-            return "That passkey wasn't accepted. Try again."
-        } catch .rpcFailure(.rejected) {
-            return "Too many attempts. Wait a minute, then try again."
-        } catch .rpcFailure {
-            return "Couldn't reach K Notes. Check your connection and try again."
-        }
-    }
-
-    /// Sends a passkey's signature to the server: `nil` once signed in.
-    private func signInWith(assertion: PasskeyAssertion) async -> String? {
-        do {
-            try await api.signInWithPasskey(assertion: assertion)
-            return nil
-        } catch .invalidCredentials, .passkeyNotAccepted {
-            return "That passkey wasn't accepted."
-        } catch .rpcFailure(.rejected) {
-            return "Too many attempts. Wait a minute, then try again."
-        } catch .rpcFailure {
-            return "Couldn't reach K Notes. Check your connection and try again."
-        }
-    }
-}
-
-/// What to tell the person when the device's sheet ended without a
-/// passkey.
-func deviceProblem(_ refusal: PasskeyError, making: Bool) -> String {
-    match refusal {
-        case .cancelled {
-            return if making { "No passkey was made. Try again when you're ready." } else { "No passkey was used. If this device has none for K Notes, sign in with your password." }
-        }
-        case .alreadyRegistered { return "This device already has a passkey for this account." }
-        case .unsupported, .failed {
-            return if making { "This browser couldn't make a passkey here." } else { "This browser couldn't use a passkey here." }
-        }
     }
 }

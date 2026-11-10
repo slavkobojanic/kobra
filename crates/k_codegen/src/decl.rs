@@ -882,7 +882,7 @@ fn class_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 });
                 statics.extend(pre);
                 statics.push(Stmt::Expr(js::assign(
-                    member(id(name.clone()), mi.name.clone()),
+                    member(id(name.clone()), b.g.member_name(m)),
                     e,
                 )));
             }

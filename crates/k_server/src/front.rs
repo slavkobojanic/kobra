@@ -10,6 +10,10 @@ use std::collections::BTreeSet;
 pub const SECURE_SESSION_COOKIE: &str = "__Host-k_session";
 /// The session cookie on an `http` public origin (local development).
 pub const SESSION_COOKIE: &str = "k_session";
+/// The guest session cookie (`docs/design/26-auth-and-sessions.md`, "Guest
+/// sessions"), renamed as [`SESSION_COOKIE`] is: `__Host-k_guest`,
+/// `k_guest_<port>`.
+pub const GUEST_COOKIE: &str = "k_guest";
 /// The default request body limit: 1 MB, for rpcs and endpoint pages
 /// (`docs/design/28-rpc-wire-format.md`, `27-endpoint-pages.md`).
 pub const DEFAULT_MAX_BODY_BYTES: usize = 1024 * 1024;
@@ -121,21 +125,34 @@ pub fn public_session_cookie(public_origin: &str) -> Option<String> {
         .then(|| format!("{SESSION_COOKIE}_{port}"))
 }
 
+/// The runtime's cookie names with their public names for the public
+/// session cookie name `public` (`k_session_8081`, `k_guest_8081`).
+fn renamed(public: &str) -> [(&'static str, String); 2] {
+    let suffix = public.strip_prefix(SESSION_COOKIE).unwrap_or("");
+    [
+        (SESSION_COOKIE, public.to_owned()),
+        (GUEST_COOKIE, format!("{GUEST_COOKIE}{suffix}")),
+    ]
+}
+
 /// A request's `Cookie` header value as the runtime sees it, for the
-/// public cookie name `public`: `public=…` becomes `k_session=…`, and a
-/// plain `k_session` (another app's on the same host) is dropped.
+/// public cookie name `public`: `public=…` becomes `k_session=…` (and the
+/// guest cookie likewise), and a plain `k_session` or `k_guest` (another
+/// app's on the same host) is dropped.
 #[must_use]
 pub fn to_runtime_cookies(value: &str, public: &str) -> String {
+    let names = renamed(public);
     value
         .split(';')
         .map(str::trim)
         .filter(|p| !p.is_empty())
         .filter_map(|pair| {
             let (name, rest) = pair.split_once('=').unwrap_or((pair, ""));
-            if name.trim() == SESSION_COOKIE {
+            let name = name.trim();
+            if names.iter().any(|(runtime, _)| name == *runtime) {
                 None
-            } else if name.trim() == public {
-                Some(format!("{SESSION_COOKIE}={rest}"))
+            } else if let Some((runtime, _)) = names.iter().find(|(_, p)| name == p) {
+                Some(format!("{runtime}={rest}"))
             } else {
                 Some(pair.to_owned())
             }
@@ -145,22 +162,29 @@ pub fn to_runtime_cookies(value: &str, public: &str) -> String {
 }
 
 /// A `Set-Cookie` value from the runtime as browsers see it: `k_session=`
-/// becomes `public=`; other cookies are unchanged.
+/// becomes `public=`, `k_guest=` the guest cookie's public name; other
+/// cookies are unchanged.
 #[must_use]
 pub fn to_public_set_cookie(value: &str, public: &str) -> String {
-    match value.strip_prefix(SESSION_COOKIE) {
-        Some(rest) if rest.starts_with('=') => format!("{public}{rest}"),
-        _ => value.to_owned(),
+    for (runtime, p) in renamed(public) {
+        if let Some(rest) = value.strip_prefix(runtime)
+            && rest.starts_with('=')
+        {
+            return format!("{p}{rest}");
+        }
     }
+    value.to_owned()
 }
 
-/// Returns `true` if the request carries the session cookie.
+/// Returns `true` if the request carries the session cookie or the guest
+/// cookie (whose session holds OAuth states and passkey challenges).
 #[must_use]
 pub fn has_session_cookie(headers: &[(String, String)]) -> bool {
     headers.iter().filter(|(n, _)| n == "cookie").any(|(_, v)| {
         v.split(';').any(|pair| {
             let name = pair.split('=').next().unwrap_or("").trim();
-            name == SESSION_COOKIE || name == SECURE_SESSION_COOKIE
+            let name = name.strip_prefix("__Host-").unwrap_or(name);
+            name == SESSION_COOKIE || name == GUEST_COOKIE
         })
     })
 }
@@ -462,11 +486,23 @@ mod tests {
             to_public_set_cookie("k_sessionx=1", "k_session_81"),
             "k_sessionx=1"
         );
+        // The guest cookie is renamed alike.
+        assert_eq!(
+            to_runtime_cookies("k_guest=x; k_guest_81=g; k_session_81=y", "k_session_81"),
+            "k_guest=g; k_session=y"
+        );
+        assert_eq!(
+            to_public_set_cookie("k_guest=g; Path=/", "k_session_81"),
+            "k_guest_81=g; Path=/"
+        );
     }
 
     #[test]
     fn cookie_detection() {
         assert!(has_session_cookie(&h(&[("cookie", "k_session=1")])));
+        assert!(has_session_cookie(&h(&[("cookie", "__Host-k_session=1")])));
+        assert!(has_session_cookie(&h(&[("cookie", "a=1; k_guest=1")])));
+        assert!(has_session_cookie(&h(&[("cookie", "__Host-k_guest=1")])));
         assert!(has_session_cookie(&h(&[
             ("cookie", "a=1"),
             ("cookie", " k_session=2")

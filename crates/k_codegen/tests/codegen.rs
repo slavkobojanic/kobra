@@ -937,3 +937,36 @@ fn a_client_rendered_app_with_a_guarded_page_is_not_static_only() {
         "the server checks the guard before it sends the shell"
     );
 }
+
+/// A service's `static let` may share its name with a method (K2019
+/// exempts functions), so its JavaScript property is renamed
+/// (`label$static`) rather than replacing a static method or being read
+/// as one; a `static func` is a static method of the class.
+#[test]
+fn a_service_static_let_named_like_a_method_keeps_both() {
+    let host = analyse(&[
+        ("k.toml", TOML),
+        ("App.k", "public app Demo {}\n"),
+        (
+            "src/demo/Labels.k",
+            "public service Labels {\n    static let label: String = \"static\"\n\n    func label() -> String {\n        return Labels.label\n    }\n\n    static let make: Int = 2\n\n    static func make() -> Int {\n        return Labels.make\n    }\n\n    func both() -> Int {\n        return Labels.make() + Labels.make\n    }\n}\n",
+        ),
+    ]);
+    let out = generate(&host.analysis(), &Options::default()).expect("generates");
+    let module = out
+        .server
+        .iter()
+        .find(|f| f.path == "k:/app/demo.js")
+        .expect("the module's server file");
+    let js = &module.contents;
+    for needle in [
+        "static make() {",
+        "return Labels.make$static;",
+        "return Labels.label$static;",
+        "Labels.make() + Labels.make$static",
+        "Labels.label$static = \"static\";",
+        "Labels.make$static = 2;",
+    ] {
+        assert!(js.contains(needle), "{needle} in\n{js}");
+    }
+}

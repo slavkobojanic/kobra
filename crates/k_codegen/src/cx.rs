@@ -5,7 +5,7 @@
 //! Everything here reads `k_sema` query results ([`k_sema::Analysis`]
 //! and its [`ProgramView`]); codegen has no second checker.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use k_diagnostics::{FileId, TextRange};
 use k_sema::stdlib::DeclarationKind;
@@ -418,6 +418,31 @@ impl<'a> Gen<'a> {
                     }
                     taken.push(name.clone());
                     self.member_names.insert(*m, name);
+                }
+            }
+            // A static field or computed property may share its name with a
+            // function (K2019 exempts functions), but in JavaScript a
+            // struct's module constant and function, or a class's static
+            // property and static method, would be one name: the property
+            // becomes `name$static` (`static` can't be an argument label).
+            // The stdlib's statics are the runtime's names.
+            if d.stdlib {
+                continue;
+            }
+            let funcs: HashSet<&str> = d
+                .members
+                .iter()
+                .map(|&m| self.view.member(m))
+                .filter(|i| matches!(i.kind, MemberKind::Func | MemberKind::Init))
+                .map(|i| i.name.as_str())
+                .collect();
+            for &m in &d.members {
+                let info = self.view.member(m);
+                if info.is_static
+                    && matches!(info.kind, MemberKind::Field | MemberKind::Computed)
+                    && funcs.contains(info.name.as_str())
+                {
+                    self.member_names.insert(m, format!("{}$static", info.name));
                 }
             }
         }

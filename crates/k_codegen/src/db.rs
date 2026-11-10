@@ -742,7 +742,7 @@ struct ColumnRef {
 }
 
 /// `e` without any enclosing parentheses.
-fn strip_parens(e: &ast::Expr) -> ast::Expr {
+pub(crate) fn strip_parens(e: &ast::Expr) -> ast::Expr {
     let mut e = e.clone();
     while let ast::Expr::ParenExpr(p) = &e {
         match p.syntax().children().find_map(ast::Expr::cast) {

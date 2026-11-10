@@ -1,0 +1,4 @@
+error[K2312] 26:18-26:39: a value of type `Error` can't be matched against a case of `DeviceError`: which enum it is isn't known when the program runs
+  help: catch the case in the `do` that throws it, or match a value of the enum's own type
+error[K2312] 27:18-27:39: a value of type `Error` can't be matched against a case of `SignError`: which enum it is isn't known when the program runs
+  help: catch the case in the `do` that throws it, or match a value of the enum's own type

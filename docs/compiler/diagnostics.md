@@ -253,6 +253,7 @@ Messages and detail lines for this range that the corpus pins exactly:
 | K2309 | `misplaced-jump` | error | The keyword. | — |
 | K2310 | `for-over-stream` | error | The `for` keyword. | Insert `await ` after `for` (machine-applicable inside an async function). |
 | K2311 | `for-await-not-stream` | error | The `await` token. | Remove `await ` when the operand is a collection (machine-applicable). |
+| K2312 | `case-of-unknown-enum` | error | The case pattern (`DeviceError.cancelled`), when the matched value's type isn't an enum (an `Error`, such as a catch-all's binding over two error types, or a type parameter): enum values don't carry their enum, so the case couldn't be told from another enum's at the same position. Help: catch the case in the `do` that throws it, or match a value of the enum's own type. | — |
 
 ### Stdlib-specific rules (K2400–K2499)
 

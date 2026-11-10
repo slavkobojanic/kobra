@@ -147,6 +147,16 @@ pub(crate) struct Body<'g, 'a> {
     /// The outermost links of the chains with a JavaScript `?.` in them,
     /// which may yield `undefined`.
     opt_undefined: HashSet<TextRange>,
+    /// The error-type variables of the enclosing `do`s and `expect throws`
+    /// whose body throws more than one error type, innermost last: every
+    /// `try` and `throw` in their bodies sets them to the error type's tag
+    /// ([`Body::error_tag`]) before it can throw, so a `catch` tells
+    /// `A.x` from `B.y` at the same case position.
+    err_tags: Vec<String>,
+    /// The tags of the `try`s being lowered, innermost last: a `try` in
+    /// another's operand sets the variables back to the outer one's tag
+    /// once it returns, as the outer call runs after it.
+    try_tags: Vec<f64>,
 }
 
 impl<'g, 'a> Body<'g, 'a> {
@@ -181,6 +191,8 @@ impl<'g, 'a> Body<'g, 'a> {
             overrides: HashMap::new(),
             opt_guards: Vec::new(),
             opt_undefined: HashSet::new(),
+            err_tags: Vec::new(),
+            try_tags: Vec::new(),
         }
     }
 
@@ -516,7 +528,8 @@ impl<'g, 'a> Body<'g, 'a> {
             }
             ast::Stmt::Throw(t) => {
                 if let Some(v) = t.syntax().children().find_map(ast::Expr::cast) {
-                    let e = self.expr(&v);
+                    let tag = self.error_tag(Some(&self.ty(v.syntax())));
+                    let e = self.tagged(tag, |b| b.expr(&v));
                     self.emit(Stmt::Throw(e));
                 }
             }
@@ -666,11 +679,26 @@ impl<'g, 'a> Body<'g, 'a> {
     fn test_expect_throws(&mut self, node: &SyntaxNode) {
         let block = node.children().find_map(ast::Block::cast);
         let pattern = node.children().find_map(ast::Pattern::cast);
+        // As in `do` (`do_stmt`): with two error types, the pattern's
+        // enum is checked too.
+        let types = self.thrown_decls(&block);
+        let et = (types.len() > 1).then(|| self.fresh("et"));
+        if let Some(v) = &et {
+            self.emit(Stmt::Let(v.clone(), None));
+            self.err_tags.push(v.clone());
+        }
         let body = match &block {
             Some(b) => self.block_stmts(b),
             None => Vec::new(),
         };
-        let err_ty = self.thrown_type(&block);
+        if et.is_some() {
+            self.err_tags.pop();
+        }
+        let owner = match (&et, &pattern) {
+            (Some(_), Some(p)) => self.pattern_case_owner(p, &types),
+            _ => None,
+        };
+        let err_ty = owner.map_or_else(|| self.thrown_type(&block), |d| Type::Named(d, Vec::new()));
         let err = self.catch_name();
         let ok = self.fresh("matched");
         let got = self.fresh("got");
@@ -681,12 +709,37 @@ impl<'g, 'a> Body<'g, 'a> {
             Some(p) => self.pattern_test(p, &id(&err), &err_ty),
             None => (None, Vec::new()),
         };
+        let test = match (&et, owner, test) {
+            (Some(v), Some(d), Some(t)) => {
+                Some(bin("&&", bin("===", id(v), Expr::Num(f64::from(d.0))), t))
+            }
+            (_, _, t) => t,
+        };
         self.pop_scope();
         let mut handler = vec![rethrow(&err)];
         handler.extend(binds.into_iter().map(|(n, e)| Stmt::Const(n, e)));
-        let shown = {
-            let f = self.text_fn(&err_ty);
-            js::arrow(vec![], call(f, vec![id(&err)]))
+        let shown = match &et {
+            // What was thrown, by its own type's text.
+            Some(v) => {
+                let mut texts: Vec<(u32, Expr)> = Vec::new();
+                for &d in &types {
+                    let f = self.text_fn(&Type::Named(d, Vec::new()));
+                    texts.push((d.0, call(f, vec![id(&err)])));
+                }
+                let last = texts.pop().map_or(Expr::Null, |(_, t)| t);
+                let text = texts.into_iter().rev().fold(last, |acc, (tag, t)| {
+                    Expr::Cond(
+                        Box::new(bin("===", id(v), Expr::Num(f64::from(tag)))),
+                        Box::new(t),
+                        Box::new(acc),
+                    )
+                });
+                js::arrow(vec![], text)
+            }
+            None => {
+                let f = self.text_fn(&err_ty);
+                js::arrow(vec![], call(f, vec![id(&err)]))
+            }
         };
         let matched = Stmt::Expr(js::assign(id(&ok), Expr::Bool(true)));
         let missed = Stmt::Expr(js::assign(id(&got), shown));
@@ -1142,10 +1195,31 @@ impl<'g, 'a> Body<'g, 'a> {
             .children()
             .filter(|c| c.kind() == SyntaxKind::CatchClause)
             .collect();
+        // A body that throws errors of two or more types records which
+        // type each throw had, as the cases' tags overlap.
+        let types = if clauses.is_empty() {
+            Vec::new()
+        } else {
+            self.thrown_decls(&body)
+        };
+        // `catch .email` after a repository write: the entity's
+        // `UniqueViolation` case, by tag (crate::db), a type of its own.
+        let unique = body
+            .as_ref()
+            .and_then(|b| crate::db::unique_fields_of_try(self, b));
+        let kinds = types.len() + usize::from(unique.is_some());
+        let et = (kinds > 1).then(|| self.fresh("et"));
+        if let Some(v) = &et {
+            self.emit(Stmt::Let(v.clone(), None));
+            self.err_tags.push(v.clone());
+        }
         let try_body = match &body {
             Some(b) => self.block_stmts(b),
             None => Vec::new(),
         };
+        if et.is_some() {
+            self.err_tags.pop();
+        }
         if clauses.is_empty() {
             self.emit(Stmt::Block(try_body));
             return;
@@ -1164,11 +1238,6 @@ impl<'g, 'a> Body<'g, 'a> {
         // The thrown error's type: the error type of the try body is not
         // recorded, so patterns are matched structurally on tags.
         let err_ty = self.thrown_type(&body);
-        // `catch .email` after a repository write: the entity's
-        // `UniqueViolation` case, by tag (crate::db).
-        let unique = body
-            .as_ref()
-            .and_then(|b| crate::db::unique_fields_of_try(self, b));
         for c in &clauses {
             let patterns: Vec<ast::Pattern> = c.children().filter_map(ast::Pattern::cast).collect();
             let guard = c
@@ -1185,17 +1254,26 @@ impl<'g, 'a> Body<'g, 'a> {
                     .as_ref()
                     .and_then(|u| crate::db::unique_case_tag(p, u))
                 {
-                    tests.push(Some(bin(
-                        "===",
-                        member(id(&err), "$"),
-                        Expr::Num(tag as f64),
-                    )));
+                    let t = bin("===", member(id(&err), "$"), Expr::Num(tag as f64));
+                    // The `UniqueViolation` type has no declaration: `-1`.
+                    tests.push(Some(match &et {
+                        Some(v) => bin("&&", bin("===", id(v), Expr::Num(-1.0)), t),
+                        None => t,
+                    }));
                     continue;
                 }
-                let (t, b) = self.pattern_test(p, &id(&err), &err_ty);
+                let owner = et.as_ref().and_then(|_| self.pattern_case_owner(p, &types));
+                let ty = owner.map_or_else(|| err_ty.clone(), |d| Type::Named(d, Vec::new()));
+                let (t, b) = self.pattern_test(p, &id(&err), &ty);
                 if t.is_none() {
                     catch_all = true;
                 }
+                let t = match (&et, owner, t) {
+                    (Some(v), Some(d), Some(t)) => {
+                        Some(bin("&&", bin("===", id(v), Expr::Num(f64::from(d.0))), t))
+                    }
+                    (_, _, t) => t,
+                };
                 tests.push(t);
                 binds = b;
             }
@@ -1281,6 +1359,113 @@ impl<'g, 'a> Body<'g, 'a> {
             handler.extend(otherwise.unwrap_or_default());
         }
         self.emit(Stmt::Try(try_body, err, handler));
+    }
+
+    /// The tag of error type `t` that [`Body::err_tags`] are set to: its
+    /// declaration's index, or `-1` for a type without one (an entity's
+    /// `UniqueViolation`); `None` outside a `do` that needs one.
+    fn error_tag(&self, t: Option<&Type>) -> Option<f64> {
+        if self.err_tags.is_empty() {
+            return None;
+        }
+        Some(t.and_then(Type::decl).map_or(-1.0, |d| f64::from(d.0)))
+    }
+
+    /// Lowers a `try` operand or a thrown value with `lower`, preceded by
+    /// setting the error-type variables to `tag` (`($et = 7, f())`); a
+    /// `try` inside another's operand then sets them back to the outer
+    /// one's tag (`($et = 7, $t = g(), $et = 3, $t)`).
+    fn tagged(&mut self, tag: Option<f64>, lower: impl FnOnce(&mut Self) -> Expr) -> Expr {
+        let Some(tag) = tag else {
+            return lower(self);
+        };
+        let outer = self.try_tags.last().copied();
+        self.try_tags.push(tag);
+        let x = lower(self);
+        self.try_tags.pop();
+        let set = |b: &Self, tag: f64| {
+            b.err_tags
+                .iter()
+                .rev()
+                .fold(Expr::Num(tag), |acc, v| js::assign(id(v), acc))
+        };
+        match outer {
+            Some(o) => {
+                let t = self.fresh("t");
+                self.emit(Stmt::Let(t.clone(), None));
+                let back = bin(",", set(self, o), id(&t));
+                bin(",", set(self, tag), bin(",", js::assign(id(&t), x), back))
+            }
+            None => bin(",", set(self, tag), x),
+        }
+    }
+
+    /// The error types the `try`s and `throw`s of `body` throw, outside its
+    /// lambdas, each once.
+    fn thrown_decls(&self, body: &Option<ast::Block>) -> Vec<DeclId> {
+        let Some(b) = body else { return Vec::new() };
+        let mut out = Vec::new();
+        let mut walk = b.syntax().preorder();
+        while let Some(ev) = walk.next() {
+            let rowan::WalkEvent::Enter(n) = ev else {
+                continue;
+            };
+            let t = match n.kind() {
+                SyntaxKind::LambdaExpr => {
+                    walk.skip_subtree();
+                    continue;
+                }
+                SyntaxKind::ThrowStmt => n
+                    .children()
+                    .find_map(ast::Expr::cast)
+                    .map(|e| self.ty(e.syntax())),
+                SyntaxKind::TryExpr if !has_token(&n, SyntaxKind::ElseKw) => n
+                    .children()
+                    .find_map(ast::Expr::cast)
+                    .and_then(|i| self.throws_of_call(&crate::db::strip_parens(&strip_await(&i)))),
+                _ => None,
+            };
+            if let Some(d) = t.as_ref().and_then(Type::decl) {
+                if !out.contains(&d) {
+                    out.push(d);
+                }
+            }
+        }
+        out
+    }
+
+    /// The error enum whose case `p` names (`.cancelled`, `E.x(let y)`),
+    /// among `types` when the name isn't resolved; `None` for a pattern
+    /// that names no case.
+    fn pattern_case_owner(&self, p: &ast::Pattern, types: &[DeclId]) -> Option<DeclId> {
+        let node = match p {
+            ast::Pattern::BindingPattern(b) => {
+                let inner = b.syntax().children().find_map(ast::Pattern::cast)?;
+                return self.pattern_case_owner(&inner, types);
+            }
+            ast::Pattern::EnumCasePattern(ep) => ep.syntax().clone(),
+            ast::Pattern::IdentPattern(ip) => ip.syntax().clone(),
+            _ => return None,
+        };
+        let name = node
+            .children_with_tokens()
+            .filter_map(rowan::NodeOrToken::into_token)
+            .filter(|t| t.kind().is_name_like() && t.kind() != SyntaxKind::LetKw)
+            .last()?;
+        if let Some(Resolved::Member(m)) = self.resolved(name.text_range()) {
+            let mi = self.g.view.member(m);
+            if mi.kind == MemberKind::Case {
+                return Some(mi.owner);
+            }
+        }
+        if !matches!(p, ast::Pattern::EnumCasePattern(_)) {
+            return None;
+        }
+        types.iter().copied().find(|&d| {
+            self.g
+                .find_member(d, name.text())
+                .is_some_and(|m| self.g.view.member(m).kind == MemberKind::Case)
+        })
     }
 
     /// The error type thrown in a `do` body: the throws type of the first
@@ -2458,7 +2643,12 @@ impl<'g, 'a> Body<'g, 'a> {
                     id(v)
                 } else {
                     match t.syntax().children().find_map(ast::Expr::cast) {
-                        Some(i) => self.expr(&i),
+                        Some(i) => {
+                            let thrown =
+                                self.throws_of_call(&crate::db::strip_parens(&strip_await(&i)));
+                            let tag = self.error_tag(thrown.as_ref());
+                            self.tagged(tag, |b| b.expr(&i))
+                        }
                         None => Expr::Null,
                     }
                 }
@@ -3054,6 +3244,9 @@ impl<'g, 'a> Body<'g, 'a> {
         let is_async = matches!(&lt, Type::Func(f) if f.is_async) && (awaits || !force_sync);
         let saved_c = self.has_c;
         let saved_owned = std::mem::take(&mut self.owned);
+        // A lambda's `try`s throw where it is called, not here.
+        let saved_tags = std::mem::take(&mut self.err_tags);
+        let saved_try_tags = std::mem::take(&mut self.try_tags);
         self.kill_aliases_captured(l.syntax());
         self.push_scope();
         let mut params = Vec::new();
@@ -3118,6 +3311,8 @@ impl<'g, 'a> Body<'g, 'a> {
         self.pop_scope();
         self.has_c = saved_c;
         self.owned = saved_owned;
+        self.err_tags = saved_tags;
+        self.try_tags = saved_try_tags;
         let f = if body.is_empty() {
             match tail {
                 Some(t) => js::Function {
@@ -3421,8 +3616,15 @@ impl<'g, 'a> Body<'g, 'a> {
         }
         match od.named_kind() {
             Some(DeclarationKind::Class | DeclarationKind::Service) => {
+                // The stdlib's classes are the runtime's, by their K names.
+                let stdlib = od.stdlib;
                 let o = self.decl_ref(owner);
-                member(o, info.name.clone())
+                let n = if stdlib {
+                    info.name.clone()
+                } else {
+                    self.g.member_name(m)
+                };
+                member(o, n)
             }
             _ => {
                 if info.kind == MemberKind::Func {

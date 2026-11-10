@@ -166,6 +166,13 @@ Output { client, server, server_entry, manifest }
 - **Labels are erased.** Calls are positional in declaration order of the parameters; the checker already
   resolved labels and overloads. Overloads that share a name (`contains(_:)` and `contains(where:)`) are
   emitted with their label signature in the name: `contains`, `contains$where`.
+- **A static property named like a function** (K2019 lets a function share a property's name) is
+  `name$static`: a struct's `static let count` beside `func count()` is the module constant
+  `Tally$count$static` next to the function `Tally$count`, and a class's or service's `static let label`
+  beside a `static func label()` is the static property `Shelf.label$static` next to the static method
+  (`static` can't be an argument label, so no overload is named so). A service's `static func` is a
+  static method of its class. A function's resolution names it with its labels and a property's
+  without, so `Shelf.label()` is the method and `Shelf.label` the property.
 - **Default arguments** are JS default parameters: an omitted argument in the middle of a call is passed
   as `undefined`, which K values never are. Defaults are evaluated in the callee, after the earlier
   parameters, as in the source.
@@ -340,6 +347,16 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
 
 - A `catch` that doesn't cover every case rethrows the rest (`default: throw e`) — the checker proved the
   function declares them.
+- **Two error types in one `do`.** Enum values don't carry their enum (a payload-free case is the shared
+  `$k.unitCase(tag)`), so `A.x` and `B.y` at the same case position look alike. A `do` (or `expect
+  throws`) whose body's `try`s and `throw`s have more than one error type declares `let $et;`, and each
+  `try` and `throw` in the body, its nested `do`s and their clauses included (not in its lambdas), sets
+  it to the error enum's declaration index before it can throw: `($et = 7, f())`. A `try` inside another's
+  operand sets it back to the outer one's tag once it returns (`($et = 7, $t = g(), $et = 3, $t)`), since
+  the outer call runs after its arguments. Each clause naming a case also tests `$et === 7`; a catch-all
+  doesn't. A nested such `do` sets both variables. An error type without a declaration (an entity's
+  `UniqueViolation`) is `-1`. A body with one error type is unchanged. A value of type `Error` (a
+  catch-all over two types) has no tag to test, so matching it against a case is K2312.
 - **Non-K exceptions** (a JS `TypeError` from a bug in the runtime or interop) are wrapped into a panic at
   the boundary that catches them (`$k.toPanic(e)`), never matched as typed errors.
 - `try … else { fallback }` → a `try`/`catch` that returns the fallback for every non-panic error.

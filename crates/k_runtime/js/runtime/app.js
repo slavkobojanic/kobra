@@ -210,6 +210,14 @@ export class RequestState {
     this.cookieName = origin.startsWith("https:") ? "__Host-k_session" : "k_session";
     this.cookies = parseCookies(request.headers);
     this.sessionId = this.cookies.get(this.cookieName) ?? null;
+    /**
+     * The guest session OAuth states and passkey challenges are bound to
+     * when there is no session (26-auth-and-sessions.md, "Guest
+     * sessions"): a cookie of its own, so a guest's answer that arrives
+     * after a sign-in's never replaces the signed-in cookie.
+     */
+    this.guestCookieName = this.cookieName.replace("k_session", "k_guest");
+    this.guestId = this.cookies.get(this.guestCookieName) ?? null;
     /** @type {object|null|undefined} the session user, `undefined` until loaded */
     this.loaded = undefined;
     /** `true` once K code read `Session` (the response is then private). */
@@ -218,6 +226,8 @@ export class RequestState {
     this.sessionChanged = false;
     /** @type {string|null} a `Set-Cookie` value to send */
     this.setCookie = null;
+    /** @type {string|null} the guest cookie's `Set-Cookie` value to send */
+    this.setGuestCookie = null;
     this.clientAddress = request.remote ?? "";
     /** The verified calling service of a `ServiceAuthenticated` rpc, or `null`. */
     this.serviceCaller = null;
@@ -327,10 +337,42 @@ export class RequestState {
   }
 
   /** The `Set-Cookie` value for session `id` (an empty id clears it). */
-  cookie(id) {
-    const secure = this.cookieName.startsWith("__Host-") ? "; Secure" : "";
+  cookie(id, name = this.cookieName) {
+    const secure = name.startsWith("__Host-") ? "; Secure" : "";
     const life = id === "" ? "; Max-Age=0" : "; Max-Age=2592000";
-    return `${this.cookieName}=${id}; Path=/; HttpOnly; SameSite=Lax${secure}${life}`;
+    return `${name}=${id}; Path=/; HttpOnly; SameSite=Lax${secure}${life}`;
+  }
+
+  /**
+   * The session an OAuth state or a passkey challenge is bound to: the
+   * browser's session, else its guest session, else a new guest session
+   * with its own cookie. Several requests of a new visitor may each make
+   * one; the browser keeps the last, and only that one's state works.
+   * @returns {Promise<string>}
+   */
+  async bindable() {
+    this.user();
+    if (this.sessionId) return this.sessionId;
+    if (this.guestId && (await ops.op_k_session_get(this.guestId)) !== null) return this.guestId;
+    this.guestId = await ops.op_k_session_create(null, []);
+    this.setGuestCookie = this.cookie(this.guestId, this.guestCookieName);
+    // A test's later requests carry the guest cookie, as a browser's would.
+    this.test?.sessionChanged?.(this);
+    return this.guestId;
+  }
+
+  /**
+   * Takes `state` from the session it was issued to ({@link
+   * RequestState#bindable}): `true` once.
+   * @param {string} state
+   * @returns {Promise<boolean>}
+   */
+  async consumeBound(state) {
+    this.user();
+    for (const id of [this.sessionId, this.guestId]) {
+      if (id && (await ops.op_k_session_consume_state(id, state))) return true;
+    }
+    return false;
   }
 
   /** The `Session` mirror the browser receives: `{user}`. */
@@ -463,21 +505,13 @@ export function sessionManager(st) {
      * without one gets a guest session (and its cookie) to bind it to.
      */
     async issueState(_c) {
-      st.user();
-      if (!st.sessionId) {
-        st.sessionId = await ops.op_k_session_create(null, []);
-        st.setCookie = st.cookie(st.sessionId);
-        changed();
-      }
-      const state = await ops.op_k_session_issue_state(st.sessionId);
+      const state = await ops.op_k_session_issue_state(await st.bindable());
       if (state === null) throw new KPanic("sessions: the session to bind the OAuth state to is gone");
       return state;
     },
     /** `true` once for the state last issued to this browser's session. */
     async consumeState(_c, state) {
-      st.user();
-      if (!st.sessionId) return false;
-      return ops.op_k_session_consume_state(st.sessionId, String(state));
+      return st.consumeBound(String(state));
     },
   };
 }
@@ -530,14 +564,7 @@ export function passkeyVerifier(st) {
   };
   /** A challenge for `ceremony` (and `extra`) in this browser's session. */
   const issue = async (ceremony, extra) => {
-    st.user();
-    if (!st.sessionId) {
-      st.sessionId = await ops.op_k_session_create(null, []);
-      st.setCookie = st.cookie(st.sessionId);
-      // A test's later requests carry the guest session, as a browser's would.
-      st.test?.sessionChanged?.(st);
-    }
-    const challenge = await ops.op_k_session_issue_challenge(st.sessionId, Uint8Array.of(ceremony, ...extra));
+    const challenge = await ops.op_k_session_issue_challenge(await st.bindable(), Uint8Array.of(ceremony, ...extra));
     if (challenge === null) throw new KPanic("passkeys: the session to bind the challenge to is gone");
     return challenge;
   };
@@ -556,8 +583,7 @@ export function passkeyVerifier(st) {
     }
     const raw = typeof challenge === "string" ? crypto.fromB64url(challenge) : null;
     if (raw === null) throw passkeyRefusal("malformed");
-    st.user();
-    const issued = st.sessionId ? await ops.op_k_session_consume_state(st.sessionId, challenge) : false;
+    const issued = await st.consumeBound(challenge);
     if (!issued || raw.length < 33 || raw[32] !== ceremony) throw passkeyRefusal("challengeMismatch");
     return { challenge, extra: raw.subarray(33) };
   };
@@ -708,6 +734,7 @@ function connectError(status, code, message, details, headers = []) {
 function finish(st, response, rpc) {
   const headers = response.headers;
   if (st.setCookie !== null) headers.push(["set-cookie", st.setCookie]);
+  if (st.setGuestCookie !== null) headers.push(["set-cookie", st.setGuestCookie]);
   if (rpc && st.sessionChanged) headers.push(["x-k-session", JSON.stringify(st.mirror())]);
   const isPrivate = rpc || st.sessionRead || st.sessionChanged;
   if (isPrivate && !headers.some(([n]) => n === "cache-control")) headers.push(["cache-control", PRIVATE]);
@@ -906,6 +933,7 @@ async function pumpStream(st, s) {
       ["content-type", "application/connect+json"],
       ["cache-control", PRIVATE],
       ...(st.setCookie ? [["set-cookie", st.setCookie]] : []),
+      ...(st.setGuestCookie ? [["set-cookie", st.setGuestCookie]] : []),
       // As a unary response does: the stream may be what found the session dead.
       ...(st.sessionChanged ? [["x-k-session", JSON.stringify(st.mirror())]] : []),
     ],

@@ -4759,6 +4759,26 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                         .decl()
                         .is_some_and(|sd| !self.cx.is_enum(sd))
                 {
+                    // K2312: enum values don't carry their enum, so a
+                    // value typed `Error` (a catch-all over two error
+                    // types) can't be told `A.x` from `B.y` at the same
+                    // case position. `expect throws E.x` checks its
+                    // pattern against `E` itself, never here.
+                    if self.cx.is_enum(d) {
+                        let shown = self.resolve(ty).render(self.cx.p);
+                        let d = Diagnostic::new(
+                            codes::CASE_OF_UNKNOWN_ENUM,
+                            self.span(node.text_range()),
+                            format!(
+                                "a value of type `{shown}` can't be matched against a case of `{}`: which enum it is isn't known when the program runs",
+                                self.cx.p.decl(d).name
+                            ),
+                        )
+                        .with_help(
+                            "catch the case in the `do` that throws it, or match a value of the enum's own type",
+                        );
+                        self.report(d);
+                    }
                     scrutinee = Ty::named(d);
                 }
             }

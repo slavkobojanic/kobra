@@ -363,9 +363,19 @@ it, from an effect:
 // examples/notes/src/accounts/PasskeyService.k
         do {
             let assertion = try await passkeys.signIn(options)
-            problem = await signInWith(assertion: assertion)
-        } catch let refusal {
-            problem = deviceProblem(refusal, making: false)
+            try await api.signInWithPasskey(assertion: assertion)
+        } catch .cancelled {
+            problem = "No passkey was used. If this device has none for K Notes, sign in with your password."
+        } catch .alreadyRegistered {
+            problem = "This device already has a passkey for this account."
+        } catch .unsupported, .failed {
+            problem = "This browser couldn't use a passkey here."
+        } catch .invalidCredentials, .passkeyNotAccepted {
+            problem = "That passkey wasn't accepted."
+        } catch .rpcFailure(.rejected) {
+            problem = "Too many attempts. Wait a minute, then try again."
+        } catch .rpcFailure {
+            problem = "Couldn't reach K Notes. Check your connection and try again."
         }
 ```
 
@@ -397,9 +407,13 @@ signs the account in:
   entity column can't hold a struct. Every field is base64url text, a number or a flag.
 - **Attestation is `"none"`.** K never checks which make of device holds the key: that would need a
   vendor's metadata service, and synced passkeys don't attest anyway.
-- **Catch the device's errors and the server's in a `do` each.** `PasskeyError` (the sheet was
-  dismissed, the browser has no WebAuthn) and your rpc's error enum are different types; the notes
-  example sends the passkey to the server from a helper with its own `do`.
+- **One `do` catches the device's errors and the server's.** `PasskeyError` (the sheet was
+  dismissed, the browser has no WebAuthn) and your rpc's error enum are different types, and each
+  `catch` clause catches its own enum's case. Name the cases: a `catch let error` over both binds an
+  `Error`, whose cases can't be matched (K2312).
+- **A first-time visitor's challenge doesn't disturb a sign-in.** Fetching options gives a visitor who
+  isn't signed in a guest session, with a cookie of its own, so a password sign-in sent at the same
+  time stays signed in whichever answer arrives first.
 
 In tests, `TestAuthenticator` (from `k.test`) replaces `Passkeys`. It is a working authenticator: it
 holds real keys, writes real CBOR and signs real assertions, so the real `PasskeyVerifier` checks them.

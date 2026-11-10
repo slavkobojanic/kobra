@@ -830,14 +830,24 @@ pub(crate) fn service(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 )));
             }
             MemberKind::Func | MemberKind::Rpc | MemberKind::Init => {
-                b.self_mode = SelfMode::This;
-                let f = crate::decl::function(
+                let is_static = mi.is_static && mi.kind == MemberKind::Func;
+                b.self_mode = if is_static {
+                    SelfMode::None
+                } else {
+                    SelfMode::This
+                };
+                let mut f = crate::decl::function(
                     b,
                     g.member_name(m),
                     mnode.as_ref(),
                     mi.signature.as_ref(),
                     Vec::new(),
                 );
+                b.self_mode = SelfMode::This;
+                // `Labels.make()`: a static method of the class.
+                if is_static {
+                    f.kind = MethodKind::Static;
+                }
                 if (mi.kind == MemberKind::Init || mi.name == "init")
                     && mi.signature.as_ref().is_none_or(|s| s.params.is_empty())
                 {
@@ -879,7 +889,7 @@ pub(crate) fn service(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 let (pre, e) = b.capture(|b| init.as_ref().map_or(Expr::Null, |e| b.expr(e)));
                 statics.extend(pre);
                 statics.push(Stmt::Expr(js::assign(
-                    member(id(name.clone()), mi.name.clone()),
+                    member(id(name.clone()), g.member_name(m)),
                     e,
                 )));
                 b.self_mode = SelfMode::This;

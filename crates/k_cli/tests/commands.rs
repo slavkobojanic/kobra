@@ -1549,6 +1549,20 @@ fn test_expect_throws_checks_the_case_it_names() {
         text.contains("expected an error matching Choice.second, but it threw first"),
         "{text}"
     );
+    // `Other.second` is case 1 as `Choice.second` is: the pattern's enum
+    // is checked too, and what was thrown is shown by its own type.
+    assert!(
+        text.contains("FAIL  Choice › the same case position of another error fails"),
+        "{text}"
+    );
+    assert!(
+        text.contains("expected an error matching Choice.second, but it threw second"),
+        "{text}"
+    );
+    assert!(
+        text.contains("PASS  Choice › the named case passes beside another error"),
+        "{text}"
+    );
 }
 
 /// Reads `child`'s standard output line by line on a thread.

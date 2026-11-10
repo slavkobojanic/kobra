@@ -421,7 +421,8 @@ server streaming.
   it to `k_session` in each request's `Cookie` header, drops a plain `k_session` (another app's on the
   same host), and renames `k_session=` back in each `Set-Cookie` (`front::to_runtime_cookies`,
   `front::to_public_set_cookie`), so the runtime keeps one name and apps on `localhost` never clear each
-  other's sessions.
+  other's sessions. The guest cookie (below) is renamed the same way: `__Host-k_guest`, `k_guest`,
+  `k_guest_<port>`.
 - **Lifetime**: idle timeout (default 7 days, sliding; a stored session's last-seen time is written at
   most once a minute) and
   absolute lifetime (30 days from `signIn`), or `K_SESSION_IDLE` and `K_SESSION_MAX_AGE` from the
@@ -429,11 +430,16 @@ server streaming.
   `endAll` delete rows, so revocation is immediate.
 - **OAuth state**: `issueState()` binds a fresh random state (43 characters) to this browser's session
   row, stored as its hash with a 10-minute expiry (`process::OAUTH_STATE_LIFETIME`); a visitor without a
-  session first gets a **guest session** (a row without a user, and its cookie) to bind it to.
-  `consumeState(state)` answers `true` once, for the state last issued to the same session before it
-  expires, comparing hashes in constant time; it clears the state either way, so a wrong guess burns
-  it, another browser's cookie can't use it, and a replay fails. A guest session reads as no user;
-  `signIn` replaces it with a new id like any session (no fixation), and `endAll` never ends it.
+  session binds it to their **guest session** (a row without a user), made on first need, whose token
+  is in a cookie of its own, `k_guest` (`RequestState.bindable()`). `consumeState(state)` answers `true`
+  once, for the state last issued to the same session before it expires, trying the session and then
+  the guest session (`RequestState.consumeBound`), comparing hashes in constant time; it clears the
+  state either way, so a wrong guess burns it, another browser's cookie can't use it, and a replay
+  fails. A guest session reads as no user and is never the session: `signIn` makes a new session (no
+  fixation) beside it, and `endAll` never ends it. Its own cookie is what keeps a first-time visitor's
+  concurrent requests apart: a guest answer that arrives after a sign-in's sets `k_guest`, never
+  `k_session` ([26-auth-and-sessions.md, "Guest sessions"](../design/26-auth-and-sessions.md#guest-sessions)).
+  A guest session that an older cookie put in `k_session` keeps working as the session it is.
 - **The mirror**: SSR serializes `Session.user` into `k-data`; an rpc that changes the session returns the
   new mirror in `x-k-session` so the browser's `Session` follows. A request whose session cookie names a
   session the server no longer has counts as a change: it was signed out elsewhere, ended by `endAll`, or
@@ -660,7 +666,8 @@ get `no-cache`. `HEAD` sends no body. Precompressed variants (brotli/gzip chosen
   refused connections, invalid requests, SMTP reply classes, header injection, no secret in a message).
 - `crates/k_server/tests/sessions.rs`: sessions in `k_session` survive a restart and are shared by two
   replicas (sign-in, `endAll`, revocation), the table holds hashes only, rate limits count across
-  replicas, OAuth state is bound and single-use.
+  replicas, OAuth state is bound and single-use, and a guest session issued beside a concurrent sign-in
+  never replaces the signed-in cookie, whichever answer the browser takes last.
 - `crates/k_server/tests/shop_production.rs`: the shop built for production against a fake Stripe and a
   fake SMTP server: `PlaceOrder` starts a Checkout session (the exact form, bearer token and
   idempotency key Stripe receives), 4xx/5xx/slow answers cancel the order and release the stock, the
@@ -804,7 +811,8 @@ memoized per request container like `SessionManager`; a test build uses the same
   base64url of 32 random bytes, a ceremony byte (`1` registration, `2` sign-in) and, for a registration,
   the user handle (1 to 64 bytes; 32 random ones when the app passes none). It is stored hashed as the
   session's OAuth state, replacing any earlier one, for ten minutes (`OAUTH_STATE_LIFETIME`). A guest
-  gets a guest session and its cookie first, as for `issueState()`, and a test's later requests carry it.
+  gets a guest session and its `k_guest` cookie first, as for `issueState()`, and a test's later
+  requests carry it.
 - **Verification** reads the challenge out of the client data JSON, takes it with
   `op_k_session_consume_state` (so it is used up whatever follows), checks its ceremony byte, then calls
   **`op_k_passkey_verify_registration`** or **`op_k_passkey_verify_assertion`** (`k_server::passkey`: the
