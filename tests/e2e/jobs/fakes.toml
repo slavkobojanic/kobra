@@ -1,0 +1,5 @@
+# A slow upstream, so the scheduled job's run outlasts its interval.
+[http]
+routes = [
+    { method = "GET", path = "/slow", body = "late", delay_ms = 1500 },
+]

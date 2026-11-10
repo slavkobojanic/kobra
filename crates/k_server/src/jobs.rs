@@ -6,7 +6,9 @@
 //!
 //! 1. Every [`JobWorkerOptions::poll`] it enqueues the due runs of
 //!    `@Schedule` jobs (each due time at most once across all replicas,
-//!    through `k_job_schedule`), then claims as many due jobs as it has
+//!    through `k_job_schedule`, and skipped while the job's previous run
+//!    is still queued or running, so a schedule never overlaps itself),
+//!    then claims as many due jobs as it has
 //!    free slots ([`JobWorkerOptions::concurrency`], `K_JOB_CONCURRENCY`).
 //! 2. Each claimed job runs in a worker isolate, delivered through the
 //!    same queues as HTTP requests but marked as a job ([`JobRun`]), so the
@@ -33,7 +35,7 @@ use std::time::{Duration, Instant};
 use k_db::stdlib::JobSpec;
 use tokio::sync::{oneshot, watch};
 
-use crate::db::{ClaimedJob, JobFate, ProcessDatabase};
+use crate::db::{ClaimedJob, JobFate, ProcessDatabase, ScheduleClaim};
 use crate::engine::Output;
 use crate::ops::{JobRun, PendingRequest};
 
@@ -210,7 +212,8 @@ impl Drop for JobWorker {
 }
 
 /// The worker's loop: every `poll`, enqueues the schedules that fell due
-/// (once across replicas, [`ProcessDatabase::claim_schedule`]), claims up
+/// (once across replicas and never over an unfinished run,
+/// [`ProcessDatabase::claim_schedule`]), claims up
 /// to `concurrency` jobs minus those running, runs each through `dispatch`
 /// and records its fate, until `stop` turns `true`. Database failures are
 /// logged and retried on the next poll.
@@ -248,29 +251,25 @@ async fn run(
             if scheduled.get(&spec.name) == Some(&due) {
                 continue;
             }
-            match db.claim_schedule(&spec.name, due).await {
-                Ok(true) => {
-                    let id = match job_id() {
-                        Ok(id) => id,
-                        Err(e) => {
-                            log(options.log, "error", &format!("jobs: {e}"));
-                            continue;
-                        }
-                    };
-                    if let Err(e) = db
-                        .enqueue_job(id, &spec.name, "{}".into(), due, now, 0)
-                        .await
-                    {
+            let id = match job_id() {
+                Ok(id) => id,
+                Err(e) => {
+                    log(options.log, "error", &format!("jobs: {e}"));
+                    continue;
+                }
+            };
+            match db.claim_schedule(&spec.name, due, id, now).await {
+                Ok(claim) => {
+                    if claim == ScheduleClaim::Skipped {
                         log(
                             options.log,
-                            "error",
-                            &format!("jobs: scheduling {}: {e}", spec.name),
+                            "info",
+                            &format!(
+                                "jobs: skipped the {due} run of {}: its previous run is still queued or running",
+                                spec.name
+                            ),
                         );
-                        continue;
                     }
-                    scheduled.insert(spec.name.clone(), due);
-                }
-                Ok(false) => {
                     scheduled.insert(spec.name.clone(), due);
                 }
                 Err(e) => log(

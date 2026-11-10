@@ -155,6 +155,7 @@ service PurgeExpiredCarts implements Job<Void> {
 - **Schedules are typed:** `.every(1.hour)`, `.daily(at: TimeOfDay)`, `.weekly(on: .monday, at:
   TimeOfDay)`. Times are UTC. There is no cron string.
 - Each due run is enqueued once across all replicas, and then runs like any other job, with its retries.
+- A scheduled job never overlaps itself. If a due time comes while the previous run is still queued, retrying or running, that due time is skipped (the log says so), so a job that takes longer than its interval runs again at the next due time after it finishes, never twice at once.
 
 ## Stored payloads
 

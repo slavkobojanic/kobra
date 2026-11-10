@@ -576,15 +576,24 @@ panics. The handler's `$e` carries the parsed `@Param`s and the request containe
   automatically.
 - **Schedules** (`k_db::stdlib::Schedule`: `.every(interval)`, `.daily(at:)`, `.weekly(on:at:)`, UTC):
   each due time is enqueued once across replicas, claimed through `k_job_schedule` (the replica whose
-  update moves `last_due` forward enqueues it).
+  update moves `last_due` forward enqueues it), and a scheduled job never overlaps itself:
+  `ProcessDatabase::claim_schedule` moves `last_due` forward, counts the job's `queued` and `running`
+  rows (`job_sql::SCHEDULE_ACTIVE`; retries included, dead rows not) and inserts the run only when
+  there are none, all in one transaction, returning `ScheduleClaim::{Enqueued, Skipped, Taken}`. A
+  skipped due time is logged at info level and is not retried, so missed runs coalesce. On Postgres a
+  second replica's claim of the next due time waits on the `k_job_schedule` row lock until the first
+  commits (`READ COMMITTED`), then sees its run; SQLite serializes writers with `BEGIN IMMEDIATE`. A
+  run whose process died keeps blocking until its lease expires and it is claimed again.
 - **Shutdown**: the worker stops claiming, waits for running jobs up to `K_SHUTDOWN_GRACE`, and returns
   unfinished ones to the queue without counting the attempt; only then are the request queues closed.
 - **Commands**: `dist/app jobs list [--dead]` prints one tab-separated line per job (id, name, status,
   attempts, due or death time in RFC 3339, last error); `dist/app jobs retry <id>` re-queues a dead job
   with fresh attempts (exit 1 when there is none). Neither runs migrations.
 - **Tests**: `tests/e2e/jobs` (enqueue, transactional enqueue and rollback, retry then success, dead
-  after the last attempt, permanent failure, delay, schedule), `db.rs` unit tests (claims, leases,
-  fates, schedules), `jobs.rs` unit tests (fates, jitter), `crates/k_cli/tests/cli.rs` (`migrate`, `jobs`
+  after the last attempt, permanent failure, delay, a schedule whose run outlasts its interval and
+  still writes once), `db.rs` unit tests (claims, leases, fates, schedules: a due time while the
+  previous run is queued, retrying, running or recovered, after it finished or died, two replicas on
+  one SQLite file), `tests/replicas.rs` (two replicas racing for 30 due times on Postgres), `jobs.rs` unit tests (fates, jitter), `crates/k_cli/tests/cli.rs` (`migrate`, `jobs`
   commands) and the shop's production test, where a paid order's confirmation is sent by the worker.
 - **Test doubles**: a test build binds `JobQueue` to `RecordingJobQueue` (stores payloads,
   `payloads(of:)`), and `use InlineJobQueue for JobQueue` runs each job when the enqueuing transaction

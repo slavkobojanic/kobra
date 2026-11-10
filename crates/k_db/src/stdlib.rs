@@ -173,7 +173,8 @@ const FIRST_MONDAY_MS: i64 = 4 * DAY_MS;
 
 impl Schedule {
     /// The latest due time at or before `now_ms`. A due time is enqueued
-    /// at most once across all replicas (`k_job_schedule`).
+    /// at most once across all replicas (`k_job_schedule`), and is skipped
+    /// while an earlier run of the job is unfinished.
     #[must_use]
     pub fn latest_due(self, now_ms: i64) -> i64 {
         match self {
@@ -256,6 +257,10 @@ pub mod job_sql {
     /// Claims due time `$2` of schedule `$1`: one replica's update matches.
     pub const SCHEDULE_CLAIM: &str =
         "UPDATE k_job_schedule SET last_due = $2 WHERE name = $1 AND last_due < $2";
+    /// The unfinished runs of job `$1` (queued, retrying or running), which
+    /// make its schedule skip a due time instead of overlapping itself.
+    pub const SCHEDULE_ACTIVE: &str =
+        "SELECT COUNT(*) FROM k_job WHERE name = $1 AND status IN ('queued', 'running')";
 }
 
 /// Statements on `k_session`, with `$n` placeholders ([`sql`]). Ids are

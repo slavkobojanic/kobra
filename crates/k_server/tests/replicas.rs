@@ -1,7 +1,8 @@
 //! Replicas sharing a Postgres database (`docs/design/44-channels.md`,
 //! "Server isolates and replicas"; `k_server::replicas`): broadcasts,
 //! spilled payloads, presence leases and session ends reach the other
-//! process over `LISTEN`/`NOTIFY`, and a crashed process's leases expire.
+//! process over `LISTEN`/`NOTIFY`, a crashed process's leases expire, and a
+//! schedule never overlaps itself across replicas.
 //!
 //! Each test runs two [`ProcessState`]s, each with its own database
 //! connection and listening connection, against a real Postgres
@@ -11,7 +12,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use k_server::db::{DatabaseSetup, ProcessDatabase};
+use k_server::db::{DatabaseSetup, JobFate, ProcessDatabase, ScheduleClaim};
 use k_server::process::ProcessState;
 use k_server::replicas::{NOTIFY_INLINE_LIMIT, ReplicaTimings};
 
@@ -211,4 +212,79 @@ fn a_session_ended_on_one_replica_closes_its_streams_on_another() {
     a.delete_session(token);
     assert_eq!(next(&b, stream), None, "the stream on B closed");
     assert_eq!(b.take(other), None, "another session's stream stays open");
+}
+
+/// A process database on `url`, without the fan-out.
+fn database(url: &str) -> Arc<ProcessDatabase> {
+    ProcessDatabase::open(DatabaseSetup {
+        url: url.to_owned(),
+        password: None,
+        manifest: k_db::manifest::DbManifest::default(),
+    })
+    .expect("the database opens")
+    .0
+}
+
+/// The ids of `db`'s unfinished runs of `name`.
+async fn unfinished(db: &ProcessDatabase, name: &str) -> Vec<String> {
+    db.list_jobs(false)
+        .await
+        .expect("lists")
+        .into_iter()
+        .filter(|r| r.name == name && r.status != "dead")
+        .map(|r| r.id)
+        .collect()
+}
+
+#[test]
+fn a_schedule_never_overlaps_itself_across_replicas() {
+    let Some(server) = TestPostgres::start("schedule") else {
+        return;
+    };
+    let url = server.database("schedule");
+    let (a, b) = (database(&url), database(&url));
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a runtime")
+        .block_on(async {
+            for round in 1..=30i64 {
+                let due = round * 1000;
+                // Both replicas race for each due time.
+                let (x, y) = tokio::join!(
+                    a.claim_schedule("tick", due, format!("a{round}"), due),
+                    b.claim_schedule("tick", due, format!("b{round}"), due),
+                );
+                let claims = [x.expect("claims"), y.expect("claims")];
+                assert_eq!(
+                    claims
+                        .iter()
+                        .filter(|c| **c == ScheduleClaim::Taken)
+                        .count(),
+                    1,
+                    "one replica claims {due}: {claims:?}"
+                );
+                let runs = unfinished(&a, "tick").await;
+                assert_eq!(runs.len(), 1, "never two runs at once: {runs:?}");
+                // Every third run is still running at the next due time,
+                // which is skipped; the others finish first.
+                let expected = if round % 3 == 2 {
+                    ScheduleClaim::Skipped
+                } else {
+                    ScheduleClaim::Enqueued
+                };
+                assert!(claims.contains(&expected), "round {round}: {claims:?}");
+                if round % 3 == 1 {
+                    assert_eq!(
+                        b.claim_jobs(due, 10, 60_000).await.expect("claims").len(),
+                        1
+                    );
+                } else {
+                    let _ = a.claim_jobs(due, 10, 60_000).await.expect("claims");
+                    for id in runs {
+                        a.finish_job(&id, JobFate::Done, due).await.expect("done");
+                    }
+                }
+            }
+        });
 }

@@ -103,6 +103,7 @@ service PurgeExpiredCarts implements Job<Void> { … }
 
 - **Schedules are typed:** `.every(1.hour)`, `.daily(at: TimeOfDay)`, `.weekly(on: .monday, at: TimeOfDay)`. Times are UTC. There is no cron string.
 - Each due run is enqueued once across all replicas, and then runs like any other job, with its retries.
+- **A scheduled job never overlaps itself,** across replicas. When a due time arrives while an earlier run of the same job is still queued or running (a retry waiting for its backoff included), that due time is skipped and an info line says so. The schedule still moves past it, so missed runs are coalesced into the one in flight rather than queued up behind it. A job that takes longer than its interval therefore runs back to back at the next due time after it finishes, never twice at once, and code like "count, then add if none" stays correct. A run whose process died still holds the schedule until its lease expires and it runs again, as any job's would. A dead run doesn't hold it. A run of the job enqueued by hand counts as an earlier run too, since what matters is that two runs of one job never run at once.
 
 ## Stored payloads
 

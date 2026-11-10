@@ -447,7 +447,9 @@ the app's statements.
   UPDATE`/`DO NOTHING` and claims `UPDATE … RETURNING`, which SQLite (3.35+, bundled) and Postgres share.
 - **Claims are conditional updates**, so two replicas never run the same claim: `job_sql::CLAIM`
   changes a row only while it is still `queued` and due, or `running` with an expired lease, and
-  `SCHEDULE_CLAIM` only while `last_due` is earlier.
+  `SCHEDULE_CLAIM` only while `last_due` is earlier. The server runs `SCHEDULE_CLAIM`, then
+  `SCHEDULE_ACTIVE` (the job's unfinished rows), then the insert in one transaction, so a schedule
+  never overlaps itself ([server.md §11](server.md#11-background-jobs)).
 - **Policies** live here too: `JobSpec` and `Schedule` (the manifest's job entries, serialized in the
   build manifest and `dist/app`), `Schedule::latest_due` (UTC; the epoch's weekday fixes weekly
   schedules), `backoff_ms` (doubling from the first backoff, capped at a day, jittered by the caller

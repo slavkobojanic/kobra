@@ -202,6 +202,19 @@ pub struct ClaimedJob {
     pub attempt: u32,
 }
 
+/// What [`ProcessDatabase::claim_schedule`] did with a due time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ScheduleClaim {
+    /// This caller claimed it and enqueued its run.
+    Enqueued,
+    /// This caller claimed it, but an earlier run of the job is still
+    /// queued, retrying or running, so the due time was skipped (a
+    /// scheduled job never overlaps itself).
+    Skipped,
+    /// Another caller (or replica) claimed it already, or a later one.
+    Taken,
+}
+
 /// What happens to a claimed job after its run.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum JobFate {
@@ -897,27 +910,78 @@ impl ProcessDatabase {
         Ok(n > 0)
     }
 
-    /// Claims due time `due` of schedule `name`: `true` for exactly one
-    /// caller across every replica, which then enqueues the run.
+    /// Claims due time `due` of schedule `name` and, unless an earlier run
+    /// of the job is still unfinished, enqueues its run as job `id` (due at
+    /// `due`, created at `now`). Exactly one caller across every replica
+    /// gets [`ScheduleClaim::Enqueued`] or [`ScheduleClaim::Skipped`]; a
+    /// skipped due time still moves `last_due` forward, so missed runs are
+    /// coalesced rather than queued up.
+    ///
+    /// The claim, the check and the insert are one transaction: on Postgres
+    /// a second replica's claim of the next due time waits on the
+    /// `k_job_schedule` row until this one commits, then sees its run; on
+    /// SQLite writers serialize (`BEGIN IMMEDIATE`).
     ///
     /// # Errors
     ///
-    /// A database failure.
-    pub async fn claim_schedule(&self, name: &str, due: i64) -> Result<bool, DbError> {
+    /// A database failure (the transaction is rolled back).
+    pub async fn claim_schedule(
+        &self,
+        name: &str,
+        due: i64,
+        id: String,
+        now: i64,
+    ) -> Result<ScheduleClaim, DbError> {
         self.stdlib_execute(
             k_db::stdlib::job_sql::SCHEDULE_INIT,
             vec![Value::Text(name.to_owned())],
             0,
         )
         .await?;
-        let n = self
+        let tx = self.begin().await?;
+        let outcome = self.claim_schedule_in(name, due, id, now, tx).await;
+        let commit = matches!(
+            outcome,
+            Ok(ScheduleClaim::Enqueued | ScheduleClaim::Skipped)
+        );
+        let finished = self.finish(tx, commit).await;
+        let outcome = outcome?;
+        finished?;
+        Ok(outcome)
+    }
+
+    /// [`Self::claim_schedule`]'s statements inside transaction `tx`.
+    async fn claim_schedule_in(
+        &self,
+        name: &str,
+        due: i64,
+        id: String,
+        now: i64,
+        tx: u32,
+    ) -> Result<ScheduleClaim, DbError> {
+        let claimed = self
             .stdlib_execute(
                 k_db::stdlib::job_sql::SCHEDULE_CLAIM,
                 vec![Value::Text(name.to_owned()), Value::Int(due)],
-                0,
+                tx,
             )
             .await?;
-        Ok(n > 0)
+        if claimed == 0 {
+            return Ok(ScheduleClaim::Taken);
+        }
+        let active = self
+            .stdlib_query(
+                k_db::stdlib::job_sql::SCHEDULE_ACTIVE,
+                vec![Value::Text(name.to_owned())],
+                tx,
+            )
+            .await?;
+        if matches!(active.first().and_then(|r| r.first()), Some(Value::Int(n)) if *n > 0) {
+            return Ok(ScheduleClaim::Skipped);
+        }
+        self.enqueue_job(id, name, "{}".into(), due, now, tx)
+            .await?;
+        Ok(ScheduleClaim::Enqueued)
     }
 
     // -------------------------------------------------------- sessions
@@ -1843,11 +1907,203 @@ mod tests {
     fn a_schedule_due_time_is_claimed_once() {
         let (db, _) = ProcessDatabase::open(setup()).expect("opens");
         block_on(async {
-            assert!(db.claim_schedule("tick", 1000).await.expect("claims"));
-            assert!(!db.claim_schedule("tick", 1000).await.expect("claims"));
-            assert!(!db.claim_schedule("tick", 999).await.expect("claims"));
-            assert!(db.claim_schedule("tick", 2000).await.expect("claims"));
-            assert!(db.claim_schedule("other", 1000).await.expect("claims"));
+            let claim = |name: &'static str, due: i64| {
+                let db = Arc::clone(&db);
+                async move {
+                    db.claim_schedule(name, due, format!("{name}-{due}"), due)
+                        .await
+                        .expect("claims")
+                }
+            };
+            assert_eq!(claim("tick", 1000).await, ScheduleClaim::Enqueued);
+            assert_eq!(claim("tick", 1000).await, ScheduleClaim::Taken);
+            assert_eq!(claim("tick", 999).await, ScheduleClaim::Taken);
+            assert_eq!(claim("other", 1000).await, ScheduleClaim::Enqueued);
+            let rows = db.list_jobs(false).await.expect("lists");
+            assert_eq!(rows.len(), 2, "one run per schedule: {rows:?}");
         });
+    }
+
+    /// The ids of the unfinished runs of `name`.
+    async fn runs(db: &ProcessDatabase, name: &str) -> Vec<String> {
+        db.list_jobs(false)
+            .await
+            .expect("lists")
+            .into_iter()
+            .filter(|r| r.name == name && r.status != "dead")
+            .map(|r| r.id)
+            .collect()
+    }
+
+    #[test]
+    fn a_due_time_while_the_previous_run_is_queued_is_skipped() {
+        let (db, _) = ProcessDatabase::open(setup()).expect("opens");
+        block_on(async {
+            assert_eq!(
+                db.claim_schedule("tick", 1000, "a".into(), 1000)
+                    .await
+                    .expect("claims"),
+                ScheduleClaim::Enqueued
+            );
+            // Nobody ran it yet: the next two due times coalesce into it.
+            for due in [2000, 3000] {
+                assert_eq!(
+                    db.claim_schedule("tick", due, format!("t{due}"), due)
+                        .await
+                        .expect("claims"),
+                    ScheduleClaim::Skipped
+                );
+            }
+            assert_eq!(runs(&db, "tick").await, vec!["a"]);
+            // A skipped due time still moved `last_due` forward.
+            assert_eq!(
+                db.claim_schedule("tick", 3000, "b".into(), 3000)
+                    .await
+                    .expect("claims"),
+                ScheduleClaim::Taken
+            );
+            // A retry waiting for its backoff is unfinished too.
+            assert_eq!(
+                db.claim_jobs(3000, 10, 1000).await.expect("claims").len(),
+                1
+            );
+            db.finish_job(
+                "a",
+                JobFate::Retry {
+                    run_after: 9000,
+                    error: "down".into(),
+                },
+                3100,
+            )
+            .await
+            .expect("retries");
+            assert_eq!(
+                db.claim_schedule("tick", 4000, "c".into(), 4000)
+                    .await
+                    .expect("claims"),
+                ScheduleClaim::Skipped
+            );
+            assert_eq!(runs(&db, "tick").await, vec!["a"]);
+        });
+    }
+
+    #[test]
+    fn a_due_time_while_the_previous_run_is_running_is_skipped() {
+        let (db, _) = ProcessDatabase::open(setup()).expect("opens");
+        block_on(async {
+            db.claim_schedule("tick", 1000, "a".into(), 1000)
+                .await
+                .expect("claims");
+            assert_eq!(
+                db.claim_jobs(1000, 10, 60_000).await.expect("claims").len(),
+                1
+            );
+            assert_eq!(
+                db.claim_schedule("tick", 2000, "b".into(), 2000)
+                    .await
+                    .expect("claims"),
+                ScheduleClaim::Skipped
+            );
+            // The worker that ran it died: its lease recovers the run, and
+            // the schedule still waits for it.
+            let again = db.claim_jobs(70_000, 10, 60_000).await.expect("claims");
+            assert_eq!((again[0].id.as_str(), again[0].attempt), ("a", 2));
+            assert_eq!(
+                db.claim_schedule("tick", 70_000, "c".into(), 70_000)
+                    .await
+                    .expect("claims"),
+                ScheduleClaim::Skipped
+            );
+            assert_eq!(runs(&db, "tick").await, vec!["a"]);
+        });
+    }
+
+    #[test]
+    fn a_due_time_after_the_previous_run_finished_is_enqueued() {
+        let (db, _) = ProcessDatabase::open(setup()).expect("opens");
+        block_on(async {
+            db.claim_schedule("tick", 1000, "a".into(), 1000)
+                .await
+                .expect("claims");
+            db.claim_jobs(1000, 10, 60_000).await.expect("claims");
+            db.finish_job("a", JobFate::Done, 1500).await.expect("done");
+            assert_eq!(
+                db.claim_schedule("tick", 2000, "b".into(), 2000)
+                    .await
+                    .expect("claims"),
+                ScheduleClaim::Enqueued
+            );
+            // A dead run doesn't hold the schedule back either.
+            db.claim_jobs(2000, 10, 60_000).await.expect("claims");
+            db.finish_job("b", JobFate::Dead { error: "no".into() }, 2500)
+                .await
+                .expect("buries");
+            assert_eq!(
+                db.claim_schedule("tick", 3000, "c".into(), 3000)
+                    .await
+                    .expect("claims"),
+                ScheduleClaim::Enqueued
+            );
+            assert_eq!(runs(&db, "tick").await, vec!["c"]);
+        });
+    }
+
+    #[test]
+    fn two_replicas_never_overlap_a_schedule() {
+        let dir = std::env::temp_dir().join(format!(
+            "k_db_schedule_replicas_{}_{}",
+            std::process::id(),
+            jobs_now_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let url = format!("sqlite:{}", dir.join("app.sqlite").display());
+        let open = || {
+            let mut s = setup();
+            s.url.clone_from(&url);
+            ProcessDatabase::open(s).expect("opens").0
+        };
+        let (a, b) = (open(), open());
+        block_on(async {
+            // Both replicas see due time 1000: one enqueues it.
+            let first = [
+                a.claim_schedule("tick", 1000, "a1".into(), 1000)
+                    .await
+                    .expect("claims"),
+                b.claim_schedule("tick", 1000, "b1".into(), 1000)
+                    .await
+                    .expect("claims"),
+            ];
+            assert_eq!(first, [ScheduleClaim::Enqueued, ScheduleClaim::Taken]);
+            // Replica b runs it; at the next due time neither enqueues.
+            assert_eq!(
+                b.claim_jobs(1000, 10, 60_000).await.expect("claims").len(),
+                1
+            );
+            let second = [
+                b.claim_schedule("tick", 2000, "b2".into(), 2000)
+                    .await
+                    .expect("claims"),
+                a.claim_schedule("tick", 2000, "a2".into(), 2000)
+                    .await
+                    .expect("claims"),
+            ];
+            assert_eq!(second, [ScheduleClaim::Skipped, ScheduleClaim::Taken]);
+            b.finish_job("a1", JobFate::Done, 2500).await.expect("done");
+            assert_eq!(
+                a.claim_schedule("tick", 3000, "a3".into(), 3000)
+                    .await
+                    .expect("claims"),
+                ScheduleClaim::Enqueued
+            );
+            assert_eq!(runs(&b, "tick").await, vec!["a3"]);
+        });
+        drop((a, b));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn jobs_now_nanos() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos())
     }
 }
