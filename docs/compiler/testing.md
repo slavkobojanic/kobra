@@ -142,6 +142,26 @@ The configuration is `.config/nextest.toml`:
   before `k` binds it, so `Proc::serve` waits for `k`'s own `serving on …` line rather than for the port to
   answer, and starts `k` again on other ports when it says `cannot listen on port` (§4.6). Chrome picks its
   DevTools port itself (`--remote-debugging-port=0`, read back from `DevToolsActivePort`).
+  A reservation keeps only other test processes away, so a port is handed out only when nothing else holds
+  it on any address either (`ports::in_use`): nothing answers on `127.0.0.1` or `[::1]`, and `127.0.0.1`,
+  `0.0.0.0` and `[::]` (where the machine has IPv6) all bind. Binding loopback alone isn't enough: on macOS
+  `127.0.0.1:<port>` binds next to a server listening on `*:<port>`, so a stale `dist/app` from an earlier
+  run looked free, the new app couldn't bind `0.0.0.0`, and the test talked to the stale one. Every port
+  picker goes through `ports::take` (`cdp::listeners`, `cdp::free_port`, `free_ports` and Compose's
+  `free_port`), and all of them stay in 5200–5999; none binds port 0. A test's own `dist/app` counts as
+  started once it says `<name> serving on port <port>`, not when the port answers (`examples.rs`'
+  `App::serve_on`). Tests: `ports::tests::*` (a listener on `0.0.0.0`, on loopback and on `[::]`).
+- **Child processes.** Every process a k_cli test starts (`dist/app`, `k run`/`k dev`/`k lsp`, Chrome, `psql`
+  under Compose) is spawned with `children::SpawnGuarded::spawn_guarded` and owned by the `ChildGuard` it
+  returns, never held as a bare `std::process::Child`, which does nothing when dropped: a test that panicked
+  with a server running used to leave it listening. Dropping the guard (on a panic too) lists the child's
+  descendants with `pgrep -P`, `SIGKILL`s the child and then them, and reaps the child; an owner that must
+  clean up after it in its own `Drop` (Chrome's profile) calls `kill_tree` first. A graceful stop
+  (`SIGTERM` and `wait`, as `App::stop` does) is still the test's job; the guard is the fallback. Children
+  stay in the test's process group rather than a group of their own, so a Ctrl-C at the terminal and
+  nextest's signals to a timed-out test's group still reach them when the test process is killed outright
+  and no destructor runs. Tests: `children::tests::*` (a panic inside `catch_unwind` with a shell and its
+  `sleep` running leaves neither alive).
 
 The build profile matters as much as the runner (`Cargo.toml`): third-party crates are built with
 `opt-level = 2` and the workspace's crates with `opt-level = 1`, both with full debug info. Unoptimized,

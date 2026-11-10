@@ -11,13 +11,12 @@
 // The helpers below fail the calling test with a message.
 #![allow(clippy::unwrap_used, clippy::panic)]
 
-use crate::ports;
-
+use crate::children::{ChildGuard, SpawnGuarded};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 fn repo() -> PathBuf {
@@ -288,35 +287,17 @@ fn build_in_a_member_writes_its_own_dist() {
     assert!(dir.0.join("shop/dist/app").is_file());
 }
 
-/// A free local port.
+/// A free local port in 5200–5999 ([`crate::cdp::free_port`]).
 fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .and_then(|l| l.local_addr())
-        .map(|a| a.port())
-        .unwrap()
+    crate::cdp::free_port()
 }
 
 /// Two consecutive free local ports in 5200–5999 (a workspace run serves
-/// its apps on `port` and `port + 1`); the first of them.
-///
-/// The probe's listeners are closed before the app binds, so tests running
-/// at the same time each start from their own offset: otherwise two of
-/// them find the same free pair and one app can't listen.
+/// its apps on `port` and `port + 1`); the first of them. Nothing holds
+/// either on any address, and no other test process has them
+/// ([`crate::cdp::free_ports`]).
 fn free_pair() -> u16 {
-    static CALLS: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
-    let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let start = 5200 + ((std::process::id() % 700) as u16 + call * 37) % 798;
-    for i in 0..800u16 {
-        let p = 5200 + (start - 5200 + i * 3) % 798;
-        let a = std::net::TcpListener::bind(("127.0.0.1", p));
-        let b = std::net::TcpListener::bind(("127.0.0.1", p + 1));
-        // Other test processes (cargo-nextest runs one per test) may probe
-        // the same pair at the same time.
-        if a.is_ok() && b.is_ok() && ports::reserve(p) && ports::reserve(p + 1) {
-            return p;
-        }
-    }
-    panic!("no two free ports in 5200-5999");
+    crate::cdp::free_ports(2)
 }
 
 /// One HTTP/1.1 POST of an rpc with `Connection: close`: the status and body.
@@ -357,7 +338,7 @@ fn rpc(port: u16, path: &str, body: &str) -> Option<(u16, String)> {
 }
 
 /// Waits until `port` accepts connections.
-fn wait_for(port: u16, child: &mut Child, what: &str) {
+fn wait_for(port: u16, child: &mut ChildGuard, what: &str) {
     let deadline = Instant::now() + Duration::from_secs(30);
     while TcpStream::connect(("127.0.0.1", port)).is_err() {
         assert!(
@@ -369,7 +350,7 @@ fn wait_for(port: u16, child: &mut Child, what: &str) {
     }
 }
 
-fn stop(mut child: Child) {
+fn stop(mut child: ChildGuard) {
     #[cfg(unix)]
     let _ = Command::new("kill")
         .args(["-TERM", &child.id().to_string()])
@@ -380,7 +361,7 @@ fn stop(mut child: Child) {
 }
 
 /// Starts a built app from `dist/<name>/app` with `env`.
-fn serve(dist: &Path, name: &str, port: u16, env: &[(&str, String)]) -> Child {
+fn serve(dist: &Path, name: &str, port: u16, env: &[(&str, String)]) -> ChildGuard {
     let mut cmd = Command::new(dist.join(name).join("app"));
     cmd.arg("serve")
         .env_remove("DATABASE_URL")
@@ -391,7 +372,7 @@ fn serve(dist: &Path, name: &str, port: u16, env: &[(&str, String)]) -> Child {
     for (k, v) in env {
         cmd.env(k, v);
     }
-    let mut child = cmd.spawn().unwrap();
+    let mut child = cmd.spawn_guarded().unwrap();
     wait_for(port, &mut child, name);
     child
 }
@@ -507,7 +488,7 @@ fn dev_at_the_root_runs_every_app_with_its_remotes_wired() {
         .env_remove("K_SERVICE_TOKEN")
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
-        .spawn()
+        .spawn_guarded()
         .unwrap();
     let stderr = child.stderr.take().unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -549,7 +530,7 @@ fn dev_at_the_root_runs_every_app_with_its_remotes_wired() {
 }
 
 /// Collects a child's output lines (`stdout` and `stderr`) as they come.
-fn lines_of(child: &mut Child) -> std::sync::mpsc::Receiver<String> {
+fn lines_of(child: &mut ChildGuard) -> std::sync::mpsc::Receiver<String> {
     let (tx, rx) = std::sync::mpsc::channel();
     let out = child.stdout.take().unwrap();
     let err = child.stderr.take().unwrap();
@@ -616,7 +597,7 @@ fn dev_at_the_root_of_the_shop_runs_with_no_setup() {
         .env_remove("SHOP_ADMIN_PASSWORD_HASH")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
+        .spawn_guarded()
         .unwrap();
     let rx = lines_of(&mut child);
     let mut seen = Vec::new();
@@ -698,7 +679,7 @@ fn run_at_the_root_serves_every_app_wired_together() {
         .env_remove("K_SERVICE_TOKEN")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
+        .spawn_guarded()
         .unwrap();
     let rx = lines_of(&mut child);
     let mut seen = Vec::new();
@@ -735,7 +716,7 @@ fn the_notes_example_runs_with_no_database_url() {
         .env_remove("DATABASE_PASSWORD")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
+        .spawn_guarded()
         .unwrap();
     let rx = lines_of(&mut child);
     let mut seen = Vec::new();

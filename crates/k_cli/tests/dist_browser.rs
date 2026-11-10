@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 use std::io::Read;
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use k_server::testing::{HttpResponse, send};
@@ -41,6 +41,7 @@ const UNUSABLE_ADMIN_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb2
 
 const SIM: &str = include_str!("../../k_server/tests/browser/sim.js");
 
+use crate::children::{ChildGuard, SpawnGuarded};
 use crate::static_host;
 
 fn repo() -> PathBuf {
@@ -72,7 +73,7 @@ impl Drop for TempDir {
 struct Site {
     name: String,
     /// The running `dist/app`, or `None` for a static-only app.
-    child: Option<Child>,
+    child: Option<ChildGuard>,
     /// The static host of a static-only app's `dist/public`.
     host: Option<static_host::StaticHost>,
     addr: SocketAddr,
@@ -116,7 +117,7 @@ fn collect_assets(dir: &Path, root: &Path, out: &mut Vec<JsModule>) {
 /// `dist/app serve` with `env` as its whole configuration, once it listens.
 /// `{port}` in a value is the port the app serves on. Returns the process,
 /// its port and the dist directory.
-fn serve(name: &str, out: &Path, env: &[(&str, &str)]) -> (Child, u16, PathBuf) {
+fn serve(name: &str, out: &Path, env: &[(&str, &str)]) -> (ChildGuard, u16, PathBuf) {
     let dist = build(name, out);
     let (child, port) = spawn(name, &dist, env);
     (child, port, dist)
@@ -144,11 +145,8 @@ fn build(name: &str, out: &Path) -> PathBuf {
 /// Starts the `dist/app serve` of the build in `dist` with `env` as its
 /// whole configuration (`{port}` in a value is the port it serves on) and
 /// returns it with its port once it listens.
-fn spawn(name: &str, dist: &Path, env: &[(&str, &str)]) -> (Child, u16) {
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .and_then(|l| l.local_addr())
-        .map(|a| a.port())
-        .expect("a free port");
+fn spawn(name: &str, dist: &Path, env: &[(&str, &str)]) -> (ChildGuard, u16) {
+    let port = crate::cdp::free_port();
     let mut cmd = Command::new(dist.join("app"));
     cmd.arg("serve")
         .env_remove("DATABASE_URL")
@@ -160,7 +158,7 @@ fn spawn(name: &str, dist: &Path, env: &[(&str, &str)]) -> (Child, u16) {
     for (k, v) in env {
         cmd.env(k, v.replace("{port}", &port.to_string()));
     }
-    let mut child = cmd.spawn().expect("dist/app starts");
+    let mut child = cmd.spawn_guarded().expect("dist/app starts");
     let deadline = Instant::now() + Duration::from_secs(20);
     while TcpStream::connect(("127.0.0.1", port)).is_err() {
         if let Some(status) = child.try_wait().ok().flatten() {
@@ -178,7 +176,7 @@ fn spawn(name: &str, dist: &Path, env: &[(&str, &str)]) -> (Child, u16) {
 
 /// Stops `child` with `SIGTERM` and, unless the thread is panicking,
 /// asserts that it exited cleanly and logged no error.
-fn stop(name: &str, child: &mut Child) {
+fn stop(name: &str, child: &mut ChildGuard) {
     #[cfg(unix)]
     {
         let _ = Command::new("kill")
@@ -210,7 +208,7 @@ fn stop(name: &str, child: &mut Child) {
 /// A running server-only `dist/app` (no pages, so no tab): paybox.
 struct Service {
     name: String,
-    child: Child,
+    child: ChildGuard,
     port: u16,
 }
 
@@ -262,7 +260,7 @@ impl Site {
     fn over(
         name: &str,
         dist: &Path,
-        child: Option<Child>,
+        child: Option<ChildGuard>,
         host: Option<static_host::StaticHost>,
         addr: SocketAddr,
     ) -> Site {

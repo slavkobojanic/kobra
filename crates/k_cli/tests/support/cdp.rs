@@ -20,7 +20,7 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+use super::children::{ChildGuard, SpawnGuarded};
 use super::ports;
 
 /// The ports the test suite may bind (the repository's rule for anything
@@ -36,7 +37,8 @@ pub const PORTS: std::ops::Range<u16> = 5200..6000;
 
 /// `count` consecutive free loopback ports in [`PORTS`], bound so nobody
 /// else takes them before they are used. No port is handed out twice in
-/// one test process, nor to two live test processes ([`ports::reserve`]).
+/// one test process, nor to two live test processes ([`ports::reserve`]),
+/// nor while anything else listens on it on any address ([`ports::in_use`]).
 pub fn listeners(count: u16) -> Vec<TcpListener> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let span = u64::from(PORTS.end - PORTS.start);
@@ -49,21 +51,11 @@ pub fn listeners(count: u16) -> Vec<TcpListener> {
             continue;
         }
         let first = PORTS.start + u16::try_from(first).unwrap_or(0);
-        // Binding alone isn't enough: with `SO_REUSEADDR` a loopback bind
-        // succeeds next to a server on the wildcard address (a container's
-        // published port), so a port someone answers on is skipped too.
-        let taken = (first..first + count).any(|p| {
-            TcpStream::connect_timeout(
-                &std::net::SocketAddr::from(([127, 0, 0, 1], p)),
-                Duration::from_millis(200),
-            )
-            .is_ok()
-        });
-        if taken {
-            continue;
-        }
-        // Another test process may be probing the same ports right now.
-        if !(first..first + count).all(ports::reserve) {
+        // Another test process may be probing the same ports right now,
+        // and a program outside the tests may hold one on any address
+        // (a container's published port, a stale server on `*:<port>`,
+        // next to which a loopback bind still succeeds): [`ports::take`].
+        if !(first..first + count).all(ports::take) {
             continue;
         }
         let bound: Vec<TcpListener> = (first..first + count)
@@ -551,7 +543,7 @@ const STARTUP: Duration = Duration::from_secs(90);
 /// A headless Chrome with its own profile, killed and its profile removed
 /// when dropped.
 pub struct Chrome {
-    child: Child,
+    child: ChildGuard,
     profile: PathBuf,
     /// The DevTools port, once [`Chrome::page_url`] has read it.
     pub port: u16,
@@ -599,7 +591,7 @@ impl Chrome {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()
+            .spawn_guarded()
             .unwrap_or_else(|e| panic!("Chrome at {} starts: {e}", binary.display()));
         Chrome {
             child,
@@ -671,8 +663,8 @@ pub fn target_url(port: u16, id: &str) -> String {
 
 impl Drop for Chrome {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        // Chrome and its helper processes, before its profile goes.
+        self.child.kill_tree();
         let _ = std::fs::remove_dir_all(&self.profile);
     }
 }

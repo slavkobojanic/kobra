@@ -8,6 +8,7 @@
 // The helpers below fail the calling test with a message.
 #![allow(clippy::unwrap_used, clippy::panic)]
 
+use crate::children::SpawnGuarded;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -1777,7 +1778,7 @@ fn test_watch_reruns_only_the_affected_tests() {
         .current_dir(&dir.0)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
-        .spawn()
+        .spawn_guarded()
         .unwrap();
     let rx = lines_of(&mut child);
     let first = until(&rx, "watching for changes");

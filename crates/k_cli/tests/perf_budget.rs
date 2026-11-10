@@ -27,10 +27,11 @@
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 
+use crate::children::{ChildGuard, SpawnGuarded};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// A well-formed Argon2id hash (PHC format) that matches no password: the
@@ -155,16 +156,14 @@ fn build(name: &str, out: &Path) -> (PathBuf, Duration) {
     (dist, elapsed)
 }
 
+/// A free port in 5200–5999 ([`crate::cdp::free_port`]).
 fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .and_then(|l| l.local_addr())
-        .map(|a| a.port())
-        .expect("a free port")
+    crate::cdp::free_port()
 }
 
 /// A running `dist/app`, killed on drop.
 struct App {
-    child: Child,
+    child: ChildGuard,
     port: u16,
 }
 
@@ -183,7 +182,7 @@ impl App {
             cmd.env(k, v);
         }
         App {
-            child: cmd.spawn().expect("dist/app starts"),
+            child: cmd.spawn_guarded().expect("dist/app starts"),
             port,
         }
     }

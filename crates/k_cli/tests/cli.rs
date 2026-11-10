@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used)]
 
+use crate::children::{ChildGuard, SpawnGuarded};
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -316,15 +317,11 @@ fn an_appended_app_serves_probes_and_stops_on_sigterm() {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&app, fs::Permissions::from_mode(0o755)).unwrap();
     }
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
+    let port = crate::cdp::free_port();
     let mut child = Command::new(&app)
         .arg("serve")
         .env("PORT", port.to_string())
-        .spawn()
+        .spawn_guarded()
         .unwrap();
     let url = format!("http://127.0.0.1:{port}/health");
     let mut up = false;
@@ -414,14 +411,14 @@ fn wait_for(port: u16, path: &str, needle: &str) -> bool {
 
 /// Starts `k <args> --port 0` in `dir` and returns it with the port it
 /// serves on.
-fn serving(args: &[&str], dir: &std::path::Path) -> (std::process::Child, u16) {
+fn serving(args: &[&str], dir: &std::path::Path) -> (ChildGuard, u16) {
     use std::io::BufRead;
     let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
         .args(args)
         .args(["--port", "0"])
         .current_dir(dir)
         .stderr(std::process::Stdio::piped())
-        .spawn()
+        .spawn_guarded()
         .unwrap();
     let stderr = child.stderr.take().unwrap();
     let mut log = Vec::new();
@@ -507,7 +504,7 @@ fn dev_rebuilds_on_change_and_keeps_the_last_good_build_on_errors() {
         .args(["dev", "--port", "0"])
         .current_dir(&dir.0)
         .stderr(std::process::Stdio::piped())
-        .spawn()
+        .spawn_guarded()
         .unwrap();
     let stderr = child.stderr.take().unwrap();
     let (tx, rx) = std::sync::mpsc::channel::<String>();
@@ -615,7 +612,7 @@ fn dev_reports_an_entity_without_a_migration() {
         .args(["dev", "--port", "0"])
         .current_dir(&dir.0)
         .stderr(std::process::Stdio::piped())
-        .spawn()
+        .spawn_guarded()
         .unwrap();
     let stderr = child.stderr.take().unwrap();
     let (tx, rx) = std::sync::mpsc::channel::<String>();
@@ -713,7 +710,7 @@ fn dev_names_the_env_keys_the_process_environment_shadows() {
         .env("K_SHADOW_SAME", "equal")
         .env("K_SHADOW_TOKEN", "process-secret")
         .stderr(std::process::Stdio::piped())
-        .spawn()
+        .spawn_guarded()
         .unwrap();
     let stderr = child.stderr.take().unwrap();
     let mut log = Vec::new();
@@ -868,7 +865,7 @@ fn hash_password_prints_an_argon2id_phc_string() {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .spawn()
+            .spawn_guarded()
             .expect("run k");
         child
             .stdin

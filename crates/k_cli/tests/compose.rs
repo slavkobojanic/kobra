@@ -45,6 +45,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::apps::{Scratch, repo};
+use crate::children::SpawnGuarded;
 use crate::examples::{Response, channels_socket, frame_until, http};
 use crate::page;
 
@@ -88,15 +89,13 @@ fn enabled() -> bool {
     true
 }
 
-/// A TCP port in 5200–5999 that is free on loopback, also free for UDP
-/// when `udp`, and reserved for this process.
+/// A TCP port in 5200–5999 that nothing holds on any address
+/// ([`crate::ports::take`]), also free for UDP when `udp`, and reserved
+/// for this process.
 fn free_port(udp: bool) -> u16 {
     (5200..6000u16)
         .find(|&port| {
-            crate::ports::reserve(port)
-                && std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
-                && std::net::TcpListener::bind(("0.0.0.0", port)).is_ok()
-                && (!udp || UdpSocket::bind(("0.0.0.0", port)).is_ok())
+            crate::ports::take(port) && (!udp || UdpSocket::bind(("0.0.0.0", port)).is_ok())
         })
         .expect("a free port in 5200–5999")
 }
@@ -347,7 +346,7 @@ impl Stack {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()
+            .spawn_guarded()
             .expect("psql");
         child
             .stdin

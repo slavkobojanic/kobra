@@ -30,12 +30,13 @@ use crate::page;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+use crate::children::{ChildGuard, SpawnGuarded};
 use apps::Scratch;
 use cdp::Cdp;
 
@@ -68,7 +69,7 @@ fn fixture(tag: &str) -> Scratch {
 /// A `k run` of the fixture whose standard output and error are kept
 /// (the server's log lines), killed when dropped.
 struct Run {
-    child: Child,
+    child: ChildGuard,
     out: Arc<Mutex<String>>,
     port: u16,
 }
@@ -86,7 +87,7 @@ impl Run {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = cmd.spawn().expect("k starts");
+        let mut child = cmd.spawn_guarded().expect("k starts");
         let out = Arc::new(Mutex::new(String::new()));
         for stream in [
             child

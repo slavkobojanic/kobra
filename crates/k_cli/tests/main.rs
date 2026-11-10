@@ -13,6 +13,9 @@ mod apps;
 #[allow(clippy::panic, clippy::unwrap_used, dead_code)]
 #[path = "support/cdp.rs"]
 mod cdp;
+#[allow(clippy::panic, clippy::unwrap_used, dead_code)]
+#[path = "support/children.rs"]
+mod children;
 #[allow(
     clippy::panic,
     clippy::unwrap_used,

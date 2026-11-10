@@ -12,11 +12,14 @@
 //! The configuration is the minimum each app requires, with placeholder
 //! values; nothing reaches an outside service.
 
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
+
+use crate::children::{ChildGuard, SpawnGuarded};
 
 /// A well-formed Argon2id hash (PHC format) that matches no password: the
 /// shop refuses to start without one, and these tests never sign in.
@@ -137,9 +140,15 @@ fn rpc(port: u16, path: &str, body: &str) -> Response {
     .expect("the rpc answers")
 }
 
-/// A running `dist/app`, stopped with `SIGTERM` by [`App::stop`].
+/// A running `dist/app`, stopped with `SIGTERM` by [`App::stop`]; killed
+/// with whatever it started when dropped otherwise (a failing test), so
+/// it never outlives the test ([`crate::children`]).
 struct App {
-    child: Child,
+    child: ChildGuard,
+    /// Everything it wrote to standard error so far.
+    log: Arc<Mutex<String>>,
+    /// The thread copying standard error into `log`; done once it exits.
+    reader: Option<std::thread::JoinHandle<()>>,
     port: u16,
     name: String,
 }
@@ -172,55 +181,84 @@ impl App {
         app
     }
 
-    /// Starts the built `app` of `examples/<name>` on a free port.
+    /// Starts the built `app` of `examples/<name>` on a free port in
+    /// 5200–5999 ([`crate::cdp::free_port`]).
     fn serve(name: &str, app: &Path, env: &[(&str, &str)]) -> App {
-        let port = std::net::TcpListener::bind("127.0.0.1:0")
-            .and_then(|l| l.local_addr())
-            .map(|a| a.port())
-            .expect("a free port");
-        App::serve_on(name, app, env, port)
+        App::serve_on(name, app, env, crate::cdp::free_port())
     }
 
-    /// Starts the built `app` of `examples/<name>` on `port`.
+    /// Starts the built `app` of `examples/<name>` on `port`, and waits
+    /// until it says it serves there (`<name> serving on port <port>`) and
+    /// the port answers. The port answering alone isn't enough: a program
+    /// outside the tests may hold it, and the test would talk to that one.
     fn serve_on(name: &str, app: &Path, env: &[(&str, &str)], port: u16) -> App {
         let mut cmd = Command::new(app);
         cmd.arg("serve")
             .env_remove("DATABASE_URL")
             .env_remove("DATABASE_PASSWORD")
             .env("PORT", port.to_string())
+            .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         for (k, v) in env {
             cmd.env(k, v);
         }
-        let mut child = cmd.spawn().expect("dist/app starts");
+        let mut child = cmd.spawn_guarded().expect("dist/app starts");
+        let log = Arc::new(Mutex::new(String::new()));
+        let reader = child.stderr.take().map(|err| {
+            let sink = Arc::clone(&log);
+            std::thread::spawn(move || {
+                for line in BufReader::new(err).lines().map_while(Result::ok) {
+                    let mut s = sink.lock().unwrap_or_else(PoisonError::into_inner);
+                    s.push_str(&line);
+                    s.push('\n');
+                }
+            })
+        });
+        let mut app = App {
+            child,
+            log,
+            reader,
+            port,
+            name: name.to_owned(),
+        };
+        let serving = format!(" serving on port {port}\n");
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
-            if TcpStream::connect(("127.0.0.1", port)).is_ok() {
-                break;
+            if app.log().contains(&serving) && TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                return app;
             }
-            let exited = child.try_wait().ok().flatten();
-            let mut err = String::new();
-            if exited.is_some()
-                && let Some(mut e) = child.stderr.take()
-            {
-                let _ = e.read_to_string(&mut err);
+            let exited = app.child.try_wait().ok().flatten();
+            if exited.is_some() {
+                let log = app.finished_log();
+                assert!(
+                    exited.is_none(),
+                    "{name}: dist/app exited ({exited:?}) before serving on {port}: {log}"
+                );
             }
-            assert!(
-                exited.is_none(),
-                "{name}: dist/app exited ({exited:?}) before listening: {err}"
-            );
             assert!(
                 Instant::now() < deadline,
-                "{name}: dist/app listens within 20 s"
+                "{name}: dist/app serves on {port} within 20 s: {}",
+                app.log()
             );
             std::thread::sleep(Duration::from_millis(25));
         }
-        App {
-            child,
-            port,
-            name: name.to_owned(),
+    }
+
+    /// What it wrote to standard error so far.
+    fn log(&self) -> String {
+        self.log
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Its whole standard error, once it has exited.
+    fn finished_log(&mut self) -> String {
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
         }
+        self.log()
     }
 
     fn get(&self, path: &str) -> Response {
@@ -258,10 +296,7 @@ impl App {
             let _ = self.child.kill();
         }
         let status = self.child.wait().expect("dist/app exits");
-        let mut err = String::new();
-        if let Some(mut e) = self.child.stderr.take() {
-            let _ = e.read_to_string(&mut err);
-        }
+        let err = self.finished_log();
         #[cfg(unix)]
         assert_eq!(
             status.code(),
@@ -274,6 +309,20 @@ impl App {
             "{}: no errors were logged: {err}",
             self.name
         );
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        // A failing test shows what the app said; the guard then kills it.
+        if std::thread::panicking() {
+            eprintln!(
+                "--- {} on port {}, its output:\n{}",
+                self.name,
+                self.port,
+                self.log()
+            );
+        }
     }
 }
 
@@ -555,15 +604,6 @@ fn huddle_signs_in_and_talks_in_a_room_over_its_channel() {
     app.stop();
 }
 
-/// A free port in 5200–5999, reserved for this process.
-fn port_in_range() -> u16 {
-    (5200..6000u16)
-        .find(|&port| {
-            crate::ports::reserve(port) && std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
-        })
-        .expect("a free port in 5200–5999")
-}
-
 /// A raw channels socket (`/_k/channels`) to `port`, presenting `origin`
 /// and the session `cookie`.
 pub(crate) fn channels_socket(
@@ -654,8 +694,8 @@ fn huddle_replicas_share_messages_and_presence_over_postgres() {
     let app = App::build("huddle", &dir.0);
     let origin = "http://localhost:8080";
     let env = [("DATABASE_URL", url.as_str()), ("K_PUBLIC_ORIGIN", origin)];
-    let a = App::serve_on("huddle", &app, &env, port_in_range());
-    let b = App::serve_on("huddle", &app, &env, port_in_range());
+    let a = App::serve("huddle", &app, &env);
+    let b = App::serve("huddle", &app, &env);
 
     // Sessions live in the shared database: either replica may sign in.
     let ana = huddle_sign_in(a.port, "ana");

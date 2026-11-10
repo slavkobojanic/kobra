@@ -11,10 +11,11 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use crate::children::{ChildGuard, SpawnGuarded};
 use k_lsp::transport;
 use lsp_types::Url;
 use serde_json::{Value, json};
@@ -66,7 +67,7 @@ enum Received {
 
 /// A client driving one `k lsp` process.
 struct Client {
-    child: Child,
+    child: ChildGuard,
     stdin: Option<ChildStdin>,
     rx: mpsc::Receiver<Received>,
     next: i64,
@@ -108,7 +109,7 @@ impl Client {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .spawn()
+            .spawn_guarded()
             .unwrap();
         let stdout = child.stdout.take().unwrap();
         let stdin = child.stdin.take();

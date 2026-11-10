@@ -9,11 +9,12 @@
 use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::cdp::listener;
+use super::children::{ChildGuard, SpawnGuarded};
 use super::static_host::StaticHost;
 
 /// The repository root.
@@ -145,10 +146,11 @@ impl std::fmt::Display for PortError {
     }
 }
 
-/// A `k` process (`k run`, `k dev`), killed when dropped. Its standard
-/// error is collected for messages.
+/// A `k` process (`k run`, `k dev`), killed with everything it started
+/// when dropped ([`ChildGuard`]). Its standard error is collected for
+/// messages.
 pub struct Proc {
-    child: Option<Child>,
+    child: Option<ChildGuard>,
     /// Everything it wrote to standard error so far.
     pub stderr: Arc<Mutex<String>>,
     what: String,
@@ -179,7 +181,7 @@ impl Proc {
         for (k, v) in env {
             cmd.env(k, v);
         }
-        let mut child = cmd.spawn().expect("k starts");
+        let mut child = cmd.spawn_guarded().expect("k starts");
         let stderr = Arc::new(Mutex::new(String::new()));
         if let Some(err) = child.stderr.take() {
             let sink = Arc::clone(&stderr);
@@ -353,10 +355,8 @@ impl Drop for Proc {
             let tail = lines[lines.len().saturating_sub(40)..].join("\n");
             eprintln!("--- {} ({status}), its last output:\n{tail}", self.what);
         }
-        if let Some(mut c) = self.child.take() {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
+        // Killed, with whatever it started, and reaped.
+        drop(self.child.take());
     }
 }
 
