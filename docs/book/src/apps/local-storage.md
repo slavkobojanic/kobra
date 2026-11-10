@@ -142,7 +142,7 @@ A key's name and its value's shape are part of the app's stored format, which ou
 - The same file records each background job's name and payload shape, because queued jobs are stored
   data too ([Background jobs](jobs.md#stored-payloads)), and each [indexed collection](#indexed-collections).
 - **`k build` writes it** when it differs from what the program implies, after `k check` accepted the
-  change; `k check` only reads it (`K8008` for a key, `K8003` for a job, `K8009` for a collection). An
+  change; `k check` only reads it (`K8008` for a key, `K8003` for a job, `K8009` for a collection, `K8010` for a [key store](crypto.md)'s key name). An
   entry the code no longer declares is dropped, and a lock that doesn't change isn't rewritten. Two keys
   with the same name are reported (`K2405`), and a name that isn't a string literal (`K2403`).
 

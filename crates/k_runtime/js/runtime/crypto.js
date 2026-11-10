@@ -33,12 +33,12 @@
  */
 
 import { KPanic, unitCase } from "./values.js";
-import { DecodeFailure, Secret, bytesUtf8, codecs, stringify, utf8 } from "./std.js";
+import { DecodeFailure, Secret, bytesUtf8, codecs$bytes, stringify, utf8 } from "./std.js";
 
 // ------------------------------------------------------------------ bytes
 
 /** No bytes. */
-const EMPTY = new Uint8Array(0);
+const EMPTY = /* @__PURE__ */ new Uint8Array(0);
 
 /**
  * `parts` (byte arrays or arrays of numbers) joined.
@@ -194,7 +194,7 @@ const PRIVATE = {
 };
 
 /** Two characters: one byte of hex. */
-const PAIR = new RegExp("..", "g");
+const PAIR = /* @__PURE__ */ new RegExp("..", "g");
 
 /** Hex as bytes (the fixed prefixes above). */
 const fromHex = (h) => Uint8Array.from(h.match(PAIR) ?? [], (x) => parseInt(x, 16));
@@ -288,7 +288,7 @@ export const ops = {
 const S = () => globalThis.crypto.subtle;
 
 /** Public keys Web Crypto imported, by type and raw form. */
-const imported = new Map();
+const imported = /* @__PURE__ */ new Map();
 
 /**
  * The `CryptoKey` of public key `pub` of `type` (a public key type's name),
@@ -446,9 +446,9 @@ async function expand(b, prk, info, length) {
 }
 
 /** RFC 9180's suite ids: the KEM's, and HPKE's for one AEAD. */
-const KEM_SUITE = concat(utf8("KEM"), [0, 0x20]);
+const KEM_SUITE = /* @__PURE__ */ concat(/* @__PURE__ */ utf8("KEM"), [0, 0x20]);
 const hpkeSuite = (aead) => concat(utf8("HPKE"), [0, 0x20, 0, 1, 0, aead]);
-const HPKE_V1 = utf8("HPKE-v1");
+const HPKE_V1 = /* @__PURE__ */ utf8("HPKE-v1");
 
 /** RFC 9180 §4's LabeledExtract (HKDF-Extract is HMAC with the salt as key). */
 const labeledExtract = (b, suite, salt, label, ikm) => b.hmac(256, salt, concat(HPKE_V1, suite, utf8(label), ikm));
@@ -546,10 +546,10 @@ function unwire(prefix, text, min) {
 }
 
 /** The text of `value`, given the `Codable` codec of its type, as bytes to seal. */
-const plaintextOf = (codec, value) => (codec === codecs.bytes ? bytes(value) : utf8(stringify(codec.encode(value))));
+const plaintextOf = (codec, value) => (codec === codecs$bytes ? bytes(value) : utf8(stringify(codec.encode(value))));
 
 /** `OpenError.authenticationFailed`. */
-const AUTHENTICATION_FAILED = unitCase(0);
+const AUTHENTICATION_FAILED = /* @__PURE__ */ unitCase(0);
 
 /**
  * The value of authentic `plaintext`: the bytes themselves for `Bytes`,
@@ -557,7 +557,7 @@ const AUTHENTICATION_FAILED = unitCase(0);
  * (`DecodingError.malformed` or `.mismatch`) when it isn't a `T`.
  */
 function valueOf(codec, plaintext) {
-  if (codec === codecs.bytes) return plaintext;
+  if (codec === codecs$bytes) return plaintext;
   let j;
   try {
     j = JSON.parse(bytesUtf8(plaintext) ?? "\u0000");
@@ -586,8 +586,8 @@ async function openBytes(b, key, aad, w) {
 }
 
 /** The HPKE `info` of `Envelope` and `EnvelopedKey`. */
-const ENVELOPE_INFO = utf8("k.crypto.Envelope");
-const ENVELOPED_KEY_INFO = utf8("k.crypto.EnvelopedKey");
+const ENVELOPE_INFO = /* @__PURE__ */ utf8("k.crypto.Envelope");
+const ENVELOPED_KEY_INFO = /* @__PURE__ */ utf8("k.crypto.EnvelopedKey");
 
 /** HPKE to `pub` in the version-1 envelope layout: version, `enc`, ciphertext. */
 async function envelopeBytes(b, pub, info, aad, plaintext) {
@@ -810,7 +810,7 @@ const MIN_ITERATIONS = 100000;
 const TEST_ITERATIONS = 1000;
 
 /** A `PassphraseSalt`'s text: the iterations and 16 salt bytes in base64url. */
-const SALT = new RegExp("^pbkdf2-sha256\\$([1-9][0-9]{0,9})\\$([A-Za-z0-9_-]{22})$");
+const SALT = /* @__PURE__ */ new RegExp("^pbkdf2-sha256\\$([1-9][0-9]{0,9})\\$([A-Za-z0-9_-]{22})$");
 
 /**
  * A `PassphraseSalt`'s parts, or `null`: `pbkdf2-sha256$<iterations>$<16
@@ -834,7 +834,7 @@ export const PassphraseSalt$iterations = (s) => parseSalt(s)?.iterations ?? 0;
 /** `PassphraseSalt.parse`. */
 export const PassphraseSalt$parse = (text) => (parseSalt(text) ? text : null);
 /** The `Codable` codec of `PassphraseSalt`, which accepts only its text form. */
-export const PassphraseSalt$codec = textCodec(PassphraseSalt$parse, "a passphrase salt");
+export const PassphraseSalt$codec = /* @__PURE__ */ textCodec(PassphraseSalt$parse, "a passphrase salt");
 
 // --------------------------------------------------------- public keys
 
@@ -872,53 +872,45 @@ const rawPublic = (k) => fromB64url(k) ?? fail("not a public key");
 /** `publicKey.fingerprint()`: the SHA-256 of the raw form, as hex. */
 const fingerprint = async (k, _c) => hex(await backend().digest(256, rawPublic(k)));
 
-/** The members every public key type has. */
-function publicMembers(type) {
+/** The `Codable` codec of public key `type`, which accepts only its text form. */
+const publicCodec = (type) => {
   const parse = parsePublic(type);
-  return {
-    parse,
-    raw: rawPublic,
-    fingerprint,
-    codec: textCodec((t) => {
-      const r = fromB64url(t);
-      return r && parse(r);
-    }, `a ${type}`),
-  };
-}
+  return textCodec((t) => {
+    const r = fromB64url(t);
+    return r && parse(r);
+  }, `a ${type}`);
+};
 
-const ed = publicMembers("Ed25519PublicKey");
 /** `Ed25519PublicKey.parse(raw:)`. */
-export const Ed25519PublicKey$parse$raw = ed.parse;
+export const Ed25519PublicKey$parse$raw = /* @__PURE__ */ parsePublic("Ed25519PublicKey");
 /** `Ed25519PublicKey.raw`. */
-export const Ed25519PublicKey$raw = ed.raw;
+export const Ed25519PublicKey$raw = rawPublic;
 /** `Ed25519PublicKey.fingerprint`. */
-export const Ed25519PublicKey$fingerprint = ed.fingerprint;
+export const Ed25519PublicKey$fingerprint = fingerprint;
 /** The `Codable` codec of `Ed25519PublicKey`, which accepts only its text form. */
-export const Ed25519PublicKey$codec = ed.codec;
+export const Ed25519PublicKey$codec = /* @__PURE__ */ publicCodec("Ed25519PublicKey");
 /** `publicKey.verify(_:of:)`: `false` for any invalid signature. */
 export const Ed25519PublicKey$verify = async (k, _c, sig, message) => verify("Ed25519PublicKey", k, sig, message);
 
-const p256 = publicMembers("EcdsaP256PublicKey");
 /** `EcdsaP256PublicKey.parse(raw:)`. */
-export const EcdsaP256PublicKey$parse$raw = p256.parse;
+export const EcdsaP256PublicKey$parse$raw = /* @__PURE__ */ parsePublic("EcdsaP256PublicKey");
 /** `EcdsaP256PublicKey.raw`. */
-export const EcdsaP256PublicKey$raw = p256.raw;
+export const EcdsaP256PublicKey$raw = rawPublic;
 /** `EcdsaP256PublicKey.fingerprint`. */
-export const EcdsaP256PublicKey$fingerprint = p256.fingerprint;
+export const EcdsaP256PublicKey$fingerprint = fingerprint;
 /** The `Codable` codec of `EcdsaP256PublicKey`, which accepts only its text form. */
-export const EcdsaP256PublicKey$codec = p256.codec;
+export const EcdsaP256PublicKey$codec = /* @__PURE__ */ publicCodec("EcdsaP256PublicKey");
 /** `EcdsaP256PublicKey.verify`. */
 export const EcdsaP256PublicKey$verify = async (k, _c, sig, message) => verify("EcdsaP256PublicKey", k, sig, message);
 
-const x = publicMembers("X25519PublicKey");
 /** `X25519PublicKey.parse(raw:)`. */
-export const X25519PublicKey$parse$raw = x.parse;
+export const X25519PublicKey$parse$raw = /* @__PURE__ */ parsePublic("X25519PublicKey");
 /** `X25519PublicKey.raw`. */
-export const X25519PublicKey$raw = x.raw;
+export const X25519PublicKey$raw = rawPublic;
 /** `X25519PublicKey.fingerprint`. */
-export const X25519PublicKey$fingerprint = x.fingerprint;
+export const X25519PublicKey$fingerprint = fingerprint;
 /** The `Codable` codec of `X25519PublicKey`, which accepts only its text form. */
-export const X25519PublicKey$codec = x.codec;
+export const X25519PublicKey$codec = /* @__PURE__ */ publicCodec("X25519PublicKey");
 
 /** Verifies signature text `sig` of `message` by public key text `k`. */
 async function verify(type, k, sig, message) {
@@ -944,28 +936,26 @@ export async function X25519PublicKey$wrap(k, _c, exportable) {
 
 // ------------------------------------------------------- signatures
 
-/** The `bytes` and `parse(bytes:)` of a 64-byte signature type, and its codec. */
-const signature = (what) => ({
-  bytes: (s) => fromB64url(s) ?? fail("not a signature"),
-  parse: (b) => (b instanceof Uint8Array && b.length === 64 ? b64url(b) : null),
-  codec: textCodec((t) => (fromB64url(t)?.length === 64 ? t : null), what),
-});
+/** `bytes` of a signature type. */
+const signatureBytes = (s) => fromB64url(s) ?? fail("not a signature");
+/** `parse(bytes:)` of a 64-byte signature type. */
+const parseSignature = (b) => (b instanceof Uint8Array && b.length === 64 ? b64url(b) : null);
+/** The `Codable` codec of a 64-byte signature type, `what`. */
+const signatureCodec = (what) => textCodec((t) => (fromB64url(t)?.length === 64 ? t : null), what);
 
-const edSig = signature("an Ed25519 signature");
 /** `Ed25519Signature.bytes`. */
-export const Ed25519Signature$bytes = edSig.bytes;
+export const Ed25519Signature$bytes = signatureBytes;
 /** `Ed25519Signature.parse`. */
-export const Ed25519Signature$parse = edSig.parse;
+export const Ed25519Signature$parse = parseSignature;
 /** The `Codable` codec of `Ed25519Signature`, which accepts only its text form. */
-export const Ed25519Signature$codec = edSig.codec;
+export const Ed25519Signature$codec = /* @__PURE__ */ signatureCodec("an Ed25519 signature");
 
-const ecSig = signature("an ECDSA P-256 signature");
 /** `EcdsaP256Signature.bytes`. */
-export const EcdsaP256Signature$bytes = ecSig.bytes;
+export const EcdsaP256Signature$bytes = signatureBytes;
 /** `EcdsaP256Signature.parse(bytes:)`. */
-export const EcdsaP256Signature$parse$bytes = ecSig.parse;
+export const EcdsaP256Signature$parse$bytes = parseSignature;
 /** The `Codable` codec of `EcdsaP256Signature`, which accepts only its text form. */
-export const EcdsaP256Signature$codec = ecSig.codec;
+export const EcdsaP256Signature$codec = /* @__PURE__ */ signatureCodec("an ECDSA P-256 signature");
 
 /**
  * `EcdsaP256Signature.parse(der:)`: an ASN.1 `SEQUENCE { r INTEGER, s
@@ -991,52 +981,51 @@ export function EcdsaP256Signature$parse$der(der) {
 
 // ------------------------------------------------------ private keys
 
-/** The members every private key type has. */
-function privateMembers(type) {
-  return {
-    generate: async (_c) => backend().generate(type, false),
-    generateExportable: async (_c) => backend().generate(type, true),
-    parse: (raw) => {
-      const r = reveal(raw);
-      return r instanceof Uint8Array && r.length === 32 ? syncBackend().fromRaw(type, r, false) : null;
-    },
-    publicKey: (k) => b64url(reveal(k).pub),
-  };
-}
+/** `generate()` (or `generateExportable()`) of private key `type`. */
+const generateKey = (type, exportable) => async (_c) => backend().generate(type, exportable);
 
-const edKey = privateMembers("Ed25519PrivateKey");
+/** `parse(raw:)` of private key `type`: 32 secret bytes, non-exportable. */
+const parsePrivate = (type) => (raw) => {
+  const r = reveal(raw);
+  return r instanceof Uint8Array && r.length === 32 ? syncBackend().fromRaw(type, r, false) : null;
+};
+
+/** `privateKey.publicKey`. */
+const publicKeyOf = (k) => b64url(reveal(k).pub);
+
+/** `privateKey.sign(_:)`. */
+const sign = async (k, _c, message) => b64url(await backend().sign(reveal(k), bytes(message)));
+
 /** `Ed25519PrivateKey.generate`. */
-export const Ed25519PrivateKey$generate = edKey.generate;
+export const Ed25519PrivateKey$generate = /* @__PURE__ */ generateKey("Ed25519PrivateKey", false);
 /** `Ed25519PrivateKey.generateExportable`. */
-export const Ed25519PrivateKey$generateExportable = edKey.generateExportable;
+export const Ed25519PrivateKey$generateExportable = /* @__PURE__ */ generateKey("Ed25519PrivateKey", true);
 /** `Ed25519PrivateKey.parse(raw:)`. */
-export const Ed25519PrivateKey$parse$raw = edKey.parse;
+export const Ed25519PrivateKey$parse$raw = /* @__PURE__ */ parsePrivate("Ed25519PrivateKey");
 /** `Ed25519PrivateKey.publicKey`. */
-export const Ed25519PrivateKey$publicKey = edKey.publicKey;
+export const Ed25519PrivateKey$publicKey = publicKeyOf;
 /** `privateKey.sign(_:)`: deterministic. */
-export const Ed25519PrivateKey$sign = async (k, _c, message) => b64url(await backend().sign(reveal(k), bytes(message)));
+export const Ed25519PrivateKey$sign = sign;
 
-const ecKey = privateMembers("EcdsaP256PrivateKey");
 /** `EcdsaP256PrivateKey.generate`. */
-export const EcdsaP256PrivateKey$generate = ecKey.generate;
+export const EcdsaP256PrivateKey$generate = /* @__PURE__ */ generateKey("EcdsaP256PrivateKey", false);
 /** `EcdsaP256PrivateKey.generateExportable`. */
-export const EcdsaP256PrivateKey$generateExportable = ecKey.generateExportable;
+export const EcdsaP256PrivateKey$generateExportable = /* @__PURE__ */ generateKey("EcdsaP256PrivateKey", true);
 /** `EcdsaP256PrivateKey.parse(raw:)`. */
-export const EcdsaP256PrivateKey$parse$raw = ecKey.parse;
+export const EcdsaP256PrivateKey$parse$raw = /* @__PURE__ */ parsePrivate("EcdsaP256PrivateKey");
 /** `EcdsaP256PrivateKey.publicKey`. */
-export const EcdsaP256PrivateKey$publicKey = ecKey.publicKey;
+export const EcdsaP256PrivateKey$publicKey = publicKeyOf;
 /** `privateKey.sign(_:)`: `r ‖ s`, with a random nonce. */
-export const EcdsaP256PrivateKey$sign = async (k, _c, message) => b64url(await backend().sign(reveal(k), bytes(message)));
+export const EcdsaP256PrivateKey$sign = sign;
 
-const xKey = privateMembers("X25519PrivateKey");
 /** `X25519PrivateKey.generate`. */
-export const X25519PrivateKey$generate = xKey.generate;
+export const X25519PrivateKey$generate = /* @__PURE__ */ generateKey("X25519PrivateKey", false);
 /** `X25519PrivateKey.generateExportable`. */
-export const X25519PrivateKey$generateExportable = xKey.generateExportable;
+export const X25519PrivateKey$generateExportable = /* @__PURE__ */ generateKey("X25519PrivateKey", true);
 /** `X25519PrivateKey.parse(raw:)`. */
-export const X25519PrivateKey$parse$raw = xKey.parse;
+export const X25519PrivateKey$parse$raw = /* @__PURE__ */ parsePrivate("X25519PrivateKey");
 /** `X25519PrivateKey.publicKey`. */
-export const X25519PrivateKey$publicKey = xKey.publicKey;
+export const X25519PrivateKey$publicKey = publicKeyOf;
 
 /**
  * `privateKey.agree(with:)`: a `SharedSecret`. An all-zero result (a
@@ -1081,8 +1070,8 @@ export const Hkdf = {
  * `k.test.TestKeys/<kind>/<n>` (rehashed in the rare case it isn't a
  * valid P-256 scalar). Synchronous, on the `ops` backend.
  */
-export const TestKeys = Object.fromEntries(
-  [
+export const TestKeys = /* @__PURE__ */ Object.fromEntries(
+  /* @__PURE__ */ [
     ["aesGcm", "AesGcmKey"],
     ["ed25519", "Ed25519PrivateKey"],
     ["ecdsaP256", "EcdsaP256PrivateKey"],
@@ -1168,7 +1157,7 @@ const ALG_IDS = {
 };
 
 /** A key type name's role suffix. */
-const KEY_SUFFIX = new RegExp("(PublicKey|PrivateKey)$");
+const KEY_SUFFIX = /* @__PURE__ */ new RegExp("(PublicKey|PrivateKey)$");
 
 /** The family of a key type: `Ed25519PrivateKey` and `Ed25519PublicKey` are `Ed25519`. */
 const family = (type) => type.replace(KEY_SUFFIX, "");
@@ -1177,19 +1166,19 @@ const family = (type) => type.replace(KEY_SUFFIX, "");
 const fromStd = (t) => t.replaceAll("+", "-").replaceAll("/", "_");
 
 /** Whitespace, which PEM bodies break lines with. */
-const SPACE = new RegExp("\\s+", "g");
+const SPACE = /* @__PURE__ */ new RegExp("\\s+", "g");
 
 /** Standard base64 and its padding. */
-const BASE64 = new RegExp("^([A-Za-z0-9+/]*)(=*)$");
+const BASE64 = /* @__PURE__ */ new RegExp("^([A-Za-z0-9+/]*)(=*)$");
 
 /**
  * A line break, decoded at run time: a release chunk is one line, and a
  * minifier writes a line break it can compute as a literal one.
  */
-const NL = JSON.parse('"\\n"');
+const NL = /* @__PURE__ */ JSON.parse('"\\n"');
 
 /** At most 64 characters: one line of a PEM body. */
-const PEM_LINE = new RegExp(".{1,64}", "g");
+const PEM_LINE = /* @__PURE__ */ new RegExp(".{1,64}", "g");
 
 /**
  * The DER inside PEM text with `label` (`PUBLIC KEY`, `PRIVATE KEY`), or
@@ -1358,59 +1347,55 @@ function publicJwk(type, k) {
   return jwkText(fam, { x: b64url(raw) }, op);
 }
 
-/** `parse(jwk:)`, `parse(pem:)`, `jwk` and `pem` of public key `type`. */
-function publicFormats(type) {
-  return {
-    jwk: (text) => publicText(type, publicFromJwk(type, text)),
-    pem: (text) => publicText(type, publicFromSpki(type, pemBytes(text, "PUBLIC KEY"))),
-    toJwk: (k) => publicJwk(type, k),
-    toPem: (k) => pemText(spkiOf(type, k), "PUBLIC KEY"),
-  };
-}
+/** `parse(jwk:)` of public key `type`. */
+const publicParseJwk = (type) => (text) => publicText(type, publicFromJwk(type, text));
+/** `parse(pem:)` of public key `type`: SPKI. */
+const publicParsePem = (type) => (text) => publicText(type, publicFromSpki(type, pemBytes(text, "PUBLIC KEY")));
+/** `jwk` of public key `type`. */
+const publicToJwk = (type) => (k) => publicJwk(type, k);
+/** `pem` of public key `type`. */
+const publicToPem = (type) => (k) => pemText(spkiOf(type, k), "PUBLIC KEY");
 
-const edF = publicFormats("Ed25519PublicKey");
 /** `Ed25519PublicKey.parse(jwk:)`. */
-export const Ed25519PublicKey$parse$jwk = edF.jwk;
+export const Ed25519PublicKey$parse$jwk = /* @__PURE__ */ publicParseJwk("Ed25519PublicKey");
 /** `Ed25519PublicKey.parse(pem:)`: SPKI. */
-export const Ed25519PublicKey$parse$pem = edF.pem;
+export const Ed25519PublicKey$parse$pem = /* @__PURE__ */ publicParsePem("Ed25519PublicKey");
 /** `Ed25519PublicKey.jwk`. */
-export const Ed25519PublicKey$jwk = edF.toJwk;
+export const Ed25519PublicKey$jwk = /* @__PURE__ */ publicToJwk("Ed25519PublicKey");
 /** `Ed25519PublicKey.pem`. */
-export const Ed25519PublicKey$pem = edF.toPem;
+export const Ed25519PublicKey$pem = /* @__PURE__ */ publicToPem("Ed25519PublicKey");
 
-const ecF = publicFormats("EcdsaP256PublicKey");
 /** `EcdsaP256PublicKey.parse(jwk:)`. */
-export const EcdsaP256PublicKey$parse$jwk = ecF.jwk;
+export const EcdsaP256PublicKey$parse$jwk = /* @__PURE__ */ publicParseJwk("EcdsaP256PublicKey");
 /** `EcdsaP256PublicKey.parse(pem:)`: SPKI. */
-export const EcdsaP256PublicKey$parse$pem = ecF.pem;
+export const EcdsaP256PublicKey$parse$pem = /* @__PURE__ */ publicParsePem("EcdsaP256PublicKey");
 /** `EcdsaP256PublicKey.jwk`. */
-export const EcdsaP256PublicKey$jwk = ecF.toJwk;
+export const EcdsaP256PublicKey$jwk = /* @__PURE__ */ publicToJwk("EcdsaP256PublicKey");
 /** `EcdsaP256PublicKey.pem`. */
-export const EcdsaP256PublicKey$pem = ecF.toPem;
+export const EcdsaP256PublicKey$pem = /* @__PURE__ */ publicToPem("EcdsaP256PublicKey");
 
-const xF = publicFormats("X25519PublicKey");
 /** `X25519PublicKey.parse(jwk:)`. */
-export const X25519PublicKey$parse$jwk = xF.jwk;
+export const X25519PublicKey$parse$jwk = /* @__PURE__ */ publicParseJwk("X25519PublicKey");
 /** `X25519PublicKey.parse(pem:)`: SPKI. */
-export const X25519PublicKey$parse$pem = xF.pem;
+export const X25519PublicKey$parse$pem = /* @__PURE__ */ publicParsePem("X25519PublicKey");
 /** `X25519PublicKey.jwk`. */
-export const X25519PublicKey$jwk = xF.toJwk;
+export const X25519PublicKey$jwk = /* @__PURE__ */ publicToJwk("X25519PublicKey");
 /** `X25519PublicKey.pem`. */
-export const X25519PublicKey$pem = xF.toPem;
+export const X25519PublicKey$pem = /* @__PURE__ */ publicToPem("X25519PublicKey");
 
-const rsaF = publicFormats("RsaPublicKey");
 /** `RsaPublicKey.parse(jwk:)`: `kty` `RSA`, at least 2,048 bits. */
-export const RsaPublicKey$parse$jwk = rsaF.jwk;
+export const RsaPublicKey$parse$jwk = /* @__PURE__ */ publicParseJwk("RsaPublicKey");
 /** `RsaPublicKey.parse(pem:)`: SPKI. */
-export const RsaPublicKey$parse$pem = rsaF.pem;
+export const RsaPublicKey$parse$pem = /* @__PURE__ */ publicParsePem("RsaPublicKey");
 /** `RsaPublicKey.jwk`. */
-export const RsaPublicKey$jwk = rsaF.toJwk;
+export const RsaPublicKey$jwk = /* @__PURE__ */ publicToJwk("RsaPublicKey");
 /** `RsaPublicKey.pem`. */
-export const RsaPublicKey$pem = rsaF.toPem;
+export const RsaPublicKey$pem = /* @__PURE__ */ publicToPem("RsaPublicKey");
+
 /** `RsaPublicKey.fingerprint()`: the SHA-256 of its SPKI DER, as hex. */
 export const RsaPublicKey$fingerprint = fingerprint;
 /** The `Codable` codec of `RsaPublicKey`: base64url of its SPKI DER. */
-export const RsaPublicKey$codec = textCodec((t) => {
+export const RsaPublicKey$codec = /* @__PURE__ */ textCodec((t) => {
   const b = fromB64url(t);
   return b && publicFromSpki("RsaPublicKey", b) ? t : null;
 }, "an RSA public key");
@@ -1432,7 +1417,7 @@ export const RsaSignature$bytes = (s) => fromB64url(s) ?? fail("not a signature"
 /** `RsaSignature.parse(bytes:)`: 256 to 1,024 bytes. */
 export const RsaSignature$parse = (b) => (b instanceof Uint8Array && b.length >= 256 && b.length <= 1024 ? b64url(b) : null);
 /** The `Codable` codec of `RsaSignature`. */
-export const RsaSignature$codec = textCodec((t) => RsaSignature$parse(fromB64url(t)), "an RSA signature");
+export const RsaSignature$codec = /* @__PURE__ */ textCodec((t) => RsaSignature$parse(fromB64url(t)), "an RSA signature");
 
 // ------------------------------------------------------- secret keys
 
@@ -1525,43 +1510,38 @@ function secretFrom(type, parsed, exportable) {
   return k && (!parsed.x || hex(parsed.x) === hex(k.pub)) ? k : null;
 }
 
-/** `parse(raw:)`, `parse(jwk:)` and `parse(pem:)` of secret key `type`, exportable or not. */
-function secretParsers(type, exportable) {
-  return {
-    raw: (raw) => {
-      const r = reveal(raw);
-      return r instanceof Uint8Array && r.length === 32 ? syncBackend().fromRaw(type, r, exportable) : null;
-    },
-    jwk: (text) => secretFrom(type, privateFromJwk(type, text), exportable),
-    pem: (text) => (type === "AesGcmKey" ? null : secretFrom(type, privateFromPkcs8(type, pemBytes(reveal(text), "PRIVATE KEY")), exportable)),
-  };
-}
+/** `parse(raw:)` of secret key `type`, exportable or not. */
+const secretParseRaw = (type, exportable) => (raw) => {
+  const r = reveal(raw);
+  return r instanceof Uint8Array && r.length === 32 ? syncBackend().fromRaw(type, r, exportable) : null;
+};
+/** `parse(jwk:)` of secret key `type`, exportable or not. */
+const secretParseJwk = (type, exportable) => (text) => secretFrom(type, privateFromJwk(type, text), exportable);
+/** `parse(pem:)` of secret key `type` (PKCS #8; never an `AesGcmKey`), exportable or not. */
+const secretParsePem = (type, exportable) => (text) =>
+  type === "AesGcmKey" ? null : secretFrom(type, privateFromPkcs8(type, pemBytes(reveal(text), "PRIVATE KEY")), exportable);
 
-const aesP = secretParsers("AesGcmKey", false);
 /** `AesGcmKey.parse(jwk:)`: `kty` `oct`, 32 bytes. */
-export const AesGcmKey$parse$jwk = aesP.jwk;
-const edP = secretParsers("Ed25519PrivateKey", false);
+export const AesGcmKey$parse$jwk = /* @__PURE__ */ secretParseJwk("AesGcmKey", false);
 /** `Ed25519PrivateKey.parse(jwk:)`. */
-export const Ed25519PrivateKey$parse$jwk = edP.jwk;
+export const Ed25519PrivateKey$parse$jwk = /* @__PURE__ */ secretParseJwk("Ed25519PrivateKey", false);
 /** `Ed25519PrivateKey.parse(pem:)`: PKCS #8. */
-export const Ed25519PrivateKey$parse$pem = edP.pem;
-const ecP = secretParsers("EcdsaP256PrivateKey", false);
+export const Ed25519PrivateKey$parse$pem = /* @__PURE__ */ secretParsePem("Ed25519PrivateKey", false);
 /** `EcdsaP256PrivateKey.parse(jwk:)`. */
-export const EcdsaP256PrivateKey$parse$jwk = ecP.jwk;
+export const EcdsaP256PrivateKey$parse$jwk = /* @__PURE__ */ secretParseJwk("EcdsaP256PrivateKey", false);
 /** `EcdsaP256PrivateKey.parse(pem:)`: PKCS #8. */
-export const EcdsaP256PrivateKey$parse$pem = ecP.pem;
-const xP = secretParsers("X25519PrivateKey", false);
+export const EcdsaP256PrivateKey$parse$pem = /* @__PURE__ */ secretParsePem("EcdsaP256PrivateKey", false);
 /** `X25519PrivateKey.parse(jwk:)`. */
-export const X25519PrivateKey$parse$jwk = xP.jwk;
+export const X25519PrivateKey$parse$jwk = /* @__PURE__ */ secretParseJwk("X25519PrivateKey", false);
 /** `X25519PrivateKey.parse(pem:)`: PKCS #8. */
-export const X25519PrivateKey$parse$pem = xP.pem;
+export const X25519PrivateKey$parse$pem = /* @__PURE__ */ secretParsePem("X25519PrivateKey", false);
 
 /** `Exportable<K>.parse(raw:)`: `type` is `K`'s name, from the call's static type. */
-export const Exportable$parse$raw = (type, raw) => secretParsers(type, true).raw(raw);
+export const Exportable$parse$raw = (type, raw) => secretParseRaw(type, true)(raw);
 /** `Exportable<K>.parse(jwk:)`. */
-export const Exportable$parse$jwk = (type, text) => secretParsers(type, true).jwk(text);
+export const Exportable$parse$jwk = (type, text) => secretParseJwk(type, true)(text);
 /** `Exportable<K>.parse(pem:)` (private keys). */
-export const Exportable$parse$pem = (type, text) => secretParsers(type, true).pem(text);
+export const Exportable$parse$pem = (type, text) => secretParsePem(type, true)(text);
 
 /** `exportable.exportJwk()`: the JWK, with `alg`, `use` and `key_ops`, as a `Secret<String>`. */
 export function Exportable$exportJwk(e) {
@@ -1591,9 +1571,10 @@ export function Exportable$exportPem(e) {
 export function keyFromConfig(type, text) {
   const t = String(text).trim();
   const secret = !type.endsWith("PublicKey");
-  const f = secret ? secretParsers(type, false) : publicFormats(type);
-  const raw = secret ? f.raw : family(type) === "Rsa" ? () => null : parsePublic(type);
-  const key = t.startsWith("{") ? f.jwk(t) : t.startsWith("-----") ? f.pem(t) : raw(fromB64url(t));
+  const jwk = secret ? secretParseJwk(type, false) : publicParseJwk(type);
+  const pem = secret ? secretParsePem(type, false) : publicParsePem(type);
+  const raw = secret ? secretParseRaw(type, false) : family(type) === "Rsa" ? () => null : parsePublic(type);
+  const key = t.startsWith("{") ? jwk(t) : t.startsWith("-----") ? pem(t) : raw(fromB64url(t));
   return key ?? fail(`the configured ${type} isn't a valid key`);
 }
 
@@ -1601,15 +1582,15 @@ export function keyFromConfig(type, text) {
 
 /** `JwtError`'s unit cases and payload cases, as the generated enum builds them. */
 const JWT = {
-  malformed: unitCase(0),
+  malformed: /* @__PURE__ */ unitCase(0),
   wrongAlgorithm: (alg) => ({ $: 1, _0: String(alg) }),
   unknownKeyId: (kid) => ({ $: 2, _0: kid ?? null }),
-  badSignature: unitCase(3),
-  expired: unitCase(4),
-  notYetValid: unitCase(5),
-  wrongIssuer: unitCase(6),
-  wrongAudience: unitCase(7),
-  missingExpiry: unitCase(8),
+  badSignature: /* @__PURE__ */ unitCase(3),
+  expired: /* @__PURE__ */ unitCase(4),
+  notYetValid: /* @__PURE__ */ unitCase(5),
+  wrongIssuer: /* @__PURE__ */ unitCase(6),
+  wrongAudience: /* @__PURE__ */ unitCase(7),
+  missingExpiry: /* @__PURE__ */ unitCase(8),
   claims: (e) => ({ $: 9, _0: e }),
 };
 
@@ -1764,7 +1745,7 @@ export const KeyName$init = (name) => ({ name: String(name) });
 export const KeyName$name = (k) => k.name;
 
 /** `KeyStoreError.unavailable`. */
-const UNAVAILABLE = unitCase(0);
+const UNAVAILABLE = /* @__PURE__ */ unitCase(0);
 
 /**
  * `k.crypto.BrowserKeyStore`: keys as structured-cloned, non-extractable

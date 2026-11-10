@@ -1,0 +1,6 @@
+error[K3116] 31:12-31:23: `focusName()` calls `focus()`, which runs while the view renders and never moves the focus or scrolls
+  label 12:9-12:21: `focus()` is called here
+  help: call it from a handler, an effect or `init()`, which run once the view is on screen
+error[K3116] 34:12-34:27: `scrolled()` calls `scrollIntoView()`, which runs while the view renders and never moves the focus or scrolls
+  label 17:9-17:35: `scrollIntoView()` is called here
+  help: call it from a handler, an effect or `init()`, which run once the view is on screen

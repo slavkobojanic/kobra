@@ -1619,6 +1619,7 @@ pub(crate) fn client_references(cx: &Cx<'_, '_>, names: &crate::ty::NameTable) {
     drop(live);
     drop(chunks);
     let client = client_code(cx, &refs_by_file);
+    endpoint_urls_in_shared_code(cx, &client);
     for (ix, file) in p.files.iter().enumerate() {
         if file.stdlib {
             continue;
@@ -1723,6 +1724,72 @@ pub(crate) fn client_references(cx: &Cx<'_, '_>, names: &crate::ty::NameTable) {
                 );
             }
         }
+    }
+}
+
+/// K4007 at each call of `PublicUrls.absolute(endpoint:)` in code that may
+/// run in the browser: a declaration of `client` ([`client_code`]), or a
+/// service that isn't server-only, whose methods run wherever it is
+/// injected. `PublicUrls` itself is shared, since `absolute(_ page:)`
+/// works in the browser, but endpoint pages are server-only: the browser
+/// never holds an endpoint's URL (docs/design/12-routing.md, "Absolute
+/// URLs"). Test code runs on the server and isn't checked.
+fn endpoint_urls_in_shared_code(cx: &Cx<'_, '_>, client: &HashSet<DeclId>) {
+    let p = cx.p;
+    let calls: HashMap<FileId, Vec<TextRange>> = {
+        let live = cx.resolutions.borrow();
+        let chunks = cx.body_resolutions.borrow();
+        let mut out: HashMap<FileId, Vec<TextRange>> = HashMap::new();
+        for ((f, r), res) in live.iter().chain(chunks.iter().flat_map(|c| c.iter())) {
+            if let Resolution::Member { owner, name } = res
+                && owner == "k.server.PublicUrls"
+                && name == "absolute(endpoint:)"
+            {
+                out.entry(*f).or_default().push(*r);
+            }
+        }
+        out
+    };
+    if calls.is_empty() {
+        return;
+    }
+    let mut found = Vec::new();
+    for file in &p.files {
+        if file.stdlib || file.is_test {
+            continue;
+        }
+        let Some(ranges) = calls.get(&file.id) else {
+            continue;
+        };
+        for &d in &file.decls {
+            let decl = p.decl(d);
+            let shared_service = decl.named_kind() == Some(K::Service) && !side(cx, d).server;
+            if !client.contains(&d) && !shared_service {
+                continue;
+            }
+            let span = decl.node.text_range();
+            for r in ranges.iter().filter(|r| span.contains_range(**r)) {
+                found.push((decl.file, *r, d, shared_service));
+            }
+        }
+    }
+    found.sort_by_key(|(f, r, _, _)| (f.0, r.start(), r.end()));
+    found.dedup_by_key(|(f, r, _, _)| (f.0, *r));
+    for (f, r, d, shared_service) in found {
+        let mut diag = Diagnostic::new(
+            codes::SERVER_ONLY_IN_CLIENT,
+            p.span(f, r),
+            "`PublicUrls.absolute(endpoint:)` is server-only and can't be used in code that reaches the browser"
+                .to_owned(),
+        )
+        .with_note("endpoint pages are server-only: the browser never holds an endpoint's URL");
+        if shared_service {
+            diag = diag.with_note(format!(
+                "`{}` is shared, so its methods can run in the browser; mark it `@ServerOnly`, or build the URL in a server-only service",
+                p.decl(d).name
+            ));
+        }
+        cx.report(f, diag);
     }
 }
 

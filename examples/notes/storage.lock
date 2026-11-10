@@ -9,6 +9,10 @@ key = "noteId"
 type = "notes.UnsavedEdit"
 indexes = ["savedAt"]
 
+[keyNames.notes-vault]
+declaration = "vault.VaultService.vaultKey"
+type = "AesGcmKey"
+
 [types."notes.UnsavedEdit"]
 fields = [
     { name = "noteId", type = "Uuid" },

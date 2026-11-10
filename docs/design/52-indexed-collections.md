@@ -123,7 +123,7 @@ A service that injects `Collections` is client-only, so the server renders it wi
 
 ## `storage.lock`
 
-**`k build` now writes `storage.lock`,** after `k check` accepted the change, as it writes `rpc.lock`; `k check` only reads it. It records the namespace, every storage key ([36](36-local-storage.md#file-format)), every collection, every job ([30](30-background-jobs.md#stored-payloads)) and the shapes of the app types they hold. The file format gains one table per collection:
+**`k build` now writes `storage.lock`,** after `k check` accepted the change, as it writes `rpc.lock`; `k check` only reads it. It records the namespace, every storage key ([36](36-local-storage.md#file-format)), every collection, every `KeyStore` key name ([33](33-crypto.md)), every job ([30](30-background-jobs.md#stored-payloads)) and the shapes of the app types they hold. The file format gains one table per collection:
 
 ```toml
 [collections.unsavedEdits]
@@ -134,7 +134,8 @@ indexes = ["savedAt"]
 ```
 
 - **`declaration`** is the qualified name of the constant or field; **`key`** the key field's K name; **`type`** the value type, written as for keys; **`indexes`** the indexed fields, sorted. `[types."…"]` records the value type's shape as for keys.
-- **Tables are sorted:** keys, then collections, then jobs, each by name, then types.
+- **Tables are sorted:** keys, then collections, then key names, then jobs, each by name, then types.
+- **`KeyStore`'s key names are recorded too** (`[keyNames.<name>]` with `declaration` and the key `type`, [33](33-crypto.md#decided-while-implementing)), since the keys a browser keeps are stored data like values: a renamed `KeyName` is `K8010` unless it is marked `@Breaking("reason")`, and another key type is `K8010` even then, as a collection's key field is `K8009`.
 - **The lock follows the code:** an entry the program no longer declares is dropped, a new one is added, `declaration` follows a rename, and an entry an `@Breaking` declaration changed records the new shape. A lock that doesn't change isn't rewritten. An app with no key, collection or job and no lock gets none.
 
 ### Compatibility (`K8009`)
@@ -227,4 +228,3 @@ Built tests first, as designed above, with these decisions and changes:
 - **Migrating values on a `@Breaking` change** instead of `.unreadable`, as for versioned keys ([36](36-local-storage.md#open-questions)).
 - **Live queries:** a stream of a range that updates when another tab writes, over `TabChannel`.
 - **Cursors and paging** beyond `limit`, for collections too large to read whole.
-- **`KeyStore`'s `KeyName`s in `storage.lock`** ([33](33-crypto.md)): they are stored data too, but are still not recorded.

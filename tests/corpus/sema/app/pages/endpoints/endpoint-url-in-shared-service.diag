@@ -1,0 +1,3 @@
+error[K4007] 26:21-26:29: `PublicUrls.absolute(endpoint:)` is server-only and can't be used in code that reaches the browser
+  note: endpoint pages are server-only: the browser never holds an endpoint's URL
+  note: `Links` is shared, so its methods can run in the browser; mark it `@ServerOnly`, or build the URL in a server-only service

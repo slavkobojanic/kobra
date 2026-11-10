@@ -1,0 +1,3 @@
+error[K8010] src/vault/VaultService.k:12:24-12:32: the key name `notes-vault` changed incompatibly with storage.lock; keys users' browsers already hold would not be found
+  note: the key type changed from `AesGcmKey` to `Ed25519PrivateKey`: a stored key keeps the type it was written with
+  note: a key name's key type can't change, even with `@Breaking`: declare a new `KeyName` under a new name (the old key is left in place)

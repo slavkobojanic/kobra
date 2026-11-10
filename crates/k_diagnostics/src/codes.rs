@@ -941,6 +941,9 @@ codes! {
     /// A collection changed incompatibly with `storage.lock`: its value shape or name without `@Breaking`, or its key field.
     INCOMPATIBLE_COLLECTION = 8009, "incompatible-collection", Error,
         "A collection changed incompatibly with `storage.lock`; the values users' browsers hold would no longer decode or be found.";
+    /// A `KeyName` changed incompatibly with `storage.lock`: renamed without `@Breaking`, or given another key type.
+    INCOMPATIBLE_KEY_NAME = 8010, "incompatible-key-name", Error,
+        "A `KeyName` changed incompatibly with `storage.lock`; the keys users' browsers hold would no longer be found.";
     /// `k.toml` is malformed or lacks a required key.
     INVALID_MANIFEST = 8101, "invalid-manifest", Error,
         "`k.toml` is malformed or lacks a required key.";

@@ -833,6 +833,77 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         );
     }
 
+    /// K3116 through one of the declaration's own methods: `callee`, called
+    /// (as `name()` or `self.name()`) from code that may run while a view
+    /// renders, itself calls `focus`, `blur` or `scrollIntoView` on one of
+    /// the declaration's `ElementRef` fields, outside a lambda. One level
+    /// only: a method that reaches the call through another method isn't
+    /// followed (`docs/design/53-element-references.md`, "As built").
+    fn own_method_during_render(&mut self, callee: MemberId, call: &SyntaxNode) {
+        if !self.ssr {
+            return;
+        }
+        let p = self.cx.p;
+        let Some(decl) = self.owner.decl else { return };
+        let m = p.member(callee);
+        if m.owner != decl || m.kind != MemberKind::Func || p.is_stdlib(decl) {
+            return;
+        }
+        let Some(element_ref) = p.lookup_qualified("k.ui.ElementRef") else {
+            return;
+        };
+        let Some(func) = m.node.clone() else { return };
+        let is_ref_field = |name: &str| {
+            p.decl(decl).members.iter().any(|&f| {
+                let field = p.member(f);
+                field.kind == MemberKind::Field
+                    && field.name == name
+                    && matches!(self.cx.field_ty(f), Ty::Named(d, ref a) if d == element_ref && a.is_empty())
+            })
+        };
+        let found = func.descendants().filter_map(ast::CallExpr::cast).find_map(|c| {
+            let ast::Expr::MemberExpr(op) = c.callee()? else {
+                return None;
+            };
+            let op_name = op.name()?.text().to_owned();
+            if !matches!(op_name.as_str(), "focus" | "blur" | "scrollIntoView") {
+                return None;
+            }
+            let field = match op.receiver()? {
+                ast::Expr::NameExpr(n) => n.syntax().first_token()?.text().to_owned(),
+                ast::Expr::MemberExpr(inner) => {
+                    let self_recv = matches!(inner.receiver()?, ast::Expr::NameExpr(r)
+                        if r.syntax().first_token().is_some_and(|t| t.kind() == SyntaxKind::SelfKw));
+                    if !self_recv {
+                        return None;
+                    }
+                    inner.name()?.text().to_owned()
+                }
+                _ => return None,
+            };
+            let in_lambda = c
+                .syntax()
+                .ancestors()
+                .take_while(|n| *n != func)
+                .any(|n| n.kind() == SyntaxKind::LambdaExpr);
+            (!in_lambda && is_ref_field(&field)).then(|| (op_name, c.syntax().text_range()))
+        });
+        let Some((op, at)) = found else { return };
+        let method = m.name.clone();
+        let file = self.owner.file;
+        self.report(
+            Diagnostic::new(
+                codes::ELEMENT_REF_DURING_RENDER,
+                self.span(call.text_range()),
+                format!(
+                    "`{method}()` calls `{op}()`, which runs while the view renders and never moves the focus or scrolls"
+                ),
+            )
+            .with_label(p.span(file, at), format!("`{op}()` is called here"))
+            .with_help("call it from a handler, an effect or `init()`, which run once the view is on screen"),
+        );
+    }
+
     /// `true` when the body belongs to server-only code: a declaration
     /// that is server-only and not client-only (44-channels.md,
     /// "Server-only and client-only").
@@ -6654,6 +6725,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                         if let (true, Some(mm)) = (self_recv, member) {
                             self.loading_read(mm, name.text_range());
                             self.derived_call(mm, node.text_range());
+                            self.own_method_during_render(mm, &node);
                         }
                         self.handle_depth += u32::from(handle);
                         let query = member.is_some_and(|mm| {
@@ -6759,6 +6831,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                                     self.note_res(name.text_range(), self.cx.member_resolution(m));
                                     self.loading_read(m, name.text_range());
                                     self.derived_call(m, node.text_range());
+                                    self.own_method_during_render(m, &node);
                                     let sig = self.cx.sig(SigKey::Member(m));
                                     self.explicit = self.type_args(n.generic_arg_list());
                                     return self.apply_sig(

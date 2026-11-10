@@ -10,6 +10,9 @@ page StripeWebhook at "/webhooks/stripe" {
     }
 }
 
+// `PublicUrls` is shared, but endpoint URLs are server-only, so the
+// service that builds them is too.
+@ServerOnly
 service Checkout {
     @Inject let urls: PublicUrls
 

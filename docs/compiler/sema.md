@@ -65,7 +65,7 @@ stage or milestone that picks it up. A deferred rule's code is assigned when it 
 | Jobs | `Job` services server-only, Codable payloads, no session in the graph, payloads vs `storage.lock` (§12.16) | — |
 | Tests | `expect`, `expect throws`, `use` in tests, test-only visibility | — |
 | Doc comments | intra-doc links | type-checking fenced `k` examples |
-| Lockfiles | `storage.lock` keys, collections and job payloads (K8002, K8003, K8008, K8009) and the lock the program implies, `rpc.lock` (K8001, K8002); `schema.lock` and `routes.lock` in `k_codegen` (§12.16) | — |
+| Lockfiles | `storage.lock` keys, collections, key names and job payloads (K8002, K8003, K8008, K8009, K8010) and the lock the program implies, `rpc.lock` (K8001, K8002); `schema.lock` and `routes.lock` in `k_codegen` (§12.16) | — |
 
 ---
 
@@ -1041,10 +1041,14 @@ rules: **K8008** at the key's name, unless the constant or field is marked `@Bre
 storage key accepts `@Breaking`). Each recorded `[collections.<name>]` is matched the same way with the
 program's `Collection<Key, Value>` constant or field: a value shape that changed by these rules, or a
 renamed collection, is **K8009** at its name unless it is marked `@Breaking("reason")`, and a different
-`key` field is K8009 even then (`locks.rs`, `collections`). New jobs, keys and collections, and recorded
+`key` field is K8009 even then (`locks.rs`, `collections`). Each recorded `[keyNames.<name>]` is matched
+the same way with the program's `KeyName<K>` constant or field (`k.crypto`, a key kept in a `KeyStore`):
+a renamed key name is **K8010** at its name unless it is marked `@Breaking("reason")` (a key name accepts
+`@Breaking`), and a different key type `K` is K8010 even then, since a stored key keeps the type it was
+written with (`locks.rs`, `key_names`). New jobs, keys, collections and key names, and recorded
 ones that no longer exist, are not reported. The pass also returns the `storage.lock` the program implies
 (`locks.rs`, `implied`; `Analysis::storage_lock`), which `k build` writes: the namespace (recorded, else
-the project's name), every key, collection and job of the app's non-test code and the shapes of the app
+the project's name), every key, collection, key name and job of the app's non-test code and the shapes of the app
 types they hold, with entries the code no longer declares dropped; `None` for a library, for an app with
 nothing to record and no lock, for an unreadable lock, and when the text is the lock's already
 ([52-indexed-collections.md](../design/52-indexed-collections.md#storagelock)).

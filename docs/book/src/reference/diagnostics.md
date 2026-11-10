@@ -9595,6 +9595,40 @@ error[K8009]: the collection `unsavedEdits` changed incompatibly with storage.lo
 
 **Fix:** Keep the collection's name and value shape (add optional fields and indexes only), or mark it `@Breaking("reason")` once its service handles `.unreadable`; for a new key field, declare a new collection under a new name.
 
+### K8010 `incompatible-key-name`
+
+**Error.** A `KeyName` changed incompatibly with `storage.lock`; the keys users' browsers hold would no longer be found.
+
+Example (`tests/corpus/sema/app/storage/key-name-renamed/`):
+
+```k,ignore
+// Renaming a key name leaves the key every browser kept under the old
+// name: K8010, found by the recorded declaration.
+import k.crypto.AesGcmKey
+import k.crypto.KeyName
+import k.crypto.KeyStore
+
+/// Keeps the vault key in this browser.
+public service VaultService {
+    @Inject let keys: KeyStore
+
+    private static let vaultKey = KeyName<AesGcmKey>(name: "vault")
+}
+```
+
+```text
+error[K8010]: the key name `notes-vault` changed incompatibly with storage.lock; keys users' browsers already hold would not be found
+  --> src/vault/VaultService.k:11:24
+   |
+11 |     private static let vaultKey = KeyName<AesGcmKey>(name: "vault")
+   |                        ^^^^^^^^
+   |
+   = note: the key name was renamed from `notes-vault` to `vault`; keys stored under `notes-vault` are no longer read
+   = note: keep the recorded name, or mark the key name `@Breaking("reason")` once the service handles a missing key
+```
+
+**Fix:** Keep the key name, or mark it `@Breaking("reason")` once its service handles a missing key; for another key type, declare a new `KeyName` under a new name.
+
 ### K8101 `invalid-manifest`
 
 **Error.** `k.toml` is malformed or lacks a required key.

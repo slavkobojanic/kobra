@@ -266,6 +266,38 @@ fn release_runtime_chunks_carry_the_loads_and_only_the_codecs_used() {
     assert!(!runtime.contains("`a color`"), "{runtime}");
 }
 
+/// A feature chunk is shaken like the runtime: notes seals and opens with
+/// an `AesGcmKey` and keeps it in a `KeyStore`, so its `crypto` chunk has
+/// none of JWK, PEM, JWS and JWT, HPKE, `TestKeys`, nor the signature and
+/// public key types (the two backends' method tables stay whole), and the
+/// chunk compares with `codecs$bytes`, so the runtime keeps no table of
+/// codecs (codegen.md §17.1).
+#[test]
+fn release_crypto_chunks_carry_only_what_the_app_reaches() {
+    let notes = build("notes", Profile::Release);
+    let crypto = &file(&notes, "crypto.", ".js").contents;
+    for gone in [
+        "PRIVATE KEY",
+        "PUBLIC KEY",
+        "EdDSA",
+        "k.test.TestKeys",
+        "an Ed25519 signature",
+        "an ECDSA P-256 signature",
+        "an RSA public key",
+        "HPKE",
+    ] {
+        assert!(!crypto.contains(gone), "notes' crypto chunk has {gone:?}");
+    }
+    for kept in ["pbkdf2-sha256", "k-keys:", "k1."] {
+        assert!(crypto.contains(kept), "notes' crypto chunk lacks {kept:?}");
+    }
+    let runtime = &file(&notes, "runtime.", ".js").contents;
+    assert!(
+        !runtime.contains("export const codecs="),
+        "notes' runtime keeps the codecs table"
+    );
+}
+
 #[test]
 fn development_and_test_builds_keep_readable_namespace_imports() {
     let dev = build("todos", Profile::Development);

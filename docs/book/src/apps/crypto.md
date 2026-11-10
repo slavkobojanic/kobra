@@ -509,6 +509,10 @@ public service DeviceKeys {
 
 - **`KeyName<K>(name:)` takes a string literal** and fixes the key type, so `get` returns the type `put`
   stored. `put` of an exportable key stores it non-exportable.
+- **Key names are recorded in `storage.lock`** with their key type, as storage keys are
+  ([Local storage](local-storage.md)). Renaming one is `K8010` unless it is marked `@Breaking("reason")`,
+  since the keys browsers hold stay under the old name; changing its key type is `K8010` even then:
+  declare a new `KeyName` under a new name.
 - **It is client-only,** like `Files`: a service that injects it is client-only. `BrowserKeyStore` is the
   implementation, namespaced per app. Server code keeps keys in configuration, or wrapped in the database.
 - `KeyStoreError.unavailable` means IndexedDB is blocked, as in some private modes. An app can keep a key

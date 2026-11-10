@@ -1278,9 +1278,9 @@ the codegen corpus (`Profile::Test`) keep the readable output above, so goldens 
 - **Builtin codecs** are imported one by one: `$k.codecs.int` becomes `$k$codecs$int`, imported as
   `codecs$int`, an export of `std.js` of its own (`bundle::builtin_codecs` reads their names from the
   source), so the table of them all (`codecs`) and every codec the app doesn't use can go; the ones made
-  by a call (`prim(…)`, `typedText(…)`) are marked `/* @__PURE__ */` for the minifier. A chunk that uses
-  the table itself (the `crypto` chunk compares with `codecs.bytes`) still imports `codecs`, whose
-  entries are the same objects. This took 750 B gzip off shop and 1,290 B off todos
+  by a call (`prim(…)`, `typedText(…)`) are marked `/* @__PURE__ */` for the minifier. A chunk that used
+  the table itself would still import `codecs`, whose entries are the same objects; none does (the
+  `crypto` chunk compares with `codecs$bytes`). This took 750 B gzip off shop and 1,290 B off todos
   (performance.md §11.7).
 - **`@Load` stays in the runtime chunk.** Development and test clients reach `createLoads` through the
   `load` chunk (`$k_load`, like `$k_forms`); a linked client keeps it on `$k` (`bundle::LINKED_IN_RUNTIME`,
@@ -1297,6 +1297,12 @@ the codegen corpus (`Profile::Test`) keep the readable output above, so goldens 
   declaration before minification, which then drops it and everything only it reached. A chunk imported
   as a namespace, dynamically (the pages) or by nobody (`app`) keeps every export. So the runtime chunk
   carries what the app reaches across all its chunks, and its hash differs per app.
+- **Feature chunks are written to be shaken.** Every export of a feature file is a declaration of its
+  own: a function, an arrow, an alias of a shared helper, or a call marked `/* @__PURE__ */` (and so are
+  the top-level constants a call builds), never a property of an object a top-level call built, which
+  the minifier keeps along with the call. `crypto.js` was the one that didn't (notes shipped all of
+  `k.crypto` in the browser); an object the generated code imports whole (`Hash`, `Jwt`) and the
+  backends' method tables still ship whole (performance.md §11.7).
 - The runtime and feature chunks are not compacted first (`k_runtime::compact`): the minifier reads the
   runtime's own readable text, which is what the source maps show.
 

@@ -25,6 +25,13 @@
 //! `@Breaking("reason")` (`docs/design/36-local-storage.md`,
 //! "`storage.lock`").
 //!
+//! The `[keyNames.<name>]` entries are compared with each `KeyName<K>`
+//! constant or field (`k.crypto`, a key kept in a `KeyStore`), matched the
+//! same way: a renamed key name is **K8010** unless it is marked
+//! `@Breaking("reason")`, and another key type is K8010 even then, since a
+//! stored key keeps the type it was written with
+//! (`docs/design/33-crypto.md`, "Decided while implementing").
+//!
 //! A `storage.lock` that isn't valid TOML of that structure is **K8002** at
 //! the offending line. A job the lock doesn't record yet, and a recorded
 //! job that no longer exists, are not reported: when the compiler writes
@@ -254,6 +261,8 @@ struct StorageLock {
     keys: BTreeMap<String, (String, Written)>,
     /// Collections by name.
     collections: BTreeMap<String, RecordedCollection>,
+    /// `KeyStore` key names by name: (declaration, key type).
+    key_names: BTreeMap<String, (String, Written)>,
     /// Jobs by name: (declaration, payload).
     jobs: BTreeMap<String, (String, Written)>,
     /// The shapes of app types by qualified name.
@@ -330,6 +339,23 @@ fn read_storage(text: &str) -> Result<StorageLock, Invalid> {
                 .and_then(Written::parse)
                 .ok_or_else(|| at(name))?;
             out.keys.insert(name.clone(), (declaration.to_owned(), ty));
+        }
+    }
+    if let Some(names) = table.get("keyNames") {
+        let names = names.as_table().ok_or_else(|| at("keyNames"))?;
+        for (name, entry) in names {
+            let entry = entry.as_table().ok_or_else(|| at(name))?;
+            let declaration = entry
+                .get("declaration")
+                .and_then(toml::Value::as_str)
+                .ok_or_else(|| at(name))?;
+            let ty = entry
+                .get("type")
+                .and_then(toml::Value::as_str)
+                .and_then(Written::parse)
+                .ok_or_else(|| at(name))?;
+            out.key_names
+                .insert(name.clone(), (declaration.to_owned(), ty));
         }
     }
     if let Some(jobs) = table.get("jobs") {
@@ -443,6 +469,7 @@ fn storage(cx: &Cx<'_, '_>, lock: &Lockfile) -> Option<StorageLock> {
     };
     keys(cx, &recorded);
     collections(cx, &recorded);
+    key_names(cx, &recorded);
     let p = cx.p;
     for (i, decl) in p.decls.iter().enumerate() {
         let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
@@ -528,10 +555,32 @@ pub(crate) fn key_value(cx: &Cx<'_, '_>, ty: &Ty) -> Option<Ty> {
     }
 }
 
+/// The key type of a `KeyName<K>` (`k.crypto`).
+fn key_name_type(cx: &Cx<'_, '_>, ty: &Ty) -> Option<Ty> {
+    match ty {
+        Ty::Named(d, args) if cx.p.decl_name(*d) == "k.crypto.KeyName" => {
+            Some(args.first().cloned().unwrap_or(Ty::Error))
+        }
+        _ => None,
+    }
+}
+
+/// Every `KeyName<K>` constant and field of the program's non-test code,
+/// with its key type as `value`; as [`program_keys`], the diagnostics of
+/// the types it resolves are dropped.
+fn program_key_names(cx: &Cx<'_, '_>) -> Vec<Key> {
+    let reported = cx.diags.borrow().len();
+    let out = find_named(cx, key_name_type, false);
+    cx.diags.borrow_mut().truncate(reported);
+    out
+}
+
 /// `true` for the types `storage.lock` records a constant or field of
-/// (`StorageKey<T>`, `Collection<Key, Value>`), which take `@Breaking`.
+/// (`StorageKey<T>`, `Collection<Key, Value>`, `KeyName<K>`), which take
+/// `@Breaking`.
 pub(crate) fn is_locked_type(cx: &Cx<'_, '_>, ty: &Ty) -> bool {
     key_value(cx, ty).is_some()
+        || key_name_type(cx, ty).is_some()
         || matches!(ty, Ty::Named(d, _) if cx.p.decl_name(*d) == "k.storage.Collection")
 }
 
@@ -888,6 +937,63 @@ fn keys(cx: &Cx<'_, '_>, recorded: &StorageLock) {
         diag = diag.with_note(
             "keep the recorded name and shape (only optional fields and new enum cases are compatible), or mark the key `@Breaking(\"reason\")` once the service handles `.unreadable`",
         );
+        cx.report(key.file, diag);
+    }
+}
+
+/// K8010: each `KeyName<K>` against its `[keyNames.<name>]` entry, matched
+/// by its `name:` literal, else by the recorded `declaration`. A rename is
+/// reported unless the key name is marked `@Breaking`; another key type
+/// always is, since a key users' browsers hold keeps the type it was
+/// stored as, and `get` would return it as the new one.
+fn key_names(cx: &Cx<'_, '_>, recorded: &StorageLock) {
+    for key in program_key_names(cx) {
+        if key.value.contains_error() {
+            continue;
+        }
+        let by_name = key
+            .name
+            .as_ref()
+            .and_then(|n| recorded.key_names.get_key_value(n));
+        let entry = by_name.or_else(|| {
+            recorded
+                .key_names
+                .iter()
+                .find(|(_, (declaration, _))| *declaration == key.declaration)
+        });
+        let Some((name, (_, ty))) = entry else {
+            continue;
+        };
+        let now = written(cx, &key.value);
+        let retyped = Written::parse(&now).is_none_or(|w| w != *ty);
+        let renamed = by_name.is_none() && !key.breaking;
+        if !retyped && !renamed {
+            continue;
+        }
+        let mut diag = Diagnostic::new(
+            codes::INCOMPATIBLE_KEY_NAME,
+            cx.p.span(key.file, key.range),
+            format!(
+                "the key name `{name}` changed incompatibly with storage.lock; keys users' browsers already hold would not be found"
+            ),
+        );
+        if retyped {
+            diag = diag.with_note(format!(
+                "the key type changed from `{}` to `{now}`: a stored key keeps the type it was written with",
+                ty.text()
+            ));
+        }
+        if renamed {
+            diag = diag.with_note(format!(
+                "the key name was renamed from `{name}` to `{}`; keys stored under `{name}` are no longer read",
+                key.name.as_deref().unwrap_or("?")
+            ));
+        }
+        diag = diag.with_note(if retyped {
+            "a key name's key type can't change, even with `@Breaking`: declare a new `KeyName` under a new name (the old key is left in place)"
+        } else {
+            "keep the recorded name, or mark the key name `@Breaking(\"reason\")` once the service handles a missing key"
+        });
         cx.report(key.file, diag);
     }
 }
@@ -1463,6 +1569,14 @@ fn implied(
             ),
         );
     }
+    let mut key_names: BTreeMap<String, (String, String)> = BTreeMap::new();
+    for key in program_key_names(cx) {
+        let Some(name) = key.name else { continue };
+        if key.value.contains_error() || key_names.contains_key(&name) {
+            continue;
+        }
+        key_names.insert(name, (key.declaration, written(cx, &key.value)));
+    }
     let mut jobs: BTreeMap<String, (String, String)> = BTreeMap::new();
     for (i, decl) in p.decls.iter().enumerate() {
         let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
@@ -1492,7 +1606,12 @@ fn implied(
         collect_shapes(cx, &payload, &mut types);
         jobs.insert(name, (qualified, shown));
     }
-    if existing.is_none() && keys.is_empty() && collections.is_empty() && jobs.is_empty() {
+    if existing.is_none()
+        && keys.is_empty()
+        && collections.is_empty()
+        && key_names.is_empty()
+        && jobs.is_empty()
+    {
         return None;
     }
     let namespace = recorded
@@ -1523,6 +1642,15 @@ fn implied(
             quote(key),
             quote(ty),
             list.join(", ")
+        );
+    }
+    for (name, (declaration, ty)) in &key_names {
+        let _ = write!(
+            out,
+            "\n[keyNames.{}]\ndeclaration = {}\ntype = {}\n",
+            toml_key(name),
+            quote(declaration),
+            quote(ty)
         );
     }
     for (name, (declaration, payload)) in &jobs {

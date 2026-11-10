@@ -265,6 +265,7 @@ K8006: Number each migration file by its position in `schema.lock`'s `migrations
 K8007: Name the old URL with `at`, add a redirect under `[redirects]` in `routes.lock` (`k build` adds one for a renamed page), or delete the entry once nothing needs the URL.
 K8008: Keep the key's name and value shape (add optional fields only), or mark the key `@Breaking("reason")` once its service handles `.unreadable`.
 K8009: Keep the collection's name and value shape (add optional fields and indexes only), or mark it `@Breaking("reason")` once its service handles `.unreadable`; for a new key field, declare a new collection under a new name.
+K8010: Keep the key name, or mark it `@Breaking("reason")` once its service handles a missing key; for another key type, declare a new `KeyName` under a new name.
 K8101: Fix the syntax of `k.toml`, and give `[package]` its `name` and `k` keys.
 K8102: Name a member of the workspace, or add the member to the root `k.toml`'s `members`.
 K8103: Create the member's `k.toml`, or remove it from `members`.

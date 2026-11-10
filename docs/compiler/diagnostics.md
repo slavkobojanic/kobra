@@ -320,7 +320,7 @@ Messages and detail lines for this range that the corpus pins exactly:
 | K3113 | `misplaced-element-ref` | error | The name of an `ElementRef` field that isn't a plain `let` (no `var`, `static` or annotation) of a component, page or layout initialized with `ElementRef()`; an `ElementRef()` call anywhere else in non-test code; or the argument of a `.ref(…)` that isn't such a field of the declaration whose view it is ([53-element-references.md](../design/53-element-references.md#the-checks)). A `.ref(…)` naming a field already reported is not reported again. | — |
 | K3114 | `element-ref-reused` | error | The argument of a second `.ref(…)` of the same reference, with a label at the first; or of a `.ref(…)` inside a `for` body or a lambda with parameters (a scoped slot). | — |
 | K3115 | `unattached-element-ref` | warning | The name of a valid reference field that no `.ref(…)` of its declaration's views attaches. | — |
-| K3116 | `element-ref-during-render` | error | The call of `ElementRef.focus`, `blur` or `scrollIntoView` in code that may run while a view renders: a `view`, `loading` or `failed` block outside handlers, or a field initializer (`@Derived`, `@Load` included). | — |
+| K3116 | `element-ref-during-render` | error | The call of `ElementRef.focus`, `blur` or `scrollIntoView` in code that may run while a view renders: a `view`, `loading` or `failed` block outside handlers, or a field initializer (`@Derived`, `@Load` included); or the call there of one of the declaration's own methods whose body calls one on an `ElementRef` field outside a lambda, with a label at that operation (one level of own methods; [53-element-references.md](../design/53-element-references.md#as-built)). | — |
 
 ### Styles (K3200–K3299)
 
@@ -391,7 +391,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K4004 | `scope-violation` | error | The type of the `@Inject` field; a note names the injection path. | — |
 | K4005 | `layering-violation` | error | The type of the `@Inject` field. | — |
 | K4006 | `foreign-state-write` | error | The assigned place; label: the field. | — |
-| K4007 | `server-only-in-client` | error | The use (an import path, an `@Inject` type or a name); a note names the path to the client. | — |
+| K4007 | `server-only-in-client` | error | The use (an import path, an `@Inject` type or a name); a note names the path to the client. Also the member name of a `PublicUrls.absolute(endpoint:)` call in code that may run in the browser (a shared service, or client code); a note says endpoint URLs are server-only, and, for a shared service, one says to mark it `@ServerOnly` ([12-routing.md](../design/12-routing.md#absolute-urls-publicurls)). | — |
 | K4008 | `service-on-both-sides` | error | The service's name token; notes name both paths. | — |
 | K4009 | `job-reaches-session` | error | The job's name token; a note names the path. | — |
 | K4010 | `use-target-mismatch` | error | The operand before `for`. | — |
@@ -501,6 +501,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K8007 | `removed-url` | error | The lock's `[pages.<case>]` or `[endpoints.<case>]` line, or its redirect line; the page's name token (label: the lock's entry) when the page still exists with another URL or was renamed. | — |
 | K8008 | `incompatible-storage-key` | error | The key's constant or field name token; one note per incompatible change (a renamed key is one), then a note on how to proceed. | — |
 | K8009 | `incompatible-collection` | error | The collection's constant or field name token, matched with `storage.lock`'s `[collections.<name>]` by name, else by `declaration`; one note per incompatible change (a changed key field, which `@Breaking` doesn't allow, comes first; a renamed collection is one), then a note on how to proceed ([52-indexed-collections.md](../design/52-indexed-collections.md#compatibility-k8009)). | — |
+| K8010 | `incompatible-key-name` | error | The `KeyName` constant's or field's name token, matched with `storage.lock`'s `[keyNames.<name>]` by name, else by `declaration`; one note per incompatible change (a changed key type, which `@Breaking` doesn't allow, comes first; a renamed key name is one), then a note on how to proceed ([33-crypto.md](../design/33-crypto.md#decided-while-implementing)). | — |
 | K8101 | `invalid-manifest` | error | The offending key or line, or offset 0: unreadable TOML, `[package]` without `name` or `k`, a dependency that is neither a git tag nor `{ workspace = true }`, a bad or duplicate `members` entry, a nested workspace, a `[package]` at a workspace root, a package name used twice. | — |
 | K8102 | `unknown-dependency` | error | The `[dependencies]` line of `{ workspace = true }` naming no member (a note lists the members), used outside a workspace, or of a git tag (not resolved yet). | — |
 | K8103 | `missing-workspace-member` | error | The string in the root's `members` naming a directory without `k.toml`; a note says what to create. | — |
