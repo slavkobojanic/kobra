@@ -13,6 +13,24 @@ test NewTodoField {
         expect screen.textField(labeled: "New todo").value == ""
     }
 
+    test "the field has the focus again after clicking Add" {
+        let screen = render(NewTodoField())
+
+        screen.textField(labeled: "New todo").fill("Buy milk")
+        screen.button(named: "Add").click()
+
+        expect screen.textField(labeled: "New todo").isFocused
+    }
+
+    test "a rejected title leaves the focus in the field to fix it" {
+        let screen = render(NewTodoField())
+
+        screen.button(named: "Add").click()
+
+        expect screen.alert().exists
+        expect screen.textField(labeled: "New todo").isFocused
+    }
+
     test "pressing Enter in the field adds the todo" {
         let screen = render(NewTodoField())
 

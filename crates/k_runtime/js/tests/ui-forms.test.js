@@ -326,6 +326,31 @@ test("a failing field wires aria-invalid and aria-describedby", async () => {
   assertEq(message.textContent, "Use at least 3 characters");
 });
 
+// A refused submit puts the focus in the first invalid field, in the
+// form's order, and a `ValidationError` the action throws does the same
+// (53-element-references.md, "Focus the framework moves").
+test("a failed submit focuses the first invalid field", async () => {
+  const form = signup();
+  const name = control();
+  const password = control();
+  root(() => {
+    form.field("name").attach(name.input, name.message);
+    form.field("password").attach(password.input, password.message);
+  });
+  fillValid(form);
+  form.field("password").set("short");
+  form.field("age").set("7");
+  await form.handle(async () => {})();
+  assertEq(globalThis.document.activeElement, password.input, "the password is the first invalid attached field");
+  form.field("password").set("correct horse");
+  form.field("age").set("36");
+  globalThis.document.body.focus?.();
+  await form.handle(async () => {
+    throw { failures: [{ path: "name", message: "That name is taken" }] };
+  })();
+  assertEq(globalThis.document.activeElement, name.input, "the field the server refused");
+});
+
 // A valid field is not marked invalid and its error element is empty.
 test("a valid field is not marked invalid", async () => {
   const form = signup();

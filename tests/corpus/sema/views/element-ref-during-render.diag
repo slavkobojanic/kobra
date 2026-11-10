@@ -1,0 +1,4 @@
+error[K3116] 8:38-8:49: `focus()` runs while the view renders, which never moves the focus or scrolls
+  help: call it from a handler, an effect or `init()`, which run once the view is on screen
+error[K3116] 15:18-15:38: `scrollIntoView()` runs while the view renders, which never moves the focus or scrolls
+  help: call it from a handler, an effect or `init()`, which run once the view is on screen

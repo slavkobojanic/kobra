@@ -226,9 +226,9 @@ A wrapper reaches Tier 1 when it is Baseline in all three engines (or degrades t
 | BroadcastChannel, cross-tab sync | **1** | `TabMessaging`, `TabChannel<T>` (`k.device`) | [below](#messages-between-tabs); already used inside server streams ([29](29-server-streaming.md#one-connection-per-stream-shared-across-tabs)) |
 | Storage `storage` event | 2 | `LocalStorage.changes(key:)` | [36's open question](36-local-storage.md#open-questions); `TabChannel` covers it meanwhile |
 | Web Locks | 2 | `TabLocks.withLock(name:)` (`k.device`) | one tab syncs at a time; also elects the tab that holds a shared stream |
-| Fullscreen | 2 | a fullscreen region component | needs a way to name an element from a handler, which K doesn't have yet; `@UserAction`, consuming |
+| Fullscreen | 2 | `ElementRef.enterFullscreen()` | an operation of an element reference ([53](53-element-references.md#fullscreen)), joining when an app needs it; `@UserAction`, consuming |
 | Leaving with unsaved changes (`beforeunload`) | 2 | `ConfirmLeaving(when:)` component (`k.ui`) | also guards in-app navigation through the router ([12](12-routing.md)) |
-| Focus and scrolling (`focus()`, `scrollIntoView`, scroll restoration) | 2 | element references ([open question](#open-questions)) | the router already restores scroll on navigation ([12](12-routing.md)); moving focus after an action is an accessibility need, so it comes first among element references |
+| Focus and scrolling (`focus()`, `scrollIntoView`, scroll restoration) | 2 | `ElementRef` and `.ref(…)` (`k.ui`) | [53-element-references.md](53-element-references.md): a component's own element named by a field, focus and scrolling after render, the first invalid `@Form` field focused on a failed submit; scroll restoration and the focus after navigation are the router's ([12](12-routing.md)), not yet built |
 | Printing (`window.print()`, `beforeprint`) | 2 | `PrintButton` (`k.ui`) | print styles are CSS media queries; the button needs no activation rule |
 | History, Navigation API | Not wrapping | the router ([12](12-routing.md)) | the router owns the URL; a second way to push history would desynchronize it |
 | IndexedDB | 2 | `Collections`, `Collection<Key, Value>`, `CollectionIndex<Field, Value>` (`k.storage`) | [52-indexed-collections.md](52-indexed-collections.md): names and shapes in `storage.lock`, async, indexes declared, compiler-owned additive upgrades; `navigator.storage.persist()`, `persisted()` and `estimate()` with them |
@@ -881,11 +881,12 @@ unhandled `NotificationError` K2206/K2203.
 
 ## Open questions
 
+Resolved by [53-element-references.md](53-element-references.md): **element references** are an `ElementRef` field of the component and the `.ref(…)` attribute on one element of its own view; focus and scrolling are its operations, and fullscreen and pointer lock will be.
+
 Resolved while reconciling with 46: **camera and microphone follow the prompt rule with no exception.** `MediaDevices.requestAccess(for:)` is the `@UserAction` prompt, and `capture` throws `.notAsked` while the state is `.prompt`. The cost, an extra click on engines that can't report the camera permission or keep it only for one visit, was judged smaller than a second rule for one API. Whether `Connectivity` should probe the server is also resolved: a failed rpc or channel reconnect is the probe ([connectivity](#connectivity)).
 
 - **Lazy clipboard writes:** WebKit accepts a `ClipboardItem` whose content is a promise, so a click could copy a link the server creates after the click. A `write(textFrom:)` taking an async producer would make that typed.
 - **WebKit in the real-engine suite.** The bindings also run in the planned real-browser suite shared with [33](33-crypto.md#testing) and [46](46-media-and-rtc.md#testing-the-stdlib-against-real-browsers), with permissions granted by launch flags; WebKit automation is the open part.
-- **Element references,** which fullscreen, pointer lock and focus management need: a handler naming an element of its own view.
 - **The visual viewport** (the on-screen keyboard), for sheets and toolbars on phones.
 - **An absolute page link in the browser.** `PublicUrls.absolute(_:)` is server-only; a client-rendered app gets one only through `ShareContent.page(_:).url`, as kanban's "Copy link" does. A client `absolute(_ page:)` (from `location.origin`) or `CopyButton(page:label:)` would say it directly.
 - **Localized texts** of `CopyButton` and `ShareButton` ("Copied", "Link copied") come from `k.i18n`, as drag announcements will ([41-drag-and-drop.md](41-drag-and-drop.md#open-questions)).

@@ -10,6 +10,7 @@ of K it uses fit together.
 | Cards dragged within and between columns, with the mouse, touch or the keyboard | `pages/ColumnView.k` | [Drag and drop](../apps/drag-and-drop.md) |
 | N, E, ? and Escape on the board page | `pages/BoardPage.k` | [Keyboard shortcuts](../apps/keyboard-shortcuts.md) |
 | Editing a card with validation | `pages/CardEditor.k`, `board/CardDraft.k` | [Forms and validation](../apps/forms.md) |
+| The focus back on the card's Edit button, or on "Add a card", when an editor closes | `pages/CardView.k`, `pages/ColumnView.k`, `pages/BoardPage.k` | [Focus and scrolling](../apps/views.md#focus-and-scrolling) |
 | The progress chart | `pages/ProgressChart.k` | [Charts](../apps/charts.md) |
 | Import and export as JSON | `board/BoardTransfer.k` | [Importing and exporting files](../apps/files.md) |
 | "Copy link" to a card, which opens its editor | `pages/CardEditor.k`, `pages/BoardPage.k` | [Copying and sharing](../apps/clipboard-and-sharing.md) |
@@ -32,7 +33,7 @@ ReorderableList(kind: cardDrag, id: column.id.text, items: column.cards, key: { 
             CardEditor(board: board, card: card)
                 .on(closed: { closed.emit() })
         } else {
-            CardView(card: card, isDone: isDone)
+            CardView(card: card, isDone: isDone, takesFocus: lastEdited == card.id)
                 .on(edit: { edit.emit(card.id) })
         }
     }
@@ -48,7 +49,7 @@ storage, and a change of the done or total count adds a point to the board's his
 ## Running it
 
 ```sh
-k test examples/kanban          # 42 tests: services, pages, drags, shortcuts, files, the clipboard
+k test examples/kanban          # 44 tests: services, pages, drags, shortcuts, files, the clipboard
 k dev examples/kanban           # the app on http://localhost:8080
 k build examples/kanban         # dist/public only: index.html and hashed assets
 docker compose -f examples/kanban/docker-compose.yml up --build   # nginx on :8080

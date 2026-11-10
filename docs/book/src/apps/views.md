@@ -381,6 +381,7 @@ element's definition. Using one on an element that doesn't define it is a compil
 | `.pressed(Bool)` | `aria-pressed` | `button` |
 | `.expanded(Bool)` | `aria-expanded` | `button`, `link` |
 | `.role(.alert)`, `.role(.status)` | `role`; both are live regions | non-interactive elements |
+| `.ref(field)` | nothing in the markup; names the element for an `ElementRef` field ([below](#focus-and-scrolling)) | every element |
 
 ```k
 ~component FilterBar {
@@ -434,6 +435,60 @@ button {
 Its accessible name is "Delete Buy milk", and it still starts with the visible text, so a test can find
 it with `button(named: "Delete Buy milk")`. On an element with visible text and a `.role`, a `.label`
 should contain the visible text, for the same reason; the warning for one that doesn't is planned too.
+
+### Focus and scrolling
+
+A component names one of its own elements with an `ElementRef` field from `k.ui` and `.ref(…)`, and its
+handlers move the focus there or scroll to it. No ids or selectors are involved, and the compiler checks
+the names:
+
+```k
+~import k.ui.ElementRef
+~
+~component NewNote {
+~    @State var text: String = ""
+~    @State var notes: List<String> = []
+~
+let field = ElementRef()
+
+func add() {
+    notes = notes + [text]
+    text = ""
+    // Back to typing, even when the Add button was clicked.
+    field.focus()
+}
+
+view {
+    form {
+        textField(value: bind text)
+            .label("Note")
+            .ref(field)
+
+        button { "Add" }
+            .type(.submit)
+    }
+    .on(submit: add)
+}
+~}
+```
+
+- **`focus(selectingText:)`, `blur()` and `scrollIntoView(alignment:animated:)`** run once the view has
+  caught up, at the end of the handler or effect that called them, so a handler can open an editor and
+  focus its field together. While the element isn't shown they do nothing. A heading or section takes the
+  focus from code (it gets `tabindex="-1"`) without becoming a Tab stop, and `animated` scrolling jumps
+  instead when the user prefers reduced motion.
+- **A reference is a `let` field of the component, page or layout, made with `ElementRef()`,** and
+  `.ref(…)` attaches it to exactly one element of that declaration's own view, outside `for` bodies and
+  scoped slots (`K3113`, `K3114`; an unattached one is the `K3115` warning). A row that needs one becomes a
+  component holding its own.
+- **Only handlers, effects and `init()` call the operations**; a view, a `@Derived` or another field
+  initializer can't (`K3116`), so nothing runs on the server and rendering never moves the focus.
+- **A failed `@Form` submit focuses the first invalid field by itself** ([Forms](forms.md#accessible-by-default)).
+  Where the focus goes after adding an item or closing an editor is the app's choice, made with a
+  reference: the todos example returns it to the new-todo field, kanban to the card's Edit button.
+
+> **Planned** (navigation-focus). After a client-side navigation the router will move the focus to the
+> new page's level-1 heading and restore the scroll position on back and forward; neither is built yet.
 
 ### Modifiers
 

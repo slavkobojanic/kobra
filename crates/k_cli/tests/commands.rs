@@ -1379,6 +1379,26 @@ fn test_follows_the_environment_doubles_and_element_events() {
 }
 
 #[test]
+fn test_follows_the_focus_and_scrolling_of_element_references() {
+    // `ElementRef` with the screen's `focused`, `isFocused` and
+    // `wasScrolledIntoView` (53-element-references.md, "Tests"): the field
+    // takes the focus back after an add, a failed submit focuses the first
+    // invalid field, and a jump scrolls to a heading and focuses it.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/focusing");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    for name in [
+        "PASS  Home › adding a note puts the focus back in the field",
+        "PASS  Home › a failed submit focuses the first invalid field",
+        "PASS  Home › jumping scrolls to the end and focuses its heading",
+    ] {
+        assert!(text.contains(name), "{name}\n{text}");
+    }
+}
+
+#[test]
 fn test_messages_tabs_and_keeps_the_screen_on_through_their_doubles() {
     // `TabMessaging` against `TestTabMessaging` and `KeepScreenAwake`
     // against `TestWakeLock` (45-web-platform.md): posts recorded and never

@@ -6,6 +6,10 @@ public class Screen {
     var title: String
     /// The page the router is on ([`k.core.Page`]).
     var currentPage: Page
+    /// The element of the view that has the focus; its `exists` is
+    /// `false` when nothing in the view has it
+    /// (`docs/design/53-element-references.md`, "Tests").
+    var focused: Element
 
     /// Waits until no `@Load`, async effect or handler is in flight, apart
     /// from work waiting on the [`TestClock`] or on an open stream.

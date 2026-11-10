@@ -87,6 +87,13 @@ Every handle supports the queries of [`Screen`](#screen), scoped to its subtree.
   stream with a live track, a file or a URL.
 - `var isMuted: Bool`
   `true` for a `video` or `audio` element that plays no sound.
+- `var isFocused: Bool`
+  `true` when the element has the focus
+  (`docs/design/53-element-references.md`, "Tests").
+- `var wasScrolledIntoView: Bool`
+  `true` once code scrolled the element into view
+  ([`k.ui.ElementRef.scrollIntoView(alignment:animated:)`](k-ui.md#elementref)). The test
+  DOM has no layout, so nothing else scrolls.
 - `func click()`
   Clicks the element and flushes synchronous updates.
 - `func fill(_ text: String)`
@@ -467,6 +474,10 @@ A rendered view, returned by `render(_:)`. It supports every query of
   The document title from the `metadata` blocks in effect.
 - `var currentPage: Page`
   The page the router is on ([`k.core.Page`](k-core.md#page)).
+- `var focused: Element`
+  The element of the view that has the focus; its `exists` is
+  `false` when nothing in the view has it
+  (`docs/design/53-element-references.md`, "Tests").
 - `func settle() async`
   Waits until no `@Load`, async effect or handler is in flight, apart
   from work waiting on the [`TestClock`](#testclock) or on an open stream.

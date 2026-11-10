@@ -10,6 +10,7 @@ Import each declaration by name, for example `import k.ui.AriaRole`.
 | [`AriaRole`](#ariarole) | The roles `.role(...)` accepts: only roles no semantic element expresses (`docs/design/05-views.md`, "Attributes are per element"). |
 | [`Axis`](#axis) | A layout direction, such as [`Stack.axis`](#stack). |
 | [`ButtonType`](#buttontype) | The `.type(...)` attribute of `button` (`docs/design/05-views.md`). |
+| [`ElementRef`](#elementref) | Names one element of a component's own view, so its handlers can move the focus to it or scroll to it (`docs/design/53-element-references.md`): a field `let titleField = ElementRef()`, the attribute `textField(value: bind title).ref(titleField)`, and `titleField.focus()` in a handler. |
 | [`ElementSize`](#elementsize) | The size of an element's content box, the payload of the `resized` event every element has (`docs/design/45-web-platform.md`, "Element events"). |
 | [`ErrorBoundary`](#errorboundary) | Catches panics in its content and renders `fallback` instead (`docs/design/09-errors.md`, "Panics"). |
 | [`Grid`](#grid) | Lays out its content in a grid of equal columns. |
@@ -20,6 +21,7 @@ Import each declaration by name, for example `import k.ui.AriaRole`.
 | [`Locale`](#locale) | A locale for formatting numbers, dates and money, set with `locale(...)` in `metadata` ([`MetadataEntries.locale`](#metadataentries), `docs/design/22-metadata.md`). |
 | [`MetadataEntries`](#metadataentries) | The entries of a `metadata { }` block (`docs/design/22-metadata.md`). |
 | [`Router`](#router) | Client-side navigation (`docs/design/12-routing.md`, "Navigation"). |
+| [`ScrollAlignment`](#scrollalignment) | Where [`ElementRef.scrollIntoView(alignment:animated:)`](#elementref) puts the element, on the block axis (vertically, in a page of lines). |
 | [`Spacer`](#spacer) | Takes up the free space in a [`Stack`](#stack). |
 | [`Stack`](#stack) | Lays out its content in a row or a column with a gap. |
 | [`StructuredData`](#structureddata) | A schema.org entry for `structuredData(...)` in `metadata` ([`MetadataEntries.structuredData`](#metadataentries)). |
@@ -82,6 +84,40 @@ The `.type(...)` attribute of `button` (`docs/design/05-views.md`).
   Does nothing by itself; needed on a non-submitting button in a form.
 - `case reset`
   Resets the enclosing form.
+
+## ElementRef
+
+```k,ignore
+public class ElementRef
+```
+
+Names one element of a component's own view, so its handlers can move
+the focus to it or scroll to it (`docs/design/53-element-references.md`):
+a field `let titleField = ElementRef()`, the attribute
+`textField(value: bind title).ref(titleField)`, and
+`titleField.focus()` in a handler.
+
+An operation runs once the view has caught up with the state changed
+before it: at the end of the handler or effect that called it. It does
+nothing while the element isn't shown. Only handlers, effects, `init()`
+and the functions they call use one; a view, a `@Derived` or another
+field initializer can't (K3116).
+
+**Members**
+
+- `init()`
+  Creates a reference naming no element yet; `.ref(…)` gives it one.
+- `func focus(selectingText: Bool = false)`
+  Moves the focus to the element. An element that can't take the
+  focus by itself (a heading, a section) gets `tabindex="-1"`, so it
+  takes it from code without becoming a Tab stop. `selectingText`
+  also selects a text field's or text area's text.
+- `func blur()`
+  Takes the focus away from the element when it has it.
+- `func scrollIntoView(alignment: ScrollAlignment = .nearest, animated: Bool = true)`
+  Scrolls the page, and every scrolling box around the element, until
+  it is in view. `animated` scrolls smoothly unless the user prefers
+  reduced motion.
 
 ## ElementSize
 
@@ -289,6 +325,26 @@ Client-side navigation (`docs/design/12-routing.md`, "Navigation").
   full page load.
 - `static func navigate(url: Url)`
   Leaves the app for `url` with a full page load.
+
+## ScrollAlignment
+
+```k,ignore
+public enum ScrollAlignment
+```
+
+Where [`ElementRef.scrollIntoView(alignment:animated:)`](#elementref) puts the
+element, on the block axis (vertically, in a page of lines).
+
+**Members**
+
+- `case start`
+  Its start at the start of the scrolling box.
+- `case center`
+  Its middle in the middle.
+- `case end`
+  Its end at the end.
+- `case nearest`
+  Whichever scrolls least; nothing when it is already in view.
 
 ## Spacer
 

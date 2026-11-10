@@ -48,6 +48,7 @@ No npm, no bundler, no transpiler: the files are shipped as written (compacted i
 | `k.drag`: `Draggable`, `DropTarget`, `ReorderableList` with pointer, touch and keyboard dragging | `runtime/drag.js` | **implemented** (part `Drag`, a chunk of its own, [§12.3](#123-drag-and-drop)) |
 | `k.device.BrowserFiles`: the file picker and downloads | `runtime/files.js` | **implemented** (part `Files`, a chunk of its own, [§12.4](#124-files)) |
 | `k.ui.KeyboardShortcut` | `runtime/keys.js` | **implemented** (part `Keys`, a chunk of its own, [§12.5](#125-keyboard-shortcuts)) |
+| `k.ui.ElementRef` | `runtime/refs.js` | **implemented** (part `Refs`, a chunk of its own, [§12.19](#1219-element-references)) |
 | Native stdlib bodies: collections, strings, numbers, `Instant`, `HashMap`/`HashSet`, typed text parsers (`Url`, `EmailAddress`, `Uuid`, `Color`), `TimeZone`, `TimeOfDay`, JSON codecs, route matching shared with the server (`route`, `routeParam`, `splitTarget`, `parseQuery`), streams, `Broadcast`, `Secret`, `$k.guard`, `runMain` | `runtime/std.js` | **implemented** (part `Stdlib`) |
 | SSR escaping and output buffer | `runtime/ssr.js` | **implemented** |
 | Server request loop, `env` | `runtime/server.js` | **implemented** (`serve` turns a broken handler into a `500` and keeps the loop) |
@@ -64,7 +65,7 @@ re-export lines between them removed (`k_runtime::strip_links`; compacted in rel
 are therefore unique across those files; `crates/k_runtime/tests/runtime.rs` checks it.
 
 **Feature chunks.** `charts.js` (part `Charts`), `drag.js` (`Drag`), `files.js` (`Files`), `keys.js`
-(`Keys`), `http.js` (`Http`) and `streams.js` (part `Streams`) ship as client chunks of their own,
+(`Keys`), `refs.js` (`Refs`), `http.js` (`Http`) and `streams.js` (part `Streams`) ship as client chunks of their own,
 `charts.[hash].js`, `drag.[hash].js` and so on, and only to apps whose client uses them: the bundler
 emits a feature chunk when a client chunk, or the client entry's containers, reference a stdlib symbol the
 file exports (`k.charts.LineChart`; `k.drag.ReorderableList`; `k.device.BrowserFiles`, which the `$App`
@@ -161,10 +162,11 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | `playback.[hash].js` | `playback.js` (part `Playback`), a runtime feature shipped only to clients with a `video` or `audio` element | ≤ 1 KB (`PLAYBACK_SIZE_BUDGET`) | 858 B |
 | `rtc.[hash].js` | `rtc.js` (part `Rtc`), shipped only to pages whose client uses `k.rtc` ([§12.15](#1215-calls)) | ≤ 5 KB (`RTC_SIZE_BUDGET`) | 3,940 B |
 | `keys.[hash].js` | `keys.js` (part `Keys`), shipped only to apps with keyboard shortcuts | ≤ 512 B (`KEYS_SIZE_BUDGET`) | 384 B |
+| `refs.[hash].js` | `refs.js` (part `Refs`), shipped only to clients that make an `ElementRef` ([§12.19](#1219-element-references)) | ≤ 512 B (`REFS_SIZE_BUDGET`) | 434 B |
 | `streams.[hash].js` | `streams.js` (part `Streams`), shipped only to apps with a streaming rpc | ≤ 1 KB (`STREAMS_SIZE_BUDGET`) | 569 B |
 | `channels.[hash].js` | `channels.js` (part `Channels`), the frame codec and the channels' client ([§8.2](#82-channels)), shipped only to apps whose client calls a channel rpc; a release build links the unused Protobuf codec out (3.2 KB gzip minified in a one-channel app) | ≤ 4.5 KB (`CHANNELS_SIZE_BUDGET`) | 4,302 B |
 | `http.[hash].js` | `http.js` (part `Http`), shipped only to apps whose client builds or reads an `HttpResponse` | ≤ 1.5 KB (`HTTP_SIZE_BUDGET`) | 1,175 B |
-| `forms.[hash].js` | `forms.js` (part `Forms`), shipped only to apps with a `@Form` | ≤ 2 KB (`FORMS_SIZE_BUDGET`) | 1,807 B |
+| `forms.[hash].js` | `forms.js` (part `Forms`), shipped only to apps with a `@Form` | ≤ 2 KB (`FORMS_SIZE_BUDGET`) | 1,971 B (1,807 B before a failed submit focused its first invalid field, 53-element-references.md) |
 | `money.[hash].js` | `money.js` (part `Money`), shipped only to apps whose client uses `Decimal`, `Money` or `Currency` | ≤ 2.5 KB (`MONEY_SIZE_BUDGET`) | 2,164 B |
 
 The test fails the build when a budget is exceeded. **Decision:** the browser's service support is its own part with its own budget, like the stdlib
@@ -1334,3 +1336,25 @@ for `Collections` as `BrowserCollections(namespace, schema)` ([codegen.md §16](
 children are sibling-linked as in browsers so node operations are O(1)
 ([performance.md §11](performance.md#11-stage-3-runtime-and-server)); `scripts/bench-check.sh --server`
 enforces them.
+
+### 12.19 Element references
+
+`refs.js` (part `Refs`, a feature chunk of `k/ui`) is `k.ui.ElementRef`
+([53-element-references.md](../design/53-element-references.md)).
+
+- **`ElementRef()`** returns `{focus(selecting), blur(), scrollIntoView(align, animated), $attach(el)}`.
+  The element binding of a `.ref(r)` calls `r.$attach(el)` when the element is created (or claimed while
+  hydrating); `$attach` registers an `onCleanup` with the element's owner (the component, or the block
+  branch around the element) that forgets the element again.
+- **Each operation is a one-shot user effect in a detached `root`,** which disposes itself when it runs:
+  inside a handler's batch it runs in the flush that ends the batch, after the render effects, so the view
+  has caught up; outside a batch, in the microtask flush the call schedules. It reads the element attached
+  then and does nothing unless it is in a document.
+- **`focus`** gives an element whose `tabIndex` is negative and that has no `tabindex` the attribute
+  `tabindex="-1"`, then calls `focus()`, then `select()` when asked and the element has one. **`scrollIntoView`**
+  passes `block` (`ScrollAlignment` by case index: `start`, `center`, `end`, `nearest`) and `behavior`
+  `"smooth"` when animated and `prefers-reduced-motion: reduce` doesn't match, else `"auto"`.
+- **The server's natives** have an inert `k.ui.ElementRef` whose members do nothing.
+- **A failed submit's focus** is `forms.js`' (§9): `handle` focuses the attached input of the first field, in
+  the form's order, that shows an error, after the browser's validation refuses the value and after a
+  thrown `ValidationError` is shown.

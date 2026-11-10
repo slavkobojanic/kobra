@@ -457,6 +457,21 @@ export class Element extends Node {
     this.dispatchEvent(new Event("blur"));
   }
 
+  /**
+   * Records the options of the last `scrollIntoView` call as
+   * `scrolledIntoView`: the test DOM has no layout to scroll.
+   * @param {object} [options]
+   */
+  scrollIntoView(options) {
+    this.scrolledIntoView = options ?? {};
+  }
+
+  /** Selects a text control's whole value (`selectionStart`, `selectionEnd`). */
+  select() {
+    this.selectionStart = 0;
+    this.selectionEnd = String(this.value ?? "").length;
+  }
+
   /** The box a test set as `rect`, or an empty one at the origin. */
   getBoundingClientRect() {
     const r = this.rect ?? { left: 0, top: 0, width: 0, height: 0 };

@@ -1035,6 +1035,18 @@ class Handle extends Queries {
     const el = this.one();
     return el.checked === true || attr(el, "aria-checked") === "true";
   }
+  /**
+   * Whether the element is the document's focused element and still in
+   * the view (53-element-references.md, "Tests").
+   */
+  get isFocused() {
+    const el = this.one();
+    return el.ownerDocument?.activeElement === el && inDocument(el);
+  }
+  /** Whether code scrolled the element into view (`scrollIntoView`). */
+  get wasScrolledIntoView() {
+    return this.one().scrolledIntoView != null;
+  }
   /** Whether the toggle button is pressed (`aria-pressed`). */
   get isPressed() {
     return attr(this.one(), "aria-pressed") === "true";
@@ -1172,6 +1184,13 @@ class Handle extends Queries {
   }
 }
 
+/** `true` when `el` is in a document (the test DOM keeps the focus on removed elements). */
+function inDocument(el) {
+  let n = el;
+  while (n.parentNode) n = n.parentNode;
+  return n.nodeType === 9;
+}
+
 /** A rendered view: the queries over its container. */
 class Screen extends Queries {
   /**
@@ -1191,6 +1210,24 @@ class Screen extends Queries {
    */
   scope() {
     return this.host === null ? [] : [this.host];
+  }
+
+  /**
+   * The focused element of the view: a handle matching the element of the
+   * view that is its document's active element, else nothing.
+   */
+  get focused() {
+    // A cloned template's nodes may keep the template's document as their
+    // owner in the test DOM, so each element is asked about its own.
+    return new Handle("focused", () => {
+      const found = [];
+      const visit = (n) => {
+        if (n.nodeType === 1 && n.ownerDocument?.activeElement === n) found.push(n);
+        for (const c of n.childNodes ?? []) visit(c);
+      };
+      if (this.host !== null && inDocument(this.host)) for (const c of this.host.childNodes) visit(c);
+      return found;
+    });
   }
 
   /** The document's title. */

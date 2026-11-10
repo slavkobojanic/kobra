@@ -1,0 +1,8 @@
+# Element references with `k test`'s focus and scrolling queries
+# (docs/design/53-element-references.md, "Tests"): every test here must
+# pass. `chrome.rs`' focusing tests build it with `k build` and serve it
+# statically: the focus moves after an action, a failed submit focuses the
+# first invalid field, and `scrollIntoView` reaches the end of a long page.
+[package]
+name = "focusing"
+k = "0.1"

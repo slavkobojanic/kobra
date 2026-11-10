@@ -226,6 +226,10 @@ page Checkout {
 `aria-invalid` and `aria-describedby`. A form written the obvious way is already accessible, and
 `.label("…")` gives every field a visible, connected label.
 
+**A submit that fails puts the focus in the first invalid field,** in the form's field order, whether the
+browser's validation refused it or the action threw a `ValidationError`, so a keyboard or screen reader
+user lands on the field to fix and hears its error.
+
 ## The server can't be bypassed
 
 - **The same rules run on the client and on the server.**

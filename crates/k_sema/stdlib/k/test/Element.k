@@ -26,6 +26,13 @@ public class Element {
     var isPlaying: Bool
     /// `true` for a `video` or `audio` element that plays no sound.
     var isMuted: Bool
+    /// `true` when the element has the focus
+    /// (`docs/design/53-element-references.md`, "Tests").
+    var isFocused: Bool
+    /// `true` once code scrolled the element into view
+    /// ([`k.ui.ElementRef.scrollIntoView(alignment:animated:)`]). The test
+    /// DOM has no layout, so nothing else scrolls.
+    var wasScrolledIntoView: Bool
 
     /// Clicks the element and flushes synchronous updates.
     func click()

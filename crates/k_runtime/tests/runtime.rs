@@ -14,10 +14,10 @@ use k_runtime::{
     FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET,
     HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, MEDIA_SIZE_BUDGET, MONEY_SIZE_BUDGET,
     NOTIFICATIONS_SIZE_BUDGET, OBSERVE_SIZE_BUDGET, PASSKEYS_SIZE_BUDGET, PLAYBACK_SIZE_BUDGET,
-    PUSH_SIZE_BUDGET, Part, RTC_SIZE_BUDGET, SERVICE_WORKER_SIZE_BUDGET, SERVICES_SIZE_BUDGET,
-    SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET,
-    WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact, compacted_sources, module, modules,
-    resolve,
+    PUSH_SIZE_BUDGET, Part, REFS_SIZE_BUDGET, RTC_SIZE_BUDGET, SERVICE_WORKER_SIZE_BUDGET,
+    SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET,
+    TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact, compacted_sources,
+    module, modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -193,6 +193,7 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Playback
                 | Part::Rtc
                 | Part::Keys
+                | Part::Refs
                 | Part::Streams
                 | Part::Channels
                 | Part::Http
@@ -631,6 +632,21 @@ fn keyboard_shortcuts_meet_their_size_budget() {
     assert!(
         size <= KEYS_SIZE_BUDGET,
         "keyboard shortcuts are {size} bytes gzip, over the {KEYS_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
+fn element_references_meet_their_size_budget() {
+    let refs = compacted_sources(&[Part::Refs]).expect("compacts");
+    let size = gzip_len(&refs);
+    eprintln!(
+        "refs: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {REFS_SIZE_BUDGET})",
+        raw_len(&[Part::Refs]),
+        refs.len()
+    );
+    assert!(
+        size <= REFS_SIZE_BUDGET,
+        "element references are {size} bytes gzip, over the {REFS_SIZE_BUDGET}-byte budget"
     );
 }
 

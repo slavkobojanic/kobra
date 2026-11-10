@@ -70,11 +70,13 @@ K borrows ideas, not syntax. Where another language does something well, K adapt
 | 50 | Web Push | [50-push.md](50-push.md) |
 | 51 | Passkeys | [51-passkeys.md](51-passkeys.md) |
 | 52 | Indexed collections | [52-indexed-collections.md](52-indexed-collections.md) |
+| 53 | Element references: focus and scrolling | [53-element-references.md](53-element-references.md) |
 
 ## Decisions still open
 
 No cross-cutting decision is open. The most recent ones:
 
+- **A component names its own elements with `ElementRef`:** a `let` field initialized with `ElementRef()` and `.ref(…)` on one element of its own view, outside loops and scoped slots (`K3113`–`K3115`); `focus(selectingText:)`, `blur()` and `scrollIntoView(alignment:animated:)` run once the view has caught up, from handlers, effects and `init()` only (`K3116`). A failed `@Form` submit focuses the first invalid field automatically; other focus moves are the app's. `Element.isFocused`, `Screen.focused` and `wasScrolledIntoView` in `k test`; todos and kanban return the focus where the user was. See [53-element-references.md](53-element-references.md).
 - **IndexedDB is typed collections:** `Collection<Key, Value>` and `CollectionIndex<Field, Value>` declared as constants or fields with string literals and checked against the value type (`K2410`–`K2412`), read and written through the client-only, async `Collections` with local storage's errors, one transaction per call. The compiler owns the database's layout and the browser upgrades it by only adding stores and indexes, so tabs of two builds share it. `k build` now writes `storage.lock`, which records each collection (`K8009`). `MemoryCollections` in `k test`; notes keeps edits that couldn't be saved. See [52-indexed-collections.md](52-indexed-collections.md).
 - **Web Push needs no account:** `PushSubscriptions` in the browser (`requestAccess()` is the notification prompt, `subscribe(serverKey:)` never prompts), `WebPush` on the server with a self-generated VAPID key in `K_PUSH_PRIVATE_KEY`, RFC 8291 encryption inside it, and `k-sw.js` showing each push as a `SystemNotification`. Huddle pushes new messages from a background job. See [50-push.md](50-push.md).
 - **Passkeys need no account either:** `Passkeys` in the browser (`register` and `signIn` are `@UserAction`, so options are fetched before the click), `PasskeyVerifier` on the server (ES256, EdDSA and RS256, attestation `"none"`, user verification required, the counter checked, CBOR and signatures in Rust), challenges single-use in the session row, credentials in the app's own entity, and `TestAuthenticator` in `k test` signing real assertions. Notes signs up and in with a passkey. See [51-passkeys.md](51-passkeys.md).

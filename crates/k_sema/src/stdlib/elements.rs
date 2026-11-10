@@ -25,6 +25,7 @@
 pub const TYPE_SCOPE: &[&str] = &[
     "k.ui.AriaRole",
     "k.ui.ButtonType",
+    "k.ui.ElementRef",
     "k.ui.ElementSize",
     "k.ui.ImageLoading",
     "k.media.Captions",
@@ -102,7 +103,8 @@ pub struct ElementDef {
 }
 
 /// Attributes every element has: `.class(...)` (typed class references,
-/// set once), `.hidden(Bool)`, and the options of the `appeared` and
+/// set once), `.hidden(Bool)`, `.ref(ElementRef)`
+/// (`docs/design/53-element-references.md`), and the options of the `appeared` and
 /// `disappeared` events (`docs/design/45-web-platform.md`, "Element
 /// events").
 pub const UNIVERSAL_ATTRIBUTES: &[Param] = &[
@@ -120,6 +122,11 @@ pub const UNIVERSAL_ATTRIBUTES: &[Param] = &[
         label: "appearThreshold",
         ty: "Percent",
         doc: "how much of the element must be visible for `appeared`; `0%` (any pixel) by default",
+    },
+    Param {
+        label: "ref",
+        ty: "ElementRef",
+        doc: "names the element with an `ElementRef` field of the component, for `focus()` and `scrollIntoView()` from its handlers",
     },
     Param {
         label: "appearMargin",

@@ -748,6 +748,31 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// K3116: an `ElementRef`'s `focus`, `blur` or `scrollIntoView`
+    /// called from code that may run while a view renders (a view, a field
+    /// initializer), which never moves the focus
+    /// (`docs/design/53-element-references.md`).
+    fn element_ref_during_render(&mut self, member: MemberId, call: &SyntaxNode) {
+        if !self.ssr {
+            return;
+        }
+        let m = self.cx.p.member(member);
+        if self.cx.p.lookup_qualified("k.ui.ElementRef") != Some(m.owner)
+            || !matches!(m.name.as_str(), "focus" | "blur" | "scrollIntoView")
+        {
+            return;
+        }
+        let name = m.name.clone();
+        self.report(
+            Diagnostic::new(
+                codes::ELEMENT_REF_DURING_RENDER,
+                self.span(call.text_range()),
+                format!("`{name}()` runs while the view renders, which never moves the focus or scrolls"),
+            )
+            .with_help("call it from a handler, an effect or `init()`, which run once the view is on screen"),
+        );
+    }
+
     /// `true` when the body belongs to server-only code: a declaration
     /// that is server-only and not client-only (44-channels.md,
     /// "Server-only and client-only").
@@ -6293,6 +6318,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                                 self.check_mutable(&recv);
                             }
                             self.client_only_call(mm, &node);
+                            self.element_ref_during_render(mm, &node);
                             self.channel_call(mm, &node);
                         }
                         if lifted { Ty::optional(ret) } else { ret }

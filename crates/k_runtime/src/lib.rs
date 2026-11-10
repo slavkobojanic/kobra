@@ -234,6 +234,13 @@ pub const RTC_SIZE_BUDGET: usize = 5 * 1024;
 /// `audio` element (`docs/compiler/performance.md` §11.3).
 pub const PLAYBACK_SIZE_BUDGET: usize = 1024;
 
+/// The largest `k.ui.ElementRef` in the browser ([`Part::Refs`]) may be,
+/// measured like [`CORE_SIZE_BUDGET`] (512 B). It ships in its own chunk,
+/// only to apps that make an element reference
+/// (`docs/design/53-element-references.md`, `docs/compiler/performance.md`
+/// §11.3).
+pub const REFS_SIZE_BUDGET: usize = 512;
+
 /// The largest `k.ui.KeyboardShortcut` in the browser ([`Part::Keys`]) may
 /// be, measured like [`CORE_SIZE_BUDGET`] (512 B). It ships in its own
 /// chunk, only to apps that use keyboard shortcuts
@@ -371,6 +378,10 @@ pub enum Part {
     /// chunk, only to apps that use it, and measured on its own
     /// ([`KEYS_SIZE_BUDGET`]).
     Keys,
+    /// `k.ui.ElementRef` in the browser: shipped as its own client chunk,
+    /// only to apps that make an element reference, and measured on its
+    /// own ([`REFS_SIZE_BUDGET`]).
+    Refs,
     /// Server-streaming rpcs in the browser: shipped as its own client
     /// chunk, only to apps with a streaming rpc, and measured on its own
     /// ([`STREAMS_SIZE_BUDGET`]).
@@ -485,6 +496,7 @@ const MODULES: &[Module] = modules![
     Playback "runtime/playback.js",
     Rtc "runtime/rtc.js",
     Keys "runtime/keys.js",
+    Refs "runtime/refs.js",
     Streams "runtime/streams.js",
     Channels "runtime/channels.js",
     Http "runtime/http.js",

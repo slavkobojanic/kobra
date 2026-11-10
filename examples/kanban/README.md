@@ -50,6 +50,9 @@ serve the build the same way ([`crates/k_cli/tests/support/static_host.rs`](../.
   bottom. Clicking a card's Edit button never starts a drag.
 - **Add or edit a card:** "Add a card" (or **N**) opens the form with the focus in its title field, and
   Edit opens the editor the same way (`.autofocus`), so you can type at once.
+  Closing the editor (Save, Cancel or **Escape**) puts the focus back on the card's Edit button, and
+  closing the new card form on "Add a card" (an `ElementRef`, `docs/design/53-element-references.md`),
+  so a keyboard user carries on from where they were.
 - **Move a card on a touch screen:** press and hold it for a moment, then drag. A quick swipe scrolls.
 - **Move a card with the keyboard:** Tab to the card and press **Space** or **Enter** to pick it up.
   **ArrowUp** and **ArrowDown** move it within its column, **ArrowLeft** and **ArrowRight** to the

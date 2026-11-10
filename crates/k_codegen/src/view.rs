@@ -242,6 +242,9 @@ pub(crate) struct Elem {
     /// `$k.mediaElement` rather than as attributes (46-media-and-rtc.md,
     /// "Showing and playing media").
     pub media: Vec<(String, ast::Expr)>,
+    /// The `ElementRef` field `.ref(…)` attaches to the element
+    /// (53-element-references.md), bound with its `$attach`.
+    pub element_ref: Option<ast::Expr>,
 }
 
 /// The visible `<label>` of a form control: literal text, or a text that
@@ -731,6 +734,11 @@ impl Tree<'_, '_, '_> {
                     if let Some(v) = value {
                         el.appear.push((m.clone(), v));
                     }
+                }
+                "ref" => {
+                    // An element reference (53-element-references.md):
+                    // bound in the browser, nothing in the markup.
+                    el.element_ref = value;
                 }
                 "controls" | "muted" | "monitor" | "loops" | "mirrored" | "poster" | "captions"
                 | "controller"
@@ -1486,6 +1494,16 @@ impl Client<'_, '_, '_> {
     /// write-back event, then the event handlers.
     #[allow(clippy::too_many_lines)]
     fn element_bindings(&mut self, node: &Expr, el: &Elem) {
+        if let Some(r) = &el.element_ref {
+            // `.ref(…)`: the reference names this element until its owner
+            // is disposed (53-element-references.md).
+            let loc = self.b.loc(r.syntax());
+            let x = self.b.expr(r);
+            self.b.stmts.push(Stmt::Expr(js::at(
+                loc,
+                call(member(x, "$attach"), vec![node.clone()]),
+            )));
+        }
         if has_autofocus(el) {
             // `.autofocus`: the focus moves in when the control appears
             // later than the document (05-views.md).
@@ -3154,6 +3172,7 @@ fn build(
         || !el.styles.is_empty()
         || !el.events.is_empty()
         || !el.media.is_empty()
+        || el.element_ref.is_some()
         || el.control.is_some()
         || has_autofocus(el)
         || (!root && el.label.is_some());

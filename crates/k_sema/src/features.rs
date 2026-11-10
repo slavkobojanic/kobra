@@ -98,6 +98,11 @@ pub const FEATURES: &[Feature] = &[
         "05-views.md",
     ),
     planned(
+        "navigation-focus",
+        "The router moving the focus to a new page's level-1 heading and restoring the scroll position on back and forward",
+        "53-element-references.md",
+    ),
+    planned(
         "error-payload-lint",
         "A warning when a wire error carries a server-only type or a third party's response body",
         "28-rpc-wire-format.md",

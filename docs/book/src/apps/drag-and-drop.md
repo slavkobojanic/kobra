@@ -49,7 +49,7 @@ ReorderableList(kind: cardDrag, id: column.id.text, items: column.cards, key: { 
             CardEditor(board: board, card: card)
                 .on(closed: { closed.emit() })
         } else {
-            CardView(card: card, isDone: isDone)
+            CardView(card: card, isDone: isDone, takesFocus: lastEdited == card.id)
                 .on(edit: { edit.emit(card.id) })
         }
     }

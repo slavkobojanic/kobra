@@ -1,0 +1,7 @@
+warning[K3115] 10:9-10:15: no element is attached to `unused`, so its operations do nothing
+  help: attach it to an element of the view with `.ref(unused)`
+error[K3114] 16:18-16:23: `title` already names an element
+  label 14:18-14:23: attached here
+  help: give each element a reference of its own
+error[K3114] 20:26-20:29: this element may render any number of times, but a reference names one element
+  help: move the element into a component of its own, which holds its own reference

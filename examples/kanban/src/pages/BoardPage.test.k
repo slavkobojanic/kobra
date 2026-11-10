@@ -107,6 +107,41 @@ test BoardPage {
         expect not screen.textField(labeled: "Title of A").exists
     }
 
+    test "the editor's Title field takes the focus when a save is refused" {
+        let id = try seeded()
+        let screen = render(BoardPage(id: id.value))
+
+        screen.button(named: "Edit A").click()
+        screen.textField(labeled: "Title of A").fill("   ")
+        screen.button(named: "Save").click()
+        await screen.settle()
+
+        expect screen.textField(labeled: "Title of A").isFocused
+    }
+
+    test "closing the editor or the new card form gives the focus back where it was" {
+        let id = try seeded()
+        let screen = render(BoardPage(id: id.value))
+
+        screen.button(named: "Edit B").click()
+        screen.button(named: "Cancel").click()
+        await screen.settle()
+
+        expect screen.button(named: "Edit B").isFocused
+
+        screen.button(named: "Edit A").click()
+        screen.button(named: "Normal").press(.escape)
+        await screen.settle()
+
+        expect screen.button(named: "Edit A").isFocused
+
+        screen.button(named: "Add a card to To do").click()
+        screen.button(named: "Cancel").click()
+        await screen.settle()
+
+        expect screen.button(named: "Add a card to To do").isFocused
+    }
+
     test "a card can be deleted from the editor" {
         let id = try seeded()
         let screen = render(BoardPage(id: id.value))

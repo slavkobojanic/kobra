@@ -360,6 +360,25 @@ fn todos_adds_in_place_and_keeps_the_focus_in_the_field() {
     );
 }
 
+/// Clicking "Add" puts the focus back in the new-todo field, so the next
+/// todo can be typed at once (53-element-references.md, "Examples").
+#[test]
+fn todos_puts_the_focus_back_in_the_field_after_clicking_add() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("todos-click-add");
+    let (_site, mut tab) = todos(&dir);
+    let field = tab.role("textbox", "New todo");
+    tab.fill(&field, "Buy milk");
+    let add = tab.role("button", "Add");
+    tab.click(&add);
+    tab.role("checkbox", "Buy milk");
+    tab.wait("the field has the focus", |t| {
+        t.is_focused(&field).then_some(())
+    });
+}
+
 /// A blank title shows the alert and keeps what was typed, without a
 /// reload (todos-B).
 #[test]
@@ -730,6 +749,44 @@ fn kanban_escape_closes_the_card_editor_but_not_while_typing() {
     tab.press("Escape");
     tab.wait("the editor closed", |t| {
         (t.has_no_role("textbox", "Title of Ship it")).then_some(())
+    });
+}
+
+/// Closing a card's editor, with Cancel or with Escape, puts the focus back
+/// on the card's Edit button, and closing the new-card form on "Add a card"
+/// (53-element-references.md, "Examples").
+#[test]
+fn kanban_returns_the_focus_to_the_card_after_closing_its_editor() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("kanban-focus-return");
+    let (_site, mut tab) = kanban(&dir, &["Ship it"]);
+    let edit = tab.role("button", "Edit Ship it");
+    tab.click(&edit);
+    let cancel = tab.role("button", "Cancel");
+    tab.click(&cancel);
+    tab.wait("the Edit button has the focus after Cancel", |t| {
+        let edit = t.role("button", "Edit Ship it");
+        t.is_focused(&edit).then_some(())
+    });
+    let edit = tab.role("button", "Edit Ship it");
+    tab.click(&edit);
+    let normal = tab.role("button", "Normal");
+    tab.click(&normal);
+    tab.press("Escape");
+    tab.wait("the Edit button has the focus after Escape", |t| {
+        let edit = t.role("button", "Edit Ship it");
+        t.is_focused(&edit).then_some(())
+    });
+    let add = tab.role("button", "Add a card to To do");
+    tab.click(&add);
+    tab.role("textbox", "New card in To do");
+    let cancel = tab.role("button", "Cancel");
+    tab.click(&cancel);
+    tab.wait("Add a card has the focus", |t| {
+        let add = t.role("button", "Add a card to To do");
+        t.is_focused(&add).then_some(())
     });
 }
 
@@ -3241,5 +3298,125 @@ fn collections_share_one_database_across_two_builds_in_two_tabs_in_chrome() {
         !older.visible_text().contains("Problem"),
         "the older tab kept working: {}",
         older.visible_text()
+    );
+}
+
+// ============================================================ focusing
+
+/// The `focusing` fixture (element references, 53-element-references.md),
+/// built with `k build` into `dir` and served statically, and a tab on it.
+fn focusing(dir: &Scratch) -> Option<(StaticSite, Tab)> {
+    let project = dir.0.join("project");
+    copy_project(
+        &repo().join("crates/k_cli/tests/fixtures/focusing"),
+        &project,
+    );
+    let dist = dir.0.join("dist");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_k"))
+        .arg("build")
+        .arg(&project)
+        .arg("--out")
+        .arg(&dist)
+        .output()
+        .expect("k build runs");
+    assert!(
+        out.status.success(),
+        "k build: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let site = StaticSite::serve(&dist);
+    let mut tab = page::chrome(&dir.0)?;
+    tab.open(&format!("{}/", site.origin));
+    tab.role("textbox", "Note");
+    Some((site, tab))
+}
+
+/// Clicking "Add note" moves the focus off the button and back into the
+/// field the handler names with `ElementRef.focus()`.
+#[test]
+fn element_refs_move_the_focus_after_an_action_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("focusing-action");
+    let Some((_site, mut tab)) = focusing(&dir) else {
+        return;
+    };
+    let field = tab.role("textbox", "Note");
+    tab.fill(&field, "Buy milk");
+    let add = tab.role("button", "Add note");
+    tab.click(&add);
+    tab.wait_text("Buy milk");
+    tab.wait("the field has the focus", |t| {
+        t.is_focused(&field).then_some(())
+    });
+}
+
+/// A refused `@Form` submit puts the focus in its first invalid field,
+/// which is marked `aria-invalid` (53-element-references.md, "Focus the
+/// framework moves").
+#[test]
+fn a_failed_submit_focuses_the_first_invalid_field_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("focusing-form");
+    let Some((_site, mut tab)) = focusing(&dir) else {
+        return;
+    };
+    let message = tab.role("textbox", "Message");
+    tab.fill(&message, "Hello");
+    let send = tab.role("button", "Send");
+    tab.click(&send);
+    let name = tab.role("textbox", "Name");
+    tab.wait("the name field has the focus", |t| {
+        t.is_focused(&name).then_some(())
+    });
+    assert_eq!(
+        tab.on(
+            &name,
+            "function() { return this.getAttribute('aria-invalid'); }",
+            &[]
+        ),
+        json!("true")
+    );
+    tab.wait_text("Sent 0");
+}
+
+/// "Jump to the end" scrolls the last heading, far below the fold, into
+/// the viewport and focuses it, without making it a Tab stop.
+#[test]
+fn scroll_into_view_reaches_an_element_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("focusing-scroll");
+    let Some((_site, mut tab)) = focusing(&dir) else {
+        return;
+    };
+    let end = tab.role("heading", "The end");
+    let inside = "function() { const r = this.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }";
+    assert_eq!(
+        tab.on(&end, inside, &[]),
+        json!(false),
+        "below the fold at first"
+    );
+    let jump = tab.role("button", "Jump to the end");
+    tab.click(&jump);
+    tab.wait("the end is in view", |t| {
+        (t.on(&end, inside, &[]) == json!(true)).then_some(())
+    });
+    assert!(
+        tab.is_focused(&end),
+        "the heading has the focus, not {}",
+        tab.focused()
+    );
+    assert_eq!(
+        tab.on(
+            &end,
+            "function() { return this.getAttribute('tabindex'); }",
+            &[]
+        ),
+        json!("-1")
     );
 }

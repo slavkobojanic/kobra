@@ -37,6 +37,10 @@ public page BoardPage at "/boards/{id}" {
     /// The column whose new card form is open, or `nil`.
     @State var adding: ColumnId? = nil
 
+    /// The card whose editor closed last, whose Edit button takes the focus
+    /// back (`docs/design/53-element-references.md`), or `nil`.
+    @State var lastEdited: CardId? = nil
+
     /// Whether the list of shortcuts is shown.
     @State var isShowingShortcuts: Bool = false
 
@@ -51,6 +55,7 @@ public page BoardPage at "/boards/{id}" {
     func startNewCard() {
         if let first = board?.columns.first {
             editing = nil
+            lastEdited = nil
             adding = first.id
         }
     }
@@ -60,6 +65,7 @@ public page BoardPage at "/boards/{id}" {
     }
 
     func closeEditor() {
+        lastEdited = editing
         editing = nil
         adding = nil
         isShowingShortcuts = false
@@ -125,9 +131,15 @@ public page BoardPage at "/boards/{id}" {
 
                 box {
                     for column in board.columns key column.id {
-                        ColumnView(board: board.id, column: column, isDone: column.id == board.columns.last?.id, editing: editing, isAdding: adding == column.id)
-                            .on(edit: { card => editing = card })
-                            .on(add: { adding = column.id })
+                        ColumnView(board: board.id, column: column, isDone: column.id == board.columns.last?.id, editing: editing, lastEdited: lastEdited, isAdding: adding == column.id)
+                            .on(edit: { card =>
+                                editing = card
+                                lastEdited = nil
+                            })
+                            .on(add: {
+                                adding = column.id
+                                lastEdited = nil
+                            })
                             .on(closed: closeEditor)
                     }
                 }

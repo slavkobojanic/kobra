@@ -67,6 +67,7 @@ pub mod collections;
 mod cx;
 mod di;
 mod doclinks;
+mod element_refs;
 pub mod features;
 mod framework;
 pub use framework::CRYPTO_TEXT_COLUMNS;

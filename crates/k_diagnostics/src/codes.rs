@@ -587,6 +587,18 @@ codes! {
     /// A `video` playing a file or a URL has no `.captions(…)`.
     MISSING_CAPTIONS = 3112, "missing-captions", Warning,
         "A `video` playing a file or a URL has no `.captions(…)`; add a track, or `.captions(.notNeeded)` for a video without speech.";
+    /// An `ElementRef` that isn't a `let` field of a component, page or layout initialized with `ElementRef()`, or a `.ref(…)` naming anything else.
+    MISPLACED_ELEMENT_REF = 3113, "misplaced-element-ref", Error,
+        "An element reference is a `let` field of the component, page or layout whose element it names, initialized with `ElementRef()`, and `.ref(…)` takes such a field of its own declaration.";
+    /// An element reference attached twice, or inside a `for` body or a scoped slot.
+    ELEMENT_REF_REUSED = 3114, "element-ref-reused", Error,
+        "An element reference names one element: `.ref(…)` attaches it once, outside any `for` body and scoped slot.";
+    /// An element reference no `.ref(…)` attaches.
+    UNATTACHED_ELEMENT_REF = 3115, "unattached-element-ref", Warning,
+        "An element reference that no `.ref(…)` attaches, so its operations never do anything.";
+    /// `focus`, `blur` or `scrollIntoView` called from code that may run while a view renders.
+    ELEMENT_REF_DURING_RENDER = 3116, "element-ref-during-render", Error,
+        "An element reference's `focus`, `blur` or `scrollIntoView` is called from a view, a `@Derived`, a `@Load` or another field initializer; call it from a handler, an effect or `init()`.";
 
     // ---------------------------------------------------------------- styles
     /// A style declaration names a property that doesn't exist.

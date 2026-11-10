@@ -173,6 +173,7 @@ pub(crate) fn analyze(
     crate::di::remote_services(&cx);
     let storage = crate::locks::check(&cx);
     crate::activation::check(&cx);
+    crate::element_refs::check(&cx);
     crate::channels::opened_during_ssr(&cx);
     // The `rpc.lock` check reads no body: replayed while its inputs are
     // unchanged (`warm::PassFacts`).

@@ -316,6 +316,10 @@ Messages and detail lines for this range that the corpus pins exactly:
 | K3110 | `redundant-role` | error | The implicit member expression, from `.` to the name; help ``use `nav` `` naming the element. | — |
 | K3111 | `key-outside-view` | error | From `key` to the end of the key expression. | Remove the `key` clause, with the space before it (machine-applicable). |
 | K3112 | `missing-captions` | warning | The `source:` argument of a `video` whose source is written `.file(…)` or `.url(…)` (an implicit member, called or not) and that chains no `.captions(…)` (WCAG 1.2.2, [46-media-and-rtc.md](../design/46-media-and-rtc.md#showing-and-playing-media-video-and-audio)). A `.stream(…)` source, and a source the compiler can't see the case of, are not reported; help names both `Captions` cases. | Insert `.captions(.notNeeded)` right after the element's argument list (maybe-incorrect: a video with speech needs a `.track`). |
+| K3113 | `misplaced-element-ref` | error | The name of an `ElementRef` field that isn't a plain `let` (no `var`, `static` or annotation) of a component, page or layout initialized with `ElementRef()`; an `ElementRef()` call anywhere else in non-test code; or the argument of a `.ref(…)` that isn't such a field of the declaration whose view it is ([53-element-references.md](../design/53-element-references.md#the-checks)). A `.ref(…)` naming a field already reported is not reported again. | — |
+| K3114 | `element-ref-reused` | error | The argument of a second `.ref(…)` of the same reference, with a label at the first; or of a `.ref(…)` inside a `for` body or a lambda with parameters (a scoped slot). | — |
+| K3115 | `unattached-element-ref` | warning | The name of a valid reference field that no `.ref(…)` of its declaration's views attaches. | — |
+| K3116 | `element-ref-during-render` | error | The call of `ElementRef.focus`, `blur` or `scrollIntoView` in code that may run while a view renders: a `view`, `loading` or `failed` block outside handlers, or a field initializer (`@Derived`, `@Load` included). | — |
 
 ### Styles (K3200–K3299)
 
@@ -365,6 +369,8 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K3106 | fix ``Insert ` key item.id` `` (maybe-incorrect), naming the loop variable |
 | K3111 | fix ``Remove the `key` clause`` |
 | K3112 | help naming `.captions(.track(url:language:label:))` and `.captions(.notNeeded)`; fix ``Insert `.captions(.notNeeded)` `` (maybe-incorrect) |
+| K3113, K3115, K3116 | help saying where the reference is declared, attached or called instead |
+| K3114 | label `attached here` at the first `.ref(…)`'s argument; help naming the fix (a reference per element, or a component per row) |
 | K3201 | fix ``Replace `font-size` with `fontSize` `` (machine-applicable for the camel-case form, maybe-incorrect for the closest name) |
 | K3214 | fix ``Replace `space-between` with `spaceBetween` `` (machine-applicable) |
 | K3210 | fix `Remove the braces` |

@@ -153,6 +153,10 @@ K3109: Use an integer literal from 1 to 6.
 K3110: Use the semantic element instead of `.role(…)`, such as `button` for `.role(.button)`.
 K3111: Remove the `key` clause; it belongs only to a `for` in a view.
 K3112: Add `.captions(.track(url: …, language: "en", label: "English"))` with a WebVTT file, or `.captions(.notNeeded)` for a video without speech (the quick fix inserts the latter).
+K3113: Declare the reference as `let name = ElementRef()` in the component, page or layout whose view has the element, and pass that field to `.ref(name)`. A child that should focus one of its elements takes a `@Prop` saying when, and holds its own reference.
+K3114: Give each element a reference of its own. For the rows of a `for` or a scoped slot, move the row into a component that holds its own reference.
+K3115: Attach the reference with `.ref(name)` on the element it should name, or remove the field.
+K3116: Call `focus()`, `blur()` or `scrollIntoView()` from a handler, an `@Effect` or `init()`, which run once the view is on screen.
 K3201: Use the camelCase name of a real CSS property; the quick fix suggests the closest one.
 K3202: Use a value the property accepts; the message shows the property's grammar.
 K3203: Declare the class in the style block, or correct the reference; the quick fix suggests the closest class.

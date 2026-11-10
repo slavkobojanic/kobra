@@ -2214,6 +2214,12 @@ export const natives = {
   "k.media.MediaController": function MediaController() {
     return { state: unitCase(0), currentTime: 0, duration: null, volume: 1 };
   },
+  // A reference renders nothing and is never used on the server: only
+  // handlers, effects and `init()` call its operations
+  // (53-element-references.md).
+  "k.ui.ElementRef": function ElementRef() {
+    return { focus() {}, blur() {}, scrollIntoView() {}, $attach() {} };
+  },
   "k.crypto.Password": password,
   // `Hash`, `Hmac`, `SecureRandom`, `ConstantTime` and the key types
   // (`crypto.js`), as in the browser's chunk, over the server's ops.

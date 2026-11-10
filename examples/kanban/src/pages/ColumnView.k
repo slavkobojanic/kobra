@@ -4,6 +4,7 @@ import board.CardId
 import board.Column
 import board.cardDrag
 import k.drag.ReorderableList
+import k.ui.ElementRef
 import k.ui.VisuallyHidden
 
 /// One column: its heading, its cards in a reorderable list, and the form
@@ -23,6 +24,9 @@ component ColumnView {
     @Prop let isDone: Bool
     /// The card being edited, wherever it is.
     @Prop let editing: CardId?
+    /// The card whose editor closed last, wherever it is: its Edit button
+    /// takes the focus back.
+    @Prop let lastEdited: CardId?
     /// Whether this column's new card form is open.
     @Prop let isAdding: Bool
 
@@ -34,6 +38,10 @@ component ColumnView {
     @Emits let closed: Event<Void>
 
     @Inject let boards: BoardService
+
+    /// "Add a card", which takes the focus back when the new card form
+    /// closes (`docs/design/53-element-references.md`).
+    let addButton = ElementRef()
 
     @Derived let countLabel: String = if column.cards.count == 1 {
         "1 card"
@@ -57,7 +65,7 @@ component ColumnView {
                         CardEditor(board: board, card: card)
                             .on(closed: { closed.emit() })
                     } else {
-                        CardView(card: card, isDone: isDone)
+                        CardView(card: card, isDone: isDone, takesFocus: lastEdited == card.id)
                             .on(edit: { edit.emit(card.id) })
                     }
                 }
@@ -66,7 +74,10 @@ component ColumnView {
 
             if isAdding {
                 NewCardForm(board: board, column: column)
-                    .on(closed: { closed.emit() })
+                    .on(closed: {
+                        closed.emit()
+                        addButton.focus()
+                    })
             } else {
                 button {
                     "Add a card"
@@ -75,6 +86,7 @@ component ColumnView {
                 }
                 .type(.button)
                 .class(.add)
+                .ref(addButton)
                 .on(click: { add.emit() })
             }
         }

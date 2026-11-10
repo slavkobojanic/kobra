@@ -499,6 +499,7 @@ fn shipped_client_assets() {
         ("playback.", k_runtime::PLAYBACK_SIZE_BUDGET),
         ("rtc.", k_runtime::RTC_SIZE_BUDGET),
         ("keys.", k_runtime::KEYS_SIZE_BUDGET),
+        ("refs.", k_runtime::REFS_SIZE_BUDGET),
         ("streams.", k_runtime::STREAMS_SIZE_BUDGET),
         ("channels.", k_runtime::CHANNELS_SIZE_BUDGET),
         ("http.", k_runtime::HTTP_SIZE_BUDGET),

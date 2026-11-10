@@ -1,0 +1,10 @@
+error[K3113] 6:9-6:15: `Focus` isn't a component, page or layout, so it has no view whose element a reference could name
+  help: declare `let target = ElementRef()` in the component whose view has the element
+error[K3113] 10:15-10:20: an element reference is a plain `let` field: it names one element for the component's lifetime
+  help: declare `let given = ElementRef()` in the component whose view has the element
+error[K3113] 11:16-11:20: an element reference is a plain `let` field: it names one element for the component's lifetime
+  help: declare `let held = ElementRef()` in the component whose view has the element
+error[K3113] 12:9-12:17: an element reference is a plain `let` field: it names one element for the component's lifetime
+  help: declare `let changing = ElementRef()` in the component whose view has the element
+error[K3113] 24:21-24:33: an element reference is made only as a field of the component that names its element
+  help: declare `let name = ElementRef()` in the component, page or layout, and attach it with `.ref(name)`

@@ -4714,6 +4714,243 @@ warning[K3112]: a video from a file or URL needs captions
 
 **Fix:** Add `.captions(.track(url: …, language: "en", label: "English"))` with a WebVTT file, or `.captions(.notNeeded)` for a video without speech (the quick fix inserts the latter).
 
+### K3113 `misplaced-element-ref`
+
+**Error.** An element reference is a `let` field of the component, page or layout whose element it names, initialized with `ElementRef()`, and `.ref(…)` takes such a field of its own declaration.
+
+Example (`tests/corpus/sema/views/element-ref-misplaced.k`):
+
+```k,ignore
+// An element reference is a plain `let` field of the component whose element it names, made with
+// `ElementRef()`; `.ref(…)` takes such a field of its own declaration (K3113).
+import k.ui.ElementRef
+
+service Focus {
+    let target = ElementRef()
+}
+
+component Child {
+    @Prop let given: ElementRef
+    @State var held: ElementRef = ElementRef()
+    var changing = ElementRef()
+
+    view {
+        button { "Go" }
+            .ref(given)
+    }
+}
+
+component Parent {
+    let mine = ElementRef()
+
+    func later() {
+        let local = ElementRef()
+        local.focus()
+    }
+
+    view {
+        Child(given: mine)
+        box { "Here" }
+            .ref(mine)
+    }
+}
+```
+
+```text
+error[K3113]: `Focus` isn't a component, page or layout, so it has no view whose element a reference could name
+ --> src/corpus/element-ref-misplaced.k:6:9
+  |
+6 |     let target = ElementRef()
+  |         ^^^^^^
+  |
+  = help: declare `let target = ElementRef()` in the component whose view has the element
+
+error[K3113]: an element reference is a plain `let` field: it names one element for the component's lifetime
+  --> src/corpus/element-ref-misplaced.k:10:15
+   |
+10 |     @Prop let given: ElementRef
+   |               ^^^^^
+   |
+   = help: declare `let given = ElementRef()` in the component whose view has the element
+
+error[K3113]: an element reference is a plain `let` field: it names one element for the component's lifetime
+  --> src/corpus/element-ref-misplaced.k:11:16
+   |
+11 |     @State var held: ElementRef = ElementRef()
+   |                ^^^^
+   |
+   = help: declare `let held = ElementRef()` in the component whose view has the element
+
+error[K3113]: an element reference is a plain `let` field: it names one element for the component's lifetime
+  --> src/corpus/element-ref-misplaced.k:12:9
+   |
+12 |     var changing = ElementRef()
+   |         ^^^^^^^^
+   |
+   = help: declare `let changing = ElementRef()` in the component whose view has the element
+
+error[K3113]: an element reference is made only as a field of the component that names its element
+  --> src/corpus/element-ref-misplaced.k:24:21
+   |
+24 |         let local = ElementRef()
+   |                     ^^^^^^^^^^^^
+   |
+   = help: declare `let name = ElementRef()` in the component, page or layout, and attach it with `.ref(name)`
+```
+
+**Fix:** Declare the reference as `let name = ElementRef()` in the component, page or layout whose view has the element, and pass that field to `.ref(name)`. A child that should focus one of its elements takes a `@Prop` saying when, and holds its own reference.
+
+### K3114 `element-ref-reused`
+
+**Error.** An element reference names one element: `.ref(…)` attaches it once, outside any `for` body and scoped slot.
+
+Example (`tests/corpus/sema/views/element-ref-reused.k`):
+
+```k,ignore
+// A reference names one element: attached once, never in a `for` body or a scoped slot (K3114),
+// and never left unattached (K3115).
+import k.ui.ElementRef
+
+component Rows {
+    @Prop let names: List<String>
+
+    let row = ElementRef()
+    let title = ElementRef()
+    let unused = ElementRef()
+
+    view {
+        heading(level: 2) { "Rows" }
+            .ref(title)
+        paragraph { "Again" }
+            .ref(title)
+        list {
+            for name in names key name {
+                item { name }
+                    .ref(row)
+            }
+        }
+    }
+}
+```
+
+```text
+error[K3114]: `title` already names an element
+  --> src/corpus/element-ref-reused.k:16:18
+   |
+14 |             .ref(title)
+   |                  ----- attached here
+16 |             .ref(title)
+   |                  ^^^^^
+   |
+   = help: give each element a reference of its own
+
+error[K3114]: this element may render any number of times, but a reference names one element
+  --> src/corpus/element-ref-reused.k:20:26
+   |
+20 |                     .ref(row)
+   |                          ^^^
+   |
+   = help: move the element into a component of its own, which holds its own reference
+```
+
+**Fix:** Give each element a reference of its own. For the rows of a `for` or a scoped slot, move the row into a component that holds its own reference.
+
+### K3115 `unattached-element-ref`
+
+**Warning.** An element reference that no `.ref(…)` attaches, so its operations never do anything.
+
+Example (`tests/corpus/sema/views/element-ref-reused.k`):
+
+```k,ignore
+// A reference names one element: attached once, never in a `for` body or a scoped slot (K3114),
+// and never left unattached (K3115).
+import k.ui.ElementRef
+
+component Rows {
+    @Prop let names: List<String>
+
+    let row = ElementRef()
+    let title = ElementRef()
+    let unused = ElementRef()
+
+    view {
+        heading(level: 2) { "Rows" }
+            .ref(title)
+        paragraph { "Again" }
+            .ref(title)
+        list {
+            for name in names key name {
+                item { name }
+                    .ref(row)
+            }
+        }
+    }
+}
+```
+
+```text
+warning[K3115]: no element is attached to `unused`, so its operations do nothing
+  --> src/corpus/element-ref-reused.k:10:9
+   |
+10 |     let unused = ElementRef()
+   |         ^^^^^^
+   |
+   = help: attach it to an element of the view with `.ref(unused)`
+```
+
+**Fix:** Attach the reference with `.ref(name)` on the element it should name, or remove the field.
+
+### K3116 `element-ref-during-render`
+
+**Error.** An element reference's `focus`, `blur` or `scrollIntoView` is called from a view, a `@Derived`, a `@Load` or another field initializer; call it from a handler, an effect or `init()`.
+
+Example (`tests/corpus/sema/views/element-ref-during-render.k`):
+
+```k,ignore
+// An element reference's operations run after rendering: a view or a field initializer can't call
+// them (K3116); a handler can.
+import k.ui.ElementRef
+
+component Panel {
+    let box = ElementRef()
+
+    @Derived let shown: Bool = moved(box.focus())
+
+    func moved(_ nothing: Void) -> Bool {
+        return true
+    }
+
+    view {
+        if moved(box.scrollIntoView()) {
+            text { "Moved" }
+        }
+        button { "Body" }
+            .ref(box)
+            .on(click: { box.focus() })
+    }
+}
+```
+
+```text
+error[K3116]: `focus()` runs while the view renders, which never moves the focus or scrolls
+ --> src/corpus/element-ref-during-render.k:8:38
+  |
+8 |     @Derived let shown: Bool = moved(box.focus())
+  |                                      ^^^^^^^^^^^
+  |
+  = help: call it from a handler, an effect or `init()`, which run once the view is on screen
+
+error[K3116]: `scrollIntoView()` runs while the view renders, which never moves the focus or scrolls
+  --> src/corpus/element-ref-during-render.k:15:18
+   |
+15 |         if moved(box.scrollIntoView()) {
+   |                  ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: call it from a handler, an effect or `init()`, which run once the view is on screen
+```
+
+**Fix:** Call `focus()`, `blur()` or `scrollIntoView()` from a handler, an `@Effect` or `init()`, which run once the view is on screen.
+
 ### K3201 `unknown-css-property`
 
 **Error.** A style declaration names a property that doesn't exist.

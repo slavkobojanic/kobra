@@ -176,6 +176,17 @@ export function createForm(fields, initial, validate, clock) {
     return list.length === 0 ? value : null;
   };
 
+  /**
+   * Moves the focus to the first field, in the form's order, that shows
+   * an error (53-element-references.md, "Focus the framework moves").
+   */
+  const focusInvalid = () => {
+    for (const name of order) {
+      const f = state.get(name);
+      if (f.error.peek() !== null && f.input) return f.input.focus();
+    }
+  };
+
   const field = (name) => {
     const f = state.get(name);
     if (f === undefined) throw new Error(`k runtime: the form has no field ${name}`);
@@ -189,6 +200,7 @@ export function createForm(fields, initial, validate, clock) {
       isTouched: () => f.touched.get(),
       touch: () => f.touched.set(true),
       attach: (input, message) => {
+        f.input = input;
         renderEffect(() => {
           const e = f.error.get();
           // Without a message element, one is made under the input when
@@ -261,7 +273,8 @@ export function createForm(fields, initial, validate, clock) {
     /**
      * The submit handler: validates, refuses while submitting, calls
      * `action` with the parsed struct, and shows a `ValidationError` it
-     * throws under its fields. Never rejects for those.
+     * throws under its fields. Either failure puts the focus in the first
+     * invalid field. Never rejects for those.
      * @param {(value: object) => unknown} action
      * @returns {(event?: Event) => Promise<void>}
      */
@@ -270,14 +283,15 @@ export function createForm(fields, initial, validate, clock) {
         if (event && typeof event.preventDefault === "function") event.preventDefault();
         if (submitting.peek()) return;
         const value = check();
-        if (value === null) return;
+        if (value === null) return focusInvalid();
         current = value;
         submitting.set(true);
         try {
           await action(value);
         } catch (e) {
-          if (e && Array.isArray(e.failures)) show(e.failures.map((x) => ({ path: x.path, message: x.message })));
-          else throw e;
+          if (!e || !Array.isArray(e.failures)) throw e;
+          show(e.failures.map((x) => ({ path: x.path, message: x.message })));
+          focusInvalid();
         } finally {
           current = null;
           submitting.set(false);

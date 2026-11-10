@@ -1,0 +1,12 @@
+# docs/design/53-element-references.md; docs/compiler/codegen.md §16: `ElementRef` is a feature
+# chunk of its own, shipped only to a client that makes a reference; `.ref(…)` binds the element
+# with the reference's `$attach` and adds nothing to the markup, and the server's reference is the
+# inert one from its natives.
+client contains // file: refs.[hash].js
+client contains from "../refs.[hash].js";
+client contains export function ElementRef(
+client contains .$attach(
+client contains .focus(false)
+server lacks $attach
+server lacks ref=
+client lacks keys.[hash].js
