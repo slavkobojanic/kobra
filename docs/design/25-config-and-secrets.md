@@ -105,6 +105,7 @@ The stdlib's own settings are ordinary `config` declarations, with documented va
 | | `K_PUBLIC_ORIGIN` | `publicOrigin: Url` | required in production; `http://localhost:{PORT}` in development; `http://localhost` in tests |
 | | `K_SHUTDOWN_GRACE` | `shutdownGrace: Duration` | `25.seconds` |
 | | `K_TRUSTED_PROXIES` | `trustedProxies: List<String>` (CIDR ranges) | empty |
+| | `K_WORKER_HEAP_MB` | `@Range(16...16384) workerHeapMb: Int` (each worker isolate's heap limit, MiB) | `256` |
 | `DatabaseConfig` (`k.db`) | `DATABASE_URL` | `url: Url` (`postgres://user@host:5432/db` or `sqlite:path`) | required in production; `sqlite:.k/<package>.db` in development |
 | | `DATABASE_PASSWORD` | `password: Secret<String>?` | `nil` |
 | `JobConfig` (`k.server`) | `K_JOB_CONCURRENCY` | `@Range(1...256) concurrency: Int` | `4` |
@@ -113,7 +114,7 @@ The stdlib's own settings are ordinary `config` declarations, with documented va
 | `SmtpConfig` (`k.server`) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM` | see [31-email.md](31-email.md) | |
 
 - Keeping the database password out of `DATABASE_URL` lets one secret file serve both Postgres (`POSTGRES_PASSWORD_FILE`) and the app (`DATABASE_PASSWORD_FILE`).
-- How `K_PUBLIC_ORIGIN`, `K_SHUTDOWN_GRACE` and `K_TRUSTED_PROXIES` are used is in [38-deployment.md](38-deployment.md); the session settings are in [26-auth-and-sessions.md](26-auth-and-sessions.md).
+- How `K_PUBLIC_ORIGIN`, `K_SHUTDOWN_GRACE`, `K_TRUSTED_PROXIES` and `K_WORKER_HEAP_MB` are used is in [38-deployment.md](38-deployment.md); the session settings are in [26-auth-and-sessions.md](26-auth-and-sessions.md).
 
 ## Per environment
 

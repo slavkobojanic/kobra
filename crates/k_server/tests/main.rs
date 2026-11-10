@@ -41,6 +41,7 @@ mod crypto_wire;
 mod differential;
 mod engine;
 mod literals;
+mod memory;
 mod outbound;
 mod perf_budget;
 #[path = "regressions/main.rs"]

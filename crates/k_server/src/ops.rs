@@ -7,6 +7,7 @@
 //! | `op_k_set_result` | `(text: string) => void` | test and corpus drivers |
 //! | `op_k_next_request` | `() => Promise<Request \| null>` | `serve()` in `k:runtime/server` |
 //! | `op_k_respond` | `(id: number, response: Response) => void` | `serve()` |
+//! | `op_k_memory_probe` | `(id, collect) => void`: answers a memory probe with the heap, collected first when `collect` | `serve()` |
 //! | `op_k_respond_start` / `op_k_respond_chunk` / `op_k_respond_end` | a streamed response | server streaming |
 //! | `op_k_server_info` | `() => {publicOrigin, config}` | the app's startup |
 //! | `op_k_now` | `() => number` (epoch ms) | `Clock`, `k-data` |
@@ -53,7 +54,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use deno_core::{OpState, ToJsBuffer, op2};
+use deno_core::{OpState, ToJsBuffer, op2, v8};
 use deno_error::JsErrorBox;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
@@ -86,6 +87,9 @@ pub struct JsRequest {
     /// channel ([`crate::sockets`]). The path is then the rpc's, and the
     /// body the open's request or the message, as JSON.
     pub channel: Option<crate::sockets::ChannelRun>,
+    /// For a memory probe (never an HTTP request): `serve()` answers it
+    /// through `op_k_memory_probe` without running a handler.
+    pub probe: Option<MemoryProbe>,
 }
 
 /// A background job's run, delivered to a worker isolate like a request
@@ -155,8 +159,19 @@ pub struct PendingRequest {
     /// A channel event instead of an HTTP request
     /// ([`crate::sockets::ChannelRun`]).
     pub channel: Option<crate::sockets::ChannelRun>,
+    /// A memory probe instead of an HTTP request ([`MemoryProbe`]): `serve()`
+    /// answers it with the isolate's heap through `op_k_memory_probe`, and
+    /// no handler runs. Only the server creates one.
+    pub probe: Option<MemoryProbe>,
     /// Where the response goes.
     pub reply: oneshot::Sender<WorkerResponse>,
+}
+
+/// What a memory probe asks for (`crate::Server::worker_memory`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+pub struct MemoryProbe {
+    /// Collect garbage first, so the answer counts only what is reachable.
+    pub collect: bool,
 }
 
 /// The receiving end of a worker's request queue.
@@ -164,9 +179,9 @@ pub struct RequestQueue {
     /// The worker's end of the HTTP front's queue.
     receiver: Rc<tokio::sync::Mutex<mpsc::UnboundedReceiver<PendingRequest>>>,
     /// Requests handed to JavaScript and not answered yet, by request id.
-    waiting: HashMap<u32, oneshot::Sender<WorkerResponse>>,
+    pub(crate) waiting: HashMap<u32, oneshot::Sender<WorkerResponse>>,
     /// Streamed responses in progress, by request id: the body's chunk sender.
-    streaming: HashMap<u32, mpsc::UnboundedSender<Vec<u8>>>,
+    pub(crate) streaming: HashMap<u32, mpsc::UnboundedSender<Vec<u8>>>,
     /// The id of the next request handed to JavaScript (wraps around).
     next_id: u32,
 }
@@ -174,8 +189,17 @@ pub struct RequestQueue {
 impl RequestQueue {
     /// Wraps a channel receiver.
     pub fn new(receiver: mpsc::UnboundedReceiver<PendingRequest>) -> RequestQueue {
+        RequestQueue::shared(Rc::new(tokio::sync::Mutex::new(receiver)))
+    }
+
+    /// Reads `receiver`, which outlives this queue: a worker whose isolate
+    /// died and was replaced keeps its place in the front's queue, so the
+    /// requests waiting there reach the new isolate (`crate::http`).
+    pub fn shared(
+        receiver: Rc<tokio::sync::Mutex<mpsc::UnboundedReceiver<PendingRequest>>>,
+    ) -> RequestQueue {
         RequestQueue {
-            receiver: Rc::new(tokio::sync::Mutex::new(receiver)),
+            receiver,
             waiting: HashMap::new(),
             streaming: HashMap::new(),
             next_id: 0,
@@ -359,8 +383,33 @@ async fn op_k_next_request(state: Rc<RefCell<OpState>>) -> Result<Option<JsReque
         body: request.body.into(),
         job: request.job,
         channel: request.channel,
+        probe: request.probe,
         remote: request.remote,
     }))
+}
+
+/// Answers memory probe `id` ([`MemoryProbe`]) with the isolate's heap as
+/// JSON ([`crate::engine::HeapUsage`]), after a full collection when
+/// `collect` is set. Runs on the isolate's thread between requests, so the
+/// numbers are the worker's own.
+#[op2(fast)]
+fn op_k_memory_probe(scope: &mut v8::PinScope<'_, '_>, id: u32, collect: bool) {
+    let usage = crate::engine::heap_usage(scope, collect);
+    let state = deno_core::JsRuntime::op_state_from(scope);
+    let s = shared(&state.borrow());
+    let reply = s
+        .borrow_mut()
+        .requests
+        .as_mut()
+        .and_then(|q| q.waiting.remove(&id));
+    if let Some(reply) = reply {
+        let _ = reply.send(WorkerResponse {
+            status: 200,
+            headers: Vec::new(),
+            body: serde_json::to_vec(&usage).unwrap_or_default(),
+            stream: None,
+        });
+    }
 }
 
 /// Answers request `id` with a complete response. A client that went away
@@ -1400,6 +1449,7 @@ deno_core::extension!(
         op_k_test_tick,
         op_k_next_request,
         op_k_respond,
+        op_k_memory_probe,
         op_k_respond_start,
         op_k_respond_chunk,
         op_k_respond_end,

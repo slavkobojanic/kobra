@@ -1,3 +1,5 @@
+import k.validation.Range
+
 /// The server's settings (`docs/design/25-config-and-secrets.md`, "Stdlib
 /// configs").
 public config ServerConfig {
@@ -11,4 +13,8 @@ public config ServerConfig {
     /// The CIDR ranges of trusted proxies, whose forwarded headers give
     /// the client address.
     @Env("K_TRUSTED_PROXIES") let trustedProxies: List<String> = []
+    /// The most each worker isolate's JavaScript heap may hold, in MiB,
+    /// `16...16384`. A worker that reaches it is terminated alone: its
+    /// requests in flight answer 503 and a fresh isolate replaces it.
+    @Range(16...16384) @Env("K_WORKER_HEAP_MB") let workerHeapMb: Int = 256
 }

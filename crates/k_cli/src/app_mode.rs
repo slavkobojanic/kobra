@@ -213,6 +213,12 @@ fn serve(payload: AppPayload) -> ExitCode {
             );
             match server.run_until_signal() {
                 Ok(()) => ExitCode::SUCCESS,
+                // A worker kept dying: exit so the orchestrator starts a
+                // fresh process (server.md §3).
+                Err(e @ k_server::ServerError::CrashLoop(_)) => {
+                    eprintln!("error: {e}");
+                    ExitCode::from(k_server::http::EXIT_CRASH_LOOP)
+                }
                 Err(e) => {
                     eprintln!("error: {e}");
                     ExitCode::from(1)

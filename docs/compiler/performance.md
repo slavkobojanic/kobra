@@ -925,6 +925,52 @@ For a release client the same question is asked of the minified chunk: build the
 then split `dist/public/assets/runtime.<hash>.js` at its top-level statements and remove each in turn;
 that is how the `codecs` table of §11.4 was found.
 
+### 11.9 Memory per worker
+
+```sh
+cargo test -p k_server --test it -- memory:: --nocapture              # leak tests and the budget, ~4 s
+cargo test -p k_server --test it -- memory:: --ignored --nocapture    # 10x heavier variants, ~35 s
+```
+
+**Method.** Each number is a V8 heap statistic of one worker isolate, read on its own thread through a
+memory probe (`Server::worker_memory`, server.md §3), or of a test isolate (`Engine::heap`). "Used" is
+`used_heap_size` and "reserved" `total_heap_size`; "after collecting" means after V8's low-memory
+notification (several full, compacting collections), so it counts only what is reachable. A leak test
+warms up first (the first requests and mounts compile and optimize what they run, which grows the heap
+once), measures, repeats the work, collects and measures again. The bounds allow under 100 bytes per
+mount or channel and 10 bytes per request; growth that small is V8's own (feedback vectors, code)
+and does not keep growing: the 10x variants grow about as much as the normal ones. V8 runs in release
+even in a debug build, so the numbers don't depend on the profile.
+
+**Budget** (`crates/k_server/tests/memory.rs`, asserted in the normal suite):
+
+| Worker | Budget | Measured (14-core Apple M-series) |
+|---|---|---|
+| Idle, after collecting: used | ≤ 6 MiB | 2.7 MiB (`examples/notes`, before its first request) |
+| Idle: reserved | ≤ 8 MiB | 3.4 MiB |
+| Under load (8 keep-alive clients loading `/sign-in` and `/sign-up` of `examples/notes`), peak sampled every 20 ms without collecting: used | ≤ 32 MiB | 18 MiB |
+| Under load: reserved | ≤ 48 MiB | 27–29 MiB |
+| After the load, collected: used | — | 3.1 MiB |
+| Heap limit (`K_WORKER_HEAP_MB`) | 256 MiB default | |
+
+The default limit is ten times the loaded peak, so a worker reaches it only by holding data it should
+not (an unbounded cache, a runaway loop), not under ordinary load.
+
+**Leak tests:**
+
+| Test | Work | Growth after warming up (bound) |
+|---|---|---|
+| mount and unmount `Counter` (state, derived text, a keyed list, two click handlers) through `k test`'s `render` and `unmount` | 10,000 (100,000 ignored) | +2 to +128 KiB (0.5 MiB) |
+| requests to `tests/projects/memory` on 2 workers, 4 keep-alive clients: the SSR page and an rpc returning 20 strings, in turn | 100,000 in 2.4–3.3 s (1,000,000 ignored, 21 s) | +75 KiB (1 MiB) |
+| open and close a `Room` channel of `tests/projects/channels` on 2 sockets | 10,000 in 1.3–2.6 s (100,000 ignored, 11 s) | +121 KiB (1 MiB) |
+
+**A leak the channel test found:** closing a channel (or a server stream, or a session watch) closed its
+broadcast subscription in Rust (`ProcessState::unsubscribe`) without waking the `op_k_broadcast_next` the
+channel's pump was waiting in. That op stayed pending forever, holding its promise, the pump's
+`Promise.race` and with them the channel's request state: about 2 KiB per closed channel, 20 MiB per
+10,000. `unsubscribe` now wakes the waiting reader, which finds the subscriber gone and returns `null`
+(`process::tests::closing_a_subscription_wakes_its_waiting_reader`).
+
 ---
 
 ## 12. Language server

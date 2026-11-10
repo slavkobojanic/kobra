@@ -117,5 +117,5 @@ pub mod stack;
 pub mod testing;
 pub mod websocket;
 
-pub use engine::{Engine, EngineError, EngineOptions, JsModule, LogLine, Output};
-pub use http::{Server, ServerBundle, ServerError, ServerOptions};
+pub use engine::{Engine, EngineError, EngineOptions, HeapUsage, JsModule, LogLine, Output};
+pub use http::{RestartPolicy, Server, ServerBundle, ServerError, ServerOptions};

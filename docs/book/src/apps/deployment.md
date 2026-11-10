@@ -67,6 +67,11 @@ configuration is needed. Adding server-only code later brings `dist/app` back.
   jobs and waits for running ones, for up to `K_SHUTDOWN_GRACE` (25 seconds by default, under Docker's and
   Kubernetes' 30-second kill timeout). Then it exits `0`.
 - Logs go to standard output as JSON lines.
+- **Each worker's memory is limited.** `K_WORKER_HEAP_MB` (256 by default) caps each worker isolate's
+  JavaScript heap. A worker that reaches it is replaced alone: its requests in flight answer `503` with
+  `Retry-After: 1` and the others keep serving. A worker that dies more than 5 times in a minute stops the
+  server with exit status `70`, so the orchestrator starts a fresh process. `GET /_k/health` answers `200`
+  while a worker can serve and `503` while none can.
 - **The runtime reads no environment variable that isn't a `config` field,** so `dist/app config` is the
   complete list of what a deployment can set.
 

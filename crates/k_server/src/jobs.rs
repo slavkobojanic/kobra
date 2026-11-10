@@ -353,6 +353,7 @@ async fn run_one(dispatch: &Dispatch, job: &ClaimedJob) -> serde_json::Value {
             attempt: job.attempt,
         }),
         channel: None,
+        probe: None,
         reply,
     });
     if !sent {

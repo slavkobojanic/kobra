@@ -106,6 +106,28 @@ pub struct EngineOptions {
     /// The runtime's modules then carry ignore-listed source maps, so
     /// stepping stays in K code.
     pub inspector: bool,
+    /// The most the isolate's heap may hold, in bytes (`K_WORKER_HEAP_MB`
+    /// for a server worker, server.md §3). Near it, V8's near-heap-limit
+    /// callback terminates the running JavaScript, so the run ends with
+    /// [`EngineError::HeapLimit`] instead of V8 aborting the process.
+    /// `None` keeps V8's default, sized from the machine's memory.
+    pub heap_limit: Option<usize>,
+}
+
+/// An isolate's heap ([`Engine::heap`]), in bytes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeapUsage {
+    /// Bytes held by live (and, without a collection first, dead but not
+    /// yet collected) objects.
+    pub used: usize,
+    /// Bytes V8 reserved for the heap: `used` plus free space in its pages.
+    pub total: usize,
+    /// Bytes outside the heap that JavaScript objects keep alive
+    /// (`ArrayBuffer` contents).
+    pub external: usize,
+    /// The limit the heap may grow to ([`EngineOptions::heap_limit`]).
+    pub limit: usize,
 }
 
 /// Why running JavaScript failed.
@@ -117,6 +139,9 @@ pub enum EngineError {
     Uncaught(String),
     /// The run exceeded [`EngineOptions::timeout`] and was terminated.
     Timeout(Duration),
+    /// The heap reached [`EngineOptions::heap_limit`] (bytes) and the run
+    /// was terminated. The isolate can't be used again.
+    HeapLimit(usize),
     /// The engine itself failed (creating the isolate or its event loop).
     Internal(String),
 }
@@ -127,6 +152,11 @@ impl std::fmt::Display for EngineError {
             EngineError::Load(m) => write!(f, "module load failed: {m}"),
             EngineError::Uncaught(m) => write!(f, "uncaught exception: {m}"),
             EngineError::Timeout(d) => write!(f, "terminated after {} ms", d.as_millis()),
+            EngineError::HeapLimit(b) => write!(
+                f,
+                "terminated at the heap limit of {} MiB",
+                b / (1024 * 1024)
+            ),
             EngineError::Internal(m) => write!(f, "engine failure: {m}"),
         }
     }
@@ -210,6 +240,23 @@ impl ModuleLoader for Loader {
     }
 }
 
+/// The heap of `isolate` (on its own thread), after a full collection when
+/// `collect` is set.
+pub(crate) fn heap_usage(isolate: &mut deno_core::v8::Isolate, collect: bool) -> HeapUsage {
+    if collect {
+        // Several full, compacting collections: what V8 does when the
+        // embedder says memory is short.
+        isolate.low_memory_notification();
+    }
+    let s = isolate.get_heap_statistics();
+    HeapUsage {
+        used: s.used_heap_size(),
+        total: s.total_heap_size(),
+        external: s.external_memory(),
+        limit: s.heap_size_limit(),
+    }
+}
+
 /// The bootstrap script: globals the runtime expects from a browser or a
 /// web-compatible server, built on the ops.
 const BOOTSTRAP: &str = r#"
@@ -288,6 +335,9 @@ pub struct Engine {
     next_main: u32,
     /// [`EngineOptions::inspector`].
     inspector: bool,
+    /// Set by the near-heap-limit callback once it terminated the isolate;
+    /// with the limit, in bytes.
+    heap_limit: Option<(usize, Rc<std::cell::Cell<bool>>)>,
 }
 
 impl Engine {
@@ -327,9 +377,34 @@ impl Engine {
             extensions: vec![ops::k_engine::init()],
             inspector: options.inspector,
             is_main: true,
+            create_params: options
+                .heap_limit
+                .map(|max| deno_core::v8::CreateParams::default().heap_limits(0, max)),
             ..Default::default()
         })
         .map_err(|e| EngineError::Internal(e.to_string()))?;
+        let heap_limit = options.heap_limit.map(|max| {
+            let reached = Rc::new(std::cell::Cell::new(false));
+            let flag = Rc::clone(&reached);
+            let handle = runtime.v8_isolate().thread_safe_handle();
+            // Called inside a collection when the heap is close to its
+            // limit: stop the JavaScript and give V8 room to unwind, or it
+            // aborts the whole process. The isolate is discarded afterwards.
+            // V8 can run a loop it compiled with every call inlined without
+            // checking for the termination; such a loop gets at most four
+            // times the limit, then V8's out-of-memory abort ends the
+            // process (server.md §3), rather than growing without bound.
+            runtime.add_near_heap_limit_callback(move |current, _initial| {
+                flag.set(true);
+                handle.terminate_execution();
+                if current < max.saturating_mul(4) {
+                    current.saturating_mul(2)
+                } else {
+                    current
+                }
+            });
+            (max, reached)
+        });
         ops::install(&mut runtime.op_state().borrow_mut(), Rc::clone(&state));
         runtime
             .execute_script("k:bootstrap", BOOTSTRAP)
@@ -342,6 +417,7 @@ impl Engine {
             timeout: options.timeout,
             next_main: 0,
             inspector: options.inspector,
+            heap_limit,
         })
     }
 
@@ -396,6 +472,14 @@ impl Engine {
                 .await
                 .map_err(|e| EngineError::Uncaught(e.to_string()))
         });
+        if let Some((limit, reached)) = &self.heap_limit
+            && reached.get()
+        {
+            if let Some((cancel, _)) = watchdog {
+                let _ = cancel.send(());
+            }
+            return Err(EngineError::HeapLimit(*limit));
+        }
         if let Some((cancel, limit)) = watchdog {
             let timed_out = cancel.send(()).is_err();
             if timed_out || self.runtime.v8_isolate().is_execution_terminating() {
@@ -410,6 +494,13 @@ impl Engine {
         }
         outcome?;
         Ok(self.state.borrow_mut().result.take())
+    }
+
+    /// The isolate's heap; after a full collection when `collect` is set,
+    /// so `used` counts only what is still reachable (the leak tests and
+    /// the memory budget measure it, performance.md §11.9).
+    pub fn heap(&mut self, collect: bool) -> HeapUsage {
+        heap_usage(self.runtime.v8_isolate(), collect)
     }
 
     /// The channel a debugger session connects through, when the engine
@@ -441,6 +532,26 @@ impl Engine {
     /// `op_k_next_request`. Used by [`crate::http`].
     pub(crate) fn install_requests(&mut self, queue: ops::RequestQueue) {
         self.state.borrow_mut().requests = Some(queue);
+    }
+
+    /// Answers every request handed to JavaScript and not answered yet with
+    /// `response()` and ends every streamed response in progress, returning
+    /// how many there were. A worker whose isolate died calls it before
+    /// discarding the isolate ([`crate::http`]), so its requests in flight
+    /// get a `503` instead of a dropped reply.
+    pub(crate) fn answer_in_flight(&mut self, response: impl Fn() -> ops::WorkerResponse) -> usize {
+        let mut s = self.state.borrow_mut();
+        let Some(queue) = s.requests.as_mut() else {
+            return 0;
+        };
+        let streams = queue.streaming.len();
+        queue.streaming.clear();
+        let waiting: Vec<_> = queue.waiting.drain().collect();
+        let count = waiting.len() + streams;
+        for (_, reply) in waiting {
+            let _ = reply.send(response());
+        }
+        count
     }
 
     /// Shares `process` with this engine's ops (every worker of a server

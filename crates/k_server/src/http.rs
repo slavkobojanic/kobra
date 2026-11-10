@@ -13,12 +13,19 @@
 //! loop. Shutdown stops accepting, lets in-flight connections finish
 //! within the grace period, then closes the worker queues so each
 //! `serve()` returns and its thread exits.
+//!
+//! Each isolate's heap is limited (`K_WORKER_HEAP_MB`). A worker whose
+//! isolate dies (the heap limit, an entry module that throws) answers its
+//! requests in flight with `503` and `Retry-After`, takes no new ones, and
+//! starts a fresh isolate after a backoff; one that keeps dying is a crash
+//! loop, which stops the server so the orchestrator restarts the process
+//! (server.md §3).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
@@ -32,9 +39,9 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::config::ConfigValue;
 use crate::db::DatabaseSetup;
-use crate::engine::{Engine, EngineOptions, JsModule, Output};
+use crate::engine::{Engine, EngineError, EngineOptions, HeapUsage, JsModule, Output};
 use crate::front::{self, FrontPolicy};
-use crate::ops::{PendingRequest, RequestQueue, WorkerResponse};
+use crate::ops::{MemoryProbe, PendingRequest, RequestQueue, WorkerResponse};
 use crate::process::ProcessState;
 use crate::proxy::{TRUSTED_PROXIES_ENV, TrustedProxies};
 
@@ -69,6 +76,64 @@ impl hyper::body::Body for ChunkBody {
         self.chunks
             .poll_recv(cx)
             .map(|chunk| chunk.map(|c| Ok(hyper::body::Frame::data(Bytes::from(c)))))
+    }
+}
+
+/// The heap limit of each worker isolate when the configuration doesn't
+/// set `K_WORKER_HEAP_MB`: 256 MiB (server.md §3).
+pub const DEFAULT_WORKER_HEAP_BYTES: usize = 256 * 1024 * 1024;
+
+/// The variable of `ServerConfig.workerHeapMb`: each worker isolate's heap
+/// limit in MiB.
+pub const WORKER_HEAP_ENV: &str = "K_WORKER_HEAP_MB";
+
+/// The exit status of `dist/app serve` when a worker is in a crash loop
+/// ([`ServerError::CrashLoop`]): `EX_SOFTWARE`, so an orchestrator restarts
+/// the process and the logs say why.
+pub const EXIT_CRASH_LOOP: u8 = 70;
+
+/// The built-in health endpoint, answered by the front without running
+/// JavaScript: `200` while a worker isolate can take requests, `503` (with
+/// `Retry-After`) while none can, in a crash loop and while shutting down.
+pub const HEALTH_PATH: &str = "/_k/health";
+
+/// How a worker isolate that died is replaced (server.md §3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RestartPolicy {
+    /// The wait before the first restart (100 ms); it doubles with each
+    /// further death within [`RestartPolicy::window`].
+    pub backoff: Duration,
+    /// The longest wait between restarts (10 s).
+    pub max_backoff: Duration,
+    /// How many times one worker may die within the window and be
+    /// restarted (5); the next death is a crash loop.
+    pub limit: usize,
+    /// The window deaths are counted in (60 s).
+    pub window: Duration,
+}
+
+impl Default for RestartPolicy {
+    fn default() -> RestartPolicy {
+        RestartPolicy {
+            backoff: Duration::from_millis(100),
+            max_backoff: Duration::from_secs(10),
+            limit: 5,
+            window: Duration::from_secs(60),
+        }
+    }
+}
+
+impl RestartPolicy {
+    /// The wait before restarting a worker that died `deaths` times
+    /// (at least 1) within the window.
+    #[must_use]
+    pub fn delay(&self, deaths: usize) -> Duration {
+        let doublings = u32::try_from(deaths.saturating_sub(1))
+            .unwrap_or(u32::MAX)
+            .min(20);
+        self.backoff
+            .saturating_mul(1 << doublings)
+            .min(self.max_backoff)
     }
 }
 
@@ -167,6 +232,12 @@ pub struct ServerOptions {
     /// between replicas ([`crate::replicas`]); used only with Postgres.
     /// Tests shorten them.
     pub replicas: crate::replicas::ReplicaTimings,
+    /// Each worker isolate's heap limit in bytes
+    /// ([`DEFAULT_WORKER_HEAP_BYTES`]); `K_WORKER_HEAP_MB` in
+    /// [`ServerOptions::config`] takes precedence.
+    pub heap_limit: usize,
+    /// How dead worker isolates are restarted. Tests shorten it.
+    pub restarts: RestartPolicy,
 }
 
 impl ServerOptions {
@@ -195,6 +266,8 @@ impl ServerOptions {
             dev_tools: false,
             channels: None,
             replicas: crate::replicas::ReplicaTimings::default(),
+            heap_limit: DEFAULT_WORKER_HEAP_BYTES,
+            restarts: RestartPolicy::default(),
         }
     }
 }
@@ -214,6 +287,10 @@ pub enum ServerError {
     /// (`K_TRUSTED_PROXIES` that isn't a list of CIDR ranges). `dist/app`
     /// reports these before starting, with exit status 78.
     Config(String),
+    /// A worker isolate kept dying ([`RestartPolicy`]): the server stopped,
+    /// and `dist/app` exits with [`EXIT_CRASH_LOOP`] so the orchestrator
+    /// starts a fresh process.
+    CrashLoop(String),
 }
 
 impl std::fmt::Display for ServerError {
@@ -224,6 +301,7 @@ impl std::fmt::Display for ServerError {
             ServerError::Internal(m) => write!(f, "server failure: {m}"),
             ServerError::Database(m) => write!(f, "database: {m}"),
             ServerError::Config(m) => write!(f, "configuration: {m}"),
+            ServerError::CrashLoop(m) => write!(f, "crash loop: {m}"),
         }
     }
 }
@@ -240,24 +318,113 @@ pub struct Server {
     thread: Option<std::thread::JoinHandle<Result<(), ServerError>>>,
     /// The process's channels, with its metrics.
     channels: Arc<crate::sockets::Hub>,
+    /// The worker isolates' queues and health.
+    queues: Arc<WorkerQueues>,
 }
 
-/// The worker isolates' request queues; cleared at shutdown, which closes
-/// every queue.
-struct WorkerQueues(std::sync::RwLock<Vec<mpsc::UnboundedSender<PendingRequest>>>);
+/// The worker isolates' request queues and health. The queues are cleared
+/// at shutdown, which closes every one.
+struct WorkerQueues {
+    /// One queue per worker, by index; empty once shutdown began.
+    senders: std::sync::RwLock<Vec<mpsc::UnboundedSender<PendingRequest>>>,
+    /// `true` while worker `i` has a live isolate serving its queue; `false`
+    /// while it starts, after its isolate died and while it waits to
+    /// restart. Dispatch skips workers that aren't ready.
+    ready: Vec<AtomicBool>,
+    /// Set when a worker is in a crash loop: why.
+    crash_loop: std::sync::Mutex<Option<String>>,
+    /// Notified once a worker is in a crash loop.
+    failed: tokio::sync::Notify,
+}
 
 impl crate::sockets::Workers for WorkerQueues {
     fn send_to(&self, index: usize, request: PendingRequest) -> bool {
-        match self.0.read() {
+        match self.senders.read() {
             Ok(workers) => workers.get(index).is_some_and(|w| w.send(request).is_ok()),
             Err(_) => false,
         }
     }
 
     fn count(&self) -> usize {
-        self.0.read().map_or(0, |w| w.len())
+        self.senders.read().map_or(0, |w| w.len())
     }
 }
+
+impl WorkerQueues {
+    /// Queues for `senders.len()` isolates, none of them ready yet.
+    fn new(senders: Vec<mpsc::UnboundedSender<PendingRequest>>) -> WorkerQueues {
+        WorkerQueues {
+            ready: senders.iter().map(|_| AtomicBool::new(false)).collect(),
+            senders: std::sync::RwLock::new(senders),
+            crash_loop: std::sync::Mutex::new(None),
+            failed: tokio::sync::Notify::new(),
+        }
+    }
+
+    /// Queues `request` on the first ready worker, round robin from
+    /// `start`; `false` (the request dropped, so its reply closes) when no
+    /// worker is ready (all restarting) or the server is shutting down.
+    fn dispatch(&self, start: usize, request: PendingRequest) -> bool {
+        let Ok(workers) = self.senders.read() else {
+            return false;
+        };
+        let n = workers.len();
+        for k in 0..n {
+            let i = (start + k) % n;
+            if self.ready[i].load(Ordering::Acquire) {
+                return workers[i].send(request).is_ok();
+            }
+        }
+        false
+    }
+
+    /// How many workers can take a request now (none once shutting down).
+    fn ready_count(&self) -> usize {
+        if self.closed() {
+            return 0;
+        }
+        self.ready
+            .iter()
+            .filter(|r| r.load(Ordering::Acquire))
+            .count()
+    }
+
+    /// `true` once shutdown began.
+    fn closed(&self) -> bool {
+        self.senders.read().map_or(true, |w| w.is_empty())
+    }
+
+    /// Why a worker is in a crash loop, if one is.
+    fn crash_loop(&self) -> Option<String> {
+        self.crash_loop
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+}
+
+/// The answer to a request whose worker can't take or finish it: `503`
+/// with `Retry-After: 1`.
+fn unavailable(message: &str) -> WorkerResponse {
+    WorkerResponse {
+        status: 503,
+        headers: vec![
+            (
+                "content-type".to_owned(),
+                "text/plain; charset=utf-8".to_owned(),
+            ),
+            ("retry-after".to_owned(), "1".to_owned()),
+        ],
+        body: message.as_bytes().to_vec(),
+        stream: None,
+    }
+}
+
+/// What the front answers when no worker isolate takes a request.
+const NO_WORKER: &str = "no worker can take the request now; retry";
+
+/// What a request in flight on a worker whose isolate died is answered.
+const WORKER_DIED: &str = "the worker serving the request was restarted; retry";
 
 /// What every connection task of a [`Server`] shares.
 struct Shared {
@@ -313,54 +480,224 @@ impl Shared {
     }
 }
 
+/// What one worker thread needs besides its queue.
+struct WorkerContext {
+    /// Its index: the queue it reads and the `k-worker-<index>` name.
+    index: usize,
+    /// The app's server bundle.
+    bundle: ServerBundle,
+    /// Where log lines go.
+    log: Output,
+    /// The process state every worker shares.
+    process: Arc<ProcessState>,
+    /// The isolate's heap limit, in bytes.
+    heap_limit: usize,
+    /// How a dead isolate is replaced.
+    restarts: RestartPolicy,
+    /// Every worker's queues and health; this worker sets its `ready` flag.
+    queues: Arc<WorkerQueues>,
+}
+
+/// Why a worker's isolate stopped serving.
+struct Death {
+    /// The `reason` label of `k_worker_restarts_total`: `heap_limit`,
+    /// `uncaught` (the entry module threw), `exited` (it returned while
+    /// the server was serving) or `start` (a new isolate couldn't be
+    /// created).
+    reason: &'static str,
+    /// What happened, for the log.
+    message: String,
+    /// The requests in flight that were answered `503`.
+    in_flight: usize,
+}
+
+/// The log line of a worker death: which worker, why, what happened to
+/// its requests in flight and when it restarts (`None`: never, a crash
+/// loop).
+#[must_use]
+pub fn death_line(
+    worker: &str,
+    message: &str,
+    in_flight: usize,
+    restart: Option<Duration>,
+) -> String {
+    let requests = match in_flight {
+        1 => "1 request in flight was".to_owned(),
+        n => format!("{n} requests in flight were"),
+    };
+    match restart {
+        Some(d) => format!(
+            "worker {worker} {message}; {requests} answered 503; restarting it in {} ms",
+            d.as_millis()
+        ),
+        None => format!(
+            "worker {worker} {message}; {requests} answered 503; it keeps dying, so the server stops (crash loop)"
+        ),
+    }
+}
+
 /// The body of one worker thread: creates its isolate, reports on `started`
-/// whether that worked, then runs the bundle's entry module, which serves
-/// `receiver`'s requests until the queue closes.
+/// whether the first one could be created, and runs the bundle's entry
+/// module, which serves `receiver`'s requests until the queue closes. When
+/// the isolate dies (its heap limit, an entry module that throws or
+/// returns), the worker answers its requests in flight with `503`, waits
+/// out [`RestartPolicy::delay`] and starts a fresh isolate on the same
+/// queue; more than [`RestartPolicy::limit`] deaths within the window is a
+/// crash loop.
 ///
 /// # Errors
 ///
-/// [`ServerError::Worker`] when the isolate can't be created or the entry
-/// module fails; [`ServerError::Internal`] if the entry specifier can't be
-/// encoded.
+/// [`ServerError::Worker`] when the first isolate can't be created, or an
+/// isolate died and the server shut down before it was replaced;
+/// [`ServerError::CrashLoop`]; [`ServerError::Internal`] if the entry
+/// specifier can't be encoded.
 fn worker_thread(
-    bundle: ServerBundle,
-    log: Output,
-    process: Arc<ProcessState>,
+    ctx: WorkerContext,
     receiver: mpsc::UnboundedReceiver<PendingRequest>,
     started: std::sync::mpsc::Sender<Result<(), String>>,
-    inspect: Option<std::net::TcpListener>,
+    mut inspect: Option<std::net::TcpListener>,
 ) -> Result<(), ServerError> {
-    let mut engine = match Engine::new(EngineOptions {
-        modules: bundle.modules,
-        output: log,
-        timeout: None,
-        compact_runtime: false,
-        inspector: inspect.is_some(),
-    }) {
-        Ok(e) => e,
-        Err(e) => {
-            let _ = started.send(Err(e.to_string()));
-            return Err(ServerError::Worker(e.to_string()));
+    let name = format!("k-worker-{}", ctx.index);
+    let entry = serde_json::to_string(&ctx.bundle.entry)
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    let entry = format!("import {entry};\n");
+    let receiver = std::rc::Rc::new(tokio::sync::Mutex::new(receiver));
+    // Shutdown closed the queue (with requests in it or not).
+    let closed = || receiver.try_lock().is_ok_and(|r| r.is_closed());
+    let metrics = Arc::clone(&ctx.process.channels().metrics);
+    let mut started = Some(started);
+    let mut deaths: VecDeque<Instant> = VecDeque::new();
+    loop {
+        let engine = Engine::new(EngineOptions {
+            modules: ctx.bundle.modules.clone(),
+            output: ctx.log,
+            timeout: None,
+            compact_runtime: false,
+            inspector: inspect.is_some(),
+            heap_limit: Some(ctx.heap_limit),
+        });
+        let death = match engine {
+            Err(e) => {
+                if let Some(s) = started.take() {
+                    let _ = s.send(Err(e.to_string()));
+                    return Err(ServerError::Worker(e.to_string()));
+                }
+                Death {
+                    reason: "start",
+                    message: format!("couldn't start an isolate: {e}"),
+                    in_flight: 0,
+                }
+            }
+            Ok(mut engine) => {
+                engine.install_requests(RequestQueue::shared(std::rc::Rc::clone(&receiver)));
+                engine.install_process(Arc::clone(&ctx.process));
+                if let Some(listener) = inspect.take()
+                    && let Some(sessions) = engine.inspector_sessions()
+                {
+                    crate::inspector::serve(listener, sessions, "K server".to_owned());
+                }
+                if let Some(s) = started.take() {
+                    let _ = s.send(Ok(()));
+                }
+                ctx.queues.ready[ctx.index].store(true, Ordering::Release);
+                metrics.gauge("k_workers_ready", &[], 1);
+                let outcome = engine.run_main(&entry);
+                ctx.queues.ready[ctx.index].store(false, Ordering::Release);
+                metrics.gauge("k_workers_ready", &[], -1);
+                if outcome.is_ok() && closed() {
+                    return Ok(());
+                }
+                let in_flight = engine.answer_in_flight(|| unavailable(WORKER_DIED));
+                // At most one isolate per thread: this one goes before the
+                // next is created.
+                drop(engine);
+                let (reason, message) = match outcome {
+                    Err(EngineError::HeapLimit(limit)) => (
+                        "heap_limit",
+                        format!(
+                            "reached its heap limit of {} MiB ({WORKER_HEAP_ENV}) and was terminated",
+                            limit / (1024 * 1024)
+                        ),
+                    ),
+                    Err(e) => ("uncaught", format!("failed: {e}")),
+                    Ok(_) => (
+                        "exited",
+                        "stopped serving: its entry module returned".to_owned(),
+                    ),
+                };
+                Death {
+                    reason,
+                    message,
+                    in_flight,
+                }
+            }
+        };
+        if closed() {
+            log_line(
+                ctx.log,
+                "error",
+                &format!("worker {name} {}", death.message),
+            );
+            return Err(ServerError::Worker(death.message));
         }
-    };
-    engine.install_requests(RequestQueue::new(receiver));
-    engine.install_process(process);
-    if let (Some(listener), Some(sessions)) = (inspect, engine.inspector_sessions()) {
-        crate::inspector::serve(listener, sessions, "K server".to_owned());
+        metrics.count("k_worker_restarts_total", &[("reason", death.reason)], 1);
+        // Its channels lived in the isolate that died.
+        ctx.process
+            .channels()
+            .worker_lost(ctx.index, Duration::from_secs(1));
+        let now = Instant::now();
+        deaths.push_back(now);
+        while deaths
+            .front()
+            .is_some_and(|t| now.duration_since(*t) > ctx.restarts.window)
+        {
+            deaths.pop_front();
+        }
+        let restart =
+            (deaths.len() <= ctx.restarts.limit).then(|| ctx.restarts.delay(deaths.len()));
+        let line = death_line(&name, &death.message, death.in_flight, restart);
+        log_line(ctx.log, "error", &line);
+        let in_flight = death.in_flight.to_string();
+        let restart_ms = restart.map_or_else(|| "never".to_owned(), |d| d.as_millis().to_string());
+        metrics.span(
+            "k.worker.exit",
+            &[
+                ("worker", name.as_str()),
+                ("reason", death.reason),
+                ("inFlight", in_flight.as_str()),
+                ("restartInMs", restart_ms.as_str()),
+                ("message", death.message.as_str()),
+            ],
+            SystemTime::now(),
+            Duration::ZERO,
+        );
+        let Some(delay) = restart else {
+            let why = format!(
+                "worker {name} died {} times within {} s; the last time it {}",
+                deaths.len(),
+                ctx.restarts.window.as_secs(),
+                death.message
+            );
+            *ctx.queues
+                .crash_loop
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(why.clone());
+            ctx.queues.failed.notify_one();
+            return Err(ServerError::CrashLoop(why));
+        };
+        // Wait out the backoff, unless the server shuts down meanwhile.
+        let until = Instant::now() + delay;
+        while Instant::now() < until {
+            if closed() {
+                return Err(ServerError::Worker(death.message));
+            }
+            std::thread::sleep(
+                until
+                    .saturating_duration_since(Instant::now())
+                    .min(Duration::from_millis(10)),
+            );
+        }
     }
-    let _ = started.send(Ok(()));
-    let entry =
-        serde_json::to_string(&bundle.entry).map_err(|e| ServerError::Internal(e.to_string()))?;
-    let outcome = engine
-        .run_main(&format!("import {entry};\n"))
-        .map(|_| ())
-        .map_err(|e| ServerError::Worker(e.to_string()));
-    // A worker whose entry module failed answers 503 from now on; say why
-    // at once rather than only at shutdown.
-    if let Err(e) = &outcome {
-        log.write("error", &e.to_string());
-    }
-    outcome
 }
 
 /// The client address of a request from socket `remote`: the socket's,
@@ -445,6 +782,12 @@ async fn handle(
 ) -> Result<Response<Body>, std::convert::Infallible> {
     if request.uri().path() == crate::channels::PATH {
         return Ok(finish(channel_upgrade(&shared, remote, request), true));
+    }
+    if request.uri().path() == HEALTH_PATH
+        && (request.method() == hyper::Method::GET || request.method() == hyper::Method::HEAD)
+    {
+        let head = request.method() == hyper::Method::HEAD;
+        return Ok(finish(health(&shared, head), false));
     }
     if let Some(process) = &shared.dev_tools
         && request.uri().path() == crate::devtools::CHANNELS_PATH
@@ -569,35 +912,31 @@ async fn handle(
     };
     let client = client_address(&shared, remote, &headers);
     let (reply, response) = oneshot::channel::<WorkerResponse>();
-    let sent = match shared.workers.0.read() {
-        Ok(workers) if !workers.is_empty() => {
-            let n = shared.next.fetch_add(1, Ordering::Relaxed) % workers.len();
-            workers[n]
-                .send(PendingRequest {
-                    method,
-                    path,
-                    headers,
-                    body,
-                    remote: client.to_string(),
-                    job: None,
-                    channel: None,
-                    reply,
-                })
-                .is_ok()
-        }
-        _ => false,
-    };
+    let start = shared.next.fetch_add(1, Ordering::Relaxed);
+    let sent = shared.workers.dispatch(
+        start,
+        PendingRequest {
+            method,
+            path,
+            headers,
+            body,
+            remote: client.to_string(),
+            job: None,
+            channel: None,
+            probe: None,
+            reply,
+        },
+    );
     let response = if sent { response.await.ok() } else { None };
-    let Some(response) = response else {
-        return Ok(finish(
-            simple(
-                503,
-                "text/plain; charset=utf-8",
-                "the server is shutting down",
-            ),
-            rpc,
-        ));
-    };
+    // No worker took it (all restarting, or shutting down), or its worker
+    // went away without answering.
+    let response = response.unwrap_or_else(|| {
+        unavailable(if shared.workers.closed() {
+            "the server is shutting down"
+        } else {
+            NO_WORKER
+        })
+    });
     let mut r = match response.stream {
         Some(chunks) => {
             let closed = shared.stream_closer();
@@ -627,6 +966,43 @@ async fn handle(
         }
     }
     Ok(finish(r, rpc))
+}
+
+/// `GET /_k/health` ([`HEALTH_PATH`]): how many worker isolates can take
+/// requests, as JSON, `200` while at least one can (`ready`, or
+/// `degraded` while some restart) and `503` with `Retry-After` while none
+/// can (`unavailable`: all restarting, a crash loop, shutting down).
+fn health(shared: &Shared, head: bool) -> Response<Body> {
+    let total = shared.workers.ready.len();
+    let ready = if shared.workers.crash_loop().is_some() {
+        0
+    } else {
+        shared.workers.ready_count()
+    };
+    let status = match ready {
+        0 => "unavailable",
+        n if n < total => "degraded",
+        _ => "ready",
+    };
+    let body =
+        serde_json::json!({ "status": status, "workers": total, "ready": ready }).to_string();
+    let mut r = simple(
+        if ready == 0 { 503 } else { 200 },
+        "application/json",
+        if head { String::new() } else { body },
+    );
+    let h = r.headers_mut();
+    h.insert(
+        hyper::header::CACHE_CONTROL,
+        hyper::header::HeaderValue::from_static("no-store"),
+    );
+    if ready == 0 {
+        h.insert(
+            hyper::header::RETRY_AFTER,
+            hyper::header::HeaderValue::from_static("1"),
+        );
+    }
+    r
 }
 
 /// The handshake of the channels' WebSocket (`GET /_k/channels`,
@@ -755,19 +1131,38 @@ impl Server {
         // With Postgres, broadcasts and presence reach the other replicas
         // sharing the database (44-channels.md); otherwise they stay here.
         process.start_replicas(options.replicas);
+        let heap_limit = match options.config.get(WORKER_HEAP_ENV) {
+            Some(ConfigValue::Int(mb)) if *mb > 0 => usize::try_from(*mb)
+                .ok()
+                .and_then(|mb| mb.checked_mul(1024 * 1024))
+                .unwrap_or(options.heap_limit),
+            _ => options.heap_limit,
+        };
         let mut senders = Vec::with_capacity(workers);
-        let mut worker_threads = Vec::with_capacity(workers);
-        for i in 0..workers {
+        let mut receivers = Vec::with_capacity(workers);
+        for _ in 0..workers {
             let (tx, rx) = mpsc::unbounded_channel();
+            senders.push(tx);
+            receivers.push(rx);
+        }
+        let queues = Arc::new(WorkerQueues::new(senders));
+        let mut worker_threads = Vec::with_capacity(workers);
+        for (i, rx) in receivers.into_iter().enumerate() {
             let (started_tx, started_rx) = std::sync::mpsc::channel();
-            let bundle = options.bundle.clone();
-            let log = options.log;
-            let process = Arc::clone(&process);
+            let ctx = WorkerContext {
+                index: i,
+                bundle: options.bundle.clone(),
+                log: options.log,
+                process: Arc::clone(&process),
+                heap_limit,
+                restarts: options.restarts.clone(),
+                queues: Arc::clone(&queues),
+            };
             let inspect = inspect.take();
             let handle = std::thread::Builder::new()
                 .name(format!("k-worker-{i}"))
                 .stack_size(8 * 1024 * 1024)
-                .spawn(move || worker_thread(bundle, log, process, rx, started_tx, inspect))
+                .spawn(move || worker_thread(ctx, rx, started_tx, inspect))
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
             match started_rx.recv() {
                 Ok(Ok(())) => {}
@@ -778,10 +1173,8 @@ impl Server {
                     ));
                 }
             }
-            senders.push(tx);
             worker_threads.push(handle);
         }
-        let queues = Arc::new(WorkerQueues(std::sync::RwLock::new(senders)));
         let shared = Arc::new(Shared {
             policy: FrontPolicy {
                 rpc_paths: options.bundle.rpc_paths.clone(),
@@ -801,7 +1194,7 @@ impl Server {
             workers: Arc::clone(&queues),
             channels: Arc::new(crate::sockets::Front {
                 hub: process.channels(),
-                workers: queues,
+                workers: Arc::clone(&queues) as Arc<dyn crate::sockets::Workers>,
             }),
             next: AtomicUsize::new(0),
             proxies,
@@ -823,14 +1216,10 @@ impl Server {
                 o.grace = options.shutdown_grace;
                 o.log = options.log;
                 let to = Arc::clone(&shared);
-                let dispatch: crate::jobs::Dispatch =
-                    Arc::new(move |request| match to.workers.0.read() {
-                        Ok(workers) if !workers.is_empty() => {
-                            let n = to.next.fetch_add(1, Ordering::Relaxed) % workers.len();
-                            workers[n].send(request).is_ok()
-                        }
-                        _ => false,
-                    });
+                let dispatch: crate::jobs::Dispatch = Arc::new(move |request| {
+                    let start = to.next.fetch_add(1, Ordering::Relaxed);
+                    to.workers.dispatch(start, request)
+                });
                 Some(
                     crate::jobs::JobWorker::start(db, o, dispatch)
                         .map_err(|e| ServerError::Internal(e.to_string()))?,
@@ -876,7 +1265,7 @@ impl Server {
                 }
                 // Closing the queues ends every worker's `serve()` once the
                 // requests already queued are answered.
-                if let Ok(mut w) = shared.workers.0.write() {
+                if let Ok(mut w) = shared.workers.senders.write() {
                     w.clear();
                 }
                 for w in worker_threads {
@@ -891,6 +1280,7 @@ impl Server {
             stop: Some(stop_tx),
             thread: Some(thread),
             channels: channels_hub,
+            queues,
         })
     }
 
@@ -908,28 +1298,79 @@ impl Server {
         Arc::clone(&self.channels)
     }
 
+    /// Worker `index`'s heap, measured on its isolate's thread between
+    /// requests; after a full collection when `collect` is set, so `used`
+    /// counts only what is reachable (the leak tests and the memory budget,
+    /// performance.md §11.9). `None` when the worker can't answer (it is
+    /// restarting, or the server is shutting down). Blocks until the
+    /// worker answers; never call it from async code.
+    #[must_use]
+    pub fn worker_memory(&self, index: usize, collect: bool) -> Option<HeapUsage> {
+        let (reply, answer) = oneshot::channel::<WorkerResponse>();
+        let probe = PendingRequest {
+            method: "GET".to_owned(),
+            path: String::new(),
+            headers: Vec::new(),
+            body: Vec::new(),
+            remote: String::new(),
+            job: None,
+            channel: None,
+            probe: Some(MemoryProbe { collect }),
+            reply,
+        };
+        if !self.queues.ready.get(index)?.load(Ordering::Acquire)
+            || !crate::sockets::Workers::send_to(&*self.queues, index, probe)
+        {
+            return None;
+        }
+        let answer = answer.blocking_recv().ok()?;
+        serde_json::from_slice(&answer.body).ok()
+    }
+
+    /// How many worker isolates can take requests now.
+    #[must_use]
+    pub fn ready_workers(&self) -> usize {
+        self.queues.ready_count()
+    }
+
+    /// Why a worker is in a crash loop, once one is: the server then
+    /// stops ([`Server::run_until_signal`] returns
+    /// [`ServerError::CrashLoop`]).
+    #[must_use]
+    pub fn crash_loop(&self) -> Option<String> {
+        self.queues.crash_loop()
+    }
+
     /// Stops accepting, waits up to the grace period for in-flight
     /// requests, stops the workers and returns.
     ///
     /// # Errors
     ///
-    /// A worker's failure (its entry module threw), or a thread panic.
+    /// [`ServerError::CrashLoop`] when a worker was in a crash loop; a
+    /// worker's failure (its isolate died and wasn't replaced before the
+    /// shutdown), or a thread panic.
     pub fn shutdown(mut self) -> Result<(), ServerError> {
-        self.stop_and_join()
+        let outcome = self.stop_and_join();
+        match self.queues.crash_loop() {
+            Some(why) => Err(ServerError::CrashLoop(why)),
+            None => outcome,
+        }
     }
 
     /// Serves until the process receives `SIGTERM` or `SIGINT` (Ctrl-C),
-    /// then shuts down gracefully (`docs/design/38-deployment.md`,
-    /// "Startup and shutdown").
+    /// or a worker is in a crash loop, then shuts down gracefully
+    /// (`docs/design/38-deployment.md`, "Startup and shutdown").
     ///
     /// # Errors
     ///
-    /// As [`Server::shutdown`], or a failure to install the signal handlers.
+    /// As [`Server::shutdown`] ([`ServerError::CrashLoop`] after a crash
+    /// loop), or a failure to install the signal handlers.
     pub fn run_until_signal(self) -> Result<(), ServerError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|e| ServerError::Internal(e.to_string()))?;
+        let queues = Arc::clone(&self.queues);
         runtime.block_on(async {
             #[cfg(unix)]
             {
@@ -939,11 +1380,15 @@ impl Server {
                 tokio::select! {
                     _ = term.recv() => {}
                     _ = tokio::signal::ctrl_c() => {}
+                    () = queues.failed.notified() => {}
                 }
             }
             #[cfg(not(unix))]
             {
-                let _ = tokio::signal::ctrl_c().await;
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    () = queues.failed.notified() => {}
+                }
             }
             Ok::<(), ServerError>(())
         })?;

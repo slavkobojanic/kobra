@@ -1213,6 +1213,37 @@ impl Hub {
             .collect()
     }
 
+    /// Worker `worker`'s isolate died and is being replaced (server.md
+    /// §3): its channels lived there, so they end (counted as `byServer`;
+    /// no resume can bring them back), and the sockets pinned to it close
+    /// with "going away" and a reconnect delay spread over `spread`, so
+    /// their clients open the channels again, on a live isolate. Returns
+    /// how many channels ended.
+    pub(crate) fn worker_lost(&self, worker: usize, spread: Duration) -> usize {
+        let mut st = self.state();
+        let spread_ms = u64::try_from(spread.as_millis()).unwrap_or(1000).max(1);
+        for s in st.sockets.values().filter(|s| s.worker == worker) {
+            let mut b = [0u8; 8];
+            let _ = getrandom::fill(&mut b);
+            let delay = u64::from_le_bytes(b) % spread_ms;
+            let _ = s.out.send(Out::Close(1001, format!("k.retry={delay}")));
+        }
+        let ids: Vec<u64> = st
+            .channels
+            .iter()
+            .filter(|(_, c)| c.worker == worker)
+            .map(|(id, _)| *id)
+            .collect();
+        let mut ended = 0;
+        for id in ids {
+            if let Some(chan) = st.remove(id) {
+                self.finish(&chan, "byServer");
+                ended += 1;
+            }
+        }
+        ended
+    }
+
     /// `true` once shutdown began.
     fn stopping(&self) -> bool {
         self.state().stopping
@@ -1558,6 +1589,7 @@ impl Front {
             remote: accepted.remote.clone(),
             job: None,
             channel: Some(event),
+            probe: None,
             reply,
         };
         let unavailable = || refusal("unavailable", "the server can't take the channel now");
@@ -1588,6 +1620,7 @@ impl Front {
                 remote: String::new(),
                 job: None,
                 channel: Some(run("close", id, 0, reason)),
+                probe: None,
                 reply,
             },
         );

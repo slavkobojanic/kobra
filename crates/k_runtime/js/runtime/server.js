@@ -154,6 +154,12 @@ export async function serve(handler) {
   for (;;) {
     const request = await ops.op_k_next_request();
     if (request === null) return;
+    // The server asking for this isolate's heap (server.md §3), never a
+    // client's request.
+    if (request.probe) {
+      ops.op_k_memory_probe(request.id, request.probe.collect);
+      continue;
+    }
     handleOne(handler, request);
   }
 }

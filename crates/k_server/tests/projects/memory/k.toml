@@ -1,0 +1,7 @@
+# Memory (docs/compiler/server.md §21, docs/compiler/performance.md §11.9):
+# a server-rendered page with a client component, an rpc and the component's
+# tests, which crates/k_server/tests/memory.rs drives to check that mounts,
+# requests and renders leave the worker's heap where it was.
+[package]
+name = "mem"
+k = "0.1"

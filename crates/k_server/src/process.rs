@@ -1001,7 +1001,14 @@ impl ProcessState {
 
     /// Removes subscriber `id` (its stream was dropped).
     pub fn unsubscribe(&self, id: u64) {
-        lock(&self.subscribers).remove(&id);
+        // Wake a reader waiting in `op_k_broadcast_next` (or about to): it
+        // finds the subscriber gone and returns `null`. Without this, the
+        // op stayed pending forever and kept its promise, and everything
+        // the stream's reader holds, alive in the isolate: a leak per
+        // closed channel or server stream (performance.md §11.9).
+        if let Some(s) = lock(&self.subscribers).remove(&id) {
+            s.notify.notify_one();
+        }
     }
 
     /// Closes every broadcast subscriber opened under `session` and wakes it,
@@ -1233,6 +1240,28 @@ mod tests {
             p.publish("room", &i.to_string());
         }
         assert_eq!(p.take(a), Some(None));
+    }
+
+    #[test]
+    fn closing_a_subscription_wakes_its_waiting_reader() {
+        // A reader waiting in `op_k_broadcast_next` when its stream closes
+        // must return, or the op, its promise and everything the stream's
+        // reader holds stay in the isolate (a leak per closed channel).
+        let p = ProcessState::default();
+        let (id, notify) = p.subscribe("room".into(), None);
+        p.unsubscribe(id);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("a runtime");
+        let woke = runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), notify.notified())
+                .await
+                .is_ok()
+        });
+        assert!(woke, "the waiting reader is woken");
+        assert_eq!(p.notifier(id).map(|_| ()), None);
+        assert_eq!(p.take(id), Some(None), "the stream ended");
     }
 
     #[test]

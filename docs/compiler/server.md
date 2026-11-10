@@ -37,6 +37,7 @@ Contents:
 | Engine: isolates, module map, ops, timeouts | `engine`, `ops` | **implemented** |
 | HTTP front: hyper, workers, static assets, body limit, RPC preconditions, forgery check | `http`, `front` | **implemented** |
 | Graceful shutdown, `SIGTERM` | `http` | **implemented** |
+| Worker memory: heap limit per isolate, restart with backoff, crash loop, `/_k/health`, `k_worker_restarts_total` | `engine`, `http` | **implemented** ([§3](#3-process-model)) |
 | Process-wide state: sessions, rate limits, `.server` state, broadcasts | `process` | **implemented**; sessions and rate limits in the database when there is one ([§9](#9-sessions-auth-and-request-forgery)) |
 | Configuration from env, `.env` and `NAME_FILE`; startup validation (exit 78) | `config`, `k_cli` | **implemented** |
 | `dist/app` archive, `serve`, `migrate`, `jobs list`/`jobs retry`, `probe`, `config` | `app`, `k_cli` | **implemented** (v0 format) |
@@ -57,6 +58,19 @@ beyond the bound state, flushing the SSR shell before loads resolve, the `storag
 compatibility check of `k check` (the compiler already reads job names from the lock).
 
 **Decisions taken while implementing:**
+
+- **A dead worker is replaced, not left answering 503** ([§3](#3-process-model)): its requests in flight
+  get `503` with `Retry-After`, the others keep serving, and a crash loop stops the process (exit 70)
+  instead of serving degraded forever, because an orchestrator restarting a fresh process is the better
+  recovery. A heap-limit death counts towards the crash loop like any other, so a request that exhausts
+  the heap, sent six times a minute, restarts the process; that bounds the damage of a heap bomb to a
+  restart, where a process without the limit would grow until the kernel killed it. V8 can run a loop it
+  compiled with every call inlined without checking for the termination; such a loop gets at most four
+  times the limit, then V8's out-of-memory abort ends the process (seen with
+  `kept.push(new Array(1024))`; a plain object or string loop terminates).
+- **Health without JavaScript.** `/_k/health` lives in the front, so it answers while every isolate
+  restarts, and it is the same for every app; apps still write their own endpoint for their own
+  dependencies (the database).
 
 - **The request pipeline is JavaScript.** The Rust front does only what must happen before JavaScript
   (assets, body limit, rpc preconditions, the forgery check); everything else is `k:runtime/app`
@@ -116,6 +130,8 @@ compatibility check of `k check` (the compiler already reads job names from the 
 | `fakes::{FakeHttp, FakeRoute, RecordedRequest, FakeSmtp, SmtpBehavior, ReceivedMail}` | Fake third parties for tests ([testing.md §8.3](testing.md#83-fake-third-parties)). |
 | `db::ProcessDatabase::{open_with, enqueue_job, claim_jobs, finish_job, list_jobs, requeue_job, claim_schedule, …}` | The stdlib tables' operations; `open_with(setup, false)` opens without migrating (`jobs list`). |
 | `ops::hmac(bits, key, message)` | HMAC-SHA-256/512 (RFC 2104), behind `op_k_hmac`. |
+| `ServerOptions { heap_limit, restarts }`, `RestartPolicy { backoff, max_backoff, limit, window }`, `http::{DEFAULT_WORKER_HEAP_BYTES, WORKER_HEAP_ENV, EXIT_CRASH_LOOP, HEALTH_PATH, death_line}` | Each worker isolate's heap limit (256 MiB; `K_WORKER_HEAP_MB` takes precedence) and how a dead isolate is replaced ([§3](#3-process-model)). |
+| `Server::{worker_memory, ready_workers, crash_loop}`, `EngineOptions { heap_limit }`, `Engine::heap`, `HeapUsage { used, total, external, limit }`, `EngineError::HeapLimit`, `ServerError::CrashLoop` | A worker's heap, measured on its own thread (after a full collection when asked), for the leak tests and the memory budget ([performance.md §11.9](performance.md#119-memory-per-worker)); how many workers serve; why the server is stopping. |
 | `ServerOptions { channels }`, `sockets::{ChannelLimits, Hub, check_handshake, Refusal, ChannelRun, FRAME_ALLOWANCE}` | The channels' limits (`None`: `ChannelLimits::from_config`, the stdlib's `ChannelConfig`), the process's channels (`ProcessState::channels`), the handshake checks, the event a worker receives ([§20](#20-channels)). |
 
 **One engine per thread.** An `Engine` is not `Send`, and at most one may be alive on a thread (V8 enters
@@ -137,10 +153,40 @@ TCP ── accept ── hyper http1 ── static asset? ── front::check �
 - **N worker isolates**, default one per core. Each runs the bundle's entry module, which calls `serve()`;
   requests interleave on the isolate's event loop, so a handler awaiting the database doesn't block the
   worker.
-- **Dispatch** is round robin over unbounded per-worker queues (v0); a worker whose isolate died answers
-  `503` through its closed queue. *Planned*: least-loaded dispatch.
+- **Dispatch** is round robin over unbounded per-worker queues (v0), skipping workers that aren't ready
+  (starting, or replacing an isolate that died); with none ready a request is `503` with `Retry-After: 1`.
+  *Planned*: least-loaded dispatch.
 - **Isolation.** Isolates share nothing: no JavaScript state crosses requests on different workers, and
   within a worker request state lives only in the request's container ([§5](#5-request-lifecycle)).
+- **Heap limit.** Each isolate's JavaScript heap is limited to `ServerConfig.workerHeapMb` MiB
+  (`K_WORKER_HEAP_MB`, `@Range(16...16384)`, default **256**; `ServerOptions::heap_limit` when the
+  configuration has no value), passed to V8 as the isolate's heap limits. V8's near-heap-limit callback
+  terminates that isolate's JavaScript and doubles the limit so it can unwind; the run ends with
+  `EngineError::HeapLimit` and the isolate is discarded. Only that worker is affected.
+- **A worker whose isolate dies** (the heap limit; an entry module that throws, `uncaught`; one that
+  returns while the server serves, `exited`; a replacement that can't be created, `start`) stops taking
+  requests, answers every request in flight with `503`, `Retry-After: 1` and a short text body (a streamed
+  response just ends), ends the channels that lived in it (their sockets close with `1001` and a
+  reconnect delay under a second, so the browser reopens them on a live isolate), logs one error line
+  naming it (`worker k-worker-2 reached its heap limit of 256 MiB (K_WORKER_HEAP_MB) and was terminated;
+  2 requests in flight were answered 503; restarting it in 100 ms`), counts
+  `k_worker_restarts_total{reason}`, records a `k.worker.exit` span (`worker`, `reason`, `inFlight`,
+  `restartInMs`, `message`), and starts a fresh isolate on the **same queue** after a backoff, so requests
+  queued meanwhile are served by it. The gauge `k_workers_ready` counts the workers serving.
+- **Backoff and crash loops** (`RestartPolicy`): 100 ms before the first restart, doubling with each death
+  of that worker within 60 s, at most 10 s. A sixth death within 60 s is a **crash loop**: the worker stays
+  down, `Server::run_until_signal` returns `ServerError::CrashLoop` (it shuts down gracefully first, so the
+  other workers finish their requests) and `dist/app serve` exits with **70** (`EX_SOFTWARE`), so the
+  orchestrator starts a fresh process. A shutdown while a worker waits to restart reports the death as
+  `ServerError::Worker`, as before.
+- **Health.** `GET /_k/health` (also `HEAD`) is answered by the front without JavaScript, `no-store`:
+  `{"status": "ready" | "degraded" | "unavailable", "workers": n, "ready": k}`, `200` while at least one
+  worker serves and `503` with `Retry-After: 1` while none does (all restarting, a crash loop, shutting
+  down). An app's own health endpoint ([27-endpoint-pages.md](../design/27-endpoint-pages.md#health-checks))
+  reflects the same thing, since a request reaches it only through a ready worker.
+- **Memory probes.** `Server::worker_memory(i, collect)` queues a probe (`PendingRequest::probe`, which
+  no HTTP request can carry); `serve()` answers it with `op_k_memory_probe`, which runs V8's low-memory
+  collection when asked and reads the heap statistics on the isolate's own thread.
 - **Globals** inside an isolate: what V8 provides (`JSON`, `Math`, `Date`, `Intl`, `Promise`, typed
   arrays), plus a bootstrap that installs `console`, `queueMicrotask`, `AbortController`/`AbortSignal`,
   `TextEncoder`/`TextDecoder`. **No ambient I/O**: no `fetch`, `require`, `process` or `Deno.*` file APIs;
@@ -159,6 +205,7 @@ Ops are the only way server JavaScript reaches Rust (`Deno.core.ops.*`):
 | `op_k_test_reset` | `() => void` | implemented (`k test`): a fresh process state, and a fresh in-memory database with the build's migrations when the engine has a test database (`Engine::set_test_database`) |
 | `op_k_test_tick` | `() => Promise<void>` | implemented (`k test`): one turn of the event loop, so completed ops deliver between runs of microtasks |
 | `op_k_next_request` | `() => Promise<Request \| null>` | implemented: `null` once the server shuts down |
+| `op_k_memory_probe` | `(id, collect) => void` | implemented: answers a memory probe ([§3](#3-process-model)) with the heap statistics, after a full collection when `collect` |
 | `op_k_respond` | `(id, {status, headers, body}) => void` | implemented: body is a string or `Uint8Array`; a status outside `100..=999` (or not an integer) is a generic `500` |
 | `op_k_respond_start` / `op_k_respond_chunk` / `op_k_respond_end` | `(id, {status, headers})`, `(id, bytes) => open`, `(id)` | implemented: a streamed body (chunked) |
 | `op_k_server_info` | `() => {publicOrigin, config}` | implemented: config values typed, secrets as `{"$secret": v}` |
@@ -610,8 +657,9 @@ get `no-cache`. `HEAD` sends no body. Precompressed variants (brotli/gzip chosen
   through hyper's graceful shutdown (each connection task watches a shutdown signal, since hyper-util's
   `GracefulShutdown` can't watch a connection with upgrades), for at most `K_SHUTDOWN_GRACE` (default 25 s); then stop the jobs worker ([§11](#11-background-jobs)); then close
   the worker queues, so each `serve()` returns once the
-  requests already queued are answered; join the workers; exit 0. A worker whose entry module failed is
-  reported as `ServerError::Worker`.
+  requests already queued are answered; join the workers; exit 0. A worker whose isolate died and wasn't
+  replaced yet is reported as `ServerError::Worker`; a crash loop as `ServerError::CrashLoop` (exit 70,
+  [§3](#3-process-model)).
 
 ---
 
@@ -621,7 +669,7 @@ get `no-cache`. `HEAD` sends no body. Precompressed variants (brotli/gzip chosen
   traces from `k.observe` later. `k dev` and `k run` at a workspace root write them for people instead,
   after the app's name (`Output::Prefixed`: `shop   | warning: …`); every log site goes through
   `Output::write`. A panic is logged with the method, the path and the JavaScript stack; a
-  worker whose entry module fails logs why at once (and answers `503` from then on). Fields named `password` and `Secret` values are redacted by the checker's
+  worker whose isolate dies logs why at once, and is restarted ([§3](#3-process-model)). Fields named `password` and `Secret` values are redacted by the checker's
   warnings and by `Secret`'s text form.
 - **A panic in a handler** is a `500` with a request id and no details in production; in development
   (`ServerOptions::dev_errors`, which `k run` and `k dev` set) the 500 page shows the stack trace in a
@@ -677,6 +725,11 @@ get `no-cache`. `HEAD` sends no body. Precompressed variants (brotli/gzip chosen
 - `crates/k_runtime/js/tests/outbound.test.js`: the JavaScript halves (`FetchHttpClient`,
   `TestHttpClient`, `SmtpEmailProvider`, `RecordingEmailProvider`, the job queues, job runs, `Hmac`).
 - `crates/k_server/tests/perf_budget.rs`: the budgets below (ignored; run in release).
+- `crates/k_server/tests/memory.rs`: the heap limit (an engine and a worker at it; the limit from
+  `K_WORKER_HEAP_MB`), restarts (only that worker, `503` and `Retry-After` for its requests in flight,
+  `/_k/health` degraded then ready, `k_worker_restarts_total`, the `k.worker.exit` span), the crash loop
+  that ends `run_until_signal`, the leak tests and the memory budget ([performance.md
+  §11.9](performance.md#119-memory-per-worker)).
 
 ---
 

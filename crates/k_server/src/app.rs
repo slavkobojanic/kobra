@@ -131,6 +131,10 @@ impl ConfigSpec {
                 Some(""),
             ),
             one("PORT", "port", "Int", Some("8080")),
+            ConfigSpec {
+                range: Some((16, 16384)),
+                ..one("K_WORKER_HEAP_MB", "workerHeapMb", "Int", Some("256"))
+            },
         ]
     }
 }
