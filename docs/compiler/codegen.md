@@ -319,8 +319,9 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
   (`if let region` in a method of a struct with a `region` field reads `self.region`). A member a
   component holds in a signal (`@State`, `@Derived`) is read through it (`user.get()`), so a
   `@Derived` initializer with `if let user` tracks `user`.
-- **Values of stdlib interfaces** (`Error`, `Codable`) are passed as they are: only project interfaces
-  have adapter classes ([§9](#9-generics-interfaces-and-witnesses)).
+- **Values of stdlib interfaces** (`Error`, `Codable`) have no adapter classes, which only project
+  interfaces have ([§9](#9-generics-interfaces-and-witnesses)): an `Error` is a box with its text
+  ([§7](#7-errors-panics-and-typed-throws)) and a `Codable` one with its codec (`{ codec, value }`).
 - **`Router.navigate(url:)`** navigates to the URL's text; `Router.navigate(to:)` to `Page$href(page)`.
 
 ---
@@ -358,13 +359,36 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
   `UniqueViolation`) is `-1`. A body with one error type is unchanged. A value of type `Error` (a
   catch-all over two types) has no tag to test, so matching it against a case is K2312.
 - **A value of type `Error` is a box, `{ error, text }`:** the thrown value and its interpolation text
-  (its case name, as `T$$text` prints it; design 09). The text is computed where the concrete type is
-  known: a catch-all over two types picks it by `$et` (`$et === 7 ? A$$text(e) : B$$text(e)`, an
+  (its case name, as `T$$text` prints it; design 09). The representation follows the static type: every
+  value whose type is `Error` is a box, and nothing else is. The text is computed where the concrete type
+  is known: a catch-all over two types picks it by `$et` (`$et === 7 ? A$$text(e) : B$$text(e)`, an
   entity's `UniqueViolation` by its field names), and `coerce` boxes a concrete error converted to
-  `Error` (an argument, a `let` with that type, a list element; a non-name operand through a
-  temporary). Interpolating an `Error` reads `.text`, so no runtime code is involved. A returned value
-  isn't coerced (as for interface adapters), so `return E.x` from a function returning `Error` isn't
-  boxed yet.
+  `Error`. That covers an argument, a `let` with that type, a list element, a field's default, a default
+  argument, a returned value (`return`, a getter's value, a lambda's value, async or not: `Body::ret`
+  holds the function's result type), and a branch of an `if`, `match` or `try … else` whose type is
+  `Error`. An operand other than a name or a member of one (`B.z`) is read once through an arrow's
+  parameter, `(($b) => ({ error: $b, text: A$$text($b) }))(A.y(3))`, which needs no statement before it,
+  so it works in a parameter's default too. Interpolating an `Error` reads `.text`, so no runtime code is
+  involved.
+- **A box is thrown as it is.** The checker never widens a thrown type (a function `throws Error`
+  throws only `Error` values; `try` of an `A` there is K2203), so every catch that receives a box has
+  `Error` as its static type and can't match it against a case (K2312): a catch-all binds the box
+  itself, `try … else` and `Result.of` pass it on (`.failure(box)` has type `Result<T, Error>`), and a
+  generic `throws E` instantiated at `Error` passes it through unchanged. A catch-all over two or more
+  types one of which is `Error` boxes only the others (`$et === 3 ? e : { error: e, text: … }`, `3`
+  being `Error`'s tag), so a box is never boxed again. The run corpus's `main` that `throws Error`
+  describes the box by its text and the thrown value's payload.
+- **A generic parameter constrained to `Error`** (`func f<E>(_ e: E) -> Error where E implements
+  Error`) takes an error witness `$e_E` after its other witness ([§9](#9-generics-interfaces-and-witnesses)):
+  the text function of the type it stands for, or `null` for `Error` itself, whose values are boxes
+  already. Converting an `E` to `Error` is `$e_E ? { error: e, text: $e_E(e) } : e`. A call's generic
+  arguments are taken from its recorded type first and then from its arguments, so `same(A.x)` typed
+  `Error` binds `E` to `Error` and boxes `A.x` as the argument.
+- **A box never reaches a codec or a log line as `{ error, text }`.** `Error` isn't `Codable`, so it
+  can't be an rpc's parameter, result, error or channel message, an `@Load` value or error, or a payload
+  of a `Codable` type (K5503, K3021, K3024, K2009), and `Result<T, Error>` isn't `Codable` either
+  (sema.md §9.2). `Log` takes a `String`, so an `Error` is logged through interpolation, which prints its
+  text.
 - **The catch variable is `e`** (`$eN` when a local or temporary already uses `e`), and it is reserved
   while its handler is lowered: a K local declared inside the handler, `catch let e` included, is
   renamed `e$1`, so `catch (e) { const e = e; }` can't happen. The SSR `ErrorBoundary` handler picks
@@ -420,6 +444,8 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
   `where T implements Codable` (or any interface with static requirements or generated code), the function
   takes a hidden parameter `$w_T` after `$c`: the type's codec pair, or its interface method table.
   `Json.encode<T>(value)` becomes `Json.encode($w_T, value)` and the call site passes `Order$codec`.
+  A parameter constrained to `Error` also takes `$e_T`, the instantiated type's text function
+  ([§7](#7-errors-panics-and-typed-throws)).
 - **Interface method calls**: classes and services implement interfaces with real JS methods, so a call on
   an interface-typed value is a method call. **Structs and enums** keep their methods as module functions
   (`Point$distance(self, other)`, no prototypes, so copies stay plain objects); when such a value is

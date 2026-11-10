@@ -134,6 +134,11 @@ pub(crate) fn params(
             b.witnesses.insert(*g, name.clone());
             out.push(Param::new(name));
         }
+        if b.is_error_generic(*g) {
+            let name = format!("$e_{}", b.g.view.generics[g.0 as usize].name);
+            b.error_witnesses.insert(*g, name.clone());
+            out.push(Param::new(name));
+        }
     }
     let defaults: Vec<Option<ast::Expr>> = node
         .and_then(|n| n.children().find_map(ast::ParamList::cast))
@@ -188,6 +193,14 @@ pub(crate) fn function(
     b.push_fn_scope();
     let saved_c = b.has_c;
     let ps = params(b, node, sig, leading);
+    // A returned value is converted to the result type (a computed
+    // property's is its own type).
+    let ret = match (sig, node) {
+        (Some(s), _) => Some(s.ret.clone()),
+        (None, Some(n)) if n.kind() == k_syntax::SyntaxKind::FieldDecl => computed_type(b, n),
+        _ => None,
+    };
+    let saved_ret = std::mem::replace(&mut b.ret, ret);
     let body = match node {
         Some(n) => {
             // A computed property's getter block is its value.
@@ -199,6 +212,7 @@ pub(crate) fn function(
         }
         None => Vec::new(),
     };
+    b.ret = saved_ret;
     b.has_c = saved_c;
     b.pop_fn_scope();
     Function {
@@ -208,6 +222,17 @@ pub(crate) fn function(
         is_async: sig.is_some_and(|s| s.is_async),
         kind: MethodKind::Plain,
     }
+}
+
+/// The type of the computed property declared by `field`, a member of the
+/// file being lowered.
+fn computed_type(b: &Body<'_, '_>, field: &SyntaxNode) -> Option<Type> {
+    let range = field.text_range();
+    b.g.view
+        .members
+        .iter()
+        .find(|m| m.range == Some(range) && b.g.view.decl(m.owner).file == b.file)
+        .and_then(|m| m.ty.clone())
 }
 
 /// The statements of a computed property's getter: its block's value is

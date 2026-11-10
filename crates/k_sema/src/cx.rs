@@ -51,6 +51,8 @@ pub(crate) struct Builtins {
     pub(crate) set: Option<DeclId>,
     /// `k.core.Stream`.
     pub(crate) stream: Option<DeclId>,
+    /// `k.core.Result`.
+    pub(crate) result: Option<DeclId>,
     /// `k.core.HalfOpenRange`.
     pub(crate) half_open: Option<DeclId>,
     /// `k.core.ClosedRange`.
@@ -111,6 +113,7 @@ impl Builtins {
             map: core("Map"),
             set: core("Set"),
             stream: core("Stream"),
+            result: core("Result"),
             half_open: core("HalfOpenRange"),
             closed: core("ClosedRange"),
             length: core("Length"),
@@ -1554,6 +1557,12 @@ impl<'p, 'a> Cx<'p, 'a> {
                 }
                 let containers = [self.b.list, self.b.map, self.b.set];
                 if derived && containers.contains(&Some(*d)) {
+                    return args.iter().all(|a| self.implements(a, iface));
+                }
+                if Some(iface) == self.b.codable && Some(*d) == self.b.result {
+                    // A `Result` is encoded with its value's and its
+                    // error's codecs, so both must have one (an `Error`
+                    // doesn't).
                     return args.iter().all(|a| self.implements(a, iface));
                 }
                 self.declares(*d, iface)

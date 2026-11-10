@@ -482,7 +482,9 @@ BodySource  { expr: ArenaMap<ExprId, SyntaxNodePtr>, pat: ArenaMap<PatId, Syntax
   mutated through any path. Classes: `let` fixes the reference only.
 - **Derivation with `implements`:** `Equatable`, `Hashable`, `Codable`, `Copyable` are derived for
   structs and enums when every field/payload conforms (K2009 at the `implements` entry naming the field
-  that doesn't); `Copyable` adds `copy(field:…)` with every field optional.
+  that doesn't); `Copyable` adds `copy(field:…)` with every field optional. `List`, `Map`, `Set`,
+  optionals and tuples conform when their elements do, and `Result<T, E>` is `Codable` when `T` and
+  `E` are, so a `Result<T, Error>` can't cross the wire (K5503): an `Error` has no codec.
 
 ### 9.3 Interfaces and extensions
 

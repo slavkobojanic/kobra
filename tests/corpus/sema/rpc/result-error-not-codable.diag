@@ -1,0 +1,3 @@
+error[K5503] 15:40-15:58: an rpc result crosses the wire, so it must be `Codable`; `Result<Int, Error>` isn't
+error[K5503] 16:40-16:64: an rpc result crosses the wire, so it must be `Codable`; `List<Result<Int, corpus.Local>>` isn't
+error[K5503] 17:23-17:41: an rpc parameter crosses the wire, so it must be `Codable`; `Result<Int, Error>` isn't

@@ -161,6 +161,14 @@ pub(crate) struct Body<'g, 'a> {
     /// another's operand sets the variables back to the outer one's tag
     /// once it returns, as the outer call runs after it.
     try_tags: Vec<f64>,
+    /// The result type of the function or lambda being lowered, which a
+    /// returned value is coerced to ([`Body::coerce_to_return`]); `None`
+    /// where it isn't known (nothing is converted).
+    pub(crate) ret: Option<Type>,
+    /// The error witnesses (`$e_E`) of the function's generic parameters
+    /// constrained to `Error`: the text function of the type `E` stands
+    /// for, `null` when it is `Error` itself (codegen.md §7).
+    pub(crate) error_witnesses: HashMap<GenId, String>,
 }
 
 impl<'g, 'a> Body<'g, 'a> {
@@ -198,6 +206,8 @@ impl<'g, 'a> Body<'g, 'a> {
             opt_undefined: HashSet::new(),
             err_tags: Vec::new(),
             try_tags: Vec::new(),
+            ret: None,
+            error_witnesses: HashMap::new(),
         }
     }
 
@@ -453,6 +463,26 @@ impl<'g, 'a> Body<'g, 'a> {
         for (i, s) in stmts.iter().enumerate() {
             if i + 1 == n {
                 match s {
+                    // A branch's value takes the type of the expression
+                    // it is a branch of (`A.x` as an `Error`).
+                    ast::Stmt::Expr(e)
+                        if matches!(dest, Dest::Assign(_)) && !self.is_statementy(e) =>
+                    {
+                        let to = self.branch_type(node);
+                        self.mapped(e.syntax(), |b| {
+                            let x = b.expr(e);
+                            let x = match &to {
+                                Some(to) => {
+                                    let from = b.ty(e.syntax());
+                                    b.coerce(x, &from, to)
+                                }
+                                None => x,
+                            };
+                            if let Dest::Assign(t) = dest {
+                                b.emit(Stmt::Expr(js::assign(id(t), x)));
+                            }
+                        });
+                    }
                     ast::Stmt::Expr(e) => {
                         self.mapped(e.syntax(), |b| b.expr_into(e, dest));
                     }
@@ -470,6 +500,21 @@ impl<'g, 'a> Body<'g, 'a> {
             }
         }
         self.pop_scope();
+    }
+
+    /// The type of the `if`, `match` or `try … else` whose branch is the
+    /// block `block`, which the branch's value is converted to; `None`
+    /// for any other block.
+    fn branch_type(&self, block: &SyntaxNode) -> Option<Type> {
+        let parent = block.parent()?;
+        let owner = match parent.kind() {
+            SyntaxKind::IfExpr | SyntaxKind::TryExpr => parent,
+            SyntaxKind::MatchArm => parent
+                .ancestors()
+                .find(|a| a.kind() == SyntaxKind::MatchExpr)?,
+            _ => return None,
+        };
+        Some(self.ty(&owner))
     }
 
     /// The K location of `node` for source maps: where its first
@@ -868,14 +913,22 @@ impl<'g, 'a> Body<'g, 'a> {
             self.expr_into(e, &Dest::Return);
         } else {
             let x = self.expr(e);
+            let x = self.coerce_to_return(x, e);
             self.emit(Stmt::Return(Some(x)));
         }
     }
 
-    /// The hook for converting a returned value to the function's return type;
-    /// currently returns `x` unchanged.
-    fn coerce_to_return(&mut self, x: Expr, _e: &ast::Expr) -> Expr {
-        x
+    /// Converts `x`, the lowered value of `e`, to the result type of the
+    /// function or lambda it is returned from ([`Body::ret`]), as an
+    /// argument is converted to its parameter's type: a concrete error
+    /// returned as an `Error` is boxed, a struct returned as a project
+    /// interface gets its adapter.
+    fn coerce_to_return(&mut self, x: Expr, e: &ast::Expr) -> Expr {
+        let Some(to) = self.ret.clone() else {
+            return x;
+        };
+        let from = self.ty(e.syntax());
+        self.coerce(x, &from, &to)
     }
 
     /// Lowers `let` and `var` bindings, including destructuring patterns; a
@@ -1272,7 +1325,16 @@ impl<'g, 'a> Body<'g, 'a> {
                         if patterns.len() == 1 && matches!(p, ast::Pattern::BindingPattern(_)) =>
                     {
                         let text = self.tagged_error_text(&err, v, &types, unique.as_deref());
-                        error_box(id(&err), text)
+                        let boxed = error_box(id(&err), text);
+                        // An `Error` the body threw is a box already.
+                        match self.g.b.error.filter(|e| types.contains(e)) {
+                            Some(d) => Expr::Cond(
+                                Box::new(bin("===", id(v), Expr::Num(f64::from(d.0)))),
+                                Box::new(id(&err)),
+                                Box::new(boxed),
+                            ),
+                            None => boxed,
+                        }
                     }
                     _ => id(&err),
                 };
@@ -1418,20 +1480,41 @@ impl<'g, 'a> Body<'g, 'a> {
     }
 
     /// `x`, of the concrete error type `from`, as an `Error`: boxed with
-    /// its text (codegen.md §7). `x` is read twice, so anything but a
-    /// name goes through a temporary first.
+    /// its text (codegen.md §7). A value of a generic parameter constrained
+    /// to `Error` is boxed by its error witness, and stays as it is when
+    /// the parameter stands for `Error` (a box already). `x` is read more
+    /// than once, so anything but a name or a member of one (`B.z`) goes
+    /// through an arrow's parameter
+    /// (`(($b) => ({ error: $b, text: A$$text($b) }))(A.y(3))`), which
+    /// works wherever the conversion is: a body, a default argument or a
+    /// field's default.
     fn boxed_error(&mut self, x: Expr, from: &Type) -> Expr {
-        let (pre, v) = if matches!(x, Expr::Ident(_)) {
-            (None, x)
-        } else {
-            let t = self.fresh("t");
-            self.emit(Stmt::Let(t.clone(), None));
-            (Some(js::assign(id(&t), x)), id(t))
+        let witness = match from {
+            Type::Param(g) => match self.error_witnesses.get(g) {
+                Some(w) => Some(w.clone()),
+                None => return x,
+            },
+            _ => None,
         };
-        let text = self.text_of(v.clone(), from);
-        let boxed = error_box(v, text);
-        match pre {
-            Some(set) => bin(",", set, boxed),
+        let pure = match &x {
+            Expr::Ident(_) => true,
+            Expr::Member(o, _) => matches!(**o, Expr::Ident(_)),
+            _ => false,
+        };
+        let (v, bound) = if pure { (x, None) } else { (id("$b"), Some(x)) };
+        let boxed = match witness {
+            Some(w) => Expr::Cond(
+                Box::new(id(&w)),
+                Box::new(error_box(v.clone(), call(id(&w), vec![v.clone()]))),
+                Box::new(v),
+            ),
+            None => {
+                let text = self.text_of(v.clone(), from);
+                error_box(v, text)
+            }
+        };
+        match bound {
+            Some(x) => call(js::arrow(vec![Param::new("$b")], boxed), vec![x]),
             None => boxed,
         }
     }
@@ -2576,7 +2659,7 @@ impl<'g, 'a> Body<'g, 'a> {
         let source = from.unwrap_optional();
         if self.g.is(target, self.g.b.error)
             && !self.g.is(source, self.g.b.error)
-            && self.g.is_value_type(source)
+            && (source.decl().is_some() || matches!(source, Type::Param(_)))
         {
             // A concrete error passed on as an `Error` keeps its text.
             if matches!(from, Type::Optional(_)) {
@@ -2937,7 +3020,16 @@ impl<'g, 'a> Body<'g, 'a> {
     fn block_value(&mut self, b: &SyntaxNode) -> Expr {
         let e = ast::Block::cast(b.clone()).and_then(|b| b.statements().next());
         match e {
-            Some(ast::Stmt::Expr(e)) => self.expr(&e),
+            Some(ast::Stmt::Expr(e)) => {
+                let x = self.expr(&e);
+                match self.branch_type(b) {
+                    Some(to) => {
+                        let from = self.ty(e.syntax());
+                        self.coerce(x, &from, &to)
+                    }
+                    None => x,
+                }
+            }
             _ => Expr::Null,
         }
     }
@@ -3330,6 +3422,13 @@ impl<'g, 'a> Body<'g, 'a> {
         // A lambda's `try`s throw where it is called, not here.
         let saved_tags = std::mem::take(&mut self.err_tags);
         let saved_try_tags = std::mem::take(&mut self.try_tags);
+        let saved_ret = std::mem::replace(
+            &mut self.ret,
+            match &lt {
+                Type::Func(f) => Some(f.ret.clone()),
+                _ => None,
+            },
+        );
         self.kill_aliases_captured(l.syntax());
         self.push_scope();
         let mut params = Vec::new();
@@ -3396,6 +3495,7 @@ impl<'g, 'a> Body<'g, 'a> {
         self.owned = saved_owned;
         self.err_tags = saved_tags;
         self.try_tags = saved_try_tags;
+        self.ret = saved_ret;
         let f = if body.is_empty() {
             match tail {
                 Some(t) => js::Function {
@@ -4729,9 +4829,8 @@ impl<'g, 'a> Body<'g, 'a> {
                     .unwrap_or_default();
                 if let Some(s) = &sig {
                     for g in &s.generics {
-                        if let Some(w) = self.witness_for_generic(*g, subst.get(g)) {
-                            args.push(w);
-                        }
+                        let ws = self.witnesses_for_generic(*g, subst.get(g));
+                        args.extend(ws);
                     }
                 }
                 let st = subst.clone();
@@ -4890,9 +4989,8 @@ impl<'g, 'a> Body<'g, 'a> {
                 .unwrap_or_default();
             if let Some(s) = &sig {
                 for g in &s.generics {
-                    if let Some(w) = self.witness_for_generic(*g, subst.get(g)) {
-                        args.push(w);
-                    }
+                    let ws = self.witnesses_for_generic(*g, subst.get(g));
+                    args.extend(ws);
                 }
             }
             let st = subst.clone();
@@ -4978,9 +5076,8 @@ impl<'g, 'a> Body<'g, 'a> {
             .unwrap_or_default();
         if let Some(s) = &sig {
             for g in &s.generics {
-                if let Some(w) = self.witness_for_generic(*g, inferred.get(g)) {
-                    args.push(w);
-                }
+                let ws = self.witnesses_for_generic(*g, inferred.get(g));
+                args.extend(ws);
             }
         }
         let base2 = base.clone();
@@ -5105,6 +5202,10 @@ impl<'g, 'a> Body<'g, 'a> {
         if sig.generics.is_empty() {
             return out;
         }
+        // The call's type first: it is the checker's instantiation, which
+        // an argument converts to (`same(A.x)` as an `Error` binds `E` to
+        // `Error`, so `A.x` is boxed).
+        unify(&sig.ret, result_ty, &mut out);
         let mut given: Vec<(Option<String>, ast::Expr)> = Vec::new();
         if let Some(list) = c.arg_list() {
             for a in list.args() {
@@ -5130,8 +5231,44 @@ impl<'g, 'a> Body<'g, 'a> {
                 unify(&p.ty, &at, &mut out);
             }
         }
-        unify(&sig.ret, result_ty, &mut out);
         out
+    }
+
+    /// The witness arguments for generic `g` instantiated at `t`, in the
+    /// order of [`crate::decl::params`]: the one its constraints need
+    /// (Codable, interfaces with methods), then its error witness when it
+    /// is constrained to `Error`.
+    pub(crate) fn witnesses_for_generic(&mut self, g: GenId, t: Option<&Type>) -> Vec<Expr> {
+        let mut out: Vec<Expr> = self.witness_for_generic(g, t).into_iter().collect();
+        if self.is_error_generic(g) {
+            out.push(self.error_witness(t));
+        }
+        out
+    }
+
+    /// `true` for a generic parameter constrained to `Error`, which takes
+    /// an error witness (`$e_E`, codegen.md §7).
+    pub(crate) fn is_error_generic(&self, g: GenId) -> bool {
+        self.g.view.generics.get(g.0 as usize).is_some_and(|info| {
+            info.constraints
+                .iter()
+                .any(|c| self.g.is(c, self.g.b.error))
+        })
+    }
+
+    /// The error witness for a generic parameter constrained to `Error`
+    /// instantiated at `t`: the text function of a concrete type, `null`
+    /// for `Error` itself (its values are boxes already) or an unknown
+    /// type, and the caller's own witness for one of its parameters.
+    fn error_witness(&mut self, t: Option<&Type>) -> Expr {
+        match t {
+            Some(Type::Param(h)) => self
+                .error_witnesses
+                .get(h)
+                .map_or(Expr::Null, |w| id(w.clone())),
+            Some(t) if t.decl().is_some() && !self.g.is(t, self.g.b.error) => self.text_fn(t),
+            _ => Expr::Null,
+        }
     }
 
     /// The witness argument for generic `g` instantiated at `t`, when its
@@ -5242,7 +5379,7 @@ fn subst_map(t: &Type, m: &HashMap<GenId, Type>) -> Type {
 /// `actual`.
 pub(crate) fn unify(pattern: &Type, actual: &Type, out: &mut HashMap<GenId, Type>) {
     match (pattern, actual) {
-        (Type::Param(g), a) if !matches!(a, Type::Error) => {
+        (Type::Param(g), a) if !matches!(a, Type::Error | Type::Never) => {
             out.entry(*g).or_insert_with(|| a.clone());
         }
         (Type::Named(d1, a1), Type::Named(d2, a2)) if d1 == d2 => {

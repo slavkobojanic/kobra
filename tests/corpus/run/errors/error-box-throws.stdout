@@ -1,0 +1,12 @@
+info ok 0
+error failed: x
+info failed x [x]
+error failed: y
+info failed y [y]
+error failed: z
+info failed z [z]
+info ok 50
+info success 0 0
+info failure y -1
+info failure z -1
+info [4, 4] [-1] x 8

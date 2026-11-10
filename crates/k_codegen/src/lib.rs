@@ -740,14 +740,20 @@ fn main_entry(
     let describe = match sig.as_ref().and_then(|s| s.throws.clone()) {
         Some(t) if t.decl().is_some() => {
             let d = t.decl().unwrap_or(main);
-            let text = b.text_fn(&t);
+            // An `Error` is a box (codegen.md §7): its case is the text it
+            // carries, its payload the thrown value's.
+            let (case, value) = if g.is(&t, g.b.error) {
+                (member(id("e"), "text"), member(id("e"), "error"))
+            } else {
+                (call(b.text_fn(&t), vec![id("e")]), id("e"))
+            };
             js::arrow(
                 vec![js::Param::new("e")],
                 Expr::Object(
                     vec![
                         Prop::KeyValue("error".into(), js::str(g.view.qualified_name(d))),
-                        Prop::KeyValue("case".into(), call(text, vec![id("e")])),
-                        Prop::KeyValue("fields".into(), rt("payloadFields", vec![id("e")])),
+                        Prop::KeyValue("case".into(), case),
+                        Prop::KeyValue("fields".into(), rt("payloadFields", vec![value])),
                     ],
                     false,
                 ),
