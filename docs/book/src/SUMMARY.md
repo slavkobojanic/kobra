@@ -76,6 +76,7 @@
 - [Copying and sharing](apps/clipboard-and-sharing.md)
 - [The user's location](apps/location.md)
 - [Notifications](apps/notifications.md)
+- [Offline and installable apps](apps/offline.md)
 - [The page and the device](apps/environment.md)
 - [Other tabs and the screen](apps/tabs-and-screen.md)
 - [Camera, microphone, recording and calls](apps/media.md)

@@ -825,7 +825,15 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
   before asking `notAsked` with nothing registered, the worker registered once at `/k-sw.js` with scope
   `/` and `updateViaCache: "none"`, the page's URL in the notification's data, a refused and a quieted
   prompt, Gecko's private windows rejecting `register`, a permission revoked mid-show, and the worker's
-  `open` message navigating and answered), `sw.test.js` (the service worker in a scripted
+  `open` message navigating and answered), `offline.test.js` (`startOffline` and `AppUpdates` against a
+  scripted `navigator.serviceWorker`: registered after `load`, once, at `/k-sw.js`; nothing outside a
+  secure context; the controlling worker's build compared with the page's at start and on
+  `controllerchange`; an update check when the page becomes visible; `apply()` reloading),
+  `sw-offline.test.js` (the caching half of the worker against a scripted `CacheStorage` and `fetch`:
+  install, a failed install, a `no-store` shell, the shell and files offline, rpcs and other origins left
+  alone, server-rendered pages kept and served offline, signed-in pages and errors not kept, 50 pages at
+  most, two builds kept on activate, the build message, the development worker, one worker with the
+  notification handlers), `sw.test.js` (the service worker in a scripted
   `ServiceWorkerGlobalScope`: `skipWaiting` and `clients.claim`, a click focusing the focused tab, else
   the most recent, and posting it the page, the worker navigating a tab that doesn't answer within a
   second or opening a new tab when it can't, a notification without a page only focusing, no tab open,
@@ -1055,7 +1063,10 @@ timers).
   test has seen "Reminder set" and calls `__kFastForward()`, then fires at once and moves `Date.now` on by
   its delay, and each `showNotification` that resolved is recorded for the test.
   Not `getNotifications()`: on macOS it asks the system's notification center, which stalls past the
-  test's wait when several Chromes ask at once), `kanban` (create a board, add cards, move one with Space, ArrowRight
+  test's wait when several Chromes ask at once; `@Offline`, docs/design/54-offline.md: once the worker
+  controls the page, a reload with the static host stopped and `Network.emulateNetworkConditions`
+  offline opens the app with its saved todos, and a rebuild into the served directory is found by
+  `registration.update()`, shows "A new version of Todos is ready." and "Reload" opens it), `kanban` (create a board, add cards, move one with Space, ArrowRight
   and Space keeping the focus, drop one onto another with the mouse, Escape closing the editor but not
   while typing in it, a reload, "Copy link" putting the card's absolute link on the real clipboard, with the
   permission granted by `Browser.grantPermissions`, and the link opening the card's editor), `weather` (a debounced search, a client navigation to a result, °C/°F, home again;

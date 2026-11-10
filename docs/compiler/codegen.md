@@ -1169,7 +1169,7 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   *and* the names it imports, so changing a dependency renames its dependents. The entry imports the
   services, RPC clients, layouts and stdlib enums its containers and route table name from `shared`.
 - **Feature chunks**: `charts.[hash].js`, `drag.[hash].js`, `files.[hash].js`, `clipboard.[hash].js`,
-  `share.[hash].js`, `geolocation.[hash].js`, `tabs.[hash].js`, `notifications.[hash].js`, `wakelock.[hash].js`,
+  `share.[hash].js`, `geolocation.[hash].js`, `tabs.[hash].js`, `notifications.[hash].js`, `wakelock.[hash].js`, `offline.[hash].js`,
   `environment.[hash].js`, `media.[hash].js`, `rtc.[hash].js`, `keys.[hash].js`, `refs.[hash].js`, `http.[hash].js`, `streams.[hash].js`,
   `channels.[hash].js` and `websocket.[hash].js` (`runtime/charts.js`, …),
   emitted only when a client chunk or the client entry uses a symbol they implement
@@ -1424,7 +1424,7 @@ dist/
   manifest.json               the Manifest, pretty JSON
   public/
     index.html                static-only apps only
-    k-sw.js                   the service worker, only for apps whose client notifies or subscribes to push
+    k-sw.js                   the service worker, only for apps whose client notifies or subscribes to push, or that are @Offline
     assets/
       runtime.3f2a1b9c.js     hashed client files: chunks, stylesheets, source maps
       app.9c1d2e3f.js
@@ -1454,7 +1454,19 @@ dist/
     registration, and on navigations at most a day apart) fetches it past every cache and installs the new
     worker when the bytes differ. Nothing else busts it: the worker has no build-specific content, so a
     rebuild that doesn't change `sw.js` reinstalls nothing.
-  - **Test bundles** (`k test`) get none: `TestNotifications` replaces the browser.
+  - **An `@Offline` app's worker** ([54-offline.md](../design/54-offline.md)) is the list
+    `self.kOffline = {build, files, shell, version};`, then `runtime/sw-offline.js`, then `runtime/sw.js`,
+    compacted together in a release build. `bundle::service_worker` runs after linking (§17), since the list
+    names the linked files: `files` is every client file but source maps, as `/assets/<path>`; `build` the
+    entry chunk's; `shell` `"/"` for a client-rendered app, else `null`; `version` the content hash of
+    `files`. So, unlike the notification worker, it changes with every build, which is what makes a new
+    build a new worker and a new cache. A development build (`Profile::Development`: `k run`, `k dev`) sets
+    the list to `null` instead (`bundle::uncached_service_worker`), and `k dev --release` swaps the release
+    worker for that one (`k_cli`'s `uncached_in_dev`), so `k dev` never caches.
+  - **The entry of an `@Offline` app** (`app::client_entry`) ends with
+    `import("$feature:offline").then((m) => m.startOffline(import.meta.url))`; `bundle::client_files`
+    always ships the `offline` feature chunk for such an app and replaces the placeholder with its name.
+  - **Test bundles** (`k test`) get none: `TestNotifications` and `TestAppUpdates` replace the browser.
 - `manifest.json` is for tooling and humans (`k routes`, deploy scripts); `dist/app` embeds what it needs
   (the config table and the session-free endpoint templates).
 - Every app links one stylesheet, `app.[hash].css`, which starts with the base rule `[hidden] { display:

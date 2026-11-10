@@ -654,6 +654,23 @@ pub(crate) fn client_entry(
         "startRouter",
         vec![id("routes"), id("container"), Expr::Object(options, false)],
     )));
+    // An `@Offline` app registers its service worker from the offline
+    // chunk, loaded after the entry so the first render doesn't wait for
+    // it (54-offline.md; `$feature:offline` becomes the chunk's name in
+    // `bundle::client_files`).
+    if g.offline() && g.options.entry == crate::Entry::App {
+        let start = js::arrow(
+            vec![Param::new("m")],
+            call(member(id("m"), "startOffline"), vec![id("import.meta.url")]),
+        );
+        stmts.push(Stmt::Expr(call(
+            member(
+                Expr::Import(Box::new(js::str(crate::bundle::OFFLINE_CHUNK))),
+                "then",
+            ),
+            vec![start],
+        )));
+    }
     (stmts, b.uses)
 }
 
@@ -1051,6 +1068,7 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         | "k.auth.BrowserPasskeys"
         | "k.device.PageVisibility"
         | "k.device.Connectivity"
+        | "k.device.AppUpdates"
         | "k.device.Viewport" => match b.g.view.lookup(qualified) {
             Some(d) => {
                 let name = b.g.name(d);
@@ -1165,6 +1183,7 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         }
         "k.test.TestPageVisibility" => crate::suite::kit_call("testPageVisibility", vec![]),
         "k.test.TestConnectivity" => crate::suite::kit_call("testConnectivity", vec![]),
+        "k.test.TestAppUpdates" => crate::suite::kit_call("testAppUpdates", vec![]),
         // The test's in-process channel socket and its other browsers
         // (44-channels.md, "Testing").
         "k.test.TestChannels" => crate::suite::kit_call("testChannels", vec![]),

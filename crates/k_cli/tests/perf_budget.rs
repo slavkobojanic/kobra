@@ -494,6 +494,7 @@ fn shipped_client_assets() {
         ("collections.", k_runtime::COLLECTIONS_SIZE_BUDGET),
         ("wakelock.", k_runtime::WAKE_LOCK_SIZE_BUDGET),
         ("environment.", k_runtime::ENVIRONMENT_SIZE_BUDGET),
+        ("offline.", k_runtime::OFFLINE_SIZE_BUDGET),
         ("observe.", k_runtime::OBSERVE_SIZE_BUDGET),
         ("media.", k_runtime::MEDIA_SIZE_BUDGET),
         ("playback.", k_runtime::PLAYBACK_SIZE_BUDGET),
@@ -551,12 +552,17 @@ fn shipped_client_assets() {
                 }
             }
             // The service worker at the root, which no page load fetches
-            // (codegen.md §19).
+            // (codegen.md §19); an `@Offline` app's lists the build's
+            // files too (54-offline.md, "Sizes").
             if rel == "public/k-sw.js" {
-                assert!(
-                    g <= k_runtime::SERVICE_WORKER_SIZE_BUDGET,
-                    "{name}: {rel} is {g} bytes gzip (budget {})",
+                let limit = if String::from_utf8_lossy(&bytes).contains("kOffline") {
+                    k_runtime::OFFLINE_WORKER_SIZE_BUDGET
+                } else {
                     k_runtime::SERVICE_WORKER_SIZE_BUDGET
+                };
+                assert!(
+                    g <= limit,
+                    "{name}: {rel} is {g} bytes gzip (budget {limit})"
                 );
             }
             lines.push(format!("  {rel}: {} raw, {g} gzip", bytes.len()));

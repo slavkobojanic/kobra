@@ -1,0 +1,8 @@
+# An `@Offline` server-rendered app (docs/design/54-offline.md): its page
+# is kept by the service worker for offline use, its rpc fails offline with
+# `rpcFailure(.offline)`, and `AppUpdates` offers a newer build. `k test`
+# on it uses `TestConnectivity` and `TestAppUpdates`; `chrome.rs` runs it
+# under `k run --release`.
+[package]
+name = "offline"
+k = "0.1"

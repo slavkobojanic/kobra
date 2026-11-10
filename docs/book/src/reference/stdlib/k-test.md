@@ -21,6 +21,7 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`render`](#render) | Mounts `view` in the test's browser container (`docs/design/21-testing.md`, "Rendering and querying"). |
 | [`Screen`](#screen) | A rendered view, returned by `render(_:)`. |
 | [`SentPush`](#sentpush) | One message [`RecordingWebPush`](#recordingwebpush) recorded. |
+| [`TestAppUpdates`](#testappupdates) | The default [`AppUpdates`](k-device.md#appupdates) in `k test` (`docs/design/54-offline.md`, "Tests"): no update is available until `announce()`. |
 | [`TestAudio`](#testaudio) | The default [`Audio`](k-media.md#audio) in `k test`: a meter reports the level its stream's [`TestSource`](#testsource) scripts, and `play` records what it played. |
 | [`TestAuthenticator`](#testauthenticator) | The default [`Passkeys`](k-auth.md#passkeys) in `k test` (`docs/design/51-passkeys.md`, "Tests"): a working authenticator. |
 | [`TestCallPeer`](#testcallpeer) | The other side of a call in a test ([`TestPeerConnections`](#testpeerconnections)): a peer connection the test drives, joined through the app's own protocol. |
@@ -546,6 +547,28 @@ One message [`RecordingWebPush`](#recordingwebpush) recorded.
   Where to.
 - `let timeToLive: Duration`
   The time to live it was sent with.
+
+## TestAppUpdates
+
+```k,ignore
+@TestDefault(replaces: AppUpdates)
+public service TestAppUpdates implements AppUpdates
+```
+
+The default [`AppUpdates`](k-device.md#appupdates) in `k test` (`docs/design/54-offline.md`,
+"Tests"): no update is available until `announce()`.
+
+**Members**
+
+- `var isAvailable: Bool`
+  `false` until `announce()`. Reactive, like the browser's.
+- `var applied: Int`
+  How many times `apply()` was called.
+- `func announce()`
+  Says a newer build is ready, as the browser does once a new build's
+  worker has taken over.
+- `func apply()`
+  Counts the call in `applied`; the page isn't reloaded.
 
 ## TestAudio
 

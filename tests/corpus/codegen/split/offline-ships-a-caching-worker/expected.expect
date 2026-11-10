@@ -1,0 +1,18 @@
+# docs/design/54-offline.md, docs/compiler/codegen.md §16, §19: an `@Offline` app's entry loads
+# the offline chunk after itself and starts it with its own URL; `AppUpdates` is that chunk's,
+# imported by the page that reaches it, and the server's stand-in answers `false`. The service
+# worker at the root lists the build's client files (no source maps), names the entry as the
+# build, has no shell for a server-rendered app, and keeps its notifications and push handlers.
+client contains // file: offline.[hash].js
+client contains import("./offline.[hash].js").then((m) => m.startOffline(import.meta.url));
+client contains export function startOffline(
+client contains get AppUpdates() {
+client lacks $k.native("k.device.
+server contains $s.serverEnvironment("AppUpdates")
+root contains // file: k-sw.js
+root contains self.kOffline = {"build":"/assets/app.[hash].js",
+root contains "/assets/offline.[hash].js"
+root contains "shell":null
+root lacks .map"
+root contains addEventListener("fetch"
+root contains addEventListener("notificationclick"

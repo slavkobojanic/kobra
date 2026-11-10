@@ -212,6 +212,7 @@ K4030: Call it from a click, submit or key handler, before the handler's first `
 K4031: Set handshake headers only in a server-only service (`@Scope(.server)`, or one a protocol's implementation injects), which can bridge the feed to the browser through a `Broadcast`; a browser's socket can carry a token in the URL's query or its first message instead.
 K4032: Declare the field `Secret<Ed25519PrivateKey>` (the quick fix does this); `Secret<K>` has the key's operations, so the code that uses it needs no `reveal()`. A public key needs no `Secret`.
 K4033: Keep the stream, track, controller, meter, recording session, peer connection, sender or data channel in a client-only service, and send the server what it can store: a `Recording`'s `File` bytes, not the session; a call's signals go through the relay's channel.
+K4034: Add `@Offline` to the app (the quick fix does this), so its service worker caches the build and announces the next one; or remove the `AppUpdates` field.
 K5001: Give one of the pages or endpoints another URL, or another name.
 K5002: Use `String`, `Int`, `Uuid`, `Page`, a payload-free enum or an optional of these.
 K5003: Name every path parameter once in the template, as `{name}`, and declare a `@Param` for each.

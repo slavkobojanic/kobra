@@ -9,12 +9,18 @@
 /// page would always show an empty list and then jump to the real one. The
 /// app has no server-only code either, so `k build` emits static files only.
 ///
+/// `@Offline` makes it work without a network and installable
+/// (docs/design/54-offline.md): `k build` adds a service worker that keeps
+/// the build's files and its one document in the browser, so the app opens
+/// offline, and `UpdateNotice` offers the next build once it has arrived.
+///
 /// There are no `use … for …` rules. `k.storage.LocalStorage` has exactly
 /// one production implementation, the stdlib's `k.storage.BrowserStorage`,
 /// so it is injected automatically. In tests, `k test` installs
 /// `k.test.MemoryStorage` in its place by default, so no test touches real
 /// browser storage.
 @Rendering(.client)
+@Offline
 public app Todos {
     metadata {
         manifest(name: "Todos", shortName: "Todos")

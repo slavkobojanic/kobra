@@ -156,7 +156,8 @@ level, which is larger than brotli on the same input, so meeting it with gzip me
 | `share.[hash].js` | `share.js` (part `Share`), shipped only to apps whose client shares (`Share`, `ShareButton`) | ≤ 1.25 KB (`SHARE_SIZE_BUDGET`) | 1,139 B |
 | `geolocation.[hash].js` | `geolocation.js` (part `Geolocation`), shipped only to apps whose client injects `Geolocation` | ≤ 1.25 KB (`GEOLOCATION_SIZE_BUDGET`) | 1,064 B |
 | `notifications.[hash].js` | `notifications.js` (part `Notifications`), shipped only to apps whose client injects `Notifications` | ≤ 1 KB (`NOTIFICATIONS_SIZE_BUDGET`) | 825 B |
-| `k-sw.js` (at the root) | `sw.js` (part `ServiceWorker`), the service worker emitted next to the notifications chunk; fetched by the browser's worker updates, never by a page load | ≤ 640 B (`SERVICE_WORKER_SIZE_BUDGET`) | 497 B |
+| `k-sw.js` (at the root) | `sw-offline.js` and `sw.js` (part `ServiceWorker`), the service worker emitted next to the notifications or push chunk, or for an `@Offline` app; fetched by the browser's worker updates, never by a page load | ≤ 1.5 KB (`SERVICE_WORKER_SIZE_BUDGET`; an example's, with its list of files, ≤ 2 KB, `OFFLINE_WORKER_SIZE_BUDGET`) | 1,408 B (658 B for `sw.js` alone) |
+| `offline.[hash].js` | `offline.js` (part `Offline`), shipped only to `@Offline` apps, loaded after the entry | ≤ 640 B (`OFFLINE_SIZE_BUDGET`) | 568 B |
 | `environment.[hash].js` | `environment.js` (part `Environment`), shipped only to apps whose client injects `PageVisibility`, `Connectivity`, `Preferences` or `Viewport` | ≤ 1.25 KB (`ENVIRONMENT_SIZE_BUDGET`) | 1,016 B |
 | `observe.[hash].js` | `observe.js` (part `Observe`), a runtime feature shipped only to clients whose views use `appeared`, `disappeared` or `resized` | ≤ 1 KB (`OBSERVE_SIZE_BUDGET`) | 728 B |
 | `media.[hash].js` | `media.js` (part `Media`), shipped only to pages whose client uses `k.media` ([§12.14](#1214-media)); a release build minifies it to about 4.4 KB | ≤ 6 KB (`MEDIA_SIZE_BUDGET`) | 5,702 B |
@@ -1386,3 +1387,27 @@ enforces them.
 - **A failed submit's focus** is `forms.js`' (§9): `handle` focuses the attached input of the first field, in
   the form's order, that shows an error, after the browser's validation refuses the value and after a
   thrown `ValidationError` is shown.
+
+### 12.20 Offline apps
+
+`offline.js` (part `Offline`, a feature chunk of `k/device`) and the caching half of the service worker,
+`sw-offline.js` (part `ServiceWorker`), are an `@Offline` app's
+([54-offline.md](../design/54-offline.md)).
+
+- **`startOffline(entry)`**, which the entry calls once the chunk has loaded, registers `/k-sw.js` (scope
+  `/`, `updateViaCache: "none"`) after the page's `load`, once per page, and only in a secure context with
+  `navigator.serviceWorker`. It asks the controlling worker which build it caches (`postMessage({k:
+  "build"}, [port])`) at once and on every `controllerchange`; an answer other than the path of `entry`
+  (the entry's `import.meta.url`) sets the chunk's `updateReady` signal. A development worker doesn't
+  answer. On each `visibilitychange` to visible it calls `registration.update()`.
+- **`AppUpdates()`** returns `{isAvailable, apply()}`: the signal, and `location.reload()`.
+- **`sw-offline.js`** reads `self.kOffline` (codegen.md §19). `install` caches `files` with `addAll` and the
+  shell, fetched with `cache: "reload"` and kept unless `no-store`, in `k-<version>`; `activate` deletes the
+  `k-` caches of every build but its own and the newest other one (`k-<v>` and `k-<v>-pages`); `fetch`
+  answers same-origin `GET`s: `/assets/…` from `caches.match` else the network, a navigation from the
+  shell (in its own cache) else the network, keeping a `200` HTML answer without `no-store` in
+  `k-<version>-pages` (50 at most, oldest first, inside `waitUntil`), else the kept page, else
+  `Response.error()`; `message` answers `{k: "build"}` with `build`. With `self.kOffline` `null` it only
+  deletes every `k-` cache on `activate`. No regex literals, which the compactor refuses.
+- **The server's `AppUpdates`** is `serverEnvironment("AppUpdates")`: `{isAvailable: false, apply() {}}`;
+  the test kit's is `testAppUpdates()` (`announce()`, `apply()`, `applied`).

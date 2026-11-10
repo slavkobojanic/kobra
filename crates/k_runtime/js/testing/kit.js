@@ -14,7 +14,7 @@
  *   `MemoryStorage`, `TestHttpClient`, `TestFiles`, `TestClipboard`,
  *   `TestShare`, `TestGeolocation`, `TestNotifications`, `TestPushSubscriptions`, `TestTabMessaging`,
  *   `TestWakeLock`,
- *   `TestPageVisibility`, `TestConnectivity`, `TestPreferences`,
+ *   `TestPageVisibility`, `TestConnectivity`, `TestAppUpdates`, `TestPreferences`,
  *   `TestViewport`,
  *   `RecordingJobQueue` and `RecordingEmailProvider`; and the channels'
  *   helpers `TestChannels`, `TestPeers` and `TestChannel` (`./channels.js`).
@@ -2636,6 +2636,26 @@ export function testConnectivity() {
     },
     goOffline: () => set(false),
     goOnline: () => set(true),
+  };
+}
+
+/**
+ * `k.test.TestAppUpdates` (54-offline.md, "Tests"): no newer build until
+ * `announce()`; `apply()` only counts, in `applied`. Each change flushes,
+ * so the test reads the updated view at once.
+ */
+export function testAppUpdates() {
+  const available = signal(false);
+  const applied = signal(0);
+  return {
+    get isAvailable() {
+      return available.get();
+    },
+    get applied() {
+      return applied.get();
+    },
+    announce: () => (available.set(true), flush()),
+    apply: () => (applied.set(applied.peek() + 1), flush()),
   };
 }
 

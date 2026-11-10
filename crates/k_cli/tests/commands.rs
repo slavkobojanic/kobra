@@ -1547,6 +1547,25 @@ fn test_pushes_through_the_push_doubles() {
 }
 
 #[test]
+fn test_runs_an_offline_app_through_its_doubles() {
+    // An `@Offline` app (docs/design/54-offline.md, "Tests"): its rpc
+    // offline through `TestConnectivity`, which fails it with
+    // `rpcFailure(.offline)`, and a newer build through `TestAppUpdates`.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/offline");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("3 passed; 0 failed"), "{text}");
+    for name in [
+        "PASS  AskServer › offline, the rpc fails with rpcFailure(.offline)",
+        "PASS  UpdateBanner › no banner until a newer build arrives",
+    ] {
+        assert!(text.contains(name), "{name}\n{text}");
+    }
+}
+
+#[test]
 fn test_stores_and_queries_through_memory_collections() {
     // `Collections` against `MemoryCollections`
     // (docs/design/52-indexed-collections.md, "Tests"): keys and dates in

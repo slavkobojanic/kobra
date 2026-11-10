@@ -67,6 +67,8 @@ public page Home at "/" {
     view {
         main {
             Panel(title: "Todos") {
+                UpdateNotice()
+
                 NewTodoField()
 
                 if let problem = todos.problem {

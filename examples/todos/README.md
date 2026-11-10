@@ -1,6 +1,6 @@
 # Todos
 
-A small todo list written entirely in K. You can add, rename, complete and delete todos, filter the list, clear completed todos, ask to be reminded about a todo in half an hour, and switch between light and dark themes. The todos are saved in the browser's local storage, so a reload brings the list back, and the stdlib's `Theme` service remembers the theme.
+A small todo list written entirely in K. You can add, rename, complete and delete todos, filter the list, clear completed todos, ask to be reminded about a todo in half an hour, and switch between light and dark themes. The todos are saved in the browser's local storage, so a reload brings the list back, and the stdlib's `Theme` service remembers the theme. Once opened, the app works offline and can be installed.
 
 The app is deliberately small and client-only: there is no server code, no RPC and no database. It exists to show K's component model, reactivity, styling and testing in one place. For a full-stack example that loads data over the network, see [`examples/weather`](../weather).
 
@@ -57,6 +57,7 @@ todos/
         ├── TodoRow.k               + TodoRow.test.k
         ├── FilterBar.k             + FilterBar.test.k
         ├── StorageNotice.k
+        ├── UpdateNotice.k          + UpdateNotice.test.k
         └── ThemeToggle.k
 ```
 
@@ -80,13 +81,15 @@ The layout follows the module rules in [16-modules.md](../../docs/design/16-modu
 
 **Reminders are notifications.** "Remind me" on an open todo calls `ReminderService.remind(about:)`, which asks for the browser's permission the first time; the compiler allows the prompt only from a user's action, here the click. While reminders are waiting, `Home`'s effect checks once a minute (as often as browsers run a background tab's timers anyway) and `showDue()` has the operating system show those that are due through `k.device.Notifications`, unless the todo was done or deleted since. A click on the notification brings the tab back. Reminders live as long as the tab, and the button appears only where the browser can notify and the user hasn't blocked it. `k build` writes the service worker that shows them, `dist/public/k-sw.js`; a static host serves it from the site's root with the rest of `dist/public`.
 
+**It works offline.** `App.k` declares `@Offline` ([54-offline.md](../../docs/design/54-offline.md)), so `k build` adds to `dist/public/k-sw.js` the list of the build's files: once the service worker has installed, the browser keeps them and the app's one document, and the app opens with no network. A new deploy is fetched in the background; `UpdateNotice` shows "A new version of Todos is ready." with a Reload button once `AppUpdates.isAvailable` says it has arrived. `k dev` never caches, so its rebuilds always reach the page; `k build` and a static host (or `k run --release`) give the offline app.
+
 **Rendering is client-only.** Local storage exists only in the browser, so `App.k` declares `@Rendering(.client)`. Otherwise a server-rendered page would show an empty list and then jump to the saved one.
 
 ## What each file demonstrates
 
 | File | Language features |
 |---|---|
-| [`App.k`](App.k) | The `app` declaration, the `@Rendering(.client)` annotation, an app-wide `metadata` block, and why no `use … for …` rules are needed |
+| [`App.k`](App.k) | The `app` declaration, the `@Rendering(.client)` and `@Offline` annotations, an app-wide `metadata` block with the web app manifest, and why no `use … for …` rules are needed |
 | [`src/todo/Todo.k`](src/todo/Todo.k), [`TodoId.k`](src/todo/TodoId.k) | Structs with value semantics, `let` vs `var` fields, derived conformances (`implements Codable, Equatable, Hashable`), a wrapper type for ids |
 | [`src/todo/Filter.k`](src/todo/Filter.k) | An enum with a method, `match` as an exhaustive expression, `match self`, the `not` operator |
 | [`src/todo/TitleError.k`](src/todo/TitleError.k) | A typed error enum with an associated value (`tooLong(limit:)`), binding it in a pattern (`case .tooLong(let limit)`), a computed property |
@@ -98,6 +101,7 @@ The layout follows the module rules in [16-modules.md](../../docs/design/16-modu
 | [`src/home/TodoList.k`](src/home/TodoList.k) | A scoped slot (`row: (Todo) -> View`) next to a trailing slot (`empty`), `if`/`else` in a view, `for … in … key …` |
 | [`src/home/TodoRow.k`](src/home/TodoRow.k) | Local editing state, `if`/`else` between two layouts, a custom `Binding(get:set:)` passed to a `checkbox`, a function passed by name (`set: markDone`), conditional classes with `when` (`.done when todo.isDone`), `.disabled` driven by `@Derived`, `VisuallyHidden` to give each row's buttons a distinct accessible name ("Delete Buy milk"), and a field label that names the todo ("New title for Buy milk") so rows edited at the same time don't share one; `.autofocus(true)` puts the focus in that field when Edit opens it. Each row updates in place when its todo changes, so toggling a checkbox keeps the focus on it |
 | [`src/home/FilterBar.k`](src/home/FilterBar.k) | `@Binding` written by the child (`selection = filter`), `for … key` over enum values, `match` in a function, `when` classes, the `pressed` accessibility state, a labelled `nav` landmark |
+| [`src/home/UpdateNotice.k`](src/home/UpdateNotice.k) | The stdlib's `AppUpdates` service: an `if` on its reactive `isAvailable`, and a method reference (`updates.apply`) as a click handler |
 | [`src/home/StorageNotice.k`](src/home/StorageNotice.k) | `match` in a view, with one exhaustive branch per enum case, and a live region (`.role(.status)`) |
 | [`src/home/ThemeToggle.k`](src/home/ThemeToggle.k) | A component with no `style` block, the injected stdlib `Theme` service, and a custom `Binding` that reads `theme.current` and writes through `theme.apply(…)` |
 | [`src/testing/Samples.k`](src/testing/Samples.k) | A test-only module, and a fixture as a static member added by a `public extend` |
@@ -110,6 +114,7 @@ The tests use `test`/`expect` and accessibility queries ([21-testing.md](../../d
 |---|---|
 | `ReminderService.test.k` | A reminder shown half an hour later and opening the list, through `TestNotifications` and `TestClock`; asking once, and a refused or dismissed prompt setting nothing; a todo done or deleted before its time; notifications turned off meanwhile. |
 | `TodoService.test.k` | Adding, trimming, ordering and unique ids; empty, whitespace-only, at-limit and over-limit titles; renaming, including a blank rename and a removed todo; counts; removing; clearing completed (and that it doesn't write when nothing is done); filters; saving every change; restoring; unreadable data; blocked storage; a full quota; recovery after a failure; dismissing a problem. It pins the storage key name, because renaming it would lose users' data. |
+| `UpdateNotice.test.k` | Nothing shown on the newest build; a build announced with `TestAppUpdates.announce()` offered, and Reload calling `apply()`. |
 | `Panel.test.k` | The default heading level, setting it, placing the optional slots, and leaving them out. |
 | `TodoList.test.k` | The scoped slot draws each todo in order, and the empty slot replaces the list. |
 | `TodoRow.test.k` | Checking and unchecking, the buttons' accessible names, an edit starting from the current title in a field named after the todo, saving, cancelling, Save disabled for a blank draft, a too-long title, deleting; "Remind me" asking from the click and then saying the reminder is set, a refused prompt, and no button for a done todo or a browser that can't notify. |
@@ -136,6 +141,7 @@ Beyond the core language documents, the example uses these parts of the design:
 | [23-app-structure.md](../../docs/design/23-app-structure.md) | The `app` declaration in `App.k`, and `@Rendering(.client)` |
 | [39-doc-comments.md](../../docs/design/39-doc-comments.md) | `///` documentation comments with `- Parameter`, `- Returns` and `- Throws` sections, and backticked references that resolve through the file's imports, the app's own declarations or fully qualified names (`k.ui.Theme`) |
 | [45-web-platform.md](../../docs/design/45-web-platform.md) | `Notifications`, `SystemNotification`, the prompt only from a user's action, and `TestNotifications` |
+| [54-offline.md](../../docs/design/54-offline.md) | `@Offline`, the generated service worker that caches the build and the document, `AppUpdates` and `TestAppUpdates` |
 | [36-local-storage.md](../../docs/design/36-local-storage.md) | `LocalStorage`, `StorageKey<T>`, `StorageReadError`/`StorageWriteError`, `MemoryStorage`, and the `storage.lock` file format |
 | [10-services.md](../../docs/design/10-services.md) | `init()` in `TodoService` |
 | [07-themes-and-units.md](../../docs/design/07-themes-and-units.md) | The `Theme` service, `theme.apply(…)`, `theme.current` and the generated `ThemeVariant` with its `.base` case |

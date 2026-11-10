@@ -430,6 +430,15 @@ unpinned = [
     "a worker served from a deeper path can't open the app's pages (a property of service worker scopes)",
 ]
 
+[pages."apps/offline.md"]
+commit = "c9af1ad"
+date = "2026-11-11"
+note = "new with @Offline and AppUpdates (docs/design/54-offline.md); written against the working tree on top of c9af1ad, the behaviour checked with `k test` on examples/todos and crates/k_cli/tests/fixtures/offline, sw-offline.test.js and offline.test.js, cli.rs's dev_serves_an_offline_app_a_worker_that_caches_nothing, and in Chrome by chrome.rs's todos_opens_offline_from_its_service_worker, todos_offers_a_new_build_once_it_has_arrived, offline_page_is_kept_and_its_rpc_fails_offline_in_chrome and weather_shows_the_last_forecast_offline"
+unpinned = [
+    "the browser may clear the caches under storage pressure (a property of the Cache API)",
+    "browsers that offer to install a web app use the manifest (no test installs one)",
+]
+
 [pages."apps/environment.md"]
 commit = "3a8c7ed"
 date = "2026-11-10"

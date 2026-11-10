@@ -732,6 +732,25 @@ fn free_port() -> Result<u16, ExitCode> {
         })
 }
 
+/// `k dev` never serves a caching service worker, even with `--release`
+/// (`docs/design/54-offline.md`, "Development"): an `@Offline` app's
+/// worker is swapped for the one that caches nothing and deletes what a
+/// release worker cached on the same origin. `k run --release` keeps the
+/// caching one, as `k build` ships it.
+#[cfg(feature = "server")]
+fn uncached_in_dev(output: &mut Output, watch: bool) {
+    if !watch {
+        return;
+    }
+    for f in output
+        .root
+        .iter_mut()
+        .filter(|f| f.path == "k-sw.js" && f.contents.contains("kOffline"))
+    {
+        f.contents = k_codegen::uncached_service_worker();
+    }
+}
+
 /// `k run` (`watch` false) and `k dev` (`watch` true) for a project, or
 /// for every app member of a workspace root
 /// (`docs/design/40-workspaces-and-services.md`, "Tooling").
@@ -790,10 +809,11 @@ fn serve_dev(args: &RunArgs, watch: bool) -> ExitCode {
         } else {
             args.project.clone()
         };
-        let output = match compile_member(&loaded, m, &dir, &options, true) {
+        let mut output = match compile_member(&loaded, m, &dir, &options, true) {
             Ok((o, _)) => o,
             Err(code) => return code,
         };
+        uncached_in_dev(&mut output, watch);
         let port = if args.port == 0 {
             match free_port() {
                 Ok(p) => p,
@@ -963,7 +983,10 @@ fn serve_dev(args: &RunArgs, watch: bool) -> ExitCode {
             let mut outputs = Vec::new();
             for app in &running {
                 match compile_member(&next, app.member, &app.dir, &options, true) {
-                    Ok((o, _)) => outputs.push(o),
+                    Ok((mut o, _)) => {
+                        uncached_in_dev(&mut o, watch);
+                        outputs.push(o);
+                    }
                     Err(_) => break,
                 }
             }

@@ -893,7 +893,10 @@ fn server_platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Option<Expr
         // Server values of the environment services (45-web-platform.md,
         // "Server rendering and the server").
         "k.device.Preferences" => srt("serverPreferences", vec![this("$r")]),
-        "k.device.PageVisibility" | "k.device.Connectivity" | "k.device.Viewport" => srt(
+        "k.device.PageVisibility"
+        | "k.device.Connectivity"
+        | "k.device.Viewport"
+        | "k.device.AppUpdates" => srt(
             "serverEnvironment",
             vec![js::str(qualified.rsplit('.').next().unwrap_or_default())],
         ),

@@ -186,12 +186,29 @@ pub const PASSKEYS_SIZE_BUDGET: usize = 1280;
 /// §11.3).
 pub const COLLECTIONS_SIZE_BUDGET: usize = 2048;
 
-/// The largest the service worker `k-sw.js` ([`Part::ServiceWorker`]) may
-/// be, measured like [`CORE_SIZE_BUDGET`] (768 B; 640 B before its `push`
-/// handler, `docs/design/50-push.md`). It is fetched when the app first
-/// notifies or subscribes and then on the browser's update checks, never
-/// by a page load (`docs/compiler/performance.md` §11.3).
-pub const SERVICE_WORKER_SIZE_BUDGET: usize = 768;
+/// The largest the service worker `k-sw.js` ([`Part::ServiceWorker`]: its
+/// notifications and push handlers and, for an `@Offline` app, its
+/// caching) may be, measured like [`CORE_SIZE_BUDGET`] (1.5 KB; 768 B
+/// before the caching, `docs/design/54-offline.md`, and 640 B before the
+/// `push` handler, `docs/design/50-push.md`). An `@Offline` app's worker
+/// also lists the build's files, which `perf_budget` counts against
+/// [`OFFLINE_WORKER_SIZE_BUDGET`]. It is fetched when the app first
+/// notifies, subscribes or loads with `@Offline`, and then on the
+/// browser's update checks, never by a page load
+/// (`docs/compiler/performance.md` §11.3).
+pub const SERVICE_WORKER_SIZE_BUDGET: usize = 1536;
+
+/// The largest an example's `k-sw.js` may be with its build's list of
+/// files (`docs/design/54-offline.md`, "Sizes"): the worker's own
+/// [`SERVICE_WORKER_SIZE_BUDGET`] and half a kilobyte of paths.
+pub const OFFLINE_WORKER_SIZE_BUDGET: usize = 2048;
+
+/// The largest an `@Offline` app's registration and `k.device.AppUpdates`
+/// in the browser ([`Part::Offline`]) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (640 B). It ships in its own chunk, only to
+/// `@Offline` apps, which load it after the page
+/// (`docs/compiler/performance.md` §11.3).
+pub const OFFLINE_SIZE_BUDGET: usize = 640;
 
 /// The largest `k.device.KeepScreenAwake` in the browser
 /// ([`Part::WakeLock`]) may be, measured like [`CORE_SIZE_BUDGET`]
@@ -352,11 +369,16 @@ pub enum Part {
     /// ([`COLLECTIONS_SIZE_BUDGET`]).
     Collections,
     /// The service worker `k-sw.js` that shows notifications and opens
-    /// their pages: a classic worker script served at the site's root, not
-    /// a module of any bundle, emitted for apps that ship
-    /// [`Part::Notifications`] and measured on its own
+    /// their pages, and caches an `@Offline` app's build: a classic worker
+    /// script served at the site's root, not a module of any bundle,
+    /// emitted for apps that ship [`Part::Notifications`], [`Part::Push`]
+    /// or [`Part::Offline`] and measured on its own
     /// ([`SERVICE_WORKER_SIZE_BUDGET`]).
     ServiceWorker,
+    /// An `@Offline` app's worker registration and `k.device.AppUpdates`
+    /// in the browser: shipped as its own client chunk, only to `@Offline`
+    /// apps, and measured on its own ([`OFFLINE_SIZE_BUDGET`]).
+    Offline,
     /// `k.device.KeepScreenAwake` in the browser: shipped as its own client
     /// chunk, only to apps that use it, and measured on its own
     /// ([`WAKE_LOCK_SIZE_BUDGET`]).
@@ -500,7 +522,9 @@ const MODULES: &[Module] = modules![
     Push "runtime/push.js",
     Passkeys "runtime/passkeys.js",
     Collections "runtime/collections.js",
+    ServiceWorker "runtime/sw-offline.js",
     ServiceWorker "runtime/sw.js",
+    Offline "runtime/offline.js",
     WakeLock "runtime/wakelock.js",
     Environment "runtime/environment.js",
     Observe "runtime/observe.js",

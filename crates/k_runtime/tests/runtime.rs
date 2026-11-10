@@ -13,11 +13,11 @@ use k_runtime::{
     CORE_SIZE_BUDGET, CRYPTO_SIZE_BUDGET, DRAG_SIZE_BUDGET, ENVIRONMENT_SIZE_BUDGET,
     FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET,
     HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, LOAD_SIZE_BUDGET, MEDIA_SIZE_BUDGET, MONEY_SIZE_BUDGET,
-    NOTIFICATIONS_SIZE_BUDGET, OBSERVE_SIZE_BUDGET, PASSKEYS_SIZE_BUDGET, PLAYBACK_SIZE_BUDGET,
-    PUSH_SIZE_BUDGET, Part, REFS_SIZE_BUDGET, RTC_SIZE_BUDGET, SERVICE_WORKER_SIZE_BUDGET,
-    SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET,
-    TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact, compacted_sources,
-    module, modules, resolve,
+    NOTIFICATIONS_SIZE_BUDGET, OBSERVE_SIZE_BUDGET, OFFLINE_SIZE_BUDGET, PASSKEYS_SIZE_BUDGET,
+    PLAYBACK_SIZE_BUDGET, PUSH_SIZE_BUDGET, Part, REFS_SIZE_BUDGET, RTC_SIZE_BUDGET,
+    SERVICE_WORKER_SIZE_BUDGET, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
+    STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact,
+    compacted_sources, module, modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -188,6 +188,7 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::KeyCodec
                 | Part::WakeLock
                 | Part::Environment
+                | Part::Offline
                 | Part::Observe
                 | Part::Media
                 | Part::Playback
@@ -611,13 +612,31 @@ fn the_service_worker_meets_its_size_budget() {
         size <= SERVICE_WORKER_SIZE_BUDGET,
         "the service worker is {size} bytes gzip, over the {SERVICE_WORKER_SIZE_BUDGET}-byte budget"
     );
-    // A classic worker script: no `import`, no `export`.
-    let source = module("k:/runtime/sw.js").expect("embedded").source;
+    // A classic worker script: no `import`, no `export`, in either half
+    // (`k build` puts the offline half first, docs/design/54-offline.md).
+    for path in ["k:/runtime/sw.js", "k:/runtime/sw-offline.js"] {
+        let source = module(path).expect("embedded").source;
+        assert!(
+            !source
+                .lines()
+                .any(|l| l.starts_with("import ") || l.starts_with("export ")),
+            "{path} is a classic script"
+        );
+    }
+}
+
+#[test]
+fn the_offline_chunk_meets_its_size_budget() {
+    let offline = compacted_sources(&[Part::Offline]).expect("compacts");
+    let size = gzip_len(&offline);
+    eprintln!(
+        "offline: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {OFFLINE_SIZE_BUDGET})",
+        raw_len(&[Part::Offline]),
+        offline.len()
+    );
     assert!(
-        !source
-            .lines()
-            .any(|l| l.starts_with("import ") || l.starts_with("export ")),
-        "sw.js is a classic script"
+        size <= OFFLINE_SIZE_BUDGET,
+        "the offline chunk is {size} bytes gzip, over the {OFFLINE_SIZE_BUDGET}-byte budget"
     );
 }
 
@@ -844,6 +863,7 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::KeyCodec
                 | Part::WakeLock
                 | Part::Environment
+                | Part::Offline
                 | Part::Observe
                 | Part::Media
                 | Part::Playback

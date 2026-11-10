@@ -232,7 +232,7 @@ A wrapper reaches Tier 1 when it is Baseline in all three engines (or degrades t
 | Printing (`window.print()`, `beforeprint`) | 2 | `PrintButton` (`k.ui`) | print styles are CSS media queries; the button needs no activation rule |
 | History, Navigation API | Not wrapping | the router ([12](12-routing.md)) | the router owns the URL; a second way to push history would desynchronize it |
 | IndexedDB | 2 | `Collections`, `Collection<Key, Value>`, `CollectionIndex<Field, Value>` (`k.storage`) | [52-indexed-collections.md](52-indexed-collections.md): names and shapes in `storage.lock`, async, indexes declared, compiler-owned additive upgrades; `navigator.storage.persist()`, `persisted()` and `estimate()` with them |
-| Cache API, service worker, offline, PWA manifest | 2 | `k build` generates the service worker; manifest from `metadata` ([22](22-metadata.md)) | precaches the hashed client chunks and shell; no user-written service worker code |
+| Cache API, service worker, offline, PWA manifest | 2 | `@Offline` on the `app`, `AppUpdates` (`k.device`); `k build` generates the service worker; manifest from `metadata` ([22](22-metadata.md)) | [54-offline.md](54-offline.md): precaches the hashed client chunks and shell, keeps server-rendered pages without a session; no user-written service worker code |
 | PWA install prompt (`beforeinstallprompt`) | 3 | `InstallButton` | Chromium only |
 | App badge (Badging API) | 3 | `AppBadge` | installed apps only, Chromium and WebKit |
 | Web Workers | 2 | K-typed workers (`k.concurrency`) | a `@Worker` service whose methods run off the main thread with `Codable` arguments and results, in a separate chunk; inline in `k test`. Needs its own design ([README](README.md)) |
@@ -427,7 +427,7 @@ public enum NotificationError implements Error, Equatable {
 
 - **The notification is shown by the operating system,** also while the tab is in the background, which is what local notifications are for: a timer finished, a long export is ready, a message arrived on an open stream.
 - **A click focuses the app's tab and navigates to `opens`,** a typed `Page` ([12-routing.md](12-routing.md)), or opens a new tab at that page if the app's tab was closed. There is no click callback: the notification can outlive the page that showed it, so a callback could have nowhere to run. Navigation is the one action that always can.
-- **Shown through a service worker.** Chromium on Android doesn't allow `new Notification()`, so the runtime always uses `ServiceWorkerRegistration.showNotification`. `k build` emits a minimal service worker (`k-sw.js`, only the `notificationclick` handler) for apps whose code reaches `Notifications`. The Tier 2 push and offline work extends the same worker.
+- **Shown through a service worker.** Chromium on Android doesn't allow `new Notification()`, so the runtime always uses `ServiceWorkerRegistration.showNotification`. `k build` emits a minimal service worker (`k-sw.js`, only the `notificationclick` handler) for apps whose code reaches `Notifications`. The Tier 2 push ([50](50-push.md)) and offline ([54](54-offline.md)) work extends the same worker.
 - **WebKit on iOS shows notifications only for an app added to the home screen,** so `isSupported` is `false` in a Safari tab there.
 - `SystemNotification` is `Codable` because a push message carries one (below).
 
@@ -452,7 +452,7 @@ emitted as `/k-sw.js`; `TestNotifications` in the test kit):
   in release). The page registers it on the first `show`, or after hydration when the permission is already
   granted.
 - **Besides `notificationclick`, the worker has `install` (`skipWaiting`) and `activate` (`clients.claim`),** and
-  still no `fetch` handler. Without them a new build's worker would wait for every tab of the app to close, and
+  still no `fetch` handler (an `@Offline` app's worker adds one, [54-offline.md](54-offline.md)). Without them a new build's worker would wait for every tab of the app to close, and
   a tab opened before the first registration couldn't be navigated by the worker.
 - **A click opens the page with the router when it can:** the worker focuses the app's tab (the focused one,
   else the most recent) and posts it the URL; the notifications chunk navigates client-side and answers. A tab

@@ -1,0 +1,2 @@
+@Offline
+public app Shop {}

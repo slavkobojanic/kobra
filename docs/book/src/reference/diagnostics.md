@@ -7098,6 +7098,51 @@ error[K4033]: `DataChannel` exists only in the browser, but `Calls` runs on the 
 
 **Fix:** Keep the stream, track, controller, meter, recording session, peer connection, sender or data channel in a client-only service, and send the server what it can store: a `Recording`'s `File` bytes, not the session; a call's signals go through the relay's channel.
 
+### K4034 `app-updates-without-offline`
+
+**Warning.** `AppUpdates` reports a newer build only in an `@Offline` app, whose service worker caches the build; without `@Offline` it is always `false`.
+
+Example (`tests/corpus/sema/app/offline/app-updates-without-offline/`):
+
+```k,ignore
+// App.k
+// `AppUpdates` reports a newer build only in an `@Offline` app: here it would always be `false`,
+// a warning whose fix makes the app `@Offline`.
+public app Shop {
+    metadata {
+        title("Shop")
+    }
+}
+```
+
+```k,ignore
+// src/ui/UpdateBanner.k
+import k.device.AppUpdates
+
+component UpdateBanner {
+    @Inject let updates: AppUpdates
+
+    view {
+        if updates.isAvailable {
+            button { "Reload" }
+                .on(click: updates.apply)
+        }
+    }
+}
+```
+
+```text
+warning[K4034]: `AppUpdates` never reports an update: `Shop` isn't `@Offline`, so nothing caches its build
+ --> src/ui/UpdateBanner.k:4:26
+  |
+4 |     @Inject let updates: AppUpdates
+  |                          ^^^^^^^^^^
+  |
+  = fix: Add `@Offline` to the app
+```
+
+**Fix:** Add `@Offline` to the app (the quick fix does this), so its service worker caches the build and announces the next one; or remove the `AppUpdates` field.
+
 ## K5000–K5499: Pages and routing
 
 ### K5001 `url-conflict`

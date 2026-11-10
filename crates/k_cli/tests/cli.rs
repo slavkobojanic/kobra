@@ -412,6 +412,75 @@ fn wait_for(port: u16, path: &str, needle: &str) -> bool {
     false
 }
 
+/// Starts `k <args> --port 0` in `dir` and returns it with the port it
+/// serves on.
+fn serving(args: &[&str], dir: &std::path::Path) -> (std::process::Child, u16) {
+    use std::io::BufRead;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
+        .args(args)
+        .args(["--port", "0"])
+        .current_dir(dir)
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let mut log = Vec::new();
+    let mut port = None;
+    for line in std::io::BufReader::new(stderr).lines() {
+        let Ok(line) = line else { break };
+        if let Some(rest) = line.strip_prefix("serving on http://localhost:") {
+            port = rest.trim().parse::<u16>().ok();
+            break;
+        }
+        log.push(line);
+    }
+    if port.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert!(port.is_some(), "k {args:?} did not start: {log:?}");
+    let port = port.unwrap();
+    (child, port)
+}
+
+/// `k dev` never serves a caching service worker, even with `--release`
+/// (docs/design/54-offline.md, "Development"): an `@Offline` app's
+/// `/k-sw.js` there has no list of files, so it caches nothing and deletes
+/// what a release worker cached on the same origin; `k run --release`
+/// serves the worker `k build` ships, with the build's files.
+#[test]
+fn dev_serves_an_offline_app_a_worker_that_caches_nothing() {
+    let dir = TempDir::new("dev_offline");
+    write(
+        &dir.0,
+        "k.toml",
+        "[package]\nname = \"hello\"\nk = \"0.1\"\n",
+    );
+    write(&dir.0, "App.k", "@Offline\npublic app Hello {}\n");
+    write(&dir.0, "src/home/Home.k", &dev_page("Offline"));
+    for (args, cached) in [
+        (&["dev", "--release"][..], false),
+        (&["dev"][..], false),
+        (&["run", "--release"][..], true),
+    ] {
+        let (mut child, port) = serving(args, &dir.0);
+        let worker = get(port, "/k-sw.js").unwrap_or_default();
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(worker.starts_with("HTTP/1.1 200"), "{args:?}: {worker}");
+        assert_eq!(
+            worker.contains("\"files\":["),
+            cached,
+            "{args:?} caches the build: {worker}"
+        );
+        assert_eq!(
+            worker.contains("self.kOffline = null"),
+            !cached,
+            "{args:?}: {worker}"
+        );
+    }
+}
+
 const DEV_APP: &str = "public app Hello {}\n";
 
 fn dev_page(text: &str) -> String {

@@ -501,7 +501,10 @@ pub(crate) fn client_files(
                     && !items.contains_key(d)
                     && feature_of(&module_path(g, *d), sym) == Some(i)
             });
-        if used {
+        // An `@Offline` app's entry loads the offline chunk whether or not
+        // anything injects `AppUpdates` (54-offline.md).
+        let offline = *stem == "offline" && g.offline() && g.options.entry == crate::Entry::App;
+        if used || offline {
             let text = crate::feature_chunk(specifier, profile, &runtime_name, &g.options.entry);
             let name = hashed(stem, "js", &text, profile);
             let mut file = OutputFile {
@@ -660,6 +663,12 @@ pub(crate) fn client_files(
         }
         if let Some(shared) = &shared_name {
             text = text.replace("$shared", &format!("./{shared}"));
+        }
+        if let Some((_, name)) = features
+            .iter()
+            .find(|(i, _)| FEATURE_CHUNKS[*i].0 == "offline")
+        {
+            text = text.replace(OFFLINE_CHUNK, &format!("./{name}"));
         }
         let name = hashed("app", "js", &text, profile);
         let mut file = OutputFile {
@@ -834,13 +843,20 @@ fn bind_deferred(stmts: &mut [Stmt], deferred: &[Deferred]) {
 
 /// The service worker `k-sw.js` (`k:/runtime/sw.js`, runtime.md §12.12)
 /// for a client that ships the notifications or the push chunk, which
-/// register it (docs/design/50-push.md):
-/// served at the site's root so its scope is the whole app, under a fixed
-/// name, since a registration is keyed by its script's URL, and
-/// compacted in a release build like the runtime. The browser installs a
-/// new worker when the bytes it fetches differ, so it carries no build
-/// hash. Empty for every other client (codegen.md §19).
+/// register it (docs/design/50-push.md), or for an `@Offline` app
+/// (docs/design/54-offline.md), whose entry does: served at the site's
+/// root so its scope is the whole app, under a fixed name, since a
+/// registration is keyed by its script's URL, and compacted in a release
+/// build like the runtime. Empty for every other client (codegen.md §19).
+///
+/// An `@Offline` app's worker starts with the build's list (`self.kOffline`,
+/// read by `k:/runtime/sw-offline.js`): `client` must be the final, linked
+/// files, since it names them. The browser installs a new worker when the
+/// bytes it fetches differ, so a new build is a new worker and a new cache,
+/// and a worker without the list carries no build hash. A development build
+/// (`k dev`, `k run`) sets the list to `null` ([`uncached_service_worker`]).
 pub(crate) fn service_worker(g: &Gen<'_>, client: &[OutputFile]) -> Option<OutputFile> {
+    let offline = g.offline() && g.options.entry == crate::Entry::App;
     let registers = FEATURE_CHUNKS
         .iter()
         .filter(|(_, specifier, _)| {
@@ -853,14 +869,25 @@ pub(crate) fn service_worker(g: &Gen<'_>, client: &[OutputFile]) -> Option<Outpu
             let prefix = format!("{stem}.");
             client.iter().any(|f| f.path.starts_with(&prefix))
         });
-    if !registers {
+    if !registers && !offline {
         return None;
     }
     let source = k_runtime::module("k:/runtime/sw.js")?.source;
-    let contents = if g.options.profile == Profile::Release {
-        k_runtime::compact(source).unwrap_or_else(|_| source.to_owned())
-    } else {
+    let text = if !offline {
         source.to_owned()
+    } else if g.options.profile == Profile::Development {
+        uncached_service_worker()
+    } else {
+        format!(
+            "self.kOffline = {};\n{}{source}",
+            offline_list(g, client),
+            k_runtime::module("k:/runtime/sw-offline.js")?.source
+        )
+    };
+    let contents = if g.options.profile == Profile::Release {
+        k_runtime::compact(&text).unwrap_or(text)
+    } else {
+        text
     };
     Some(OutputFile {
         path: SERVICE_WORKER.to_owned(),
@@ -868,6 +895,53 @@ pub(crate) fn service_worker(g: &Gen<'_>, client: &[OutputFile]) -> Option<Outpu
         kind: FileKind::JavaScript,
     })
 }
+
+/// The service worker of an `@Offline` app's development build: the
+/// caching half with no list (`self.kOffline = null`), which caches
+/// nothing, answers no request and deletes what a release worker cached on
+/// the same origin, then the notifications and push handlers. `k dev`
+/// serves it even with `--release` (54-offline.md, "Development").
+#[must_use]
+pub fn uncached_service_worker() -> String {
+    let part = |s: &str| k_runtime::module(s).map_or("", |m| m.source);
+    format!(
+        "self.kOffline = null;\n{}{}",
+        part("k:/runtime/sw-offline.js"),
+        part("k:/runtime/sw.js")
+    )
+}
+
+/// `self.kOffline`'s value for `client` (54-offline.md, "What is
+/// precached"): every client file below `/assets/` but the source maps, the
+/// entry chunk's path, the shell of a client-rendered app, and the cache's
+/// version, a hash of the list, so a new build is a new cache.
+fn offline_list(g: &Gen<'_>, client: &[OutputFile]) -> String {
+    let files: Vec<String> = client
+        .iter()
+        .filter(|f| f.kind != FileKind::SourceMap)
+        .map(|f| format!("/assets/{}", f.path))
+        .collect();
+    let build = client
+        .iter()
+        .find(|f| f.path.starts_with("app.") && f.kind == FileKind::JavaScript)
+        .map_or(String::new(), |f| format!("/assets/{}", f.path));
+    let shell = g.client_rendered().then_some("/");
+    let version = crate::hash::content_hash(files.join("\n").as_bytes());
+    // In alphabetical order, so the text is the same whether or not
+    // `serde_json` keeps insertion order (a feature another crate may turn
+    // on).
+    serde_json::json!({
+        "build": build,
+        "files": files,
+        "shell": shell,
+        "version": version,
+    })
+    .to_string()
+}
+
+/// The specifier an `@Offline` app's entry imports the offline chunk by,
+/// replaced by the chunk's name once it is known.
+pub(crate) const OFFLINE_CHUNK: &str = "$feature:offline";
 
 /// The service worker's name and URL path below the site's root.
 pub(crate) const SERVICE_WORKER: &str = "k-sw.js";
@@ -1079,6 +1153,7 @@ const FEATURE_CHUNKS: &[(&str, &str, &str)] = &[
     ("passkeys", "k:/runtime/passkeys.js", "k/auth"),
     ("collections", "k:/runtime/collections.js", "k/storage"),
     ("wakelock", "k:/runtime/wakelock.js", "k/device"),
+    ("offline", "k:/runtime/offline.js", "k/device"),
     ("environment", "k:/runtime/environment.js", "k/device"),
     ("media", "k:/runtime/media.js", "k/media"),
     ("rtc", "k:/runtime/rtc.js", "k/rtc"),

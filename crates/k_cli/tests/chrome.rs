@@ -534,6 +534,145 @@ fn todos_puts_its_description_and_manifest_in_the_head() {
     assert_manifest(&mut tab, "Todos");
 }
 
+/// Waits until the page is controlled by its service worker, which has by
+/// then cached the build (`install` finishes before the worker takes
+/// over; docs/design/54-offline.md).
+fn wait_controlled(tab: &mut Tab) {
+    tab.wait("the service worker controls the page", |t| {
+        (t.eval("(navigator.serviceWorker.controller || {}).scriptURL || null")
+            .as_str()
+            .is_some_and(|u| u.ends_with("/k-sw.js")))
+        .then_some(())
+    });
+}
+
+/// Takes the tab's network away as a disconnection does
+/// (`Network.emulateNetworkConditions`), and accepts the failed requests
+/// that follow (the browser's own update check of `/k-sw.js` among them).
+fn go_offline(tab: &mut Tab) {
+    tab.cdp.call("Network.enable", json!({}));
+    tab.cdp.call(
+        "Network.emulateNetworkConditions",
+        json!({ "offline": true, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1 }),
+    );
+    tab.allow_errors_from_now_on();
+}
+
+/// `@Offline` (docs/design/54-offline.md): once the static build's service
+/// worker has taken over, the app opens with the network gone and its host
+/// stopped, from the worker's cache, with the todos saved before, and still
+/// works.
+#[test]
+fn todos_opens_offline_from_its_service_worker() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("todos-offline");
+    let (site, mut tab) = todos(&dir);
+    wait_controlled(&mut tab);
+    let caches = tab.eval("caches.keys()");
+    assert!(
+        caches.as_array().is_some_and(|c| c
+            .iter()
+            .any(|n| n.as_str().is_some_and(|n| n.starts_with("k-")))),
+        "the build is cached: {caches}"
+    );
+    add_todo(&mut tab, "Buy milk");
+    tab.wait_text("1 item left");
+    drop(site);
+    go_offline(&mut tab);
+    tab.reload();
+    tab.role("textbox", "New todo");
+    tab.wait_text("Buy milk");
+    assert_eq!(tab.eval("navigator.onLine"), json!(false));
+    add_todo(&mut tab, "Walk the dog");
+    tab.wait_text("2 items left");
+    drop(tab);
+}
+
+/// A new build is found and offered (`AppUpdates`, 54-offline.md,
+/// "Updates"): the todos example is rebuilt into the directory its static
+/// host serves, with a changed empty-list message; the page's update check
+/// installs the new worker, which caches the new build and takes over, the
+/// open page shows "A new version of Todos is ready.", and "Reload" opens
+/// the new build.
+#[test]
+fn todos_offers_a_new_build_once_it_has_arrived() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("todos-update");
+    let project = dir.0.join("todos");
+    copy_example("todos", &project);
+    let dist = dir.0.join("dist");
+    let build = |project: &std::path::Path| {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_k"))
+            .arg("build")
+            .arg(project)
+            .arg("--out")
+            .arg(&dist)
+            .output()
+            .expect("k build runs");
+        assert!(
+            out.status.success(),
+            "k build: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    build(&project);
+    let site = StaticSite::serve(&dist);
+    let mut tab = tab!(dir);
+    tab.open(&format!("{}/", site.origin));
+    tab.wait_text("Nothing to do yet. Add your first todo above.");
+    wait_controlled(&mut tab);
+    let first = tab.eval("navigator.serviceWorker.controller.scriptURL");
+    let home = project.join("src/home/Home.k");
+    let text = std::fs::read_to_string(&home).unwrap();
+    std::fs::write(
+        &home,
+        text.replace(
+            "Nothing to do yet. Add your first todo above.",
+            "Nothing to do yet. What's first?",
+        ),
+    )
+    .unwrap();
+    build(&project);
+    assert!(
+        !tab.visible_text()
+            .contains("A new version of Todos is ready."),
+        "no banner before the update check"
+    );
+    tab.eval(
+        "navigator.serviceWorker.getRegistration('/').then((r) => r.update()).then(() => true)",
+    );
+    tab.wait_text("A new version of Todos is ready.");
+    tab.wait_text("Nothing to do yet. Add your first todo above.");
+    let reload = tab.role("button", "Reload");
+    let since = tab.cdp.events.len();
+    tab.click(&reload);
+    tab.cdp
+        .wait_event("Page.loadEventFired", since, Duration::from_secs(30))
+        .expect("Reload reloads the page");
+    tab.wait_text("Nothing to do yet. What's first?");
+    assert!(
+        !tab.visible_text()
+            .contains("A new version of Todos is ready."),
+        "the new build has no newer one"
+    );
+    assert_eq!(
+        tab.eval("navigator.serviceWorker.controller.scriptURL"),
+        first,
+        "the same worker URL, a new worker"
+    );
+    let caches = tab.eval("caches.keys()");
+    assert_eq!(
+        caches.as_array().map(Vec::len),
+        Some(2),
+        "the new build's cache and the one before: {caches}"
+    );
+    drop(tab);
+}
+
 // ================================================================== kanban
 
 /// The kanban example's static build, a tab on its home page, and a board
@@ -1282,6 +1421,36 @@ fn weather_shows_recent_places_after_hydration_without_moving_the_server_parts()
 }
 
 /// The app's manifest is linked and served (weather-F).
+/// `@Offline` keeps the last forecast (docs/design/54-offline.md): Berlin's
+/// dashboard, loaded once the service worker controls the tab, is kept, and
+/// opens again with the server and Open-Meteo stopped and the network gone,
+/// showing the forecast it had.
+#[test]
+fn weather_shows_the_last_forecast_offline() {
+    let dir = Scratch::new("weather-offline");
+    let mut tab = tab!(dir);
+    let w = weather(&dir, &mut tab);
+    open_berlin(&mut tab, &w);
+    wait_controlled(&mut tab);
+    tab.reload();
+    tab.wait("Berlin's page is kept", |t| {
+        (t.eval("(async () => { for (const n of await caches.keys()) if (n.endsWith('-pages') && (await (await caches.open(n)).keys()).some((r) => r.url.endsWith('/city-weather/2950159'))) return true; return false; })()")
+            == json!(true))
+        .then_some(())
+    });
+    let Weather {
+        _fake: fake, _k: k, ..
+    } = w;
+    drop(k);
+    drop(fake);
+    go_offline(&mut tab);
+    tab.reload();
+    tab.role("heading", "Berlin, Land Berlin, Germany");
+    tab.wait_text("3°C");
+    assert_eq!(tab.path(), "/city-weather/2950159");
+    drop(tab);
+}
+
 #[test]
 fn weather_links_and_serves_its_manifest() {
     let dir = Scratch::new("weather-manifest");
@@ -2818,6 +2987,50 @@ fn rtc_replace_swaps_the_camera_without_renegotiating_in_chrome() {
 // stdlib against real browsers") needs a network namespace to drop them
 // in; macOS has none, so it isn't here. `rtc.test.js` and `examples/call`'s
 // tests restart ICE over the in-process engine.
+
+// ================================================================= offline
+
+/// The `offline` fixture (a server-rendered `@Offline` app,
+/// docs/design/54-offline.md) under `k run --release`, whose worker keeps
+/// each page it serves: the start page, loaded once the worker controls the
+/// tab, opens again with the server stopped and the network gone, and its
+/// rpc then fails with the typed `rpcFailure(.offline)`, which the page
+/// explains, as it does without a worker.
+#[test]
+fn offline_page_is_kept_and_its_rpc_fails_offline_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("offline-rpc");
+    copy_project(&repo().join("crates/k_cli/tests/fixtures/offline"), &dir.0);
+    let (k, port) = Proc::serve(&["run"], 1, &dir.0, &[], &[], Duration::from_secs(120));
+    let origin = format!("http://localhost:{port}");
+    let mut tab = tab!(dir);
+    tab.open(&format!("{origin}/"));
+    tab.role("heading", "Offline fixture");
+    wait_controlled(&mut tab);
+    // The first load came before the worker; this one goes through it.
+    tab.reload();
+    tab.wait("the page is kept for offline use", |t| {
+        (t.eval("(async () => { for (const n of await caches.keys()) if (n.endsWith('-pages') && (await (await caches.open(n)).keys()).length) return true; return false; })()")
+            == json!(true))
+        .then_some(())
+    });
+    let ask = tab.role("button", "Ask the server");
+    tab.wait_handles_click(&ask);
+    tab.click(&ask);
+    tab.wait_text("Hello from the server");
+    drop(k);
+    go_offline(&mut tab);
+    tab.reload();
+    tab.role("heading", "Offline fixture");
+    tab.wait_text("Rendered by the server.");
+    let ask = tab.role("button", "Ask the server");
+    tab.wait_handles_click(&ask);
+    tab.click(&ask);
+    tab.wait_text("The server can't be reached: you're offline.");
+    drop(tab);
+}
 
 // ==================================================================== push
 

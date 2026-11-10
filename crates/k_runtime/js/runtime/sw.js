@@ -6,7 +6,9 @@
  * at the site's root for an app whose client ships the notifications
  * chunk (codegen.md §19). A classic worker script: no imports, no app
  * code, and no `fetch` handler, so it never stands between the app and
- * the network. The offline work (Tier 2) will extend it.
+ * the network. An `@Offline` app's worker has `runtime/sw-offline.js`
+ * before it (docs/design/54-offline.md), which caches the build and
+ * answers its files and navigations; this file stays the same.
  *
  * - `install` and `activate` take over at once (`skipWaiting`,
  *   `clients.claim`), so a new build's worker replaces the old one without

@@ -45,7 +45,8 @@ public service ReminderService {
   on iOS, which shows notifications only for an app added to the home screen.
 
 The browser shows notifications through a service worker. `k build` writes one, `k-sw.js`, next to
-`index.html` in `dist/public` for every app whose code reaches `Notifications`, and `k run`, `k dev`
+`index.html` in `dist/public` for every app whose code reaches `Notifications` (and for every
+[`@Offline`](offline.md) app), and `k run`, `k dev`
 and `dist/app` serve it at `/k-sw.js`. Serve it from the site's root, as the build lays it out: a
 worker served from a deeper path can't open the app's pages.
 

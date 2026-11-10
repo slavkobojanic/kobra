@@ -468,6 +468,23 @@ impl<'a> Gen<'a> {
         })
     }
 
+    /// `true` when the app is `@Offline` (54-offline.md): `k build`
+    /// generates its caching service worker and its entry registers it.
+    pub(crate) fn offline(&self) -> bool {
+        self.own.iter().any(|&d| {
+            self.view.decl(d).named_kind() == Some(DeclarationKind::App)
+                && self.decl_node(d).is_some_and(|n| {
+                    n.children()
+                        .filter(|c| c.kind() == SyntaxKind::Annotation)
+                        .any(|a| {
+                            let t = a.text().to_string();
+                            t.trim_start_matches('@').trim() == "Offline"
+                                || t.starts_with("@Offline(")
+                        })
+                })
+        })
+    }
+
     /// `true` for a component marked `@Rendering(.client)` in an app that
     /// renders on the server: the server renders its `loading` block and
     /// the browser swaps in its `view` after hydration

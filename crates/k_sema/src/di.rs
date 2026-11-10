@@ -825,6 +825,13 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
             if let Injectable::Protocol(proto) = &what {
                 missing_remote_rule(cx, kind, decl.file, range, *proto);
             }
+            if kind != Some(K::TestSuite)
+                && ty
+                    .decl()
+                    .is_some_and(|t| is_named(cx, t, "k.device.AppUpdates"))
+            {
+                app_updates_without_offline(cx, decl.file, range);
+            }
             if kind == Some(K::Service) {
                 let via = match what {
                     Injectable::Interface(i) => Some(i),
@@ -868,6 +875,39 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
     }
     cycles(cx, &edges);
     use_rules(cx);
+}
+
+/// K4034 for `AppUpdates` injected in an app that isn't `@Offline`
+/// (54-offline.md): nothing caches the build, so no update is ever
+/// reported. The fix adds `@Offline` to the app.
+fn app_updates_without_offline(cx: &Cx<'_, '_>, file: FileIx, range: TextRange) {
+    let Some(app) = app_decl(cx) else { return };
+    let node = &cx.p.decl(app).node;
+    if node
+        .children()
+        .filter_map(ast::Annotation::cast)
+        .any(|a| a.name().is_some_and(|n| n.text() == "Offline"))
+    {
+        return;
+    }
+    let at = crate::program::first_token_range(node).start();
+    let app_file = cx.p.decl(app).file;
+    cx.report(
+        file,
+        Diagnostic::new(
+            codes::APP_UPDATES_WITHOUT_OFFLINE,
+            cx.p.span(file, range),
+            format!(
+                "`AppUpdates` never reports an update: `{}` isn't `@Offline`, so nothing caches its build",
+                cx.p.decl(app).name
+            ),
+        )
+        .with_fix(k_diagnostics::Fix::replace(
+            "Add `@Offline` to the app",
+            k_diagnostics::Span::empty(cx.p.file(app_file).id, at),
+            "@Offline\n",
+        )),
+    );
 }
 
 /// The layering table (K4005); returns `false` when reported.

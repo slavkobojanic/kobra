@@ -291,7 +291,7 @@ library is documented, reviewable K and the checker has no second declaration fo
 
 | Module | Contents (selection) | Design |
 |---|---|---|
-| `k.core` (the prelude) | `Int`, `Double`, `Decimal`, `Bool`, `String`, `Bytes`, `Url`, `Void`, `Optional`, `Result`, `List`, `Map`, `Set`, ranges, `Stream`, `Binding`, `Builder`, `View`, `Error`, `Equatable`, `Hashable`, `Comparable`, `Codable`, `Copyable`, units (`Length`, `Duration`, `Angle`, `Percent`, `Color`, `Spacing`, `Radius`, `FontSize`, `Font`), `Date`, `DateStyle`, `NumberStyle`, `Money`, `Currency`, `RoundingRule`, `Secret`, `ConfigValue`, `Environment`, `Page`, `Endpoint`, `ThemeVariant`, `MediaCondition`, `Event`, `Classes`, framework annotations (`@Prop`, `@Binding`, `@State`, `@Derived`, `@Effect`, `@Load`, `@Emits`, `@Slot`, `@Stylable`, `@Inject`, `@Param`, `@Scope`, `@Env`, `@Get`/`@Post`/`@Put`/`@Patch`/`@Delete`, `@Layout`, `@NoLayout`, `@Rendering`, `@SignInPage`, `@Breaking`), `LoadState`, `onCleanup`, `untracked`, `global` | 08, 20 |
+| `k.core` (the prelude) | `Int`, `Double`, `Decimal`, `Bool`, `String`, `Bytes`, `Url`, `Void`, `Optional`, `Result`, `List`, `Map`, `Set`, ranges, `Stream`, `Binding`, `Builder`, `View`, `Error`, `Equatable`, `Hashable`, `Comparable`, `Codable`, `Copyable`, units (`Length`, `Duration`, `Angle`, `Percent`, `Color`, `Spacing`, `Radius`, `FontSize`, `Font`), `Date`, `DateStyle`, `NumberStyle`, `Money`, `Currency`, `RoundingRule`, `Secret`, `ConfigValue`, `Environment`, `Page`, `Endpoint`, `ThemeVariant`, `MediaCondition`, `Event`, `Classes`, framework annotations (`@Prop`, `@Binding`, `@State`, `@Derived`, `@Effect`, `@Load`, `@Emits`, `@Slot`, `@Stylable`, `@Inject`, `@Param`, `@Scope`, `@Env`, `@Get`/`@Post`/`@Put`/`@Patch`/`@Delete`, `@Layout`, `@NoLayout`, `@Rendering`, `@Offline`, `@SignInPage`, `@Breaking`), `LoadState`, `onCleanup`, `untracked`, `global` | 08, 20 |
 | `k.ui` | `Theme` (with `apply(_:)`), `Router`, `Stack`, `Grid`, `Spacer`, `Icon`, `IconName`, `ErrorBoundary`, `VisuallyHidden`, `Locale`, `AriaRole`, `ButtonType`, `ImageLoading`, `Axis`, `MetadataEntries`, `StructuredData` | 04, 05, 07, 22 |
 | `k.http` | `HttpClient`, `FetchHttpClient`, `HttpRequest`, `HttpResponse`, `HttpMethod`, `HttpHeaders`, `HttpBody`, `HttpStatus` (enum with `.other(Int)`), `HttpError`, `DecodingError`, `IncomingRequest`, `WebSocketClient`, `StandardWebSocketClient`, `WebSocketRequest`, `WebSocket`, `WebSocketMessage`, `WebSocketState`, `WebSocketError` | 32, 27, 44 |
 | `k.time` | `Clock` (a stdlib service: `now`, `sleep(for:)`, `every(_:_:)`, `after(_:_:)`), `TimerHandle`, `TimeZone`, `TimeOfDay`, `Weekday`, `Backoff` (the channels' reconnect delays) | 35, 44 |
@@ -876,7 +876,9 @@ Accessibility lints beyond required accessible names are **deferred**.
   a help to put it on each page that renders in the layout; its guards aren't resolved
   (`routing.rs`, `guard_on_layout`).
 - **Layouts and app attributes:** `@Layout(X)`, `@NoLayout`, `@SignInPage(.signIn)` (a `Page` value),
-  `@Rendering(...)` are type-checked like any annotation.
+  `@Rendering(...)` and `@Offline` (the `app` only, K3002 elsewhere) are type-checked like any annotation.
+  `AppUpdates` injected in an app that isn't `@Offline` is the warning K4034 (`di::check`,
+  [54-offline.md](../design/54-offline.md#updates)).
 - **`routes.lock`** (the URL of every page and endpoint, and the redirects) is written by `k build` and
   compared by `k check`; both live in `k_codegen` (`routelock.rs`), next to the route table the server
   uses (§12.16).

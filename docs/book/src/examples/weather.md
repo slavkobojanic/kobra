@@ -32,6 +32,7 @@ weather/
 ```k
 // examples/weather/App.k
 @Layout(Dashboard)
+@Offline
 public app Weather {
     metadata {
         manifest(name: "Weather", shortName: "Weather")
@@ -40,6 +41,10 @@ public app Weather {
     }
 }
 ```
+
+`@Offline` keeps the last forecast: the service worker caches the build's files and each page the
+browser loads through it, so a place viewed before opens without a network, showing the forecast it had
+and when it was updated ([Offline and installable apps](../apps/offline.md)).
 
 ## The network boundary
 

@@ -606,7 +606,9 @@ test("the app's manifest is linked from the head and served", async () => {
   const r = await app(req("GET", "/manifest.webmanifest"));
   assertEq(r.status, 200);
   assertEq(header(r, "content-type"), "application/manifest+json");
-  assertDeepEq(JSON.parse(text(r)), { name: "Weather", short_name: "Weather", start_url: "/", display: "standalone", theme_color: "#0EA5E9" });
+  assertDeepEq(JSON.parse(text(r)), { id: "/", name: "Weather", short_name: "Weather", start_url: "/", scope: "/", display: "standalone", theme_color: "#0EA5E9" });
+  const iconic = createApp(spec({ appMeta: (m) => { m.manifest("Shop", "Shop"); m.icon("/icons/shop.svg"); } }));
+  assertDeepEq(JSON.parse(text(await iconic(req("GET", "/manifest.webmanifest")))).icons, [{ src: "/icons/shop.svg", sizes: "any", type: "image/svg+xml" }]);
   const none = createApp(spec());
   assert(!text(await none(req("GET", "/product/5"))).includes('rel="manifest"'), "no link without a manifest");
   assertEq((await none(req("GET", "/manifest.webmanifest"))).status, 404);

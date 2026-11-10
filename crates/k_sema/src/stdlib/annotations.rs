@@ -156,6 +156,7 @@ pub const ANNOTATIONS: &[AnnotationDef] = &[
     def("k.core.Layout", &[T::Page, T::App], Any, "12-routing.md"),
     def("k.core.Load", &[T::ViewField], Let, "14-async-data.md"),
     def("k.core.NoLayout", &[T::Page], Any, "23-app-structure.md"),
+    def("k.core.Offline", &[T::App], Any, "54-offline.md"),
     def("k.core.Param", &[T::PageField], Let, "12-routing.md"),
     def(
         "k.core.Patch",

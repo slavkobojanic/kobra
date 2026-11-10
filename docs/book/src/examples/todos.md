@@ -38,6 +38,7 @@ Dependencies point one way: `home` imports `todo` and `ui`; nothing imports `hom
 ```k
 // examples/todos/App.k
 @Rendering(.client)
+@Offline
 public app Todos {
     metadata {
         manifest(name: "Todos", shortName: "Todos")
@@ -50,6 +51,9 @@ public app Todos {
 Local storage exists only in the browser, so a server-rendered page would show an empty list and then
 jump to the saved one. `@Rendering(.client)` turns server rendering off, and with no server-only code
 `k build` emits static files only (see [The app declaration](../apps/app.md)).
+
+`@Offline` makes the app open without a network: `k build` adds a service worker that keeps the build's
+files and its one document in the browser ([Offline and installable apps](../apps/offline.md)).
 
 There are no `use` rules: `LocalStorage` has exactly one production implementation, `BrowserStorage`,
 so it is injected automatically, and `k test` installs `MemoryStorage` in its place.
@@ -161,6 +165,8 @@ ones (`toolbar`, `actions`); `TodoList` has a scoped slot, `row`, that the page 
 ```k
 // examples/todos/src/home/Home.k
 Panel(title: "Todos") {
+    UpdateNotice()
+
     NewTodoField()
 
     if let problem = todos.problem {
@@ -248,6 +254,38 @@ browsers run a background tab's timers anyway. The effect reads only `hasPending
 reminder is set and stops once the last one is out. Reminders live as long as the tab: they aren't
 saved with the todos. `k build` writes the service worker that shows them, `dist/public/k-sw.js`, next
 to `index.html`.
+
+## Working offline
+
+Once the service worker has cached the build, todos opens with the network gone: every file comes from
+the browser's cache, and the todos from local storage. A new deploy is fetched in the background, and
+`UpdateNotice`, at the top of the panel, offers it:
+
+```k
+// examples/todos/src/home/UpdateNotice.k
+component UpdateNotice {
+    @Inject let updates: AppUpdates
+
+    view {
+        if updates.isAvailable {
+            box {
+                paragraph { "A new version of Todos is ready." }
+                    .class(.message)
+
+                button { "Reload" }
+                    .on(click: updates.apply)
+            }
+            .role(.status)
+            .class(.notice)
+        }
+    }
+// ...
+}
+```
+
+`AppUpdates.isAvailable` turns `true` once the new build's worker has taken over, and `apply()` reloads
+into it. Nothing is lost: the todos are in local storage. `UpdateNotice.test.k` announces a build with
+`TestAppUpdates`.
 
 ## The theme switch
 

@@ -37,6 +37,7 @@ The code follows the decisions in [`docs/design`](../../docs/design/README.md) (
 | `@Load(keepOnReload: true)`: the periodic refresh keeps the place and fetches only the forecast and air quality | [`pages/CityWeather.k`](src/pages/CityWeather.k) |
 | Typed local storage: a `StorageKey` recorded in [`storage.lock`](storage.lock) | [`weather/RecentPlaces.k`](src/weather/RecentPlaces.k) |
 | `App.k`: the app-wide default layout and metadata | [`App.k`](App.k) |
+| `@Offline` for the last forecast: the service worker keeps the build's files and each server-rendered page it loads, so a place viewed before opens without a network, with its "Updated …" time | [`App.k`](App.k) |
 | Tests that inject fakes with `use X for Y`: an app-written `HttpClient` that can also simulate timeouts and dropped connections, and a fake `WeatherService` for pages and components | [`weather/WeatherService.test.k`](src/weather/WeatherService.test.k), [`pages/CityWeather.test.k`](src/pages/CityWeather.test.k), [`components/CitySearch.test.k`](src/components/CitySearch.test.k) |
 | Fixtures as static members of `public extend` blocks in a test-only module (`.berlin`, `Forecast.sample(units:)`) | [`testing/Samples.k`](src/testing/Samples.k) |
 | Virtual time with the default `TestClock`, reached with `@Inject` and no `use` line (debounce, parallel loading, the 10-minute refresh) | [`components/CitySearch.test.k`](src/components/CitySearch.test.k), [`pages/CityWeather.test.k`](src/pages/CityWeather.test.k) |
@@ -158,6 +159,7 @@ Besides the core topics (components, views, styles, reactivity, routing), the ex
 | [`09-errors.md`](../../docs/design/09-errors.md) | Typed throws, exhaustive `catch`, translating errors at a layer boundary |
 | [`14-async-data.md`](../../docs/design/14-async-data.md) | `@Load`, `loading`, `failed`, `reload()`, `keepOnReload`, keeping the view during a refresh, `status(.notFound)`, the page `metadata` skipped when `failed` renders |
 | [`47-client-rendered-components.md`](../../docs/design/47-client-rendered-components.md) | `@Rendering(.client)` on `RecentPlacesList`, its `loading` block |
+| [`54-offline.md`](../../docs/design/54-offline.md) | `@Offline`: the generated service worker, network-first server-rendered pages kept for offline use |
 | [`45-web-platform.md`](../../docs/design/45-web-platform.md) | `Geolocation`, `PermissionState`, `@UserAction`, the server-rendering rule for `isSupported` and `permission`, `TestGeolocation` |
 | [`36-local-storage.md`](../../docs/design/36-local-storage.md) | `LocalStorage`, `StorageKey`, `storage.lock`, `MemoryStorage` in tests |
 | [`07-themes-and-units.md`](../../docs/design/07-themes-and-units.md) | The theme, `variant dark matches .prefersDark`, overriding library tokens by assignment |

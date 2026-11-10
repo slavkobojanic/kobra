@@ -770,6 +770,9 @@ codes! {
     /// A browser-only stdlib type (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`, `PeerConnection`, `MediaSender`, `DataChannel`) is named in a server-only declaration.
     CLIENT_ONLY_ON_SERVER = 4033, "client-only-on-server", Error,
         "A browser-only stdlib type (`MediaStream`, `MediaTrack`, `MediaController`, `AudioMeter`, `RecordingSession`, `PeerConnection`, `MediaSender`, `DataChannel`) is named in a server-only declaration.";
+    /// `AppUpdates` is injected in an app that isn't `@Offline`, where it never reports an update.
+    APP_UPDATES_WITHOUT_OFFLINE = 4034, "app-updates-without-offline", Warning,
+        "`AppUpdates` reports a newer build only in an `@Offline` app, whose service worker caches the build; without `@Offline` it is always `false`.";
 
     // ---------------------------------------------------------------- pages and routing
     /// Two pages or endpoints have the same URL.

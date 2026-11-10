@@ -3,10 +3,11 @@
 
 # `k.device`
 
-Import each declaration by name, for example `import k.device.BrowserClipboard`.
+Import each declaration by name, for example `import k.device.AppUpdates`.
 
 | Declaration | Summary |
 |---|---|
+| [`AppUpdates`](#appupdates) | Whether a newer build of an `@Offline` app is ready (`docs/design/54-offline.md`, "Updates"). |
 | [`BrowserClipboard`](#browserclipboard) | The standard [`Clipboard`](#clipboard): the browser's asynchronous clipboard (`navigator.clipboard`). |
 | [`BrowserFiles`](#browserfiles) | The standard [`Files`](#files): the browser's file picker (an `input` of type `file`) and downloads through an object URL. |
 | [`BrowserGeolocation`](#browsergeolocation) | The standard [`Geolocation`](#geolocation): the browser's Geolocation API (`navigator.geolocation`), with the permission read from the Permissions API. |
@@ -50,6 +51,33 @@ Import each declaration by name, for example `import k.device.BrowserClipboard`.
 | [`Viewport`](#viewport) | The layout viewport and the primary pointer (`docs/design/45-web-platform.md`, "Viewport"), for decisions CSS can't make; layout by width belongs in style blocks' media and container queries. |
 | [`ViewportSize`](#viewportsize) | The size of the layout viewport, [`Viewport.size`](#viewport). |
 | [`WakeLockFailure`](#wakelockfailure) | Why a [`KeepScreenAwake`](#keepscreenawake) couldn't keep the screen on (`docs/design/45-web-platform.md`, "KeepScreenAwake"). |
+
+## AppUpdates
+
+```k,ignore
+public service AppUpdates
+```
+
+Whether a newer build of an `@Offline` app is ready
+(`docs/design/54-offline.md`, "Updates"). A stdlib service in `.app`
+scope, usable on both sides: inject it with
+`@Inject let updates: AppUpdates`, and [`k.test.TestAppUpdates`](k-test.md#testappupdates)
+replaces it in tests.
+
+An offline app opens from the build its service worker cached. When
+the browser finds a new build, the new worker caches it and takes over,
+and `isAvailable` turns `true` in every tab still running the old one:
+the place for a "New version: reload" banner.
+
+**Members**
+
+- `var isAvailable: Bool`
+  `true` once a newer build than the one this page runs has taken
+  over. Reactive. `false` during server rendering, in an app without
+  `@Offline`, and under `k dev`, which never caches.
+- `func apply()`
+  Loads the newest build: reloads the page. Nothing happens on the
+  server.
 
 ## BrowserClipboard
 

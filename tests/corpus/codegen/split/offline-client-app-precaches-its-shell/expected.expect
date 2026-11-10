@@ -1,0 +1,8 @@
+# docs/design/54-offline.md, "What is precached": a client-rendered `@Offline` app's worker also
+# keeps its document, the shell every URL answers, so every page opens offline. Nothing injects
+# `AppUpdates`, and the entry still loads the offline chunk to register the worker.
+client contains // file: offline.[hash].js
+client contains import("./offline.[hash].js").then((m) => m.startOffline(import.meta.url));
+root contains // file: k-sw.js
+root contains "shell":"/"
+root contains addEventListener("fetch"

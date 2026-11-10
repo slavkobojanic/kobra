@@ -66,6 +66,7 @@ mod suite;
 mod ui;
 mod view;
 
+pub use bundle::uncached_service_worker;
 pub use lockfiles::{project_diagnostics, routes_lock, schema_diagnostics, schema_lock};
 pub use migration::{
     MigrationDraft, MigrationError, MigrationPlan, MigrationRequest, plan_migration,
@@ -557,14 +558,6 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
     }
     output.client = bundle::client_files(g, &client, &pages, entry, &from_server);
     output.client.extend(css::files(g));
-    // The service worker that shows notifications and opens their pages
-    // (45-web-platform.md, "Notifications"), for a client that ships the
-    // notifications chunk.
-    if !tests {
-        output
-            .root
-            .extend(bundle::service_worker(g, &output.client));
-    }
     // An app's release client is shaken, minified and renamed as a whole
     // (codegen.md §17).
     if bundle::linked(g) {
@@ -574,6 +567,15 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
             &mut output.server,
         );
         output.client = link::link(std::mem::take(&mut output.client));
+    }
+    // The service worker that shows notifications and opens their pages
+    // (45-web-platform.md, "Notifications"), for a client that ships the
+    // notifications or push chunk, and caches an `@Offline` app's build
+    // (54-offline.md), which it lists by the linked files' names.
+    if !tests {
+        output
+            .root
+            .extend(bundle::service_worker(g, &output.client));
     }
     // The server entry names the hashed client files it links.
     if let Some(entry) = &output.server_entry {

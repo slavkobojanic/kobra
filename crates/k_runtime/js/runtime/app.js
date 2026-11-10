@@ -1467,20 +1467,36 @@ export class Metadata {
 /** Where the app's web app manifest is served (22-metadata.md). */
 const MANIFEST_PATH = "/manifest.webmanifest";
 
+/** The media types of the icon files a manifest names, by extension. */
+const ICON_TYPES = { svg: "image/svg+xml", png: "image/png", webp: "image/webp", ico: "image/x-icon" };
+
 /**
  * The web app manifest of the app's `manifest(name:shortName:)`, or `null`
- * when it declares none: the names, the start URL and a standalone
- * display, with the `themeColor` when the app sets one. `k build` writes
- * the same file next to a static app's `index.html`.
+ * when it declares none: the names, the app's identity, scope and start
+ * URL (the site's root), a standalone display, with the `themeColor` and
+ * the `icon` when the app sets them (54-offline.md, "The manifest"); an
+ * icon's `sizes` is `any` and its `type` follows its extension. `k build`
+ * writes the same file next to a static app's `index.html`.
  */
 function manifestResponse(spec) {
   const meta = new Metadata();
   spec.appMeta?.(meta);
   const m = meta.entries;
   if (m.manifest === undefined) return null;
-  const body = { name: String(m.manifest.name), short_name: String(m.manifest.shortName), start_url: "/", display: "standalone" };
+  const body = {
+    id: "/",
+    name: String(m.manifest.name),
+    short_name: String(m.manifest.shortName),
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+  };
   if (m.themeColor !== undefined) body.theme_color = String(m.themeColor);
-  if (m.icon !== undefined) body.icons = [{ src: String(m.icon) }];
+  if (m.icon !== undefined) {
+    const src = String(m.icon);
+    const type = ICON_TYPES[src.split("?")[0].split("#")[0].split(".").pop().toLowerCase()];
+    body.icons = [{ src, sizes: "any", ...(type ? { type } : {}) }];
+  }
   return respond(200, "application/manifest+json", JSON.stringify(body), [["cache-control", "no-cache"]]);
 }
 
@@ -2401,14 +2417,17 @@ export function serverPreferences(st) {
 }
 
 /**
- * The server's `k.device.PageVisibility`, `Connectivity` and `Viewport`
- * (45-web-platform.md): during server rendering the page is visible and
- * online, and the viewport and pointer are unknown (`nil`).
+ * The server's `k.device.PageVisibility`, `Connectivity`, `Viewport` and
+ * `AppUpdates` (45-web-platform.md, 54-offline.md): during server
+ * rendering the page is visible and online, no newer build is waiting
+ * (`apply()` does nothing), and the viewport and pointer are unknown
+ * (`nil`).
  * @param {string} name the service's name
  */
 export function serverEnvironment(name) {
   if (name === "PageVisibility") return { isVisible: true };
   if (name === "Connectivity") return { isOnline: true };
+  if (name === "AppUpdates") return { isAvailable: false, apply() {} };
   return { size: null, pointer: null, canHover: null };
 }
 
