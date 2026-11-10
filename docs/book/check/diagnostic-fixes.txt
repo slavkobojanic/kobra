@@ -87,6 +87,7 @@ K2016: Move the stored field into the type's declaration, or make it a computed 
 K2017: Unwrap the value first: `?.`, `if let`, `guard let` or `??`.
 K2018: Remove the `?.` or `??`; the value is never `nil`.
 K2019: Rename one of the fields, properties or cases.
+K2020: Give one type argument per generic parameter, or remove them where the name isn't generic.
 K2101: Convert to one dimension, or keep the quantities apart.
 K2201: Add `try` before the call (machine-applicable fix).
 K2202: Remove the `try` (machine-applicable fix).
@@ -238,6 +239,7 @@ K5510: Open one channel per subject and hold each in its own field or local of t
 K5511: Open the channel and use its `state`, `messages`, `send` and `close` from a client service; on the server, only a channel rpc's handler builds a `Channel` and returns it.
 K5512: Build the `Channel(sending:receiving:)` in the handler of the channel rpc and return it; a client test uses `TestChannel` instead.
 K5513: Open the channel from an `@Effect`, which runs only in the browser, not from a `@Load`.
+K5514: Declare one rpc per concrete type, or wrap the variants in an enum the rpc takes or returns.
 K6001: Use only fields, literals, parameters and the query operators the compiler translates; filter in K after loading if needed.
 K6002: Use a column type (`String`, `Int`, `Bool`, `Double`, `Decimal`, `Money`, `Date`, `Uuid`, an enum without payloads, …) or a `@Relation`.
 K6003: Rename the entity, or set another table name.

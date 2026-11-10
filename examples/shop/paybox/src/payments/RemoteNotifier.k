@@ -17,7 +17,7 @@ public service RemoteNotifier implements MerchantNotifier {
     @Inject let service: ServiceConfig
 
     func chargeSucceeded(_ charge: Charge, at callbackUrl: Url) async -> RpcFailure? {
-        let events: PaymentEvents = RemoteClient.at(url: callbackUrl, token: config.token ?? service.token, timeout: config.timeout)
+        let events = RemoteClient.at<PaymentEvents>(url: callbackUrl, token: config.token ?? service.token, timeout: config.timeout)
 
         do {
             try await events.chargeSucceeded(charge: charge)
@@ -29,7 +29,7 @@ public service RemoteNotifier implements MerchantNotifier {
     }
 
     func chargeRefunded(_ refund: Refund, at callbackUrl: Url) async -> RpcFailure? {
-        let events: PaymentEvents = RemoteClient.at(url: callbackUrl, token: config.token ?? service.token, timeout: config.timeout)
+        let events = RemoteClient.at<PaymentEvents>(url: callbackUrl, token: config.token ?? service.token, timeout: config.timeout)
 
         do {
             try await events.chargeRefunded(refund: refund)

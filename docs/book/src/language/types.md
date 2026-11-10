@@ -137,6 +137,70 @@ let names = ["Ana", "Ben"]               // List<String>
 let empty: List<String> = []             // the element type must be given
 ```
 
+## Generics
+
+Functions, structs, enums, classes, interfaces and components can take type parameters (see
+[Generics](declarations.md#generics)). Type arguments are inferred, and can be written after the name
+when inference has nothing to go on:
+
+```k
+~import k.crypto.AesGcmKey
+~import k.crypto.KeyName
+~import k.crypto.Sealed
+~import k.encoding.Json
+~import k.http.DecodingError
+~
+~struct Note implements Codable {
+~    let text: String
+~}
+~
+~func example(text: String, words: List<String>) throws DecodingError {
+let vault = KeyName<AesGcmKey>(name: "vault")     // a generic type's initializer
+let note = try Json.decode<Note>(text)            // a generic function
+let sealed = Sealed<Note>.parse(text)             // a static member of a generic type
+let lengths = words.map<Int> { word => word.count }
+~}
+```
+
+Explicit type arguments give one type per parameter (`K2020` otherwise) and are checked against the
+parameters' `where` constraints, like inferred ones.
+
+**Collections of a narrower type are accepted where they can't change.** A value converts to a type it
+implements, and a `List<Dog>` is a `List<Animal>` when `Dog` implements `Animal`. This holds for the
+read-only parts of the standard library's types: the elements of `List`, `Set` and `Stream`, a `Map`'s
+values, both sides of `Result`, an optional's value and a function's result:
+
+```k
+~interface Animal {
+~    func name() -> String
+~}
+~
+~class Dog implements Animal {
+~    func name() -> String {
+~        return "dog"
+~    }
+~}
+~
+~func count(_ animals: List<Animal>) -> Int {
+~    return animals.count
+~}
+~
+~func example(dogs: List<Dog>, byName: Map<String, Dog>) {
+let animals: List<Animal> = dogs
+let named: Map<String, Animal> = byName
+let total = count(dogs)
+~}
+```
+
+Everything else is invariant: a `Map`'s keys, your own generic types, and anything held in a `var`
+(a variable, a `var` field and its initializer argument), since its contents can change: a
+`var animals: List<Animal>` can't be given a `List<Dog>` (`K2001`). Declare it with the narrower type, or
+convert the elements with `.map`.
+
+A struct or enum held as an interface is wrapped in a small adapter, so that conversion is made only for
+a value itself, an optional's value and a list's elements. A `Map<String, Card>` isn't a
+`Map<String, Priced>` when `Card` is a struct; map its values first.
+
 ## Implicit member expressions
 
 A leading `.name` resolves against **the type expected at that spot**. This one rule is behind much of

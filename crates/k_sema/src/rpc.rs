@@ -40,9 +40,13 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
             continue;
         }
         if decl.named_kind() == Some(K::Protocol) {
-            for &m in &decl.members {
-                if p.member(m).kind == MemberKind::Rpc {
-                    rpc(cx, decl.file, m);
+            // A generic protocol is reported once, at its parameters; its
+            // rpcs' types are its own parameters, so nothing more is said.
+            if !generic_rpc(cx, decl.file, &decl.node, "a protocol") {
+                for &m in &decl.members {
+                    if p.member(m).kind == MemberKind::Rpc {
+                        rpc(cx, decl.file, m);
+                    }
                 }
             }
         }
@@ -50,6 +54,9 @@ pub(crate) fn check(cx: &Cx<'_, '_>) {
         if decl.named_kind() != Some(K::Protocol) && !from_library(cx, d) {
             for &m in &decl.members {
                 if p.member(m).kind == MemberKind::Rpc {
+                    if let Some(node) = &p.member(m).node {
+                        generic_rpc(cx, decl.file, node, "an rpc");
+                    }
                     unserved_rpc(cx, d, m);
                     handler_guards(cx, d, m);
                 }
@@ -406,11 +413,40 @@ fn throws_type(node: &SyntaxNode) -> Option<ast::Type> {
         .and_then(|c| c.children().find_map(ast::Type::cast))
 }
 
+/// K5514 at the generic parameters of a protocol or an rpc (`node`):
+/// `rpc.lock` records each rpc's concrete types, which a type parameter
+/// isn't. Returns `true` when reported.
+fn generic_rpc(cx: &Cx<'_, '_>, file: FileIx, node: &SyntaxNode, what: &str) -> bool {
+    let Some(list) = node
+        .children()
+        .find(|c| c.kind() == SyntaxKind::GenericParamList)
+    else {
+        return false;
+    };
+    let span = cx.p.span(file, list.text_range());
+    cx.report(
+        file,
+        Diagnostic::new(
+            codes::GENERIC_RPC,
+            span,
+            format!("{what} can't be generic: `rpc.lock` records every rpc's concrete types"),
+        )
+        .with_help(
+            "a caller deployed with one type can't call a handler built with another; declare \
+             one rpc per type, or wrap the variants in an enum",
+        ),
+    );
+    true
+}
+
 /// One rpc: `Codable` parameters and result (K5503), `throws` (K5501) and its error type (K5502, K5503).
 fn rpc(cx: &Cx<'_, '_>, file: FileIx, m: MemberId) {
     let p = cx.p;
     let member = p.member(m);
     let Some(node) = &member.node else { return };
+    if generic_rpc(cx, file, node, "an rpc") {
+        return;
+    }
     let sig = cx.sig(SigKey::Member(m));
     let codable = cx.b.codable;
     let is_codable = |t: &Ty| t.contains_error() || codable.is_none_or(|c| cx.implements(t, c));
@@ -684,6 +720,10 @@ fn implementations(cx: &Cx<'_, '_>, d: DeclId) {
             }
             let a = cx.sig(SigKey::Member(r));
             let b = cx.sig(SigKey::Member(found));
+            if !a.generics.is_empty() || !b.generics.is_empty() {
+                // A generic rpc is K5514; its handler isn't compared.
+                continue;
+            }
             let same = |x: &Ty, y: &Ty| x == y || x.contains_error() || y.contains_error();
             let throws_same = match (&a.throws, &b.throws) {
                 (Some(x), Some(y)) => same(x, y),

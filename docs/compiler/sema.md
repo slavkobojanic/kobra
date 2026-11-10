@@ -50,7 +50,7 @@ stage or milestone that picks it up. A deferred rule's code is assigned when it 
 | Project model and files | layout, file rule, duplicates, misplaced declarations; workspaces, manifests and workspace dependencies (§4.1) | git packages (`k add`), aliases |
 | Modules and imports | resolution, visibility, cycles, test-only modules, unused/duplicate imports; library modules of workspace dependencies | modules of git packages |
 | Names | locals, parameters, members, declarations, prelude, implicit members | — |
-| Types | everything in §9 | variance annotations; higher-kinded uses |
+| Types | everything in §9, explicit type arguments and covariance of the stdlib's read-only positions | variance annotations; higher-kinded uses |
 | Effects | `async`, typed `throws`, `try`, exhaustive `catch`, error-generic parameters | — |
 | Control flow | exhaustiveness, `default` rules, `guard`, definite initialization, jumps, `return` in lambdas, `for await` | unreachable-code warnings (except unreachable arms) |
 | Components and reactivity | annotation table, members, `@Derived`/`@Effect` rules, `@Load` graph | the "reads after `await`" lint; "effect reads nothing" warning |
@@ -467,7 +467,10 @@ BodySource  { expr: ArenaMap<ExprId, SyntaxNodePtr>, pat: ArenaMap<PatId, Syntax
   type of `throw`/`return` expressions and the empty error), `Optional<T>` written `T?`, `Result<T, E>`,
   `List<T>`, `Map<K, V>`, `Set<T>`, ranges, `Stream<T>`, function types with `async` and `throws E`.
 - **Generics** on types and functions with `where T implements I, …` constraints, checked at
-  instantiation (**K2009**). No higher-kinded types; variance is invariant (deferred: variance).
+  instantiation (**K2009**). No higher-kinded types and no variance annotations: the stdlib's read-only
+  positions are covariant (§9.6), everything else invariant.
+- **Type arguments in a type** give one type per parameter: `Box<Int, Int>` and `Int<String>` are
+  **K2020** at the `<…>` list (`cx.rs`, `resolve_path_type`).
 - **Optionals:** `nil` only for `T?` (K2001 otherwise); `if let`/`guard let`/`?.`/`??` narrow and
   unwrap; `T` converts implicitly to `T?`.
 
@@ -519,12 +522,39 @@ and set elements must be `Hashable` (K2009).
 - **Generic arguments** are inferred by unification at each call site, left to right over the
   arguments, with lambdas checked after the non-lambda arguments fixed their type variables. There is no
   global inference: `let` without a type takes its initializer's type.
+- **Explicit type arguments** ([grammar RA-23](grammar.md#ra-23-explicit-generic-arguments-in-expressions))
+  bind the fresh variables of the generics they are given to before any argument is checked: a
+  function's (`decode<User>(json)`), a member's own (`Jwt.verify<Claims>(…)`, `names.map<Int> { … }`), a
+  type's for its initializer (`KeyName<AesGcmKey>(name: …)`, which wins over the expected type), for a
+  static member (`Sealed<Note>.parse(text)`, the `Meta` type carries them) and for a component call
+  (`Picker<Int>(…)`, `body/view.rs`, `component_fields`). Each is checked against its parameter's
+  constraints at the argument (**K2009**). A count that differs from the generics, or any type arguments
+  on something that isn't generic (a local, a field of function type, a non-generic function), is
+  **K2020** at the list, with a fix removing it in the second case; the generics are then `{error}`
+  (`body.rs`: `Checker::explicit`, consumed by `instantiate_full`, `construct`, `decl_value`).
 - **Calls:** arguments are matched by label (K2003 missing, K2004 unknown label); calling a
   non-function → **K2005**; a type mismatch anywhere → **K2001** with the expected type's origin as a
   label when it is in source.
-- **Function subtyping, the only subtyping besides `T` → `T?`:** a function value that isn't `async`
-  or throws nothing is accepted where an `async` or `throws E` function type is expected (a test helper
-  that never fails can be passed as a throwing `save` prop).
+- **Function subtyping:** a function value that isn't `async` or throws nothing is accepted where an
+  `async` or `throws E` function type is expected (a test helper that never fails can be passed as a
+  throwing `save` prop); its parameters are contravariant and its result covariant.
+- **Covariance** (`Checker::assignable`, `named_assignable`): besides `T` → `T?`, a type converts to an
+  interface it implements and a component to `View`. Inside a type, that holds in the read-only
+  positions of the stdlib's types: the elements of `List`, `Set` and `Stream`, a `Map`'s values (its keys
+  are invariant), both arguments of `Result`, an optional's value and a function's result. All other
+  generic arguments (a project's own generic types, classes included) are invariant. **A `var` is
+  invariant** (`Checker::check_var`): a `var` local's initializer, an assignment (except the first one of
+  a deferred `let`), a `var` field's initializer and a `var` field's memberwise argument compare nested
+  arguments by unification, so `var a: List<Animal> = dogs` is K2001 with a help, while a `let` takes it.
+  **Representation:** a struct, enum or entity (or a generic parameter's value) held as a project
+  interface gets an adapter, as `Error` a box and as `Codable` an existential (codegen's `coerce`);
+  those conversions are made only for a value itself, an optional's value and a list's elements (also
+  of an optional list), which codegen maps. Inside anything else, a `Set`, a map's values, a `Result`, a
+  function's parameters or result, they are K2001 with a help (`Conv`, `changes_representation`).
+  Classes, services and the stdlib's other interfaces keep the value as it is, so they convert
+  everywhere covariance allows.
+- **`try … else { }` where an optional is expected** widens a non-optional operand to its optional, so
+  the fallback may be `nil`: `let v: T? = try Json.decode<T>(text) else { nil }`.
 - **Lints (v0, warnings):** comparing a `Bool` with `true`/`false` → **K2012** with a fix.
 - `{error}` unifies with everything and suppresses diagnostics that depend on it.
 
@@ -880,6 +910,9 @@ Accessibility lints beyond required accessible names are **deferred**.
   protocol from a library or the stdlib gets a help instead of a fix, and so does an rpc no protocol
   declares, which is K5508 too (`rpc.rs`, `handler_guards`). Library files themselves aren't checked
   here.
+- **A protocol or an rpc can't be generic** (**K5514** at its generic parameter list, `rpc.rs`,
+  `generic_rpc`): `rpc.lock` records every rpc's concrete parameter, result and error types. A generic
+  protocol's rpcs aren't checked further, and a generic rpc's handler isn't compared with it (no K5505).
 - A protocol is injectable only into services (K4005). `Stream<T>` results are server streams
   ([29-server-streaming.md](../design/29-server-streaming.md)); client and bidirectional streaming are
   deferred with the wire format.
@@ -904,8 +937,8 @@ Accessibility lints beyond required accessible names are **deferred**.
   and the trailing lambda a `(C) async throws E -> Void` (K2001, K2203). A page or endpoint at
   `/_k/channels` is K5001 (`routing.rs`).
 - **`RemoteClient.at(url:token:timeout:)`** (`k.rpc`, server-only) returns a client of its generic result
-  `P`, the type it is used as (K has no explicit type arguments in expressions). A result that resolves
-  to anything but a protocol is **K4026**; one that can't be inferred is K2002
+  `P`, written out (`RemoteClient.at<PaymentEvents>(…)`) or the type it is used as. A result that
+  resolves to anything but a protocol is **K4026**; one that can't be inferred is K2002
   (`crates/k_sema/src/body.rs`, `check_remote_client`).
 
 ### 12.9 Async data: `@Load`

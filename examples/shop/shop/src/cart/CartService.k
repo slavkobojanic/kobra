@@ -19,7 +19,7 @@ public service CartService {
     @Inject let tabs: TabMessaging
 
     // The key's name and the shape of `CartItem` are recorded in storage.lock.
-    private let savedCart: StorageKey<List<CartItem>> = StorageKey(name: "cart")
+    private let savedCart = StorageKey<List<CartItem>>(name: "cart")
 
     /// The products in the cart, oldest first; a product added twice is in it twice.
     @State var items: List<CartItem> = []

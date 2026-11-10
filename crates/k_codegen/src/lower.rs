@@ -2717,17 +2717,29 @@ impl<'g, 'a> Body<'g, 'a> {
                 return Expr::New(Box::new(r), vec![e]);
             }
         }
-        if let (Type::Named(fd, fa), Type::Named(td, ta)) = (from, to) {
-            if fd == td && self.g.is_list(from) {
+        // A list's elements, also of an optional list (`List<Card>` as a
+        // `List<Priced>?`, sema's covariance rules in sema.md §9.6).
+        let optional = matches!(from, Type::Optional(_));
+        if let (Type::Named(fd, fa), Type::Named(td, ta)) = (source, target) {
+            if fd == td && self.g.is_list(source) {
                 if let (Some(fe), Some(te)) = (fa.first(), ta.first()) {
                     if self.g.is_interface(te.unwrap_optional())
                         && self.g.is_value_type(fe.unwrap_optional())
                     {
                         let conv = self.coerce(id("v"), fe, te);
-                        return call(
-                            member(e, "map"),
-                            vec![js::arrow(vec![Param::new("v")], conv)],
-                        );
+                        let map = |list: Expr| {
+                            call(
+                                member(list, "map"),
+                                vec![js::arrow(vec![Param::new("v")], conv.clone())],
+                            )
+                        };
+                        if optional {
+                            return rt(
+                                "mapOpt",
+                                vec![e, js::arrow(vec![Param::new("l")], map(id("l")))],
+                            );
+                        }
+                        return map(e);
                     }
                 }
             }

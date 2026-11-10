@@ -1088,6 +1088,30 @@ impl<'p, 'a> Cx<'p, 'a> {
             return Ty::named(alias);
         }
         let params = &self.p.decl(decl).generics;
+        if let Some(list) = path.generic_arg_list() {
+            if list.types().count() != params.len() {
+                let message = if params.is_empty() {
+                    format!(
+                        "`{}` isn't generic: it takes no type arguments",
+                        last.text()
+                    )
+                } else {
+                    format!(
+                        "`{}` takes {} type argument{}, found {}",
+                        last.text(),
+                        params.len(),
+                        if params.len() == 1 { "" } else { "s" },
+                        list.types().count()
+                    )
+                };
+                self.error(
+                    file,
+                    codes::TYPE_ARGUMENT_COUNT,
+                    list.syntax().text_range(),
+                    message,
+                );
+            }
+        }
         let mut tys: Vec<Ty> = args.iter().map(|(t, _)| t.clone()).collect();
         tys.resize(params.len(), Ty::Error);
         tys.truncate(params.len());

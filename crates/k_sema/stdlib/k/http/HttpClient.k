@@ -15,7 +15,8 @@ public interface HttpClient {
     func send(request: HttpRequest) async throws HttpError -> HttpResponse
 
     /// Sends the request, requires a 2xx status, and decodes the body as
-    /// JSON into a [`Codable`] type, given by the binding.
+    /// JSON into a [`Codable`] type, written out (`fetchJson<Forecast>(…)`)
+    /// or given by the binding.
     ///
     /// - Parameter request: the request to send.
     /// - Returns: the decoded body.

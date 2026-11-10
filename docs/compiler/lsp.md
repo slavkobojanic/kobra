@@ -254,7 +254,10 @@ of every name in scope. Invoking completion explicitly there gives the names in 
 **Signature help** finds the innermost call whose argument list contains the cursor (an unclosed list
 counts), resolves its callee through the checker's recorded resolution, and shows a function's signature, a
 type's initializers, a type's memberwise initializer (its settable stored fields) or a built-in element's
-forms. The active parameter follows the argument's label, or its position.
+forms. The active parameter follows the argument's label, or its position. A callee written with
+explicit type arguments (`decode<User>(`, `KeyName<AesGcmKey>(`) labels the signature with them, its
+generic parameters replaced by the text written (`render::ty_with`); hover on such a name adds "Called as
+`decode<User>(_ text: String) -> User`" below the declaration.
 
 ## 9. Robustness
 

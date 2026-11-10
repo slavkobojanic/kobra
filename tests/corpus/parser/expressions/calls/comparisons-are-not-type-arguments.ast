@@ -1,0 +1,21 @@
+; `<` and `>` stay comparisons unless written as type arguments: spaced, lowercase or across lines
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr
+      (NameExpr f)
+      (ArgList
+        (Arg (BinaryExpr (NameExpr x) < (NameExpr y)))
+        (Arg (BinaryExpr (NameExpr z) > (ParenExpr (NameExpr w)))))))
+  (FieldDecl let b =
+    (CallExpr
+      (NameExpr f)
+      (ArgList
+        (Arg (BinaryExpr (NameExpr x) < (NameExpr y)))
+        (Arg (BinaryExpr (NameExpr z) > (ParenExpr (NameExpr w)))))))
+  (FieldDecl let c =
+    (CallExpr
+      (NameExpr f)
+      (ArgList
+        (Arg (BinaryExpr (NameExpr A) < (NameExpr B)))
+        (Arg (BinaryExpr (NameExpr C) > (ParenExpr (NameExpr w)))))))
+  (FieldDecl let d = (BinaryExpr (NameExpr count) < (NameExpr limit))))

@@ -1,0 +1,25 @@
+; explicit type arguments on a name, a member, a type's static member and before a trailing lambda
+(SourceFile
+  (FieldDecl let a =
+    (CallExpr (NameExpr decode (GenericArgList (PathType User))) (ArgList (Arg (NameExpr json)))))
+  (FieldDecl let b =
+    (CallExpr
+      (MemberExpr (NameExpr Jwt) verify (GenericArgList (PathType Claims)))
+      (ArgList (Arg (NameExpr token)) (Arg key (NameExpr key)))))
+  (FieldDecl let c =
+    (CallExpr
+      (MemberExpr (NameExpr Sealed (GenericArgList (PathType Note))) parse)
+      (ArgList (Arg (NameExpr text)))))
+  (FieldDecl let d =
+    (CallExpr
+      (MemberExpr (NameExpr names) map (GenericArgList (PathType Int)))
+      (LambdaExpr (LambdaParamList (LambdaParam name)) (MemberExpr (NameExpr name) count))))
+  (FieldDecl let e =
+    (CallExpr
+      (NameExpr parse
+        (GenericArgList
+          (PathType Map
+            (GenericArgList
+              (PathType String)
+              (PathType List (GenericArgList (OptionalType (PathType Int))))))))
+      (ArgList (Arg (NameExpr text))))))

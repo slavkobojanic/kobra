@@ -1,0 +1,3 @@
+error[K2009] 16:24-16:28: `corpus.Rock` doesn't implement `Comparable`
+error[K2001] 17:27-17:28: expected `String`, found `Int`
+error[K2001] 17:30-17:31: expected `String`, found `Int`

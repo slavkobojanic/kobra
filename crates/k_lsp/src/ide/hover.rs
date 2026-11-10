@@ -142,12 +142,49 @@ pub fn hover(
                 Some(Resolved::Member(m)) => member_hover(analysis, view, m, link, &mut md)?,
                 None => code(&mut md, &resolution.render(|_| None)),
             }
+            if let Some(line) = instantiation(analysis, view, file, symbol.range, resolution) {
+                let _ = writeln!(md, "\nCalled as `{line}`.");
+            }
         }
     }
     Ok(Some(HoverResult {
         range: symbol.range,
         markdown: md.trim_end().to_owned(),
     }))
+}
+
+/// The signature of a generic function as a call with explicit type
+/// arguments instantiates it (`decode<User>(_ json: String) -> User` for
+/// the name of `decode<User>(json)`), or `None` without them.
+fn instantiation(
+    analysis: &Analysis,
+    view: &ProgramView,
+    file: FileId,
+    name: TextRange,
+    resolution: &Resolution,
+) -> Option<String> {
+    let root = syntax(analysis, file)?;
+    let token = root.token_at_offset(name.start()).right_biased()?;
+    let list = token
+        .parent()?
+        .children()
+        .find(|c| c.kind() == k_syntax::SyntaxKind::GenericArgList)?;
+    let written: Vec<String> = list
+        .children()
+        .map(|t| t.text().to_string().trim().to_owned())
+        .collect();
+    let (label, sig) = match view.resolve(resolution)? {
+        Resolved::Decl(d) => (view.decl(d).name.clone(), view.decl(d).signature.as_ref()?),
+        Resolved::Member(m) => (
+            view.member(m).name.clone(),
+            view.member(m).signature.as_ref()?,
+        ),
+    };
+    if sig.generics.len() != written.len() {
+        return None;
+    }
+    let subst: Vec<_> = sig.generics.iter().copied().zip(written).collect();
+    Some(render::instantiated(view, &label, sig, &subst))
 }
 
 /// The values the variants of the theme declaring token `name` (at

@@ -941,6 +941,12 @@ impl NameExpr {
     pub fn name(&self) -> Option<SyntaxToken> {
         support::tokens(&self.syntax).next()
     }
+
+    /// Returns the explicit type arguments (`<User>` in `decode<User>`).
+    #[must_use]
+    pub fn generic_arg_list(&self) -> Option<GenericArgList> {
+        support::child(&self.syntax)
+    }
 }
 
 impl ImplicitMemberExpr {
@@ -1021,6 +1027,13 @@ impl MemberExpr {
         support::tokens(&self.syntax)
             .filter(|t| t.kind().is_name_like())
             .last()
+    }
+
+    /// Returns the explicit type arguments of the member
+    /// (`<Claims>` in `Jwt.verify<Claims>`).
+    #[must_use]
+    pub fn generic_arg_list(&self) -> Option<GenericArgList> {
+        support::child(&self.syntax)
     }
 
     /// Returns `true` for optional chaining (`a?.b`).

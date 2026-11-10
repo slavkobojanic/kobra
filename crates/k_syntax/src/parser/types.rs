@@ -81,29 +81,96 @@ fn path_type(p: &mut Parser<'_>) -> CompletedMarker {
         p.bump();
     }
     if p.at(K::Lt) {
-        let g = p.start();
-        let mut count = 0usize;
-        let parsed = delimited(
-            p,
-            K::Gt,
-            "`,` or `>`",
-            |p| {
-                count += 1;
-                ty(p);
-            },
-            can_start_type,
-        );
-        if count == 0 && parsed {
-            let span = p.span(p.prev_range());
-            p.report(Diagnostic::new(
-                codes::EXPECTED_TYPE,
-                span,
-                "expected a type argument",
-            ));
-        }
-        g.complete(p, K::GenericArgList);
+        generic_arg_list(p);
     }
     m.complete(p, K::PathType)
+}
+
+/// `GenericArgList ::= '<' Type ( ',' Type )* ','? '>'`, at the `<`.
+pub(crate) fn generic_arg_list(p: &mut Parser<'_>) {
+    let g = p.start();
+    let mut count = 0usize;
+    let parsed = delimited(
+        p,
+        K::Gt,
+        "`,` or `>`",
+        |p| {
+            count += 1;
+            ty(p);
+        },
+        can_start_type,
+    );
+    if count == 0 && parsed {
+        let span = p.span(p.prev_range());
+        p.report(Diagnostic::new(
+            codes::EXPECTED_TYPE,
+            span,
+            "expected a type argument",
+        ));
+    }
+    g.complete(p, K::GenericArgList);
+}
+
+/// Returns `true` if the current token starts the explicit type arguments
+/// of a name in an expression (`decode<User>(json)`, `Jwt.verify<Claims>(…)`,
+/// `Sealed<Note>.parse(text)`; grammar.md RA-23).
+///
+/// A comparison can't be chained (K0113), so `a<b>(c)` was never a valid
+/// comparison; what stays ambiguous is two arguments such as
+/// `f(a<b, c>(d))`. The list is therefore taken only when it is written
+/// the way a type is: the `<` directly after the name and the `>` directly
+/// before a `(` or `.` (or followed by a trailing lambda's `{` on the same
+/// line), with no space inside the brackets' ends, every type argument
+/// starting with an uppercase name, and all of it on one line. Anything
+/// else stays a comparison.
+pub(crate) fn type_args_ahead(p: &Parser<'_>) -> bool {
+    if !p.at(K::Lt) || !p.joined() || !p.nth_joined(1) {
+        return false;
+    }
+    let mut depth = 0usize;
+    let mut n = 0usize;
+    // Whether the next token starts a type argument (after `<` or `,`).
+    let mut at_argument = true;
+    loop {
+        let kind = p.peek(n);
+        if n > 0 && p.nth_on_new_line(n) {
+            return false;
+        }
+        match kind {
+            K::Lt => {
+                depth += 1;
+                at_argument = true;
+                n += 1;
+                continue;
+            }
+            K::Gt => {
+                depth -= 1;
+                if depth == 0 {
+                    let next = p.peek(n + 1);
+                    return p.nth_joined(n)
+                        && (matches!(next, K::LParen | K::Dot) && p.nth_joined(n + 1)
+                            || next == K::LBrace && !p.nth_on_new_line(n + 1));
+                }
+            }
+            K::Ident => {
+                if at_argument && depth == 1 && !p.nth_text(n).starts_with(char::is_uppercase) {
+                    return false;
+                }
+            }
+            K::Comma
+            | K::Dot
+            | K::Question
+            | K::QuestionQuestion
+            | K::LParen
+            | K::RParen
+            | K::Arrow
+            | K::AsyncKw
+            | K::ThrowsKw => {}
+            _ => return false,
+        }
+        at_argument = kind == K::Comma && depth == 1;
+        n += 1;
+    }
 }
 
 /// `TupleType`, `FuncType` or `ParenType`, decided after the `)`.

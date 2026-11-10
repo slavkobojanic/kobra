@@ -343,6 +343,37 @@ struct Arg {
     is_lambda: bool,
 }
 
+/// The conversions [`Checker::assignable`] may make where it is comparing.
+#[derive(Clone, Copy)]
+struct Conv {
+    /// A value may change representation here: a struct to a project
+    /// interface's adapter, a concrete error to an `Error` box.
+    values: bool,
+    /// A `List` here may convert its elements that way (codegen maps a
+    /// list's elements only at the top of a type, or of an optional).
+    lists: bool,
+}
+
+impl Conv {
+    /// At the top of a type: everything converts.
+    const TOP: Conv = Conv {
+        values: true,
+        lists: true,
+    };
+}
+
+/// Explicit type arguments written at a call site (`decode<User>(json)`,
+/// `Jwt.verify<Claims>(…)`, `KeyName<AesGcmKey>(name: …)`), resolved.
+#[derive(Clone)]
+pub(crate) struct TypeArgs {
+    /// Each type argument and its range.
+    pub(crate) tys: Vec<(Ty, TextRange)>,
+    /// The range of the whole `<…>` list.
+    pub(crate) range: TextRange,
+    /// The name they follow (`decode`), for messages.
+    pub(crate) name: Option<String>,
+}
+
 /// Where a body is checked: the declaration that owns `self` and its
 /// private members, and the generic parameters in scope.
 #[derive(Clone)]
@@ -454,6 +485,29 @@ pub(crate) struct Checker<'c, 'p, 'a> {
     query_lambda_depth: u32,
     /// Depth of `update { row => … }` lambdas, whose row is writable.
     query_update_depth: u32,
+    /// Explicit type arguments of the call being checked, consumed by the
+    /// next instantiation of a signature's generics
+    /// ([`Checker::instantiate_full`]) or of a type's
+    /// ([`Checker::construct`]); set right before it.
+    explicit: Option<TypeArgs>,
+    /// Set by [`Checker::construct`] for a memberwise initializer: which
+    /// parameters are `var` fields, whose arguments are checked
+    /// invariantly ([`Checker::check_var`]). Taken by the next
+    /// [`Checker::apply_sig`].
+    var_params: Option<Vec<bool>>,
+    /// Set by [`Checker::var_initializer`]: the next initializer is a
+    /// `var` field's.
+    var_init: bool,
+    /// Which conversions [`Checker::assignable`] may make at the current
+    /// depth of the types it compares.
+    conv: Conv,
+    /// Set when [`Checker::assignable`] refused a conversion because it
+    /// would change a value's representation inside a container.
+    refused_conversion: bool,
+    /// While positive, the type being checked against is a `var` (a
+    /// mutable binding, field or argument for one): covariance doesn't
+    /// apply inside it (`List<Dog>` isn't a `List<Animal>` there).
+    invariant: u32,
 }
 
 impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
@@ -494,6 +548,12 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             escaped: Vec::new(),
             query_lambda_depth: 0,
             query_update_depth: 0,
+            explicit: None,
+            var_params: None,
+            var_init: false,
+            conv: Conv::TOP,
+            refused_conversion: false,
+            invariant: 0,
         }
     }
 
@@ -1200,6 +1260,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             decl_node: None,
         });
         let ty = match expected {
+            Some(e) if std::mem::take(&mut self.var_init) => {
+                self.check_var(expr, e);
+                e.clone()
+            }
             Some(e) => {
                 self.check(expr, e);
                 e.clone()
@@ -1213,6 +1277,12 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         };
         self.pop_fn();
         self.resolve(&ty)
+    }
+
+    /// Makes the next initializer a `var` field's: it is checked
+    /// invariantly ([`Checker::check_var`]).
+    pub(crate) fn var_initializer(&mut self) {
+        self.var_init = true;
     }
 
     /// Enters a function or lambda context.
@@ -1508,17 +1578,29 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 self.bind(*x, e.clone(), origin);
                 true
             }
+            // An optional converts its value like the value itself (a
+            // list's elements included).
             (Ty::Optional(x), Ty::Optional(y)) => self.assignable(x, y, origin),
             (Ty::Optional(_), _) => false,
             (_, Ty::Optional(y)) => self.assignable(&a, y, origin),
-            (Ty::Named(d1, _), Ty::Named(d2, _)) if d1 == d2 => self.unify(&a, &e, origin),
+            (Ty::Named(d1, _), Ty::Named(d2, _)) if d1 == d2 => {
+                self.named_assignable(*d1, &a, &e, origin)
+            }
             (_, Ty::Named(i, _)) if self.cx.is_interface(*i) => {
                 if let Ty::Named(d, _) = &a {
                     if self.cx.is_interface(*d) && !self.cx.declares(*d, *i) {
                         return false;
                     }
                 }
-                self.cx.implements(&self.resolve(&a), *i)
+                let a = self.resolve(&a);
+                if !self.conv.values && self.changes_representation(&a, *i) {
+                    // `Set<Card>` as `Set<Priced>`: each card would need an
+                    // adapter (or `Error` box), which only a top-level value
+                    // and a list's elements get.
+                    self.refused_conversion = true;
+                    return false;
+                }
+                self.cx.implements(&a, *i)
             }
             (Ty::Named(d1, _), Ty::Named(d2, _)) if self.token_compatible(*d1, *d2) => true,
             (Ty::Func(f), Ty::Func(g)) => {
@@ -1528,12 +1610,20 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 if f.is_async && !g.is_async {
                     return false;
                 }
-                let params_ok = f
-                    .params
-                    .iter()
-                    .zip(g.params.iter())
-                    .all(|(p, q)| self.assignable(q, p, origin));
-                if !params_ok || !self.assignable(&f.ret, &g.ret, origin) {
+                // A function value is passed as it is: its parameters and
+                // result convert only where nothing changes at run time.
+                let inside = Conv {
+                    values: false,
+                    lists: false,
+                };
+                let params_ok = self.converting(inside, |c| {
+                    f.params
+                        .iter()
+                        .zip(g.params.iter())
+                        .all(|(p, q)| c.assignable(q, p, origin))
+                });
+                if !params_ok || !self.converting(inside, |c| c.assignable(&f.ret, &g.ret, origin))
+                {
                     return false;
                 }
                 match (&f.throws, &g.throws) {
@@ -1549,6 +1639,110 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 }
             }
             _ => self.unify(&a, &e, origin),
+        }
+    }
+
+    /// Runs `f` with conversions limited to `conv`, restoring the current
+    /// limits after.
+    fn converting<T>(&mut self, conv: Conv, f: impl FnOnce(&mut Self) -> T) -> T {
+        let saved = std::mem::replace(&mut self.conv, conv);
+        let out = f(self);
+        self.conv = saved;
+        out
+    }
+
+    /// `actual` where `expected` is expected, both instances of `d`:
+    /// covariant in the read-only arguments of `List`, `Set`, `Stream`,
+    /// `Map` values and `Result`, invariant everywhere else, and invariant
+    /// in all of them inside a `var` ([`Checker::invariant`]).
+    fn named_assignable(
+        &mut self,
+        d: DeclId,
+        actual: &Ty,
+        expected: &Ty,
+        origin: Option<TextRange>,
+    ) -> bool {
+        let b = &self.cx.b;
+        let covariant: &[bool] = if Some(d) == b.list || Some(d) == b.set || Some(d) == b.stream {
+            &[true]
+        } else if Some(d) == b.map {
+            &[false, true]
+        } else if Some(d) == b.result {
+            &[true, true]
+        } else {
+            &[]
+        };
+        let is_list = Some(d) == b.list;
+        let (Ty::Named(_, xs), Ty::Named(_, ys)) = (actual, expected) else {
+            return self.unify(actual, expected, origin);
+        };
+        if covariant.is_empty() || self.invariant > 0 || xs.len() != ys.len() {
+            return self.unify(actual, expected, origin);
+        }
+        // A list's elements convert like a top-level value (codegen maps
+        // them), when the list itself is at the top; nothing else does.
+        let inside = Conv {
+            values: is_list && self.conv.lists,
+            lists: false,
+        };
+        xs.iter().zip(ys.iter()).enumerate().all(|(i, (x, y))| {
+            if covariant.get(i).copied().unwrap_or(false) {
+                self.converting(inside, |c| c.assignable(x, y, origin))
+            } else {
+                self.unify(x, y, origin)
+            }
+        })
+    }
+
+    /// Returns `true` if a value of `a` changes how it is held when used as
+    /// interface `i`: a struct, enum or entity (or a generic parameter's
+    /// value) becomes an adapter of a project interface, an `Error` box or
+    /// a `Codable` existential. Classes, services and other stdlib
+    /// interfaces keep the value as it is.
+    fn changes_representation(&self, a: &Ty, i: DeclId) -> bool {
+        let b = &self.cx.b;
+        let value = match a {
+            Ty::Named(d, _) => matches!(
+                self.cx.p.decl(*d).named_kind(),
+                Some(DeclarationKind::Struct | DeclarationKind::Enum | DeclarationKind::Entity)
+            ),
+            Ty::Param(_) => true,
+            _ => false,
+        };
+        value && (!self.cx.p.is_stdlib(i) || Some(i) == b.error || Some(i) == b.codable)
+    }
+
+    /// Checks `expr` against the type of a `var` (a mutable binding, an
+    /// assignment target, a `var` field's argument): covariance doesn't
+    /// apply, so a `List<Dog>` isn't accepted as a `List<Animal>` there.
+    fn check_var(&mut self, expr: &ast::Expr, expected: &Ty) -> Ty {
+        let ty = self.infer(expr, Some(expected));
+        let range = expr.syntax().text_range();
+        self.invariant += 1;
+        let ok = self.assignable(&ty, expected, Some(range));
+        self.invariant -= 1;
+        if !ok {
+            let covariant = self.assignable_quiet(&ty, expected);
+            let before = self.diags.len();
+            self.mismatch(expr, &ty, expected);
+            if covariant && self.diags.len() > before {
+                self.help_last(
+                    "a `var` holds exactly its own type, so a collection of a narrower type isn't \
+                     one of the wider type here; declare the `var` with the narrower type, or \
+                     convert the elements (`.map { … }`)",
+                );
+            }
+        }
+        ty
+    }
+
+    /// Adds `help` to the last diagnostic reported, if any.
+    fn help_last(&mut self, help: &str) {
+        if self.quiet > 0 {
+            return;
+        }
+        if let Some(d) = self.diags.pop() {
+            self.diags.push(d.with_help(help));
         }
     }
 
@@ -1735,6 +1929,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             .map(|t| self.cx.resolve_type(self.file(), &self.owner.generics, &t));
         let init = node.children().find_map(ast::Expr::cast);
         let ty = match (&annotated, &init) {
+            (Some(t), Some(e)) if mutable => {
+                self.check_var(e, t);
+                t.clone()
+            }
             (Some(t), Some(e)) => {
                 self.check(e, t);
                 t.clone()
@@ -1834,8 +2032,10 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 if !result.is_error() {
                     let _ = self.assignable(&result, &lhs_ty, None);
                 }
-            } else {
+            } else if deferred_target.is_some_and(|id| !self.locals[id].mutable) {
                 self.check(rhs, &lhs_ty);
+            } else {
+                self.check_var(rhs, &lhs_ty);
             }
         }
         if let Some(id) = deferred_target {
@@ -3155,8 +3355,22 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
     pub(crate) fn check(&mut self, expr: &ast::Expr, expected: &Ty) -> Ty {
         let ty = self.infer(expr, Some(expected));
         let range = expr.syntax().text_range();
+        self.refused_conversion = false;
         if !self.assignable(&ty, expected, Some(range)) {
+            let refused = std::mem::take(&mut self.refused_conversion);
+            let before = self.diags.len();
             self.mismatch(expr, &ty, expected);
+            if refused && self.diags.len() > before {
+                let function = matches!(self.resolve(&ty), Ty::Func(_));
+                self.help_last(if function {
+                    "a function is passed as it is, so its result isn't converted to an \
+                     interface or `Error`; pass a lambda that calls it instead (`{ make() }`)"
+                } else {
+                    "only a value itself, an optional's value and a list's elements are \
+                     converted to an interface or `Error`; convert the elements first \
+                     (`.map { … }`)"
+                });
+            }
         }
         ty
     }
@@ -3219,11 +3433,19 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 let Some(name) = n.syntax().first_token() else {
                     return Ty::Error;
                 };
-                self.name_value(
+                // `Sealed<Note>.parse(text)`: the type with its arguments.
+                self.explicit = self.type_args(n.generic_arg_list());
+                let t = self.name_value(
                     name.text(),
                     name.text_range(),
                     name.kind() == SyntaxKind::SelfKw,
-                )
+                );
+                if t.is_error() {
+                    self.explicit = None;
+                } else {
+                    self.unused_type_args();
+                }
+                t
             }
             ast::Expr::ImplicitMemberExpr(m) => self.implicit_member(m.syntax(), expected, false).0,
             ast::Expr::ParenExpr(p) => match p.syntax().children().find_map(ast::Expr::cast) {
@@ -3649,7 +3871,12 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             }
             Some(DeclarationKind::Constant) => self.cx.constant_ty(d),
             _ if decl.is_type() => {
-                let args: Vec<Ty> = decl.generics.iter().map(|_| self.fresh()).collect();
+                let explicit = self.explicit.take();
+                let given = explicit.and_then(|ta| self.explicit_subst(d, &ta));
+                let args: Vec<Ty> = match given {
+                    Some(subst) => subst.into_iter().map(|(_, t)| t).collect(),
+                    None => decl.generics.iter().map(|_| self.fresh()).collect(),
+                };
                 Ty::Meta(std::sync::Arc::new(Ty::generic(d, args)))
             }
             _ => Ty::Error,
@@ -3675,14 +3902,131 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         subst: &[(GenId, Ty)],
     ) -> (Vec<Ty>, Ty, bool, Option<Ty>, Vec<(GenId, Ty)>) {
         let mut full: Vec<(GenId, Ty)> = subst.to_vec();
-        for g in &sig.generics {
+        // Explicit type arguments bind the fresh variables; a wrong count
+        // (K2020) binds them to `{error}`, which silences what depends on
+        // them.
+        let explicit = self.explicit.take().map(|ta| {
+            let fits = self.type_arg_count(&ta, sig.generics.len());
+            (ta, fits)
+        });
+        for (i, g) in sig.generics.iter().enumerate() {
             let v = self.fresh();
+            if let (Some((ta, fits)), Ty::Var(var)) = (&explicit, &v) {
+                match ta.tys.get(i) {
+                    Some((t, range)) if *fits => self.bind(*var, t.clone(), Some(*range)),
+                    _ => self.bind(*var, Ty::Error, None),
+                }
+            }
             full.push((*g, v));
         }
         let params = sig.params.iter().map(|p| apply(&p.ty, &full)).collect();
         let ret = apply(&sig.ret, &full);
         let throws = sig.throws.as_ref().map(|t| apply(t, &full));
         (params, ret, sig.is_async, throws, full)
+    }
+
+    /// Resolves explicit type arguments in the body's scope.
+    pub(crate) fn type_args(&mut self, list: Option<ast::GenericArgList>) -> Option<TypeArgs> {
+        let list = list?;
+        let tys = list
+            .types()
+            .map(|t| {
+                let ty = self.cx.resolve_type(self.file(), &self.owner.generics, &t);
+                (ty, t.syntax().text_range())
+            })
+            .collect();
+        let name = list.syntax().parent().and_then(|p| {
+            p.children_with_tokens()
+                .filter_map(rowan::NodeOrToken::into_token)
+                .filter(|t| t.kind().is_name_like())
+                .last()
+                .map(|t| t.text().to_owned())
+        });
+        Some(TypeArgs {
+            tys,
+            range: list.syntax().text_range(),
+            name,
+        })
+    }
+
+    /// Checks that `ta` gives `count` type arguments (K2020); `false`
+    /// after reporting when it doesn't.
+    pub(crate) fn type_arg_count(&mut self, ta: &TypeArgs, count: usize) -> bool {
+        if ta.tys.len() == count {
+            return true;
+        }
+        let subject = ta
+            .name
+            .as_ref()
+            .map_or_else(|| "this".to_owned(), |n| format!("`{n}`"));
+        let message = if count == 0 {
+            format!("{subject} isn't generic: it takes no type arguments")
+        } else {
+            format!(
+                "{subject} takes {count} type argument{}, found {}",
+                if count == 1 { "" } else { "s" },
+                ta.tys.len()
+            )
+        };
+        let mut d = Diagnostic::new(codes::TYPE_ARGUMENT_COUNT, self.span(ta.range), message);
+        if count == 0 {
+            d = d.with_fix(Fix::replace(
+                "Remove the type arguments",
+                self.span(ta.range),
+                "",
+            ));
+        }
+        self.report(d);
+        false
+    }
+
+    /// Reports explicit type arguments that nothing generic consumed
+    /// (K2020): a local function, a non-generic member.
+    fn unused_type_args(&mut self) {
+        if let Some(ta) = self.explicit.take() {
+            self.type_arg_count(&ta, 0);
+        }
+    }
+
+    /// The substitution of `decl`'s generics by explicit type arguments
+    /// (`KeyName<AesGcmKey>`), `None` when their count is wrong (K2020,
+    /// reported). Constraints are checked at each argument (K2009).
+    fn explicit_subst(&mut self, decl: DeclId, ta: &TypeArgs) -> Option<Vec<(GenId, Ty)>> {
+        let generics = self.cx.p.decl(decl).generics.clone();
+        if !self.type_arg_count(ta, generics.len()) {
+            return None;
+        }
+        for (g, (t, range)) in generics.iter().zip(&ta.tys) {
+            self.explicit_constraints(*g, t, *range);
+        }
+        Some(
+            generics
+                .iter()
+                .copied()
+                .zip(ta.tys.iter().map(|(t, _)| t.clone()))
+                .collect(),
+        )
+    }
+
+    /// K2009 at an explicit type argument `t` of generic `g`.
+    fn explicit_constraints(&mut self, g: GenId, t: &Ty, range: TextRange) {
+        if t.contains_error() {
+            return;
+        }
+        for c in self.cx.constraints(g).iter() {
+            let Some(iface) = c.decl() else { continue };
+            if !self.cx.implements(t, iface) {
+                self.err(
+                    codes::UNSATISFIED_CONSTRAINT,
+                    range,
+                    format!(
+                        "`{}` doesn't implement `{}`",
+                        t.render(self.cx.p),
+                        self.cx.p.decl_name(iface)
+                    ),
+                );
+            }
+        }
     }
 
     /// Resolves `.name` against the expected type. Returns the type and,
@@ -4974,6 +5318,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             let stmts: Vec<ast::Stmt> = block.statements().collect();
             let before = self.flow.clone();
             let value = self.resolve(&ty);
+            // Where an optional is expected, the fallback may be `nil`:
+            // `let v: T? = try Json.decode<T>(text) else { nil }`.
+            let widened = !matches!(value, Ty::Optional(_))
+                && expected.is_some_and(|e| matches!(self.resolve(e), Ty::Optional(_)));
+            let value = if widened { Ty::optional(value) } else { value };
             let exp = if value.contains_error() || matches!(value, Ty::Var(_)) {
                 None
             } else {
@@ -4981,6 +5330,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             };
             self.value_stmts(&stmts, exp.as_ref(), exp.is_some());
             self.flow = before;
+            if widened {
+                return value;
+            }
         }
         ty
     }
@@ -5591,9 +5943,26 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             return Ty::Error;
         };
         let optional_chain = m.is_optional();
-        let t = self
+        let mut t = self
             .member_access(m.syntax(), &recv, &recv_ty, &name, optional_chain, false)
             .0;
+        if let Some(ta) = self.type_args(m.generic_arg_list()) {
+            // `crypto.Sealed<Note>.parse(text)`: a qualified type with its
+            // arguments; nothing else takes them.
+            match self.resolve(&t) {
+                Ty::Meta(inner) if inner.decl().is_some() => {
+                    let d = inner.decl().unwrap_or(DeclId(0));
+                    if let Some(subst) = self.explicit_subst(d, &ta) {
+                        let args = subst.into_iter().map(|(_, t)| t).collect();
+                        t = Ty::Meta(std::sync::Arc::new(Ty::generic(d, args)));
+                    }
+                }
+                other if !other.is_error() => {
+                    self.type_arg_count(&ta, 0);
+                }
+                _ => {}
+            }
+        }
         self.check_money_literal(m, &recv, &t);
         if self.props_only
             && recv
@@ -6293,6 +6662,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                             query && member.is_some_and(|mm| self.cx.p.member(mm).name == "update");
                         self.query_lambda_depth += u32::from(query);
                         self.query_update_depth += u32::from(update);
+                        // `Jwt.verify<Claims>(…)`: the member's own type
+                        // arguments.
+                        self.explicit = self.type_args(m.generic_arg_list());
                         let ret =
                             self.apply_sig(&node, &sig, &subst, &args, expected.as_ref(), kind);
                         if let Some(mm) = member {
@@ -6327,6 +6699,12 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                         let generated_copy = self.copy_call(&recv_ty, &name, &node, &args);
                         if let Some(t) = generated_copy {
                             return t;
+                        }
+                        if !matches!(self.resolve(&ty), Ty::Meta(_)) && !ty.is_error() {
+                            // A field of function type takes no type
+                            // arguments.
+                            self.explicit = self.type_args(m.generic_arg_list());
+                            self.unused_type_args();
                         }
                         self.call_value(&node, &callee, ty, &args, expected.as_ref())
                     }
@@ -6380,6 +6758,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                                     self.loading_read(m, name.text_range());
                                     self.derived_call(m, node.text_range());
                                     let sig = self.cx.sig(SigKey::Member(m));
+                                    self.explicit = self.type_args(n.generic_arg_list());
                                     return self.apply_sig(
                                         &node,
                                         &sig,
@@ -6410,6 +6789,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                             if decl.named_kind() == Some(DeclarationKind::Function) {
                                 self.note_res(name.text_range(), self.cx.decl_resolution(d));
                                 let sig = self.cx.sig(SigKey::Decl(d));
+                                self.explicit = self.type_args(n.generic_arg_list());
                                 let ret = self.apply_sig(
                                     &node,
                                     &sig,
@@ -6424,6 +6804,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                             }
                             if decl.is_type() {
                                 self.note_res(name.text_range(), self.cx.decl_resolution(d));
+                                self.explicit = self.type_args(n.generic_arg_list());
                                 return self.construct(
                                     &node,
                                     d,
@@ -6871,6 +7252,26 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             Ty::Meta(inner) => {
                 if let Some(d) = inner.decl() {
                     let range = callee.syntax().text_range();
+                    // `crypto.KeyName<AesGcmKey>(name: …)`: the type's
+                    // written arguments.
+                    let list = match callee {
+                        ast::Expr::NameExpr(n) => n.generic_arg_list(),
+                        ast::Expr::MemberExpr(m) => m.generic_arg_list(),
+                        _ => None,
+                    };
+                    // (A wrong count was reported where the name was
+                    // resolved.)
+                    if let Some(list) = list.filter(|l| l.types().count() == inner.args().len()) {
+                        self.explicit = Some(TypeArgs {
+                            tys: list
+                                .types()
+                                .zip(inner.args())
+                                .map(|(t, ty)| (ty.clone(), t.syntax().text_range()))
+                                .collect(),
+                            range: list.syntax().text_range(),
+                            name: Some(self.cx.p.decl(d).name.clone()),
+                        });
+                    }
                     return self.construct(node, d, range, args, expected);
                 }
                 self.args_unchecked(args);
@@ -6910,12 +7311,16 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         if Some(d) == crate::channels::channel_decl(self.cx) {
             self.channel_built(name_range);
         }
+        // `KeyName<AesGcmKey>(name: …)`: explicit type arguments fix the
+        // type's generics; otherwise the expected type does, or inference.
+        let explicit = self.explicit.take();
         let decl = self.cx.p.decl(d);
         if matches!(
             decl.named_kind(),
             Some(DeclarationKind::Component | DeclarationKind::Page | DeclarationKind::Layout)
         ) {
-            // Component calls are checked by the framework layer.
+            // Component calls are checked by the framework layer, their
+            // type arguments included.
             self.quiet += 1;
             self.args_unchecked(args);
             self.quiet -= 1;
@@ -6931,11 +7336,15 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             self.quiet += 1;
             self.args_unchecked(rest);
             self.quiet -= 1;
+            self.explicit = explicit;
             return self.construct(node, d, name_range, body, expected);
         }
         let generics = decl.generics.clone();
-        // Type arguments from the expected type, or fresh variables.
+        let given = explicit.and_then(|ta| self.explicit_subst(d, &ta));
+        // Type arguments written out, from the expected type, or fresh
+        // variables.
         let subst: Vec<(GenId, Ty)> = match expected.map(|e| self.deopt(e)) {
+            _ if given.is_some() => given.unwrap_or_default(),
             Some(Ty::Named(ed, eargs)) if ed == d => generics
                 .iter()
                 .copied()
@@ -7021,13 +7430,17 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             decl.named_kind(),
             Some(DeclarationKind::Struct | DeclarationKind::Entity | DeclarationKind::Config)
         );
+        let fields: Vec<MemberId> = self
+            .cx
+            .stored_fields(d)
+            .into_iter()
+            .filter(|f| !self.cx.p.member(*f).has_annotation("Native"))
+            .collect();
         let params: Vec<SigParam> = if memberwise {
             // A `@Native` field of a stdlib struct is computed (`File.size`),
             // so it is no parameter.
-            self.cx
-                .stored_fields(d)
+            fields
                 .iter()
-                .filter(|f| !self.cx.p.member(**f).has_annotation("Native"))
                 .map(|f| {
                     let m = self.cx.p.member(*f);
                     SigParam {
@@ -7045,6 +7458,9 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             self.args_unchecked(args);
             return self_ty;
         };
+        if memberwise {
+            self.var_params = Some(fields.iter().map(|f| self.cx.p.member(*f).is_var).collect());
+        }
         let sig = Sig {
             generics: Vec::new(),
             params,
@@ -7143,6 +7559,7 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         kind: CallKind,
     ) -> Ty {
         let (params, ret, is_async, throws, full) = self.instantiate_full(sig, subst);
+        let var_params = self.var_params.take().unwrap_or_default();
         // The expected type fixes the result's variables first.
         if let Some(e) = expected {
             let r = self.resolve(&ret);
@@ -7241,7 +7658,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
                 }
                 if let Some(e) = &a.expr {
                     let pty = params[i].clone();
-                    self.check(e, &pty);
+                    if var_params.get(i).copied().unwrap_or(false) {
+                        self.check_var(e, &pty);
+                    } else {
+                        self.check(e, &pty);
+                    }
                 }
             }
         }

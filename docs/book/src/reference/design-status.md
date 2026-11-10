@@ -91,4 +91,5 @@ A few rules come from the compiler grammar rather than the design text. The book
 - `static let`, `static func`, `init(…)` and computed properties (`var name: T { … }`) are declared as in
   Swift.
 - `{{` is the only brace escape in strings, and strings are single-line.
-- There are no explicit generic arguments in expressions; a binding's annotation gives them.
+- Explicit generic arguments are written after a name (`decode<User>(json)`) only when written as types
+  are, with no space before the `<`, so `a < b` stays a comparison.

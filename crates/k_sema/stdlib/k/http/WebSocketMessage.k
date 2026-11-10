@@ -6,7 +6,8 @@ public enum WebSocketMessage implements Equatable {
     case binary(Bytes)
 
     /// Decodes the message, text or UTF-8 bytes, as JSON into a
-    /// [`Codable`] type, given by the binding: `let tick: Tick = try message.json()`.
+    /// [`Codable`] type, written out or given by the binding:
+    /// `let tick = try message.json<Tick>()`.
     ///
     /// - Returns: the decoded value.
     /// - Throws: [`DecodingError.malformed`] when it isn't JSON, and

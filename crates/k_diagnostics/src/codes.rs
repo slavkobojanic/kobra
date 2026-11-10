@@ -377,6 +377,9 @@ codes! {
     /// A declaration has two non-function members with the same name.
     DUPLICATE_MEMBER = 2019, "duplicate-member", Error,
         "Two fields, computed properties or cases of one declaration share a name (functions may be overloaded).";
+    /// Explicit type arguments don't match the generic parameters they are given to.
+    TYPE_ARGUMENT_COUNT = 2020, "type-argument-count", Error,
+        "Explicit type arguments (`decode<User>(json)`, `List<Int>`) must give one type per generic parameter; a name that isn't generic takes none.";
 
     // ---------------------------------------------------------------- units and number extensions
     /// Arithmetic mixes values of different dimensions, such as a length and a duration.
@@ -852,6 +855,9 @@ codes! {
     /// A channel rpc is called from code that can run while the server renders.
     CHANNEL_OPENED_DURING_SSR = 5513, "channel-opened-during-ssr", Warning,
         "Channels open only in the browser: a channel rpc called from a `@Load` or a field initializer panics while the server renders; open it from an `@Effect`.";
+    /// A protocol or an rpc declares generic parameters.
+    GENERIC_RPC = 5514, "generic-rpc", Error,
+        "A protocol and its rpcs can't be generic: `rpc.lock` records each rpc's concrete parameter, result and error types, which deployed callers rely on.";
 
     // ---------------------------------------------------------------- persistence
     /// A repository query lambda uses something that can't be translated to SQL.

@@ -4,21 +4,30 @@
 use std::fmt::Write as _;
 
 use k_sema::stdlib::DeclarationKind;
-use k_sema::view::{DeclId, DeclKind, MemberId, MemberKind, Param, ProgramView, Signature, Type};
+use k_sema::view::{
+    DeclId, DeclKind, GenId, MemberId, MemberKind, Param, ProgramView, Signature, Type,
+};
 
 /// Renders `ty` as K type syntax (`List<shop.Item>`, `Int?`,
 /// `(Int) async throws E -> Bool`). Prelude declarations are written by
 /// their simple name, others fully qualified, as diagnostics write them.
 #[must_use]
 pub fn ty(view: &ProgramView, ty: &Type) -> String {
+    ty_with(view, ty, &[])
+}
+
+/// Renders `ty` like [`ty`], each generic parameter in `subst` written as
+/// its type argument there (`T` as `User` in `decode<User>(json)`).
+#[must_use]
+pub fn ty_with(view: &ProgramView, ty: &Type, subst: &[(GenId, String)]) -> String {
     let mut out = String::new();
-    write_ty(view, ty, &mut out);
+    write_ty(view, ty, subst, &mut out);
     out
 }
 
-/// Appends `ty` to `out` as [`ty`] renders it; unknown declarations and
-/// error types are written `{error}`.
-fn write_ty(view: &ProgramView, ty: &Type, out: &mut String) {
+/// Appends `ty` to `out` as [`ty_with`] renders it; unknown declarations
+/// and error types are written `{error}`.
+fn write_ty(view: &ProgramView, ty: &Type, subst: &[(GenId, String)], out: &mut String) {
     match ty {
         Type::Error => out.push_str("{error}"),
         Type::Never => out.push_str("Never"),
@@ -33,7 +42,7 @@ fn write_ty(view: &ProgramView, ty: &Type, out: &mut String) {
                     if i > 0 {
                         out.push_str(", ");
                     }
-                    write_ty(view, a, out);
+                    write_ty(view, a, subst, out);
                 }
                 out.push('>');
             }
@@ -43,7 +52,7 @@ fn write_ty(view: &ProgramView, ty: &Type, out: &mut String) {
             if needs_parens {
                 out.push('(');
             }
-            write_ty(view, inner, out);
+            write_ty(view, inner, subst, out);
             if needs_parens {
                 out.push(')');
             }
@@ -55,7 +64,7 @@ fn write_ty(view: &ProgramView, ty: &Type, out: &mut String) {
                 if i > 0 {
                     out.push_str(", ");
                 }
-                write_ty(view, p, out);
+                write_ty(view, p, subst, out);
             }
             out.push(')');
             if f.is_async {
@@ -63,10 +72,10 @@ fn write_ty(view: &ProgramView, ty: &Type, out: &mut String) {
             }
             if let Some(e) = &f.throws {
                 out.push_str(" throws ");
-                write_ty(view, e, out);
+                write_ty(view, e, subst, out);
             }
             out.push_str(" -> ");
-            write_ty(view, &f.ret, out);
+            write_ty(view, &f.ret, subst, out);
         }
         Type::Tuple(items) => {
             out.push('(');
@@ -74,15 +83,20 @@ fn write_ty(view: &ProgramView, ty: &Type, out: &mut String) {
                 if i > 0 {
                     out.push_str(", ");
                 }
-                write_ty(view, t, out);
+                write_ty(view, t, subst, out);
             }
             out.push(')');
+        }
+        Type::Param(g) if subst.iter().any(|(s, _)| s == g) => {
+            if let Some((_, text)) = subst.iter().find(|(s, _)| s == g) {
+                out.push_str(text);
+            }
         }
         Type::Param(g) => match view.generics.get(g.0 as usize) {
             Some(info) => out.push_str(&info.name),
             None => out.push_str("{error}"),
         },
-        Type::Meta(inner) => write_ty(view, inner, out),
+        Type::Meta(inner) => write_ty(view, inner, subst, out),
     }
 }
 
@@ -90,6 +104,13 @@ fn write_ty(view: &ProgramView, ty: &Type, out: &mut String) {
 /// or `name: Type`, with ` = …` for a default.
 #[must_use]
 pub fn param(view: &ProgramView, p: &Param) -> String {
+    param_with(view, p, &[])
+}
+
+/// Renders one parameter like [`param`], with the generic parameters in
+/// `subst` written as their type arguments ([`ty_with`]).
+#[must_use]
+pub fn param_with(view: &ProgramView, p: &Param, subst: &[(GenId, String)]) -> String {
     let mut out = String::new();
     match &p.label {
         Some(label) if *label != p.name => {
@@ -98,7 +119,7 @@ pub fn param(view: &ProgramView, p: &Param) -> String {
         Some(_) => {}
         None => out.push_str("_ "),
     }
-    let _ = write!(out, "{}: {}", p.name, ty(view, &p.ty));
+    let _ = write!(out, "{}: {}", p.name, ty_with(view, &p.ty, subst));
     if p.has_default {
         out.push_str(" = …");
     }
@@ -138,6 +159,35 @@ pub fn signature_tail(view: &ProgramView, sig: &Signature) -> String {
         let _ = write!(out, " throws {}", ty(view, e));
     }
     let ret = ty(view, &sig.ret);
+    if ret != "Void" {
+        let _ = write!(out, " -> {ret}");
+    }
+    out
+}
+
+/// Renders a call of `name` with `sig`'s generics given by `subst`:
+/// `decode<User>(_ json: String) -> User`.
+#[must_use]
+pub fn instantiated(
+    view: &ProgramView,
+    name: &str,
+    sig: &Signature,
+    subst: &[(GenId, String)],
+) -> String {
+    let args: Vec<&str> = subst.iter().map(|(_, t)| t.as_str()).collect();
+    let params: Vec<String> = sig
+        .params
+        .iter()
+        .map(|p| param_with(view, p, subst))
+        .collect();
+    let mut out = format!("{name}<{}>({})", args.join(", "), params.join(", "));
+    if sig.is_async {
+        out.push_str(" async");
+    }
+    if let Some(e) = &sig.throws {
+        let _ = write!(out, " throws {}", ty_with(view, e, subst));
+    }
+    let ret = ty_with(view, &sig.ret, subst);
     if ret != "Void" {
         let _ = write!(out, " -> {ret}");
     }

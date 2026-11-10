@@ -105,7 +105,8 @@ implementation, [`FetchHttpClient`](#fetchhttpclient), is injected with no `use`
     [`HttpError.status`](#httperror).
 - `func fetchJson<T>(request: HttpRequest) async throws HttpError -> T where T implements Codable`
   Sends the request, requires a 2xx status, and decodes the body as
-  JSON into a [`Codable`](k-core.md#codable) type, given by the binding.
+  JSON into a [`Codable`](k-core.md#codable) type, written out (`fetchJson<Forecast>(…)`)
+  or given by the binding.
 
   - Parameter request: the request to send.
   - Returns: the decoded body.
@@ -536,7 +537,8 @@ One WebSocket message: text or binary.
   A binary message.
 - `func json<T>() throws DecodingError -> T where T implements Codable`
   Decodes the message, text or UTF-8 bytes, as JSON into a
-  [`Codable`](k-core.md#codable) type, given by the binding: `let tick: Tick = try message.json()`.
+  [`Codable`](k-core.md#codable) type, written out or given by the binding:
+  `let tick = try message.json<Tick>()`.
 
   - Returns: the decoded value.
   - Throws: [`DecodingError.malformed`](#decodingerror) when it isn't JSON, and

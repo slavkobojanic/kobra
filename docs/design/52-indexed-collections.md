@@ -55,7 +55,7 @@ public struct CollectionIndex<Field, Value> where Field implements Codable, Valu
 
 Both are plain structs built with their memberwise initializers, so they cost nothing in the browser until a `Collections` call uses them.
 
-- **The type arguments come from the binding,** as for `StorageKey`; K has no explicit type arguments in an initializer call ([RA-23](../compiler/grammar.md)).
+- **The type arguments come from the binding,** as for `StorageKey`, or are written out (`Collection<Uuid, UnsavedEdit>(name: …)`, [RA-23](../compiler/grammar.md)).
 - **Every argument is a string literal.** A computed `name:` or `collection:` is `K2403`, as for a `StorageKey`'s name; a computed `key:` or `field:` is `K2411`.
 - **They are declared as a constant or a field,** where the compiler finds them. A `Collection(…)` or `CollectionIndex(…)` anywhere else in non-test code (a local `let`, an argument) is `K2411`: the browser's database and `storage.lock` would never hear of it.
 - **`Value` is a struct, and `key:` names one of its stored fields** (by its K name, not a `@JsonKey`) whose type is exactly `Key`. The key field isn't optional: every value has a key.

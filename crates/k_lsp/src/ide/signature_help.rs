@@ -9,7 +9,7 @@
 
 use k_diagnostics::{FileId, TextSize};
 use k_sema::stdlib::elements;
-use k_sema::view::{DeclId, MemberKind, ProgramView, Resolved, Signature};
+use k_sema::view::{DeclId, GenId, MemberKind, ProgramView, Resolved, Signature};
 use k_sema::{Analysis, Cancelled, Resolution};
 use k_syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
@@ -61,15 +61,21 @@ pub fn signature_help(
     };
     let view = analysis.program()?;
     let resolution = analysis.resolve_at(file, name.text_range())?;
+    // Explicit type arguments (`decode<User>(`) are shown in place of the
+    // generic parameters they give.
+    let written = type_arguments(&callee);
     let signatures = match &resolution {
         Some(Resolution::Element { name }) => element_signatures(name),
         Some(r) => match view.resolve(r) {
-            Some(Resolved::Decl(d)) => decl_signatures(view, d),
+            Some(Resolved::Decl(d)) => decl_signatures(view, d, written.as_deref()),
             Some(Resolved::Member(m)) => view
                 .member(m)
                 .signature
                 .as_ref()
-                .map(|s| vec![from_signature(view, &view.member(m).name, s)])
+                .map(|s| {
+                    let subst = given(&s.generics, written.as_deref());
+                    vec![from_signature(view, &view.member(m).name, s, &subst)]
+                })
                 .unwrap_or_default(),
             None => Vec::new(),
         },
@@ -141,6 +147,30 @@ fn callee_name(callee: &SyntaxNode) -> Option<SyntaxToken> {
     }
 }
 
+/// The explicit type arguments of a callee, as written (`["User"]` for
+/// `decode<User>`).
+fn type_arguments(callee: &SyntaxNode) -> Option<Vec<String>> {
+    let list = callee
+        .children()
+        .find(|c| c.kind() == SyntaxKind::GenericArgList)?;
+    Some(
+        list.children()
+            .map(|t| t.text().to_string().trim().to_owned())
+            .collect(),
+    )
+}
+
+/// The substitution of `generics` by the written type arguments, empty
+/// when there are none or their count differs (K2020).
+fn given(generics: &[GenId], written: Option<&[String]>) -> Vec<(GenId, String)> {
+    match written {
+        Some(w) if w.len() == generics.len() => {
+            generics.iter().copied().zip(w.iter().cloned()).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// The index of the argument at `offset` (its commas before the offset)
 /// and its label, if it has one.
 fn current_argument(args: &SyntaxNode, offset: TextSize) -> (usize, Option<String>) {
@@ -174,23 +204,35 @@ fn current_argument(args: &SyntaxNode, offset: TextSize) -> (usize, Option<Strin
 }
 
 /// A signature from the view.
-fn from_signature(view: &ProgramView, name: &str, sig: &Signature) -> SignatureInfo {
-    let mut label = format!("{name}(");
+fn from_signature(
+    view: &ProgramView,
+    name: &str,
+    sig: &Signature,
+    subst: &[(GenId, String)],
+) -> SignatureInfo {
+    let mut label = name.to_owned();
+    if !subst.is_empty() {
+        let args: Vec<&str> = subst.iter().map(|(_, t)| t.as_str()).collect();
+        label.push('<');
+        label.push_str(&args.join(", "));
+        label.push('>');
+    }
+    label.push('(');
     let mut params = Vec::new();
     for (i, p) in sig.params.iter().enumerate() {
         if i > 0 {
             label.push_str(", ");
         }
         let start = label.len();
-        label.push_str(&render::param(view, p));
+        label.push_str(&render::param_with(view, p, subst));
         params.push((start, label.len(), p.label.clone()));
     }
     label.push(')');
     if let Some(e) = &sig.throws {
         label.push_str(" throws ");
-        label.push_str(&render::ty(view, e));
+        label.push_str(&render::ty_with(view, e, subst));
     }
-    let ret = render::ty(view, &sig.ret);
+    let ret = render::ty_with(view, &sig.ret, subst);
     if ret != "Void" {
         label.push_str(" -> ");
         label.push_str(&ret);
@@ -200,11 +242,18 @@ fn from_signature(view: &ProgramView, name: &str, sig: &Signature) -> SignatureI
 
 /// The signatures of calling declaration `d`: a function's signature, a
 /// type's initializers, or its memberwise initializer.
-fn decl_signatures(view: &ProgramView, d: DeclId) -> Vec<SignatureInfo> {
+fn decl_signatures(
+    view: &ProgramView,
+    d: DeclId,
+    written: Option<&[String]>,
+) -> Vec<SignatureInfo> {
     let info = view.decl(d);
     if let Some(sig) = &info.signature {
-        return vec![from_signature(view, &info.name, sig)];
+        let subst = given(&sig.generics, written);
+        return vec![from_signature(view, &info.name, sig, &subst)];
     }
+    // A type's own generics (`KeyName<AesGcmKey>(`).
+    let subst = given(&info.generics, written);
     let inits: Vec<SignatureInfo> = info
         .members
         .iter()
@@ -213,14 +262,21 @@ fn decl_signatures(view: &ProgramView, d: DeclId) -> Vec<SignatureInfo> {
         .filter_map(|m| {
             m.signature
                 .as_ref()
-                .map(|s| from_signature(view, &info.name, s))
+                .map(|s| from_signature(view, &info.name, s, &subst))
         })
         .collect();
     if !inits.is_empty() {
         return inits;
     }
     // Memberwise: the stored, non-static fields that callers set.
-    let mut label = format!("{}(", info.name);
+    let mut label = info.name.clone();
+    if !subst.is_empty() {
+        let args: Vec<&str> = subst.iter().map(|(_, t)| t.as_str()).collect();
+        label.push('<');
+        label.push_str(&args.join(", "));
+        label.push('>');
+    }
+    label.push('(');
     let mut params = Vec::new();
     let mut first = true;
     for &m in &info.members {
@@ -239,7 +295,7 @@ fn decl_signatures(view: &ProgramView, d: DeclId) -> Vec<SignatureInfo> {
         label.push_str(&member.name);
         if let Some(t) = &member.ty {
             label.push_str(": ");
-            label.push_str(&render::ty(view, t));
+            label.push_str(&render::ty_with(view, t, &subst));
         }
         if member.has_default {
             label.push_str(" = …");

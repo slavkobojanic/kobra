@@ -1,0 +1,2 @@
+error[K5514] 5:15-5:18: a protocol can't be generic: `rpc.lock` records every rpc's concrete types
+  help: a caller deployed with one type can't call a handler built with another; declare one rpc per type, or wrap the variants in an enum

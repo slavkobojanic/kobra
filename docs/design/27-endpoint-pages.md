@@ -68,7 +68,7 @@ Handlers receive an **`IncomingRequest`**, a read-only type distinct from the ou
 | `headers` | **names lowercased,** so lookups never depend on the sender's capitalization: `request.headers["stripe-signature"]`. A repeated header reads as its values joined with `, `; `headers.all(name)` returns each value. |
 | `rawBody: Bytes` | **the body exactly as received.** Signature schemes (Stripe, GitHub, Slack) sign these bytes; parsing and re-encoding would change them. |
 | `text() -> String?` | the body as UTF-8, or `nil` if it isn't valid UTF-8 |
-| `json() throws DecodingError -> T` | the body decoded as JSON into a `Codable` type, given by the binding: `let event: StripeEvent = try request.json()` |
+| `json() throws DecodingError -> T` | the body decoded as JSON into a `Codable` type, written out or given by the binding: `let event = try request.json<StripeEvent>()` |
 | `clientAddress: String` | the caller's IP address (below) |
 
 ### Client address and proxies

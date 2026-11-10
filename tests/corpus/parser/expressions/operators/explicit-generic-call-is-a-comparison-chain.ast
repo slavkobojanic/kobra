@@ -1,4 +1,4 @@
-; `f<Int>(x)` has no generic arguments in expressions (RA-23): it is `f < Int > (x)`, a K0113 chain
+; `f < Int > (x)` with spaces is a comparison, not explicit generic arguments (RA-23): a K0113 chain
 (SourceFile
   (FieldDecl let a =
     (BinaryExpr (BinaryExpr (NameExpr f) < (NameExpr Int)) > (ParenExpr (NameExpr x)))))

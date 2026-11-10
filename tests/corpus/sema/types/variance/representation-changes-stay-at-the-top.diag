@@ -1,0 +1,4 @@
+error[K2001] 20:36-20:42: expected `Map<String, corpus.Priced>`, found `Map<String, corpus.Card>`
+  help: only a value itself, an optional's value and a list's elements are converted to an interface or `Error`; convert the elements first (`.map { … }`)
+error[K2001] 21:30-21:34: expected `() -> corpus.Priced`, found `() -> corpus.Card`
+  help: a function is passed as it is, so its result isn't converted to an interface or `Error`; pass a lambda that calls it instead (`{ make() }`)

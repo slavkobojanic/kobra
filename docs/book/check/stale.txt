@@ -59,3 +59,7 @@ is a compile warning  # name the diagnostic code, or the Planned feature (`passw
 # Streams and broadcasts (round 1(a) audit)
 identical streams [^.]*share one\s+connection  # stream sharing between tabs is Planned (stream-tab-sharing); each tab opens its own
 replicas behind a load balancer reach each other's subscribers  # Broadcast delivery is in-process; between replicas is Planned (broadcast-replicas)
+
+# Explicit type arguments exist (08-types.md, "Decided while implementing")
+(?:no|without) explicit (?:generic|type) arguments  # type arguments can be written after a name: `decode<User>(json)`
+(?:There is|K has) no `f<Int>\(x\)`  # `f<Int>(x)` is valid K: explicit type arguments

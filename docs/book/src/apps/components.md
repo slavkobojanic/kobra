@@ -418,7 +418,7 @@ import k.storage.StorageKey
 service RecentlyViewed {
     @Inject let storage: LocalStorage
 
-    private let saved: StorageKey<List<String>> = StorageKey(name: "recent")
+    private let saved = StorageKey<List<String>>(name: "recent")
 
     @State var names: List<String> = []
 

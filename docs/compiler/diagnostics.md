@@ -207,6 +207,7 @@ cases for checks that don't exist yet are marked pending.
 | K2017 | `unwrap-required` | error | The optional receiver of the `.` member access. | ``Use `?.` ``: replace the `.` with `?.` (maybe-incorrect). |
 | K2018 | `needless-optional-operator` | warning | The `?.` or `??` token whose left operand can't be `nil`. | For `?.`, ``Replace `?.` with `.` `` (machine-applicable); for `??`, ``Remove `?? <default>` `` deleting from the whitespace before `??` to the end of the right operand (machine-applicable). |
 | K2019 | `duplicate-member` | error | The later member's name; label `first declared here` at the first. Members share a name when both are fields, computed properties or cases in the same namespace: instance members, or static members and cases (`.x`). Functions may be overloaded and may share a name with a property. The first member wins for the memberwise initializer, lookups and derivation. | — |
+| K2020 | `type-argument-count` | error | The `<…>` list: of a call's explicit type arguments (`decode<Int, String>(…)`, `count<Int>(…)`) when their number differs from the generic parameters of the function, member or type they are given to, and of a type (`Box<Int, Int>`) likewise. A wrong count binds the parameters to `{error}`, so nothing that depends on them is reported. | Remove the list when the name isn't generic (machine-applicable). |
 
 Messages and detail lines for this range that the corpus pins exactly:
 
@@ -454,6 +455,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K5511 | `channel-on-server` | error | In the body of a server-only declaration (a service implementing a protocol, a `.request` or `.server` service, an endpoint page, …): the member expression or call of a `Channel`'s `state`, `messages`, `send` or `close`, or the call of a channel rpc ([44-channels.md](../design/44-channels.md#server-only-and-client-only)). | — |
 | K5512 | `channel-built-outside-handler` | error | The type name of a `Channel(sending:receiving:)` call outside the body of a service's handler of a channel rpc (its lambdas included); a private helper of the service is outside. | — |
 | K5513 | `channel-opened-during-ssr` | warning | The call in a `@Load` initializer of a channel rpc, or of an app function that calls one, directly or through other app functions (resolved names only), except in a client-rendered app or a client-rendered component's subtree. | — |
+| K5514 | `generic-rpc` | error | The generic parameter list of a protocol (its rpcs are then not checked further) or of an rpc, in a protocol or a service; a service rpc that is generic, or serves a generic one, isn't compared with the protocol's (no K5505). | — |
 
 ### Persistence (K6000–K6999)
 

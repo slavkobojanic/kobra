@@ -1,0 +1,9 @@
+# Generic components and generic members of injected services with
+# `k test` (docs/design/08-types.md, "Generics"): every test here must
+# pass. `chrome.rs`' generics test builds it with `k build` and serves it
+# statically: one generic `Picker<T>` is placed twice, once with its type
+# argument inferred and once written out, and picking in each updates the
+# page through the injected services' generic methods.
+[package]
+name = "generics"
+k = "0.1"

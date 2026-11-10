@@ -9,7 +9,7 @@ test BoardService {
     @Inject let clock: TestClock
 
     // A test's own key under the service's name, to look at what it stored.
-    let savedBoards: StorageKey<List<Board>> = StorageKey(name: "boards")
+    let savedBoards = StorageKey<List<Board>>(name: "boards")
 
     /// The board with `id` now, or `Board.sample` when there is none.
     func current(_ id: BoardId) -> Board {

@@ -22,7 +22,7 @@ public service TodoService {
     // Users' saved todos live under this key. Its name and the shape of
     // `Todo` are recorded in storage.lock, so `k check` fails if a change
     // would make every saved list unreadable.
-    private let savedTodos: StorageKey<List<Todo>> = StorageKey(name: "todos")
+    private let savedTodos = StorageKey<List<Todo>>(name: "todos")
 
     /// Every todo, oldest first.
     @State var items: List<Todo> = []

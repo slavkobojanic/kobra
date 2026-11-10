@@ -3301,6 +3301,54 @@ fn collections_share_one_database_across_two_builds_in_two_tabs_in_chrome() {
     );
 }
 
+// ============================================================ generics
+
+/// One generic `Picker<T>` placed twice in the `generics` fixture (its type
+/// argument inferred for fruits, written out for quantities), built with
+/// `k build` and served statically: clicking in each updates the page
+/// through the injected services' generic members, and the injected
+/// `Ranker`'s generic `best` names the dearest fruit.
+#[test]
+fn a_generic_component_renders_and_emits_its_type_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("generics");
+    let project = dir.0.join("project");
+    copy_project(
+        &repo().join("crates/k_cli/tests/fixtures/generics"),
+        &project,
+    );
+    let dist = dir.0.join("dist");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_k"))
+        .arg("build")
+        .arg(&project)
+        .arg("--out")
+        .arg(&dist)
+        .output()
+        .expect("k build runs");
+    assert!(
+        out.status.success(),
+        "k build: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let site = StaticSite::serve(&dist);
+    let Some(mut tab) = page::chrome(&dir.0) else {
+        return;
+    };
+    tab.open(&format!("{}/", site.origin));
+    tab.role("heading", "Fruit");
+    tab.role("heading", "Quantity");
+    tab.wait_text("Dearest: Mango");
+    let mango = tab.role("button", "Mango");
+    tab.click(&mango);
+    tab.wait_text("Picked Mango × 0");
+    let three = tab.role("button", "3 pieces");
+    tab.click(&three);
+    tab.wait_text("Picked Mango × 3");
+    tab.wait_text("Kept 2");
+}
+
 // ============================================================ focusing
 
 /// The `focusing` fixture (element references, 53-element-references.md),

@@ -15,7 +15,7 @@ public service VaultService {
     @Inject let api: VaultProtocol
     @Inject let keys: KeyStore
 
-    private static let vaultKey: KeyName<AesGcmKey> = KeyName(name: "notes-vault")
+    private static let vaultKey = KeyName<AesGcmKey>(name: "notes-vault")
 
     @State var state: VaultState = .unknown
 

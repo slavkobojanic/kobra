@@ -35,7 +35,7 @@ public service MemoRecorder {
 
     // Recorded in storage.lock, so a change that would make the saved
     // choice unreadable fails `k check`.
-    private let preferredMicrophone: StorageKey<MediaDeviceId> = StorageKey(name: "microphone")
+    private let preferredMicrophone = StorageKey<MediaDeviceId>(name: "microphone")
 
     /// The page shows a Record button, or how to unblock the microphone.
     @Derived let microphone: PermissionState = devices.microphonePermission

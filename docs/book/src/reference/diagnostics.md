@@ -2120,6 +2120,67 @@ error[K2019]: `x` is declared more than once in `E`
 
 **Fix:** Rename one of the fields, properties or cases.
 
+### K2020 `type-argument-count`
+
+**Error.** Explicit type arguments (`decode<User>(json)`, `List<Int>`) must give one type per generic parameter; a name that isn't generic takes none.
+
+Example (`tests/corpus/sema/types/generics/explicit-type-argument-count.k`):
+
+```k,ignore
+// Explicit type arguments give one type per generic parameter (K2020), in
+// expressions and in types alike; a name that isn't generic takes none,
+// with a fix that removes them.
+struct Box<T> {
+    let value: T
+}
+
+func empty<T>() -> List<T> {
+    return []
+}
+
+func count(items: List<Int>) -> Int {
+    return items.count
+}
+
+func calls() -> Int {
+    let a = empty<Int, String>()
+    let b = Box<Int, Int>(value: 1)
+    let c = count<Int>(items: [1])
+    let d: Box<Int, Int>? = nil
+    return c
+}
+```
+
+```text
+error[K2020]: `empty` takes 1 type argument, found 2
+  --> src/corpus/explicit-type-argument-count.k:17:18
+   |
+17 |     let a = empty<Int, String>()
+   |                  ^^^^^^^^^^^^^
+
+error[K2020]: `Box` takes 1 type argument, found 2
+  --> src/corpus/explicit-type-argument-count.k:18:16
+   |
+18 |     let b = Box<Int, Int>(value: 1)
+   |                ^^^^^^^^^^
+
+error[K2020]: `count` isn't generic: it takes no type arguments
+  --> src/corpus/explicit-type-argument-count.k:19:18
+   |
+19 |     let c = count<Int>(items: [1])
+   |                  ^^^^^
+   |
+   = fix: Remove the type arguments
+
+error[K2020]: `Box` takes 1 type argument, found 2
+  --> src/corpus/explicit-type-argument-count.k:20:15
+   |
+20 |     let d: Box<Int, Int>? = nil
+   |               ^^^^^^^^^^
+```
+
+**Fix:** Give one type argument per generic parameter, or remove them where the name isn't generic.
+
 ### K2101 `mixed-unit-dimensions`
 
 **Error.** Arithmetic mixes values of different dimensions, such as a length and a duration.
@@ -8336,6 +8397,34 @@ warning[K5513]: `join` opens a channel (it calls `room`), and channels open only
 ```
 
 **Fix:** Open the channel from an `@Effect`, which runs only in the browser, not from a `@Load`.
+
+### K5514 `generic-rpc`
+
+**Error.** A protocol and its rpcs can't be generic: `rpc.lock` records each rpc's concrete parameter, result and error types, which deployed callers rely on.
+
+Example (`tests/corpus/sema/rpc/generic-protocol.k`):
+
+```k,ignore
+// A protocol can't be generic (K5514 at its parameters): `rpc.lock` records
+// every rpc's concrete types. Its rpcs aren't checked further.
+import k.rpc.RpcOnlyError
+
+protocol Store<T> {
+    rpc get(id: Int) throws RpcOnlyError -> T
+}
+```
+
+```text
+error[K5514]: a protocol can't be generic: `rpc.lock` records every rpc's concrete types
+ --> src/corpus/generic-protocol.k:5:15
+  |
+5 | protocol Store<T> {
+  |               ^^^
+  |
+  = help: a caller deployed with one type can't call a handler built with another; declare one rpc per type, or wrap the variants in an enum
+```
+
+**Fix:** Declare one rpc per concrete type, or wrap the variants in an enum the rpc takes or returns.
 
 ## K6000–K6999: Persistence
 

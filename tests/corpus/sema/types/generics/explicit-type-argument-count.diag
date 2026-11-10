@@ -1,0 +1,6 @@
+error[K2020] 17:18-17:31: `empty` takes 1 type argument, found 2
+error[K2020] 18:16-18:26: `Box` takes 1 type argument, found 2
+error[K2020] 19:18-19:23: `count` isn't generic: it takes no type arguments
+  fix "Remove the type arguments"
+    edit 19:18-19:23 ""
+error[K2020] 20:15-20:25: `Box` takes 1 type argument, found 2

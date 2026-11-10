@@ -492,6 +492,11 @@ fn contextual_decl(p: &mut Parser<'_>, m: Marker, level: Level) {
             };
             p.bump_remap(kw);
             decl_name(p);
+            // A generic protocol parses, so sema can say why it can't be
+            // one (K5514).
+            if kw == K::ProtocolKw && p.at(K::Lt) {
+                types::generic_param_list(p);
+            }
             if p.at(K::RequiresKw) {
                 requires_clause(p);
             }
@@ -728,6 +733,10 @@ fn signature_tail(p: &mut Parser<'_>, requires: bool) {
     if requires && p.at(K::RequiresKw) {
         requires_clause(p);
     }
+    // An rpc's `where` clause parses with its generics (K5514 in sema).
+    if requires && p.at(K::WhereKw) {
+        types::where_clause(p);
+    }
 }
 
 /// `FieldDecl ::= prefix ( 'let' | 'var' ) IDENT ( ':' Type )? ( '=' Expr | Block )?`
@@ -778,11 +787,15 @@ fn init_decl(p: &mut Parser<'_>, m: Marker) {
     m.complete(p, K::InitDecl);
 }
 
-/// `RpcDecl ::= prefix 'rpc' IDENT ParamList 'async'? ThrowsClause?
+/// `RpcDecl ::= prefix 'rpc' IDENT GenericParamList? ParamList 'async'? ThrowsClause?
 /// ReturnType? RequiresClause? Block?`
 fn rpc_decl(p: &mut Parser<'_>, m: Marker) {
     p.bump();
     decl_name(p);
+    // A generic rpc parses, so sema can say why it can't be one (K5514).
+    if p.at(K::Lt) {
+        types::generic_param_list(p);
+    }
     p.eat_error_tokens();
     if p.at(K::LParen) {
         param_list(p);

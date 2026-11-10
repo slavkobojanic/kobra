@@ -761,6 +761,47 @@ fn signature_help_of_calls() {
     assert_eq!(help.active_parameter, 0);
 }
 
+/// Generic declarations called with explicit type arguments.
+const GENERIC: &str = "struct Box<T> {\n    let value: T\n}\n\nfunc empty<T>(count: Int) -> List<T> {\n    return []\n}\n\nfunc make() -> Int {\n    let a = empty<String>(count: 1)\n    let b = Box<Int>(value: 2)\n    return a.count + b.value\n}\n";
+
+#[test]
+fn signature_help_shows_explicit_type_arguments() {
+    let text = GENERIC.replace("empty<String>(count: 1)", "empty<String>(count: $0");
+    let f = fixture(&[("src/g/G.k", &text)]);
+    let help = signature_help::signature_help(&f.analysis(), f.file, f.offset).unwrap();
+    let help = help.expect("signature help in a generic call");
+    assert_eq!(
+        help.signatures[0].label,
+        "empty<String>(count: Int) -> List<String>"
+    );
+    let text = GENERIC.replace("Box<Int>(value: 2)", "Box<Int>(value: $0");
+    let f = fixture(&[("src/g/G.k", &text)]);
+    let help = signature_help::signature_help(&f.analysis(), f.file, f.offset).unwrap();
+    let help = help.expect("signature help in a generic initializer");
+    assert_eq!(help.signatures[0].label, "Box<Int>(value: Int)");
+    // Without type arguments, the declared parameters.
+    let text = GENERIC.replace("empty<String>(count: 1)", "empty(count: $0");
+    let f = fixture(&[("src/g/G.k", &text)]);
+    let help = signature_help::signature_help(&f.analysis(), f.file, f.offset).unwrap();
+    let help = help.expect("signature help in an inferred call");
+    assert_eq!(help.signatures[0].label, "empty(count: Int) -> List<T>");
+}
+
+#[test]
+fn hover_shows_a_call_with_explicit_type_arguments() {
+    let f = fixture(&[("src/g/G.k", &with_cursor(GENERIC, "empty<String>", 0, 1))]);
+    let h = hover::hover(&f.analysis(), f.file, f.offset, &|_| None)
+        .unwrap()
+        .unwrap();
+    assert!(h.markdown.contains("func g.empty<T>"), "{}", h.markdown);
+    assert!(
+        h.markdown
+            .contains("Called as `empty<String>(count: Int) -> List<String>`."),
+        "{}",
+        h.markdown
+    );
+}
+
 #[test]
 fn half_typed_code_never_panics() {
     let analysis_texts = [
@@ -772,6 +813,9 @@ fn half_typed_code_never_panics() {
         "func f(a: Int, b",
         "page P at \"/{",
         "component C {\n    view {\n        button(",
+        "func f() {\n    let x = decode<User>(",
+        "func f() {\n    let x = a.b<List<",
+        "protocol P<T> {\n    rpc get<U>(",
     ];
     for text in analysis_texts {
         let f = fixture(&[("src/z/Z.k", text)]);

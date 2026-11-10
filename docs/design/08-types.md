@@ -189,3 +189,49 @@ func cheapest<T>(items: List<T>) -> T? where T implements Priced {
 - **Generic constraints use `where T implements X`,** the same `where` keyword as `match` guards.
 - **Interfaces are nominal.** A type conforms only by declaring `implements`, never by matching a shape, so every implementation can be found with a single search.
 - Injecting an interface is covered in [10-services.md](10-services.md).
+
+## Generics
+
+```k
+let note = try Json.decode<Note>(text)            // explicit type arguments
+let vault = KeyName<AesGcmKey>(name: "vault")
+let animals: List<Animal> = dogs                  // read-only positions are covariant
+```
+
+- **Type arguments are inferred** from the arguments and the expected type, **or written after the name** when inference has nothing to go on: a function (`decode<User>(json)`), a member's own generics (`Jwt.verify<Claims>(…)`, `names.map<Int> { … }`), a generic type's initializer (`KeyName<AesGcmKey>(name: "vault")`), a static member of a generic type (`Sealed<Note>.parse(text)`) and a generic component (`Picker<Int>(…)`).
+- **Read-only positions are covariant:** a `List<Dog>` is a `List<Animal>` when `Dog` implements `Animal`. Mutable positions (`var` bindings and fields) and a project's own generic types are invariant. There are no variance annotations.
+- **Protocols and rpcs can't be generic**, since `rpc.lock` records each rpc's concrete types.
+
+## Decided while implementing
+
+**Explicit type arguments**
+
+- **The syntax is `name<Type, …>` directly after a name or member name,** followed by `(`, `.` or a trailing lambda: `decode<User>(json)`, `RemoteClient.at<PaymentEvents>(…)`, `Sealed<Note>.parse(text)`, `names.map<Int> { … }`. The parser takes the `<` as type arguments only when the list is written as types are, with no space after the name or inside the brackets' ends, uppercase type names and on one line ([grammar RA-23](../compiler/grammar.md#ra-23-explicit-generic-arguments-in-expressions)). Comparisons don't chain (K0113), so no valid comparison changes meaning; the remaining ambiguity, `f(a < b, c > (d))`, stays two arguments because comparisons are spaced. Rejected: a turbofish (`decode::<User>`), which reads as noise and is unlike the type syntax everywhere else, and C#'s rule of looking only at the token after `>`, which turns `f(a<b, c>(d))` into a generic call.
+- **`RemoteClient.at<P>(…)`, not `RemoteClient<P>.at(…)`.** `P` is the generic parameter of the static function `at`, not of `RemoteClient`, which isn't generic; `RemoteClient<P>.at` is K2020. Making `RemoteClient` generic to support the other spelling would give every other use of the type a meaningless parameter.
+- **Explicit arguments win over the expected type.** `let k: KeyName<HmacKey> = KeyName<AesGcmKey>(name: "k")` is K2001 at the initializer, not a silent re-inference.
+- **One type per generic parameter (K2020),** in expressions and in types alike: `decode<Int, String>(…)` and `Box<Int, Int>` are errors at the `<…>` list (before this round, extra type arguments in a type were dropped silently). Type arguments on something that isn't generic (a local, a field of function type, a non-generic function) are K2020 with a fix that removes them. After K2020 the generics are `{error}`, so nothing that depends on them is reported again. There is no partial list (`pair<Int, _>`): K has no type placeholder, and a partial list rarely reads better than an annotated binding.
+- **Constraints apply to written arguments as to inferred ones** (K2009 at the type argument).
+- **Generics cost nothing at run time:** explicit arguments only fix what inference would otherwise find, so the emitted JavaScript is the same, codecs and witnesses included.
+- **Not supported:** a generic function value with its arguments (`list.map(decode<User>)`, which the parser doesn't take as type arguments since no `(` follows); give the function type by the expected type instead. Higher-kinded types stay out of scope.
+- **The tooling shows them.** Signature help in `decode<User>(` labels the signature `decode<User>(_ text: String) -> User`, with the type parameters replaced by what is written (a type's initializers and memberwise fields too), and hover on the name adds "Called as `decode<User>(…) -> User`".
+- **The examples use them where they read better:** keys declared as `let savedTodos = StorageKey<List<Todo>>(name: "todos")` and `let vaultKey = KeyName<AesGcmKey>(name: "notes-vault")`, and `RemoteClient.at<PaymentEvents>(…)`. Bindings whose annotation already names the type (`let event: StripeEvent = try Json.decode(payload)`) stay as they are.
+
+**Variance**
+
+- **Covariant positions are fixed by the standard library, not declared:** the elements of `List`, `Set` and `Stream`, a `Map`'s values (keys stay invariant, since a key is hashed and compared as its own type), both arguments of `Result`, an optional's value and a function's result (its parameters are contravariant, as before). A project's own generic types, classes included, are invariant; variance annotations stay out of scope.
+- **`var`s are invariant.** A `var` local's initializer, an assignment, a `var` field's initializer and a `var` field's memberwise argument must have exactly the declared type inside, so `var animals: List<Animal> = dogs` is K2001 with a help, while `let` takes it. K's collections are values, so this isn't needed for soundness today; it keeps a mutable binding's type the one written, and it means turning a collection-holding field into a class (with reference identity) never makes code that compiled unsound.
+- **A conversion that changes how a value is held is made only where codegen makes it.** A struct, enum or entity held as a project interface is wrapped in its adapter, a concrete error as `Error` is boxed with its text, a value as `Codable` carries its codec. Those conversions apply to a value itself, an optional's value and a list's elements (also of an optional list, `List<Card>` as `List<Priced>?`), each converted by the existing `coerce` (a list is mapped once). Inside a `Set`, a map's values, a `Result`, or a function's parameters and result, the conversion would need a copy of the container (or a wrapper function) on every use, so it is K2001 with a help that says to convert first. Classes, services and the stdlib's other interfaces keep the value as it is, so they convert in every covariant position. Rejected: allowing all of them and copying containers in codegen, which would hide an O(n) copy behind an assignment and grow the runtime.
+- **Function references no longer convert their result to an interface.** Before this round a `() -> Card` was accepted as a `() -> Priced` and called without the adapter; now it is K2001 with a help suggesting a lambda (`{ make() }`), which is converted. A function whose result is a class still converts.
+
+**Generic protocols and rpcs**
+
+- **A protocol or an rpc with generic parameters is K5514** at the parameter list, in a protocol or in a service. `rpc.lock` records each rpc's concrete parameter, result and error types, and a deployed caller built with one type can't call a handler built with another. The parser now accepts the list (and an rpc's `where` clause) so the diagnostic can say why; a generic protocol's rpcs aren't checked further, and a generic handler isn't compared with its rpc (no K5505 on top).
+
+**Generic components and services**
+
+- **A generic component's type arguments are inferred from its props per placement, or written out** (`Picker<Int>(title: …)`). `crates/k_cli/tests/fixtures/generics` places one `Picker<T>` both ways, with `k test` and in real Chrome (`chrome.rs`, `a_generic_component_renders_and_emits_its_type_in_chrome`).
+- **An injected service's and an interface's generic members** take explicit arguments like any other call (`basket.last<Fruit>()`, decoding JSON as the type asked for, and `ranker.best<Fruit>(…)` through the interface `Ranker` bound to its one service). Services themselves stay non-generic: a service is a single instance per scope, so a type parameter would have nothing to vary over.
+
+**Small changes made along the way**
+
+- **`try … else { }` where an optional is expected widens the operand to its optional,** so the fallback may be `nil`: `let value: T? = try Json.decode<T>(text) else { nil }`. Before, the `else` block had to produce the operand's own type, which a written-out `T` made impossible to express.

@@ -17,7 +17,7 @@ public service RecentPlaces {
     // The key's name and the shape of `RecentPlace` are recorded in
     // storage.lock, so a change that would make saved lists unreadable fails
     // `k check`.
-    private let savedPlaces: StorageKey<List<RecentPlace>> = StorageKey(name: "recentPlaces")
+    private let savedPlaces = StorageKey<List<RecentPlace>>(name: "recentPlaces")
 
     /// The places, newest first.
     @State var places: List<RecentPlace> = []

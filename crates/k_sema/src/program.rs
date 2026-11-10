@@ -584,7 +584,9 @@ impl<'a> Program<'a> {
             name_token.text().to_owned()
         };
         let id = MemberId(u32::try_from(self.members.len()).unwrap_or(u32::MAX));
-        let generics = if let ast::Member::FuncDecl(_) = member {
+        // An rpc's generics are K5514 (`rpc.rs`), but they are in scope so
+        // its types resolve.
+        let generics = if let ast::Member::FuncDecl(_) | ast::Member::RpcDecl(_) = member {
             generic_names(&node)
         } else {
             Vec::new()

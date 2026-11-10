@@ -24,7 +24,7 @@ public service BoardService {
     // The boards live under this key. Its name and the shape of `Board`
     // are recorded in storage.lock, so `k check` fails if a change would
     // make every saved board unreadable.
-    private let savedBoards: StorageKey<List<Board>> = StorageKey(name: "boards")
+    private let savedBoards = StorageKey<List<Board>>(name: "boards")
 
     /// Every board, oldest first.
     @State var boards: List<Board> = []

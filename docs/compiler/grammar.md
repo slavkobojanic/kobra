@@ -462,7 +462,7 @@ ComponentDecl  ::= prefix 'component'  IDENT GenericParamList? MemberList
 PageDecl       ::= prefix 'page'       IDENT RequiresClause? AtClause? MemberList
 LayoutDecl     ::= prefix 'layout'     IDENT RequiresClause? MemberList
 ServiceDecl    ::= prefix 'service'    IDENT ImplementsClause? MemberList
-ProtocolDecl   ::= prefix 'protocol'   IDENT RequiresClause? MemberList
+ProtocolDecl   ::= prefix 'protocol'   IDENT GenericParamList? RequiresClause? MemberList
 EntityDecl     ::= prefix 'entity'     IDENT ImplementsClause? MemberList
 RepositoryDecl ::= prefix 'repository' IDENT ForClause MemberList
 StructDecl     ::= prefix 'struct'     IDENT GenericParamList? ImplementsClause? WhereClause? MemberList
@@ -509,7 +509,8 @@ member ::= FieldDecl | FuncDecl | InitDecl | RpcDecl | EnumCase | UseDecl | Them
          | TestSuiteDecl | TestCaseDecl
 
 InitDecl      ::= prefix 'init' ParamList ThrowsClause? Block
-RpcDecl       ::= prefix 'rpc' IDENT ParamList 'async'? ThrowsClause? ReturnType? RequiresClause? Block?
+RpcDecl       ::= prefix 'rpc' IDENT GenericParamList? ParamList 'async'? ThrowsClause? ReturnType?
+                  RequiresClause? WhereClause? Block?
 EnumCase      ::= prefix 'case' IDENT ( '(' ( CaseField ( ',' CaseField )* ','? )? ')' )?
 CaseField     ::= ( IDENT ':' )? Type
 UseDecl       ::= 'use' ( Type | Expr ) 'for' Type ( 'in' Expr ( ',' Expr )* )?   (* see below *)
@@ -527,6 +528,8 @@ StyleBlock    ::= 'style' '{' css_item* '}'                (* see §16 *)
 - An `RpcDecl` without a body declares an RPC in a `protocol`; with a body it implements one in a
   `service ... implements Protocol`. The signature reads `rpc name(params) async throws E -> T requires
   Guards { ... }` ([RA-1](#ra-1-position-of-requires-in-rpc-signatures)).
+- A protocol's and an rpc's generic parameters (and an rpc's `where` clause) parse only so that semantic
+  analysis can say why neither can be generic (K5514).
 - `ThemeToken` declares a token: `color primary: Color = #3B82F6`. The first word is the token category.
 - `ThemeOverride` assigns a token declared elsewhere (by a library such as `k.charts`, or by the theme
   for a variant): `chartGrid = #E2E8F0`. It is valid at the top level of a theme and inside variants
@@ -677,7 +680,7 @@ AwaitExpr  ::= 'await' Expr
 PrefixExpr ::= ( 'not' | '-' ) Expr
 BinaryExpr ::= Expr binary_op Expr
 CallExpr   ::= Expr ArgList LambdaExpr? | Expr LambdaExpr
-MemberExpr ::= Expr ( '.' | '?.' ) name
+MemberExpr ::= Expr ( '.' | '?.' ) name GenericArgList?   (* type arguments: RA-23 *)
 IndexExpr  ::= Expr '[' Expr ']'
 
 primary ::= Literal | StringLit | NameExpr | ImplicitMemberExpr | ParenExpr | TupleExpr
@@ -686,7 +689,7 @@ primary ::= Literal | StringLit | NameExpr | ImplicitMemberExpr | ParenExpr | Tu
 Literal            ::= INT_LIT | FLOAT_LIT | UNIT_LIT | COLOR_LIT | 'true' | 'false' | 'nil'
 StringLit          ::= STRING_START ( STRING_TEXT | STRING_ESCAPE | Interpolation )* STRING_END
 Interpolation      ::= INTERP_START Expr INTERP_END
-NameExpr           ::= IDENT | 'self'
+NameExpr           ::= IDENT GenericArgList? | 'self'    (* type arguments: RA-23 *)
 ImplicitMemberExpr ::= '.' name
 ParenExpr          ::= '(' Expr ')'
 TupleExpr          ::= '(' Expr ',' Expr ( ',' Expr )* ','? ')'
@@ -1045,10 +1048,27 @@ normalization questions. Strings and comments may contain any Unicode text.
 `pair.0` is not supported (it collides with float lexing, as `t.0.1` shows). Use destructuring in `for` or
 pattern matching.
 
-### RA-23. No explicit generic arguments in expressions
+### RA-23. Explicit generic arguments in expressions
 
-`f<Int>(x)` would make `<` ambiguous with comparison. Type arguments are inferred, or given by annotating
-the binding: `let tags: Set<String> = Set(["new"])`.
+`f<Int>(x)` is ambiguous with comparisons in general. Type arguments are normally inferred, or given by
+annotating the binding (`let tags: Set<String> = Set(["new"])`), and may also be written after a name or a
+member name: `decode<User>(json)`, `Jwt.verify<Claims>(token, …)`, `KeyName<AesGcmKey>(name: "vault")`,
+`Sealed<Note>.parse(text)`, `names.map<Int> { name => name.count }`.
+
+**Decision:** a `<` after a name in an expression starts a `GenericArgList` only when a lookahead over
+the tokens (`types::type_args_ahead`) finds all of:
+
+- the `<` directly after the name and directly before the first type, with no trivia;
+- a balanced list of type tokens only (names, `.`, `,`, `<`, `>`, `?`, parentheses, `->`, `async`,
+  `throws`), on one line, each type argument starting with an uppercase name;
+- the closing `>` directly after the last type, followed directly by `(` or `.`, or by a trailing
+  lambda's `{` on the same line.
+
+Otherwise `<` is a comparison. Since comparisons don't chain (K0113), `a<B>(c)` was never valid as one;
+the rule's job is the one real ambiguity, two comparisons as arguments, `f(a < b, c > (d))`, which stays
+two arguments because the operators are spaced (and because `b` and `c` are lowercase). A generic
+function used as a value with its arguments (`map(decode<User>)`) isn't written this way: give the type by
+the expected type instead.
 
 ### RA-24. `bind` and `when` positions
 

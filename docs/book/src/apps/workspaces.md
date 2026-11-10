@@ -209,13 +209,13 @@ caller sees `rpcFailure(.rejected(.unauthenticated))`. Mutual TLS, if you want i
 ### Addresses known at run time
 
 `RemoteClient.at` builds a client for a URL known only at run time, such as a callback address a merchant
-registered. K has no type arguments in expressions, so the protocol comes from the expected type: the
-type you use the result as. A result used as anything but a protocol is `K4026`:
+registered. The protocol is its type argument, `RemoteClient.at<PaymentEvents>(…)`, or the expected
+type, the type you use the result as. Anything but a protocol is `K4026`:
 
 ```k
 // examples/shop/paybox/src/payments/RemoteNotifier.k
 ~import k.rpc.RemoteClient
-let events: PaymentEvents = RemoteClient.at(url: callbackUrl, token: config.token ?? service.token, timeout: config.timeout)
+let events = RemoteClient.at<PaymentEvents>(url: callbackUrl, token: config.token ?? service.token, timeout: config.timeout)
 
 do {
     try await events.chargeSucceeded(charge: charge)

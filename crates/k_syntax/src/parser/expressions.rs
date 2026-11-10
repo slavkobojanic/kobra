@@ -469,6 +469,9 @@ fn postfix(p: &mut Parser<'_>) -> Option<CompletedMarker> {
                 p.bump();
                 if is_name_like(p.current()) {
                     p.bump();
+                    if types::type_args_ahead(p) {
+                        types::generic_arg_list(p);
+                    }
                 } else {
                     p.expected_token("a member name");
                 }
@@ -666,6 +669,9 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         K::Ident | K::SelfKw => {
             let m = p.start();
             p.bump();
+            if types::type_args_ahead(p) {
+                types::generic_arg_list(p);
+            }
             Some(m.complete(p, K::NameExpr))
         }
         K::UseKw if p.nth(1) == K::LParen => {

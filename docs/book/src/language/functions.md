@@ -162,19 +162,31 @@ func cheapest<T>(items: List<T>) -> T? where T implements Priced {
 }
 ```
 
-Type arguments are always inferred at the call site, or come from the type of the binding. There is no
-`f<Int>(x)` syntax, because `<` would be ambiguous with comparison:
+Type arguments are inferred at the call site, or come from the type of the binding. When neither says
+enough, for a function whose type parameter appears only in its result, write them after the name:
 
 ```k
+~import k.encoding.Json
+~import k.http.DecodingError
+~
 ~func cheapest<T>(items: List<T>) -> T? where T implements Priced {
 ~    return items.minBy { item => item.price }
 ~}
 ~
-~func example(products: List<Product>) {
+~struct Draft implements Codable {
+~    let title: String
+~}
+~
+~func example(products: List<Product>, text: String) throws DecodingError {
 let best = cheapest(items: products)       // T is Product
 let tags: Set<String> = Set(["new"])       // the binding gives the type argument
+let draft = try Json.decode<Draft>(text)   // written out
+let first = cheapest<Product>(items: [])   // also checked against the constraint
 ~}
 ```
+
+The type arguments follow the name directly, with no space before the `<`, and each starts with an
+uppercase name, so `a < b` stays a comparison. See [Types](types.md#generics) for the rest.
 
 ## Functions as values
 

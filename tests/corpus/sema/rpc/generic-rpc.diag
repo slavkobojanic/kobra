@@ -1,0 +1,4 @@
+error[K5514] 10:12-10:15: an rpc can't be generic: `rpc.lock` records every rpc's concrete types
+  help: a caller deployed with one type can't call a handler built with another; declare one rpc per type, or wrap the variants in an enum
+error[K5514] 15:12-15:15: an rpc can't be generic: `rpc.lock` records every rpc's concrete types
+  help: a caller deployed with one type can't call a handler built with another; declare one rpc per type, or wrap the variants in an enum

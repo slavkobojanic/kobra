@@ -18,7 +18,7 @@ public service TodoService {
     // Users' saved todos live under this key. Its name and the shape of
     // `Todo` are recorded in storage.lock, so `k check` fails if a change
     // would make every saved list unreadable.
-    private let savedTodos: StorageKey<List<Todo>> = StorageKey(name: "todos")
+    private let savedTodos = StorageKey<List<Todo>>(name: "todos")
     // ...
     @State var items: List<Todo> = []
     // ...
@@ -104,7 +104,7 @@ public interface LocalStorage {
 ~service Todos {
 ~    @Inject let storage: LocalStorage
 ~    @State var items: List<Todo> = []
-private let savedTodos: StorageKey<List<Todo>> = StorageKey(name: "todos")
+private let savedTodos = StorageKey<List<Todo>>(name: "todos")
 
 ~
 ~    func reload() throws StorageReadError {
@@ -118,8 +118,8 @@ try storage.write(key: savedTodos, value: items)        // value must be a List<
 ```
 
 - **`StorageKey<T>` pairs a name with the type stored under it,** so a read can't ask for a different type
-  than the write stored. The type is given by the binding's annotation, because K has no explicit generic
-  arguments in expressions.
+  than the write stored. The type is written out, `StorageKey<List<Todo>>(name: "todos")`, or given by
+  the binding's annotation.
 - **The name is a string literal,** and each name is declared once in the app. Two keys with the same name
   are a `k check` error, so two services can't corrupt each other's data.
 - **Keys are namespaced per app,** so two K apps on one origin don't collide. The namespace is the one

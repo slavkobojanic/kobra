@@ -243,4 +243,4 @@ test TodoService {
 /// changed, users would lose their saved todos, and these tests should fail.
 /// Test code isn't recorded in storage.lock, so it may declare a key with the
 /// same name as the service's.
-let savedTodosKey: StorageKey<List<Todo>> = StorageKey(name: "todos")
+let savedTodosKey = StorageKey<List<Todo>>(name: "todos")

@@ -493,7 +493,7 @@ browser's IndexedDB as non-extractable Web Crypto keys:
 public service DeviceKeys {
     @Inject let keys: KeyStore
 
-    private static let deviceKey: KeyName<AesGcmKey> = KeyName(name: "device")
+    private static let deviceKey = KeyName<AesGcmKey>(name: "device")
 
     /// The kept key, or a new one, kept for next time.
     func key() async throws KeyStoreError -> AesGcmKey {
@@ -507,7 +507,7 @@ public service DeviceKeys {
 }
 ```
 
-- **`KeyName(name:)` takes a string literal** and fixes the key type, so `get` returns the type `put`
+- **`KeyName<K>(name:)` takes a string literal** and fixes the key type, so `get` returns the type `put`
   stored. `put` of an exportable key stores it non-exportable.
 - **It is client-only,** like `Files`: a service that injects it is client-only. `BrowserKeyStore` is the
   implementation, namespaced per app. Server code keeps keys in configuration, or wrapped in the database.

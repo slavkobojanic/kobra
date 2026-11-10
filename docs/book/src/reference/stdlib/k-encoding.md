@@ -26,14 +26,16 @@ JSON encoding and decoding of [`Codable`](k-core.md#codable) values.
   - Parameter value: the value to encode.
   - Returns: compact JSON text.
 - `static func decode<T>(_ text: String) throws DecodingError -> T where T implements Codable`
-  Decodes `text` into a [`Codable`](k-core.md#codable) type, given by the binding.
+  Decodes `text` into a [`Codable`](k-core.md#codable) type, written out
+  (`Json.decode<Board>(text)`) or given by the binding.
 
   - Parameter text: JSON text.
   - Returns: the decoded value.
   - Throws: [`DecodingError.malformed`](k-http.md#decodingerror) when `text` isn't JSON, and
     [`DecodingError.mismatch`](k-http.md#decodingerror) when it doesn't have the type's shape.
 - `static func decode<T>(_ bytes: Bytes) throws DecodingError -> T where T implements Codable`
-  Decodes UTF-8 `bytes` into a [`Codable`](k-core.md#codable) type, given by the binding.
+  Decodes UTF-8 `bytes` into a [`Codable`](k-core.md#codable) type, written out or given
+  by the binding.
 
   - Parameter bytes: UTF-8 encoded JSON.
   - Returns: the decoded value.

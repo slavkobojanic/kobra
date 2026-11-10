@@ -627,7 +627,7 @@ test VaultService {
 - **ECDSA signatures aren't deterministic in tests:** the signing nonce comes from the operating system on `ops`, as from the platform in browsers. Everything else `generate()`, `seal` and salts draw is seeded from the test's name, through the kit's existing ChaCha20 stream (`crypto.getRandomValues` in `k test`).
 - **`TestKeys` key `n` of a kind** is derived from the SHA-256 of `k.test.TestKeys/<kind>/<n>`. It is a `@Native class` of `k.test` with `aesGcm`, `ed25519`, `ecdsaP256` and `x25519`.
 - **`WrappedKey` and `EnvelopedKey` have `parse(_ text:)` but no `bytes`.** `Sealed` and `Envelope` have both forms. (`Exportable.parse` came with round 2.)
-- **A static member of a generic type is called with the type inferred:** `let s: Sealed<Note>? = Sealed.parse(text)`; K has no `Sealed<Note>.parse(…)` syntax.
+- **A static member of a generic type is called with the type inferred** (`let s: Sealed<Note>? = Sealed.parse(text)`) **or written out** (`Sealed<Note>.parse(text)`, explicit type arguments came with the generics round, [08](08-types.md#decided-while-implementing)).
 - **`Exportable.exportRaw()` returns a `Secret<Bytes>`, so it is server-only** (as `Secret` is). In the browser a key leaves only wrapped.
 
 **Tests**
@@ -670,7 +670,7 @@ test VaultService {
 
 *`KeyStore`*
 
-- **`KeyName<K>` is written `let name: KeyName<AesGcmKey> = KeyName(name: "…")`;** K has no explicit type arguments in an initializer call. `k build` writes `storage.lock` now ([52](52-indexed-collections.md#storagelock)), but `KeyName`s aren't recorded in it yet ([52's open questions](52-indexed-collections.md#open-questions)).
+- **`KeyName<K>` is written `let name = KeyName<AesGcmKey>(name: "…")`** (or with the type on the binding); the explicit type arguments came with the generics round ([08](08-types.md#decided-while-implementing)). `k build` writes `storage.lock` now ([52](52-indexed-collections.md#storagelock)), but `KeyName`s aren't recorded in it yet ([52's open questions](52-indexed-collections.md#open-questions)).
 - **`StoragePersistence` is in `k.storage`,** where `requestPersistence()` is to move.
 - **`BrowserKeyStore`** is one IndexedDB database per app (`k-keys:<namespace>`, the storage namespace), one object store, records `{type, handle, pub}`. `put` of an extractable key stores a non-extractable copy, imported again from its wrapped form; the in-memory key of `generateExportable()` stays extractable for the life of the tab. It is in the crypto chunk, because a feature chunk can't import another.
 - **`MemoryKeyStore` has `setPersistence(_:)` and `stopFailing()`;** `persistence` is read-only, as the test doubles' state is.

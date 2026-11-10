@@ -1352,11 +1352,23 @@ impl Checker<'_, '_, '_> {
     // ------------------------------------------------------------ components
 
     /// The settable fields of a component and its events.
-    fn component_fields(&mut self, d: DeclId) -> (Vec<PropInfo>, Vec<(String, MemberId, Ty)>) {
+    fn component_fields(
+        &mut self,
+        d: DeclId,
+        name: &SyntaxToken,
+    ) -> (Vec<PropInfo>, Vec<(String, MemberId, Ty)>) {
         let p = self.cx.p;
         // A generic component (`LineChart<X>`) gets fresh type arguments
-        // per call, inferred from its props.
-        let subst = self.fresh_subst(Some(d));
+        // per call, inferred from its props, unless they are written out
+        // (`Picker<Fruit>(…)`).
+        let list = name
+            .parent()
+            .and_then(|n| n.children().find_map(ast::GenericArgList::cast));
+        let explicit = self.type_args(list);
+        let subst = match explicit.and_then(|ta| self.explicit_subst(d, &ta)) {
+            Some(subst) => subst,
+            None => self.fresh_subst(Some(d)),
+        };
         let event = p.lookup_qualified("k.core.Event");
         let mut props = Vec::new();
         let mut events = Vec::new();
@@ -1413,7 +1425,7 @@ impl Checker<'_, '_, '_> {
         let view = builtin(self.cx.b.view);
         self.note_type(base.syntax().text_range(), &view);
         self.note_type(whole.syntax().text_range(), &view);
-        let (props, events) = self.component_fields(d);
+        let (props, events) = self.component_fields(d, name);
         let mut set: HashMap<String, TextRange> = HashMap::new();
         let mut unknown = false;
         let mut given: Vec<MemberId> = Vec::new();

@@ -1373,6 +1373,9 @@ fn check_member(cx: &Cx<'_, '_>, decl: DeclId, m: MemberId) {
                         checker = checker.silent();
                     }
                 }
+                if member.is_var {
+                    checker.var_initializer();
+                }
                 checker.check_initializer(&init, annotated.then_some(&ty));
                 if member.has_annotation("Load") {
                     let escaped = checker.take_escaped();

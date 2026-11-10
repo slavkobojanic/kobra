@@ -14,7 +14,7 @@ Import each declaration by name, for example `import k.storage.BrowserCollection
 | [`Collections`](#collections) | Typed IndexedDB (`docs/design/52-indexed-collections.md`): reads and writes the [`Collection`](#collection)s an app declares, and queries them by their [`CollectionIndex`](#collectionindex)es. |
 | [`LocalStorage`](#localstorage) | Typed browser local storage (`docs/design/36-local-storage.md`). |
 | [`StorageEstimate`](#storageestimate) | How much storage this origin uses and may use, in bytes, as the browser estimates it (`navigator.storage.estimate()`): rounded and padded, for display rather than for deciding whether a write fits. |
-| [`StorageKey`](#storagekey) | A name paired with the type stored under it: `StorageKey<List<Todo>> = StorageKey(name: "todos")`. |
+| [`StorageKey`](#storagekey) | A name paired with the type stored under it: `let savedTodos = StorageKey<List<Todo>>(name: "todos")`. |
 | [`StoragePersistence`](#storagepersistence) | Whether the browser may evict this origin's storage ([`Collections.requestPersistence()`](#collections), [`k.crypto.KeyStore.requestPersistence()`](k-crypto.md#keystore)). |
 | [`StorageReadError`](#storagereaderror) | Why a local-storage read ([`LocalStorage.read`](#localstorage)) failed. |
 | [`StorageWriteError`](#storagewriteerror) | Why a local-storage write ([`LocalStorage.write`](#localstorage)) failed. |
@@ -249,7 +249,7 @@ public struct StorageKey<T> where T implements Codable
 ```
 
 A name paired with the type stored under it:
-`StorageKey<List<Todo>> = StorageKey(name: "todos")`. The name is a
+`let savedTodos = StorageKey<List<Todo>>(name: "todos")`. The name is a
 string literal, declared once per app and recorded in `storage.lock`.
 
 **Members**

@@ -1,0 +1,11 @@
+error[K2001] 26:33-26:42: expected `List<corpus.Animal>`, found `List<corpus.Dog>`
+  help: a `var` holds exactly its own type, so a collection of a narrower type isn't one of the wider type here; declare the `var` with the narrower type, or convert the elements (`.map { … }`)
+error[K2001] 31:30-31:34: expected `List<corpus.Animal>`, found `List<corpus.Dog>`
+  help: a `var` holds exactly its own type, so a collection of a narrower type isn't one of the wider type here; declare the `var` with the narrower type, or convert the elements (`.map { … }`)
+error[K2001] 33:13-33:17: expected `List<corpus.Animal>`, found `List<corpus.Dog>`
+  help: a `var` holds exactly its own type, so a collection of a narrower type isn't one of the wider type here; declare the `var` with the narrower type, or convert the elements (`.map { … }`)
+error[K2001] 34:34-34:38: expected `List<corpus.Animal>`, found `List<corpus.Dog>`
+  help: a `var` holds exactly its own type, so a collection of a narrower type isn't one of the wider type here; declare the `var` with the narrower type, or convert the elements (`.map { … }`)
+error[K2001] 35:29-35:36: expected `List<corpus.Dog>`, found `List<corpus.Animal>`
+error[K2001] 36:35-36:43: expected `Map<Int?, String>`, found `Map<Int, String>`
+error[K2001] 37:30-37:33: expected `corpus.Box<corpus.Animal>`, found `corpus.Box<corpus.Dog>`

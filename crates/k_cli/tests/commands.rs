@@ -1399,6 +1399,29 @@ fn test_follows_the_focus_and_scrolling_of_element_references() {
 }
 
 #[test]
+fn test_renders_generic_components_and_calls_generic_service_members() {
+    // Generics in `k test` (08-types.md, "Decided while implementing"): one
+    // `Picker<T>` placed with its type argument inferred and written out,
+    // an injected service's generic members called with explicit type
+    // arguments (`basket.last<Fruit>()`, decoding JSON as the type asked
+    // for), and an interface's generic member through the bound service.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/generics");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("5 passed; 0 failed"), "{text}");
+    for name in [
+        "PASS  Home › the inferred picker keeps a fruit through the basket",
+        "PASS  Home › the picker with a written type argument keeps a quantity",
+        "PASS  Basket › a kept value decodes as the type asked for",
+        "PASS  HighestRanker › the best item wins, the first on a tie",
+    ] {
+        assert!(text.contains(name), "{name}\n{text}");
+    }
+}
+
+#[test]
 fn test_messages_tabs_and_keeps_the_screen_on_through_their_doubles() {
     // `TabMessaging` against `TestTabMessaging` and `KeepScreenAwake`
     // against `TestWakeLock` (45-web-platform.md): posts recorded and never

@@ -8,7 +8,7 @@ import k.storage.StoragePersistence
 public service KeyKeeper {
     @Inject let keys: KeyStore
 
-    private static let deviceName: KeyName<AesGcmKey> = KeyName(name: "device")
+    private static let deviceName = KeyName<AesGcmKey>(name: "device")
 
     /// The kept key, or a new one, kept for next time.
     func deviceKey() async throws KeyStoreError -> AesGcmKey {
