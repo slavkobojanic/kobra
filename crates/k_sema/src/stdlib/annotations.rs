@@ -102,6 +102,7 @@ use Target as T;
 
 /// Every annotation user code may write, sorted by qualified name.
 pub const ANNOTATIONS: &[AnnotationDef] = &[
+    def("k.concurrency.Worker", &[T::Service], Any, "55-workers.md"),
     def(
         "k.core.Binding",
         &[T::ComponentField],

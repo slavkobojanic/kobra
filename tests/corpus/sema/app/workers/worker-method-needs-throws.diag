@@ -1,0 +1,4 @@
+error[K4037] 7:10-7:15: worker method `lower` must declare `throws`: the worker can fail while it runs the call
+  fix "Add `throws WorkerOnlyError`"
+    edit 4:1-4:1 "import k.concurrency.WorkerOnlyError\n"
+    edit 7:37-7:37 " throws WorkerOnlyError"

@@ -643,6 +643,9 @@ fn compute_side(cx: &Cx<'_, '_>, d: DeclId) -> Sides {
     match decl.named_kind() {
         Some(K::Entity | K::Repository | K::Config) => SERVER,
         Some(K::Page) if is_endpoint_page(cx, d) => SERVER,
+        // A worker runs only in the browser (docs/design/55-workers.md);
+        // what it would inject is K4036 instead.
+        Some(K::Service) if crate::workers::is_worker(cx, d) => CLIENT,
         Some(K::Service) => {
             let mut s = Sides::default();
             let implements_protocol = cx.implements_list(d).iter().any(|(t, _)| {

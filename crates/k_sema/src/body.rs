@@ -790,21 +790,33 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
             return;
         }
         let owner = self.cx.p.member(member).owner;
-        // The platform's client-only APIs (`LocalStorage`, `Theme`); nothing
+        // The platform's client-only APIs (`LocalStorage`, `Theme`) and a
+        // `@Worker` service's calls (docs/design/55-workers.md); nothing
         // runs during server rendering in a client-rendered app.
-        if !self.cx.p.is_stdlib(owner) || crate::di::client_rendered(self.cx) {
+        if !(self.cx.p.is_stdlib(owner) || crate::workers::is_worker(self.cx, owner))
+            || crate::di::client_rendered(self.cx)
+        {
+            return;
+        }
+        // A worker's own constants calling its helpers run where it does.
+        if self.owner.decl == Some(owner) {
             return;
         }
         let side = crate::di::side(self.cx, owner);
         if side.client && !side.server && !self.renders_in_browser_only(call.text_range()) {
-            self.err(
-                codes::CLIENT_ONLY_DURING_SSR,
-                call.text_range(),
+            let message = if crate::workers::is_worker(self.cx, owner) {
+                format!(
+                    "`{}` runs in a Web Worker, in the browser only, but this code may run while \
+                     the server renders; call it from an `@Effect` or a handler",
+                    self.cx.p.decl(owner).name
+                )
+            } else {
                 format!(
                     "`{}` is client-only, but this code may run while the server renders",
                     self.cx.p.decl_name(owner)
-                ),
-            );
+                )
+            };
+            self.err(codes::CLIENT_ONLY_DURING_SSR, call.text_range(), message);
         }
     }
 

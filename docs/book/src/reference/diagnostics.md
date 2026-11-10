@@ -7143,6 +7143,310 @@ warning[K4034]: `AppUpdates` never reports an update: `Shop` isn't `@Offline`, s
 
 **Fix:** Add `@Offline` to the app (the quick fix does this), so its service worker caches the build and announces the next one; or remove the `AppUpdates` field.
 
+### K4035 `worker-member-not-allowed`
+
+**Error.** A `@Worker` service keeps no state, since its worker can be restarted at any call: besides its methods it has only `private` constants with initializers, computed properties and helpers, and no `init()`, `@Effect`, `rpc` or `@Scope`.
+
+Example (`tests/corpus/sema/app/workers/worker-keeps-no-state.k`):
+
+```k,ignore
+// docs/design/55-workers.md, "Declaring a worker": a worker can be restarted
+// at any call, so it keeps no state (K4035): no `@State`, `@Derived`, `var`,
+// uninitialized or page-facing fields, no `init()`, `@Effect` or `@Scope`,
+// and no public static member, which the page would run itself.
+import k.concurrency.Worker
+import k.concurrency.WorkerOnlyError
+
+@Worker
+@Scope(.route)
+service Index {
+    @State var count: Int = 0
+    @Derived let doubled: Int = count * 2
+    private var cache: List<String> = []
+    private let size: Int
+    let limit: Int = 10
+    var shown: String {
+        "{limit}"
+    }
+
+    init() {
+    }
+
+    @Effect
+    func watch() {
+    }
+
+    static func make() -> Int {
+        return 1
+    }
+
+    func search(query: String) async throws WorkerOnlyError -> Int {
+        return query.count
+    }
+}
+```
+
+```text
+error[K4035]: a `@Worker` service has no scope: there is one worker per app
+ --> src/corpus/worker-keeps-no-state.k:9:1
+  |
+9 | @Scope(.route)
+  | ^^^^^^^^^^^^^^
+  |
+  = fix: Remove `@Scope`
+
+error[K4035]: a `@Worker` service keeps no state, but `count` is `@State`: the worker can be restarted at any call
+  --> src/corpus/worker-keeps-no-state.k:11:16
+   |
+11 |     @State var count: Int = 0
+   |                ^^^^^
+
+error[K4035]: a `@Worker` service keeps no state, but `doubled` is `@Derived`: the worker can be restarted at any call
+  --> src/corpus/worker-keeps-no-state.k:12:18
+   |
+12 |     @Derived let doubled: Int = count * 2
+   |                  ^^^^^^^
+
+error[K4035]: a `@Worker` service keeps no state, but `cache` is a `var`: the worker can be restarted at any call
+  --> src/corpus/worker-keeps-no-state.k:13:17
+   |
+13 |     private var cache: List<String> = []
+   |                 ^^^^^
+
+error[K4035]: `size` has no value: a `@Worker` service's constants are written with their initializer
+  --> src/corpus/worker-keeps-no-state.k:14:17
+   |
+14 |     private let size: Int
+   |                 ^^^^
+
+error[K4035]: `limit` would be read by the page, but it lives in the worker: make it `private`
+  --> src/corpus/worker-keeps-no-state.k:15:9
+   |
+15 |     let limit: Int = 10
+   |         ^^^^^
+   |
+   = fix: Make it `private`
+
+error[K4035]: `shown` would be read by the page, but it lives in the worker: make it `private`
+  --> src/corpus/worker-keeps-no-state.k:16:9
+   |
+16 |     var shown: String {
+   |         ^^^^^
+   |
+   = fix: Make it `private`
+
+error[K4035]: a `@Worker` service has no `init()`: the worker can be restarted at any call, so it keeps no state to set up
+  --> src/corpus/worker-keeps-no-state.k:20:5
+   |
+20 |     init() {
+   |     ^^^^
+   |
+   = fix: Remove `init()`
+
+error[K4035]: a `@Worker` service has no effects: it reads no reactive state
+  --> src/corpus/worker-keeps-no-state.k:24:10
+   |
+24 |     func watch() {
+   |          ^^^^^
+
+error[K4035]: `make` is static, so the page would run it on the main thread: make it `private`, or an instance method
+  --> src/corpus/worker-keeps-no-state.k:27:17
+   |
+27 |     static func make() -> Int {
+   |                 ^^^^
+   |
+   = fix: Make it `private`
+```
+
+**Fix:** Keep state in a service on the main thread and pass what the worker needs as arguments; make constants, computed properties and helpers `private` (the quick fix does this for one that has a value), and remove `init()`, `@Effect`, `rpc` members and `@Scope`.
+
+### K4036 `worker-injection`
+
+**Error.** A `@Worker` service injects nothing: its worker has no container, so what a method needs is one of its arguments.
+
+Example (`tests/corpus/sema/app/workers/worker-injects-nothing.k`):
+
+```k,ignore
+// docs/design/55-workers.md, "Declaring a worker": a worker has no container,
+// so it injects nothing (K4036); the fix removes the field.
+import k.concurrency.Worker
+import k.concurrency.WorkerOnlyError
+import k.time.Clock
+
+@Worker
+service Stamp {
+    @Inject let clock: Clock
+
+    func stamp(text: String, now: Date) async throws WorkerOnlyError -> String {
+        return "{text} {now}"
+    }
+}
+```
+
+```text
+error[K4036]: a `@Worker` service injects nothing, but `clock` is injected
+ --> src/corpus/worker-injects-nothing.k:9:17
+  |
+9 |     @Inject let clock: Clock
+  |                 ^^^^^
+  |
+  = help: the worker has no container: pass what a method needs as an argument, and keep rpcs, storage and the page's services on the main thread
+  = fix: Remove the injected field
+```
+
+**Fix:** Remove the injected field (the quick fix does this) and pass what the method needs as an argument: `now: Date` instead of `Clock`; keep rpcs and storage in a main-thread service that calls the worker.
+
+### K4037 `worker-method-signature`
+
+**Error.** Every method of a `@Worker` service that isn't `private` is a call into the worker: `async`, `throws` an error enum, and not generic.
+
+Example (`tests/corpus/sema/app/workers/worker-method-needs-throws.k`):
+
+```k,ignore
+// docs/design/55-workers.md, "Methods": a method without `throws` gets a fix
+// that adds `throws WorkerOnlyError` and imports it (K4037).
+import k.concurrency.Worker
+
+@Worker
+service Lower {
+    func lower(_ text: String) async -> String {
+        return text.lowercased()
+    }
+}
+```
+
+```text
+error[K4037]: worker method `lower` must declare `throws`: the worker can fail while it runs the call
+ --> src/corpus/worker-method-needs-throws.k:7:10
+  |
+7 |     func lower(_ text: String) async -> String {
+  |          ^^^^^
+  |
+  = fix: Add `throws WorkerOnlyError`
+```
+
+**Fix:** Make the method `async` and give it a `throws` clause (the quick fix adds `async throws WorkerOnlyError`), or make it `private` if only the worker calls it; replace a generic method with one per concrete type.
+
+### K4038 `worker-error-without-failure-case`
+
+**Error.** A worker method's error is `WorkerOnlyError` or an enum with exactly one `workerFailure(WorkerFailure)` case.
+
+Example (`tests/corpus/sema/app/workers/worker-error-needs-failure-case.k`):
+
+```k,ignore
+// docs/design/55-workers.md, "Methods": a worker method's error is
+// `WorkerOnlyError` or a Codable enum with exactly one
+// `workerFailure(WorkerFailure)` case (K4038); the fix adds the case.
+import k.concurrency.Worker
+
+enum ParseError implements Error, Codable {
+    case empty
+}
+
+@Worker
+service Parser {
+    func parse(text: String) async throws ParseError -> Int {
+        guard text.isNotEmpty else {
+            throw .empty
+        }
+        return text.count
+    }
+}
+```
+
+```text
+error[K4038]: a worker method's error is `WorkerOnlyError` or an enum with exactly one `workerFailure(WorkerFailure)` case; `corpus.ParseError` isn't
+  --> src/corpus/worker-error-needs-failure-case.k:12:43
+   |
+ 6 | enum ParseError implements Error, Codable {
+   |      ---------- declared here
+12 |     func parse(text: String) async throws ParseError -> Int {
+   |                                           ^^^^^^^^^^
+   |
+   = fix: Add `case workerFailure(WorkerFailure)`
+```
+
+**Fix:** Add `case workerFailure(WorkerFailure)` to the error enum (the quick fix does this), or throw `WorkerOnlyError` when the method has no errors of its own.
+
+### K4039 `worker-payload-not-codable`
+
+**Error.** A worker method's parameters, result and error cross to another thread through their codecs, so they must be `Codable`.
+
+Example (`tests/corpus/sema/app/workers/worker-payloads-are-codable.k`):
+
+```k,ignore
+// docs/design/55-workers.md, "Methods": parameters, results and errors cross
+// to the worker through their codecs, so they are `Codable` (K4039); a stream
+// result isn't supported yet.
+import k.concurrency.Worker
+import k.concurrency.WorkerFailure
+import k.concurrency.WorkerOnlyError
+
+struct Shape {
+    let sides: Int
+}
+
+enum DrawError implements Error {
+    case blank
+    case workerFailure(WorkerFailure)
+}
+
+@Worker
+service Drawing {
+    func area(of shape: Shape) async throws WorkerOnlyError -> Int {
+        return shape.sides
+    }
+
+    func outline(sides: Int) async throws WorkerOnlyError -> Shape {
+        return Shape(sides: sides)
+    }
+
+    func relay(ticks: Stream<Int>) async throws WorkerOnlyError -> Stream<Int> {
+        return ticks
+    }
+
+    func draw(sides: Int) async throws DrawError -> Int {
+        return sides
+    }
+}
+```
+
+```text
+error[K4039]: a worker method's parameter crosses to the worker's thread through its codec, so it must be `Codable`; `corpus.Shape` isn't
+  --> src/corpus/worker-payloads-are-codable.k:19:25
+   |
+19 |     func area(of shape: Shape) async throws WorkerOnlyError -> Int {
+   |                         ^^^^^
+
+error[K4039]: a worker method's result crosses to the worker's thread through its codec, so it must be `Codable`; `corpus.Shape` isn't
+  --> src/corpus/worker-payloads-are-codable.k:23:62
+   |
+23 |     func outline(sides: Int) async throws WorkerOnlyError -> Shape {
+   |                                                              ^^^^^
+
+error[K4039]: a worker method's parameter crosses to the worker's thread through its codec, so it must be `Codable`; `Stream<Int>` isn't
+  --> src/corpus/worker-payloads-are-codable.k:27:23
+   |
+27 |     func relay(ticks: Stream<Int>) async throws WorkerOnlyError -> Stream<Int> {
+   |                       ^^^^^^^^^^^
+
+error[K4039]: a worker method's result crosses to the worker's thread through its codec, so it must be `Codable`; `Stream<Int>` isn't
+  --> src/corpus/worker-payloads-are-codable.k:27:68
+   |
+27 |     func relay(ticks: Stream<Int>) async throws WorkerOnlyError -> Stream<Int> {
+   |                                                                    ^^^^^^^^^^^
+   |
+   = note: a worker method returns its whole result once; streamed progress isn't supported yet
+
+error[K4039]: a worker method's error crosses to the worker's thread through its codec, so it must be `Codable`; `corpus.DrawError` isn't
+  --> src/corpus/worker-payloads-are-codable.k:31:40
+   |
+31 |     func draw(sides: Int) async throws DrawError -> Int {
+   |                                        ^^^^^^^^^
+```
+
+**Fix:** Make the type `Codable`, or pass a `Codable` value the worker can rebuild it from; return a whole result instead of a `Stream`.
+
 ## K5000–K5499: Pages and routing
 
 ### K5001 `url-conflict`

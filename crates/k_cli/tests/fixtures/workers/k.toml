@@ -1,0 +1,8 @@
+# A `@Worker` service (docs/design/55-workers.md): a server-rendered page
+# whose buttons count primes in a Web Worker, stop a long count, ask for a
+# count the worker refuses with a typed error, and crash the worker. `k test`
+# on it runs the worker in-process; `chrome.rs` runs it under `k run` and
+# watches the page stay responsive while the worker counts.
+[package]
+name = "workers"
+k = "0.1"

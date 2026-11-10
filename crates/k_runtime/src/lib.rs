@@ -210,6 +210,15 @@ pub const OFFLINE_WORKER_SIZE_BUDGET: usize = 2048;
 /// (`docs/compiler/performance.md` §11.3).
 pub const OFFLINE_SIZE_BUDGET: usize = 640;
 
+/// The largest `@Worker` services in the browser ([`Part::Workers`]:
+/// the page's queue, cancellation and failures, and the worker's host) may
+/// be, measured like [`CORE_SIZE_BUDGET`] (1.25 KB; about 1,060 B, and a
+/// release build minifies it further). It ships in its own
+/// chunk, only to apps with a `@Worker` service, which the page and each
+/// worker chunk import (`docs/design/55-workers.md`, "Bundles";
+/// `docs/compiler/performance.md` §11.3).
+pub const WORKERS_SIZE_BUDGET: usize = 1280;
+
 /// The largest `k.device.KeepScreenAwake` in the browser
 /// ([`Part::WakeLock`]) may be, measured like [`CORE_SIZE_BUDGET`]
 /// (640 B). It ships in its own chunk, only to apps that use it
@@ -379,6 +388,11 @@ pub enum Part {
     /// in the browser: shipped as its own client chunk, only to `@Offline`
     /// apps, and measured on its own ([`OFFLINE_SIZE_BUDGET`]).
     Offline,
+    /// `@Worker` services in the browser (`workerClient`, the page's
+    /// proxy, and `serveWorker`, the worker's host): shipped as its own
+    /// client chunk, only to apps with a `@Worker` service, and measured on
+    /// its own ([`WORKERS_SIZE_BUDGET`]).
+    Workers,
     /// `k.device.KeepScreenAwake` in the browser: shipped as its own client
     /// chunk, only to apps that use it, and measured on its own
     /// ([`WAKE_LOCK_SIZE_BUDGET`]).
@@ -525,6 +539,7 @@ const MODULES: &[Module] = modules![
     ServiceWorker "runtime/sw-offline.js",
     ServiceWorker "runtime/sw.js",
     Offline "runtime/offline.js",
+    Workers "runtime/workers.js",
     WakeLock "runtime/wakelock.js",
     Environment "runtime/environment.js",
     Observe "runtime/observe.js",

@@ -24,6 +24,26 @@ test Notes {
         expect not screen.link(named: "Groceries").exists
     }
 
+    test "the search worker's ranking puts title matches first" {
+        await sessions.signIn(userId: AccountId.ada)
+        try await notes.create(draft: draft(title: "Trip to Lisbon"))
+        clock.advance(by: 1.minute)
+        try await notes.create(draft: draft(title: "Ideas"))
+        clock.advance(by: 1.minute)
+        try await notes.create(draft: draft(title: "Groceries", body: "Snacks for the trip"))
+        let screen = render(Notes())
+        await screen.settle()
+
+        // The newest note first until the ranking arrives.
+        screen.textField(labeled: "Filter").fill("trip")
+
+        expect screen.headings().map { heading => heading.text } == ["Notes", "Groceries", "Trip to Lisbon"]
+
+        await screen.settle()
+
+        expect screen.headings().map { heading => heading.text } == ["Notes", "Trip to Lisbon", "Groceries"]
+    }
+
     test "a filter with no matches says so" {
         await sessions.signIn(userId: AccountId.ada)
         try await notes.create(draft: draft(title: "Groceries"))

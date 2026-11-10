@@ -833,7 +833,11 @@ test.pending("each reorders keyed rows by moving nodes", "keyed lists (runtime.m
   install, a failed install, a `no-store` shell, the shell and files offline, rpcs and other origins left
   alone, server-rendered pages kept and served offline, signed-in pages and errors not kept, 50 pages at
   most, two builds kept on activate, the build message, the development worker, one worker with the
-  notification handlers), `sw.test.js` (the service worker in a scripted
+  notification handlers), `workers.test.js` (`workerClient` against a scripted `Worker`: started at the
+  first call and posted to once ready, one call at a time in order, typed errors, a queued and a running
+  call cancelled (the running one terminating the worker), an aborted signal, a crash restarting it, an
+  `error` before and after ready, no `Worker`, an undecodable answer; `serveWorker` against a scripted
+  scope; the two through a pair of ports; docs/design/55-workers.md), `sw.test.js` (the service worker in a scripted
   `ServiceWorkerGlobalScope`: `skipWaiting` and `clients.claim`, a click focusing the focused tab, else
   the most recent, and posting it the page, the worker navigating a tab that doesn't answer within a
   second or opening a new tab when it can't, a notification without a page only focusing, no tab open,
@@ -1015,6 +1019,13 @@ timers).
   machine's network address: Docker Desktop here doesn't forward a port published on `127.0.0.1` alone,
   and Chrome reaches a TURN server only from a network interface. The ICE restart after a network
   namespace drops packets isn't run: macOS has no network namespaces.
+- **Workers** (55-workers.md): the `a_worker_*` tests serve `tests/fixtures/workers` under `k run` and
+  count primes in its `@Worker` service. While a count that takes seconds runs, the page must paint at
+  least 20 `requestAnimationFrame` frames in a second (a count on the main thread paints none); stopping
+  it must let the next count answer within 5 s from a new worker; a refused count shows its typed error's
+  payload; a crash shows `.workerFailure(.crashed)` (its `console.error` excused) and the next count still
+  answers. `notes_ranks_the_filtered_notes_in_a_worker_in_chrome` checks the notes filter's ranking and
+  that the page loaded `/assets/workers/note-search.<hash>.js`.
 - **The protocol client** (`tests/support/cdp.rs`): the DevTools protocol over a WebSocket, both
   written for the tests on `std::net` and `serde_json` (no new dependency: one loopback connection needs
   a masked text frame out and possibly fragmented text frames in). A reader thread forwards responses

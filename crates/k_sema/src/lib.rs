@@ -90,6 +90,7 @@ mod tooling;
 mod ty;
 pub mod view;
 mod warm;
+mod workers;
 pub mod workspace;
 
 pub use host::{Analysis, AnalysisHost, Change, FileOrigin, Options};

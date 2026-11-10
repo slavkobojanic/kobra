@@ -1,0 +1,3 @@
+error[K3002] 5:1-5:8: `@Worker` doesn't apply here
+  fix "Remove the annotation" maybe-incorrect
+    edit 5:1-5:8 ""

@@ -838,6 +838,18 @@ Accessibility lints beyond required accessible names are **deferred**.
   unreferenced component and every client-rendered component's `loading` are server-rendered roots).
   A client-rendered component's own `@Load` values and errors needn't be `Codable` (K3021, K3024);
   those of the components below it still must.
+- **`@Worker` services** ([55-workers.md](../design/55-workers.md), `workers.rs`): `@Worker`
+  (`k.concurrency`, imported) applies to services only (K3002 elsewhere). A worker service is
+  client-only (`di::compute_side`), so server-only code injecting it is K4008 and calling it from
+  code that can run during server rendering is K4012, with a message of its own (`body.rs`, which also
+  covers a project's `@Worker` services besides the stdlib's client-only interfaces, and skips a
+  declaration's calls to itself). It keeps no state and faces the page only through its calls:
+  `@State`, `@Derived`, `var`, uninitialized and non-`private` fields and computed properties,
+  `init()`, `@Effect`, `rpc`, non-`private` `static` functions and `@Scope` → **K4035**; any `@Inject`
+  field → **K4036**. Each non-`private` instance method is `async throws E` and not generic
+  (**K4037**), `E` is `WorkerOnlyError` or an enum with exactly one `workerFailure(WorkerFailure)` case
+  (**K4038**, the rpc rule K5502's sibling), and its parameters, result and `E` are `Codable`
+  (**K4039**). Corpus: `tests/corpus/sema/app/workers/`.
 - **`use` operands:** `use <expression> for C` is allowed only in a `test` body and only when `C` is a
   `config` type (**K4011**); the `Type` form is allowed in `App.k`'s `app` and in `test` bodies
   ([grammar.md RA-35](grammar.md#ra-35-the-operand-of-use)).

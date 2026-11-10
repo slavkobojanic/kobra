@@ -1,0 +1,20 @@
+error[K4035] 9:1-9:15: a `@Worker` service has no scope: there is one worker per app
+  fix "Remove `@Scope`"
+    edit 9:1-10:1 ""
+error[K4035] 11:16-11:21: a `@Worker` service keeps no state, but `count` is `@State`: the worker can be restarted at any call
+error[K4035] 12:18-12:25: a `@Worker` service keeps no state, but `doubled` is `@Derived`: the worker can be restarted at any call
+error[K4035] 13:17-13:22: a `@Worker` service keeps no state, but `cache` is a `var`: the worker can be restarted at any call
+error[K4035] 14:17-14:21: `size` has no value: a `@Worker` service's constants are written with their initializer
+error[K4035] 15:9-15:14: `limit` would be read by the page, but it lives in the worker: make it `private`
+  fix "Make it `private`"
+    edit 15:5-15:5 "private "
+error[K4035] 16:9-16:14: `shown` would be read by the page, but it lives in the worker: make it `private`
+  fix "Make it `private`"
+    edit 16:5-16:5 "private "
+error[K4035] 20:5-20:9: a `@Worker` service has no `init()`: the worker can be restarted at any call, so it keeps no state to set up
+  fix "Remove `init()`"
+    edit 20:1-22:1 ""
+error[K4035] 24:10-24:15: a `@Worker` service has no effects: it reads no reactive state
+error[K4035] 27:17-27:21: `make` is static, so the page would run it on the main thread: make it `private`, or an instance method
+  fix "Make it `private`"
+    edit 27:5-27:5 "private "

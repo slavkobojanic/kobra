@@ -168,6 +168,7 @@ pub(crate) fn analyze(
     crate::metadata::check(&cx);
     crate::rpc::check(&cx);
     crate::channels::check(&cx);
+    crate::workers::check(&cx);
     crate::app::check(&cx);
     crate::di::check(&cx);
     crate::di::remote_services(&cx);

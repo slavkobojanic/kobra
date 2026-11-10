@@ -495,6 +495,7 @@ fn shipped_client_assets() {
         ("wakelock.", k_runtime::WAKE_LOCK_SIZE_BUDGET),
         ("environment.", k_runtime::ENVIRONMENT_SIZE_BUDGET),
         ("offline.", k_runtime::OFFLINE_SIZE_BUDGET),
+        ("workers.", k_runtime::WORKERS_SIZE_BUDGET),
         ("observe.", k_runtime::OBSERVE_SIZE_BUDGET),
         ("media.", k_runtime::MEDIA_SIZE_BUDGET),
         ("playback.", k_runtime::PLAYBACK_SIZE_BUDGET),

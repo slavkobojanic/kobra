@@ -1,4 +1,5 @@
 import k.auth.Authenticated
+import k.crypto.Uuid
 
 /// The signed-in account's notes, filtered as you type and kept live across
 /// tabs.
@@ -7,9 +8,18 @@ import k.auth.Authenticated
 /// working whatever the page is called.
 public page Notes requires Authenticated at "/" {
     @Inject let notes: NotesService
+    @Inject let search: NoteSearch
 
     @State var filter: String = ""
-    @Derived let visible: List<NoteSummary> = notes.matching(filter: filter)
+
+    /// The last ranking `NoteSearch` sent back from its worker; `nil` while
+    /// the filter is blank and when the worker is unavailable.
+    @State var ranking: Ranking? = nil
+
+    /// What the list shows: the worker's ranking of the filter once it has
+    /// arrived, and meanwhile (or without a worker) every note whose text
+    /// contains the filter.
+    @Derived let visible: List<NoteSummary> = if ranking?.query == filter { notes.ordered(ids: ranking?.ids ?? []) } else { notes.matching(filter: filter) }
 
     /// Whether the change stream couldn't be opened because the server was
     /// out of reach.
@@ -42,6 +52,26 @@ public page Notes requires Authenticated at "/" {
             Router.navigate(to: .signIn.returnTo(.notes))
         } catch .rpcFailure {
             isDisconnected = true
+        }
+    }
+
+    /// Ranks the notes for the filter in the search worker, again whenever
+    /// the filter or the notes change. A change while it runs cancels the
+    /// stale search, which stops the worker; the next search starts a new
+    /// one. Until the ranking of what was typed arrives, and if the worker
+    /// can't run, the list shows the plain matches.
+    @Effect(on: [filter, notes.all])
+    func rank() async {
+        let query = filter
+        guard query.trimmed().isNotEmpty else {
+            ranking = nil
+            return
+        }
+        do {
+            let ids = try await search.rank(notes: notes.all, query: query)
+            ranking = Ranking(query: query, ids: ids)
+        } catch .workerFailure {
+            ranking = nil
         }
     }
 
@@ -135,4 +165,13 @@ public page Notes requires Authenticated at "/" {
         .problem { display: flex; alignItems: center; gap: .md; marginBottom: .md; color: .danger; }
         .notes   { display: grid; gap: .md; marginTop: .md; padding: 0; listStyle: none; }
     }
+}
+
+/// A search's result: the notes `NoteSearch` found for `query`, best first.
+struct Ranking {
+    /// The filter it ranked.
+    let query: String
+
+    /// The matching notes' ids, best first.
+    let ids: List<Uuid>
 }

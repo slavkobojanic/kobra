@@ -49,6 +49,7 @@ import { collectionIndex, collectionKey, collectionRecord, collectionValues } fr
 import { audioMeter, mediaStream, mediaTrack, recordedTracks, recordingSession } from "../runtime/media.js";
 import { peerConnections } from "../runtime/rtc.js";
 import { fakeRtc } from "./rtc.js";
+import { serveWorker } from "../runtime/workers.js";
 
 // `k test`'s fast passphrase salts (33-crypto.md, "Testing"): 1,000
 // iterations, which parse only here.
@@ -2636,6 +2637,46 @@ export function testConnectivity() {
     },
     goOffline: () => set(false),
     goOnline: () => set(true),
+  };
+}
+
+/** A copy of an encoded message, as structured clone makes one between threads. */
+const cloned = (v) =>
+  v instanceof Uint8Array
+    ? v.slice()
+    : Array.isArray(v)
+      ? v.map(cloned)
+      : v !== null && typeof v === "object"
+        ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cloned(x)]))
+        : v;
+
+/**
+ * A `@Worker` service in `k test` (55-workers.md, "Tests"): the opener `workerClient` calls, giving
+ * a worker whose host (`serveWorker`, the worker chunk's) runs in this thread. Each message crosses
+ * in a microtask, copied; `terminate()` drops every message after it, so a cancelled call's answer
+ * is never seen, as in the browser.
+ *
+ * @param {() => any} make builds the service
+ * @param {Record<string, [Function, Function, Function]>} host its methods' codecs
+ */
+export function inlineWorker(make, host) {
+  return () => {
+    let live = true;
+    const scope = {
+      onmessage: null,
+      postMessage: (data) => queueMicrotask(() => live && port.onmessage?.({ data: cloned(data) })),
+    };
+    const port = {
+      onmessage: null,
+      onerror: null,
+      onmessageerror: null,
+      postMessage: (data) => queueMicrotask(() => live && scope.onmessage?.({ data: cloned(data) })),
+      terminate: () => {
+        live = false;
+      },
+    };
+    serveWorker(scope, make, host);
+    return port;
   };
 }
 

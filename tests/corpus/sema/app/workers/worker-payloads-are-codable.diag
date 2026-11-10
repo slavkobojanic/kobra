@@ -1,0 +1,6 @@
+error[K4039] 19:25-19:30: a worker method's parameter crosses to the worker's thread through its codec, so it must be `Codable`; `corpus.Shape` isn't
+error[K4039] 23:62-23:67: a worker method's result crosses to the worker's thread through its codec, so it must be `Codable`; `corpus.Shape` isn't
+error[K4039] 27:23-27:34: a worker method's parameter crosses to the worker's thread through its codec, so it must be `Codable`; `Stream<Int>` isn't
+error[K4039] 27:68-27:79: a worker method's result crosses to the worker's thread through its codec, so it must be `Codable`; `Stream<Int>` isn't
+  note: a worker method returns its whole result once; streamed progress isn't supported yet
+error[K4039] 31:40-31:49: a worker method's error crosses to the worker's thread through its codec, so it must be `Codable`; `corpus.DrawError` isn't

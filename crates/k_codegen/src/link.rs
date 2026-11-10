@@ -42,6 +42,10 @@ pub(crate) struct Imports {
     /// Chunks imported whole: `import * as`, a default import or
     /// `export * from`, whose exports must all stay.
     pub whole: BTreeSet<String>,
+    /// Chunks named by `new URL("…", import.meta.url)`: a `@Worker`
+    /// service's chunk, which the proxy starts (docs/design/55-workers.md).
+    /// Not imports, but named, so they are renamed before this chunk.
+    pub urls: BTreeSet<String>,
 }
 
 /// The imports of every JavaScript file of `files`, by path. A specifier
@@ -99,6 +103,18 @@ fn imports_of(path: &str, text: &str, paths: &BTreeSet<&str>) -> Imports {
             .and_then(|m| target(m.name.as_str()))
         {
             out.whole.insert(p);
+        }
+    }
+    let mut rest = text;
+    while let Some(i) = rest.find("new URL(") {
+        rest = &rest[i + "new URL(".len()..];
+        let Some(quote) = rest.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+            continue;
+        };
+        if let Some(end) = rest[1..].find(quote)
+            && let Some(p) = target(&rest[1..=end])
+        {
+            out.urls.insert(p);
         }
     }
     for d in &record.dynamic_imports {
@@ -189,7 +205,12 @@ pub(crate) fn link(files: Vec<OutputFile>) -> Vec<OutputFile> {
             return;
         }
         if let Some(i) = graph.get(p) {
-            for d in i.static_.iter().chain(i.dynamic.iter()) {
+            for d in i
+                .static_
+                .iter()
+                .chain(i.dynamic.iter())
+                .chain(i.urls.iter())
+            {
                 visit(d, graph, seen, order);
             }
         }
@@ -402,6 +423,40 @@ mod tests {
                 crate::hash::hashed_file_name(stem, ext, f.contents.as_bytes())
             );
         }
+    }
+
+    /// A `@Worker` service's chunk is named by its proxy with `new URL(…)`
+    /// (docs/design/55-workers.md): renamed before the chunk that names
+    /// it, which then carries its final name, though it doesn't import it.
+    #[test]
+    fn a_chunk_named_by_a_url_is_renamed_before_the_chunk_naming_it() {
+        let files = vec![
+            js(
+                "shared.00000000.js",
+                "export const open = () => new Worker(new URL(\"./workers/sieve.00000000.js\", import.meta.url), { type: \"module\" });\n",
+            ),
+            js(
+                "workers/sieve.00000000.js",
+                "globalThis.onmessage = () => {};\n",
+            ),
+        ];
+        assert!(
+            module_graph(&files)["shared.00000000.js"]
+                .urls
+                .contains("workers/sieve.00000000.js")
+        );
+        let out = link(files);
+        let worker = out
+            .iter()
+            .find(|f| f.path.starts_with("workers/sieve.") && f.path.ends_with(".js"))
+            .expect("worker chunk");
+        assert_ne!(worker.path, "workers/sieve.00000000.js");
+        let shared = out
+            .iter()
+            .find(|f| f.path.starts_with("shared.") && f.path.ends_with(".js"))
+            .expect("shared chunk");
+        let base = worker.path.rsplit('/').next().unwrap_or_default();
+        assert!(shared.contents.contains(base), "{}", shared.contents);
     }
 
     #[test]

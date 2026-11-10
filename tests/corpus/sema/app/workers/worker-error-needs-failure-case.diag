@@ -1,0 +1,5 @@
+error[K4038] 12:43-12:53: a worker method's error is `WorkerOnlyError` or an enum with exactly one `workerFailure(WorkerFailure)` case; `corpus.ParseError` isn't
+  label 6:6-6:16: declared here
+  fix "Add `case workerFailure(WorkerFailure)`"
+    edit 5:1-5:1 "import k.concurrency.WorkerFailure\n"
+    edit 8:1-8:1 "    case workerFailure(WorkerFailure)\n"

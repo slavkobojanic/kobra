@@ -26,7 +26,8 @@ notes/
 │                       Passkey, PasskeyRepository, PasskeyService, PasskeySignUp, PasskeySignIn
     ├── notes/              Note, Tag, repositories, NotesProtocol, NotesApi, NoteChanges,
     │                       NotesService, NoteDraft, the Notes, NewNote and EditNote pages,
-    │                       OfflineEdits, UnsavedEdit, UnsavedEditNotice, UnsavedEditsList
+    │                       OfflineEdits, UnsavedEdit, UnsavedEditNotice, UnsavedEditsList,
+    │                       NoteSearch, the search worker
     ├── search/             Searchable, an interface with a default method
     ├── shell/              AppLayout, OfflineBanner and NotesTheme
     ├── vault/              Vault, VaultProtocol, VaultApi, VaultService, the PrivateNote page
@@ -234,6 +235,25 @@ shows the newest unsaved edits through the collection's `savedAt` index.
   change that would make kept edits unreadable fails `k check`.
 - `EditNote.test.k` goes offline with `TestConnectivity`, saves, reopens the note and saves the kept edit;
   `OfflineEdits.test.k` uses `MemoryCollections`.
+
+## Searching in a worker
+
+Typing in the list's **Filter** ranks the account's notes in a Web Worker, so the page keeps up with
+the keys however many notes there are ([Work off the main thread](../apps/workers.md)). `NoteSearch` is a
+`@Worker` service: it gets the notes and the query, and returns the ids of the notes containing every
+word, best first (a word in the title counts 3, in a tag 2, in the text 1).
+
+```k
+// examples/notes/src/notes/Notes.k
+    @Derived let visible: List<NoteSummary> = if ranking?.query == filter { notes.ordered(ids: ranking?.ids ?? []) } else { notes.matching(filter: filter) }
+```
+
+- **The plain matches show at once,** the newest first, and the worker's ranking replaces them when it
+  arrives for what was typed; a ranking of an older query is never shown.
+- **Typing on cancels the stale search:** the effect runs again, and the running call stops its worker.
+- **Without a worker** (`.workerFailure`) the list keeps the plain matches.
+- `NoteSearch.test.k` checks the scores and that every word must match; `Notes.test.k` checks that the
+  ranking reorders the list. `k test` runs the worker in-process.
 
 ## The private vault
 

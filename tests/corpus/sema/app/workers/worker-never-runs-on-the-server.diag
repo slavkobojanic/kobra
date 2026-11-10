@@ -1,0 +1,2 @@
+error[K4008] 16:9-16:14: `Audit` needs both the server and the browser
+error[K4012] 23:41-23:85: `Summaries` runs in a Web Worker, in the browser only, but this code may run while the server renders; call it from an `@Effect` or a handler

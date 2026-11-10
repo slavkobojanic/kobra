@@ -74,6 +74,9 @@ pub(crate) fn lower(g: &Gen<'_>, d: DeclId, target: Target) -> Option<Item> {
                 }
                 DeclarationKind::Class => class_decl(&mut b, d),
                 DeclarationKind::Interface => interface_decl(&mut b, d),
+                DeclarationKind::Service if crate::workers::is_worker(g, d) => {
+                    crate::workers::lower(&mut b, d)
+                }
                 DeclarationKind::Service => {
                     let mut stmts = crate::ui::service(&mut b, d);
                     if target == Target::Server {

@@ -773,6 +773,21 @@ codes! {
     /// `AppUpdates` is injected in an app that isn't `@Offline`, where it never reports an update.
     APP_UPDATES_WITHOUT_OFFLINE = 4034, "app-updates-without-offline", Warning,
         "`AppUpdates` reports a newer build only in an `@Offline` app, whose service worker caches the build; without `@Offline` it is always `false`.";
+    /// A `@Worker` service declares state, a field the page would read, `init()`, an effect, a scope, an rpc or a public static function.
+    WORKER_MEMBER_NOT_ALLOWED = 4035, "worker-member-not-allowed", Error,
+        "A `@Worker` service keeps no state, since its worker can be restarted at any call: besides its methods it has only `private` constants with initializers, computed properties and helpers, and no `init()`, `@Effect`, `rpc` or `@Scope`.";
+    /// A `@Worker` service injects something.
+    WORKER_INJECTION = 4036, "worker-injection", Error,
+        "A `@Worker` service injects nothing: its worker has no container, so what a method needs is one of its arguments.";
+    /// A `@Worker` service's method isn't `async throws E`, or is generic.
+    WORKER_METHOD_SIGNATURE = 4037, "worker-method-signature", Error,
+        "Every method of a `@Worker` service that isn't `private` is a call into the worker: `async`, `throws` an error enum, and not generic.";
+    /// A worker method's error enum has no `workerFailure(WorkerFailure)` case.
+    WORKER_ERROR_WITHOUT_FAILURE_CASE = 4038, "worker-error-without-failure-case", Error,
+        "A worker method's error is `WorkerOnlyError` or an enum with exactly one `workerFailure(WorkerFailure)` case.";
+    /// A worker method's parameter, result or error isn't `Codable`.
+    WORKER_PAYLOAD_NOT_CODABLE = 4039, "worker-payload-not-codable", Error,
+        "A worker method's parameters, result and error cross to another thread through their codecs, so they must be `Codable`.";
 
     // ---------------------------------------------------------------- pages and routing
     /// Two pages or endpoints have the same URL.

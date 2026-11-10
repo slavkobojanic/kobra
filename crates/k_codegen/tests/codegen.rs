@@ -990,3 +990,184 @@ fn a_service_static_let_named_like_a_method_keeps_both() {
         assert!(js.contains(needle), "{needle} in\n{js}");
     }
 }
+
+/// A project with a `@Worker` service (docs/design/55-workers.md): `Sieve`
+/// reaches `isPrime` and `Tally`; the page alone reaches `label`.
+fn worker_project() -> AnalysisHost {
+    analyse(&[
+        ("k.toml", TOML),
+        ("App.k", "public app Demo {\n}\n"),
+        (
+            "src/primes/Sieve.k",
+            "import k.concurrency.Worker\nimport k.concurrency.WorkerOnlyError\n\n\
+             struct Tally implements Codable {\n    let primes: Int\n}\n\n\
+             @Worker\npublic service Sieve {\n    private let limit: Int = 1000\n\n    \
+             func count(below: Int) async throws WorkerOnlyError -> Tally {\n        \
+             var total = 0\n        for n in 2..<below {\n            if isPrime(n) {\n                \
+             total += 1\n            }\n        }\n        return Tally(primes: total)\n    }\n\n    \
+             func echo(bytes: Bytes) async throws WorkerOnlyError -> Bytes {\n        return bytes\n    }\n}\n\n\
+             func isPrime(_ n: Int) -> Bool {\n    var d = 2\n    while d * d <= n {\n        \
+             if n % d == 0 {\n            return false\n        }\n        d += 1\n    }\n    return true\n}\n",
+        ),
+        (
+            "src/primes/Home.k",
+            "page Home at \"/\" {\n    @Inject let sieve: Sieve\n\n    @State var shown: String = \"\"\n\n    \
+             func run() async {\n        do {\n            let tally = try await sieve.count(below: 100)\n            \
+             shown = label(tally.primes)\n        } catch .workerFailure {\n            shown = \"none\"\n        }\n    }\n\n    \
+             view {\n        button { \"Count\" }\n            .on(click: run)\n\n        paragraph { shown }\n    }\n}\n\n\
+             func label(_ n: Int) -> String {\n    return \"{n} primes\"\n}\n",
+        ),
+    ])
+}
+
+/// The generated output of [`worker_project`] for `profile` and `entry`.
+fn worker_output(profile: k_codegen::Profile, entry: k_codegen::Entry) -> Output {
+    let host = worker_project();
+    generate(
+        &host.analysis(),
+        &Options {
+            profile,
+            entry,
+            ..Options::default()
+        },
+    )
+    .expect("generates")
+}
+
+#[test]
+fn a_worker_service_ships_in_a_chunk_of_its_own_with_only_what_it_reaches() {
+    let out = worker_output(k_codegen::Profile::Development, k_codegen::Entry::App);
+    let worker = out
+        .client
+        .iter()
+        .find(|f| f.path.starts_with("workers/sieve.") && f.path.ends_with(".js"))
+        .expect("the worker chunk");
+    for has in [
+        "class Sieve {",
+        "function isPrime(",
+        "Tally$encode",
+        "const Sieve$host = {",
+        "$k_workers.serveWorker(globalThis, () => new Sieve(), Sieve$host);",
+        "(a) => [a[0]]",
+    ] {
+        assert!(
+            worker.contents.contains(has),
+            "the worker chunk lacks {has}:\n{}",
+            worker.contents
+        );
+    }
+    for lacks in [
+        "export class Sieve",
+        "function label(",
+        "function Home(",
+        "shared.",
+        "workerClient",
+    ] {
+        assert!(
+            !worker.contents.contains(lacks),
+            "the worker chunk has {lacks}:\n{}",
+            worker.contents
+        );
+    }
+    let shared = chunk(&out.client, "shared.").expect("the shared chunk");
+    let base = worker.path.rsplit('/').next().unwrap_or_default();
+    for has in [
+        "export class Sieve {",
+        "$k_workers.workerClient(() => new Worker(new URL(\"./workers/",
+        base,
+        "{ type: \"module\", name: \"Sieve\" }), \"Sieve\")",
+        "return this.$w.call($c, \"count\", [$k.codecs.int.encode(below)], (v) => Tally$codec.decode(v, \"value\")",
+        "return this.$w.call($c, \"echo\", [bytes], (v) => v,",
+        "(f) => WorkerOnlyError.workerFailure(WorkerFailure[f])",
+        "function label(",
+    ] {
+        assert!(
+            shared.contents.contains(has),
+            "the shared chunk lacks {has}:\n{}",
+            shared.contents
+        );
+    }
+    for lacks in ["function isPrime(", "serveWorker", "this.limit"] {
+        assert!(
+            !shared.contents.contains(lacks),
+            "the shared chunk has {lacks}"
+        );
+    }
+    assert!(
+        chunk(&out.client, "workers.").is_some(),
+        "the workers runtime chunk ships"
+    );
+    let runtime = chunk(&out.client, "runtime.").expect("the runtime chunk");
+    assert!(
+        !runtime.contents.contains("function workerClient("),
+        "the runtime chunk doesn't grow"
+    );
+    // Nothing calls it on the server (K4012).
+    let server = out
+        .server
+        .iter()
+        .find(|f| f.contents.contains("class Sieve"))
+        .expect("the server's Sieve");
+    assert!(
+        server.contents.contains("export class Sieve {\n}"),
+        "{}",
+        server.contents
+    );
+}
+
+#[test]
+fn every_profile_binds_the_worker_types() {
+    for profile in [
+        k_codegen::Profile::Test,
+        k_codegen::Profile::Development,
+        k_codegen::Profile::Release,
+    ] {
+        let out = worker_output(profile, k_codegen::Entry::App);
+        for f in &out.client {
+            assert!(
+                !f.contents.contains("native(\"k.concurrency."),
+                "{profile:?}: {} binds a worker type as a native:\n{}",
+                f.path,
+                f.contents
+            );
+        }
+    }
+}
+
+#[test]
+fn a_linked_client_names_the_worker_chunk_by_its_final_name() {
+    let out = worker_output(k_codegen::Profile::Release, k_codegen::Entry::App);
+    let worker = out
+        .client
+        .iter()
+        .find(|f| f.path.starts_with("workers/sieve.") && f.path.ends_with(".js"))
+        .expect("the worker chunk");
+    let base = worker.path.rsplit('/').next().unwrap_or_default();
+    assert!(
+        out.client
+            .iter()
+            .any(|f| f.path.starts_with("shared.") && f.contents.contains(base)),
+        "the shared chunk names {base}"
+    );
+}
+
+#[test]
+fn a_test_bundle_runs_the_worker_in_process() {
+    let out = worker_output(k_codegen::Profile::Development, k_codegen::Entry::Tests);
+    assert!(
+        !out.client.iter().any(|f| f.path.starts_with("workers/")),
+        "no worker chunk in a test bundle"
+    );
+    let shared = chunk(&out.client, "shared.").expect("the shared chunk");
+    for has in [
+        "const Sieve$worker = (() => {",
+        "$k.$test.inlineWorker(...Sieve$worker)",
+        "export class Sieve {",
+    ] {
+        assert!(
+            shared.contents.contains(has),
+            "the test bundle lacks {has}:\n{}",
+            shared.contents
+        );
+    }
+}

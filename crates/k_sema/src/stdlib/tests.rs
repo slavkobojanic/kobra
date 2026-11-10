@@ -84,6 +84,7 @@ fn every_module_is_below_k() {
     for expected in [
         "k.auth",
         "k.charts",
+        "k.concurrency",
         "k.core",
         "k.crypto",
         "k.db",

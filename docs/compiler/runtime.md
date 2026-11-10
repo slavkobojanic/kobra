@@ -1411,3 +1411,29 @@ enforces them.
   deletes every `k-` cache on `activate`. No regex literals, which the compactor refuses.
 - **The server's `AppUpdates`** is `serverEnvironment("AppUpdates")`: `{isAvailable: false, apply() {}}`;
   the test kit's is `testAppUpdates()` (`announce()`, `apply()`, `applied`).
+
+### 12.21 Workers
+
+`workers.js` (part `Workers`, a runtime feature chunk like `forms.js`: generated code calls `$k.workerClient`
+and `$k.serveWorker`, which the bundler points at `workers.<hash>.js`) is a `@Worker` service's
+([55-workers.md](../design/55-workers.md)), on both sides of the thread.
+
+- **`workerClient(open, name)`**, which each proxy builds once, returns `{call($c, m, a, decode,
+  decodeError, failure)}`. The first call runs `open()` (`new Worker(url, {type: "module", name})`; a throw,
+  `ReferenceError` without `Worker` included, fails every queued call with `failure("unavailable")`). Calls
+  queue and are posted one at a time, `{k: "call", id, m, a}`, once the worker has posted `{k: "ready"}`.
+  `{k: "ok", id, v}` resolves with `decode(v)`, `{k: "error", id, e}` rejects with `decodeError(e)`, and a
+  decoder that throws rejects with a `KPanic`. `{k: "crash", id, text}`, an `error` event after ready and a
+  `messageerror` terminate the worker, log `K worker <name> crashed: <text>` with `console.error`, reject the
+  running call with `failure("crashed")` and start a new worker for the queued calls; an `error` event before
+  ready (a load failure) fails every queued call with `failure("unavailable")`. A call whose `$c` aborts
+  never settles: queued, it leaves the queue; running, the worker is terminated and the next call starts a
+  new one. Messages from a terminated worker are ignored.
+- **`serveWorker(scope, make, host)`**, which a worker chunk calls with `globalThis`, posts `{k: "ready"}`,
+  then answers each call: `host[m]` is `[decodeArguments, encodeResult, encodeError]`, the service is
+  `make()` at the first call, and the method runs with `$c` `null`. A thrown value that is an object but not
+  an `Error` (a K enum value) is encoded with `encodeError`; anything else, a `KPanic` included, is
+  `{k: "crash", text}`.
+- **In `k test`** the opener is the kit's `inlineWorker(make, host)` (`testing/kit.js`): a pair of in-process
+  ports running `serveWorker` on the test's thread, each message copied (`Uint8Array`s sliced) and delivered
+  in a microtask, and nothing delivered after `terminate()`.

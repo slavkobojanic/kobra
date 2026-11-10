@@ -439,6 +439,14 @@ unpinned = [
     "browsers that offer to install a web app use the manifest (no test installs one)",
 ]
 
+[pages."apps/workers.md"]
+commit = "defa748"
+date = "2026-11-11"
+note = "new with `@Worker` (docs/design/55-workers.md); written against the working tree on top of defa748, the behaviour checked with `k test` on examples/notes and crates/k_cli/tests/fixtures/workers, the sema corpus's sema/app/workers cases, workers.test.js, crates/k_codegen/tests/codegen.rs's worker tests, and in Chrome by chrome.rs's a_worker_counts_off_the_main_thread_and_stops_when_cancelled_in_chrome, a_worker_throws_typed_errors_and_restarts_after_a_crash_in_chrome and notes_ranks_the_filtered_notes_in_a_worker_in_chrome"
+unpinned = [
+    "a content security policy needs only `worker-src 'self'` (K sends no CSP; no test sets one)",
+]
+
 [pages."apps/environment.md"]
 commit = "3a8c7ed"
 date = "2026-11-10"
@@ -531,7 +539,7 @@ date = "2026-11-09"
 [pages."examples/notes.md"]
 commit = "0dd7625"
 date = "2026-11-09"
-note = "targeted re-audit on top of f5e8872 (2026-11-10): the Passkeys section and the layout's new files, against examples/notes and its PasskeyService tests"
+note = "targeted re-audit on top of f5e8872 (2026-11-10): the Passkeys section and the layout's new files, against examples/notes and its PasskeyService tests; on top of defa748 (2026-11-11): the search worker section and layout, against examples/notes' NoteSearch and Notes tests and chrome.rs' notes_ranks_the_filtered_notes_in_a_worker_in_chrome"
 
 [pages."examples/shop.md"]
 commit = "0dd7625"
@@ -608,6 +616,7 @@ note = "targeted re-audit on top of 7918a36 (2026-11-09), of the claims on recen
 [pages."reference/stdlib.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of defa748 (2026-11-11): the `k.concurrency` row, against the stdlib"
 
 [pages."reference/stdlib/k-core.md"]
 commit = "0dd7625"
@@ -658,6 +667,11 @@ note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book
 commit = "a0e5b2b"
 date = "2026-11-10"
 note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
+
+[pages."reference/stdlib/k-concurrency.md"]
+commit = "defa748"
+date = "2026-11-11"
+note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs; new with `@Worker` (docs/design/55-workers.md)"
 
 [pages."reference/stdlib/k-observe.md"]
 commit = "0dd7625"
@@ -712,3 +726,4 @@ note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book
 [pages."reference/design-status.md"]
 commit = "0dd7625"
 date = "2026-11-09"
+note = "targeted re-audit on top of defa748 (2026-11-11): workers left \"Not yet covered in depth\" for their own page"

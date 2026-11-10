@@ -51,6 +51,12 @@ public service NotesService {
         return all.filter { note => note.matches(query: filter) }
     }
 
+    /// The notes with the given ids, in that order: a search's ranking
+    /// (`NoteSearch`). An id with no note, one deleted since, is skipped.
+    func ordered(ids: List<Uuid>) -> List<NoteSummary> {
+        return ids.compactMap { id => all.firstWhere { note => note.id == id } }
+    }
+
     /// Loads one note from the server.
     ///
     /// - Throws: `LookupError.notFound` when the account has no such note,

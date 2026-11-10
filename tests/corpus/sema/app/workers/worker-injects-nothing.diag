@@ -1,0 +1,4 @@
+error[K4036] 9:17-9:22: a `@Worker` service injects nothing, but `clock` is injected
+  help: the worker has no container: pass what a method needs as an argument, and keep rpcs, storage and the page's services on the main thread
+  fix "Remove the injected field"
+    edit 9:1-10:1 ""

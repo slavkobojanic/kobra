@@ -1,0 +1,7 @@
+error[K4037] 9:10-9:15: worker method `upper` must be `async throws`: the page awaits its answer from another thread, which can fail
+  fix "Add `async throws WorkerOnlyError`"
+    edit 9:31-9:31 " async throws WorkerOnlyError"
+error[K4037] 13:10-13:15: worker method `lower` must be `async`: the page awaits its answer from another thread
+  fix "Add `async`"
+    edit 13:31-13:31 " async"
+error[K4037] 17:15-17:18: worker method `first` can't be generic: its values cross to the worker through their codecs, which need the concrete types

@@ -957,6 +957,38 @@ implementing `k.server.Job<Payload>`:
 
 ---
 
+### 13.4 Worker services
+
+A `@Worker` service ([55-workers.md](../design/55-workers.md); `workers.rs`) runs in a module worker of its own.
+
+- **On the client it is its proxy,** a class of the service's name (so `$App`'s getter constructs it
+  unchanged): `constructor` builds `this.$w = $k.workerClient(() => new Worker(new URL("./workers/<kebab
+  name>.[hash].js", import.meta.url), { type: "module", name: "S" }), "S")`, and each non-`private`
+  instance method is `async m($c, …) { return this.$w.call($c, "m", [encoded…], (v) => decode, (e) =>
+  E$codec.decode(e, "error"), (f) => E.workerFailure(WorkerFailure[f])); }`. Arguments are encoded with
+  their codecs (`T$encode` for a named one, as `@Load` data is), the result decoded with its codec at
+  `"value"` (`undefined` for `Void`); a top-level `Bytes` crosses as itself. The URL is the placeholder
+  `$worker:<decl>$` until the bundler, having printed the worker chunk, replaces it in the shared chunk's
+  syntax tree (`bundle::client_files`).
+- **The worker chunk** `workers/<kebab name>.[hash].js` comes from a second lowering of the program
+  (`lib.rs`): the client items with the service replaced by `workers::host_item` (its real class, not
+  exported, `const S$host = { "m": [(a) => [decoded…], (v) => encoded, (e) => E$encode(e)] }` and
+  `$k.serveWorker(globalThis, () => new S(), S$host)`), the stdlib declarations their uses and their
+  codecs' uses need, settled and kept to what the service reaches (`keep_reachable` from it alone). It
+  imports the runtime chunk and the feature chunks it uses, never `shared`, and lists the service last.
+  Its feature uses count when choosing the feature chunks to ship. Linking orders it before the chunk
+  that names it (`link::Imports::urls`), so the shared chunk names its final file.
+- **On the server it is an empty class,** which the container builds like any client-only service's;
+  nothing calls it there (K4012).
+- **In a test bundle** there is no worker chunk: the item is `const S$worker = (() => { class S { … }
+  return [() => new S(), { …host table }]; })();` and the proxy, whose opener is
+  `$k.$test.inlineWorker(...S$worker)`.
+
+Tested by `codegen/split/workers-ship-their-own-chunk` and `crates/k_codegen/tests/codegen.rs`'s
+`a_worker_service_ships_in_a_chunk_of_its_own_with_only_what_it_reaches`,
+`a_linked_client_names_the_worker_chunk_by_its_final_name`, `a_test_bundle_runs_the_worker_in_process` and
+`every_profile_binds_the_worker_types`.
+
 ## 14. Routing tables
 
 - The generated **`Page` enum** is an ordinary enum ([§5](#5-value-representation)): a page without
@@ -1233,7 +1265,8 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   an effect of its own. `.label` is still `aria-label`, and `.on(ended:)` and `.on(playbackBlocked:)`
   are `$k.on` listeners (the binding dispatches `playbackblocked`). The server renders the bare element.
 - **Runtime feature chunks**: `forms.[hash].js` (`runtime/forms.js`), `observe.[hash].js` (`runtime/observe.js`,
-  `$k.observeElement`), `playback.[hash].js` (`runtime/playback.js`, `$k.mediaElement`) and `money.[hash].js`
+  `$k.observeElement`), `playback.[hash].js` (`runtime/playback.js`, `$k.mediaElement`), `workers.[hash].js`
+  (`runtime/workers.js`, `$k.workerClient` and `$k.serveWorker`, §13.4) and `money.[hash].js`
   (`runtime/money.js`) hold runtime functions that lowering calls as members of `$k` (`$k.createForm`,
   `$k.fieldParser`, `$k.decimal`, `$k.money`, `$k.moneyCodecs.money`; the codecs of `Decimal`, `Currency`
   and `Money` are `$k.moneyCodecs.*`, not `$k.codecs.*`). Before printing a shared, page or entry chunk
@@ -1430,6 +1463,7 @@ dist/
       app.9c1d2e3f.js
       app.5a6b7c8d.css
       pages/product.0a1b2c3d.js
+      workers/note-search.4e5f6a7b.js   a @Worker service's chunk (§13.4)
       *.map
 ```
 

@@ -1591,6 +1591,46 @@ fn notes_signs_up_and_creates_edits_and_deletes_a_note() {
     drop(tab);
 }
 
+/// The filter ranks the notes in `NoteSearch`'s Web Worker
+/// (docs/design/55-workers.md, "Examples"): typing shows the plain matches
+/// (the newest first) at once, then the worker's ranking, which puts a
+/// match in the title above one in the text; the worker's chunk is what
+/// the page loaded to rank them.
+#[test]
+fn notes_ranks_the_filtered_notes_in_a_worker_in_chrome() {
+    let dir = Scratch::new("notes-search");
+    let mut tab = tab!(dir);
+    let (_k, origin) = notes(&dir.0.join("notes"), true);
+    sign_up(&mut tab, &origin, "ada@example.com");
+    write_note(&mut tab, "Trip to Lisbon");
+    write_note(&mut tab, "Ideas");
+    let new = tab.role("link", "New note");
+    tab.click(&new);
+    let title = tab.role("textbox", "Title");
+    tab.fill(&title, "Groceries");
+    let body = tab.role("textbox", "Note");
+    tab.fill(&body, "Snacks for the trip");
+    let create = tab.role("button", "Create note");
+    tab.click(&create);
+    tab.role("link", "Groceries");
+    let filter = tab.role("textbox", "Filter");
+    tab.fill(&filter, "trip");
+    tab.wait("the worker's ranking", |t| {
+        let order = t.eval(
+            "[...document.querySelectorAll('main h2')].map((h) => h.innerText).filter((t) => t !== '')",
+        );
+        (order == json!(["Trip to Lisbon", "Groceries"])).then_some(())
+    });
+    assert_eq!(
+        tab.eval(
+            "performance.getEntriesByType('resource').some((r) => r.name.includes('/assets/workers/note-search.'))"
+        ),
+        json!(true),
+        "the page started the search worker"
+    );
+    drop(tab);
+}
+
 /// `k dev` in a fresh checkout serves the app with no setup step: the
 /// development database has a default (notes-1).
 #[test]
@@ -3823,5 +3863,100 @@ fn text_typed_before_hydration_is_kept_in_chrome() {
         json!("typed early"),
         "hydration kept the typed text"
     );
+    drop(k);
+}
+
+// ================================================================= workers
+
+/// The `workers` fixture (a `@Worker` service, docs/design/55-workers.md)
+/// under `k run` (with its release client, as `Proc` serves every app),
+/// and a tab on its page.
+fn workers(dir: &Scratch) -> (Proc, Tab) {
+    copy_project(&repo().join("crates/k_cli/tests/fixtures/workers"), &dir.0);
+    let (k, port) = Proc::serve(&["run"], 1, &dir.0, &[], &[], Duration::from_secs(120));
+    let mut tab = match page::chrome(&dir.0) {
+        Some(t) => t,
+        None => panic!("Chrome was found but didn't start"),
+    };
+    tab.open(&format!("http://localhost:{port}/"));
+    tab.role("heading", "Workers fixture");
+    (k, tab)
+}
+
+/// Clicks the button named `name` once the page handles clicks.
+fn press_button(tab: &mut Tab, name: &str) {
+    let button = tab.role("button", name);
+    tab.wait_handles_click(&button);
+    tab.click(&button);
+}
+
+/// The frames the page painted in one second: `requestAnimationFrame`
+/// keeps firing only while the main thread is free.
+fn frames_in_a_second(tab: &mut Tab) -> u64 {
+    tab.eval(
+        "new Promise((done) => { let n = 0; const end = performance.now() + 1000; \
+         const tick = () => { n++; if (performance.now() < end) requestAnimationFrame(tick); else done(n); }; \
+         requestAnimationFrame(tick); })",
+    )
+    .as_u64()
+    .unwrap_or(0)
+}
+
+/// A long count runs in the worker (55-workers.md, "Calls"): the page keeps
+/// painting while it counts, and stopping it terminates the worker
+/// ("Cancellation"), so the next count is answered at once by a new worker
+/// instead of waiting for the long one to finish.
+#[test]
+fn a_worker_counts_off_the_main_thread_and_stops_when_cancelled_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("workers-busy");
+    let (k, mut tab) = workers(&dir);
+    press_button(&mut tab, "Count below 30,000,000");
+    tab.wait_text("Counting…");
+    let frames = frames_in_a_second(&mut tab);
+    assert!(
+        frames >= 20,
+        "the page painted {frames} frames in a second while the worker counted"
+    );
+    assert!(
+        tab.visible_text().contains("Counting…"),
+        "the long count is still running"
+    );
+    press_button(&mut tab, "Stop");
+    tab.wait_text("Stopped");
+    let started = Instant::now();
+    press_button(&mut tab, "Count below 100");
+    tab.wait_text("25 primes below 100");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "a new worker answered in {:?}; the stopped count would have taken far longer",
+        started.elapsed()
+    );
+    drop(tab);
+    drop(k);
+}
+
+/// Typed errors and crashes (55-workers.md, "Errors and crashes"): a count
+/// the worker refuses arrives as its typed case with its payload; a panic
+/// in the worker is `.workerFailure(.crashed)`, logged in the console, and
+/// the next call starts a new worker that answers.
+#[test]
+fn a_worker_throws_typed_errors_and_restarts_after_a_crash_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("workers-errors");
+    let (k, mut tab) = workers(&dir);
+    press_button(&mut tab, "Count too many");
+    tab.wait_text("At most 100000000");
+    let since = tab.errors().len();
+    tab.allow_errors_containing(since, "K worker Primes crashed");
+    press_button(&mut tab, "Crash");
+    tab.wait_text("The worker crashed.");
+    press_button(&mut tab, "Count below 100");
+    tab.wait_text("25 primes below 100");
+    drop(tab);
     drop(k);
 }

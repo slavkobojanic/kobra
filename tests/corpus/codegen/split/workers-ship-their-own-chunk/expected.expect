@@ -1,0 +1,13 @@
+# docs/design/55-workers.md, "Bundles"; codegen.md §13.4: a `@Worker` service's class ships in
+# a chunk of its own with what it reaches (`isPrime`, `Tally`'s codec) and serves its methods;
+# the shared chunk holds its proxy, which starts that chunk as a module worker and calls the
+# `workers` runtime chunk. On the server it is an empty class: nothing calls it there (K4012).
+client contains // file: workers/sieve.[hash].js
+client contains // file: workers.[hash].js
+client contains $k_workers.serveWorker(globalThis, () => new Sieve(), Sieve$host);
+client contains const Sieve$host = { "count": [(a) => [$k.codecs.int.decode(a[0], "below")], (v) => Tally$encode(v), (e) => WorkerOnlyError$encode(e)], "echo": [(a) => [a[0]], (v) => v, (e) => WorkerOnlyError$encode(e)] };
+client contains this.$w = $k_workers.workerClient(() => new Worker(new URL("./workers/sieve.[hash].js", import.meta.url), { type: "module", name: "Sieve" }), "Sieve");
+client contains return this.$w.call($c, "echo", [bytes], (v) => v, (e) => WorkerOnlyError$codec.decode(e, "error"), (f) => WorkerOnlyError.workerFailure(WorkerFailure[f]));
+client lacks $k.native("k.concurrency.
+server contains export class Sieve {
+server lacks this.limit

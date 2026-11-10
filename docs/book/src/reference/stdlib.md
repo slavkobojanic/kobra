@@ -42,6 +42,7 @@ library's own doc comments (`crates/k_sema/stdlib`), so they list exactly what t
 | [`k.core`](stdlib/k-core.md) | strings, numbers, collections, `Optional`, `Result`, `LoadState`, `Stream`, units, `Date`, `Color`, `Url`, `Bytes`, `Money`, `Currency`, `Secret`, the framework annotations | |
 | [`k.ui`](stdlib/k-ui.md) | layout (`Stack`, `Grid`, `Spacer`), `VisuallyHidden`, `ErrorBoundary`, `KeyboardShortcut`, `Icon` with a bundled icon set, `Router`, the `Theme` service | accessible widgets: `Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable` |
 | [`k.charts`](stdlib/k-charts.md) | `LineChart`, `LineSeries`, `ChartPoint` and the chart tokens | bar, area, pie and scatter charts |
+| [`k.concurrency`](stdlib/k-concurrency.md) | `@Worker` services, `WorkerFailure`, `WorkerOnlyError` ([Work off the main thread](../apps/workers.md)) | streamed progress, pools of workers |
 | [`k.http`](stdlib/k-http.md) | `HttpClient`, `HttpRequest`, `HttpResponse`, `IncomingRequest`, `HttpStatus`, `HttpError` | WebSocket, server-sent events |
 | [`k.storage`](stdlib/k-storage.md) | typed local storage: `LocalStorage`, `StorageKey`, `BrowserStorage`; typed IndexedDB: `Collections`, `Collection`, `CollectionIndex`, `BrowserCollections` | session storage, cookies |
 | [`k.time`](stdlib/k-time.md) | `Clock`, `TimerHandle`, `TimeOfDay`, `TimeZone`, `Weekday` | calendars |

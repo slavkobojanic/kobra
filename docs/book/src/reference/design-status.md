@@ -75,9 +75,9 @@ These were explicitly deferred and may be revisited:
 - Session storage and cookies in `k.storage`.
 - Online migrations for large tables.
 
-Not yet covered in depth: animation API details, the internationalization workflow, security headers
-(content security policy, and CORS beyond RPC, which never grants it), and concurrency (workers). The book
-doesn't describe them beyond the module overview. Request forgery is covered in
+Not yet covered in depth: animation API details, the internationalization workflow, and security headers
+(content security policy, and CORS beyond RPC, which never grants it). The book doesn't describe them
+beyond the module overview. Workers are described in [Work off the main thread](../apps/workers.md). Request forgery is covered in
 [Authentication and sessions](../apps/auth.md#request-forgery).
 
 ## Syntax the grammar decided

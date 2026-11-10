@@ -16,8 +16,8 @@ use k_runtime::{
     NOTIFICATIONS_SIZE_BUDGET, OBSERVE_SIZE_BUDGET, OFFLINE_SIZE_BUDGET, PASSKEYS_SIZE_BUDGET,
     PLAYBACK_SIZE_BUDGET, PUSH_SIZE_BUDGET, Part, REFS_SIZE_BUDGET, RTC_SIZE_BUDGET,
     SERVICE_WORKER_SIZE_BUDGET, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET,
-    STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact,
-    compacted_sources, module, modules, resolve,
+    STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET,
+    WORKERS_SIZE_BUDGET, compact, compacted_sources, module, modules, resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -189,6 +189,7 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::WakeLock
                 | Part::Environment
                 | Part::Offline
+                | Part::Workers
                 | Part::Observe
                 | Part::Media
                 | Part::Playback
@@ -641,6 +642,21 @@ fn the_offline_chunk_meets_its_size_budget() {
 }
 
 #[test]
+fn the_workers_chunk_meets_its_size_budget() {
+    let workers = compacted_sources(&[Part::Workers]).expect("compacts");
+    let size = gzip_len(&workers);
+    eprintln!(
+        "workers: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {WORKERS_SIZE_BUDGET})",
+        raw_len(&[Part::Workers]),
+        workers.len()
+    );
+    assert!(
+        size <= WORKERS_SIZE_BUDGET,
+        "the workers chunk is {size} bytes gzip, over the {WORKERS_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
 fn keyboard_shortcuts_meet_their_size_budget() {
     let keys = compacted_sources(&[Part::Keys]).expect("compacts");
     let size = gzip_len(&keys);
@@ -864,6 +880,7 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::WakeLock
                 | Part::Environment
                 | Part::Offline
+                | Part::Workers
                 | Part::Observe
                 | Part::Media
                 | Part::Playback

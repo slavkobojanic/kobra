@@ -235,7 +235,7 @@ A wrapper reaches Tier 1 when it is Baseline in all three engines (or degrades t
 | Cache API, service worker, offline, PWA manifest | 2 | `@Offline` on the `app`, `AppUpdates` (`k.device`); `k build` generates the service worker; manifest from `metadata` ([22](22-metadata.md)) | [54-offline.md](54-offline.md): precaches the hashed client chunks and shell, keeps server-rendered pages without a session; no user-written service worker code |
 | PWA install prompt (`beforeinstallprompt`) | 3 | `InstallButton` | Chromium only |
 | App badge (Badging API) | 3 | `AppBadge` | installed apps only, Chromium and WebKit |
-| Web Workers | 2 | K-typed workers (`k.concurrency`) | a `@Worker` service whose methods run off the main thread with `Codable` arguments and results, in a separate chunk; inline in `k test`. Needs its own design ([README](README.md)) |
+| Web Workers | 2 | `@Worker` on a `service` (`k.concurrency`) | [55-workers.md](55-workers.md): a stateless service whose `async` methods run in a module worker with `Codable` arguments, results and errors (`workerFailure(WorkerFailure)`), in a chunk of its own started at the first call; a cancelled call terminates the worker, a crash restarts it; client-only (K4012 during server rendering); in-process in `k test` |
 | File System Access: open | covered | `Files` ([42](42-files.md)) | |
 | File System Access: save in place, directories | 3 | `Files.saveInPlace` | `showSaveFilePicker` is Chromium only ([42's open questions](42-files.md#open-questions)) |
 | Files dropped on the page | 2 | `FileDropTarget` ([41](41-drag-and-drop.md#open-questions)) | |

@@ -459,6 +459,7 @@ pub(crate) fn client_files(
     pages: &[DeclId],
     entry: Option<ClientEntry>,
     from_server: &BTreeMap<String, BTreeSet<String>>,
+    workers: &[(DeclId, BTreeMap<DeclId, Item>)],
 ) -> Vec<OutputFile> {
     let profile = g.options.profile;
     // A release app's client is linked and minified after printing
@@ -500,6 +501,13 @@ pub(crate) fn client_files(
                 g.view.decl(*d).stdlib
                     && !items.contains_key(d)
                     && feature_of(&module_path(g, *d), sym) == Some(i)
+            })
+            || workers.iter().any(|(_, w)| {
+                w.values().flat_map(|it| it.uses.iter()).any(|(d, sym)| {
+                    g.view.decl(*d).stdlib
+                        && !w.contains_key(d)
+                        && feature_of(&module_path(g, *d), sym) == Some(i)
+                })
             });
         // An `@Offline` app's entry loads the offline chunk whether or not
         // anything injects `AppUpdates` (54-offline.md).
@@ -544,6 +552,55 @@ pub(crate) fn client_files(
         .collect();
     let deferred = deferred_features(g, items, pages, entry.as_ref(), &features);
     let mut used_features = BTreeSet::new();
+    // The worker chunks (docs/design/55-workers.md, "Bundles"), printed
+    // first: the proxies in the shared chunk name them.
+    let mut worker_names: Vec<(String, String)> = Vec::new();
+    for (w, witems) in workers {
+        // The service and its host last, so everything it reaches is
+        // defined when it starts serving.
+        let mut decls: Vec<DeclId> = witems.keys().copied().filter(|d| d != w).collect();
+        decls.sort_by_key(|d| order_key(g, *d));
+        decls.push(*w);
+        let mut stmts = vec![Stmt::ImportAll("$k".into(), format!("../{runtime_name}"))];
+        stmts.extend(client_natives(
+            g,
+            witems,
+            decls.iter().flat_map(|d| witems[d].uses.iter()),
+            &features,
+            "../",
+        ));
+        for d in &decls {
+            stmts.extend(witems[d].prelude.iter().cloned());
+        }
+        for d in &decls {
+            stmts.extend(witems[d].stmts.iter().cloned());
+        }
+        route_runtime_features(&mut stmts, &feature_names, "../", &mut used_features);
+        if release {
+            named_runtime_imports(&mut stmts);
+        }
+        let (text, marks) = print_mapped(&stmts);
+        let name = client_chunk(
+            g,
+            &crate::workers::chunk_stem(g, *w),
+            text,
+            &marks,
+            &mut out,
+        );
+        worker_names.push((crate::workers::chunk_placeholder(*w), name));
+    }
+    let name_workers = |stmts: &mut Vec<Stmt>, prefix: &str| {
+        if worker_names.is_empty() {
+            return;
+        }
+        js::walk_exprs_mut(stmts, &mut |e| {
+            if let js::Expr::Str(text) = e
+                && let Some((_, name)) = worker_names.iter().find(|(p, _)| p == text)
+            {
+                *text = format!("{prefix}{name}");
+            }
+        });
+    };
     let mut shared_decls: Vec<DeclId> = items
         .keys()
         .copied()
@@ -573,6 +630,7 @@ pub(crate) fn client_files(
         for d in &shared_decls {
             stmts.extend(items[d].stmts.iter().cloned());
         }
+        name_workers(&mut stmts, "./");
         route_runtime_features(&mut stmts, &feature_names, "./", &mut used_features);
         if release {
             named_runtime_imports(&mut stmts);
@@ -613,6 +671,7 @@ pub(crate) fn client_files(
         }
         stmts.extend(item.prelude.iter().cloned());
         stmts.extend(item.stmts.iter().cloned());
+        name_workers(&mut stmts, "../");
         route_runtime_features(&mut stmts, &feature_names, "../", &mut used_features);
         if release {
             named_runtime_imports(&mut stmts);
@@ -1058,6 +1117,7 @@ const RUNTIME_FEATURES: &[(&str, &str)] = &[
     ("money", "k:/runtime/money.js"),
     ("observe", "k:/runtime/observe.js"),
     ("playback", "k:/runtime/playback.js"),
+    ("workers", "k:/runtime/workers.js"),
 ];
 
 /// The [`RUNTIME_FEATURES`] that a linked release client

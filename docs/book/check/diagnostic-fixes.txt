@@ -213,6 +213,11 @@ K4031: Set handshake headers only in a server-only service (`@Scope(.server)`, o
 K4032: Declare the field `Secret<Ed25519PrivateKey>` (the quick fix does this); `Secret<K>` has the key's operations, so the code that uses it needs no `reveal()`. A public key needs no `Secret`.
 K4033: Keep the stream, track, controller, meter, recording session, peer connection, sender or data channel in a client-only service, and send the server what it can store: a `Recording`'s `File` bytes, not the session; a call's signals go through the relay's channel.
 K4034: Add `@Offline` to the app (the quick fix does this), so its service worker caches the build and announces the next one; or remove the `AppUpdates` field.
+K4035: Keep state in a service on the main thread and pass what the worker needs as arguments; make constants, computed properties and helpers `private` (the quick fix does this for one that has a value), and remove `init()`, `@Effect`, `rpc` members and `@Scope`.
+K4036: Remove the injected field (the quick fix does this) and pass what the method needs as an argument: `now: Date` instead of `Clock`; keep rpcs and storage in a main-thread service that calls the worker.
+K4037: Make the method `async` and give it a `throws` clause (the quick fix adds `async throws WorkerOnlyError`), or make it `private` if only the worker calls it; replace a generic method with one per concrete type.
+K4038: Add `case workerFailure(WorkerFailure)` to the error enum (the quick fix does this), or throw `WorkerOnlyError` when the method has no errors of its own.
+K4039: Make the type `Codable`, or pass a `Codable` value the worker can rebuild it from; return a whole result instead of a `Stream`.
 K5001: Give one of the pages or endpoints another URL, or another name.
 K5002: Use `String`, `Int`, `Uuid`, `Page`, a payload-free enum or an optional of these.
 K5003: Name every path parameter once in the template, as `{name}`, and declare a `@Param` for each.

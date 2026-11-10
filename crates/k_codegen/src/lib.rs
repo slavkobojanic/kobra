@@ -65,6 +65,7 @@ pub mod sourcemap;
 mod suite;
 mod ui;
 mod view;
+mod workers;
 
 pub use bundle::uncached_service_worker;
 pub use lockfiles::{project_diagnostics, routes_lock, schema_diagnostics, schema_lock};
@@ -367,6 +368,48 @@ pub fn generate(analysis: &k_sema::Analysis, options: &Options) -> Result<Output
     Ok(out)
 }
 
+/// Lowers into `items`, for `target`, the stdlib declarations they
+/// reference (non-native enums and structs), transitively, starting from
+/// their uses and `roots`, and with `pieces` also from what their
+/// on-demand pieces (codecs) use.
+fn add_stdlib_decls(
+    g: &cx::Gen<'_>,
+    items: &mut std::collections::BTreeMap<k_sema::view::DeclId, decl::Item>,
+    target: cx::Target,
+    roots: Vec<k_sema::view::DeclId>,
+    pieces: bool,
+) {
+    use std::collections::BTreeSet;
+    let mut seen: BTreeSet<k_sema::view::DeclId> = items.keys().copied().collect();
+    let mut from_roots = roots;
+    loop {
+        let wanted: Vec<k_sema::view::DeclId> = items
+            .values()
+            .flat_map(|i| {
+                let on_demand = i
+                    .on_demand
+                    .iter()
+                    .filter(move |_| pieces)
+                    .flat_map(|p| p.uses.iter());
+                i.uses.iter().chain(on_demand).map(|(d, _)| *d)
+            })
+            .chain(std::mem::take(&mut from_roots))
+            .filter(|d| !seen.contains(d) && native::emits_stdlib_decl(g, *d))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if wanted.is_empty() {
+            break;
+        }
+        for d in wanted {
+            seen.insert(d);
+            if let Some(item) = decl::lower(g, d, target) {
+                items.insert(d, item);
+            }
+        }
+    }
+}
+
 /// Lowers every declaration for both sides and bundles the result.
 fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
     use cx::Target;
@@ -462,38 +505,44 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
         .iter()
         .flat_map(|(_, _, u): &bundle::EntryModule| u.iter().cloned())
         .collect();
-    // Stdlib declarations the program references (non-native enums).
-    for (items, target) in [(&mut server, Target::Server), (&mut client, Target::Client)] {
-        let mut seen: BTreeSet<k_sema::view::DeclId> = items.keys().copied().collect();
-        let mut first = true;
-        loop {
-            // The entries' uses are roots too: the client entry's for the
-            // client, the server entry's (the request container's stdlib
-            // enums, `HttpError` and `EmailError`) for the server.
-            let from_entry: Vec<k_sema::view::DeclId> = match (first, target) {
-                (true, Target::Client) => entry_uses.iter().map(|(d, _)| *d).collect(),
-                (true, Target::Server) => server_entry_uses.iter().map(|(d, _)| *d).collect(),
-                _ => Vec::new(),
-            };
-            first = false;
-            let wanted: Vec<k_sema::view::DeclId> = items
-                .values()
-                .flat_map(|i| i.uses.iter().map(|(d, _)| *d))
-                .chain(from_entry)
-                .filter(|d| !seen.contains(d) && native::emits_stdlib_decl(g, *d))
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            if wanted.is_empty() {
-                break;
-            }
-            for d in wanted {
-                seen.insert(d);
-                if let Some(item) = decl::lower(g, d, target) {
-                    items.insert(d, item);
-                }
-            }
-        }
+    // Each `@Worker` service's chunk is lowered from a program of its own
+    // (docs/design/55-workers.md, "Bundles"): every client item, with the
+    // service's class and host in place of its proxy, kept below to what
+    // the service reaches. A test bundle runs workers in-process.
+    let mut workers: Vec<(
+        k_sema::view::DeclId,
+        BTreeMap<k_sema::view::DeclId, decl::Item>,
+    )> = if tests || app.is_none() {
+        Vec::new()
+    } else {
+        g.own
+            .iter()
+            .copied()
+            .filter(|d| client.contains_key(d) && workers::is_worker(g, *d))
+            .map(|w| {
+                let mut items = client.clone();
+                items.insert(w, workers::host_item(g, w));
+                (w, items)
+            })
+            .collect()
+    };
+    // Stdlib declarations the program references (non-native enums). The
+    // entries' uses are roots too: the client entry's for the client, the
+    // server entry's (the request container's stdlib enums, `HttpError`
+    // and `EmailError`) for the server.
+    let client_entry_decls: Vec<k_sema::view::DeclId> =
+        entry_uses.iter().map(|(d, _)| *d).collect();
+    let server_entry_decls: Vec<k_sema::view::DeclId> =
+        server_entry_uses.iter().map(|(d, _)| *d).collect();
+    add_stdlib_decls(g, &mut server, Target::Server, server_entry_decls, false);
+    add_stdlib_decls(g, &mut client, Target::Client, client_entry_decls, false);
+    for (w, items) in &mut workers {
+        // The codecs the host uses bring their stdlib types along
+        // (`WorkerOnlyError`'s needs `WorkerFailure`'s), so the stdlib
+        // declarations their pieces use are added too.
+        add_stdlib_decls(g, items, Target::Client, Vec::new(), true);
+        bundle::settle_on_demand(items, &BTreeSet::new());
+        bundle::keep_reachable(items, &BTreeSet::from([*w]), &BTreeMap::new());
     }
     let mut roots = BTreeSet::new();
     for (_, _, uses) in &extra {
@@ -556,7 +605,9 @@ fn generate_program(g: &cx::Gen<'_>) -> Result<Output, CodegenError> {
             }
         }
     }
-    output.client = bundle::client_files(g, &client, &pages, entry, &from_server);
+    // Only the workers the client reaches ship.
+    workers.retain(|(w, _)| client.contains_key(w));
+    output.client = bundle::client_files(g, &client, &pages, entry, &from_server, &workers);
     output.client.extend(css::files(g));
     // An app's release client is shaken, minified and renamed as a whole
     // (codegen.md §17).
