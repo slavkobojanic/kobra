@@ -29,7 +29,7 @@ The other commands:
 | `k test` | Runs the 41 tests of `*.test.k`: the board service, import and export, the pages with their drags, shortcuts and forms. |
 | `k check` | Type checks, checks `storage.lock` and runs the tests, as CI and the image build do (`--no-tests` skips them). |
 | `k build` | Writes `dist/public`: `index.html` and the hashed assets (minified, each script with its source map, about 30 KB gzip in all). There is no `dist/app`. |
-| `docker compose up --build` | Checks, builds and serves the app with nginx on <http://localhost:8080>. |
+| `docker compose up --build` | Checks, builds and serves the app with nginx on <http://localhost:8080>. `K_COMPOSE=1 cargo test -p k_cli --test it -- compose::kanban` runs it on a test port and creates a card in Chrome ([testing.md §8.6](../../docs/compiler/testing.md#86-compose-smoke-tests)). |
 
 The image is two stages: the `k` toolchain, built from this repository's source (or a published
 toolchain image passed as `--build-arg K_TOOLCHAIN=...`), runs `k check` (tests included) and `k build`, then

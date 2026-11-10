@@ -44,6 +44,7 @@ mod call_deploy;
 mod chrome;
 mod cli;
 mod commands;
+mod compose;
 mod debugging;
 mod deploy;
 mod dist_browser;

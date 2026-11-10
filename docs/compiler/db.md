@@ -342,7 +342,11 @@ Reading an unloaded relation panics with the relation's name ("`Note.tags` was n
   migration leaves nothing behind; return the applied names. A failure is `DbError::Migration { name,
   message }`; `dist/app` reports it and exits 1 before opening its port.
 - **Concurrency** on Postgres: `apply` holds `pg_advisory_lock(ADVISORY_LOCK_KEY)` while migrating, so
-  replicas starting together apply each migration once (tested with four).
+  replicas starting together apply each migration once (tested with four). The server takes the same
+  (reentrant) lock around `apply` *and* the stdlib tables below: two concurrent `CREATE TABLE IF NOT
+  EXISTS` of one table race on Postgres, and the loser fails on `pg_type`'s unique index (found by the
+  Compose smoke tests, [testing.md §8.6](testing.md#86-compose-smoke-tests), when huddle's two replicas
+  started together).
 - **`k migrate new "description"`** (`k_codegen::plan_migration_with`, `migration.rs`): compares the
   persistence model (the same one the repositories use, so names follow the lock) with `schema.lock` and
   writes `migrations/NNNN_<words>.k` (the next number after the lock's list and the existing files) and

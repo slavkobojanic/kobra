@@ -61,6 +61,8 @@ Before you deploy, replace `call.example.org` with the host browsers reach and `
 
 **The denied ranges matter.** coturn's `--denied-peer-ip` flags for `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` and `127.0.0.0/8`, and `--no-multicast-peers`, stop it relaying into the deployment's own network; without them a TURN server is a proxy into the data centre for anyone with a credential. A deployment test (`crates/k_cli/tests/call_deploy.rs`) checks that `dist/app config`, `compose.yaml` and coturn's flags agree: the secret is a file both mount, the URLs name coturn's port and realm over UDP and TCP, and the private ranges are denied.
 
+`K_COMPOSE=1 cargo test -p k_cli --test it -- compose::call` runs `compose.yaml` itself, with a random secret in place of the template's: the page loads, `iceServers` names coturn with a signed credential, and coturn answers a STUN binding request ([testing.md §8.6](../../docs/compiler/testing.md#86-compose-smoke-tests)). It runs coturn on the project's network with its port published instead of `network_mode: host`, which Docker Desktop on a laptop doesn't provide by default and which would put coturn on 3478 rather than a test port; everything else is this file.
+
 | Variable | Meaning |
 |---|---|
 | `K_PUBLIC_ORIGIN` | The app's origin; the signalling channel's WebSocket checks it. |

@@ -86,7 +86,9 @@ The browser's push service (Google's for Chrome, Mozilla's for Firefox, Apple's 
 - presence leases live in the `k_presence` table, renewed by their replica every 10 seconds; a crashed replica's members leave 30 seconds later;
 - sessions are in the database, so a cookie issued by one replica works on the other.
 
-`docker compose restart app1` shows the rest: the tabs on `app1` show **Reconnecting…**, reconnect through nginx to `app2` and restart their channels there with a new snapshot. `crates/k_cli/tests/examples.rs` runs two replicas of `dist/app` against one Postgres and checks that a message and presence cross between them.
+`docker compose restart app1` shows the rest: the tabs on `app1` show **Reconnecting…**, reconnect through nginx to `app2` and restart their channels there with a new snapshot. `crates/k_cli/tests/examples.rs` runs two replicas of `dist/app` against one Postgres and checks that a message and presence cross between them, and `K_COMPOSE=1 cargo test -p k_cli --test it -- compose::huddle` runs this compose file itself: two people signed in through nginx, on different replicas, see each other's message ([testing.md §8.6](../../docs/compiler/testing.md#86-compose-smoke-tests)).
+
+The first run of that test found the two replicas racing at startup: both created the runtime's own tables (sessions, jobs, presence) at once, and one stopped with `unique violation on pg_type` and was restarted by Compose. `dist/app` now creates those tables under the same Postgres advisory lock as the migrations ([38-deployment.md](../../docs/design/38-deployment.md#commands)), so both replicas start once.
 
 ## Structure
 

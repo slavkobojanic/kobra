@@ -48,14 +48,14 @@ impl Drop for TempDir {
 }
 
 /// A response: status, headers (names lower case) and body.
-struct Response {
-    status: u16,
-    headers: Vec<(String, String)>,
-    body: String,
+pub(crate) struct Response {
+    pub(crate) status: u16,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: String,
 }
 
 impl Response {
-    fn header(&self, name: &str) -> Option<&str> {
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(n, _)| n == name)
@@ -64,7 +64,7 @@ impl Response {
 }
 
 /// One HTTP/1.1 exchange with `Connection: close`.
-fn http(
+pub(crate) fn http(
     port: u16,
     method: &str,
     path: &str,
@@ -566,7 +566,11 @@ fn port_in_range() -> u16 {
 
 /// A raw channels socket (`/_k/channels`) to `port`, presenting `origin`
 /// and the session `cookie`.
-fn channels_socket(port: u16, origin: &str, cookie: &str) -> tungstenite::WebSocket<TcpStream> {
+pub(crate) fn channels_socket(
+    port: u16,
+    origin: &str,
+    cookie: &str,
+) -> tungstenite::WebSocket<TcpStream> {
     use tungstenite::client::IntoClientRequest;
     let stream = TcpStream::connect(("127.0.0.1", port)).expect("connects");
     stream
@@ -589,7 +593,7 @@ fn channels_socket(port: u16, origin: &str, cookie: &str) -> tungstenite::WebSoc
 
 /// Reads frames from `ws`, skipping heartbeats, until one satisfies
 /// `want`, which it returns.
-fn frame_until(
+pub(crate) fn frame_until(
     ws: &mut tungstenite::WebSocket<TcpStream>,
     what: &str,
     want: impl Fn(&serde_json::Value) -> bool,

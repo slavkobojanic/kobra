@@ -200,6 +200,10 @@ in as `admin@shop.example` with the password `init-secrets.sh` printed (it is al
 `scripts/e2e.sh` does all of this with secrets generated for the run, then checks the storefront and SEO,
 a declined card, a paid order confirmed by paybox's event, exactly one confirmation email in Mailpit,
 the admin guard, a session shared by the replicas and the sign-in rate limit, and tears the stack down.
+`K_COMPOSE=1 cargo test -p k_cli --test it -- compose::shop` runs the same stack from the compiler's test
+suite on test ports, with secrets from `init-secrets.sh` in a scratch directory: an order paid through
+paybox and emailed to Mailpit, and, with Chrome, a mug added to the cart and bought
+([testing.md §8.6](../../docs/compiler/testing.md#86-compose-smoke-tests)).
 
 ### Kubernetes
 

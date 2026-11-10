@@ -363,17 +363,48 @@ impl ProcessDatabase {
         handle.spawn(async move {
             let result = async {
                 let db = Database::connect(&url, &DatabaseOptions { password }).await?;
-                let applied = if migrate {
-                    k_db::migrate::apply(&db, &migrations).await?
-                } else {
-                    Vec::new()
-                };
-                // The stdlib's own tables (jobs, sessions, rate limits),
-                // idempotently and outside `k_migrations` (db.md §12).
-                for statement in k_db::stdlib::tables() {
-                    db.execute(statement, &[]).await?;
+                // On Postgres, replicas starting together take turns under
+                // the migrators' advisory lock for the stdlib's tables too:
+                // two concurrent `CREATE TABLE IF NOT EXISTS` of one table
+                // race, and the loser fails on `pg_type`'s unique index
+                // (found by the examples' Compose smoke tests). The lock is
+                // reentrant, so `apply` takes it again inside.
+                let lock = db.dialect() == Dialect::Postgres;
+                if lock {
+                    db.execute(
+                        &format!(
+                            "SELECT pg_advisory_lock({})",
+                            k_db::migrate::ADVISORY_LOCK_KEY
+                        ),
+                        &[],
+                    )
+                    .await?;
                 }
-                Ok::<_, DbError>((db, applied))
+                let prepared = async {
+                    let applied = if migrate {
+                        k_db::migrate::apply(&db, &migrations).await?
+                    } else {
+                        Vec::new()
+                    };
+                    // The stdlib's own tables (jobs, sessions, rate limits),
+                    // idempotently and outside `k_migrations` (db.md §12).
+                    for statement in k_db::stdlib::tables() {
+                        db.execute(statement, &[]).await?;
+                    }
+                    Ok::<_, DbError>(applied)
+                }
+                .await;
+                if lock {
+                    db.execute(
+                        &format!(
+                            "SELECT pg_advisory_unlock({})",
+                            k_db::migrate::ADVISORY_LOCK_KEY
+                        ),
+                        &[],
+                    )
+                    .await?;
+                }
+                Ok::<_, DbError>((db, prepared?))
             }
             .await;
             let _ = done_tx.send(result);
