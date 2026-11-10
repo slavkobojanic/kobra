@@ -30,13 +30,17 @@ fn compile(project: &Path, options: &Options, command: &str) -> Result<Output, E
 /// program implies; a lock that doesn't change is left out.
 type Locks = Vec<(&'static str, String)>;
 
-/// The locks `k build` writes for `analysis`: `rpc.lock`
-/// (`k_sema::Analysis::rpc_lock`), `schema.lock` and `routes.lock`
+/// The locks `k build` writes for `analysis`: `rpc.lock` and
+/// `storage.lock` (`k_sema::Analysis::rpc_lock`,
+/// `k_sema::Analysis::storage_lock`), `schema.lock` and `routes.lock`
 /// (`k_codegen::schema_lock`, `k_codegen::routes_lock`).
 fn locks(analysis: &k_sema::Analysis) -> Locks {
     let mut out = Vec::new();
     if let Ok(Some(rpc)) = analysis.rpc_lock() {
         out.push(("rpc.lock", rpc));
+    }
+    if let Ok(Some(storage)) = analysis.storage_lock() {
+        out.push(("storage.lock", storage));
     }
     if let Ok(Some(schema)) = k_codegen::schema_lock(analysis) {
         out.push(("schema.lock", schema));
@@ -107,7 +111,8 @@ fn compile_member(
 
 /// Writes each of `locks` to `dir` when it differs from what is there
 /// (`docs/design/13-tooling.md`, "Lockfiles"): `k build` records the shape
-/// of every protocol the app serves (`rpc.lock`), the schema its migrations
+/// of every protocol the app serves (`rpc.lock`), its stored formats
+/// (`storage.lock`: storage keys, collections and jobs), the schema its migrations
 /// produce (`schema.lock`) and its URLs and redirects (`routes.lock`), after
 /// `k check` accepted the change. `k check` only reads them.
 ///

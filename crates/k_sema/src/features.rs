@@ -214,11 +214,6 @@ pub const FEATURES: &[Feature] = &[
         "18-packages.md",
     ),
     planned(
-        "storage-lock-writing",
-        "Writing `storage.lock` (its entries are compared once recorded)",
-        "36-local-storage.md",
-    ),
-    planned(
         "stream-tab-sharing",
         "One connection for identical streams opened in several tabs",
         "29-server-streaming.md",

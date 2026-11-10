@@ -681,6 +681,32 @@ impl Analysis {
         Ok(self.sema()?.rpc_lock.clone())
     }
 
+    /// Returns the text of `storage.lock` as the program implies it
+    /// (`docs/design/52-indexed-collections.md`, "`storage.lock`"): the
+    /// namespace and the app's storage keys, collections and jobs with the
+    /// shapes they hold. `k build` writes it; `None` for a library, for an
+    /// app with nothing to record and no lock, for an unreadable lock, and
+    /// when the lock already says exactly this.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
+    pub fn storage_lock(&self) -> Result<Option<String>, Cancelled> {
+        Ok(self.sema()?.storage_lock.clone())
+    }
+
+    /// The program's indexed collections, sorted by name, with their key
+    /// field and indexes (`docs/design/52-indexed-collections.md`): what the
+    /// browser's database is upgraded to. Collections only test code
+    /// declares are included, marked `test`.
+    ///
+    /// # Errors
+    ///
+    /// [`Cancelled`] if the inputs changed.
+    pub fn collections(&self) -> Result<Arc<Vec<crate::collections::CollectionSchema>>, Cancelled> {
+        Ok(Arc::clone(&self.sema()?.collections))
+    }
+
     /// The revision's reverse index, built on first use.
     ///
     /// # Errors

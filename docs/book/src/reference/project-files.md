@@ -70,9 +70,9 @@ field keeps its table or column, a renamed page's old URL gets a redirect, a ren
 changed wire name fails the check.
 
 **Who writes them.** `k check` only reads lockfiles, so CI catches a lock nobody rebuilt. `k build` writes
-`rpc.lock`, `routes.lock` and `schema.lock` when they differ from what the program implies; `k migrate
-new` and `k migrate rename` write `schema.lock` with their change. `storage.lock` is compared once it
-records a key or a job, but the toolchain doesn't write it yet (**Planned** storage-lock-writing).
+`rpc.lock`, `storage.lock`, `routes.lock` and `schema.lock` when they differ from what the program
+implies; `k migrate new` and `k migrate rename` write `schema.lock` with their change. An app with no
+storage key, collection or job, and no `storage.lock`, gets none.
 
 ### `rpc.lock`
 

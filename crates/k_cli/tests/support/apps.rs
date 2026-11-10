@@ -110,8 +110,9 @@ impl StaticSite {
         StaticSite::serve(&dist)
     }
 
-    /// Serves `dist/public`.
-    fn serve(dist: &Path) -> StaticSite {
+    /// Serves `dist/public`, read from disk on every request, so a
+    /// rebuild into the same `dist` is served at once.
+    pub fn serve(dist: &Path) -> StaticSite {
         let host = StaticHost::serve(listener(), &dist.join("public"));
         let origin = format!("http://localhost:{}", host.addr.port());
         StaticSite {

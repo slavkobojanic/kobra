@@ -47,6 +47,11 @@ pub(crate) struct SemaResult {
     /// The `rpc.lock` the program implies ([`crate::rpclock`]); `None` for
     /// a project that serves no protocol and has no lock.
     pub(crate) rpc_lock: Option<String>,
+    /// The `storage.lock` the program implies ([`crate::locks`]); `None`
+    /// when it would be unchanged or there is nothing to record.
+    pub(crate) storage_lock: Option<String>,
+    /// The program's indexed collections ([`crate::collections`]).
+    pub(crate) collections: Arc<Vec<crate::collections::CollectionSchema>>,
 }
 
 /// Runs the semantic pass over `inputs` and the project's `lockfiles`.
@@ -166,7 +171,7 @@ pub(crate) fn analyze(
     crate::app::check(&cx);
     crate::di::check(&cx);
     crate::di::remote_services(&cx);
-    crate::locks::check(&cx);
+    let storage = crate::locks::check(&cx);
     crate::activation::check(&cx);
     crate::channels::opened_during_ssr(&cx);
     // The `rpc.lock` check reads no body: replayed while its inputs are
@@ -226,6 +231,8 @@ pub(crate) fn analyze(
         }),
         view: Arc::clone(&view),
         rpc_lock: rpc_lock.value.clone(),
+        storage_lock: storage.lock,
+        collections: Arc::new(storage.collections),
     });
     // Every signature is resolved by now (`resolve_signatures`), so the
     // view records no type or resolution the delivered result would lack.

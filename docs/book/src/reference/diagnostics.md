@@ -3078,6 +3078,312 @@ error[K2409]: the data channel kinds `al` and `el` would share the channel id 24
 
 **Fix:** Rename one of the two data channel kinds: their names hash to the same channel id, and almost any other name gives another one.
 
+### K2410 `duplicate-collection`
+
+**Error.** Two collections of the app have the same name, or two indexes the same collection and field, so they would share one IndexedDB store or index.
+
+Example (`tests/corpus/sema/app/collections/duplicate-names/`):
+
+```k,ignore
+// src/notes/Draft.k
+import k.crypto.Uuid
+
+/// A draft kept in the browser.
+public struct Draft implements Codable {
+    let id: Uuid
+    let noteId: Uuid?
+    let title: String
+    let savedAt: Date
+    let words: Int
+    let mood: Mood
+}
+```
+
+```k,ignore
+// src/notes/Drafts.k
+// Two collections named `drafts` would share one IndexedDB store, and two
+// indexes on one field one index: K2410 at the later literal, with a label
+// at the earlier one. Test code may redeclare both.
+import k.crypto.Uuid
+import k.storage.Collection
+import k.storage.CollectionIndex
+
+let drafts: Collection<Uuid, Draft> = Collection(name: "drafts", key: "id")
+let bySavedAt: CollectionIndex<Date, Draft> = CollectionIndex(collection: "drafts", field: "savedAt")
+
+/// Another service with the same names.
+service Archive {
+    private let archived: Collection<Uuid, Draft> = Collection(name: "drafts", key: "id")
+    private let byTime: CollectionIndex<Date, Draft> = CollectionIndex(collection: "drafts", field: "savedAt")
+}
+```
+
+```k,ignore
+// src/notes/Drafts.test.k
+import k.crypto.Uuid
+import k.storage.Collection
+import k.storage.CollectionIndex
+
+let stored: Collection<Uuid, Draft> = Collection(name: "drafts", key: "id")
+let storedByTime: CollectionIndex<Date, Draft> = CollectionIndex(collection: "drafts", field: "savedAt")
+
+test Drafts {
+    test "a test may name an existing collection" {
+        expect stored.name == "drafts"
+    }
+}
+```
+
+```k,ignore
+// src/notes/Mood.k
+/// How the draft feels.
+public enum Mood implements Codable {
+    case calm
+    case busy
+}
+```
+
+```text
+error[K2410]: another collection is named `drafts`; the two would share one IndexedDB store
+  --> src/notes/Drafts.k:13:70
+   |
+ 8 | let drafts: Collection<Uuid, Draft> = Collection(name: "drafts", key: "id")
+   |                                                        -------- the collection named `drafts` is declared here
+13 |     private let archived: Collection<Uuid, Draft> = Collection(name: "drafts", key: "id")
+   |                                                                      ^^^^^^^^
+
+error[K2410]: another index of `drafts` is on the field `savedAt`; an index's name is its field, so there is one per field
+  --> src/notes/Drafts.k:14:84
+   |
+ 9 | let bySavedAt: CollectionIndex<Date, Draft> = CollectionIndex(collection: "drafts", field: "savedAt")
+   |                                                                           -------- that index is declared here
+14 |     private let byTime: CollectionIndex<Date, Draft> = CollectionIndex(collection: "drafts", field: "savedAt")
+   |                                                                                    ^^^^^^^^
+```
+
+**Fix:** Give each collection its own name, and declare one index per field; a test may redeclare them to inspect what a service stored.
+
+### K2411 `invalid-collection-field`
+
+**Error.** A collection's `key:` or an index's `field:` must name, as a string literal, a stored field of the value type whose type is the declared key or field type: `String`, `Int`, `Uuid`, `Date` or an enum without payloads.
+
+Example (`tests/corpus/sema/app/collections/invalid-fields/`):
+
+```k,ignore
+// src/notes/Draft.k
+import k.crypto.Uuid
+
+/// A draft kept in the browser.
+public struct Draft implements Codable {
+    let id: Uuid
+    let noteId: Uuid?
+    let title: String
+    let savedAt: Date
+    let words: Int
+    let mood: Mood
+}
+```
+
+```k,ignore
+// src/notes/Drafts.k
+// A key or indexed field must be a stored field of the value type, a
+// struct, with the declared type and a key type (52-indexed-collections.md,
+// "Declarations"); the field's name is a string literal, and a collection
+// is declared as a constant or a field: K2411 each.
+import k.crypto.Uuid
+import k.storage.Collection
+import k.storage.CollectionIndex
+
+let keyName: String = "id"
+
+let missing: Collection<Uuid, Draft> = Collection(name: "a", key: "uuid")
+let optionalKey: Collection<String, Tagged> = Collection(name: "b", key: "label")
+let wrongType: Collection<Int, Draft> = Collection(name: "c", key: "id")
+let structKey: Collection<NoteId, Tagged> = Collection(name: "d", key: "note")
+let computed: Collection<Uuid, Draft> = Collection(name: "e", key: keyName)
+let notStruct: Collection<String, String> = Collection(name: "f", key: "count")
+let tagged: Collection<Uuid, Tagged> = Collection(name: "tagged", key: "id")
+let byDone: CollectionIndex<Bool, Tagged> = CollectionIndex(collection: "tagged", field: "done")
+let byTags: CollectionIndex<List<String>, Tagged> = CollectionIndex(collection: "tagged", field: "tags")
+let byLabel: CollectionIndex<Int, Tagged> = CollectionIndex(collection: "tagged", field: "label")
+
+/// Makes a collection inline.
+func inline() -> String {
+    let local: Collection<Uuid, Draft> = Collection(name: "g", key: "id")
+    return local.name
+}
+
+let storeName: String = "h"
+let computedName: Collection<Uuid, Draft> = Collection(name: storeName, key: "id")
+```
+
+```k,ignore
+// src/notes/Mood.k
+/// How the draft feels.
+public enum Mood implements Codable {
+    case calm
+    case busy
+}
+```
+
+```k,ignore
+// src/notes/NoteId.k
+import k.crypto.Uuid
+
+/// A note's id.
+public struct NoteId implements Codable, Equatable {
+    let value: Uuid
+}
+```
+
+```k,ignore
+// src/notes/Tagged.k
+import k.crypto.Uuid
+
+/// A value with fields IndexedDB can't key by.
+public struct Tagged implements Codable {
+    let id: Uuid
+    let note: NoteId
+    let done: Bool
+    let tags: List<String>
+    let label: String?
+}
+```
+
+```text
+error[K2411]: `notes.Draft` has no stored field named `uuid`
+  --> src/notes/Drafts.k:11:67
+   |
+11 | let missing: Collection<Uuid, Draft> = Collection(name: "a", key: "uuid")
+   |                                                                   ^^^^^^
+
+error[K2411]: the key field `label` is `String?`: every value needs a key, so the key field can't be optional
+  --> src/notes/Drafts.k:12:74
+   |
+12 | let optionalKey: Collection<String, Tagged> = Collection(name: "b", key: "label")
+   |                                                                          ^^^^^^^
+
+error[K2411]: the field `id` is `k.crypto.Uuid`, but the key type is `Int`
+  --> src/notes/Drafts.k:13:68
+   |
+13 | let wrongType: Collection<Int, Draft> = Collection(name: "c", key: "id")
+   |                                                                    ^^^^
+
+error[K2411]: the field `note` is `notes.NoteId`, which IndexedDB can't use as a key; a key is `String`, `Int`, `Uuid`, `Date` or an enum without payloads
+  --> src/notes/Drafts.k:14:72
+   |
+14 | let structKey: Collection<NoteId, Tagged> = Collection(name: "d", key: "note")
+   |                                                                        ^^^^^^
+
+error[K2411]: `key:` takes the name of a field as a string literal: the key is part of the stored format
+  --> src/notes/Drafts.k:15:68
+   |
+15 | let computed: Collection<Uuid, Draft> = Collection(name: "e", key: keyName)
+   |                                                                    ^^^^^^^
+
+error[K2411]: the field `count` is `Int`, but the key type is `String`
+  --> src/notes/Drafts.k:16:72
+   |
+16 | let notStruct: Collection<String, String> = Collection(name: "f", key: "count")
+   |                                                                        ^^^^^^^
+
+error[K2411]: the field `done` is `Bool`, which IndexedDB can't use as a key; an indexed field is `String`, `Int`, `Uuid`, `Date` or an enum without payloads
+  --> src/notes/Drafts.k:18:90
+   |
+18 | let byDone: CollectionIndex<Bool, Tagged> = CollectionIndex(collection: "tagged", field: "done")
+   |                                                                                          ^^^^^^
+
+error[K2411]: the field `tags` is `List<String>`, which IndexedDB can't use as a key; an indexed field is `String`, `Int`, `Uuid`, `Date` or an enum without payloads
+  --> src/notes/Drafts.k:19:98
+   |
+19 | let byTags: CollectionIndex<List<String>, Tagged> = CollectionIndex(collection: "tagged", field: "tags")
+   |                                                                                                  ^^^^^^
+
+error[K2411]: the field `label` is `String?`, but the indexed field type is `Int`
+  --> src/notes/Drafts.k:20:90
+   |
+20 | let byLabel: CollectionIndex<Int, Tagged> = CollectionIndex(collection: "tagged", field: "label")
+   |                                                                                          ^^^^^^^
+
+error[K2411]: a `Collection` is declared as a constant or a field, where the compiler finds it to set up the browser's database and record it in storage.lock
+  --> src/notes/Drafts.k:24:42
+   |
+24 |     let local: Collection<Uuid, Draft> = Collection(name: "g", key: "id")
+   |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+```
+
+**Fix:** Name, as a string literal, a stored field of the value struct whose type is the declared key or field type (`String`, `Int`, `Uuid`, `Date` or a payload-free enum), and declare the collection or index as a constant or a field.
+
+### K2412 `unknown-collection`
+
+**Error.** A `CollectionIndex` names a collection that no `Collection` of the same value type declares.
+
+Example (`tests/corpus/sema/app/collections/unknown-collection/`):
+
+```k,ignore
+// src/notes/Draft.k
+import k.crypto.Uuid
+
+/// A draft kept in the browser.
+public struct Draft implements Codable {
+    let id: Uuid
+    let noteId: Uuid?
+    let title: String
+    let savedAt: Date
+    let words: Int
+    let mood: Mood
+}
+```
+
+```k,ignore
+// src/notes/Drafts.k
+// An index names a declared collection of the same value type: K2412
+// otherwise, with a label at the collection when it holds another type.
+import k.crypto.Uuid
+import k.storage.Collection
+import k.storage.CollectionIndex
+
+let drafts: Collection<Uuid, Draft> = Collection(name: "drafts", key: "id")
+let typo: CollectionIndex<Date, Draft> = CollectionIndex(collection: "draft", field: "savedAt")
+let otherType: CollectionIndex<Date, Other> = CollectionIndex(collection: "drafts", field: "savedAt")
+```
+
+```k,ignore
+// src/notes/Mood.k
+/// How the draft feels.
+public enum Mood implements Codable {
+    case calm
+    case busy
+}
+```
+
+```k,ignore
+// src/notes/Other.k
+/// Not a draft.
+public struct Other implements Codable {
+    let id: Int
+    let savedAt: Date
+}
+```
+
+```text
+error[K2412]: no `Collection` is named `draft`
+ --> src/notes/Drafts.k:8:70
+  |
+8 | let typo: CollectionIndex<Date, Draft> = CollectionIndex(collection: "draft", field: "savedAt")
+  |                                                                      ^^^^^^^
+
+error[K2412]: the collection `drafts` holds `notes.Draft`, not `notes.Other`
+ --> src/notes/Drafts.k:9:75
+  |
+7 | let drafts: Collection<Uuid, Draft> = Collection(name: "drafts", key: "id")
+  |                                                        -------- the collection `drafts` is declared here
+9 | let otherType: CollectionIndex<Date, Other> = CollectionIndex(collection: "drafts", field: "savedAt")
+  |                                                                           ^^^^^^^^
+```
+
+**Fix:** Name a collection declared with the same value type, as its `Collection(name:)` spells it.
+
 ## K3000–K3999: Components, views, styles, themes, reactivity
 
 ### K3001 `annotation-mutability`
@@ -8916,6 +9222,52 @@ error[K8008]: the storage key `colorScheme` changed incompatibly with storage.lo
 ```
 
 **Fix:** Keep the key's name and value shape (add optional fields only), or mark the key `@Breaking("reason")` once its service handles `.unreadable`.
+
+### K8009 `incompatible-collection`
+
+**Error.** A collection changed incompatibly with `storage.lock`; the values users' browsers hold would no longer decode or be found.
+
+Example (`tests/corpus/sema/app/collections/lock-key-changed/`):
+
+```k,ignore
+// src/notes/OfflineEdits.k
+// A different key field is K8009 even with `@Breaking`: stored values keep
+// the key they were written with.
+import k.crypto.Uuid
+import k.storage.Collection
+
+/// Edits kept in the browser.
+public service OfflineEdits {
+    @Breaking("rekeyed")
+    private let edits: Collection<Uuid, UnsavedEdit> = Collection(name: "unsavedEdits", key: "editId")
+}
+```
+
+```k,ignore
+// src/notes/UnsavedEdit.k
+import k.crypto.Uuid
+
+/// An edit that couldn't be saved.
+public struct UnsavedEdit implements Codable {
+    let noteId: Uuid
+    let editId: Uuid
+    let title: String
+    let savedAt: Date
+}
+```
+
+```text
+error[K8009]: the collection `unsavedEdits` changed incompatibly with storage.lock; values users' browsers already hold would read as `.unreadable` or not be found
+ --> src/notes/OfflineEdits.k:9:17
+  |
+9 |     private let edits: Collection<Uuid, UnsavedEdit> = Collection(name: "unsavedEdits", key: "editId")
+  |                 ^^^^^
+  |
+  = note: the key field changed from `noteId` to `editId`: stored values keep the key they were written with
+  = note: a collection's key field can't change, even with `@Breaking`: declare a new collection under a new name (the old store is left in place)
+```
+
+**Fix:** Keep the collection's name and value shape (add optional fields and indexes only), or mark it `@Breaking("reason")` once its service handles `.unreadable`; for a new key field, declare a new collection under a new name.
 
 ### K8101 `invalid-manifest`
 

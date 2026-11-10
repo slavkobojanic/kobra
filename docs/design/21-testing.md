@@ -71,6 +71,7 @@ test AddToCart {
 | `Clock` (a stdlib service) | `TestClock` | virtual time starting at 2026-01-01T12:00:00Z (UTC) unless the test sets it, shared by the test's server and browser containers; `advance(by:)` fires due timers ([35-time.md](35-time.md#testing-with-testclock)) |
 | `JobQueue` | `RecordingJobQueue` | stores jobs without running them; `payloads(of: OrderConfirmationJob.kind)` ([30-background-jobs.md](30-background-jobs.md)) |
 | `LocalStorage` | `MemoryStorage` | an empty in-memory store that can simulate failures ([36-local-storage.md](36-local-storage.md)) |
+| `Collections` | `MemoryCollections` | empty in-memory collections, ordered and decoded as in the browser, that can simulate failures ([52-indexed-collections.md](52-indexed-collections.md#tests-memorycollections)) |
 | `EmailProvider` | `RecordingEmailProvider` | keeps sent messages in `sent`; `simulateFailure(error:)` ([31-email.md](31-email.md)) |
 | `WebPush` | `RecordingWebPush` | nothing is sent; `sent` records each `SentPush`; a fixed `serverKey`; `expire(_:)`, `simulateFailure(error:)`, `stopFailing()`, `setConfigured(_:)` ([50-push.md](50-push.md#tests)) |
 | `HttpClient` | `TestHttpClient` | answers only requests it has a canned response for; any other request fails the test, naming the URL ([32-http-client.md](32-http-client.md)) |

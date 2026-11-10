@@ -1,0 +1,11 @@
+# docs/design/52-indexed-collections.md, codegen.md §16: `BrowserCollections` is the collections
+# chunk's, bound with no `use` rule and given the app's storage namespace and the schema: each
+# collection's key, indexes and key-typed fields by their JSON keys and kinds (`@JsonKey` respected, a `Date` as `d`).
+# Only the page that reaches the service imports the chunk; the entry doesn't, and `Collection`
+# and `CollectionIndex` are plain values that never pull it in. The runtime chunk holds none of it.
+client contains // file: collections.[hash].js
+client contains export function BrowserCollections(
+client lacks import { BrowserCollections } from "./collections.[hash].js";
+client contains export const BrowserCollections$feature = $f_BrowserCollections;
+client contains BrowserCollections("drafts", { "drafts": ["id", "i", [["savedAt", "saved_at", "d"]], [["id", "id", "i"], ["savedAt", "saved_at", "d"]]] })
+client lacks $k.native("k.storage.

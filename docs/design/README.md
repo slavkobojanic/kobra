@@ -69,11 +69,13 @@ K borrows ideas, not syntax. Where another language does something well, K adapt
 | 49 | Documentation and the docs site | [49-documentation.md](49-documentation.md) |
 | 50 | Web Push | [50-push.md](50-push.md) |
 | 51 | Passkeys | [51-passkeys.md](51-passkeys.md) |
+| 52 | Indexed collections | [52-indexed-collections.md](52-indexed-collections.md) |
 
 ## Decisions still open
 
 No cross-cutting decision is open. The most recent ones:
 
+- **IndexedDB is typed collections:** `Collection<Key, Value>` and `CollectionIndex<Field, Value>` declared as constants or fields with string literals and checked against the value type (`K2410`–`K2412`), read and written through the client-only, async `Collections` with local storage's errors, one transaction per call. The compiler owns the database's layout and the browser upgrades it by only adding stores and indexes, so tabs of two builds share it. `k build` now writes `storage.lock`, which records each collection (`K8009`). `MemoryCollections` in `k test`; notes keeps edits that couldn't be saved. See [52-indexed-collections.md](52-indexed-collections.md).
 - **Web Push needs no account:** `PushSubscriptions` in the browser (`requestAccess()` is the notification prompt, `subscribe(serverKey:)` never prompts), `WebPush` on the server with a self-generated VAPID key in `K_PUSH_PRIVATE_KEY`, RFC 8291 encryption inside it, and `k-sw.js` showing each push as a `SystemNotification`. Huddle pushes new messages from a background job. See [50-push.md](50-push.md).
 - **Passkeys need no account either:** `Passkeys` in the browser (`register` and `signIn` are `@UserAction`, so options are fetched before the click), `PasskeyVerifier` on the server (ES256, EdDSA and RS256, attestation `"none"`, user verification required, the counter checked, CBOR and signatures in Rust), challenges single-use in the session row, credentials in the app's own entity, and `TestAuthenticator` in `k test` signing real assertions. Notes signs up and in with a passkey. See [51-passkeys.md](51-passkeys.md).
 - **A component can render in the browser only:** `@Rendering(.client)` on a component makes the server render its `loading` block, and the browser swaps in `view` right after hydration, once the client-only services' `init()`s have run. Its subtree may read client-only services without `K4012`/`K4013`, and `K4013` now offers this fix first. See [47-client-rendered-components.md](47-client-rendered-components.md).
@@ -105,7 +107,7 @@ These were explicitly deferred and may be revisited:
 - A design-system component library ([20-standard-library.md](20-standard-library.md))
 - Interceptor syntax in `App.k`, and per-page rendering modes ([23-app-structure.md](23-app-structure.md))
 - OAuth providers ([26-auth-and-sessions.md](26-auth-and-sessions.md)); passkeys are designed in [51-passkeys.md](51-passkeys.md)
-- Typed IndexedDB collections, session storage and cookies in `k.storage` ([36-local-storage.md](36-local-storage.md))
+- Session storage and cookies in `k.storage` ([36-local-storage.md](36-local-storage.md)); IndexedDB collections are designed in [52-indexed-collections.md](52-indexed-collections.md)
 - Development-only seed data and online migrations ([19-persistence.md](19-persistence.md))
 
 Not yet covered in depth: animation API details, the internationalization workflow, security headers (content security policy, and CORS beyond RPC, which never grants it), and concurrency (workers). Request forgery is covered in [26-auth-and-sessions.md](26-auth-and-sessions.md#request-forgery).

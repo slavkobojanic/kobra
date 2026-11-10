@@ -1,0 +1,4 @@
+error[K2410] src/notes/Drafts.k:13:70-13:78: another collection is named `drafts`; the two would share one IndexedDB store
+  label 8:56-8:64: the collection named `drafts` is declared here
+error[K2410] src/notes/Drafts.k:14:84-14:92: another index of `drafts` is on the field `savedAt`; an index's name is its field, so there is one per field
+  label 9:75-9:83: that index is declared here

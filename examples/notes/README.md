@@ -23,6 +23,7 @@ It is a teaching example. Every file is meant to show one part of the language t
 | Structs (wire types, form values, a typed id), enums with associated data, an `interface` with a default method | `src/notes/NoteSummary.k`, `src/notes/NoteChange.k`, `src/search/Searchable.k` |
 | Typed, checked errors and exhaustive `catch`, including the `rpcFailure(RpcFailure)` case every rpc has, for refused, invalid and offline calls, and `RpcOnlyError` for rpcs with no errors of their own | `src/notes/SaveError.k`, `src/notes/NotesProtocol.k`, `src/notes/EditNote.k`, `src/notes/Notes.k`, `src/notes/NotesService.k` |
 | An offline banner from the reactive `Connectivity` service, tested with `TestConnectivity.goOffline()`, which also fails the test's rpcs | `src/shell/OfflineBanner.k`, `src/shell/OfflineBanner.test.k`, `src/notes/NewNote.test.k` |
+| **Edits kept offline** in typed IndexedDB: a `Collection` keyed by the note, a `CollectionIndex` on `savedAt` for the newest first, both recorded in [`storage.lock`](storage.lock), `@Rendering(.client)` components that offer and list them, and `MemoryCollections` in tests | `src/notes/OfflineEdits.k`, `src/notes/UnsavedEdit.k`, `src/notes/UnsavedEditNotice.k`, `src/notes/UnsavedEditsList.k`, `src/notes/OfflineEdits.test.k`, `src/notes/EditNote.test.k` |
 | The injected `Clock` for timestamps and relative times, and `TestClock` in tests | `src/notes/NotesApi.k`, `src/accounts/AuthApi.k`, `src/notes/NoteCard.k`, `src/notes/NoteCard.test.k` |
 | `@Emits` events, function-typed props, typed scoped styles, theme tokens, ARIA attributes, `VisuallyHidden` | `src/notes/NoteCard.k`, `src/notes/NoteEditor.k`, `src/shell/NotesTheme.k` |
 | An end-to-end encrypted **private vault**: a note's text sealed in the browser with `AesGcmKey`, the vault key wrapped with a passphrase-derived key on the server and kept in the browser's `KeyStore`, ciphertexts bound to their note | `src/vault/VaultService.k`, `src/vault/VaultApi.k`, `src/vault/PrivateTextEditor.k`, `src/vault/VaultService.test.k`, `migrations/0003_add_the_private_vault.k` |
@@ -58,6 +59,10 @@ Signing in calls the server-only `SessionManager.signIn(userId:)` with the accou
 ### Passkeys
 
 The sign-up page's **Sign up with a passkey** and the sign-in page's **Sign in with a passkey** use the device's passkeys ([docs/design/51-passkeys.md](../../docs/design/51-passkeys.md)). The device's sheet may only open from a click, so `PasskeySignUp` and `PasskeySignIn` fetch the server's options (with a challenge bound to this browser's session, good once and for ten minutes) from an effect as the page opens, and `PasskeyService` runs the ceremony first thing in the click. `AuthApi` verifies with `PasskeyVerifier` (the origin, user verification, the signature and the counter), then creates the account and its `Passkey` row in one transaction, or finds the passkey by its credential id, writes back its counter, and calls `SessionManager.signIn(userId:)` as after a password check. An account made with a passkey has `Password.unusableHash` as its password hash, so no password signs it in. Every refusal reaches the browser as `passkeyNotAccepted`, whichever check failed. `k dev` serves `http://localhost:8080`, where browsers allow passkeys without HTTPS.
+
+### Edits kept offline
+
+When a save fails because the device is offline, `EditNote` keeps the person's draft in this browser's IndexedDB through `OfflineEdits` ([docs/design/52-indexed-collections.md](../../docs/design/52-indexed-collections.md)): a `Collection<Uuid, UnsavedEdit>` keyed by the note, so a newer failed save replaces the older one. Reopening the note, even after closing the browser, shows `UnsavedEditNotice` with **Save that edit** and **Discard it**, and the notes list shows the newest unsaved edits through the `savedAt` index (`UnsavedEditsList`). Both components are `@Rendering(.client)`, since the edits exist only in the browser. A successful save discards the kept edit. The collection's name, key, index and the shape of `UnsavedEdit` are in `storage.lock`, which `k build` writes, so `k check` refuses a change that would make kept edits unreadable. Local storage would have done for one small value; these are many, up to 20,000 characters each, and looked up by note and listed by time.
 
 ### The migration
 
@@ -114,6 +119,10 @@ src/
     Notes.k                page at "/": the live, filterable list
     NewNote.k              page
     EditNote.k             page: @Param, @Load, loading and failed, conflicts
+    OfflineEdits.k         client service: edits kept in IndexedDB while offline
+    UnsavedEdit.k          struct: a kept edit, keyed by its note
+    UnsavedEditNotice.k, UnsavedEditsList.k
+                           components (@Rendering(.client)): offer a kept edit, list the newest
   search/                module search
     Searchable.k           interface with a default method
   shell/                 module shell: what surrounds every page
@@ -167,7 +176,7 @@ Try it with two tabs: sign up, open the list in both, and create, pin or delete 
 
 Integration tests use no fakes. They inject the client services and run through the protocols in-process, through the real wire format, to the real server implementations and SQLite. To act as a user without creating an account, they inject `SessionManager` and call `sessions.signIn(userId: AccountId.ada)`, with the fixture ids from `src/testing/Samples.k`. Time comes from `TestClock`, the default for `Clock` in every `k test`, so timestamps and orderings are exact; tests reach it with `@Inject let clock: TestClock` and need no `use` line. The server's `clock.now` and the test's share one virtual time, and test helpers that build notes take `updatedAt: clock.now`, because a plain function can't read the clock.
 
-Calls in tests run in-process, so `.offline` and `.timeout` never happen there, and the pages' handling of them isn't covered by a test.
+Calls in tests run in-process, so `.timeout` never happens there; `.offline` does when a test calls `TestConnectivity.goOffline()`, which is how `EditNote.test.k` checks that an edit is kept and offered again. `MemoryCollections` stands in for IndexedDB.
 
 ## Design documents used
 
@@ -188,6 +197,7 @@ Calls in tests run in-process, so `.offline` and `.timeout` never happen there, 
 | [39-doc-comments.md](../../docs/design/39-doc-comments.md) | `///` documentation comments |
 | [21-testing.md](../../docs/design/21-testing.md) | screen queries, `settle()`, `currentPage`, hermetic defaults, test-file helpers, fixtures |
 | [45-web-platform.md](../../docs/design/45-web-platform.md) | `Connectivity` and the offline banner, `TestConnectivity` |
+| [52-indexed-collections.md](../../docs/design/52-indexed-collections.md) | `Collections`, `Collection`, `CollectionIndex`, `MemoryCollections`, the collection in `storage.lock` |
 | [35-time.md](../../docs/design/35-time.md) | the injected `Clock`, `formatted(as: .relative, from:)`, `TestClock` |
 | [05-views.md](../../docs/design/05-views.md) | `.pressed`, `.role`, `.label`, `VisuallyHidden` |
 | [14-async-data.md](../../docs/design/14-async-data.md), [22-metadata.md](../../docs/design/22-metadata.md) | `@Load`, `failed`, `reload()`, `status(.notFound)`, metadata when a load fails |

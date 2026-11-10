@@ -842,6 +842,7 @@ pub(crate) fn client_containers(
                     "k.device.PushSubscriptions" => "k.device.BrowserPushSubscriptions",
                     "k.auth.Passkeys" => "k.auth.BrowserPasskeys",
                     "k.crypto.KeyStore" => "k.crypto.BrowserKeyStore",
+                    "k.storage.Collections" => "k.storage.BrowserCollections",
                     _ => return None,
                 };
                 g.view.lookup(default)
@@ -920,6 +921,63 @@ fn test_default(g: &Gen<'_>, iface: DeclId) -> Option<DeclId> {
                 && info.has_annotation("TestDefault")
                 && g.implements(d, iface)
         })
+}
+
+/// The schema of the program's indexed collections, as
+/// `runtime/collections.js` reads it: `{name: [keyJson, keyKind,
+/// indexes, fields]}`, each index and each key-typed field of the value as
+/// `[field, json, kind]` (52-indexed-collections.md, "In the browser"). A test build's collections include those only test code
+/// declares.
+fn collections_schema(g: &Gen<'_>) -> Expr {
+    let tests = g.options.entry == crate::Entry::Tests;
+    let kind = |k: k_sema::collections::KeyKind| {
+        js::str(match k {
+            k_sema::collections::KeyKind::Text => "t",
+            k_sema::collections::KeyKind::Int => "i",
+            k_sema::collections::KeyKind::Date => "d",
+        })
+    };
+    let props = g
+        .analysis
+        .collections()
+        .map(|cs| {
+            cs.iter()
+                .filter(|c| tests || !c.test)
+                .map(|c| {
+                    let fields = |list: &[k_sema::collections::CollectionField]| {
+                        Expr::Array(
+                            list.iter()
+                                .map(|i| {
+                                    Expr::Array(vec![
+                                        js::str(&i.field),
+                                        js::str(&i.json),
+                                        kind(i.kind),
+                                    ])
+                                })
+                                .collect(),
+                        )
+                    };
+                    Prop::Quoted(
+                        c.name.clone(),
+                        Expr::Array(vec![
+                            js::str(&c.key.json),
+                            kind(c.key.kind),
+                            fields(&if tests {
+                                let mut all = c.indexes.clone();
+                                all.extend(c.test_indexes.iter().cloned());
+                                all.sort_by(|a, b| a.field.cmp(&b.field));
+                                all
+                            } else {
+                                c.indexes.clone()
+                            }),
+                            fields(&c.fields),
+                        ]),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Expr::Object(props, false)
 }
 
 /// References to the generated stdlib enums `names` (whose cases a
@@ -1030,6 +1088,19 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
             }
             None => rt("native", vec![js::str(qualified)]),
         },
+        // The collections chunk's (52-indexed-collections.md): its IndexedDB
+        // database is namespaced per app, and upgraded to the schema.
+        "k.storage.BrowserCollections" => match b.g.view.lookup(qualified) {
+            Some(d) => {
+                let name = b.g.name(d);
+                let schema = collections_schema(b.g);
+                call(
+                    b.use_decl(d, name),
+                    vec![js::str(b.g.storage_namespace()), schema],
+                )
+            }
+            None => rt("native", vec![js::str(qualified)]),
+        },
         // The environment chunk's (runtime.md §12.8): during hydration the
         // preferences the server rendered with (`k-data`'s `p`).
         "k.device.Preferences" => match b.g.view.lookup(qualified) {
@@ -1066,6 +1137,9 @@ fn platform_service(b: &mut Body<'_, '_>, qualified: &str) -> Expr {
         "k.test.TestAuthenticator" => crate::suite::kit_call("testAuthenticator", vec![]),
         "k.test.TestWakeLock" => crate::suite::kit_call("testWakeLock", vec![]),
         "k.test.MemoryKeyStore" => crate::suite::kit_call("memoryKeyStore", vec![]),
+        "k.test.MemoryCollections" => {
+            crate::suite::kit_call("memoryCollections", vec![collections_schema(b.g)])
+        }
         "k.test.TestPageVisibility" => crate::suite::kit_call("testPageVisibility", vec![]),
         "k.test.TestConnectivity" => crate::suite::kit_call("testConnectivity", vec![]),
         // The test's in-process channel socket and its other browsers

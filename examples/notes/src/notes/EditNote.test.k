@@ -1,10 +1,13 @@
 import accounts.AccountId
 import k.auth.SessionManager
 import k.crypto.Uuid
+import k.test.TestConnectivity
 
 test EditNote {
     @Inject let notes: NotesService
     @Inject let sessions: SessionManager
+    @Inject let connectivity: TestConnectivity
+    @Inject let offline: OfflineEdits
 
     test "saving stores the edit and confirms it" {
         await sessions.signIn(userId: AccountId.ada)
@@ -23,6 +26,49 @@ test EditNote {
         expect screen.status().text == "Saved."
         expect stored.title == "Plan B"
         expect stored.tags == ["work"]
+    }
+
+    test "offline, the edit is kept in this browser and offered again until it is saved" {
+        await sessions.signIn(userId: AccountId.ada)
+        let note = try await notes.create(draft: draft(title: "Plan"))
+        let screen = render(EditNote(id: note.id))
+        await screen.settle()
+
+        connectivity.goOffline()
+        screen.textField(labeled: "Title").fill("Plan B")
+        screen.button(named: "Save").click()
+        await screen.settle()
+
+        expect screen.alert().text == "Couldn't reach K Notes, so this edit wasn't saved. This browser keeps it until you save it; your text is still here."
+        expect (await offline.edit(of: note.id))?.title == "Plan B"
+
+        screen.unmount()
+        connectivity.goOnline()
+        let again = render(EditNote(id: note.id))
+        await again.settle()
+
+        expect again.text(containing: "“Plan B”").isVisible
+
+        again.button(named: "Save that edit").click()
+        await again.settle()
+
+        expect (try await notes.get(id: note.id)).title == "Plan B"
+        expect await offline.edit(of: note.id) == nil
+        expect not again.button(named: "Save that edit").exists
+    }
+
+    test "a kept edit can be discarded" {
+        await sessions.signIn(userId: AccountId.ada)
+        let note = try await notes.create(draft: draft(title: "Plan"))
+        await offline.keep(note: note.id, draft: draft(title: "Plan B"))
+        let screen = render(EditNote(id: note.id))
+        await screen.settle()
+
+        screen.button(named: "Discard it").click()
+        await screen.settle()
+
+        expect await offline.edit(of: note.id) == nil
+        expect (try await notes.get(id: note.id)).title == "Plan"
     }
 
     test "saving twice from the same tab is not a conflict" {

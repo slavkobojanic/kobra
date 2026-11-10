@@ -1504,6 +1504,100 @@ fn test_pushes_through_the_push_doubles() {
 }
 
 #[test]
+fn test_stores_and_queries_through_memory_collections() {
+    // `Collections` against `MemoryCollections`
+    // (docs/design/52-indexed-collections.md, "Tests"): keys and dates in
+    // IndexedDB's order, ranges, a replaced value, deletes, a value an
+    // older version stored, simulated failures, persistence, the estimate,
+    // and a collection and an index redeclared by test code.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/collections");
+    let out = k(&["test", "--color", "never"], &dir);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(0), "{text}\n{}", stderr(&out));
+    assert!(!text.contains("FAIL"), "{text}");
+    assert!(text.contains("17 passed; 0 failed"), "{text}");
+    for name in [
+        "PASS  Entries › dates order chronologically, also across milliseconds",
+        "PASS  Entries › a stored value that doesn't decode reads as unreadable",
+        "PASS  Entries › an index finds by its field, leaving out values whose field is nil",
+        "PASS  Home › writing an entry shows it and the count",
+    ] {
+        assert!(text.contains(name), "{name}\n{text}");
+    }
+    // `k test` writes no lockfile: the fixture has none committed.
+    assert!(!dir.join("storage.lock").exists());
+}
+
+#[test]
+fn build_records_collections_in_storage_lock_and_check_holds_to_it() {
+    // `k build` writes `storage.lock` (docs/design/52-indexed-collections.md,
+    // "`storage.lock`"), leaves it alone when nothing changes, adds a new
+    // index, and `k check` then refuses a change of the key field (K8009).
+    let dir = TempDir::new("storage_lock");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/collections");
+    for file in [
+        "k.toml",
+        "App.k",
+        "src/notebook/Entry.k",
+        "src/notebook/Entries.k",
+        "src/notebook/Topics.k",
+        "src/notebook/Home.k",
+    ] {
+        write(
+            &dir.0,
+            file,
+            &fs::read_to_string(fixture.join(file)).unwrap(),
+        );
+    }
+    let build = |dir: &Path| {
+        let out = k(&["build", "--out", "dist"], dir);
+        assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+        stderr(&out)
+    };
+    assert!(build(&dir.0).contains("wrote storage.lock"));
+    let lock = fs::read_to_string(dir.0.join("storage.lock")).unwrap();
+    assert!(lock.contains("namespace = \"notebook\"\n"), "{lock}");
+    assert!(
+        lock.contains("[collections.entries]\ndeclaration = \"notebook.Entries.entries\"\nkey = \"id\"\ntype = \"notebook.Entry\"\nindexes = [\"writtenAt\"]\n"),
+        "{lock}"
+    );
+    assert!(
+        lock.contains("{ name = \"topic\", type = \"String?\" },"),
+        "{lock}"
+    );
+    assert!(
+        !build(&dir.0).contains("wrote storage.lock"),
+        "an unchanged lock isn't rewritten"
+    );
+    write(
+        &dir.0,
+        "src/notebook/Topics.k",
+        &fs::read_to_string(fixture.join("src/notebook/Topics.k.v2")).unwrap(),
+    );
+    assert!(build(&dir.0).contains("wrote storage.lock"));
+    let lock = fs::read_to_string(dir.0.join("storage.lock")).unwrap();
+    assert!(
+        lock.contains("indexes = [\"topic\", \"writtenAt\"]\n"),
+        "{lock}"
+    );
+    let entries = fs::read_to_string(dir.0.join("src/notebook/Entries.k")).unwrap();
+    write(
+        &dir.0,
+        "src/notebook/Entries.k",
+        &entries
+            .replace("key: \"id\")", "key: \"text\")")
+            .replace("Collection<Int, Entry>", "Collection<String, Entry>"),
+    );
+    let check = k(&["check", "--color", "never"], &dir.0);
+    assert_eq!(check.status.code(), Some(1), "{}", stderr(&check));
+    assert!(
+        stderr(&check).contains("error[K8009]"),
+        "{}",
+        stderr(&check)
+    );
+}
+
+#[test]
 fn test_signs_up_and_in_with_the_test_authenticator() {
     // `Passkeys` against `TestAuthenticator` and the real `PasskeyVerifier`
     // (docs/design/51-passkeys.md, "Tests"): real CBOR and signatures for

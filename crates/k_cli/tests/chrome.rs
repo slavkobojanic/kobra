@@ -3084,3 +3084,162 @@ fn passkeys_refuse_a_page_on_another_origin_in_chrome() {
     tab.allow_errors();
     drop(tab);
 }
+
+// ============================================================ collections
+
+/// Builds the `collections` fixture copied to `<dir>/project` (with
+/// `Topics.k.v2` as `Topics.k` when `v2`) into `<dir>/dist`.
+fn build_notebook(dir: &Scratch, v2: bool) -> std::path::PathBuf {
+    let project = dir.0.join("project");
+    if !project.exists() {
+        copy_project(
+            &repo().join("crates/k_cli/tests/fixtures/collections"),
+            &project,
+        );
+    }
+    if v2 {
+        let topics = project.join("src/notebook");
+        std::fs::copy(topics.join("Topics.k.v2"), topics.join("Topics.k")).unwrap();
+    }
+    let dist = dir.0.join("dist");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_k"))
+        .arg("build")
+        .arg(&project)
+        .arg("--out")
+        .arg(&dist)
+        .output()
+        .expect("k build runs");
+    assert!(
+        out.status.success(),
+        "k build: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    dist
+}
+
+/// Writes `text` as an entry in the notebook and waits for the count.
+fn write_entry(tab: &mut Tab, text: &str, count: usize) {
+    let field = tab.role("textbox", "Entry");
+    tab.fill(&field, text);
+    let write = tab.role("button", "Write");
+    tab.wait_handles_click(&write);
+    tab.click(&write);
+    tab.wait_text(&format!("{count} entries"));
+}
+
+/// The version of the notebook's IndexedDB database, as the page sees it.
+fn notebook_version(tab: &mut Tab) -> Value {
+    tab.eval(
+        "new Promise((resolve) => { const r = indexedDB.open('k-collections:notebook'); r.onsuccess = () => { const v = r.result.version; r.result.close(); resolve(v); }; r.onerror = () => resolve(null); })",
+    )
+}
+
+/// Indexed collections in real Chrome (52-indexed-collections.md): the
+/// entries are in the app's own IndexedDB database and still there after
+/// a reload, newest first through the `writtenAt` index.
+#[test]
+fn collections_persist_across_a_reload_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("collections-reload");
+    let dist = build_notebook(&dir, false);
+    let site = StaticSite::serve(&dist);
+    let mut tab = tab!(dir);
+    tab.open(&format!("{}/", site.origin));
+    tab.wait_text("0 entries");
+    write_entry(&mut tab, "first", 1);
+    write_entry(&mut tab, "second", 2);
+    tab.reload();
+    tab.wait_text("2 entries");
+    let text = tab.visible_text();
+    let (second, first) = (text.find("second"), text.find("first"));
+    assert!(
+        second.is_some() && first.is_some() && second < first,
+        "newest first after the reload: {text}"
+    );
+    let names = tab.eval("indexedDB.databases().then((d) => d.map((x) => x.name))");
+    assert_eq!(
+        names,
+        json!(["k-collections:notebook"]),
+        "one database, namespaced"
+    );
+    assert_eq!(notebook_version(&mut tab), json!(1));
+}
+
+/// A build that adds an index upgrades the database the previous build
+/// left (52-indexed-collections.md, "Versions and upgrades"): the new
+/// `topic` index finds the entries stored before it existed, at the next
+/// version.
+#[test]
+fn collections_upgrade_adds_an_index_over_stored_values_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("collections-upgrade");
+    let dist = build_notebook(&dir, false);
+    let site = StaticSite::serve(&dist);
+    let mut tab = tab!(dir);
+    tab.open(&format!("{}/", site.origin));
+    tab.wait_text("0 entries");
+    write_entry(&mut tab, "#tagged one", 1);
+    write_entry(&mut tab, "plain", 2);
+    assert!(tab.has_no_role("button", "Find tagged"));
+    build_notebook(&dir, true);
+    tab.reload();
+    tab.wait_text("2 entries");
+    let find = tab.role("button", "Find tagged");
+    tab.wait_handles_click(&find);
+    tab.click(&find);
+    tab.wait_text("Found: #tagged one");
+    assert_eq!(notebook_version(&mut tab), json!(2), "one upgrade");
+}
+
+/// Two tabs of two builds on one database: the newer tab's upgrade isn't
+/// blocked by the older tab, which closes its connection when asked and
+/// reopens it on its next call without upgrading again, so both keep
+/// reading and writing the same entries.
+#[test]
+fn collections_share_one_database_across_two_builds_in_two_tabs_in_chrome() {
+    if !have_chrome() {
+        return;
+    }
+    let dir = Scratch::new("collections-tabs");
+    let dist = build_notebook(&dir, false);
+    let site = StaticSite::serve(&dist);
+    let mut older = tab!(dir);
+    older.open(&format!("{}/", site.origin));
+    older.wait_text("0 entries");
+    write_entry(&mut older, "#a", 1);
+    build_notebook(&dir, true);
+    {
+        let mut newer = older.new_tab();
+        newer.open(&format!("{}/", site.origin));
+        newer.wait_text("1 entries");
+        let find = newer.role("button", "Find tagged");
+        newer.wait_handles_click(&find);
+        newer.click(&find);
+        newer.wait_text("Found: #a");
+        assert_eq!(notebook_version(&mut newer), json!(2));
+        older.bring_to_front();
+        write_entry(&mut older, "#b", 2);
+        newer.bring_to_front();
+        let find = newer.role("button", "Find tagged");
+        newer.click(&find);
+        newer.wait_text("Found: #a, #b");
+        assert_eq!(
+            notebook_version(&mut newer),
+            json!(2),
+            "the older tab didn't upgrade again"
+        );
+    }
+    older.bring_to_front();
+    let refresh = older.role("button", "Refresh");
+    older.click(&refresh);
+    older.wait_text("2 entries");
+    assert!(
+        !older.visible_text().contains("Problem"),
+        "the older tab kept working: {}",
+        older.visible_text()
+    );
+}

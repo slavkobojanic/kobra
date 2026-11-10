@@ -1,5 +1,10 @@
 # Local storage
 
+Browser storage comes in two typed shapes in `k.storage`: **local storage** for a few small values read
+whole ([below](#localstorage)), and **indexed collections** in IndexedDB for many values looked up by key
+and listed by a field ([Indexed collections](#indexed-collections)). Both record what they store in
+`storage.lock` and fail with the same typed errors.
+
 Typed local storage is the **client-only `LocalStorage` interface** in `k.storage`, read and written
 through **typed keys** whose names and value shapes are recorded in `storage.lock`. Its failures are
 typed, because browser storage really does fail: it can be full, blocked, or hold data that no longer
@@ -135,12 +140,11 @@ A key's name and its value's shape are part of the app's stored format, which ou
 - Test code isn't recorded, so a test may declare a key with an existing name to inspect what the service
   stored.
 - The same file records each background job's name and payload shape, because queued jobs are stored
-  data too ([Background jobs](jobs.md#stored-payloads)).
-
-> **Planned** (storage-lock-writing). The first compiler releases compare a committed `storage.lock`'s keys and job payloads with
-> the code (`K8008` for a key, `K8003` for a job), but don't write the file. Keys are namespaced with the
-> committed lock's `namespace`, else the project's name. Two keys with the same name are reported
-> (`K2405`), and a name that isn't a string literal (`K2403`).
+  data too ([Background jobs](jobs.md#stored-payloads)), and each [indexed collection](#indexed-collections).
+- **`k build` writes it** when it differs from what the program implies, after `k check` accepted the
+  change; `k check` only reads it (`K8008` for a key, `K8003` for a job, `K8009` for a collection). An
+  entry the code no longer declares is dropped, and a lock that doesn't change isn't rewritten. Two keys
+  with the same name are reported (`K2405`), and a name that isn't a string literal (`K2403`).
 
 #### File format
 
@@ -195,8 +199,19 @@ fields = [
 - **Types are written as in K, with qualified names** (`List<todo.Todo>`, `String?`, `Map<String, Int>`).
   Standard-library types (`String`, `Int`, `Uuid`, `Date`, `List`, `Map`, `Optional`, and the rest) aren't
   expanded, because the standard library fixes their encoding.
-- **Tables are sorted:** keys by name, then jobs by name, then types by qualified name, so the file
-  doesn't depend on the order in which things were added.
+- **`[collections.<name>]`**, one table per [collection](#indexed-collections): its `declaration`, its
+  `key` field, its value `type` and its `indexes`, sorted:
+
+  ```toml
+  [collections.unsavedEdits]
+  declaration = "notes.OfflineEdits.edits"
+  key = "noteId"
+  type = "notes.UnsavedEdit"
+  indexes = ["savedAt"]
+  ```
+
+- **Tables are sorted:** keys by name, then collections, then jobs by name, then types by qualified name,
+  so the file doesn't depend on the order in which things were added.
 
 ## Errors
 
@@ -258,5 +273,128 @@ test TodoService {
 
 Note the `{{`: a single `{` would start an interpolation.
 
-> **Open question.** Cross-tab change notifications, versioned keys with upgrade functions, and session
-> storage and cookies in `k.storage` aren't designed yet.
+## Indexed collections
+
+Many values, large values, or values looked up by something other than one name belong in **indexed
+collections**: typed IndexedDB, through the client-only `Collections` interface. The notes example keeps
+an edit that couldn't reach the server, so closing the browser doesn't lose it:
+
+```k
+// examples/notes/src/notes/OfflineEdits.k
+public service OfflineEdits {
+    @Inject let collections: Collections
+    @Inject let clock: Clock
+
+    // The collection's name, key and value shape are recorded in
+    // storage.lock, and the browser's database is upgraded to its indexes.
+    private let edits: Collection<Uuid, UnsavedEdit> = Collection(name: "unsavedEdits", key: "noteId")
+    private let bySavedAt: CollectionIndex<Date, UnsavedEdit> = CollectionIndex(collection: "unsavedEdits", field: "savedAt")
+    // ...
+    func keep(note: Uuid, draft: NoteDraft) async -> Bool {
+        let edit = UnsavedEdit(noteId: note, title: draft.title, body: draft.body, tags: draft.tags, savedAt: clock.now)
+
+        do {
+            try await collections.put(edit, into: edits)
+            return true
+        } catch .unavailable, .quotaExceeded {
+            return false
+        }
+    }
+    // ...
+    func loadNewest() async {
+        do {
+            newest = try await collections.range(in: bySavedAt, reversed: true, limit: 5)
+        } catch .unavailable, .unreadable {
+            newest = []
+        }
+    }
+}
+```
+
+### Collections and indexes
+
+- **A `Collection<Key, Value>` names a set of `Codable` values and the field that keys them.**
+  `Collection(name: "unsavedEdits", key: "noteId")`: the name is unique in the app, and `key` names a
+  stored field of `Value` whose type is exactly `Key`. Each value has one key; putting a value with the
+  same key replaces the old one.
+- **A `CollectionIndex<Field, Value>` names a field to look values up and order them by.**
+  `CollectionIndex(collection: "unsavedEdits", field: "savedAt")`: the field's type is `Field` or
+  `Field?`, and a value whose field is `nil` isn't in that index. An index's name is its field.
+- **Key and index fields are `String`, `Int`, `Uuid`, `Date` or an enum without payloads.** They order as
+  IndexedDB orders keys: `Int` numerically, `Date` chronologically, text by UTF-16 code units, an enum by
+  its case name.
+- **Both are declared as a constant or a field, with string literals,** so the compiler can check them
+  against the value type, set up the browser's database and record them in `storage.lock`. A field that
+  doesn't exist, has another type or can't be a key is `K2411`, a second collection with the same name or
+  a second index on the same field `K2410`, an index naming no collection of its value type `K2412`, and a
+  computed name `K2403`. Test code may redeclare them to inspect what a service stored.
+
+### `Collections`
+
+| Member | Does |
+|---|---|
+| `get(_ key:from:)` | the value with `key`, or `nil` |
+| `all(in:)` | every value, in key order |
+| `count(in:)` | how many values there are |
+| `find(_ value:in:)` | the values whose indexed field equals `value`, in key order |
+| `range(in:from:to:reversed:limit:)` | the values whose indexed field is between `from` and `to` (both inclusive, either open when `nil`), in the field's order, backwards with `reversed: true`, at most `limit` |
+| `put(_:into:)`, `putAll(_:into:)` | stores values, replacing those with the same key; `putAll` is all or nothing |
+| `delete(_ key:from:)`, `clear(_:)` | deletes one value, or all of them |
+| `persistence()`, `requestPersistence()` | whether the browser may evict the origin's storage, and asking it not to (`@UserAction`: Firefox asks the person) |
+| `estimate()` | the origin's `StorageEstimate(usage:quota:)` in bytes, or `nil` |
+
+- **Every call is `async` and one IndexedDB transaction.** IndexedDB commits a transaction as soon as it
+  waits for nothing, so a read and then a write are two calls.
+- **The errors are local storage's:** a read throws `StorageReadError` (`.unavailable`, or `.unreadable`
+  when a stored value doesn't decode, which leaves it stored), a write `StorageWriteError`
+  (`.unavailable` or `.quotaExceeded`).
+- **Client-only, as `LocalStorage` is:** a service that injects `Collections` is client-only, and a
+  component that shows what it read is usually `@Rendering(.client)`, as the notes example's
+  `UnsavedEditsList` is.
+
+### The browser's database
+
+The compiler, not the app, owns IndexedDB's layout: one database per app, `k-collections:<namespace>`,
+one object store per collection. The browser opens it, compares it with the collections and indexes the
+build declares, and **upgrades it when one is missing, only ever adding:** a new index is filled from the
+values already stored, and nothing is deleted, so a deploy can be rolled back. A tab still running the
+previous build closes its connection when a newer tab upgrades and reopens it on its next call, so two
+tabs of two builds share the database without blocking each other.
+
+`storage.lock` holds a collection to its shape (`K8009`): adding an optional field or an index is
+compatible; removing, renaming or retyping a field, adding a required one or renaming the collection
+needs `@Breaking("reason")` on its declaration; changing its key field is refused even then, since stored
+values keep the key they were written with. Declare a new collection instead.
+
+### Tests: `MemoryCollections`
+
+**`k test` installs `MemoryCollections`** (from `k.test`) for `Collections`, empty for every test. It keeps
+each value's JSON form, decodes it on every read and orders as the browser does:
+
+| Member | Meaning |
+|---|---|
+| `writeRaw(collection:text:)` | stores the JSON `text` as a value an older version stored; its key is read from the text |
+| `failReads(error:)`, `failWrites(error:)`, `stopFailing()` | as `MemoryStorage`'s |
+| `setPersistence(_:)` | what `persistence()` and `requestPersistence()` answer, `.bestEffort` unless set |
+| `setEstimate(_:)` | what `estimate()` answers, `nil` unless set |
+
+```k
+// examples/notes/src/notes/OfflineEdits.test.k
+test OfflineEdits {
+    @Inject let offline: OfflineEdits
+    @Inject let collections: MemoryCollections
+    @Inject let clock: TestClock
+    // ...
+    test "when this browser can't keep the edit either, it says so" {
+        collections.failWrites(error: .quotaExceeded)
+
+        let kept = await offline.keep(note: Uuid("1b4e28ba-2fa1-41d2-883f-0016d3cca427"), draft: draft(title: "Plan"))
+        expect not kept
+    }
+    // ...
+}
+```
+
+> **Open question.** Cross-tab change notifications, versioned keys with upgrade functions, session
+> storage and cookies in `k.storage`, and, for collections, transactions over several calls or
+> collections, unique and compound indexes, and live queries aren't designed yet.

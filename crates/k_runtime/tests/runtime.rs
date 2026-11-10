@@ -9,14 +9,15 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use k_runtime::{
-    CHANNELS_SIZE_BUDGET, CHARTS_SIZE_BUDGET, CLIPBOARD_SIZE_BUDGET, CORE_SIZE_BUDGET,
-    CRYPTO_SIZE_BUDGET, DRAG_SIZE_BUDGET, ENVIRONMENT_SIZE_BUDGET, FILES_SIZE_BUDGET,
-    FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET, HTTP_SIZE_BUDGET,
-    KEYS_SIZE_BUDGET, MEDIA_SIZE_BUDGET, MONEY_SIZE_BUDGET, NOTIFICATIONS_SIZE_BUDGET,
-    OBSERVE_SIZE_BUDGET, PASSKEYS_SIZE_BUDGET, PLAYBACK_SIZE_BUDGET, PUSH_SIZE_BUDGET, Part,
-    RTC_SIZE_BUDGET, SERVICE_WORKER_SIZE_BUDGET, SERVICES_SIZE_BUDGET, SHARE_SIZE_BUDGET,
-    STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET, WAKE_LOCK_SIZE_BUDGET,
-    WEBSOCKET_SIZE_BUDGET, compact, compacted_sources, module, modules, resolve,
+    CHANNELS_SIZE_BUDGET, CHARTS_SIZE_BUDGET, CLIPBOARD_SIZE_BUDGET, COLLECTIONS_SIZE_BUDGET,
+    CORE_SIZE_BUDGET, CRYPTO_SIZE_BUDGET, DRAG_SIZE_BUDGET, ENVIRONMENT_SIZE_BUDGET,
+    FILES_SIZE_BUDGET, FORMS_SIZE_BUDGET, FULL_SIZE_BUDGET, GEOLOCATION_SIZE_BUDGET,
+    HTTP_SIZE_BUDGET, KEYS_SIZE_BUDGET, MEDIA_SIZE_BUDGET, MONEY_SIZE_BUDGET,
+    NOTIFICATIONS_SIZE_BUDGET, OBSERVE_SIZE_BUDGET, PASSKEYS_SIZE_BUDGET, PLAYBACK_SIZE_BUDGET,
+    PUSH_SIZE_BUDGET, Part, RTC_SIZE_BUDGET, SERVICE_WORKER_SIZE_BUDGET, SERVICES_SIZE_BUDGET,
+    SHARE_SIZE_BUDGET, STDLIB_SIZE_BUDGET, STREAMS_SIZE_BUDGET, TABS_SIZE_BUDGET,
+    WAKE_LOCK_SIZE_BUDGET, WEBSOCKET_SIZE_BUDGET, compact, compacted_sources, module, modules,
+    resolve,
 };
 
 /// The runtime's source directory, `crates/k_runtime/js/`.
@@ -183,6 +184,7 @@ fn testing_and_server_modules_are_not_client_parts() {
                 | Part::Notifications
                 | Part::Push
                 | Part::Passkeys
+                | Part::Collections
                 | Part::KeyCodec
                 | Part::WakeLock
                 | Part::Environment
@@ -580,6 +582,21 @@ fn passkeys_meet_their_size_budget() {
 }
 
 #[test]
+fn collections_meet_their_size_budget() {
+    let collections = compacted_sources(&[Part::Collections]).expect("compacts");
+    let size = gzip_len(&collections);
+    eprintln!(
+        "collections: {} bytes raw, {} bytes compacted, {size} bytes gzip (budget {COLLECTIONS_SIZE_BUDGET})",
+        raw_len(&[Part::Collections]),
+        collections.len()
+    );
+    assert!(
+        size <= COLLECTIONS_SIZE_BUDGET,
+        "collections are {size} bytes gzip, over the {COLLECTIONS_SIZE_BUDGET}-byte budget"
+    );
+}
+
+#[test]
 fn the_service_worker_meets_its_size_budget() {
     let worker = compacted_sources(&[Part::ServiceWorker]).expect("compacts");
     let size = gzip_len(&worker);
@@ -783,6 +800,7 @@ fn client_runtime_files_share_no_top_level_names() {
                 | Part::Notifications
                 | Part::Push
                 | Part::Passkeys
+                | Part::Collections
                 | Part::KeyCodec
                 | Part::WakeLock
                 | Part::Environment

@@ -231,7 +231,7 @@ A wrapper reaches Tier 1 when it is Baseline in all three engines (or degrades t
 | Focus and scrolling (`focus()`, `scrollIntoView`, scroll restoration) | 2 | element references ([open question](#open-questions)) | the router already restores scroll on navigation ([12](12-routing.md)); moving focus after an action is an accessibility need, so it comes first among element references |
 | Printing (`window.print()`, `beforeprint`) | 2 | `PrintButton` (`k.ui`) | print styles are CSS media queries; the button needs no activation rule |
 | History, Navigation API | Not wrapping | the router ([12](12-routing.md)) | the router owns the URL; a second way to push history would desynchronize it |
-| IndexedDB | 2 | typed collections in `k.storage` | [36](36-local-storage.md) deferred them: names and shapes in `storage.lock`, async, indexes declared; `navigator.storage.persist()` and `estimate()` with them |
+| IndexedDB | 2 | `Collections`, `Collection<Key, Value>`, `CollectionIndex<Field, Value>` (`k.storage`) | [52-indexed-collections.md](52-indexed-collections.md): names and shapes in `storage.lock`, async, indexes declared, compiler-owned additive upgrades; `navigator.storage.persist()`, `persisted()` and `estimate()` with them |
 | Cache API, service worker, offline, PWA manifest | 2 | `k build` generates the service worker; manifest from `metadata` ([22](22-metadata.md)) | precaches the hashed client chunks and shell; no user-written service worker code |
 | PWA install prompt (`beforeinstallprompt`) | 3 | `InstallButton` | Chromium only |
 | App badge (Badging API) | 3 | `AppBadge` | installed apps only, Chromium and WebKit |
@@ -836,6 +836,7 @@ public interface TabMessaging {
 | `PushSubscriptions` (Tier 2, [50](50-push.md)) | client-only | platform interface | `TestPushSubscriptions` |
 | `Passkeys` (Tier 2, [51](51-passkeys.md)) | client-only | platform interface | `TestAuthenticator` |
 | `PasskeyVerifier` (Tier 2, [51](51-passkeys.md)) | server-only | stdlib service | none: the real verifier checks `TestAuthenticator`'s signatures |
+| `Collections` (Tier 2, [52](52-indexed-collections.md)) | client-only | platform interface | `MemoryCollections` |
 
 ## Why
 

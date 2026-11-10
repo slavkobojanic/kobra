@@ -1,0 +1,11 @@
+error[K2411] src/notes/Drafts.k:11:67-11:73: `notes.Draft` has no stored field named `uuid`
+error[K2411] src/notes/Drafts.k:12:74-12:81: the key field `label` is `String?`: every value needs a key, so the key field can't be optional
+error[K2411] src/notes/Drafts.k:13:68-13:72: the field `id` is `k.crypto.Uuid`, but the key type is `Int`
+error[K2411] src/notes/Drafts.k:14:72-14:78: the field `note` is `notes.NoteId`, which IndexedDB can't use as a key; a key is `String`, `Int`, `Uuid`, `Date` or an enum without payloads
+error[K2411] src/notes/Drafts.k:15:68-15:75: `key:` takes the name of a field as a string literal: the key is part of the stored format
+error[K2411] src/notes/Drafts.k:16:72-16:79: the field `count` is `Int`, but the key type is `String`
+error[K2411] src/notes/Drafts.k:18:90-18:96: the field `done` is `Bool`, which IndexedDB can't use as a key; an indexed field is `String`, `Int`, `Uuid`, `Date` or an enum without payloads
+error[K2411] src/notes/Drafts.k:19:98-19:104: the field `tags` is `List<String>`, which IndexedDB can't use as a key; an indexed field is `String`, `Int`, `Uuid`, `Date` or an enum without payloads
+error[K2411] src/notes/Drafts.k:20:90-20:97: the field `label` is `String?`, but the indexed field type is `Int`
+error[K2411] src/notes/Drafts.k:24:42-24:74: a `Collection` is declared as a constant or a field, where the compiler finds it to set up the browser's database and record it in storage.lock
+error[K2403] src/notes/Drafts.k:29:62-29:71: `Collection(name:)` takes a string literal: the name is part of the stored format, recorded in storage.lock

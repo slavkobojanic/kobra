@@ -42,7 +42,7 @@ public interface LocalStorage {
 }
 ```
 
-- **Synchronous.** Browser local storage is synchronous, and the values it holds are small. Large or queryable data belongs in the typed IndexedDB collections, which will be async and need their own design.
+- **Synchronous.** Browser local storage is synchronous, and the values it holds are small. Large or queryable data belongs in the typed IndexedDB collections of [52-indexed-collections.md](52-indexed-collections.md), which are async and share this topic's errors and `storage.lock`.
 - **`read` returns `nil` when nothing is stored under the key.** Absence is normal (a first visit), so it isn't an error.
 - **Values are encoded as JSON through `Codable`** ([08-types.md](08-types.md)).
 - The stdlib ships one production implementation, `BrowserStorage`, built on `window.localStorage`. It is the only one, so `@Inject let storage: LocalStorage` resolves to it with no `use` rule.
@@ -74,7 +74,8 @@ A key's name and its value's shape are part of the app's stored format, which ou
 - Adding an optional field to the value type is compatible.
 - Removing or renaming a field, changing its type, adding a required field, or renaming the key is a `k check` error (`K8008`, at the key) unless the key's declaration (the constant or field) is marked `@Breaking("reason")`. Users' existing values would then read as `.unreadable`, which the service must handle. A key is matched with its entry by name, else by the recorded `declaration`, which is how a renamed key is recognized.
 - Test code isn't recorded, so a test may declare a key with an existing name to inspect what the service stored.
-- The same file records each background job's name and payload shape, because queued jobs are stored data too ([30-background-jobs.md](30-background-jobs.md#stored-payloads)).
+- The same file records each background job's name and payload shape, because queued jobs are stored data too ([30-background-jobs.md](30-background-jobs.md#stored-payloads)), and each indexed collection's name, key field, indexes and value shape ([52-indexed-collections.md](52-indexed-collections.md#storagelock)).
+- **`k build` writes it** when it differs from what the program implies, after `k check` accepted the change, as it writes `rpc.lock`; `k check` only reads it. An entry the code no longer declares is dropped, a new one is added, an `@Breaking` change records the new shape, and an unreadable lock is left for `k check` to report rather than overwritten, since it holds the namespace. (Decided with [52](52-indexed-collections.md#storagelock); until then nothing wrote it.)
 
 #### File format
 
@@ -127,7 +128,8 @@ fields = [
   - an enum without payloads as `cases`, a list of case names;
   - an enum with payloads as `cases`, a list of tables `{ name = "…", fields = [ … ] }`, where a payload without a label has only a `type`.
 - **Types are written as in K, with qualified names** (`List<cart.SavedItem>`, `String?`, `Map<String, Int>`). Stdlib types (`String`, `Int`, `Uuid`, `Date`, `List`, `Map`, `Optional`, and the rest) aren't expanded, because the stdlib fixes their encoding.
-- **Tables are sorted:** keys by name, then jobs by name, then types by qualified name, so the file doesn't depend on the order in which things were added.
+- **`[collections.<name>]`**, one table per indexed collection: `declaration`, `key`, `type` and `indexes` ([52](52-indexed-collections.md#storagelock)).
+- **Tables are sorted:** keys by name, then collections, then jobs by name, then types by qualified name, so the file doesn't depend on the order in which things were added. A struct without fields is `fields = []`; an enum mixing cases with and without payloads writes every case as a table, a payload-free one as `{ name = "…" }`.
 
 ## Errors
 
@@ -185,4 +187,4 @@ test TodoService {
 
 - **Cross-tab changes.** The browser fires a `storage` event when another tab writes. A `changes(key:) -> Stream<T?>` member would let a service re-read.
 - **Versioned keys.** A `version` on `StorageKey`, with a migration function from the previous version's type, would turn a `@Breaking` change into an upgrade instead of `.unreadable`.
-- **Session storage and cookies** (also listed for `k.storage`) could share `StorageKey` and the error enums.
+- **Session storage and cookies** (also listed for `k.storage`) could share `StorageKey` and the error enums, as indexed collections do ([52](52-indexed-collections.md)).

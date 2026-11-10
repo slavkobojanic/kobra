@@ -1,0 +1,3 @@
+error[K8009] src/notes/OfflineEdits.k:9:17-9:22: the collection `unsavedEdits` changed incompatibly with storage.lock; values users' browsers already hold would read as `.unreadable` or not be found
+  note: the key field changed from `noteId` to `editId`: stored values keep the key they were written with
+  note: a collection's key field can't change, even with `@Breaking`: declare a new collection under a new name (the old store is left in place)

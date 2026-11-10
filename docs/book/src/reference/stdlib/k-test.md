@@ -10,6 +10,7 @@ Import each declaration by name, for example `import k.test.Element`.
 | [`Element`](#element) | A handle to the elements a query matched. |
 | [`InlineJobQueue`](#inlinejobqueue) | A [`JobQueue`](k-server.md#jobqueue) for tests that runs each job when the enqueuing app-level transaction commits, or at once outside one: `use InlineJobQueue for JobQueue`. |
 | [`Key`](#key) | A key for [`Element.press`](#element). |
+| [`MemoryCollections`](#memorycollections) | The default [`Collections`](k-storage.md#collections) in `k test` (`docs/design/52-indexed-collections.md`, "Tests"): every collection in memory, empty for every test. |
 | [`MemoryKeyStore`](#memorykeystore) | The default [`KeyStore`](k-crypto.md#keystore) in `k test` (`docs/design/33-crypto.md`, "Testing"): keys in memory, empty for every test. |
 | [`MemoryStorage`](#memorystorage) | The default [`LocalStorage`](k-storage.md#localstorage) in `k test`: empty for every test, able to simulate failures (`docs/design/36-local-storage.md`). |
 | [`NetworkEvent`](#networkevent) | A change to the in-process network of [`TestPeerConnections`](#testpeerconnections). |
@@ -203,6 +204,68 @@ A key for [`Element.press`](#element).
   The right arrow key.
 - `case character(String)`
   The key that types `text` ("n", "?"), for keyboard shortcuts.
+
+## MemoryCollections
+
+```k,ignore
+@TestDefault(replaces: Collections)
+public service MemoryCollections implements Collections
+```
+
+The default [`Collections`](k-storage.md#collections) in `k test`
+(`docs/design/52-indexed-collections.md`, "Tests"): every collection in
+memory, empty for every test. Values are kept in their JSON form and
+decoded on every read, and ordered by the same keys as in the browser.
+
+**Members**
+
+- `func get<Key, Value>(_ key: Key, from collection: Collection<Key, Value>) async throws StorageReadError -> Value? where Key implements Codable, Value implements Codable`
+  Reads the value with `key`, or throws the error set by
+  `failReads(error:)`.
+- `func all<Key, Value>(in collection: Collection<Key, Value>) async throws StorageReadError -> List<Value> where Key implements Codable, Value implements Codable`
+  Reads every value in key order, or throws the error set by
+  `failReads(error:)`.
+- `func count<Key, Value>(in collection: Collection<Key, Value>) async throws StorageReadError -> Int where Key implements Codable, Value implements Codable`
+  Counts the values, or throws the error set by `failReads(error:)`.
+- `func find<Field, Value>(_ value: Field, in index: CollectionIndex<Field, Value>) async throws StorageReadError -> List<Value> where Field implements Codable, Value implements Codable`
+  Reads the values whose field equals `value`, or throws the error
+  set by `failReads(error:)`.
+- `func range<Field, Value>(in index: CollectionIndex<Field, Value>, from: Field? = nil, to: Field? = nil, reversed: Bool = false, limit: Int? = nil) async throws StorageReadError -> List<Value> where Field implements Codable, Value implements Codable`
+  Reads a range of the index, or throws the error set by
+  `failReads(error:)`.
+- `func put<Key, Value>(_ value: Value, into collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  Stores `value`, or throws the error set by `failWrites(error:)`.
+- `func putAll<Key, Value>(_ values: List<Value>, into collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  Stores every value, or none and throws the error set by
+  `failWrites(error:)`.
+- `func delete<Key, Value>(_ key: Key, from collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  Deletes the value with `key`, or throws the error set by
+  `failWrites(error:)`.
+- `func clear<Key, Value>(_ collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  Deletes every value, or throws the error set by
+  `failWrites(error:)`.
+- `func persistence() async -> StoragePersistence`
+  Answers what `setPersistence(_:)` set, `.bestEffort` unless set.
+- `func requestPersistence() async -> StoragePersistence`
+  Answers as `persistence()`; no prompt opens.
+- `func estimate() async -> StorageEstimate?`
+  Answers what `setEstimate(_:)` set, `nil` unless set.
+- `func writeRaw(collection: String, text: String)`
+  Stores the JSON `text` in the collection named `collection` exactly
+  as given, as a value an older version of the app stored. Its key is
+  read from the text's key field.
+- `func failReads(error: StorageReadError)`
+  Makes every following read throw `error`.
+- `func failWrites(error: StorageWriteError)`
+  Makes every following write throw `error`. Stored values are
+  unchanged.
+- `func stopFailing()`
+  Ends both simulations (`failReads(error:)` and
+  `failWrites(error:)`).
+- `func setPersistence(_ value: StoragePersistence)`
+  Sets what `persistence()` and `requestPersistence()` answer.
+- `func setEstimate(_ estimate: StorageEstimate?)`
+  Sets what `estimate()` answers.
 
 ## MemoryKeyStore
 

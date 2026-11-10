@@ -1032,6 +1032,39 @@ fn learn_projects_check_build_and_match_their_lockfiles() {
     }
 }
 
+/// The single-app examples' committed `storage.lock` is what `k build`
+/// writes (`docs/design/52-indexed-collections.md`, "`storage.lock`"):
+/// their storage keys, collections and jobs, with the shapes they hold, so
+/// a change to stored data shows in review and `k check` holds the next
+/// one to it. An example with nothing stored has no lock.
+#[test]
+fn examples_commit_the_storage_lock_their_build_writes() {
+    for example in [
+        "call", "huddle", "kanban", "memos", "notes", "todos", "weather",
+    ] {
+        let project = repo().join("examples").join(example);
+        let dir = TempDir::new("storage-lock");
+        let copy = dir.0.join("project");
+        copy_project(&project, &copy);
+        let built = Command::new(env!("CARGO_BIN_EXE_k"))
+            .arg("build")
+            .arg(&copy)
+            .output()
+            .expect("k build runs");
+        assert!(
+            built.status.success(),
+            "k build {example}:\n{}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        let read = |d: &Path| std::fs::read_to_string(d.join("storage.lock")).ok();
+        assert_eq!(
+            read(&copy),
+            read(&project),
+            "examples/{example}/storage.lock is stale; commit what `k build` writes"
+        );
+    }
+}
+
 /// The quick start's tip splitter (`learn/quick-start.md`) renders its
 /// page on the server, with the default tip selected.
 #[test]

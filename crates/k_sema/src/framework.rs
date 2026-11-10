@@ -740,8 +740,9 @@ pub(crate) fn check_declaration(cx: &Cx<'_, '_>, decl: DeclId, owner: &BodyOwner
     if kind == Some(K::Service) && crate::locks::is_job(cx, decl) {
         targets.push(Target::Locked);
     }
-    // So is a storage key's name and value (`storage.lock`).
-    if kind == Some(K::Constant) && crate::locks::key_value(cx, &cx.constant_ty(decl)).is_some() {
+    // So is a storage key's name and value, and a collection's
+    // (`storage.lock`).
+    if kind == Some(K::Constant) && crate::locks::is_locked_type(cx, &cx.constant_ty(decl)) {
         targets.push(Target::Locked);
     }
     for a in annotations_of(cx, file, &d.node) {
@@ -761,9 +762,7 @@ pub(crate) fn check_declaration(cx: &Cx<'_, '_>, decl: DeclId, owner: &BodyOwner
         } else {
             Vec::new()
         };
-        if member.kind == MemberKind::Field
-            && crate::locks::key_value(cx, &cx.field_ty(m)).is_some()
-        {
+        if member.kind == MemberKind::Field && crate::locks::is_locked_type(cx, &cx.field_ty(m)) {
             targets.push(Target::Locked);
         }
         for a in annotations_of(cx, file, node) {

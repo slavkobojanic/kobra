@@ -45,6 +45,7 @@ import { install as installDom } from "./dom.js";
 import { createFront, testChannel as scriptedChannel } from "./channels.js";
 import { TestWebSocketServer, testWebSocketClient as scriptedSockets } from "../runtime/websocket.js";
 import { setTesting as cryptoTesting } from "../runtime/crypto.js";
+import { collectionIndex, collectionKey, collectionRecord, collectionValues } from "../runtime/collections.js";
 import { audioMeter, mediaStream, mediaTrack, recordedTracks, recordingSession } from "../runtime/media.js";
 import { peerConnections } from "../runtime/rtc.js";
 import { fakeRtc } from "./rtc.js";
@@ -1416,6 +1417,130 @@ export function memoryStorage(R, W) {
     stopFailing() {
       readError = null;
       writeError = null;
+    },
+  };
+}
+
+/**
+ * `k.test.MemoryCollections`: `Collections` in memory
+ * (52-indexed-collections.md, "Tests"), empty for every test. Records are
+ * `runtime/collections.js`' (`{k, i, v}`, the value's JSON text in `v`),
+ * ordered as IndexedDB orders keys: numbers before text, text by UTF-16
+ * code units. `StorageReadError` and `StorageWriteError` are
+ * `unitCase(0)` `unavailable` and `unitCase(1)` `unreadable` or
+ * `quotaExceeded`; `StoragePersistence` `unitCase(0)` `persistent`,
+ * `unitCase(1)` `bestEffort`.
+ * @param {object} schema the program's collections, as the browser's
+ */
+export function memoryCollections(schema) {
+  const stores = new Map();
+  let readError = null;
+  let writeError = null;
+  let persistence = unitCase(1);
+  let estimate = null;
+  const cmp = (a, b) => (typeof a !== typeof b ? (typeof a === "number" ? -1 : 1) : a < b ? -1 : a > b ? 1 : 0);
+  const store = (n) => {
+    let s = stores.get(n);
+    if (!s) stores.set(n, (s = new Map()));
+    return s;
+  };
+  const id = (k) => `${typeof k}:${k}`;
+  const records = (n) => [...store(n).values()].sort((x, y) => cmp(x.k, y.k));
+  const reading = () => {
+    if (readError !== null) throw readError;
+  };
+  const writing = () => {
+    if (writeError !== null) throw writeError;
+  };
+  const record = (n, cv, value) => collectionRecord(schema[n], JSON.stringify(cv.encode(value)));
+  const keyOf = (n, ck, key) => collectionKey(schema[n][1], ck.encode(key));
+  const at = (index) => {
+    const found = collectionIndex(schema, index);
+    if (found) return found;
+    throw new KPanic(`the index \`${index.collection}.${index.field}\` isn't declared as a constant or a field, so MemoryCollections doesn't know it`);
+  };
+  const indexed = (index, keep) => {
+    const [s, f] = at(index);
+    return records(s)
+      .filter((r) => r.i[f] !== undefined && keep(r.i[f]))
+      .sort((x, y) => cmp(x.i[f], y.i[f]) || cmp(x.k, y.k));
+  };
+  return {
+    async get(_c, ck, cv, key, c) {
+      reading();
+      const r = store(c.name).get(id(keyOf(c.name, ck, key)));
+      return r ? collectionValues(cv, [r], unitCase(1))[0] : null;
+    },
+    async all(_c, _ck, cv, c) {
+      reading();
+      return collectionValues(cv, records(c.name), unitCase(1));
+    },
+    async count(_c, _ck, _cv, c) {
+      reading();
+      return store(c.name).size;
+    },
+    async find(_c, cf, cv, value, index) {
+      reading();
+      const k = collectionKey(at(index)[2], cf.encode(value));
+      return collectionValues(cv, indexed(index, (x) => cmp(x, k) === 0), unitCase(1));
+    },
+    async range(_c, cf, cv, index, from, to, reversed, limit) {
+      reading();
+      const kind = at(index)[2];
+      const lo = from == null ? undefined : collectionKey(kind, cf.encode(from));
+      const hi = to == null ? undefined : collectionKey(kind, cf.encode(to));
+      let out = indexed(index, (x) => (lo === undefined || cmp(x, lo) >= 0) && (hi === undefined || cmp(x, hi) <= 0));
+      if (reversed) out.reverse();
+      if (limit != null) out = out.slice(0, Math.max(0, limit));
+      return collectionValues(cv, out, unitCase(1));
+    },
+    async put(_c, _ck, cv, value, c) {
+      writing();
+      const r = record(c.name, cv, value);
+      store(c.name).set(id(r.k), r);
+    },
+    async putAll(_c, _ck, cv, values, c) {
+      writing();
+      for (const r of values.map((v) => record(c.name, cv, v))) store(c.name).set(id(r.k), r);
+    },
+    async delete(_c, ck, _cv, key, c) {
+      writing();
+      store(c.name).delete(id(keyOf(c.name, ck, key)));
+    },
+    async clear(_c, _ck, _cv, c) {
+      writing();
+      store(c.name).clear();
+    },
+    async persistence(_c) {
+      return persistence;
+    },
+    async requestPersistence(_c) {
+      return persistence;
+    },
+    async estimate(_c) {
+      return estimate;
+    },
+    writeRaw(collection, text) {
+      const n = String(collection);
+      const r = schema[n] && collectionRecord(schema[n], String(text));
+      if (!r) throw new KPanic(`writeRaw: the text for \`${n}\` needs a collection and a key field`);
+      store(n).set(id(r.k), r);
+    },
+    failReads(error) {
+      readError = error;
+    },
+    failWrites(error) {
+      writeError = error;
+    },
+    stopFailing() {
+      readError = null;
+      writeError = null;
+    },
+    setPersistence(value) {
+      persistence = value;
+    },
+    setEstimate(value) {
+      estimate = value;
     },
   };
 }

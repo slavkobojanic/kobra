@@ -83,18 +83,39 @@ pub(crate) fn job_payload(cx: &Cx<'_, '_>, decl: DeclId) -> Option<Ty> {
     })
 }
 
-/// Runs the lockfile checks.
-pub(crate) fn check(cx: &Cx<'_, '_>) {
+/// What the lockfile checks found that later stages need.
+#[derive(Debug, Default)]
+pub(crate) struct StorageFacts {
+    /// The `storage.lock` the program implies ([`implied`]), `None` when
+    /// nothing changes or there is nothing to record.
+    pub(crate) lock: Option<String>,
+    /// The program's collections ([`crate::collections::check`]).
+    pub(crate) collections: Vec<crate::collections::CollectionSchema>,
+}
+
+/// Runs the lockfile checks, and returns the implied `storage.lock` and
+/// the collections' schema.
+pub(crate) fn check(cx: &Cx<'_, '_>) -> StorageFacts {
     duplicate_keys(cx);
     conflicting_drag_kinds(cx);
     conflicting_channels(cx, tab_message, "tab channel");
     conflicting_channels(cx, data_channel_message, "data channel kind");
     colliding_data_channels(cx);
+    let collections = crate::collections::check(cx);
+    let mut recorded = Some(StorageLock::default());
+    let mut lock_text = None;
     for lock in &cx.p.lockfiles {
         if lock.kind == LockfileKind::Storage {
-            storage(cx, lock);
+            recorded = storage(cx, lock);
+            lock_text = Some(lock.text.clone());
         }
     }
+    // Resolving the shapes' field types reports nothing new: their
+    // declarations' checks did (as in `program_keys`).
+    let reported = cx.diags.borrow().len();
+    let lock = recorded.and_then(|r| implied(cx, &r, &collections, lock_text.as_deref()));
+    cx.diags.borrow_mut().truncate(reported);
+    StorageFacts { lock, collections }
 }
 
 // ------------------------------------------------------------ the lockfile
@@ -213,11 +234,26 @@ enum Shape {
     Enum(Vec<(String, Vec<WrittenField>)>),
 }
 
+/// A collection as `storage.lock` records it.
+#[derive(Clone, Debug)]
+struct RecordedCollection {
+    /// The qualified name of its constant or field.
+    declaration: String,
+    /// The key field's name.
+    key: String,
+    /// The value type.
+    ty: Written,
+}
+
 /// What `storage.lock` records about keys and jobs.
 #[derive(Debug, Default)]
 struct StorageLock {
+    /// The storage namespace, when recorded.
+    namespace: Option<String>,
     /// Storage keys by name: (declaration, value type).
     keys: BTreeMap<String, (String, Written)>,
+    /// Collections by name.
+    collections: BTreeMap<String, RecordedCollection>,
     /// Jobs by name: (declaration, payload).
     jobs: BTreeMap<String, (String, Written)>,
     /// The shapes of app types by qualified name.
@@ -247,6 +283,39 @@ fn read_storage(text: &str) -> Result<StorageLock, Invalid> {
         offset: find_key(text, key),
     };
     let mut out = StorageLock::default();
+    if let Some(namespace) = table.get("namespace") {
+        out.namespace = Some(
+            namespace
+                .as_str()
+                .ok_or_else(|| at("namespace"))?
+                .to_owned(),
+        );
+    }
+    if let Some(collections) = table.get("collections") {
+        let collections = collections.as_table().ok_or_else(|| at("collections"))?;
+        for (name, c) in collections {
+            let c = c.as_table().ok_or_else(|| at(name))?;
+            let text = |k: &str| c.get(k).and_then(toml::Value::as_str);
+            let declaration = text("declaration").ok_or_else(|| at(name))?;
+            let key = text("key").ok_or_else(|| at(name))?;
+            let ty = text("type")
+                .and_then(Written::parse)
+                .ok_or_else(|| at(name))?;
+            match c.get("indexes") {
+                None => {}
+                Some(toml::Value::Array(list)) if list.iter().all(toml::Value::is_str) => {}
+                Some(_) => return Err(at(name)),
+            }
+            out.collections.insert(
+                name.clone(),
+                RecordedCollection {
+                    declaration: declaration.to_owned(),
+                    key: key.to_owned(),
+                    ty,
+                },
+            );
+        }
+    }
     if let Some(keys) = table.get("keys") {
         let keys = keys.as_table().ok_or_else(|| at("keys"))?;
         for (name, key) in keys {
@@ -357,8 +426,10 @@ fn line_at(text: &str, offset: usize) -> TextRange {
 
 // ------------------------------------------------------------- the check
 
-/// Compares `storage.lock`'s jobs with the program's (K8002, K8003).
-fn storage(cx: &Cx<'_, '_>, lock: &Lockfile) {
+/// Compares `storage.lock`'s keys, collections and jobs with the
+/// program's (K8002, K8003, K8008, K8009), and returns what it records;
+/// `None` when it can't be read.
+fn storage(cx: &Cx<'_, '_>, lock: &Lockfile) -> Option<StorageLock> {
     let recorded = match read_storage(&lock.text) {
         Ok(r) => r,
         Err(invalid) => {
@@ -367,10 +438,11 @@ fn storage(cx: &Cx<'_, '_>, lock: &Lockfile) {
                 Span::new(lock.id, line_at(&lock.text, invalid.offset)),
                 format!("storage.lock can't be read: {}", invalid.message.trim()),
             ));
-            return;
+            return None;
         }
     };
     keys(cx, &recorded);
+    collections(cx, &recorded);
     let p = cx.p;
     for (i, decl) in p.decls.iter().enumerate() {
         let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
@@ -400,6 +472,7 @@ fn storage(cx: &Cx<'_, '_>, lock: &Lockfile) {
             lock: &recorded,
             seen: HashSet::new(),
             changes: &mut changes,
+            subject: "jobs",
         };
         cmp.ty(written, &payload, "the payload");
         if changes.is_empty() || has_annotation(cx, d, "Breaking") {
@@ -421,6 +494,7 @@ fn storage(cx: &Cx<'_, '_>, lock: &Lockfile) {
         );
         cx.report(decl.file, diag);
     }
+    Some(recorded)
 }
 
 /// One `StorageKey` of the program: a top-level constant or a field whose
@@ -452,6 +526,13 @@ pub(crate) fn key_value(cx: &Cx<'_, '_>, ty: &Ty) -> Option<Ty> {
         }
         _ => None,
     }
+}
+
+/// `true` for the types `storage.lock` records a constant or field of
+/// (`StorageKey<T>`, `Collection<Key, Value>`), which take `@Breaking`.
+pub(crate) fn is_locked_type(cx: &Cx<'_, '_>, ty: &Ty) -> bool {
+    key_value(cx, ty).is_some()
+        || matches!(ty, Ty::Named(d, _) if cx.p.decl_name(*d) == "k.storage.Collection")
 }
 
 /// The `name:` literal of a `StorageKey(name: "…")` initializer below
@@ -788,6 +869,7 @@ fn keys(cx: &Cx<'_, '_>, recorded: &StorageLock) {
             lock: recorded,
             seen: HashSet::new(),
             changes: &mut changes,
+            subject: "values",
         };
         cmp.ty(written, &key.value, "the value");
         if changes.is_empty() {
@@ -864,6 +946,8 @@ struct Compare<'c, 'p, 'a> {
     seen: HashSet<(String, DeclId)>,
     /// The incompatible changes found, as notes.
     changes: &'c mut Vec<String>,
+    /// What the recorded values are, for the notes: `jobs`, `values`.
+    subject: &'static str,
 }
 
 impl Compare<'_, '_, '_> {
@@ -876,9 +960,10 @@ impl Compare<'_, '_, '_> {
             // A required value that becomes optional still decodes.
             (w @ Written::Named(..), Ty::Optional(n)) => self.ty(w, n, path),
             (Written::Optional(_), _) => self.changes.push(format!(
-                "{path} was `{}` and is now required (`{}`): recorded jobs may not have it",
+                "{path} was `{}` and is now required (`{}`): recorded {} may not have it",
                 written.text(),
-                self.text(now)
+                self.text(now),
+                self.subject
             )),
             (Written::Named(name, args), Ty::Named(d, now_args)) => {
                 if self.cx.p.is_stdlib(*d) {
@@ -1003,7 +1088,8 @@ impl Compare<'_, '_, '_> {
             }
             if !matches!(ty, Ty::Optional(_) | Ty::Error) {
                 self.changes.push(format!(
-                    "required field `{name}` was added to `{owner}`: recorded jobs don't have it (an optional field would be compatible)"
+                    "required field `{name}` was added to `{owner}`: recorded {} don't have it (an optional field would be compatible)",
+                    self.subject
                 ));
             }
         }
@@ -1035,6 +1121,426 @@ impl Compare<'_, '_, '_> {
             other => other.render(p),
         }
     }
+}
+
+// ------------------------------------------------------------ collections
+
+/// Compares `storage.lock`'s collections with the program's (K8009): a
+/// recorded collection's value type must still decode what users'
+/// browsers hold and its key field can't change; a collection whose
+/// declaration is recorded under another name was renamed.
+/// `@Breaking("reason")` allows a new shape and a new name, never a new
+/// key field. New collections and recorded ones the program no longer
+/// declares aren't reported (`docs/design/52-indexed-collections.md`,
+/// "Compatibility").
+fn collections(cx: &Cx<'_, '_>, recorded: &StorageLock) {
+    use crate::collections::Which;
+    for d in crate::collections::declarations(cx) {
+        if d.which != Which::Collection || d.test || d.value.contains_error() {
+            continue;
+        }
+        let name = d
+            .name
+            .as_ref()
+            .and_then(|n| n.as_ref().ok())
+            .map(|n| n.0.clone());
+        let by_name = name
+            .as_ref()
+            .and_then(|n| recorded.collections.get_key_value(n));
+        let entry = by_name.or_else(|| {
+            recorded
+                .collections
+                .iter()
+                .find(|(_, c)| c.declaration == d.declaration)
+        });
+        let Some((recorded_name, c)) = entry else {
+            continue;
+        };
+        let mut always = Vec::new();
+        let key = d
+            .field
+            .as_ref()
+            .and_then(|f| f.as_ref().ok())
+            .map(|f| f.0.clone());
+        if let Some(key) = &key {
+            if *key != c.key {
+                always.push(format!(
+                    "the key field changed from `{}` to `{key}`: stored values keep the key they were written with",
+                    c.key
+                ));
+            }
+        }
+        let mut changes = Vec::new();
+        if by_name.is_none() {
+            changes.push(format!(
+                "the collection was renamed from `{recorded_name}` to `{}`; values stored under `{recorded_name}` are no longer read",
+                name.as_deref().unwrap_or("?")
+            ));
+        }
+        let mut cmp = Compare {
+            cx,
+            lock: recorded,
+            seen: HashSet::new(),
+            changes: &mut changes,
+            subject: "values",
+        };
+        cmp.ty(&c.ty, &d.value, "the value");
+        if d.breaking {
+            changes.clear();
+        }
+        if always.is_empty() && changes.is_empty() {
+            continue;
+        }
+        let mut diag = Diagnostic::new(
+            codes::INCOMPATIBLE_COLLECTION,
+            cx.p.span(d.file, d.range),
+            format!(
+                "the collection `{recorded_name}` changed incompatibly with storage.lock; values users' browsers already hold would read as `.unreadable` or not be found"
+            ),
+        );
+        let key_changed = !always.is_empty();
+        for change in always.into_iter().chain(changes) {
+            diag = diag.with_note(change);
+        }
+        diag = diag.with_note(if key_changed {
+            "a collection's key field can't change, even with `@Breaking`: declare a new collection under a new name (the old store is left in place)"
+        } else {
+            "keep the recorded name and shape (only optional fields and new enum cases are compatible), or mark the collection `@Breaking(\"reason\")` once the service handles `.unreadable`"
+        });
+        cx.report(d.file, diag);
+    }
+}
+
+// --------------------------------------------------------------- writing
+
+/// A name in kebab case, as a job's derived name (`OrderConfirmationJob`
+/// → `order-confirmation-job`, as `k_codegen`'s `css::kebab`).
+fn kebab(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 4);
+    for (i, c) in name.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('-');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// A TOML string.
+fn quote(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            c if c.is_control() => {
+                use std::fmt::Write as _;
+                let _ = write!(out, "\\u{:04X}", u32::from(c));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// A TOML key: bare when it is one, quoted otherwise.
+fn toml_key(s: &str) -> String {
+    if !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        s.to_owned()
+    } else {
+        quote(s)
+    }
+}
+
+/// The program's type as `storage.lock` writes it.
+fn written(cx: &Cx<'_, '_>, t: &Ty) -> String {
+    let p = cx.p;
+    match t {
+        Ty::Optional(inner) => format!("{}?", written(cx, inner)),
+        Ty::Named(d, args) => {
+            let name = if p.is_stdlib(*d) {
+                p.decl(*d).name.clone()
+            } else {
+                p.decl_name(*d)
+            };
+            if args.is_empty() {
+                name
+            } else {
+                let args: Vec<String> = args.iter().map(|a| written(cx, a)).collect();
+                format!("{name}<{}>", args.join(", "))
+            }
+        }
+        other => other.render(p),
+    }
+}
+
+/// A field or payload of a shape being written: its label (`None` for an
+/// unlabelled payload) and type.
+type ShapeField = (Option<String>, Ty);
+
+/// Adds the shape of every app type reachable from `t` to `out`, as the
+/// `[types."…"]` tables write it.
+fn collect_shapes(cx: &Cx<'_, '_>, t: &Ty, out: &mut BTreeMap<String, String>) {
+    let p = cx.p;
+    match t {
+        Ty::Optional(inner) => collect_shapes(cx, inner, out),
+        Ty::Named(d, args) => {
+            for a in args.iter() {
+                collect_shapes(cx, a, out);
+            }
+            if p.is_stdlib(*d) {
+                return;
+            }
+            let name = p.decl_name(*d);
+            if out.contains_key(&name) {
+                return;
+            }
+            // Recursive types end here.
+            out.insert(name.clone(), String::new());
+            let field_list = |fields: &[ShapeField]| -> String {
+                fields
+                    .iter()
+                    .map(|(n, t)| match n {
+                        Some(n) => format!(
+                            "{{ name = {}, type = {} }}",
+                            quote(n),
+                            quote(&written(cx, t))
+                        ),
+                        None => format!("{{ type = {} }}", quote(&written(cx, t))),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let mut nested = Vec::new();
+            let body = match p.decl(*d).named_kind() {
+                Some(K::Enum) => {
+                    let cases: Vec<(String, Vec<ShapeField>)> = cx
+                        .cases(*d)
+                        .into_iter()
+                        .filter(|&m| p.member(m).kind == MemberKind::Case)
+                        .map(|m| {
+                            let fields = if cx.case_has_payload(m) {
+                                cx.case_sig(m)
+                                    .params
+                                    .iter()
+                                    .map(|p| (p.label.clone(), p.ty.clone()))
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            };
+                            (p.member(m).name.clone(), fields)
+                        })
+                        .collect();
+                    for (_, fields) in &cases {
+                        nested.extend(fields.iter().map(|(_, t)| t.clone()));
+                    }
+                    if cases.iter().all(|(_, f)| f.is_empty()) {
+                        let names: Vec<String> = cases.iter().map(|(n, _)| quote(n)).collect();
+                        format!("cases = [{}]\n", names.join(", "))
+                    } else {
+                        let mut b = String::from("cases = [\n");
+                        for (n, fields) in &cases {
+                            if fields.is_empty() {
+                                b.push_str(&format!("    {{ name = {} }},\n", quote(n)));
+                            } else {
+                                b.push_str(&format!(
+                                    "    {{ name = {}, fields = [{}] }},\n",
+                                    quote(n),
+                                    field_list(fields)
+                                ));
+                            }
+                        }
+                        b.push_str("]\n");
+                        b
+                    }
+                }
+                _ => {
+                    let fields: Vec<(String, Ty)> = cx
+                        .stored_fields(*d)
+                        .into_iter()
+                        .map(|m| (p.member(m).name.clone(), cx.field_ty(m)))
+                        .collect();
+                    nested.extend(fields.iter().map(|(_, t)| t.clone()));
+                    if fields.is_empty() {
+                        "fields = []\n".to_owned()
+                    } else {
+                        let mut b = String::from("fields = [\n");
+                        for (n, t) in &fields {
+                            b.push_str(&format!(
+                                "    {{ name = {}, type = {} }},\n",
+                                quote(n),
+                                quote(&written(cx, t))
+                            ));
+                        }
+                        b.push_str("]\n");
+                        b
+                    }
+                }
+            };
+            out.insert(name, body);
+            for t in nested {
+                collect_shapes(cx, &t, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The `[package] name` of the app's `k.toml`.
+fn project_name(cx: &Cx<'_, '_>) -> String {
+    cx.p.manifests
+        .iter()
+        .find(|(path, _)| path == "k.toml")
+        .and_then(|(_, text)| {
+            let table: toml::Table = toml::from_str(text).ok()?;
+            table
+                .get("package")?
+                .get("name")?
+                .as_str()
+                .map(str::to_owned)
+        })
+        .unwrap_or_default()
+}
+
+/// The `storage.lock` the program implies (`docs/design/52-indexed-collections.md`,
+/// "`storage.lock`"), which `k build` writes: the namespace (recorded,
+/// else the project's name), every storage key, collection and job of the
+/// app's non-test code with the shapes of the app types they hold.
+/// `None` for a library, for an app with nothing to record and no lock,
+/// and when the text is the lock's already (`existing`).
+fn implied(
+    cx: &Cx<'_, '_>,
+    recorded: &StorageLock,
+    schema: &[crate::collections::CollectionSchema],
+    existing: Option<&str>,
+) -> Option<String> {
+    use std::fmt::Write as _;
+    let p = cx.p;
+    p.decls
+        .iter()
+        .find(|d| d.named_kind() == Some(K::App) && !p.file(d.file).stdlib)?;
+    let mut types: BTreeMap<String, String> = BTreeMap::new();
+    let mut keys: BTreeMap<String, (String, String)> = BTreeMap::new();
+    for key in program_keys(cx) {
+        let Some(name) = key.name else { continue };
+        if key.value.contains_error() || keys.contains_key(&name) {
+            continue;
+        }
+        collect_shapes(cx, &key.value, &mut types);
+        keys.insert(name, (key.declaration, written(cx, &key.value)));
+    }
+    let mut collections: BTreeMap<String, (String, String, String, Vec<String>)> = BTreeMap::new();
+    for d in crate::collections::declarations(cx) {
+        if d.which != crate::collections::Which::Collection || d.test {
+            continue;
+        }
+        let Some(Ok((name, _))) = &d.name else {
+            continue;
+        };
+        let Some(entry) = schema.iter().find(|c| c.name == *name && !c.test) else {
+            continue;
+        };
+        if collections.contains_key(name) {
+            continue;
+        }
+        collect_shapes(cx, &d.value, &mut types);
+        collections.insert(
+            name.clone(),
+            (
+                d.declaration.clone(),
+                entry.key.field.clone(),
+                written(cx, &d.value),
+                entry.indexes.iter().map(|i| i.field.clone()).collect(),
+            ),
+        );
+    }
+    let mut jobs: BTreeMap<String, (String, String)> = BTreeMap::new();
+    for (i, decl) in p.decls.iter().enumerate() {
+        let d = DeclId(u32::try_from(i).unwrap_or(u32::MAX));
+        if p.file(decl.file).stdlib || p.file(decl.file).is_test {
+            continue;
+        }
+        let Some(payload) = job_payload(cx, d) else {
+            continue;
+        };
+        if payload.contains_error() {
+            continue;
+        }
+        let qualified = p.decl_name(d);
+        let name = job_name(cx, d)
+            .or_else(|| {
+                recorded
+                    .jobs
+                    .iter()
+                    .find(|(_, (declaration, _))| *declaration == qualified)
+                    .map(|(n, _)| n.clone())
+            })
+            .unwrap_or_else(|| kebab(&decl.name));
+        let shown = match &payload {
+            Ty::Tuple(items) if items.is_empty() => "Void".to_owned(),
+            t => written(cx, t),
+        };
+        collect_shapes(cx, &payload, &mut types);
+        jobs.insert(name, (qualified, shown));
+    }
+    if existing.is_none() && keys.is_empty() && collections.is_empty() && jobs.is_empty() {
+        return None;
+    }
+    let namespace = recorded
+        .namespace
+        .clone()
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| project_name(cx));
+    let mut out = String::from(
+        "# Generated by the compiler. Do not edit by hand.\n# Format: docs/design/36-local-storage.md\n\n",
+    );
+    let _ = writeln!(out, "namespace = {}", quote(&namespace));
+    for (name, (declaration, ty)) in &keys {
+        let _ = write!(
+            out,
+            "\n[keys.{}]\ndeclaration = {}\ntype = {}\n",
+            toml_key(name),
+            quote(declaration),
+            quote(ty)
+        );
+    }
+    for (name, (declaration, key, ty, indexes)) in &collections {
+        let list: Vec<String> = indexes.iter().map(|i| quote(i)).collect();
+        let _ = write!(
+            out,
+            "\n[collections.{}]\ndeclaration = {}\nkey = {}\ntype = {}\nindexes = [{}]\n",
+            toml_key(name),
+            quote(declaration),
+            quote(key),
+            quote(ty),
+            list.join(", ")
+        );
+    }
+    for (name, (declaration, payload)) in &jobs {
+        let _ = write!(
+            out,
+            "\n[jobs.{}]\ndeclaration = {}\npayload = {}\n",
+            toml_key(name),
+            quote(declaration),
+            quote(payload)
+        );
+    }
+    for (name, body) in &types {
+        let _ = write!(out, "\n[types.{}]\n{body}", quote(name));
+    }
+    if existing == Some(out.as_str()) {
+        return None;
+    }
+    Some(out)
 }
 
 #[cfg(test)]

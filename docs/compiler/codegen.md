@@ -1152,7 +1152,11 @@ the `Session` mirror (`user`), which are by definition meant for the browser.
   `BrowserNotifications`, which the entry's `$App` constructs for `Files`, `Clipboard`, `Share`, `Geolocation`,
   `TabMessaging` and `Notifications`, and `k.http.StandardWebSocketClient(WebSocketError, WebSocketMessage,
   WebSocketState)` for `WebSocketClient`, and `k.auth.BrowserPasskeys` (`passkeys.[hash].js`) for `Passkeys`
-  ([51-passkeys.md](../design/51-passkeys.md))
+  ([51-passkeys.md](../design/51-passkeys.md)), and `k.storage.BrowserCollections` (`collections.[hash].js`)
+  for `Collections` as `BrowserCollections("<storage namespace>", schema)`, the schema being
+  `k_sema::Analysis::collections()` compiled to `{name: [keyJson, keyKind, indexes, fields]}`, each index and
+  key-typed field as `[field, json, kind]` (test-only collections only in a test build;
+  [52-indexed-collections.md](../design/52-indexed-collections.md))
   (`BrowserTabMessaging("<storage namespace>", import.meta.url)`: the entry's URL names the build;
   `BrowserNotifications(Page$href)`: a notification's page becomes its URL), and the stdlib services
   `PageVisibility`, `Connectivity`, `Preferences` and `Viewport`, which it constructs under their own

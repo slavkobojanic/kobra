@@ -65,7 +65,7 @@ stage or milestone that picks it up. A deferred rule's code is assigned when it 
 | Jobs | `Job` services server-only, Codable payloads, no session in the graph, payloads vs `storage.lock` (§12.16) | — |
 | Tests | `expect`, `expect throws`, `use` in tests, test-only visibility | — |
 | Doc comments | intra-doc links | type-checking fenced `k` examples |
-| Lockfiles | `storage.lock` keys and job payloads (K8002, K8003, K8008), `rpc.lock` (K8001, K8002); `schema.lock` and `routes.lock` in `k_codegen` (§12.16) | when `storage.lock` is written |
+| Lockfiles | `storage.lock` keys, collections and job payloads (K8002, K8003, K8008, K8009) and the lock the program implies, `rpc.lock` (K8001, K8002); `schema.lock` and `routes.lock` in `k_codegen` (§12.16) | — |
 
 ---
 
@@ -562,6 +562,18 @@ and set elements must be `Hashable` (K2009).
 - **Storage keys** ([36-local-storage.md](../design/36-local-storage.md#keys)): a `StorageKey(name:)` in
   the app's non-test code whose name an earlier key (in file path order) already has is **K2405** at its
   name literal, with a label at the earlier one (`locks.rs`, `duplicate_keys`).
+- **Indexed collections** ([52-indexed-collections.md](../design/52-indexed-collections.md#declarations);
+  `collections.rs`): every `Collection<Key, Value>` and `CollectionIndex<Field, Value>` constant or field
+  is found by its type. A computed `name:` or `collection:` is **K2403**; a second non-test collection
+  with an earlier one's name, or index on an earlier one's collection and field, is **K2410** at its
+  literal with a label at the earlier one; a `key:` or `field:` that isn't a literal, names no stored
+  field of the value struct, has another type than declared (an optional key never; `Field?` for an
+  index), or isn't a key type (`String`, `Int`, `Uuid`, `Date`, a payload-free enum) is **K2411**, as is a
+  `Collection(…)` or `CollectionIndex(…)` call in non-test code outside a constant's or field's
+  initializer; an index naming no collection of its value type is **K2412**. The pass returns the
+  collections' schema (`Analysis::collections`: each key and index by JSON key and kind, test-only ones
+  marked), which code generation compiles into the browser's `BrowserCollections` and `k test`'s
+  `MemoryCollections`.
 - **Drag kinds** ([41-drag-and-drop.md](../design/41-drag-and-drop.md#kinds-and-payloads)): kinds with
   the same name are the same kind, so a `DragKind(name:)` constant or field (test code included) whose
   name an earlier kind (in file path order) has with another payload type is **K2406** at its name
@@ -993,8 +1005,16 @@ is matched with the program's `StorageKey<T>` constant or field whose `StorageKe
 that name, else with the one whose qualified name the entry's `declaration` records (then the key was
 renamed, which is a change too), and its value type `T` is compared with the recorded `type` by the same
 rules: **K8008** at the key's name, unless the constant or field is marked `@Breaking("reason")` (a
-storage key accepts `@Breaking`). New jobs and keys, and recorded ones that no longer exist, are not
-reported, and nothing writes `storage.lock` yet (13-tooling.md).
+storage key accepts `@Breaking`). Each recorded `[collections.<name>]` is matched the same way with the
+program's `Collection<Key, Value>` constant or field: a value shape that changed by these rules, or a
+renamed collection, is **K8009** at its name unless it is marked `@Breaking("reason")`, and a different
+`key` field is K8009 even then (`locks.rs`, `collections`). New jobs, keys and collections, and recorded
+ones that no longer exist, are not reported. The pass also returns the `storage.lock` the program implies
+(`locks.rs`, `implied`; `Analysis::storage_lock`), which `k build` writes: the namespace (recorded, else
+the project's name), every key, collection and job of the app's non-test code and the shapes of the app
+types they hold, with entries the code no longer declares dropped; `None` for a library, for an app with
+nothing to record and no lock, for an unreadable lock, and when the text is the lock's already
+([52-indexed-collections.md](../design/52-indexed-collections.md#storagelock)).
 
 **`schema.lock`** (`k_codegen`, `lockfiles.rs`; [db.md §11](db.md#11-schemalock)). In an app with
 entities, migrations or a lock: an unreadable lock is **K8002**; the migrations are replayed in the lock's

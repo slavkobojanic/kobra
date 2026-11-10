@@ -41,7 +41,6 @@ with a Planned note naming the feature's id, and this table is generated from th
 | The binary Protobuf encoding, `k proto export` and `import proto` | `protobuf` | [Protocols and RPC](../apps/protocols.md#status-codes), [Keywords](keywords.md#contextual-keywords), [The k command](cli.md#protobuf) |
 | A protocol version bump on a deliberate break (`CartProtocol.v2`) | `protocol-versions` | [Protocols and RPC](../apps/protocols.md#field-numbers-and-rpclock) |
 | Git packages, `k add`, `k remove` and `k.lock` | `packages` | [Packages](../apps/packages.md#how-packages-work), [The k command](cli.md#packages), [Project files and lockfiles](project-files.md#ktoml) |
-| Writing `storage.lock` (its entries are compared once recorded) | `storage-lock-writing` | [Project layout](../getting-started/project-layout.md#ktoml), [Local storage](../apps/local-storage.md#storagelock), [Project files and lockfiles](project-files.md#lockfiles) |
 | One connection for identical streams opened in several tabs | `stream-tab-sharing` | [Server streaming](../apps/streaming.md#one-connection-per-stream-shared-across-tabs) |
 | Binding a workspace member's own implementation in-process in `.test` | `in-process-services` | [Workspaces and services](../apps/workspaces.md#tooling) |
 | Streaming rpcs between services | `service-streaming` | [Workspaces and services](../apps/workspaces.md#tooling) |
@@ -73,7 +72,7 @@ These were explicitly deferred and may be revisited:
 - A design-system component library.
 - Interceptor syntax in `App.k`, and per-page rendering modes.
 - OAuth providers.
-- Typed IndexedDB collections, session storage and cookies in `k.storage`.
+- Session storage and cookies in `k.storage`.
 - Online migrations for large tables.
 
 Not yet covered in depth: animation API details, the internationalization workflow, security headers

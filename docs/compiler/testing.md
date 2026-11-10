@@ -1842,7 +1842,13 @@ format change is a reviewed diff):
   `_assert`) and the real `PasskeyVerifier`: sign-up and sign-in with ES256, EdDSA and RS256, a dismissed
   sheet, an unsupported browser, another origin, no user verification, a used, replaced or other-ceremony
   challenge, a regressed counter, a swapped user handle, a forged signature and an excluded credential,
-  and the same fixture under `k run` in Chrome with DevTools' virtual authenticator; and `fixtures/realtime`, every test must pass: channels
+  and the same fixture under `k run` in Chrome with DevTools' virtual authenticator; and `fixtures/collections`,
+  every test must pass: `Collections` against `MemoryCollections` (keys and dates in IndexedDB's order,
+  ranges, replacing, deleting, a value an older version stored, simulated failures, persistence, the
+  estimate, a collection and an index redeclared by test code), its `k build` writing `storage.lock` and
+  `k check` refusing a changed key field (K8009), and the same fixture built and served statically in
+  Chrome: values across a reload, an upgrade that adds an index (`Topics.k.v2`) over stored values, and two
+  tabs of two builds sharing the database; and `fixtures/realtime`, every test must pass: channels
   in-process through `TestChannels` (resume without loss, a restart with a new snapshot, offline, hours
   of heartbeats, `open`), `TestPeers` (a second browser posting, refused, a guest, sessions ended by
   `endAll` and by the peer's own sign-out) and `TestChannel` for a service alone; and `fixtures/feeds`, every

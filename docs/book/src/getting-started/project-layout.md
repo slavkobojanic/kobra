@@ -47,8 +47,7 @@ charts = "github.com/acme/charts"          # a short prefix: `import charts.Line
   modules' own paths, so its name only identifies it in `[dependencies]`.
 - **`name` is the project's identity.** The namespace of the app's browser storage is derived from it,
   and the design records it once in `storage.lock` so that renaming the project doesn't orphan your
-  users' stored data (**Planned** storage-lock-writing: today the namespace is the committed lock's, else
-  the current name). The Protobuf package prefix of every protocol is derived from it too, and `rpc.lock`
+  users' stored data. The Protobuf package prefix of every protocol is derived from it too, and `rpc.lock`
   records the result, so renaming a project that serves protocols fails `k check` until the change is
   marked `@Breaking`.
 - **`title`** is what people see, for example the default name in the web manifest. Changing it changes

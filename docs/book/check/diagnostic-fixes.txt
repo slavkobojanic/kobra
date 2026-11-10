@@ -115,6 +115,9 @@ K2406: Give the kind its own name, or the payload type of the kind already named
 K2407: Keep each sum in one currency; convert an amount explicitly before adding it to another currency's.
 K2408: Give the channel its own name, or the message type of the channel already named so; usually declare the channel once and import it.
 K2409: Rename one of the two data channel kinds: their names hash to the same channel id, and almost any other name gives another one.
+K2410: Give each collection its own name, and declare one index per field; a test may redeclare them to inspect what a service stored.
+K2411: Name, as a string literal, a stored field of the value struct whose type is the declared key or field type (`String`, `Int`, `Uuid`, `Date` or a payload-free enum), and declare the collection or index as a constant or a field.
+K2412: Name a collection declared with the same value type, as its `Collection(name:)` spells it.
 K3001: Use the keyword the annotation requires (the quick fix changes it): `@State`, `@Binding`, `@Form` and `@Version` are `var`; the others `let`.
 K3002: Remove the annotation, or move it to a declaration or member it applies to.
 K3003: Add a `view { … }` block.
@@ -255,6 +258,7 @@ K8005: Run `k build` to record the schema the migrations produce in `schema.lock
 K8006: Number each migration file by its position in `schema.lock`'s `migrations` list, and keep every listed file.
 K8007: Name the old URL with `at`, add a redirect under `[redirects]` in `routes.lock` (`k build` adds one for a renamed page), or delete the entry once nothing needs the URL.
 K8008: Keep the key's name and value shape (add optional fields only), or mark the key `@Breaking("reason")` once its service handles `.unreadable`.
+K8009: Keep the collection's name and value shape (add optional fields and indexes only), or mark it `@Breaking("reason")` once its service handles `.unreadable`; for a new key field, declare a new collection under a new name.
 K8101: Fix the syntax of `k.toml`, and give `[package]` its `name` and `k` keys.
 K8102: Name a member of the workspace, or add the member to the root `k.toml`'s `members`.
 K8103: Create the member's `k.toml`, or remove it from `members`.

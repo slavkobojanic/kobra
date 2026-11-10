@@ -1286,6 +1286,40 @@ server's half: `SignallingRelay` and `iceServers` ([server.md §20](server.md#20
 - **The server half** is `app.js`' `passkeyVerifier` ([server.md, "Passkeys"](server.md#passkeys-passkeyverifier)),
   and the test double `kit.js`' `testAuthenticator` ([testing.md](testing.md)).
 
+### 12.18 Indexed collections
+
+`collections.js` (part `Collections`), a feature chunk, is `k.storage.BrowserCollections`
+([52-indexed-collections.md](../design/52-indexed-collections.md)), constructed by the client entry's `$App`
+for `Collections` as `BrowserCollections(namespace, schema)` ([codegen.md §16](codegen.md)).
+
+- **One database, `k-collections:<namespace>`,** one object store per collection with key path `k`, one
+  index per `CollectionIndex` named after its field with key path `i.<field>`. A record is `{k, i, v}`: `v`
+  the value's JSON text (its codec's form), `k` the key field's key, `i` the key of every key-typed field of
+  the value (absent for `nil`), so an index another build adds finds what this build writes. Keys come from
+  the JSON form by kind: text as is, an `Int` as its number, a `Date` parsed to epoch milliseconds.
+- **Opening** is `indexedDB.open(name)` without a version, then a check that every store and index of the
+  schema exists (in a `readonly` transaction); when one is missing the connection is closed and the database
+  reopened at `version + 1`, whose `upgradeneeded` creates the missing stores and indexes and walks each
+  store that got an index, adding the new keys to each record's `i`. A `VersionError` (another tab upgraded
+  first) reopens without a version. Nothing is ever deleted. The connection closes on `versionchange`, and
+  the next call reopens; a call whose `transaction()` throws because the connection closed meanwhile
+  reopens once.
+- **Members** take the context, the codecs of their two type parameters, then their arguments (`get(c, ck,
+  cv, key, collection)`, `range(c, cf, cv, index, from, to, reversed, limit)`; an omitted optional argument
+  is `undefined`). Each runs one transaction and resolves on `complete`: `get` by `store.get`, `all` by
+  `getAll`, `find` by `index.getAll(IDBKeyRange.only(key))`, `range` by an index cursor (`prev` when
+  reversed) stopped at `limit`, an inverted range being empty without asking; `put`, `putAll` (one
+  transaction), `delete` and `clear` in `readwrite`.
+- **Errors** are `unitCase(0)` (`unavailable`: no IndexedDB, a failed open, an aborted transaction) and
+  `unitCase(1)` (`unreadable` for a value that doesn't decode, which stays stored; `quotaExceeded` for an
+  abort with `QuotaExceededError`). A panic in a codec stays a panic.
+- **`persistence` and `requestPersistence`** are `navigator.storage.persisted()` and `persist()`, `unitCase(0)`
+  (`persistent`) when true, else `unitCase(1)`, also without the API; **`estimate`** is
+  `navigator.storage.estimate()` as `{usage, quota}` (rounded), `null` without it.
+- **The test double** is `kit.js`' `memoryCollections(schema)`, which reuses `collectionRecord`,
+  `collectionKey`, `collectionValues` and `collectionIndex` from this file, so a test orders and decodes as
+  the browser does ([testing.md](testing.md)).
+
 ## 14. Performance budgets
 
 | Area | Budget | Measured (release, Apple M-series) |

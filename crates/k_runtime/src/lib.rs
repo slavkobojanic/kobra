@@ -178,6 +178,14 @@ pub const PUSH_SIZE_BUDGET: usize = 1536;
 /// (`docs/design/51-passkeys.md`, `docs/compiler/performance.md` §11.3).
 pub const PASSKEYS_SIZE_BUDGET: usize = 1280;
 
+/// The largest `k.storage`'s collections in the browser
+/// ([`Part::Collections`]: `BrowserCollections`) may be, measured like
+/// [`CORE_SIZE_BUDGET`] (2 KB). It ships in its own chunk, only to apps
+/// whose client injects `Collections`
+/// (`docs/design/52-indexed-collections.md`, `docs/compiler/performance.md`
+/// §11.3).
+pub const COLLECTIONS_SIZE_BUDGET: usize = 2048;
+
 /// The largest the service worker `k-sw.js` ([`Part::ServiceWorker`]) may
 /// be, measured like [`CORE_SIZE_BUDGET`] (768 B; 640 B before its `push`
 /// handler, `docs/design/50-push.md`). It is fetched when the app first
@@ -319,6 +327,11 @@ pub enum Part {
     /// its own client chunk, only to apps whose client injects `Passkeys`,
     /// and measured on its own ([`PASSKEYS_SIZE_BUDGET`]).
     Passkeys,
+    /// `k.storage`'s indexed collections in the browser
+    /// (`BrowserCollections`): shipped as its own client chunk, only to
+    /// apps whose client injects `Collections`, and measured on its own
+    /// ([`COLLECTIONS_SIZE_BUDGET`]).
+    Collections,
     /// The service worker `k-sw.js` that shows notifications and opens
     /// their pages: a classic worker script served at the site's root, not
     /// a module of any bundle, emitted for apps that ship
@@ -463,6 +476,7 @@ const MODULES: &[Module] = modules![
     Notifications "runtime/notifications.js",
     Push "runtime/push.js",
     Passkeys "runtime/passkeys.js",
+    Collections "runtime/collections.js",
     ServiceWorker "runtime/sw.js",
     WakeLock "runtime/wakelock.js",
     Environment "runtime/environment.js",

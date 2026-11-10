@@ -63,6 +63,7 @@ mod app;
 mod body;
 mod channels;
 mod check;
+pub mod collections;
 mod cx;
 mod di;
 mod doclinks;

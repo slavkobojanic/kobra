@@ -12,6 +12,7 @@ public page EditNote requires Authenticated {
     @Param let id: Uuid
 
     @Inject let notes: NotesService
+    @Inject let offline: OfflineEdits
 
     /// The note as it was when the page opened.
     @Load let loaded: NoteSummary = try await notes.get(id: id)
@@ -42,6 +43,7 @@ public page EditNote requires Authenticated {
             latest = try await notes.update(note: current, draft: draft)
             conflict = nil
             isSaved = true
+            await offline.discard(note: id)
         } catch .conflict(let newer) {
             conflict = EditConflict(theirs: newer, mine: draft)
         } catch .notFound {
@@ -51,7 +53,12 @@ public page EditNote requires Authenticated {
         } catch .rpcFailure(.rejected) {
             Router.navigate(to: .signIn.returnTo(.editNote(id: id)))
         } catch .rpcFailure(.offline), .rpcFailure(.timeout) {
-            problem = "Couldn't reach K Notes, so this edit wasn't saved. Your text is still here; try again."
+            // Kept in this browser, so closing the tab doesn't lose it.
+            if await offline.keep(note: id, draft: draft) {
+                problem = "Couldn't reach K Notes, so this edit wasn't saved. This browser keeps it until you save it; your text is still here."
+            } else {
+                problem = "Couldn't reach K Notes, so this edit wasn't saved. Your text is still here; try again."
+            }
         }
     }
 
@@ -109,6 +116,8 @@ public page EditNote requires Authenticated {
             .class(.conflict)
             .role(.alert)
         }
+
+        UnsavedEditNotice(noteId: id, save: save)
 
         NoteEditor(draft: loaded.draft(), save: save)
 

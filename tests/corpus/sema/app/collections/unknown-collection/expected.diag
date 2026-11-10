@@ -1,0 +1,3 @@
+error[K2412] src/notes/Drafts.k:8:70-8:77: no `Collection` is named `draft`
+error[K2412] src/notes/Drafts.k:9:75-9:83: the collection `drafts` holds `notes.Draft`, not `notes.Other`
+  label 7:56-7:64: the collection `drafts` is declared here

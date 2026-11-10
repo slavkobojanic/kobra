@@ -78,6 +78,8 @@ public page Notes requires Authenticated at "/" {
         }
         .class(.toolbar)
 
+        UnsavedEditsList()
+
         textField(value: bind filter)
             .label("Filter")
             .placeholder("Search titles, text and tags")

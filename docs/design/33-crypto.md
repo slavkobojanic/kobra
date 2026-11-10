@@ -670,7 +670,7 @@ test VaultService {
 
 *`KeyStore`*
 
-- **`KeyName<K>` is written `let name: KeyName<AesGcmKey> = KeyName(name: "…")`;** K has no explicit type arguments in an initializer call. Names don't join `storage.lock` yet (`storage-lock-writing` is Planned).
+- **`KeyName<K>` is written `let name: KeyName<AesGcmKey> = KeyName(name: "…")`;** K has no explicit type arguments in an initializer call. `k build` writes `storage.lock` now ([52](52-indexed-collections.md#storagelock)), but `KeyName`s aren't recorded in it yet ([52's open questions](52-indexed-collections.md#open-questions)).
 - **`StoragePersistence` is in `k.storage`,** where `requestPersistence()` is to move.
 - **`BrowserKeyStore`** is one IndexedDB database per app (`k-keys:<namespace>`, the storage namespace), one object store, records `{type, handle, pub}`. `put` of an extractable key stores a non-extractable copy, imported again from its wrapped form; the in-memory key of `generateExportable()` stays extractable for the life of the tab. It is in the crypto chunk, because a feature chunk can't import another.
 - **`MemoryKeyStore` has `setPersistence(_:)` and `stopFailing()`;** `persistence` is read-only, as the test doubles' state is.

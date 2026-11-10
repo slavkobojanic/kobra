@@ -43,7 +43,7 @@ library's own doc comments (`crates/k_sema/stdlib`), so they list exactly what t
 | [`k.ui`](stdlib/k-ui.md) | layout (`Stack`, `Grid`, `Spacer`), `VisuallyHidden`, `ErrorBoundary`, `KeyboardShortcut`, `Icon` with a bundled icon set, `Router`, the `Theme` service | accessible widgets: `Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable` |
 | [`k.charts`](stdlib/k-charts.md) | `LineChart`, `LineSeries`, `ChartPoint` and the chart tokens | bar, area, pie and scatter charts |
 | [`k.http`](stdlib/k-http.md) | `HttpClient`, `HttpRequest`, `HttpResponse`, `IncomingRequest`, `HttpStatus`, `HttpError` | WebSocket, server-sent events |
-| [`k.storage`](stdlib/k-storage.md) | typed local storage: `LocalStorage`, `StorageKey`, `BrowserStorage` | IndexedDB collections, session storage, cookies |
+| [`k.storage`](stdlib/k-storage.md) | typed local storage: `LocalStorage`, `StorageKey`, `BrowserStorage`; typed IndexedDB: `Collections`, `Collection`, `CollectionIndex`, `BrowserCollections` | session storage, cookies |
 | [`k.time`](stdlib/k-time.md) | `Clock`, `TimerHandle`, `TimeOfDay`, `TimeZone`, `Weekday` | calendars |
 | [`k.text`](stdlib/k-text.md) | `EmailAddress` | regular expressions, Markdown rendering, slugs |
 | [`k.crypto`](stdlib/k-crypto.md) | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only), `ConstantTime`, the key types (`AesGcmKey`, `Ed25519PrivateKey`, `EcdsaP256PrivateKey`, `X25519PrivateKey` and their public keys and signatures), `Sealed`, `Envelope`, `WrappedKey`, `EnvelopedKey`, `Exportable`, `SharedSecret`, `PassphraseSalt`, `Hkdf`, `OpenError` | |

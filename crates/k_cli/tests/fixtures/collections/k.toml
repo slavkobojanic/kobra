@@ -1,0 +1,8 @@
+# Indexed collections with their test double, `MemoryCollections`
+# (docs/design/52-indexed-collections.md, "Tests"): every test here must
+# pass. `chrome.rs`' collections tests build it with `k build` and serve it
+# statically: values persist across a reload, an upgrade adds an index
+# (`Topics.k.v2`), and two tabs of two builds share one database.
+[package]
+name = "notebook"
+k = "0.1"

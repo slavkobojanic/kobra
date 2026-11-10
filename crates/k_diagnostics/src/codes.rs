@@ -469,6 +469,15 @@ codes! {
     /// Two data channel kinds with different names would share one channel id.
     COLLIDING_DATA_CHANNELS = 2409, "colliding-data-channels", Error,
         "Two `DataChannelKind`s with different names would share one channel id, which both peers derive from the name; rename one.";
+    /// Two collections of the app have the same name, or two indexes the same collection and field.
+    DUPLICATE_COLLECTION = 2410, "duplicate-collection", Error,
+        "Two collections of the app have the same name, or two indexes the same collection and field, so they would share one IndexedDB store or index.";
+    /// A collection's key field or an index's field isn't a stored field of the value type with a key type.
+    INVALID_COLLECTION_FIELD = 2411, "invalid-collection-field", Error,
+        "A collection's `key:` or an index's `field:` must name, as a string literal, a stored field of the value type whose type is the declared key or field type: `String`, `Int`, `Uuid`, `Date` or an enum without payloads.";
+    /// A collection index names no collection of its value type.
+    UNKNOWN_COLLECTION = 2412, "unknown-collection", Error,
+        "A `CollectionIndex` names a collection that no `Collection` of the same value type declares.";
 
     // ---------------------------------------------------------------- annotations, members and reactivity
     /// An annotated field must be declared `let` or `var` as its annotation requires.
@@ -911,6 +920,9 @@ codes! {
     /// A storage key's value type changed incompatibly with `storage.lock`, without `@Breaking`.
     INCOMPATIBLE_STORAGE_KEY = 8008, "incompatible-storage-key", Error,
         "A storage key changed incompatibly with `storage.lock`; stored values would no longer decode.";
+    /// A collection changed incompatibly with `storage.lock`: its value shape or name without `@Breaking`, or its key field.
+    INCOMPATIBLE_COLLECTION = 8009, "incompatible-collection", Error,
+        "A collection changed incompatibly with `storage.lock`; the values users' browsers hold would no longer decode or be found.";
     /// `k.toml` is malformed or lacks a required key.
     INVALID_MANIFEST = 8101, "invalid-manifest", Error,
         "`k.toml` is malformed or lacks a required key.";

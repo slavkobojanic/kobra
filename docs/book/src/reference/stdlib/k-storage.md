@@ -3,16 +3,60 @@
 
 # `k.storage`
 
-Import each declaration by name, for example `import k.storage.BrowserStorage`.
+Import each declaration by name, for example `import k.storage.BrowserCollections`.
 
 | Declaration | Summary |
 |---|---|
+| [`BrowserCollections`](#browsercollections) | The standard [`Collections`](#collections): the browser's IndexedDB, one database per app (`k-collections:<namespace>`), upgraded to the app's collections and indexes on first use (`docs/design/52-indexed-collections.md`, "Versions and upgrades"). |
 | [`BrowserStorage`](#browserstorage) | The standard [`LocalStorage`](#localstorage), built on `window.localStorage`. |
+| [`Collection`](#collection) | A set of `Codable` values in the browser's IndexedDB, keyed by one of their fields (`docs/design/52-indexed-collections.md`): `Collection<Uuid, Draft> = Collection(name: "drafts", key: "id")`. |
+| [`CollectionIndex`](#collectionindex) | A field of a [`Collection`](#collection)'s values to look them up and order them by (`docs/design/52-indexed-collections.md`): `CollectionIndex<Date, Draft> = CollectionIndex(collection: "drafts", field: "savedAt")`. |
+| [`Collections`](#collections) | Typed IndexedDB (`docs/design/52-indexed-collections.md`): reads and writes the [`Collection`](#collection)s an app declares, and queries them by their [`CollectionIndex`](#collectionindex)es. |
 | [`LocalStorage`](#localstorage) | Typed browser local storage (`docs/design/36-local-storage.md`). |
+| [`StorageEstimate`](#storageestimate) | How much storage this origin uses and may use, in bytes, as the browser estimates it (`navigator.storage.estimate()`): rounded and padded, for display rather than for deciding whether a write fits. |
 | [`StorageKey`](#storagekey) | A name paired with the type stored under it: `StorageKey<List<Todo>> = StorageKey(name: "todos")`. |
-| [`StoragePersistence`](#storagepersistence) | Whether the browser may evict this origin's storage ([`k.crypto.KeyStore.requestPersistence()`](k-crypto.md#keystore)). |
+| [`StoragePersistence`](#storagepersistence) | Whether the browser may evict this origin's storage ([`Collections.requestPersistence()`](#collections), [`k.crypto.KeyStore.requestPersistence()`](k-crypto.md#keystore)). |
 | [`StorageReadError`](#storagereaderror) | Why a local-storage read ([`LocalStorage.read`](#localstorage)) failed. |
 | [`StorageWriteError`](#storagewriteerror) | Why a local-storage write ([`LocalStorage.write`](#localstorage)) failed. |
+
+## BrowserCollections
+
+```k,ignore
+@ClientOnly
+public service BrowserCollections implements Collections
+```
+
+The standard [`Collections`](#collections): the browser's IndexedDB, one database per
+app (`k-collections:<namespace>`), upgraded to the app's collections
+and indexes on first use (`docs/design/52-indexed-collections.md`,
+"Versions and upgrades").
+
+**Members**
+
+- `func get<Key, Value>(_ key: Key, from collection: Collection<Key, Value>) async throws StorageReadError -> Value? where Key implements Codable, Value implements Codable`
+  See [`Collections.get(_:from:)`](#collections).
+- `func all<Key, Value>(in collection: Collection<Key, Value>) async throws StorageReadError -> List<Value> where Key implements Codable, Value implements Codable`
+  See [`Collections.all(in:)`](#collections).
+- `func count<Key, Value>(in collection: Collection<Key, Value>) async throws StorageReadError -> Int where Key implements Codable, Value implements Codable`
+  See [`Collections.count(in:)`](#collections).
+- `func find<Field, Value>(_ value: Field, in index: CollectionIndex<Field, Value>) async throws StorageReadError -> List<Value> where Field implements Codable, Value implements Codable`
+  See [`Collections.find(_:in:)`](#collections).
+- `func range<Field, Value>(in index: CollectionIndex<Field, Value>, from: Field? = nil, to: Field? = nil, reversed: Bool = false, limit: Int? = nil) async throws StorageReadError -> List<Value> where Field implements Codable, Value implements Codable`
+  See [`Collections.range(in:from:to:reversed:limit:)`](#collections).
+- `func put<Key, Value>(_ value: Value, into collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  See [`Collections.put(_:into:)`](#collections).
+- `func putAll<Key, Value>(_ values: List<Value>, into collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  See [`Collections.putAll(_:into:)`](#collections).
+- `func delete<Key, Value>(_ key: Key, from collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  See [`Collections.delete(_:from:)`](#collections).
+- `func clear<Key, Value>(_ collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  See [`Collections.clear(_:)`](#collections).
+- `func persistence() async -> StoragePersistence`
+  See [`Collections.persistence()`](#collections).
+- `@UserAction func requestPersistence() async -> StoragePersistence`
+  See [`Collections.requestPersistence()`](#collections).
+- `func estimate() async -> StorageEstimate?`
+  See [`Collections.estimate()`](#collections).
 
 ## BrowserStorage
 
@@ -33,6 +77,124 @@ The standard [`LocalStorage`](#localstorage), built on `window.localStorage`.
   [`LocalStorage.write(key:value:)`](#localstorage).
 - `func remove<T>(key: StorageKey<T>)`
   Removes `key` from `window.localStorage`.
+
+## Collection
+
+```k,ignore
+public struct Collection<Key, Value> where Key implements Codable, Value implements Codable
+```
+
+A set of `Codable` values in the browser's IndexedDB, keyed by one of
+their fields (`docs/design/52-indexed-collections.md`):
+`Collection<Uuid, Draft> = Collection(name: "drafts", key: "id")`.
+Both arguments are string literals: `name` is declared once per app and
+recorded in `storage.lock`, and `key` names a stored field of `Value`
+whose type is exactly `Key` (`String`, `Int`, `Uuid`, `Date` or an enum
+without payloads). Declared as a constant or a field, and read and
+written through [`Collections`](#collections).
+
+**Members**
+
+- `let name: String`
+  The collection's name, unique in the app.
+- `let key: String`
+  The name of the key field.
+
+## CollectionIndex
+
+```k,ignore
+public struct CollectionIndex<Field, Value> where Field implements Codable, Value implements Codable
+```
+
+A field of a [`Collection`](#collection)'s values to look them up and order them by
+(`docs/design/52-indexed-collections.md`):
+`CollectionIndex<Date, Draft> = CollectionIndex(collection: "drafts", field: "savedAt")`.
+Both arguments are string literals: `collection` names a declared
+collection of `Value`s, and `field` a stored field of `Value` of type
+`Field` or `Field?`, which is also the index's name. A value whose field
+is `nil` isn't in the index. Declared as a constant or a field, and
+queried through [`Collections.find(_:in:)`](#collections) and
+[`Collections.range(in:from:to:reversed:limit:)`](#collections).
+
+**Members**
+
+- `let collection: String`
+  The name of the collection.
+- `let field: String`
+  The indexed field's name, which is also the index's.
+
+## Collections
+
+```k,ignore
+@Platform(side: .client)
+public interface Collections
+```
+
+Typed IndexedDB (`docs/design/52-indexed-collections.md`): reads and
+writes the [`Collection`](#collection)s an app declares, and queries them by their
+[`CollectionIndex`](#collectionindex)es. A client-only platform interface;
+[`BrowserCollections`](#browsercollections) is injected with no `use` rule, and
+[`k.test.MemoryCollections`](k-test.md#memorycollections) replaces it in tests. Every call is one
+IndexedDB transaction.
+
+**Members**
+
+- `func get<Key, Value>(_ key: Key, from collection: Collection<Key, Value>) async throws StorageReadError -> Value? where Key implements Codable, Value implements Codable`
+  Reads the value with `key`.
+
+  - Returns: the value, or `nil` when none has the key.
+  - Throws: [`StorageReadError.unavailable`](#storagereaderror) when IndexedDB is blocked,
+    and [`StorageReadError.unreadable`](#storagereaderror) when the stored value doesn't
+    decode as `Value`.
+- `func all<Key, Value>(in collection: Collection<Key, Value>) async throws StorageReadError -> List<Value> where Key implements Codable, Value implements Codable`
+  Reads every value, in key order.
+
+  - Throws: as `get(_:from:)`, `.unreadable` when any stored value
+    doesn't decode.
+- `func count<Key, Value>(in collection: Collection<Key, Value>) async throws StorageReadError -> Int where Key implements Codable, Value implements Codable`
+  Counts the values.
+
+  - Throws: [`StorageReadError.unavailable`](#storagereaderror) when IndexedDB is blocked.
+- `func find<Field, Value>(_ value: Field, in index: CollectionIndex<Field, Value>) async throws StorageReadError -> List<Value> where Field implements Codable, Value implements Codable`
+  Reads the values whose indexed field equals `value`, in key order.
+
+  - Throws: as `all(in:)`.
+- `func range<Field, Value>(in index: CollectionIndex<Field, Value>, from: Field? = nil, to: Field? = nil, reversed: Bool = false, limit: Int? = nil) async throws StorageReadError -> List<Value> where Field implements Codable, Value implements Codable`
+  Reads the values whose indexed field is between `from` and `to`,
+  both inclusive and either open when `nil`, in the field's order
+  (backwards when `reversed`), at most `limit` of them.
+
+  - Throws: as `all(in:)`.
+- `func put<Key, Value>(_ value: Value, into collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  Stores `value`, replacing the value with the same key.
+
+  - Throws: [`StorageWriteError.unavailable`](#storagewriteerror) when IndexedDB is
+    blocked, and [`StorageWriteError.quotaExceeded`](#storagewriteerror) when the origin's
+    quota is used up.
+- `func putAll<Key, Value>(_ values: List<Value>, into collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  Stores every value in one transaction: all of them or none.
+
+  - Throws: as `put(_:into:)`.
+- `func delete<Key, Value>(_ key: Key, from collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  Deletes the value with `key`; deleting a missing key succeeds.
+
+  - Throws: [`StorageWriteError.unavailable`](#storagewriteerror) when IndexedDB is blocked.
+- `func clear<Key, Value>(_ collection: Collection<Key, Value>) async throws StorageWriteError where Key implements Codable, Value implements Codable`
+  Deletes every value of `collection`.
+
+  - Throws: [`StorageWriteError.unavailable`](#storagewriteerror) when IndexedDB is blocked.
+- `func persistence() async -> StoragePersistence`
+  Whether the browser may evict this origin's storage, without asking
+  (`navigator.storage.persisted()`).
+- `@UserAction func requestPersistence() async -> StoragePersistence`
+  Asks the browser not to evict this origin's storage
+  (`navigator.storage.persist()`). Chromium and WebKit answer
+  silently; Firefox asks the person, so this needs a user's action.
+
+  - Returns: what the browser granted.
+- `func estimate() async -> StorageEstimate?`
+  The origin's storage use and quota, or `nil` where the browser
+  doesn't say (`navigator.storage.estimate()`).
 
 ## LocalStorage
 
@@ -63,6 +225,23 @@ client-only platform interface; [`BrowserStorage`](#browserstorage) is injected 
 - `func remove<T>(key: StorageKey<T>)`
   Removes what is stored under `key`. Never throws.
 
+## StorageEstimate
+
+```k,ignore
+public struct StorageEstimate implements Equatable, Codable
+```
+
+How much storage this origin uses and may use, in bytes, as the
+browser estimates it (`navigator.storage.estimate()`): rounded and
+padded, for display rather than for deciding whether a write fits.
+
+**Members**
+
+- `let usage: Int`
+  The bytes the origin's storage uses now.
+- `let quota: Int`
+  The bytes it may use before writes throw `.quotaExceeded`.
+
 ## StorageKey
 
 ```k,ignore
@@ -89,7 +268,7 @@ public enum StoragePersistence implements Equatable
 ```
 
 Whether the browser may evict this origin's storage
-([`k.crypto.KeyStore.requestPersistence()`](k-crypto.md#keystore)).
+([`Collections.requestPersistence()`](#collections), [`k.crypto.KeyStore.requestPersistence()`](k-crypto.md#keystore)).
 
 **Members**
 

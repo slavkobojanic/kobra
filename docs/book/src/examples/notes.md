@@ -19,13 +19,14 @@ notes/
 ├── App.k                   @Layout(AppLayout), @SignInPage(.signIn)
 ├── migrations/             0001_create_accounts_and_notes.k, 0002_add_note_pinning.k,
 │                           0003_add_the_private_vault.k, 0004_add_passkeys.k
-├── schema.lock  routes.lock  rpc.lock
+├── schema.lock  routes.lock  rpc.lock  storage.lock
 └── src/
     ├── accounts/           AccountId, Account, AccountRepository, AuthProtocol, AuthApi,
     │                       AuthService, Credentials, SignUpRequest, SignIn, SignUp,
 │                       Passkey, PasskeyRepository, PasskeyService, PasskeySignUp, PasskeySignIn
     ├── notes/              Note, Tag, repositories, NotesProtocol, NotesApi, NoteChanges,
-    │                       NotesService, NoteDraft, the Notes, NewNote and EditNote pages
+    │                       NotesService, NoteDraft, the Notes, NewNote and EditNote pages,
+    │                       OfflineEdits, UnsavedEdit, UnsavedEditNotice, UnsavedEditsList
     ├── search/             Searchable, an interface with a default method
     ├── shell/              AppLayout, OfflineBanner and NotesTheme
     ├── vault/              Vault, VaultProtocol, VaultApi, VaultService, the PrivateNote page
@@ -153,6 +154,7 @@ do {
     latest = try await notes.update(note: current, draft: draft)
     conflict = nil
     isSaved = true
+    // ...
 } catch .conflict(let newer) {
     conflict = EditConflict(theirs: newer, mine: draft)
 } catch .notFound {
@@ -205,6 +207,33 @@ password: its `passwordHash` is `Password.unusableHash`, which no password match
   reason.
 - `PasskeyService.test.k` signs up, out and in with `TestAuthenticator`, and checks that another site's
   passkey, a dismissed sheet and a cloned passkey's counter are refused.
+
+## Edits kept offline
+
+When a save fails because the device is offline, the edit page keeps the draft in this browser's
+IndexedDB, keyed by the note ([Local storage](../apps/local-storage.md#indexed-collections)). Reopening the
+note, even after closing the browser, offers **Save that edit** or **Discard it**, and the notes list
+shows the newest unsaved edits through the collection's `savedAt` index.
+
+```k
+// examples/notes/src/notes/EditNote.k
+        } catch .rpcFailure(.offline), .rpcFailure(.timeout) {
+            // Kept in this browser, so closing the tab doesn't lose it.
+            if await offline.keep(note: id, draft: draft) {
+                problem = "Couldn't reach K Notes, so this edit wasn't saved. This browser keeps it until you save it; your text is still here."
+            } else {
+                problem = "Couldn't reach K Notes, so this edit wasn't saved. Your text is still here; try again."
+            }
+        }
+```
+
+- **`OfflineEdits` injects `Collections`, so it is client-only,** and the two components that read it,
+  `UnsavedEditNotice` and `UnsavedEditsList`, are `@Rendering(.client)`.
+- **A successful save discards the kept edit;** a newer failed save replaces it, since the note is the key.
+- **The collection is in `storage.lock`,** with its key, its index and the shape of `UnsavedEdit`, so a
+  change that would make kept edits unreadable fails `k check`.
+- `EditNote.test.k` goes offline with `TestConnectivity`, saves, reopens the note and saves the kept edit;
+  `OfflineEdits.test.k` uses `MemoryCollections`.
 
 ## The private vault
 

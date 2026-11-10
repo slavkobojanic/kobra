@@ -1,0 +1,21 @@
+import k.storage.CollectionIndex
+import k.storage.Collections
+
+/// Finding entries by topic, through an index this build adds.
+public service Topics {
+    @Inject let collections: Collections
+
+    private let byTopic: CollectionIndex<String, Entry> = CollectionIndex(collection: "entries", field: "topic")
+
+    /// The entries about `topic`, in key order.
+    func about(_ topic: String) async -> List<Entry> {
+        do {
+            return try await collections.find(topic, in: byTopic)
+        } catch _ {
+            return []
+        }
+    }
+
+    /// Whether this build indexes topics.
+    let isIndexed: Bool = true
+}
