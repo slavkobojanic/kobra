@@ -911,7 +911,7 @@ fn compare(
                     for (n, _, _, optional) in nf {
                         if !optional && !of.iter().any(|f| &f.0 == n) {
                             type_changes.push(format!(
-                                "field `{n}` of `{t}` is new and required; a new field must be optional"
+                                "field `{n}` of `{t}` is new and required; a new field must be optional or have a default"
                             ));
                         }
                     }
@@ -950,7 +950,7 @@ fn compare(
                         for (f, _, optional) in nf {
                             if !optional && !of.iter().any(|g| &g.0 == f) {
                                 type_changes.push(format!(
-                                    "field `{f}` of case `{case}` of `{t}` is new and required; a new field must be optional"
+                                    "field `{f}` of case `{case}` of `{t}` is new and required; a new field must be optional or have a default"
                                 ));
                             }
                         }

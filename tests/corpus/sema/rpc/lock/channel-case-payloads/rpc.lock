@@ -15,6 +15,7 @@ throws = "chat.RoomError"
 [types."chat.ChatCommand"]
 cases = [
     { name = "post", fields = [{ name = "text", type = "String" }] },
+    { name = "pin", fields = [{ name = "id", type = "Int" }] },
     { name = "edit", fields = [{ name = "id", type = "Int" }, { name = "text", type = "String" }] },
     { name = "typing" },
 ]

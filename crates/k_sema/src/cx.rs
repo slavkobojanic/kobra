@@ -1984,7 +1984,10 @@ impl<'p, 'a> Cx<'p, 'a> {
                         .map(|l| l.text().to_owned())
                         .unwrap_or_default(),
                     ty,
-                    has_default: false,
+                    // `case posted(room: String, edited: Bool = false)`: a
+                    // field with a default may be left out (08-types.md,
+                    // "Enums").
+                    has_default: field.children().any(|c| ast::Expr::can_cast(c.kind())),
                     name_range: label.map_or_else(|| field.text_range(), |l| l.text_range()),
                 });
             }

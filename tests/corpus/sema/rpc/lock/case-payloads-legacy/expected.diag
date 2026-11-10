@@ -1,4 +1,4 @@
 error[K8001] src/chat/ChatProtocol.k:4:17-4:29: `chat.ChatProtocol` changed in a way that breaks callers already deployed, without `@Breaking`
   label rpc.lock:7:1-7:32: recorded here
-  note: field `author` of `chat.Message` is new and required; a new field must be optional
+  note: field `author` of `chat.Message` is new and required; a new field must be optional or have a default
   note: keep the recorded shape (adding an rpc, an optional field or an error case is compatible), or mark the protocol `@Breaking("reason")` once no deployed caller relies on it

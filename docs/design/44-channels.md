@@ -369,7 +369,7 @@ Open tabs are deployed clients that may live for days, so a channel's messages a
 
 | Change | `C` (client → server) | `S` (server → client) |
 |---|---|---|
-| add a case, or an optional field | compatible | compatible: an old tab skips a case it doesn't know, and the dev build logs it |
+| add a case, an optional field, or a field with a default ([08-types.md](08-types.md#enums-with-associated-data)) | compatible: the field decodes to `nil` or its default when an old tab leaves it out | compatible: an old tab skips a case it doesn't know, and the dev build logs it; it ignores a field it doesn't know |
 | remove a case | **breaking:** old tabs still send it | compatible: the server stops sending it |
 | add a required field | **breaking** | **breaking** |
 | change a field's type, reuse a number | **breaking** | **breaking** |
@@ -651,7 +651,7 @@ A later step makes `examples/kanban` collaborative (shared boards with live card
 
 - **The unread count is a second channel, the lobby's** (`LobbyProtocol.lobby()`), not the layout's per-account channel the example section above sketched, and not a server stream: it lives on the page that shows it, and a restart brings fresh counts in its snapshot, as a room's does. It merges an all-rooms key and a per-account key of one `Broadcast<String, LobbyEvent>` (`RoomActivity`). Its `C` is `create(name:password:)`, so creating a room is refused over the channel with `LobbyError`.
 - **Counts are kept in the browser between snapshots** from `posted`/`deleted(room:number:author:)` and the server's own count in `read(room:upTo:unread:)`; comparing numbers with `lastRead` makes their order across replicas not matter. "Seen" is applied in a visible tab (`PageVisibility`), sent as `ChatCommand.read(upTo:)`.
-- **The lobby passes on only the rooms the person is a member of** (a private `followed` list per channel, extended by their own `read`s), so a password room's activity reaches nobody else. A sync `Stream.filter` with a side effect on the channel's own state does this; there is no async filter.
+- **The lobby passes on only the rooms the person is a member of** (a private `followed` list per channel, extended by their own `read`s), so a password room's activity reaches nobody else. A sync `Stream.filter` with a side effect on the channel's own state did this, as there was no async filter. **Superseded:** `filter` now takes an async function ([29](29-server-streaming.md#stream-operators)), and the lobby asks the database for each post, so a removal counts at once and the per-channel list is gone.
 - **Moderators are per room** (`Membership.moderator`, the creator first), not the `Role(.moderator)` sketched above: a role is global, and a room's creator moderating it needs no administrator. Every action is checked against the database for each command, so a change on another replica counts at once.
 - **Removing a member** can't close their channel from the server (K5511: a server reads no `Channel` members), so their channel's sending stream passes nothing after their own `removed(name:)`, their `PresenceLease` is left, further commands are refused `removedFromRoom`, and their tab closes the channel. A server-side close of one channel, or `Stream.prefix(while:)`, would say this directly; neither was needed to build it.
 - **A password is given once to a unary rpc**, `unlock(room:password:)` with `requires RateLimit(5.perMinute)`, not as a channel parameter: a channel's `RateLimit` limits opens, which would count every reconnect.

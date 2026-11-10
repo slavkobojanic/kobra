@@ -1,0 +1,1 @@
+returns ["general 3 false someone", "general 4 true ana", "help 1 false someone", "help 2 false bob", "{\"case\":\"posted\",\"room\":\"help\",\"number\":1,\"edited\":false,\"by\":\"someone\"}", "true"]

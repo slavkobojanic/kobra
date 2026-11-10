@@ -1408,11 +1408,20 @@ An asynchronous sequence that is read once, with `for await`
 
 **Members**
 
-- `func filter(_ predicate: (T) -> Bool) -> Stream<T>`
+- `func filter(_ predicate: (T) async -> Bool) -> Stream<T>`
   Returns a stream of the elements for which `predicate` is `true`,
-  computed lazily as they arrive.
-- `func map<U>(_ transform: (T) -> U) -> Stream<U>`
-  Returns a stream of the results of `transform`, computed lazily.
+  computed lazily as they arrive, one at a time and in order.
+  `predicate` may await (a database read); closing the stream cancels
+  the call running.
+- `func map<U>(_ transform: (T) async -> U) -> Stream<U>`
+  Returns a stream of the results of `transform`, computed lazily,
+  one at a time and in order. `transform` may await; closing the
+  stream cancels the call running.
+- `func prefix(while predicate: (T) async -> Bool) -> Stream<T>`
+  Returns a stream of the elements up to the first for which
+  `predicate` is `false`, then ends: that element is dropped, and
+  this stream is closed, so a `Broadcast` subscription is released.
+  `predicate` may await.
 - `func startingWith(_ value: T) -> Stream<T>`
   Returns a stream that yields `value` first, then the elements of
   this one.

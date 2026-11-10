@@ -262,7 +262,7 @@ fn a_program_without_persistence_has_no_database_manifest() {
 
 #[test]
 fn a_migration_that_computes_fails_the_build() {
-    let computing = "migration Computes {\n    func up(schema: Schema) {\n        let name = \"note\"\n        schema.dropTable(name: name)\n    }\n}\n";
+    let computing = "migration Computes {\n    func up(schema: Schema) {\n        if true {\n            schema.dropTable(name: \"note\")\n        }\n    }\n}\n";
     let what = unsupported(generate_files(&[
         ("k.toml", TOML),
         ("src/demo/Note.k", NOTE),
@@ -271,6 +271,42 @@ fn a_migration_that_computes_fails_the_build() {
     ]));
     assert!(what.contains("migrations/0002_computes.k"), "{what}");
     assert!(what.contains("can't run at migration time"), "{what}");
+}
+
+#[test]
+fn a_migration_binds_a_string_once_for_both_dialects() {
+    let binding = "migration Touch {\n    func up(schema: Schema) {\n        let sql = \"UPDATE note SET title = title\"\n        schema.execute(postgres: sql, sqlite: sql)\n    }\n}\n";
+    let out = generate_files(&[
+        ("k.toml", TOML),
+        ("src/demo/Note.k", NOTE),
+        ("migrations/0001_init.k", MIGRATION),
+        ("migrations/0002_touch.k", binding),
+    ])
+    .expect("generates");
+    let db = format!("{:?}", out.database.expect("has a database"));
+    assert!(
+        db.matches("UPDATE note SET title = title").count() >= 2,
+        "{db}"
+    );
+}
+
+#[test]
+fn a_migration_let_of_anything_but_a_plain_string_fails_the_build() {
+    for value in ["\"no\" + \"te\"", "\"{1}\"", "1"] {
+        let computing = format!(
+            "migration Computes {{\n    func up(schema: Schema) {{\n        let name = {value}\n        schema.dropTable(name: \"note\")\n    }}\n}}\n"
+        );
+        let what = unsupported(generate_files(&[
+            ("k.toml", TOML),
+            ("src/demo/Note.k", NOTE),
+            ("migrations/0001_init.k", MIGRATION),
+            ("migrations/0002_computes.k", &computing),
+        ]));
+        assert!(
+            what.contains("binds a plain string literal, so every replay reads the same text"),
+            "{value}: {what}"
+        );
+    }
 }
 
 #[test]

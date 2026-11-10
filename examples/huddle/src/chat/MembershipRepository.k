@@ -14,10 +14,24 @@ public repository MembershipRepository for Membership {
             .list()
     }
 
-    /// A new membership of `member` in `room`, to `insert`; its `key`
-    /// makes a second one throw `.key`.
-    func new(room: String, member: String, moderator: Bool) -> Membership {
-        return Membership(id: Uuid.random(), key: "{room} {member}", room: room, member: member, lastRead: 0, moderator: moderator, removed: false)
+    /// Makes `member` a member of `room`, unless they are one already (a
+    /// second tab joining at the same moment): the membership's unique
+    /// `key` lets the first insert win.
+    func join(room: String, member: String, moderator: Bool) async {
+        do {
+            try await insert(Membership(id: Uuid.random(), key: "{room} {member}", room: room, member: member, lastRead: 0, moderator: moderator, removed: false))
+        } catch .key {
+            // Already a member.
+        }
+    }
+
+    /// Whether `member` is in `room` now: joined, and not removed.
+    func isMember(room: String, member: String) async -> Bool {
+        guard let membership = await find(room: room, member: member) else {
+            return false
+        }
+
+        return not membership.removed
     }
 
     /// The moderators of `room`, by name.

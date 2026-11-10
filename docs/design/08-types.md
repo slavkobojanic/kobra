@@ -36,6 +36,9 @@ enum LoadState<T> {
 
 The stdlib ships `Optional<T>` (written `T?`), `Result<T, E>` and `LoadState<T>`.
 
+- **A payload field may have a default,** as a function parameter may: `case posted(room: String, number: Int, edited: Bool = false)`. Building the case may leave the field out (`.posted(room: "help", number: 3)`), and decoding a message that leaves it out (one from a sender built before the field was added) gives the default, as for a struct's field. So adding a field with a default to a case that a protocol carries is compatible in `rpc.lock`, like adding an optional field ([44-channels.md](44-channels.md#rpclock-and-compatibility)). The default is checked against the field's type, and runs where the case is built or decoded, in the browser and on the server alike.
+- **A pattern still names every field** (`case .posted(let room, _, _)`): a pattern that could leave out defaulted fields would match differently once one is added, and the added field's `_` is a one-line edit the compiler points to. Why defaults rather than only optionals: an optional field makes every reader handle `nil` for a value that always has an obvious one (`edited: false`). **Alternatives:** optional fields only (the old rule; `nil` checks everywhere); a new case for the new shape (two cases for one event, and every `match` gains an arm).
+
 ## match
 
 `match` is exhaustive and is an expression. It works in code and in views.

@@ -12,23 +12,16 @@ public service LobbyApi implements LobbyProtocol {
     @Inject let activity: RoomActivity
     @Inject let session: Session
 
-    /// The rooms whose posts and deletions this channel passes on: the
-    /// ones the person is a member of, so a room's activity never reaches
-    /// anyone who couldn't open it. Per channel, like every field of a
-    /// channel's service.
-    private var followed: List<String> = []
-
     rpc lobby() async throws RpcOnlyError -> Channel<LobbyCommand, LobbyEvent, LobbyError> {
         let me = session.user.id.name
 
         // Subscribe before reading, as for a room.
-        let live = activity.subscribe(member: me).filter { event => passes(event: event) }
+        let live = activity.subscribe(member: me).filter { event => await passes(event: event, me: me) }
         let mine = await memberships.of(member: me)
         var summaries: List<RoomSummary> = []
 
         for room in await rooms.all() {
             if let membership = mine.firstWhere({ m => m.room == room.name and not m.removed }) {
-                followed.append(room.name)
                 summaries.append(RoomSummary(name: room.name, locked: room.passwordHash != nil, lastRead: membership.lastRead, unread: await messages.unread(room: room.name, after: membership.lastRead, for: me)))
             } else {
                 summaries.append(RoomSummary(name: room.name, locked: room.passwordHash != nil, lastRead: 0, unread: nil))
@@ -40,20 +33,17 @@ public service LobbyApi implements LobbyProtocol {
         }
     }
 
-    /// Whether `event` reaches this channel. A `read` is the person's own,
-    /// and means they are a member of its room now.
-    private func passes(event: LobbyEvent) -> Bool {
+    /// Whether `event` reaches `me`'s lobby: a room's posts and deletions
+    /// only while they are a member of it, read from the database for each
+    /// one, so a room's activity never reaches anyone who couldn't open
+    /// it, and a removal on any replica counts at once. A `read` is the
+    /// person's own.
+    private func passes(event: LobbyEvent, me: String) async -> Bool {
         match event {
             case .posted(let room, _, _), .deleted(let room, _, _) {
-                return followed.contains(room)
+                return await memberships.isMember(room: room, member: me)
             }
-            case .read(let room, _, _) {
-                if not followed.contains(room) {
-                    followed.append(room)
-                }
-                return true
-            }
-            case .snapshot, .created {
+            case .snapshot, .created, .read {
                 return true
             }
         }
@@ -81,11 +71,7 @@ public service LobbyApi implements LobbyProtocol {
                 }
 
                 // The creator is in, password or not, as its moderator.
-                do {
-                    try await memberships.insert(memberships.new(room: name, member: creator, moderator: true))
-                } catch .key {
-                    // The room is new: nobody else is a member yet.
-                }
+                await memberships.join(room: name, member: creator, moderator: true)
                 activity.announce(event: .created(room: RoomSummary(name: name, locked: hash != nil, lastRead: 0, unread: nil)))
             }
         }

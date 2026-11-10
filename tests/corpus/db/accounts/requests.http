@@ -92,6 +92,42 @@ connect-protocol-version: 1
 >>> 200
 json {"value": ["outer kept"]}
 
+### a repository catches its own unique violation: a taken email is false
+POST /db_accounts.accounts.AccountsProtocol/Claim
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-0000000000c1", "email": "ada@example.com", "handle": "c1", "name": "C"}
+>>> 200
+json {"value": false}
+
+### and a free one is inserted
+POST /db_accounts.accounts.AccountsProtocol/Claim
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-0000000000c2", "email": "c2@example.com", "handle": "c2", "name": "C"}
+>>> 200
+json {"value": true}
+
+### the bare inherited update throws inside the repository too
+POST /db_accounts.accounts.AccountsProtocol/RenameIfFree
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-0000000000c2", "handle": "ada"}
+>>> 200
+json {"value": false}
+
+### and writes a free handle
+POST /db_accounts.accounts.AccountsProtocol/RenameIfFree
+content-type: application/json
+connect-protocol-version: 1
+
+{"id": "00000000-0000-4000-8000-0000000000c2", "handle": "c2_new"}
+>>> 200
+json {"value": true}
+
 ### a primary-key duplicate is a programmer error: a panic, never a typed case
 POST /db_accounts.accounts.AccountsProtocol/SignUp
 content-type: application/json

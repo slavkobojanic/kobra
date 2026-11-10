@@ -148,6 +148,21 @@ Every repository inherits these, callable from inside it and by the services tha
   ```
 
   On entities without unique fields, writes don't throw.
+- **A repository can catch its own violations.** Inside it, `insert(entity)` and `update(entity)`
+  without a receiver, `self.insert(entity)` and the collection's `memberships.insert(entity)` throw the
+  same `UniqueViolation`, so a duplicate that means "already done" is handled once, where the table's
+  rules live, instead of by every caller:
+
+  ```k
+  // examples/huddle/src/chat/MembershipRepository.k
+  func join(room: String, member: String, moderator: Bool) async {
+      do {
+          try await insert(Membership(id: Uuid.random(), key: "{room} {member}", room: room, member: member, lastRead: 0, moderator: moderator, removed: false))
+      } catch .key {
+          // Already a member.
+      }
+  }
+  ```
 - **`@Version` makes `update` conditional.** On an entity with a `@Version` field, `update(entity)` runs
   `UPDATE … WHERE id = ? AND revision = ?`, increments the field and returns a `Bool`. `false` means the
   row changed since it was read, or no longer exists, so a lost update can't happen silently:
@@ -292,6 +307,19 @@ migration AddNotePinning {
 | `schema.createIndex(table:columns:)` | an index over one or more columns |
 | `schema.insert(into:rows:)` | inserts data rows, each a `Map<String, ColumnValue>` |
 | `schema.execute(postgres:sqlite:)` | raw SQL, written for both databases |
+
+Besides builder calls, `up` may bind a plain string literal with `let`, to write SQL that both databases
+share once:
+
+```k
+// examples/huddle/migrations/0003_create_rooms_and_memberships.k
+let lastNumbers = "UPDATE chat_room SET last_number = (SELECT COALESCE(MAX(number), 0) FROM message WHERE message.room = chat_room.name)"
+schema.execute(postgres: lastNumbers, sqlite: lastNumbers)
+```
+
+Nothing else runs in a migration: the compiler replays every migration against `schema.lock`, and a plain
+literal reads the same in every replay. A `var`, an interpolated or concatenated string, a number or a
+call is `K6004`.
 
 ```k
 // examples/shop/shop/migrations/0001_create_catalog_and_orders.k

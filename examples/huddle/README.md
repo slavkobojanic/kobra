@@ -73,7 +73,7 @@ The lobby (`/`) is a channel too, `LobbyProtocol.lobby()`, opened from the page'
 
 1. **Seen** means shown in a visible tab. After applying each event, `RoomService` sends `ChatCommand.read(upTo:)` with the newest message's number, once per new one, while `PageVisibility.isVisible`; the page sends it again when the tab is shown. The server moves `Membership.lastRead` forward (never back, in one conditional `UPDATE`), counts what is left, and tells the person's lobbies `.read(room:upTo:unread:)`.
 2. **The browser keeps the count** from then on: a post by someone else with a number after `lastRead` adds one, its deletion takes one away, and a `read` replaces the count with the server's. Comparing numbers with `lastRead` makes the order of events from different replicas not matter: a post that arrives after the read that covers it is ignored.
-3. **Only members hear a room's activity**: the lobby's channel passes on posts and deletions of the rooms the person had joined when it opened, and of each room they read from then on, so a password room's messages reach nobody else, not even as a count.
+3. **Only members hear a room's activity**: the lobby's stream passes on a room's posts and deletions only while the person is a member of it, asked of the database for each one by an async `filter`, so a password room's messages reach nobody else, not even as a count, and a removal made through another replica counts at once.
 
 The lobby's form creates a room (`LobbyCommand.create(name:password:)`, refused with `LobbyError.invalidName` or `.nameTaken`), and every lobby lists it at once. The three rooms that came with the app are rows of `chat_room`, inserted by migration `0003`, without a creator.
 

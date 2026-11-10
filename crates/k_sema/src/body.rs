@@ -557,6 +557,49 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
     }
 
+    /// `true` inside a repository's body.
+    fn in_repository(&self) -> bool {
+        self.owner
+            .decl
+            .is_some_and(|d| self.cx.p.decl(d).named_kind() == Some(DeclarationKind::Repository))
+    }
+
+    /// `true` for `notes.insert(note)` (or `insert(all:)`) inside
+    /// `repository NoteRepository for Note` when `Note` has `@Unique`
+    /// fields: the collection's entity writes are the repository's
+    /// inherited ones, which throw the entity's generated `UniqueViolation`
+    /// (19-persistence.md, "Writes"), so the repository can catch it
+    /// itself. That type isn't modelled, so the call throws an unknown
+    /// error, as `self.insert(note)` and a caller's `notes.insert` do.
+    fn collection_write_throws(&self, node: &SyntaxNode) -> bool {
+        let Some(c) = ast::CallExpr::cast(node.clone()) else {
+            return false;
+        };
+        let Some(ast::Expr::MemberExpr(m)) = c.callee() else {
+            return false;
+        };
+        if !m.name().is_some_and(|t| t.text() == "insert") {
+            return false;
+        }
+        let Some(ast::Expr::NameExpr(n)) = m.receiver() else {
+            return false;
+        };
+        let Some(name) = n.name() else {
+            return false;
+        };
+        let Some(query) = self.repository_collection(name.text()) else {
+            return false;
+        };
+        query.args().first().and_then(Ty::decl).is_some_and(|e| {
+            self.cx
+                .p
+                .decl(e)
+                .members
+                .iter()
+                .any(|&f| self.cx.p.member(f).has_annotation("Unique"))
+        })
+    }
+
     /// The query collection a repository sees (sema.md §12.12): `notes` in
     /// `repository NoteRepository for Note`, a `Query<Note>`.
     fn repository_collection(&self, name: &str) -> Option<Ty> {
@@ -3774,6 +3817,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         }
         if let Some(t) = self.repository_collection(name) {
             return t;
+        }
+        // The inherited writes called on the repository itself, as
+        // `self.insert(note)` is (19-persistence.md, "Writes").
+        if matches!(name, "insert" | "update" | "delete") && self.in_repository() {
+            return Ty::Error;
         }
         match self.cx.lookup(self.file(), name) {
             Found::Decl(d) => {
@@ -7646,6 +7694,11 @@ impl<'c, 'p, 'a> Checker<'c, 'p, 'a> {
         kind: CallKind,
     ) -> Ty {
         let (params, ret, is_async, throws, full) = self.instantiate_full(sig, subst);
+        let throws = if self.collection_write_throws(node) {
+            Some(Ty::Error)
+        } else {
+            throws
+        };
         let var_params = self.var_params.take().unwrap_or_default();
         // The expected type fixes the result's variables first.
         if let Some(e) = expected {

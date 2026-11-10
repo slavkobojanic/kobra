@@ -760,9 +760,25 @@ fn enum_decl(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
         } else {
             let mut obj = vec![Prop::KeyValue("$".into(), Expr::Num(tag as f64))];
             let mut ps = Vec::new();
-            for f in &fields {
+            // A field's default fills an omitted argument, and a field a
+            // decoded message leaves out (`codec.rs`).
+            let defaults: Vec<Option<ast::Expr>> =
+                b.g.member_node(c)
+                    .map(|n| {
+                        n.children()
+                            .filter(|f| f.kind() == k_syntax::SyntaxKind::CaseField)
+                            .map(|f| f.children().find_map(ast::Expr::cast))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+            for (i, f) in fields.iter().enumerate() {
                 let pn = mangle(f);
-                ps.push(Param::new(pn.clone()));
+                let default = defaults.get(i).cloned().flatten().map(|e| b.expr(&e));
+                ps.push(Param {
+                    name: pn.clone(),
+                    default,
+                    rest: false,
+                });
                 obj.push(Prop::KeyValue(f.clone(), id(pn)));
             }
             let obj = Expr::Object(obj, false);

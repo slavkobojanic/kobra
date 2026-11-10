@@ -237,7 +237,12 @@ in-memory scan.
 ## 7. Writes, `@Version` and unique violations
 
 - Every repository class gets `$insert($c, e)`, `$insertAll($c, es)`, `$update($c, e)` and `$delete($c, e)`.
-  `repo.insert(x)` on a repository value, and `notes.insert(x)` on the collection inside it, lower to them.
+  `repo.insert(x)` on a repository value, and `notes.insert(x)` on the collection inside it, lower to them,
+  as do `insert(x)`, `update(x)` and `delete(x)` named without a receiver inside it (`db::own_write`: an
+  unresolved name in a repository's body), on `this`. Sema types the receiverless names like the
+  repository's own inherited writes (open, `Ty::Error`), and `notes.insert(x)` on an entity with
+  `@Unique` fields as throwing an unknown error (`Checker::collection_write_throws`), so the repository can
+  `catch .email` itself (design 19, "Writes").
 - `insert(entity)`: one `INSERT`. `insert(all:)`: the build renders multi-row inserts of 64, 16, 4 and 1
   rows; `dbInsertAll` splits the entities greedily over them and runs more than one statement in a
   transaction (a savepoint inside an open one), so it is all or nothing. `update(entity)`: every column
@@ -295,7 +300,9 @@ Reading an unloaded relation panics with the relation's name ("`Note.tags` was n
 
 - **Files** `migrations/NNNN_description.k` hold one `migration` declaration whose `up(schema:)` calls the
   `Schema` builder. `k_codegen::db::migrations` reads the calls (strings, lists, maps and `ColumnValue`s
-  only: a migration can't compute) into `builder::SchemaOp`s, in the order of `schema.lock`'s `migrations`
+  only: a migration can't compute) into `builder::SchemaOp`s, where a name stands for the plain string
+  literal of the nearest `let` before it in `up` (`db::migration_let`, `bound_string`; any other `let` is
+  K6004), in the order of `schema.lock`'s `migrations`
   list (file-name order without a lock), and `builder::Replay` applies them to its model of the schema,
   checking every name against what the earlier migrations created, and renders each migration's
   statements for both dialects (`migrate::Migration { name, sqlite, postgres }`).

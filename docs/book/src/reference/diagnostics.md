@@ -8951,7 +8951,7 @@ error[K6004]: `0002_typo` doesn't replay: there is no table `notes` at this poin
   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ```
 
-**Fix:** Name only the tables, columns and cases the earlier migrations leave, with the schema builder's calls and literal arguments.
+**Fix:** Name only the tables, columns and cases the earlier migrations leave, with the schema builder's calls and literal arguments; bind a repeated string with `let name = "…"`, a plain literal.
 
 ### K6005 `destructive-migration`
 

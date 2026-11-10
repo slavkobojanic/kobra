@@ -62,7 +62,7 @@ public app Shop {
 
 - **A serving app records the shape of each protocol it implements in `rpc.lock`,** in the same way as `storage.lock` for stored data ([30-background-jobs.md](30-background-jobs.md)): the rpcs, the Protobuf field numbers, and the error cases.
 - **`k build` writes `rpc.lock` and `k check` checks the code against it,** like `schema.lock`, which `k migrate` (and `k build`) write and `k check` only compares ([13-tooling.md](13-tooling.md#lockfiles)), so CI catches a contract change nobody built.
-- **`k check` rejects a change that would break callers which are already deployed:** removing an rpc, a field or an error case, changing a field's type, or reusing a field number. The change compiles only when it is marked `@Breaking("reason")`. Adding an rpc, an optional field or an error case is always compatible.
+- **`k check` rejects a change that would break callers which are already deployed:** removing an rpc, a field or an error case, changing a field's type, or reusing a field number. The change compiles only when it is marked `@Breaking("reason")`. Adding an rpc, an optional field, a field with a default (a struct's, or a case payload's) or an error case is always compatible.
 
 ## Tooling
 
@@ -97,7 +97,7 @@ public app Shop {
 **`rpc.lock`**
 
 - **One per serving app**, next to its `k.toml`, recording every protocol its own services implement (the browser-facing ones too, since open tabs are deployed callers): its wire service name (`service`), each rpc's parameters, result and error type, and every struct (fields with Protobuf numbers, plus `reserved` numbers of removed fields) and enum (its cases, each with its payload fields) they carry. The format is in [sema.md §12.16](../compiler/sema.md#1216-lockfiles). It replaces the `protocol.lock` of the earlier design ([13-tooling.md](13-tooling.md#lockfiles)).
-- **Breaking** (`K8001` at the protocol, one note per change, unless `@Breaking`): removing an rpc, a parameter, a field (a struct's, or one of a case's payload) or a case; changing the type of any of them; adding a required parameter or field; changing the protocol's wire name (renaming the project or moving the protocol to another module; a lock without `service` isn't compared); no longer serving a recorded protocol (at the app; delete its entry by hand once no caller remains). **Compatible:** a new rpc, an optional field or parameter, a new case. A type shared by two protocols breaks both.
+- **Breaking** (`K8001` at the protocol, one note per change, unless `@Breaking`): removing an rpc, a parameter, a field (a struct's, or one of a case's payload) or a case; changing the type of any of them; adding a required parameter or field; changing the protocol's wire name (renaming the project or moving the protocol to another module; a lock without `service` isn't compared); no longer serving a recorded protocol (at the app; delete its entry by hand once no caller remains). **Compatible:** a new rpc, an optional or defaulted field (a struct's or a case's) or parameter, a new case. A type shared by two protocols breaks both.
 - **`k build` writes the lock** (creating it, recording compatible additions, and recording a change marked `@Breaking`); `k check` only reads it, so CI catches what a developer didn't build. Field numbers are kept while a field exists, a new field takes the next number after every number used or reserved, and a removed field's number is reserved forever, so a number is never reused.
 
 **Tooling**

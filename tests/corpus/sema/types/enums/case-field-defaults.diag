@@ -1,0 +1,4 @@
+error[K2001] 5:27-5:33: expected `Int`, found `String`
+error[K2003] 9:102-9:102: missing argument(s) `room`
+  fix "Insert the missing arguments" maybe-incorrect
+    edit 9:102-9:102 ", room: <#String#>"

@@ -177,12 +177,17 @@ pub(crate) fn emit_codec(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
             for (tag, &c) in cases.iter().enumerate() {
                 let cname = g.view.member(c).name.clone();
                 let fields = g.case_fields(c);
-                let ptypes: Vec<Type> = g
+                let ptypes: Vec<(Type, bool)> = g
                     .view
                     .member(c)
                     .signature
                     .as_ref()
-                    .map(|s| s.params.iter().map(|p| p.ty.clone()).collect())
+                    .map(|s| {
+                        s.params
+                            .iter()
+                            .map(|p| (p.ty.clone(), p.has_default))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 if fields.is_empty() {
                     enc_cases.push(js::Case {
@@ -199,7 +204,7 @@ pub(crate) fn emit_codec(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                 // Wire keys are quoted (codegen.md §17.3).
                 let mut props = vec![Prop::Quoted("case".into(), js::str(cname.clone()))];
                 let mut dargs = Vec::new();
-                for (f, t) in fields.iter().zip(&ptypes) {
+                for (f, (t, has_default)) in fields.iter().zip(&ptypes) {
                     let c = codec_expr(b, t);
                     props.push(Prop::Quoted(
                         f.clone(),
@@ -208,13 +213,23 @@ pub(crate) fn emit_codec(b: &mut Body<'_, '_>, d: DeclId) -> Vec<Stmt> {
                             vec![member(id("v"), f.clone())],
                         ),
                     ));
-                    dargs.push(call(
+                    let raw = Expr::Index(Box::new(id("j")), Box::new(js::str(f.clone())));
+                    let dec = call(
                         member(c, "decode"),
-                        vec![
-                            Expr::Index(Box::new(id("j")), Box::new(js::str(f.clone()))),
-                            bin("+", id("p"), js::str(format!(".{f}"))),
-                        ],
-                    ));
+                        vec![raw.clone(), bin("+", id("p"), js::str(format!(".{f}")))],
+                    );
+                    // A field with a default that the message leaves out (a
+                    // sender built before it was added) takes the default,
+                    // as a struct's does.
+                    dargs.push(if *has_default && !matches!(t, Type::Optional(_)) {
+                        Expr::Cond(
+                            Box::new(bin("===", raw, Expr::Undefined)),
+                            Box::new(Expr::Undefined),
+                            Box::new(dec),
+                        )
+                    } else {
+                        dec
+                    });
                 }
                 enc_cases.push(js::Case {
                     tests: vec![Expr::Num(tag as f64)],

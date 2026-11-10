@@ -512,7 +512,7 @@ InitDecl      ::= prefix 'init' ParamList ThrowsClause? Block
 RpcDecl       ::= prefix 'rpc' IDENT GenericParamList? ParamList 'async'? ThrowsClause? ReturnType?
                   RequiresClause? WhereClause? Block?
 EnumCase      ::= prefix 'case' IDENT ( '(' ( CaseField ( ',' CaseField )* ','? )? ')' )?
-CaseField     ::= ( IDENT ':' )? Type
+CaseField     ::= ( IDENT ':' )? Type ( '=' Expr )?
 UseDecl       ::= 'use' ( Type | Expr ) 'for' Type ( 'in' Expr ( ',' Expr )* )?   (* see below *)
 ThemeToken    ::= IDENT IDENT ':' Type '=' Expr
 ThemeVariant  ::= 'variant' IDENT ( 'matches' expr_nt )? '{' lines( ThemeOverride ) '}'

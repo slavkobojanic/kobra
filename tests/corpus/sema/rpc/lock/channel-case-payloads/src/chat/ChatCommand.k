@@ -2,6 +2,9 @@
 public enum ChatCommand implements Codable {
     /// Posts a message: a new required field breaks open tabs, which don't send it.
     case post(text: String, clientId: Int)
+    /// Pins a message: a new field with a default is compatible, like an
+    /// optional one, since open tabs that leave it out get the default.
+    case pin(id: Int, forEveryone: Bool = false)
     /// Edits a message: a changed field type breaks.
     case edit(id: String, text: String)
     /// The sender is typing: a new optional field is compatible.

@@ -175,7 +175,25 @@ replica:
 
 Numbers come from a counter on the room, taken in the transaction that stores the message, so a number
 is never reused after a deletion. The lobby's channel passes on only the rooms you are a member of, so a
-password room's activity reaches nobody else.
+password room's activity reaches nobody else. Its stream's `filter` is async and asks the database for
+each post, so a removal made through another replica counts at once:
+
+```k
+// examples/huddle/src/chat/LobbyApi.k
+    private func passes(event: LobbyEvent, me: String) async -> Bool {
+        match event {
+            case .posted(let room, _, _), .deleted(let room, _, _) {
+                return await memberships.isMember(room: room, member: me)
+            }
+            case .snapshot, .created, .read {
+                return true
+            }
+        }
+    }
+```
+
+Joining is `MembershipRepository.join(room:member:moderator:)`, which catches its own table's unique
+violation (`catch .key`): a second tab joining at the same moment keeps the first membership.
 
 ## Moderators and password rooms
 

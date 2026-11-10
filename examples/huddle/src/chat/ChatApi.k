@@ -48,7 +48,7 @@ public service ChatApi implements ChatProtocol {
                 throw RoomError.passwordRequired
             }
 
-            await join(room: name, member: me)
+            await memberships.join(room: name, member: me, moderator: false)
         }
 
         // Subscribe before reading, so a message posted or a person arriving
@@ -98,7 +98,7 @@ public service ChatApi implements ChatProtocol {
             }
         }
 
-        await join(room: room, member: me)
+        await memberships.join(room: room, member: me, moderator: false)
     }
 
     /// Whether `event` still reaches this channel: nothing does after the
@@ -216,16 +216,6 @@ public service ChatApi implements ChatProtocol {
                     events.publish(room: room, event: .removed(name: name))
                 }
             }
-        }
-    }
-
-    /// Makes `member` a member of `room`. A second join (another tab, at
-    /// the same moment) keeps the first.
-    private func join(room: String, member: String) async {
-        do {
-            try await memberships.insert(memberships.new(room: room, member: member, moderator: false))
-        } catch .key {
-            // Already a member.
         }
     }
 

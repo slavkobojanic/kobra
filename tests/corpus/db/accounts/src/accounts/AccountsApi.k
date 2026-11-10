@@ -20,6 +20,21 @@ public service AccountsApi implements AccountsProtocol {
         return await accounts.total()
     }
 
+    rpc claim(id: Uuid, email: String, handle: String, name: String) async throws RpcOnlyError -> Bool {
+        return await accounts.claim(Account(id: id, email: email, handle: handle, name: name))
+    }
+
+    rpc renameIfFree(id: Uuid, handle: String) async throws RpcOnlyError -> Bool {
+        guard let account = await accounts.byId(id) else {
+            return false
+        }
+
+        var renamed = account
+        renamed.handle = handle
+
+        return await accounts.renameIfFree(renamed)
+    }
+
     rpc rename(id: Uuid, handle: String) async throws SignUpError -> String {
         guard let account = await accounts.byId(id) else {
             return "missing"

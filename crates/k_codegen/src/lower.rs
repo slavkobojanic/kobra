@@ -2707,6 +2707,22 @@ impl<'g, 'a> Body<'g, 'a> {
     pub(crate) fn coerce(&mut self, e: Expr, from: &Type, to: &Type) -> Expr {
         let target = to.unwrap_optional();
         let source = from.unwrap_optional();
+        if let (Type::Func(f), Type::Func(g)) = (source, target)
+            && !f.is_async
+            && g.is_async
+            && !matches!(from, Type::Optional(_))
+        {
+            // A synchronous function passed as an async one is called the
+            // way K calls an async function value, with the caller's
+            // context first (codegen.md §8), which it doesn't take.
+            let params: Vec<Param> = (0..f.params.len())
+                .map(|i| Param::new(format!("$a{i}")))
+                .collect();
+            let args = params.iter().map(|p| id(p.name.clone())).collect();
+            let mut all = vec![Param::new("$c")];
+            all.extend(params);
+            return js::arrow(all, call(e, args));
+        }
         if self.g.is(target, self.g.b.error)
             && !self.g.is(source, self.g.b.error)
             && (source.decl().is_some() || matches!(source, Type::Param(_)))

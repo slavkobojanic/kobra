@@ -1409,17 +1409,20 @@ pub(crate) fn awaited(b: &mut Body<'_, '_>, e: &ast::Expr) -> Option<Expr> {
 /// An inherited write on a repository value: `repo.insert(x)`,
 /// `repo.insert(all: xs)`, `repo.update(x)`, `repo.delete(x)`.
 fn repository_write(b: &mut Body<'_, '_>, c: &ast::CallExpr) -> Option<Expr> {
-    let Some(ast::Expr::MemberExpr(m)) = c.callee() else {
-        return None;
+    let (name, recv) = match c.callee()? {
+        ast::Expr::MemberExpr(m) => {
+            let recv = m.receiver()?;
+            let d = b.ty(recv.syntax()).decl()?;
+            if b.g.view.decl(d).named_kind() != Some(DeclarationKind::Repository) {
+                return None;
+            }
+            (m.name()?.text().to_owned(), Some(recv))
+        }
+        // `insert(note)` inside the repository: on itself.
+        ast::Expr::NameExpr(n) if own_write(b, &n) => (n.name()?.text().to_owned(), None),
+        _ => return None,
     };
-    let name = m.name()?.text().to_owned();
     if !matches!(name.as_str(), "insert" | "update" | "delete") {
-        return None;
-    }
-    let recv = m.receiver()?;
-    let rty = b.ty(recv.syntax());
-    let d = rty.decl()?;
-    if b.g.view.decl(d).named_kind() != Some(DeclarationKind::Repository) {
         return None;
     }
     let arg = c.arg_list()?.args().next()?;
@@ -1434,9 +1437,18 @@ fn repository_write(b: &mut Body<'_, '_>, c: &ast::CallExpr) -> Option<Expr> {
         ("update", _) => "$update",
         _ => "$delete",
     };
-    let r = b.expr(&recv);
+    let r = recv.map_or(Expr::This, |r| b.expr(&r));
     let v = b.expr(&value);
     Some(call(member(r, method), vec![b.c_expr(), v]))
+}
+
+/// `true` for an unresolved `insert`, `update` or `delete` named inside a
+/// repository's body: an inherited write on the repository itself.
+fn own_write(b: &Body<'_, '_>, n: &ast::NameExpr) -> bool {
+    n.name().is_some_and(|t| {
+        matches!(t.text(), "insert" | "update" | "delete")
+            && b.g.resolution(b.file, t.text_range()).is_none()
+    }) && current_repository(b).is_some()
 }
 
 /// Lowers a query chain on entity `e` into one registered statement and the
@@ -1716,8 +1728,16 @@ pub(crate) fn unique_fields_of_try(b: &Body<'_, '_>, body: &ast::Block) -> Optio
         let ast::Expr::CallExpr(c) = strip_parens(&inner) else {
             continue;
         };
-        let Some(ast::Expr::MemberExpr(m)) = c.callee() else {
-            continue;
+        let m = match c.callee() {
+            Some(ast::Expr::MemberExpr(m)) => m,
+            // `try await insert(note)` inside the repository.
+            Some(ast::Expr::NameExpr(n))
+                if own_write(b, &n) && n.name().is_some_and(|t| t.text() != "delete") =>
+            {
+                let e = entity(g, current_repository(b)?.1)?;
+                return Some(e.unique_fields().iter().map(|f| f.name.clone()).collect());
+            }
+            _ => continue,
         };
         if !m
             .name()
@@ -2034,7 +2054,62 @@ fn inherited_writes(b: &mut Body<'_, '_>, e: &EntityModel) -> Vec<Function> {
 fn string_arg(e: &ast::Expr) -> Option<String> {
     match strip_parens(e) {
         ast::Expr::StringLit(s) => s.plain_value(),
+        ast::Expr::NameExpr(n) => bound_string(n.syntax(), n.name()?.text()),
         _ => None,
+    }
+}
+
+/// The plain string literal of a migration's `let name = "…"`, for `name`
+/// read at `at`: the nearest such binding before it in the `up` body, the
+/// only statements that bind a name there ([`migration_ops`]).
+fn bound_string(at: &SyntaxNode, name: &str) -> Option<String> {
+    let up = at.ancestors().find(|n| n.kind() == SyntaxKind::FuncDecl)?;
+    let block = up.children().find_map(ast::Block::cast)?;
+    block
+        .statements()
+        .take_while(|s| s.syntax().text_range().end() <= at.text_range().start())
+        .filter_map(|s| match s {
+            ast::Stmt::Let(l) => migration_let(&l).ok(),
+            _ => None,
+        })
+        .filter(|(n, _)| n == name)
+        .last()
+        .map(|(_, v)| v)
+}
+
+/// A `let` of a migration's `up`: its name and string. Only a `let` of a
+/// plain string literal is allowed, so every replay of the migration, on
+/// every machine and in every release, reads the same text
+/// (`docs/design/19-persistence.md`, "Migrations").
+fn migration_let(l: &ast::LetStmt) -> Result<(String, String), String> {
+    let node = l.syntax();
+    let refuse = || {
+        format!(
+            "a migration's `let` binds a plain string literal, so every replay reads the same text; `{}` doesn't",
+            excerpt(node)
+        )
+    };
+    let is_var = node
+        .children_with_tokens()
+        .any(|t| t.kind() == SyntaxKind::VarKw);
+    if is_var || node.children().any(|c| ast::Pattern::can_cast(c.kind())) {
+        return Err(refuse());
+    }
+    let name = node
+        .children_with_tokens()
+        .filter_map(rowan::NodeOrToken::into_token)
+        .find(|t| t.kind() == SyntaxKind::Ident)
+        .ok_or_else(refuse)?;
+    let value = node
+        .children()
+        .find_map(ast::Expr::cast)
+        .ok_or_else(refuse)?;
+    match strip_parens(&value) {
+        ast::Expr::StringLit(s) => s
+            .plain_value()
+            .map(|v| (name.text().to_owned(), v))
+            .ok_or_else(refuse),
+        _ => Err(refuse()),
     }
 }
 
@@ -2431,10 +2506,13 @@ fn migration_ops(root: &SyntaxNode) -> Result<Vec<LocatedOp>, (String, TextRange
                     step_ranges(&c),
                 ));
             }
+            ast::Stmt::Let(l) => {
+                migration_let(&l).map_err(|e| (e, l.syntax().text_range()))?;
+            }
             other => {
                 return Err((
                     format!(
-                        "a migration's `up` only calls the schema builder; `{}` can't run at migration time",
+                        "a migration's `up` only calls the schema builder and binds strings with `let`; `{}` can't run at migration time",
                         excerpt(other.syntax())
                     ),
                     other.syntax().text_range(),

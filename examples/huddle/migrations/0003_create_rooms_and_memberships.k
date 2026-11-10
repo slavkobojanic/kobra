@@ -34,10 +34,8 @@ migration CreateRoomsAndMemberships {
         ])
 
         // Numbers so far were the count plus one, so the newest is the
-        // largest; new messages come after it.
-        schema.execute(
-            postgres: "UPDATE chat_room SET last_number = (SELECT COALESCE(MAX(number), 0) FROM message WHERE message.room = chat_room.name)",
-            sqlite: "UPDATE chat_room SET last_number = (SELECT COALESCE(MAX(number), 0) FROM message WHERE message.room = chat_room.name)"
-        )
+        // largest; new messages come after it. The same SQL runs on both.
+        let lastNumbers = "UPDATE chat_room SET last_number = (SELECT COALESCE(MAX(number), 0) FROM message WHERE message.room = chat_room.name)"
+        schema.execute(postgres: lastNumbers, sqlite: lastNumbers)
     }
 }

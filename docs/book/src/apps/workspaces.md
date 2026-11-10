@@ -248,7 +248,9 @@ fields = [
 `k build` writes it and you commit it; `k check` only reads it, comparing the code with it on every run,
 CI included, the way `schema.lock` is written by `k migrate` and checked by `k check`.
 
-- **Compatible:** adding an rpc, an optional field or parameter, or an error case.
+- **Compatible:** adding an rpc, an optional field or parameter, a field with a default (a struct's, or an
+  enum case's: `case outOfStock(available: Int, restockOn: Date? = nil, notify: Bool = false)`), or an
+  error case.
 - **Breaking:** removing an rpc, a parameter, a field or an error case, changing any of their types, adding
   a required field or parameter (a struct's fields and an enum case's payload fields follow the same
   rules: `case outOfStock(available: Int)` gaining a required `restockOn` breaks), changing the protocol's wire name (recorded as `service`, from the

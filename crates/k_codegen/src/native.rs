@@ -646,6 +646,7 @@ pub(crate) fn method(
         ("k.core.Event", "emit") => Expr::OptCall(Box::new(recv), a),
         ("k.core.Stream", "filter") => rt("streamFilter", vec![recv, f0()]),
         ("k.core.Stream", "map") => rt("streamMap", vec![recv, f0()]),
+        ("k.core.Stream", "prefix") => rt("streamPrefix", vec![recv, f0()]),
         ("k.core.Stream", "startingWith") => rt("streamStartingWith", vec![recv, f0()]),
         ("k.core.Stream", "next") => call(member(recv, "next"), vec![]),
         ("k.core.Url", "appending") => rt("urlAppending", vec![recv, f0()]),

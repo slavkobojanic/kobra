@@ -12,7 +12,7 @@ import { assert, assertDeepEq, assertEq, test, tick } from "k:testing";
 import { rpc, sessionMirror } from "k:runtime";
 import { gateSession } from "k:/runtime/rpc.js";
 import { streamed } from "k:/runtime/streams.js";
-import { PushStream, streamMerge } from "k:/runtime/std.js";
+import { PushStream, streamFilter, streamMap, streamMerge, streamPrefix } from "k:/runtime/std.js";
 
 /** One Connect envelope: flags, big-endian length, the JSON. */
 function envelope(flags, value) {
@@ -238,4 +238,71 @@ test("Stream.merge yields both streams' elements as they arrive and ends after b
   assertEq(await merged.next(), null);
   merged.close();
   assertEq(closed, 2, "closing the merge closes both sources");
+});
+
+test("Stream.filter and Stream.map await an async function, one element at a time, in order", async () => {
+  const src = new PushStream();
+  const order = [];
+  let release;
+  const slow = new Promise((r) => (release = r));
+  // K's async function values take the caller's context first.
+  const kept = streamFilter(src, async (c, v) => {
+    order.push(`check ${v}`);
+    if (v === 1) await slow;
+    return v !== 2;
+  });
+  const out = streamMap(kept, async (c, v) => {
+    order.push(`map ${v}`);
+    return v * 10;
+  });
+  src.push(1);
+  src.push(2);
+  src.push(3);
+  const first = out.next();
+  await tick();
+  assertDeepEq(order, ["check 1"], "the second element waits for the first's call");
+  release();
+  assertEq(await first, 10);
+  assertEq(await out.next(), 30);
+  assertDeepEq(order, ["check 1", "map 1", "check 2", "check 3", "map 3"]);
+});
+
+test("Stream.prefix(while:) ends at the first refused element and closes its source", async () => {
+  const src = new PushStream();
+  let closed = 0;
+  src.close = () => closed++;
+  const small = streamPrefix(src, async (c, v) => v < 3);
+  src.push(1);
+  src.push(2);
+  src.push(3);
+  src.push(4);
+  assertEq(await small.next(), 1);
+  assertEq(await small.next(), 2);
+  assertEq(closed, 0);
+  assertEq(await small.next(), null, "3 is refused and dropped");
+  assertEq(closed, 1, "the source is closed once the prefix ends");
+  assertEq(await small.next(), null, "and the stream stays ended");
+  assertEq(closed, 1);
+});
+
+test("leaving a for await over a derived stream closes its source and cancels the call running", async () => {
+  const src = new PushStream();
+  let closed = 0;
+  src.close = () => closed++;
+  const mapped = streamMap(src, async (c, v) => v);
+  src.push(1);
+  for await (const v of mapped) {
+    assertEq(v, 1);
+    break;
+  }
+  assertEq(closed, 1, "break closed the source through the derived stream");
+  let signal = null;
+  const src2 = new PushStream();
+  const pending = streamFilter(src2, (c) => ((signal = c), new Promise(() => {})));
+  src2.push(1);
+  pending.next();
+  await tick();
+  assert(signal && !signal.aborted, "the call runs with a live context");
+  pending.close();
+  assert(signal.aborted, "closing the stream aborts the call's context");
 });

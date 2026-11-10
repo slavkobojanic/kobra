@@ -250,6 +250,21 @@ enum LoadState<T> {
 [`match`](control-flow.md#match), which is exhaustive, so adding a case shows you every place that must
 handle it.
 
+A payload field can have a default, as a function parameter can. Building the case may leave it out:
+
+```k
+enum RoomEvent implements Codable {
+    case posted(room: String, number: Int, edited: Bool = false)
+}
+
+let event: RoomEvent = .posted(room: "help", number: 3)    // edited: false
+```
+
+Decoding a message without the field gives the default too, so adding a field with a default to a case
+a protocol carries doesn't break tabs or callers already deployed: `rpc.lock` accepts it as it accepts an
+optional field ([`rpc.lock`](../apps/workspaces.md#rpclock-deploys-that-dont-break-callers)). A pattern still names every field,
+`case .posted(let room, _, _)`.
+
 ### Methods on enums
 
 Enums can have methods and computed properties:

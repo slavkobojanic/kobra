@@ -1410,7 +1410,18 @@ fn check_member(cx: &Cx<'_, '_>, decl: DeclId, m: MemberId) {
             checker.finish();
         }
         MemberKind::Case => {
-            let _ = cx.case_sig(m);
+            let sig = cx.case_sig(m);
+            // A payload field's default is checked against its type.
+            let fields = node
+                .children()
+                .filter(|c| c.kind() == SyntaxKind::CaseField);
+            for (field, sp) in fields.zip(sig.params.iter()) {
+                if let Some(default) = field.children().find_map(ast::Expr::cast) {
+                    let mut checker = Checker::new(cx, owner.clone());
+                    checker.check_initializer(&default, Some(&sp.ty));
+                    checker.finish();
+                }
+            }
         }
         _ => {}
     }

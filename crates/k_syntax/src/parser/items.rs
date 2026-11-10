@@ -906,7 +906,7 @@ fn trailing_case_comma(p: &mut Parser<'_>, comma: TextRange, diagnostic: Option<
 }
 
 /// `'(' ( CaseField ( ',' CaseField )* ','? )? ')'` with
-/// `CaseField ::= ( IDENT ':' )? Type`.
+/// `CaseField ::= ( IDENT ':' )? Type ( '=' Expr )?`.
 fn case_fields(p: &mut Parser<'_>) {
     expressions::delimited(
         p,
@@ -919,6 +919,9 @@ fn case_fields(p: &mut Parser<'_>) {
                 p.bump();
             }
             types::ty(p);
+            if p.eat(K::Eq) {
+                expressions::required_expr(p);
+            }
             m.complete(p, K::CaseField);
         },
         types::can_start_type,

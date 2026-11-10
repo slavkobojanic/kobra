@@ -415,6 +415,10 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
   context `$c`** (an `AbortSignal`, or `null` outside any cancellable run). Every call to an async function
   passes the caller's `$c`; effects, loads and handlers create one per run
   ([runtime.md §3.4](runtime.md#34-async-effects-and-cancellation)).
+- **A synchronous function value passed as an async one** (`stream.filter(isVisible)`, a parameter of type
+  `(T) async -> Bool`) is wrapped where it converts (`Body::coerce`): `($c, $a0) => f($a0)`, so it is
+  called as every async function value is, with the context first. A lambda takes its expected type, so
+  it is async already.
 - **A cancelled `await` never resumes.** Every `await e` in K is printed as `await $k.guard($c, e)`, which
   returns a promise that settles like `e` while `$c` is not aborted and never settles after it is.
   (`guard` is elided for awaits whose promise is produced by a runtime primitive that already honours
@@ -1104,7 +1108,9 @@ Wire format: [28-rpc-wire-format.md](../design/28-rpc-wire-format.md) and
   `closed` function; other rpcs have `channel: null`. `Channel(sending:closed:receiving:)` in a handler
   is the plain object `{ sending, closed, receiving }` (`closed` `undefined` when left out), which the
   server runtime pumps ([server.md §20](server.md#20-channels)). `Stream.merge(a, b)` is
-  `$k.streamMerge(a, b)` on both sides.
+  `$k.streamMerge(a, b)` on both sides; `filter`, `map` and `prefix(while:)` are `$k.streamFilter`,
+  `$k.streamMap` and `$k.streamPrefix`, whose function is an async K function value (`f($c, v)`), called
+  by the stream with its own `AbortSignal`, aborted when the stream is closed.
 - **Remote clients** ([40-workspaces-and-services.md](../design/40-workspaces-and-services.md)). The
   server emits `P$remote` for every protocol the app calls in another service and doesn't implement
   (`Gen::remote_protocols`: the targets of `use remote(…) for P` rules and the result types of

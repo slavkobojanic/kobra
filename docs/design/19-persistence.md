@@ -99,6 +99,20 @@ Every repository inherits these, callable from inside it and by the services tha
   }
   ```
 
+- **Inside the repository, its own writes are the same writes.** `insert(note)` and `update(note)` (named without a receiver), `self.insert(note)`, and the collection's `notes.insert(note)` all throw the entity's `UniqueViolation`, so a repository can catch it and offer a write that callers don't each wrap in `do`/`catch`:
+
+  ```k
+  /// Makes `member` a member of `room`, unless they are one already.
+  func join(room: String, member: String) async {
+      do {
+          try await insert(Membership(id: Uuid.random(), key: "{room} {member}", room: room, member: member))
+      } catch .key {
+          // Already a member: the first insert won.
+      }
+  }
+  ```
+
+  Why: the repository is where a table's rules belong, and a duplicate that means "already done" (a second tab joining at the same moment) is one of them. The collection's `insert` used to be typed as never throwing, so the catch was refused as unreachable (`K2302`) while the violation was still thrown at run time, and a bare `insert(note)` didn't resolve (`K1201`). **Alternatives:** an `insertIgnoringDuplicates` write (`INSERT … ON CONFLICT DO NOTHING`; it would hide which unique field collided, and every other mapping, to a typed error of the caller's, still needs the catch); allowing the catch only through `self.insert` (two spellings of one write that behave differently).
 - **`@Version` makes `update` conditional.** On an entity with a `@Version` field, `update(entity)` runs `UPDATE … WHERE id = ? AND revision = ?`, increments the field, and returns `Bool`: `false` means the row changed since it was read (or no longer exists), so a lost update can't happen silently. Reload the entity to see the new version.
 - **Writes don't touch relations.** `update(note)` writes `note`'s own columns, never its `tags`. Related rows are written through their own repository, which keeps every write visible at its call site.
 - **Infrastructure failures panic.** A lost connection, a full disk or a deadlock that can't be retried is not something the calling code can handle, so writes don't declare it ([09-errors.md](09-errors.md#panics)).
@@ -175,6 +189,9 @@ migration AddNotePinning {
 | `schema.insert(into:rows:)` | inserts data rows, each a `Map<String, ColumnValue>` |
 | `schema.execute(postgres:sqlite:)` | runs raw SQL, written for both databases; both are required |
 
+- **An `up` body is builder calls and `let` bindings of plain string literals,** nothing else: `let sql = "UPDATE …"` then `schema.execute(postgres: sql, sqlite: sql)` writes SQL that is the same on both databases once. A bound name may stand anywhere a builder call takes a string (a table name, a column name, SQL). Any other statement, a `var`, or a `let` of anything but a plain string literal (an interpolation, a concatenation, a number, a call) is `K6004`.
+
+  Why: migrations are replayed by the compiler, statically, against `schema.lock`, on every machine and in every release; a plain string literal reads the same in every replay, and the reader of the migration still sees the exact SQL. **Alternatives:** any constant expression, evaluated by the replay (concatenation and interpolation of literals are deterministic too, but each one is a little interpreter to maintain, and SQL assembled from pieces is harder to review); a `schema.execute(sql:)` for both dialects (a second way to write the same call, and it hides that the text must suit both); numbers and booleans (no builder argument needs a repeated one: column options take their value inline).
 - **Column options are chained, and boolean options take their value** ([01-principles.md](01-principles.md)): `.primaryKey(true)`, `.unique(true)`, `.nullable(true)`, `.indexed(true)`, `.references(table:)`, `.defaultValue(…)`.
 - **`.references(table:)` implies an index,** matching the entity rule for foreign keys.
 - **Column types** are a closed enum mapped per database: `.uuid`, `.text`, `.integer`, `.decimal`, `.boolean`, `.timestamp`, `.money`, `.json`, `.enumeration(cases:)`.

@@ -249,7 +249,7 @@ K5514: Declare one rpc per concrete type, or wrap the variants in an enum the rp
 K6001: Use only fields, literals, parameters and the query operators the compiler translates; filter in K after loading if needed.
 K6002: Use a column type (`String`, `Int`, `Bool`, `Double`, `Decimal`, `Money`, `Date`, `Uuid`, an enum without payloads, …) or a `@Relation`.
 K6003: Rename the entity, or set another table name.
-K6004: Name only the tables, columns and cases the earlier migrations leave, with the schema builder's calls and literal arguments.
+K6004: Name only the tables, columns and cases the earlier migrations leave, with the schema builder's calls and literal arguments; bind a repeated string with `let name = "…"`, a plain literal.
 K6005: Mark the migration `@Breaking("reason")`, saying why losing the data is acceptable.
 K6006: Retire the table or column first and drop it in a later release (`k migrate new --drop-retired`); a single-instance app marks the migration `@Breaking("single instance")`.
 K7001: Read `form.value` inside the action passed to `form.handle(…)`.

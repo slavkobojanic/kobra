@@ -2167,28 +2167,35 @@ export class PushStream {
 
 /**
  * The `for await` iterator of a stream: `next()` until it yields `null`;
- * leaving the loop early calls the stream's `close`, when it has one.
+ * leaving the loop early closes the stream and the streams it reads.
  * @param {{next: () => Promise<unknown>, close?: () => void}} s
  * @returns {AsyncIterator<unknown>}
  */
 function iterate(s) {
   return {
     next: () => s.next().then((value) => ({ done: value === null, value })),
-    return: async () => (s.close?.(), { done: true }),
+    return: async () => (closeChain(s), { done: true }),
   };
 }
 
-/** A derived stream that transforms another one lazily. */
+/**
+ * A derived stream that transforms another one lazily, one element at a
+ * time (29-server-streaming.md, "Stream operators"). Its step is K's async
+ * function value with its context first; closing the stream aborts the
+ * step running, and the chain's walk (`closeChain`) closes the source.
+ */
 class MappedStream {
   /**
    * @param {{next: () => Promise<unknown>}} source
-   * @param {(v: any) => {keep: boolean, value: any}} step
+   * @param {(c: AbortSignal, v: any) => any} step resolves `[keep, value]`:
+   *   `keep` is truthy to yield `value`, falsy to skip it, `2` to end
    * @param {unknown[]} [initial]
    */
   constructor(source, step, initial) {
     this.source = source;
     this.step = step;
     this.initial = initial ? initial.slice() : [];
+    this.c = new AbortController();
   }
   /**
    * The next value that the step keeps (initial values first); `null` at the end.
@@ -2197,11 +2204,19 @@ class MappedStream {
   async next() {
     if (this.initial.length) return this.initial.shift();
     for (;;) {
-      const v = await this.source.next();
+      const v = this.ended ? null : await this.source.next();
       if (v === null) return null;
-      const r = this.step(v);
-      if (r.keep) return r.value;
+      const [keep, value] = await this.step(this.c.signal, v);
+      if (keep === 2) {
+        // `prefix(while:)` ended: the source is no longer read.
+        this.ended = true;
+        closeChain(this.source);
+      } else if (keep) return value;
     }
+  }
+  /** Aborts the step running, whose awaits then never resume. */
+  close() {
+    this.c.abort();
   }
   /**
    * Iterates the stream with `for await`.
@@ -2215,21 +2230,31 @@ class MappedStream {
 /**
  * `Stream.filter`.
  * @param {{next: Function}} s
- * @param {(v: any) => boolean} f
+ * @param {(c: AbortSignal, v: any) => Promise<boolean>} f
  * @returns {MappedStream}
  */
 export function streamFilter(s, f) {
-  return new MappedStream(s, (v) => ({ keep: f(v), value: v }));
+  return new MappedStream(s, async (c, v) => [await f(c, v), v]);
 }
 
 /**
  * `Stream.map`.
  * @param {{next: Function}} s
- * @param {(v: any) => any} f
+ * @param {(c: AbortSignal, v: any) => Promise<any>} f
  * @returns {MappedStream}
  */
 export function streamMap(s, f) {
-  return new MappedStream(s, (v) => ({ keep: true, value: f(v) }));
+  return new MappedStream(s, async (c, v) => [1, await f(c, v)]);
+}
+
+/**
+ * `Stream.prefix(while:)`: ends at the first element `f` refuses.
+ * @param {{next: Function}} s
+ * @param {(c: AbortSignal, v: any) => Promise<boolean>} f
+ * @returns {MappedStream}
+ */
+export function streamPrefix(s, f) {
+  return new MappedStream(s, async (c, v) => [(await f(c, v)) || 2, v]);
 }
 
 /**
@@ -2239,7 +2264,7 @@ export function streamMap(s, f) {
  * @returns {MappedStream}
  */
 export function streamStartingWith(s, v) {
-  return new MappedStream(s, (x) => ({ keep: true, value: x }), [v]);
+  return new MappedStream(s, (c, x) => [1, x], [v]);
 }
 
 /**

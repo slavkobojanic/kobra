@@ -470,7 +470,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K6001 | `untranslatable-query` | error | The smallest untranslatable expression. | — |
 | K6002 | `unsupported-column-type` | error | The field's type. | — |
 | K6003 | `reserved-table-prefix` | error | The entity's name token. | — |
-| K6004 | `invalid-migration` | error | The builder call that doesn't replay (the step inside `alterTable` when it is one), or the statement that isn't a builder call; reported by `k_codegen::project_diagnostics` and the build. | — |
+| K6004 | `invalid-migration` | error | The builder call that doesn't replay (the step inside `alterTable` when it is one), or the statement that isn't a builder call or a `let` of a plain string literal; reported by `k_codegen::project_diagnostics` and the build. | — |
 | K6005 | `destructive-migration` | error | The destructive call (`dropColumn` of a retired column, `dropTable` of a retired table, `renameEnumCase`, `removeEnumCase`) in a migration without `@Breaking`; help: add it. | — |
 | K6006 | `live-schema-change` | error | The `dropColumn`, `dropTable`, `renameColumn` or `renameTable` of something no earlier migration retired, without `@Breaking("single instance")`; a note when another reason is given; help: the two-release sequence. | — |
 

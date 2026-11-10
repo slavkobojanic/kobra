@@ -78,7 +78,7 @@ messages it will send and a function that receives the browser's:
                 throw RoomError.passwordRequired
             }
 
-            await join(room: name, member: me)
+            await memberships.join(room: name, member: me, moderator: false)
         }
 
         // Subscribe before reading, so a message posted or a person arriving

@@ -6,6 +6,12 @@ public protocol AccountsProtocol {
     /// Registers an account.
     rpc signUp(id: Uuid, email: String, handle: String, name: String) throws SignUpError -> Int
 
+    /// Registers an account unless its email or handle is taken.
+    rpc claim(id: Uuid, email: String, handle: String, name: String) throws RpcOnlyError -> Bool
+
+    /// Changes a handle unless it is taken.
+    rpc renameIfFree(id: Uuid, handle: String) throws RpcOnlyError -> Bool
+
     /// Changes a handle; a taken one is an error.
     rpc rename(id: Uuid, handle: String) throws SignUpError -> String
 
