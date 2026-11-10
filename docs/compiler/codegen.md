@@ -290,7 +290,7 @@ Structs and collections have value semantics without cloning on assignment:
 
 String interpolation is a template literal whose parts are formatted by type: `String` as is, `Int` by
 `String(n)`, `Double` by `$k.formatDouble`, `Bool` by `String(b)`, optionals by the inner type or `nil`,
-`Secret` as `Secret(•••)`, other types by their generated `T$$text` (two `$`, so a member named `text` can't collide with it). Static parts are printed with
+`Secret` as `Secret(•••)`, an `Error` by the text its box carries ([§7](#7-errors-panics-and-typed-throws)), other types by their generated `T$$text` (two `$`, so a member named `text` can't collide with it). Static parts are printed with
 template-literal escaping (`` ` ``, `\`, `${`).
 
 ### 6.5 Units and calc folding
@@ -357,6 +357,18 @@ collections are not arrays: their calls are SQL ([db.md](db.md)).
   doesn't. A nested such `do` sets both variables. An error type without a declaration (an entity's
   `UniqueViolation`) is `-1`. A body with one error type is unchanged. A value of type `Error` (a
   catch-all over two types) has no tag to test, so matching it against a case is K2312.
+- **A value of type `Error` is a box, `{ error, text }`:** the thrown value and its interpolation text
+  (its case name, as `T$$text` prints it; design 09). The text is computed where the concrete type is
+  known: a catch-all over two types picks it by `$et` (`$et === 7 ? A$$text(e) : B$$text(e)`, an
+  entity's `UniqueViolation` by its field names), and `coerce` boxes a concrete error converted to
+  `Error` (an argument, a `let` with that type, a list element; a non-name operand through a
+  temporary). Interpolating an `Error` reads `.text`, so no runtime code is involved. A returned value
+  isn't coerced (as for interface adapters), so `return E.x` from a function returning `Error` isn't
+  boxed yet.
+- **The catch variable is `e`** (`$eN` when a local or temporary already uses `e`), and it is reserved
+  while its handler is lowered: a K local declared inside the handler, `catch let e` included, is
+  renamed `e$1`, so `catch (e) { const e = e; }` can't happen. The SSR `ErrorBoundary` handler picks
+  its catch variable the same way, as its fallback may read a K local `e`.
 - **Non-K exceptions** (a JS `TypeError` from a bug in the runtime or interop) are wrapped into a panic at
   the boundary that catches them (`$k.toPanic(e)`), never matched as typed errors.
 - `try … else { fallback }` → a `try`/`catch` that returns the fallback for every non-panic error.

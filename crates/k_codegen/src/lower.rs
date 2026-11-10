@@ -94,6 +94,10 @@ pub(crate) struct Body<'g, 'a> {
     /// The JavaScript names taken in each enclosing function scope, so a new
     /// local or temporary never shadows one that is still visible.
     names_in_use: Vec<HashSet<String>>,
+    /// The catch variables of the handlers being lowered, innermost last:
+    /// a K local declared inside a handler never takes one of these names
+    /// (`catch (e) { const e = e; }` is a SyntaxError).
+    catch_vars: Vec<String>,
     /// The counter behind [`Body::fresh`]'s temporary names.
     temp: usize,
     /// The collection locals known to be uniquely owned, which may be mutated
@@ -173,6 +177,7 @@ impl<'g, 'a> Body<'g, 'a> {
             access: HashMap::new(),
             scopes: vec![HashMap::new()],
             names_in_use: vec![HashSet::new()],
+            catch_vars: Vec::new(),
             temp: 0,
             owned: HashSet::new(),
             uses: BTreeSet::new(),
@@ -254,13 +259,23 @@ impl<'g, 'a> Body<'g, 'a> {
         self.names_in_use.iter().any(|s| s.contains(n))
     }
 
-    /// The name of a `catch` variable: `e`, unless a local uses it.
+    /// The name of a `catch` variable: `e`, unless a local uses it. The
+    /// name stays reserved against K locals until [`Body::end_catch`], so
+    /// a binding in the handler (`catch let e`) is renamed instead.
     pub(crate) fn catch_name(&mut self) -> String {
-        if self.name_taken("e") {
+        let n = if self.name_taken("e") {
             self.fresh("e")
         } else {
             "e".to_owned()
-        }
+        };
+        self.catch_vars.push(n.clone());
+        n
+    }
+
+    /// Ends the handler whose catch variable [`Body::catch_name`] returned
+    /// last.
+    pub(crate) fn end_catch(&mut self) {
+        self.catch_vars.pop();
     }
 
     /// Opens a function scope (names may be reused inside it).
@@ -296,7 +311,7 @@ impl<'g, 'a> Body<'g, 'a> {
         let base = mangle(name);
         let mut js = base.clone();
         let mut i = 1;
-        while self.name_taken(&js) {
+        while self.name_taken(&js) || self.catch_vars.contains(&js) {
             js = format!("{base}${i}");
             i += 1;
         }
@@ -720,22 +735,7 @@ impl<'g, 'a> Body<'g, 'a> {
         handler.extend(binds.into_iter().map(|(n, e)| Stmt::Const(n, e)));
         let shown = match &et {
             // What was thrown, by its own type's text.
-            Some(v) => {
-                let mut texts: Vec<(u32, Expr)> = Vec::new();
-                for &d in &types {
-                    let f = self.text_fn(&Type::Named(d, Vec::new()));
-                    texts.push((d.0, call(f, vec![id(&err)])));
-                }
-                let last = texts.pop().map_or(Expr::Null, |(_, t)| t);
-                let text = texts.into_iter().rev().fold(last, |acc, (tag, t)| {
-                    Expr::Cond(
-                        Box::new(bin("===", id(v), Expr::Num(f64::from(tag)))),
-                        Box::new(t),
-                        Box::new(acc),
-                    )
-                });
-                js::arrow(vec![], text)
-            }
+            Some(v) => js::arrow(vec![], self.tagged_error_text(&err, v, &types, None)),
             None => {
                 let f = self.text_fn(&err_ty);
                 js::arrow(vec![], call(f, vec![id(&err)]))
@@ -747,6 +747,7 @@ impl<'g, 'a> Body<'g, 'a> {
             Some(t) => handler.push(Stmt::If(t, vec![matched], Some(vec![missed]))),
             None => handler.push(matched),
         }
+        self.end_catch();
         self.emit(Stmt::Try(body, err, handler));
         let range = pattern
             .as_ref()
@@ -1264,7 +1265,18 @@ impl<'g, 'a> Body<'g, 'a> {
                 }
                 let owner = et.as_ref().and_then(|_| self.pattern_case_owner(p, &types));
                 let ty = owner.map_or_else(|| err_ty.clone(), |d| Type::Named(d, Vec::new()));
-                let (t, b) = self.pattern_test(p, &id(&err), &ty);
+                // `catch let error` over two or more types binds an
+                // `Error`: the thrown value boxed with its text.
+                let value = match &et {
+                    Some(v)
+                        if patterns.len() == 1 && matches!(p, ast::Pattern::BindingPattern(_)) =>
+                    {
+                        let text = self.tagged_error_text(&err, v, &types, unique.as_deref());
+                        error_box(id(&err), text)
+                    }
+                    _ => id(&err),
+                };
+                let (t, b) = self.pattern_test(p, &value, &ty);
                 if t.is_none() {
                     catch_all = true;
                 }
@@ -1358,6 +1370,7 @@ impl<'g, 'a> Body<'g, 'a> {
             }
             handler.extend(otherwise.unwrap_or_default());
         }
+        self.end_catch();
         self.emit(Stmt::Try(try_body, err, handler));
     }
 
@@ -1369,6 +1382,58 @@ impl<'g, 'a> Body<'g, 'a> {
             return None;
         }
         Some(t.and_then(Type::decl).map_or(-1.0, |d| f64::from(d.0)))
+    }
+
+    /// The text of the error caught in `err` inside a `do` over several
+    /// error types, by the type `et` says was thrown: each type's
+    /// interpolation text, the cases of an entity's `UniqueViolation`
+    /// (`unique`, tag `-1`) by name, and an `Error` box's own text.
+    fn tagged_error_text(
+        &mut self,
+        err: &str,
+        et: &str,
+        types: &[DeclId],
+        unique: Option<&[String]>,
+    ) -> Expr {
+        let mut texts: Vec<(f64, Expr)> = Vec::new();
+        for &d in types {
+            let t = Type::Named(d, Vec::new());
+            texts.push((f64::from(d.0), self.text_of(id(err), &t)));
+        }
+        if let Some(fields) = unique {
+            let names = fields.iter().map(|f| js::str(f.clone())).collect();
+            texts.push((
+                -1.0,
+                Expr::Index(Box::new(Expr::Array(names)), Box::new(member(id(err), "$"))),
+            ));
+        }
+        let last = texts.pop().map_or(Expr::Null, |(_, t)| t);
+        texts.into_iter().rev().fold(last, |acc, (tag, t)| {
+            Expr::Cond(
+                Box::new(bin("===", id(et), Expr::Num(tag))),
+                Box::new(t),
+                Box::new(acc),
+            )
+        })
+    }
+
+    /// `x`, of the concrete error type `from`, as an `Error`: boxed with
+    /// its text (codegen.md §7). `x` is read twice, so anything but a
+    /// name goes through a temporary first.
+    fn boxed_error(&mut self, x: Expr, from: &Type) -> Expr {
+        let (pre, v) = if matches!(x, Expr::Ident(_)) {
+            (None, x)
+        } else {
+            let t = self.fresh("t");
+            self.emit(Stmt::Let(t.clone(), None));
+            (Some(js::assign(id(&t), x)), id(t))
+        };
+        let text = self.text_of(v.clone(), from);
+        let boxed = error_box(v, text);
+        match pre {
+            Some(set) => bin(",", set, boxed),
+            None => boxed,
+        }
     }
 
     /// Lowers a `try` operand or a thrown value with `lower`, preceded by
@@ -2167,6 +2232,7 @@ impl<'g, 'a> Body<'g, 'a> {
                 b.value_block(f.syntax(), dest);
             }
         });
+        self.end_catch();
         self.emit(Stmt::Try(body, err, handler));
     }
 
@@ -2508,6 +2574,17 @@ impl<'g, 'a> Body<'g, 'a> {
     pub(crate) fn coerce(&mut self, e: Expr, from: &Type, to: &Type) -> Expr {
         let target = to.unwrap_optional();
         let source = from.unwrap_optional();
+        if self.g.is(target, self.g.b.error)
+            && !self.g.is(source, self.g.b.error)
+            && self.g.is_value_type(source)
+        {
+            // A concrete error passed on as an `Error` keeps its text.
+            if matches!(from, Type::Optional(_)) {
+                let v = self.boxed_error(id("v"), source);
+                return rt("mapOpt", vec![e, js::arrow(vec![Param::new("v")], v)]);
+            }
+            return self.boxed_error(e, source);
+        }
         if target.decl().is_some()
             && target.decl() == self.g.b.codable
             && source.decl() != self.g.b.codable
@@ -3064,6 +3141,9 @@ impl<'g, 'a> Body<'g, 'a> {
         if self.g.is(t, self.g.b.percent) {
             return Expr::Template(vec![TemplatePart::Expr(x), TemplatePart::Text("%".into())]);
         }
+        if self.g.is(t, self.g.b.error) {
+            return member(x, "text");
+        }
         let f = self.text_fn(t);
         match f {
             Expr::Ident(n) if n == "String" => call(id("String"), vec![x]),
@@ -3100,6 +3180,9 @@ impl<'g, 'a> Body<'g, 'a> {
         if let Type::Optional(inner) = t {
             let f = self.text_fn(inner);
             return js::arrow(vec![Param::new("v")], rt("optText", vec![id("v"), f]));
+        }
+        if self.g.is(t, self.g.b.error) {
+            return js::arrow(vec![Param::new("v")], member(id("v"), "text"));
         }
         if let Some(d) = t.decl() {
             if Some(d) == self.g.view.lookup("k.core.Page") {
@@ -5274,6 +5357,18 @@ pub(crate) fn squash(text: &str) -> String {
 /// so a panic is never handled as a typed error.
 pub(crate) fn rethrow_panics() -> Stmt {
     rethrow("e")
+}
+
+/// An `Error` value (codegen.md §7): `{ error, text }`, the thrown value
+/// and its interpolation text, since an enum value doesn't carry its enum.
+fn error_box(error: Expr, text: Expr) -> Expr {
+    Expr::Object(
+        vec![
+            Prop::KeyValue("error".into(), error),
+            Prop::KeyValue("text".into(), text),
+        ],
+        false,
+    )
 }
 
 /// [`rethrow_panics`] for a catch variable named `e`.

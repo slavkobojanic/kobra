@@ -81,6 +81,8 @@ pub(crate) struct Builtins {
     pub decoding_error: Option<DeclId>,
     /// `k.core.Codable`, or `None` when the program's stdlib lacks it.
     pub codable: Option<DeclId>,
+    /// `k.core.Error`, or `None` when the program's stdlib lacks it.
+    pub error: Option<DeclId>,
     /// `k.core.Spacing`, or `None` when the program's stdlib lacks it.
     pub spacing: Option<DeclId>,
     /// `k.core.Radius`, or `None` when the program's stdlib lacks it.
@@ -126,6 +128,7 @@ impl Builtins {
             bytes: core("Bytes"),
             decoding_error: view.lookup("k.http.DecodingError"),
             codable: core("Codable"),
+            error: core("Error"),
             spacing: core("Spacing"),
             radius: core("Radius"),
             font_size: core("FontSize"),

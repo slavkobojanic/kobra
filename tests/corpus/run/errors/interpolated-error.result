@@ -1,0 +1,1 @@
+returns ["denied limited", "failed: unsupported <unsupported>", "failed: denied <denied>", "failed: taken <taken>", "failed: limited <limited>", "ok 5", "malformed malformed [malformed, malformed]", "mismatch mismatch [mismatch, mismatch]", "denied denied [denied, denied]", "<limited> <malformed> nil"]

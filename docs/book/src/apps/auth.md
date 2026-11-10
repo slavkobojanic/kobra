@@ -410,7 +410,7 @@ signs the account in:
 - **One `do` catches the device's errors and the server's.** `PasskeyError` (the sheet was
   dismissed, the browser has no WebAuthn) and your rpc's error enum are different types, and each
   `catch` clause catches its own enum's case. Name the cases: a `catch let error` over both binds an
-  `Error`, whose cases can't be matched (K2312).
+  `Error`, whose cases can't be matched (K2312); interpolated, it prints its case name.
 - **A first-time visitor's challenge doesn't disturb a sign-in.** Fetching options gives a visitor who
   isn't signed in a guest session, with a cookie of its own, so a password sign-in sent at the same
   time stays signed in whichever answer arrives first.

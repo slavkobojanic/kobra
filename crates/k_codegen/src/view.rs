@@ -2655,6 +2655,8 @@ impl Ssr<'_, '_, '_> {
                 let saved = std::mem::take(&mut self.b.stmts);
                 self.nodes(content);
                 let tried = std::mem::take(&mut self.b.stmts);
+                // The fallback may read a K local named `e`.
+                let err = self.b.catch_name();
                 self.b.stmts.push(Stmt::Expr(js::assign(
                     member(member(id("out"), "chunks"), "length"),
                     id(&n),
@@ -2662,8 +2664,9 @@ impl Ssr<'_, '_, '_> {
                 if let Some(f) = fallback {
                     self.nodes(f);
                 }
+                self.b.end_catch();
                 let caught = std::mem::replace(&mut self.b.stmts, saved);
-                self.b.stmts.push(Stmt::Try(tried, "e".into(), caught));
+                self.b.stmts.push(Stmt::Try(tried, err, caught));
                 self.marker("CLOSE");
             }
             VNode::Component(c) => {
