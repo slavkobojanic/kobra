@@ -90,15 +90,14 @@ fn firefox_reports_console_errors_and_keeps_the_page_off_the_internet() {
     let fetched =
         ff.eval("fetch('https://example.com/').then((r) => 'answered ' + r.status, (e) => e.name)");
     assert_eq!(fetched, serde_json::json!("TypeError"), "the request fails");
-    let errors = ff.wait("both errors", |f| {
+    // Firefox also logs the blocked fetch as a CORS error, at its own pace.
+    let errors = ff.wait("all three errors", |f| {
         let e = f.errors();
-        (e.len() >= 2).then_some(e)
+        let has = |s: &str| e.iter().any(|m| m.contains(s));
+        (has("a console error") && has("an uncaught one") && has("https://example.com/"))
+            .then_some(e)
     });
-    assert!(
-        errors.iter().any(|e| e.contains("a console error"))
-            && errors.iter().any(|e| e.contains("an uncaught one")),
-        "{errors:?}"
-    );
+    assert!(errors.len() >= 3, "{errors:?}");
     assert_eq!(ff.outside_requests(), ["https://example.com/"]);
     ff.allow_errors();
     drop(ff);

@@ -30,6 +30,10 @@ spec:
       labels:
         app: db
     spec:
+      # Nothing here calls the Kubernetes API. Without this, the token mounted
+      # at /var/run/secrets/kubernetes.io would need a directory inside the
+      # read-only Secret volume at /run/secrets, and the container fails to start.
+      automountServiceAccountToken: false
       containers:
         - name: postgres
           image: postgres:18-alpine

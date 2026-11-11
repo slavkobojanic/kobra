@@ -65,7 +65,9 @@ configuration is needed. Adding server-only code later brings `dist/app` back.
   migrations, then the HTTP listener. A health check therefore fails until the app can actually serve.
 - **On `SIGTERM`** the server stops accepting connections, finishes in-flight requests, stops claiming
   jobs and waits for running ones, for up to `K_SHUTDOWN_GRACE` (25 seconds by default, under Docker's and
-  Kubernetes' 30-second kill timeout). Then it exits `0`.
+  Kubernetes' 30-second kill timeout). Then it exits `0`. On Kubernetes, wait a few seconds before
+  `SIGTERM` with a `preStop` sleep, so the pod has left every node's routing first
+  ([Kubernetes on kind](#kubernetes-on-kind)).
 - Logs go to standard output as JSON lines.
 - **Each worker's memory is limited.** `K_WORKER_HEAP_MB` (256 by default) caps each worker isolate's
   JavaScript heap. A worker that reaches it is replaced alone: its requests in flight answer `503` with
@@ -249,13 +251,23 @@ use `imagePullPolicy: IfNotPresent`. The operational commands are the built serv
 | Retry one | `kubectl --namespace k-shop exec deployment/paybox -- /app jobs retry <id>` |
 | Remove everything | `kind delete cluster --name k-shop` |
 
-Each pod drains for up to `K_SHUTDOWN_GRACE` (25 s) after `SIGTERM`, within its 30-second termination
-grace period, so a rolling restart drops no request.
+**A rolling restart drops no request, with a short wait before `SIGTERM`.** Kubernetes takes a stopping
+pod out of its Service at the moment it starts stopping it, and kube-proxy on each node applies that a
+moment later. The server stops accepting connections on `SIGTERM`, so without a wait, connections still
+routed to the old pod are refused: on a kind cluster, about fifteen health checks of several thousand
+failed during one `kubectl rollout restart`. The Deployments therefore give each container a
+`preStop` `sleep` of 5 seconds (the kubelet's own action; the image has no shell to run `sleep`), and a
+35-second `terminationGracePeriodSeconds` that covers it plus the 25-second drain. The pods also set
+`automountServiceAccountToken: false`: nothing in them calls the Kubernetes API, and the API token's
+mount point would otherwise have to be created inside the read-only Secret volume at `/run/secrets`,
+which stops the container from starting.
 
 **The deployment is checked against the build.** `dist/app config` is the complete list of what an app
 reads, so a test can hold the deployment files to it: the K repository's `crates/k_cli/tests/deploy.rs`
 builds the workspace and fails when a container misses a required variable, sets a variable the app
-doesn't read (a typo), passes a secret as a plain variable, or pairs the services' tokens wrongly.
+doesn't read (a typo), passes a secret as a plain variable, or pairs the services' tokens wrongly. A
+second test, `crates/k_cli/tests/kubernetes.rs`, applies the manifests to a throwaway kind cluster and
+places, pays and restarts its way through the shop.
 
 ## Static hosting
 

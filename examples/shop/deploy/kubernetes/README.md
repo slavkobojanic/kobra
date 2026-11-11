@@ -20,8 +20,10 @@ Mailpit, paybox and two shop pods, with no account anywhere. Every command runs 
 
 Secrets never appear in the manifests. `create-secrets.sh` makes three Secrets from the files
 `scripts/init-secrets.sh` generates, and each pod mounts its Secret at `/run/secrets`, where the
-`NAME_FILE` variables of `config.yaml` point, exactly as with Docker Compose. `cargo test -p k_cli --test
-deploy` checks that these manifests give every container what its `dist/app config` lists.
+`NAME_FILE` variables of `config.yaml` point, exactly as with Docker Compose. In the K repository,
+`cargo test -p k_cli --test it -- deploy::` checks that these manifests give every container what its
+`dist/app config` lists, and `K_KIND=1 cargo test -p k_cli --test it -- kubernetes:: --test-threads 1`
+runs this walkthrough on a throwaway kind cluster.
 
 ## Walkthrough
 
@@ -99,9 +101,15 @@ Sign in at http://localhost:8080/sign-in as `admin@shop.example` with the passwo
 | A new release | rebuild, `kind load docker-image …`, delete the migration Jobs, `kubectl apply --kustomize deploy/kubernetes`, `kubectl --namespace k-shop rollout restart deployment/paybox deployment/shop` |
 | Remove everything | `kind delete cluster --name k-shop` |
 
-Each pod drains for up to `K_SHUTDOWN_GRACE` (25 s) after `SIGTERM`, within its 30-second termination
-grace period, so a rolling restart drops no request. A shop pod that stops answering `/health` (its
+A rolling restart drops no request. Each app pod first sleeps 5 seconds (`preStop`), while every node
+stops routing new connections to it, then drains for up to `K_SHUTDOWN_GRACE` (25 s) after `SIGTERM`,
+within its 35-second termination grace period. Without the sleep, connections that kube-proxy still
+sent to a pod that had stopped accepting were refused. A shop pod that stops answering `/health` (its
 database is unreachable) leaves the Service until it recovers.
+
+No pod mounts a Kubernetes API token (`automountServiceAccountToken: false`): nothing calls the API, and
+the token's mount point, `/var/run/secrets/kubernetes.io`, would have to be created inside the read-only
+Secret volume at `/run/secrets`, which keeps the container from starting.
 
 ## Beyond a local cluster
 

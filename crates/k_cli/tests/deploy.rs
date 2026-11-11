@@ -470,9 +470,14 @@ fn script_secrets(script: &str) -> BTreeMap<String, BTreeMap<String, String>> {
         if let (Some(name), Some(spec)) = (&current, line.strip_prefix("--from-file=")) {
             let spec = spec.trim_end_matches('\\').trim();
             let (key, path) = spec.split_once('=').expect("key=path");
+            // The files are read from the script's directory argument,
+            // `secrets/` unless the kind smoke test passes its own.
+            let path = path
+                .strip_prefix("\"$dir\"/")
+                .map_or_else(|| path.to_owned(), |file| format!("secrets/{file}"));
             out.get_mut(name)
                 .expect("the current secret")
-                .insert(key.to_owned(), path.to_owned());
+                .insert(key.to_owned(), path);
         }
         if !line.ends_with('\\') {
             current = None;
@@ -560,6 +565,15 @@ fn kubernetes_gives_every_container_what_its_dist_app_reads() {
             .unwrap_or_default()
             .to_owned();
         let pod = &d["spec"]["template"]["spec"];
+        // Found on a kind cluster: with the API token mounted, the kubelet
+        // must create /var/run/secrets/kubernetes.io inside the read-only
+        // Secret volume at /run/secrets, and the container never starts.
+        // Nothing here calls the Kubernetes API, so no pod gets a token.
+        assert_eq!(
+            pod["automountServiceAccountToken"].as_bool(),
+            Some(false),
+            "{name}: automountServiceAccountToken: false"
+        );
         let volumes: BTreeMap<String, &Yaml> = pod["volumes"]
             .as_vec()
             .into_iter()
@@ -630,6 +644,28 @@ fn kubernetes_gives_every_container_what_its_dist_app_reads() {
                     .collect()
             };
             if kind(d) == "Deployment" {
+                // Found on a kind cluster: `serve` stops accepting on
+                // SIGTERM, before kube-proxy has taken the pod out of the
+                // Service, so a rollout refused connections. A preStop
+                // sleep covers that, and the grace period covers the sleep
+                // plus the drain (K_SHUTDOWN_GRACE, 25 s unless set).
+                let sleep = c["lifecycle"]["preStop"]["sleep"]["seconds"]
+                    .as_i64()
+                    .unwrap_or(0);
+                assert!(
+                    (3..=15).contains(&sleep),
+                    "{name}: a preStop sleep of a few seconds, before SIGTERM"
+                );
+                let drain = env
+                    .get("K_SHUTDOWN_GRACE")
+                    .map_or(Some(25), |g| g.trim_end_matches('s').parse::<i64>().ok())
+                    .unwrap_or_else(|| panic!("{name}: K_SHUTDOWN_GRACE in seconds"));
+                let grace = pod["terminationGracePeriodSeconds"].as_i64().unwrap_or(30);
+                assert!(
+                    grace > sleep + drain,
+                    "{name}: terminationGracePeriodSeconds {grace} must exceed the \
+                     preStop sleep ({sleep} s) plus the drain ({drain} s)"
+                );
                 replicas.insert(
                     (*app).to_owned(),
                     d["spec"]["replicas"].as_i64().unwrap_or(1),

@@ -30,11 +30,17 @@ spec:
       labels:
         app: shop
     spec:
+      # Nothing here calls the Kubernetes API. Without this, the token mounted
+      # at /var/run/secrets/kubernetes.io would need a directory inside the
+      # read-only Secret volume at /run/secrets, and the container fails to start.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
         runAsGroup: 65532
-      terminationGracePeriodSeconds: 30
+      # The preStop sleep (5 s), then `serve` draining for up to
+      # K_SHUTDOWN_GRACE (25 s) after SIGTERM, with room to spare.
+      terminationGracePeriodSeconds: 35
       containers:
         - name: shop
           image: k-shop:local
@@ -46,6 +52,16 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          # Kubernetes takes a stopping pod out of the Service as it starts
+          # stopping it, and kube-proxy on each node applies that a moment
+          # later. `serve` stops accepting connections on SIGTERM, so without
+          # this wait before SIGTERM a rollout refuses connections still routed
+          # here (the kind smoke test saw it). The image has no shell, so the
+          # wait is the kubelet's own `sleep` action (Kubernetes 1.30+).
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
           volumeMounts:
             - name: secrets
               mountPath: /run/secrets

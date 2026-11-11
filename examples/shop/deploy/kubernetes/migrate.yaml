@@ -25,6 +25,10 @@ spec:
       labels:
         app: paybox-migrate
     spec:
+      # Nothing here calls the Kubernetes API. Without this, the token mounted
+      # at /var/run/secrets/kubernetes.io would need a directory inside the
+      # read-only Secret volume at /run/secrets, and the container fails to start.
+      automountServiceAccountToken: false
       restartPolicy: OnFailure
       securityContext:
         runAsNonRoot: true
@@ -62,6 +66,10 @@ spec:
       labels:
         app: shop-migrate
     spec:
+      # Nothing here calls the Kubernetes API. Without this, the token mounted
+      # at /var/run/secrets/kubernetes.io would need a directory inside the
+      # read-only Secret volume at /run/secrets, and the container fails to start.
+      automountServiceAccountToken: false
       restartPolicy: OnFailure
       securityContext:
         runAsNonRoot: true
