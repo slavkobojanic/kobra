@@ -39,6 +39,7 @@
 
 use crate::apps;
 use crate::cdp;
+use crate::engines;
 use crate::page;
 
 use std::time::{Duration, Instant};
@@ -2160,172 +2161,22 @@ fn shop_keeps_the_cart_in_step_across_tabs() {
     drop(first);
 }
 
-/// How many random inputs each side of the crypto differential seals and
-/// signs for the other.
-const CRYPTO_ROUNDS: usize = 400;
-
-/// Runs `body` on the server's `ops` backend: a fresh isolate with the
-/// runtime's `crypto.js` as `c`, `codecs`, `hex` and `bin`, returning the
-/// JSON text `body` assigns to `out`.
-fn crypto_on_ops(body: &str) -> Value {
-    let mut e = k_server::Engine::new(k_server::EngineOptions {
-        timeout: Some(Duration::from_secs(60)),
-        ..Default::default()
-    })
-    .expect("an isolate");
-    let code = format!(
-        "import * as c from \"k:/runtime/crypto.js\";\n\
-         import {{ cryptoOps }} from \"k:/runtime/crypto-ops.js\";\n\
-         import {{ codecs }} from \"k:runtime\";\n\
-         c.useOps(cryptoOps(Deno.core.ops));\n\
-         const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, \"0\")).join(\"\");\n\
-         const bin = (h) => Uint8Array.from(h.match(/../g) ?? [], (x) => parseInt(x, 16));\n\
-         let out = null;\n\
-         {body}\n\
-         Deno.core.ops.op_k_set_result(JSON.stringify(out));\n"
-    );
-    let text = e.run_main(&code).expect("runs").expect("a result");
-    serde_json::from_str(&text).expect("JSON")
-}
-
-/// `k.crypto` in real Chrome (33-crypto.md, "Testing"): the `subtle`
-/// backend, Web Crypto, passes the same published vectors as the server's
-/// `ops` backend (`crypto-vectors.js` over `crypto-vectors.json`: NIST
-/// AES-GCM, RFC 5869, 8032, 7748 and 9180, and a Wycheproof subset; and the
-/// key-format, RSA and JOSE vectors: RFC 7515 and 8037, Wycheproof RSA,
-/// JWS, JWK sets and X25519 JWK and PEM), and
-/// each side opens and verifies what the other sealed and signed on
-/// random inputs: `Sealed` under one AES key, Ed25519 and ECDSA P-256
-/// signatures, and `Envelope`s to each other's X25519 key. The runtime's
-/// files are served as they are written; the other side is an isolate of
-/// the server's runtime in this process.
+/// `k.crypto` in real Chrome (33-crypto.md, "Testing"): the vectors on
+/// Web Crypto and the differential against the server's `ops` backend
+/// ([`engines::crypto_matches_the_vectors_and_the_ops_backend`], which
+/// `firefox.rs` runs on Firefox).
 #[test]
 fn crypto_subtle_matches_the_vectors_and_the_ops_backend() {
     let dir = Scratch::new("crypto");
-    let site = dir.0.join("site");
-    let js = repo().join("crates/k_runtime/js");
-    for sub in ["runtime", "tests"] {
-        std::fs::create_dir_all(site.join(sub)).unwrap();
-    }
-    for entry in std::fs::read_dir(js.join("runtime")).unwrap().flatten() {
-        std::fs::copy(entry.path(), site.join("runtime").join(entry.file_name())).unwrap();
-    }
-    for name in ["crypto-vectors.js", "crypto-vectors.json"] {
-        std::fs::copy(js.join("tests").join(name), site.join("tests").join(name)).unwrap();
-    }
-    std::fs::write(
-        site.join("index.html"),
-        "<!doctype html><title>crypto</title>",
-    )
-    .unwrap();
-    let host = crate::static_host::StaticHost::start(&site);
-    let mut tab = tab!(dir);
-    tab.open(&format!("http://localhost:{}/index.html", host.addr.port()));
-    let prelude = "const c = await import('/runtime/crypto.js'); \
-                   const { codecs } = await import('/runtime/std.js'); \
-                   const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join(''); \
-                   const bin = (h) => Uint8Array.from(h.match(/../g) ?? [], (x) => parseInt(x, 16));";
+    engines::crypto_matches_the_vectors_and_the_ops_backend(&dir, page::chrome);
+}
 
-    // The vectors, on Web Crypto.
-    let failures = tab.eval(&format!(
-        "(async () => {{ {prelude} \
-           if (c.backend() !== c.subtle) return ['the browser picked ' + c.backend().name]; \
-           const {{ checkVectors, checkJoseVectors }} = await import('/tests/crypto-vectors.js'); \
-           const v = await (await fetch('/tests/crypto-vectors.json')).json(); \
-           return [...(await checkVectors(c, c.subtle, v)), ...(await checkJoseVectors(c, c.subtle, v))]; }})()"
-    ));
-    let failures: Vec<&str> = failures
-        .as_array()
-        .expect("a list")
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
-    assert!(
-        failures.is_empty(),
-        "{} vector(s) failed on Web Crypto:\n{}",
-        failures.len(),
-        failures.join("\n")
-    );
-
-    // The differential: one AES key both sides import, and each side's
-    // own signing and agreement keys.
-    let aes = "8f0e5d2c7b1a4f3e9d8c7b6a5f4e3d2c1b0a99887766554433221100ffeeddcc";
-    let browser = tab.eval(&format!(
-        "(async () => {{ {prelude} \
-           globalThis.$keys = {{ aes: await c.subtle.fromRaw('AesGcmKey', bin('{aes}'), false), \
-             ed: await c.Ed25519PrivateKey$generate(null), ec: await c.EcdsaP256PrivateKey$generate(null), \
-             x: await c.X25519PrivateKey$generate(null) }}; \
-           return {{ x: c.X25519PrivateKey$publicKey($keys.x) }}; }})()"
-    ));
-    let browser_x = browser["x"]
-        .as_str()
-        .expect("the browser's X25519 key")
-        .to_owned();
-    // The server's half: seals, signs and seals to the browser.
-    let produce = |rand: &str| {
-        format!(
-            "const items = []; \
-             for (let i = 0; i < {CRYPTO_ROUNDS}; i++) {{ \
-               const msg = {rand}(i % 257); const ctx = {rand}(i % 7); \
-               items.push({{ msg: hex(msg), ctx: hex(ctx), \
-                 sealed: await c.AesGcmKey$seal(keys.aes, null, codecs.bytes, msg, ctx), \
-                 ed: await c.Ed25519PrivateKey$sign(keys.ed, null, msg), \
-                 ec: await c.EcdsaP256PrivateKey$sign(keys.ec, null, msg), \
-                 env: await c.X25519PublicKey$seal(peerX, null, codecs.bytes, msg, ctx) }}); }}"
-        )
-    };
-    // The checks of the other side's items: the number that failed.
-    let consume = "let failed = []; \
-         for (const [i, t] of theirs.items.entries()) { \
-           const msg = bin(t.msg); const ctx = bin(t.ctx); \
-           try { \
-             if (hex(await c.AesGcmKey$open(keys.aes, null, codecs.bytes, t.sealed, ctx)) !== t.msg) failed.push(i + ' sealed'); \
-             if (!(await c.Ed25519PublicKey$verify(theirs.ed, null, t.ed, msg))) failed.push(i + ' ed25519'); \
-             if (!(await c.EcdsaP256PublicKey$verify(theirs.ec, null, t.ec, msg))) failed.push(i + ' ecdsa'); \
-             if (hex(await c.X25519PrivateKey$open(keys.x, null, codecs.bytes, t.env, ctx)) !== t.msg) failed.push(i + ' envelope'); \
-           } catch (e) { failed.push(i + ' threw ' + JSON.stringify(e?.message ?? e)); } }";
-    let server = crypto_on_ops(&format!(
-        "const keys = {{ aes: c.ops.fromRaw('AesGcmKey', bin('{aes}'), false), ed: c.TestKeys.ed25519(1), \
-           ec: c.TestKeys.ecdsaP256(1), x: c.TestKeys.x25519(1) }}; \
-         const peerX = {browser_x:?}; \
-         {} \
-         out = {{ ed: c.Ed25519PrivateKey$publicKey(keys.ed), ec: c.EcdsaP256PrivateKey$publicKey(keys.ec), \
-           x: c.X25519PrivateKey$publicKey(keys.x), items }};",
-        produce("c.random")
-    ));
-    // The browser opens and verifies the server's, and makes its own.
-    let browser = tab.eval(&format!(
-        "(async () => {{ {prelude} \
-           const keys = $keys; const theirs = {server}; const peerX = theirs.x; \
-           const random = (n) => crypto.getRandomValues(new Uint8Array(n)); \
-           {consume} \
-           {} \
-           return {{ failed, ed: c.Ed25519PrivateKey$publicKey(keys.ed), ec: c.EcdsaP256PrivateKey$publicKey(keys.ec), items }}; }})()",
-        produce("random")
-    ));
-    let failed = browser["failed"].as_array().expect("a list");
-    assert!(
-        failed.is_empty(),
-        "the browser couldn't open or verify {} of the server's values: {failed:?}",
-        failed.len()
-    );
-    // The server opens and verifies the browser's.
-    let theirs =
-        serde_json::json!({ "ed": browser["ed"], "ec": browser["ec"], "items": browser["items"] });
-    let server = crypto_on_ops(&format!(
-        "const keys = {{ aes: c.ops.fromRaw('AesGcmKey', bin('{aes}'), false), x: c.TestKeys.x25519(1) }}; \
-         const theirs = {theirs}; \
-         {consume} \
-         out = failed;"
-    ));
-    let failed = server.as_array().expect("a list");
-    assert!(
-        failed.is_empty(),
-        "the server couldn't open or verify {} of the browser's values: {failed:?}",
-        failed.len()
-    );
-    drop(tab);
-    drop(host);
+/// The `k.device` bindings in real Chrome (45-web-platform.md, "Tests";
+/// [`engines::web_platform_bindings`], which `firefox.rs` runs on Firefox).
+#[test]
+fn web_platform_bindings_in_chrome() {
+    let dir = Scratch::new("web-platform");
+    engines::web_platform_bindings(&dir, page::chrome);
 }
 
 /// `BrowserKeyStore` in real Chrome (33-crypto.md, "Keeping keys in the
@@ -2490,160 +2341,24 @@ const FAKE_MEDIA: &[&str] = &[
     "--host-resolver-rules=MAP insecure.test 127.0.0.1",
 ];
 
-/// The capturing fixture (`fixtures/capturing`) under `k dev`.
-struct Lab {
-    _k: Proc,
-    origin: String,
-}
-
-/// The capturing fixture under `k dev`, and a Chrome with `flags`.
-fn capture_lab(dir: &Scratch, flags: &[&str]) -> Option<(Tab, Lab)> {
-    let tab = page::chrome_with(&dir.0, flags)?;
-    let fixture =
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/capturing");
-    copy_project(&fixture, &dir.0.join("capturing"));
-    let (k, port) = Proc::serve(
-        &["dev", "."],
-        1,
-        &dir.0.join("capturing"),
-        &[],
-        &[],
-        Duration::from_secs(120),
-    );
-    Some((
-        tab,
-        Lab {
-            _k: k,
-            origin: format!("http://localhost:{port}"),
-        },
-    ))
-}
-
-/// Whether this Chrome opens its fake devices here. On macOS, Chrome asks
-/// the system for the microphone even when it is fake (the fake camera
-/// opens without asking; checked with Chrome's own flags and a fake audio
-/// file, 2026-11), and a process that was never granted it (a terminal or an agent's sandbox
-/// without the permission) waits forever: the tests that need a live
-/// stream are then skipped with a message, unless
-/// `K_REQUIRE_MEDIA=1` (CI) makes them fail.
-fn can_capture(tab: &mut Tab) -> bool {
-    let answer = tab.eval(
-        "Promise.race([navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => (s.getTracks().forEach((t) => t.stop()), 'ok'), (e) => e.name), new Promise((r) => setTimeout(() => r('timeout'), 5000))])",
-    );
-    if answer == json!("ok") {
-        return true;
-    }
-    assert!(
-        std::env::var("K_REQUIRE_MEDIA").as_deref() != Ok("1"),
-        "K_REQUIRE_MEDIA=1 but Chrome's fake devices answered {answer}"
-    );
-    eprintln!(
-        "skipped: Chrome's fake devices answered {answer} (on macOS, the process that runs the tests needs camera and microphone access); this part did not run"
-    );
-    false
-}
-
-/// Clicks the lab's button `name` and waits for its status line to start
-/// with `expected`.
-fn lab_click(tab: &mut Tab, name: &str, expected: &str) -> String {
-    let button = tab.role("button", name);
-    tab.wait_handles_click(&button);
-    tab.click(&button);
-    tab.wait(
-        &format!("the status after {name:?} to start with {expected:?}"),
-        |t| {
-            let status = t.eval("document.querySelector('[role=status]')?.innerText ?? ''");
-            let text = status.as_str().unwrap_or_default().to_owned();
-            text.starts_with(expected).then_some(text)
-        },
-    )
-}
-
-/// The `CaptureError` rows Chrome can be made to produce (46, "Errors"),
-/// through the production `BrowserMediaDevices`: before any answer the
-/// permission is `prompt`, so a capture is `.notAsked` without calling the
-/// browser; a refused permission is `.denied`, and `requestAccess` answers
-/// it without prompting; an `http` origin other than `localhost` is
-/// `.unsupported`, with `isSupported` false; and once allowed, a chosen
-/// device that isn't there is `.notFound` (Chrome's `OverconstrainedError`
-/// on `deviceId`), where this Chrome can open its fake devices.
+/// The `CaptureError` rows Chrome can be made to produce (46, "Errors";
+/// [`engines::media_capture_errors`], which `firefox.rs` runs on Firefox):
+/// `.notAsked`, `.denied` (`Browser.setPermission`), `.unsupported` and,
+/// where this Chrome opens its fake devices, `.notFound` (Chrome's
+/// `OverconstrainedError` on `deviceId`).
 #[test]
 fn media_capture_errors_in_chrome() {
     let dir = Scratch::new("media-errors");
-    let Some((mut tab, lab)) = capture_lab(&dir, FAKE_DEVICES) else {
-        return;
-    };
-    tab.open(&format!("{}/", lab.origin));
-    tab.wait_text("supported");
-    lab_click(&mut tab, "Capture", "capture failed: notAsked");
-    for name in ["microphone", "camera"] {
-        tab.cdp.call(
-            "Browser.setPermission",
-            json!({ "origin": lab.origin, "permission": { "name": name }, "setting": "denied" }),
-        );
-    }
-    tab.reload();
-    tab.wait_text("supported");
-    lab_click(&mut tab, "Ask", "access denied");
-    lab_click(&mut tab, "Capture", "capture failed: denied");
-    let insecure = lab.origin.replace("localhost", "insecure.test");
-    tab.open(&format!("{insecure}/"));
-    tab.wait_text("unsupported");
-    lab_click(&mut tab, "Capture", "capture failed: unsupported");
-    for name in ["microphone", "camera"] {
-        tab.cdp.call(
-            "Browser.setPermission",
-            json!({ "origin": lab.origin, "permission": { "name": name }, "setting": "granted" }),
-        );
-    }
-    tab.open(&format!("{}/", lab.origin));
-    tab.wait_text("supported");
-    if can_capture(&mut tab) {
-        lab_click(&mut tab, "Capture", "captured 1 audio");
-        lab_click(&mut tab, "Capture missing", "capture failed: notFound");
-    }
-    drop(tab);
+    engines::media_capture_errors(&dir, |s| page::chrome_with(s, FAKE_DEVICES));
 }
 
 /// `.voice`, `.audio` and `.video` each record two seconds of Chrome's fake
-/// devices in their WebM form, and the file, played back in a `video`
-/// element, decodes to about two seconds (46, "Recording").
+/// devices in their WebM form (46, "Recording";
+/// [`engines::media_records_each_named_format`]).
 #[test]
 fn media_records_each_named_format_in_chrome() {
     let dir = Scratch::new("media-record");
-    let Some((mut tab, lab)) = capture_lab(&dir, FAKE_MEDIA) else {
-        return;
-    };
-    tab.open(&format!("{}/", lab.origin));
-    tab.wait_text("supported");
-    if !can_capture(&mut tab) {
-        return;
-    }
-    lab_click(&mut tab, "Ask", "access granted");
-    for (button, media) in [
-        ("Record voice", "audio/webm"),
-        ("Record audio", "audio/webm"),
-        ("Record video", "video/webm"),
-    ] {
-        let status = lab_click(&mut tab, button, "recorded");
-        assert_eq!(
-            status,
-            format!("recorded {media} recording.webm"),
-            "{button}"
-        );
-        // The player renders a moment after the status line. MediaRecorder's
-        // WebM has no duration in its header: seeking past the end makes
-        // Chrome scan the file and report it.
-        let duration = tab.eval(
-            "(async () => { for (let i = 0; i < 100 && !document.querySelector('video[aria-label=Playback]'); i++) await new Promise((r) => setTimeout(r, 50)); const v = document.querySelector('video[aria-label=Playback]'); if (v.readyState < 1) await new Promise((r) => v.addEventListener('loadedmetadata', r, { once: true })); if (!Number.isFinite(v.duration)) { v.currentTime = 1e9; await new Promise((r) => v.addEventListener('durationchange', r, { once: true })); } return v.duration; })()",
-        );
-        let seconds = duration.as_f64().unwrap_or(0.0);
-        assert!(
-            (1.5..3.5).contains(&seconds),
-            "{button}: the recording decodes to {seconds} s"
-        );
-    }
-    drop(tab);
+    engines::media_records_each_named_format(&dir, |s| page::chrome_with(s, FAKE_MEDIA));
 }
 
 /// The memos example (46, "Example apps") under `k dev`: the first click
@@ -2667,7 +2382,7 @@ fn memos_records_a_memo_and_plays_it_back() {
     );
     tab.open(&format!("http://localhost:{port}/"));
     tab.wait_text("No memos yet.");
-    if !can_capture(&mut tab) {
+    if !engines::can_capture(&mut tab) {
         return;
     }
     let record = tab.role("button", "Record");
@@ -2697,7 +2412,7 @@ fn memos_records_a_memo_and_plays_it_back() {
 /// the two tabs of a call take turns in front, and Chrome otherwise pauses
 /// a background tab's video. The calls send video only: on macOS headless
 /// Chrome's fake microphone waits for a system permission the test process
-/// may not have (`can_capture`), while the fake camera opens.
+/// may not have (`engines::can_capture`), while the fake camera opens.
 const FAKE_CALL: &[&str] = &[
     "--use-fake-device-for-media-stream",
     "--use-fake-ui-for-media-stream",

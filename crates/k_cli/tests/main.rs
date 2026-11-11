@@ -11,6 +11,9 @@
 #[path = "support/apps.rs"]
 mod apps;
 #[allow(clippy::panic, clippy::unwrap_used, dead_code)]
+#[path = "support/bidi.rs"]
+mod bidi;
+#[allow(clippy::panic, clippy::unwrap_used, dead_code)]
 #[path = "support/cdp.rs"]
 mod cdp;
 #[allow(clippy::panic, clippy::unwrap_used, dead_code)]
@@ -51,8 +54,10 @@ mod compose;
 mod debugging;
 mod deploy;
 mod dist_browser;
+mod engines;
 mod example_checks;
 mod examples;
+mod firefox;
 mod lsp;
 mod new;
 mod perf_budget;

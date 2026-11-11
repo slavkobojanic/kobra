@@ -265,7 +265,12 @@ impl Cdp {
             {
                 let m = self.backlog.remove(i).unwrap_or(Value::Null);
                 return match m.get("error") {
-                    Some(e) => Err(format!("{method}: {e}")),
+                    // WebDriver BiDi ([`super::bidi`]) says what went wrong
+                    // in `message`, beside the error's code.
+                    Some(e) => Err(match m.get("message").and_then(Value::as_str) {
+                        Some(why) => format!("{method}: {e}: {why}"),
+                        None => format!("{method}: {e}"),
+                    }),
                     None => Ok(m.get("result").cloned().unwrap_or(Value::Null)),
                 };
             }

@@ -38,7 +38,7 @@ Contents:
 | Release builds | `crates/k_codegen/tests/release.rs`, `crates/k_codegen/src/{minify,link,shorten}.rs` (unit) | Every example's release client: named runtime imports, a runtime chunk with only what the app reaches, a source map per chunk, no chunk naming a file that isn't shipped, `walk` paths, quoted wire keys, short CSS names that agree across CSS, markup and SSR, `modulepreload` lists, and each app's gzip budget from performance.md §11.7 ([codegen.md §17.1–17.6](codegen.md#171-release-linking-named-runtime-imports-and-a-shaken-runtime)) |
 | Examples | `crates/k_cli/tests/examples.rs` | Each example builds with `k build`, its `dist/app` serves its main page and an rpc (§8.1) |
 | Browser | `crates/k_server/tests/browser.rs` | Each example's main pages, server-rendered, hydrated by the generated client in the fake DOM and driven through DOM events (§4.3) |
-| Real browser | `crates/k_cli/tests/chrome.rs`, `crates/k_cli/tests/example_checks.rs` | Each example as its README runs it, in headless Chrome over the DevTools protocol: real input, layout, styles, fonts and focus; and the examples' setup scripts and configuration files (§4.4) |
+| Real browser | `crates/k_cli/tests/chrome.rs`, `crates/k_cli/tests/firefox.rs`, `crates/k_cli/tests/engines.rs`, `crates/k_cli/tests/example_checks.rs` | Each example as its README runs it, in headless Chrome over the DevTools protocol: real input, layout, styles, fonts and focus; the stdlib's crypto, web-platform and media bindings on both Chromium and Firefox (over WebDriver BiDi); and the examples' setup scripts and configuration files (§4.4) |
 | End-to-end | `crates/k_cli/tests/`, `tests/e2e/`, `crates/k_server/tests/http/` | The `k` binary, built apps, HTTP (§8) |
 | Compose smoke | `crates/k_cli/tests/compose.rs` | Each example's Docker Compose stack, built and started for real, used over HTTP and torn down; only with `K_COMPOSE=1` (§8.6) |
 | Language server | `crates/k_lsp/src/**` (unit), `crates/k_lsp/tests/{server,properties,editors}.rs`, `crates/k_cli/tests/lsp.rs` | The features on fixtures, the server in process, random edits and requests, the editor grammars, and `k lsp` driven over JSON-RPC against the examples (§8.5) |
@@ -1023,8 +1023,8 @@ timers).
   `--use-fake-device-for-media-stream` (and `--use-fake-ui-for-media-stream` where every prompt should be
   answered "Allow"), and map `insecure.test` to loopback for an `http` origin that isn't a secure
   context. They provoke `.notAsked`, `.denied` (`Browser.setPermission`) and `.unsupported` without a
-  live stream; the parts that need one (`.notFound`, recording each named format and decoding it in a
-  `video` element, the memos walkthrough) first check that `getUserMedia` answers within 5 s. On macOS
+  live stream; the parts that need one (`.notFound`, recording each named format, loading it in a
+  `video` element and decoding its audio to about two seconds, the memos walkthrough) first check that `getUserMedia` answers within 5 s. On macOS
   Chrome asks the system for the camera and microphone even when they are fake, and a test process that
   was never granted them waits forever: those parts then print `skipped: …` and pass, unless
   `K_REQUIRE_MEDIA=1` makes them fail.
@@ -1046,6 +1046,36 @@ timers).
   payload; a crash shows `.workerFailure(.crashed)` (its `console.error` excused) and the next count still
   answers. `notes_ranks_the_filtered_notes_in_a_worker_in_chrome` checks the notes filter's ranking and
   that the page loaded `/assets/workers/note-search.<hash>.js`.
+- **Firefox** (`tests/firefox.rs`, `tests/support/bidi.rs`): the stdlib's own bindings run on a second
+  engine, headless Firefox driven over **WebDriver BiDi**, with the checks written once in
+  `tests/engines.rs` against a small `Engine` trait (open, reload, evaluate, a trusted click, set a
+  permission, emulate a position) that `page::Tab` and `bidi::Firefox` both implement; `chrome.rs` runs
+  the same bodies. The shared checks are the crypto vectors on Web Crypto and the differential against
+  the server's `ops` backend (33-crypto.md, "Testing"), the `k.device` bindings (`Clipboard`, `Share`,
+  `Geolocation`, `Notifications`, `TabMessaging`; 45-web-platform.md, "Tests"), imported from
+  `crates/k_runtime/js/runtime` as written, and capturing (`.notAsked`, `.denied`, `.unsupported`,
+  `.notFound`) and recording every named format with fake devices on `tests/fixtures/capturing`
+  (46-media-and-rtc.md, "Testing the stdlib against real browsers"). Where the engines are documented to
+  differ, each engine's answer is asserted: desktop Firefox has no share sheet (`.unsupported`), and a
+  Gecko clipboard write or read without a click is `.denied`. Firefox is found at `K_FIREFOX`, else the
+  usual install locations (`/Applications/Firefox.app/…`, `/usr/bin/firefox`, …); without one each test
+  prints `skipped: no Firefox found …` and passes, and with `K_REQUIRE_FIREFOX=1` (CI) a missing
+  Firefox fails it. Each test starts `firefox --headless --no-remote` with a fresh profile whose
+  `user.js` turns off updates, telemetry, studies, remote settings, safe browsing, captive-portal and
+  connectivity checks, DNS over HTTPS and the new-tab feeds, and sends everything but loopback to a
+  proxy on a closed port, so nothing the browser or the page does reaches the internet; it gives Firefox
+  fake devices (`media.navigator.streams.fake`, and `media.navigator.permission.disabled` where every
+  prompt should be allowed) and resolves `insecure.test` to loopback (`network.dns.localDomains`).
+  `--remote-debugging-port` is a free port in 5200–5999 (Firefox writes no `DevToolsActivePort`); the
+  driver connects to `ws://127.0.0.1:<port>/session` on the same WebSocket client as `cdp.rs` (BiDi's
+  messages have the same `id`/`method`/`params` shape), starts `session.new`, drives the top-level
+  context with `browsingContext.navigate`/`reload` (`wait: "complete"`), `script.evaluate` and
+  `script.callFunction` (values cross as JSON text), `input.performActions` for clicks,
+  `permissions.setPermission` and `emulation.setGeolocationOverride`, and subscribes to
+  `log.entryAdded` and `network.beforeRequestSent`. Dropping it fails the test on a console error, an
+  uncaught exception or a request beyond loopback (`firefox_reports_console_errors_and_keeps_the_page_off_the_internet`
+  checks the driver sees all three), then kills Firefox and its content processes (`ChildGuard`, also
+  on a panic) and removes the profile. The Firefox tests share the `chrome` nextest group.
 - **The protocol client** (`tests/support/cdp.rs`): the DevTools protocol over a WebSocket, both
   written for the tests on `std::net` and `serde_json` (no new dependency: one loopback connection needs
   a masked text frame out and possibly fragmented text frames in). A reader thread forwards responses
@@ -1127,6 +1157,8 @@ bundle, the notes example's ignored files, the READMEs).
 ```text
 cargo test -p k_cli --test it -- chrome::
 K_CHROME=/path/to/chromium K_REQUIRE_CHROME=1 cargo test -p k_cli --test it -- chrome::
+cargo test -p k_cli --test it -- firefox::
+K_FIREFOX=/path/to/firefox K_REQUIRE_FIREFOX=1 K_REQUIRE_MEDIA=1 cargo test -p k_cli --test it -- firefox::
 ```
 
 ### 4.5 Red tests
@@ -1834,7 +1866,9 @@ resume window, `Stream.merge`, session end and shutdown. Each test shortens the 
 through `ServerOptions::channels`.
 - **Real browser:** with a Chrome or Chromium executable available, `crates/k_cli/tests/chrome.rs` drives
   it through the DevTools protocol from Rust (§4.4); the tests skip with a message when no browser is
-  found, unless `K_REQUIRE_CHROME=1`.
+  found, unless `K_REQUIRE_CHROME=1`. `crates/k_cli/tests/firefox.rs` runs the stdlib's crypto,
+  web-platform and media checks (`engines.rs`, shared with `chrome.rs`) on Firefox over WebDriver BiDi,
+  skipped without Firefox unless `K_REQUIRE_FIREFOX=1`.
 - **Example apps:** each app under `examples/` has its own K tests and is built and smoke-tested by the
   e2e suite (§8.1). `k test` runs both sides of them (§8.4), and every example's own tests pass:
   `todos`, `weather`, `notes`, `huddle`, `kanban`, and every member of the workspaces `shop` and `stack`.

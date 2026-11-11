@@ -9,7 +9,8 @@
 #   cargo install cargo-nextest --version 0.9.111 --locked
 nextest-version = { required = "0.9.100", recommended = "0.9.111" }
 
-# Tests that start Chrome. Each headless Chrome is a handful of processes
+# Tests that start Chrome, and the Firefox ones (firefox.rs), which are
+# as heavy. Each headless Chrome is a handful of processes
 # with a GPU and a renderer of its own; more than a few at once starve each
 # other (and the CDP waits time out) without finishing sooner. At 6 the
 # notes sign-up test timed out in full runs on a loaded machine; at 4 it
@@ -58,7 +59,7 @@ not (
 """
 
 [[profile.default.overrides]]
-filter = "package(k_cli) & binary(=it) & test(/^(chrome|example_checks)::/)"
+filter = "package(k_cli) & binary(=it) & test(/^(chrome|example_checks|firefox)::/)"
 test-group = "chrome"
 
 [[profile.default.overrides]]

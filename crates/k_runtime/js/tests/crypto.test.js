@@ -217,6 +217,37 @@ test("signatures verify with their key only, and a configured key forwards", asy
   assertEq(c.EcdsaP256PublicKey$raw(c.EcdsaP256PrivateKey$publicKey(ec)).length, 65);
 });
 
+test("the subtle backend refuses a signature that isn't 64 bytes without asking the browser", async () => {
+  // Gecko's ECDSA verify splits a short P1363 signature in half and can
+  // accept it (Wycheproof's small `r` and `s` cases, found by the
+  // real-Firefox suite); Web Crypto says such a signature is invalid.
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  let asked = 0;
+  const lenient = {
+    importKey: async () => ({}),
+    verify: async () => {
+      asked++;
+      return true;
+    },
+  };
+  Object.defineProperty(globalThis, "crypto", { value: { subtle: lenient }, configurable: true, writable: true });
+  try {
+    const ec = c.EcdsaP256PrivateKey$publicKey(c.TestKeys.ecdsaP256(1));
+    const ed = c.Ed25519PrivateKey$publicKey(c.TestKeys.ed25519(1));
+    const raw = (type, k) => c.fromB64url(k);
+    for (const sig of [Uint8Array.of(5, 1), new Uint8Array(63), new Uint8Array(65), new Uint8Array(0)]) {
+      assertEq(await c.subtle.verify("EcdsaP256PublicKey", raw("EcdsaP256PublicKey", ec), sig, utf8("m")), false, `P-256, ${sig.length} bytes`);
+      assertEq(await c.subtle.verify("Ed25519PublicKey", raw("Ed25519PublicKey", ed), sig, utf8("m")), false, `Ed25519, ${sig.length} bytes`);
+    }
+    assertEq(asked, 0, "the browser was never asked");
+    assert(await c.subtle.verify("EcdsaP256PublicKey", raw("EcdsaP256PublicKey", ec), new Uint8Array(64), utf8("m")), "64 bytes reach the browser");
+    assertEq(asked, 1);
+  } finally {
+    if (saved) Object.defineProperty(globalThis, "crypto", saved);
+    else delete globalThis.crypto;
+  }
+});
+
 test("an ECDSA signature reads from DER", () => {
   const r = new Uint8Array(32).fill(0x11);
   const s = new Uint8Array(32).fill(0x81);

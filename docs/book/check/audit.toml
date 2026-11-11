@@ -461,7 +461,7 @@ commit = "fd61697"
 date = "2026-11-10"
 note = "new with k.media on top of a0e5b2b; its calls section (and title) added with k.rtc against the working tree on top of fd61697, the behaviour checked with `k test` on examples/call, rtc.test.js over the in-process engine, call_deploy.rs, and in Chrome by chrome.rs's rtc_* tests (direct, through a coturn container, glare, replace)"
 unpinned = [
-    "Firefox records WebM and Safari MP4 (only Chromium runs in the real-browser suite; the choice is media.test.js's scripted `isTypeSupported`)",
+    "Safari records MP4 (Chromium and Firefox run in the real-browser suite and both record WebM; WebKit's choice is media.test.js's scripted `isTypeSupported`)",
     "the screen picker and `.cancelled` in a real browser (headless Chrome shows no picker; the double and the scripted error mapping cover it)",
     "`Audio.play(_:)` resolving when the sound ends in a real browser",
     "on a machine where Chrome can't open its fake devices (macOS without camera and microphone access for the test process) the real-browser recording checks are skipped",

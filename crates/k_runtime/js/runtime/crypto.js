@@ -386,6 +386,10 @@ export const subtle = {
     return u8(await S().sign(alg, key.handle, message));
   },
   async verify(type, pub, sig, message) {
+    // Both signatures are 64 bytes (P-256's is P1363's `r ‖ s`). Web Crypto
+    // says any other length is invalid, but Gecko splits a short ECDSA one
+    // in half and can accept it, so it is refused before the browser sees it.
+    if (sig.length !== 64) return false;
     try {
       const alg = type === "Ed25519PublicKey" ? "Ed25519" : { name: "ECDSA", hash: "SHA-256" };
       return await S().verify(alg, await publicKey(type, pub), sig, message);
