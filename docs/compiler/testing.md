@@ -331,7 +331,7 @@ tests/corpus/
 |---|---|---|---|
 | `lexer` | `k_syntax::lex` | `name.tokens` | `name.diag` (lexer diagnostics) |
 | `parser` | `k_syntax::parse` | `name.ast` | `name.diag` (lexer + parser diagnostics) |
-| `sema` | `k_sema::Analysis` over a whole project | — | `name.diag` (every diagnostic), `name.pending`; projects: `expected.diag`, `expected.pending`; caret annotations in the sources (§3.8) |
+| `sema` | `k_sema::Analysis` over a whole project | — | `name.diag` (every diagnostic), `name.fixed` (what `k fix` makes of it), `name.pending`; projects: `expected.diag`, `expected.fixed`, `expected.pending`; caret annotations in the sources (§3.8) |
 | `codegen` | `k_codegen::generate` (profile `Test`) | at least one of `name.client.js`, `name.server.js`, `name.css`, `name.expect` | `name.pending`; projects: `expected.*` (§3.9) |
 | `run` | `k_codegen::generate` + V8 (`k_server`) | — | `name.stdout`, `name.result`, `name.pending`; projects: `expected.*` (§3.10) |
 
@@ -545,7 +545,9 @@ plus assertions about inferred types and resolved names. The lockfile cases are 
   `examples/stack` without errors; the other cases each produce one workspace or `remote` diagnostic.
 - **Single file:** any `name.k` below `tests/corpus/sema` (outside a project directory). It is analysed
   as the only source file of a library project whose `k.toml` is
-  `[package]` / `name = "corpus"` / `k = "0.1"`, at the project path `src/corpus/name.k`. So the module
+  `[package]` / `name = "corpus"` / `k = "0.1"`, opted in to every preview feature
+  (`preview = ["workers"]`; the opt-in itself is tested by the project cases of `sema/stability/`), at
+  the project path `src/corpus/name.k`. So the module
   is `corpus` and the file's declarations are `corpus.X`. A kebab-case file name can't match a public
   declaration, so a case that needs `public` uses a **path directive** on its first line:
 
@@ -557,8 +559,8 @@ plus assertions about inferred types and resolved names. The lockfile cases are 
   `// path: App.k` makes the file the app declaration. The directive is an ordinary comment, so it is
   line 1 of the file and counts in spans.
 - **Project:** a directory containing `k.toml`. Every file below it is a project file at its relative
-  path (`App.k`, `src/shop/Cart.k`, `migrations/0001_init.k`, `routes.lock`), with two exceptions in the
-  directory itself: `expected.diag` and `expected.pending` are the case's expectations. The test name
+  path (`App.k`, `src/shop/Cart.k`, `migrations/0001_init.k`, `routes.lock`), with three exceptions in the
+  directory itself: `expected.diag`, `expected.fixed` and `expected.pending` are the case's expectations. The test name
   ends with `/` (`sema/modules/import-cycle/`). Nothing inside a project directory is a separate case.
 
 **Expectations:**
@@ -566,6 +568,7 @@ plus assertions about inferred types and resolved names. The lockfile cases are 
 | File | Meaning |
 |---|---|
 | `name.diag` / `expected.diag` | Every diagnostic, in the `.diag` format of §3.5. Absent means none. In a project every header names its file. Every code must be registered in `crates/k_diagnostics/src/codes.rs` (the case fails otherwise, even when pending). |
+| `name.fixed` / `expected.fixed` | What `k fix` makes of the case ([release.md](release.md#12-implementation-plan) step 6): every machine-applicable fix applied, round after round, until none is left (`k_diagnostics::fix::fix_until_stable`, the loop `k fix` runs). A single file's `.fixed` is the fixed file; a project's lists each changed file after a `=== path` line. Required exactly when the case has such a fix, and blessed with the `.diag`. The suite also applies each fix on its own and requires that a re-check reports fewer diagnostics of its code, and that the loop settles within its round limit. |
 | `name.pending` / `expected.pending` | The case is **test-first**: it is expected to fail until the check exists. One line saying what is missing (`type inference (sema.md §9)`); empty is an error. |
 
 **Pending cases** pass while their expectations are unmet, and **fail once everything holds**, with a

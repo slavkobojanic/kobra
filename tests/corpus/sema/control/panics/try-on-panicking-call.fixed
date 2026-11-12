@@ -1,0 +1,6 @@
+// Since panics aren't errors, `try` on a call that can only panic covers
+// nothing that can throw: K2202.
+func takeFirst(items: List<Int>) -> Int {
+    var copy = items
+    return copy.remove(at: 0)
+}

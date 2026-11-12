@@ -1,0 +1,11 @@
+// docs/design/55-workers.md, "Methods": a method without `throws` gets a fix
+// that adds `throws WorkerOnlyError` and imports it (K4037).
+import k.concurrency.Worker
+import k.concurrency.WorkerOnlyError
+
+@Worker
+service Lower {
+    func lower(_ text: String) async throws WorkerOnlyError -> String {
+        return text.lowercased()
+    }
+}

@@ -1,0 +1,9 @@
+// A plain `for` over a `Stream` is K2310 at the `for` keyword; inside an async
+// function the fix inserting `await ` is machine-applicable.
+func consume(values: Stream<Int>) async -> Int {
+    var sum = 0
+    for await value in values {
+        sum += value
+    }
+    return sum
+}

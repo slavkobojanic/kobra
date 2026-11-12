@@ -876,12 +876,18 @@ fn run_sema(state: &State, deliver: impl FnOnce(SemaResult)) {
         .collect();
     // The project's manifest and those of mounted libraries, for the
     // names of their packages (protocols' wire names in `rpc.lock`).
-    let manifests: Vec<(String, Arc<str>)> = state
+    let manifests: Vec<(String, FileId, Arc<str>)> = state
         .files
         .iter()
         .flatten()
         .filter(|f| f.path.as_str() == "k.toml" || f.path.as_str().ends_with("/k.toml"))
-        .map(|f| (f.path.as_str().to_owned(), Arc::clone(&f.text)))
+        .map(|f| {
+            (
+                f.path.as_str().to_owned(),
+                state.by_path[&f.path],
+                Arc::clone(&f.text),
+            )
+        })
         .collect();
     crate::check::analyze(
         inputs,

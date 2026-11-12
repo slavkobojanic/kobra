@@ -27,6 +27,7 @@
 | `k hash-password` | Prints the Argon2id PHC string of the password on standard input, with `k.crypto.Password`'s parameters, for scripts that make an admin password's hash |
 | `k build` | Ahead-of-time build of the `.production` environment into separate server and client bundles |
 | `k check` | Type checking, formatting check, tests, doc-comment checks, and lockfile breaking-change detection. Fails in CI on any problem. It has no watch mode. |
+| `k fix` | Applies the machine-applicable fixes of the current diagnostics and checks again until none is left, then reports what remains; `--code K1234` limits it to one code, `--dry-run` prints the diff ([48-releases-and-versioning.md](48-releases-and-versioning.md#upgrading-a-project)) |
 | `k fmt` | Canonical formatter |
 | `k test`, `k test --watch` | Runs tests. `--watch` re-runs the affected tests on every save ([21-testing.md](21-testing.md)). |
 | `k migrate new "description"` | Writes the next migration from the difference between the entities and `schema.lock` ([19-persistence.md](19-persistence.md)); `--empty`, `--drop-retired` and `--rename <name>` write the other kinds |

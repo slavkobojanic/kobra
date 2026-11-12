@@ -176,6 +176,7 @@ fn pins(path: &Path) -> Option<Pins> {
 fn command_project(command: &Command) -> Option<PathBuf> {
     match command {
         Command::Check(args) => args.paths.first().cloned(),
+        Command::Fix(args) => args.paths.first().cloned(),
         Command::Build(args) => Some(args.project.clone()),
         Command::Run(args) | Command::Dev(args) => Some(args.project.clone()),
         Command::Test(args) => Some(args.project.clone()),
@@ -190,10 +191,12 @@ fn command_project(command: &Command) -> Option<PathBuf> {
     }
 }
 
-/// The diagnostic format of a command: JSON only for `k check --format json`.
+/// The diagnostic format of a command: JSON only for `k check --format json`
+/// and `k fix --format json`.
 fn format_of(command: Option<&Command>) -> Format {
     match command {
         Some(Command::Check(args)) => args.format,
+        Some(Command::Fix(args)) => args.format,
         _ => Format::Human,
     }
 }

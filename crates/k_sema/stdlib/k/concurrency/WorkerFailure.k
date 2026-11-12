@@ -2,6 +2,7 @@
 /// `workerFailure` case every worker method's error enum has
 /// (`docs/design/55-workers.md`, "Errors and crashes"). Only the runtime
 /// produces it.
+@Preview("workers")
 public enum WorkerFailure implements Error, Codable {
     /// The worker stopped while it ran the call: the method panicked or
     /// threw something that isn't a K error, or the browser ended it. The

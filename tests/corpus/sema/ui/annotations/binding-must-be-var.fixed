@@ -1,0 +1,10 @@
+// `@Binding` requires `var`: the child writes through it.
+component Toggle {
+    @Binding var isOn: Bool
+    @Binding var isEnabled: Bool
+
+    view {
+        checkbox(isChecked: bind isOn)
+        checkbox(isChecked: bind isEnabled)
+    }
+}

@@ -538,7 +538,11 @@ impl<'p, 'a> Cx<'p, 'a> {
                 continue;
             };
             let target = self.p.decl(decl);
-            if target.visibility != Visibility::Public {
+            // An `@Internal` stdlib declaration is public to the stdlib only
+            // (docs/design/48-releases-and-versioning.md, "Stability levels").
+            let internal_only =
+                !info.stdlib && self.p.is_stdlib(decl) && target.has_annotation("Internal");
+            if target.visibility != Visibility::Public || internal_only {
                 self.report(
                     file,
                     Diagnostic::new(

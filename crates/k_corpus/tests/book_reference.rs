@@ -346,6 +346,74 @@ struct Item {
     doc: String,
     /// The members, for a type or an extension.
     members: Vec<Item>,
+    /// The stability notes from `@Preview` and `@Deprecated`, as Markdown
+    /// sentences (`docs/design/48-releases-and-versioning.md`, "Stability
+    /// levels"); empty for a stable declaration.
+    badges: Vec<String>,
+}
+
+/// Splits a declaration's annotation lines into the ones shown in its
+/// signature and its stability badges; `None` for an `@Internal`
+/// declaration, which the reference leaves out.
+fn stability(annotations: &[String]) -> Option<(Vec<String>, Vec<String>)> {
+    let mut shown = Vec::new();
+    let mut badges = Vec::new();
+    let string_args = |line: &str| -> Vec<(Option<String>, String)> {
+        // `@Name("a", label: "b")`: each argument's label and string.
+        let inner = line
+            .split_once('(')
+            .and_then(|(_, rest)| rest.rsplit_once(')'))
+            .map_or("", |(inner, _)| inner);
+        let mut out = Vec::new();
+        let mut rest = inner;
+        while let Some(q) = rest.find('"') {
+            let label = rest[..q]
+                .trim()
+                .trim_start_matches(',')
+                .trim()
+                .strip_suffix(':')
+                .map(|l| l.trim().to_owned());
+            let after = &rest[q + 1..];
+            let end = after.find('"').unwrap_or(after.len());
+            out.push((label, after[..end].to_owned()));
+            rest = after.get(end + 1..).unwrap_or("");
+        }
+        out
+    };
+    for line in annotations {
+        if line.starts_with("@Internal") {
+            return None;
+        }
+        if line.starts_with("@Preview") {
+            if let Some((_, id)) = string_args(line).first() {
+                badges.push(format!(
+                    "> **Preview** ({id}). Opt in with `preview = [\"{id}\"]` in the `[package]` \
+                     section of `k.toml`; it may change in any minor release."
+                ));
+            }
+        } else if line.starts_with("@Deprecated") {
+            let args = string_args(line);
+            let get = |label: Option<&str>| {
+                args.iter()
+                    .find(|(l, _)| l.as_deref() == label)
+                    .map_or("", |(_, v)| v.as_str())
+            };
+            let since = get(Some("since"));
+            let mut badge = "> **Deprecated**".to_owned();
+            if !since.is_empty() {
+                badge.push_str(&format!(" since {since}"));
+            }
+            badge.push('.');
+            if !get(None).is_empty() {
+                badge.push_str(&format!(" {}", get(None)));
+            }
+            shown.push(line.clone());
+            badges.push(badge);
+        } else {
+            shown.push(line.clone());
+        }
+    }
+    Some((shown, badges))
 }
 
 /// The annotations that are implementation details and aren't shown.
@@ -479,9 +547,10 @@ fn parse_stdlib_file(text: &str) -> Vec<Item> {
         let opens = i32::try_from(code.matches('{').count()).unwrap_or(0);
         let closes = i32::try_from(code.matches('}').count()).unwrap_or(0);
         if before == 0 && !line.starts_with('}') {
-            current_public = line.starts_with("public ");
-            if current_public {
-                let mut signature = annotations.join("\n");
+            let marks = stability(&annotations);
+            current_public = line.starts_with("public ") && marks.is_some();
+            if current_public && let Some((shown, badges)) = marks {
+                let mut signature = shown.join("\n");
                 if !signature.is_empty() {
                     signature.push('\n');
                 }
@@ -491,13 +560,17 @@ fn parse_stdlib_file(text: &str) -> Vec<Item> {
                     signature,
                     doc: doc.join("\n"),
                     members: Vec::new(),
+                    badges,
                 });
             }
         } else if before == 1 && current_public && !line.starts_with('}') {
             let is_private = line.starts_with("private ");
-            if !is_private && let Some(parent) = items.last_mut() {
+            if !is_private
+                && let Some((shown, badges)) = stability(&annotations)
+                && let Some(parent) = items.last_mut()
+            {
                 let sig = signature_of(line);
-                let mut signature = annotations.join("\n");
+                let mut signature = shown.join("\n");
                 if !signature.is_empty() {
                     signature.push('\n');
                 }
@@ -507,6 +580,7 @@ fn parse_stdlib_file(text: &str) -> Vec<Item> {
                     signature,
                     doc: doc.join("\n"),
                     members: Vec::new(),
+                    badges,
                 });
             }
         }
@@ -646,9 +720,20 @@ fn module_page(module: &Module, index: &BTreeMap<String, String>) -> String {
     out.push_str("| Declaration | Summary |\n|---|---|\n");
     for item in &module.items {
         let summary = first_sentence(&item.doc);
+        let level = item
+            .badges
+            .iter()
+            .map(|b| {
+                if b.starts_with("> **Preview**") {
+                    "*Preview.* "
+                } else {
+                    "*Deprecated.* "
+                }
+            })
+            .collect::<String>();
         let _ = writeln!(
             out,
-            "| [`{}`](#{}) | {} |",
+            "| [`{}`](#{}) | {level}{} |",
             item.name,
             anchor(&item.name),
             link_doc(&summary, &module.name, index).replace('|', "\\|")
@@ -657,6 +742,9 @@ fn module_page(module: &Module, index: &BTreeMap<String, String>) -> String {
     out.push('\n');
     for item in &module.items {
         let _ = writeln!(out, "## {}\n", item.name);
+        for badge in &item.badges {
+            let _ = writeln!(out, "{badge}\n");
+        }
         out.push_str("```k,ignore\n");
         out.push_str(&item.signature);
         out.push_str("\n```\n\n");
@@ -672,6 +760,13 @@ fn module_page(module: &Module, index: &BTreeMap<String, String>) -> String {
                     "- `{}`",
                     member.signature.replace('\n', " ").replace('`', "")
                 );
+                for badge in &member.badges {
+                    let _ = writeln!(
+                        out,
+                        "  *{}*",
+                        badge.trim_start_matches("> ").replace("**", "")
+                    );
+                }
                 if !member.doc.is_empty() {
                     let body = link_doc(&member.doc, &module.name, index);
                     for line in body.lines() {

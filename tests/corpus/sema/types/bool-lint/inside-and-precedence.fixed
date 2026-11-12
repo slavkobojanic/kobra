@@ -1,0 +1,4 @@
+// `a and b == true` is `a and (b == true)`: only the comparison is rewritten.
+func check(a: Bool, b: Bool) -> Bool {
+    return a and b
+}

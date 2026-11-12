@@ -1,0 +1,4 @@
+func consume(items: List<Int>) async {
+    for value in items {
+    }
+}

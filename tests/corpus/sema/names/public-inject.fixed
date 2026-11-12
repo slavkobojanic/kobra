@@ -1,0 +1,5 @@
+import k.time.Clock
+
+service Stamps {
+    @Inject let clock: Clock
+}

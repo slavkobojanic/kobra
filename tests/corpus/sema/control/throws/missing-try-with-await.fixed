@@ -1,0 +1,15 @@
+// For an async throwing call, K2201's span includes the `await`, and `try `
+// goes before it (`try await`).
+enum FetchError implements Error {
+    case offline
+}
+
+func fetch() async throws FetchError -> Int {
+    return 1
+}
+
+func run() async throws FetchError -> Int {
+    let a = try await fetch()
+    let b = try await fetch()
+    return a + b
+}

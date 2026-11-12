@@ -1,0 +1,15 @@
+// path: src/shop/Price.k
+// K1302 applies to every member kind: static members, initializers and computed properties.
+public struct Price {
+    let cents: Int
+
+    static let zero = Price(cents: 0)
+
+    init(cents: Int) {
+        self.cents = cents
+    }
+
+    var isFree: Bool {
+        cents == 0
+    }
+}

@@ -3,12 +3,13 @@
 //! A case is either
 //!
 //! * a **single file** `name.k` anywhere below `tests/corpus/sema`, with
-//!   optional siblings `name.diag` and `name.pending`; or
+//!   optional siblings `name.diag`, `name.fixed` and `name.pending`; or
 //! * a **project**: a directory containing a `k.toml`
 //!   ([`PROJECT_MARKER`](crate::discover::PROJECT_MARKER)). Every file below
 //!   it is a project file at its relative path (`App.k`, `src/shop/Cart.k`,
-//!   `routes.lock`, …), except `expected.diag` and `expected.pending` in
-//!   the directory itself, which are the case's expectations.
+//!   `routes.lock`, …), except `expected.diag`, `expected.fixed` and
+//!   `expected.pending` in the directory itself, which are the case's
+//!   expectations.
 //!
 //! A project whose `k.toml` declares a `[workspace]` is a **workspace
 //! case** (`docs/design/40-workspaces-and-services.md`): every member is
@@ -19,7 +20,7 @@
 //! annotations are checked in the analysis of the member that owns the file.
 //!
 //! A single file is analysed as the only source file of a library project
-//! whose `k.toml` is [`IMPLICIT_MANIFEST`]. Its project path is
+//! whose `k.toml` is [`implicit_manifest`]. Its project path is
 //! `src/corpus/<file name>` ([`SINGLE_FILE_MODULE`]), unless its first line
 //! is a path directive such as `// path: src/shop/Cart.k` or `// path: App.k`
 //! ([`PATH_DIRECTIVE`]).
@@ -36,6 +37,10 @@
 //! 2. **Annotations.** Every caret annotation
 //!    ([`annotations`]) in a K source file of the case
 //!    must hold.
+//! 3. **Fixes.** What `k fix` makes of the case must be its `.fixed`
+//!    expectation, which exists exactly when the case has a
+//!    machine-applicable fix; each fix on its own must remove a diagnostic
+//!    of its code (`check_fixes`).
 //!
 //! # Pending cases
 //!
@@ -50,12 +55,12 @@
 //! match, because the parser exists: a pending source must parse exactly as
 //! its author intended. Pending cases are never blessed.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
-use k_diagnostics::{FileId, LineIndex, TextRange, codes};
+use k_diagnostics::{Diagnostic, FileId, LineIndex, SourceMap, TextRange, codes, fix};
 use k_sema::stdlib::Stdlib;
 use k_sema::{Analysis, AnalysisHost, Options, ProjectPath, Workspace};
 
@@ -64,8 +69,26 @@ use crate::diag_format::{self, DiagEntry};
 use crate::discover::{Case, PROJECT_EXPECTATION_STEM};
 use crate::suites::{read_expectation, write};
 
-/// The `k.toml` of a single-file case's implicit project.
+/// The `k.toml` of a single-file case's implicit project, without its
+/// `preview` line ([`implicit_manifest`]).
 pub const IMPLICIT_MANIFEST: &str = "[package]\nname = \"corpus\"\nk = \"0.1\"\n";
+
+/// The `k.toml` of a single-file case's implicit project: [`IMPLICIT_MANIFEST`]
+/// opted in to every preview feature, so a single file may use any of them
+/// (the opt-in itself is tested by project cases, `sema/stability/`).
+#[must_use]
+pub fn implicit_manifest() -> String {
+    let ids: Vec<String> = k_sema::features::FEATURES
+        .iter()
+        .filter(|f| f.status == k_sema::features::Status::Preview)
+        .map(|f| format!("\"{}\"", f.id))
+        .collect();
+    if ids.is_empty() {
+        IMPLICIT_MANIFEST.to_owned()
+    } else {
+        format!("{IMPLICIT_MANIFEST}preview = [{}]\n", ids.join(", "))
+    }
+}
 
 /// The module a single-file case belongs to unless it has a path
 /// directive: the file is `src/corpus/<file name>`.
@@ -119,7 +142,7 @@ pub fn load(case: &Case) -> Result<LoadedCase, String> {
     let manifest = ProjectPath::new("k.toml").map_err(|e| e.to_string())?;
     let mut files = vec![(path.clone(), text)];
     if path != manifest {
-        files.push((manifest, IMPLICIT_MANIFEST.to_owned()));
+        files.push((manifest, implicit_manifest()));
     }
     files.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(LoadedCase {
@@ -276,10 +299,157 @@ pub fn run(case: &Case, bless: bool) -> Result<(), String> {
         }
     }
     if failures.is_empty() {
+        failures.extend(check_fixes(case, &loaded, bless)?);
+    }
+    if failures.is_empty() {
         Ok(())
     } else {
         Err(failures.join("\n\n"))
     }
+}
+
+/// The header of one file's section in a project's `expected.fixed`.
+pub const FIXED_SECTION: &str = "=== ";
+
+/// The diagnostics of `files` (a case's files by project path), as `k fix`
+/// sees them: one source map whose file names are those paths.
+fn fix_check(files: &BTreeMap<String, String>) -> (SourceMap, Vec<Diagnostic>) {
+    let loaded: Vec<(ProjectPath, String)> = files
+        .iter()
+        .filter_map(|(p, t)| Some((ProjectPath::new(p).ok()?, t.clone())))
+        .collect();
+    let threads = NonZeroUsize::MIN;
+    if let Some(root) = files.get("k.toml")
+        && Workspace::is_workspace_manifest(root)
+    {
+        let ws = Workspace::from_files(files.iter().map(|(p, t)| (p.clone(), t.clone())));
+        let analyses: Vec<(usize, Analysis)> = (0..ws.members.len())
+            .map(|i| {
+                let host = AnalysisHost::with_files(
+                    Options::new().with_threads(threads),
+                    ws.analysis_files(i),
+                );
+                (i, host.analysis())
+            })
+            .collect();
+        return ws
+            .report_with(&analyses, k_codegen::project_diagnostics, str::to_owned)
+            .unwrap_or_default();
+    }
+    let host = AnalysisHost::with_files(Options::new().with_threads(threads), loaded);
+    let analysis = host.analysis();
+    let map = analysis.source_map(|p| p.as_str().to_owned());
+    let mut diagnostics = analysis.diagnostics().unwrap_or_default();
+    diagnostics.extend(k_codegen::project_diagnostics(&analysis));
+    (map, diagnostics)
+}
+
+/// What `k fix` must do to a case (`docs/compiler/release.md` §12, step
+/// 6): every machine-applicable fix, applied until none is left, gives
+/// exactly the case's `.fixed` expectation (`name.fixed` holds the fixed
+/// case file; a project's `expected.fixed` holds each changed file after
+/// a `=== path` line), and a case without such fixes has none. Each fix
+/// applied on its own also removes a diagnostic of its code. With `bless`,
+/// a mismatching `.fixed` file is rewritten.
+fn check_fixes(case: &Case, loaded: &LoadedCase, bless: bool) -> Result<Vec<String>, String> {
+    let original: BTreeMap<String, String> = loaded
+        .files
+        .iter()
+        .map(|(p, t)| (p.as_str().to_owned(), t.clone()))
+        .collect();
+    let mut failures = Vec::new();
+    // Each fix on its own removes a diagnostic of its code.
+    let (map, diagnostics) = fix_check(&original);
+    let count = |list: &[Diagnostic], code| list.iter().filter(|d| d.code == code).count();
+    for d in &diagnostics {
+        let Some(fix) = fix::applicable(d) else {
+            continue;
+        };
+        let name = |id: FileId| map.get(id).map(|f| f.path().to_owned());
+        if !fix
+            .edits
+            .iter()
+            .all(|e| name(e.span.file).is_some_and(|n| original.contains_key(&n)))
+        {
+            continue;
+        }
+        let mut files = original.clone();
+        let mut by_file: BTreeMap<String, Vec<k_diagnostics::TextEdit>> = BTreeMap::new();
+        for e in &fix.edits {
+            if let Some(n) = name(e.span.file) {
+                by_file.entry(n).or_default().push(e.clone());
+            }
+        }
+        for (path, edits) in by_file {
+            if let Some(text) = files.get_mut(&path) {
+                *text = fix::apply(text, &edits);
+            }
+        }
+        let (_, after) = fix_check(&files);
+        if count(&after, d.code) >= count(&diagnostics, d.code) {
+            failures.push(format!(
+                "the fix \"{}\" of {} `{}` doesn't remove it: a re-check still reports {} {}",
+                fix.message,
+                d.code,
+                d.message,
+                count(&after, d.code),
+                d.code
+            ));
+        }
+    }
+    // Every fix, until none is left.
+    let mut files = original.clone();
+    let outcome = fix::fix_until_stable(&mut files, fix::Rounds::DEFAULT, |_| true, fix_check);
+    if !outcome.converged {
+        failures.push(format!(
+            "`k fix` didn't settle in {} rounds: fixes keep undoing each other",
+            fix::Rounds::DEFAULT.0
+        ));
+    }
+    let actual = match &loaded.home {
+        Some(home) if outcome.changed.contains(home.as_str()) => files.get(home.as_str()).cloned(),
+        Some(_) => None,
+        None if outcome.changed.is_empty() => None,
+        None => {
+            let mut out = String::new();
+            for path in &outcome.changed {
+                out.push_str(FIXED_SECTION);
+                out.push_str(path);
+                out.push('\n');
+                out.push_str(&files[path]);
+            }
+            Some(out)
+        }
+    };
+    let path = case.expectation("fixed");
+    let expected = read_expectation(&path)?;
+    if expected != actual {
+        if bless {
+            match &actual {
+                Some(text) => write(&path, text)?,
+                None => fs::remove_file(&path)
+                    .map_err(|e| format!("cannot remove {}: {e}", path.display()))?,
+            }
+        } else {
+            failures.push(match (&expected, &actual) {
+                (None, Some(text)) => format!(
+                    "`k fix` changes this case, but {} doesn't exist; it would hold:\n{text}",
+                    path.display()
+                ),
+                (Some(_), None) => format!(
+                    "`k fix` changes nothing in this case; delete {}",
+                    path.display()
+                ),
+                (Some(e), Some(a)) => format!(
+                    "`k fix` gives other text than {}:\n{}",
+                    path.display(),
+                    crate::diff::line_diff(e, a)
+                ),
+                (None, None) => String::new(),
+            });
+        }
+    }
+    Ok(failures)
 }
 
 /// Each member's analysis, by member index.
@@ -519,7 +689,11 @@ mod tests {
         let plain = load(&dir.file_case("plain.k")).unwrap();
         let paths: Vec<_> = plain.files.iter().map(|(p, _)| p.as_str()).collect();
         assert_eq!(paths, ["k.toml", "src/corpus/plain.k"]);
-        assert_eq!(plain.files[0].1, IMPLICIT_MANIFEST);
+        assert_eq!(plain.files[0].1, implicit_manifest());
+        assert_eq!(
+            implicit_manifest(),
+            format!("{IMPLICIT_MANIFEST}preview = [\"workers\"]\n")
+        );
         assert_eq!(plain.home.unwrap().as_str(), "src/corpus/plain.k");
         let app = load(&dir.file_case("app.k")).unwrap();
         assert_eq!(app.home.unwrap().as_str(), "App.k");

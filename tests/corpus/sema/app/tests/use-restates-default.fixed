@@ -1,0 +1,12 @@
+// path: src/corpus/Defaults.test.k
+// A `use` rule that restates a test default is a warning, with a fix that removes it.
+import k.server.JobQueue
+import k.test.InlineJobQueue
+
+test Defaults {
+    use InlineJobQueue for JobQueue
+
+    test "runs" {
+        expect true
+    }
+}

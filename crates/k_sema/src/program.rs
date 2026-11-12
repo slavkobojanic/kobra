@@ -280,6 +280,9 @@ pub(crate) struct Program<'a> {
     /// The `k.toml` texts of the project and its mounted libraries, by
     /// project path (`k.toml`, `.deps/pay/k.toml`).
     pub(crate) manifests: Vec<(String, std::sync::Arc<str>)>,
+    /// The host's file id of each manifest in [`Program::manifests`], by
+    /// project path, for diagnostics in them (`crate::stability`).
+    pub(crate) manifest_ids: FxHashMap<String, FileId>,
 }
 
 /// The project files given to [`Program::build`]: id, path, text and root.
@@ -315,6 +318,7 @@ impl<'a> Program<'a> {
             page_of: FxHashMap::default(),
             lockfiles: Vec::new(),
             manifests: Vec::new(),
+            manifest_ids: FxHashMap::default(),
         };
         let stdlib = Stdlib::get();
         for (index, file) in stdlib.files().iter().enumerate() {
@@ -664,7 +668,12 @@ impl<'a> Program<'a> {
                 if let Some(&d) = decls.first()
                     && self.decls[d.0 as usize].visibility == Visibility::Public
                 {
-                    self.prelude.insert(name.clone(), d);
+                    // An `@Internal` declaration is seen by the stdlib only.
+                    if self.decls[d.0 as usize].has_annotation("Internal") {
+                        self.internal.insert(name.clone(), d);
+                    } else {
+                        self.prelude.insert(name.clone(), d);
+                    }
                 }
             }
         }

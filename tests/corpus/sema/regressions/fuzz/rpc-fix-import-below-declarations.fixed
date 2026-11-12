@@ -1,0 +1,9 @@
+// Found by the `check` fuzz target: with the file's imports below its
+// declarations, the K5501 fix's import edit (placed among the imports) came
+// after its ` throws RpcOnlyError` edit, so the edits were out of source
+// order. A fix's edits are sorted.
+protocol Store {
+    rpc add() throws RpcOnlyError -> Int
+}
+
+import k.rpc.RpcOnlyError

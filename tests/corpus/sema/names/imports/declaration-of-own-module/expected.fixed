@@ -1,0 +1,6 @@
+=== src/shop/Checkout.k
+// Importing a declaration of the file's own module binds a name the module already provides: K1106.
+
+func checkout(cart: Cart) -> Int {
+    return cart.size
+}

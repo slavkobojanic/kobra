@@ -25,6 +25,7 @@ The core module needs no import: its declarations are in scope in every file.
 | [`DateStyle`](#datestyle) | How [`Date.formatted`](#date) writes a date. |
 | [`Decimal`](#decimal) | An exact decimal number, for rates and amounts that must not round. |
 | [`Delete`](#delete) | Marks the `DELETE` handler of an endpoint page (`docs/design/27-endpoint-pages.md`); see also [`Get`](#get), [`Post`](#post), [`Put`](#put) and [`Patch`](#patch). |
+| [`Deprecated`](#deprecated) | Marks a declaration as deprecated: `@Deprecated("use `total(of:)`", since: "0.6", replacement: "total(of:)")` (`docs/design/48-releases-and-versioning.md`, "Deprecation"). |
 | [`Derived`](#derived) | A read-only value computed lazily from reactive values, with no dependency list. |
 | [`Double`](#double) | A 64-bit floating-point number. |
 | [`Duration`](#duration) | A length of time: `200ms`, `2s`, `10.minutes`, `3.days` (`docs/design/07-themes-and-units.md`, "Number extensions"). |
@@ -415,6 +416,36 @@ public struct Delete
 Marks the `DELETE` handler of an endpoint page
 (`docs/design/27-endpoint-pages.md`); see also [`Get`](#get), [`Post`](#post),
 [`Put`](#put) and [`Patch`](#patch).
+
+## Deprecated
+
+```k,ignore
+public struct Deprecated
+```
+
+Marks a declaration as deprecated:
+`@Deprecated("use `total(of:)`", since: "0.6", replacement: "total(of:)")`
+(`docs/design/48-releases-and-versioning.md`, "Deprecation"). It goes
+on any declaration or member, in an app, a library or the standard
+library.
+
+Every use of the declaration is a warning (K1401) naming the version and
+the message. When `replacement` names a declaration beside this one (a
+member of the same type, or a declaration of the same module) with the
+same argument labels, the warning has a fix that switches the use to it,
+which `k fix` applies; before 1.0 a deprecated declaration is removed in
+a later minor at the earliest.
+
+**Members**
+
+- `init(_ message: String, since: String, replacement: String = "")`
+  Deprecates the declaration.
+
+  - Parameters:
+    - message: what to use instead, or why it is going away.
+    - since: the version that deprecated it, such as `"0.6"`.
+    - replacement: the replacing declaration's name, with its argument
+      labels for a function (`"total(of:)"`); empty when there is none.
 
 ## Derived
 

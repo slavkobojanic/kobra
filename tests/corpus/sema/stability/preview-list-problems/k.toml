@@ -1,0 +1,4 @@
+[package]
+name = "primes"
+k = "0.1"
+preview = ["workers", "no-such-thing", "k-fmt"]

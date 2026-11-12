@@ -1,0 +1,13 @@
+// `@Emits`, `@Slot` and `@Stylable` all require `let`; one K3001 each.
+component Panel {
+    @Emits let closed: Event<Void>
+    @Slot let content: View
+    @Stylable let container: Classes
+
+    view {
+        box {
+            content
+        }
+        .class(container)
+    }
+}

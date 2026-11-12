@@ -1,0 +1,8 @@
+// `?.` on a non-optional value is a K2018 warning with a fix to `.`; the result type is not made optional.
+struct User {
+    var name: String
+}
+
+func name(user: User) -> String {
+    return user.name
+}

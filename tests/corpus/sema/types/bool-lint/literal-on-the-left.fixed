@@ -1,0 +1,4 @@
+// The literal may be on the left: `true == x` is fixed to `x`.
+func isOpen(done: Bool) -> Bool {
+    return done
+}

@@ -1,0 +1,17 @@
+// `throws E` is part of a function type: a throwing function value needs `try`
+// when it is called.
+enum LoadError implements Error {
+    case offline
+    case notFound
+}
+
+func load() throws LoadError -> Int {
+    return 1
+}
+
+func run() throws LoadError -> Int {
+    let read = load
+//      ^^^^ type: () throws corpus.LoadError -> Int
+    let a = try read()
+    return try a + read()
+}

@@ -660,7 +660,9 @@ pub(crate) fn build(cx: &Cx<'_, '_>, sides: &HashMap<(FileId, TextRange), Side>)
             in_test_module: file
                 .module
                 .is_some_and(|m| p.modules[m.0 as usize].test_only),
-            is_public: d.visibility == k_syntax::ast::Visibility::Public,
+            // An `@Internal` stdlib declaration is public to the stdlib only.
+            is_public: d.visibility == k_syntax::ast::Visibility::Public
+                && !(file.stdlib && d.has_annotation("Internal")),
             range: d.node.text_range(),
             name_range: d.name_range,
             generics: d.generics.iter().map(|g| GenId(g.0)).collect(),

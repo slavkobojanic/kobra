@@ -1,0 +1,4 @@
+// `??` on a non-optional value is a K2018 warning with a fix that removes the default.
+func display(name: String) -> String {
+    return name
+}

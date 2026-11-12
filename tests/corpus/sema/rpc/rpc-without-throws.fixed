@@ -1,0 +1,6 @@
+import k.rpc.RpcOnlyError
+
+protocol Store {
+    rpc products() throws RpcOnlyError -> List<Int>
+    rpc count() throws RpcOnlyError -> Int
+}

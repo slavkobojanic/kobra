@@ -1,0 +1,3 @@
+warning[K1401] 18:16-18:21: `Point` is deprecated since 0.1: points are kept as `Vector`s now
+warning[K1401] 19:12-19:15: `sum` is deprecated since 0.1: use `total(in:)`
+  help: use `total(in:)` instead

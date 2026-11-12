@@ -27,13 +27,13 @@ use crate::cli::{CheckArgs, ColorChoice, Format};
 use crate::sources::{self, Group, Problem, Scope};
 
 /// The diagnostics of one group, with the map that renders them.
-struct Report {
+pub struct Report {
     /// The sources the diagnostics point into.
-    map: SourceMap,
+    pub map: SourceMap,
     /// The group's diagnostics, in the order they are printed.
-    diagnostics: Vec<Diagnostic>,
+    pub diagnostics: Vec<Diagnostic>,
     /// How many tests ran.
-    ran: usize,
+    pub ran: usize,
 }
 
 /// Runs `k check`.
@@ -65,7 +65,10 @@ pub fn run(args: &CheckArgs) -> ExitCode {
             .filter(|(path, _)| path.kind().is_k_source())
             .count()
             + group.problems.len();
-        reports.push(check_group(group, !args.no_tests));
+        let root = group.root.clone();
+        reports.push(check_group(group, !args.no_tests, |path| {
+            sources::display(&root.join(path))
+        }));
     }
 
     let color = match args.color {
@@ -134,10 +137,10 @@ pub fn run(args: &CheckArgs) -> ExitCode {
 /// with `tests`, each member without errors then runs its tests, one after
 /// another. Returns the merged map, the diagnostics and how many tests ran.
 fn check_workspace(
-    root: &std::path::Path,
     files: Vec<(k_sema::ProjectPath, String)>,
     members: Option<&std::collections::BTreeSet<String>>,
     tests: bool,
+    name: impl Fn(&str) -> String,
 ) -> (SourceMap, Vec<Diagnostic>, usize) {
     let ws = Workspace::from_files(files.into_iter().map(|(p, t)| (p.as_str().to_owned(), t)));
     let wanted: Vec<usize> = (0..ws.members.len())
@@ -168,7 +171,7 @@ fn check_workspace(
         diagnostics
     };
     let (map, diagnostics) = ws
-        .report_with(&analyses, extra, |path| sources::display(&root.join(path)))
+        .report_with(&analyses, extra, name)
         .unwrap_or_else(|_| (SourceMap::new(), Vec::new()));
     (map, diagnostics, ran.get())
 }
@@ -198,14 +201,15 @@ fn lockfiles_and_tests(analysis: &k_sema::Analysis, tests: bool) -> (Vec<Diagnos
 }
 
 /// Analyses one group, runs its tests with `tests`, and adds the driver's
-/// own diagnostics for files that could not be loaded.
-fn check_group(group: Group, tests: bool) -> Report {
-    let root = group.root;
+/// own diagnostics for files that could not be loaded. Each file of the
+/// group is named `name(path)` in the report's source map, `path` relative
+/// to the group's root.
+pub fn check_group(group: Group, tests: bool, name: impl Fn(&str) -> String) -> Report {
     let (mut map, mut diagnostics, ran) = match group.scope {
         Scope::Project => {
             let host = AnalysisHost::with_files(Options::new(), group.files);
             let analysis = host.analysis();
-            let map = analysis.source_map(|path| sources::display(&root.join(path.as_str())));
+            let map = analysis.source_map(|path| name(path.as_str()));
             // The host is never changed while it is queried, so the
             // analysis can't be cancelled.
             let mut diagnostics = analysis.diagnostics().unwrap_or_default();
@@ -213,7 +217,7 @@ fn check_group(group: Group, tests: bool) -> Report {
             diagnostics.extend(more);
             (map, diagnostics, ran)
         }
-        Scope::Workspace(members) => check_workspace(&root, group.files, members.as_ref(), tests),
+        Scope::Workspace(members) => check_workspace(group.files, members.as_ref(), tests, name),
     };
     for (path, problem) in group.problems {
         let diagnostic = match problem {

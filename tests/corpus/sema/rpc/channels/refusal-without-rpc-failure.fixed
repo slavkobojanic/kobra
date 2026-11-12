@@ -1,0 +1,27 @@
+// A channel's refusal `E` is an rpc error enum: one `rpcFailure(RpcFailure)` case, `Codable` payloads.
+import k.rpc.Channel
+import k.rpc.RpcFailure
+import k.rpc.RpcOnlyError
+
+struct Reason {
+    let text: String
+}
+
+enum Refused implements Error, Codable {
+    case notYours
+    case rpcFailure(RpcFailure)
+}
+
+enum Rejected implements Error {
+    case because(Reason)
+    case rpcFailure(RpcFailure)
+}
+
+enum Event implements Codable {
+    case posted(text: String)
+}
+
+protocol Chat {
+    rpc room(id: Int) throws RpcOnlyError -> Channel<Event, Event, Refused>
+    rpc lobby(id: Int) throws RpcOnlyError -> Channel<Event, Event, Rejected>
+}

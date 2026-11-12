@@ -66,6 +66,8 @@ pub enum Target {
     /// A declaration whose format a lockfile records (protocol, entity,
     /// migration, storage key, job).
     Locked,
+    /// Any declaration or member (`@Deprecated`).
+    Declaration,
 }
 
 /// One annotation.
@@ -116,6 +118,12 @@ pub const ANNOTATIONS: &[AnnotationDef] = &[
         &[T::EndpointHandler],
         Any,
         "27-endpoint-pages.md",
+    ),
+    def(
+        "k.core.Deprecated",
+        &[T::Declaration],
+        Any,
+        "48-releases-and-versioning.md",
     ),
     def(
         "k.core.Derived",

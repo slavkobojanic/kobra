@@ -1,0 +1,11 @@
+// `await` must start the expression it covers (grammar.md §13.2, K0114), so the
+// K2204 fix for a call that is a binary operand inserts `await ` before the whole
+// operand expression, not before the call.
+func fetch() async -> Int {
+    return 1
+}
+
+func run() async -> Int {
+    let first = await fetch()
+    return await first + fetch()
+}

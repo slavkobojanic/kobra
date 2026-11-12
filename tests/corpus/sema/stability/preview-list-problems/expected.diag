@@ -1,0 +1,4 @@
+error[K8101] k.toml:4:23-4:38: `no-such-thing` is not a preview feature
+  note: the features in preview: `workers`
+error[K8101] k.toml:4:40-4:47: `k-fmt` is planned, not built: there is nothing to opt in to yet
+  note: the features in preview: `workers`

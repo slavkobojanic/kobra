@@ -1590,6 +1590,53 @@ error[K1305]: `Int` already has a member `dozen`
 
 **Fix:** Rename one of the members, or remove one extension from the imports.
 
+### K1401 `deprecated`
+
+**Warning.** A declaration marked `@Deprecated` is used; it will be removed in a later minor, and its replacement should be used instead.
+
+Example (`tests/corpus/sema/stability/deprecated-without-matching-shape.k`):
+
+```k,ignore
+// When the replacement's labels differ, or there is no replacement, the
+// K1401 warning has no fix: the call would need other arguments.
+
+@Deprecated("use `total(in:)`", since: "0.1", replacement: "total(in:)")
+func sum(of values: List<Int>) -> Int {
+    return 0
+}
+
+func total(in values: List<Int>) -> Int {
+    return 0
+}
+
+@Deprecated("points are kept as `Vector`s now", since: "0.1")
+struct Point {
+    let x: Int
+}
+
+func report(p: Point) -> Int {
+    return sum(of: [p.x])
+}
+```
+
+```text
+warning[K1401]: `Point` is deprecated since 0.1: points are kept as `Vector`s now
+  --> src/corpus/deprecated-without-matching-shape.k:18:16
+   |
+18 | func report(p: Point) -> Int {
+   |                ^^^^^
+
+warning[K1401]: `sum` is deprecated since 0.1: use `total(in:)`
+  --> src/corpus/deprecated-without-matching-shape.k:19:12
+   |
+19 |     return sum(of: [p.x])
+   |            ^^^
+   |
+   = help: use `total(in:)` instead
+```
+
+**Fix:** Use the replacement the message names; when it has the same arguments, the quick fix switches to it, and `k fix` applies it everywhere.
+
 ### K1901 `unresolved-doc-link`
 
 **Warning.** An intra-doc link names nothing that resolves.
@@ -10060,7 +10107,34 @@ error[K8010]: the key name `notes-vault` changed incompatibly with storage.lock;
 
 **Error.** `k.toml` is malformed or lacks a required key.
 
-**Fix:** Fix the syntax of `k.toml`, and give `[package]` its `name` and `k` keys.
+Example (`tests/corpus/sema/stability/preview-list-problems/`):
+
+```k,ignore
+// `preview` names unknown and planned features: each is K8101.
+func count() -> Int {
+    return 0
+}
+```
+
+```text
+error[K8101]: `no-such-thing` is not a preview feature
+ --> k.toml:4:23
+  |
+4 | preview = ["workers", "no-such-thing", "k-fmt"]
+  |                       ^^^^^^^^^^^^^^^
+  |
+  = note: the features in preview: `workers`
+
+error[K8101]: `k-fmt` is planned, not built: there is nothing to opt in to yet
+ --> k.toml:4:40
+  |
+4 | preview = ["workers", "no-such-thing", "k-fmt"]
+  |                                        ^^^^^^^
+  |
+  = note: the features in preview: `workers`
+```
+
+**Fix:** Fix the syntax of `k.toml`, and give `[package]` its `name` and `k` keys. In `preview`, list only features that are in preview.
 
 ### K8102 `unknown-dependency`
 
@@ -10097,6 +10171,61 @@ error[K8010]: the key name `notes-vault` changed incompatibly with storage.lock;
 **Error.** A member's `k` allows no toolchain that the workspace's `[workspace] k` allows; a workspace builds with one toolchain.
 
 **Fix:** Require in the member a version the root's `[workspace] k` allows, or remove the member's `k`.
+
+### K8108 `preview-not-enabled`
+
+**Error.** A preview feature is used, but the project doesn't list it in `[package] preview`; a preview may change in any minor, and listing it is the consent.
+
+Example (`tests/corpus/sema/stability/preview-without-opt-in/`):
+
+```k,ignore
+// `@Worker` is part of the preview feature `workers`: without
+// `preview = ["workers"]` in k.toml each use of the feature is K8108, with
+// a fix that adds the opt-in.
+import k.concurrency.Worker
+import k.concurrency.WorkerOnlyError
+
+@Worker
+public service Sieve {
+    func echo(bytes: Bytes) async throws WorkerOnlyError -> Bytes {
+        return bytes
+    }
+}
+```
+
+```text
+error[K8108]: `Worker` is part of the preview feature `workers`, which `primes` doesn't list in `[package] preview`
+ --> src/primes/Sieve.k:7:1
+  |
+7 | @Worker
+  | ^^^^^^^
+  |
+  = note: a preview may change or go away in any minor release; listing it in k.toml is the consent
+  = fix: Add `"workers"` to `[package] preview`
+
+error[K8108]: `WorkerOnlyError` is part of the preview feature `workers`, which `primes` doesn't list in `[package] preview`
+ --> src/primes/Sieve.k:9:42
+  |
+9 |     func echo(bytes: Bytes) async throws WorkerOnlyError -> Bytes {
+  |                                          ^^^^^^^^^^^^^^^
+  |
+  = note: a preview may change or go away in any minor release; listing it in k.toml is the consent
+  = fix: Add `"workers"` to `[package] preview`
+```
+
+**Fix:** Add the feature to `preview` in the `[package]` section of `k.toml` (machine-applicable fix), or stop using it.
+
+### K8109 `dependency-preview`
+
+**Error.** A dependency uses a preview feature, so the project that depends on it must list that feature in `[package] preview` too.
+
+**Fix:** Add the dependency's preview feature to your own `[package] preview` too (machine-applicable fix).
+
+### K8110 `stabilized-preview`
+
+**Warning.** `[package] preview` lists a feature that has become stable; the opt-in is no longer needed.
+
+**Fix:** Remove the feature from `preview`: it is stable now (machine-applicable fix).
 
 ### K8201 `toolchain-mismatch`
 

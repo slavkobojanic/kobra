@@ -1172,6 +1172,18 @@ enum is compared field by field.
 `Analysis::file_dependencies(file)` lists the files whose declarations a file's names, types and members
 resolve to; `k test --watch` uses it to find the tests a change affects.
 
+### 12.17 Stability
+
+`crate::stability` runs last, after every body is checked, over the revision's resolutions (the index the
+tooling queries read, so replayed files count like checked ones) and the declarations' annotation lists
+(annotations are known by name, not resolved): a use of a `@Deprecated` declaration or member is K1401,
+a use of a `@Preview("id")` stdlib declaration in a package whose `k.toml` doesn't list `id` is K8108,
+a mounted library's `preview` id the project doesn't list is K8109, and the project's own list is
+checked against `k_sema::features` (K8101 for unknown or planned ids, K8110 for stable ones). Imports,
+doc links, the deprecated declaration's own body and the stdlib's files aren't uses. `@Internal` is
+applied earlier, by the prelude and import resolution (K1102). Decisions:
+[48-releases-and-versioning.md](../design/48-releases-and-versioning.md#stability-levels-decided-while-implementing-2026-11-12).
+
 ---
 
 ## 13. Diagnostic codes

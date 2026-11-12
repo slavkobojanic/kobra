@@ -995,7 +995,10 @@ fn a_service_static_let_named_like_a_method_keeps_both() {
 /// reaches `isPrime` and `Tally`; the page alone reaches `label`.
 fn worker_project() -> AnalysisHost {
     analyse(&[
-        ("k.toml", TOML),
+        (
+            "k.toml",
+            "[package]\nname = \"demo\"\nk = \"0.1\"\npreview = [\"workers\"]\n",
+        ),
         ("App.k", "public app Demo {\n}\n"),
         (
             "src/primes/Sieve.k",

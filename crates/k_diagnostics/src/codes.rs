@@ -314,6 +314,11 @@ codes! {
     CONFLICTING_EXTENSION_MEMBER = 1305, "conflicting-extension-member", Error,
         "Two visible extensions add a member with the same name to one type.";
 
+    // ---------------------------------------------------------------- stability
+    /// A `@Deprecated` declaration is used.
+    DEPRECATED = 1401, "deprecated", Warning,
+        "A declaration marked `@Deprecated` is used; it will be removed in a later minor, and its replacement should be used instead.";
+
     // ---------------------------------------------------------------- doc comments
     /// An intra-doc link names nothing that resolves.
     UNRESOLVED_DOC_LINK = 1901, "unresolved-doc-link", Warning,
@@ -986,6 +991,15 @@ codes! {
     /// A workspace member's `k` requirement allows no toolchain the root's `[workspace] k` allows.
     CONFLICTING_TOOLCHAIN = 8107, "conflicting-toolchain", Error,
         "A member's `k` allows no toolchain that the workspace's `[workspace] k` allows; a workspace builds with one toolchain.";
+    /// A preview feature is used without the project listing it in `[package] preview`.
+    PREVIEW_NOT_ENABLED = 8108, "preview-not-enabled", Error,
+        "A preview feature is used, but the project doesn't list it in `[package] preview`; a preview may change in any minor, and listing it is the consent.";
+    /// A dependency lists a preview feature that the depending project doesn't.
+    DEPENDENCY_PREVIEW = 8109, "dependency-preview", Error,
+        "A dependency uses a preview feature, so the project that depends on it must list that feature in `[package] preview` too.";
+    /// `[package] preview` lists a feature that is stable now.
+    STABILIZED_PREVIEW = 8110, "stabilized-preview", Warning,
+        "`[package] preview` lists a feature that has become stable; the opt-in is no longer needed.";
     /// The running toolchain doesn't match the project's requirement or `k.lock`, and no installed one does.
     TOOLCHAIN_MISMATCH = 8201, "toolchain-mismatch", Error,
         "The project needs another toolchain than the running one, and it isn't installed.";

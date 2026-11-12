@@ -42,6 +42,7 @@ pub fn is_skipped_dir(name: &str) -> bool {
 }
 
 /// A problem loading a file, reported by the driver as a diagnostic.
+#[derive(Clone)]
 pub enum Problem {
     /// The file could not be read (K9002).
     Unreadable(String),

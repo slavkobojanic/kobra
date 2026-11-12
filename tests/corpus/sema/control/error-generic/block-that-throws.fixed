@@ -1,0 +1,20 @@
+// A throwing block makes the call throw the block's error type: `try` is
+// required, and the error propagates as `SaveError`.
+enum SaveError implements Error {
+    case conflict
+    case rejected
+}
+
+func save() async throws SaveError {}
+
+func transaction<T, E>(_ block: () async throws E -> T) async throws E -> T {
+    return try await block()
+}
+
+func run() async throws SaveError {
+    try await transaction { try await save() }
+}
+
+func runWithoutTry() async throws SaveError {
+    try await transaction { try await save() }
+}

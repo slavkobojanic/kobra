@@ -7,5 +7,6 @@
 /// call terminates it, and a crash makes the call throw
 /// `.workerFailure(.crashed)`. Its code ships in a chunk of its own,
 /// started at the first call; `k test` runs it in-process.
+@Preview("workers")
 @Annotation
 public struct Worker {}

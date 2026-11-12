@@ -1,0 +1,13 @@
+// `@State` requires `var`, in a component and in a service alike.
+component Counter {
+    @State var count: Int = 0
+
+    view {
+        text { "{count}" }
+    }
+}
+
+service Session {
+    @State var userName: String = ""
+    @State var visits: Int = 0
+}

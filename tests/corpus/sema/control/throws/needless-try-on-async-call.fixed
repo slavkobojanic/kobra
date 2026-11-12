@@ -1,0 +1,9 @@
+// `try await` on an async call that doesn't throw: K2202 on `try`; the
+// `await` is needed and stays.
+func fetch() async -> Int {
+    return 1
+}
+
+func run() async -> Int {
+    return await fetch()
+}

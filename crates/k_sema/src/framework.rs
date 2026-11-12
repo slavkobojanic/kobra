@@ -745,6 +745,8 @@ pub(crate) fn check_declaration(cx: &Cx<'_, '_>, decl: DeclId, owner: &BodyOwner
     if kind == Some(K::Constant) && crate::locks::is_locked_type(cx, &cx.constant_ty(decl)) {
         targets.push(Target::Locked);
     }
+    // `@Deprecated` goes on any declaration or member.
+    targets.push(Target::Declaration);
     for a in annotations_of(cx, file, &d.node) {
         if a.def.targets.iter().any(|t| targets.contains(t)) {
             check_annotation_args(cx, owner, &a);
@@ -765,6 +767,7 @@ pub(crate) fn check_declaration(cx: &Cx<'_, '_>, decl: DeclId, owner: &BodyOwner
         if member.kind == MemberKind::Field && crate::locks::is_locked_type(cx, &cx.field_ty(m)) {
             targets.push(Target::Locked);
         }
+        targets.push(Target::Declaration);
         for a in annotations_of(cx, file, node) {
             if !a.def.targets.iter().any(|t| targets.contains(t)) {
                 not_allowed(cx, file, &a);

@@ -1,0 +1,17 @@
+// Passing a bindable value to a `@Binding` prop without `bind` is K3016, with a
+// machine-applicable fix that inserts `bind `.
+component Stepper {
+    @Binding var value: Int
+
+    view {
+        text { "{value}" }
+    }
+}
+
+component Cart {
+    @State var quantity: Int = 1
+
+    view {
+        Stepper(value: bind quantity)
+    }
+}

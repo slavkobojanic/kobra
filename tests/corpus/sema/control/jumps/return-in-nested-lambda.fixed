@@ -1,0 +1,8 @@
+// A `return` in a lambda nested in another lambda is K2308 as well.
+func flatten(groups: List<List<Int>>) -> List<List<Int>> {
+    return groups.map { group =>
+        group.map { value =>
+            value + 1
+        }
+    }
+}

@@ -86,6 +86,7 @@ mod regex;
 mod routing;
 mod rpc;
 mod rpclock;
+mod stability;
 pub mod stdlib;
 mod tooling;
 mod ty;

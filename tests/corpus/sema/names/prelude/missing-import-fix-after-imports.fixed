@@ -1,0 +1,11 @@
+// With imports present, the fix adds the new import after them, keeping them sorted.
+import k.http.HttpMethod
+import k.time.Clock
+
+func method() -> HttpMethod {
+    return .get
+}
+
+service Stamps {
+    @Inject let clock: Clock
+}

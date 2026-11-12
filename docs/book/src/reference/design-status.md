@@ -5,6 +5,18 @@ the source of truth; where the book and the design disagree, the design wins and
 For syntax, the compiler grammar, `docs/compiler/grammar.md`, is authoritative, and its "Resolved
 ambiguities" section records the syntactic decisions the design leaves open.
 
+## In preview
+
+These are built, but may still change in any minor release. A project opts in to each by listing its id in
+`preview` in the `[package]` section of its `k.toml` ([Project layout](../getting-started/project-layout.md#ktoml));
+using one without the opt-in is a compile error (`K8108`) with a quick fix that adds it.
+
+<!-- gen:preview: generated from the book's Preview notes and k_sema::features; regenerate with K_BLESS=1 cargo test -p k_sema --test it -- book:: -->
+| Feature | Id | Since | Where it's described |
+|---|---|---|---|
+| `@Worker` services: page code that runs in a Web Worker | `workers` | 0.1 | [Work off the main thread](../apps/workers.md), [k.concurrency](../reference/stdlib/k-concurrency.md#worker) |
+<!-- /gen -->
+
 ## Planned for later compiler releases
 
 The design includes these, but the first compiler releases don't. Each page that mentions one marks it

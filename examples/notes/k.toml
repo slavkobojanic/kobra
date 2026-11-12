@@ -11,6 +11,9 @@ title = "K Notes"
 description = "A full-stack notes app on SQLite: accounts, live updates across tabs, conflict-safe editing."
 k = "0.1"
 version = "0.1.0"
+# `NoteSearch` is a `@Worker` service, a preview feature
+# (docs/design/48-releases-and-versioning.md, "Stability levels").
+preview = ["workers"]
 
 # Only the standard library is used, so there are no [dependencies] or
 # [aliases].

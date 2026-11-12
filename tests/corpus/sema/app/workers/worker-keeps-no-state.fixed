@@ -1,0 +1,31 @@
+// docs/design/55-workers.md, "Declaring a worker": a worker can be restarted
+// at any call, so it keeps no state (K4035): no `@State`, `@Derived`, `var`,
+// uninitialized or page-facing fields, no `init()`, `@Effect` or `@Scope`,
+// and no public static member, which the page would run itself.
+import k.concurrency.Worker
+import k.concurrency.WorkerOnlyError
+
+@Worker
+service Index {
+    @State var count: Int = 0
+    @Derived let doubled: Int = count * 2
+    private var cache: List<String> = []
+    private let size: Int
+    private let limit: Int = 10
+    private var shown: String {
+        "{limit}"
+    }
+
+
+    @Effect
+    func watch() {
+    }
+
+    private static func make() -> Int {
+        return 1
+    }
+
+    func search(query: String) async throws WorkerOnlyError -> Int {
+        return query.count
+    }
+}

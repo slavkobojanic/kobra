@@ -53,6 +53,7 @@
 
 pub mod codes;
 mod diagnostic;
+pub mod fix;
 mod line_index;
 pub mod render;
 mod source_map;

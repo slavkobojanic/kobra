@@ -1,0 +1,9 @@
+func doubled(items: List<Int>) -> List<Int> {
+    return items.map { item =>
+        item * 2
+    }
+}
+
+func tripled(items: List<Int>) -> List<Int> {
+    return items.map { item => item * 3 }
+}

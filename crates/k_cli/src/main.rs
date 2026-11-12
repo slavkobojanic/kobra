@@ -25,6 +25,7 @@ mod cli;
 mod debug;
 #[cfg(feature = "server")]
 mod devenv;
+mod fix;
 mod migrate;
 mod new;
 mod project;
@@ -135,6 +136,7 @@ fn main() -> ExitCode {
     match cli.command {
         Command::New(args) => new::run(&args),
         Command::Check(args) => check::run(&args),
+        Command::Fix(args) => fix::run(&args),
         Command::Debug(args) => debug::run(&args),
         Command::Build(args) => build::build(&args),
         Command::Run(args) => build::run(&args),

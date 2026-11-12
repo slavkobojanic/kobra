@@ -5,6 +5,11 @@ the page's code and paints on one thread. Mark a service **`@Worker`** (from `k.
 methods run in a Web Worker instead: the page awaits them like any async call, and keeps painting
 meanwhile. The design is in `docs/design/55-workers.md`.
 
+> **Preview** (workers). Workers are a preview feature: they are built, but may still change in any minor
+> release. A project opts in with `preview = ["workers"]` in the `[package]` section of its `k.toml`, as
+> `examples/notes` does; without it each use is an error (`K8108`) whose quick fix adds the line. An app
+> that depends on a [workspace library](workspaces.md) using workers lists the feature too (`K8109`).
+
 ```k
 // examples/notes/src/notes/NoteSearch.k
 import k.concurrency.Worker

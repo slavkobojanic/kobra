@@ -1,0 +1,14 @@
+// The block of `Result.of` is still checked: a throwing call in it without
+// `try` is K2201.
+enum LoadError implements Error {
+    case offline
+    case notFound
+}
+
+func load() throws LoadError -> Int {
+    return 1
+}
+
+func attempt() -> Result<Int, LoadError> {
+    return Result.of { try load() }
+}

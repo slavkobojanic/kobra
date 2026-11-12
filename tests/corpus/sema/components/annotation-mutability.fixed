@@ -1,0 +1,9 @@
+component Counter {
+    @State var count: Int = 0
+    @Prop let label: String
+    @State var fine: Int = 0
+
+    view {
+        text { label }
+    }
+}

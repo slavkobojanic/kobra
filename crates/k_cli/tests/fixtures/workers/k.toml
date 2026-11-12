@@ -6,3 +6,4 @@
 [package]
 name = "workers"
 k = "0.1"
+preview = ["workers"]

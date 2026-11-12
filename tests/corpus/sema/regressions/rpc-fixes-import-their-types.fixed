@@ -1,0 +1,15 @@
+// The machine-applicable K5501 and K5502 fixes name `RpcOnlyError` and
+// `RpcFailure`; when the file doesn't import them, applying the fix alone gives
+// K1202. Each fix must also insert the import.
+import k.rpc.RpcFailure
+import k.rpc.RpcOnlyError
+
+enum CartError implements Error, Codable {
+    case empty
+    case rpcFailure(RpcFailure)
+}
+
+protocol Store {
+    rpc add() throws RpcOnlyError -> Int
+    rpc remove() throws CartError -> Int
+}

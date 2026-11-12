@@ -58,6 +58,7 @@ mod engines;
 mod example_checks;
 mod examples;
 mod firefox;
+mod fix;
 mod kubernetes;
 mod lsp;
 mod new;

@@ -1,0 +1,7 @@
+=== app/k.toml
+[package]
+name = "shop"
+preview = ["workers"]
+
+[dependencies]
+primes = { workspace = true }

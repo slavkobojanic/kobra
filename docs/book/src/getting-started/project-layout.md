@@ -60,6 +60,13 @@ charts = "github.com/acme/charts"          # a short prefix: `import charts.Line
   `[workspace] k` sets it for every member; a member may repeat it, or narrow it, but not contradict it
   (`K8107`). See [Toolchains](../reference/cli.md#toolchains) for what happens when the installed `k`
   doesn't match.
+- **`preview`** lists the preview features the project uses, such as `preview = ["workers"]`. A preview
+  feature is built, but may still change in any minor release, so using one is an error (`K8108`) until
+  the project lists it; the quick fix adds the line. A library's list is required of every project that
+  depends on it too (`K8109`), so nobody comes to depend on unstable behaviour without saying so. An id
+  that isn't in preview is `K8101`, and one that has become stable is a warning (`K8110`) whose fix
+  removes it. The standard library reference marks each preview declaration, as the
+  [`k.concurrency`](../reference/stdlib/k-concurrency.md) page does for workers.
 
 What you won't find in `k.toml` is as important as what you will:
 

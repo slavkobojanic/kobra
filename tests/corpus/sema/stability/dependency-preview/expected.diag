@@ -1,0 +1,4 @@
+error[K8109] app/k.toml:5:1-5:30: `primes` uses the preview feature `workers`, so `shop` must list it in `[package] preview` too
+  note: consent to a preview isn't inherited: every project that depends on its users lists it
+  fix "Add `\"workers\"` to `[package] preview`"
+    edit 2:14-2:14 "\npreview = [\"workers\"]"

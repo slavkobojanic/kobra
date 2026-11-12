@@ -420,6 +420,9 @@ const DESIGN_STATUS: &str = "reference/design-status.md";
 /// The markers around the generated table.
 const GEN_START: &str = "<!-- gen:planned: generated from the book's Planned notes and \
                          k_sema::features; regenerate with K_BLESS=1 cargo test -p k_sema --test it -- book:: -->";
+/// The markers around the generated Preview table.
+const GEN_PREVIEW_START: &str = "<!-- gen:preview: generated from the book's Preview notes and \
+                         k_sema::features; regenerate with K_BLESS=1 cargo test -p k_sema --test it -- book:: -->";
 /// The end marker of a generated region.
 const GEN_END: &str = "<!-- /gen -->";
 
@@ -581,7 +584,14 @@ fn link_from_reference(page: &str) -> String {
 /// table's order, linking to every page with a note naming it, in reading
 /// order.
 fn planned_table(notes: &[Note]) -> String {
+    feature_table(notes, k_sema::features::Status::Planned)
+}
+
+/// The generated table of the features at `status` (see [`planned_table`]);
+/// the Preview table has a column for the version each became a preview in.
+fn feature_table(notes: &[Note], status: k_sema::features::Status) -> String {
     use k_sema::features::{FEATURES, Status};
+    let preview = status == Status::Preview;
     let titles: BTreeMap<String, String> = chapter_texts()
         .into_iter()
         .map(|(page, text)| (page, page_title(&text)))
@@ -593,8 +603,12 @@ fn planned_table(notes: &[Note]) -> String {
         .iter()
         .flat_map(|p| mdbook::links(&p.text))
         .collect();
-    let mut out = String::from("| Feature | Id | Where it's described |\n|---|---|---|\n");
-    for feature in FEATURES.iter().filter(|f| f.status == Status::Planned) {
+    let mut out = if preview {
+        String::from("| Feature | Id | Since | Where it's described |\n|---|---|---|---|\n")
+    } else {
+        String::from("| Feature | Id | Where it's described |\n|---|---|---|\n")
+    };
+    for feature in FEATURES.iter().filter(|f| f.status == status) {
         let mut pages: Vec<(&str, Option<&str>)> = Vec::new();
         for note in notes
             .iter()
@@ -616,8 +630,13 @@ fn planned_table(notes: &[Note]) -> String {
                 format!("[{title}]({}{anchor})", link_from_reference(page))
             })
             .collect();
+        let since = if preview {
+            format!(" {} |", feature.since.unwrap_or_default())
+        } else {
+            String::new()
+        };
         out.push_str(&format!(
-            "| {} | `{}` | {} |\n",
+            "| {} | `{}` |{since} {} |\n",
             feature.summary,
             feature.id,
             links.join(", ")
@@ -626,32 +645,42 @@ fn planned_table(notes: &[Note]) -> String {
     out
 }
 
-/// The design-status page's Planned table matches the notes.
+/// The design-status page's Planned and Preview tables match the notes.
 #[test]
 fn design_status_planned_table_is_current() {
     let path = book_src().join(DESIGN_STATUS);
-    let text = fs::read_to_string(&path).unwrap();
-    let start = text
-        .find(GEN_START)
-        .unwrap_or_else(|| panic!("{DESIGN_STATUS} has no `{GEN_START}` marker"));
-    let body_start = start + GEN_START.len();
-    let end = body_start
-        + text[body_start..]
-            .find(GEN_END)
-            .unwrap_or_else(|| panic!("{DESIGN_STATUS} has no `{GEN_END}` after the start marker"));
-    let generated = format!("\n{}", planned_table(&notes()));
-    if text[body_start..end] == generated {
-        return;
+    let notes = notes();
+    for (marker, generated, what) in [
+        (GEN_START, planned_table(&notes), "Planned"),
+        (
+            GEN_PREVIEW_START,
+            feature_table(&notes, k_sema::features::Status::Preview),
+            "Preview",
+        ),
+    ] {
+        let text = fs::read_to_string(&path).unwrap();
+        let start = text
+            .find(marker)
+            .unwrap_or_else(|| panic!("{DESIGN_STATUS} has no `{marker}` marker"));
+        let body_start = start + marker.len();
+        let end = body_start
+            + text[body_start..].find(GEN_END).unwrap_or_else(|| {
+                panic!("{DESIGN_STATUS} has no `{GEN_END}` after the start marker")
+            });
+        let generated = format!("\n{generated}");
+        if text[body_start..end] == generated {
+            continue;
+        }
+        if std::env::var_os("K_BLESS").is_some() {
+            let updated = format!("{}{generated}{}", &text[..body_start], &text[end..]);
+            fs::write(&path, updated).unwrap();
+            continue;
+        }
+        panic!(
+            "{DESIGN_STATUS}'s {what} table is out of date; regenerate it with\n  \
+             K_BLESS=1 cargo test -p k_sema --test it -- book::\n\nexpected:\n{generated}"
+        );
     }
-    if std::env::var_os("K_BLESS").is_some() {
-        let updated = format!("{}{generated}{}", &text[..body_start], &text[end..]);
-        fs::write(&path, updated).unwrap();
-        return;
-    }
-    panic!(
-        "{DESIGN_STATUS}'s Planned table is out of date; regenerate it with\n  \
-         K_BLESS=1 cargo test -p k_sema --test it -- book::\n\nexpected:\n{generated}"
-    );
 }
 
 // ---------------------------------------------------------------------------

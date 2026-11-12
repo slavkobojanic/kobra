@@ -1,0 +1,21 @@
+// A deprecated method and a deprecated field: each use is K1401; the
+// method's replacement has the same labels, so its use gets a fix.
+
+struct Cart {
+    @Deprecated("renamed to `count`", since: "0.1", replacement: "count")
+    let size: Int
+    let count: Int
+
+    @Deprecated("use `adding(_:)`", since: "0.1", replacement: "adding(_:)")
+    func plus(_ n: Int) -> Cart {
+        return adding(n)
+    }
+
+    func adding(_ n: Int) -> Cart {
+        return Cart(size: count + n, count: count + n)
+    }
+}
+
+func grow(cart: Cart) -> Int {
+    return cart.plus(1).size
+}

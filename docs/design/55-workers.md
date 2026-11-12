@@ -4,6 +4,8 @@
 
 **A service marked `@Worker` runs in a Web Worker.** Its methods are the calls the page makes to it: `async`, `Codable` in and out, with a typed error that includes the worker's own failures. The page injects it like any service and awaits its methods; the main thread holds a small proxy, and the service's code, with only what it reaches, ships in a chunk of its own that the browser starts as a module worker at the first call. In `k test` the same proxy calls the service in-process. This is Tier 2 of [45's inventory](45-web-platform.md#inventory): "K-typed workers (`k.concurrency`)".
 
+**Workers are a preview feature** (`workers` in `k_sema::features`, [48](48-releases-and-versioning.md#stability-levels)): `@Worker`, `WorkerFailure` and `WorkerOnlyError` are marked `@Preview("workers")`, and a project lists `preview = ["workers"]` in `[package]` to use them (K8108 otherwise). Decided 2026-11-12, as the newest built feature, the one whose API is likeliest to change before it is stable.
+
 ```k
 import k.concurrency.Worker
 import k.concurrency.WorkerOnlyError

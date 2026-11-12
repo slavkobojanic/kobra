@@ -1,0 +1,3 @@
+// A name that appears only in comments and strings doesn't use the import: Clock.
+
+let label = "Clock"

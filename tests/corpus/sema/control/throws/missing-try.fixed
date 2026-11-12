@@ -1,0 +1,17 @@
+// A throwing call without `try` is K2201 at the call, with a machine-applicable
+// fix inserting `try `. The function declares the error, so nothing else is
+// reported.
+enum LoadError implements Error {
+    case offline
+    case notFound
+}
+
+func load() throws LoadError -> Int {
+    return 1
+}
+
+func twice() throws LoadError -> Int {
+    let a = try load()
+    let b = try load()
+    return a + b
+}

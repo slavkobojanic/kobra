@@ -79,7 +79,7 @@ impl Suite {
         match self {
             Suite::Lexer => &["tokens", "diag"],
             Suite::Parser => &["ast", "diag"],
-            Suite::Sema => &["diag", "pending"],
+            Suite::Sema => &["diag", "fixed", "pending"],
             Suite::Codegen => &["client.js", "server.js", "css", "expect", "pending"],
             Suite::Run => &["stdout", "result", "pending"],
             Suite::Db => &["pending"],

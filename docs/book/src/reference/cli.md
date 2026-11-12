@@ -28,6 +28,10 @@ error.
 | `k check --no-tests` | the same without running the tests |
 | `k check --format json` | the same, with one JSON object per diagnostic (code, span, message, quick fixes) on standard output |
 | `k check --color always\|never\|auto` | when to color human-readable output |
+| `k fix [paths…]` | apply every machine-applicable fix of the projects' diagnostics, check again until nothing is left to fix, then print what remains as `k check` does; exit `1` when problems remain; no tests run; see [`k fix`](../getting-started/commands.md#k-fix) |
+| `k fix --code <code>` | apply only that code's fixes (`K1401`); repeatable |
+| `k fix --dry-run` | print the changes as a unified diff, write nothing |
+| `k fix --format json` | print the remaining diagnostics as JSON, as `k check --format json` does |
 | `k fmt` | format code canonically, removing redundant spellings such as `public` on members (**Planned** k-fmt) |
 | `k routes` | print the route table: one row per URL and method (pages, endpoint handlers, `routes.lock` redirects), then the [channel](../apps/channels.md#seeing-what-channels-do) rpcs, with parameters and guards |
 | `k doc` | render documentation from `///` comments (**Planned** k-doc) |

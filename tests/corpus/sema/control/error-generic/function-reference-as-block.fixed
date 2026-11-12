@@ -1,0 +1,17 @@
+// A function passed by name fixes `E` like a lambda would: `save` throws
+// `SaveError`, so the call does too.
+enum SaveError implements Error {
+    case conflict
+    case rejected
+}
+
+func save() async throws SaveError {}
+
+func transaction<T, E>(_ block: () async throws E -> T) async throws E -> T {
+    return try await block()
+}
+
+func run() async throws SaveError {
+    try await transaction(save)
+    try await transaction(save)
+}

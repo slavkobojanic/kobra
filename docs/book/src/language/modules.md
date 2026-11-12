@@ -119,6 +119,34 @@ There is no `protected`, because there is no inheritance.
 Members are API unless hidden, which is the common case, and `private` marks the exception a reviewer
 needs to see.
 
+## Deprecating a declaration
+
+Before removing or renaming a public declaration that other code uses, mark it **`@Deprecated`** for a
+release. Every use outside the declaration itself is then a warning (`K1401`) naming the version and
+your message:
+
+```k
+@Deprecated("use `total(of:)`", since: "0.2", replacement: "total(of:)")
+func sum(of values: List<Int>) -> Int {
+    return total(of: values)
+}
+
+func total(of values: List<Int>) -> Int {
+    var result = 0
+    for value in values {
+        result += value
+    }
+    return result
+}
+```
+
+`replacement` names what to use instead, with its argument labels for a function. When it is a
+declaration beside the deprecated one (a member of the same type, or a declaration of the same module)
+with the same labels, the warning (`K1401`) has a machine-applicable fix that switches the call, and
+[`k fix`](../getting-started/commands.md#k-fix) applies it to the whole project. `@Deprecated` goes on
+any declaration or member; the standard library uses it the same way, before removing anything in a
+later minor release.
+
 ## Extensions
 
 An extension has no name, so it can't be imported. Its members follow the extension's own modifier:

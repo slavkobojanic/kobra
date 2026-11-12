@@ -7,11 +7,13 @@ Import each declaration by name, for example `import k.concurrency.Worker`.
 
 | Declaration | Summary |
 |---|---|
-| [`Worker`](#worker) | Runs a service in a Web Worker, on the service: `@Worker` (`docs/design/55-workers.md`). |
-| [`WorkerFailure`](#workerfailure) | A failure outside a `@Worker` service's method, carried by the `workerFailure` case every worker method's error enum has (`docs/design/55-workers.md`, "Errors and crashes"). |
-| [`WorkerOnlyError`](#workeronlyerror) | The error enum of a `@Worker` method with no errors of its own: `func rank(query: String) async throws WorkerOnlyError -> List<Uuid>`. |
+| [`Worker`](#worker) | *Preview.* Runs a service in a Web Worker, on the service: `@Worker` (`docs/design/55-workers.md`). |
+| [`WorkerFailure`](#workerfailure) | *Preview.* A failure outside a `@Worker` service's method, carried by the `workerFailure` case every worker method's error enum has (`docs/design/55-workers.md`, "Errors and crashes"). |
+| [`WorkerOnlyError`](#workeronlyerror) | *Preview.* The error enum of a `@Worker` method with no errors of its own: `func rank(query: String) async throws WorkerOnlyError -> List<Uuid>`. |
 
 ## Worker
+
+> **Preview** (workers). Opt in with `preview = ["workers"]` in the `[package]` section of `k.toml`; it may change in any minor release.
 
 ```k,ignore
 public struct Worker
@@ -28,6 +30,8 @@ call terminates it, and a crash makes the call throw
 started at the first call; `k test` runs it in-process.
 
 ## WorkerFailure
+
+> **Preview** (workers). Opt in with `preview = ["workers"]` in the `[package]` section of `k.toml`; it may change in any minor release.
 
 ```k,ignore
 public enum WorkerFailure implements Error, Codable
@@ -50,6 +54,8 @@ produces it.
   policy, or unreachable offline). The next call tries again.
 
 ## WorkerOnlyError
+
+> **Preview** (workers). Opt in with `preview = ["workers"]` in the `[package]` section of `k.toml`; it may change in any minor release.
 
 ```k,ignore
 public enum WorkerOnlyError implements Error, Codable

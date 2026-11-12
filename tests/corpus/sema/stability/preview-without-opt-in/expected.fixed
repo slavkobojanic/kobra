@@ -1,0 +1,5 @@
+=== k.toml
+[package]
+name = "primes"
+k = "0.1"
+preview = ["workers"]

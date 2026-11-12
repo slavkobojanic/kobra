@@ -1,0 +1,6 @@
+warning[K1401] 20:17-20:21: `Cart.plus(_:)` is deprecated since 0.1: use `adding(_:)`
+  fix "Replace with `adding`"
+    edit 20:17-20:21 "adding"
+warning[K1401] 20:25-20:29: `Cart.size` is deprecated since 0.1: renamed to `count`
+  fix "Replace with `count`"
+    edit 20:25-20:29 "count"

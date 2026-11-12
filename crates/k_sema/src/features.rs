@@ -8,16 +8,20 @@
 //! compiler share one list of what is built
 //! (`docs/design/48-releases-and-versioning.md`, "Stability levels").
 //!
-//! The table starts with `planned` rows only; `preview` rows come with the
-//! `@Preview` annotation and the `[package] preview` opt-in. A feature that
-//! ships stable is removed from the table together with its notes; one that
-//! ships as a preview changes status here.
+//! A `preview` row is built and opt-in: the standard library marks its
+//! declarations `@Preview("id")`, and a project lists the id in
+//! `[package] preview` of its `k.toml` to use them (`crate::stability`
+//! checks both). A feature that ships stable is removed from the table
+//! together with its notes, or kept as a `stable` row while projects may
+//! still list it (listing it is then the warning `K8110`); one that ships
+//! as a preview changes status here.
 //!
 //! ```
 //! use k_sema::features::{self, Status};
 //!
 //! let fmt = features::lookup("k-fmt").unwrap();
 //! assert_eq!(fmt.status, Status::Planned);
+//! assert_eq!(features::lookup("workers").unwrap().status, Status::Preview);
 //! assert!(features::lookup("no-such-feature").is_none());
 //! ```
 
@@ -74,9 +78,31 @@ const fn planned(id: &'static str, summary: &'static str, design: &'static str) 
     }
 }
 
+/// Builds a preview [`Feature`], built in toolchain `since`.
+const fn preview(
+    id: &'static str,
+    since: &'static str,
+    summary: &'static str,
+    design: &'static str,
+) -> Feature {
+    Feature {
+        id,
+        status: Status::Preview,
+        since: Some(since),
+        summary,
+        design,
+    }
+}
+
 /// Every feature that isn't simply stable, in the order the design-status
 /// page lists them.
 pub const FEATURES: &[Feature] = &[
+    preview(
+        "workers",
+        "0.1",
+        "`@Worker` services: page code that runs in a Web Worker",
+        "55-workers.md",
+    ),
     planned(
         "k-new-library",
         "`k new --library`, the library package skeleton",
@@ -248,7 +274,14 @@ pub const FEATURES: &[Feature] = &[
 /// Returns the row with id `id`.
 #[must_use]
 pub fn lookup(id: &str) -> Option<&'static Feature> {
-    FEATURES.iter().find(|f| f.id == id)
+    lookup_in(FEATURES, id)
+}
+
+/// Returns the row of `table` with id `id`: [`lookup`] for another table,
+/// which the tests of a status that no real row has yet use.
+#[must_use]
+pub fn lookup_in<'t>(table: &'t [Feature], id: &str) -> Option<&'t Feature> {
+    table.iter().find(|f| f.id == id)
 }
 
 /// The table's own invariants.

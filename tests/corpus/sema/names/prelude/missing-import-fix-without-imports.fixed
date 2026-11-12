@@ -1,0 +1,6 @@
+// A public stdlib type outside the prelude, used without an import, is K1202 with a fix adding the import before the first declaration; `.ok` reports nothing more.
+import k.http.HttpStatus
+
+func ok() -> HttpStatus {
+    return .ok
+}

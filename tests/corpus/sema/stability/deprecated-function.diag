@@ -1,0 +1,6 @@
+warning[K1401] 16:12-16:15: `sum` is deprecated since 0.1: use `total(of:)`
+  fix "Replace with `total`"
+    edit 16:12-16:15 "total"
+warning[K1401] 16:30-16:33: `sum` is deprecated since 0.1: use `total(of:)`
+  fix "Replace with `total`"
+    edit 16:30-16:33 "total"

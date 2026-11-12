@@ -67,6 +67,7 @@ K1302: Remove `public` from the member (machine-applicable fix).
 K1303: Remove `public`; injected dependencies are never API.
 K1304: Remove `private` from the extension.
 K1305: Rename one of the members, or remove one extension from the imports.
+K1401: Use the replacement the message names; when it has the same arguments, the quick fix switches to it, and `k fix` applies it everywhere.
 K1901: Correct the reference in backticks, import what it names, or write it fully qualified (`k.http.HttpStatus`).
 K2001: Convert the value, or change the expected type; the message names both types.
 K2002: Write the type out: annotate the binding (`let names: List<String> = []`) or the lambda parameter.
@@ -273,13 +274,16 @@ K8007: Name the old URL with `at`, add a redirect under `[redirects]` in `routes
 K8008: Keep the key's name and value shape (add optional fields only), or mark the key `@Breaking("reason")` once its service handles `.unreadable`.
 K8009: Keep the collection's name and value shape (add optional fields and indexes only), or mark it `@Breaking("reason")` once its service handles `.unreadable`; for a new key field, declare a new collection under a new name.
 K8010: Keep the key name, or mark it `@Breaking("reason")` once its service handles a missing key; for another key type, declare a new `KeyName` under a new name.
-K8101: Fix the syntax of `k.toml`, and give `[package]` its `name` and `k` keys.
+K8101: Fix the syntax of `k.toml`, and give `[package]` its `name` and `k` keys. In `preview`, list only features that are in preview.
 K8102: Name a member of the workspace, or add the member to the root `k.toml`'s `members`.
 K8103: Create the member's `k.toml`, or remove it from `members`.
 K8104: Move what both packages need into a library both depend on.
 K8105: Depend on a library instead; move the shared code out of the app into one.
 K8106: Rename one of the modules.
 K8107: Require in the member a version the root's `[workspace] k` allows, or remove the member's `k`.
+K8108: Add the feature to `preview` in the `[package]` section of `k.toml` (machine-applicable fix), or stop using it.
+K8109: Add the dependency's preview feature to your own `[package] preview` too (machine-applicable fix).
+K8110: Remove the feature from `preview`: it is stable now (machine-applicable fix).
 K8201: Install the toolchain the project needs with the `k toolchain install` command the message gives, or move the project to the running toolchain with `k upgrade`.
 K8202: Build with the toolchain that wrote the lock, the one `k.lock` names (`k toolchain install` installs it), or restore the lockfile from version control.
 K9001: Save the file as UTF-8.

@@ -1,0 +1,6 @@
+func consume(stream: Stream<Int>) async {
+    for await value in stream {
+    }
+    for await value in stream {
+    }
+}

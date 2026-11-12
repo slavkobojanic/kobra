@@ -73,6 +73,20 @@ Every language feature and standard library declaration is at one of three level
 - **A stabilized feature left in `preview`** is a warning with a fix that removes it; an unknown name is `K8101`, like any malformed manifest value.
 - **In the docs:** the generated standard library reference shows a *Preview* or *Deprecated* badge from the annotations, and a book chapter marks a preview feature with a `> **Preview.**` note naming the feature, as it marks **Planned** ones today. Internal declarations never appear.
 
+#### Stability levels: decided while implementing (2026-11-12)
+
+Built in `k_sema::stability` and `k_sema::features`; [release.md §12](../compiler/release.md#12-implementation-plan) step 7.
+
+- **The first preview feature is `workers`** (`@Worker`, `WorkerFailure`, `WorkerOnlyError`, [55-workers.md](55-workers.md)), the newest built feature: its API is the most likely to change. `examples/notes` lists it.
+- **K8108 `preview-not-enabled`** is reported at each use (the name token, or `@Name` for an annotation) with a machine-applicable fix that adds the id to `[package] preview`, creating the key after the section's last line. Imports and doc links aren't uses.
+- **Consent is checked from the manifests:** K8109 `dependency-preview` is reported in the depending project's `k.toml`, at the library's `[dependencies]` line, for each preview the library's `preview` lists and the project's doesn't. It goes by the library's list, not by what its code happens to use, so the requirement is visible in the library's manifest.
+- **A file without a `k.toml`** (loose files, the editor on a scratch file) may use every preview: there is no project to consent. The corpus's single-file cases list every preview in their implicit manifest.
+- **Ids in `preview`:** unknown or planned is K8101 (a note lists the features in preview), stable is the warning K8110 `stabilized-preview` with a fix that removes it.
+- **`@Deprecated`'s warning is K1401 `deprecated`.** Its fix is machine-applicable when `replacement` names a declaration of the same kind beside the deprecated one (a member of the same type, a declaration of the same module) with the same argument labels, and the use can see it without a new import (a member, a use in the same module, or a `k.core` declaration); otherwise a help line names the replacement. Uses inside the deprecated declaration itself aren't reported, nor uses in the standard library's own files.
+- **`@Internal`** keeps a public standard-library declaration out of the prelude (the stdlib still sees it, like `k.internal`) and makes importing it from user code K1102; the reference leaves it out. No declaration is internal yet.
+- **The badges:** the generated stdlib reference puts `> **Preview** (id).` (a book note the feature table check reads) and `> **Deprecated** since X.` on the declaration, and *Preview.* / *Deprecated.* in the module's summary table. The design-status page lists the preview rows in a generated table, as it lists the planned ones.
+- **Dependencies' warnings** (Cargo's lint capping) wait for git packages; workspace libraries are reported in full, as above.
+
 ### Deprecation
 
 - **`@Deprecated("message", since: "0.6", replacement: "newName(_:)")`** may be put on any declaration, the standard library's or a package's. Using it is a warning; when `replacement` names a declaration whose call shape matches, the warning has a machine-applicable fix.
@@ -153,6 +167,16 @@ Downloads go to the release host chosen by the owner (below) through an index fi
   4. it runs `k check` and prints what it couldn't fix, each problem with the upgrade guide's section for it.
 - **From 1.0, `k upgrade --edition 2030`** does the same for an edition, using the edition's migration lints.
 - **A breaking change without a machine-applicable fix** is allowed only with a manual migration written in the upgrade guide, which the changelog fragment links (below).
+
+#### `k fix`: decided while implementing (2026-11-12)
+
+Built in `k_diagnostics::fix` and `k_cli`'s `fix` module; [release.md §12](../compiler/release.md#12-implementation-plan) step 6.
+
+- **A round applies the first machine-applicable fix of each diagnostic,** in report order. A fix whose edits overlap one already picked (or that inserts at the same point) waits for the next round, computed against the new text; a fix two diagnostics ask for is applied once. Maybe-incorrect fixes are never applied.
+- **At most 8 rounds.** A pair of fixes that keep undoing each other stops there, with a warning and exit status 1, instead of looping.
+- **It writes only the checked group's own files:** a fix in a workspace library is made in the library's file, once, and nothing in the standard library is ever touched. It never runs tests.
+- **Its output is `k check`'s:** the problems that remain after the fixes, human or `--format json`, then `fixed N problems in M files: …`. It exits 1 when any problem remains, so it can gate a commit. `--dry-run` prints a unified diff on standard output and writes nothing.
+- **The corpus pins every fix's result:** each `sema` case with a machine-applicable fix has a `.fixed` file made by the same loop, and each fix alone must lower its code's count on a re-check.
 
 ### Lockfile format versions
 

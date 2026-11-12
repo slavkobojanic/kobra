@@ -1,0 +1,7 @@
+=== src/ui/Cart.k
+/// The cart.
+public component Cart {
+    view {
+        text { "Cart" }
+    }
+}

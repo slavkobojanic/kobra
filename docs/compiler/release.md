@@ -6,9 +6,9 @@ The maintainer runbook: how a version of K is cut, checked, published and fixed.
 procedure.
 
 > **Status.** There are no tags, no CI configuration and no published artifacts, and the workspace
-> version is `0.1.0`. Steps 1–3, 5 and 10 of the [implementation plan](#12-implementation-plan) are built:
-> version consistency, the toolchain requirement, `k.lock`'s toolchain with delegation, lockfile format
-> versions and the 0.1 wire fixtures. Sections marked *(planned)* describe files and
+> version is `0.1.0`. Steps 1–3, 5–7 and 10 of the [implementation plan](#12-implementation-plan) are
+> built: version consistency, the toolchain requirement, `k.lock`'s toolchain with delegation, lockfile
+> format versions, `k fix`, the stability annotations with the feature table and the 0.1 wire fixtures. Sections marked *(planned)* describe files and
 > commands that the [implementation plan](#12-implementation-plan) adds. Publishing anything needs the
 > owner decisions of [design 48](../design/48-releases-and-versioning.md#owner-decisions); every step up
 > to publishing can be run locally.
@@ -425,12 +425,40 @@ in round 5.
    produces exactly the fixed text the corpus expects and a re-check without that diagnostic; `--code`
    and `--dry-run`; fixes in a workspace library apply to its files; a fix loop terminates. Then the
    command (it reuses `k_diagnostics::Fix` edits).
+   *As built (2026-11-12):* the loop is `k_diagnostics::fix` (`select`, `apply`, `fix_until_stable`:
+   the first machine-applicable fix of each diagnostic, a fix overlapping one already picked waits for
+   the next round, identical fixes count once, at most 8 rounds); `k fix` (`crates/k_cli/src/fix.rs`)
+   runs it over the groups `k check` loads, without tests, and writes only the group's own files, so a
+   library's fix lands in the library however many members mount it. It then prints what remains as
+   `k check` does and exits 1 when anything remains or the rounds ran out; `--dry-run` prints a unified
+   diff on standard output. The corpus half: every `sema` case with a machine-applicable fix has a
+   blessed `.fixed` expectation (128 cases at first), checked with the same loop, and each fix applied
+   alone must lower its code's count on a re-check (`crates/k_corpus/src/sema_suite.rs`). Tests:
+   `cargo test -p k_cli --test it -- fix::` (all fixes, `--code`, `--dry-run`, a workspace library),
+   `k_diagnostics::fix`'s unit tests (overlaps, a loop of two fixes undoing each other stops).
 7. **Stability annotations.** Corpus cases first: `@Deprecated` use is a warning with a fix when the
    replacement's shape matches; `@Preview` without opt-in is an error with a fix adding the feature to
    `k.toml`; a dependency's preview feature not listed by the dependent is an error naming the package;
    a stabilized feature still listed is a warning; `@Internal` is invisible; dependencies' warnings are
    not reported. Then: `k_sema::features` (the feature table), the annotations, and the badges in the
    generated stdlib reference (`book_reference.rs` blessed).
+   *As built (2026-11-12):* `@Deprecated(_:since:replacement:)` is `k.core.Deprecated` (any
+   declaration or member); `@Preview(_:)` and `@Internal` are in `k.internal`, so only the standard
+   library writes them. `k_sema::stability` runs once per revision over the revision's resolutions
+   (and the declarations' annotation lists, since annotations aren't resolutions): K1401
+   `deprecated` (warning; a fix when the replacement sits beside the deprecated declaration with the
+   same labels and the use sees it), K8108 `preview-not-enabled`, K8109 `dependency-preview` (a mounted
+   library's `preview` the project lacks), K8110 `stabilized-preview`, and K8101 for an unknown or
+   planned id in `preview`. A file without a `k.toml` may use every preview, and the corpus's implicit
+   manifest lists them all. `@Internal` keeps a public stdlib declaration out of the prelude and makes
+   importing it K1102 outside the stdlib. The first preview row is `workers` (`@Worker`,
+   `WorkerFailure`, `WorkerOnlyError`); `examples/notes` opts in. The stdlib reference shows
+   `> **Preview** (id).` and `> **Deprecated**` notes and leaves `@Internal` declarations out; the
+   design-status page gained a generated Preview table. Corpus cases: `tests/corpus/sema/stability/`.
+   Deferred: the stabilized-preview warning and `@Internal` have no real row or declaration yet, so
+   they are unit-tested (`stability.rs` with a test table) instead of having corpus cases; "dependencies'
+   warnings are not reported" applies to git packages (Planned `packages`), since workspace libraries
+   are reported in full by design.
 8. **`k upgrade`.** Tests on fixture projects pinned to a fake older minor, with a fake older toolchain
    in the fake index: refuses a dirty tree; applies tombstone fixes; steps through intermediate minors;
    rewrites lock formats; bumps `k` and `k.lock`; prints what remains with the guide's section. Then the

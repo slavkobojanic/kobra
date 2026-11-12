@@ -1,0 +1,10 @@
+// `try` on an expression that can't throw is a K2202 warning at the `try`
+// token, with a machine-applicable fix removing `try `.
+func one() -> Int {
+    return 1
+}
+
+func run() -> Int {
+    let a = one()
+    return a
+}

@@ -67,10 +67,16 @@ pub(crate) struct SemaResult {
 pub(crate) fn analyze(
     inputs: Vec<InputFile<'_>>,
     lockfiles: Vec<crate::locks::Lockfile>,
-    manifests: Vec<(String, Arc<str>)>,
+    manifests: Vec<(String, FileId, Arc<str>)>,
     prev: Option<&BodyCache>,
     deliver: impl FnOnce(SemaResult),
 ) {
+    let manifest_ids: FxHashMap<String, FileId> = manifests
+        .iter()
+        .map(|(p, id, _)| (p.clone(), *id))
+        .collect();
+    let manifests: Vec<(String, Arc<str>)> =
+        manifests.into_iter().map(|(p, _, t)| (p, t)).collect();
     let shared: Vec<(FileId, Arc<str>, String)> = inputs
         .iter()
         .map(|i| (i.id, Arc::clone(i.shared), i.path.as_str().to_owned()))
@@ -85,6 +91,7 @@ pub(crate) fn analyze(
     let mut program = Program::build(inputs);
     program.lockfiles = lockfiles;
     program.manifests = manifests;
+    program.manifest_ids = manifest_ids;
     generate(&mut program);
     let cx = Cx::new(&program);
     cx.set_hooks(
@@ -203,7 +210,6 @@ pub(crate) fn analyze(
     unused_imports(&cx);
     cx.fw.styles_checked.set(true);
     crate::framework::report_unused(&cx);
-    let diagnostics = std::mem::take(&mut *cx.diags.borrow_mut());
     let mut types = Chunked::default();
     types.push(Arc::new(std::mem::take(&mut *cx.types.borrow_mut())));
     for chunk in type_chunks {
@@ -214,6 +220,9 @@ pub(crate) fn analyze(
     for chunk in cx.body_resolutions.borrow().iter() {
         resolutions.push(Arc::clone(chunk));
     }
+    // Deprecated and preview uses, from every resolution of the revision.
+    crate::stability::check(&cx, &resolutions);
+    let diagnostics = std::mem::take(&mut *cx.diags.borrow_mut());
     // The view is built after the result is delivered (`view::ViewSlot`):
     // the caller reports the diagnostics meanwhile.
     let view = Arc::new(crate::view::ViewSlot::pending());

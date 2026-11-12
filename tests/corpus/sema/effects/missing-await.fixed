@@ -1,0 +1,8 @@
+func fetch() async -> Int {
+    return 1
+}
+
+func run() async -> Int {
+    let first = await fetch()
+    return await first + fetch()
+}

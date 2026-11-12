@@ -1,0 +1,17 @@
+=== src/notes/NotesApi.k
+import k.auth.Authenticated
+import k.auth.RateLimit
+import k.rpc.RpcOnlyError
+
+/// The handlers. Each K5507 fix also removes the imports of the handler's file that only its clause
+/// used, so applying it leaves no unused import (K1105): `Authenticated` goes with the clause of
+/// `newest`, while `RateLimit` stays as long as the other handler's clause still names it.
+public service NotesApi implements NotesProtocol {
+    rpc count() async throws RpcOnlyError -> Int {
+        return 0
+    }
+
+    rpc newest() async throws RpcOnlyError -> Int requires Authenticated, RateLimit(10.perMinute) {
+        return 0
+    }
+}

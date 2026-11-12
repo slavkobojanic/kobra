@@ -1,0 +1,10 @@
+// An async call that isn't awaited is K2204 at the call. Inside an async
+// function the fix inserting `await ` is machine-applicable.
+func fetchCount() async -> Int {
+    return 3
+}
+
+func doubled() async -> Int {
+    let count = await fetchCount()
+    return count * 2
+}

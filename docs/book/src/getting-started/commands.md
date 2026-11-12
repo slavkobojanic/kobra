@@ -138,6 +138,28 @@ machine-applicable fix, such as `public` on a member.
 > formatting step of `k check` isn't enforced, but redundant spellings are still reported as warnings
 > with their fixes.
 
+## `k fix`
+
+```bash
+k fix
+k fix --dry-run
+k fix --code K1401
+```
+
+Many diagnostics carry a machine-applicable quick fix: a `let` that should be `var`, a missing `await`, a
+call to a [deprecated](../language/modules.md#deprecating-a-declaration) function whose replacement takes
+the same arguments. `k fix` applies every one of them, checks again, and repeats until nothing is left to
+fix, so a fix that makes another one possible is applied too. It then prints the problems that remain, as
+`k check` does, and exits with `1` when any remain.
+
+- **`--dry-run`** prints the changes as a unified diff instead of writing them.
+- **`--code K1401`** applies only that code's fixes; repeat it for several codes.
+- It takes the same paths as `k check`, and in a workspace a fix in a library is made in the library's
+  own file. It never runs the tests, and never touches the standard library.
+
+Fixes that need a human decision (a "did you mean" rename) are never applied; the editor offers them as
+quick fixes instead.
+
 ## `k build`
 
 ```bash

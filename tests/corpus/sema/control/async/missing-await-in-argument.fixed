@@ -1,0 +1,11 @@
+// An async call passed as an argument must be awaited too; the diagnostic is
+// on the inner call only, the outer call is fine.
+func fetchCount() async -> Int {
+    return 3
+}
+
+func show(count: Int) {}
+
+func run() async {
+    show(count: await fetchCount())
+}

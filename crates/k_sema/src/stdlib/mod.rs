@@ -295,7 +295,9 @@ impl Stdlib {
         let mut names: Vec<(&str, &StdlibDeclaration)> = self
             .declarations
             .iter()
-            .filter(|d| d.is_public && d.module.as_str() == CORE_MODULE)
+            .filter(|d| {
+                d.is_public && !d.has_annotation("Internal") && d.module.as_str() == CORE_MODULE
+            })
             .chain(PRELUDE_REEXPORTS.iter().filter_map(|q| self.lookup(q)))
             .map(|d| (d.name.as_str(), d))
             .collect();

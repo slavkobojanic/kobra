@@ -1,0 +1,14 @@
+// An async method of an injected-style value is awaited like a function:
+// a missing `await` on a member call is K2204 on the whole call.
+struct Api {
+    let base: String
+
+    func ping() async -> Bool {
+        return true
+    }
+}
+
+func check(api: Api) async -> Bool {
+    let ok = await api.ping()
+    return await ok and api.ping()
+}
