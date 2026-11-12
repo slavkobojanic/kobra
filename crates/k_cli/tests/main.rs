@@ -41,6 +41,9 @@ mod ports;
 #[path = "../../k_server/tests/support/postgres.rs"]
 mod postgres;
 #[allow(clippy::panic, clippy::unwrap_used, dead_code)]
+#[path = "support/release.rs"]
+mod release;
+#[allow(clippy::panic, clippy::unwrap_used, dead_code)]
 #[path = "support/static_host.rs"]
 mod static_host;
 
@@ -59,6 +62,7 @@ mod example_checks;
 mod examples;
 mod firefox;
 mod fix;
+mod install_script;
 mod kubernetes;
 mod lsp;
 mod new;

@@ -25,6 +25,38 @@ k --help
 To work on the toolchain itself rather than with it, see the repository's `README.md`, which explains
 how to build, test and lint the compiler.
 
+## Installing a release
+
+When releases are published, the docs site serves an install script, and installing K is one line. On
+Linux (x86_64 or arm64, with glibc 2.31 or newer) and macOS:
+
+```sh
+curl -fsSL https://<docs site>/install.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://<docs site>/install.ps1 | iex
+```
+
+The script picks the archive for your machine, checks it against the release's `SHA256SUMS`, unpacks
+it into `~/.k/toolchains/<version>/` and makes it the default, `~/.k/bin/k`. It prints the line that
+puts `~/.k/bin` on your `PATH`; it never edits your shell's profile itself. Running it again changes
+nothing, and `--version 0.1.0` (or `K_VERSION=0.1.0`) installs that version instead of the newest one.
+Linux distributions built on musl, such as Alpine, aren't supported: use a glibc distribution, or the
+toolchain container image.
+
+From then on, `k` keeps itself and your projects' toolchains up to date:
+
+```bash
+k self update               # the newest release, made the default
+k toolchain install         # the toolchain the project in this directory needs
+k toolchain list            # what is installed, the default, and this project's
+```
+
+[The k command](../reference/cli.md#toolchains) lists every toolchain command.
+
 ## Editor support
 
 The language server is built into the same binary: `k lsp`. It reuses the compiler's own analysis, so

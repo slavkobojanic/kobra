@@ -157,12 +157,28 @@ Built in `k_sema::workspace` (requirements) and `k_cli`'s `toolchain` module (th
 
 Downloads go to the release host chosen by the owner (below) through an index file listing each version's archives, sizes, SHA-256 digests and signatures; `K_TOOLCHAIN_INDEX` points it elsewhere, which is how the tests serve a fake release from a local directory.
 
+#### Commands: decided while implementing (2026-11-12)
+
+Built in `k_cli`'s `toolchains`, `index` and `archive` modules, with `k_server::outbound::download`; [release.md §12](../compiler/release.md#12-implementation-plan) step 4.
+
+- **The index** is `index.json`: `{"format": 1, "releases": [{"version", "date"?, "yanked"?, "archives": [{"target", "url", "size"?, "sha256"}]}]}`. A release's channel follows from its version (none, `-rc.N`, `-nightly.<date>`); `yanked` holds the reason; an archive's `url` is absolute or relative to the index's URL, so one fake release directory serves the index and the archives. Unknown keys are ignored (a `signature` joins the archives when signing is wired in, without a new format); a newer `format` is refused with "update k with the install script".
+- **No built-in index yet.** A release build gets its index URL at build time (`K_DEFAULT_TOOLCHAIN_INDEX`, set by the release pipeline once the docs domain exists, since the domain waits for the name); a `k` without one, every build today, says to set `K_TOOLCHAIN_INDEX` and downloads nothing. So no test or developer build can reach a real host.
+- **What `install` chooses:** a version (`0.3.1`, `=0.3.1`, `0.4.0-rc.1`) exactly, yanked or not (with a warning); a minor or other requirement (`0.3`), `stable` or `nightly`, the newest release of it that isn't yanked and has an archive for this target (never a pre-release for a requirement or `stable`); without an argument, `k.lock`'s toolchain, else the newest release every requirement allows, else outside a project the newest stable. A choice that only a yanked release would fit names it and says it installs only when named exactly. An installed version is left as it is.
+- **Atomic install:** the archive downloads into `$K_HOME/tmp/install-<version>-…/`, its size and SHA-256 are checked against the index while it streams, it unpacks there, and only then is the directory renamed into `toolchains/<version>/`. A failure removes the staging directory; a killed install leaves only that directory, which a later install removes once it is an hour old, and nothing in `toolchains/`. `installed()` reads only `toolchains/`, so delegation never sees half an install.
+- **Archives** hold `k-<version>-<target>/` with `k` (`k.exe`), `LICENSE` and `README.md`; the files may also be at the root. Only regular files and directories are unpacked: a link, an absolute path or `..` is refused, and macOS metadata (`._*`, `__MACOSX/`) is skipped. The tar and zip readers are `k_cli`'s own, about 200 lines over `flate2`, rather than two archive crates.
+- **The default** is a copy of its `k` in `$K_HOME/bin/` (put there by a rename, and on Windows after moving the running one aside), with its version in `$K_HOME/default`. A copy rather than a link works the same on every system and keeps working however the toolchains directory changes. `remove` refuses the default; `default` takes an installed exact version; `install` never changes the default, but says how to set one when there is none.
+- **`list`** prints one installed version per line, oldest first, tagged `default`, `this project` (the toolchain delegation would run for the working directory's project) and `yanked: <reason>`; when the project's toolchain is this `k` or isn't installed, a last line says so.
+- **Yanked notes need no network:** every fetch keeps the index in `$K_HOME/index.json`; `list` and `K8201`'s note on the installed toolchains read that copy.
+- **`k self update`** installs the newest stable (the newest nightly when the running `k` is a nightly; a release candidate counts as stable) and makes it the default; when it already is, it says so and changes nothing.
+- **`k upgrade` still never downloads.** It names `k toolchain install <minor>` for each missing toolchain and stops before changing anything: `k toolchain install` is the one command that reaches the network, which keeps "no implicit downloads" a rule without exceptions.
+- **Exit status:** 0 on success, 1 when the command fails (no index, a network failure, a mismatch, nothing fits, not installed), 2 for an argument that isn't a version.
+
 ## Upgrading a project
 
 - **`k fix`** applies every machine-applicable fix of the current diagnostics, then re-checks, until nothing changes (at most a few rounds). `--code K1234` limits it to one code and `--dry-run` prints the diff. It is useful on its own: agents already consume these fixes from JSON, and this is the same thing in one command.
 - **`k upgrade [--to 0.7]`** moves a project to the running toolchain (or the given one):
   1. it refuses with uncommitted changes, unless `--allow-dirty`, so the upgrade is one reviewable diff;
-  2. it applies the deprecation fixes of each minor in between, in order. Removed forms are recognised by their tombstones for one minor, so from more than one minor behind it installs and runs each intermediate minor's newest patch in turn (an explicit upgrade is consent to download them);
+  2. it applies the deprecation fixes of each minor in between, in order. Removed forms are recognised by their tombstones for one minor, so from more than one minor behind it runs each intermediate minor's newest installed patch in turn (it names the `k toolchain install` commands for the missing ones rather than downloading them; see "Commands: decided while implementing");
   3. it rewrites each lockfile to the current format, and changes `k = "…"` and `k.lock`'s `toolchain`;
   4. it runs `k check` and prints what it couldn't fix, each problem with the upgrade guide's section for it.
 - **From 1.0, `k upgrade --edition 2030`** does the same for an edition, using the edition's migration lints.
@@ -184,7 +200,7 @@ Built in `k_cli`'s `upgrade` module, with `k_sema::lockformat::upgrade` and `k_d
 
 - **Where the project is:** the version `k.lock` records, else the lowest version its requirements allow (`0.5.0` for `k = "0.5"`). **Where it goes:** the running toolchain, or `--to`, which takes a version or a minor (its newest installed release). A target older than the project is refused: `k upgrade` never moves a project back.
 - **"Uncommitted changes" means `git status --porcelain` lists something below the project's root**, untracked files included. A project outside a git repository is refused too, like Cargo's `cargo fix`; `--allow-dirty` covers both.
-- **The minors in between run in order on their newest installed release** (never a pre-release; this toolchain for its own minor), each as `k upgrade --to <version> --allow-dirty` with `K_TOOLCHAIN_DELEGATED=1`, so each toolchain does its own part with its own tombstones. Every one must be installed before anything changes; until `k toolchain install` exists (step 4) a missing one is named with its install command and nothing is touched. A step that leaves problems stops the chain at that minor, since the next minor may no longer recognise what remains. More than one step prints the rolling-deploy warning.
+- **The minors in between run in order on their newest installed release** (never a pre-release; this toolchain for its own minor), each as `k upgrade --to <version> --allow-dirty` with `K_TOOLCHAIN_DELEGATED=1`, so each toolchain does its own part with its own tombstones. Every one must be installed before anything changes; a missing one is named with its `k toolchain install` command and nothing is touched. A step that leaves problems stops the chain at that minor, since the next minor may no longer recognise what remains. More than one step prints the rolling-deploy warning.
 - **Only the migration codes' fixes are applied:** `k_diagnostics::codes::MIGRATIONS` (`K1401 deprecated`, `K8110 stabilized-preview`; each tombstone's code joins it), so the upgrade's diff holds only the migration and other quick fixes stay `k fix`'s. A changelog fragment's `migration:` must name one of these codes.
 - **Requirements:** each `k` the target doesn't satisfy, or whose lowest version is of an older minor, becomes the target's minor (`0.6`), or `=` the target's version for an exact requirement, keeping the line's formatting. `k.lock`'s `toolchain` is rewritten when the lock exists; otherwise the next `k build` writes it.
 - **Lockfiles:** every lockfile below the root (hidden directories, `dist`, `target` and `node_modules` skipped) goes through `lockformat::upgrade`, which applies each format change's conversion (`lockformat::STEPS`, none yet) and writes `format = N`; a lock already in the current format is left byte for byte. A lock too new to read (`K8202`) stops the upgrade before anything is written.
@@ -280,11 +296,11 @@ Built in the `xtask` crate (`crates/xtask`, run as `cargo xtask`); [release.md �
 
 | Artifact | Name | Notes |
 |---|---|---|
-| toolchain archives | `k-0.6.0-<target>.tar.gz` (`.zip` on Windows), holding `k`, `LICENSE`, `README.md` | the six targets below |
+| toolchain archives | `k-0.6.0-<target>.tar.gz` (`.zip` on Windows), holding `k-0.6.0-<target>/` with `k`, `LICENSE`, `README.md` | the six targets below |
 | checksums | `SHA256SUMS` | one line per archive |
 | signatures | a Sigstore bundle per archive, and build provenance | keyless signing from CI; see owner decisions |
 | index | `index.json` | versions, archives, digests and signatures, for `k toolchain` |
-| install scripts | `install.sh`, `install.ps1` | in the repository, tested; served from the docs site |
+| install scripts | `install.sh`, `install.ps1` | in the repository (`scripts/`), tested; served from the docs site, with the release host filled in. They install into `~/.k` with the layout `k toolchain` uses and make the toolchain the default; they print the `PATH` line rather than editing a shell profile, and refuse musl Linux by name |
 | VS Code extension | `k-language-0.6.0.vsix` | attached to every release; marketplaces are an owner decision |
 | toolchain image | `<registry>/k:0.6.0`, `:0.6`, `:latest`, `:nightly` | multi-arch (amd64, arm64), `distroless/cc` base |
 | docs | `/0.6/` on the docs site | built from the tag |

@@ -772,10 +772,10 @@ Few, well-known crates. Adding one requires a line here.
 | `deno_core`, `deno_error` | V8 embedding, ops | in use (k_server) |
 | deno web extensions | web APIs in isolates | rejected: a small bootstrap and K ops instead ([§9.1](#91-process-model)) |
 | `rusqlite` (bundled, statement cache, `collation` for `k_decimal`), `tokio-postgres` | database drivers | in use (k_db) |
-| `flate2` | gzip for the runtime size-budget test (dev) | in use (k_runtime) |
+| `flate2` | gzip for the runtime size-budget test (dev); the gzip and deflate streams of toolchain archives for `k toolchain install` (`k_cli` `archive.rs`, whose tar and zip readers are its own) | in use (k_runtime, k_cli) |
 | `getrandom` | the OS CSPRNG for session ids and OAuth state (already in the tree through deno_core) | in use (k_server) |
 | `argon2` | Argon2id password hashing (`k.crypto.Password`, PHC strings; RustCrypto, pure Rust) | in use (k_server) |
-| `hyper` (`client`), `hyper-util` (`client-legacy`) | outgoing HTTP for `FetchHttpClient` (`op_k_fetch`), the same HTTP stack as the server | in use (k_server) |
+| `hyper` (`client`), `hyper-util` (`client-legacy`) | outgoing HTTP for `FetchHttpClient` (`op_k_fetch`), the same HTTP stack as the server; `k_server::outbound::download`, which `k toolchain install` uses for the index and archives | in use (k_server) |
 | `hyper-rustls`, `rustls` (`ring` provider, `webpki-roots`) | TLS for outgoing HTTPS and SMTP, pure Rust, no system certificates or OpenSSL needed in the container | in use (k_server) |
 | `lettre` (`smtp-transport`, `tokio1-rustls-tls`, `builder`) | `SmtpEmailProvider`: SMTP with STARTTLS/TLS/plain, authentication, MIME building and reply classification (`op_k_smtp_send`) | in use (k_server) |
 | `oxc_allocator`, `oxc_ast`, `oxc_parser`, `oxc_span`, `oxc_syntax`, `oxc_minifier`, `oxc_codegen` (`=0.155.0`) | minifying, tree-shaking and source-mapping an app's release client in process (k_codegen `minify.rs`, `link.rs`; [codegen.md §17.2](codegen.md#172-minification)); pinned exactly, since the output is part of every content hash. About 150 crates in the tree, 3 MB of `k`. Raised the workspace's `rust-version` to 1.97, oxc's minimum; `clippy.toml`'s `msrv` is kept equal to it, so clippy applies 1.97 lints (let chains, `as_chunks`) and never warns that the two differ. Closure Compiler was rejected (a JVM, ~1.2 s per app; [13-tooling.md](../design/13-tooling.md#commands)) | in use (k_codegen) |

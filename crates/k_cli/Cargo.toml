@@ -31,12 +31,14 @@ k_corpus.workspace = true
 clap.workspace = true
 # `k test` reads the results of the test run (JSON) from the isolate.
 serde_json.workspace = true
+# `k toolchain install` unpacks `.tar.gz` and `.zip` archives (the gzip and
+# deflate streams; the tar and zip readers are `src/archive.rs`).
+flate2.workspace = true
 
 [dev-dependencies]
 # tests/lsp.rs speaks the protocol to `k lsp`.
 lsp-types.workspace = true
 k_server.workspace = true
-flate2.workspace = true
 k_runtime.workspace = true
 tokio.workspace = true
 # tests/deploy.rs reads the shop's docker-compose.yml and Kubernetes

@@ -56,12 +56,10 @@ k upgrade --to 0.3
 If a step leaves problems it can't fix, `k upgrade` stops there: fix them, commit, and run it again to go
 on.
 
-> **Planned** (toolchain-commands). Installing toolchains, with `k toolchain install`, is planned. Until
-> then each toolchain is unpacked into `~/.k/toolchains/<version>/` by hand, and `k upgrade` never
-> downloads one.
+`k upgrade` never downloads anything: install each toolchain it names first, then run it again.
 
 ```bash
-k toolchain install 0.2   # planned
+k toolchain install 0.2
 ```
 
 ## Deploying an upgrade

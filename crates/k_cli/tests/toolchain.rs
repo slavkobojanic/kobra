@@ -1,7 +1,10 @@
 //! Toolchain pinning end to end (`docs/design/48-releases-and-versioning.md`,
 //! "Pinning a toolchain"; `docs/compiler/release.md` §12 steps 2 and 3):
 //! the requirement in `k.toml`, the version `k.lock` records, delegation to
-//! an installed toolchain, `K_TOOLCHAIN` and `K_TOOLCHAIN_DELEGATED`.
+//! an installed toolchain, `K_TOOLCHAIN` and `K_TOOLCHAIN_DELEGATED`; and
+//! (step 4) `k toolchain install | list | remove | default` and `k self
+//! update` against a fake release (`support/release.rs`) served on loopback
+//! by `support/static_host.rs`, with `K_TOOLCHAIN_INDEX` pointing at it.
 //!
 //! The installed toolchains are fakes: `$K_HOME/toolchains/<version>/k` is
 //! a shell script that prints its version, arguments, working directory,
@@ -102,6 +105,7 @@ impl Fixture {
             .env("K_HOME", self.home())
             .env_remove("K_TOOLCHAIN")
             .env_remove("K_TOOLCHAIN_DELEGATED")
+            .env_remove("K_TOOLCHAIN_INDEX")
             .env_remove("K_TEST_FILTER")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -491,4 +495,479 @@ fn a_lock_that_declares_format_1_keeps_it_when_k_build_updates_it() {
         fs::read_to_string(fx.project().join("k.lock")).unwrap(),
         format!("format = 1\ntoolchain = \"{VERSION}\"\n")
     );
+}
+
+// ------------------------------------------------------------------
+// `k toolchain` and `k self update` against a fake release (step 4).
+
+#[cfg(unix)]
+mod commands {
+    use super::*;
+    use crate::release::{FakeRelease, host_target};
+    use crate::static_host::StaticHost;
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    /// A fake toolchain's `k`: prints its version and arguments.
+    fn script(version: &str) -> String {
+        format!("#!/bin/sh\necho \"fake {version}\"\nfor a in \"$@\"; do echo \"arg $a\"; done\n")
+    }
+
+    /// A fixture with a fake release of `versions` for this target, served
+    /// on loopback; `yanked` lists (version, reason).
+    struct Release {
+        fx: Fixture,
+        release: FakeRelease,
+        host: StaticHost,
+    }
+
+    impl Release {
+        fn new(tag: &str, versions: &[&str], yanked: &[(&str, &str)]) -> Release {
+            let fx = Fixture::new(tag);
+            let mut release = FakeRelease::new(&fx.root.join("release"));
+            for v in versions {
+                release.archive(v, host_target(), &tool(), &script(v));
+            }
+            release.index(yanked);
+            let host = StaticHost::start(&release.root);
+            Release { fx, release, host }
+        }
+
+        fn index_url(&self) -> String {
+            format!("http://{}/index.json", self.host.addr)
+        }
+
+        /// Runs `k args` in `dir` with the index set.
+        fn k_in(&self, dir: &Path, args: &[&str]) -> Output {
+            let url = self.index_url();
+            self.fx.k_in(dir, args, &[("K_TOOLCHAIN_INDEX", &url)], "")
+        }
+
+        /// Runs `k args` outside any project.
+        fn k(&self, args: &[&str]) -> Output {
+            self.k_in(&self.fx.root, args)
+        }
+
+        fn toolchain(&self, version: &str) -> PathBuf {
+            self.fx.home().join("toolchains").join(version)
+        }
+
+        /// What `K_HOME/tmp` holds.
+        fn tmp_entries(&self) -> Vec<PathBuf> {
+            fs::read_dir(self.fx.home().join("tmp"))
+                .map(|d| d.filter_map(Result::ok).map(|e| e.path()).collect())
+                .unwrap_or_default()
+        }
+    }
+
+    fn ok(out: &Output) {
+        assert_eq!(out.status.code(), Some(0), "{}", describe(out));
+    }
+
+    #[test]
+    fn install_downloads_checks_and_unpacks_the_named_version() {
+        let r = Release::new("install", &["99.1.0", "99.1.1"], &[]);
+        let out = r.k(&["toolchain", "install", "99.1.0"]);
+        ok(&out);
+        assert!(
+            text(&out.stderr).contains("installed k 99.1.0"),
+            "{}",
+            describe(&out)
+        );
+        let exe = r.toolchain("99.1.0").join(tool());
+        assert_eq!(fs::read_to_string(&exe).unwrap(), script("99.1.0"));
+        assert!(r.toolchain("99.1.0").join("LICENSE").is_file());
+        assert!(!r.toolchain("99.1.1").exists());
+        assert!(r.tmp_entries().is_empty(), "{:?}", r.tmp_entries());
+        // The installed toolchain is the one delegation runs.
+        let out = r.k(&["--version"]);
+        assert!(!text(&out.stdout).contains("fake"), "{}", describe(&out));
+        let url = r.index_url();
+        let out = r.fx.k_in(
+            &r.fx.root,
+            &["--version"],
+            &[("K_TOOLCHAIN", "99.1.0"), ("K_TOOLCHAIN_INDEX", &url)],
+            "",
+        );
+        assert!(
+            text(&out.stdout).starts_with("fake 99.1.0"),
+            "{}",
+            describe(&out)
+        );
+        // Again: nothing to do.
+        let out = r.k(&["toolchain", "install", "99.1.0"]);
+        ok(&out);
+        assert!(
+            text(&out.stderr).contains("k 99.1.0 is already installed"),
+            "{}",
+            describe(&out)
+        );
+        // A minor is its newest release.
+        let out = r.k(&["toolchain", "install", "99.1"]);
+        ok(&out);
+        assert!(r.toolchain("99.1.1").join(tool()).is_file());
+    }
+
+    #[test]
+    fn install_refuses_a_digest_or_size_mismatch_and_leaves_nothing() {
+        let r = Release::new("mismatch", &["99.1.0"], &[]);
+        let archive = r.release.root.join(r.release.archives[0].path());
+        // Same size, other bytes.
+        let mut bytes = fs::read(&archive).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xff;
+        fs::write(&archive, &bytes).unwrap();
+        let out = r.k(&["toolchain", "install", "99.1.0"]);
+        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+        let err = text(&out.stderr);
+        assert!(err.contains("the SHA-256 of `k-99.1.0-"), "{err}");
+        assert!(err.contains("nothing was installed"), "{err}");
+        assert!(!r.toolchain("99.1.0").exists());
+        assert!(r.tmp_entries().is_empty(), "{:?}", r.tmp_entries());
+        // Another size.
+        bytes.push(0);
+        fs::write(&archive, &bytes).unwrap();
+        let out = r.k(&["toolchain", "install", "99.1.0"]);
+        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+        assert!(
+            text(&out.stderr).contains("but the index says"),
+            "{}",
+            describe(&out)
+        );
+        assert!(!r.toolchain("99.1.0").exists());
+    }
+
+    /// A host that answers every request with the head of a large body,
+    /// then stalls until dropped.
+    struct StallingHost {
+        url: String,
+        stop: Arc<AtomicBool>,
+    }
+
+    impl StallingHost {
+        fn start() -> StallingHost {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}/k.tar.gz", listener.local_addr().unwrap());
+            let stop = Arc::new(AtomicBool::new(false));
+            let flag = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut s) = stream else { continue };
+                    let mut reader = BufReader::new(s.try_clone().unwrap());
+                    let mut line = String::new();
+                    while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
+                        line.clear();
+                    }
+                    let _ = s.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 100000000\r\n\r\n");
+                    let _ = s.write_all(&[0u8; 65536]);
+                    let _ = s.flush();
+                    while !flag.load(Ordering::SeqCst) {
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                }
+            });
+            StallingHost { url, stop }
+        }
+    }
+
+    impl Drop for StallingHost {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn an_interrupted_install_leaves_no_toolchain() {
+        let r = Release::new("interrupted", &["99.1.0"], &[]);
+        let good = fs::read_to_string(r.release.root.join("index.json")).unwrap();
+        let stall = StallingHost::start();
+        // The index points the archive at the stalling host.
+        let stalled = good.replace(&r.release.archives[0].path(), &stall.url);
+        fs::write(r.release.root.join("index.json"), stalled).unwrap();
+        let url = r.index_url();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_k"))
+            .args(["toolchain", "install", "99.1.0"])
+            .current_dir(&r.fx.root)
+            .env("K_HOME", r.fx.home())
+            .env("K_TOOLCHAIN_INDEX", &url)
+            .env_remove("K_TOOLCHAIN")
+            .env_remove("K_TOOLCHAIN_DELEGATED")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        // Wait until part of the archive is on disk, then interrupt.
+        let started = Instant::now();
+        let partial = loop {
+            let found = r.tmp_entries().into_iter().find_map(|d| {
+                fs::read_dir(d)
+                    .ok()?
+                    .filter_map(Result::ok)
+                    .find(|e| e.metadata().is_ok_and(|m| m.len() > 0))
+            });
+            if found.is_some() {
+                break found;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(20),
+                "the download never started"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert!(partial.is_some());
+        child.kill().unwrap();
+        child.wait().unwrap();
+        drop(stall);
+        assert!(!r.toolchain("99.1.0").exists());
+        let out = r.k(&["toolchain", "list"]);
+        ok(&out);
+        assert!(
+            text(&out.stdout).starts_with("no toolchain is installed"),
+            "{}",
+            describe(&out)
+        );
+        // The next install works.
+        fs::write(r.release.root.join("index.json"), good).unwrap();
+        let out = r.k(&["toolchain", "install", "99.1.0"]);
+        ok(&out);
+        assert!(r.toolchain("99.1.0").join(tool()).is_file());
+    }
+
+    #[test]
+    fn yanked_versions_are_skipped_unless_named() {
+        let r = Release::new(
+            "yanked",
+            &["99.1.0", "99.1.1", "99.2.0"],
+            &[("99.1.1", "miscompiles match"), ("99.2.0", "broken")],
+        );
+        let out = r.k(&["toolchain", "install", "99.1"]);
+        ok(&out);
+        assert!(r.toolchain("99.1.0").exists());
+        assert!(!r.toolchain("99.1.1").exists());
+        // Only a yanked release fits: none is chosen, and the message says why.
+        let out = r.k(&["toolchain", "install", "99.2"]);
+        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+        assert!(
+            text(&out.stderr)
+                .contains("k 99.2.0 is yanked (broken), and is installed only when named exactly"),
+            "{}",
+            describe(&out)
+        );
+        // Named exactly, it is installed, with a warning.
+        let out = r.k(&["toolchain", "install", "99.1.1"]);
+        ok(&out);
+        assert!(
+            text(&out.stderr).contains("warning: k 99.1.1 is yanked: miscompiles match"),
+            "{}",
+            describe(&out)
+        );
+        let out = r.k(&["toolchain", "list"]);
+        ok(&out);
+        assert_eq!(
+            text(&out.stdout),
+            "99.1.0\n99.1.1 (yanked: miscompiles match)\n",
+            "{}",
+            describe(&out)
+        );
+        // The delegation diagnostic lists it as yanked too.
+        r.fx.app("99.5", Some("99.5.0"));
+        let out = r.k_in(&r.fx.project(), &["check", "."]);
+        assert_eq!(out.status.code(), Some(2), "{}", describe(&out));
+        assert!(
+            text(&out.stderr)
+                .contains("installed toolchains: 99.1.0, 99.1.1 (yanked: miscompiles match)"),
+            "{}",
+            describe(&out)
+        );
+    }
+
+    #[test]
+    fn install_without_a_version_installs_the_projects_toolchain() {
+        // `99.1` allows every 99.x from 99.1.0 (caret, after 1.0).
+        let r = Release::new(
+            "project",
+            &["99.1.0", "99.1.1", "100.0.0", "100.1.0-rc.1"],
+            &[],
+        );
+        // The lock names the version.
+        r.fx.app("99.1", Some("99.1.0"));
+        ok(&r.k_in(&r.fx.project(), &["toolchain", "install"]));
+        assert!(r.toolchain("99.1.0").exists());
+        assert!(!r.toolchain("99.1.1").exists());
+        // Without a lock, the newest release the requirement allows.
+        fs::remove_file(r.fx.project().join("k.lock")).unwrap();
+        let out = r.k_in(&r.fx.project(), &["toolchain", "install"]);
+        ok(&out);
+        assert!(r.toolchain("99.1.1").exists(), "{}", describe(&out));
+        assert!(!r.toolchain("100.0.0").exists());
+        // Outside a project, the newest stable release (never a candidate).
+        ok(&r.k(&["toolchain", "install"]));
+        assert!(r.toolchain("100.0.0").exists());
+        assert!(!r.toolchain("100.1.0-rc.1").exists());
+        // A candidate is installed when named.
+        ok(&r.k(&["toolchain", "install", "100.1.0-rc.1"]));
+        assert!(r.toolchain("100.1.0-rc.1").exists());
+        // The project's toolchain is marked in the list.
+        r.fx.write("k.lock", "toolchain = \"99.1.0\"\n");
+        let out = r.k_in(&r.fx.project(), &["toolchain", "list"]);
+        ok(&out);
+        assert_eq!(
+            text(&out.stdout),
+            "99.1.0 (this project)\n99.1.1\n100.0.0\n100.1.0-rc.1\n",
+            "{}",
+            describe(&out)
+        );
+    }
+
+    #[test]
+    fn list_remove_and_default_behave_as_documented() {
+        let r = Release::new("manage", &["99.1.0", "99.2.0"], &[]);
+        let out = r.k(&["toolchain", "list"]);
+        ok(&out);
+        assert!(
+            text(&out.stdout).starts_with("no toolchain is installed in "),
+            "{}",
+            describe(&out)
+        );
+        ok(&r.k(&["toolchain", "install", "99.1.0"]));
+        let out = r.k(&["toolchain", "install", "99.2.0"]);
+        ok(&out);
+        assert!(
+            text(&out.stderr)
+                .contains("make it the `k` on your PATH with `k toolchain default 99.2.0`"),
+            "{}",
+            describe(&out)
+        );
+        // `default` copies the toolchain's `k` into `bin/`.
+        let out = r.k(&["toolchain", "default", "99.1.0"]);
+        ok(&out);
+        assert!(
+            text(&out.stderr).contains("k 99.1.0 is now the default"),
+            "{}",
+            describe(&out)
+        );
+        let bin = r.fx.home().join("bin").join(tool());
+        assert_eq!(fs::read_to_string(&bin).unwrap(), script("99.1.0"));
+        let run = Command::new(&bin).output().unwrap();
+        assert_eq!(text(&run.stdout), "fake 99.1.0\n");
+        assert_eq!(
+            fs::read_to_string(r.fx.home().join("default")).unwrap(),
+            "99.1.0\n"
+        );
+        let out = r.k(&["toolchain", "list"]);
+        assert_eq!(
+            text(&out.stdout),
+            "99.1.0 (default)\n99.2.0\n",
+            "{}",
+            describe(&out)
+        );
+        // The default can't be removed; another one can, once.
+        let out = r.k(&["toolchain", "remove", "99.1.0"]);
+        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+        assert!(
+            text(&out.stderr).contains("k 99.1.0 is the default"),
+            "{}",
+            describe(&out)
+        );
+        assert!(r.toolchain("99.1.0").exists());
+        let out = r.k(&["toolchain", "remove", "99.2.0"]);
+        ok(&out);
+        assert!(!r.toolchain("99.2.0").exists());
+        let out = r.k(&["toolchain", "remove", "99.2.0"]);
+        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+        assert!(
+            text(&out.stderr).contains("k 99.2.0 isn't installed"),
+            "{}",
+            describe(&out)
+        );
+        // Only an installed version can be the default.
+        let out = r.k(&["toolchain", "default", "99.2.0"]);
+        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+        assert!(
+            text(&out.stderr).contains("install it with `k toolchain install 99.2.0`"),
+            "{}",
+            describe(&out)
+        );
+        // A version that isn't one is a usage error.
+        let out = r.k(&["toolchain", "remove", "latest"]);
+        assert_eq!(out.status.code(), Some(2), "{}", describe(&out));
+        let out = r.k(&["toolchain", "install", "latest"]);
+        assert_eq!(out.status.code(), Some(2), "{}", describe(&out));
+    }
+
+    #[test]
+    fn self_update_installs_the_newest_stable_and_makes_it_the_default() {
+        let r = Release::new(
+            "self-update",
+            &[
+                "99.1.0",
+                "99.2.0",
+                "99.3.0-rc.1",
+                "99.3.0-nightly.20261101",
+                "99.4.0",
+            ],
+            &[("99.4.0", "broken")],
+        );
+        let out = r.k(&["self", "update"]);
+        ok(&out);
+        assert!(
+            text(&out.stderr).contains("k 99.2.0 is now the default"),
+            "{}",
+            describe(&out)
+        );
+        assert!(r.toolchain("99.2.0").exists());
+        assert!(!r.toolchain("99.1.0").exists());
+        assert_eq!(
+            fs::read_to_string(r.fx.home().join("bin").join(tool())).unwrap(),
+            script("99.2.0")
+        );
+        let out = r.k(&["self", "update"]);
+        ok(&out);
+        assert!(
+            text(&out.stderr)
+                .contains("k 99.2.0 is the newest stable release and already the default"),
+            "{}",
+            describe(&out)
+        );
+    }
+
+    #[test]
+    fn without_an_index_nothing_is_downloaded() {
+        let fx = Fixture::new("no-index");
+        let out = fx.k(&["toolchain", "install", "99.1.0"], &[], "");
+        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+        assert!(
+            text(&out.stderr).contains("set K_TOOLCHAIN_INDEX"),
+            "{}",
+            describe(&out)
+        );
+        // An index of a newer format is refused.
+        let r = Release::new("new-format", &["99.1.0"], &[]);
+        fs::write(
+            r.release.root.join("index.json"),
+            r#"{"format": 2, "releases": []}"#,
+        )
+        .unwrap();
+        let out = r.k(&["toolchain", "install", "99.1.0"]);
+        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+        assert!(
+            text(&out.stderr).contains("format 2, newer than this k reads"),
+            "{}",
+            describe(&out)
+        );
+        // A version without an archive for this target says so.
+        let mut other = FakeRelease::new(&r.release.root);
+        other.archive("99.6.0", "riscv64-unknown-linux-gnu", "k", "");
+        other.index(&[]);
+        let out = r.k(&["toolchain", "install", "99.6.0"]);
+        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+        assert!(
+            text(&out.stderr).contains(&format!("k 99.6.0 has no archive for {}", host_target())),
+            "{}",
+            describe(&out)
+        );
+    }
 }

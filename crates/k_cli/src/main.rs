@@ -19,6 +19,7 @@
 
 #[cfg(feature = "server")]
 mod app_mode;
+mod archive;
 mod build;
 mod check;
 mod cli;
@@ -26,6 +27,7 @@ mod debug;
 #[cfg(feature = "server")]
 mod devenv;
 mod fix;
+mod index;
 mod migrate;
 mod new;
 mod project;
@@ -33,6 +35,7 @@ mod routes;
 mod sources;
 mod test;
 mod toolchain;
+mod toolchains;
 mod upgrade;
 mod workspace;
 
@@ -148,6 +151,8 @@ fn main() -> ExitCode {
         Command::Test(args) => test::run(&args),
         Command::Routes(args) => routes::run(&args),
         Command::HashPassword => hash_password(),
+        Command::Toolchain { command } => toolchains::run(&command),
+        Command::Itself { command } => toolchains::run_self(&command),
         Command::Keys { command } => match command {
             cli::KeysCommand::New(args) => keys_new(args.kind),
         },

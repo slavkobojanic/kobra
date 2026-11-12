@@ -55,9 +55,58 @@ pub enum Command {
         #[command(subcommand)]
         command: MigrateCommand,
     },
+    /// Install, list, remove and choose the default of the installed toolchains.
+    Toolchain {
+        /// The toolchain subcommand.
+        #[command(subcommand)]
+        command: ToolchainCommand,
+    },
+    /// Manage the `k` on the `PATH` itself.
+    #[command(name = "self")]
+    Itself {
+        /// The self subcommand.
+        #[command(subcommand)]
+        command: SelfCommand,
+    },
     /// Inspect compiler internals (token streams, syntax trees).
     #[command(hide = true)]
     Debug(DebugArgs),
+}
+
+/// `k toolchain` subcommands.
+#[derive(Debug, Subcommand)]
+pub enum ToolchainCommand {
+    /// Install a toolchain: the project's (its `k.lock`, else the newest its requirements allow), or the one named.
+    Install(ToolchainInstallArgs),
+    /// List the installed toolchains, the default and the one the current project uses.
+    List,
+    /// Remove an installed toolchain.
+    Remove(ToolchainVersionArgs),
+    /// Make an installed toolchain the `k` on the `PATH` (`$K_HOME/bin`).
+    Default(ToolchainVersionArgs),
+}
+
+/// Arguments of `k toolchain install`.
+#[derive(Debug, Args)]
+pub struct ToolchainInstallArgs {
+    /// A version (`0.3.1`, `0.4.0-rc.1`), a minor (`0.3`, its newest release), `stable` or `nightly`; the project's toolchain by default.
+    #[arg(value_name = "VERSION")]
+    pub toolchain: Option<String>,
+}
+
+/// Arguments of `k toolchain remove` and `k toolchain default`.
+#[derive(Debug, Args)]
+pub struct ToolchainVersionArgs {
+    /// The installed version (`0.3.1`).
+    #[arg(value_name = "VERSION")]
+    pub toolchain: String,
+}
+
+/// `k self` subcommands.
+#[derive(Debug, Subcommand)]
+pub enum SelfCommand {
+    /// Install the newest release of this toolchain's channel (stable, or nightly for a nightly) and make it the default.
+    Update,
 }
 
 /// `k keys` subcommands.

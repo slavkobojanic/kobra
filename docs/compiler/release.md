@@ -6,10 +6,11 @@ The maintainer runbook: how a version of K is cut, checked, published and fixed.
 procedure.
 
 > **Status.** There are no tags, no CI configuration and no published artifacts, and the workspace
-> version is `0.1.0`. Steps 1–3 and 5–10 of the [implementation plan](#12-implementation-plan) are
-> built: version consistency, the toolchain requirement, `k.lock`'s toolchain with delegation, lockfile
-> format versions, `k fix`, the stability annotations with the feature table, `k upgrade`, the changelog
-> fragments with `cargo xtask` and the 0.1 wire fixtures. Sections marked *(planned)* describe files and
+> version is `0.1.0`. Steps 1–11 of the [implementation plan](#12-implementation-plan) are
+> built: version consistency, the toolchain requirement, `k.lock`'s toolchain with delegation, `k
+> toolchain` and `k self update`, lockfile format versions, `k fix`, the stability annotations with the
+> feature table, `k upgrade`, the changelog fragments with `cargo xtask`, the 0.1 wire fixtures and the
+> install scripts. Sections marked *(planned)* describe files and
 > commands that the [implementation plan](#12-implementation-plan) adds. Publishing anything needs the
 > owner decisions of [design 48](../design/48-releases-and-versioning.md#owner-decisions); every step up
 > to publishing can be run locally.
@@ -56,11 +57,11 @@ Contents:
 | `CHANGELOG.md` | every released version's notes, newest first | exists (no version released yet) |
 | `crates/xtask/` | `cargo xtask release prepare`, `check`, `start-next`; `cargo xtask docs-gate`, `fragments` | exists (`release sync-main` and `release yank` planned) |
 | `.github/workflows/ci.yml`, `nightly.yml`, `release.yml` | the pipeline (§9); GitHub Actions is the default, an owner decision | planned |
-| `scripts/install.sh`, `scripts/install.ps1` | installers, served from the docs site | planned |
+| `scripts/install.sh`, `scripts/install.ps1` | installers, served from the docs site (the docs build fills in `@K_RELEASES@`, the release host); tested by `crates/k_cli/tests/install_script.rs` | exist |
 | `tests/compat/locks/`, `tests/compat/wire/` | golden lockfiles per format and recorded traffic per minor; checked by `crates/k_server/tests/compat/` | exists (format 1 of every lockfile; the 0.1 transcripts) |
 | `crates/k_cli/tests/version.rs` | every version string agrees; `k --version` format | exists (the commit and date in `--version` come with step 1's `build.rs`, in round 3) |
 | `k.lock` (`toolchain = "…"`) in every example app and workspace root | the toolchain that last built it; `version.rs` checks it names the version | exists |
-| `crates/k_cli/tests/toolchain.rs` | requirement, delegation, `K_TOOLCHAIN`, `k.lock` updates against fake installed toolchains; `k toolchain` against a local fake index with step 4 | exists (step 4's tests to come) |
+| `crates/k_cli/tests/toolchain.rs` | requirement, delegation, `K_TOOLCHAIN`, `k.lock` updates against fake installed toolchains; `k toolchain` and `k self update` against a fake release (`tests/support/release.rs`) on loopback | exists |
 | `docs/book/src/apps/upgrading.md`, `reference/changelog.md` | the upgrade guide (procedure, then one generated section per minor, cumulative) and the changelog page ([design 49](../design/49-documentation.md)) | exist (their generated parts empty until 0.1.0) |
 | `docs/book/check/audit.toml` | the page-audit ledger ([documentation.md §5](documentation.md#5-the-page-audit)) | planned |
 | `docs/book/check/released-pages.txt` | every page path of the last release, for the redirect test | planned |
@@ -354,7 +355,8 @@ maintainer's approval.
 - **Never delete or re-tag.** Projects' `k.lock` files and other people's caches name the version.
 - **Yank:** mark the version `yanked` in the index (`cargo xtask release yank 0.6.1` *(planned)* opens
   the pull request; the publish job deploys the index). `k toolchain install` then skips it unless it is
-  named exactly, and `k toolchain list` and the delegation diagnostic say it is yanked, with the reason.
+  named exactly, and `k toolchain list` and the delegation diagnostic say it is yanked, with the reason
+  (as of the index each machine last fetched: nothing is fetched to say so).
   Its archives stay downloadable, so pinned builds still reproduce.
 - **Fix forward:** the next patch, through §7, with a fragment explaining the problem and the fix.
 - **A wrong docs deploy:** rerun the docs job from the release branch; the docs are a pure function of
@@ -415,6 +417,16 @@ in round 5.
    installs atomically (an interrupted install leaves nothing), skips yanked versions unless named,
    `list`, `remove` and `default` behave as documented. `K_TOOLCHAIN_INDEX` points at the fake. Then the
    commands. (Signature verification is added when the scheme is chosen; the test for it is written then.)
+   *As built (2026-11-12):* `crates/k_cli/src/toolchains.rs` (the commands), `index.rs` (`index.json`
+   and choosing a release in it), `archive.rs` (the `.tar.gz` and `.zip` readers, over `flate2`; no
+   archive crate), and `k_server::outbound::download`, which streams to a file through the server's
+   HTTP client, following redirects, with the SHA-256 computed on the way. Tests:
+   `cargo test -p k_cli --test it -- toolchain::commands::` (install, a digest or size mismatch, an
+   interrupted download killed halfway, yanked versions, the project's toolchain, `list`, `remove`,
+   `default`, `self update`, no index), the unit tests of `index` and `archive`. Decisions in design 48,
+   "Commands: decided while implementing": the index format, the `$K_HOME` layout (`bin/k` is a copy
+   of the default, recorded in `$K_HOME/default`), no built-in index URL until the docs domain exists,
+   yanked notes from the last fetched index, and `k upgrade` still never downloading.
 5. **Lockfile format versions.** Golden files under `tests/compat/locks/` for today's format 1 of every
    lockfile; tests that a missing `format` reads as 1, a `format` newer than known is the new
    diagnostic, and writing preserves the format read. Then: the `format` key in each writer and reader.
@@ -482,9 +494,9 @@ in round 5.
    stops the chain. What remains is printed as `k check --no-tests` would, each code that a generated
    section of the (embedded) upgrade guide names with that section; exit 1 when anything remains.
    Decisions in design 48, "`k upgrade`: decided while implementing". The fake toolchains are installed
-   directories rather than an index: installing a missing toolchain is step 4's, so until then `k upgrade`
-   names `k toolchain install <minor>` and stops before changing anything. Tombstones wait for the first
-   removal.
+   directories rather than an index: `k upgrade` never downloads (decided with step 4), so it names
+   `k toolchain install <minor>` for a missing one and stops before changing anything. Tombstones wait
+   for the first removal.
 9. **Changelog fragments and `xtask`.** Tests in `xtask`: fragment parsing and validation; compiling
    fragments into a `CHANGELOG.md` section, the changelog page and an upgrade-guide section (golden
    output); `prepare` refusing minor-only kinds in a patch; `prepare` updating every version string so
@@ -523,6 +535,15 @@ in round 5.
     `install.sh` against the fake release picks the right archive for `uname` (and fails clearly on an
     unsupported target such as musl), verifies `SHA256SUMS`, installs into `~/.k/bin`, prints the
     `PATH` line, and is idempotent; the same for `install.ps1` on Windows. Then the scripts.
+    *As built (2026-11-12):* `scripts/install.sh` (POSIX `sh`; `curl` or `wget`, `sha256sum` or
+    `shasum`, `tar`) and `scripts/install.ps1` read `K_RELEASES`, a host laid out like GitHub Releases
+    (`latest/download/<file>` for the newest stable, `download/v<version>/<file>`), take `--version`
+    (`-Version`) or `K_VERSION`, install into `$K_HOME/toolchains/<version>/` with the same layout as
+    `k toolchain`, make it the default and print the `PATH` line without editing any profile. Tests:
+    `cargo test -p k_cli --test it -- install_script::`, with fake `uname` and `ldd` first on the `PATH`
+    so every Unix target is tried on one machine; the `install.ps1` test runs where `pwsh` is installed
+    (CI's Windows job) and says it was skipped elsewhere. `scripts/affected-tests.sh` maps a change in
+    `scripts/` to the tests that name the directory.
 12. **Docs version substitution and the docs build.** Tests: `{{k_version}}` is replaced in every page;
     `versions.json` is generated from the tags and branch; the site layout (`/0.N/`, `/next/`, redirects
     for `/` and `/latest/`) is produced by `cargo xtask docs build --version 0.1 --out …` into a

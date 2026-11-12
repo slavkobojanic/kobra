@@ -22,7 +22,8 @@
 //! not, whatever the project asks for. A `k` started with
 //! `K_TOOLCHAIN_DELEGATED` set never delegates. Installed toolchains live
 //! in `$K_HOME/toolchains/<version>/k` (`K_HOME` defaults to `~/.k`).
-//! Nothing is ever downloaded here.
+//! Nothing is ever downloaded here: `k toolchain install`
+//! (`crate::toolchains`) is the one command that downloads.
 
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -57,7 +58,7 @@ pub fn running() -> Version {
 }
 
 /// `$K_HOME`, else `~/.k`; `None` without a home directory.
-fn k_home() -> Option<PathBuf> {
+pub(crate) fn k_home() -> Option<PathBuf> {
     if let Some(home) = std::env::var_os("K_HOME").filter(|h| !h.is_empty()) {
         return Some(PathBuf::from(home));
     }
@@ -67,7 +68,7 @@ fn k_home() -> Option<PathBuf> {
 
 /// The executable's file name inside a toolchain directory: this
 /// executable's own (`k`, `k.exe`).
-fn exe_name() -> OsString {
+pub(crate) fn exe_name() -> OsString {
     std::env::current_exe()
         .ok()
         .and_then(|p| p.file_name().map(ToOwned::to_owned))
@@ -194,6 +195,9 @@ fn command_project(command: &Command) -> Option<PathBuf> {
         | Command::Keys { .. }
         | Command::Debug(_)
         | Command::Upgrade(_) => None,
+        // Managing toolchains is the running `k`'s job, whatever the
+        // project in the working directory pins.
+        Command::Toolchain { .. } | Command::Itself { .. } => None,
     }
 }
 
@@ -378,7 +382,15 @@ fn stop(at: Option<(&Pins, At)>, message: &str, help: &str, format: Format) -> E
             Span::empty(file, TextSize::from(0))
         }
     };
-    let installed: Vec<String> = installed().iter().map(ToString::to_string).collect();
+    // A yanked toolchain says so, with the reason, as far as the index
+    // last fetched knows (nothing is fetched here).
+    let installed: Vec<String> = installed()
+        .iter()
+        .map(|v| match crate::toolchains::yanked(v) {
+            Some(reason) => format!("{v} (yanked: {reason})"),
+            None => v.to_string(),
+        })
+        .collect();
     let note = if installed.is_empty() {
         "no toolchain is installed".to_owned()
     } else {

@@ -115,13 +115,17 @@ A lock that the requirement no longer allows (the requirement was raised by hand
 | Variable | Effect |
 |---|---|
 | `K_TOOLCHAIN=<version>` | run this one command with that installed toolchain, whatever the project asks for, project or not: for bisecting, or for trying a release candidate (`K_TOOLCHAIN=0.2.0-rc.1 k check`) |
-| `K_HOME` | where toolchains are installed: `$K_HOME/toolchains/<version>/k`; `~/.k` by default |
+| `K_HOME` | where toolchains are installed: `$K_HOME/toolchains/<version>/k`, with the default's copy in `$K_HOME/bin`; `~/.k` by default |
 | `K_TOOLCHAIN_DELEGATED` | set by a `k` for the toolchain it runs in its place; a `k` started with it never passes the command on again |
+| `K_TOOLCHAIN_INDEX` | the URL of the toolchain index (`index.json`) that `k toolchain install` and `k self update` read, instead of the release's own; these are the only commands that download anything |
 
 | Command | Purpose |
 |---|---|
-| `k toolchain install [version]` | install a toolchain: by default the one `k.lock` names, else the newest the requirement allows (**Planned** toolchain-commands) |
-| `k toolchain list`, `remove`, `default` | list, remove and choose the default of the installed toolchains (**Planned** toolchain-commands) |
+| `k toolchain install [version]` | install a toolchain: by default the one `k.lock` names, else the newest release the requirement allows (outside a project, the newest stable release); or the one named: `0.3.1`, `0.3` (its newest release), `0.4.0-rc.1`, `stable` or `nightly`. The download's size and SHA-256 are checked against the index, and an interrupted install leaves nothing behind |
+| `k toolchain list` | the installed toolchains, marking the default, the one the project in this directory uses, and yanked ones with the reason |
+| `k toolchain remove <version>` | remove an installed toolchain (not the default) |
+| `k toolchain default <version>` | make an installed toolchain the `k` on the `PATH`: it is copied to `$K_HOME/bin` |
+| `k self update` | install the newest stable release (the newest nightly, when this `k` is a nightly) and make it the default |
 | `k upgrade [project]` | move a project to the running toolchain: lockfiles to its format, `k` and `k.lock` to it, the migration fixes applied, then what remains printed; refuses uncommitted changes; see [Upgrading K](../apps/upgrading.md) |
 | `k upgrade --to <version>` | move it to that installed toolchain instead (`0.3.1`, or `0.3` for its newest installed release), through each minor in between |
 | `k upgrade --allow-dirty` | upgrade with uncommitted changes, or outside git |

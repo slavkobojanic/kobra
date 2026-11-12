@@ -255,11 +255,6 @@ pub const FEATURES: &[Feature] = &[
         "40-workspaces-and-services.md",
     ),
     planned(
-        "toolchain-commands",
-        "`k toolchain` (install, list, remove, default) and `k self update`",
-        "48-releases-and-versioning.md",
-    ),
-    planned(
         "toolchain-image",
         "A published toolchain container image",
         "38-deployment.md",

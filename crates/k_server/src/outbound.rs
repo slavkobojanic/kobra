@@ -274,6 +274,126 @@ fn describe_client_error(e: &hyper_util::client::legacy::Error) -> String {
     message
 }
 
+// ------------------------------------------------------------- Downloads
+
+/// How long [`download`] waits to connect, for the response's head and for
+/// each part of the body.
+pub const DOWNLOAD_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The most redirects [`download`] follows.
+const MAX_REDIRECTS: usize = 10;
+
+/// What [`download`] wrote.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Downloaded {
+    /// The body's size in bytes.
+    pub size: u64,
+    /// The body's SHA-256, in lower-case hexadecimal.
+    pub sha256: String,
+}
+
+/// Downloads `url` (`http` or `https`) with `GET` into `out`, following
+/// redirects, and returns the body's size and SHA-256, computed while it
+/// streams so a large file is never held in memory. This is how `k
+/// toolchain install` fetches the toolchain index and archives
+/// (`docs/design/48-releases-and-versioning.md`, "Commands").
+///
+/// Each step (connecting, the response head, every part of the body) must
+/// make progress within [`DOWNLOAD_IDLE_TIMEOUT`], so a stalled host fails
+/// instead of hanging; a large file may take as long as it needs.
+///
+/// # Errors
+///
+/// A message naming the URL: an invalid URL, a connection or TLS failure,
+/// a status other than `2xx` (after redirects), a timeout, more than
+/// `max_bytes` of body, or a failed write to `out`.
+pub async fn download(
+    url: &str,
+    out: &mut dyn std::io::Write,
+    max_bytes: u64,
+) -> Result<Downloaded, String> {
+    use sha2::Digest;
+    let client = client()?;
+    let mut current = url.to_owned();
+    for _ in 0..=MAX_REDIRECTS {
+        let uri: hyper::Uri = current
+            .parse()
+            .map_err(|_| format!("`{current}` is not a valid URL"))?;
+        match uri.scheme_str() {
+            Some("http" | "https") if uri.host().is_some() => {}
+            _ => return Err(format!("`{current}` is not an http or https URL")),
+        }
+        let request = hyper::Request::get(uri.clone())
+            .header(hyper::header::USER_AGENT, "k-toolchain")
+            .body(Full::new(Bytes::new()))
+            .map_err(|e| e.to_string())?;
+        let response = tokio::time::timeout(DOWNLOAD_IDLE_TIMEOUT, client.request(request))
+            .await
+            .map_err(|_| format!("`{current}` did not answer in time"))?
+            .map_err(|e| format!("cannot download `{current}`: {}", describe_client_error(&e)))?;
+        let status = response.status();
+        if status.is_redirection() {
+            let location = response
+                .headers()
+                .get(hyper::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .ok_or_else(|| format!("`{current}` redirected without a location"))?;
+            current = redirect_target(&uri, location);
+            continue;
+        }
+        if !status.is_success() {
+            return Err(format!("`{current}` answered {}", status.as_u16()));
+        }
+        let mut body = response.into_body();
+        let mut hasher = sha2::Sha256::new();
+        let mut size = 0u64;
+        loop {
+            let frame = tokio::time::timeout(DOWNLOAD_IDLE_TIMEOUT, body.frame())
+                .await
+                .map_err(|_| format!("the download of `{current}` stalled"))?;
+            let Some(frame) = frame else { break };
+            let frame = frame.map_err(|e| format!("the download of `{current}` failed: {e}"))?;
+            if let Ok(data) = frame.into_data() {
+                size += data.len() as u64;
+                if size > max_bytes {
+                    return Err(format!("`{current}` is larger than {max_bytes} bytes"));
+                }
+                hasher.update(&data);
+                out.write_all(&data)
+                    .map_err(|e| format!("cannot write the download of `{current}`: {e}"))?;
+            }
+        }
+        out.flush()
+            .map_err(|e| format!("cannot write the download of `{current}`: {e}"))?;
+        let sha256 = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        return Ok(Downloaded { size, sha256 });
+    }
+    Err(format!(
+        "`{url}` redirected more than {MAX_REDIRECTS} times"
+    ))
+}
+
+/// The URL a `location` header names, relative to `base`.
+fn redirect_target(base: &hyper::Uri, location: &str) -> String {
+    if location.contains("://") {
+        return location.to_owned();
+    }
+    let scheme = base.scheme_str().unwrap_or("https");
+    let authority = base
+        .authority()
+        .map_or("", hyper::http::uri::Authority::as_str);
+    if location.starts_with('/') {
+        return format!("{scheme}://{authority}{location}");
+    }
+    let path = base.path();
+    let dir = &path[..path.rfind('/').map_or(0, |i| i + 1)];
+    format!("{scheme}://{authority}{dir}{location}")
+}
+
 // ----------------------------------------------------------------- SMTP
 
 /// How [`send_mail`] secures the connection (`SMTP_SECURITY`).
@@ -462,6 +582,25 @@ fn smtp_reply_text(e: &lettre::transport::smtp::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_redirect_resolves_against_the_url_it_came_from() {
+        let base: hyper::Uri = "https://host.example/releases/download/v1/k.tar.gz"
+            .parse()
+            .unwrap_or_default();
+        assert_eq!(
+            redirect_target(&base, "https://cdn.example/a?b"),
+            "https://cdn.example/a?b"
+        );
+        assert_eq!(
+            redirect_target(&base, "/other/k.tar.gz"),
+            "https://host.example/other/k.tar.gz"
+        );
+        assert_eq!(
+            redirect_target(&base, "k2.tar.gz"),
+            "https://host.example/releases/download/v1/k2.tar.gz"
+        );
+    }
 
     fn message() -> MailMessage {
         MailMessage {

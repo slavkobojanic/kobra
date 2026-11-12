@@ -15,7 +15,8 @@
 //!    step on another toolchain runs `k upgrade --to <it> --allow-dirty`
 //!    there, with `K_TOOLCHAIN_DELEGATED=1`; every toolchain the steps
 //!    need must be installed before anything changes. Nothing is
-//!    downloaded (`k toolchain install` comes with step 4).
+//!    downloaded: a missing one is named with its `k toolchain install`
+//!    command.
 //! 3. **A step on this toolchain**, all in memory and then written at once:
 //!    every lockfile moves to its current format
 //!    ([`k_sema::lockformat::upgrade`]), each `k` requirement this
