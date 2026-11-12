@@ -1,0 +1,891 @@
+# Which web platform APIs K wraps, how, and which it doesn't.
+#
+# The source of the generated part of docs/book/src/reference/web-platform.md, and checked by
+# `cargo test -p k_sema --test it -- web_platform::` (crates/k_sema/tests/web_platform.rs). After an
+# edit here, regenerate the page with
+#
+#   K_BLESS=1 cargo test -p k_sema --test it -- web_platform::
+#
+# How to update it is in docs/compiler/documentation.md §1 and §6; the decision is recorded in
+# docs/design/49-documentation.md ("The web platform page"). The statuses come from the design topics'
+# own decisions (docs/design/45-web-platform.md, "Inventory", and the topics it links); this file never
+# makes a support claim the design and the stdlib don't.
+#
+# Each `[[area]]` is a heading of the page, in this order, with an optional `guide` (a book page,
+# relative to docs/book/src) and `intro`. Each `[[area.api]]` is one row:
+#
+#   name      the API by its spec's name
+#   status    "supported" (an app can do what the API does, through `k`), "partial" (some of it; the
+#             note says what is missing), "planned" (the design records the direction) or
+#             "not-planned" (the design decides against it, or covers it another way; the note says why)
+#   tier      planned rows only: 2 (next, gets its own design topic) or 3 (when an app needs it);
+#             a planned row without one is tracked by its `feature` instead
+#   k         the K API: qualified stdlib declarations (`k.device.Clipboard`) or `event:<name>` for an
+#             event every element has. Each must resolve in crates/k_sema/stdlib.
+#   side      "client", "server" or "both": where the K API runs
+#   runtime   the files of crates/k_runtime/js/runtime that implement it. Every runtime file is claimed
+#             by a row or listed under [internal], so a new binding fails the check until it is here.
+#   chromium, firefox
+#             the real-browser tests that check it: `#[test]` functions of crates/k_cli/tests/chrome.rs
+#             and firefox.rs. WebKit isn't automated (45-web-platform.md, "Open questions"), so nothing
+#             claims it.
+#   design    the design topic (below docs/design), with `#heading` where one section decides it
+#   guide     the book page that teaches it, relative to docs/book/src
+#   feature   for a planned row tracked by k_sema::features, the feature's id
+#   note      one line: gaps, engine differences, why not
+
+# Runtime files that wrap no browser API an app reaches through the stdlib: the renderer, the server
+# half, codecs and plumbing. A file that touches a browser API only as part of rendering belongs here.
+[internal]
+"app.js" = "the server half of a generated app"
+"crypto-ops.js" = "hands the server's Rust crypto ops to crypto.js"
+"db.js" = "the server's database half of repositories"
+"devtools.js" = "the k dev inspector's hooks"
+"dom.js" = "the renderer's DOM operations"
+"forms.js" = "@Form state and validation; focusing the first invalid field uses refs.js"
+"hydrate.js" = "hydrating server-rendered HTML"
+"index.js" = "the client runtime's exports"
+"keycodec.js" = "the Codable codec of a P-256 public key, without the crypto chunk"
+"list.js" = "keyed list rendering"
+"load.js" = "@Load state"
+"remote.js" = "rpc calls between the services of one system, on the server"
+"rpc.js" = "the rpc client, over fetch; apps call protocols, not fetch"
+"server.js" = "the JavaScript half of the server runtime"
+"signals.js" = "reactivity"
+"ssr.js" = "server rendering"
+"store.js" = "path stores for @State structs"
+"values.js" = "K's value representation"
+"view.js" = "helpers of generated view code, the document title among them"
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Clipboard and sharing"
+guide = "apps/clipboard-and-sharing.md"
+
+[[area.api]]
+name = "Clipboard API: text"
+status = "supported"
+k = ["k.device.Clipboard", "k.device.CopyButton"]
+side = "client"
+runtime = ["clipboard.js"]
+chromium = ["web_platform_bindings_in_chrome", "kanban_copies_a_card_link_to_the_clipboard"]
+firefox = ["web_platform_bindings_in_firefox"]
+design = "45-web-platform.md#clipboard"
+note = "Firefox allows a read or a write only during a click: outside one, both are `.denied` (checked)."
+
+[[area.api]]
+name = "Clipboard API: HTML, images and files (ClipboardItem)"
+status = "planned"
+tier = 2
+design = "45-web-platform.md#inventory"
+note = "Writing several items, and pasting an image into a `File` with the same size limits."
+
+[[area.api]]
+name = "Web Share: text and links"
+status = "supported"
+k = ["k.device.Share", "k.device.ShareButton", "k.device.ShareContent"]
+side = "client"
+runtime = ["share.js"]
+chromium = ["web_platform_bindings_in_chrome"]
+firefox = ["web_platform_bindings_in_firefox"]
+design = "45-web-platform.md#web-share"
+note = "Desktop Firefox has no share sheet: `isSupported` is false and sharing throws `.unsupported` (checked)."
+
+[[area.api]]
+name = "Web Share: files"
+status = "planned"
+tier = 2
+design = "45-web-platform.md#inventory"
+note = "Which file types can be shared differs across engines."
+
+[[area.api]]
+name = "Web Share Target, Web OTP, Shape and Barcode Detection"
+status = "not-planned"
+design = "45-web-platform.md#inventory"
+note = "One engine each, or installed apps only."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Permissions and notifications"
+guide = "apps/notifications.md"
+
+[[area.api]]
+name = "Permissions API"
+status = "supported"
+k = ["k.device.PermissionState"]
+side = "client"
+chromium = ["web_platform_bindings_in_chrome"]
+firefox = ["web_platform_bindings_in_firefox"]
+design = "45-web-platform.md#permissions"
+note = "Each permissioned interface has a reactive `permission` and a `request…` member, the only one that prompts; there is no free-standing query."
+
+[[area.api]]
+name = "Notifications API"
+status = "supported"
+k = ["k.device.Notifications", "k.device.SystemNotification"]
+side = "client"
+runtime = ["notifications.js", "sw.js"]
+chromium = ["web_platform_bindings_in_chrome", "todos_reminds_through_the_service_worker"]
+firefox = ["web_platform_bindings_in_firefox"]
+design = "45-web-platform.md#notifications"
+note = "Local notifications, shown through the service worker `k build` generates."
+
+[[area.api]]
+name = "Push API"
+status = "supported"
+k = ["k.device.PushSubscriptions", "k.server.WebPush", "k.server.VapidWebPush"]
+side = "both"
+runtime = ["push.js"]
+chromium = ["push_subscribe_reaches_the_push_manager_with_the_servers_key_in_chrome", "push_message_is_shown_by_the_service_worker_in_chrome"]
+design = "50-push.md"
+note = "Self-hosted VAPID, no third-party account. WebKit on iOS supports push only for an app added to the home screen."
+
+[[area.api]]
+name = "Badging API"
+status = "planned"
+tier = 3
+design = "45-web-platform.md#inventory"
+note = "Installed apps only, in Chromium and WebKit."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Location"
+guide = "apps/location.md"
+
+[[area.api]]
+name = "Geolocation API"
+status = "supported"
+k = ["k.device.Geolocation", "k.device.Position", "k.device.LocationAccuracy"]
+side = "client"
+runtime = ["geolocation.js"]
+chromium = ["web_platform_bindings_in_chrome", "weather_uses_my_location"]
+firefox = ["web_platform_bindings_in_firefox"]
+design = "45-web-platform.md#geolocation"
+note = "A refused permission is `.denied` (checked in both engines)."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "The page and the device"
+guide = "apps/environment.md"
+
+[[area.api]]
+name = "Page Visibility"
+status = "supported"
+k = ["k.device.PageVisibility"]
+side = "both"
+runtime = ["environment.js"]
+design = "45-web-platform.md#page-visibility"
+note = "During server rendering the page counts as visible."
+
+[[area.api]]
+name = "Online and offline (navigator.onLine, online and offline events)"
+status = "supported"
+k = ["k.device.Connectivity"]
+side = "both"
+runtime = ["environment.js"]
+chromium = ["notes_shows_an_offline_banner_while_the_network_is_gone"]
+design = "45-web-platform.md#connectivity"
+note = "A failed rpc or channel reconnect is the probe. The Network Information API (connection type, bandwidth) isn't wrapped."
+
+[[area.api]]
+name = "Media queries: prefers-color-scheme, prefers-reduced-motion, prefers-contrast, forced-colors"
+status = "supported"
+k = ["k.device.Preferences", "k.core.MediaCondition"]
+side = "both"
+runtime = ["environment.js"]
+design = "45-web-platform.md#preferences"
+note = "Typed members, not a query string; styling stays in CSS, with theme variants."
+
+[[area.api]]
+name = "Viewport size and pointer type"
+status = "supported"
+k = ["k.device.Viewport", "k.device.ViewportSize", "k.device.PointerKind"]
+side = "both"
+runtime = ["environment.js"]
+design = "45-web-platform.md#viewport"
+note = "Optional while the server renders, which can't know the size. The visual viewport (the on-screen keyboard) is an open question."
+
+[[area.api]]
+name = "Intersection Observer"
+status = "supported"
+k = ["event:appeared", "event:disappeared"]
+side = "client"
+runtime = ["observe.js"]
+design = "45-web-platform.md#element-events"
+note = "Events on every element, with `appearThreshold` and `appearMargin`; they never fire on the server."
+
+[[area.api]]
+name = "Resize Observer"
+status = "supported"
+k = ["event:resized", "k.ui.ElementSize"]
+side = "client"
+runtime = ["observe.js"]
+design = "45-web-platform.md#element-events"
+
+[[area.api]]
+name = "Mutation Observer"
+status = "not-planned"
+design = "45-web-platform.md#inventory"
+note = "K renders the DOM from state, so every change it could report is one the app already has."
+
+[[area.api]]
+name = "Screen Wake Lock API"
+status = "supported"
+k = ["k.device.KeepScreenAwake"]
+side = "client"
+runtime = ["wakelock.js"]
+design = "45-web-platform.md#keepscreenawake"
+note = "A component that holds the lock while it is shown."
+
+[[area.api]]
+name = "Fullscreen API"
+status = "planned"
+tier = 2
+design = "53-element-references.md"
+note = "An operation of an element reference, from a user's action."
+
+[[area.api]]
+name = "Leaving with unsaved changes (beforeunload)"
+status = "planned"
+tier = 2
+design = "45-web-platform.md#inventory"
+note = "A `ConfirmLeaving(when:)` component in `k.ui` that also guards in-app navigation."
+
+[[area.api]]
+name = "Printing (window.print, beforeprint)"
+status = "planned"
+tier = 2
+design = "45-web-platform.md#inventory"
+note = "A print button in `k.ui`; print styles are CSS media queries."
+
+[[area.api]]
+name = "Screen Orientation lock"
+status = "planned"
+tier = 3
+design = "45-web-platform.md#inventory"
+note = "Fullscreen only, Chromium only."
+
+[[area.api]]
+name = "Device orientation and motion"
+status = "planned"
+tier = 3
+design = "45-web-platform.md#inventory"
+note = "WebKit requires a request from a user's action, which fits the permission model; few apps need it."
+
+[[area.api]]
+name = "Vibration API"
+status = "planned"
+tier = 3
+design = "45-web-platform.md#inventory"
+note = "WebKit never shipped it, so it can only ever be a hint."
+
+[[area.api]]
+name = "Battery Status API"
+status = "not-planned"
+design = "45-web-platform.md#inventory"
+note = "Removed from Gecko, never in WebKit, and a fingerprinting vector."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Tabs"
+guide = "apps/tabs-and-screen.md"
+
+[[area.api]]
+name = "Broadcast Channel API"
+status = "supported"
+k = ["k.device.TabMessaging", "k.device.TabChannel"]
+side = "client"
+runtime = ["tabs.js"]
+chromium = ["web_platform_bindings_in_chrome", "shop_keeps_the_cart_in_step_across_tabs"]
+firefox = ["web_platform_bindings_in_firefox"]
+design = "45-web-platform.md#messages-between-tabs"
+note = "Typed messages; a tab running another build ignores them (checked)."
+
+[[area.api]]
+name = "Web Locks API"
+status = "planned"
+tier = 2
+design = "45-web-platform.md#inventory"
+note = "So that one tab syncs at a time, and to elect the tab that holds a shared stream."
+
+[[area.api]]
+name = "The storage event"
+status = "planned"
+tier = 2
+design = "36-local-storage.md#open-questions"
+note = "Changes to a local storage key from other tabs; a tab channel covers it meanwhile."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Storage"
+guide = "apps/local-storage.md"
+
+[[area.api]]
+name = "Web Storage (localStorage)"
+status = "supported"
+k = ["k.storage.LocalStorage", "k.storage.StorageKey"]
+side = "client"
+runtime = ["services.js"]
+chromium = ["todos_stores_its_todos_under_the_apps_namespace"]
+design = "36-local-storage.md"
+note = "Typed keys under the app's namespace. Session storage is deferred."
+
+[[area.api]]
+name = "IndexedDB"
+status = "supported"
+k = ["k.storage.Collections", "k.storage.Collection", "k.storage.CollectionIndex"]
+side = "client"
+runtime = ["collections.js"]
+chromium = ["collections_persist_across_a_reload_in_chrome", "collections_upgrade_adds_an_index_over_stored_values_in_chrome", "collections_share_one_database_across_two_builds_in_two_tabs_in_chrome"]
+design = "52-indexed-collections.md"
+note = "Collections and indexes declared as typed values, their shapes in `storage.lock`, upgrades owned by the compiler."
+
+[[area.api]]
+name = "Storage API (persist, persisted, estimate)"
+status = "supported"
+k = ["k.storage.StoragePersistence", "k.storage.StorageEstimate"]
+side = "client"
+runtime = ["collections.js", "crypto.js"]
+design = "52-indexed-collections.md"
+note = "`requestPersistence()` needs a user's action, because Firefox asks the person."
+
+[[area.api]]
+name = "Cookies (document.cookie, Cookie Store API)"
+status = "not-planned"
+design = "26-auth-and-sessions.md"
+note = "Sessions use the server's cookies; cookies in `k.storage` are deferred by the design."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Offline and installable apps"
+guide = "apps/offline.md"
+
+[[area.api]]
+name = "Service Workers"
+status = "partial"
+k = ["k.core.Offline", "k.device.AppUpdates"]
+side = "client"
+runtime = ["offline.js"]
+chromium = ["todos_opens_offline_from_its_service_worker", "todos_offers_a_new_build_once_it_has_arrived", "offline_page_is_kept_and_its_rpc_fails_offline_in_chrome"]
+design = "54-offline.md"
+note = "`k build` generates the worker; apps write no service worker code."
+
+[[area.api]]
+name = "Cache API"
+status = "partial"
+k = ["k.core.Offline"]
+side = "client"
+runtime = ["sw-offline.js"]
+chromium = ["todos_opens_offline_from_its_service_worker", "weather_shows_the_last_forecast_offline"]
+design = "54-offline.md"
+note = "Used only by the generated worker: the build's hashed files, and pages rendered without a session."
+
+[[area.api]]
+name = "Web App Manifest"
+status = "supported"
+k = ["k.ui.MetadataEntries"]
+side = "server"
+chromium = ["todos_puts_its_description_and_manifest_in_the_head", "weather_links_and_serves_its_manifest"]
+design = "54-offline.md#the-manifest"
+note = "Generated from the app's `metadata`, with or without `@Offline`."
+
+[[area.api]]
+name = "Install prompt (beforeinstallprompt)"
+status = "planned"
+tier = 3
+design = "45-web-platform.md#inventory"
+note = "Chromium only."
+
+[[area.api]]
+name = "Background Sync, Periodic Background Sync"
+status = "not-planned"
+design = "45-web-platform.md#inventory"
+note = "Chromium only; connectivity plus an effect covers retrying while the page is open."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Files, drag and drop, keyboard"
+
+[[area.api]]
+name = "File API (File, Blob, FileReader) and file pickers"
+status = "supported"
+k = ["k.device.Files", "k.device.File", "k.device.FileType"]
+side = "client"
+runtime = ["files.js"]
+design = "42-files.md"
+guide = "apps/files.md"
+note = "Opening files, and saving through a download."
+
+[[area.api]]
+name = "File System Access: save in place, directories"
+status = "planned"
+tier = 3
+design = "42-files.md#open-questions"
+note = "Its save picker is Chromium only."
+
+[[area.api]]
+name = "Files dropped on the page"
+status = "planned"
+tier = 2
+design = "41-drag-and-drop.md#open-questions"
+note = "A file drop target component."
+
+[[area.api]]
+name = "Pointer Events (drag and drop)"
+status = "supported"
+k = ["k.drag.Draggable", "k.drag.DropTarget", "k.drag.ReorderableList"]
+side = "client"
+runtime = ["drag.js"]
+chromium = ["kanban_creates_a_board_adds_cards_and_moves_them_with_keys_and_mouse", "kanban_drops_a_card_dragged_onto_an_empty_column"]
+design = "41-drag-and-drop.md"
+guide = "apps/drag-and-drop.md"
+note = "`k.drag` is built on pointer events, with keyboard moves, not on the HTML Drag and Drop API."
+
+[[area.api]]
+name = "Keyboard events (shortcuts)"
+status = "supported"
+k = ["k.ui.KeyboardShortcut"]
+side = "client"
+runtime = ["keys.js"]
+chromium = ["kanban_escape_closes_the_card_editor_but_not_while_typing"]
+design = "43-keyboard-shortcuts.md"
+guide = "apps/keyboard-shortcuts.md"
+note = "A typed key on an element's own key events is an open question."
+
+[[area.api]]
+name = "Pointer Lock"
+status = "planned"
+tier = 3
+design = "45-web-platform.md#inventory"
+note = "For games; from a user's action."
+
+[[area.api]]
+name = "Gamepad API"
+status = "planned"
+tier = 3
+design = "45-web-platform.md#inventory"
+note = "Polled per frame; for games."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Focus, scrolling and navigation"
+
+[[area.api]]
+name = "Focus and scrolling (focus, scrollIntoView)"
+status = "supported"
+k = ["k.ui.ElementRef", "k.ui.ScrollAlignment"]
+side = "client"
+runtime = ["refs.js"]
+chromium = ["element_refs_move_the_focus_after_an_action_in_chrome", "scroll_into_view_reaches_an_element_in_chrome", "a_failed_submit_focuses_the_first_invalid_field_in_chrome"]
+design = "53-element-references.md"
+guide = "apps/views.md"
+note = "A component's own element, named by an `ElementRef` field and `.ref(…)`."
+
+[[area.api]]
+name = "History API, Navigation API"
+status = "supported"
+k = ["k.ui.Router"]
+side = "client"
+runtime = ["router.js"]
+chromium = ["navigation_focuses_the_heading_and_restores_the_scroll_in_chrome"]
+design = "12-routing.md"
+guide = "apps/routing.md"
+note = "Not exposed: the router owns the URL, and a second way to push history would desynchronize it. It restores the scroll and moves the focus after navigation."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Networking"
+
+[[area.api]]
+name = "Fetch API"
+status = "supported"
+k = ["k.http.HttpClient", "k.http.FetchHttpClient"]
+side = "both"
+runtime = ["http.js", "outbound.js"]
+design = "32-http-client.md"
+guide = "apps/http.md"
+note = "Typed requests and responses; an app's own server is reached through protocols, whose rpcs also go over fetch."
+
+[[area.api]]
+name = "WebSockets"
+status = "supported"
+k = ["k.rpc.Channel", "k.http.WebSocketClient", "k.http.WebSocket"]
+side = "both"
+runtime = ["channels.js", "websocket.js"]
+chromium = ["channels_resume_in_chrome_after_the_socket_drops", "huddle_counts_unread_live_and_a_moderator_deletes_for_everyone_in_chrome"]
+design = "44-channels.md"
+guide = "apps/channels.md"
+note = "Typed channels to the app's own server in `k.rpc`; raw sockets to other servers in `k.http`."
+
+[[area.api]]
+name = "Streams API (ReadableStream)"
+status = "partial"
+k = ["k.core.Stream"]
+side = "both"
+runtime = ["streams.js"]
+design = "29-server-streaming.md"
+guide = "apps/streaming.md"
+note = "Server-streaming rpcs read fetch bodies inside the runtime; apps get a `Stream`, not the browser's streams."
+
+[[area.api]]
+name = "Server-sent events (EventSource)"
+status = "not-planned"
+design = "45-web-platform.md#inventory"
+note = "Covered by server streaming and channels."
+
+[[area.api]]
+name = "Compression Streams"
+status = "planned"
+tier = 2
+design = "45-web-platform.md#inventory"
+note = "Gzip in `k.encoding`, for large exports."
+
+[[area.api]]
+name = "WebTransport"
+status = "not-planned"
+design = "45-web-platform.md#inventory"
+note = "Channels cover realtime to the app's own server; revisit for unreliable datagrams once it is Baseline."
+
+[[area.api]]
+name = "WebRTC"
+status = "supported"
+k = ["k.rtc.PeerConnections", "k.rtc.PeerConnection", "k.rtc.DataChannel", "k.rtc.SignallingRelay"]
+side = "both"
+runtime = ["rtc.js", "relay.js"]
+chromium = ["rtc_two_tabs_call_each_other_without_ice_servers_in_chrome", "rtc_call_relays_through_coturn_in_chrome", "rtc_perfect_negotiation_resolves_glare_in_chrome", "rtc_replace_swaps_the_camera_without_renegotiating_in_chrome"]
+design = "46-media-and-rtc.md#peer-connections-krtc"
+guide = "apps/media.md"
+note = "Signalling over a channel and self-hosted STUN and TURN, so no third-party service. Calls aren't run on Firefox."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Media"
+guide = "apps/media.md"
+
+[[area.api]]
+name = "Media Capture and Streams (getUserMedia, enumerateDevices)"
+status = "supported"
+k = ["k.media.MediaDevices", "k.media.MediaStream", "k.media.MediaTrack", "k.media.CaptureRequest"]
+side = "client"
+runtime = ["media.js"]
+chromium = ["media_capture_errors_in_chrome", "memos_records_a_memo_and_plays_it_back"]
+firefox = ["media_capture_errors_in_firefox"]
+design = "46-media-and-rtc.md#capture-mediadevices"
+note = "`requestAccess(for:)` prompts and capturing never does. Firefox keeps a grant for one visit by default."
+
+[[area.api]]
+name = "Screen Capture (getDisplayMedia)"
+status = "supported"
+k = ["k.media.ScreenCapture", "k.media.DisplaySurface"]
+side = "client"
+runtime = ["media.js"]
+design = "46-media-and-rtc.md#capture-mediadevices"
+
+[[area.api]]
+name = "MediaStream Recording (MediaRecorder)"
+status = "supported"
+k = ["k.media.Recorder", "k.media.RecordingFormat", "k.media.Recording"]
+side = "client"
+runtime = ["media.js"]
+chromium = ["media_records_each_named_format_in_chrome", "memos_records_a_memo_and_plays_it_back"]
+firefox = ["media_records_each_named_format_in_firefox"]
+design = "46-media-and-rtc.md#recording-recorder"
+note = "Each named format tries WebM, then MP4: Chromium and Firefox record WebM (checked), Safari MP4."
+
+[[area.api]]
+name = "HTML media elements (video, audio)"
+status = "supported"
+k = ["k.media.MediaController", "k.media.MediaSource", "k.media.Captions"]
+side = "client"
+runtime = ["playback.js"]
+chromium = ["memos_records_a_memo_and_plays_it_back"]
+design = "46-media-and-rtc.md#showing-and-playing-media-video-and-audio"
+note = "The `video` and `audio` elements, controlled through a `MediaController`."
+
+[[area.api]]
+name = "Web Audio API: levels and short sounds"
+status = "partial"
+k = ["k.media.Audio", "k.media.AudioMeter", "k.media.LevelMeter"]
+side = "client"
+runtime = ["media.js"]
+design = "46-media-and-rtc.md#audio-levels-and-sounds"
+note = "Mixing, effects and synthesis are later."
+
+[[area.api]]
+name = "Media Session, Picture-in-Picture"
+status = "planned"
+tier = 3
+design = "46-media-and-rtc.md#open-questions"
+note = "Lock-screen controls and a floating video, in `k.media`."
+
+[[area.api]]
+name = "Audio output devices (setSinkId)"
+status = "planned"
+tier = 3
+design = "46-media-and-rtc.md#open-questions"
+note = "WebKit lacks it."
+
+[[area.api]]
+name = "WebCodecs, insertable streams"
+status = "planned"
+tier = 3
+design = "46-media-and-rtc.md#open-questions"
+note = "Frame-level media processing."
+
+[[area.api]]
+name = "Web Speech API: synthesis"
+status = "planned"
+tier = 2
+design = "45-web-platform.md#inventory"
+note = "Local voices, no account; voices differ per device."
+
+[[area.api]]
+name = "Web Speech API: recognition"
+status = "planned"
+tier = 3
+design = "45-web-platform.md#inventory"
+note = "Chromium streams the audio to its vendor's servers and Gecko lacks it; revisited when on-device recognition ships in two engines."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Cryptography"
+guide = "apps/crypto.md"
+intro = "In the browser these use Web Crypto (`crypto.subtle`); on the server, and in both containers of `k test`, the same API runs on Rust ops (`ring`). The real-browser checks run the published test vectors and a differential against the server's backend."
+
+[[area.api]]
+name = "Web Crypto: AES-GCM"
+status = "supported"
+k = ["k.crypto.AesGcmKey", "k.crypto.Sealed", "k.crypto.WrappedKey"]
+side = "both"
+runtime = ["crypto.js"]
+chromium = ["crypto_subtle_matches_the_vectors_and_the_ops_backend"]
+firefox = ["crypto_subtle_matches_the_vectors_and_the_ops_backend_in_firefox"]
+design = "33-crypto.md#authenticated-encryption-sealedt"
+note = "AES-256-GCM only."
+
+[[area.api]]
+name = "Web Crypto: HMAC"
+status = "supported"
+k = ["k.crypto.Hmac", "k.crypto.Mac"]
+side = "both"
+runtime = ["crypto.js"]
+design = "33-crypto.md#hmac-hmac-and-mac"
+note = "SHA-256 and SHA-512."
+
+[[area.api]]
+name = "Web Crypto: SHA digests"
+status = "supported"
+k = ["k.crypto.Hash"]
+side = "both"
+runtime = ["crypto.js"]
+design = "33-crypto.md#hashing"
+note = "SHA-256 and SHA-512."
+
+[[area.api]]
+name = "Web Crypto: HKDF"
+status = "supported"
+k = ["k.crypto.Hkdf"]
+side = "both"
+runtime = ["crypto.js"]
+chromium = ["crypto_subtle_matches_the_vectors_and_the_ops_backend"]
+firefox = ["crypto_subtle_matches_the_vectors_and_the_ops_backend_in_firefox"]
+design = "33-crypto.md#hkdf"
+note = "HKDF-SHA256."
+
+[[area.api]]
+name = "Web Crypto: PBKDF2"
+status = "supported"
+k = ["k.crypto.PassphraseSalt", "k.crypto.AesGcmKey"]
+side = "both"
+runtime = ["crypto.js"]
+design = "33-crypto.md#from-a-passphrase-pbkdf2"
+note = "A key from a passphrase. Not in the vector check: Wycheproof has no PBKDF2 cases."
+
+[[area.api]]
+name = "Web Crypto: Ed25519"
+status = "supported"
+k = ["k.crypto.Ed25519PrivateKey", "k.crypto.Ed25519PublicKey", "k.crypto.Ed25519Signature"]
+side = "both"
+runtime = ["crypto.js"]
+chromium = ["crypto_subtle_matches_the_vectors_and_the_ops_backend"]
+firefox = ["crypto_subtle_matches_the_vectors_and_the_ops_backend_in_firefox"]
+design = "33-crypto.md#signatures"
+note = "The default signature. Browsers without Ed25519 in Web Crypto get no fallback."
+
+[[area.api]]
+name = "Web Crypto: ECDSA P-256"
+status = "supported"
+k = ["k.crypto.EcdsaP256PrivateKey", "k.crypto.EcdsaP256PublicKey", "k.crypto.EcdsaP256Signature"]
+side = "both"
+runtime = ["crypto.js"]
+chromium = ["crypto_subtle_matches_the_vectors_and_the_ops_backend"]
+firefox = ["crypto_subtle_matches_the_vectors_and_the_ops_backend_in_firefox"]
+design = "33-crypto.md#decided-while-implementing"
+note = "For interop (JWT ES256, VAPID). Gecko verified some signatures of the wrong length, so the binding refuses any that isn't 64 bytes first."
+
+[[area.api]]
+name = "Web Crypto: X25519 and HPKE"
+status = "supported"
+k = ["k.crypto.X25519PrivateKey", "k.crypto.X25519PublicKey", "k.crypto.SharedSecret", "k.crypto.Envelope", "k.crypto.EnvelopedKey"]
+side = "both"
+runtime = ["crypto.js"]
+chromium = ["crypto_subtle_matches_the_vectors_and_the_ops_backend"]
+firefox = ["crypto_subtle_matches_the_vectors_and_the_ops_backend_in_firefox"]
+design = "33-crypto.md#sealing-to-a-public-key-envelopet"
+note = "HPKE base mode (RFC 9180) is composed from Web Crypto calls; no primitive is written in JavaScript."
+
+[[area.api]]
+name = "Web Crypto: RSA"
+status = "partial"
+k = ["k.crypto.RsaPublicKey", "k.crypto.RsaSignature"]
+side = "both"
+runtime = ["crypto.js"]
+design = "33-crypto.md#signatures"
+note = "Verification only (PKCS #1 v1.5 and PSS), for tokens from identity providers; K never signs or encrypts with RSA."
+
+[[area.api]]
+name = "Crypto: getRandomValues, randomUUID"
+status = "supported"
+k = ["k.crypto.SecureRandom", "k.crypto.Uuid"]
+side = "both"
+runtime = ["crypto.js"]
+design = "33-crypto.md#secure-random-values"
+
+[[area.api]]
+name = "Non-extractable keys kept in IndexedDB"
+status = "supported"
+k = ["k.crypto.KeyStore"]
+side = "client"
+runtime = ["crypto.js"]
+chromium = ["crypto_key_store_keeps_a_non_extractable_key_across_a_reload", "notes_keeps_a_private_note_sealed_in_the_vault"]
+design = "33-crypto.md#keeping-keys-in-the-browser-keystore"
+note = "Not run on Firefox, where asking for persistent storage prompts and a headless run can't answer."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Identity and payments"
+
+[[area.api]]
+name = "Web Authentication (passkeys)"
+status = "supported"
+k = ["k.auth.Passkeys", "k.auth.PasskeyVerifier"]
+side = "both"
+runtime = ["passkeys.js"]
+chromium = ["passkeys_sign_up_and_in_with_a_virtual_authenticator_in_chrome", "passkeys_refuse_a_page_on_another_origin_in_chrome"]
+design = "51-passkeys.md"
+guide = "apps/auth.md"
+note = "Attestation \"none\", verified by the server; registering and signing in need a user's action, as Safari requires. Autofill (conditional mediation) isn't built."
+
+[[area.api]]
+name = "Credential Management: stored passwords"
+status = "not-planned"
+design = "45-web-platform.md#inventory"
+note = "The autocomplete attributes of form fields already cover it."
+
+[[area.api]]
+name = "Payment Request API"
+status = "not-planned"
+design = "45-web-platform.md#inventory"
+note = "Every payment method needs a payment processor or merchant account; vendor integrations are packages."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Workers and scheduling"
+guide = "apps/workers.md"
+
+[[area.api]]
+name = "Web Workers"
+status = "supported"
+k = ["k.concurrency.Worker", "k.concurrency.WorkerFailure"]
+side = "client"
+runtime = ["workers.js"]
+chromium = ["a_worker_counts_off_the_main_thread_and_stops_when_cancelled_in_chrome", "a_worker_throws_typed_errors_and_restarts_after_a_crash_in_chrome", "notes_ranks_the_filtered_notes_in_a_worker_in_chrome"]
+design = "55-workers.md"
+note = "A stateless service whose async methods run in a module worker; a cancelled call ends the worker and a crash restarts it."
+
+[[area.api]]
+name = "requestAnimationFrame, requestIdleCallback, scheduler.postTask"
+status = "not-planned"
+design = "45-web-platform.md#inventory"
+note = "Runtime-internal: the renderer schedules."
+
+[[area.api]]
+name = "Performance timing, Web Vitals"
+status = "planned"
+tier = 2
+design = "45-web-platform.md#inventory"
+note = "In `k.observe`, reported to the app's own server, never to an analytics vendor."
+
+# ---------------------------------------------------------------------------------------------------
+
+[[area]]
+name = "Graphics, text and locale"
+
+[[area.api]]
+name = "SVG"
+status = "partial"
+k = ["k.charts.LineChart"]
+side = "both"
+runtime = ["charts.js"]
+chromium = ["kanban_chart_fills_its_width", "weather_chart_has_grid_lines_in_the_light_theme"]
+design = "37-charts.md"
+guide = "apps/charts.md"
+note = "Charts are SVG, drawn on both sides for accessibility and server rendering; drawing of your own is `k.graphics`."
+
+[[area.api]]
+name = "Canvas 2D"
+status = "planned"
+tier = 2
+feature = "k-graphics"
+design = "45-web-platform.md#inventory"
+note = "In `k.graphics`."
+
+[[area.api]]
+name = "WebGL, WebGPU"
+status = "planned"
+tier = 3
+design = "45-web-platform.md#inventory"
+note = "Needs a typed shader story (WGSL checked at compile time) to be worth having."
+
+[[area.api]]
+name = "View Transitions API"
+status = "planned"
+feature = "k-animation"
+design = "45-web-platform.md#inventory"
+note = "In `k.animation`."
+
+[[area.api]]
+name = "Intl"
+status = "partial"
+k = ["k.core.NumberStyle", "k.core.DateStyle", "k.time.TimeZone"]
+side = "both"
+runtime = ["std.js", "money.js"]
+feature = "k-i18n"
+design = "35-time.md"
+note = "Numbers, money, dates and relative times, always in the metadata locale on both sides. Localized strings and plurals are `k.i18n`."
+
+[[area.api]]
+name = "Web Bluetooth, WebUSB, Web Serial, WebHID, Web NFC, Web MIDI"
+status = "not-planned"
+design = "45-web-platform.md#inventory"
+note = "Chromium only and device-specific; revisited on request."
+
+[[area.api]]
+name = "EyeDropper, Contact Picker, Idle Detection, Window Management, Document Picture-in-Picture"
+status = "not-planned"
+design = "45-web-platform.md#inventory"
+note = "One engine each."

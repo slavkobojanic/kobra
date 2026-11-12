@@ -36,6 +36,7 @@ The enums the compiler generates for the app need no import either: `Page`, `End
 
 The pages under this chapter are the API reference of each module, generated from the standard
 library's own doc comments (`crates/k_sema/stdlib`), so they list exactly what the compiler knows.
+[Web platform APIs](web-platform.md) lists the browser APIs these modules wrap, by their specs' names.
 
 | Module | Built today | Planned by the design |
 |---|---|---|
@@ -43,18 +44,18 @@ library's own doc comments (`crates/k_sema/stdlib`), so they list exactly what t
 | [`k.ui`](stdlib/k-ui.md) | layout (`Stack`, `Grid`, `Spacer`), `VisuallyHidden`, `ErrorBoundary`, `KeyboardShortcut`, `Icon` with a bundled icon set, `Router`, the `Theme` service | accessible widgets: `Dialog`, `Tabs`, `Menu`, `Popover`, `Tooltip`, `Toast`, `Combobox`, `DatePicker`, `DataTable` |
 | [`k.charts`](stdlib/k-charts.md) | `LineChart`, `LineSeries`, `ChartPoint` and the chart tokens | bar, area, pie and scatter charts |
 | [`k.concurrency`](stdlib/k-concurrency.md) | `@Worker` services, `WorkerFailure`, `WorkerOnlyError` ([Work off the main thread](../apps/workers.md)) | streamed progress, pools of workers |
-| [`k.http`](stdlib/k-http.md) | `HttpClient`, `HttpRequest`, `HttpResponse`, `IncomingRequest`, `HttpStatus`, `HttpError` | WebSocket, server-sent events |
+| [`k.http`](stdlib/k-http.md) | `HttpClient`, `HttpRequest`, `HttpResponse`, `IncomingRequest`, `HttpStatus`, `HttpError`; raw sockets: `WebSocketClient`, `WebSocket` | |
 | [`k.storage`](stdlib/k-storage.md) | typed local storage: `LocalStorage`, `StorageKey`, `BrowserStorage`; typed IndexedDB: `Collections`, `Collection`, `CollectionIndex`, `BrowserCollections` | session storage, cookies |
 | [`k.time`](stdlib/k-time.md) | `Clock`, `TimerHandle`, `TimeOfDay`, `TimeZone`, `Weekday` | calendars |
 | [`k.text`](stdlib/k-text.md) | `EmailAddress` | regular expressions, Markdown rendering, slugs |
 | [`k.crypto`](stdlib/k-crypto.md) | `Hmac`, `Mac`, `Hash`, `SecureRandom`, `Uuid`, `Password` (server only), `ConstantTime`, the key types (`AesGcmKey`, `Ed25519PrivateKey`, `EcdsaP256PrivateKey`, `X25519PrivateKey` and their public keys and signatures), `Sealed`, `Envelope`, `WrappedKey`, `EnvelopedKey`, `Exportable`, `SharedSecret`, `PassphraseSalt`, `Hkdf`, `OpenError` | |
 | [`k.auth`](stdlib/k-auth.md) | `Session`, `SessionManager`, `SessionUser`, the `Authenticated`, `Role` and `RateLimit` guards, `GuardRejection`, `AuthRole`, `AuthUserId`, `SessionConfig`; passkeys: `Passkeys`, `PasskeyVerifier` and their values | OAuth providers |
-| [`k.device`](stdlib/k-device.md) | `Files` (the file picker and downloads), `File`, `FileType` and their errors | clipboard, geolocation, notifications, sharing |
+| [`k.device`](stdlib/k-device.md) | `Files` (the file picker and downloads), `File`, `FileType`; `Clipboard`, `CopyButton`, `Share`, `ShareButton`, `Geolocation`, `Notifications`, `PushSubscriptions`, `TabMessaging`, `KeepScreenAwake`, `AppUpdates`; the services `PageVisibility`, `Connectivity`, `Preferences` and `Viewport`; `PermissionState`, and their errors | rich clipboard items, sharing files, Web Locks |
 | [`k.media`](stdlib/k-media.md) | `MediaDevices` (the camera, the microphone and the screen), `MediaStream`, `MediaTrack`, `Recorder`, `RecordingSession`, `Recording`, `Audio`, `AudioMeter`, `LevelMeter`, `MediaController`, `MediaSource` and their errors | |
 | [`k.rtc`](stdlib/k-rtc.md) | `PeerConnections` and `PeerConnection` (calls between two browsers, with perfect negotiation), `MediaSender`, typed data channels (`DataChannelKind`, `DataChannel`), signalling over a channel (`Signal`, `SignallingRelay`, `RelayPeer`), `IceServer`, `IceServers` and `TurnConfig` for self-hosted TURN | calls with more than two people |
 | [`k.drag`](stdlib/k-drag.md) | `DragKind`, `Draggable`, `DropTarget`, `ReorderableList`, `ListMove`, the drag tokens | |
 | [`k.encoding`](stdlib/k-encoding.md) | `Json`, `@JsonKey` | CSV, URL encoding |
-| [`k.server`](stdlib/k-server.md) | `ServerConfig`, `PublicUrls`; jobs (`Job`, `JobQueue`, `JobConfig`, `@Retry`, `@Schedule`, `@JobName`); email (`Email`, `EmailProvider`, `SmtpEmailProvider`, `SmtpConfig`) | file storage (S3-compatible) |
+| [`k.server`](stdlib/k-server.md) | `ServerConfig`, `PublicUrls`; jobs (`Job`, `JobQueue`, `JobConfig`, `@Retry`, `@Schedule`, `@JobName`); email (`Email`, `EmailProvider`, `SmtpEmailProvider`, `SmtpConfig`); Web Push (`WebPush`, `VapidWebPush`) | file storage (S3-compatible) |
 | [`k.observe`](stdlib/k-observe.md) | `Log` | metrics, tracing (OpenTelemetry) |
 | [`k.db`](stdlib/k-db.md) | `Database`, `DatabaseConfig`, the entity annotations, migrations and `Schema` | |
 | [`k.validation`](stdlib/k-validation.md) | the constraint annotations, `@Form`, `Rules`, `ValidationError` | |

@@ -20,6 +20,7 @@ people changing the tests and generators. Items marked **Planned** aren't built.
 | Inline code that reads as a qualified K name (`RemoteClient.at`, `k.auth.Session`) or an annotation (`@Load`) resolves in the stdlib or the annotation registry; `docs/book/check/inline-names.txt` lists deliberate non-symbols, and an entry that resolves or is unused fails | `book.rs` | — |
 | Every `k …` line in `bash`/`sh`/`console` blocks, and inline `` `k …` `` code outside Planned paragraphs, parses with `Cli::try_parse_from`; `# planned` lines must not | `crates/k_cli/tests/book_commands.rs` (includes `src/cli.rs` by path) | — |
 | Probes: a planned command (`k new`, `k fmt`, `k doc`, `k explain`, `k add`, `k proto export`) doesn't parse; when it does, the test lists the notes to remove | `book_commands.rs` (`PROBES`) | — |
+| `reference/web-platform.md` is generated from `docs/book/data/web-apis.toml`, between `<!-- gen:web-platform … -->` and `<!-- /gen -->`; every row's K API resolves in the stdlib, every file of `crates/k_runtime/js/runtime` is claimed by a row or listed under `[internal]`, and every Chromium or Firefox claim names a `#[test]` of `crates/k_cli/tests/chrome.rs` or `firefox.rs` (§6) | `crates/k_sema/tests/web_platform.rs` | `K_BLESS=1 cargo test -p k_sema --test it -- web_platform::` |
 | `k --version`, `editors/vscode/package.json`, the examples' `k = "…"`, toolchain image tags (examples, `38-deployment.md`, the book) and the book's `k = "…"` and `k X.Y.Z` agree with `Cargo.toml` (or are `{{k_version}}`) | `crates/k_cli/tests/version.rs` | — |
 
 ## 2. Planned checks and where they go
@@ -194,3 +195,32 @@ design topic or the code changes):
 `33-crypto.md` (`25-config-and-secrets.md#secrett`, three links), `docs/compiler/codegen.md`
 (`testing.md#32-the-run-suite`) and `docs/compiler/server.md` (`codegen.md#154-background-jobs`,
 `codegen.md#152-configuration`).
+
+## 6. The web platform page
+
+`reference/web-platform.md` says which browser APIs K wraps, through which K API, where it runs, which
+engines the real-browser suite checks it in, and what K doesn't wrap and why. Its tables are generated
+from `docs/book/data/web-apis.toml`; the prose above and below the `<!-- gen:web-platform … -->` markers
+is hand-written. The decision is in [49](../design/49-documentation.md#the-web-platform-page), and the
+statuses come from [45's inventory](../design/45-web-platform.md#inventory) and the topics it links:
+the data never claims more than the design decided and the stdlib has.
+
+Update the data, then regenerate the page with
+`K_BLESS=1 cargo test -p k_sema --test it -- web_platform::`, when:
+
+- **a binding is added to `crates/k_runtime/js/runtime`.** The test fails until a row claims the file
+  (`runtime = ["name.js"]` on each API it wraps) or `[internal]` lists it with why it wraps no browser
+  API (the renderer, the server half, codecs);
+- **a wrapper is built or grows.** Move the row from `planned` to `supported` or `partial`, drop its
+  `tier` (or `feature`), and name its declarations in `k` (`k.device.Clipboard`, or `event:appeared` for
+  an event every element has), its `side` and its runtime files;
+- **a real-browser test starts covering an API.** Add the test's function name to `chromium` or
+  `firefox`; a name that isn't a `#[test]` of `chrome.rs` or `firefox.rs` fails. Name only tests that
+  exercise the binding, not ones that merely load a page using it. WebKit has no column until the
+  suite drives it;
+- **a design topic decides for or against an API.** Add or change the row, with `design` pointing at
+  the heading that decides it (the test checks the heading exists) and a one-line `note`.
+
+The checks: rows are well formed (status, tier, side, required fields, design heading, guide page,
+planned feature id), K APIs resolve, runtime files are all accounted for, engine claims name tests, and
+the page matches the data. They read files only and run in milliseconds.

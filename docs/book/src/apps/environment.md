@@ -3,7 +3,8 @@
 Some facts about the page change while it is open: whether it is on screen, whether the device is
 online, the user's system preferences, the size of the window. `k.device` has a **service** for each,
 and every element has **events** for its own visibility and size. They need no permission and no
-user action, so views use them directly. The design is in `docs/design/45-web-platform.md`.
+user action, so views use them directly. The design is in `docs/design/45-web-platform.md`, and
+[Web platform APIs](../reference/web-platform.md) lists every browser API K wraps, and those it doesn't.
 
 | Service | Members | During server rendering |
 |---|---|---|

@@ -53,3 +53,6 @@ public service Clock {
 > **Planned** (npm-interop). Typed npm interop, with bindings generated from `.d.ts` files, is deferred by the design
 > and may be added later. Any design for it would keep JavaScript calls behind services, as the layering
 > rules already do for protocols. Until then, a capability K lacks is a gap in the standard library.
+
+[Web platform APIs](../reference/web-platform.md) lists which browser APIs the standard library wraps,
+and which it doesn't.

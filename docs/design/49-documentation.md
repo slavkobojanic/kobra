@@ -366,6 +366,15 @@ Built: the diagnostics and stdlib pages (`crates/k_corpus/tests/book_reference.r
 
 Hand-written explanation stays possible on generated pages: the generator copies a `<!-- keep -->` … `<!-- /keep -->` region from the committed file into the regenerated one.
 
+### The web platform page
+
+**Which browser APIs K wraps is a generated reference page, `reference/web-platform.md`, from one data file, `docs/book/data/web-apis.toml`** (decided 2026-11-12, at the owner's request for a place that tracks what K supports of the JavaScript and browser platform). One row per API, named as its spec names it, grouped by area: a status (`supported`, `partial`, `planned` with its tier or feature id, `not-planned` with why), the K declarations that cover it, where they run, the real-browser tests that check it in Chromium and Firefox, the design heading that decides it, and a one-line note for gaps and engine differences. The page shows a summary of counts per area, then each area's table.
+
+- **Data, not prose,** because three things can drift and each can be checked: the K API (it must resolve in the stdlib), the runtime (every file of `crates/k_runtime/js/runtime` is claimed by a row or listed as internal, so a new binding can't land without the page), and the engine claims (each names a `#[test]` of `chrome.rs` or `firefox.rs`). `crates/k_sema/tests/web_platform.rs` checks them and regenerates the tables with `K_BLESS=1`, as the design-status table is.
+- **No new support claims.** Statuses come from [45's inventory](45-web-platform.md#inventory) and the topics it links. A Tier 3 entry is `planned` with tier 3; an entry 45 calls "covered elsewhere" is `supported` through the K API that covers it when that API is built (History through the router), and `not-planned` when it is covered by another mechanism (server-sent events by streams and channels).
+- **WebKit gets no column** until the real-browser suite drives it ([45's open questions](45-web-platform.md#open-questions)); Safari behaviour in a note is from the engines' documentation. A link to the page sits in the stdlib overview, the page-and-device guide and the JavaScript interop page's "What isn't available".
+- **Rejected:** a hand-written page with a test that only parses it (the table would be the data, in a harder format to check); an mdBook preprocessor (the book has none yet, and the bless flow already exists); generating the rows from the stdlib's `@Platform` declarations (most rows are about APIs K doesn't wrap, which no declaration names).
+
 ### Coverage
 
 The same test fails when something user-visible has no documentation:

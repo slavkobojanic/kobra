@@ -723,6 +723,15 @@ commit = "0dd7625"
 date = "2026-11-09"
 note = "generated from the stdlib's `///` comments by crates/k_corpus/tests/book_reference.rs"
 
+[pages."reference/web-platform.md"]
+commit = "cba64b9"
+date = "2026-11-12"
+note = "new; its tables are generated from docs/book/data/web-apis.toml by crates/k_sema/tests/web_platform.rs, which checks every K API against the stdlib, every runtime binding is claimed, and every engine claim names a real-browser test; the statuses were read against docs/design/45-web-platform.md's inventory and the topics it links, and the prose against the stdlib"
+unpinned = [
+    "the Safari and WebKit behaviour in the notes (WebKit isn't automated)",
+    "notes on engine behaviour the real-browser tests don't assert, such as Firefox keeping a camera grant for one visit",
+]
+
 [pages."reference/design-status.md"]
 commit = "0dd7625"
 date = "2026-11-09"

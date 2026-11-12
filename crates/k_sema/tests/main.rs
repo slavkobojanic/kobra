@@ -32,4 +32,5 @@ mod properties;
 mod robustness;
 mod tooling;
 mod warm;
+mod web_platform;
 mod workspaces;

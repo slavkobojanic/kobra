@@ -130,4 +130,5 @@
     - [`k.time`](reference/stdlib/k-time.md)
     - [`k.ui`](reference/stdlib/k-ui.md)
     - [`k.validation`](reference/stdlib/k-validation.md)
+- [Web platform APIs](reference/web-platform.md)
 - [Design status](reference/design-status.md)
