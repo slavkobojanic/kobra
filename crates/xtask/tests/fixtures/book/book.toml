@@ -1,0 +1,7 @@
+# A two-page book for `cargo xtask docs build`'s tests (tests/docs.rs).
+[book]
+title = "Fixture"
+src = "src"
+
+[build]
+create-missing = false

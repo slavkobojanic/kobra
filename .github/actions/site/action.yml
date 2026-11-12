@@ -1,0 +1,17 @@
+# Assembles the whole docs site in target/site (docs/design/48-releases-and-versioning.md,
+# "Docs versioning"): the newest release's book at /0.N/ (from its tag),
+# main's at /next/, the redirects, versions.json, the install scripts and
+# the toolchain index. GitHub Pages replaces the site on each deploy, so
+# every deploy builds all of it. Needs a checkout with tags (fetch-depth: 0)
+# and GH_TOKEN for the index.
+name: site
+description: Build the versioned docs site into target/site.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: cargo xtask docs build --version latest --out target/site --releases "${{ github.server_url }}/${{ github.repository }}/releases"
+    - shell: bash
+      run: cargo xtask docs build --version next --from origin/main --out target/site --releases "${{ github.server_url }}/${{ github.repository }}/releases"
+    - shell: bash
+      run: scripts/ci/release-index.sh target/site/index.json

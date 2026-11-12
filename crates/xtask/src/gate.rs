@@ -125,3 +125,20 @@ pub fn run(root: &Path, base: &str) -> Result<(), Vec<String>> {
         Err(problems)
     }
 }
+
+/// `true` when a file below one of `prefixes` changed since `base`'s merge
+/// base with `HEAD` (`cargo xtask ci changed`). An empty base, git's
+/// all-zero "no commit" (the first push of a branch) or one git doesn't
+/// know counts as changed, so a job is never skipped by mistake.
+#[must_use]
+pub fn changed_below(root: &Path, base: &str, prefixes: &[String]) -> bool {
+    if base.is_empty() || base.bytes().all(|b| b == b'0') {
+        return true;
+    }
+    match changed_files(root, base) {
+        Ok(files) => files
+            .iter()
+            .any(|f| prefixes.iter().any(|p| f.starts_with(p.as_str()))),
+        Err(_) => true,
+    }
+}

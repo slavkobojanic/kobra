@@ -419,7 +419,7 @@ tests run with `k test`                     k check runs the tests
 - **The docs gate checks the field against the diff.** Each listed page must be changed in the same diff (or be a generated page that the reference test regenerated). `book: none` is allowed but visible in review, which is the point: the reviewer decides whether "none" is true.
 - **The gate is a small Rust program** in the `xtask` crate (`cargo xtask docs-gate <base-ref>`), reading `git diff --name-only <base>...HEAD` and the added fragments, so it runs locally before pushing and in whatever CI is chosen. The generated-page and coverage tests catch the mechanical part; this catches the prose part by forcing a decision in review.
 
-There's no CI configuration in the repository; **which CI runs the gate, and whether it is a required check, needs the owner's sign-off** (the CI and required-checks rows of [48's owner decisions](48-releases-and-versioning.md#owner-decisions)). Until then a contributor runs it locally, and `cargo xtask release check` runs it against the previous release tag.
+The CI workflows run it on every pull request (`fragments` in `.github/workflows/ci.yml`), but they are switched off until the owner sets `K_CI_ENABLED` ([release.md §9](../compiler/release.md#switching-ci-on)); **whether it is a required check needs the owner's sign-off** (the CI and required-checks rows of [48's owner decisions](48-releases-and-versioning.md#owner-decisions)). Until then a contributor runs it locally, and `cargo xtask release check` runs it against the previous release tag.
 
 ## Docs and releases
 
@@ -497,9 +497,9 @@ Downloads are several megabytes of wasm, loaded only on playground pages. Learn 
 ### Round 4: upgrades, distribution and the site
 
 1. `k upgrade` (step 8); `k toolchain` and `k self update` against the fake index (step 4); `install.sh` and `install.ps1` (step 11). `k upgrade` built 2026-11-12, with `docs/book/src/apps/upgrading.md`'s procedure and its generated part (item 4's "upgrade guide's procedure page and its generated sections").
-2. The site build: `cargo xtask docs build` with the mdBook preprocessor (version substitution, then lexer highlighting), the `/0.N/`, `/next/`, `/` layout, `versions.json`, redirects (step 12); the theme (header tabs, callouts, landing page, version switcher, `k-symbols.js`).
-3. `serverInfo.version` in the language server and the extension (step 14).
-4. The CI workflow files and the test that every gate row appears in them (step 13); the upgrade guide's procedure page and its generated sections.
+2. The site build: `cargo xtask docs build` with the mdBook preprocessor (version substitution, then lexer highlighting), the `/0.N/`, `/next/`, `/` layout, `versions.json`, redirects (step 12); the theme (header tabs, callouts, landing page, version switcher, `k-symbols.js`). The site build, the layout, `versions.json`, the redirects and the version switcher (`theme/k-version.js`) built 2026-11-12, with substitution on a staged copy rather than a preprocessor ([48](48-releases-and-versioning.md#docs-versioning-decided-while-implementing-2026-11-12)); the lexer-highlighting preprocessor, header tabs, callouts, landing page and `k-symbols.js` are still to do.
+3. `serverInfo.version` in the language server and the extension (step 14). Built 2026-11-12: the extension's language status item.
+4. The CI workflow files and the test that every gate row appears in them (step 13); the upgrade guide's procedure page and its generated sections. The workflows built 2026-11-12, switched off until the owner sets `K_CI_ENABLED`.
 
 ### Round 5: the first release
 

@@ -14,3 +14,20 @@
 .content table {
     font-size: 0.95em;
 }
+
+/* The versioned site's version switcher and banner (theme/k-version.js). */
+.k-version {
+    margin: 0 0.5em;
+    font-size: 0.9em;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--searchbar-border-color);
+    border-radius: 3px;
+}
+
+.k-version-banner {
+    margin: 0 0 1em;
+    padding: 0.5em 1em;
+    border-left: 4px solid var(--links);
+    background: var(--quote-bg);
+}

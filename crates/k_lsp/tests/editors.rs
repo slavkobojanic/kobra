@@ -199,3 +199,15 @@ fn the_vscode_manifest_wires_the_language_and_the_server() {
                 .contains("node_modules")
     );
 }
+
+/// The extension shows the version the server reports in `initialize`
+/// (`serverInfo.version`, tested in `server.rs`) in a language status item,
+/// so a user sees which toolchain the project's `k` delegated to
+/// (docs/design/48-releases-and-versioning.md, "The VS Code extension").
+#[test]
+fn the_vscode_extension_shows_the_servers_version() {
+    let extension = fs::read_to_string(editors().join("vscode/extension.js")).unwrap();
+    for needle in ["createLanguageStatusItem", "initializeResult", "serverInfo"] {
+        assert!(extension.contains(needle), "extension.js lacks `{needle}`");
+    }
+}

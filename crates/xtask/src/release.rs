@@ -150,6 +150,43 @@ pub fn start_next(root: &Path, version: &Version) -> Result<Vec<String>, Vec<Str
     Ok(done.written)
 }
 
+/// Sets the version to the current one's nightly,
+/// `X.Y.Z-nightly.<date>` (`date` is `YYYYMMDD`): only in a CI checkout,
+/// never committed (release.md §5, "nightly builds add `-nightly.<date>` at
+/// build time"). Returns the version and the files written.
+///
+/// # Errors
+///
+/// When `date` isn't eight digits, the current version can't be read, or a
+/// file can't be written.
+pub fn nightly(root: &Path, date: &str) -> Result<(Version, Vec<String>), Vec<String>> {
+    if date.len() != 8 || !date.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(vec![format!("`{date}` is not a `YYYYMMDD` date")]);
+    }
+    let current = bump::current(root).map_err(|e| vec![e])?;
+    let v = Version {
+        pre: Some(format!("nightly.{date}")),
+        ..current
+    };
+    let written = start_next(root, &v)?;
+    Ok((v, written))
+}
+
+/// The release notes of `version`: its section of `CHANGELOG.md` (the
+/// `## <version> (<date>)` heading up to the next `## `), without the
+/// heading.
+#[must_use]
+pub fn notes(changelog: &str, version: &str) -> Option<String> {
+    let heading = format!("## {version} (");
+    let start = changelog.lines().position(|l| l.starts_with(&heading))?;
+    let body: Vec<&str> = changelog
+        .lines()
+        .skip(start + 1)
+        .take_while(|l| !l.starts_with("## "))
+        .collect();
+    Some(body.join("\n").trim().to_owned() + "\n")
+}
+
 /// One command of the local gate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Step {
@@ -167,7 +204,7 @@ pub struct Step {
 /// nightly (or on the performance runner) and aren't repeated here. With
 /// `release`, it first checks that no fragment remains.
 #[must_use]
-pub fn gate(mdbook: &str) -> Vec<Step> {
+pub fn gate() -> Vec<Step> {
     let step = |what, env: Vec<(&'static str, &'static str)>, command: &[&str]| Step {
         what,
         env,
@@ -215,7 +252,20 @@ pub fn gate(mdbook: &str) -> Vec<Step> {
                 "dist_browser::",
             ],
         ),
-        step("the book builds", vec![], &[mdbook, "build", "docs/book"]),
+        step(
+            "the book and the versioned site build, with no mdBook warning",
+            vec![],
+            &[
+                "cargo",
+                "xtask",
+                "docs",
+                "build",
+                "--version",
+                "next",
+                "--out",
+                "target/site",
+            ],
+        ),
     ]
 }
 

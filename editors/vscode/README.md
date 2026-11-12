@@ -14,7 +14,10 @@ What you get:
 - hover with the declaration, its rendered documentation (links resolved), the **reactive dependencies** of a
   `@Derived` field or `@Effect`, and a page's URL;
 - completion (names in scope, members after `.`, implicit members such as `padding: .md`, annotations after
-  `@`), signature help, outline, workspace symbols and inlay hints with each page's derived URL.
+  `@`), signature help, outline, workspace symbols and inlay hints with each page's derived URL;
+- the **toolchain's version** in the language status item (the `{}` next to "K" in the status bar), as the
+  server reports it: the `k` on `PATH` runs the project's pinned toolchain, so this is the version the
+  project uses. Clicking it restarts the server.
 
 ## Install
 

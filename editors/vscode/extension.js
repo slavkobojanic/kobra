@@ -4,6 +4,11 @@
 // completion, signature help, symbols and inlay hints) comes from the
 // language server, which is the compiler's own analysis.
 //
+// The language status item shows the toolchain the server runs (the
+// `serverInfo.version` of its `initialize` answer): the `k` on the PATH
+// delegates to the project's pinned toolchain, so this is the version the
+// project uses, whatever the extension's own version is.
+//
 // Plain JavaScript on purpose: the extension has no build step.
 
 "use strict";
@@ -17,6 +22,37 @@ const { LanguageClient } = require("vscode-languageclient/node");
  * @type {LanguageClient | undefined}
  */
 let client;
+
+/**
+ * The language status item naming the running toolchain.
+ * @type {vscode.LanguageStatusItem | undefined}
+ */
+let status;
+
+/**
+ * Starts `client` and shows the version it reports, or that it isn't
+ * running.
+ * @param {LanguageClient} started
+ */
+async function start(started) {
+  if (status) {
+    status.text = "K: starting…";
+    status.busy = true;
+  }
+  try {
+    await started.start();
+  } finally {
+    if (status) {
+      status.busy = false;
+    }
+  }
+  const info = started.initializeResult && started.initializeResult.serverInfo;
+  if (status) {
+    status.text = info && info.version ? `K ${info.version}` : "K";
+    status.detail = "toolchain (k lsp)";
+    status.severity = vscode.LanguageStatusSeverity.Information;
+  }
+}
 
 /**
  * Creates (without starting) the client for the configured `k` executable:
@@ -59,13 +95,17 @@ function createClient() {
  */
 async function activate(context) {
   client = createClient();
+  status = vscode.languages.createLanguageStatusItem("k.toolchain", { language: "k" });
+  status.name = "K toolchain";
+  status.command = { command: "k.restartServer", title: "Restart" };
   context.subscriptions.push(
+    status,
     vscode.commands.registerCommand("k.restartServer", async () => {
       if (client) {
         await client.stop();
       }
       client = createClient();
-      await client.start();
+      await start(client);
     }),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (event.affectsConfiguration("k.server")) {
@@ -74,8 +114,12 @@ async function activate(context) {
     }),
   );
   try {
-    await client.start();
+    await start(client);
   } catch (error) {
+    if (status) {
+      status.text = "K: not running";
+      status.severity = vscode.LanguageStatusSeverity.Error;
+    }
     vscode.window.showErrorMessage(
       `Couldn't start the K language server (\`${vscode.workspace.getConfiguration("k").get("server.path") || "k"} lsp\`): ${error}. ` +
         "Install `k` or set `k.server.path`.",
@@ -85,6 +129,7 @@ async function activate(context) {
 
 /** Stops the language server. */
 async function deactivate() {
+  status = undefined;
   if (client) {
     await client.stop();
     client = undefined;

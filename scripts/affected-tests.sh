@@ -32,12 +32,12 @@
 #   crates/<c>/tests/** (fixtures, golden files, unused support)
 #       -> every test binary of <c>.
 #   examples/**, docs/book/**, docs/**, tests/<dir>/**, editors/**,
-#   changes/**, CHANGELOG.md, scripts/**
+#   changes/**, CHANGELOG.md, scripts/**, .github/**
 #       -> the test modules (and unit tests) whose source has a string
 #          literal naming that directory: "examples", "book", "docs",
 #          "<dir>" (e.g. "corpus", "e2e"), "editors", "changes" (the
 #          changelog fragments), "CHANGELOG.md", "scripts" (the install
-#          scripts' tests). The literal scan is what keeps the choice
+#          scripts' tests), ".github" (the CI workflows' test). The literal scan is what keeps the choice
 #          current as tests are added.
 #   anything else (README.md, fuzz/)
 #       -> nothing; reported as such.
@@ -322,7 +322,7 @@ for f in changed:
         continue
     top = f.split("/")[0]
     word = None
-    if top in ("examples", "editors", "changes", "scripts"):
+    if top in ("examples", "editors", "changes", "scripts", ".github"):
         word = top
     elif f == "CHANGELOG.md":
         word = f

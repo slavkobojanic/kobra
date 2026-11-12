@@ -8,6 +8,9 @@
 #![allow(clippy::unwrap_used, clippy::panic)]
 
 mod bump;
+mod dist;
+mod docs;
 mod fragments;
 mod gate;
 mod prepare;
+mod workflows;

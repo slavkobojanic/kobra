@@ -4290,7 +4290,11 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "flate2",
  "k_diagnostics",
+ "serde_json",
+ "sha2 0.10.9",
+ "yaml-rust2",
 ]
 
 [[package]]

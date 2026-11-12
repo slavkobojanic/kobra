@@ -3,7 +3,7 @@ name = "xtask"
 # Integration tests are modules of tests/main.rs (one binary, `it`):
 # docs/design/13-tooling.md, "One test binary per crate".
 autotests = false
-description = "Release automation for the K repository (`cargo xtask …`): changelog fragments, version bumps, the local gate and the docs gate. A workspace member that is never shipped."
+description = "Release automation for the K repository (`cargo xtask …`): changelog fragments, version bumps, the local gate, the docs gate, the docs site and the release artifacts. A workspace member that is never shipped."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,6 +14,12 @@ publish.workspace = true
 # (`codes::MIGRATIONS`).
 k_diagnostics.workspace = true
 clap.workspace = true
+# The release archives (`dist`): gzip and deflate, SHA-256, index.json.
+flate2.workspace = true
+sha2.workspace = true
+serde_json.workspace = true
+# Reading the CI workflows back (`workflows`), as k_cli reads Compose files.
+yaml-rust2.workspace = true
 
 [[test]]
 name = "it"

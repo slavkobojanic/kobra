@@ -85,6 +85,11 @@ code --install-extension k-language-0.1.0.vsix
 npm is only needed to package the extension; K itself never uses it. The command **K: Restart Language
 Server** restarts the server, for example after you rebuild `k`.
 
+While a K file is open, the language status item (the `{}` next to "K" in the status bar) shows the
+toolchain the server runs, such as `K 0.1.0`: the `k` on your `PATH` runs the toolchain the project pins
+in `k.lock` ([Upgrading K](../apps/upgrading.md)), so this is the version the project uses, whatever the
+extension's own version is. Clicking it restarts the server.
+
 Highlighting comes from the extension's own grammar, so after you update the repository, package and install
 the extension again to pick up its fixes.
 

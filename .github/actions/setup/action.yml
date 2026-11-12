@@ -1,0 +1,37 @@
+# The Rust toolchain and the caches every job uses (docs/compiler/release.md
+# §9, "Caching"): the cargo registry and target/, keyed by Cargo.lock and the
+# runner; target/ also holds the V8 library that deno_core's build downloads.
+name: setup
+description: Install Rust (and mdBook when asked) and restore the caches.
+inputs:
+  toolchain:
+    description: The Rust toolchain.
+    default: stable
+  mdbook:
+    description: Also install mdBook (the version docs/book is built with).
+    default: "false"
+  cache:
+    description: A word added to the cache key (a target, a profile).
+    default: ""
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: rustup toolchain install ${{ inputs.toolchain }} --profile minimal --component rustfmt,clippy
+    - shell: bash
+      run: rustup default ${{ inputs.toolchain }}
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          ~/.cargo/bin
+          ~/.cargo/.crates.toml
+          ~/.cargo/.crates2.json
+          target
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ inputs.toolchain }}-${{ inputs.cache }}-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-${{ inputs.toolchain }}-${{ inputs.cache }}-
+    - if: inputs.mdbook == 'true'
+      shell: bash
+      run: cargo install mdbook --version 0.5.4 --locked

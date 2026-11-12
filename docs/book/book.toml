@@ -16,8 +16,10 @@ default-theme = "light"
 preferred-dark-theme = "navy"
 smart-punctuation = true
 # Registers the K language with the bundled highlight.js and highlights
-# every ```k block. See theme/k-highlight.js.
-additional-js = ["theme/k-highlight.js"]
+# every ```k block. See theme/k-highlight.js. theme/k-version.js adds the
+# version switcher and the /next/ banner on the versioned site that
+# `cargo xtask docs build` assembles (it does nothing in a plain build).
+additional-js = ["theme/k-highlight.js", "theme/k-version.js"]
 additional-css = ["theme/k.css"]
 # "Suggest an edit" links on every page. The repository isn't published yet,
 # so the template is set where the book is built for publishing, for example

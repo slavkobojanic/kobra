@@ -39,6 +39,33 @@ fn exit_codes_follow_the_protocol() {
     assert_eq!(client.hang_up(), 1, "the input closed without shutdown");
 }
 
+/// `initialize` names the server and the toolchain's version, which the
+/// extension shows in its status item (docs/design/48-releases-and-versioning.md,
+/// "The VS Code extension"), so a user can see which toolchain a project's
+/// `k` delegated to.
+#[test]
+fn initialize_reports_the_toolchain_version() {
+    let root = example("todos");
+    let mut client = Client::spawn();
+    let result = client.request(
+        "initialize",
+        json!({ "processId": null, "rootUri": url(&root), "capabilities": {} }),
+    );
+    assert_eq!(result["serverInfo"]["name"], "k");
+    let manifest =
+        fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml"))
+            .unwrap();
+    let version = manifest
+        .lines()
+        .skip_while(|l| l.trim() != "[workspace.package]")
+        .find_map(|l| l.trim().strip_prefix("version = "))
+        .unwrap()
+        .trim_matches('"');
+    assert_eq!(result["serverInfo"]["version"], version);
+    client.notify("initialized", json!({}));
+    assert_eq!(client.shutdown(), 0);
+}
+
 #[test]
 fn requests_after_shutdown_and_twice_initialize_are_rejected() {
     let mut client = Client::start(&example("todos"));

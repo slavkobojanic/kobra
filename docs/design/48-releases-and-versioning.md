@@ -302,7 +302,7 @@ Built in the `xtask` crate (`crates/xtask`, run as `cargo xtask`); [release.md �
 | index | `index.json` | versions, archives, digests and signatures, for `k toolchain` |
 | install scripts | `install.sh`, `install.ps1` | in the repository (`scripts/`), tested; served from the docs site, with the release host filled in. They install into `~/.k` with the layout `k toolchain` uses and make the toolchain the default; they print the `PATH` line rather than editing a shell profile, and refuse musl Linux by name |
 | VS Code extension | `k-language-0.6.0.vsix` | attached to every release; marketplaces are an owner decision |
-| toolchain image | `<registry>/k:0.6.0`, `:0.6`, `:latest`, `:nightly` | multi-arch (amd64, arm64), `distroless/cc` base |
+| toolchain image | `<registry>/k:0.6.0`, `:0.6`, `:latest`, `:nightly` | multi-arch (amd64, arm64), `debian:bookworm-slim` base (decided while implementing, below) |
 | docs | `/0.6/` on the docs site | built from the tag |
 
 **Targets:** `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`, and `aarch64-pc-windows-msvc` when the V8 build `deno_core` uses publishes a prebuilt library for it (until then that target isn't offered).
@@ -347,6 +347,18 @@ A release is made only from a commit on which all of these passed. The pipeline 
 - **Nightly failures block the train:** the branch cut waits until the nightly of the commit to be cut is green.
 - **Which pull-request checks are required** before merging is an owner decision (below); the recommendation is every "On pull requests" row, so a docs test failing blocks the merge, not only the release.
 
+#### The pipeline: decided while implementing (2026-11-12)
+
+The workflows are [release.md §9](../compiler/release.md#9-the-pipeline); `crates/xtask/tests/workflows.rs` reads them back and requires every row of the table above in the workflows its columns name.
+
+- **Every job is off until the owner switches it on.** Each job's `if:` starts with `vars.K_CI_ENABLED == 'true'`, a repository variable, so the workflows can be pushed to the private repository and run nothing. Deploying the docs also needs `K_PAGES_ENABLED`, and anything that publishes (the nightly pre-release, pushed images, the `publish-*` jobs) `K_PUBLISH_ENABLED`, so switching tests on never publishes. The performance jobs run on the runner labelled by `K_PERF_RUNNER` and are skipped without one; the draft release then waits for the rest, and the release manager runs `bench-check.sh` by hand.
+- **`publish.yml` is part of `release.yml`** (its `release: published` jobs): one file holds the whole release, and one test covers it.
+- **The toolchain index is assembled from the releases.** Each release (and nightly) attaches `index-entry.json`, its own entry written by `cargo xtask dist index`; each Pages deploy merges every published release's entry (`cargo xtask dist merge-index`). So nothing is committed back by CI, and a release published or deleted on the host is reflected at the next deploy. Yanking, which must survive that, is planned with `cargo xtask release yank`.
+- **Archives are written by `xtask`** (`cargo xtask dist archive`, over `flate2`, which the workspace already has) rather than by each runner's `tar` or `zip`, so they are the same on every runner and reproducible: entries carry a fixed time and mode.
+- **Linux builds run in `rust:bullseye`** (Debian 11, glibc 2.31) on the native x86_64 and arm64 runners, which gives the glibc baseline without a cross toolchain.
+- **The toolchain image is `debian:bookworm-slim`, not `distroless/cc`**, plus CA certificates and `k`: it is a build stage, and Dockerfiles (`examples/shop/Dockerfile`, the samples in [38-deployment.md](38-deployment.md)) run `RUN k check` in shell form, which needs `/bin/sh`. The runtime image of an app stays `distroless/cc` with `dist/app` alone.
+- **A few steps are scripts** (`scripts/ci/`): those that need `gh` (the index, the nightly issue) or `cosign` (signing, verifying). Everything else is a `cargo` or `cargo xtask` command, and the test rejects any other program but a short list of tools (`rustup`, `git`, `docker`, `npm`/`npx` in `editors/vscode` only, `cosign`, `gh`, `tar`, `unzip`, `mkdir`).
+
 ### Docs freshness checks
 
 The book already can't drift in two ways: its `k` blocks compile, and the diagnostics and standard library references are regenerated from the compiler (`K_BLESS=1`). The full set of drift checks (samples that run, command transcripts, tutorial projects, generated references, coverage, links, Planned notes tied to probes, the staleness list) is designed in [49-documentation.md](49-documentation.md#drift-proofing); they are ordinary `cargo test`s, so the gate runs them on every target. The release adds two of its own:
@@ -375,6 +387,18 @@ How the site is organised (Learn, Guides, Reference, the quick start and the tut
 - **A docs fix to a released minor** goes to its release branch and redeploys `/0.N/`. It needs no toolchain release, and the branch's own tests still compile its snippets with its compiler.
 - **One upgrade guide, one changelog page, both cumulative.** `apps/upgrading.md` ([49](49-documentation.md#docs-and-releases)) is a hand-written procedure followed by one generated section per minor ("Upgrading to 0.6"), assembled from that minor's `breaking` and `deprecation` fragments with their migrations, newest first, between `<!-- gen:upgrading -->` markers. **The changelog page** (`reference/changelog.md`) is `CHANGELOG.md`. Both keep every earlier minor's sections, so the one live minor's site (before 1.0) still tells a project two minors behind everything it needs. The release notes link to both.
 - **`k doc` output for a package** is the package's own and is not hosted by the project.
+
+#### Docs versioning: decided while implementing (2026-11-12)
+
+`cargo xtask docs build` ([release.md §12 step 12](../compiler/release.md#12-implementation-plan)):
+
+- **One run builds one version into a site directory and rewrites the root files**; a full site is two runs, `--version latest` (the newest stable minor's book from its newest tag, through a temporary worktree) and `--version next`. GitHub Pages replaces the whole site on each deploy, so each deploy builds both.
+- **Substitution happens on a staged copy** of `docs/book`, not in an mdBook preprocessor: a plain `mdbook build docs/book` then needs no `xtask` build, and `{{k_version}}` stays visible there, which the snippet test also expands. The highlighting preprocessor ([documentation.md §4](../compiler/documentation.md#4-highlighting-planned)) is still planned.
+- **mdBook's errors and warnings fail the build**, since mdBook 0.5 exits 0 after some of them (an unknown `book.toml` key).
+- **`versions.json`** is `{"format": 1, "latest": "0.6", "live": ["0.6"], "next": true}`. A minor counts as released when a stable tag (`vX.Y.Z`, no pre-release) exists, when it is being built, or when its directory is already in the site, so a local build before any tag links to itself. Before any release, `/` and `/latest/` go to `/next/`.
+- **Redirects are static pages**, since GitHub Pages has no redirect rules: `index.html`, one page per page of the newest minor under `latest/`, each relative so the site works below a project path, and a `404.html` that reads `versions.json` to send `latest/…` and a retired minor's page to the newest minor's same page, and a missing page of a live version to its landing page. The moved-page redirect table joins it with `released-pages.txt` (planned).
+- **The version switcher and the banners** are `docs/book/theme/k-version.js`, loaded on every page: it finds the version from the page's own path, fetches `versions.json`, and adds a menu-bar switcher that keeps the page, and a banner on `/next/` ("unreleased work on main") and on an archived minor. Outside a version directory (a plain build, `mdbook serve`) it does nothing.
+- **The install scripts** are copied to the root with `@K_RELEASES@` filled in from `--releases`, from the newest minor's source (or from the first build when nothing is released).
 
 ## Owner decisions
 

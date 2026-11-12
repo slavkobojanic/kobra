@@ -1,0 +1,466 @@
+# A pushed `vX.Y.Z` or `vX.Y.Z-rc.N` tag, and the release that tag's draft
+# becomes (docs/compiler/release.md §6, §7 and §9, "release.yml"): the whole
+# gate on the tag, every target's archive with its smoke test, SHA256SUMS,
+# signatures and provenance, the extension, the toolchain image, the docs
+# for review, and a draft release. Publishing the draft runs the `publish-*`
+# jobs and the Pages deploy.
+#
+# Off until the owner switches it on: every job runs only when the
+# repository variable K_CI_ENABLED is `true` (and only for a `v*` tag, or a
+# published release); pushing images and the release's publish jobs also
+# need K_PUBLISH_ENABLED, and the Pages deploy K_PAGES_ENABLED (release.md
+# §9, "Switching CI on").
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  # ---- The gate, on the tag -------------------------------------------------
+
+  gate-test:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-24.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm }
+          - { target: x86_64-apple-darwin, os: macos-13 }
+          - { target: aarch64-apple-darwin, os: macos-15 }
+          - { target: x86_64-pc-windows-msvc, os: windows-2025 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          mdbook: "true"
+      - shell: bash
+        run: cargo test --workspace
+      - shell: bash
+        run: "cargo test -p k_cli --test it -- install_script::"
+
+  gate-services:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: k
+          POSTGRES_DB: k_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: cargo test -p k_db -p k_server
+        env:
+          K_TEST_POSTGRES_URL: postgres://postgres:k@127.0.0.1:5432/k_test
+      - run: "cargo test -p k_cli --test it -- chrome:: dist_browser::"
+        env:
+          K_REQUIRE_CHROME: "1"
+
+  gate-chrome-macos:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: "cargo test -p k_cli --test it -- chrome:: dist_browser::"
+        env:
+          K_REQUIRE_CHROME: "1"
+
+  # Formatting, lints, the book and the site, the compatibility fixtures,
+  # the versions, and no fragment left on the tag.
+  gate-checks:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          mdbook: "true"
+          cache: book
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo xtask fragments --none-left
+      - run: "cargo test -p k_cli --test it -- version::"
+      - run: cargo test -p xtask
+      - run: "cargo test -p k_server --test it -- compat::"
+      - run: cargo xtask docs build --version "${{ github.ref_name }}" --out target/site
+
+  # A shorter property run than the nightly's.
+  gate-properties:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          cache: release
+      - run: "cargo test --release -p k_sema --test it -- properties::"
+        env:
+          PROPTEST_CASES: "1000"
+      - run: "cargo test -p k_syntax --test it -- properties::"
+        env:
+          PROPTEST_CASES: "5000"
+      - run: "cargo test -p k_server --test it -- differential:: --test-threads=4"
+        env:
+          PROPTEST_CASES: "200"
+
+  # Each fuzz target over its committed corpus, with no new inputs.
+  gate-fuzz:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [lex, parse, parse_roundtrip, structured, check, check_structured, check_typed, codegen, codegen_run, rpc_json, http_request, lsp_edits]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          toolchain: nightly
+          cache: fuzz
+      - run: cargo install cargo-fuzz --locked
+      - run: cargo +nightly fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- -runs=0
+
+  # On the performance runner (K_PERF_RUNNER); without one the release
+  # manager runs it by hand and records the numbers (release.md §6).
+  gate-perf:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') && vars.K_PERF_RUNNER != ''
+    runs-on: ${{ vars.K_PERF_RUNNER }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          cache: perf
+      - run: scripts/bench-check.sh
+
+  # ---- The artifacts --------------------------------------------------------
+
+  # A release build per target on its native runner, `--locked`; Linux in
+  # Debian 11 for the glibc 2.31 baseline.
+  build:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [gate-test, gate-services, gate-chrome-macos, gate-checks, gate-properties, gate-fuzz]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-24.04, container: "rust:bullseye" }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, container: "rust:bullseye" }
+          - { target: x86_64-apple-darwin, os: macos-13, container: "" }
+          - { target: aarch64-apple-darwin, os: macos-15, container: "" }
+          - { target: x86_64-pc-windows-msvc, os: windows-2025, container: "" }
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          cache: release-${{ matrix.target }}
+      - shell: bash
+        run: rustup target add ${{ matrix.target }}
+      - shell: bash
+        run: cargo build --release -p k_cli --locked --target ${{ matrix.target }}
+      - shell: bash
+        run: cargo xtask dist archive --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: target/dist
+
+  # On a fresh runner of each target: unpack the archive as a user would,
+  # then `k new`, `k check`, `k test`, `k build`, `dist/app serve` and
+  # `dist/app probe`.
+  smoke:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-24.04, exe: k }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, exe: k }
+          - { target: x86_64-apple-darwin, os: macos-13, exe: k }
+          - { target: aarch64-apple-darwin, os: macos-15, exe: k }
+          - { target: x86_64-pc-windows-msvc, os: windows-2025, exe: k.exe }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: target/dist
+      - shell: bash
+        run: mkdir -p target/unpacked
+      - if: runner.os != 'Windows'
+        run: tar -xzf target/dist/k-*.tar.gz -C target/unpacked
+      - if: runner.os == 'Windows'
+        shell: bash
+        run: unzip -q target/dist/k-*.zip -d target/unpacked
+      - shell: bash
+        run: cargo xtask dist smoke --k target/unpacked/k-*/${{ matrix.exe }}
+
+  checksums:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: target/dist
+          merge-multiple: true
+      - run: cargo xtask dist checksums target/dist
+      - run: cargo xtask dist index target/dist --index target/dist/index-entry.json --download "${{ github.server_url }}/${{ github.repository }}/releases/download"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: |
+            target/dist/SHA256SUMS
+            target/dist/index-entry.json
+
+  # Sigstore keyless signatures and build provenance for every archive.
+  sign:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [checksums]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: target/dist
+          merge-multiple: true
+      - uses: sigstore/cosign-installer@v3
+      - run: scripts/ci/sign.sh target/dist
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: target/dist/k-*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signatures
+          path: target/dist/*.sigstore.json
+
+  # Downloads the artifacts as a user would and checks digests and
+  # signatures.
+  verify:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [sign]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: target/dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: checksums
+          path: target/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: signatures
+          path: target/dist
+      - uses: sigstore/cosign-installer@v3
+      - run: scripts/ci/verify.sh target/dist "${{ github.server_url }}/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}"
+
+  # The VS Code extension, k-language-<version>.vsix (npm runs here only).
+  extension:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [gate-checks]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: editors/vscode
+      - run: npx --yes @vscode/vsce@3 package --out ../../target/dist/
+        working-directory: editors/vscode
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: target/dist/*.vsix
+
+  # The toolchain image per architecture, checked by building examples/shop
+  # with it; pushed under `<version>-<arch>` when publishing is enabled (the
+  # multi-arch `<version>` tag is made when the release is published).
+  image:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-24.04, arch: amd64 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - id: v
+        run: cargo xtask ci version
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: target/dist
+      - run: mkdir -p target/image
+      - run: tar -xzf target/dist/k-${{ steps.v.outputs.version }}-${{ matrix.target }}.tar.gz -C target/image --strip-components 1
+      - run: docker build --file docker/toolchain.Dockerfile --tag "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}-${{ matrix.arch }}" target/image
+      - run: docker build --file examples/shop/Dockerfile --build-arg "K_TOOLCHAIN=ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}-${{ matrix.arch }}" --build-arg APP=shop --tag k-shop:ci .
+      - if: vars.K_PUBLISH_ENABLED == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - if: vars.K_PUBLISH_ENABLED == 'true'
+        run: docker push "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}-${{ matrix.arch }}"
+
+  # The book of the tag with the version substituted, for review; deployed
+  # only when the release is published.
+  docs:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [gate-checks]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          mdbook: "true"
+          cache: book
+      - run: cargo xtask docs build --version "${{ github.ref_name }}" --out target/site --releases "${{ github.server_url }}/${{ github.repository }}/releases"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: target/site
+
+  # A draft release: the notes from CHANGELOG.md, every archive, SHA256SUMS,
+  # the index entry, the signatures and the .vsix. Nothing is visible until
+  # the release manager publishes it.
+  # The performance job may be skipped (no runner yet), but nothing may fail.
+  draft:
+    if: vars.K_CI_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') && !cancelled() && !failure()
+    needs: [smoke, verify, extension, image, docs, gate-perf]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - id: v
+        run: cargo xtask ci version
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: target/dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: checksums
+          path: target/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: signatures
+          path: target/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: extension
+          path: target/dist
+      - run: cargo xtask ci notes "${{ github.ref_name }}" --out target/notes.md
+      - run: gh release create "${{ github.ref_name }}" --draft --verify-tag --title "K ${{ steps.v.outputs.version }}" --notes-file target/notes.md ${{ steps.v.outputs.prerelease == 'true' && '--prerelease' || '' }} target/dist/k-* target/dist/SHA256SUMS target/dist/index-entry.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # ---- Publishing the draft (`release: published`) --------------------------
+
+  # The multi-arch image under the version, and for a release (not a
+  # candidate) also `X.Y` and `latest`.
+  publish-image:
+    if: vars.K_CI_ENABLED == 'true' && vars.K_PUBLISH_ENABLED == 'true' && github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - id: v
+        run: cargo xtask ci version
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}" "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}-amd64" "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}-arm64"
+      - if: steps.v.outputs.prerelease != 'true'
+        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.minor }}" --tag "ghcr.io/${{ github.repository_owner }}/k:latest" "ghcr.io/${{ github.repository_owner }}/k:${{ steps.v.outputs.version }}"
+
+  # The docs site: the newest release at /0.N/ with `/` and `/latest/`
+  # pointing at it, /next/ from main, versions.json, the install scripts and
+  # the index with this release's entry (a candidate's too; its docs aren't
+  # deployed, since `latest` is the newest stable release).
+  pages:
+    if: vars.K_CI_ENABLED == 'true' && vars.K_PAGES_ENABLED == 'true' && github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          mdbook: "true"
+          cache: book
+      - uses: ./.github/actions/site
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/site
+      - id: deploy
+        uses: actions/deploy-pages@v4

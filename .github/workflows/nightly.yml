@@ -1,0 +1,247 @@
+# Once a day on main (docs/compiler/release.md §8 and §9, "nightly.yml"): the
+# nightly column of the gate, then, when everything passed, the nightly
+# build `X.Y.Z-nightly.<date>`.
+#
+# Off until the owner switches it on: every job runs only when the
+# repository variable K_CI_ENABLED is `true`; publishing the nightly also
+# needs K_PUBLISH_ENABLED, and the performance job a runner named by
+# K_PERF_RUNNER (release.md §9, "Switching CI on").
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  # `cargo test --workspace` on every target's native runner.
+  test:
+    if: vars.K_CI_ENABLED == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-24.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm }
+          - { target: x86_64-apple-darwin, os: macos-13 }
+          - { target: aarch64-apple-darwin, os: macos-15 }
+          - { target: x86_64-pc-windows-msvc, os: windows-2025 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          mdbook: "true"
+      - shell: bash
+        run: cargo test --workspace
+
+  # The database tests on Postgres and the browser tests in real Chrome.
+  services:
+    if: vars.K_CI_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: k
+          POSTGRES_DB: k_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: cargo test -p k_db -p k_server
+        env:
+          K_TEST_POSTGRES_URL: postgres://postgres:k@127.0.0.1:5432/k_test
+      - run: "cargo test -p k_cli --test it -- chrome:: dist_browser::"
+        env:
+          K_REQUIRE_CHROME: "1"
+      - run: "cargo test -p k_cli --test it -- install_script::"
+
+  lint-and-docs:
+    if: vars.K_CI_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          mdbook: "true"
+          cache: book
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo xtask docs build --version next --out target/site
+      - run: "cargo test -p k_server --test it -- compat::"
+
+  # The property suites with raised case counts (docs/compiler/testing.md §2).
+  properties:
+    if: vars.K_CI_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          cache: release
+      - run: "cargo test --release -p k_sema --test it -- properties::"
+        env:
+          PROPTEST_CASES: "3000"
+      - run: "cargo test -p k_syntax --test it -- properties::"
+        env:
+          PROPTEST_CASES: "20000"
+      - run: "cargo test -p k_lsp --test it -- properties::"
+        env:
+          PROPTEST_CASES: "2000"
+      - run: "cargo test -p k_server --test it -- differential:: --test-threads=4"
+        env:
+          PROPTEST_CASES: "500"
+
+  # Ten minutes per fuzz target (docs/compiler/testing.md §6); a crash is
+  # kept as an artifact, to be minimised and committed under fuzz/artifacts/.
+  fuzz:
+    if: vars.K_CI_ENABLED == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [lex, parse, parse_roundtrip, structured, check, check_structured, check_typed, codegen, codegen_run, rpc_json, http_request, lsp_edits]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          toolchain: nightly
+          cache: fuzz
+      - run: cargo install cargo-fuzz --locked
+      - run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=600
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: fuzz/artifacts
+
+  # The performance budgets need a quiet machine: a self-hosted runner whose
+  # label the owner sets in K_PERF_RUNNER (design 48, "The gate"). Until
+  # then this job is skipped and the release manager runs the script by hand.
+  perf:
+    if: vars.K_CI_ENABLED == 'true' && vars.K_PERF_RUNNER != ''
+    runs-on: ${{ vars.K_PERF_RUNNER }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          cache: perf
+      - run: scripts/bench-check.sh
+
+  # The nightly's archives, smoke-tested on the runner that built them.
+  # Linux builds in Debian 11 for the glibc 2.31 baseline.
+  build:
+    if: vars.K_CI_ENABLED == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-24.04, container: "rust:bullseye", exe: k }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, container: "rust:bullseye", exe: k }
+          - { target: x86_64-apple-darwin, os: macos-13, container: "", exe: k }
+          - { target: aarch64-apple-darwin, os: macos-15, container: "", exe: k }
+          - { target: x86_64-pc-windows-msvc, os: windows-2025, container: "", exe: k.exe }
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          cache: release-${{ matrix.target }}
+      - id: version
+        shell: bash
+        run: cargo xtask release nightly
+      - shell: bash
+        run: rustup target add ${{ matrix.target }}
+      - shell: bash
+        run: cargo build --release -p k_cli --locked --target ${{ matrix.target }}
+      - shell: bash
+        run: cargo xtask dist archive --target ${{ matrix.target }}
+      - shell: bash
+        run: cargo xtask dist smoke --k target/${{ matrix.target }}/release/${{ matrix.exe }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: target/dist
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+  # The toolchain image from the Linux archives, then examples/shop built
+  # with it (`K_TOOLCHAIN=` the image).
+  image:
+    if: vars.K_CI_ENABLED == 'true'
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-24.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: target/dist
+      - run: mkdir -p target/image
+      - run: tar -xzf target/dist/k-${{ needs.build.outputs.version }}-${{ matrix.target }}.tar.gz -C target/image --strip-components 1
+      - run: docker build --file docker/toolchain.Dockerfile --tag k-toolchain:ci target/image
+      - run: docker build --file examples/shop/Dockerfile --build-arg K_TOOLCHAIN=k-toolchain:ci --build-arg APP=shop --tag k-shop:ci .
+
+  # On green: the nightly as a GitHub pre-release (archives, SHA256SUMS, its
+  # index entry). Publishing needs K_PUBLISH_ENABLED; the index and /next/
+  # are deployed by the next Pages run.
+  publish-nightly:
+    if: vars.K_CI_ENABLED == 'true' && vars.K_PUBLISH_ENABLED == 'true'
+    needs: [test, services, lint-and-docs, properties, fuzz, build, image]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: target/dist
+          merge-multiple: true
+      - run: cargo xtask dist checksums target/dist
+      - run: cargo xtask dist index target/dist --index target/dist/index-entry.json --download "${{ github.server_url }}/${{ github.repository }}/releases/download"
+      - run: gh release create "v${{ needs.build.outputs.version }}" --prerelease --target "${{ github.sha }}" --title "K ${{ needs.build.outputs.version }}" --notes "Nightly build of main at ${{ github.sha }}." target/dist/k-* target/dist/SHA256SUMS target/dist/index-entry.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # On red: one open issue collects the failed nightlies.
+  report:
+    if: vars.K_CI_ENABLED == 'true' && failure()
+    needs: [test, services, lint-and-docs, properties, fuzz, build, image]
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/ci/nightly-issue.sh "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          GH_TOKEN: ${{ github.token }}

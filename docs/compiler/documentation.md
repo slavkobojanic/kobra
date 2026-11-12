@@ -60,7 +60,7 @@ coverage check keeps it filled in.
 
 ## 4. Highlighting (Planned)
 
-The `xtask` crate's mdBook preprocessor (which also substitutes `{{k_version}}`, `48-releases-and-versioning.md`) implements mdBook's preprocessor protocol (a `supports <renderer>` probe, then
+The `xtask` crate's mdBook preprocessor (`{{k_version}}` is already substituted by `cargo xtask docs build`, on a staged copy of the book: `48-releases-and-versioning.md`, "Docs versioning: decided while implementing") implements mdBook's preprocessor protocol (a `supports <renderer>` probe, then
 the book as JSON on standard input, returned on standard output). It replaces each ` ```k ` block's body
 with HTML spans from `k_syntax`'s lexer, keeping hidden `~` lines hidden. A test runs it over every book
 block and checks that the token classes match the lexer's, so highlighting can't fall behind the grammar

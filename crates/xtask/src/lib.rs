@@ -11,14 +11,24 @@
 //!   gate of `release check`.
 //! * [`gate`]: `docs-gate`, each user-visible fragment's book pages in the
 //!   diff.
+//! * [`docs`]: `docs build`, the versioned docs site.
+//! * [`dist`]: the release archives, `SHA256SUMS`, `index.json` and the
+//!   smoke test.
+//! * [`workflows`]: the CI workflows in `.github/`, read back for their
+//!   test.
+//! * [`cli`]: the command line.
 //!
 //! Nothing here publishes anything or reaches the network.
 
 pub mod bump;
 pub mod changelog;
+pub mod cli;
+pub mod dist;
+pub mod docs;
 pub mod fragment;
 pub mod gate;
 pub mod release;
 pub mod version;
+pub mod workflows;
 
 pub use version::Version;
