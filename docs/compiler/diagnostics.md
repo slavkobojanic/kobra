@@ -517,6 +517,7 @@ The `sema/ui` corpus cases pin these texts exactly (a `.diag` entry with detail 
 | K8106 | `duplicate-module` | error | The `[dependencies]` line that brings in a library declaring a module the member (or an earlier library) declares too. | — |
 | K8107 | `conflicting-toolchain` | error | The member's `[package] k` line, when no version satisfies both it and the root's `[workspace] k`; a note says a workspace builds with one toolchain. | — |
 | K8201 | `toolchain-mismatch` | error | Reported by the `k` driver before a project command, never by the analysis (exit status 2): `k.lock`'s `toolchain` line when the lock chose the version, else the first `k` requirement's line, or an empty file named `K_TOOLCHAIN` when that variable named a toolchain that isn't installed; a note lists the installed toolchains; help: `k toolchain install <version>` (or plain `k toolchain install` without a lock) and `k upgrade`. | — |
+| K8202 | `lockfile-too-new` | error | A lockfile's top-level `format = N` line when `N` is above the format of that file the running toolchain reads (`k_sema::lockformat`): reported instead of anything else about that lock, which isn't compared or rewritten; for `k.lock` by the driver before a project command (exit status 2). The message names the file, its format and the running toolchain; help: build with the toolchain `k.lock` names (`k toolchain install`), or restore the file from version control. A `format` that isn't a positive whole number is `K8002`. | — |
 
 ## Driver codes
 

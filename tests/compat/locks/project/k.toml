@@ -1,0 +1,6 @@
+# The program the golden lockfiles of tests/compat/locks/ describe
+# (docs/compiler/release.md §4, "A lockfile format change"). Its locks are
+# not here: the compat tests mount each format's goldens next to it.
+[package]
+name = "ledger"
+k = "0.1"

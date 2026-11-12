@@ -43,6 +43,7 @@ Contents:
 | Compose smoke | `crates/k_cli/tests/compose.rs` | Each example's Docker Compose stack, built and started for real, used over HTTP and torn down; only with `K_COMPOSE=1` (§8.6) |
 | Kind smoke | `crates/k_cli/tests/kubernetes.rs` | The shop's Kubernetes manifests applied to a throwaway kind cluster, used over HTTP through a Service, rolled with `kubectl rollout restart` and deleted; only with `K_KIND=1` (§8.7) |
 | Language server | `crates/k_lsp/src/**` (unit), `crates/k_lsp/tests/{server,properties,editors}.rs`, `crates/k_cli/tests/lsp.rs` | The features on fixtures, the server in process, random edits and requests, the editor grammars, and `k lsp` driven over JSON-RPC against the examples (§8.5) |
+| Compatibility | `crates/k_server/tests/compat/` over `tests/compat/` | Every lockfile format's golden file is read and written back unchanged, a newer format is `K8202`; each minor's recorded wire transcripts are answered as recorded by the current server and decoded by the current client (§8.8) |
 | Benchmark | `crates/<crate>/benches/*.rs` (criterion), `tests/perf_budget.rs` | Throughput and latency against the budgets |
 
 ---
@@ -1750,7 +1751,7 @@ shop back. On a copy of `examples/shop`, run as its README says (each member's `
 and an order placed and paid through the shop is marked paid by paybox's event, with the run's one
 development secret on both sides.
 
-`crates/k_cli/tests/toolchain.rs` covers **toolchain pinning** ([48-releases-and-versioning.md](../design/48-releases-and-versioning.md#pinning-a-toolchain)) with `K_HOME` pointing at a temporary directory of fake toolchains, `toolchains/99.*/k`, shell scripts that print their version, arguments, working directory, `K_TOOLCHAIN_DELEGATED` and standard input, then exit 7 (Unix only; the tests that need no fake run everywhere). It checks that the locked toolchain runs with identical arguments and streams and its exit status; that without a lock the newest satisfying release is chosen (never a pre-release); that a stale lock yields to the requirement; that `K_TOOLCHAIN_DELEGATED` stops recursion; that a workspace member uses the root's lock; that a missing toolchain exits 2 with `K8201` and its install command, as text and as JSON; that a patch difference runs and `k build` (never `k check`) records it, at the workspace root for a member; that `k lsp` delegates; `K_TOOLCHAIN` in and outside a project; and `K8002` for an unreadable `k.lock`. The fake versions are `99.*`, so the tests don't change when the toolchain's version does. Requirement parsing and matching are in `crates/k_sema/tests/workspaces.rs` (`requirements::`).
+`crates/k_cli/tests/toolchain.rs` covers **toolchain pinning** ([48-releases-and-versioning.md](../design/48-releases-and-versioning.md#pinning-a-toolchain)) with `K_HOME` pointing at a temporary directory of fake toolchains, `toolchains/99.*/k`, shell scripts that print their version, arguments, working directory, `K_TOOLCHAIN_DELEGATED` and standard input, then exit 7 (Unix only; the tests that need no fake run everywhere). It checks that the locked toolchain runs with identical arguments and streams and its exit status; that without a lock the newest satisfying release is chosen (never a pre-release); that a stale lock yields to the requirement; that `K_TOOLCHAIN_DELEGATED` stops recursion; that a workspace member uses the root's lock; that a missing toolchain exits 2 with `K8201` and its install command, as text and as JSON; that a patch difference runs and `k build` (never `k check`) records it, at the workspace root for a member; that `k lsp` delegates; `K_TOOLCHAIN` in and outside a project; and `K8002` for an unreadable `k.lock`, and `K8202` for one in a newer format, which no `k build` rewrites (a declared `format = 1` survives the toolchain update). The fake versions are `99.*`, so the tests don't change when the toolchain's version does. Requirement parsing and matching are in `crates/k_sema/tests/workspaces.rs` (`requirements::`).
 
 `crates/k_cli/tests/deploy.rs` checks **the deployment files** of `examples/shop` without Docker or a
 cluster. It builds the workspace in a copy (whose `rpc.lock` files must equal the committed ones), reads
@@ -2072,6 +2073,37 @@ on `PATH`). Without `K_KIND=1` it prints `skipped: …` and passes; with it, a m
   grace period longer than the sleep plus `K_SHUTDOWN_GRACE`.
 
 ---
+
+### 8.8 Compatibility fixtures
+
+```sh
+cargo test -p k_server --test it -- compat::
+K_BLESS=1 cargo test -p k_server --test it -- compat::wire::   # re-record the current minor
+```
+
+The suite behind [design 48](../design/48-releases-and-versioning.md)'s promise that formats change only
+with a version and that adjacent minors understand each other ([release.md §4](release.md#4-for-contributors-breaking-and-format-changes)).
+
+- **`compat::locks::`** mounts golden lockfiles next to the fixture program `tests/compat/locks/project/`:
+  `tests/compat/locks/<file>/<format>/<file>` for each format of `k.lock`, `rpc.lock`, `schema.lock`,
+  `storage.lock` and `routes.lock`. It checks there is one golden per format up to the current one
+  (`k_sema::lockformat::FORMATS`), that each is read with no diagnostic and written back unchanged, that
+  a stale lock is rewritten exactly to the golden with and without a declared `format = 1`, that a
+  format above the current one is `K8202` at its line and never rewritten, and that a `format` that
+  isn't a number is `K8002`. The diagnostics are `k check`'s (`k_sema` plus
+  `k_codegen::project_diagnostics`) and the writers `k build`'s.
+- **`compat::wire::`** replays `tests/compat/wire/<minor>/<example>.json` for every minor: `paybox`
+  (`examples/shop/paybox` on a temporary SQLite database, with a fake merchant from `k_server::fakes`)
+  and `notes` (`examples/notes`). Each step's recorded request is sent to the current build (ids mapped
+  from the recorded responses to this run's, service tokens signed again), and what comes back is
+  compared with the recording: status, `content-type`, `cache-control` and `set-cookie`, the body, a
+  stream's envelopes, the `k_job` row (then replaced by the recorded payload and run by the worker),
+  the call to the merchant, and the page's `k-data`. Ids, instants, ports, cookie values and token MACs
+  are compared by shape, and a response may add fields but not drop or change one. The client half
+  loads the generated browser client in V8 with the fake DOM: each recorded rpc response goes through
+  the stub the app calls, the recorded envelopes through its stream reader, and the recorded `k-data`
+  starts the app, which must stay signed in and show the note the recorded stream carries.
+  `K_BLESS=1` records only the current minor; older minors are never rewritten.
 
 ## 9. Benchmarks and performance budgets
 

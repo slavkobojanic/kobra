@@ -13,7 +13,9 @@
 //!   lock that the migrations don't produce (**K8005**), and entities that
 //!   differ from the lock (**K8004**, with the `k migrate new` or
 //!   `k migrate rename` that resolves it). An unreadable lock is
-//!   **K8002**.
+//!   **K8002**, and one in a format newer than this toolchain's is
+//!   **K8202** (`k_sema::lockformat`); neither is checked further or
+//!   rewritten.
 //! * **`routes.lock`** ([`crate::routelock`]).
 //!
 //! [`schema_lock`] and [`routes_lock`] are the locks `k build` writes: the
@@ -187,6 +189,12 @@ fn lock_migration_range(text: &str, stem: &str) -> TextRange {
 /// The `schema.lock` checks (see the module documentation).
 fn schema(g: &Gen<'_>, out: &mut Vec<Diagnostic>) {
     let lock_file = project_file(g, "schema.lock");
+    if let Some((file, text)) = lock_file
+        && let Err(e) = k_sema::lockformat::read("schema.lock", text)
+    {
+        out.push(e.diagnostic(file));
+        return;
+    }
     let lock = match lock_file.map(|(_, text)| SchemaLock::parse(text)) {
         Some(Err(e)) => {
             let (file, text) = lock_file.unwrap_or((FileId::new(0), ""));
@@ -532,6 +540,10 @@ pub fn schema_lock(analysis: &k_sema::Analysis) -> Result<Option<String>, Codege
     let options = Options::default();
     let g = Gen::new(analysis, view, &options);
     let lock_file = project_file(&g, "schema.lock");
+    // A lock in a format this toolchain can't read is never rewritten.
+    if lock_file.is_some_and(|(_, t)| k_sema::lockformat::read("schema.lock", t).is_err()) {
+        return Ok(None);
+    }
     let old = match lock_file.map(|(_, t)| SchemaLock::parse(t)) {
         Some(Err(_)) => return Ok(None),
         Some(Ok(l)) => l,
@@ -551,7 +563,9 @@ pub fn schema_lock(analysis: &k_sema::Analysis) -> Result<Option<String>, Codege
         return Ok(None);
     }
     let model = crate::db::model(&g);
+    // Written in the format it was read in.
     let mut new = SchemaLock {
+        format: old.format,
         migrations: h.files.iter().map(|f| f.stem.clone()).collect(),
         tables: std::collections::BTreeMap::new(),
     };

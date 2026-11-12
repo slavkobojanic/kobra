@@ -158,8 +158,18 @@ Downloads go to the release host chosen by the owner (below) through an index fi
 
 - **Every lockfile starts with `format = N`** after its comment header: `rpc.lock`, `schema.lock`, `storage.lock`, `routes.lock` and `k.lock`. A lockfile without the key is format 1, which is every lockfile written so far.
 - **A toolchain reads its own format and every older one,** and writes the format it read. Only `k upgrade` rewrites a lock to a newer format, together with the requirement bump, so a teammate's older toolchain is stopped by the requirement with a clear message instead of misreading the lock.
-- **A lockfile in a newer format than the toolchain knows** is an error (a proposed `K82xx`) that names the format and the toolchain needed, never a parse error.
+- **A lockfile in a newer format than the toolchain knows** is an error (`K8202 lockfile-too-new`) that names the format and the toolchain needed, never a parse error.
 - **Every format change has golden fixtures:** the lock of each format under `tests/compat/locks/<file>/<format>/`, with a test that the current toolchain reads every one and that `k upgrade` turns each into the current format.
+
+#### Decided while implementing (2026-11-12)
+
+Built in `k_sema::lockformat`, used by every lockfile's reader and writer; [release.md §12](../compiler/release.md#12-implementation-plan) step 5.
+
+- **Each lockfile has its own format number** (`k_sema::lockformat::FORMATS`; `schema.lock`'s is also `k_db::lock::FORMAT`, and a test keeps the two equal). All five are at format 1.
+- **Format 1 is written without the key,** so the locks of 0.1 are byte for byte what every earlier toolchain wrote, and nothing in the examples changed. A lock that says `format = 1` keeps saying it when rewritten; from format 2 the writer always writes the key, after the comment header. "Every lockfile starts with `format = N`" is therefore true from the first format change.
+- **`format` must be a positive whole number;** anything else is `K8002`. A number above the toolchain's is `K8202` at the `format` line, reported instead of anything else about that file: the lock isn't compared with the program and `k build` doesn't rewrite it. For `k.lock` the driver reports it before the command, like `K8201`, and a `K_TOOLCHAIN` build leaves such a lock as it is.
+- **`K8202`'s help** says a newer toolchain wrote the lock, names `k toolchain install` and the toolchain `k.lock` records, and suggests restoring the file from version control.
+- **The goldens describe one fixture program** (`tests/compat/locks/project/`), and each format's lock of each file sits under `tests/compat/locks/<file>/<format>/<file>`. The compat suite checks one golden per format up to the current one, that each is read without a problem and written back unchanged (with and without a declared `format = 1`, and when stale), and that a newer format is `K8202` and never rewritten. `k upgrade`'s half of the test comes with `k upgrade` (step 8).
 
 ### Wire and stored formats across a rolling deploy
 
@@ -170,6 +180,18 @@ A workspace's apps are deployed one at a time, and open browser tabs keep runnin
 - **The runtime's own tables migrate by expand and contract,** exactly as an app's must ([19-persistence.md](19-persistence.md#rolling-deploys-expand-then-contract)): a toolchain migration that adds a column ships in N, and the one that drops what it replaces in N+1 or later. `dist/app` applies them like the app's migrations, under the same advisory lock.
 - **The release notes say** when a minor starts writing a new encoding, so operators know not to skip a minor in one deploy. `k upgrade` from more than one minor behind prints the same warning.
 - **Tested with recorded traffic:** `tests/compat/wire/<minor>/` holds requests and responses recorded from each minor's examples (rpcs, error details, a stream, a service token, a queued job row). The current server must answer the previous minor's recorded requests as recorded, and the previous minor's recorded responses must decode in the current client. Fixtures are offline and need no old binary.
+
+#### Decided while implementing (2026-11-12)
+
+Built as the `compat::wire` tests of `k_server` ([release.md §12](../compiler/release.md#12-implementation-plan) step 10); the recordings are `tests/compat/wire/0.1/`.
+
+- **A recording is a transcript, one JSON file per example:** each step's title, the request sent, and what came back: the status and the headers that belong to the format (`content-type`, `cache-control`, `set-cookie`), the body, a stream's envelopes, a stored row, a call the server made, or what the browser client decoded. `paybox` (from `examples/shop/paybox`) covers service-token calls, a declared error with a payload, `rpcFailure` for a call without a token and for an invalid message, the `k_job` row a charge queues and the delivery that row makes; `notes` covers the session cookie, `rpcFailure` for a guest, a server stream's envelopes, a declared error and a page's `k-data`.
+- **Replaying sends the recorded requests** to the current build of the same example and compares what comes back step by step. Values that differ on every run (ids, instants, ports, cookie values, a token's expiry and MAC) are compared by their shape, and an id first seen in a recorded response is mapped to this run's, so a later recorded request that names it still means the same row. A recorded service token is signed again for now with the recorded version and caller.
+- **"As recorded" allows additions:** every recorded field must be there with the same value, and a response may carry fields the recording doesn't (an optional field added compatibly). Dropping or changing a field, a status, a header or an envelope fails.
+- **The stored row is replayed too:** the recorded `k_job` payload replaces the one the current build queued before the current worker runs it, so a job queued by the recorded minor runs on the current one.
+- **The client side runs the current browser client** (the example's generated client chunks in V8 with the fake DOM and a `fetch` that answers the recorded response): each recorded rpc response is decoded by the stub the app calls, the stream's recorded envelopes by its stream reader, and the recorded `k-data` starts the app, which must stay on the signed-in page and render the note from the recorded stream.
+- **Only the current minor is recorded** (`K_BLESS=1`); older minors' transcripts are never rewritten. Until 0.2 is cut, a change to the examples that alters a recorded answer re-records 0.1.
+- **The shop's service client** decoding paybox's recorded responses isn't driven separately: the remote stubs use the same generated codecs as the browser's, which the notes transcript exercises.
 
 ## The release process
 
@@ -248,7 +270,7 @@ A release is made only from a commit on which all of these passed. The pipeline 
 | docs freshness | below | yes | yes | yes |
 | docs ownership | `cargo xtask docs-gate <base>`: each user-visible fragment's `book:` pages are in the diff | yes | — | — |
 | the versioned site builds | `cargo xtask docs build --version <minor>` (substitution, redirects, `versions.json`, search index) | when `docs/book/` or `xtask/` changed | yes (`/next/`) | yes |
-| compatibility fixtures | `cargo test --test compat` (locks, wire) | yes | yes | yes |
+| compatibility fixtures | `cargo test -p k_server --test it -- compat::` (locks, wire) | yes | yes | yes |
 | version consistency, changelog fragments | `crates/k_cli/tests/version.rs`, the fragment test; a fragment per pull request | yes | — | yes, and no fragment may remain |
 | install scripts | against a fake release served locally | when they change | yes | yes |
 | artifacts' smoke test | per target, above | no | yes | yes |

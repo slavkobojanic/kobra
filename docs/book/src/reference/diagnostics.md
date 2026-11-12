@@ -10104,6 +10104,12 @@ error[K8010]: the key name `notes-vault` changed incompatibly with storage.lock;
 
 **Fix:** Install the toolchain the project needs with the `k toolchain install` command the message gives, or move the project to the running toolchain with `k upgrade`.
 
+### K8202 `lockfile-too-new`
+
+**Error.** A lockfile is in a format newer than this toolchain reads; a newer toolchain wrote it.
+
+**Fix:** Build with the toolchain that wrote the lock, the one `k.lock` names (`k toolchain install` installs it), or restore the lockfile from version control.
+
 ## K9000–K9999: Driver, I/O and internal errors
 
 ### K9001 `invalid-utf8`

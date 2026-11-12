@@ -6,8 +6,9 @@ The maintainer runbook: how a version of K is cut, checked, published and fixed.
 procedure.
 
 > **Status.** There are no tags, no CI configuration and no published artifacts, and the workspace
-> version is `0.1.0`. Steps 1–3 of the [implementation plan](#12-implementation-plan) are built: version
-> consistency, the toolchain requirement and `k.lock`'s toolchain with delegation. Sections marked *(planned)* describe files and
+> version is `0.1.0`. Steps 1–3, 5 and 10 of the [implementation plan](#12-implementation-plan) are built:
+> version consistency, the toolchain requirement, `k.lock`'s toolchain with delegation, lockfile format
+> versions and the 0.1 wire fixtures. Sections marked *(planned)* describe files and
 > commands that the [implementation plan](#12-implementation-plan) adds. Publishing anything needs the
 > owner decisions of [design 48](../design/48-releases-and-versioning.md#owner-decisions); every step up
 > to publishing can be run locally.
@@ -55,7 +56,7 @@ Contents:
 | `xtask/` | `cargo xtask release …`: bump, compile fragments, local gate, print the tag | planned |
 | `.github/workflows/ci.yml`, `nightly.yml`, `release.yml` | the pipeline (§9); GitHub Actions is the default, an owner decision | planned |
 | `scripts/install.sh`, `scripts/install.ps1` | installers, served from the docs site | planned |
-| `tests/compat/locks/`, `tests/compat/wire/` | golden lockfiles per format and recorded traffic per minor | planned |
+| `tests/compat/locks/`, `tests/compat/wire/` | golden lockfiles per format and recorded traffic per minor; checked by `crates/k_server/tests/compat/` | exists (format 1 of every lockfile; the 0.1 transcripts) |
 | `crates/k_cli/tests/version.rs` | every version string agrees; `k --version` format | exists (the commit and date in `--version` come with step 1's `build.rs`, in round 3) |
 | `k.lock` (`toolchain = "…"`) in every example app and workspace root | the toolchain that last built it; `version.rs` checks it names the version | exists |
 | `crates/k_cli/tests/toolchain.rs` | requirement, delegation, `K_TOOLCHAIN`, `k.lock` updates against fake installed toolchains; `k toolchain` against a local fake index with step 4 | exists (step 4's tests to come) |
@@ -122,9 +123,11 @@ unless it is a soundness or security fix (then: fragment `kind: breaking`, and t
 
 ### A lockfile format change
 
-1. Bump the format number in the writer; keep the reader for every older format.
-2. Add the new format's golden file under `tests/compat/locks/<lockfile>/<N>/` and keep the old ones;
-   the compat test reads each and checks that `k upgrade` rewrites it to `N`.
+1. Bump the file's number in `k_sema::lockformat::FORMATS` (and `k_db::lock::FORMAT` for
+   `schema.lock`); keep the reader for every older format.
+2. Add the new format's golden file as `tests/compat/locks/<lockfile>/<N>/<lockfile>` (for the program in
+   `tests/compat/locks/project/`) and keep the old ones; `cargo test -p k_server --test it --
+   compat::locks::` reads each, and, once `k upgrade` exists, checks that it rewrites each to `N`.
 3. A toolchain writes the format it read; only `k upgrade` moves a project to the new format.
 4. Fragment `kind: tooling` naming the format change.
 
@@ -137,8 +140,9 @@ token, the session cookie, `k_job` payloads, the `k-data` payload, the runtime's
 2. **Minor N+1: write the new.** The release notes' highlights say so: operators must not skip a minor in
    one rolling deploy.
 3. **Minor N+2 at the earliest: stop reading the old.**
-4. Each step re-records `tests/compat/wire/<minor>/` (`K_BLESS=1 cargo test --test compat`) and keeps the
-   previous minor's recordings, which the current build must still accept.
+4. Each step re-records `tests/compat/wire/<minor>/` (`K_BLESS=1 cargo test -p k_server --test it --
+   compat::wire::`, which records only the current minor) and keeps the previous minor's recordings,
+   which the current build must still accept.
 5. A runtime-owned table follows expand/contract the same way, as a toolchain migration that `dist/app`
    applies under the migration lock.
 
@@ -409,6 +413,14 @@ in round 5.
 5. **Lockfile format versions.** Golden files under `tests/compat/locks/` for today's format 1 of every
    lockfile; tests that a missing `format` reads as 1, a `format` newer than known is the new
    diagnostic, and writing preserves the format read. Then: the `format` key in each writer and reader.
+   *As built (2026-11-12):* `k_sema::lockformat` reads and writes the key for every lockfile
+   (`FORMATS` lists each file's current format, all 1); the new diagnostic is `K8202 lockfile-too-new`,
+   reported at the `format` line instead of anything else about the file, and such a lock is never
+   rewritten (`k.lock`'s is reported by the driver, before the command). Format 1 is written without
+   the key unless the lock read declared it, so no existing lock changed. Tests:
+   `crates/k_server/tests/compat/locks.rs` over `tests/compat/locks/` (a fixture program and each
+   file's format-1 golden), the unit and doc tests of `lockformat`, and two `toolchain::` tests in
+   `k_cli` for `k.lock`. Decisions in design 48, "Lockfile format versions".
 6. **`k fix`.** Tests over the corpus: for every machine-applicable fix in `tests/corpus`, `k fix`
    produces exactly the fixed text the corpus expects and a re-check without that diagnostic; `--code`
    and `--dry-run`; fixes in a workspace library apply to its files; a fix loop terminates. Then the
@@ -432,6 +444,15 @@ in round 5.
     declared errors and `rpcFailure`, a server stream, a service-token call, a queued job row, a page's
     `k-data`); tests that the current server answers each recorded request as recorded and the current
     client decodes each recorded response. These pass today and start guarding the next change.
+    *As built (2026-11-12):* `crates/k_server/tests/compat/wire.rs` records and replays
+    `tests/compat/wire/0.1/paybox.json` (`examples/shop/paybox`: service-token calls, a declared error
+    with a payload, `rpcFailure` without a token and for an invalid message, the queued `k_job` row,
+    which the current worker then runs, and the delivery it makes) and `notes.json` (`examples/notes`:
+    the session cookie, a guest's `rpcFailure`, a server stream's envelopes, a declared error, the
+    page's `k-data`), with the current browser client decoding each recorded response and starting
+    from the recorded `k-data`. Volatile values are compared by shape and recorded ids mapped to the
+    run's; a response may add fields. Decisions in design 48, "Wire and stored formats across a
+    rolling deploy".
 11. **Install scripts.** Tests first (run by `cargo test` where `sh` exists, and in CI on each OS):
     `install.sh` against the fake release picks the right archive for `uname` (and fails clearly on an
     unsupported target such as musl), verifies `SHA256SUMS`, installs into `~/.k/bin`, prints the

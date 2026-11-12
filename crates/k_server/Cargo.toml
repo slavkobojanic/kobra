@@ -49,6 +49,8 @@ tokio = { workspace = true, features = ["rt"] }
 k_corpus.workspace = true
 k_sema.workspace = true
 k_codegen.workspace = true
+# The compat suite's lockfile diagnostics (`tests/compat/locks.rs`).
+k_diagnostics.workspace = true
 proptest.workspace = true
 arbitrary.workspace = true
 toml.workspace = true

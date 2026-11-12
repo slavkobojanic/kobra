@@ -447,3 +447,48 @@ fn an_unreadable_lock_is_k8002() {
     assert_eq!(out.status.code(), Some(2), "{}", describe(&out));
     assert!(text(&out.stderr).contains("K8002"), "{}", describe(&out));
 }
+
+#[test]
+fn a_lock_in_a_newer_format_is_k8202_and_k_build_leaves_it() {
+    let (minor, _) = minor_and_other_patch();
+    let fx = Fixture::new("newer-lock");
+    fx.app(&minor, None);
+    let lock = format!("format = 2\ntoolchain = \"{VERSION}\"\n");
+    fx.write("k.lock", &lock);
+    for command in ["check", "build"] {
+        let out = fx.k(&[command, "."], &[], "");
+        assert_eq!(out.status.code(), Some(2), "{}", describe(&out));
+        let stderr = text(&out.stderr);
+        assert!(stderr.contains("K8202"), "{}", describe(&out));
+        assert!(stderr.contains("format 2"), "{}", describe(&out));
+    }
+    let out = fx.k(&["check", ".", "--format", "json"], &[], "");
+    assert!(
+        text(&out.stdout).contains("\"K8202\""),
+        "{}",
+        describe(&out)
+    );
+    // A toolchain chosen by `K_TOOLCHAIN` builds, but doesn't rewrite a
+    // lock it can't read.
+    let out = fx.k(&["build", "."], &[("K_TOOLCHAIN", VERSION)], "");
+    assert_eq!(out.status.code(), Some(0), "{}", describe(&out));
+    assert_eq!(
+        fs::read_to_string(fx.project().join("k.lock")).unwrap(),
+        lock
+    );
+}
+
+#[test]
+fn a_lock_that_declares_format_1_keeps_it_when_k_build_updates_it() {
+    let (minor, other) = minor_and_other_patch();
+    let fx = Fixture::new("format-1-lock");
+    fx.app(&minor, None);
+    fx.write("k.lock", &format!("format = 1\ntoolchain = \"{other}\"\n"));
+    // The locked patch isn't installed, so name this one.
+    let out = fx.k(&["build", "."], &[("K_TOOLCHAIN", VERSION)], "");
+    assert_eq!(out.status.code(), Some(0), "{}", describe(&out));
+    assert_eq!(
+        fs::read_to_string(fx.project().join("k.lock")).unwrap(),
+        format!("format = 1\ntoolchain = \"{VERSION}\"\n")
+    );
+}

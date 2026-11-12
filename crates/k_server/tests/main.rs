@@ -36,6 +36,7 @@ mod cancellation;
 mod channel_server;
 mod channels;
 mod client_bundle;
+mod compat;
 mod config;
 mod crypto_wire;
 mod differential;

@@ -1,0 +1,252 @@
+{
+  "example": "examples/notes",
+  "recordedBy": "0.1.0",
+  "steps": [
+    {
+      "title": "a guest's call is rpcFailure(.rejected(.unauthenticated))",
+      "request": {
+        "method": "POST",
+        "path": "/notes.NotesProtocol/Get",
+        "headers": [
+          "content-type: application/json",
+          "connect-protocol-version: 1",
+          "origin: http://localhost"
+        ],
+        "body": "{\"id\":\"00000000-0000-4000-8000-000000000000\"}"
+      },
+      "response": {
+        "status": 401,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: application/json"
+        ]
+      },
+      "body": "{\"code\":\"unauthenticated\",\"message\":\"sign in to call this rpc\"}"
+    },
+    {
+      "title": "the client decodes the guest's failure",
+      "decoded": {
+        "thrown": {
+          "$": 1,
+          "_0": {
+            "$": 0,
+            "_0": {
+              "$": 0,
+              "retryAfter": 0
+            }
+          }
+        },
+        "message": null
+      }
+    },
+    {
+      "title": "signing up sets the session cookie",
+      "request": {
+        "method": "POST",
+        "path": "/notes.accounts.AuthProtocol/SignUp",
+        "headers": [
+          "content-type: application/json",
+          "connect-protocol-version: 1",
+          "origin: http://localhost"
+        ],
+        "body": "{\"request\":{\"email\":\"ada@example.com\",\"password\":\"correct horse battery\",\"confirmPassword\":\"correct horse battery\"}}"
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: application/json",
+          "set-cookie: k_session=6zBaVBOeXZsSh75kpvje9LOxFY36bBJs1oK0GfclUA0; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000"
+        ]
+      },
+      "body": "{}"
+    },
+    {
+      "title": "watching the notes opens a stream",
+      "request": {
+        "method": "POST",
+        "path": "/notes.NotesProtocol/Watch",
+        "headers": [
+          "content-type: application/connect+json",
+          "connect-protocol-version: 1",
+          "origin: http://localhost"
+        ],
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: application/connect+json"
+        ]
+      }
+    },
+    {
+      "title": "the stream starts with a snapshot",
+      "frames": [
+        {
+          "flags": 0,
+          "data": "{\"value\":{\"case\":\"snapshot\",\"_0\":[]}}"
+        }
+      ]
+    },
+    {
+      "title": "creating a note",
+      "request": {
+        "method": "POST",
+        "path": "/notes.NotesProtocol/Create",
+        "headers": [
+          "content-type: application/json",
+          "connect-protocol-version: 1",
+          "origin: http://localhost"
+        ],
+        "body": "{\"draft\":{\"title\":\"Groceries\",\"body\":\"Milk, eggs\",\"tags\":\"home\"}}"
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: application/json"
+        ]
+      },
+      "body": "{\"id\":\"25523373-7546-4f57-861d-351b5121670c\",\"title\":\"Groceries\",\"body\":\"Milk, eggs\",\"tags\":[\"home\"],\"isPinned\":false,\"revision\":1,\"updatedAt\":\"2026-11-12T05:39:02.370Z\"}"
+    },
+    {
+      "title": "the stream carries the change",
+      "frames": [
+        {
+          "flags": 0,
+          "data": "{\"value\":{\"case\":\"saved\",\"_0\":{\"id\":\"25523373-7546-4f57-861d-351b5121670c\",\"title\":\"Groceries\",\"body\":\"Milk, eggs\",\"tags\":[\"home\"],\"isPinned\":false,\"revision\":1,\"updatedAt\":\"2026-11-12T05:39:02.370Z\"}}}"
+        }
+      ]
+    },
+    {
+      "title": "the client decodes the stream's elements",
+      "decoded": {
+        "stream": [
+          {
+            "$": 0,
+            "_0": []
+          },
+          {
+            "$": 1,
+            "_0": {
+              "id": "25523373-7546-4f57-861d-351b5121670c",
+              "title": "Groceries",
+              "body": "Milk, eggs",
+              "tags": [
+                "home"
+              ],
+              "isPinned": false,
+              "revision": 1,
+              "updatedAt": {
+                "$type": "Instant",
+                "ms": 1794461942370
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "title": "reading the note back",
+      "request": {
+        "method": "POST",
+        "path": "/notes.NotesProtocol/Get",
+        "headers": [
+          "content-type: application/json",
+          "connect-protocol-version: 1",
+          "origin: http://localhost"
+        ],
+        "body": "{\"id\":\"25523373-7546-4f57-861d-351b5121670c\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: application/json"
+        ]
+      },
+      "body": "{\"id\":\"25523373-7546-4f57-861d-351b5121670c\",\"title\":\"Groceries\",\"body\":\"Milk, eggs\",\"tags\":[\"home\"],\"isPinned\":false,\"revision\":1,\"updatedAt\":\"2026-11-12T05:39:02.370Z\"}"
+    },
+    {
+      "title": "the client decodes the note",
+      "decoded": {
+        "value": {
+          "id": "25523373-7546-4f57-861d-351b5121670c",
+          "title": "Groceries",
+          "body": "Milk, eggs",
+          "tags": [
+            "home"
+          ],
+          "isPinned": false,
+          "revision": 1,
+          "updatedAt": {
+            "$type": "Instant",
+            "ms": 1794461942370
+          }
+        }
+      }
+    },
+    {
+      "title": "a note that doesn't exist is the declared notFound",
+      "request": {
+        "method": "POST",
+        "path": "/notes.NotesProtocol/Get",
+        "headers": [
+          "content-type: application/json",
+          "connect-protocol-version: 1",
+          "origin: http://localhost"
+        ],
+        "body": "{\"id\":\"00000000-0000-4000-8000-000000000000\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: application/json"
+        ]
+      },
+      "body": "{\"code\":\"failed_precondition\",\"message\":\"notes.LookupError.notFound\",\"details\":[{\"type\":\"k.TypedError\",\"debug\":{\"error\":\"notes.LookupError\",\"case\":\"notFound\",\"fields\":{}}}]}"
+    },
+    {
+      "title": "the client decodes notFound",
+      "decoded": {
+        "thrown": {
+          "$": 0
+        },
+        "message": null
+      }
+    },
+    {
+      "title": "the notes page embeds its k-data",
+      "request": {
+        "method": "GET",
+        "path": "/",
+        "headers": [
+          "accept: text/html"
+        ],
+        "body": ""
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: text/html; charset=utf-8"
+        ]
+      },
+      "kData": "{\"v\":1,\"now\":\"2026-11-12T05:39:02Z\",\"session\":{\"user\":{\"id\":{\"value\":\"79330a69-4057-4d07-8a2d-7a39151e2d02\"},\"roles\":[]}},\"c\":{}}"
+    },
+    {
+      "title": "the client starts from the recorded k-data",
+      "decoded": {
+        "path": "/",
+        "signedIn": true,
+        "showsTheNote": true,
+        "rpcs": [
+          "/notes.NotesProtocol/Watch"
+        ]
+      }
+    }
+  ]
+}

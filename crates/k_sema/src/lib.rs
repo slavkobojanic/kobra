@@ -74,6 +74,7 @@ pub use framework::CRYPTO_TEXT_COLUMNS;
 mod fx;
 mod host;
 pub mod literals;
+pub mod lockformat;
 mod locks;
 mod lookup;
 mod metadata;

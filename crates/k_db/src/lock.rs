@@ -87,10 +87,20 @@ pub struct LockedTable {
     pub columns: Vec<LockedColumn>,
 }
 
+/// The newest `schema.lock` format this toolchain reads and writes
+/// (`docs/design/48-releases-and-versioning.md`, "Lockfile format
+/// versions"; `k_sema::lockformat` has every lockfile's).
+pub const FORMAT: u32 = 1;
+
 /// The whole lock.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SchemaLock {
+    /// `format = N` when the lock says it; `None` is format 1, as every
+    /// lock written before the key existed. [`SchemaLock::to_toml`] writes
+    /// it back, so a lock keeps the format it was read in.
+    #[serde(default)]
+    pub format: Option<u32>,
     /// The applied migrations, in order (`0001_init`, …).
     #[serde(default)]
     pub migrations: Vec<String>,
@@ -158,13 +168,27 @@ impl SchemaLock {
     ///
     /// # Errors
     ///
-    /// Invalid TOML, unknown keys or wrongly typed values.
+    /// Invalid TOML, unknown keys, wrongly typed values, or a `format`
+    /// this toolchain doesn't read (0, or newer than [`FORMAT`]).
     pub fn parse(text: &str) -> Result<SchemaLock, LockError> {
-        toml::from_str(text).map_err(|e: toml::de::Error| LockError {
+        let lock: SchemaLock = toml::from_str(text).map_err(|e: toml::de::Error| LockError {
             message: e.to_string(),
             reason: e.message().to_owned(),
             span: e.span(),
-        })
+        })?;
+        match lock.format {
+            Some(n) if n == 0 || n > FORMAT => {
+                let reason = format!(
+                    "schema.lock is in format {n}, and this toolchain reads formats 1 to {FORMAT}"
+                );
+                Err(LockError {
+                    message: reason.clone(),
+                    reason,
+                    span: text.find("format").map(|at| at..at + "format".len()),
+                })
+            }
+            _ => Ok(lock),
+        }
     }
 
     /// Writes the lock in its canonical layout. `parse(to_toml(l)) == l`
@@ -174,6 +198,9 @@ impl SchemaLock {
         let mut out = String::new();
         out.push_str(HEADER);
         out.push('\n');
+        if let Some(n) = self.format {
+            let _ = writeln!(out, "format = {n}");
+        }
         let names: Vec<String> = self.migrations.iter().map(|m| quote(m)).collect();
         let _ = writeln!(out, "migrations = [{}]", names.join(", "));
         for (name, table) in &self.tables {

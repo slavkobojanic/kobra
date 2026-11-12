@@ -74,6 +74,13 @@ changed wire name fails the check.
 implies; `k migrate new` and `k migrate rename` write `schema.lock` with their change. An app with no
 storage key, collection or job, and no `storage.lock`, gets none.
 
+**Format versions.** A lockfile may say `format = N` after its comment header; one without the key is
+format 1, which is what every lockfile written so far is. A toolchain reads its own format of each
+lockfile and every older one, and writes a lock back in the format it was read in, so a teammate's older
+toolchain never meets a format it can't read. A lock in a format newer than the running toolchain knows
+is `K8202 lockfile-too-new`, at its `format` line: the toolchain doesn't check that lock or rewrite it,
+and the fix is to build with the toolchain `k.lock` names (or to restore the file from version control).
+
 ### `rpc.lock`
 
 An app that implements protocols records their shape in `rpc.lock`: each protocol's wire service name,

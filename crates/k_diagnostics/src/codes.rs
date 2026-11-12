@@ -989,6 +989,9 @@ codes! {
     /// The running toolchain doesn't match the project's requirement or `k.lock`, and no installed one does.
     TOOLCHAIN_MISMATCH = 8201, "toolchain-mismatch", Error,
         "The project needs another toolchain than the running one, and it isn't installed.";
+    /// A lockfile says `format = N` for a format newer than the running toolchain reads.
+    LOCKFILE_TOO_NEW = 8202, "lockfile-too-new", Error,
+        "A lockfile is in a format newer than this toolchain reads; a newer toolchain wrote it.";
 
     // --------------------------------------------------------------- driver
     /// A source file that is not valid UTF-8.

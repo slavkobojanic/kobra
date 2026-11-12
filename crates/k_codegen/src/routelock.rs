@@ -43,7 +43,10 @@
 //! **K8007**, and so is a redirect to a page that no longer exists or
 //! whose URL it can't build from the old one's parameters, and a detected
 //! rename whose redirect isn't recorded yet (`k build` records it). A lock
-//! that isn't TOML of this structure is **K8002**. New pages need no
+//! that isn't TOML of this structure is **K8002**, and one in a format
+//! newer than this toolchain's is **K8202** ([`k_sema::lockformat`]);
+//! neither is checked further or rewritten. The lock is written in the
+//! format it was read in. New pages need no
 //! entry until the next build.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -74,6 +77,10 @@ pub(crate) struct Entry {
 #[derive(Clone, PartialEq, Eq, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RoutesLock {
+    /// `format = N` when the lock says it ([`k_sema::lockformat`], read
+    /// before the rest); written by [`implied`], not by [`RoutesLock::to_toml`].
+    #[serde(default)]
+    pub(crate) format: Option<i64>,
     /// The view pages, by `Page` case.
     #[serde(default)]
     pub(crate) pages: BTreeMap<String, Entry>,
@@ -211,6 +218,9 @@ fn recorded<'a>(g: &'a Gen<'_>) -> Result<Option<(FileId, &'a str, RoutesLock)>,
     let Some((file, text)) = project_file(g, "routes.lock") else {
         return Ok(None);
     };
+    if let Err(e) = k_sema::lockformat::read("routes.lock", text) {
+        return Err(Box::new(e.diagnostic(file)));
+    }
     match RoutesLock::parse(text) {
         Ok(lock) => Ok(Some((file, text, lock))),
         Err((message, span)) => Err(Box::new(Diagnostic::new(
@@ -331,6 +341,7 @@ pub(crate) fn implied(g: &Gen<'_>) -> Option<String> {
     let base = old.clone().unwrap_or_default();
     let reconciled = reconcile(&base, &pages, &endpoints);
     let mut new = RoutesLock {
+        format: base.format,
         pages: pages
             .iter()
             .map(|p| (p.case.clone(), p.entry.clone()))
@@ -361,7 +372,13 @@ pub(crate) fn implied(g: &Gen<'_>) -> Option<String> {
     if old.as_ref() == Some(&new) {
         return None;
     }
-    Some(new.to_toml())
+    // Written in the format it was read in (`recorded` refused one it
+    // can't read).
+    let format = match recorded(g) {
+        Ok(Some((_, text, _))) => k_sema::lockformat::read("routes.lock", text).unwrap_or_default(),
+        _ => k_sema::lockformat::LockFormat::IMPLIED,
+    };
+    Some(format.stamp(&new.to_toml()))
 }
 
 /// The `routes.lock` checks (see the module documentation).
@@ -529,6 +546,7 @@ mod tests {
             url: u.to_owned(),
         };
         let lock = RoutesLock {
+            format: None,
             pages: [
                 ("pricing".to_owned(), entry("site.Pricing", "/pricing")),
                 ("odd\"case".to_owned(), entry("site.Odd", "/a\\b")),

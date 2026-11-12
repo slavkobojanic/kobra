@@ -30,7 +30,10 @@
 //!   before they were recorded lists bare case names, which still read and
 //!   whose fields aren't compared;
 //! * a lock that isn't valid TOML of this structure, or that gives two
-//!   fields of a type one number, is **K8002**.
+//!   fields of a type one number, is **K8002**; one in a format newer than
+//!   this toolchain's is **K8202** and is neither compared nor rewritten
+//!   ([`crate::lockformat`]). The lock is written in the format it was
+//!   read in.
 //!
 //! Field numbers are assigned once and kept: a field keeps its number
 //! while it exists, a new field gets the next free one, and the number of a
@@ -145,7 +148,20 @@ pub(crate) fn check(cx: &Cx<'_, '_>) -> Option<String> {
     let lockfile = p.lockfiles.iter().find(|l| l.kind == LockfileKind::Rpc);
     let now = current(cx, &served);
     let mut recorded = Lock::default();
+    let mut format = crate::lockformat::LockFormat::IMPLIED;
     if let Some(lock) = lockfile {
+        match crate::lockformat::read("rpc.lock", &lock.text) {
+            Ok(f) => format = f,
+            Err(e) if e.code == codes::LOCKFILE_TOO_NEW => {
+                // A newer toolchain's lock is neither compared nor rewritten.
+                cx.diags.borrow_mut().push(e.diagnostic(lock.id));
+                return None;
+            }
+            Err(e) => {
+                cx.diags.borrow_mut().push(e.diagnostic(lock.id));
+                return Some(write(&merge(&now, &Lock::default())));
+            }
+        }
         match read(&lock.text) {
             Ok(r) => recorded = r,
             Err(invalid) => {
@@ -162,7 +178,7 @@ pub(crate) fn check(cx: &Cx<'_, '_>) -> Option<String> {
     } else if served.is_empty() {
         return None;
     }
-    Some(write(&merge(&now, &recorded)))
+    Some(format.stamp(&write(&merge(&now, &recorded))))
 }
 
 /// The protocols the app serves: those its own (non-test) services

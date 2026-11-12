@@ -34,7 +34,9 @@
 //! (`docs/design/33-crypto.md`, "Decided while implementing").
 //!
 //! A `storage.lock` that isn't valid TOML of that structure is **K8002** at
-//! the offending line. A job the lock doesn't record yet, and a recorded
+//! the offending line, and one in a format newer than this toolchain's is
+//! **K8202** ([`crate::lockformat`]); neither is compared or rewritten. The
+//! lock is written in the format it was read in. A job the lock doesn't record yet, and a recorded
 //! job that no longer exists, are not reported: when the compiler writes
 //! the lockfiles is open (`docs/design/13-tooling.md`, "Lockfiles").
 //!
@@ -457,6 +459,10 @@ fn line_at(text: &str, offset: usize) -> TextRange {
 /// program's (K8002, K8003, K8008, K8009), and returns what it records;
 /// `None` when it can't be read.
 fn storage(cx: &Cx<'_, '_>, lock: &Lockfile) -> Option<StorageLock> {
+    if let Err(e) = crate::lockformat::read("storage.lock", &lock.text) {
+        cx.diags.borrow_mut().push(e.diagnostic(lock.id));
+        return None;
+    }
     let recorded = match read_storage(&lock.text) {
         Ok(r) => r,
         Err(invalid) => {
@@ -1676,6 +1682,12 @@ fn implied(
     for (name, body) in &types {
         let _ = write!(out, "\n[types.{}]\n{body}", quote(name));
     }
+    // Written in the format it was read in (`storage` stopped at one it
+    // can't read).
+    let format = existing
+        .and_then(|t| crate::lockformat::read("storage.lock", t).ok())
+        .unwrap_or_default();
+    let out = format.stamp(&out);
     if existing == Some(out.as_str()) {
         return None;
     }

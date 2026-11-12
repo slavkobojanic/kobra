@@ -308,25 +308,33 @@ pub const TOOLCHAIN_LOCK: &str = "k.lock";
 ///
 /// # Errors
 ///
-/// The range and message of a `K8002` when the text isn't TOML or
-/// `toolchain` isn't a version.
+/// A `K8002` when the text isn't TOML, `toolchain` isn't a version or
+/// `format` isn't a format number, and a `K8202` when the lock is in a
+/// format newer than this toolchain reads ([`crate::lockformat`]).
 pub fn lock_toolchain(
     text: &str,
-) -> Result<Option<(Version, k_diagnostics::TextRange)>, (k_diagnostics::TextRange, String)> {
+) -> Result<Option<(Version, k_diagnostics::TextRange)>, crate::lockformat::FormatError> {
+    let invalid = |range, message| crate::lockformat::FormatError {
+        code: k_diagnostics::codes::INVALID_LOCKFILE,
+        range,
+        message,
+        help: None,
+    };
     let table: toml::Table = toml::from_str(text).map_err(|e| {
         let offset = e.span().map_or(0, |s| s.start);
-        (
+        invalid(
             super::line_at(text, offset),
             format!("k.lock can't be read: {}", e.message().trim()),
         )
     })?;
+    crate::lockformat::read(TOOLCHAIN_LOCK, text)?;
     let Some(value) = table.get("toolchain") else {
         return Ok(None);
     };
     let range = super::key_line(text, "", "toolchain");
     match value.as_str().and_then(Version::parse) {
         Some(v) => Ok(Some((v, range))),
-        None => Err((
+        None => Err(invalid(
             range,
             "`toolchain` in k.lock must be a toolchain version such as \"0.1.0\"; `k build` writes it"
                 .to_owned(),
@@ -336,7 +344,8 @@ pub fn lock_toolchain(
 
 /// The text of `k.lock` recording `version`: `old` (the current lock) with
 /// its `toolchain` line replaced, or added after its comment header, or a
-/// new lock when there is none. Everything else in `old` is kept.
+/// new lock when there is none. Everything else in `old` is kept, its
+/// `format` included, so the lock stays in the format it was read in.
 #[must_use]
 pub fn with_lock_toolchain(old: Option<&str>, version: &Version) -> String {
     let line = format!("toolchain = \"{version}\"");

@@ -1825,6 +1825,7 @@ dependencies = [
  "k_codegen",
  "k_corpus",
  "k_db",
+ "k_diagnostics",
  "k_runtime",
  "k_sema",
  "lettre",

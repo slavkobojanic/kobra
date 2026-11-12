@@ -1,0 +1,133 @@
+{
+  "example": "examples/shop/paybox",
+  "recordedBy": "0.1.0",
+  "steps": [
+    {
+      "title": "registerMerchant with a service token",
+      "request": {
+        "method": "POST",
+        "path": "/pay_contracts.pay.Payments/RegisterMerchant",
+        "headers": [
+          "content-type: application/json",
+          "connect-protocol-version: 1",
+          "x-k-service-token: v1.shop.1794462002299.0b0993c36f8d6ddbd4ca8b8ecd87155e249c7843f97b48d15845f15b7f3401c1"
+        ],
+        "body": "{\"callbackUrl\":\"{merchant}/\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: application/json"
+        ]
+      },
+      "body": "{\"name\":\"shop\",\"callbackUrl\":\"http://127.0.0.1:50182/\"}"
+    },
+    {
+      "title": "a declined charge is the declared error with its payload",
+      "request": {
+        "method": "POST",
+        "path": "/pay_contracts.pay.Payments/Charge",
+        "headers": [
+          "content-type: application/json",
+          "connect-protocol-version: 1",
+          "x-k-service-token: v1.shop.1794462002320.78657bf6cede30ea30a14bc81256f2e805dd132e584867986c4e9d07ed187c09"
+        ],
+        "body": "{\"request\":{\"reference\":\"order-1\",\"amount\":{\"amount\":\"12.50\",\"currency\":\"EUR\"},\"card\":{\"number\":\"4000000000009995\"},\"description\":\"Mug\"}}"
+      },
+      "response": {
+        "status": 400,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: application/json"
+        ]
+      },
+      "body": "{\"code\":\"failed_precondition\",\"message\":\"pay_contracts.pay.ChargeError.declined\",\"details\":[{\"type\":\"k.TypedError\",\"debug\":{\"error\":\"pay_contracts.pay.ChargeError\",\"case\":\"declined\",\"fields\":{\"reason\":\"insufficientFunds\"}}}]}"
+    },
+    {
+      "title": "a call without a service token is rpcFailure(.rejected(.unauthenticated))",
+      "request": {
+        "method": "POST",
+        "path": "/pay_contracts.pay.Payments/Charge",
+        "headers": [
+          "content-type: application/json",
+          "connect-protocol-version: 1",
+          "origin: http://localhost"
+        ],
+        "body": "{\"request\":{\"reference\":\"order-2\",\"amount\":{\"amount\":\"12.50\",\"currency\":\"EUR\"},\"card\":{\"number\":\"4242424242424242\"},\"description\":\"Mug\"}}"
+      },
+      "response": {
+        "status": 401,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: application/json"
+        ]
+      },
+      "body": "{\"code\":\"unauthenticated\",\"message\":\"sign in to call this rpc\"}"
+    },
+    {
+      "title": "an invalid message is rpcFailure(.invalid)",
+      "request": {
+        "method": "POST",
+        "path": "/pay_contracts.pay.Payments/Charge",
+        "headers": [
+          "content-type: application/json",
+          "connect-protocol-version: 1",
+          "x-k-service-token: v1.shop.1794462002322.48a71f6916e5ed212126e27a5aa590ded5232ee81a83e044bbd4551f2d3b1b46"
+        ],
+        "body": "{\"request\":{\"reference\":7}}"
+      },
+      "response": {
+        "status": 400,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: application/json"
+        ]
+      },
+      "body": "{\"code\":\"invalid_argument\",\"message\":\"request.reference: expected a string\"}"
+    },
+    {
+      "title": "an approved charge",
+      "request": {
+        "method": "POST",
+        "path": "/pay_contracts.pay.Payments/Charge",
+        "headers": [
+          "content-type: application/json",
+          "connect-protocol-version: 1",
+          "x-k-service-token: v1.shop.1794462002323.32b808c538154216295226d7b8316281c38d9e3d5853b2f7bd2e712e8c84b0bd"
+        ],
+        "body": "{\"request\":{\"reference\":\"order-3\",\"amount\":{\"amount\":\"12.50\",\"currency\":\"EUR\"},\"card\":{\"number\":\"4242424242424242\"},\"description\":\"Mug\"}}"
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          "cache-control: private, no-store",
+          "content-type: application/json"
+        ]
+      },
+      "body": "{\"id\":\"ch_0f2a231a26084e02a10b181a194e342c\",\"reference\":\"order-3\",\"amount\":{\"amount\":\"12.50\",\"currency\":\"EUR\"},\"last4\":\"4242\",\"refunded\":{\"amount\":\"0.00\",\"currency\":\"EUR\"}}"
+    },
+    {
+      "title": "the charge queued its event in k_job",
+      "rows": [
+        [
+          "payment-event",
+          "{\"kind\":\"chargeSucceeded\",\"merchant\":\"shop\",\"subject\":\"ch_0f2a231a26084e02a10b181a194e342c\"}",
+          "queued"
+        ]
+      ]
+    },
+    {
+      "title": "the current worker runs the recorded row: the event reaches the merchant",
+      "outbound": [
+        {
+          "method": "POST",
+          "path": "/pay_contracts.pay.PaymentEvents/ChargeSucceeded",
+          "contentType": "application/json",
+          "token": "v1.paybox.1794462002356.d2c872a2dcf555a8fd7b6e20aff5be70d8e474aaf62fe4691e232cca5669ca49",
+          "body": "{\"charge\":{\"id\":\"ch_0f2a231a26084e02a10b181a194e342c\",\"reference\":\"order-3\",\"amount\":{\"amount\":\"12.50\",\"currency\":\"EUR\"},\"last4\":\"4242\",\"refunded\":{\"amount\":\"0.00\",\"currency\":\"EUR\"}}}"
+        }
+      ]
+    }
+  ]
+}

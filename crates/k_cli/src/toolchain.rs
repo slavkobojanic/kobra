@@ -253,15 +253,14 @@ pub fn before_command(cli: &Cli) -> Option<ExitCode> {
     let pins = pins(&path)?;
     let format = format_of(Some(&cli.command));
     if let Some((text, None)) = &pins.lock
-        && let Err((range, message)) = lock_toolchain(text)
+        && let Err(e) = lock_toolchain(text)
     {
         let mut map = SourceMap::new();
         let file = map.add(
             sources::display(&pins.root.join(TOOLCHAIN_LOCK)),
             text.clone(),
         );
-        let d = Diagnostic::new(codes::INVALID_LOCKFILE, Span::new(file, range), message);
-        return Some(emit(&d, &map, format));
+        return Some(emit(&e.diagnostic(file), &map, format));
     }
     match choose(&pins) {
         Ok(Choice::Run) => None,
@@ -451,6 +450,11 @@ pub fn record(root: &Path) -> Result<(), ExitCode> {
     }
     let path = root.join(TOOLCHAIN_LOCK);
     let old = std::fs::read_to_string(&path).ok();
+    // A lock this toolchain can't read (one a newer toolchain wrote) is
+    // left as it is.
+    if old.as_deref().is_some_and(|t| lock_toolchain(t).is_err()) {
+        return Ok(());
+    }
     let new = with_lock_toolchain(old.as_deref(), &me);
     if old.as_deref() == Some(new.as_str()) {
         return Ok(());
