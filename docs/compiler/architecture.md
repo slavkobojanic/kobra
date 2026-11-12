@@ -58,6 +58,8 @@ crates/
   k_lsp           the language server: LSP transport, document sync and the IDE features over k_sema
   k_cli           the `k` binary: subcommands over the crates above
   k_corpus        golden corpus harness and golden file formats (tests/corpus)
+  xtask           `cargo xtask`: release automation (fragments, version bumps, the local gate,
+                  the docs gate); never shipped, nothing depends on it (release.md)
 fuzz/             cargo-fuzz targets (nightly, outside the workspace)
 tests/corpus/     golden corpus
 editors/          VS Code, Neovim and Vim integrations of `k lsp` (lsp.md §11)

@@ -1,0 +1,23 @@
+[package]
+name = "xtask"
+# Integration tests are modules of tests/main.rs (one binary, `it`):
+# docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
+description = "Release automation for the K repository (`cargo xtask …`): changelog fragments, version bumps, the local gate and the docs gate. A workspace member that is never shipped."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# A fragment's `migration:` must be a code `k upgrade` applies
+# (`codes::MIGRATIONS`).
+k_diagnostics.workspace = true
+clap.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
+
+[lints]
+workspace = true

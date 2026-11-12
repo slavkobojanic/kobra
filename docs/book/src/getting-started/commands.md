@@ -160,6 +160,17 @@ fix, so a fix that makes another one possible is applied too. It then prints the
 Fixes that need a human decision (a "did you mean" rename) are never applied; the editor offers them as
 quick fixes instead.
 
+## `k upgrade`
+
+```bash
+k upgrade
+```
+
+Moves the project to the running toolchain: it raises `k = "…"` in `k.toml` and the version in `k.lock`,
+moves the lockfiles to the toolchain's format and applies the fixes of the deprecations in between, then
+prints what it couldn't fix. Commit first: it refuses uncommitted changes unless you pass
+`--allow-dirty`. See [Upgrading K](../apps/upgrading.md).
+
 ## `k build`
 
 ```bash

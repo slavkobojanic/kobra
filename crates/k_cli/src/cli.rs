@@ -22,6 +22,8 @@ pub enum Command {
     Check(CheckArgs),
     /// Apply the machine-applicable fixes of the project's diagnostics, then report what remains.
     Fix(FixArgs),
+    /// Move the project to this toolchain (or `--to`'s): migration fixes, lockfile formats, `k` and `k.lock`.
+    Upgrade(UpgradeArgs),
     /// Build the server executable and the client assets into `dist/`.
     Build(BuildArgs),
     /// Build for development and serve the app (no rebuild on change).
@@ -215,6 +217,26 @@ pub struct FixArgs {
     /// Print the changes as a unified diff instead of writing them.
     #[arg(long)]
     pub dry_run: bool,
+    /// Output format for the diagnostics that remain.
+    #[arg(long, value_enum, default_value_t = Format::Human)]
+    pub format: Format,
+    /// When to use colors in human-readable output.
+    #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
+    pub color: ColorChoice,
+}
+
+/// Arguments of `k upgrade`.
+#[derive(Debug, Args)]
+pub struct UpgradeArgs {
+    /// The project directory (the one with `k.toml`), or a workspace root.
+    #[arg(default_value = ".")]
+    pub project: PathBuf,
+    /// The installed toolchain to move to: a version (`0.3.1`) or a minor (`0.3`, its newest installed release); this toolchain by default.
+    #[arg(long, value_name = "VERSION")]
+    pub to: Option<String>,
+    /// Upgrade even with uncommitted changes in the project, or outside a git repository.
+    #[arg(long)]
+    pub allow_dirty: bool,
     /// Output format for the diagnostics that remain.
     #[arg(long, value_enum, default_value_t = Format::Human)]
     pub format: Format,

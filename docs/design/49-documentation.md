@@ -489,14 +489,14 @@ Downloads are several megabytes of wasm, loaded only on playground pages. Learn 
 
 ### Round 3: release machinery, local
 
-1. Changelog fragments and the `xtask` crate (release.md step 9), with the `book:` field and `cargo xtask docs-gate` tested on fixture diffs. From here every pull request adds a fragment.
+1. Changelog fragments and the `xtask` crate (release.md step 9), with the `book:` field and `cargo xtask docs-gate` tested on fixture diffs. From here every pull request adds a fragment. Built 2026-11-12 (`crates/xtask`, `changes/`; see release.md's as-built notes).
 2. `k --version` with commit and date; the toolchain requirement, the `k.lock` pin, delegation and `K_TOOLCHAIN` (release.md steps 1–3). Steps 2 and 3 built 2026-11-12 (`K8107`, `K8201`; see release.md's as-built notes).
 3. Lockfile `format` keys with `tests/compat/locks/` (step 5), and the 0.1 wire fixtures (step 10). Built 2026-11-12 (`K8202`; see release.md's as-built notes).
 4. `k fix` (step 6); `@Deprecated`, `@Preview`, `@Internal`, the `preview` rows of the feature table, dependency warnings capped, and the badges in the stdlib reference (step 7).
 
 ### Round 4: upgrades, distribution and the site
 
-1. `k upgrade` (step 8); `k toolchain` and `k self update` against the fake index (step 4); `install.sh` and `install.ps1` (step 11).
+1. `k upgrade` (step 8); `k toolchain` and `k self update` against the fake index (step 4); `install.sh` and `install.ps1` (step 11). `k upgrade` built 2026-11-12, with `docs/book/src/apps/upgrading.md`'s procedure and its generated part (item 4's "upgrade guide's procedure page and its generated sections").
 2. The site build: `cargo xtask docs build` with the mdBook preprocessor (version substitution, then lexer highlighting), the `/0.N/`, `/next/`, `/` layout, `versions.json`, redirects (step 12); the theme (header tabs, callouts, landing page, version switcher, `k-symbols.js`).
 3. `serverInfo.version` in the language server and the extension (step 14).
 4. The CI workflow files and the test that every gate row appears in them (step 13); the upgrade guide's procedure page and its generated sections.

@@ -122,7 +122,10 @@ A lock that the requirement no longer allows (the requirement was raised by hand
 |---|---|
 | `k toolchain install [version]` | install a toolchain: by default the one `k.lock` names, else the newest the requirement allows (**Planned** toolchain-commands) |
 | `k toolchain list`, `remove`, `default` | list, remove and choose the default of the installed toolchains (**Planned** toolchain-commands) |
-| `k upgrade` | move a project to the running toolchain, applying the migrations (**Planned** toolchain-commands) |
+| `k upgrade [project]` | move a project to the running toolchain: lockfiles to its format, `k` and `k.lock` to it, the migration fixes applied, then what remains printed; refuses uncommitted changes; see [Upgrading K](../apps/upgrading.md) |
+| `k upgrade --to <version>` | move it to that installed toolchain instead (`0.3.1`, or `0.3` for its newest installed release), through each minor in between |
+| `k upgrade --allow-dirty` | upgrade with uncommitted changes, or outside git |
+| `k upgrade --format json` | print the remaining diagnostics as JSON |
 
 ## Protobuf
 

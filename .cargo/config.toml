@@ -1,0 +1,4 @@
+# `cargo xtask …` runs the repository's release automation, the `xtask`
+# crate (docs/compiler/release.md, "Files the release process owns").
+[alias]
+xtask = "run --quiet --package xtask --"

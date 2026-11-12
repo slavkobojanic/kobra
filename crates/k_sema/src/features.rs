@@ -256,7 +256,7 @@ pub const FEATURES: &[Feature] = &[
     ),
     planned(
         "toolchain-commands",
-        "`k toolchain` (install, list, remove, default), `k self update` and `k upgrade`",
+        "`k toolchain` (install, list, remove, default) and `k self update`",
         "48-releases-and-versioning.md",
     ),
     planned(

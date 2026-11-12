@@ -155,6 +155,11 @@ impl FormatError {
 /// assert_eq!(newer.code.to_string(), "K8202");
 /// ```
 pub fn read(file: &str, text: &str) -> Result<LockFormat, FormatError> {
+    read_known(file, text, current(file).unwrap_or(1))
+}
+
+/// [`read`] by a toolchain whose newest format of `file` is `known`.
+fn read_known(file: &str, text: &str, known: u32) -> Result<LockFormat, FormatError> {
     let Ok(table) = toml::from_str::<toml::Table>(text) else {
         return Ok(LockFormat::IMPLIED);
     };
@@ -162,7 +167,6 @@ pub fn read(file: &str, text: &str) -> Result<LockFormat, FormatError> {
         return Ok(LockFormat::IMPLIED);
     };
     let range = format_line(text).unwrap_or_else(|| TextRange::empty(TextSize::from(0)));
-    let known = current(file).unwrap_or(1);
     let number = value
         .as_integer()
         .and_then(|n| u32::try_from(n).ok())
@@ -192,6 +196,83 @@ pub fn read(file: &str, text: &str) -> Result<LockFormat, FormatError> {
             ),
             help: None,
         }),
+    }
+}
+
+/// One format change of one lockfile: `(file, from, convert)` turns the
+/// text of a `file` in format `from` into its text in format `from + 1`
+/// (without the `format` line, which [`upgrade`] writes).
+pub type Step = (&'static str, u32, fn(&str) -> String);
+
+/// The conversions of every format change, by file and the format they
+/// start from. A format change whose text needs no conversion (only its
+/// readers changed) needs no step. Empty while every lockfile is at
+/// format 1; a format change adds its step here
+/// (`docs/compiler/release.md` §4, "A lockfile format change").
+pub const STEPS: &[Step] = &[];
+
+/// `text`, the lockfile `file`, moved to its current format, for
+/// `k upgrade`: each [`STEPS`] conversion from the format it is in, then
+/// `format = N`. `Ok(None)` when it is in the current format already, so
+/// it is left byte for byte as it is.
+///
+/// # Errors
+///
+/// What [`read`] reports: a format newer than this toolchain's (K8202),
+/// or a `format` that isn't a format number (K8002).
+///
+/// # Examples
+///
+/// ```
+/// use k_sema::lockformat::upgrade;
+///
+/// // Every lockfile is at its first format: nothing to move.
+/// assert_eq!(upgrade("rpc.lock", "# rpc.lock\n"), Ok(None));
+/// assert!(upgrade("rpc.lock", "format = 9\n").is_err());
+/// ```
+pub fn upgrade(file: &str, text: &str) -> Result<Option<String>, FormatError> {
+    upgrade_with(file, text, current(file).unwrap_or(1), STEPS)
+}
+
+/// [`upgrade`] for a toolchain whose current format of `file` is `target`
+/// and whose conversions are `steps`: what the tests of a format change
+/// that hasn't happened yet use.
+///
+/// # Errors
+///
+/// As [`upgrade`].
+pub fn upgrade_with(
+    file: &str,
+    text: &str,
+    target: u32,
+    steps: &[Step],
+) -> Result<Option<String>, FormatError> {
+    let format = read_known(file, text, target)?;
+    if format.number >= target {
+        return Ok(None);
+    }
+    let mut text = text.to_owned();
+    for n in format.number..target {
+        if let Some((_, _, convert)) = steps.iter().find(|(f, from, _)| *f == file && *from == n) {
+            text = convert(&text);
+        }
+    }
+    Ok(Some(with_format(&text, target)))
+}
+
+/// `text` saying `format = n`: its top-level `format` line replaced, or
+/// one added after the comment header.
+fn with_format(text: &str, n: u32) -> String {
+    match format_line(text) {
+        Some(range) => {
+            let (start, end) = (usize::from(range.start()), usize::from(range.end()));
+            format!("{}format = {n}{}", &text[..start], &text[end..])
+        }
+        None => LockFormat {
+            number: n,
+            declared: true,
+        }
+        .stamp(text),
     }
 }
 
@@ -242,6 +323,39 @@ mod tests {
             assert_eq!(e.code, codes::INVALID_LOCKFILE, "{bad}");
             assert_eq!(u32::from(e.range.start()), 0);
         }
+    }
+
+    /// A format 2 of `rpc.lock` that renames `[services]` to `[protocols]`.
+    fn rename(text: &str) -> String {
+        text.replace("[services", "[protocols")
+    }
+
+    #[test]
+    fn upgrading_converts_each_older_format_and_declares_the_new_one() {
+        let steps: &[Step] = &[("rpc.lock", 1, rename)];
+        let one = "# rpc.lock\n\n[services.Cart]\nhash = \"a\"\n";
+        assert_eq!(
+            upgrade_with("rpc.lock", one, 2, steps),
+            Ok(Some(
+                "# rpc.lock\n\nformat = 2\n\n[protocols.Cart]\nhash = \"a\"\n".to_owned()
+            ))
+        );
+        // A declared `format = 1` is replaced, not repeated.
+        let declared = "format = 1\n[services.Cart]\n";
+        assert_eq!(
+            upgrade_with("rpc.lock", declared, 2, steps),
+            Ok(Some("format = 2\n[protocols.Cart]\n".to_owned()))
+        );
+        // Already current: left as it is.
+        assert_eq!(upgrade_with("rpc.lock", "format = 2\n", 2, steps), Ok(None));
+        // A change with no conversion only moves the number.
+        assert_eq!(
+            upgrade_with("routes.lock", "[pages.home]\n", 2, steps),
+            Ok(Some("format = 2\n\n[pages.home]\n".to_owned()))
+        );
+        // Newer than the toolchain: K8202, as when reading.
+        let e = upgrade_with("rpc.lock", "format = 3\n", 2, steps).unwrap_err();
+        assert_eq!(e.code, codes::LOCKFILE_TOO_NEW);
     }
 
     #[test]

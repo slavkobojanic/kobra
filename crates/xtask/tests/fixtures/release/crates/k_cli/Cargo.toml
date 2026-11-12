@@ -1,0 +1,6 @@
+[package]
+name = "k_cli"
+
+[[bin]]
+name = "k"
+path = "src/main.rs"

@@ -75,7 +75,7 @@ fn exe_name() -> OsString {
 }
 
 /// The executable of installed toolchain `version`, if it is installed.
-fn installed_exe(version: &Version) -> Option<PathBuf> {
+pub(crate) fn installed_exe(version: &Version) -> Option<PathBuf> {
     let exe = k_home()?
         .join("toolchains")
         .join(version.to_string())
@@ -84,7 +84,7 @@ fn installed_exe(version: &Version) -> Option<PathBuf> {
 }
 
 /// The installed toolchains, oldest first.
-fn installed() -> Vec<Version> {
+pub(crate) fn installed() -> Vec<Version> {
     let Some(dir) = k_home().map(|h| h.join("toolchains")) else {
         return Vec::new();
     };
@@ -101,16 +101,16 @@ fn installed() -> Vec<Version> {
 }
 
 /// What a project asks of the toolchain.
-struct Pins {
+pub(crate) struct Pins {
     /// The workspace root, as a path from the working directory.
-    root: PathBuf,
+    pub(crate) root: PathBuf,
     /// The manifests read: the root's `k.toml` and its members', by path
     /// relative to the root.
-    manifests: Vec<(String, String)>,
+    pub(crate) manifests: Vec<(String, String)>,
     /// The valid requirements, with their manifest path and range.
-    requirements: Vec<(String, TextRange, Requirement)>,
+    pub(crate) requirements: Vec<(String, TextRange, Requirement)>,
     /// `k.lock`'s text and the toolchain it records, with its line.
-    lock: Option<(String, Option<(Version, TextRange)>)>,
+    pub(crate) lock: Option<(String, Option<(Version, TextRange)>)>,
 }
 
 /// The directory of the project `path` belongs to: its workspace root, or
@@ -137,7 +137,7 @@ fn project_root(path: &Path) -> Option<PathBuf> {
 }
 
 /// Reads the pins of the project at `path`; `None` outside a project.
-fn pins(path: &Path) -> Option<Pins> {
+pub(crate) fn pins(path: &Path) -> Option<Pins> {
     let root = project_root(path)?;
     let root_text = std::fs::read_to_string(root.join(MANIFEST)).ok()?;
     let mut files = vec![(MANIFEST.to_owned(), root_text.clone())];
@@ -187,16 +187,23 @@ fn command_project(command: &Command) -> Option<PathBuf> {
             MigrateCommand::Rename(args) => args.project.clone(),
             MigrateCommand::Apply(args) | MigrateCommand::Status(args) => args.project.clone(),
         }),
-        Command::New(_) | Command::HashPassword | Command::Keys { .. } | Command::Debug(_) => None,
+        // `k upgrade` moves the project to this toolchain (or runs the one
+        // `--to` names itself), so it never runs the project's own.
+        Command::New(_)
+        | Command::HashPassword
+        | Command::Keys { .. }
+        | Command::Debug(_)
+        | Command::Upgrade(_) => None,
     }
 }
 
-/// The diagnostic format of a command: JSON only for `k check --format json`
-/// and `k fix --format json`.
+/// The diagnostic format of a command: JSON only for `--format json` of
+/// `k check`, `k fix` and `k upgrade`.
 fn format_of(command: Option<&Command>) -> Format {
     match command {
         Some(Command::Check(args)) => args.format,
         Some(Command::Fix(args)) => args.format,
+        Some(Command::Upgrade(args)) => args.format,
         _ => Format::Human,
     }
 }
@@ -384,7 +391,7 @@ fn stop(at: Option<(&Pins, At)>, message: &str, help: &str, format: Format) -> E
 }
 
 /// Prints `d` in `format` and returns exit status 2.
-fn emit(d: &Diagnostic, map: &SourceMap, format: Format) -> ExitCode {
+pub(crate) fn emit(d: &Diagnostic, map: &SourceMap, format: Format) -> ExitCode {
     match format {
         Format::Json => {
             let _ = writeln!(std::io::stdout().lock(), "{}", render::json(d, map));

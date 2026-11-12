@@ -31,15 +31,15 @@ use crate::cli::{ColorChoice, FixArgs, Format};
 use crate::sources::{self, Group};
 
 /// What fixing one group did.
-struct Fixed {
+pub(crate) struct Fixed {
     /// The group's root.
-    root: std::path::PathBuf,
+    pub(crate) root: std::path::PathBuf,
     /// The files before fixing, by path relative to the root.
-    before: BTreeMap<String, String>,
+    pub(crate) before: BTreeMap<String, String>,
     /// The files after fixing.
-    after: BTreeMap<String, String>,
+    pub(crate) after: BTreeMap<String, String>,
     /// What the loop did; its `last` check is what remains.
-    outcome: fix::Outcome,
+    pub(crate) outcome: fix::Outcome,
 }
 
 /// Runs `k fix`.
@@ -148,7 +148,7 @@ pub fn run(args: &FixArgs) -> ExitCode {
 
 /// Fixes one group in memory: its files keyed by their path relative to
 /// the root, checked again after every round.
-fn fix_group(group: Group, wanted: &impl Fn(&Diagnostic) -> bool) -> Fixed {
+pub(crate) fn fix_group(group: Group, wanted: &impl Fn(&Diagnostic) -> bool) -> Fixed {
     let root = group.root.clone();
     let scope = group.scope.clone();
     let problems = group.problems;
@@ -182,7 +182,7 @@ fn fix_group(group: Group, wanted: &impl Fn(&Diagnostic) -> bool) -> Fixed {
 
 /// `map` with its group-relative names shown as `k check` shows them
 /// (`app/src/…` from the working directory).
-fn renamed(map: &SourceMap, root: &std::path::Path) -> SourceMap {
+pub(crate) fn renamed(map: &SourceMap, root: &std::path::Path) -> SourceMap {
     let mut out = SourceMap::new();
     for i in 0..map.len() {
         let id = k_diagnostics::FileId::new(u32::try_from(i).unwrap_or(u32::MAX));

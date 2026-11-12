@@ -56,7 +56,7 @@ with a Planned note naming the feature's id, and this table is generated from th
 | One connection for identical streams opened in several tabs | `stream-tab-sharing` | [Server streaming](../apps/streaming.md#one-connection-per-stream-shared-across-tabs) |
 | Binding a workspace member's own implementation in-process in `.test` | `in-process-services` | [Workspaces and services](../apps/workspaces.md#tooling) |
 | Streaming rpcs between services | `service-streaming` | [Workspaces and services](../apps/workspaces.md#tooling) |
-| `k toolchain` (install, list, remove, default), `k self update` and `k upgrade` | `toolchain-commands` | [The k command](cli.md#toolchains) |
+| `k toolchain` (install, list, remove, default) and `k self update` | `toolchain-commands` | [Upgrading K](../apps/upgrading.md#several-minors-at-once), [The k command](cli.md#toolchains) |
 | A published toolchain container image | `toolchain-image` | [Deployment](../apps/deployment.md#containers) |
 | Typed npm interop, with bindings from `.d.ts` files | `npm-interop` | [JavaScript interop](../language/js-interop.md#what-isnt-available) |
 <!-- /gen -->

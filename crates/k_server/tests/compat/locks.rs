@@ -10,8 +10,10 @@
 //! than its own without rewriting the lock.
 //!
 //! When a lockfile's format changes, add its golden file for the new
-//! format here; the tests below then check the older goldens are still
-//! read (and, once `k upgrade` exists, that it rewrites them).
+//! format here, and its conversion to `k_sema::lockformat::STEPS`; the
+//! tests below then check the older goldens are still read, and that
+//! `k upgrade`'s conversion (`lockformat::upgrade`) turns each into the
+//! newest golden.
 
 use std::collections::BTreeMap;
 
@@ -262,6 +264,28 @@ fn writing_keeps_the_format_the_lock_was_read_in() {
                 .or_else(|| rewritten(lock, &old, &golden));
             assert_eq!(written.as_deref(), Some(text.as_str()), "{lock}");
         }
+    }
+}
+
+#[test]
+fn k_upgrade_moves_every_golden_to_the_current_format() {
+    for lock in LOCKS {
+        let current = lockformat::current(lock).expect("a format");
+        let golden = newest(lock);
+        for (n, text) in goldens(lock) {
+            let moved = lockformat::upgrade(lock, &text)
+                .unwrap_or_else(|e| panic!("{lock} format {n}: {}", e.message));
+            if n == current {
+                assert_eq!(moved, None, "{lock}: the current format is left as it is");
+            } else {
+                assert_eq!(moved.as_deref(), Some(golden.as_str()), "{lock} format {n}");
+            }
+        }
+        assert_eq!(
+            lockformat::upgrade(lock, &declaring(&golden, current)),
+            Ok(None),
+            "{lock}: a declared current format is left as it is"
+        );
     }
 }
 

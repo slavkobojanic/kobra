@@ -524,6 +524,14 @@ unpinned = [
     "`serve` warns about `X-Forwarded-For` with no trusted proxies",
 ]
 
+[pages."apps/upgrading.md"]
+commit = "d66b9ec"
+date = "2026-11-12"
+note = "new with `k upgrade` (release.md §12 step 8); written against the working tree on top of d66b9ec, every claim checked against crates/k_cli/src/upgrade.rs and crates/k_cli/tests/upgrade.rs; the generated part is written by `cargo xtask release prepare`"
+unpinned = [
+    "two adjacent minors understand each other on the wire (pinned for 0.1's own recordings only, by `compat::wire::`)",
+]
+
 [pages."examples/todos.md"]
 commit = "0dd7625"
 date = "2026-11-09"
@@ -736,3 +744,8 @@ unpinned = [
 commit = "0dd7625"
 date = "2026-11-09"
 note = "targeted re-audit on top of defa748 (2026-11-11): workers left \"Not yet covered in depth\" for their own page"
+
+[pages."reference/changelog.md"]
+commit = "d66b9ec"
+date = "2026-11-12"
+note = "new with the changelog fragments (release.md §12 step 9); its generated part is a copy of CHANGELOG.md, written by `cargo xtask release prepare` and checked by `cargo test -p xtask`"

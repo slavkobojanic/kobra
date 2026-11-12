@@ -65,5 +65,6 @@ mod new;
 mod perf_budget;
 mod push;
 mod toolchain;
+mod upgrade;
 mod version;
 mod workspaces;

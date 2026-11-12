@@ -1034,6 +1034,15 @@ pub fn lookup_name(name: &str) -> Option<&'static CodeInfo> {
     REGISTRY.iter().find(|info| info.name == name)
 }
 
+/// The codes whose machine-applicable fixes migrate a project to a newer
+/// toolchain (`docs/design/48-releases-and-versioning.md`, "Upgrading a
+/// project"): `k upgrade` applies these fixes and no others, so the
+/// upgrade's diff holds only the migration. A deprecation's warning, and
+/// the tombstone error a removed form leaves for one minor, belong here;
+/// a changelog fragment's `migration:` must name one of them
+/// (`cargo test -p xtask` checks it).
+pub const MIGRATIONS: &[Code] = &[DEPRECATED, STABILIZED_PREVIEW];
+
 #[cfg(test)]
 mod tests {
     use super::*;

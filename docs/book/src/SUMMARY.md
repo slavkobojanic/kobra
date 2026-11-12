@@ -87,6 +87,7 @@
 - [Document metadata](apps/metadata.md)
 - [The app declaration](apps/app.md)
 - [Deployment](apps/deployment.md)
+- [Upgrading K](apps/upgrading.md)
 
 # Example apps
 
@@ -132,3 +133,4 @@
     - [`k.validation`](reference/stdlib/k-validation.md)
 - [Web platform APIs](reference/web-platform.md)
 - [Design status](reference/design-status.md)
+- [Changelog](reference/changelog.md)

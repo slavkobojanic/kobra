@@ -33,6 +33,7 @@ mod routes;
 mod sources;
 mod test;
 mod toolchain;
+mod upgrade;
 mod workspace;
 
 use std::process::ExitCode;
@@ -137,6 +138,7 @@ fn main() -> ExitCode {
         Command::New(args) => new::run(&args),
         Command::Check(args) => check::run(&args),
         Command::Fix(args) => fix::run(&args),
+        Command::Upgrade(args) => upgrade::run(&args),
         Command::Debug(args) => debug::run(&args),
         Command::Build(args) => build::build(&args),
         Command::Run(args) => build::run(&args),

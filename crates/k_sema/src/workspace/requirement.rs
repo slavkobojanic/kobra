@@ -214,6 +214,26 @@ impl Requirement {
         &self.text
     }
 
+    /// The lowest release it accepts: `0.5.0` for `0.5`, `0.5.2` for
+    /// `=0.5.2` (an exact pre-release's release).
+    ///
+    /// ```
+    /// use k_sema::workspace::Requirement;
+    ///
+    /// assert_eq!(Requirement::parse("0.5").unwrap().lowest().to_string(), "0.5.0");
+    /// assert_eq!(Requirement::parse("=1.4.2").unwrap().lowest().to_string(), "1.4.2");
+    /// ```
+    #[must_use]
+    pub fn lowest(&self) -> Version {
+        self.lower()
+    }
+
+    /// `true` for an exact requirement (`=0.5.2`).
+    #[must_use]
+    pub fn is_exact(&self) -> bool {
+        self.exact
+    }
+
     /// The lowest release it accepts.
     fn lower(&self) -> Version {
         Version {

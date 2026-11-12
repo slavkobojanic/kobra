@@ -6,9 +6,10 @@ The maintainer runbook: how a version of K is cut, checked, published and fixed.
 procedure.
 
 > **Status.** There are no tags, no CI configuration and no published artifacts, and the workspace
-> version is `0.1.0`. Steps 1–3, 5–7 and 10 of the [implementation plan](#12-implementation-plan) are
+> version is `0.1.0`. Steps 1–3 and 5–10 of the [implementation plan](#12-implementation-plan) are
 > built: version consistency, the toolchain requirement, `k.lock`'s toolchain with delegation, lockfile
-> format versions, `k fix`, the stability annotations with the feature table and the 0.1 wire fixtures. Sections marked *(planned)* describe files and
+> format versions, `k fix`, the stability annotations with the feature table, `k upgrade`, the changelog
+> fragments with `cargo xtask` and the 0.1 wire fixtures. Sections marked *(planned)* describe files and
 > commands that the [implementation plan](#12-implementation-plan) adds. Publishing anything needs the
 > owner decisions of [design 48](../design/48-releases-and-versioning.md#owner-decisions); every step up
 > to publishing can be run locally.
@@ -50,21 +51,22 @@ Contents:
 |---|---|---|
 | `Cargo.toml` `[workspace.package] version` | **the** version; everything else follows it | exists |
 | `editors/vscode/package.json` `version` | the extension's version, equal to the toolchain's | exists |
-| `changes/*.md` | changelog fragments, one per change | planned |
-| `changes/_highlights.md` | hand-written release highlights, emptied at each release | planned |
-| `CHANGELOG.md` | every released version's notes, newest first | planned |
-| `xtask/` | `cargo xtask release …`: bump, compile fragments, local gate, print the tag | planned |
+| `changes/*.md` | changelog fragments, one per change; `changes/README.md` explains them | exists (the 0.1.0 fragments, one per area) |
+| `changes/_highlights.md` | hand-written release highlights, emptied at each release | exists |
+| `CHANGELOG.md` | every released version's notes, newest first | exists (no version released yet) |
+| `crates/xtask/` | `cargo xtask release prepare`, `check`, `start-next`; `cargo xtask docs-gate`, `fragments` | exists (`release sync-main` and `release yank` planned) |
 | `.github/workflows/ci.yml`, `nightly.yml`, `release.yml` | the pipeline (§9); GitHub Actions is the default, an owner decision | planned |
 | `scripts/install.sh`, `scripts/install.ps1` | installers, served from the docs site | planned |
 | `tests/compat/locks/`, `tests/compat/wire/` | golden lockfiles per format and recorded traffic per minor; checked by `crates/k_server/tests/compat/` | exists (format 1 of every lockfile; the 0.1 transcripts) |
 | `crates/k_cli/tests/version.rs` | every version string agrees; `k --version` format | exists (the commit and date in `--version` come with step 1's `build.rs`, in round 3) |
 | `k.lock` (`toolchain = "…"`) in every example app and workspace root | the toolchain that last built it; `version.rs` checks it names the version | exists |
 | `crates/k_cli/tests/toolchain.rs` | requirement, delegation, `K_TOOLCHAIN`, `k.lock` updates against fake installed toolchains; `k toolchain` against a local fake index with step 4 | exists (step 4's tests to come) |
-| `docs/book/src/apps/upgrading.md`, `reference/changelog.md` | the upgrade guide (procedure, then one generated section per minor, cumulative) and the changelog page ([design 49](../design/49-documentation.md)) | planned |
+| `docs/book/src/apps/upgrading.md`, `reference/changelog.md` | the upgrade guide (procedure, then one generated section per minor, cumulative) and the changelog page ([design 49](../design/49-documentation.md)) | exist (their generated parts empty until 0.1.0) |
 | `docs/book/check/audit.toml` | the page-audit ledger ([documentation.md §5](documentation.md#5-the-page-audit)) | planned |
 | `docs/book/check/released-pages.txt` | every page path of the last release, for the redirect test | planned |
 
-`cargo xtask` is a workspace member that is never shipped; it uses only crates already listed in
+`cargo xtask` (an alias in `.cargo/config.toml`) runs `crates/xtask`, a workspace member that is never
+shipped; it uses only crates already listed in
 [architecture.md §15](architecture.md#15-dependencies), plus whatever the signing step needs, which is
 added there when it is chosen.
 
@@ -97,8 +99,9 @@ book: apps/charts.md
   `runtime`, `tooling`, `preview`): the book pages this pull request changes, or `none: <reason>`.
   `cargo xtask docs-gate origin/main` checks the listed pages are in the diff
   ([design 49](../design/49-documentation.md#docs-ownership-in-review)); run it before pushing.
-- `cargo test -p xtask` checks every fragment (front matter, known kind, migration present, `book:`
-  present where required and every page in it exists) *(planned)*.
+- `cargo test -p xtask` checks every fragment (front matter, known kind, migration present and one
+  `k upgrade` applies, `book:` present where required and every page in it exists, a manual migration's
+  anchor in the upgrade guide); `cargo xtask fragments` lists them.
 
 ---
 
@@ -126,8 +129,9 @@ unless it is a soundness or security fix (then: fragment `kind: breaking`, and t
 1. Bump the file's number in `k_sema::lockformat::FORMATS` (and `k_db::lock::FORMAT` for
    `schema.lock`); keep the reader for every older format.
 2. Add the new format's golden file as `tests/compat/locks/<lockfile>/<N>/<lockfile>` (for the program in
-   `tests/compat/locks/project/`) and keep the old ones; `cargo test -p k_server --test it --
-   compat::locks::` reads each, and, once `k upgrade` exists, checks that it rewrites each to `N`.
+   `tests/compat/locks/project/`) and keep the old ones, and add the conversion from `N−1` to
+   `k_sema::lockformat::STEPS` (none when only the readers changed); `cargo test -p k_server --test it --
+   compat::locks::` reads each, and checks that `k upgrade`'s conversion rewrites each to the golden of `N`.
 3. A toolchain writes the format it read; only `k upgrade` moves a project to the new format.
 4. Fragment `kind: tooling` naming the format change.
 
@@ -173,16 +177,17 @@ Timeline for `0.6.0`, with T the planned release day.
    git switch main && git pull
    git switch -c release/0.6
    ```
-3. **Prepare** *(planned)*:
+3. **Prepare**:
    ```sh
    cargo xtask release prepare 0.6.0-rc.1
    ```
    It sets the version everywhere ([§2](#2-files-the-release-process-owns)), compiles the fragments
    into a draft `CHANGELOG.md` section, the changelog page and the upgrade guide's new section (it does
    not delete fragments for a release candidate), updates `k = "0.6"` in the examples and the `k new`
-   skeleton, runs `cargo test -p k_cli --test it -- version::` and prints what it changed. It also prints the
-   book pages whose audit-ledger entry predates the previous minor's cut and whose design topic changed
-   since: re-audit those before tagging the candidate.
+   skeleton, runs `cargo test -p k_cli --test it -- version::` and prints what it changed. It will also
+   print the book pages whose audit-ledger entry predates the previous minor's cut and whose design topic
+   changed since *(planned: that needs a previous release tag, so it comes with the first minor after
+   0.1)*: re-audit those before tagging the candidate.
 4. **Review the draft notes:** read every fragment in the context of the others, fix wording in the
    fragments themselves, and write `changes/_highlights.md` (three to six bullets; anything operators
    must know first, such as a new wire encoding being written).
@@ -200,7 +205,7 @@ Timeline for `0.6.0`, with T the planned release day.
    git push origin release/0.6 v0.6.0-rc.1
    ```
 7. **Bump main** to the next minor in its own pull request: `cargo xtask release start-next 0.7.0`
-   *(planned)* sets `0.7.0` and leaves the fragments on main untouched.
+   sets `0.7.0` and leaves the fragments on main untouched.
 8. The release pipeline (§9) builds the candidate and publishes it as a **pre-release**: archives,
    checksums, signatures, the index entry (marked `rc`), the extension `.vsix`, the image tag
    `0.6.0-rc.1`. No docs are deployed for a candidate; `/next/` already shows main.
@@ -280,7 +285,7 @@ Every job runs `cargo` commands that also work locally; YAML holds no logic that
 | `test-macos` | macOS arm64 | `cargo test --workspace` |
 | `book` | Linux x86_64 | `mdbook build docs/book` (warnings fail), the freshness checks (they are inside `cargo test`; this job also runs the link check) |
 | `fragments` | Linux x86_64 | a fragment exists when `crates/`, `editors/` or `docs/book/` changed; `cargo test -p xtask`; `cargo xtask docs-gate <base>` |
-| `site` | Linux x86_64; only when `docs/book/` or `xtask/` changed | `cargo xtask docs build --version next`; the built site uploaded as an artifact (the PR preview until the owner picks a host with previews) |
+| `site` | Linux x86_64; only when `docs/book/` or `crates/xtask/` changed | `cargo xtask docs build --version next`; the built site uploaded as an artifact (the PR preview until the owner picks a host with previews) |
 | `install-scripts` | Linux, macOS, Windows; only when `scripts/install.*` changed | each installer against a fake release served from a local directory |
 
 Caching: the cargo registry and `target/` keyed by `Cargo.lock` and the runner; the V8 prebuilt library
@@ -463,11 +468,44 @@ in round 5.
    in the fake index: refuses a dirty tree; applies tombstone fixes; steps through intermediate minors;
    rewrites lock formats; bumps `k` and `k.lock`; prints what remains with the guide's section. Then the
    command.
+   *As built (2026-11-12):* `crates/k_cli/src/upgrade.rs`; tests in `crates/k_cli/tests/upgrade.rs`
+   (`upgrade::`), the guide lookup's unit tests, and `k_server`'s
+   `compat::locks::k_upgrade_moves_every_golden_to_the_current_format`. The project's toolchain is
+   `k.lock`'s, else the lowest its requirements allow; the target is the running toolchain or `--to` (a
+   version, or a minor meaning its newest installed release). A step on this toolchain computes everything
+   in memory and writes it at once: each lockfile through `k_sema::lockformat::upgrade` (the format
+   changes' conversions are `lockformat::STEPS`, empty while every lockfile is at format 1), each `k`
+   requirement the toolchain doesn't meet raised to its minor (`=` its version for an exact one),
+   `k.lock`'s toolchain, then `k fix`'s loop limited to `k_diagnostics::codes::MIGRATIONS` (`K1401`,
+   `K8110`; a tombstone's code joins them). Each later minor runs on its newest installed release as
+   `k upgrade --to <it> --allow-dirty` with `K_TOOLCHAIN_DELEGATED=1`, and a step that leaves problems
+   stops the chain. What remains is printed as `k check --no-tests` would, each code that a generated
+   section of the (embedded) upgrade guide names with that section; exit 1 when anything remains.
+   Decisions in design 48, "`k upgrade`: decided while implementing". The fake toolchains are installed
+   directories rather than an index: installing a missing toolchain is step 4's, so until then `k upgrade`
+   names `k toolchain install <minor>` and stops before changing anything. Tombstones wait for the first
+   removal.
 9. **Changelog fragments and `xtask`.** Tests in `xtask`: fragment parsing and validation; compiling
    fragments into a `CHANGELOG.md` section, the changelog page and an upgrade-guide section (golden
    output); `prepare` refusing minor-only kinds in a patch; `prepare` updating every version string so
    step 1's test passes. Then `changes/` with a README, the `xtask` crate, and fragments for the changes
    since the last release.
+   *As built (2026-11-12):* `crates/xtask` (modules `fragment`, `changelog`, `bump`, `release`, `gate`),
+   run as `cargo xtask` through `.cargo/config.toml`; tests: `cargo test -p xtask` (unit tests, and
+   `fragments::`, `prepare::` with goldens under `crates/xtask/tests/golden/release/`, `bump::`, `gate::`).
+   `release prepare <version>` checks every fragment, refuses `deprecation`, `language`, `stdlib` and
+   `preview` in a patch (warning on `breaking`), bumps every string `version.rs` checks (`Cargo.toml`,
+   the workspace's packages in `Cargo.lock`, the extension's `package.json` and `package-lock.json`, the
+   examples' `k`, `k.lock` and image tags, the book's `toml` samples, `k X.Y.Z` mentions and image tags,
+   design 38), writes the release's `CHANGELOG.md` section (replacing its candidate's), the changelog
+   page's copy and the upgrade guide's entries for the release, and for a release (not a candidate)
+   deletes the fragments and empties `_highlights.md`; then it runs `version::` unless `--no-verify`.
+   `release check` runs the local gate (`--list` prints it, `--release` also requires that no fragment
+   remains); `release start-next` only bumps; `docs-gate <base>` and `fragments` are as in §3. The
+   fragments for 0.1.0 are one per area of what is built, seeded from the history rather than one per
+   commit; their `book:` pages describe the area and aren't in this change's diff, so the docs gate
+   applies from the next change on. Decisions in design 48, "Changelog fragments: decided while
+   implementing".
 10. **Wire compatibility fixtures.** Record `tests/compat/wire/0.1/` from the examples (rpcs with
     declared errors and `rpcFailure`, a server stream, a service-token call, a queued job row, a page's
     `k-data`); tests that the current server answers each recorded request as recorded and the current

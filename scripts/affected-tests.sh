@@ -31,10 +31,12 @@
 #          `#[path = …]` include or `crate::<module>` / `super::<module>`.
 #   crates/<c>/tests/** (fixtures, golden files, unused support)
 #       -> every test binary of <c>.
-#   examples/**, docs/book/**, docs/**, tests/<dir>/**, editors/**
+#   examples/**, docs/book/**, docs/**, tests/<dir>/**, editors/**,
+#   changes/**, CHANGELOG.md
 #       -> the test modules (and unit tests) whose source has a string
 #          literal naming that directory: "examples", "book", "docs",
-#          "<dir>" (e.g. "corpus", "e2e"), "editors". The literal scan is
+#          "<dir>" (e.g. "corpus", "e2e"), "editors", "changes" (the
+#          changelog fragments), "CHANGELOG.md". The literal scan is
 #          what keeps the choice current as tests are added.
 #   anything else (scripts/, README.md, fuzz/)
 #       -> nothing; reported as such.
@@ -319,8 +321,10 @@ for f in changed:
         continue
     top = f.split("/")[0]
     word = None
-    if top in ("examples", "editors"):
+    if top in ("examples", "editors", "changes"):
         word = top
+    elif f == "CHANGELOG.md":
+        word = f
     elif f.startswith("docs/book/"):
         word = "book"
     elif top == "docs":
