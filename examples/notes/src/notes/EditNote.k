@@ -183,7 +183,7 @@ public page EditNote requires Authenticated {
             borderRadius: .md;
         }
 
-        .status  { color: .muted; }
+        .status { color: .muted; }
         .problem { color: .danger; }
         .delete { marginTop: .lg; color: .danger; }
     }

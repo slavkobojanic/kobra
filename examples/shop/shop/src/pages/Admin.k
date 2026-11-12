@@ -139,8 +139,8 @@ public page Admin requires Authenticated, Role(.admin) {
             }
         }
 
-        .status    { fontWeight: 600; }
+        .status { fontWeight: 600; }
         .attention { color: .danger; }
-        .problem   { color: .danger; }
+        .problem { color: .danger; }
     }
 }

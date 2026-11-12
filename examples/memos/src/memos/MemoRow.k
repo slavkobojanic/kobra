@@ -57,6 +57,7 @@ public component MemoRow {
         box {
             button { "Download" }
                 .on(click: download)
+
             button { "Delete" }
                 .on(click: remove)
         }

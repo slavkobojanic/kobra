@@ -89,9 +89,9 @@ public page Lobby requires Authenticated at "/" {
     }
 
     style {
-        .muted   { color: .muted; }
-        .unread  { fontWeight: bold; color: .primary; }
-        .create  { display: flex; gap: .sm; flexWrap: wrap; }
+        .muted { color: .muted; }
+        .unread { fontWeight: bold; color: .primary; }
+        .create { display: flex; gap: .sm; flexWrap: wrap; }
         .problem { color: .danger; }
     }
 }

@@ -125,18 +125,36 @@ member, each with the libraries it depends on. It has no watch mode; it is the o
 Only `k check` runs the tests. The language server never does, so the editor's diagnostics stay
 instant however large the test suite grows.
 
-> **Planned** (k-fmt, doc-blocks). The design adds two more steps to `k check`: the formatting check and type-checking the
-> `k` code blocks inside `///` comments. Neither is part of `k check` yet.
+> **Planned** (fmt-check, doc-blocks). The design adds two more steps to `k check`: the formatting check and type-checking the
+> `k` code blocks inside `///` comments. Neither is part of `k check` yet; until the first is, run
+> `k fmt --check` next to it.
 
 Run it in CI. With `--format json`, diagnostics are machine-readable, including their quick fixes,
 which is how agents apply fixes directly.
 
-`k fmt` (**Planned** k-fmt) rewrites code into the canonical form, including removing redundant spellings that have a
-machine-applicable fix, such as `public` on a member.
+## `k fmt`
 
-> **Planned** (k-fmt). The formatter, `k fmt`, isn't in the first compiler releases. Until it ships, the
-> formatting step of `k check` isn't enforced, but redundant spellings are still reported as warnings
-> with their fixes.
+```bash
+k fmt
+k fmt --check
+```
+
+`k fmt` rewrites code into the canonical form: four-space indentation, one space where the rules say so,
+one blank line between view nodes and between declarations, sorted imports, and none of the redundant
+spellings that have a machine-applicable fix, such as `public` on a member. It has no options, so every
+K project looks the same. It keeps your line breaks and every comment.
+
+- With no path it formats the whole project, or the whole workspace from any directory inside one. A
+  directory formats the `.k` files below it (build output and hidden directories aside); a file formats
+  that file; `-` reads standard input and writes the result to standard output, for editors and scripts.
+- A file with syntax errors is left as it is: `k fmt` prints its errors, as `k check` does, and exits `1`.
+- `--check` writes nothing. It prints each file that isn't formatted as a diff and exits `1` if there is
+  one, so CI can run it next to `k check`.
+- `--format json` prints one JSON object per file instead: its `file`, its `status` (`formatted`,
+  `reformatted`, `unformatted`, `syntax-error`), and with `--check` the `diff`.
+
+Editors format through the language server, with the same result: [Editor setup](editor-setup.md)
+turns on formatting on save in VS Code.
 
 ## `k fix`
 

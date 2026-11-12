@@ -31,7 +31,7 @@ public service MemoRecorder {
         problem = nil
         notice = nil
         if devices.microphonePermission == .prompt {
-            await devices.requestAccess(for: .microphone)      // @UserAction: the only prompt
+            await devices.requestAccess(for: .microphone) // @UserAction: the only prompt
         }
 
         var captured: MediaStream? = nil

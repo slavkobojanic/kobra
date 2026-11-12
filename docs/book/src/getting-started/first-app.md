@@ -204,7 +204,10 @@ references, doc links), compares the lockfiles with the code to catch breaking c
 every test, as `k test` does. `--no-tests` skips the tests for a quick type check. CI needs only
 `k check`.
 
-> **Planned** (k-fmt). The design adds the formatting check to `k check`. There is no formatter yet.
+`k fmt` formats the project's code; `k fmt --check` fails when a file isn't formatted.
+
+> **Planned** (fmt-check). The design adds the formatting check to `k check`. Until then, CI runs
+> `k fmt --check` next to it.
 
 ## Building for production
 

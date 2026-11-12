@@ -32,13 +32,16 @@ error.
 | `k fix --code <code>` | apply only that code's fixes (`K1401`); repeatable |
 | `k fix --dry-run` | print the changes as a unified diff, write nothing |
 | `k fix --format json` | print the remaining diagnostics as JSON, as `k check --format json` does |
-| `k fmt` | format code canonically, removing redundant spellings such as `public` on members (**Planned** k-fmt) |
+| `k fmt [paths…]` | format code canonically, removing redundant spellings such as `public` on members: the project or workspace by default, else the files and directories named; see [`k fmt`](../getting-started/commands.md#k-fmt) |
+| `k fmt --check` | write nothing: print a diff of each file that isn't formatted, exit `1` if there is one |
+| `k fmt -` | format standard input to standard output |
+| `k fmt --format json` | one JSON object per file: `file`, `status`, and `diff` with `--check` |
 | `k routes` | print the route table: one row per URL and method (pages, endpoint handlers, `routes.lock` redirects), then the [channel](../apps/channels.md#seeing-what-channels-do) rpcs, with parameters and guards |
 | `k doc` | render documentation from `///` comments (**Planned** k-doc) |
 | `k explain <code>` | describe a diagnostic code (**Planned** k-explain; see the [diagnostics reference](diagnostics.md)) |
 | `k lsp` | run the language server on standard input and output, for editors ([Editor setup](../getting-started/editor-setup.md)) |
 
-> **Planned** (k-fmt, doc-blocks). The design adds the formatting check and the type-checking of `k` blocks in doc comments
+> **Planned** (fmt-check, doc-blocks). The design adds the formatting check and the type-checking of `k` blocks in doc comments
 > to `k check`.
 
 For end-to-end tests, `k run` and `k dev` read `K_DEV_FETCH_ORIGINS`: comma-separated `from=to` origin

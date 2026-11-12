@@ -1698,6 +1698,7 @@ dependencies = [
  "k_corpus",
  "k_db",
  "k_diagnostics",
+ "k_fmt",
  "k_lsp",
  "k_runtime",
  "k_sema",
@@ -1788,6 +1789,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "k_diagnostics",
+ "k_fmt",
  "k_sema",
  "k_syntax",
  "lsp-types",

@@ -67,18 +67,18 @@ Other declarations in the same file are helpers. They are visible within the mod
 import shop.catalog.Product
 import shop.catalog.ProductService
 
-public service CartService {               // visible to every module
-    @Inject let products: ProductService    // always private: dependencies are never API
+public service CartService { // visible to every module
+    @Inject let products: ProductService // always private: dependencies are never API
 
-    @State var items: List<CartItem> = []   // public, because CartService is
-    private var retryCount = 0              // visible only inside CartService
+    @State var items: List<CartItem> = [] // public, because CartService is
+    private var retryCount = 0            // visible only inside CartService
 
-    func add(product: Product) {            // public, because CartService is
+    func add(product: Product) { // public, because CartService is
         items.append(CartItem(product: product))
     }
 }
 
-struct CartLine {                          // no modifier: visible within shop.cart only
+struct CartLine { // no modifier: visible within shop.cart only
     let quantity: Int
 }
 ```
@@ -107,7 +107,7 @@ There is no `protected`, because there is no inheritance.
 - **`private` is the only member modifier.** It restricts a member to the body of its enclosing
   declaration.
 - **`public` on a member is redundant.** It is a warning (`K1302`) with a machine-applicable fix,
-  which `k fmt` will apply (**Planned** k-fmt), so there is one spelling.
+  which `k fmt` applies, so there is one spelling.
 - **`@Inject` fields are always private** to the declaration that injects them. Writing `public` on one
   is a compile error, and `private` is redundant. A type's dependencies are never part of its API, so
   other code can't read `verifier.config`, and a fake never has to declare its target's dependencies.
@@ -166,14 +166,14 @@ An extension has no name, so it can't be imported. Its members follow the extens
 **Each import names exactly one declaration:**
 
 ```k
+import k.time.Clock
+import k.ui.Theme
 import shop.catalog.Product
 import shop.catalog.ProductService
-import k.ui.Theme
-import k.time.Clock
 ```
 
 - There are no wildcard imports, so the origin of every name is visible at the top of the file.
-- Imports come before any declaration in the file.
+- Imports come before any declaration in the file, one per line; `k fmt` sorts them by their text.
 - Declarations in the same module need no import.
 - **Built-in elements and core types** (`String`, `List`, `Map`, `Color`, `Bytes`, `Url`, `Secret`,
   units and the rest) need no import either. Neither do the enums the compiler generates for the app

@@ -6,6 +6,7 @@
 //! | `repository_files` | every `.k` file of `tests/corpus`, `examples` and `tests/fmt`, and every checked ` ```k ` block of the book |
 //! | `generated_programs` | programs from the structure-aware generator of `k_syntax` (`kgen`), valid and noisy; `K_FMT_CASES=N` sets how many (default 1500) |
 //! | `sema_diagnostics` | every `sema` corpus case reports the same diagnostics after formatting, apart from the redundant spellings the rewrites fix |
+//! | `the_examples_are_formatted` | every `.k` file of `examples` is already canonical, as CI's `k fmt --check examples` requires |
 
 use std::collections::BTreeMap;
 
@@ -43,6 +44,20 @@ fn repository_files() {
     report("a formatter property failed", &failures);
     assert!(formatted > 3000, "only {formatted} inputs were formatted");
     assert!(refused > 100, "only {refused} inputs had syntax errors");
+}
+
+/// The examples are the code people copy, so they are kept in canonical
+/// form; `k fmt examples` fixes a failure.
+#[test]
+fn the_examples_are_formatted() {
+    let inputs = inputs::files_in("examples");
+    assert!(inputs.len() > 100, "only {} example files", inputs.len());
+    let failures: Vec<String> = inputs
+        .iter()
+        .filter(|input| !matches!(k_fmt::is_formatted(&input.text), Ok(true)))
+        .map(|input| format!("{} isn't formatted: run `k fmt examples`", input.name))
+        .collect();
+    report("an example isn't formatted", &failures);
 }
 
 #[test]

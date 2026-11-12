@@ -1,6 +1,6 @@
 //! The feature table: every named feature that isn't simply stable.
 //!
-//! Each row has an id (`k-fmt`), a [`Status`], the version it reached that
+//! Each row has an id (`k-doc`), a [`Status`], the version it reached that
 //! status in, a one-line summary and the design topic that specifies it.
 //! The book's `> **Planned** (id).` and `> **Preview** (id).` notes name
 //! these ids, and the book test (`crates/k_sema/tests/book.rs`) fails when
@@ -19,8 +19,8 @@
 //! ```
 //! use k_sema::features::{self, Status};
 //!
-//! let fmt = features::lookup("k-fmt").unwrap();
-//! assert_eq!(fmt.status, Status::Planned);
+//! let doc = features::lookup("k-doc").unwrap();
+//! assert_eq!(doc.status, Status::Planned);
 //! assert_eq!(features::lookup("workers").unwrap().status, Status::Preview);
 //! assert!(features::lookup("no-such-feature").is_none());
 //! ```
@@ -53,7 +53,7 @@ impl Status {
 /// One row of the feature table.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Feature {
-    /// The id: lowercase words joined with `-`, such as `k-fmt`.
+    /// The id: lowercase words joined with `-`, such as `k-doc`.
     pub id: &'static str,
     /// How far it is built.
     pub status: Status,
@@ -159,9 +159,9 @@ pub const FEATURES: &[Feature] = &[
         "13-tooling.md",
     ),
     planned(
-        "k-fmt",
-        "The formatter, `k fmt`, and its check in `k check`",
-        "13-tooling.md",
+        "fmt-check",
+        "The formatting check of `k check` (`k fmt --check` is built)",
+        "56-formatter.md",
     ),
     planned(
         "doc-blocks",

@@ -132,9 +132,9 @@ Types are inferred from initial values and from context. You write types on func
 public fields, and wherever inference has nothing to go on:
 
 ```k
-let count = 3                            // Int
-let names = ["Ana", "Ben"]               // List<String>
-let empty: List<String> = []             // the element type must be given
+let count = 3                // Int
+let names = ["Ana", "Ben"]   // List<String>
+let empty: List<String> = [] // the element type must be given
 ```
 
 ## Generics

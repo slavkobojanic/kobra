@@ -134,9 +134,12 @@ shop finds paybox's handler. Tested by
 | `textDocument/documentSymbol` | hierarchical when the client supports it, flat otherwise |
 | `workspace/symbol` | fuzzy, every project, at most 256 per project |
 | `textDocument/inlayHint` | each page's derived URL after its name (`at "/sign-in"`) |
+| `textDocument/formatting`, `rangeFormatting` | `k_fmt::format` as line edits (`ide::format`): lines aligned by their text without whitespace, so a range takes only its own lines' edits, and none when the partial result wouldn't format to the same text (a half-moved `init()`); `null` for a file with syntax errors; the client's options are ignored |
 | `$/cancelRequest` | [§2](#2-architecture) |
 
-Anything else: requests answer `MethodNotFound`, notifications are ignored. Formatting arrives with `k fmt`.
+Anything else: requests answer `MethodNotFound`, notifications are ignored. Formatting is tested by
+`formatting_and_range_formatting_use_the_formatter` (`crates/k_lsp/tests/server.rs`) and `ide::format`'s
+unit tests.
 
 ## 4. Positions
 
@@ -326,5 +329,5 @@ rest of the file; an interpolation's `}` is found by balancing the braces inside
   checker reports a misuse).
 * **Generated members** other than page cases (`copy(…)`) have no definition and can't be renamed.
 * **A test suite named like its declaration** shares its display name; resolutions name the declaration.
-* Not yet: formatting (`k fmt` is deferred), semantic tokens, code lenses (`k test` per test), call
+* Not yet: semantic tokens, code lenses (`k test` per test), call
   hierarchy, `workspace/willRenameFiles`, rename of a module directory, progress reports for the first load.

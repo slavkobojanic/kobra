@@ -10120,15 +10120,15 @@ func count() -> Int {
 error[K8101]: `no-such-thing` is not a preview feature
  --> k.toml:4:23
   |
-4 | preview = ["workers", "no-such-thing", "k-fmt"]
+4 | preview = ["workers", "no-such-thing", "k-doc"]
   |                       ^^^^^^^^^^^^^^^
   |
   = note: the features in preview: `workers`
 
-error[K8101]: `k-fmt` is planned, not built: there is nothing to opt in to yet
+error[K8101]: `k-doc` is planned, not built: there is nothing to opt in to yet
  --> k.toml:4:40
   |
-4 | preview = ["workers", "no-such-thing", "k-fmt"]
+4 | preview = ["workers", "no-such-thing", "k-doc"]
   |                                        ^^^^^^^
   |
   = note: the features in preview: `workers`

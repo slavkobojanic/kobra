@@ -188,6 +188,12 @@ fn the_vscode_manifest_wires_the_language_and_the_server() {
     assert_eq!(grammar["scopeName"], "source.k");
     assert!(dir.join(grammar["path"].as_str().unwrap()).is_file());
     assert!(manifest["dependencies"]["vscode-languageclient"].is_string());
+    // `k fmt`'s layout on save, through the server's `textDocument/formatting`
+    // (docs/design/56-formatter.md, "In editors").
+    let defaults = &manifest["contributes"]["configurationDefaults"]["[k]"];
+    assert_eq!(defaults["editor.formatOnSave"], true, "{defaults}");
+    assert_eq!(defaults["editor.tabSize"], 4, "{defaults}");
+    assert_eq!(defaults["editor.insertSpaces"], true, "{defaults}");
     let main = manifest["main"].as_str().unwrap();
     let extension = fs::read_to_string(dir.join(main)).unwrap();
     assert!(extension.contains("\"lsp\""), "the extension runs `k lsp`");

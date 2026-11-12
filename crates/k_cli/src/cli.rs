@@ -22,6 +22,8 @@ pub enum Command {
     Check(CheckArgs),
     /// Apply the machine-applicable fixes of the project's diagnostics, then report what remains.
     Fix(FixArgs),
+    /// Format `.k` files canonically: the project or workspace, the files and directories named, or `-` (standard input).
+    Fmt(FmtArgs),
     /// Move the project to this toolchain (or `--to`'s): migration fixes, lockfile formats, `k` and `k.lock`.
     Upgrade(UpgradeArgs),
     /// Build the server executable and the client assets into `dist/`.
@@ -267,6 +269,22 @@ pub struct FixArgs {
     #[arg(long)]
     pub dry_run: bool,
     /// Output format for the diagnostics that remain.
+    #[arg(long, value_enum, default_value_t = Format::Human)]
+    pub format: Format,
+    /// When to use colors in human-readable output.
+    #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
+    pub color: ColorChoice,
+}
+
+/// Arguments of `k fmt`.
+#[derive(Debug, Args)]
+pub struct FmtArgs {
+    /// Files and directories to format (directories are searched for `.k` files), or `-` for standard input to standard output; the whole project or workspace by default.
+    pub paths: Vec<PathBuf>,
+    /// Write nothing: print a diff of every file that isn't formatted and exit 1 if there is one.
+    #[arg(long)]
+    pub check: bool,
+    /// Output format: the human report, or one JSON object per file per line.
     #[arg(long, value_enum, default_value_t = Format::Human)]
     pub format: Format,
     /// When to use colors in human-readable output.

@@ -88,6 +88,7 @@ component Dialog {
 
     view {
         heading(level: 2) { title }
+
         content
     }
 }
@@ -109,10 +110,13 @@ component Card {
 
     view {
         heading(level: 2) { title }
+
         content
+
         for item in items key item.id {
             row(item)
         }
+
         if let footer {
             footer
         }
@@ -441,6 +445,7 @@ component RecentProducts {
     view {
         section {
             heading(level: 2) { title }
+
             for name in recent.names key name {
                 paragraph { name }
             }
@@ -450,6 +455,7 @@ component RecentProducts {
     loading {
         section {
             heading(level: 2) { title }
+
             paragraph { "…" }
         }
     }

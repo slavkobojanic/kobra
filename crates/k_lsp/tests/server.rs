@@ -371,3 +371,107 @@ fn the_whole_workspace_is_indexed_and_implementations_cross_members() {
     );
     assert_eq!(client.shutdown(), 0);
 }
+
+/// Applies `edits` (a `TextEdit[]`, ASCII positions) to `text`.
+fn apply_edits(text: &str, edits: &Value) -> String {
+    let offset = |p: &Value| {
+        let line = usize::try_from(p["line"].as_u64().unwrap()).unwrap();
+        let character = usize::try_from(p["character"].as_u64().unwrap()).unwrap();
+        let start: usize = text.split_inclusive('\n').take(line).map(str::len).sum();
+        start + character
+    };
+    let mut edits: Vec<(usize, usize, String)> = edits
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            (
+                offset(&e["range"]["start"]),
+                offset(&e["range"]["end"]),
+                e["newText"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    edits.sort_by_key(|e| std::cmp::Reverse(e.0));
+    let mut out = text.to_owned();
+    for (start, end, new) in edits {
+        out.replace_range(start..end, &new);
+    }
+    out
+}
+
+/// `textDocument/formatting` answers the edits that make the open
+/// document canonical (`k_fmt::format`), `rangeFormatting` only those on
+/// the lines asked for, and a document with syntax errors gets no edits
+/// (docs/design/56-formatter.md, "In editors").
+#[test]
+fn formatting_and_range_formatting_use_the_formatter() {
+    let messy = "component Counter {\n  @State var count: Int=0\n  @State var step: Int=1\n\n\n  view { button { \"+\" }.on(click: { count+=step }) }\n}\n";
+    let root = temp_project(
+        "format",
+        &[("k.toml", MANIFEST), ("src/a/Counter.k", messy)],
+    );
+    let file = root.join("src/a/Counter.k");
+    let uri = url(&file);
+    let mut client = Client::spawn();
+    let init = client.request(
+        "initialize",
+        json!({ "processId": null, "rootUri": url(&root), "capabilities": {} }),
+    );
+    assert_eq!(init["capabilities"]["documentFormattingProvider"], true);
+    assert_eq!(
+        init["capabilities"]["documentRangeFormattingProvider"],
+        true
+    );
+    client.notify("initialized", json!({}));
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri, "languageId": "k", "version": 1, "text": messy } }),
+    );
+    let options = json!({ "tabSize": 2, "insertSpaces": true });
+    let edits = client.request(
+        "textDocument/formatting",
+        json!({ "textDocument": { "uri": uri }, "options": options }),
+    );
+    let formatted = apply_edits(messy, &edits);
+    assert_eq!(formatted, k_fmt::format(messy).unwrap(), "{edits}");
+    assert!(
+        formatted
+            .contains("\n    @State var count: Int = 0\n    @State var step: Int = 1\n\n    view")
+    );
+    // Only the second line.
+    let edits = client.request(
+        "textDocument/rangeFormatting",
+        json!({
+            "textDocument": { "uri": uri },
+            "range": { "start": { "line": 2, "character": 0 }, "end": { "line": 2, "character": 5 } },
+            "options": options,
+        }),
+    );
+    assert_eq!(
+        apply_edits(messy, &edits),
+        messy.replace("  @State var step: Int=1", "    @State var step: Int = 1"),
+        "{edits}"
+    );
+    // A formatted document needs no edits; a broken one gets none.
+    client.notify(
+        "textDocument/didChange",
+        json!({ "textDocument": { "uri": uri, "version": 2 }, "contentChanges": [{ "text": formatted }] }),
+    );
+    let edits = client.request(
+        "textDocument/formatting",
+        json!({ "textDocument": { "uri": uri }, "options": options }),
+    );
+    assert_eq!(edits, json!([]));
+    client.notify(
+        "textDocument/didChange",
+        json!({ "textDocument": { "uri": uri, "version": 3 }, "contentChanges": [{ "text": "component {\n" }] }),
+    );
+    let edits = client.request(
+        "textDocument/formatting",
+        json!({ "textDocument": { "uri": uri }, "options": options }),
+    );
+    assert!(edits.is_null(), "{edits}");
+    assert_eq!(client.shutdown(), 0);
+    let _ = fs::remove_dir_all(&root);
+}

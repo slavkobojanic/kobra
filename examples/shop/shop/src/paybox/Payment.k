@@ -119,8 +119,8 @@ public page Payment {
     }
 
     style {
-        .form    { display: grid; gap: .md; maxWidth: 20rem; }
-        .hint    { color: .muted; fontSize: 0.875rem; }
+        .form { display: grid; gap: .md; maxWidth: 20rem; }
+        .hint { color: .muted; fontSize: 0.875rem; }
         .problem { color: .danger; }
     }
 }

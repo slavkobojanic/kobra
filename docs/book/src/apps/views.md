@@ -577,4 +577,4 @@ view {
 ~}
 ```
 
-> **Planned** (k-fmt). `k fmt`, which applies this layout automatically, isn't in the first compiler releases.
+`k fmt` applies this layout, and so does your editor when it formats a file.

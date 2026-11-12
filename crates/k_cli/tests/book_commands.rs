@@ -35,7 +35,6 @@ const SKIPPED_PAGES: &[&str] = &["reference/design-status.md", "reference/diagno
 /// that parses once the feature is built.
 const PROBES: &[(&str, &str)] = &[
     ("k-new-library", "k new --library github.com/acme/charts"),
-    ("k-fmt", "k fmt"),
     ("k-doc", "k doc"),
     ("k-explain", "k explain K2406"),
     ("packages", "k add github.com/acme/charts@v1.0.0"),

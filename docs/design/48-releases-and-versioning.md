@@ -327,6 +327,7 @@ A release is made only from a commit on which all of these passed. The pipeline 
 | Check | Command | On pull requests | Nightly | Release |
 |---|---|---|---|---|
 | formatting and lints | `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` | yes | yes | yes |
+| K formatting | `k fmt --check examples` ([56-formatter.md](56-formatter.md#the-command)) | yes | yes | yes |
 | full test suite, which includes the book's snippets (`k_sema/tests/book.rs`), the generated references (`k_corpus/tests/book_reference.rs`) and the examples' check, build and tests | `cargo test --workspace` | Linux, macOS arm64 | every target | every target |
 | on Postgres | `K_TEST_POSTGRES_URL=… cargo test -p k_db -p k_server` | Linux | Linux | Linux |
 | real Chrome | `K_REQUIRE_CHROME=1 cargo test -p k_cli --test it -- chrome:: dist_browser::` | Linux | Linux | Linux, macOS |

@@ -82,11 +82,11 @@ public component CurrentConditionsCard {
             backgroundColor: .surfaceRaised;
         }
 
-        .title       { fontSize: .sm; color: .muted; textTransform: uppercase; }
-        .headline    { display: flex; alignItems: center; gap: .md; }
-        .icon        { width: 3rem; height: 3rem; fontSize: 3rem; lineHeight: 1; }
+        .title { fontSize: .sm; color: .muted; textTransform: uppercase; }
+        .headline { display: flex; alignItems: center; gap: .md; }
+        .icon { width: 3rem; height: 3rem; fontSize: 3rem; lineHeight: 1; }
         .temperature { fontSize: .display; fontWeight: 600; lineHeight: 1; }
-        .condition   { fontSize: .lg; }
+        .condition { fontSize: .lg; }
 
         .details {
             display: grid;

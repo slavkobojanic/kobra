@@ -28,7 +28,7 @@
 | `k build` | Ahead-of-time build of the `.production` environment into separate server and client bundles |
 | `k check` | Type checking, formatting check, tests, doc-comment checks, and lockfile breaking-change detection. Fails in CI on any problem. It has no watch mode. |
 | `k fix` | Applies the machine-applicable fixes of the current diagnostics and checks again until none is left, then reports what remains; `--code K1234` limits it to one code, `--dry-run` prints the diff ([48-releases-and-versioning.md](48-releases-and-versioning.md#upgrading-a-project)) |
-| `k fmt` | Canonical formatter, with no options ([56-formatter.md](56-formatter.md)) |
+| `k fmt` | Canonical formatter, with no options: the project or workspace, the paths named, or standard input; `--check` prints a diff and fails ([56-formatter.md](56-formatter.md#the-command)) |
 | `k test`, `k test --watch` | Runs tests. `--watch` re-runs the affected tests on every save ([21-testing.md](21-testing.md)). |
 | `k migrate new "description"` | Writes the next migration from the difference between the entities and `schema.lock` ([19-persistence.md](19-persistence.md)); `--empty`, `--drop-retired` and `--rename <name>` write the other kinds |
 | `k migrate rename <old> <new>` | Records a renamed entity or field in `schema.lock`, keeping its table or column ([19-persistence.md](19-persistence.md#renames)) |
@@ -55,7 +55,7 @@ The built executable has its own commands (`serve`, `migrate`, `config`, `probe`
 - **One canonical style, with no configuration options,** like `gofmt`. Agents and humans produce identical layouts, and diffs stay clean.
 - One blank line between sibling view nodes (see [05-views.md](05-views.md)).
 - It removes redundant spellings that have a machine-applicable fix, such as `public` on a member ([01-principles.md](01-principles.md#one-obvious-way)).
-- `k check` fails on unformatted code.
+- `k check` fails on unformatted code (not built yet: Planned `fmt-check`; CI runs `k fmt --check` beside it).
 
 ## Lockfiles
 

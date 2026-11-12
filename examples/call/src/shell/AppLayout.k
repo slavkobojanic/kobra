@@ -54,8 +54,8 @@ public layout AppLayout {
     }
 
     style {
-        .bar     { display: flex; justifyContent: spaceBetween; alignItems: center; padding: .md; }
-        .brand   { fontWeight: bold; }
+        .bar { display: flex; justifyContent: spaceBetween; alignItems: center; padding: .md; }
+        .brand { fontWeight: bold; }
         .account { display: flex; gap: .sm; alignItems: center; }
     }
 }

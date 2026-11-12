@@ -522,6 +522,20 @@ impl Server {
                 |p| (p.text_document.uri.clone(), p.range),
                 handlers::code_actions,
             ),
+            "textDocument/formatting" => self
+                .document_request::<lsp::DocumentFormattingParams, _, _>(
+                    id,
+                    params,
+                    |p| (p.text_document.uri.clone(), None),
+                    handlers::formatting,
+                ),
+            "textDocument/rangeFormatting" => self
+                .document_request::<lsp::DocumentRangeFormattingParams, _, _>(
+                    id,
+                    params,
+                    |p| (p.text_document.uri.clone(), Some(p.range)),
+                    handlers::formatting,
+                ),
             "textDocument/inlayHint" => self.document_request::<lsp::InlayHintParams, _, _>(
                 id,
                 params,
@@ -1051,6 +1065,8 @@ fn capabilities() -> lsp::ServerCapabilities {
             work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
         })),
         inlay_hint_provider: Some(lsp::OneOf::Left(true)),
+        document_formatting_provider: Some(lsp::OneOf::Left(true)),
+        document_range_formatting_provider: Some(lsp::OneOf::Left(true)),
         ..lsp::ServerCapabilities::default()
     }
 }

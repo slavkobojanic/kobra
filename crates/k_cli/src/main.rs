@@ -27,6 +27,7 @@ mod debug;
 #[cfg(feature = "server")]
 mod devenv;
 mod fix;
+mod fmt;
 mod index;
 mod migrate;
 mod new;
@@ -141,6 +142,7 @@ fn main() -> ExitCode {
         Command::New(args) => new::run(&args),
         Command::Check(args) => check::run(&args),
         Command::Fix(args) => fix::run(&args),
+        Command::Fmt(args) => fmt::run(&args),
         Command::Upgrade(args) => upgrade::run(&args),
         Command::Debug(args) => debug::run(&args),
         Command::Build(args) => build::build(&args),

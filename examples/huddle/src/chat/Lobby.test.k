@@ -73,7 +73,7 @@ test Lobby {
                         break
                     }
                 }
-                default { }
+                default {}
             }
         }
 

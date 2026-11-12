@@ -62,6 +62,7 @@ mod example_checks;
 mod examples;
 mod firefox;
 mod fix;
+mod fmt;
 mod install_script;
 mod kubernetes;
 mod lsp;

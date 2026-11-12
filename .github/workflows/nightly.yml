@@ -87,6 +87,9 @@ jobs:
           cache: book
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The K code of the examples in `k fmt`'s canonical form (a compiler-only
+      # `k`, without V8).
+      - run: cargo run -p k_cli --no-default-features --bin k -- fmt --check examples
       - run: cargo xtask docs build --version next --out target/site
       - run: "cargo test -p k_server --test it -- compat::"
 

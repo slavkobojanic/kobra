@@ -17,6 +17,8 @@ bench = false
 k_diagnostics.workspace = true
 k_syntax.workspace = true
 k_sema.workspace = true
+# `textDocument/formatting`.
+k_fmt.workspace = true
 rowan.workspace = true
 # The protocol's types only; the transport (framing, dispatch, threads,
 # cancellation) is our own (docs/compiler/lsp.md, "Dependencies").

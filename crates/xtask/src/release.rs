@@ -226,6 +226,23 @@ pub fn gate() -> Vec<Step> {
             ],
         ),
         step(
+            "the examples' K code is formatted",
+            vec![],
+            &[
+                "cargo",
+                "run",
+                "-p",
+                "k_cli",
+                "--no-default-features",
+                "--bin",
+                "k",
+                "--",
+                "fmt",
+                "--check",
+                "examples",
+            ],
+        ),
+        step(
             "the full test suite (the book's snippets, the generated references, the examples, version consistency, the fragments)",
             vec![],
             &["cargo", "test", "--workspace"],

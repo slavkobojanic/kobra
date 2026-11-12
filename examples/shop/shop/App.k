@@ -1,11 +1,11 @@
 import pages.Storefront
 import pay.Payments
+import paybox.PayboxCheckout
+import paybox.PayboxService
 import payments.LocalCheckout
 import payments.PaymentGateway
 import payments.StripeDisabled
 import payments.StripeEvents
-import paybox.PayboxCheckout
-import paybox.PayboxService
 
 /// K Shop: a small storefront with guest checkout, card payments through
 /// paybox, order confirmation emails and an admin dashboard, running as

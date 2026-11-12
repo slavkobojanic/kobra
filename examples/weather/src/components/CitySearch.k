@@ -93,7 +93,7 @@ public component CitySearch {
             gap: .sm;
         }
 
-        .hint  { color: .muted; fontSize: .sm; }
+        .hint { color: .muted; fontSize: .sm; }
         .error { color: .danger; fontSize: .sm; }
 
         .results {

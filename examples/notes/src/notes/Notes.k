@@ -161,9 +161,9 @@ public page Notes requires Authenticated at "/" {
     style {
         .toolbar { display: flex; alignItems: center; justifyContent: spaceBetween; marginBottom: .md; }
         .newNote { padding: .sm .md; borderRadius: .md; backgroundColor: .primary; color: .surface; textDecoration: none; }
-        .hint    { color: .muted; }
+        .hint { color: .muted; }
         .problem { display: flex; alignItems: center; gap: .md; marginBottom: .md; color: .danger; }
-        .notes   { display: grid; gap: .md; marginTop: .md; padding: 0; listStyle: none; }
+        .notes { display: grid; gap: .md; marginTop: .md; padding: 0; listStyle: none; }
     }
 }
 

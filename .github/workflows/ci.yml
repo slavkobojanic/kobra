@@ -34,6 +34,9 @@ jobs:
           cache: lint
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The K code of the examples in `k fmt`'s canonical form (a compiler-only
+      # `k`, without V8).
+      - run: cargo run -p k_cli --no-default-features --bin k -- fmt --check examples
 
   test-linux:
     if: vars.K_CI_ENABLED == 'true'

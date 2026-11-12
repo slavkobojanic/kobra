@@ -64,8 +64,8 @@ public layout AppLayout {
     }
 
     style {
-        .bar     { display: flex; alignItems: center; justifyContent: spaceBetween; padding: .sm .lg; borderBottom: 1px solid .border; }
-        .brand   { fontWeight: 600; color: .foreground; textDecoration: none; }
+        .bar { display: flex; alignItems: center; justifyContent: spaceBetween; padding: .sm .lg; borderBottom: 1px solid .border; }
+        .brand { fontWeight: 600; color: .foreground; textDecoration: none; }
         .account { display: flex; alignItems: center; gap: .md; }
         .content { maxWidth: 48rem; margin: 0 auto; padding: .lg; }
         .problem { margin: .sm .lg 0; color: .danger; }

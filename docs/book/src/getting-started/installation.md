@@ -77,7 +77,7 @@ diagnostic is also available as JSON (`k check --format json`), which is how age
 | Test runner | `k test`: unit, component and integration tests |
 | Migration tool | `k migrate`: generates and applies database migrations |
 | Server runtime | A JavaScript runtime (V8) embedded in the binary, used by `k dev` and by every built app |
-| Formatter | `k fmt` (**Planned** k-fmt) |
+| Formatter | `k fmt`: rewrites code into the one canonical layout, also on save in your editor |
 | Language server | `k lsp`: diagnostics, quick fixes, navigation, rename and completion in your editor |
 
 The same runtime runs your server code in development and in production, so "works on my machine"

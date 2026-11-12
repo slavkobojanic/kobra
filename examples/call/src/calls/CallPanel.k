@@ -141,7 +141,9 @@ public component CallPanel {
         if let stats = call.stats {
             list {
                 item { "Round trip: {stats.roundTripTime?.inMilliseconds ?? 0} ms" }
+
                 item { "Path: {if stats.isRelayed { "through the TURN relay" } else { "direct" }}" }
+
                 item { "Packets lost: {stats.packetsLost}" }
             }
             .label("Connection")

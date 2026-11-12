@@ -17,7 +17,7 @@ public component PasskeySignIn {
 
     // Nothing while the server renders: the challenge exists only once
     // the browser has fetched it.
-    loading { }
+    loading {}
 
     // Shown once the challenge is in hand, so the button always works.
     view {

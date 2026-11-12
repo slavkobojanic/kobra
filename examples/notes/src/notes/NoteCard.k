@@ -65,11 +65,11 @@ public component NoteCard {
             backgroundColor: .surface;
         }
 
-        .pinned  { borderColor: .highlight; }
+        .pinned { borderColor: .highlight; }
         .heading { display: flex; alignItems: baseline; justifyContent: spaceBetween; gap: .sm; }
         .excerpt { color: .muted; }
-        .tags    { display: flex; flexWrap: wrap; gap: .xs; margin: 0; padding: 0; listStyle: none; }
-        .tag     { padding: 0 .sm; borderRadius: .sm; backgroundColor: .surfaceRaised; fontSize: 0.875rem; }
-        .edited  { color: .muted; fontSize: 0.875rem; }
+        .tags { display: flex; flexWrap: wrap; gap: .xs; margin: 0; padding: 0; listStyle: none; }
+        .tag { padding: 0 .sm; borderRadius: .sm; backgroundColor: .surfaceRaised; fontSize: 0.875rem; }
+        .edited { color: .muted; fontSize: 0.875rem; }
     }
 }

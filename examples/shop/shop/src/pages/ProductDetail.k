@@ -160,8 +160,8 @@ public page ProductDetail at "/products/{slug}" {
         }
 
         .details { display: grid; gap: .md; alignContent: start; }
-        .price   { fontSize: 1.5rem; fontWeight: 600; }
-        .form    { display: grid; gap: .md; maxWidth: 20rem; }
+        .price { fontSize: 1.5rem; fontWeight: 600; }
+        .form { display: grid; gap: .md; maxWidth: 20rem; }
         .problem { color: .danger; }
         .soldOut { color: .danger; fontWeight: 600; }
     }

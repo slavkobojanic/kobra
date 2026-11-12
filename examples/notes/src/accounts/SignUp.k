@@ -75,7 +75,7 @@ public page SignUp {
     }
 
     style {
-        .form    { display: grid; gap: .md; maxWidth: 24rem; }
+        .form { display: grid; gap: .md; maxWidth: 24rem; }
         .problem { color: .danger; }
     }
 }

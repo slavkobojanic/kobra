@@ -6,7 +6,7 @@ public page Home at "/" {
     let books: List<Book> = [
         Book(id: 1, title: "The Left Hand of Darkness", author: "Ursula K. Le Guin"),
         Book(id: 2, title: "Middlemarch", author: "George Eliot"),
-        Book(id: 3, title: "The Remains of the Day", author: "Kazuo Ishiguro"),
+        Book(id: 3, title: "The Remains of the Day", author: "Kazuo Ishiguro")
     ]
 
     metadata {

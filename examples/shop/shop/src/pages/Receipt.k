@@ -101,7 +101,7 @@ public page Receipt {
     }
 
     style {
-        .status  { fontWeight: 600; }
+        .status { fontWeight: 600; }
         .problem { color: .danger; }
     }
 }

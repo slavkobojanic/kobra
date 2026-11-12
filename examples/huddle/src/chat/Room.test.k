@@ -51,7 +51,7 @@ test Room {
         for await event in channel.messages {
             match event {
                 case .snapshot(let all, _) { anas = all.first }
-                default { }
+                default {}
             }
 
             break

@@ -253,15 +253,15 @@ public page Room requires Authenticated {
     }
 
     style {
-        .banner   { padding: .sm; backgroundColor: .surfaceAlt; }
-        .author   { fontWeight: bold; }
-        .pending  { opacity: 0.7; }
-        .failed   { color: .danger; }
-        .sending  { color: .muted; }
+        .banner { padding: .sm; backgroundColor: .surfaceAlt; }
+        .author { fontWeight: bold; }
+        .pending { opacity: 0.7; }
+        .failed { color: .danger; }
+        .sending { color: .muted; }
         .composer { display: flex; gap: .sm; }
-        .present  { display: flex; gap: .sm; color: .muted; }
-        .typing   { color: .muted; }
-        .problem  { color: .danger; }
+        .present { display: flex; gap: .sm; color: .muted; }
+        .typing { color: .muted; }
+        .problem { color: .danger; }
     }
 }
 

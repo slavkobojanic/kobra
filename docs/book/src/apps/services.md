@@ -41,7 +41,6 @@ service CartApi implements CartProtocol {
 struct Receipt {
     let total: Money
 }
-
 ```
 
 ```k
@@ -154,7 +153,7 @@ public service TodoService {
 - In a client-only service, `init()` never runs during server rendering. In the browser it runs after
   hydration.
 - Only services have `init()`. Components and pages use field initializers for setup and `@Effect` for
-  side effects. The formatter will place `init()` after the fields and before the other functions (**Planned** k-fmt).
+  side effects. `k fmt` places `init()` after the fields and before the other functions.
 
 ## Scopes
 

@@ -1,7 +1,7 @@
 import k.auth.Authenticated
+import k.auth.RateLimit
 import k.crypto.Uuid
 import k.rpc.Channel
-import k.auth.RateLimit
 import k.rpc.RpcOnlyError
 import k.rtc.IceServer
 import k.rtc.Signal

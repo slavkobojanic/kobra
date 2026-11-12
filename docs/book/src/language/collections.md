@@ -67,13 +67,13 @@ func add(item: CartItem) {
 | `[:]` | an empty `Map` |
 | `Set([a, b])` | `Set` |
 
-Elements and entries may span lines, with a trailing comma:
+Elements and entries may span lines. A trailing comma is allowed, and `k fmt` removes it:
 
 ```k
 let palette: List<Color> = [
     .primary,
     .surface,
-    .muted,
+    .muted
 ]
 ```
 

@@ -54,9 +54,9 @@ public component ProductCard {
             borderRadius: .md;
         }
 
-        .name    { fontSize: 1.125rem; }
+        .name { fontSize: 1.125rem; }
         .summary { color: .muted; }
-        .price   { fontWeight: 600; }
+        .price { fontWeight: 600; }
         .soldOut { color: .danger; fontWeight: 600; }
     }
 }

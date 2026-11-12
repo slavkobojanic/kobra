@@ -45,7 +45,7 @@ test Moderation {
         while not deleted {
             match await events.next() {
                 case .deleted(_) { deleted = true }
-                default { }
+                default {}
             }
         }
         expect deleted
@@ -63,7 +63,7 @@ test Moderation {
         for await event in channel.messages {
             match event {
                 case .snapshot(let all, _) { anas = all.first }
-                default { }
+                default {}
             }
 
             break

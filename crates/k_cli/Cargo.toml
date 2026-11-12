@@ -18,6 +18,8 @@ k_diagnostics.workspace = true
 k_syntax.workspace = true
 k_sema.workspace = true
 k_codegen.workspace = true
+# `k fmt`.
+k_fmt.workspace = true
 # `k migrate status` reads `k_migrations` directly.
 k_db.workspace = true
 # `k lsp`: the language server, over the same analysis as `k check`.

@@ -8,9 +8,9 @@ every comment, and changes a program only where the language has a redundant sec
 indents, spaces and separates, but it doesn't wrap or join lines by width, apart from the few line
 breaks the rules below add or remove.
 
-The core is the `k_fmt` crate (`k_fmt::format`). The `k fmt` command, the formatting step of `k check`
-and the language server's formatting request are built on it in a later round
-(`(**Planned** k-fmt)` in the book until then).
+The core is the `k_fmt` crate (`k_fmt::format`). The `k fmt` command ([below](#the-command)) and the
+language server's formatting requests ([In editors](#in-editors)) are built on it; the formatting step
+of `k check` is not yet (`(**Planned** fmt-check)` in the book).
 
 ```k
 public component Notice {
@@ -148,6 +148,49 @@ need types to know the rewrite is right (`x` may be a `Bool?`), so they stay wit
 `case _ where …` stays, because `default` takes no guard, and so does a `case` whose `_` has a comment
 before it.
 
+## The command
+
+`k fmt [paths…]` (`crates/k_cli/src/fmt.rs`), decided while building it (2026-11-12):
+
+- **What it formats.** No path: the workspace the working directory is in (every member and library,
+  from any directory inside it, as `cargo fmt` formats a whole workspace), else the project, else the
+  working directory. A directory: every `.k` file below it, skipping hidden directories and build output
+  (`target`, `dist`, `node_modules`), crossing project boundaries, because formatting needs no project.
+  A file: that file, whatever its extension. `-`, alone: standard input to standard output.
+- **Writing.** A file is rewritten only when its text changes. `--check` writes nothing, prints a
+  unified diff (`--- path`, `+++ path`, hunks with three lines of context, as `k fix --dry-run`) of each
+  file that would change on standard output and exits 1 if there is one. The summary goes to standard
+  error: `formatted 3 of 120 files`, `120 files already formatted`, `checked 120 files: all
+  formatted` or ``3 of 120 files would be reformatted: run `k fmt` ``.
+- **Errors.** A file with syntax errors is left alone; its diagnostics are printed as `k check` prints
+  them, the other files are still formatted, and the status is 1. An internal formatter error leaves
+  the file alone and makes the status 2; a path that doesn't exist is a usage error (2) before anything
+  is written. On standard input a syntax error prints nothing on standard output, so an editor's
+  "format with a command" keeps its buffer.
+- **`--format json`** prints one object per file per line on standard output, and no diff or summary:
+  `file`, `status` (`formatted`, `reformatted`, `unformatted`, `syntax-error`, `internal-error`), and
+  `diff` (`--check`), `diagnostics` (the objects of `k check --format json`), `message` (internal
+  error) or `text` (standard input, without `--check`).
+- **The project's toolchain runs it**, as every command that works on a project
+  ([48-releases-and-versioning.md](48-releases-and-versioning.md#pinning-a-toolchain)): a newer `k` on
+  the `PATH` never reformats a project pinned to an older one.
+- **CI** runs `k fmt --check examples` in the lint jobs of `ci.yml`, `nightly.yml` and `release.yml`
+  ([release.md §9](../compiler/release.md#9-the-pipeline)); the gate row is "K formatting" in
+  [design 48](48-releases-and-versioning.md#the-gate).
+
+## In editors
+
+The language server answers `textDocument/formatting` and `textDocument/rangeFormatting`
+(`crates/k_lsp/src/ide/format.rs`). The result is `k_fmt::format`'s, sent as line edits: lines are
+aligned by their text without whitespace, so a re-indented line is an edit of its own and the cursor
+stays put elsewhere. A range keeps the edits of its lines, and none when the partially formatted text
+wouldn't format to the same result (a moved `init()` taken half). A file with syntax errors gets no
+edits (`null`), and the client's options (tab size, spaces) are ignored, because the formatter has none.
+
+The VS Code extension makes formatting on save the default for K files (`configurationDefaults` for
+`[k]`: `editor.formatOnSave`, four-space indentation, no indentation detection); Neovim and Vim format
+through their LSP clients (`vim.lsp.buf.format()`, `:LspDocumentFormat`).
+
 ## Guarantees
 
 - **Idempotent:** `format(format(x)) == format(x)`.
@@ -180,12 +223,18 @@ cases are `tests/fmt/**/name.k` with `name.formatted.k` ([testing.md §5.7](../c
 
 ## Not yet
 
-- **The `k fmt` command**, the formatting check of `k check`, and formatting in the language server
-  (`textDocument/formatting`) are the next round. Until then the book's `k-fmt` notes stay.
-- **Reformatting the repository.** The examples are already close to canonical (the differences are
-  aligned style rules, sorted imports and blank lines between view nodes). The corpus's caret annotations
-  (`//^^^ type: Int`) point at columns of the line above, so the corpus is formatted only together with
-  its annotations, if ever.
+- **The formatting check of `k check`** (Planned `fmt-check`): a diagnostic for an unformatted file,
+  with the whole file's formatting as its machine-applicable fix. Deferred from the `k fmt` round
+  (2026-11-12): it makes every inline fixture of the test suites that `k check` runs a formatting test,
+  and a driver diagnostic needs its corpus case and reference entry; until then CI runs
+  `k fmt --check` beside `k check`.
+- **The rest of the repository.** `examples/` is formatted (`k fmt --check examples` is clean, and CI
+  keeps it so), and so are the book's checked ` ```k ` blocks that are whole files: those without hidden
+  (`~`) lines, excerpts or `fails=` (a `fails=` block shows a mistake the rewrites would remove). A block
+  with hidden lines shows its visible lines dedented inside hidden context, which formatting would
+  re-indent, so those keep their author's layout. The corpus's caret annotations (`//^^^ type: Int`)
+  point at columns of the line above, so the corpus is formatted only together with its annotations, if
+  ever.
 - **Fuzz targets** for the formatter, on the pattern of `fuzz/` (the oracle module,
   `crates/k_fmt/tests/support/oracle.rs`, is written to be shared with one).
 

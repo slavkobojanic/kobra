@@ -15,6 +15,9 @@ What you get:
   `@Derived` field or `@Effect`, and a page's URL;
 - completion (names in scope, members after `.`, implicit members such as `padding: .md`, annotations after
   `@`), signature help, outline, workspace symbols and inlay hints with each page's derived URL;
+- **formatting** with `k fmt`'s formatter (Format Document, Format Selection), **on save by default**: the
+  extension sets `editor.formatOnSave`, four-space indentation and no indentation detection for K files.
+  To turn saving off, add `"[k]": { "editor.formatOnSave": false }` to your settings;
 - the **toolchain's version** in the language status item (the `{}` next to "K" in the status bar), as the
   server reports it: the `k` on `PATH` runs the project's pinned toolchain, so this is the version the
   project uses. Clicking it restarts the server.

@@ -199,7 +199,7 @@ pub(crate) fn renamed(map: &SourceMap, root: &std::path::Path) -> SourceMap {
 }
 
 /// A unified diff of one file, three lines of context around each change.
-fn unified_diff(path: &str, before: &str, after: &str) -> String {
+pub(crate) fn unified_diff(path: &str, before: &str, after: &str) -> String {
     let a: Vec<&str> = before.split_inclusive('\n').collect();
     let b: Vec<&str> = after.split_inclusive('\n').collect();
     let ops = diff_lines(&a, &b);

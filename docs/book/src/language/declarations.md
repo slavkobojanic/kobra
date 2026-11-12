@@ -114,7 +114,7 @@ public struct Order implements Codable {
 ```
 
 Writing `public` on a member is redundant. It is a warning (`K1302`) with a machine-applicable fix, which
-`k fmt` will apply (**Planned** k-fmt). See [Modules and visibility](modules.md#visibility-of-members).
+`k fmt` applies. See [Modules and visibility](modules.md#visibility-of-members).
 
 ### Value semantics
 
@@ -257,7 +257,7 @@ enum RoomEvent implements Codable {
     case posted(room: String, number: Int, edited: Bool = false)
 }
 
-let event: RoomEvent = .posted(room: "help", number: 3)    // edited: false
+let event: RoomEvent = .posted(room: "help", number: 3) // edited: false
 ```
 
 Decoding a message without the field gives the default too, so adding a field with a default to a case

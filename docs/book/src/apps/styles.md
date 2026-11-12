@@ -254,8 +254,8 @@ variants use:
 
 ```k
 public theme WeatherTheme {
-    color primary: Color = #3B82F6      // declares a new token
-    chartGrid = #E2E8F0                 // overrides the token k.charts declares
+    color primary: Color = #3B82F6 // declares a new token
+    chartGrid = #E2E8F0            // overrides the token k.charts declares
     chartAxis = #64748B
 
     variant dark {

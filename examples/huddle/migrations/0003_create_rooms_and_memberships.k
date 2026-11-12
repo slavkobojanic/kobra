@@ -30,7 +30,7 @@ migration CreateRoomsAndMemberships {
         schema.insert(into: "chat_room", rows: [
             ["id": .uuid(Uuid("8f0c1d2e-0000-4000-8000-000000000001")), "name": .text("general"), "last_number": .integer(0)],
             ["id": .uuid(Uuid("8f0c1d2e-0000-4000-8000-000000000002")), "name": .text("random"), "last_number": .integer(0)],
-            ["id": .uuid(Uuid("8f0c1d2e-0000-4000-8000-000000000003")), "name": .text("help"), "last_number": .integer(0)],
+            ["id": .uuid(Uuid("8f0c1d2e-0000-4000-8000-000000000003")), "name": .text("help"), "last_number": .integer(0)]
         ])
 
         // Numbers so far were the count plus one, so the newest is the

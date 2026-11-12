@@ -164,8 +164,8 @@ public component PrivateTextEditor {
     }
 
     style {
-        .editor  { display: grid; gap: .md; marginBottom: .md; }
-        .status  { color: .muted; }
+        .editor { display: grid; gap: .md; marginBottom: .md; }
+        .status { color: .muted; }
         .problem { color: .danger; }
     }
 }

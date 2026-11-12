@@ -15,6 +15,7 @@
 
 pub mod completion;
 pub mod fixes;
+pub mod format;
 pub mod hover;
 pub mod inlay;
 pub mod navigation;

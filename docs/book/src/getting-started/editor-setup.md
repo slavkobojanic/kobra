@@ -67,6 +67,8 @@ Open a project, the directory with `k.toml`, or any directory above it. Then:
     the right kind with their values (`.md` for `gap`, `.muted` for `color`); in a selector, the classes
     of the component; in `@media (`, the media features and their keywords.
   - In `.class(.`, `.class([.a, .`, or before `when`, the classes of the component's style block.
+- **Formatting.** Format Document and Format Selection use `k fmt`'s formatter, so the editor and
+  `k fmt` never disagree. A file with syntax errors isn't changed.
 - **Signature help** inside a call, the **outline** of a file, **workspace symbols**, and **inlay hints**
   that show each page's URL next to its name when the URL comes from the page's name.
 
@@ -80,6 +82,13 @@ cd editors/vscode
 npm install
 npx @vscode/vsce package
 code --install-extension k-language-0.1.0.vsix
+```
+
+The extension formats K files on save: it sets `editor.formatOnSave`, four-space indentation and no
+indentation detection for the `k` language. To keep saving as it is, add this to your settings:
+
+```json
+"[k]": { "editor.formatOnSave": false }
 ```
 
 npm is only needed to package the extension; K itself never uses it. The command **K: Restart Language
@@ -109,6 +118,9 @@ nvim-lspconfig on older versions. To see page URLs inline, enable inlay hints:
 vim.lsp.inlay_hint.enable(true)
 ```
 
+`vim.lsp.buf.format()` formats the buffer; to format on save, call it from a `BufWritePre` autocommand
+for `*.k`.
+
 ## Vim
 
 With [vim-lsp](https://github.com/prabirshrestha/vim-lsp) installed, add `editors/vim` to the runtime path:
@@ -118,8 +130,8 @@ Plug 'prabirshrestha/vim-lsp'
 Plug '/path/to/k/editors/vim'
 ```
 
-`:LspDefinition`, `:LspImplementation`, `:LspReferences`, `:LspRename`, `:LspHover` and `:LspCodeAction`
-then work in `.k` files.
+`:LspDefinition`, `:LspImplementation`, `:LspReferences`, `:LspRename`, `:LspHover`, `:LspCodeAction`
+and `:LspDocumentFormat` then work in `.k` files.
 
 ## Other editors
 

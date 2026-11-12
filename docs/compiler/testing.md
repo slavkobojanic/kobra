@@ -1538,8 +1538,14 @@ and properties, all in `crates/k_fmt/tests` (`cargo test -p k_fmt --test it`):
 | `golden` | every `tests/fmt/**/name.k` formats to the sibling `name.formatted.k`, which is already formatted; `K_BLESS=1` rewrites the expectations |
 | `properties::repository_files` | the oracle over every `.k` file of `tests/corpus`, `examples` and `tests/fmt` and every checked ` ```k ` block of the book |
 | `properties::generated_programs` | the oracle over `kgen` programs (§5.3), valid and noisy; `K_FMT_CASES=N` (default 1500) |
+| `properties::the_examples_are_formatted` | every `.k` file of `examples` is canonical (`k_fmt::is_formatted`), as CI's `k fmt --check examples` requires |
 | `properties::sema_diagnostics` | every `sema` corpus case reports the same `(file, code, message)` diagnostics after formatting, apart from the codes the rewrites fix (`K1302`, `K1303`, `K2303`), which may only disappear |
 | `rules` | the interface: refusal, empty files, line endings, `is_formatted`, `rewrite` alone |
+
+The command and the editor integration have their own tests: `cargo test -p k_cli --test it -- fmt::`
+(writing, `--check` and its diff, standard input, syntax errors, paths, a workspace from a member, JSON)
+and, in `k_lsp`, `server::formatting_and_range_formatting_use_the_formatter`, the unit tests of
+`ide::format` and `editors::the_vscode_manifest_wires_the_language_and_the_server` (format on save).
 
 The oracle, `crates/k_fmt/tests/support/oracle.rs`, checks one file: a file with syntax errors is refused;
 otherwise it formats, the output parses into the tree of `rewrite(x)` (whitespace aside, comments

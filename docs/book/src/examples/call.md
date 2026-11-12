@@ -37,7 +37,7 @@ the other person:
     func join(room: Uuid) async {
         problem = nil
         if devices.cameraPermission == .prompt or devices.microphonePermission == .prompt {
-            await devices.requestAccess(for: .cameraAndMicrophone)      // @UserAction: the only prompt
+            await devices.requestAccess(for: .cameraAndMicrophone) // @UserAction: the only prompt
         }
 ```
 

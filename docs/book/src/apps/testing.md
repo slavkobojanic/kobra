@@ -79,6 +79,7 @@ component AddToCart {
     view {
         button { "Add to cart" }
             .on(click: add)
+
         text { "Total: {cart.total.formatted(as: .currency)}" }
     }
 }

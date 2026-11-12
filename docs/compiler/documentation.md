@@ -163,7 +163,7 @@ placeholders, planned modules) and listed in `inline-names.txt`.
   catches `reveal()` inside an interpolation but not through a local (`language/strings.md`, a
   `k,fails=K2001` block); modifiers, `run`-only-by-the-worker, job metrics, `storage.lock` recording the
   namespace, `version` in `dist/app`'s logs and the formatter's member order are design, not built
-  (Planned `modifiers`, `job-run-check`, `observe-metrics`, `storage-lock-writing`, `app-version`, `k-fmt`).
+  (Planned `modifiers`, `job-run-check`, `observe-metrics`, `storage-lock-writing`, `app-version`, `k-fmt`; `k-fmt` has since shipped, and the order is `k fmt`'s).
   The true claims no test pins are each page's `unpinned` in `audit.toml`.
 - *Judgement:* `k dev` doesn't print errors on rebuild, it reports their count and keeps the last good
   build (`getting-started/commands.md`, `first-app.md`, `installation.md`); "static binary" (it links the

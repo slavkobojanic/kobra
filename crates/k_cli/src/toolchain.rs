@@ -178,6 +178,15 @@ fn command_project(command: &Command) -> Option<PathBuf> {
     match command {
         Command::Check(args) => args.paths.first().cloned(),
         Command::Fix(args) => args.paths.first().cloned(),
+        // The project's toolchain formats it, so a newer `k` on the `PATH`
+        // never reformats a project pinned to an older one.
+        Command::Fmt(args) => Some(
+            args.paths
+                .first()
+                .filter(|p| p.as_os_str() != "-")
+                .cloned()
+                .unwrap_or_else(|| PathBuf::from(".")),
+        ),
         Command::Build(args) => Some(args.project.clone()),
         Command::Run(args) | Command::Dev(args) => Some(args.project.clone()),
         Command::Test(args) => Some(args.project.clone()),

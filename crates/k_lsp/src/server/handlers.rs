@@ -126,6 +126,46 @@ fn locations(snap: &Snap, spans: Vec<Span>) -> Vec<lsp::Location> {
     spans.into_iter().filter_map(|s| snap.location(s)).collect()
 }
 
+/// `textDocument/formatting` (`range` is `None`) and
+/// `textDocument/rangeFormatting`: the line edits that make the document
+/// canonical ([`ide::format`]); `null` for a document with syntax errors.
+/// The client's formatting options are ignored: `k fmt` has none.
+///
+/// # Errors
+///
+/// Never: formatting needs only the document's text.
+pub fn formatting(
+    snap: &Snap,
+    file: FileId,
+    range: Option<lsp::Range>,
+) -> Result<Option<Vec<lsp::TextEdit>>, Cancelled> {
+    let Some(text) = snap.analysis.text(file) else {
+        return Ok(None);
+    };
+    let lines = range.map(|r| {
+        let last = if r.end.character == 0 && r.end.line > r.start.line {
+            r.end.line - 1
+        } else {
+            r.end.line
+        };
+        (r.start.line as usize, last as usize)
+    });
+    let Some(edits) = ide::format::format(text, lines) else {
+        return Ok(None);
+    };
+    Ok(Some(
+        edits
+            .into_iter()
+            .filter_map(|(range, new_text)| {
+                Some(lsp::TextEdit {
+                    range: snap.range(file, range)?,
+                    new_text,
+                })
+            })
+            .collect(),
+    ))
+}
+
 /// `textDocument/hover`.
 ///
 /// # Errors

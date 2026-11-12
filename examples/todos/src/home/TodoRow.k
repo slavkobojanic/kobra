@@ -150,10 +150,10 @@ component TodoRow {
             borderBottom: 1px solid .border;
         }
 
-        .done    { color: .muted; textDecoration: lineThrough; }
+        .done { color: .muted; textDecoration: lineThrough; }
         .editing { backgroundColor: .background; }
-        .edit    { marginLeft: auto; }
-        .delete  { color: .danger; }
+        .edit { marginLeft: auto; }
+        .delete { color: .danger; }
         .reminder { color: .muted; fontSize: .sm; }
 
         .editor {

@@ -72,7 +72,7 @@ public page SignIn {
     }
 
     style {
-        .form    { display: grid; gap: .md; maxWidth: 20rem; }
+        .form { display: grid; gap: .md; maxWidth: 20rem; }
         .problem { color: .danger; }
     }
 }

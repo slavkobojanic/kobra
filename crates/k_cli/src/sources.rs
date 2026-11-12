@@ -156,7 +156,7 @@ pub fn load(paths: &[PathBuf]) -> Sources {
 }
 
 /// Returns the nearest directory at or above `start` that has a `k.toml`.
-fn project_root(start: &Path) -> Option<PathBuf> {
+pub fn project_root(start: &Path) -> Option<PathBuf> {
     let absolute = fs::canonicalize(start).ok()?;
     let mut relative = start.to_path_buf();
     for dir in absolute.ancestors() {

@@ -37,8 +37,8 @@ expressions, as long as it stays on one line.
 To write a literal brace, double it: `"{{"` is one `{`. A closing `}` needs no escape:
 
 ```k
-let template = "Use {{name}} as a placeholder"     // Use {name} as a placeholder
-let broken = "{{ this is not JSON"                 // { this is not JSON
+let template = "Use {{name}} as a placeholder" // Use {name} as a placeholder
+let broken = "{{ this is not JSON"             // { this is not JSON
 ```
 
 Because `{` always starts an interpolation, a string such as `"{ this is not JSON"` doesn't mean what it

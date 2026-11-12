@@ -1,8 +1,8 @@
+import k.time.Clock
 import todo.Filter
 import todo.ReminderService
 import todo.Todo
 import todo.TodoService
-import k.time.Clock
 import ui.Panel
 
 /// The app's only page: the todo list, its filters and the dark mode switch.

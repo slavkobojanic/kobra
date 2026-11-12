@@ -60,7 +60,9 @@ component Card {
 
     view {
         heading(level: 2) { title }
+
         content
+
         for item in items key item.price {
             row(item)
         }

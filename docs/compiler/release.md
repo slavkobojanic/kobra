@@ -311,7 +311,7 @@ or if a row of design 48's gate isn't run where its columns say.
 
 | Job | Runner | Runs |
 |---|---|---|
-| `lint` | Linux x86_64 | `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` |
+| `lint` | Linux x86_64 | `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `k fmt --check examples` (a compiler-only `k`: `cargo run -p k_cli --no-default-features`) |
 | `test-linux` | Linux x86_64, with a Postgres service and Chrome | `cargo test --workspace` with `K_TEST_POSTGRES_URL` and `K_REQUIRE_CHROME=1` |
 | `test-macos` | macOS arm64 | `cargo test --workspace` |
 | `book` | Linux x86_64 | `cargo xtask docs build --version next` (the book, any mdBook warning or error fails), the link check (`book_links::`; the other freshness checks are inside `cargo test`); when `docs/book/` or `crates/xtask/` changed (`cargo xtask ci changed`), the built site uploaded as an artifact (the PR preview until the owner picks a host with previews) |
@@ -331,7 +331,7 @@ change.)*
 |---|---|---|
 | `test` | one per target ([design 48](../design/48-releases-and-versioning.md#artifacts)) | `cargo test --workspace` |
 | `services` | Linux x86_64 with Postgres | `cargo test -p k_db -p k_server` on Postgres, `chrome:: dist_browser::` with `K_REQUIRE_CHROME=1`, `install_script::` |
-| `lint-and-docs` | Linux x86_64 | formatting, lints, `cargo xtask docs build --version next`, `compat::` |
+| `lint-and-docs` | Linux x86_64 | formatting, lints, `k fmt --check examples`, `cargo xtask docs build --version next`, `compat::` |
 | `properties` | Linux x86_64 | the property suites with raised `PROPTEST_CASES` ([testing.md §2](testing.md#2-running-tests)) |
 | `fuzz` | Linux x86_64, one per target | `cargo +nightly fuzz run <target> -- -max_total_time=600`; a crash is uploaded |
 | `perf` | `K_PERF_RUNNER` | `scripts/bench-check.sh` |
@@ -347,7 +347,7 @@ name.)*
 
 1. **The gate** on the tag: `gate-test` (`cargo test --workspace` and `install_script::` on every
    target), `gate-services` (Postgres, real Chrome on Linux), `gate-chrome-macos`, `gate-checks`
-   (formatting, lints, `cargo xtask fragments --none-left`, `version::`, `cargo test -p xtask`,
+   (formatting, lints, `k fmt --check examples`, `cargo xtask fragments --none-left`, `version::`, `cargo test -p xtask`,
    `compat::`, `cargo xtask docs build --version <tag>`), `gate-properties` (a shorter run),
    `gate-fuzz` (each target over its committed corpus: `cargo +nightly fuzz run <target>
    fuzz/corpus/<target> -- -runs=0`, no new inputs), `gate-perf` (on `K_PERF_RUNNER`; skipped without

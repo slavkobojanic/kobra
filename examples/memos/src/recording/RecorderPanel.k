@@ -47,7 +47,8 @@ public component RecorderPanel {
                         "Pause"
                     }
                 }
-                    .on(click: { recorder.togglePause() })
+                .on(click: { recorder.togglePause() })
+
                 button { "Stop" }
                     .on(click: { await recorder.stop() })
             }
@@ -56,6 +57,7 @@ public component RecorderPanel {
             if recorder.microphones.count > 1 {
                 dropdown(selection: Binding(get: { recorder.chosen?.value ?? "" }, set: { id => recorder.choose(id: id) })) {
                     option(value: "") { "Default microphone" }
+
                     for device in recorder.microphones key device.id.value {
                         option(value: device.id.value) { device.label ?? "Microphone" }
                     }
