@@ -710,7 +710,7 @@ All test kinds, their commands and their file formats are documented in [testing
 ```text
 my-app/
   k.toml               name, version, dependencies, aliases, secrets, database
-  k.lock               package versions and hashes
+  k.lock               the toolchain that last built it (later also package versions and hashes)
   routes.lock schema.lock storage.lock rpc.lock
   App.k                `public app Name { ... }`
   src/
@@ -725,7 +725,7 @@ my-app/
 | Command | v0 behavior |
 |---|---|
 | `k check [paths]` | parse, check, lockfile comparison, tests in CI mode; `--format human\|json` |
-| `k build [project] [--out dir]` | check, then emit `dist/` ([codegen.md §19](codegen.md#19-output-layout-of-dist)) and update `rpc.lock`, `routes.lock` and `schema.lock`; hashed assets of earlier builds are removed from `public/assets/` |
+| `k build [project] [--out dir]` | check, then emit `dist/` ([codegen.md §19](codegen.md#19-output-layout-of-dist)) and update `rpc.lock`, `routes.lock`, `schema.lock` and `k.lock`'s `toolchain`; hashed assets of earlier builds are removed from `public/assets/` |
 | `k run [project] [--port n]` | build for development and serve in-process |
 | `k dev` | build and serve with rebuild on change (HMR deferred) |
 | `k test [project] [--filter text]… [--watch]` | run `test` declarations in one isolate over the fake DOM, ([codegen.md §21.1](codegen.md#211-the-test-bundle-k-test), [runtime.md §13](runtime.md#13-testing)); one browser and one server per test (rpcs in-process through the wire format, a fresh in-memory database, the test's one session); failures are K7510 diagnostics; `--watch` re-runs the tests a change affects (`Analysis::file_dependencies`); `K_TEST_BUNDLE_DIR` writes the bundle ([testing.md §8.4](testing.md#84-k-test-and-the-project-commands)) |
@@ -734,6 +734,12 @@ my-app/
 | `k debug tokens\|ast\|diag <file>` | hidden; print golden-file formats |
 
 Exit status: 0 success, 1 problems found, 2 usage or internal error.
+
+Before a project command runs (`k lsp` included), `k_cli`'s `toolchain` module reads the project's `k`
+requirements and `k.lock` and, when the running `k` doesn't match, runs the installed toolchain that does
+(`$K_HOME/toolchains/<version>/k`, with `K_TOOLCHAIN_DELEGATED=1`) or stops with `K8201`
+([48-releases-and-versioning.md](../design/48-releases-and-versioning.md#when-the-installed-k-doesnt-match)).
+`K_TOOLCHAIN=<version>` chooses for one command.
 
 `dist/app` is a copy of a runtime executable with the server bundle and assets appended in an archive
 trailer that it reads at startup ([server.md §12](server.md#12-packaging-distapp)); in v0 the runtime

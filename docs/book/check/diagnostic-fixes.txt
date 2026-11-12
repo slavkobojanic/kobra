@@ -279,6 +279,8 @@ K8103: Create the member's `k.toml`, or remove it from `members`.
 K8104: Move what both packages need into a library both depend on.
 K8105: Depend on a library instead; move the shared code out of the app into one.
 K8106: Rename one of the modules.
+K8107: Require in the member a version the root's `[workspace] k` allows, or remove the member's `k`.
+K8201: Install the toolchain the project needs with the `k toolchain install` command the message gives, or move the project to the running toolchain with `k upgrade`.
 K9001: Save the file as UTF-8.
 K9002: Check that the path exists and is readable.
 K9003: Run `k test` to see why the tests couldn't be built or run; the message names the cause. `--no-tests` checks without them.

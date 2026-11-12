@@ -1,0 +1,2 @@
+error[K8107] shop/k.toml:3:1-3:10: `k = "0.2"` allows no toolchain that the workspace's `k = "0.1"` allows
+  note: a workspace builds with one toolchain: require a version the root's `[workspace] k` allows, or remove `k` here

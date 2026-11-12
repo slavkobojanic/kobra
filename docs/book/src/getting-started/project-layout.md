@@ -13,7 +13,7 @@ routes.lock      page URLs and redirects (generated, committed)
 schema.lock      the database schema (generated, committed)
 storage.lock     browser storage keys and job payloads (generated, committed)
 rpc.lock         wire names, rpcs and field numbers of the protocols an app serves (generated, committed)
-k.lock           exact versions of packages (generated, committed)
+k.lock           the toolchain that last built the app (generated, committed)
 .env             local development configuration (optional, git-ignored)
 .env.example     documents what .env may contain (committed)
 .k/              the toolchain's local state: dev database, caches (git-ignored)
@@ -31,7 +31,7 @@ The manifest holds only what can't be expressed in K code:
 name = "weather"                           # the app's identity; a git package's module path prefix
 title = "Weather"                          # display name (optional)
 description = "A weather dashboard backed by the Open-Meteo APIs."
-k = "0.1"                                  # minimum toolchain version
+k = "0.1"                                  # toolchain requirement: any 0.1.x
 version = "0.1.0"                          # apps only, optional
 
 [dependencies]
@@ -54,6 +54,12 @@ charts = "github.com/acme/charts"          # a short prefix: `import charts.Line
   nothing else.
 - **`version`** is for apps only. A package can't set one: its git tag is its version. The design has
   `dist/app` report it in its logs and metrics (**Planned** app-version).
+- **`k`** is the toolchain the project needs, with Cargo's meaning: `"0.1"` accepts any 0.1.x and nothing
+  else, because before 1.0 a new minor may break a project; `"1.4"` would accept any later 1.x;
+  `"=0.1.2"` accepts exactly that version. In a [workspace](../apps/workspaces.md) the root's
+  `[workspace] k` sets it for every member; a member may repeat it, or narrow it, but not contradict it
+  (`K8107`). See [Toolchains](../reference/cli.md#toolchains) for what happens when the installed `k`
+  doesn't match.
 
 What you won't find in `k.toml` is as important as what you will:
 

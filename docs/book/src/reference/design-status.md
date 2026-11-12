@@ -40,10 +40,11 @@ with a Planned note naming the feature's id, and this table is generated from th
 | `k.graphics`: Canvas 2D and SVG drawing | `k-graphics` | [Standard library overview](stdlib.md#modules) |
 | The binary Protobuf encoding, `k proto export` and `import proto` | `protobuf` | [Protocols and RPC](../apps/protocols.md#status-codes), [Keywords](keywords.md#contextual-keywords), [The k command](cli.md#protobuf) |
 | A protocol version bump on a deliberate break (`CartProtocol.v2`) | `protocol-versions` | [Protocols and RPC](../apps/protocols.md#field-numbers-and-rpclock) |
-| Git packages, `k add`, `k remove` and `k.lock` | `packages` | [Packages](../apps/packages.md#how-packages-work), [The k command](cli.md#packages), [Project files and lockfiles](project-files.md#ktoml) |
+| Git packages, `k add`, `k remove` and their entries in `k.lock` | `packages` | [Packages](../apps/packages.md#how-packages-work), [The k command](cli.md#packages), [Project files and lockfiles](project-files.md#ktoml) |
 | One connection for identical streams opened in several tabs | `stream-tab-sharing` | [Server streaming](../apps/streaming.md#one-connection-per-stream-shared-across-tabs) |
 | Binding a workspace member's own implementation in-process in `.test` | `in-process-services` | [Workspaces and services](../apps/workspaces.md#tooling) |
 | Streaming rpcs between services | `service-streaming` | [Workspaces and services](../apps/workspaces.md#tooling) |
+| `k toolchain` (install, list, remove, default), `k self update` and `k upgrade` | `toolchain-commands` | [The k command](cli.md#toolchains) |
 | A published toolchain container image | `toolchain-image` | [Deployment](../apps/deployment.md#containers) |
 | Typed npm interop, with bindings from `.d.ts` files | `npm-interop` | [JavaScript interop](../language/js-interop.md#what-isnt-available) |
 <!-- /gen -->

@@ -983,6 +983,12 @@ codes! {
     /// Two packages of one build declare the same module.
     DUPLICATE_MODULE = 8106, "duplicate-module", Error,
         "Two packages of one build declare the same module.";
+    /// A workspace member's `k` requirement allows no toolchain the root's `[workspace] k` allows.
+    CONFLICTING_TOOLCHAIN = 8107, "conflicting-toolchain", Error,
+        "A member's `k` allows no toolchain that the workspace's `[workspace] k` allows; a workspace builds with one toolchain.";
+    /// The running toolchain doesn't match the project's requirement or `k.lock`, and no installed one does.
+    TOOLCHAIN_MISMATCH = 8201, "toolchain-mismatch", Error,
+        "The project needs another toolchain than the running one, and it isn't installed.";
 
     // --------------------------------------------------------------- driver
     /// A source file that is not valid UTF-8.

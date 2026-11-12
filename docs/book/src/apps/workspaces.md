@@ -25,7 +25,12 @@ The root `k.toml` lists the member projects. It is not a package itself, so it h
 # stack/k.toml
 [workspace]
 members = ["pay-contracts", "paybox", "shop"]
+k = "0.1"
 ```
+
+A workspace builds with one toolchain: `k` is the requirement for every member, which then needn't repeat
+it (a member's own `k` may narrow it but not contradict it, `K8107`), and `k build` records the exact
+toolchain in the root's `k.lock` ([Toolchains](../reference/cli.md#toolchains)).
 
 Each member is an ordinary project with its own `k.toml`. A member depends on a library of the same
 workspace by the library's `[package] name`:

@@ -10092,6 +10092,18 @@ error[K8010]: the key name `notes-vault` changed incompatibly with storage.lock;
 
 **Fix:** Rename one of the modules.
 
+### K8107 `conflicting-toolchain`
+
+**Error.** A member's `k` allows no toolchain that the workspace's `[workspace] k` allows; a workspace builds with one toolchain.
+
+**Fix:** Require in the member a version the root's `[workspace] k` allows, or remove the member's `k`.
+
+### K8201 `toolchain-mismatch`
+
+**Error.** The project needs another toolchain than the running one, and it isn't installed.
+
+**Fix:** Install the toolchain the project needs with the `k toolchain install` command the message gives, or move the project to the running toolchain with `k upgrade`.
+
 ## K9000–K9999: Driver, I/O and internal errors
 
 ### K9001 `invalid-utf8`

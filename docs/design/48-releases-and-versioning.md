@@ -109,13 +109,27 @@ Toolchains live in `~/.k/toolchains/<version>/` and the `k` on the `PATH` is the
 
 1. **The running `k` satisfies the requirement and equals the locked version:** it runs.
 2. **Otherwise, an installed toolchain is the locked version** (or, without a lock, the newest installed one that satisfies the requirement): the running `k` executes it with the same arguments, environment and standard streams. It sets `K_TOOLCHAIN_DELEGATED=1`, and a delegated `k` never delegates again.
-3. **Otherwise it stops** (exit 2) with one diagnostic (a proposed `K82xx`): *"this project needs k 0.5 (k.lock: 0.5.2); this is k 0.6.1"*, with the commands that resolve it: `k toolchain install` (what the project needs) or `k upgrade` (move the project to this toolchain). It is a diagnostic like any other, so `--format json` gives agents the exact command.
+3. **Otherwise it stops** (exit 2) with one diagnostic (`K8201 toolchain-mismatch`): *"this project needs k 0.5 (k.lock: 0.5.2); this is k 0.6.1"*, with the commands that resolve it: `k toolchain install` (what the project needs) or `k upgrade` (move the project to this toolchain). It is a diagnostic like any other, so `--format json` gives agents the exact command.
 4. **A satisfying `k` that differs from the lock only in patch** runs, and `k build` updates the lock's `toolchain`. Patches never break, so refusing would only cost time; the lock diff still shows the change.
 
 - **`K_TOOLCHAIN=0.5.2` overrides** the choice for one command, for bisecting and for trying a release candidate (`K_TOOLCHAIN=0.6.0-rc.1 k check`).
 - **No implicit downloads.** Go downloads a missing toolchain automatically; K doesn't: a command such as `k check` on a fresh checkout must not reach the network, CI should say what it installs, and an offline machine should fail with a clear message rather than a timeout. The fix is one command, and `k toolchain install` without arguments installs exactly what `k.lock` names.
 - **The language server follows the same rule,** so an editor uses the project's own compiler and the editor never disagrees with that project's CI. The VS Code extension needs no version logic of its own (below).
 - Delegation exists from the release that introduces it; an older default `k` can't delegate to a newer toolchain, so the install script always installs the newest stable as the default.
+
+#### Decided while implementing (2026-11-12)
+
+Built in `k_sema::workspace` (requirements) and `k_cli`'s `toolchain` module (the choice); [release.md §12](../compiler/release.md#12-implementation-plan) steps 2 and 3.
+
+- **Requirement syntax:** one to three numbers (`0`, `0.5`, `0.5.2`), optionally after `=`. No ranges, wildcards, `^` or `~`; anything else is `K8101`. A pre-release is written only exactly (`=0.6.0-rc.1`), and **a pre-release satisfies a caret requirement when its release does**, so `0.7.0-nightly.20261109` and `0.7.0-rc.1` satisfy `0.7` and nothing else, and `K_TOOLCHAIN=0.6.0-rc.1` works on a project requiring `0.6`.
+- **A member may omit `k`** when the root has `[workspace] k`; without one, each member needs its own. A member's requirement may narrow the root's (`0.5.2` under `0.5`); one that shares no version with it is `K8107 conflicting-toolchain`. The toolchain must satisfy the root's and every member's requirement.
+- **Without a lock, delegation chooses the newest installed *release*** that satisfies the requirements; a pre-release is used only when the lock or `K_TOOLCHAIN` names it.
+- **A lock the requirements no longer allow is stale** (someone raised `k` by hand): it is ignored, as if there were none, and the next `k build` rewrites it.
+- **`K_TOOLCHAIN` wins over the requirement and the lock** and applies to every command, inside a project or not, `k --version` included, so bisecting needs nothing else. Naming the running version runs it; a value that isn't a version is a usage error (exit 2); an uninstalled one is `K8201` naming its install command.
+- **Toolchains live in `$K_HOME/toolchains/<version>/k`,** with `K_HOME` defaulting to `~/.k`; the executable keeps the running one's file name. Tests point `K_HOME` at a directory of fakes.
+- **Delegation replaces the process on Unix** (`exec`), so signals, the exit status and an editor's pipes to `k lsp` reach the chosen toolchain unchanged; elsewhere the running `k` waits for it and returns its status.
+- **`K8201` points at `k.lock`'s `toolchain` line** when the lock chose the version, else at the first requirement's line. Its help names `k toolchain install <locked version>` (plain `k toolchain install` without a lock) and `k upgrade`; a note lists what is installed. An unreadable `k.lock` stops the command with `K8002`.
+- **`k build` writes `k.lock`** in an app's directory or at the workspace root, never in a member or a library, and only when the running toolchain satisfies the requirements (so a `K_TOOLCHAIN` experiment doesn't rewrite the pin). `k check` never writes it, and `k new` writes none: the first build does. The lock keeps everything else it holds (packages, later), replacing only its `toolchain` line.
 
 ### Commands
 
@@ -291,7 +305,7 @@ Each needs the project owner's sign-off before anything is published. The owner 
 | **Extension marketplaces** | VS Code Marketplace (an Azure DevOps publisher); Open VSX (an Eclipse account) for VSCodium and others; `.vsix` on the release only | both marketplaces once the name is settled; the `.vsix` until then | **Decided (2026-11-09):** the `.vsix` attached to each release; the marketplaces wait for the name |
 | **Package managers** | an own Homebrew tap, then homebrew-core; winget; Scoop; AUR; Nix; crates.io | an own Homebrew tap first; the rest on demand | **Decided (2026-11-09):** an own Homebrew tap first |
 | **Performance runner** | a self-hosted machine; a dedicated cloud instance; a maintainer's machine, by hand | a self-hosted runner | open |
-| **First public release and the train's start** | `0.1.0` now; after the quick start, the tutorial and toolchain pinning exist; after packages and `k fmt` | after rounds 1–4 of the [combined plan](49-documentation.md#implementation-plan) and a local `0.1.0-rc.1` dry run: a newcomer's first visit then has a quick start that works and a project they can pin | open |
+| **First public release and the train's start** | `0.1.0` now; after the quick start, the tutorial and toolchain pinning exist; after packages and `k fmt` | after rounds 1–4 of the [combined plan](49-documentation.md#implementation-plan) and a local `0.1.0-rc.1` dry run: a newcomer's first visit then has a quick start that works and a project they can pin | **Decided (2026-11-12):** `0.1.0` is the built toolchain and examples, plus every step of [release.md §12](../compiler/release.md#12-implementation-plan) (steps 1–15, the `0.1.0-rc.1` dry run included), plus `k fmt`. Packages, Protobuf, HMR, WebKit and the other Planned features come after 0.1. Nothing is published, no account is used and no tag is pushed until the name and the other open rows are settled |
 | **Publishing the internals** (`docs/design`, `docs/compiler`) | a second small mdBook; the code host's markdown rendering; not at all | the code host's rendering; revisit after 1.0 | open |
 
 ## Why

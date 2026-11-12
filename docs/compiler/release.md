@@ -5,8 +5,9 @@ The maintainer runbook: how a version of K is cut, checked, published and fixed.
 [docs/design/48-releases-and-versioning.md](../design/48-releases-and-versioning.md); this file is the
 procedure.
 
-> **Status.** None of this is built yet. There are no tags, no CI configuration and no published
-> artifacts, and the workspace version is `0.1.0`. Sections marked *(planned)* describe files and
+> **Status.** There are no tags, no CI configuration and no published artifacts, and the workspace
+> version is `0.1.0`. Steps 1–3 of the [implementation plan](#12-implementation-plan) are built: version
+> consistency, the toolchain requirement and `k.lock`'s toolchain with delegation. Sections marked *(planned)* describe files and
 > commands that the [implementation plan](#12-implementation-plan) adds. Publishing anything needs the
 > owner decisions of [design 48](../design/48-releases-and-versioning.md#owner-decisions); every step up
 > to publishing can be run locally.
@@ -56,7 +57,8 @@ Contents:
 | `scripts/install.sh`, `scripts/install.ps1` | installers, served from the docs site | planned |
 | `tests/compat/locks/`, `tests/compat/wire/` | golden lockfiles per format and recorded traffic per minor | planned |
 | `crates/k_cli/tests/version.rs` | every version string agrees; `k --version` format | exists (the commit and date in `--version` come with step 1's `build.rs`, in round 3) |
-| `crates/k_cli/tests/toolchain.rs` | requirement, delegation, `k toolchain`, against a local fake index | planned |
+| `k.lock` (`toolchain = "…"`) in every example app and workspace root | the toolchain that last built it; `version.rs` checks it names the version | exists |
+| `crates/k_cli/tests/toolchain.rs` | requirement, delegation, `K_TOOLCHAIN`, `k.lock` updates against fake installed toolchains; `k toolchain` against a local fake index with step 4 | exists (step 4's tests to come) |
 | `docs/book/src/apps/upgrading.md`, `reference/changelog.md` | the upgrade guide (procedure, then one generated section per minor, cumulative) and the changelog page ([design 49](../design/49-documentation.md)) | planned |
 | `docs/book/check/audit.toml` | the page-audit ledger ([documentation.md §5](documentation.md#5-the-page-audit)) | planned |
 | `docs/book/check/released-pages.txt` | every page path of the last release, for the redirect test | planned |
@@ -375,11 +377,30 @@ in round 5.
    with `[workspace] k` is an error; a malformed requirement is `K8101`. Then: a small semver requirement
    parser in `k_sema::workspace` (no new crate) and the diagnostic for a running toolchain that doesn't
    match.
+   *As built (2026-11-12):* `k_sema::workspace::{Version, Requirement}` (`workspace/requirement.rs`),
+   tested in `k_sema/tests/workspaces.rs` (`requirements::`). A requirement is one to three numbers with
+   an optional `=`; a pre-release is written only exactly (`=0.6.0-rc.1`) and satisfies a caret
+   requirement when its release does. `Workspace::requirements()` lists the root's `[workspace] k` and
+   every member's `[package] k`; a member may omit `k` when the root has one, and one that intersects
+   nothing the root allows is the new `K8107 conflicting-toolchain`. The mismatch diagnostic is
+   `K8201 toolchain-mismatch`, reported by the driver (step 3), not by the analysis. Corpus case:
+   `tests/corpus/sema/workspaces/conflicting-toolchain/`.
 3. **`k.lock` toolchain, delegation and `K_TOOLCHAIN`.** Tests with a fake `~/.k/toolchains/` (a
    directory of scripts that print their arguments): delegation runs the locked version with identical
    arguments and streams; `K_TOOLCHAIN_DELEGATED` stops recursion; a missing toolchain exits 2 with the
    install command in human and JSON output; a patch difference runs and `k build` updates the lock;
    `k lsp` delegates too. Then the implementation in `k_cli`.
+   *As built (2026-11-12):* `crates/k_cli/src/toolchain.rs`, run in `main` before and after argument
+   parsing; tests in `crates/k_cli/tests/toolchain.rs`. Toolchains are `$K_HOME/toolchains/<version>/k`
+   (`K_HOME` defaults to `~/.k`, so tests need no fake home directory); on Unix the running `k` replaces
+   itself with the chosen one (`exec`), elsewhere it waits for it and returns its status. Decisions made
+   while building, recorded in design 48: `K_TOOLCHAIN` applies to every command (`--version`
+   included) and wins over the requirement; without a lock only releases are chosen, never a
+   pre-release; a lock the requirement no longer allows is ignored; an unreadable `k.lock` stops the
+   command with `K8002`; `k build` writes `k.lock` in an app or at the workspace root (never in a
+   member or a library), only when the running toolchain satisfies the requirement. `k new` still
+   writes no lock: the first `k build` does. Every example app and workspace root now commits its
+   `k.lock`, and the shop and stack roots set `[workspace] k`.
 4. **`k toolchain` and `k self update`.** Tests against an index and archives served by the existing
    `crates/k_cli/tests/support/static_host.rs`: install verifies the digest and refuses a mismatch,
    installs atomically (an interrupted install leaves nothing), skips yanked versions unless named,

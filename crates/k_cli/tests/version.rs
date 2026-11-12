@@ -6,6 +6,8 @@
 //! * `<tool> --version` prints `<tool> <version>`.
 //! * The VS Code extension's `package.json` has the same version.
 //! * Every example's `k.toml` requires the current minor (`k = "0.1"`).
+//! * Every example app and workspace root has a `k.lock` recording the
+//!   version (`toolchain = "0.1.0"`), and no workspace member has one.
 //! * Every toolchain image tag (`<registry>/<org>/<tool>:<version>`) in the
 //!   examples, the deployment design and the book names the version.
 //! * In the book, a toolchain requirement in a `toml` block and a version
@@ -182,6 +184,45 @@ fn examples_require_the_current_minor() {
             }
         }
     }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+#[test]
+fn example_locks_record_the_current_version() {
+    let mut manifests = Vec::new();
+    files(
+        &repo().join("examples"),
+        &|p| p.file_name().is_some_and(|n| n == "k.toml"),
+        &mut manifests,
+    );
+    let is_workspace = |dir: &Path| {
+        fs::read_to_string(dir.join("k.toml"))
+            .is_ok_and(|t| t.lines().any(|l| l.trim() == "[workspace]"))
+    };
+    let mut problems = Vec::new();
+    let mut seen = 0;
+    for manifest in &manifests {
+        let dir = manifest.parent().unwrap();
+        let member = dir.parent().is_some_and(is_workspace);
+        let pinned = is_workspace(dir) || (!member && dir.join("App.k").is_file());
+        let lock = dir.join("k.lock");
+        match (pinned, fs::read_to_string(&lock)) {
+            (true, Ok(text)) => {
+                seen += 1;
+                let expected = format!("toolchain = \"{}\"", version());
+                if !text.lines().any(|l| l.trim() == expected) {
+                    problems.push(format!("{}: expected `{expected}`", shown(&lock)));
+                }
+            }
+            (true, Err(_)) => problems.push(format!("{} is missing", shown(&lock))),
+            (false, Ok(_)) => problems.push(format!(
+                "{}: only apps and workspace roots record a toolchain",
+                shown(&lock)
+            )),
+            (false, Err(_)) => {}
+        }
+    }
+    assert!(seen > 0, "no example locks found");
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 

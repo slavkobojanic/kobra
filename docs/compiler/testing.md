@@ -1750,6 +1750,8 @@ shop back. On a copy of `examples/shop`, run as its README says (each member's `
 and an order placed and paid through the shop is marked paid by paybox's event, with the run's one
 development secret on both sides.
 
+`crates/k_cli/tests/toolchain.rs` covers **toolchain pinning** ([48-releases-and-versioning.md](../design/48-releases-and-versioning.md#pinning-a-toolchain)) with `K_HOME` pointing at a temporary directory of fake toolchains, `toolchains/99.*/k`, shell scripts that print their version, arguments, working directory, `K_TOOLCHAIN_DELEGATED` and standard input, then exit 7 (Unix only; the tests that need no fake run everywhere). It checks that the locked toolchain runs with identical arguments and streams and its exit status; that without a lock the newest satisfying release is chosen (never a pre-release); that a stale lock yields to the requirement; that `K_TOOLCHAIN_DELEGATED` stops recursion; that a workspace member uses the root's lock; that a missing toolchain exits 2 with `K8201` and its install command, as text and as JSON; that a patch difference runs and `k build` (never `k check`) records it, at the workspace root for a member; that `k lsp` delegates; `K_TOOLCHAIN` in and outside a project; and `K8002` for an unreadable `k.lock`. The fake versions are `99.*`, so the tests don't change when the toolchain's version does. Requirement parsing and matching are in `crates/k_sema/tests/workspaces.rs` (`requirements::`).
+
 `crates/k_cli/tests/deploy.rs` checks **the deployment files** of `examples/shop` without Docker or a
 cluster. It builds the workspace in a copy (whose `rpc.lock` files must equal the committed ones), reads
 each app's variables from `dist/<app>/app config`, and parses `docker-compose.yml` (merge keys applied)

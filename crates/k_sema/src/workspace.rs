@@ -50,6 +50,10 @@ use crate::lookup::Cancelled;
 use crate::project::{FileKind, ProjectPath};
 use crate::stdlib::Stdlib;
 
+mod requirement;
+
+pub use requirement::{Requirement, TOOLCHAIN_LOCK, Version, lock_toolchain, with_lock_toolchain};
+
 /// The manifest file name.
 pub const MANIFEST: &str = "k.toml";
 
@@ -69,6 +73,23 @@ pub struct Manifest {
     /// `[dev]`: what `k dev` and `k run` add to the development
     /// environment (`docs/design/24-projects.md`, "Development settings").
     pub dev: DevSettings,
+    /// `[package] k` or `[workspace] k`, the toolchain requirement, with
+    /// the range of its line, when it is a valid one.
+    pub k: Option<(Requirement, TextRange)>,
+    /// `true` when the manifest has a `k` key, valid or not.
+    pub has_k: bool,
+}
+
+/// A toolchain requirement of a workspace's manifests
+/// ([`Workspace::requirements`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolchainRequirement {
+    /// The manifest's path relative to the workspace root.
+    pub path: String,
+    /// The range of its `k` line.
+    pub range: TextRange,
+    /// The requirement.
+    pub requirement: Requirement,
 }
 
 /// The `[dev]` section of a package's `k.toml`: development-only values,
@@ -216,6 +237,14 @@ pub fn parse_manifest(
                 },
             },
         }
+        if let Some(k) = ws.as_table().and_then(|t| t.get("k")) {
+            out.has_k = true;
+            let range = key_line(text, "workspace", "k");
+            match k.as_str().and_then(Requirement::parse) {
+                Some(req) => out.k = Some((req, range)),
+                None => problem(&mut problems, range, requirement_message("workspace")),
+            }
+        }
         if table.contains_key("package") {
             problem(
                 &mut problems,
@@ -242,12 +271,24 @@ pub fn parse_manifest(
                         "`[package] name` must be a non-empty string".to_owned(),
                     ),
                 }
-                if !matches!(package.get("k"), Some(toml::Value::String(_))) {
-                    problem(
+                match package.get("k") {
+                    // A member may leave it to `[workspace] k`, which
+                    // `Workspace::from_files` checks.
+                    None if in_workspace => {}
+                    None => problem(
                         &mut problems,
                         key_or_section(text, "package", "k"),
-                        "`[package] k`, the minimum toolchain version, must be a string such as \"0.1\"".to_owned(),
-                    );
+                        "`[package] k`, the toolchain requirement, must be a string such as \"0.1\""
+                            .to_owned(),
+                    ),
+                    Some(k) => {
+                        out.has_k = true;
+                        let range = key_line(text, "package", "k");
+                        match k.as_str().and_then(Requirement::parse) {
+                            Some(req) => out.k = Some((req, range)),
+                            None => problem(&mut problems, range, requirement_message("package")),
+                        }
+                    }
                 }
             }
         }
@@ -306,6 +347,13 @@ pub fn parse_manifest(
         }
     }
     (out, problems)
+}
+
+/// The `K8101` message for a `k` in `[section]` that isn't a requirement.
+fn requirement_message(section: &str) -> String {
+    format!(
+        "`[{section}] k` must be a toolchain requirement such as \"0.1\" (any 0.1.x) or \"=0.1.2\" (exactly that version)"
+    )
 }
 
 /// Reads the `[dev]` table into `out`, returning its problems.
@@ -526,6 +574,9 @@ pub struct Workspace {
     /// Files that belong to no member (the root's own `k.toml` included),
     /// by path relative to the root.
     pub loose: Vec<(String, String)>,
+    /// The valid toolchain requirements of the manifests: the root's
+    /// `[workspace] k` first, then each member's `[package] k`.
+    requirements: Vec<ToolchainRequirement>,
 }
 
 impl Workspace {
@@ -685,6 +736,67 @@ impl Workspace {
                 }
             };
             manifests.push(manifest);
+        }
+        // One toolchain: every member's requirement must allow a version
+        // the root's does, and a member without one relies on the root's.
+        let root_k = root
+            .as_ref()
+            .filter(|_| is_workspace)
+            .map(|(m, _)| (m.k.clone(), m.has_k));
+        if let Some((Some((req, range)), _)) = &root_k {
+            ws.requirements.push(ToolchainRequirement {
+                path: MANIFEST.to_owned(),
+                range: *range,
+                requirement: req.clone(),
+            });
+        }
+        for (i, manifest) in manifests.iter().enumerate() {
+            let path = join(&dirs[i].0, MANIFEST);
+            let present = owned[i].iter().any(|(p, _)| p.as_str() == MANIFEST);
+            if let Some((req, range)) = &manifest.k {
+                if let Some((Some((root_req, _)), _)) = &root_k
+                    && !req.intersects(root_req)
+                {
+                    ws.problems.push(Problem {
+                        path: path.clone(),
+                        code: codes::CONFLICTING_TOOLCHAIN,
+                        range: *range,
+                        message: format!(
+                            "`k = \"{req}\"` allows no toolchain that the workspace's `k = \"{root_req}\"` allows"
+                        ),
+                        notes: vec![
+                            "a workspace builds with one toolchain: require a version the root's `[workspace] k` allows, or remove `k` here".to_owned(),
+                        ],
+                    });
+                }
+                ws.requirements.push(ToolchainRequirement {
+                    path: path.clone(),
+                    range: *range,
+                    requirement: req.clone(),
+                });
+            } else if is_workspace
+                && present
+                && !manifest.has_k
+                && !manifest.is_workspace
+                && root_k.as_ref().is_some_and(|(_, has)| !has)
+            {
+                let text = owned[i]
+                    .iter()
+                    .find(|(p, _)| p.as_str() == MANIFEST)
+                    .map_or("", |(_, t)| t.as_str());
+                ws.problems.push(Problem {
+                    path: path.clone(),
+                    code: codes::INVALID_MANIFEST,
+                    range: key_or_section(text, "package", "k"),
+                    message:
+                        "`[package] k`, the toolchain requirement, must be a string such as \"0.1\""
+                            .to_owned(),
+                    notes: vec![
+                        "or give the whole workspace one requirement in the root's `[workspace] k`"
+                            .to_owned(),
+                    ],
+                });
+            }
         }
         let mut members: Vec<Member> = dirs
             .iter()
@@ -881,6 +993,16 @@ impl Workspace {
         });
         ws.problems.dedup();
         ws
+    }
+
+    /// The valid toolchain requirements of the workspace's manifests: the
+    /// root's `[workspace] k` first, then each member's `[package] k`, in
+    /// member order. The toolchain that builds the workspace must satisfy
+    /// every one (`docs/design/48-releases-and-versioning.md`, "The
+    /// requirement and the lock").
+    #[must_use]
+    pub fn requirements(&self) -> &[ToolchainRequirement] {
+        &self.requirements
     }
 
     /// Returns the index of the member whose directory is `dir`.

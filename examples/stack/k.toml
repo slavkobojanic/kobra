@@ -6,3 +6,5 @@
 
 [workspace]
 members = ["pay-contracts", "paybox", "shop"]
+# The toolchain every member builds with; k.lock records the exact one.
+k = "0.1"

@@ -31,6 +31,7 @@ mod project;
 mod routes;
 mod sources;
 mod test;
+mod toolchain;
 mod workspace;
 
 use std::process::ExitCode;
@@ -122,7 +123,15 @@ fn main() -> ExitCode {
     if let Some(code) = app_mode::run_if_app() {
         return code;
     }
+    // The project's own toolchain runs the command
+    // (docs/design/48-releases-and-versioning.md, "Pinning a toolchain").
+    if let Some(code) = toolchain::before_parse() {
+        return code;
+    }
     let cli = Cli::parse();
+    if let Some(code) = toolchain::before_command(&cli) {
+        return code;
+    }
     match cli.command {
         Command::New(args) => new::run(&args),
         Command::Check(args) => check::run(&args),

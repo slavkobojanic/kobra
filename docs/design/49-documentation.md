@@ -490,7 +490,7 @@ Downloads are several megabytes of wasm, loaded only on playground pages. Learn 
 ### Round 3: release machinery, local
 
 1. Changelog fragments and the `xtask` crate (release.md step 9), with the `book:` field and `cargo xtask docs-gate` tested on fixture diffs. From here every pull request adds a fragment.
-2. `k --version` with commit and date; the toolchain requirement, the `k.lock` pin, delegation and `K_TOOLCHAIN` (release.md steps 1–3).
+2. `k --version` with commit and date; the toolchain requirement, the `k.lock` pin, delegation and `K_TOOLCHAIN` (release.md steps 1–3). Steps 2 and 3 built 2026-11-12 (`K8107`, `K8201`; see release.md's as-built notes).
 3. Lockfile `format` keys with `tests/compat/locks/` (step 5), and the 0.1 wire fixtures (step 10).
 4. `k fix` (step 6); `@Deprecated`, `@Preview`, `@Internal`, the `preview` rows of the feature table, dependency warnings capped, and the badges in the stdlib reference (step 7).
 

@@ -46,7 +46,7 @@ API from a local fake. A built `dist/app` never reads it.
 
 | Command | Purpose |
 |---|---|
-| `k build` | build the `.production` environment into `dist/` (`--out <dir>` to change), and update `rpc.lock`, `routes.lock` and `schema.lock` |
+| `k build` | build the `.production` environment into `dist/` (`--out <dir>` to change), and update `rpc.lock`, `routes.lock`, `schema.lock` and `k.lock`'s `toolchain` |
 
 The client `k build` writes is ready to ship as it is. Each app gets only the part of the runtime its
 pages use; every JavaScript file is minified, with a source map next to it (`app.3f2a1b9c.js.map`) that
@@ -89,6 +89,36 @@ default, a changed type, a new enum case of a stored field, a removed entity) an
 |---|---|
 | `k add <module path>@<tag>` | add a git-based package (**Planned** packages) |
 | `k remove <module path>` | remove a package (**Planned** packages) |
+
+## Toolchains
+
+A project names the toolchain it needs in `k.toml` (`k = "0.1"`, see
+[Project files](project-files.md#ktoml)), and `k.lock` records the exact one that last built it. Every
+command that works on a project, `k lsp` included, reads both first:
+
+1. **The running `k` matches** (it satisfies the requirement and is the locked version, or there is no
+   lock): it runs the command.
+2. **Otherwise an installed toolchain does** (the locked version, or without a lock the newest installed
+   release that satisfies the requirement): the running `k` runs it in its place, with the same
+   arguments, environment, working directory and standard streams.
+3. **Otherwise, a `k` that satisfies the requirement and differs from the lock only in its patch** runs
+   the command, and `k build` records it in `k.lock`.
+4. **Otherwise it stops** with exit status `2` and `K8201`, which names the command that installs what
+   the project needs (as JSON too, with `k check --format json`). Nothing is ever downloaded on its own.
+
+A lock that the requirement no longer allows (the requirement was raised by hand) is ignored.
+
+| Variable | Effect |
+|---|---|
+| `K_TOOLCHAIN=<version>` | run this one command with that installed toolchain, whatever the project asks for, project or not: for bisecting, or for trying a release candidate (`K_TOOLCHAIN=0.2.0-rc.1 k check`) |
+| `K_HOME` | where toolchains are installed: `$K_HOME/toolchains/<version>/k`; `~/.k` by default |
+| `K_TOOLCHAIN_DELEGATED` | set by a `k` for the toolchain it runs in its place; a `k` started with it never passes the command on again |
+
+| Command | Purpose |
+|---|---|
+| `k toolchain install [version]` | install a toolchain: by default the one `k.lock` names, else the newest the requirement allows (**Planned** toolchain-commands) |
+| `k toolchain list`, `remove`, `default` | list, remove and choose the default of the installed toolchains (**Planned** toolchain-commands) |
+| `k upgrade` | move a project to the running toolchain, applying the migrations (**Planned** toolchain-commands) |
 
 ## Protobuf
 

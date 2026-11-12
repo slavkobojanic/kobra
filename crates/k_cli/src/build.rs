@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use k_codegen::{CodegenError, Entry, Environment, Options, Output, Profile, generate};
 
 use crate::cli::{BuildArgs, RunArgs};
-use crate::{sources, workspace};
+use crate::{sources, toolchain, workspace};
 
 /// Analyses the project at `project` (a member of a workspace with the
 /// libraries it depends on) and generates its bundles.
@@ -179,6 +179,9 @@ pub fn build(args: &BuildArgs) -> ExitCode {
             );
             return ExitCode::from(2);
         }
+        if let Err(code) = toolchain::record(&loaded.root) {
+            return code;
+        }
         return ExitCode::SUCCESS;
     };
     let (output, lock) = match compile_member(&loaded, member, &args.project, &options, false) {
@@ -186,6 +189,10 @@ pub fn build(args: &BuildArgs) -> ExitCode {
         Err(code) => return code,
     };
     if let Err(code) = write_locks(&args.project, &lock) {
+        return code;
+    }
+    // `k.lock` records the toolchain at the workspace root, or in the app.
+    if let Err(code) = toolchain::record(&loaded.root) {
         return code;
     }
     let out = args

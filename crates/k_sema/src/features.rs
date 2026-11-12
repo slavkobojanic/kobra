@@ -210,7 +210,7 @@ pub const FEATURES: &[Feature] = &[
     ),
     planned(
         "packages",
-        "Git packages, `k add`, `k remove` and `k.lock`",
+        "Git packages, `k add`, `k remove` and their entries in `k.lock`",
         "18-packages.md",
     ),
     planned(
@@ -227,6 +227,11 @@ pub const FEATURES: &[Feature] = &[
         "service-streaming",
         "Streaming rpcs between services",
         "40-workspaces-and-services.md",
+    ),
+    planned(
+        "toolchain-commands",
+        "`k toolchain` (install, list, remove, default), `k self update` and `k upgrade`",
+        "48-releases-and-versioning.md",
     ),
     planned(
         "toolchain-image",

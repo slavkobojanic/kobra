@@ -63,5 +63,6 @@ mod lsp;
 mod new;
 mod perf_budget;
 mod push;
+mod toolchain;
 mod version;
 mod workspaces;
