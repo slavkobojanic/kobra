@@ -31,6 +31,7 @@ Contents:
 | Fuzz | `fuzz/fuzz_targets/*.rs` | No panics, no invariant violations on arbitrary and generated inputs (libFuzzer) |
 | Regression | `tests/corpus/<suite>/regressions/` | A fixed bug stays fixed |
 | Codegen golden | `tests/corpus/codegen/**` | Generated client JS, server JS and CSS, or assertions about them (§3.9) |
+| Formatter | `tests/fmt/**/name.k` + `name.formatted.k`, `crates/k_fmt/tests/` | Golden formatter cases, and idempotence, the same tree, the same comments and the same diagnostics over the corpus, the examples, the book and generated programs (§5.7) |
 | Execution | `tests/corpus/run/**` | A program's log output and result after compiling and running it in V8: the main behavioural suite for language semantics (§3.10) |
 | Runtime JS | `crates/k_runtime/js/tests/*.test.js` | The JavaScript runtime, inside V8 with a fake DOM (§4.1) |
 | Database | `crates/k_db/tests/*.rs` | Drivers, SQL, the migration builder and migrations on SQLite, and on Postgres when configured (§4.2) |
@@ -1314,8 +1315,8 @@ express: recursion that must be bounded by the nesting limit (function-type chai
 in conditions) and dumps of very deep trees. Run it with nextest (a process per test): a stack overflow
 aborts the whole process, which under `cargo test` is all of `k_syntax::it`.
 
-Later stages add their own property files: code generation and execution are §5.6; the formatter
-(deferred) will state that formatting is idempotent.
+Later stages add their own property files: code generation and execution are §5.6; the formatter's are
+§5.7.
 
 ### 5.5 Semantic properties
 
@@ -1527,6 +1528,26 @@ round 2), every `KNOWN_FINDINGS` list is empty and the generators write these sh
 | adjacent and empty static texts | adjacent texts with a static one merge into one text node on both sides, empty static texts are dropped (`view.rs` `merge_texts`) |
 | texts and blocks at the top of a branch, block roots | `textNode`, `separator` and `markers` claim the server's text, `<!---->` and marker pair while hydrating (`hydrate.js`) |
 
+### 5.7 Formatter properties
+
+The formatter's core, `k_fmt` ([docs/design/56-formatter.md](../design/56-formatter.md)), has golden cases
+and properties, all in `crates/k_fmt/tests` (`cargo test -p k_fmt --test it`):
+
+| Module | Checks |
+|---|---|
+| `golden` | every `tests/fmt/**/name.k` formats to the sibling `name.formatted.k`, which is already formatted; `K_BLESS=1` rewrites the expectations |
+| `properties::repository_files` | the oracle over every `.k` file of `tests/corpus`, `examples` and `tests/fmt` and every checked ` ```k ` block of the book |
+| `properties::generated_programs` | the oracle over `kgen` programs (§5.3), valid and noisy; `K_FMT_CASES=N` (default 1500) |
+| `properties::sema_diagnostics` | every `sema` corpus case reports the same `(file, code, message)` diagnostics after formatting, apart from the codes the rewrites fix (`K1302`, `K1303`, `K2303`), which may only disappear |
+| `rules` | the interface: refusal, empty files, line endings, `is_formatted`, `rewrite` alone |
+
+The oracle, `crates/k_fmt/tests/support/oracle.rs`, checks one file: a file with syntax errors is refused;
+otherwise it formats, the output parses into the tree of `rewrite(x)` (whitespace aside, comments
+included, compared by a tree walk written independently of the formatter's own check), `format(rewrite(x))
+== format(x)`, the comments are kept, formatting is idempotent, the output is canonical text (`\n`, no
+trailing whitespace, no doubled blank lines) and changing only the amount of whitespace, the indentation,
+the blank lines or the line endings of `x` leaves the output unchanged.
+
 ---
 
 ## 6. Fuzzing
@@ -1687,8 +1708,9 @@ generated project (and props), or the request; minimize it by hand with the `rep
 generator around it (`KNOWN_FINDINGS`). A failure that turns out to be the oracle's (an HTTP/1.0 answer, a
 transport error of the fuzzer's own socket table) is fixed in the oracle.
 
-The formatter (deferred) will add its targets on the same pattern: an oracle module shared with a stable
-property test, a byte-level target and a structure-aware one.
+The formatter will add its targets on the same pattern (not built yet): its oracle module,
+`crates/k_fmt/tests/support/oracle.rs` (§5.7), is already shared by its stable property tests, and the
+targets would be a byte-level one and a structure-aware one over `kgen`.
 
 ---
 
@@ -2174,12 +2196,7 @@ they are written. A change that makes a benchmark more than 5% slower needs a st
 
 ## 10. Planned suites
 
-These suites are added to `k_corpus` together with the stages they test. Their formats are fixed now so
-tests can be written early.
-
-| Suite | Runs | Expectations |
-|---|---|---|
-| `fmt` (deferred) | the formatter | `name.formatted.k` |
-
-The semantic suite planned here as `check` exists as `sema` (§3.8); `codegen` and `run` exist (§3.9,
-§3.10).
+None is planned now. The semantic suite planned here as `check` exists as `sema` (§3.8); `codegen` and
+`run` exist (§3.9, §3.10); the formatter's `fmt` suite exists outside the corpus, as `tests/fmt` with
+`name.formatted.k` expectations (§5.7), because its cases are formatted rather than compiled and the
+corpus's own `.k` files are inputs of its properties.

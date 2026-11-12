@@ -56,6 +56,8 @@ crates/
   k_db            schema model, query translation, migrations, SQLite/Postgres drivers
   k_server        deno_core (V8) embedding, hyper HTTP, SSR, RPC dispatch, ops
   k_lsp           the language server: LSP transport, document sync and the IDE features over k_sema
+  k_fmt           the formatter's core: canonical rewrites and layout over the lossless tree
+                  (docs/design/56-formatter.md); `k fmt` itself comes later
   k_cli           the `k` binary: subcommands over the crates above
   k_corpus        golden corpus harness and golden file formats (tests/corpus)
   xtask           `cargo xtask`: release automation (fragments, version bumps, the local gate,
@@ -66,7 +68,7 @@ editors/          VS Code, Neovim and Vim integrations of `k lsp` (lsp.md §11)
 ```
 
 Planned crates, added when their stage starts: `k_project` (`k.toml`, package resolution, `k.lock`) may
-be split out of `k_sema`; `k_fmt` (formatter, deferred). The language server, `k_lsp`, is described in
+be split out of `k_sema`. The language server, `k_lsp`, is described in
 [lsp.md](lsp.md).
 
 **Dependency rules** (arrows point to dependencies; no cycles; nothing depends on `k_cli`):
@@ -80,14 +82,19 @@ k_cli ──▶ k_server ──▶ k_runtime
   ├──▶ k_sema (k check)
   ├──▶ k_db (k migrate status)
   └──▶ k_corpus (golden formats, sema/codegen/run suites) ──▶ k_codegen, k_sema, k_syntax
+
+k_fmt ──▶ k_syntax ──▶ k_diagnostics
 ```
 
 Test-only edges: `k_server`'s tests use `k_corpus`, `k_sema` and `k_codegen` (the execution corpus and
 the e2e projects need V8 and the compiler together); `k_cli`'s tests use `k_server` to build an app
-archive by hand.
+archive by hand; `k_fmt`'s tests use `k_sema` and `k_corpus` to check that formatting keeps every
+`sema` case's diagnostics.
 
 - `k_diagnostics` depends on nothing but `text-size`.
 - `k_syntax` knows nothing about semantics.
+- `k_fmt` sees only the syntax tree: it formats one file without a project, so its rewrites are the
+  ones a tree can prove.
 - `k_sema` never generates code; `k_codegen` never reports semantic errors. Codegen may assume a checked
   program but must still not panic on an erroneous one; it refuses to emit when errors exist.
 - `k_db` is low-level: it owns the schema model, a small **query IR**, SQL generation for both dialects,
@@ -809,7 +816,7 @@ tests.
 - Entities and repositories on SQLite and Postgres, migrations and `schema.lock`.
 - SSR with hydration; `k check`, `k build`, `k dev` (without HMR), `k test`, `k routes`, `k migrate`.
 
-**Deferred:** hot module replacement, `k fmt`, the Protobuf binary wire format and
+**Deferred:** hot module replacement, the `k fmt` command (its core, `k_fmt`, exists), the Protobuf binary wire format and
 `k proto export`/`import proto` code generation, the edge deployment target, packages (`k add`), client
 and bidirectional streaming.
 

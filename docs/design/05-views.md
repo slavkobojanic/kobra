@@ -139,10 +139,11 @@ checkbox(isChecked: bind todo.isDone)
 
 ## Formatting
 
-The formatter (`k fmt`) enforces one canonical layout:
+The formatter (`k fmt`, [56-formatter.md](56-formatter.md)) enforces one canonical layout:
 
 - **One blank line between sibling view nodes.** No blank line directly after `{` or before `}`.
 - Chained calls stay attached to their node with no blank lines in between. With two or more chained calls, each goes on its own line.
+- **A chain after a one-line node is indented one level; after a multi-line node it stays at the node's level,** below its closing `}` (`box {` … `}` then `.class(.panel)`). `let` constants in a view keep the blank lines the author gave them.
 
 ```k
 view {

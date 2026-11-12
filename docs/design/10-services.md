@@ -60,7 +60,7 @@ public service TodoService {
 - **It runs when the instance is created,** which follows the scope (below). In tests, every test gets a fresh container, so `init()` runs again for each test.
 - **In a client-only service** (below), `init()` never runs during server rendering. In the browser it runs after hydration, so a server-rendered page shows the service's declared initial state first.
 - **Only services.** Components and pages have field initializers for setup and `@Effect` for side effects.
-- The formatter places `init()` after the fields and before the other functions.
+- The formatter places `init()` after the stored fields and before the functions ([56-formatter.md](56-formatter.md#canonical-rewrites)).
 
 ## Scopes
 

@@ -1771,6 +1771,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "k_fmt"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "k_corpus",
+ "k_diagnostics",
+ "k_sema",
+ "k_syntax",
+ "rowan",
+]
+
+[[package]]
 name = "k_lsp"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,31 @@
+[package]
+name = "k_fmt"
+# Integration tests are modules of tests/main.rs (one binary, `it`), not one
+# binary per file: docs/design/13-tooling.md, "One test binary per crate".
+autotests = false
+description = "The canonical formatter of the K language (`k fmt`): canonical rewrites and layout over the lossless syntax tree."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+k_diagnostics.workspace = true
+k_syntax.workspace = true
+rowan.workspace = true
+
+[dev-dependencies]
+# Semantic preservation: the sema corpus is analysed before and after
+# formatting (tests/properties.rs).
+k_sema.workspace = true
+k_corpus.workspace = true
+# The structure-aware program generator of k_syntax's property tests
+# (crates/k_syntax/tests/support/kgen.rs), included with `#[path]`.
+arbitrary.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
+
+[lints]
+workspace = true

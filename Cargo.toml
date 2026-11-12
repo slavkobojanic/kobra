@@ -28,6 +28,7 @@ k_server = { path = "crates/k_server" }
 k_db = { path = "crates/k_db" }
 k_corpus = { path = "crates/k_corpus" }
 k_lsp = { path = "crates/k_lsp" }
+k_fmt = { path = "crates/k_fmt" }
 
 # External crates. Keep this list short; every addition needs a reason in
 # docs/compiler/architecture.md ("Dependencies").

@@ -945,7 +945,8 @@ for optionals. Precedence between comparison and range, right-associative (as in
 
 `%` is the remainder operator (arithmetic symbols are universal). A number immediately followed by `%` is a
 `Percent` literal, so `10%3` is `UnitLit IntLit` and a parse error; write `10 % 3`. The formatter always
-puts spaces around binary operators, so this never arises in formatted code.
+puts spaces around binary operators other than the ranges `..<` and `...`
+([56-formatter.md](../design/56-formatter.md#spaces)), so this never arises in formatted code.
 
 ### RA-5. Argument labels
 
