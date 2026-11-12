@@ -81,7 +81,7 @@ fn stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
-const MANIFEST: &str = "[package]\nname = \"demo\"\nk = \"0.1\"\n";
+const MANIFEST: &str = concat!("[package]\nname = \"demo\"\n", k_requirement!(), "\n");
 
 // ------------------------------------------------------------------ routes
 

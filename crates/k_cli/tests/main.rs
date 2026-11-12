@@ -6,6 +6,21 @@
 //! cargo test -p k_cli --test it -- book_commands::
 //! ```
 
+/// `k = "X.Y"`, this toolchain's minor, for the manifests tests write: a
+/// literal `"0.1"` made `k` refuse them (K8201) once the version moved on
+/// (the 0.1.0-rc.1 dry run, docs/compiler/release.md §12 step 15).
+macro_rules! k_requirement {
+    () => {
+        concat!(
+            "k = \"",
+            env!("CARGO_PKG_VERSION_MAJOR"),
+            ".",
+            env!("CARGO_PKG_VERSION_MINOR"),
+            "\""
+        )
+    };
+}
+
 // Support modules shared by the tests below.
 #[allow(clippy::panic, clippy::unwrap_used)]
 #[path = "support/apps.rs"]

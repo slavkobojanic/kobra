@@ -9,6 +9,7 @@
 //! | `editors/vscode/package.json`, `package-lock.json` | the extension's `version` |
 //! | `examples/**/k.toml` | `k = "X.Y"`, when the minor changes |
 //! | `examples/**/k.lock` | `toolchain = "X.Y.Z"` |
+//! | the test projects' `k.toml` and `k.lock` (`tests/e2e/**`, `crates/*/tests/**` but `xtask`'s) | the same: the tests run them through the new `k` |
 //! | `examples/**` (`Dockerfile`, YAML, Markdown), `docs/book/src/**.md`, `docs/design/38-deployment.md` | toolchain image tags `…/k:X.Y.Z` |
 //! | `docs/book/src/**.md` | `k = "X.Y"` in `toml` blocks, and `k X.Y.Z` as `k --version` prints it |
 //!
@@ -322,6 +323,41 @@ pub fn bump(root: &Path, new: &Version) -> Result<Vec<Change>, String> {
             }),
             "k.lock" => lines(&text, |l| assignment(l, "toolchain", &old_s, &new_s)),
             _ => image_tags(&text, &tool, &old_s, &new_s),
+        };
+        add(&path, new_text);
+    }
+    // The projects the tests run through `k`: still requiring the old minor,
+    // `k build` refuses them on the new toolchain (K8201). `xtask`'s own
+    // fixtures, `tests/corpus` (analysed in process, its requirements are
+    // test inputs) and `tests/compat` (recordings) keep theirs.
+    let mut project_files = Vec::new();
+    let is_project_file = |n: &str| n == "k.toml" || n == "k.lock";
+    files(
+        &root.join("tests/e2e"),
+        &is_project_file,
+        &mut project_files,
+    );
+    let mut crates: Vec<PathBuf> = std::fs::read_dir(root.join("crates"))
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name() != "xtask")
+        .map(|e| e.path().join("tests"))
+        .collect();
+    crates.sort();
+    for dir in crates {
+        files(&dir, &is_project_file, &mut project_files);
+    }
+    for path in project_files {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let new_text = if path.ends_with("k.toml") {
+            lines(&text, |l| {
+                assignment(l, &tool, &old.minor_text(), &new.minor_text())
+            })
+        } else {
+            lines(&text, |l| assignment(l, "toolchain", &old_s, &new_s))
         };
         add(&path, new_text);
     }

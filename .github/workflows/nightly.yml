@@ -132,6 +132,7 @@ jobs:
           toolchain: nightly
           cache: fuzz
       - run: cargo install cargo-fuzz --locked
+      - run: fuzz/seed-corpus.sh
       - run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=600
       - if: failure()
         uses: actions/upload-artifact@v4

@@ -6,12 +6,14 @@ The maintainer runbook: how a version of K is cut, checked, published and fixed.
 procedure.
 
 > **Status.** There are no tags and no published artifacts, and the workspace version is `0.1.0`.
-> Steps 1–14 of the [implementation plan](#12-implementation-plan) are built: version consistency,
+> Every step of the [implementation plan](#12-implementation-plan) is built, and step 15, the
+> `0.1.0-rc.1` dry run of §6, has been run locally (its results and what only the owner can do are in
+> [step 15](#12-implementation-plan)): version consistency,
 > the toolchain requirement, `k.lock`'s toolchain with delegation, `k toolchain` and `k self update`,
 > lockfile format versions, `k fix`, the stability annotations with the feature table, `k upgrade`, the
 > changelog fragments with `cargo xtask`, the 0.1 wire fixtures, the install scripts, the versioned docs
 > build (`cargo xtask docs build`), the CI workflows in `.github/` and the toolchain version in the
-> editor. **The workflows are switched off**: every job waits for the repository variable
+> editor, then the dry run's fixes. **The workflows are switched off**: every job waits for the repository variable
 > `K_CI_ENABLED` ([§9, "Switching CI on"](#switching-ci-on)), so pushing them runs nothing. Sections
 > marked *(planned)* describe files and commands not built yet. Publishing anything needs the owner
 > decisions of [design 48](../design/48-releases-and-versioning.md#owner-decisions); every step up to
@@ -66,6 +68,8 @@ Contents:
 | `tests/compat/locks/`, `tests/compat/wire/` | golden lockfiles per format and recorded traffic per minor; checked by `crates/k_server/tests/compat/` | exists (format 1 of every lockfile; the 0.1 transcripts) |
 | `crates/k_cli/tests/version.rs` | every version string agrees; `k --version` format | exists (the commit and date in `--version` come with step 1's `build.rs`, in round 3) |
 | `k.lock` (`toolchain = "…"`) in every example app and workspace root | the toolchain that last built it; `version.rs` checks it names the version | exists |
+| the test projects' `k.toml` and `k.lock` (`tests/e2e/`, `crates/*/tests/`) | the minor and version the tests run them with; moved by `release prepare` and `start-next`, checked by `version.rs` (as are the manifests the tests write, through `k_requirement!()`) | exists |
+| `crates/xtask/tests/checkout.rs` | no test fixture is git-ignored, so a fresh checkout (CI's) runs what a working copy runs | exists |
 | `crates/k_cli/tests/toolchain.rs` | requirement, delegation, `K_TOOLCHAIN`, `k.lock` updates against fake installed toolchains; `k toolchain` and `k self update` against a fake release (`tests/support/release.rs`) on loopback | exists |
 | `docs/book/src/apps/upgrading.md`, `reference/changelog.md` | the upgrade guide (procedure, then one generated section per minor, cumulative) and the changelog page ([design 49](../design/49-documentation.md)) | exist (their generated parts empty until 0.1.0) |
 | `docs/book/check/audit.toml` | the page-audit ledger ([documentation.md §5](documentation.md#5-the-page-audit)) | planned |
@@ -187,7 +191,8 @@ Timeline for `0.6.0`, with T the planned release day.
    ```sh
    cargo xtask release prepare 0.6.0-rc.1
    ```
-   It sets the version everywhere ([§2](#2-files-the-release-process-owns)), compiles the fragments
+   It sets the version everywhere ([§2](#2-files-the-release-process-owns), the test projects
+   included), compiles the fragments
    into a draft `CHANGELOG.md` section, the changelog page and the upgrade guide's new section (it does
    not delete fragments for a release candidate), updates `k = "0.6"` in the examples and the `k new`
    skeleton, runs `cargo test -p k_cli --test it -- version::` and prints what it changed. It will also
@@ -196,15 +201,20 @@ Timeline for `0.6.0`, with T the planned release day.
    0.1)*: re-audit those before tagging the candidate.
 4. **Review the draft notes:** read every fragment in the context of the others, fix wording in the
    fragments themselves, and write `changes/_highlights.md` (three to six bullets; anything operators
-   must know first, such as a new wire encoding being written).
+   must know first, such as a new wire encoding being written). Write them on main before the cut when
+   you can (0.1's are there already), so the candidate's section has them and `prepare` needs no
+   second run; re-running it for the same candidate replaces that candidate's section.
 5. **Run the local gate:**
    ```sh
    cargo xtask release check
    ```
-   which is `cargo fmt --all --check`, `cargo clippy --workspace --all-targets`, `cargo test --workspace`,
-   `K_REQUIRE_CHROME=1` real-browser suites, `cargo xtask docs build --version next` (the book with no
-   mdBook warning, as the versioned site), the compat suite and the fragment checks. It is the same list CI
-   runs, so a failure here saves a pipeline run.
+   which is `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+   `k fmt --check examples`, `cargo test --workspace` (the fragment checks and version consistency
+   included), the compat suite, the `K_REQUIRE_CHROME=1` real-browser suites and `cargo xtask docs build
+   --version next` (the book with no mdBook warning, as the versioned site); `--list` prints it. It is
+   the same list CI runs, so a failure here saves a pipeline run. Run it in a **fresh clone** of the
+   branch, not your working copy: git-ignored files there (a fuzz corpus, an `.env`) hide what CI
+   will lack, as the `0.1.0-rc.1` dry run found.
 6. **Commit and tag:**
    ```sh
    git commit -am "Release 0.6.0-rc.1"
@@ -214,9 +224,12 @@ Timeline for `0.6.0`, with T the planned release day.
 7. **Bump main** to the next minor in its own pull request: `cargo xtask release start-next 0.7.0`
    sets `0.7.0` and leaves the fragments on main untouched.
 8. The release pipeline (§9) builds the candidate and publishes it as a **pre-release**: archives,
-   checksums, signatures, the index entry (marked `rc`), the extension `.vsix`, the image tag
-   `0.6.0-rc.1`. No docs are deployed for a candidate; `/next/` already shows main.
-9. Announce the candidate with `K_TOOLCHAIN=0.6.0-rc.1` instructions, and ask that `k upgrade --to
+   checksums, signatures, the index entry (its version carries `-rc.1`, so nothing installs it unless
+   it is named exactly), the extension `.vsix`, the image tag `0.6.0-rc.1`. No docs are deployed for a
+   candidate; `/next/` already shows main.
+9. Announce the candidate with its install line (`k toolchain install 0.6.0-rc.1`, or the install
+   script with `--version 0.6.0-rc.1`: without it the script installs the newest stable release, and
+   says so when there is none), `K_TOOLCHAIN=0.6.0-rc.1` for one command, and ask that `k upgrade --to
    0.6.0-rc.1` be tried on real projects.
 
 ### T−7 to T: soak
@@ -333,7 +346,7 @@ change.)*
 | `services` | Linux x86_64 with Postgres | `cargo test -p k_db -p k_server` on Postgres, `chrome:: dist_browser::` with `K_REQUIRE_CHROME=1`, `install_script::` |
 | `lint-and-docs` | Linux x86_64 | formatting, lints, `k fmt --check examples`, `cargo xtask docs build --version next`, `compat::` |
 | `properties` | Linux x86_64 | the property suites with raised `PROPTEST_CASES` ([testing.md §2](testing.md#2-running-tests)) |
-| `fuzz` | Linux x86_64, one per target | `cargo +nightly fuzz run <target> -- -max_total_time=600`; a crash is uploaded |
+| `fuzz` | Linux x86_64, one per target | `fuzz/seed-corpus.sh`, then `cargo +nightly fuzz run <target> -- -max_total_time=600`; a crash is uploaded |
 | `perf` | `K_PERF_RUNNER` | `scripts/bench-check.sh` |
 | `build` | one per target; Linux in `rust:bullseye` (glibc 2.31) | `cargo xtask release nightly` (the version `X.Y.Z-nightly.<date>`, in the checkout only), `cargo build --release -p k_cli --locked`, `cargo xtask dist archive`, `cargo xtask dist smoke` |
 | `image` | Linux x86_64 and arm64 | build `docker/toolchain.Dockerfile` from the archive's `k`, then `examples/shop/Dockerfile` with it |
@@ -349,8 +362,9 @@ name.)*
    target), `gate-services` (Postgres, real Chrome on Linux), `gate-chrome-macos`, `gate-checks`
    (formatting, lints, `k fmt --check examples`, `cargo xtask fragments --none-left`, `version::`, `cargo test -p xtask`,
    `compat::`, `cargo xtask docs build --version <tag>`), `gate-properties` (a shorter run),
-   `gate-fuzz` (each target over its committed corpus: `cargo +nightly fuzz run <target>
-   fuzz/corpus/<target> -- -runs=0`, no new inputs), `gate-perf` (on `K_PERF_RUNNER`; skipped without
+   `gate-fuzz` (each target over its seeds, no new inputs: `fuzz/seed-corpus.sh` fills the
+   git-ignored `fuzz/corpus` from committed files, then `cargo +nightly fuzz run <target>
+   fuzz/corpus/<target> -- -runs=0`), `gate-perf` (on `K_PERF_RUNNER`; skipped without
    one, and then run by hand, §6).
 2. **`build`**: per target on its native runner, `--locked`; Linux in `rust:bullseye` for the glibc
    2.31 baseline; `cargo xtask dist archive` names it `k-<version>-<target>.tar.gz` (`.zip` on Windows).
@@ -369,7 +383,8 @@ name.)*
 8. **`docs`**: `cargo xtask docs build --version <tag>`, the book with the version substituted, uploaded
    as an artifact for review (not deployed yet).
 9. **`draft`**: a draft release (a pre-release for a candidate) with the notes from `CHANGELOG.md`
-   (`cargo xtask ci notes`), every archive, `SHA256SUMS`, `index-entry.json`, the signatures and the
+   (`cargo xtask ci notes --links <repository>/blob/<tag>`, which makes the book links absolute: a
+   release page doesn't resolve relative ones), every archive, `SHA256SUMS`, `index-entry.json`, the signatures and the
    `.vsix`. It waits for every job above; a skipped `gate-perf` doesn't block it, a failed one does.
 
 **On publishing the draft** (`release: published`), the same file runs (a separate `publish.yml` was
@@ -661,3 +676,61 @@ in round 5.
     `0.1.0-rc.1`: the release workflow's jobs locally through `cargo xtask release check` and the
     per-target smoke test on the machines available, without publishing. Record what needed doing by
     hand and fix this runbook.
+    *As built: 0.1.0-rc.1 dry run (2026-11-12).* Run in two scratch clones of main (`bbbbfd4b`, then
+    with the fixes below), never this working copy, with the clones' remote removed: nothing was
+    pushed or published, no account was used, and the tag `v0.1.0-rc.1` existed only in the clones,
+    which were deleted afterwards. One machine was available, macOS on `aarch64-apple-darwin`.
+
+    | §6 step | What ran | Result |
+    |---|---|---|
+    | 2. cut | `git switch -c release/0.1` | ok |
+    | 3. prepare | `cargo xtask release prepare 0.1.0-rc.1` | 34 files: the versions, the examples' locks and image tags, `CHANGELOG.md`'s `## 0.1.0-rc.1 (pre-release of 0.1.0, 2026-11-12)`, the changelog page, the upgrade guide's "Upgrading to 0.1" ("nothing to migrate"); `version::` passed. It missed the test projects (below) |
+    | 4. notes | read the draft | the 18 fragments compile into 6 sections (internal ones are dropped); no highlights had been written, so they are now in `changes/_highlights.md` for 0.1 |
+    | 5. gate | each line of `release check --list` | formatting, `k fmt --check examples` (616 files), the real-Chrome suites (90 passed) and the docs build passed; `cargo test --workspace` failed 31 tests, all fixed below; with the fixes, 6,791 passed, 0 failed, 51 ignored at `0.1.0-rc.1` |
+    | 6. commit, tag | `git commit -am`, `git tag -a v0.1.0-rc.1` in the clone | ok; not pushed |
+    | 7. bump main | `cargo xtask release start-next 0.2.0` on a fixed clone, then the suite | 123 files; 44 `k_cli` tests failed (below), and with that fixed all 317 passed at `0.2.0` |
+    | 8. pipeline, by hand | `cargo build --release -p k_cli --locked` (1 min 20 s), `dist archive`, `dist checksums`, `dist index`, `dist merge-index`, `dist smoke`, `ci version`, `ci notes`, `docs build --version v0.1.0-rc.1`, and `gate-fuzz` for `lex` and `lsp_edits` | a 28.5 MB `k-0.1.0-rc.1-aarch64-apple-darwin.tar.gz`, byte-identical when packed twice; the smoke test passed on the unpacked `k`; the site built `/0.1/` (116 chapters) with the version substituted, `versions.json`, the redirects and the install scripts with the host filled in; `docs build --version latest` with only a candidate tag writes only the root files, as it should |
+    | 9. install, as a user would | `python3 -m http.server` on `127.0.0.1:5311` serving `releases/download/v0.1.0-rc.1/` and `index.json`; `install.sh` (`--version`, `K_VERSION`, again), `k toolchain install` (named, by minor, from the project's `k.lock`), `list`, `default`, `remove`, `k self update` with `K_TOOLCHAIN_INDEX` | the candidate installs by name into `$K_HOME/toolchains/0.1.0-rc.1/` and becomes the default; installing it again changes nothing; the messages without a name were wrong (below) |
+
+    **Found and fixed**, each with its test first: `k new` on a candidate wrote `k = "0.1.0-rc"`
+    (`new::tests`, `book_projects::`), and `k check` accepted it silently, as it accepted any malformed
+    app `k.toml`: an app's manifest problems are now reported (`K8101`; `new::k_check_reports_a_malformed_app_manifest`);
+    `k upgrade` running on a candidate refused to step through the candidate's own minor
+    (`upgrade::tests::the_running_candidate_counts_for_its_own_minor`); `release prepare` and
+    `start-next` didn't move the test projects' `k` and `k.lock`, so `k build` refused them with K8201
+    (`bump::`, `version::test_projects_require_the_current_minor`), and the manifests `k_cli`'s tests
+    write said `k = "0.1"` literally (now `k_requirement!()`, checked by
+    `version::test_sources_write_no_literal_requirement`); `crates/k_server/tests/projects/channels/.env`
+    was git-ignored, so a fresh checkout failed 25 channel tests (`checkout::`); `fuzz/corpus` is
+    git-ignored, so `gate-fuzz` had no corpus in a fresh checkout, and `lsp_edits` had no seeds at all
+    (the jobs run `fuzz/seed-corpus.sh` first, which seeds every target and fails on an empty one;
+    `workflows::`); the release notes linked `docs/book/src/…` relatively, which a release page doesn't
+    resolve (`ci notes --links`; `release::tests`); with only a candidate published, the install
+    script failed on a bare 404 and `k toolchain install` said "has no a stable release" (both now say
+    there is no stable release and name the candidate or `--version`; `install_script::`,
+    `index::tests`); the compiler-only `k` (`--no-default-features`) built with four dead-code
+    warnings. Two expectations were wrong for a pre-release and now say so
+    (`toolchain::a_patch_difference_runs_and_k_build_updates_the_lock`, the minor in `new::`).
+
+    **Done by hand**, which the pipeline does on GitHub: serving the release host and the index
+    (`release-index.sh` needs `gh`), merging the one index entry, and taking the install scripts from
+    the built site. **Not run here:** the other five targets' builds and smoke tests (no such
+    machines), `install.ps1` (no `pwsh`), the `.vsix` (`vsce` isn't installed and npm would need the
+    network; whether the Marketplace takes a pre-release version is open until the marketplaces are
+    chosen), the toolchain image (it needs a Linux archive), signing and `verify.sh` (Sigstore's
+    keyless signing needs the workflow's identity), `gate-perf`, `gate-properties`, and the fuzz gate
+    beyond `lex` and `lsp_edits` (the local fuzz build needs `RUSTY_V8_ARCHIVE`, [testing.md §6.2](testing.md#62-targets)). The
+    Firefox recording test (`firefox::media_records_each_named_format_in_firefox`, the recording decodes
+    1.2 to 1.4 s) failed in two of three full runs and passes alone: a flake under load, not yet
+    explained ([testing.md §4.6](testing.md#46-flakes)); the gate has no retries, so it can fail a release check.
+
+    **What only the owner can do** before a real `0.1.0-rc.1`
+    ([design 48, "Owner decisions"](../design/48-releases-and-versioning.md#owner-decisions)): settle
+    the name and namespace (`k-lang` in the image tags, the extension's publisher and the docs domain
+    are placeholders, and `k` has no built-in index URL until the domain exists); choose the licence
+    (there is no `LICENSE`, so the archives carry only the README); create the GitHub repository and
+    push `main`; switch CI on (`K_CI_ENABLED`), then Pages (Settings → Pages → Source "GitHub
+    Actions", `K_PAGES_ENABLED`) and publishing (`K_PUBLISH_ENABLED`); choose the required checks and
+    the performance runner (`K_PERF_RUNNER`); check that the Sigstore identity `verify.sh` expects is
+    the repository's; and push `release/0.1` and the tag `v0.1.0-rc.1` (§6 step 6), which starts the
+    first real pipeline run, expected to need fixes since no workflow has run on GitHub yet.

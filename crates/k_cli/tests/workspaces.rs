@@ -92,7 +92,10 @@ fn copy_example(example: &str, dir: &Path) {
 }
 
 fn package(name: &str, deps: &[&str]) -> String {
-    let mut s = format!("[package]\nname = \"{name}\"\nk = \"0.1\"\n");
+    let mut s = format!(
+        concat!("[package]\nname = \"{}\"\n", k_requirement!(), "\n"),
+        name
+    );
     if !deps.is_empty() {
         s.push_str("\n[dependencies]\n");
         for d in deps {

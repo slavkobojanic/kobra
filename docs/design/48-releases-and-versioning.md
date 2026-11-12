@@ -420,7 +420,18 @@ Each needs the project owner's sign-off before anything is published. The owner 
 | **Package managers** | an own Homebrew tap, then homebrew-core; winget; Scoop; AUR; Nix; crates.io | an own Homebrew tap first; the rest on demand | **Decided (2026-11-09):** an own Homebrew tap first |
 | **Performance runner** | a self-hosted machine; a dedicated cloud instance; a maintainer's machine, by hand | a self-hosted runner | open |
 | **First public release and the train's start** | `0.1.0` now; after the quick start, the tutorial and toolchain pinning exist; after packages and `k fmt` | after rounds 1–4 of the [combined plan](49-documentation.md#implementation-plan) and a local `0.1.0-rc.1` dry run: a newcomer's first visit then has a quick start that works and a project they can pin | **Decided (2026-11-12):** `0.1.0` is the built toolchain and examples, plus every step of [release.md §12](../compiler/release.md#12-implementation-plan) (steps 1–15, the `0.1.0-rc.1` dry run included), plus `k fmt`. Packages, Protobuf, HMR, WebKit and the other Planned features come after 0.1. Nothing is published, no account is used and no tag is pushed until the name and the other open rows are settled |
+| **Licence** | the project's licence (MIT, Apache-2.0, both, or another), in `LICENSE` at the root; found missing by the `0.1.0-rc.1` dry run: `cargo xtask dist archive` packs `LICENSE` when there is one, and the archives have none | a permissive licence, chosen before anything is published | open |
 | **Publishing the internals** (`docs/design`, `docs/compiler`) | a second small mdBook; the code host's markdown rendering; not at all | the code host's rendering; revisit after 1.0 | open |
+#### The first dry run: decided (2026-11-12)
+
+[release.md §6](../compiler/release.md#6-cutting-a-minor-release) was run end to end for `0.1.0-rc.1` in a scratch clone, with nothing pushed or published ([release.md §12, step 15](../compiler/release.md#12-implementation-plan) has the results). What it settled:
+
+- **A pre-release is a version of its minor everywhere a minor is asked for.** `k new` on `0.1.0-rc.1` writes `k = "0.1"` (it wrote `0.1.0-rc`, which no toolchain satisfies), and `k upgrade` running on a candidate takes the project through the candidate's own minor; installed pre-releases of other minors still never count. A pre-release still runs a project locked to a release of its minor only by handing the command over: it is never the same release line.
+- **`k check` reports an app's own `k.toml` problems** (`K8101`) as it did a workspace member's; an app's malformed `k` passed silently.
+- **The version moves in the test projects too.** `release prepare` and `start-next` bump the `k` and `k.lock` of `tests/e2e/` and each crate's `tests/` (not `tests/corpus`, `tests/compat` or `xtask`'s fixtures), and the manifests the tests write take the minor from the crate version; `version.rs` checks both.
+- **A fresh checkout runs the gate.** Test fixtures are never git-ignored (a test project's `.env` is committed; `crates/xtask/tests/checkout.rs`), and the fuzz jobs seed `fuzz/corpus` first (`fuzz/seed-corpus.sh`, which seeds every target).
+- **Release notes link the repository at the tag**: `cargo xtask ci notes --links <repository>/blob/<tag>` makes `CHANGELOG.md`'s relative links absolute, since a release page doesn't resolve them.
+- **With only candidates published**, `install.sh`, `install.ps1`, `k toolchain install` and `k self update` say there is no stable release and name the candidate or `--version`; a candidate is installed only when named exactly.
 
 ## Why
 

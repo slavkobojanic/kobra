@@ -226,6 +226,72 @@ fn example_locks_record_the_current_version() {
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
+/// The projects the tests run through `k` (`tests/e2e/`, each crate's
+/// `tests/` but `xtask`'s fixtures) require the current minor, and a
+/// committed `k.lock` among them records the version: else `k build`
+/// refuses them (K8201) once the version moves, as the 0.1.0-rc.1 dry run
+/// found. `cargo xtask release prepare` moves them.
+#[test]
+fn test_projects_require_the_current_minor() {
+    let mut found = Vec::new();
+    let keep = |p: &Path| {
+        p.file_name()
+            .is_some_and(|n| n == "k.toml" || n == "k.lock")
+    };
+    files(&repo().join("tests/e2e"), &keep, &mut found);
+    for e in fs::read_dir(repo().join("crates")).unwrap().flatten() {
+        if e.file_name() != "xtask" {
+            files(&e.path().join("tests"), &keep, &mut found);
+        }
+    }
+    let requirement = format!("{} = \"{}\"", tool(), minor());
+    let lock = format!("toolchain = \"{}\"", version());
+    let mut problems = Vec::new();
+    let mut locks = 0;
+    for path in &found {
+        let text = fs::read_to_string(path).unwrap();
+        let is_lock = path.ends_with("k.lock");
+        locks += usize::from(is_lock);
+        let prefix = if is_lock {
+            "toolchain =".to_owned()
+        } else {
+            format!("{} =", tool())
+        };
+        let expected = if is_lock { &lock } else { &requirement };
+        for line in text.lines().map(str::trim) {
+            if line.starts_with(&prefix) && line != expected {
+                problems.push(format!("{}: `{line}`, expected `{expected}`", shown(path)));
+            }
+        }
+    }
+    assert!(found.len() > 20 && locks > 0, "{found:?}");
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// The manifests these tests write take the requirement from
+/// `k_requirement!()` (`tests/main.rs`), never a literal minor, which `k`
+/// refuses once `release start-next` moves the version.
+#[test]
+fn test_sources_write_no_literal_requirement() {
+    let literal = format!("{} = \\\"{}\\\"", tool(), minor());
+    let mut sources = Vec::new();
+    files(
+        &repo().join("crates/k_cli/tests"),
+        &|p| p.extension().is_some_and(|e| e == "rs"),
+        &mut sources,
+    );
+    let found: Vec<String> = sources
+        .iter()
+        .filter(|p| !p.ends_with("version.rs"))
+        .filter(|p| fs::read_to_string(p).unwrap().contains(&literal))
+        .map(|p| shown(p))
+        .collect();
+    assert!(
+        found.is_empty(),
+        "`{literal}` in {found:?}: use k_requirement!()"
+    );
+}
+
 #[test]
 fn image_tags_name_the_current_version() {
     let tool = tool();

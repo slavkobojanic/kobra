@@ -8,6 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::panic)]
 
 mod bump;
+mod checkout;
 mod dist;
 mod docs;
 mod fragments;

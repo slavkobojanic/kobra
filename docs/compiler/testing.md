@@ -1572,7 +1572,10 @@ fuzz/seed-corpus.sh --fresh    # the same, after setting the semantic targets' g
 ```
 
 `fuzz/corpus/`, `fuzz/corpus-old/` and `fuzz/artifacts/` are git-ignored working state. Re-run
-`seed-corpus.sh` after adding corpus cases; it keeps what the fuzzer has already found.
+`seed-corpus.sh` after adding corpus cases; it keeps what the fuzzer has already found. The script
+seeds every target of `fuzz/Cargo.toml` (its `all_targets`, checked by `cargo test -p xtask --test it --
+workflows::`) and fails when one is left empty, and the nightly and release fuzz jobs run it first: a
+fresh checkout has no corpus (the `0.1.0-rc.1` dry run found the release gate's job had none).
 
 **Seed sets.** libFuzzer runs every corpus input once before it mutates anything, so a target's seed set
 must load in a small part of a short run. The seeds are chosen per target:
@@ -1582,6 +1585,7 @@ must load in a small part of a short run. The seeds are chosen per target:
 | `lex`, `parse`, `parse_roundtrip`, `structured` | every `tests/corpus/**/*.k` file | `-max_len=8192` |
 | `check` | about 140 files: the median-sized single-file case of each `sema` directory two levels down, and every `regressions` case of `sema`, `parser` and `lexer`, each at most 2 KiB | 2 KiB (`CHECK_MAX_INPUT`) |
 | `check_structured`, `check_typed` | 16 random inputs of 64 to 1,024 bytes (their bytes drive a generator, so K source is no better a seed than noise) | 1 KiB (`GENERATOR_MAX_INPUT`) |
+| `lsp_edits` | 16 random inputs of 64 to 1,024 bytes (the bytes pick a document and drive the edits) | 2 KiB (`LSP_MAX_INPUT`) |
 | `codegen`, `codegen_run` | 16 random inputs of 256 to 4,096 bytes | `-max_len=4096` |
 | `http_request`, `rpc_json` | `fuzz/seeds/<target>/` | `-max_len=2048` |
 

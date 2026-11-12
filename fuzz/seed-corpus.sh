@@ -22,12 +22,13 @@
 #   full corpus (2,600 files) took minutes to load before any fuzzing
 #   started; the curated set loads in a few seconds and covers every
 #   checker area.
-# * `check_structured`, `check_typed`, `codegen`, `codegen_run`: their
-#   bytes drive a generator, so K source is no better a seed than noise.
-#   They get sixteen random seeds, so they start from programs of every
-#   size rather than growing from the empty input: 64 to 1,024 bytes for
-#   the semantic two (their cap, `GENERATOR_MAX_INPUT`), 256 to 4,096 for
-#   the code generation two.
+# * `check_structured`, `check_typed`, `codegen`, `codegen_run`,
+#   `lsp_edits`: their bytes drive a generator, so K source is no better a
+#   seed than noise. They get sixteen random seeds, so they start from
+#   programs of every size rather than growing from the empty input: 64 to
+#   1,024 bytes for the semantic two (their cap, `GENERATOR_MAX_INPUT`) and
+#   `lsp_edits` (whose cap is 2 KiB), 256 to 4,096 for the code generation
+#   two.
 # * `http_request`, `rpc_json`: the request seeds of `fuzz/seeds/<target>/`
 #   (the same requests as `RAW_SEEDS` and `RPC_SEEDS` in
 #   crates/k_server/tests/support/horacle.rs).
@@ -37,6 +38,11 @@
 # slowly again; `--fresh` moves the `check`, `check_structured` and
 # `check_typed` corpora to `fuzz/corpus-old/<target>.<seconds>` (nothing is
 # deleted; merge back what matters with `cargo fuzz cmin`) before seeding.
+# Every target of fuzz/Cargo.toml is in `all_targets` (checked by
+# crates/xtask/tests/workflows.rs), and the script fails when one is left
+# empty: the release gate runs each target over its seeded corpus in a fresh
+# checkout (docs/compiler/release.md §9).
+#
 # `fuzz/corpus` and `fuzz/corpus-old` are git-ignored; minimized crash
 # inputs go to tests/corpus instead (see docs/compiler/testing.md,
 # "Fuzzing").
@@ -47,7 +53,8 @@ root=$(dirname "$here")
 corpus="$root/tests/corpus"
 text_targets="lex parse parse_roundtrip structured"
 semantic_targets="check check_structured check_typed"
-generator_targets="check_structured check_typed codegen codegen_run"
+generator_targets="check_structured check_typed codegen codegen_run lsp_edits"
+all_targets="lex parse parse_roundtrip structured check check_structured check_typed codegen codegen_run lsp_edits http_request rpc_json"
 check_max=2048
 
 case "${1:-}" in
@@ -75,7 +82,7 @@ seed() {
     cp "$1" "$here/corpus/$2/$name"
 }
 
-for target in $text_targets check $generator_targets http_request rpc_json; do
+for target in $all_targets; do
     mkdir -p "$here/corpus/$target"
 done
 
@@ -118,7 +125,7 @@ done
 
 for target in $generator_targets; do
     case $target in
-        check_*) step=64 ;;
+        check_* | lsp_edits) step=64 ;;
         *) step=256 ;;
     esac
     for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
@@ -126,7 +133,15 @@ for target in $generator_targets; do
     done
 done
 
-for target in $text_targets check $generator_targets http_request rpc_json; do
+empty=""
+for target in $all_targets; do
     count=$(find "$here/corpus/$target" -type f | wc -l | tr -d ' ')
     echo "fuzz/corpus/$target: $count inputs"
+    if [ "$count" -eq 0 ]; then
+        empty="$empty $target"
+    fi
 done
+if [ -n "$empty" ]; then
+    echo "error: no seeds for:$empty" >&2
+    exit 1
+fi

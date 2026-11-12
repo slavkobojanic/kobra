@@ -170,7 +170,7 @@ fn write(dir: &std::path::Path, relative: &str, text: &str) {
     fs::write(path, text).unwrap();
 }
 
-const MANIFEST: &str = "[package]\nname = \"demo\"\nk = \"0.1\"\n";
+const MANIFEST: &str = concat!("[package]\nname = \"demo\"\n", k_requirement!(), "\n");
 
 #[test]
 fn check_analyses_a_project_and_names_files_from_the_working_directory() {
@@ -451,7 +451,7 @@ fn dev_serves_an_offline_app_a_worker_that_caches_nothing() {
     write(
         &dir.0,
         "k.toml",
-        "[package]\nname = \"hello\"\nk = \"0.1\"\n",
+        concat!("[package]\nname = \"hello\"\n", k_requirement!(), "\n"),
     );
     write(&dir.0, "App.k", "@Offline\npublic app Hello {}\n");
     write(&dir.0, "src/home/Home.k", &dev_page("Offline"));
@@ -496,7 +496,7 @@ fn dev_rebuilds_on_change_and_keeps_the_last_good_build_on_errors() {
     write(
         &dir.0,
         "k.toml",
-        "[package]\nname = \"hello\"\nk = \"0.1\"\n",
+        concat!("[package]\nname = \"hello\"\n", k_requirement!(), "\n"),
     );
     write(&dir.0, "App.k", DEV_APP);
     write(&dir.0, "src/home/Home.k", &dev_page("Version one"));
@@ -604,7 +604,7 @@ fn dev_reports_an_entity_without_a_migration() {
     write(
         &dir.0,
         "k.toml",
-        "[package]\nname = \"hello\"\nk = \"0.1\"\n",
+        concat!("[package]\nname = \"hello\"\n", k_requirement!(), "\n"),
     );
     write(&dir.0, "App.k", DEV_APP);
     write(&dir.0, "src/home/Home.k", &dev_page("Version one"));
@@ -694,7 +694,7 @@ fn dev_names_the_env_keys_the_process_environment_shadows() {
     write(
         &dir.0,
         "k.toml",
-        "[package]\nname = \"hello\"\nk = \"0.1\"\n",
+        concat!("[package]\nname = \"hello\"\n", k_requirement!(), "\n"),
     );
     write(&dir.0, "App.k", DEV_APP);
     write(&dir.0, "src/home/Home.k", &dev_page("Hello"));

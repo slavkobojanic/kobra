@@ -187,6 +187,35 @@ pub fn notes(changelog: &str, version: &str) -> Option<String> {
     Some(body.join("\n").trim().to_owned() + "\n")
 }
 
+/// `notes` with every relative link made absolute below `base`, so they
+/// resolve on the release page, where links are not relative to the
+/// repository (`CHANGELOG.md` links the book's sources as
+/// `docs/book/src/…`). `base` is the repository at the tag, such as
+/// `https://github.com/<owner>/<repo>/blob/v0.1.0`; found by the 0.1.0-rc.1
+/// dry run.
+#[must_use]
+pub fn absolute_links(notes: &str, base: &str) -> String {
+    let base = base.trim_end_matches('/');
+    let mut out = String::with_capacity(notes.len());
+    let mut rest = notes;
+    while let Some(i) = rest.find("](") {
+        let (before, after) = rest.split_at(i + 2);
+        out.push_str(before);
+        let relative = !(after.starts_with('#')
+            || after.starts_with('/')
+            || after.starts_with("http://")
+            || after.starts_with("https://")
+            || after.starts_with("mailto:"));
+        if relative {
+            out.push_str(base);
+            out.push('/');
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
 /// One command of the local gate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Step {
@@ -295,4 +324,21 @@ pub fn remaining_fragments(root: &Path) -> Vec<String> {
         .iter()
         .map(|f| format!("{}/{}.md", fragment::DIR, f.slug))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn release_notes_link_the_repository_at_the_tag() {
+        let notes = "- `k fmt`. See [Commands](docs/book/src/getting-started/commands.md), \
+                     [the site](https://example.com/x), [below](#fixes), [root](/a).\n";
+        assert_eq!(
+            absolute_links(notes, "https://github.com/o/r/blob/v0.1.0/"),
+            "- `k fmt`. See [Commands](https://github.com/o/r/blob/v0.1.0/docs/book/src/getting-started/commands.md), \
+             [the site](https://example.com/x), [below](#fixes), [root](/a).\n"
+        );
+        assert_eq!(absolute_links("no links\n", "b"), "no links\n");
+    }
 }

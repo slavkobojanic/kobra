@@ -428,8 +428,13 @@ pub const TOOLS: &[&str] = &[
     "rustup", "git", "docker", "npm", "npx", "cosign", "gh", "tar", "unzip", "mkdir",
 ];
 
-/// The problems of one command run from `dir`.
-fn check_command(root: &Path, dir: Option<&str>, w: &[String]) -> Vec<String> {
+/// The script that fills the git-ignored `fuzz/corpus/<target>` from
+/// committed files; a job naming such a corpus must run it first.
+pub const SEED_CORPUS: &str = "fuzz/seed-corpus.sh";
+
+/// The problems of one command run from `dir`; `seeded` when an earlier
+/// step of the job ran [`SEED_CORPUS`].
+fn check_command(root: &Path, dir: Option<&str>, w: &[String], seeded: bool) -> Vec<String> {
     let mut problems = Vec::new();
     let shown = w.join(" ");
     let program = w[0].as_str();
@@ -458,9 +463,18 @@ fn check_command(root: &Path, dir: Option<&str>, w: &[String]) -> Vec<String> {
                     }
                     if let Some(corpus) = args.get(4)
                         && !corpus.starts_with('-')
-                        && !exists(corpus)
                     {
-                        problems.push(format!("`{shown}`: no corpus `{corpus}`"));
+                        if corpus.starts_with("fuzz/corpus/") {
+                            // Git-ignored: a fresh checkout has none.
+                            if !seeded {
+                                problems.push(format!(
+                                    "`{shown}`: `{corpus}` is git-ignored, so a fresh checkout has none: \
+                                     run `{SEED_CORPUS}` in an earlier step of the job"
+                                ));
+                            }
+                        } else if !exists(corpus) {
+                            problems.push(format!("`{shown}`: no corpus `{corpus}`"));
+                        }
                     }
                 }
                 _ => {
@@ -509,8 +523,7 @@ fn check_command(root: &Path, dir: Option<&str>, w: &[String]) -> Vec<String> {
             }
             // A path argument must exist (`cargo xtask` checks its own).
             for a in w[1..].iter().filter(|_| w.get(1).is_none_or(|x| x != "xtask")) {
-                if (a.starts_with("examples/") || a.starts_with("scripts/") || a.starts_with("fuzz/corpus"))
-                    && !exists(a)
+                if (a.starts_with("examples/") || a.starts_with("scripts/")) && !exists(a)
                 {
                     problems.push(format!("`{shown}`: `{a}` doesn't exist"));
                 }
@@ -583,12 +596,14 @@ pub fn check(root: &Path) -> Vec<String> {
                     }
                 }
             }
+            let mut seeded = false;
             for (dir, command) in job_commands(job) {
                 problems.extend(
-                    check_command(root, dir.as_deref(), &command)
+                    check_command(root, dir.as_deref(), &command, seeded)
                         .into_iter()
                         .map(|p| format!("{at}: {p}")),
                 );
+                seeded |= command[0].trim_start_matches("./") == SEED_CORPUS;
             }
         }
     }

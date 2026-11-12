@@ -288,8 +288,8 @@ impl Index {
         }
         let what = match spec {
             Spec::Matching(_, text) => text.clone(),
-            Spec::Stable => "a stable release".to_owned(),
-            Spec::Nightly => "a nightly".to_owned(),
+            Spec::Stable => "stable release".to_owned(),
+            Spec::Nightly => "nightly".to_owned(),
             Spec::Exact(_) => String::new(),
         };
         let yanked: Vec<String> = self
@@ -307,6 +307,24 @@ impl Index {
             message.push_str(&format!(
                 "; {}, and is installed only when named exactly",
                 yanked.join(", ")
+            ));
+        }
+        // A release candidate the spec would take once released.
+        let candidate = self
+            .releases
+            .iter()
+            .filter(|r| r.version.pre.is_some() && !r.is_nightly() && r.yanked.is_none())
+            .filter(|r| match spec {
+                Spec::Matching(reqs, _) => reqs.iter().all(|q| q.matches(&r.version.release())),
+                Spec::Stable => true,
+                Spec::Nightly | Spec::Exact(_) => false,
+            })
+            .filter(|r| r.archive(target).is_some())
+            .max_by(|a, b| a.version.cmp(&b.version));
+        if let Some(r) = candidate {
+            message.push_str(&format!(
+                "; k {v} is a pre-release, installed only when named exactly (`k toolchain install {v}`)",
+                v = r.version
             ));
         }
         Err(message)
@@ -400,7 +418,11 @@ mod tests {
         let Err(e) = chosen(&i, "0.2") else {
             panic!("0.2 has no release")
         };
-        assert_eq!(e, "the toolchain index has no k 0.2 for t");
+        assert_eq!(
+            e,
+            "the toolchain index has no k 0.2 for t; k 0.2.0-rc.1 is a pre-release, \
+             installed only when named exactly (`k toolchain install 0.2.0-rc.1`)"
+        );
         let Err(e) = chosen(&i, "0.1.2") else {
             panic!("no archive for t")
         };
@@ -422,6 +444,39 @@ mod tests {
             "the toolchain index has no k 0.1 for t; k 0.1.0 is yanked (miscompiles), \
              and is installed only when named exactly"
         );
+    }
+
+    #[test]
+    fn with_only_a_candidate_the_choice_names_it() {
+        // The 0.1.0-rc.1 dry run: an index holding only the candidate said
+        // "has no a stable release".
+        let i = index(&[
+            ("0.1.0-rc.1", None, &["t"]),
+            ("0.1.0-rc.2", None, &["t"]),
+            ("0.1.0-nightly.20261101", None, &["t"]),
+        ]);
+        let hint = "; k 0.1.0-rc.2 is a pre-release, installed only when named exactly \
+                    (`k toolchain install 0.1.0-rc.2`)";
+        let Err(e) = chosen(&i, "stable") else {
+            panic!("no release")
+        };
+        assert_eq!(
+            e,
+            format!("the toolchain index has no stable release for t{hint}")
+        );
+        let Err(e) = chosen(&i, "0.1") else {
+            panic!("no release")
+        };
+        assert_eq!(e, format!("the toolchain index has no k 0.1 for t{hint}"));
+        let Err(e) = chosen(&i, "0.2") else {
+            panic!("no release")
+        };
+        assert_eq!(e, "the toolchain index has no k 0.2 for t");
+        let i = index(&[]);
+        let Err(e) = chosen(&i, "nightly") else {
+            panic!("no nightly")
+        };
+        assert_eq!(e, "the toolchain index has no nightly for t");
     }
 
     #[test]

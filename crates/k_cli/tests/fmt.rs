@@ -67,7 +67,7 @@ impl Drop for TempDir {
     }
 }
 
-const MANIFEST: &str = "[package]\nname = \"formatting\"\nk = \"0.1\"\n";
+const MANIFEST: &str = concat!("[package]\nname = \"formatting\"\n", k_requirement!(), "\n");
 
 /// Unformatted, and its canonical form (the example of `k_fmt`'s docs).
 const MESSY: &str = "component Counter {\n  @State var count: Int=0\n\n\n  view { button { \"+\" }.on(click: { count+=1 }) }\n}\n";
@@ -206,7 +206,11 @@ fn without_paths_a_member_formats_its_whole_workspace() {
     let dir = TempDir::new("workspace");
     dir.write(
         "k.toml",
-        "[workspace]\nmembers = [\"lib\", \"app\"]\nk = \"0.1\"\n",
+        concat!(
+            "[workspace]\nmembers = [\"lib\", \"app\"]\n",
+            k_requirement!(),
+            "\n"
+        ),
     );
     dir.write(
         "lib/k.toml",

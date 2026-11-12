@@ -120,7 +120,14 @@ mkdir -p "$K_HOME/tmp"
 WORK="$(mktemp -d "$K_HOME/tmp/install-sh.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
-fetch "$FROM/SHA256SUMS" "$WORK/SHA256SUMS"
+if [ -n "$VERSION" ]; then
+    fetch "$FROM/SHA256SUMS" "$WORK/SHA256SUMS"
+else
+    # GitHub's `latest` skips pre-releases: with only release candidates
+    # published there is none.
+    (fetch "$FROM/SHA256SUMS" "$WORK/SHA256SUMS") ||
+        fail "there is no stable release at $RELEASES yet; install a release candidate by name with --version <version>"
+fi
 # `<digest>  k-<version>-<target>.tar.gz` (or `*name`, binary mode).
 LINE="$(awk -v suffix="-$TARGET.tar.gz" '{
     name = $2; sub(/^\*/, "", name)

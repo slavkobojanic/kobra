@@ -179,6 +179,10 @@ pub enum CiStep {
         /// The notes file.
         #[arg(long)]
         out: PathBuf,
+        /// Make relative links absolute below this URL: the repository at the tag
+        /// (`https://github.com/<owner>/<repo>/blob/v0.6.0`), since a release page doesn't resolve them.
+        #[arg(long)]
+        links: Option<String>,
     },
     /// Print `changed=true` when a file below one of PATHS changed since BASE (also written to `$GITHUB_OUTPUT`).
     Changed {

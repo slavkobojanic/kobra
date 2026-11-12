@@ -88,11 +88,19 @@ fn minor_key(v: &Version) -> (u64, u64) {
 
 /// The newest release of minor `key` that is installed or running.
 fn newest_of(key: (u64, u64)) -> Option<Version> {
-    let me = toolchain::running();
-    toolchain::installed()
+    newest_among(key, &toolchain::running(), toolchain::installed())
+}
+
+/// The newest of `installed` and `me` (the running toolchain) in minor
+/// `key`. Installed pre-releases are passed over, but the running
+/// toolchain counts even when it is one: a release candidate moves a
+/// project through its own minor (found by the 0.1.0-rc.1 dry run).
+fn newest_among(key: (u64, u64), me: &Version, installed: Vec<Version>) -> Option<Version> {
+    installed
         .into_iter()
-        .chain(std::iter::once(me))
-        .filter(|v| v.pre.is_none() && minor_key(v) == key)
+        .filter(|v| v.pre.is_none())
+        .chain(std::iter::once(me.clone()))
+        .filter(|v| minor_key(v) == key)
         .max()
 }
 
@@ -711,6 +719,23 @@ mod tests {
 
     fn v(text: &str) -> Version {
         Version::parse(text).unwrap()
+    }
+
+    #[test]
+    fn the_running_candidate_counts_for_its_own_minor() {
+        let me = v("0.1.0-rc.1");
+        assert_eq!(newest_among((0, 1), &me, vec![]), Some(me.clone()));
+        // An installed release of the minor is newer than its candidate.
+        assert_eq!(
+            newest_among((0, 1), &me, vec![v("0.1.0"), v("0.2.0")]),
+            Some(v("0.1.0"))
+        );
+        // Another minor's installed pre-releases never count.
+        assert_eq!(newest_among((0, 2), &me, vec![v("0.2.0-rc.1")]), None);
+        assert_eq!(
+            newest_among((0, 2), &me, vec![v("0.2.1"), v("0.2.2-rc.1")]),
+            Some(v("0.2.1"))
+        );
     }
 
     const GUIDE_FIXTURE: &str = "# Upgrading\n\nK1401 in the prose is not a section.\n\n\

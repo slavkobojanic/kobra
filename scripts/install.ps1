@@ -48,7 +48,10 @@ New-Item -ItemType Directory -Path $Work | Out-Null
 try {
     $Sums = Join-Path $Work 'SHA256SUMS'
     try { Invoke-WebRequest -UseBasicParsing -Uri "$From/SHA256SUMS" -OutFile $Sums }
-    catch { Fail "cannot download $From/SHA256SUMS" }
+    catch {
+        if ($Version) { Fail "cannot download $From/SHA256SUMS" }
+        Fail "cannot download $From/SHA256SUMS: there may be no stable release yet; install a release candidate by name with -Version <version>"
+    }
     $Suffix = "-$Target.zip"
     $Line = Get-Content $Sums | ForEach-Object {
         $Parts = $_ -split '\s+', 2

@@ -229,7 +229,11 @@ fn main() -> ExitCode {
                 ]),
                 Err(e) => failed(&[e]),
             },
-            CiStep::Notes { version, out } => {
+            CiStep::Notes {
+                version,
+                out,
+                links,
+            } => {
                 let version = version.strip_prefix('v').unwrap_or(&version).to_owned();
                 let changelog =
                     std::fs::read_to_string(root.join("CHANGELOG.md")).unwrap_or_default();
@@ -237,6 +241,10 @@ fn main() -> ExitCode {
                     return failed(&[format!(
                         "CHANGELOG.md has no `## {version} (…)` section: run `cargo xtask release prepare {version}`"
                     )]);
+                };
+                let text = match &links {
+                    Some(base) => release::absolute_links(&text, base),
+                    None => text,
                 };
                 let out = if out.is_absolute() {
                     out

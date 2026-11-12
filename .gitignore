@@ -13,6 +13,10 @@
 # mail). Neither is ever committed.
 .env
 .k/
+# A test project's `.env` is a fixture the tests read: committed, so a
+# fresh checkout runs them (crates/xtask/tests/checkout.rs).
+!/crates/*/tests/**/.env
+!/tests/**/.env
 
 # Build output of `k build`, in every project (examples, test projects).
 dist/

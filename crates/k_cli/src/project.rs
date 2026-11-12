@@ -81,6 +81,8 @@ pub fn project_of(root: &Path, loaded: &workspace::Loaded, member: usize) -> Pro
 /// # Errors
 ///
 /// As [`load`].
+// Used only by commands that need the server runtime (`k dev`, `k test --watch`).
+#[cfg_attr(not(feature = "server"), allow(dead_code))]
 pub fn read(root: &Path) -> Result<Vec<(ProjectPath, String)>, ExitCode> {
     let (loaded, member) = workspace::load_member(root, "test --watch")?;
     Ok(loaded.workspace.analysis_files(member))

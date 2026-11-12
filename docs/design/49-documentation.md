@@ -503,7 +503,7 @@ Downloads are several megabytes of wasm, loaded only on playground pages. Learn 
 
 ### Round 5: the first release
 
-1. A local `0.1.0-rc.1` dry run (step 15), fixing the runbook from what it finds.
+1. A local `0.1.0-rc.1` dry run (step 15), fixing the runbook from what it finds. Run 2026-11-12 in scratch clones, nothing pushed; its fixes and what remains for the owner are in [release.md §12, step 15](../compiler/release.md#12-implementation-plan).
 2. **After the owner's sign-off** ([48](48-releases-and-versioning.md#owner-decisions)): CI switched on with its required checks, hosting for binaries and docs, Pagefind, the registry, the marketplaces, then `0.1.0`.
 3. Later: the playground, stage A.
 

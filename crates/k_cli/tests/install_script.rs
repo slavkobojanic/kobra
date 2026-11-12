@@ -316,6 +316,29 @@ fn install_sh_is_idempotent_and_takes_a_version() {
 }
 
 #[cfg(unix)]
+/// With only release candidates published, the host has no
+/// `latest/download/` (GitHub's `latest` skips pre-releases): the script
+/// says so and names `--version`, as the 0.1.0-rc.1 dry run asked.
+#[cfg(unix)]
+#[test]
+fn install_sh_without_a_stable_release_names_version() {
+    let fx = Fixture::new("no-stable");
+    fs::remove_dir_all(fx.release.root.join("latest")).unwrap();
+    let out = fx.install_sh(("Linux", "x86_64", "glibc"), &[], &[], false);
+    assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+    let err = text(&out.stderr);
+    assert!(err.contains("no stable release"), "{}", describe(&out));
+    assert!(err.contains("--version"), "{}", describe(&out));
+    // A named version still installs.
+    let out = fx.install_sh(
+        ("Linux", "x86_64", "glibc"),
+        &[],
+        &["--version", "99.1.0"],
+        false,
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", describe(&out));
+}
+
 #[test]
 fn install_sh_without_a_release_host_says_so() {
     let fx = Fixture::new("no-host");

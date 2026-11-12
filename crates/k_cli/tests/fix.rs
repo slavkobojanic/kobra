@@ -48,7 +48,7 @@ impl Drop for TempDir {
     }
 }
 
-const MANIFEST: &str = "[package]\nname = \"fixing\"\nk = \"0.1\"\n";
+const MANIFEST: &str = concat!("[package]\nname = \"fixing\"\n", k_requirement!(), "\n");
 
 /// A `== true` comparison (K2012) and a `@Prop var` (K3001), both with
 /// machine-applicable fixes.
@@ -132,7 +132,11 @@ fn a_fix_in_a_workspace_library_applies_to_its_files() {
     let dir = TempDir::new("workspace");
     dir.write(
         "k.toml",
-        "[workspace]\nmembers = [\"lib\", \"app\"]\nk = \"0.1\"\n",
+        concat!(
+            "[workspace]\nmembers = [\"lib\", \"app\"]\n",
+            k_requirement!(),
+            "\n"
+        ),
     );
     dir.write("lib/k.toml", "[package]\nname = \"lib\"\n");
     dir.write(

@@ -176,6 +176,32 @@ fn check_workspace(
     (map, diagnostics, ran.get())
 }
 
+/// The problems of a single project's own `k.toml` (`K8101`), which a
+/// workspace reports through [`Workspace::report_with`] and a project's
+/// analysis doesn't: a malformed toolchain requirement, a missing name.
+fn manifest_problems(analysis: &k_sema::Analysis) -> Vec<Diagnostic> {
+    let Ok(path) = k_sema::ProjectPath::new("k.toml") else {
+        return Vec::new();
+    };
+    let Some(file) = analysis.file_id(&path) else {
+        return Vec::new();
+    };
+    let Some(text) = analysis.text(file) else {
+        return Vec::new();
+    };
+    let (_, problems) = k_sema::workspace::parse_manifest("k.toml", text, true, false);
+    problems
+        .into_iter()
+        .map(|p| {
+            let mut d = Diagnostic::new(p.code, Span::new(file, p.range), p.message);
+            for n in p.notes {
+                d = d.with_note(n);
+            }
+            d
+        })
+        .collect()
+}
+
 /// What a project adds to its semantic diagnostics: the lockfile checks
 /// that need code generation's models ([`k_codegen::project_diagnostics`]:
 /// `schema.lock`, `routes.lock`), then, with `tests` and no error so far,
@@ -213,6 +239,14 @@ pub fn check_group(group: Group, tests: bool, name: impl Fn(&str) -> String) -> 
             // The host is never changed while it is queried, so the
             // analysis can't be cancelled.
             let mut diagnostics = analysis.diagnostics().unwrap_or_default();
+            let manifest = manifest_problems(&analysis);
+            if !manifest.is_empty() {
+                diagnostics.extend(manifest);
+                diagnostics.sort_by(|a, b| {
+                    (a.span, a.code, &a.message).cmp(&(b.span, b.code, &b.message))
+                });
+                diagnostics.dedup();
+            }
             let (more, ran) = lockfiles_and_tests(&analysis, tests);
             diagnostics.extend(more);
             (map, diagnostics, ran)

@@ -79,10 +79,19 @@ fn title(name: &str) -> String {
     capitalised_parts(name).collect::<Vec<_>>().join(" ")
 }
 
-/// This toolchain's minor version (`0.1`), the `k` a new project requires.
-fn minor_version() -> &'static str {
-    let version = env!("CARGO_PKG_VERSION");
-    version.rsplit_once('.').map_or(version, |(minor, _)| minor)
+/// `major.minor` of a version (`0.1` for `0.1.0` and `0.1.0-rc.1`).
+fn minor_of(version: &str) -> String {
+    let mut parts = version.splitn(3, '.');
+    match (parts.next(), parts.next()) {
+        (Some(major), Some(minor)) => format!("{major}.{minor}"),
+        _ => version.to_owned(),
+    }
+}
+
+/// This toolchain's minor version (`0.1`), the `k` a new project requires;
+/// a release candidate or a nightly requires its minor too.
+fn minor_version() -> String {
+    minor_of(env!("CARGO_PKG_VERSION"))
 }
 
 /// `template` with its placeholders filled in for `name`.
@@ -91,7 +100,7 @@ fn render(template: &str, name: &str) -> String {
         .replace("{{name}}", name)
         .replace("{{title}}", &title(name))
         .replace("{{app}}", &app_name(name))
-        .replace("{{k}}", minor_version())
+        .replace("{{k}}", &minor_version())
 }
 
 /// Runs `k new`: exit status 0 when the project was written, 2 for a name
@@ -151,6 +160,17 @@ mod tests {
         assert_eq!(app_name("shop-2-go"), "Shop2Go");
         assert_eq!(app_name("home"), "HomeApp");
         assert_eq!(app_name("app-theme"), "AppThemeApp");
+    }
+
+    #[test]
+    fn a_new_project_requires_the_minor_of_a_release_candidate_or_nightly() {
+        // The 0.1.0-rc.1 dry run (docs/compiler/release.md §12, step 15):
+        // a candidate wrote `k = "0.1.0-rc"`, which isn't a requirement.
+        assert_eq!(minor_of("0.1.0"), "0.1");
+        assert_eq!(minor_of("0.1.0-rc.1"), "0.1");
+        assert_eq!(minor_of("0.7.0-nightly.20261109"), "0.7");
+        assert_eq!(minor_of("12.34.5"), "12.34");
+        assert!(k_sema::workspace::Requirement::parse(&minor_version()).is_some());
     }
 
     #[test]

@@ -342,6 +342,14 @@ fn a_patch_difference_runs_and_k_build_updates_the_lock() {
         &lock.replace(&format!("\"{VERSION}\""), &format!("\"{other}\"")),
     );
     let out = fx.k(&["check", ".", "--no-tests"], &[], "");
+    if VERSION.contains('-') {
+        // A release candidate or a nightly is never the same release line
+        // as a release (design 48): it hands the command to the locked
+        // patch, which isn't installed. Found by the 0.1.0-rc.1 dry run.
+        assert_eq!(out.status.code(), Some(2), "{}", describe(&out));
+        assert!(text(&out.stderr).contains("K8201"), "{}", describe(&out));
+        return;
+    }
     assert_eq!(out.status.code(), Some(0), "{}", describe(&out));
     assert_eq!(
         fs::read_to_string(fx.project().join("k.lock")).unwrap(),

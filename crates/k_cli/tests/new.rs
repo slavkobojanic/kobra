@@ -81,9 +81,9 @@ fn new_writes_the_app_skeleton_and_no_lockfiles() {
     let manifest = fs::read_to_string(root.join("k.toml")).unwrap();
     assert!(manifest.contains("name = \"my-shop\""), "{manifest}");
     assert!(manifest.contains("title = \"My Shop\""), "{manifest}");
-    let minor = env!("CARGO_PKG_VERSION")
-        .rsplit_once('.')
-        .map_or("", |(m, _)| m);
+    // `0.1` for `0.1.0` and for a candidate, `0.1.0-rc.1`.
+    let mut parts = env!("CARGO_PKG_VERSION").split('.');
+    let minor = format!("{}.{}", parts.next().unwrap(), parts.next().unwrap());
     assert!(manifest.contains(&format!("k = \"{minor}\"")), "{manifest}");
     let app = fs::read_to_string(root.join("App.k")).unwrap();
     assert!(app.contains("public app MyShop {"), "{app}");
@@ -132,6 +132,36 @@ fn the_new_app_passes_check_and_test_and_builds() {
     let built = k(&["build"], &root);
     assert_eq!(built.status.code(), Some(0), "{}", text(&built.stderr));
     assert!(root.join("dist/public").is_dir());
+}
+
+/// `k check` reports an app's own manifest problems (`K8101`), as it does a
+/// workspace member's: the 0.1.0-rc.1 dry run found `k = "0.1.0-rc"`, which
+/// no toolchain satisfies, checked without a word.
+#[test]
+fn k_check_reports_a_malformed_app_manifest() {
+    let dir = TempDir::new("manifest");
+    let out = k(&["new", "hello"], &dir.0);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    let root = dir.0.join("hello");
+    let manifest = root.join("k.toml");
+    let good = fs::read_to_string(&manifest).unwrap();
+    let line = good.lines().find(|l| l.starts_with("k = ")).unwrap();
+    fs::write(&manifest, good.replace(line, "k = \"0.1.0-rc\"")).unwrap();
+
+    let check = k(&["check", "--no-tests", "--format", "json"], &root);
+    let stdout = text(&check.stdout);
+    assert_eq!(
+        check.status.code(),
+        Some(1),
+        "{stdout}{}",
+        text(&check.stderr)
+    );
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 1, "{stdout}");
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["code"], "K8101", "{json}");
+    assert!(lines[0].contains("toolchain requirement"), "{json}");
+    assert!(lines[0].contains("k.toml"), "{json}");
 }
 
 /// An existing, empty directory is used; one with files in it is refused

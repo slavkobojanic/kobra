@@ -248,12 +248,47 @@ fn every_fuzz_target_runs_nightly() {
     }
 }
 
+/// The release gate runs each target over `fuzz/corpus/<target>`, which is
+/// git-ignored: `fuzz/seed-corpus.sh` fills it from committed files, and
+/// must seed every target (it fails when one is left empty), or a fresh
+/// checkout, CI's, has nothing to run. The 0.1.0-rc.1 dry run, in a fresh
+/// clone, found `lsp_edits` unseeded. (Running the script takes over a
+/// minute, so this reads its target list.)
+#[test]
+fn the_seed_script_seeds_every_fuzz_target() {
+    let script = fs::read_to_string(repo().join("fuzz/seed-corpus.sh")).unwrap();
+    let seeded: Vec<&str> = script
+        .lines()
+        .find_map(|l| l.strip_prefix("all_targets="))
+        .expect("an `all_targets=` line")
+        .trim_matches('"')
+        .split_whitespace()
+        .collect();
+    assert!(script.contains("for target in $all_targets; do\n    mkdir -p"));
+    let toml = fs::read_to_string(repo().join("fuzz/Cargo.toml")).unwrap();
+    let mut lines = toml.lines();
+    let mut targets = Vec::new();
+    while let Some(line) = lines.next() {
+        if line.trim() == "[[bin]]" {
+            targets.push(lines.next().unwrap().split('"').nth(1).unwrap().to_owned());
+        }
+    }
+    let mut a: Vec<&str> = targets.iter().map(String::as_str).collect();
+    let mut b = seeded.clone();
+    a.sort_unstable();
+    b.sort_unstable();
+    assert_eq!(
+        a, b,
+        "fuzz/Cargo.toml's targets and the script's `all_targets`"
+    );
+}
+
 #[test]
 fn the_checker_catches_what_it_should() {
     // A job without the switch, an unpinned action, a missing script, an
     // unknown xtask command, a missing test module and a fuzz target that
     // doesn't exist are each reported.
-    let bad = "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - uses: actions/checkout@main\n      - run: |\n          scripts/no-such.sh\n          cargo xtask no-such-task\n          cargo test -p k_cli --test it -- no_such_module::\n          cargo +nightly fuzz run no_such_target\n          curl https://example.invalid\n";
+    let bad = "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - uses: actions/checkout@main\n      - run: |\n          scripts/no-such.sh\n          cargo xtask no-such-task\n          cargo test -p k_cli --test it -- no_such_module::\n          cargo +nightly fuzz run no_such_target\n          cargo +nightly fuzz run lex fuzz/corpus/lex -- -runs=0\n          curl https://example.invalid\n";
     let root = std::env::temp_dir().join(format!("xtask_workflows_bad_{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(root.join(".github/workflows")).unwrap();
@@ -275,6 +310,7 @@ fn the_checker_catches_what_it_should() {
         "isn't a `cargo xtask` command",
         "no test module `no_such_module`",
         "no fuzz target `no_such_target`",
+        "`fuzz/corpus/lex` is git-ignored",
         "`curl` is neither",
     ] {
         assert!(problems.contains(expected), "{expected}:\n{problems}");

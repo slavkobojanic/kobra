@@ -413,6 +413,8 @@ pub fn run(args: &RunArgs) -> ExitCode {
 /// development configuration: the variables wiring its remotes to their
 /// sibling members, which win over the member's `.env`, and the app's name,
 /// printed before each of its lines (`shop   | serving on …`).
+// Used only by commands that need the server runtime (`k dev`, `k test --watch`).
+#[cfg_attr(not(feature = "server"), allow(dead_code))]
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Wiring {
     /// Variables and values.

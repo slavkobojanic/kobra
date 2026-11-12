@@ -44,6 +44,30 @@ fn collect(root: &Path, rel: &str, out: &mut Vec<String>) {
     }
 }
 
+/// The manifests and locks of the projects the tests run through `k`
+/// (`tests/e2e/`, each crate's `tests/` but `xtask`'s fixtures): a test
+/// project still requiring the old minor fails `k build` with K8201 on the
+/// new toolchain, as the 0.1.0-rc.1 dry run found.
+fn collect_test_projects(root: &Path, out: &mut Vec<String>) {
+    let mut found = Vec::new();
+    collect(root, "tests/e2e", &mut found);
+    for e in fs::read_dir(root.join("crates"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name != "xtask" {
+            collect(root, &format!("crates/{name}/tests"), &mut found);
+        }
+    }
+    out.extend(
+        found
+            .into_iter()
+            .filter(|f| f.ends_with("/k.toml") || f.ends_with("/k.lock")),
+    );
+}
+
 /// A copy of the version-bearing files, removed when dropped.
 struct Copy(PathBuf);
 
@@ -66,6 +90,7 @@ fn copy_repo() -> Copy {
     ];
     collect(&repo(), "examples", &mut files);
     collect(&repo(), "docs/book/src", &mut files);
+    collect_test_projects(&repo(), &mut files);
     for rel in files {
         let from = repo().join(&rel);
         if from.is_file() {
@@ -115,6 +140,17 @@ fn a_bump_moves_every_version_string_version_rs_checks() {
     let mut files = Vec::new();
     collect(root, "examples", &mut files);
     collect(root, "docs/book/src", &mut files);
+    let mut test_projects = Vec::new();
+    collect_test_projects(root, &mut test_projects);
+    assert!(
+        test_projects.iter().any(|f| f.starts_with("tests/e2e/"))
+            && test_projects
+                .iter()
+                .any(|f| f.starts_with("crates/k_server/tests/"))
+            && test_projects.iter().any(|f| f.ends_with("k.lock")),
+        "{test_projects:?}"
+    );
+    files.extend(test_projects);
     files.push("docs/design/38-deployment.md".to_owned());
     let mut requirements = 0;
     let mut locks = 0;
