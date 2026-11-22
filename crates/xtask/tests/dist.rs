@@ -10,7 +10,8 @@ use std::process::Command;
 use serde_json::Value;
 use xtask::Version;
 use xtask::dist::{
-    add_release, archive, archive_name, checksums, merge, parse_archive_name, sha256_file,
+    add_release, archive, archive_name, attach, checksums, docs_archive, merge, parse_archive_name,
+    sha256_file,
 };
 
 fn repo() -> PathBuf {
@@ -311,4 +312,275 @@ fn one_release_indexes_merge() {
         .map(|r| r["version"].as_str().unwrap())
         .collect();
     assert_eq!(versions, ["0.2.0", "0.1.1", "0.1.0"]);
+}
+
+#[test]
+fn the_book_is_archived_listed_and_indexed() {
+    let dir = Scratch::new("book");
+    let book = dir.0.join("site/0.1");
+    fs::create_dir_all(
+        book.join("reference/a-section-with-a-long-name-for-the-ustar-prefix-field"),
+    )
+    .unwrap();
+    fs::write(book.join("index.html"), "<title>book</title>").unwrap();
+    let deep = "reference/a-section-with-a-long-name-for-the-ustar-prefix-field/a-page-whose-name-is-long-too.html";
+    fs::write(book.join(deep), "deep").unwrap();
+    let dist = dir.0.join("dist");
+    release(&dist, "0.1.0");
+    let path = docs_archive(&book, &v("0.1.0"), &dist).unwrap();
+    assert_eq!(path.file_name().unwrap(), "docs-0.1.0.tar.gz");
+    // `docs-<version>/` with the book, long paths included.
+    if has("tar") {
+        let unpacked = dir.0.join("unpacked");
+        fs::create_dir_all(&unpacked).unwrap();
+        let status = Command::new("tar")
+            .arg("-xzf")
+            .arg(&path)
+            .arg("-C")
+            .arg(&unpacked)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let top = unpacked.join("docs-0.1.0");
+        assert_eq!(
+            fs::read_to_string(top.join("index.html")).unwrap(),
+            "<title>book</title>"
+        );
+        assert_eq!(fs::read_to_string(top.join(deep)).unwrap(), "deep");
+    }
+    // SHA256SUMS lists it, and the index entry names it as the book.
+    let sums = checksums(&dist).unwrap();
+    assert!(sums.contains("  docs-0.1.0.tar.gz\n"), "{sums}");
+    let text = add_release(
+        &dist,
+        &dist.join("index-entry.json"),
+        "https://github.com/o/r/releases/download",
+        "2026-12-01",
+    )
+    .unwrap();
+    let json: Value = serde_json::from_str(&text).unwrap();
+    let docs = &json["releases"][0]["docs"];
+    assert_eq!(
+        docs["url"],
+        "https://github.com/o/r/releases/download/v0.1.0/docs-0.1.0.tar.gz"
+    );
+    assert_eq!(docs["sha256"], sha256_file(&path).unwrap());
+    assert_eq!(json["releases"][0]["archives"].as_array().unwrap().len(), 2);
+    // A directory without the book's first page isn't one.
+    let err = docs_archive(&dir.0.join("dist"), &v("0.1.0"), &dir.0.join("x")).unwrap_err();
+    assert!(err.contains("index.html"), "{err}");
+}
+
+/// A fake `gh` for `attach`: `release download <tag> -p <name> -D <dir>`
+/// copies from `assets/<tag>/`, `release upload <tag> <files…> --clobber`
+/// copies into it, and each call is logged.
+#[cfg(unix)]
+fn fake_gh(dir: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let gh = dir.join("gh");
+    fs::write(
+        &gh,
+        format!(
+            r#"#!/bin/sh
+root='{root}'
+echo "$*" >>"$root/gh.log"
+[ "$1" = release ] || exit 2
+op="$2"; tag="$3"; shift 3
+case "$op" in
+download)
+    pattern=""; to="."
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -p | --pattern) pattern="$2"; shift 2 ;;
+            -D | --dir) to="$2"; shift 2 ;;
+            -R | --repo) shift 2 ;;
+            *) shift ;;
+        esac
+    done
+    [ -f "$root/assets/$tag/$pattern" ] || {{ echo "no assets match the file pattern" >&2; exit 1; }}
+    mkdir -p "$to"
+    cp "$root/assets/$tag/$pattern" "$to/"
+    ;;
+upload)
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -R | --repo) shift 2 ;;
+            --clobber) shift ;;
+            *) cp "$1" "$root/assets/$tag/"; shift ;;
+        esac
+    done
+    ;;
+*) exit 2 ;;
+esac
+"#,
+            root = dir.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    gh
+}
+
+/// What CI attached to the release v0.1.0: the Linux archive, its
+/// SHA256SUMS, index entry and the whole index (with an older release).
+#[cfg(unix)]
+fn published(dir: &Path) -> PathBuf {
+    let ci = dir.join("ci");
+    fs::create_dir_all(&ci).unwrap();
+    fs::write(ci.join("k-0.1.0-x86_64-unknown-linux-gnu.tar.gz"), "linux").unwrap();
+    checksums(&ci).unwrap();
+    let download = "https://github.com/o/r/releases/download";
+    add_release(&ci, &ci.join("index-entry.json"), download, "2026-12-01").unwrap();
+    let old = dir.join("old");
+    fs::create_dir_all(&old).unwrap();
+    fs::write(old.join("k-0.0.9-x86_64-unknown-linux-gnu.tar.gz"), "old").unwrap();
+    checksums(&old).unwrap();
+    add_release(&old, &ci.join("index.json"), download, "2026-11-01").unwrap();
+    add_release(&ci, &ci.join("index.json"), download, "2026-12-01").unwrap();
+    let assets = dir.join("assets/v0.1.0");
+    fs::create_dir_all(&assets).unwrap();
+    for name in [
+        "k-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+        "SHA256SUMS",
+        "index-entry.json",
+        "index.json",
+    ] {
+        fs::copy(ci.join(name), assets.join(name)).unwrap();
+    }
+    assets
+}
+
+#[cfg(unix)]
+#[test]
+fn attach_local_merges_the_mac_archive_into_the_release() {
+    let dir = Scratch::new("attach");
+    let gh = fake_gh(&dir.0);
+    let assets = published(&dir.0);
+    let mac = dir.0.join("local/k-0.1.0-aarch64-apple-darwin.tar.gz");
+    fs::create_dir_all(mac.parent().unwrap()).unwrap();
+    fs::write(&mac, "mac").unwrap();
+    let work = dir.0.join("work");
+    let uploaded = attach(
+        &gh.display().to_string(),
+        "o/r",
+        "v0.1.0",
+        std::slice::from_ref(&mac),
+        &work,
+    )
+    .unwrap();
+    assert_eq!(
+        uploaded,
+        [
+            "k-0.1.0-aarch64-apple-darwin.tar.gz",
+            "SHA256SUMS",
+            "index-entry.json",
+            "index.json"
+        ]
+    );
+    // The archive, and SHA256SUMS with both lines, sorted, the Linux one kept.
+    assert_eq!(
+        fs::read_to_string(assets.join("k-0.1.0-aarch64-apple-darwin.tar.gz")).unwrap(),
+        "mac"
+    );
+    let sums = fs::read_to_string(assets.join("SHA256SUMS")).unwrap();
+    let linux = sha256_file(&assets.join("k-0.1.0-x86_64-unknown-linux-gnu.tar.gz")).unwrap();
+    let digest = sha256_file(&mac).unwrap();
+    assert_eq!(
+        sums,
+        format!(
+            "{digest}  k-0.1.0-aarch64-apple-darwin.tar.gz\n{linux}  k-0.1.0-x86_64-unknown-linux-gnu.tar.gz\n"
+        )
+    );
+    // The index entry and the index each list the new target, with the
+    // release's download URL; the older release is untouched.
+    for name in ["index-entry.json", "index.json"] {
+        let json: Value =
+            serde_json::from_str(&fs::read_to_string(assets.join(name)).unwrap()).unwrap();
+        let r = json["releases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["version"] == "0.1.0")
+            .unwrap();
+        let targets: Vec<&str> = r["archives"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| a["target"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            targets,
+            ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"],
+            "{name}"
+        );
+        let a = &r["archives"][0];
+        assert_eq!(
+            a["url"],
+            "https://github.com/o/r/releases/download/v0.1.0/k-0.1.0-aarch64-apple-darwin.tar.gz",
+            "{name}"
+        );
+        assert_eq!(a["sha256"], digest.as_str(), "{name}");
+        assert_eq!(a["size"], 3, "{name}");
+        assert_eq!(r["date"], "2026-12-01", "{name}");
+    }
+    let index: Value =
+        serde_json::from_str(&fs::read_to_string(assets.join("index.json")).unwrap()).unwrap();
+    assert_eq!(index["releases"].as_array().unwrap().len(), 2);
+    // Again (a rebuilt archive): replaced, not duplicated.
+    fs::write(&mac, "mac, rebuilt").unwrap();
+    attach(
+        &gh.display().to_string(),
+        "o/r",
+        "v0.1.0",
+        std::slice::from_ref(&mac),
+        &work,
+    )
+    .unwrap();
+    let sums = fs::read_to_string(assets.join("SHA256SUMS")).unwrap();
+    assert_eq!(sums.lines().count(), 2, "{sums}");
+    assert!(sums.contains(&sha256_file(&mac).unwrap()), "{sums}");
+    let entry: Value =
+        serde_json::from_str(&fs::read_to_string(assets.join("index-entry.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        entry["releases"][0]["archives"].as_array().unwrap().len(),
+        2
+    );
+    let log = fs::read_to_string(dir.0.join("gh.log")).unwrap();
+    assert!(
+        log.contains("release upload v0.1.0 -R o/r --clobber"),
+        "{log}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn attach_local_refuses_what_doesnt_belong() {
+    let dir = Scratch::new("attach_bad");
+    let gh = fake_gh(&dir.0);
+    let assets = published(&dir.0);
+    let before = fs::read_to_string(assets.join("SHA256SUMS")).unwrap();
+    let work = dir.0.join("work");
+    let other = dir.0.join("k-0.2.0-aarch64-apple-darwin.tar.gz");
+    fs::write(&other, "other").unwrap();
+    let err = attach(&gh.display().to_string(), "o/r", "v0.1.0", &[other], &work).unwrap_err();
+    assert!(err.contains("0.2.0") && err.contains("v0.1.0"), "{err}");
+    let junk = dir.0.join("notes.txt");
+    fs::write(&junk, "x").unwrap();
+    let err = attach(&gh.display().to_string(), "o/r", "v0.1.0", &[junk], &work).unwrap_err();
+    assert!(
+        err.contains("isn't a `k-<version>-<target>` archive"),
+        "{err}"
+    );
+    // A release CI hasn't made yet.
+    let mac = dir.0.join("k-0.3.0-aarch64-apple-darwin.tar.gz");
+    fs::write(&mac, "mac").unwrap();
+    let err = attach(&gh.display().to_string(), "o/r", "v0.3.0", &[mac], &work).unwrap_err();
+    assert!(err.contains("SHA256SUMS"), "{err}");
+    assert_eq!(
+        fs::read_to_string(assets.join("SHA256SUMS")).unwrap(),
+        before
+    );
+    let log = fs::read_to_string(dir.0.join("gh.log")).unwrap_or_default();
+    assert!(!log.contains("upload"), "{log}");
 }

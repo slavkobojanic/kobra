@@ -37,7 +37,8 @@
 | `k doc` | Renders documentation from `///` comments ([39-doc-comments.md](39-doc-comments.md)) |
 | `k lsp` | The language server, over standard input and output, for editors ([docs/compiler/lsp.md](../compiler/lsp.md)) |
 | `k mcp` | The MCP server, over standard input and output, for AI assistants: the docs, the examples and snippet checks ([AI assistants](#ai-assistants), [docs/compiler/mcp.md](../compiler/mcp.md)) |
-| `k toolchain install`, `list`, `remove`, `default`; `k self update` | Install, list, remove and choose the default of the installed toolchains, and update the default to the newest release; the only commands that download ([48-releases-and-versioning.md](48-releases-and-versioning.md#commands)) |
+| `k toolchain install`, `list`, `remove`, `default`; `k self update` | Install, list, remove and choose the default of the installed toolchains, and update the default to the newest release; the only commands that download, from the private repository's releases with the user's GitHub token ([48-releases-and-versioning.md](48-releases-and-versioning.md#commands), "Private distribution") |
+| `k docs [--path]` | Open the running toolchain's book, installed with it in `~/.k/docs/<version>/` (there is no public docs site while the repository is private), or print its path ([48](48-releases-and-versioning.md#private-distribution-decided-2026-11-23)) |
 
 The built executable has its own commands (`serve`, `migrate`, `config`, `probe`, `jobs`), described in [38-deployment.md](38-deployment.md).
 

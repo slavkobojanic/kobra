@@ -211,6 +211,8 @@ fn command_project(command: &Command) -> Option<PathBuf> {
         // names one `k mcp` for every project, and toolchains older than it
         // have no such command (docs/compiler/mcp.md, "Toolchains").
         Command::Mcp { .. } => None,
+        // The running toolchain's own book.
+        Command::Docs(_) => None,
     }
 }
 

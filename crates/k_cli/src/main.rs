@@ -26,8 +26,10 @@ mod cli;
 mod debug;
 #[cfg(feature = "server")]
 mod devenv;
+mod docs;
 mod fix;
 mod fmt;
+mod github;
 mod index;
 mod migrate;
 mod new;
@@ -161,6 +163,7 @@ fn main() -> ExitCode {
         Command::HashPassword => hash_password(),
         Command::Toolchain { command } => toolchains::run(&command),
         Command::Itself { command } => toolchains::run_self(&command),
+        Command::Docs(args) => docs::run(&args),
         Command::Keys { command } => match command {
             cli::KeysCommand::New(args) => keys_new(args.kind),
         },

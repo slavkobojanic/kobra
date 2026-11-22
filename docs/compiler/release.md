@@ -16,9 +16,13 @@ procedure.
 > editor, then the dry run's fixes. **The workflows are switched off**: every job waits for the repository variable
 > `K_CI_ENABLED` ([§9, "Switching CI on"](#switching-ci-on)), so pushing them runs nothing. Sections
 > marked *(planned)* describe files and commands not built yet. The name (Kobra), the namespace
-> (`slavkobojanic/kobra` on GitHub and GHCR), the docs site (`https://slavkobojanic.github.io/kobra/`)
-> and the licence (MIT OR Apache-2.0) are decided ([design 48](../design/48-releases-and-versioning.md#owner-decisions));
-> publishing waits only for the owner to switch it on ([step 15](#12-implementation-plan)'s list), and
+> (`slavkobojanic/kobra` on GitHub and GHCR) and the licence (MIT OR Apache-2.0) are decided
+> ([design 48](../design/48-releases-and-versioning.md#owner-decisions)), and so is **private
+> distribution**: the repository stays private, collaborators install from its GitHub releases with the
+> GitHub CLI, there is no docs site (each release attaches its book, opened with `k docs`), and no CI job
+> runs on macOS (the macOS archive is attached from the owner's Mac, §6)
+> ([design 48, "Private distribution"](../design/48-releases-and-versioning.md#private-distribution-decided-2026-11-23)).
+> Publishing waits only for the owner to switch it on ([step 15](#12-implementation-plan)'s list), and
 > every step up to publishing can be run locally.
 
 Contents:
@@ -61,13 +65,13 @@ Contents:
 | `changes/*.md` | changelog fragments, one per change; `changes/README.md` explains them | exists (the 0.1.0 fragments, one per area) |
 | `changes/_highlights.md` | hand-written release highlights, emptied at each release | exists |
 | `CHANGELOG.md` | every released version's notes, newest first | exists (no version released yet) |
-| `crates/xtask/` | `cargo xtask release prepare`, `check`, `start-next`, `nightly`; `docs-gate`, `fragments`; `docs build`; `dist archive`, `checksums`, `index`, `merge-index`, `smoke`; `ci changed`, `version`, `notes` | exists (`release sync-main` and `release yank` planned) |
+| `crates/xtask/` | `cargo xtask release prepare`, `check`, `start-next`, `nightly`, `attach-local`; `docs-gate`, `fragments`; `docs build`; `dist archive`, `docs`, `checksums`, `index`, `merge-index`, `smoke`; `ci changed`, `version`, `notes` | exists (`release sync-main` and `release yank` planned) |
 | `.github/workflows/ci.yml`, `nightly.yml`, `release.yml` | the pipeline (§9), on GitHub Actions (owner decision, 2026-11-09); every job off until `K_CI_ENABLED` is set; checked by `crates/xtask/tests/workflows.rs` | exist |
 | `.github/actions/setup/`, `.github/actions/site/` | the workflows' shared steps: Rust, mdBook and the caches; assembling the whole docs site | exist |
 | `scripts/ci/` | the few steps that need `gh` or `cosign`: `release-index.sh`, `sign.sh`, `verify.sh`, `nightly-issue.sh` | exist |
 | `docker/toolchain.Dockerfile` | the toolchain image, from a Linux release archive's `k` | exists (built only by the workflows) |
-| `scripts/install.sh`, `scripts/install.ps1` | installers, served from the docs site's root, `https://slavkobojanic.github.io/kobra/install.sh` and `install.ps1` (the docs build fills in `@K_RELEASES@`, the release host, and `@K_TOOLCHAIN_INDEX@`, the index); tested by `crates/k_cli/tests/install_script.rs` | exist |
-| `Cargo.toml` `[workspace.metadata.project]` | **the** name and namespace: `Kobra`, the repository, the docs site, the image, the extension id; read by `docs build` and `release prepare`, checked against the rest by `version.rs` | exists |
+| `scripts/install.sh`, `scripts/install.ps1` | installers for collaborators, piped from the private repository: `gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' \| sh` (`gh api repos/slavkobojanic/kobra/contents/scripts/install.ps1 -H 'Accept: application/vnd.github.raw' \| Out-String \| iex` on Windows); they download with `gh release download` (or curl and `GH_TOKEN`) and install the toolchain and its book; tested by `crates/k_cli/tests/install_script.rs` with a fake `gh` and a fake GitHub API | exist |
+| `Cargo.toml` `[workspace.metadata.project]` | **the** name and namespace: `Kobra`, the repository, the docs site (for the day the repository is public), the image, the extension id; read by `release prepare` and `release attach-local`, checked against the rest by `version.rs` | exists |
 | `LICENSE-MIT`, `LICENSE-APACHE` | the licence (MIT OR Apache-2.0), packed into every archive | exist |
 | `tests/compat/locks/`, `tests/compat/wire/` | golden lockfiles per format and recorded traffic per minor; checked by `crates/k_server/tests/compat/` | exists (format 1 of every lockfile; the 0.1 transcripts) |
 | `crates/k_cli/tests/version.rs` | every version string agrees; `k --version` format | exists (the commit and date in `--version` come with step 1's `build.rs`, in round 3) |
@@ -227,14 +231,32 @@ Timeline for `0.6.0`, with T the planned release day.
    ```
 7. **Bump main** to the next minor in its own pull request: `cargo xtask release start-next 0.7.0`
    sets `0.7.0` and leaves the fragments on main untouched.
-8. The release pipeline (§9) builds the candidate and publishes it as a **pre-release**: archives,
-   checksums, signatures, the index entry (its version carries `-rc.1`, so nothing installs it unless
-   it is named exactly), the extension `.vsix`, the image tag `0.6.0-rc.1`. No docs are deployed for a
-   candidate; `/next/` already shows main.
-9. Announce the candidate with its install line (`k toolchain install 0.6.0-rc.1`, or the install
-   script with `--version 0.6.0-rc.1`: without it the script installs the newest stable release, and
-   says so when there is none), `K_TOOLCHAIN=0.6.0-rc.1` for one command, and ask that `k upgrade --to
-   0.6.0-rc.1` be tried on real projects.
+8. The release pipeline (§9) builds the candidate's Linux and Windows archives and makes a **draft
+   pre-release**: archives, the book, checksums, signatures, the index entry and the whole index (its
+   version carries `-rc.1`, so `k toolchain` installs it only when named exactly), the extension
+   `.vsix`, the image tag `0.6.0-rc.1`.
+9. **Attach the macOS archive** from the owner's Mac (no CI job runs on macOS: the repository is
+   private, where a macOS minute is billed at ten Linux minutes), in a clean checkout of the tag, signed
+   in with `gh auth login` as an account that can write releases:
+   ```sh
+   git switch --detach v0.6.0-rc.1
+   cargo test --workspace                       # the gate's macOS column, by hand
+   K_REQUIRE_CHROME=1 cargo test -p k_cli --test it -- chrome:: dist_browser::
+   cargo xtask release attach-local v0.6.0-rc.1
+   ```
+   `attach-local` builds `aarch64-apple-darwin` with `--locked`, smoke-tests it (`dist smoke`; skip
+   with `--no-smoke` only when it already passed), packs `k-<version>-aarch64-apple-darwin.tar.gz`
+   with the licences, downloads the draft's `SHA256SUMS`, `index-entry.json` and `index.json` with
+   `gh release download`, merges the archive's line and entry into them (replacing an earlier one of the
+   same target, so it can be rerun), and uploads all four with `gh release upload --clobber`.
+   `--archive <file>` attaches an archive built already; `--target` builds another target this Mac
+   can build and run. `x86_64-apple-darwin` isn't offered (it needs V8's x86_64 library, an extra
+   download, and Rosetta to smoke-test). The macOS archive has no Sigstore bundle or provenance, only
+   its `SHA256SUMS` digest. Then publish the draft (a candidate needs no review beyond the jobs passing).
+10. Announce the candidate to the collaborators with its install line (`k toolchain install
+   0.6.0-rc.1`, or the install script with `--version 0.6.0-rc.1`: without it the script installs the
+   newest stable release, and the newest candidate while there is none), `K_TOOLCHAIN=0.6.0-rc.1` for
+   one command, and ask that `k upgrade --to 0.6.0-rc.1` be tried on real projects.
 
 ### T−7 to T: soak
 
@@ -252,15 +274,19 @@ Timeline for `0.6.0`, with T the planned release day.
    This time the fragments are compiled and **deleted**, `CHANGELOG.md` gets its final section with the
    date, and `_highlights.md` is emptied.
 2. `cargo xtask release check`, then commit, tag `v0.6.0`, push the branch and the tag.
-3. The release pipeline runs the full gate on the tag on every target and builds every artifact. It
-   creates a **draft** release; nothing is visible yet.
-4. **The release manager reviews the draft**: every target's smoke test passed, `SHA256SUMS` lists every
-   archive, the signature verification job passed, the notes render, the docs build preview for `/0.6/`
-   looks right (version switcher, upgrade guide section, changelog page).
-5. **Publish the draft.** This one manual step triggers the publish jobs: the index entry, the image tags
-   `0.6.0`, `0.6`, `latest`, the extension to its marketplaces (once chosen), package-manager updates
-   (once chosen), and the docs deploy of `/0.6/` with `/` and `/latest/` pointing at it.
-6. **Merge the release back:** a pull request from `release/0.6` to main carrying `CHANGELOG.md` and the
+3. The release pipeline runs the full gate on the tag on Linux and Windows and builds their artifacts
+   and the book. It creates a **draft** release; nothing is visible yet.
+4. **Attach the macOS archive** from the owner's Mac, as in step 9 of the candidate:
+   `cargo xtask release attach-local v0.6.0` in a checkout of the tag, after the macOS tests.
+5. **The release manager reviews the draft**: every CI target's smoke test passed and the macOS one
+   passed locally, `SHA256SUMS` lists every archive and `docs-0.6.0.tar.gz`, `index.json` lists every
+   target, the signature verification job passed, the notes render, and the book (`k docs` after
+   installing the draft's archive by hand, or the `site` artifact) looks right.
+6. **Publish the draft.** This one manual step triggers the publish jobs: `publish-index` (the
+   release's `index.json` rebuilt from every published release), the image tags `0.6.0`, `0.6`,
+   `latest`, the extension to its marketplaces (once chosen), package-manager updates (once chosen), and,
+   once the repository is public, the docs deploy of `/0.6/` with `/` and `/latest/` pointing at it.
+7. **Merge the release back:** a pull request from `release/0.6` to main carrying `CHANGELOG.md` and the
    book's new changelog and upgrade-guide sections, and deleting on main the fragments that shipped
    (`cargo xtask release sync-main` *(planned)* computes the list).
 
@@ -271,7 +297,8 @@ Timeline for `0.6.0`, with T the planned release day.
 1. The fix is on main, with its fragment (`kind: fix`, or `breaking` for a soundness or security fix).
 2. Cherry-pick it to `release/0.6`, fragment included.
 3. `cargo xtask release prepare 0.6.1`, `cargo xtask release check`, commit, tag `v0.6.1`, push.
-4. Steps 3–6 of "T: the release" above. The docs deploy replaces `/0.6/`.
+4. Steps 3–7 of "T: the release" above (the macOS archive included). The release's book replaces the
+   minor's, and once the repository is public the docs deploy replaces `/0.6/`.
 
 `cargo xtask release prepare` refuses a patch whose fragments include `deprecation`, `language`,
 `stdlib` or `preview` kinds, and warns on `breaking`, so a minor's changes can't slip into a patch.
@@ -286,9 +313,9 @@ A **docs-only fix** to a released minor needs no tag: merge it into `release/0.6
 - **Scheduled once a day** on main *(planned: skipped if main hasn't changed since the last nightly)*.
 - Runs the nightly column of the gate: every target's tests, fuzzing for a fixed time per target, long
   property runs, performance budgets on the dedicated runner, the smoke tests and the image build.
-- **On green**, publishes `0.7.0-nightly.<date>` (archives, `SHA256SUMS`, its index entry, as a GitHub
-  pre-release; the next Pages deploy adds it to the index and rebuilds `/next/`, which every push to main
-  also does). *(Planned: the image tag `nightly` and the extension as a pre-release.)*
+- **On green**, publishes `0.7.0-nightly.<date>` (the Linux and Windows archives, main's book,
+  `SHA256SUMS`, its index entry and the whole index, as a GitHub pre-release). Nightlies have no macOS
+  archive. *(Planned: the image tag `nightly` and the extension as a pre-release.)*
 - **On red**, publishes nothing, opens or updates one issue with the failing jobs, and blocks the next
   branch cut until a later nightly is green.
 - New fuzz crashes are minimised and committed under `fuzz/artifacts/` with a regression case in the
@@ -313,7 +340,7 @@ The switches are repository variables (Settings → Secrets and variables → Ac
 | Variable | Turns on |
 |---|---|
 | `K_CI_ENABLED` = `true` | every job: pull requests, pushes, the nightly, the release jobs of a pushed `v*` tag |
-| `K_PAGES_ENABLED` = `true` | also the Pages deploys (`pages` in `ci.yml` and `release.yml`); first set Settings → Pages → Source to "GitHub Actions" |
+| `K_PAGES_ENABLED` = `true` | also the Pages deploys (`pages` in `ci.yml` and `release.yml`); first set Settings → Pages → Source to "GitHub Actions". **Leave it unset while the repository is private** (GitHub's Free plan has no Pages for a private repository); it is for the day the repository goes public (design 48, "Private distribution") |
 | `K_PUBLISH_ENABLED` = `true` | also anything that publishes: the nightly pre-release, pushing toolchain images, the `publish-*` jobs of a published release |
 | `K_PERF_RUNNER` = a runner label | the performance budgets (`perf`, `gate-perf`) on that self-hosted runner; unset, they are skipped |
 
@@ -330,11 +357,15 @@ or if a row of design 48's gate isn't run where its columns say.
 |---|---|---|
 | `lint` | Linux x86_64 | `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `k fmt --check examples` (a compiler-only `k`: `cargo run -p k_cli --no-default-features`) |
 | `test-linux` | Linux x86_64, with a Postgres service and Chrome | `cargo test --workspace` with `K_TEST_POSTGRES_URL` and `K_REQUIRE_CHROME=1` |
-| `test-macos` | macOS arm64 | `cargo test --workspace` |
 | `book` | Linux x86_64 | `cargo xtask docs build --version next` (the book, any mdBook warning or error fails), the link check (`book_links::`; the other freshness checks are inside `cargo test`); when `docs/book/` or `crates/xtask/` changed (`cargo xtask ci changed`), the built site uploaded as an artifact (the PR preview until the owner picks a host with previews) |
 | `fragments` | Linux x86_64; pull requests only | `cargo test -p xtask`; `cargo xtask docs-gate <base>` (a fragment when `crates/`, `editors/` or `docs/book/` changed, and its pages in the diff) |
-| `install-scripts` | Linux, macOS, Windows; only when `scripts/install.*` or their tests changed | `install_script::`: each installer against a fake release served on loopback |
-| `pages` | Linux x86_64; pushes to main, after the jobs above; needs `K_PAGES_ENABLED` | the whole site (the newest release from its tag, `/next/` from main, the index) deployed to GitHub Pages |
+| `install-scripts` | Linux x86_64; only when `scripts/install.*` or their tests changed | `install_script::`: each installer against a fake release, with a fake `gh` and a fake GitHub API on loopback |
+| `pages` | Linux x86_64; pushes to main, after the jobs above; needs `K_PAGES_ENABLED` (unset while the repository is private) | the whole site (the newest release from its tag, `/next/` from main, the index) deployed to GitHub Pages |
+
+**Linux only.** The repository is private, where GitHub bills a macOS minute at ten Linux minutes and a
+Windows minute at two: pull requests and pushes run on Linux, Windows is tested by the tag's and the
+nightly's gate, and macOS on the owner's Mac before each release (§6). `workflows.rs` fails when a
+workflow names a macOS runner or target.
 
 Caching: the cargo registry, `~/.cargo/bin` (mdBook, `cargo-fuzz`) and `target/`, keyed by `Cargo.lock`,
 the runner and the job; `target/` holds the V8 library that `deno_core`'s build downloads.
@@ -346,15 +377,15 @@ change.)*
 
 | Job | Runner | Runs |
 |---|---|---|
-| `test` | one per target ([design 48](../design/48-releases-and-versioning.md#artifacts)) | `cargo test --workspace` |
+| `test` | one per CI target: Linux x86_64 and arm64, Windows x86_64 | `cargo test --workspace` |
 | `services` | Linux x86_64 with Postgres | `cargo test -p k_db -p k_server` on Postgres, `chrome:: dist_browser::` with `K_REQUIRE_CHROME=1`, `install_script::` |
-| `lint-and-docs` | Linux x86_64 | formatting, lints, `k fmt --check examples`, `cargo xtask docs build --version next`, `compat::` |
+| `lint-and-docs` | Linux x86_64 | formatting, lints, `k fmt --check examples`, `cargo xtask docs build --version next` (uploaded as the nightly's book), `compat::` |
 | `properties` | Linux x86_64 | the property suites with raised `PROPTEST_CASES` ([testing.md §2](testing.md#2-running-tests)) |
 | `fuzz` | Linux x86_64, one per target | `fuzz/seed-corpus.sh`, then `cargo +nightly fuzz run <target> -- -max_total_time=600`; a crash is uploaded |
 | `perf` | `K_PERF_RUNNER` | `scripts/bench-check.sh` |
-| `build` | one per target; Linux in `rust:bullseye` (glibc 2.31) | `cargo xtask release nightly` (the version `X.Y.Z-nightly.<date>`, in the checkout only), `cargo build --release -p k_cli --locked`, `cargo xtask dist archive`, `cargo xtask dist smoke` |
+| `build` | one per CI target; Linux in `rust:bullseye` (glibc 2.31) | `cargo xtask release nightly` (the version `X.Y.Z-nightly.<date>`, in the checkout only), `cargo build --release -p k_cli --locked`, `cargo xtask dist archive`, `cargo xtask dist smoke` |
 | `image` | Linux x86_64 and arm64 | build `docker/toolchain.Dockerfile` from the archive's `k`, then `examples/shop/Dockerfile` with it |
-| `publish-nightly` | needs every job above but `perf`; needs `K_PUBLISH_ENABLED` | `SHA256SUMS`, the index entry, and a GitHub pre-release `v<version>` with the archives; the next Pages deploy adds it to the index |
+| `publish-nightly` | needs every job above but `perf`; needs `K_PUBLISH_ENABLED` | `cargo xtask dist docs` (main's book as `docs-<version>.tar.gz`), `SHA256SUMS`, the index entry, the whole index (`scripts/ci/release-index.sh`), and a GitHub pre-release `v<version>` with them and the archives |
 | `report` | when anything failed | opens or comments on the one `nightly-failure` issue (`scripts/ci/nightly-issue.sh`) |
 
 *(Planned: the nightly's image tag `nightly` and the extension pre-release; marketplaces wait for the
@@ -362,20 +393,23 @@ name.)*
 
 ### `release.yml`: a pushed `v*` tag
 
-1. **The gate** on the tag: `gate-test` (`cargo test --workspace` and `install_script::` on every
-   target), `gate-services` (Postgres, real Chrome on Linux), `gate-chrome-macos`, `gate-checks`
+1. **The gate** on the tag: `gate-test` (`cargo test --workspace` and `install_script::` on Linux
+   x86_64 and arm64 and Windows x86_64), `gate-services` (Postgres, real Chrome on Linux), `gate-checks`
    (formatting, lints, `k fmt --check examples`, `cargo xtask fragments --none-left`, `version::`, `cargo test -p xtask`,
    `compat::`, `cargo xtask docs build --version <tag>`), `gate-properties` (a shorter run),
    `gate-fuzz` (each target over its seeds, no new inputs: `fuzz/seed-corpus.sh` fills the
    git-ignored `fuzz/corpus` from committed files, then `cargo +nightly fuzz run <target>
    fuzz/corpus/<target> -- -runs=0`), `gate-perf` (on `K_PERF_RUNNER`; skipped without
-   one, and then run by hand, §6).
-2. **`build`**: per target on its native runner, `--locked`; Linux in `rust:bullseye` for the glibc
-   2.31 baseline; `cargo xtask dist archive` names it `k-<version>-<target>.tar.gz` (`.zip` on Windows).
+   one, and then run by hand, §6). The macOS column runs on the owner's Mac (§6).
+2. **`build`**: per CI target (Linux x86_64 and arm64, Windows x86_64) on its native runner,
+   `--locked`; Linux in `rust:bullseye` for the glibc 2.31 baseline; `cargo xtask dist archive` names it
+   `k-<version>-<target>.tar.gz` (`.zip` on Windows). The macOS archive is attached later from the
+   owner's Mac (`cargo xtask release attach-local`, §6).
 3. **`smoke`**: on a fresh runner of the target: unpack the archive, then `cargo xtask dist smoke`
    (`k new hello`, `k check`, `k test`, `k build`, `dist/app serve`, `dist/app probe …/_k/health`).
-4. **`checksums`**: `cargo xtask dist checksums` (`SHA256SUMS`) and `cargo xtask dist index`
-   (`index-entry.json`, this release's entry of the toolchain index).
+4. **`checksums`**: `cargo xtask dist checksums` (`SHA256SUMS`, over the archives and the book) and
+   `cargo xtask dist index` (`index-entry.json`, this release's entry of the toolchain index, with the
+   book as `docs`).
 5. **`sign`**: a Sigstore bundle per archive (`scripts/ci/sign.sh`, keyless, `id-token: write`) and
    build provenance (`actions/attest-build-provenance`), then **`verify`**, which downloads the
    artifacts as a user would and checks the digests and the signatures against the workflow's
@@ -385,16 +419,21 @@ name.)*
 7. **`image`**: the toolchain image per architecture, checked by building `examples/shop` with it; pushed
    as `<version>-amd64` and `<version>-arm64` only with `K_PUBLISH_ENABLED`.
 8. **`docs`**: `cargo xtask docs build --version <tag>`, the book with the version substituted, uploaded
-   as an artifact for review (not deployed yet).
+   as an artifact for review, and `cargo xtask dist docs target/site/<minor>`, the book as
+   `docs-<version>.tar.gz`, which the release attaches and the installers unpack for `k docs`.
 9. **`draft`**: a draft release (a pre-release for a candidate) with the notes from `CHANGELOG.md`
    (`cargo xtask ci notes --links <repository>/blob/<tag>`, which makes the book links absolute: a
-   release page doesn't resolve relative ones), every archive, `SHA256SUMS`, `index-entry.json`, the signatures and the
-   `.vsix`. It waits for every job above; a skipped `gate-perf` doesn't block it, a failed one does.
+   release page doesn't resolve relative ones), every archive, the book, `SHA256SUMS`,
+   `index-entry.json`, `index.json` (every published release's entry merged with this one's,
+   `scripts/ci/release-index.sh`), the signatures and the `.vsix`. It waits for every job above; a
+   skipped `gate-perf` doesn't block it, a failed one does.
 
 **On publishing the draft** (`release: published`), the same file runs (a separate `publish.yml` was
-folded in, so one test covers the whole release): `publish-image` (the multi-arch `<version>` tag, and
-for a release, not a candidate, `X.Y` and `latest`; needs `K_PUBLISH_ENABLED`) and `pages` (needs
-`K_PAGES_ENABLED`): the site rebuilt whole by `.github/actions/site`: `cargo xtask docs build --version
+folded in, so one test covers the whole release): `publish-index` (the release's `index.json` rebuilt
+from every published release's `index-entry.json`, the macOS entry `attach-local` merged included, and
+uploaded over the draft's; needs `K_PUBLISH_ENABLED`), `publish-image` (the multi-arch `<version>` tag,
+and for a release, not a candidate, `X.Y` and `latest`; needs `K_PUBLISH_ENABLED`) and, once the
+repository is public, `pages` (needs `K_PAGES_ENABLED`): the site rebuilt whole by `.github/actions/site`: `cargo xtask docs build --version
 latest` (the newest stable release, from its tag, with `/` and `/latest/` pointing at it), `--version
 next --from origin/main`, `versions.json`, the install scripts with the release host filled in, and
 `index.json` merged from every published release's `index-entry.json` (`scripts/ci/release-index.sh`,
@@ -403,7 +442,7 @@ is idempotent, so a failed one is re-run on its own. *(Planned: the marketplace 
 once the owner enables them; yanking through the index, with `cargo xtask release yank`.)*
 
 **Permissions:** the workflow token is read-only by default; only `sign` (`id-token`, `attestations`),
-`draft` (`contents`), `image` and `publish-image` (`packages`), `pages` (`pages`, `id-token`),
+`draft` and `publish-index` (`contents`), `image` and `publish-image` (`packages`), `pages` (`pages`, `id-token`),
 `publish-nightly` (`contents`) and `report` (`issues`) get write access, which `workflows.rs` checks.
 Marketplace and package-manager tokens, once chosen, are environment secrets scoped to a `release`
 environment that requires a maintainer's approval.
@@ -412,13 +451,14 @@ environment that requires a maintainer's approval.
 
 ## 10. After publishing
 
-1. **Install as a user would**, on a machine without K: the install script from the docs site, then
-   `k --version`, `k new hello && cd hello && k dev`.
+1. **Install as a collaborator would**, on a machine without Kobra, signed in with `gh auth login`:
+   `gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh`, then `k --version`, `k docs --path`, `k new hello && cd hello && k dev`.
 2. **Upgrade as a user would:** on a project pinned to the previous minor, `k toolchain install`,
    `k upgrade`, `k check`. Note anything `k upgrade` couldn't fix that the upgrade guide doesn't cover,
    and fix the guide on the release branch.
-3. **Check the docs:** `/` lands on the new minor, the version switcher lists it, `/next/` still builds
-   from main, an old minor's URL redirects (before 1.0).
+3. **Check the docs:** `k docs` opens the new release's book. Once the repository is public: `/` lands on
+   the new minor, the version switcher lists it, `/next/` still builds from main, an old minor's URL
+   redirects (before 1.0).
 4. **Close the release checklist issue** with the performance numbers and links to the artifacts.
 
 ---
@@ -427,13 +467,14 @@ environment that requires a maintainer's approval.
 
 - **Never delete or re-tag.** Projects' `k.lock` files and other people's caches name the version.
 - **Yank:** mark the version `yanked` in the index (`cargo xtask release yank 0.6.1` *(planned)* opens
-  the pull request; the publish job deploys the index). `k toolchain install` then skips it unless it is
+  the pull request; the newest release's `index.json` is replaced with the marked one). `k toolchain install` then skips it unless it is
   named exactly, and `k toolchain list` and the delegation diagnostic say it is yanked, with the reason
   (as of the index each machine last fetched: nothing is fetched to say so).
   Its archives stay downloadable, so pinned builds still reproduce.
 - **Fix forward:** the next patch, through §7, with a fragment explaining the problem and the fix.
-- **A wrong docs deploy:** rerun the docs job from the release branch; the docs are a pure function of
-  the branch.
+- **A wrong book:** rebuild it from the release branch (`cargo xtask docs build`, `cargo xtask dist
+  docs`) and replace the release's `docs-<version>.tar.gz` and its `SHA256SUMS` line; once the repository
+  is public, rerun the docs job. The docs are a pure function of the branch.
 - **A security problem:** reported privately (the address is in `SECURITY.md` *(planned)*); fixed in a
   private fork; patch releases are prepared for the newest minor and, when it is affected, the previous
   one; published together, with an advisory. The fragment is written only in the private fork.
@@ -500,7 +541,8 @@ in round 5.
    `default`, `self update`, no index), the unit tests of `index` and `archive`. Decisions in design 48,
    "Commands: decided while implementing": the index format, the `$K_HOME` layout (`bin/k` is a copy
    of the default, recorded in `$K_HOME/default`), a built-in index URL only in release builds (the
-   workflows set `K_DEFAULT_TOOLCHAIN_INDEX` to the site's `index.json`),
+   workflows set `K_DEFAULT_TOOLCHAIN_INDEX` to the site's `index.json`; replaced on 2026-11-23 by
+   the private repository's releases, read with the user's token),
    yanked notes from the last fetched index, and `k upgrade` still never downloading.
 5. **Lockfile format versions.** Golden files under `tests/compat/locks/` for today's format 1 of every
    lockfile; tests that a missing `format` reads as 1, a `format` newer than known is the new
@@ -623,6 +665,16 @@ in round 5.
     so every Unix target is tried on one machine; the `install.ps1` test runs where `pwsh` is installed
     (CI's Windows job) and says it was skipped elsewhere. `scripts/affected-tests.sh` maps a change in
     `scripts/` to the tests that name the directory.
+    *Since the private distribution (2026-11-23):* `K_RELEASES` and `K_TOOLCHAIN_INDEX` are gone. The
+    scripts reach `slavkobojanic/kobra` with `gh` (`gh api` for JSON, `gh release download` for
+    assets), or without `gh` with curl and `GH_TOKEN`/`GITHUB_TOKEN` through the REST API
+    (`K_GITHUB_API` points it at a fake; `K_INSTALL_GH=none` forces curl); they check access first (a 404
+    says "you may not have access to slavkobojanic/kobra"), take the newest stable from
+    `releases/latest`, else the newest candidate from the newest release's `index.json`, and unpack
+    `docs-<version>.tar.gz` into `$K_HOME/docs/<version>/`. The tests run them against
+    `support/release.rs`'s fake release laid out as the API serves it, with a fake `gh`
+    (`release::fake_gh`: signed in, signed out, no access) first on the `PATH`, and for curl a
+    loopback API whose asset URLs redirect to a second host, which must never see the token.
 12. **Docs version substitution and the docs build.** Tests: `{{k_version}}` is replaced in every page;
     `versions.json` is generated from the tags and branch; the site layout (`/0.N/`, `/next/`, redirects
     for `/` and `/latest/`) is produced by `cargo xtask docs build --version 0.1 --out …` into a
@@ -643,10 +695,9 @@ in round 5.
     minor from 1.0 on), `index.html` and one redirect page per page of the newest minor under
     `latest/` (relative, so the site works below any path; `next/` before any release), a `404.html` that
     sends `latest/…` and a retired minor's pages to the newest minor's same page and a missing page of a
-    live version to its landing page, `.nojekyll`, and the install scripts with `@K_RELEASES@` and
-    `@K_TOOLCHAIN_INDEX@` replaced by `--releases` and `--index`, by default the project's
-    (`https://github.com/slavkobojanic/kobra/releases`, `https://slavkobojanic.github.io/kobra/index.json`,
-    from `[workspace.metadata.project]`), taken from the newest minor's source, or the first build's. The theme's
+    live version to its landing page, `.nojekyll`, and the install scripts, taken from the newest minor's source, or the first build's
+    (until 2026-11-23 with `@K_RELEASES@` and `@K_TOOLCHAIN_INDEX@` filled in from `--releases` and
+    `--index`; the scripts now need nothing filled in, and the options are gone). The theme's
     `theme/k-version.js` reads `versions.json` to add the version switcher (same page in another version)
     and the banner on `/next/` and on an archived minor; it does nothing in a book outside a version
     directory. Decisions in design 48, "Docs versioning: decided while implementing". The lexer
@@ -737,18 +788,25 @@ in round 5.
 
     **Settled since (2026-11-23):** the name (Kobra; the command stays `k`, files `.k`), the namespace
     (`github.com/slavkobojanic/kobra`, `ghcr.io/slavkobojanic/kobra`, the extension
-    `slavkobojanic.kobra`), the docs site (`https://slavkobojanic.github.io/kobra/`, which serves
-    `install.sh`, `install.ps1` and `index.json`, and which release builds take their built-in index
-    from) and the licence (MIT OR Apache-2.0, both files in every archive); design 48, "Owner
-    decisions".
+    `slavkobojanic.kobra`) and the licence (MIT OR Apache-2.0, both files in every archive); design 48,
+    "Owner decisions". Then, the same day, **private distribution** (design 48, "Private
+    distribution"): the repository stays private; collaborators install with the GitHub CLI
+    (`gh api …/contents/scripts/install.sh … | sh`); `k toolchain` and `k self update` read the
+    releases through GitHub's API with `GH_TOKEN`, `GITHUB_TOKEN` or `gh auth token`, sent to the API
+    only (`crates/k_cli/src/github.rs`; tests `toolchain::commands::`); every release attaches its book
+    (`cargo xtask dist docs`) and the whole `index.json`; `k docs` opens the installed book
+    (`docs_command::`); no workflow runs on macOS, and `cargo xtask release attach-local` builds and
+    attaches the macOS archive from the owner's Mac (§6; tests `dist::attach_local_*` with a fake
+    `gh`); the docs site, `K_DEFAULT_TOOLCHAIN_INDEX` and the docs build's `--releases`/`--index` are
+    gone, the Pages jobs kept behind `K_PAGES_ENABLED` for the day the repository is public.
 
     **What only the owner can do** before a real `0.1.0-rc.1`
     ([design 48, "Owner decisions"](../design/48-releases-and-versioning.md#owner-decisions)): rename
-    the GitHub repository to `slavkobojanic/kobra` (GitHub redirects the old name), make it public and
-    push `main`; switch CI on (`K_CI_ENABLED`), then Pages (Settings → Pages → Source "GitHub
-    Actions", `K_PAGES_ENABLED`) and publishing (`K_PUBLISH_ENABLED`); choose the required checks and
+    the GitHub repository to `slavkobojanic/kobra` (GitHub redirects the old name), keep it private and
+    push `main`; switch CI on (`K_CI_ENABLED`), then publishing (`K_PUBLISH_ENABLED`; not
+    `K_PAGES_ENABLED`, which waits for the repository to go public); choose the required checks and
     the performance runner (`K_PERF_RUNNER`); check that the Sigstore identity `verify.sh` expects is
-    the repository's; and push `release/0.1` and the tag `v0.1.0-rc.1` (§6 step 6), which starts the
-    first real pipeline run, expected to need fixes since no workflow has run on GitHub yet. Until a
-    release is published, `curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh` has
-    nothing to install.
+    the repository's; push `release/0.1` and the tag `v0.1.0-rc.1` (§6 step 6), which starts the
+    first real pipeline run, expected to need fixes since no workflow has run on GitHub yet; then
+    attach the macOS archive (`cargo xtask release attach-local v0.1.0-rc.1`, §6 step 9) and publish
+    the draft. Until a release is published, `gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh` has nothing to install; it says so.

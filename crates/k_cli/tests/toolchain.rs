@@ -4,7 +4,14 @@
 //! an installed toolchain, `K_TOOLCHAIN` and `K_TOOLCHAIN_DELEGATED`; and
 //! (step 4) `k toolchain install | list | remove | default` and `k self
 //! update` against a fake release (`support/release.rs`) served on loopback
-//! by `support/static_host.rs`, with `K_TOOLCHAIN_INDEX` pointing at it.
+//! by `support/static_host.rs`, with `K_TOOLCHAIN_INDEX` pointing at it,
+//! or laid out as GitHub's REST API serves the private repository's
+//! releases (`K_GITHUB_API`), to check that the token goes to the API and
+//! to no other host.
+//!
+//! No test reaches GitHub: every `k` runs with `GH_TOKEN` and
+//! `GITHUB_TOKEN` removed, `K_GITHUB_API` on a closed loopback port and a
+//! fake, signed-out `gh` first on the `PATH`, unless the test sets them.
 //!
 //! The installed toolchains are fakes: `$K_HOME/toolchains/<version>/k` is
 //! a shell script that prints its version, arguments, working directory,
@@ -97,12 +104,31 @@ impl Fixture {
         self.k_in(&self.project(), args, env, stdin)
     }
 
+    /// A directory holding a fake `gh` that is signed out, put first on
+    /// the `PATH` of every `k` this fixture runs.
+    fn no_gh(&self) -> PathBuf {
+        let dir = self.root.join("no-gh");
+        #[cfg(unix)]
+        if !dir.join("gh").exists() {
+            crate::release::fake_gh(&dir, &self.root, crate::release::Gh::SignedOut);
+        }
+        dir
+    }
+
     fn k_in(&self, dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {
+        let path = std::env::join_paths(std::iter::once(self.no_gh()).chain(
+            std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+        ))
+        .unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_k"));
         command
             .args(args)
             .current_dir(dir)
             .env("K_HOME", self.home())
+            .env("PATH", path)
+            .env("K_GITHUB_API", "http://127.0.0.1:9")
+            .env_remove("GH_TOKEN")
+            .env_remove("GITHUB_TOKEN")
             .env_remove("K_TOOLCHAIN")
             .env_remove("K_TOOLCHAIN_DELEGATED")
             .env_remove("K_TOOLCHAIN_INDEX")
@@ -943,15 +969,24 @@ mod commands {
     }
 
     #[test]
-    fn without_an_index_nothing_is_downloaded() {
+    fn without_a_token_nothing_is_downloaded() {
+        // No K_TOOLCHAIN_INDEX: the private repository's releases, which
+        // need a token; none is set and `gh` is signed out.
         let fx = Fixture::new("no-index");
-        let out = fx.k(&["toolchain", "install", "99.1.0"], &[], "");
-        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
-        assert!(
-            text(&out.stderr).contains("set K_TOOLCHAIN_INDEX"),
-            "{}",
-            describe(&out)
-        );
+        let api = StaticHost::start(&fx.root);
+        let url = format!("http://{}", api.addr);
+        for args in [
+            &["toolchain", "install", "99.1.0"][..],
+            &["self", "update"][..],
+        ] {
+            let out = fx.k(args, &[("K_GITHUB_API", &url)], "");
+            assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+            let err = text(&out.stderr);
+            assert!(err.contains("gh auth login"), "{}", describe(&out));
+            assert!(err.contains("GH_TOKEN"), "{}", describe(&out));
+            assert!(err.contains("slavkobojanic/kobra"), "{}", describe(&out));
+        }
+        assert!(api.requests().is_empty(), "{:?}", api.requests());
         // An index of a newer format is refused.
         let r = Release::new("new-format", &["99.1.0"], &[]);
         fs::write(
@@ -977,5 +1012,218 @@ mod commands {
             "{}",
             describe(&out)
         );
+    }
+
+    // -------------------------------------------------------------- GitHub
+
+    /// A fake release published as the private repository's releases:
+    /// `api` serves GitHub's REST API, whose asset URLs redirect to
+    /// `assets`, the storage host.
+    struct Github {
+        fx: Fixture,
+        release: FakeRelease,
+        api: StaticHost,
+        assets: StaticHost,
+    }
+
+    impl Github {
+        fn new(tag: &str, versions: &[&str], latest: Option<&str>) -> Github {
+            let fx = Fixture::new(tag);
+            let mut release = FakeRelease::new(&fx.root.join("release"));
+            for v in versions {
+                release.archive(v, host_target(), &tool(), &script(v));
+                release.docs(v);
+            }
+            fs::create_dir_all(release.root.join("api")).unwrap();
+            fs::create_dir_all(release.root.join("objects")).unwrap();
+            let api = StaticHost::start(&release.root.join("api"));
+            let assets = StaticHost::start(&release.root.join("objects"));
+            release.github(
+                &format!("http://{}", api.addr),
+                Some(&format!("http://{}", assets.addr)),
+                latest,
+                &[],
+            );
+            Github {
+                fx,
+                release,
+                api,
+                assets,
+            }
+        }
+
+        fn api_url(&self) -> String {
+            format!("http://{}", self.api.addr)
+        }
+
+        /// Runs `k args` with the fake API and `env`.
+        fn k(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
+            let api = self.api_url();
+            let mut all = vec![("K_GITHUB_API", api.as_str())];
+            all.extend_from_slice(env);
+            self.fx.k_in(&self.fx.root, args, &all, "")
+        }
+
+        fn toolchain(&self, version: &str) -> PathBuf {
+            self.fx.home().join("toolchains").join(version)
+        }
+    }
+
+    /// Every request `host` answered, as `target authorization`.
+    fn seen(host: &StaticHost) -> Vec<String> {
+        host.requests()
+            .iter()
+            .map(|r| {
+                format!(
+                    "{} {}",
+                    r.target,
+                    r.header("authorization").unwrap_or("(no token)")
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn from_github_the_index_and_archives_come_through_the_api_with_the_token() {
+        let gh = Github::new("github", &["99.1.0", "99.2.0"], Some("99.2.0"));
+        let out = gh.k(
+            &["toolchain", "install", "99.1.0"],
+            &[("GH_TOKEN", "gho_secret")],
+        );
+        ok(&out);
+        assert_eq!(
+            fs::read_to_string(gh.toolchain("99.1.0").join(tool())).unwrap(),
+            script("99.1.0")
+        );
+        // The book is installed with it, for `k docs`.
+        let book = gh.fx.home().join("docs/99.1.0/index.html");
+        assert!(
+            fs::read_to_string(&book).unwrap().contains("book 99.1.0"),
+            "{}",
+            describe(&out)
+        );
+        // Every API request carried the token; the storage host, reached
+        // by the API's redirects, never saw it.
+        let api = seen(&gh.api);
+        assert!(api.len() >= 3, "{api:#?}");
+        for line in &api {
+            assert!(line.ends_with(" Bearer gho_secret"), "{api:#?}");
+        }
+        assert!(api.iter().any(|l| l.contains("/releases?")), "{api:#?}");
+        assert!(
+            api.iter().any(|l| l.contains("/releases/tags/v99.1.0")),
+            "{api:#?}"
+        );
+        let stored = seen(&gh.assets);
+        assert!(stored.len() >= 2, "{stored:#?}");
+        for line in &stored {
+            assert!(line.ends_with(" (no token)"), "{stored:#?}");
+        }
+        // `k self update` takes the newest stable the same way.
+        let out = gh.k(&["self", "update"], &[("GITHUB_TOKEN", "gho_other")]);
+        ok(&out);
+        assert!(
+            text(&out.stderr).contains("k 99.2.0 is now the default"),
+            "{}",
+            describe(&out)
+        );
+        assert!(
+            seen(&gh.api)
+                .iter()
+                .any(|l| l.ends_with(" Bearer gho_other"))
+        );
+    }
+
+    #[test]
+    fn without_gh_token_the_token_is_ghs() {
+        let gh = Github::new("gh-token", &["99.1.0"], Some("99.1.0"));
+        let bin = gh.fx.root.join("gh-bin");
+        crate::release::fake_gh(
+            &bin,
+            &gh.release.root,
+            crate::release::Gh::SignedIn("gho_from_gh"),
+        );
+        let path = std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )))
+        .unwrap();
+        let path = path.to_string_lossy().into_owned();
+        let out = gh.k(&["toolchain", "install", "99.1.0"], &[("PATH", &path)]);
+        ok(&out);
+        let api = seen(&gh.api);
+        assert!(!api.is_empty());
+        for line in &api {
+            assert!(line.ends_with(" Bearer gho_from_gh"), "{api:#?}");
+        }
+        let log = fs::read_to_string(gh.release.root.join("gh.log")).unwrap();
+        assert!(log.contains("gh auth token"), "{log}");
+    }
+
+    #[test]
+    fn an_index_on_another_host_never_gets_the_token() {
+        // K_TOOLCHAIN_INDEX names a host that isn't GitHub's API: neither
+        // the index nor its archives are fetched with the token.
+        let r = Release::new("other-host", &["99.1.0"], &[]);
+        let api = StaticHost::start(&r.fx.root);
+        let api_url = format!("http://{}", api.addr);
+        let index = r.index_url();
+        let out = r.fx.k_in(
+            &r.fx.root,
+            &["toolchain", "install", "99.1.0"],
+            &[
+                ("K_TOOLCHAIN_INDEX", &index),
+                ("K_GITHUB_API", &api_url),
+                ("GH_TOKEN", "gho_secret"),
+            ],
+            "",
+        );
+        ok(&out);
+        let other = seen(&r.host);
+        assert!(other.len() >= 2, "{other:#?}");
+        for line in &other {
+            assert!(line.ends_with(" (no token)"), "{other:#?}");
+        }
+        assert!(api.requests().is_empty());
+    }
+
+    #[test]
+    fn a_404_from_github_says_the_account_may_have_no_access() {
+        // The API answers 404 for a repository the token can't see.
+        let fx = Fixture::new("no-access");
+        fs::create_dir_all(fx.root.join("empty")).unwrap();
+        let api = StaticHost::start(&fx.root.join("empty"));
+        let url = format!("http://{}", api.addr);
+        let out = fx.k(
+            &["toolchain", "install", "99.1.0"],
+            &[("K_GITHUB_API", &url), ("GH_TOKEN", "gho_secret")],
+            "",
+        );
+        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+        let err = text(&out.stderr);
+        assert!(
+            err.contains("you may not have access to slavkobojanic/kobra"),
+            "{err}"
+        );
+        assert!(err.contains("gh auth login"), "{err}");
+    }
+
+    #[test]
+    fn with_only_candidates_on_github_the_choice_names_them() {
+        // No `releases/latest`: the index still comes from the newest
+        // published release.
+        let gh = Github::new("candidates", &["99.1.0-rc.1", "99.1.0-rc.2"], None);
+        let out = gh.k(&["toolchain", "install"], &[("GH_TOKEN", "gho_secret")]);
+        assert_eq!(out.status.code(), Some(1), "{}", describe(&out));
+        assert!(
+            text(&out.stderr).contains("k toolchain install 99.1.0-rc.2"),
+            "{}",
+            describe(&out)
+        );
+        let out = gh.k(
+            &["toolchain", "install", "99.1.0-rc.1"],
+            &[("GH_TOKEN", "gho_secret")],
+        );
+        ok(&out);
+        assert!(gh.toolchain("99.1.0-rc.1").join(tool()).is_file());
     }
 }

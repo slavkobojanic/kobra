@@ -6,25 +6,36 @@ formatter, development server, migration tool, language server, MCP server and s
 
 ## Install
 
-On Linux (x86_64 or arm64, glibc 2.31 or newer) and macOS:
+The repository is private, so Kobra installs for people who have access to it. Install the
+[GitHub CLI](https://cli.github.com) and sign in with an account that can read
+`slavkobojanic/kobra`:
 
 ```sh
-curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh
+gh auth login
+```
+
+Then, on Linux (x86_64 or arm64, glibc 2.31 or newer) and macOS:
+
+```sh
+gh api repos/slavkobojanic/kobra/contents/scripts/install.sh -H 'Accept: application/vnd.github.raw' | sh
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-irm https://slavkobojanic.github.io/kobra/install.ps1 | iex
+gh api repos/slavkobojanic/kobra/contents/scripts/install.ps1 -H 'Accept: application/vnd.github.raw' | Out-String | iex
 ```
 
-The script downloads the newest release from [GitHub Releases](https://github.com/slavkobojanic/kobra/releases),
-verifies it against the release's `SHA256SUMS` and installs it into `~/.k` (until the first stable release, the
-newest release candidate). Then:
+The script downloads the newest release from the repository's
+[GitHub Releases](https://github.com/slavkobojanic/kobra/releases) with your sign-in (or `GH_TOKEN`
+and curl, without `gh`), verifies it against the release's `SHA256SUMS` and installs it, with its book,
+into `~/.k` (until the first stable release, the newest release candidate). Then:
 
 ```sh
 k new hello && cd hello && k dev
 ```
+
+`k self update` installs newer releases the same way, through your `gh` sign-in or `GH_TOKEN`.
 
 ## AI assistants
 
@@ -40,8 +51,9 @@ See [AI assistants](docs/book/src/getting-started/ai-assistants.md) in the book,
 
 ## Documentation
 
-The book, with a quick start, a tutorial and the reference, is at
-**[slavkobojanic.github.io/kobra](https://slavkobojanic.github.io/kobra/)**. Its source is
+The book, with a quick start, a tutorial and the reference, is installed with every toolchain: `k docs`
+opens it (`k docs --path` prints where it is). There is no public docs site while the repository is
+private. In a checkout, `mdbook serve docs/book` serves it from its source,
 [docs/book](docs/book/README.md). For contributors:
 
 - Language design: [docs/design](docs/design/README.md)

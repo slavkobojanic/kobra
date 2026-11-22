@@ -204,15 +204,6 @@ pub struct Options {
     pub out: PathBuf,
     /// The release tags; read from git when `None`.
     pub tags: Option<Vec<String>>,
-    /// The release host filled into the install scripts (`@K_RELEASES@`);
-    /// the project's (`[workspace.metadata.project] repository` and
-    /// `/releases`) by default.
-    pub releases: Option<String>,
-    /// The toolchain index filled into the install scripts
-    /// (`@K_TOOLCHAIN_INDEX@`), which they read to find a release
-    /// candidate when no stable release exists; the project's
-    /// (`site` and `index.json`) by default.
-    pub index: Option<String>,
     /// The mdBook executable.
     pub mdbook: String,
 }
@@ -578,21 +569,13 @@ fn write_root(o: &Options, v: &Versions, scripts: Option<&Path>) -> Result<(), S
         }
         fs::write(path, redirect_page(&target)).map_err(io)?;
     }
+    // The install scripts, as the repository has them: they download from
+    // the GitHub releases with the user's token (design 48, "Private
+    // distribution"), so the copy needs nothing filled in.
     if let Some(scripts) = scripts {
-        let project = crate::project::Project::read(&o.root);
-        let releases = o.releases.clone().or_else(|| project.releases());
-        let index = o.index.clone().or_else(|| project.index());
         for name in ["install.sh", "install.ps1"] {
             let from = scripts.join(name);
-            let text = fs::read_to_string(&from).map_err(|e| format!("{}: {e}", from.display()))?;
-            let mut text = text;
-            if let Some(host) = &releases {
-                text = text.replace("@K_RELEASES@", host);
-            }
-            if let Some(index) = &index {
-                text = text.replace("@K_TOOLCHAIN_INDEX@", index);
-            }
-            fs::write(out.join(name), text).map_err(io)?;
+            fs::copy(&from, out.join(name)).map_err(|e| format!("{}: {e}", from.display()))?;
         }
     }
     Ok(())

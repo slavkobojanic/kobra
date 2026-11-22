@@ -89,6 +89,23 @@ pub enum ReleaseStep {
         #[arg(long)]
         date: Option<String>,
     },
+    /// Build the macOS archive on this machine (CI runs no macOS) and attach it to the existing GitHub release TAG, merged into its SHA256SUMS and index.
+    AttachLocal {
+        /// The release's tag (`v0.6.0`); the checkout must be at it.
+        tag: String,
+        /// A target to build and attach (repeatable); `aarch64-apple-darwin` by default.
+        #[arg(long = "target")]
+        targets: Vec<String>,
+        /// Attach this already built archive instead of building (repeatable).
+        #[arg(long = "archive")]
+        archives: Vec<PathBuf>,
+        /// The repository (`<owner>/<repo>`); `[workspace.metadata.project]`'s by default.
+        #[arg(long)]
+        repo: Option<String>,
+        /// Skip the smoke test of each built `k`.
+        #[arg(long)]
+        no_smoke: bool,
+    },
 }
 
 /// `docs` steps.
@@ -108,12 +125,6 @@ pub enum DocsStep {
         /// The release tags, comma-separated; `git tag --list 'v*'` by default.
         #[arg(long, value_delimiter = ',')]
         tags: Option<Vec<String>>,
-        /// The release host the install scripts download from (`https://github.com/<owner>/<repo>/releases`); `[workspace.metadata.project]`'s by default.
-        #[arg(long)]
-        releases: Option<String>,
-        /// The toolchain index the install scripts read (`<site>/index.json`); `[workspace.metadata.project]`'s by default.
-        #[arg(long)]
-        index: Option<String>,
     },
 }
 
@@ -132,7 +143,18 @@ pub enum DistStep {
         #[arg(long, default_value = "target/dist")]
         out: PathBuf,
     },
-    /// Write SHA256SUMS over every archive in DIR.
+    /// Pack the built book in BOOK (the site's version directory, `target/site/0.6`) into `docs-<version>.tar.gz`.
+    Docs {
+        /// The book's directory, with its `index.html`.
+        book: PathBuf,
+        /// The version the archive is named for (a nightly's); Cargo.toml's by default.
+        #[arg(long)]
+        version: Option<String>,
+        /// The directory the archive is written to.
+        #[arg(long, default_value = "target/dist")]
+        out: PathBuf,
+    },
+    /// Write SHA256SUMS over every archive (and book) in DIR.
     Checksums {
         /// The directory of archives.
         dir: PathBuf,

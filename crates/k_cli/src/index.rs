@@ -33,6 +33,9 @@
 //!   chosen for a minor, a requirement, `stable` or `nightly`; it is
 //!   installed only when named exactly.
 //! * An archive's `url` is absolute, or relative to the index's own URL.
+//! * `docs`, when present, is the release's book (`docs-<version>.tar.gz`,
+//!   with `url`, `size` and `sha256` as an archive has), which `k toolchain
+//!   install` installs for `k docs`. An index without it is still format 1.
 
 use k_sema::workspace::{Requirement, Version};
 
@@ -55,6 +58,8 @@ pub(crate) struct Release {
     pub(crate) yanked: Option<String>,
     /// Its archives, one per target.
     pub(crate) archives: Vec<Archive>,
+    /// Its book, when the index lists one (`target` is `docs`).
+    pub(crate) docs: Option<Archive>,
 }
 
 /// One target's archive of a release.
@@ -193,34 +198,50 @@ pub(crate) fn parse(text: &str, base: &str) -> Result<Index, String> {
             .get("yanked")
             .and_then(serde_json::Value::as_str)
             .map(ToOwned::to_owned);
+        let read = |a: &serde_json::Value, target: Option<&str>| -> Result<Archive, String> {
+            let what = if target.is_some() {
+                "the book"
+            } else {
+                "an archive"
+            };
+            let field = |key: &str| {
+                a.get(key)
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| format!("{what} of k {version} in the index has no `{key}`"))
+            };
+            let sha256 = field("sha256")?.to_ascii_lowercase();
+            if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(format!(
+                    "{what} of k {version} in the index has an invalid `sha256`"
+                ));
+            }
+            Ok(Archive {
+                target: match target {
+                    Some(t) => t.to_owned(),
+                    None => field("target")?.to_owned(),
+                },
+                url: resolve_url(base, field("url")?),
+                size: a.get("size").and_then(serde_json::Value::as_u64),
+                sha256,
+            })
+        };
         let mut archives = Vec::new();
         for a in r
             .get("archives")
             .and_then(serde_json::Value::as_array)
             .map_or(&[][..], Vec::as_slice)
         {
-            let field = |key: &str| {
-                a.get(key)
-                    .and_then(serde_json::Value::as_str)
-                    .ok_or_else(|| format!("an archive of k {version} in the index has no `{key}`"))
-            };
-            let sha256 = field("sha256")?.to_ascii_lowercase();
-            if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
-                return Err(format!(
-                    "an archive of k {version} in the index has an invalid `sha256`"
-                ));
-            }
-            archives.push(Archive {
-                target: field("target")?.to_owned(),
-                url: resolve_url(base, field("url")?),
-                size: a.get("size").and_then(serde_json::Value::as_u64),
-                sha256,
-            });
+            archives.push(read(a, None)?);
         }
+        let docs = match r.get("docs") {
+            Some(d) if d.is_object() => Some(read(d, Some("docs"))?),
+            _ => None,
+        };
         releases.push(Release {
             version,
             yanked,
             archives,
+            docs,
         });
     }
     Ok(Index { releases })

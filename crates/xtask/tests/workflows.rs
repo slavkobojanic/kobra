@@ -331,3 +331,72 @@ fn commands_are_split_as_the_shell_splits_them() {
         ]
     );
 }
+
+/// The repository is private, where GitHub bills a macOS minute at ten
+/// Linux minutes (design 48, "Private distribution"): no workflow runs on
+/// macOS (the macOS archive is built and attached on the owner's Mac with
+/// `cargo xtask release attach-local`), and pull requests and pushes run
+/// on Linux only.
+#[test]
+fn no_job_runs_on_macos_and_pull_requests_run_on_linux() {
+    for name in ["ci.yml", "nightly.yml", "release.yml"] {
+        let text = fs::read_to_string(repo().join(".github/workflows").join(name)).unwrap();
+        assert!(!text.contains("macos-"), "{name} names a macOS runner");
+        assert!(
+            !text.contains("apple-darwin"),
+            "{name} builds a macOS target"
+        );
+    }
+    let ci = fs::read_to_string(repo().join(".github/workflows/ci.yml")).unwrap();
+    for line in ci
+        .lines()
+        .filter(|l| l.contains("runs-on:") || l.contains("os:"))
+    {
+        assert!(line.contains("ubuntu-"), "ci.yml: {line}");
+    }
+    let release = fs::read_to_string(repo().join(".github/workflows/release.yml")).unwrap();
+    assert!(
+        release.contains("x86_64-pc-windows-msvc"),
+        "the tag builds Windows"
+    );
+    assert!(
+        release.contains("x86_64-unknown-linux-gnu"),
+        "the tag builds Linux"
+    );
+}
+
+/// Each release and nightly attaches its book and the whole toolchain
+/// index (`k toolchain` reads the newest release's `index.json`; there is
+/// no public site to serve one).
+#[test]
+fn releases_attach_the_book_and_the_index() {
+    for name in ["release.yml", "nightly.yml"] {
+        let text = ran(&workflow(name));
+        assert!(
+            text.contains("cargo xtask dist docs"),
+            "{name}: no book archive"
+        );
+        assert!(
+            text.contains("scripts/ci/release-index.sh"),
+            "{name}: no index"
+        );
+        let create = text
+            .lines()
+            .find(|l| l.starts_with("gh release create"))
+            .unwrap_or_else(|| panic!("{name}: no `gh release create`"));
+        for file in [
+            "target/dist/docs-",
+            "target/dist/index.json",
+            "target/dist/SHA256SUMS",
+        ] {
+            assert!(
+                create.contains(file),
+                "{name}: the release lacks {file}: {create}"
+            );
+        }
+        assert!(
+            !text.contains("K_DEFAULT_TOOLCHAIN_INDEX"),
+            "{name}: a built-in index"
+        );
+    }
+}

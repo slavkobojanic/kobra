@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/slavkobojanic/kobra"
   },
-  "homepage": "https://slavkobojanic.github.io/kobra/",
+  "homepage": "https://github.com/slavkobojanic/kobra",
   "private": true,
   "engines": {
     "vscode": "^1.85.0"

@@ -18,7 +18,7 @@ rust-version = "1.97"
 publish = false
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/slavkobojanic/kobra"
-homepage = "https://slavkobojanic.github.io/kobra/"
+homepage = "https://github.com/slavkobojanic/kobra"
 
 # The project's name and where it is published: the one source for them
 # (docs/design/48-releases-and-versioning.md, "Owner decisions"). The docs
@@ -30,7 +30,8 @@ homepage = "https://slavkobojanic.github.io/kobra/"
 name = "Kobra"
 # The GitHub repository; its Releases host the archives.
 repository = "https://github.com/slavkobojanic/kobra"
-# The docs site (GitHub Pages): the book, install.sh, install.ps1, index.json.
+# The docs site (GitHub Pages) for the day the repository is public; while it
+# is private there is none, and each release attaches its book (`k docs`).
 site = "https://slavkobojanic.github.io/kobra/"
 # The toolchain image.
 image = "ghcr.io/slavkobojanic/kobra"

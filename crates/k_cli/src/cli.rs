@@ -78,9 +78,19 @@ pub enum Command {
         #[command(subcommand)]
         command: SelfCommand,
     },
+    /// Open this toolchain's book, installed with it (`--path` prints where it is).
+    Docs(DocsArgs),
     /// Inspect compiler internals (token streams, syntax trees).
     #[command(hide = true)]
     Debug(DebugArgs),
+}
+
+/// Arguments of `k docs`.
+#[derive(Debug, Args)]
+pub struct DocsArgs {
+    /// Print the path of the book's first page instead of opening it.
+    #[arg(long)]
+    pub path: bool,
 }
 
 /// `k toolchain` subcommands.

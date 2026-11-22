@@ -72,6 +72,7 @@ mod compose;
 mod debugging;
 mod deploy;
 mod dist_browser;
+mod docs_command;
 mod engines;
 mod example_checks;
 mod examples;

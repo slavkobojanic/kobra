@@ -9,7 +9,8 @@
 //! cargo xtask docs-gate origin/main        # each fragment's book pages are in the diff
 //! cargo xtask fragments                    # check every fragment
 //! cargo xtask docs build --version next     # the versioned site, into target/site
-//! cargo xtask dist archive --target <triple> # a release archive; also checksums, index, smoke
+//! cargo xtask dist archive --target <triple> # a release archive; also docs, checksums, index, smoke
+//! cargo xtask release attach-local v0.2.0    # build the macOS archive here, attach it to the release
 //! cargo xtask ci changed --base <rev> <path>… # did these paths change (for the workflows)
 //! ```
 
@@ -167,6 +168,13 @@ fn main() -> ExitCode {
                     Err(problems) => failed(&problems),
                 }
             }
+            ReleaseStep::AttachLocal {
+                tag,
+                targets,
+                archives,
+                repo,
+                no_smoke,
+            } => attach_local(&root, &tag, targets, archives, repo, no_smoke),
             ReleaseStep::Nightly { date } => {
                 let date = date.unwrap_or_else(|| version::today().replace('-', ""));
                 match release::nightly(&root, &date) {
@@ -279,6 +287,84 @@ fn outputs(pairs: &[(&str, String)]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// `cargo xtask release attach-local`: builds each target's `k` here
+/// (unless archives are given), packs and smoke-tests it, then attaches it
+/// to the GitHub release with `gh` (`dist::attach`).
+fn attach_local(
+    root: &Path,
+    tag: &str,
+    targets: Vec<String>,
+    archives: Vec<PathBuf>,
+    repo: Option<String>,
+    no_smoke: bool,
+) -> ExitCode {
+    let Some(repo) = repo.or_else(|| {
+        xtask::project::Project::read(root)
+            .github_repo()
+            .map(ToOwned::to_owned)
+    }) else {
+        return failed(&["no repository: pass --repo <owner>/<repo>".to_owned()]);
+    };
+    let current = match bump::current(root) {
+        Ok(v) => v,
+        Err(e) => return failed(&[e]),
+    };
+    let target_dir =
+        std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from);
+    let out = target_dir.join("attach-local");
+    let mut files = archives;
+    if files.is_empty() {
+        if tag.strip_prefix('v').unwrap_or(tag) != current.to_string() {
+            return failed(&[format!(
+                "this checkout is k {current}, not {tag}: check out the tag (`git switch --detach {tag}`) first"
+            )]);
+        }
+        let targets = if targets.is_empty() {
+            vec!["aarch64-apple-darwin".to_owned()]
+        } else {
+            targets
+        };
+        for target in targets {
+            let build = [
+                "cargo",
+                "build",
+                "--release",
+                "-p",
+                "k_cli",
+                "--locked",
+                "--target",
+                &target,
+            ]
+            .map(ToOwned::to_owned);
+            if !run(&[], &build) {
+                return failed(&[format!("the release build for {target} failed")]);
+            }
+            let exe = if target.contains("windows") {
+                "k.exe"
+            } else {
+                "k"
+            };
+            let binary = target_dir.join(&target).join("release").join(exe);
+            if !no_smoke && let Err(e) = dist::smoke(&binary, None) {
+                return failed(&[format!("the smoke test of {target} failed: {e}")]);
+            }
+            match dist::archive(root, &current, &target, &binary, &out) {
+                Ok(p) => files.push(p),
+                Err(e) => return failed(&[e]),
+            }
+        }
+    }
+    match dist::attach("gh", &repo, tag, &files, &out) {
+        Ok(names) => {
+            for n in names {
+                println!("uploaded {n}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(&[e]),
+    }
+}
+
 /// `cargo xtask docs …`.
 fn docs_task(root: &Path, step: DocsStep) -> ExitCode {
     let DocsStep::Build {
@@ -286,8 +372,6 @@ fn docs_task(root: &Path, step: DocsStep) -> ExitCode {
         out,
         from,
         tags,
-        releases,
-        index,
     } = step;
     let Some(site_version) = docs::SiteVersion::parse(&version) else {
         eprintln!(
@@ -312,8 +396,6 @@ fn docs_task(root: &Path, step: DocsStep) -> ExitCode {
         from,
         out: out.clone(),
         tags: tags.map(|t| t.into_iter().filter(|s| !s.is_empty()).collect()),
-        releases,
-        index,
         mdbook,
     };
     match docs::build(&options) {
@@ -363,6 +445,15 @@ fn dist_task(root: &Path, step: DistStep) -> ExitCode {
                 rooted,
             );
             dist::archive(root, &current, &target, &binary, &rooted(out))
+                .map(|p| println!("wrote   {}", p.display()))
+        }
+        DistStep::Docs { book, version, out } => {
+            let v = match version.as_deref().map(version_arg) {
+                None => current,
+                Some(Ok(v)) => v,
+                Some(Err(code)) => return code,
+            };
+            dist::docs_archive(&rooted(book), &v, &rooted(out))
                 .map(|p| println!("wrote   {}", p.display()))
         }
         DistStep::Checksums { dir } => dist::checksums(&rooted(dir)).map(|t| print!("{t}")),

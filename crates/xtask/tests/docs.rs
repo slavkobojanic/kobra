@@ -67,8 +67,6 @@ fn options(mdbook: String, book: PathBuf, version: &str, out: &Path) -> Options 
         from: None,
         out: out.to_owned(),
         tags: Some(Vec::new()),
-        releases: None,
-        index: None,
         mdbook,
     }
 }
@@ -146,8 +144,7 @@ fn the_site_layout() {
     };
     let out = Scratch::new("layout");
     let minor = minor();
-    let mut o = options(mdbook.clone(), fixture_book(), &minor, &out.0);
-    o.releases = Some("https://releases.example.invalid/k".to_owned());
+    let o = options(mdbook.clone(), fixture_book(), &minor, &out.0);
     let built = build(&o).unwrap();
     assert_eq!(built.dir.as_deref(), Some(minor.as_str()));
     assert_eq!(built.pages, 2, "{built:?}");
@@ -187,52 +184,36 @@ fn the_site_layout() {
     // newest minor.
     assert!(out.read("404.html").contains("versions.json"));
     assert!(out.0.join(".nojekyll").is_file());
-    // The install scripts, with the release host filled in.
+    // The install scripts, as the repository has them.
     for script in ["install.sh", "install.ps1"] {
-        let text = out.read(script);
-        assert!(
-            text.contains("https://releases.example.invalid/k"),
+        assert_eq!(
+            out.read(script),
+            fs::read_to_string(repo().join("scripts").join(script)).unwrap(),
             "{script}"
         );
-        assert!(!text.contains("@K_RELEASES@"), "{script}");
-        assert!(!text.contains("@K_TOOLCHAIN_INDEX@"), "{script}");
     }
 }
 
 #[test]
-fn the_install_scripts_take_the_projects_hosts_by_default() {
-    // Without `--releases` or `--index`, the install scripts at the site's
-    // root download from the project's GitHub Releases and read the index
-    // on the project's site (`[workspace.metadata.project]`), the URLs the
-    // book's installation page tells users to pipe into `sh`.
-    let Some(mdbook) = mdbook("the_install_scripts_take_the_projects_hosts_by_default") else {
-        return;
-    };
-    let out = Scratch::new("hosts");
-    let o = options(mdbook, fixture_book(), &minor(), &out.0);
-    build(&o).unwrap();
+fn the_install_scripts_need_nothing_filled_in() {
+    // The repository is private (design 48, "Private distribution"): the
+    // scripts download from its GitHub releases with the user's token, and
+    // the book's installation page pipes them from the repository with `gh`.
     for script in ["install.sh", "install.ps1"] {
-        let text = out.read(script);
-        assert!(
-            text.contains("https://github.com/slavkobojanic/kobra/releases"),
-            "{script}"
-        );
-        assert!(
-            text.contains("https://slavkobojanic.github.io/kobra/index.json"),
-            "{script}"
-        );
+        let text = fs::read_to_string(repo().join("scripts").join(script)).unwrap();
+        assert!(text.contains("slavkobojanic/kobra"), "{script}");
         assert!(!text.contains("@K_"), "{script}: a placeholder is left");
     }
     let page =
         fs::read_to_string(repo().join("docs/book/src/getting-started/installation.md")).unwrap();
-    assert!(
-        page.contains("curl -fsSL https://slavkobojanic.github.io/kobra/install.sh | sh"),
-        "the installation page names the site's install.sh"
-    );
-    assert!(
-        page.contains("irm https://slavkobojanic.github.io/kobra/install.ps1 | iex"),
-        "the installation page names the site's install.ps1"
-    );
+    for script in ["install.sh", "install.ps1"] {
+        assert!(
+            page.contains(&format!(
+                "gh api repos/slavkobojanic/kobra/contents/scripts/{script} -H 'Accept: application/vnd.github.raw'"
+            )),
+            "the installation page pipes {script} from the repository"
+        );
+    }
 }
 
 #[test]

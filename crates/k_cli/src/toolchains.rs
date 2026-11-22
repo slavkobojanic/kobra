@@ -9,16 +9,21 @@
 //! | `toolchains/<version>/` | an installed toolchain: `k` (`k.exe`), `README.md`, `LICENSE-MIT`, `LICENSE-APACHE` |
 //! | `bin/k` | a copy of the default toolchain's `k`: the one on the `PATH` |
 //! | `default` | the default toolchain's version, one line |
+//! | `docs/<version>/` | a toolchain's book, for `k docs` |
 //! | `index.json` | the toolchain index as last fetched, for yanked notes offline |
 //! | `tmp/` | installs in progress |
 //!
 //! These are the only commands that reach the network, and only the index
-//! (`K_TOOLCHAIN_INDEX`, else the URL this `k` was built with) and the
-//! archives it lists. An install downloads into `tmp/`, checks the size
-//! and SHA-256 the index gives, unpacks there and then renames the
-//! directory into `toolchains/`, so an interrupted or failed install
-//! leaves no toolchain behind; what it left in `tmp/` is removed by a
-//! later install once it is an hour old.
+//! and the archives (and books) it lists. The index is `K_TOOLCHAIN_INDEX`
+//! when set, else the newest release's `index.json` in the private
+//! repository `slavkobojanic/kobra`, read through GitHub's API with the
+//! user's token (`crate::github`, which sends it to the API only). An
+//! install downloads into `tmp/`, checks the size and SHA-256 the index
+//! gives, unpacks there and then renames the directory into `toolchains/`,
+//! so an interrupted or failed install leaves no toolchain behind; what it
+//! left in `tmp/` is removed by a later install once it is an hour old. A
+//! release's book is installed the same way after its toolchain; failing
+//! to install it is a warning.
 
 use std::fs;
 use std::io::Write;
@@ -29,15 +34,13 @@ use std::time::{Duration, SystemTime};
 use k_sema::workspace::Version;
 
 use crate::cli::{SelfCommand, ToolchainCommand, ToolchainInstallArgs};
+use crate::github::{self, Github, REPO};
 use crate::index::{self, Index, Spec};
 use crate::{archive, toolchain};
 
-/// The variable naming the toolchain index's URL.
+/// The variable naming the toolchain index's URL, instead of the
+/// repository's.
 const INDEX_VAR: &str = "K_TOOLCHAIN_INDEX";
-
-/// The index URL a release build is given (by the release pipeline, once
-/// the docs domain is chosen); none until then.
-const BUILT_IN_INDEX: Option<&str> = option_env!("K_DEFAULT_TOOLCHAIN_INDEX");
 
 /// The largest index read.
 const MAX_INDEX_BYTES: u64 = 16 * 1024 * 1024;
@@ -128,34 +131,20 @@ fn replace(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-/// The index URL, or why there is none.
-fn index_url() -> Result<String, Failure> {
-    if let Some(url) = std::env::var(INDEX_VAR).ok().filter(|u| !u.is_empty()) {
-        return Ok(url);
-    }
-    BUILT_IN_INDEX.map(ToOwned::to_owned).ok_or_else(|| {
-        (
-            format!(
-                "this k names no toolchain index (none is published yet); \
-                 set {INDEX_VAR} to the URL of an `index.json`"
-            ),
-            1,
-        )
-    })
-}
-
-/// Downloads `url` into `out`, returning its size and SHA-256.
+/// Downloads `url` into `out`, returning its size and SHA-256; `headers`
+/// gives each request's headers (redirects included).
 #[cfg(feature = "server")]
 fn download(
     url: &str,
     out: &mut dyn Write,
     max: u64,
+    headers: &dyn Fn(&str) -> Vec<(String, String)>,
 ) -> Result<k_server::outbound::Downloaded, String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| format!("cannot start the download: {e}"))?;
-    runtime.block_on(k_server::outbound::download(url, out, max))
+    runtime.block_on(k_server::outbound::download_with(url, out, max, headers))
 }
 
 /// What a download produced (without the server runtime there is none).
@@ -169,20 +158,102 @@ struct Downloaded {
 
 /// Downloads nothing: this `k` has no HTTP client.
 #[cfg(not(feature = "server"))]
-fn download(url: &str, _out: &mut dyn Write, _max: u64) -> Result<Downloaded, String> {
+fn download(
+    url: &str,
+    _out: &mut dyn Write,
+    _max: u64,
+    _headers: &dyn Fn(&str) -> Vec<(String, String)>,
+) -> Result<Downloaded, String> {
     Err(format!(
         "cannot download `{url}`: this k was built without the server runtime (feature `server`)"
     ))
 }
 
-/// Fetches and parses the index, keeping a copy in `$K_HOME/index.json`.
-fn fetch_index(home: &Path) -> Result<Index, Failure> {
-    let url = index_url()?;
+/// Downloads a JSON document of the API (or anything else, without the
+/// token) as text.
+fn get_text(gh: &Github, url: &str, accept: &str, max: u64) -> Result<String, String> {
     let mut bytes = Vec::new();
-    download(&url, &mut bytes, MAX_INDEX_BYTES).map_err(|e| (e, 1))?;
-    let text = String::from_utf8(bytes)
-        .map_err(|_| (format!("the toolchain index at `{url}` is not UTF-8"), 1))?;
-    let index = index::parse(&text, &url).map_err(|e| (e, 1))?;
+    download(url, &mut bytes, max, &|u| gh.headers(u, accept)).map_err(github::explain)?;
+    String::from_utf8(bytes).map_err(|_| format!("`{url}` is not UTF-8"))
+}
+
+/// Downloads a file the index lists: a release download URL of GitHub
+/// (`https://github.com/<repo>/releases/download/<tag>/<file>`) as that
+/// release's asset through the API when there is a token, anything else
+/// as it is (the token goes to the API's origin only).
+fn download_file(
+    gh: &Github,
+    url: &str,
+    out: &mut dyn Write,
+    max: u64,
+) -> Result<(u64, String), String> {
+    if let Some((repo, tag, name)) = github::release_download(url)
+        && gh.token().is_some()
+    {
+        let release_url = gh.url(&format!("repos/{repo}/releases/tags/{tag}"));
+        let text = get_text(
+            gh,
+            &release_url,
+            "application/vnd.github+json",
+            MAX_INDEX_BYTES,
+        )?;
+        let release: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| format!("GitHub's answer for {repo} {tag} is not JSON: {e}"))?;
+        let asset = github::asset_url(&release, &name)
+            .ok_or_else(|| format!("the release {tag} of {repo} has no `{name}`"))?;
+        let got = download(&asset, out, max, &|u| gh.headers(u, github::OCTET_STREAM))
+            .map_err(github::explain)?;
+        return Ok((got.size, got.sha256));
+    }
+    let got = download(url, out, max, &|u| gh.json_headers(u)).map_err(github::explain)?;
+    Ok((got.size, got.sha256))
+}
+
+/// Fetches and parses the index, keeping a copy in `$K_HOME/index.json`:
+/// `K_TOOLCHAIN_INDEX`, else the `index.json` of the repository's newest
+/// published release.
+fn fetch_index(home: &Path, gh: &Github) -> Result<Index, Failure> {
+    let (text, base) = match std::env::var(INDEX_VAR).ok().filter(|u| !u.is_empty()) {
+        Some(url) => {
+            let mut bytes = Vec::new();
+            download_file(gh, &url, &mut bytes, MAX_INDEX_BYTES).map_err(|e| (e, 1))?;
+            let text = String::from_utf8(bytes)
+                .map_err(|_| (format!("the toolchain index at `{url}` is not UTF-8"), 1))?;
+            (text, url)
+        }
+        None => {
+            if gh.token().is_none() {
+                return Err((Github::no_token(), 1));
+            }
+            let list_url = gh.url(&format!("repos/{REPO}/releases?per_page=100"));
+            let list = get_text(
+                gh,
+                &list_url,
+                "application/vnd.github+json",
+                MAX_INDEX_BYTES,
+            )
+            .map_err(|e| (e, 1))?;
+            let list: serde_json::Value = serde_json::from_str(&list).map_err(|e| {
+                (
+                    format!("GitHub's list of {REPO}'s releases is not JSON: {e}"),
+                    1,
+                )
+            })?;
+            let (tag, asset) = github::newest_with(&list, "index.json").ok_or_else(|| {
+                (
+                    format!("no release of {REPO} has a toolchain index (`index.json`) yet"),
+                    1,
+                )
+            })?;
+            let text =
+                get_text(gh, &asset, github::OCTET_STREAM, MAX_INDEX_BYTES).map_err(|e| (e, 1))?;
+            (
+                text,
+                format!("https://github.com/{REPO}/releases/download/{tag}/index.json"),
+            )
+        }
+    };
+    let index = index::parse(&text, &base).map_err(|e| (e, 1))?;
     // The copy is a convenience (yanked notes); failing to write it isn't
     // a reason to stop.
     let _ = fs::create_dir_all(home)
@@ -246,8 +317,9 @@ fn install_command(args: &ToolchainInstallArgs) -> Result<(), Failure> {
     };
     let home = home()?;
     let target = target()?;
-    let index = fetch_index(&home)?;
-    let version = install(&home, &index, &spec, target)?;
+    let gh = Github::from_env();
+    let index = fetch_index(&home, &gh)?;
+    let version = install(&home, &gh, &index, &spec, target)?;
     if default_version().is_none() {
         eprintln!("make it the `k` on your PATH with `k toolchain default {version}`");
     }
@@ -256,7 +328,13 @@ fn install_command(args: &ToolchainInstallArgs) -> Result<(), Failure> {
 
 /// Installs what `spec` names from `index` unless it is installed, and
 /// returns its version.
-fn install(home: &Path, index: &Index, spec: &Spec, target: &str) -> Result<Version, Failure> {
+fn install(
+    home: &Path,
+    gh: &Github,
+    index: &Index,
+    spec: &Spec,
+    target: &str,
+) -> Result<Version, Failure> {
     let (release, archive) = index.choose(spec, target).map_err(|e| (e, 1))?;
     let version = &release.version;
     if let Some(reason) = &release.yanked {
@@ -264,23 +342,138 @@ fn install(home: &Path, index: &Index, spec: &Spec, target: &str) -> Result<Vers
     }
     if toolchain::installed_exe(version).is_some() {
         eprintln!("k {version} is already installed");
-        return Ok(version.clone());
+    } else {
+        let staging = staging(home, &format!("install-{version}"))?;
+        let result = stage(gh, &staging, archive, version, home);
+        let _ = fs::remove_dir_all(&staging);
+        result?;
+        eprintln!(
+            "installed k {version} ({target}) in {}",
+            home.join("toolchains").join(version.to_string()).display()
+        );
     }
+    if let Some(book) = &release.docs
+        && !home
+            .join("docs")
+            .join(version.to_string())
+            .join("index.html")
+            .is_file()
+    {
+        let result = staging(home, &format!("docs-{version}")).and_then(|dir| {
+            let r = stage_docs(gh, &dir, book, version, home);
+            let _ = fs::remove_dir_all(&dir);
+            r
+        });
+        match result {
+            Ok(()) => eprintln!(
+                "installed the book of k {version} in {} (`k docs`)",
+                home.join("docs").join(version.to_string()).display()
+            ),
+            Err((e, _)) => eprintln!("warning: the book of k {version} wasn't installed: {e}"),
+        }
+    }
+    Ok(version.clone())
+}
+
+/// A new directory in `home/tmp/` for one install, named after `what`.
+fn staging(home: &Path, what: &str) -> Result<PathBuf, Failure> {
     let tmp = home.join("tmp");
     fs::create_dir_all(&tmp).map_err(|e| (format!("cannot create `{}`: {e}", tmp.display()), 1))?;
     remove_stale(&tmp);
     let nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    let staging = tmp.join(format!("install-{version}-{}-{nanos}", std::process::id()));
-    let result = stage(&staging, archive, version, home);
-    let _ = fs::remove_dir_all(&staging);
-    result?;
-    eprintln!(
-        "installed k {version} ({target}) in {}",
-        home.join("toolchains").join(version.to_string()).display()
-    );
-    Ok(version.clone())
+    Ok(tmp.join(format!("{what}-{}-{nanos}", std::process::id())))
+}
+
+/// The file name a URL ends in, without its query.
+fn file_name(url: &str) -> String {
+    url.split(['?', '#'])
+        .next()
+        .unwrap_or("")
+        .rsplit('/')
+        .next()
+        .filter(|n| !n.is_empty())
+        .unwrap_or("archive")
+        .to_owned()
+}
+
+/// Downloads `archive` into `staging` and checks it against the index.
+fn fetch_checked(
+    gh: &Github,
+    staging: &Path,
+    archive: &index::Archive,
+) -> Result<(PathBuf, String), Failure> {
+    let io = |what: &str, e: std::io::Error| (format!("cannot {what}: {e}"), 1);
+    fs::create_dir_all(staging).map_err(|e| io("create the install directory", e))?;
+    let name = file_name(&archive.url);
+    let file_path = staging.join(&name);
+    let mut file = fs::File::create(&file_path).map_err(|e| io("create the download", e))?;
+    eprintln!("downloading {}", archive.url);
+    let (size, sha256) =
+        download_file(gh, &archive.url, &mut file, MAX_ARCHIVE_BYTES).map_err(|e| (e, 1))?;
+    drop(file);
+    if let Some(expected) = archive.size
+        && expected != size
+    {
+        return Err((
+            format!(
+                "`{name}` is {size} bytes, but the index says {expected}; nothing was installed"
+            ),
+            1,
+        ));
+    }
+    if sha256 != archive.sha256 {
+        return Err((
+            format!(
+                "the SHA-256 of `{name}` is {sha256}, but the index says {}; nothing was installed",
+                archive.sha256
+            ),
+            1,
+        ));
+    }
+    Ok((file_path, name))
+}
+
+/// Downloads, checks and unpacks a release's book in `staging`, then moves
+/// it to `home/docs/<version>`.
+fn stage_docs(
+    gh: &Github,
+    staging: &Path,
+    book: &index::Archive,
+    version: &Version,
+    home: &Path,
+) -> Result<(), Failure> {
+    let io = |what: &str, e: std::io::Error| (format!("cannot {what}: {e}"), 1);
+    let (file_path, name) = fetch_checked(gh, staging, book)?;
+    let unpacked = staging.join("unpacked");
+    fs::create_dir_all(&unpacked).map_err(|e| io("create the install directory", e))?;
+    archive::unpack(&file_path, &name, &unpacked).map_err(|e| (e, 1))?;
+    let dir = single_dir_with(&unpacked, "index.html")
+        .ok_or_else(|| (format!("`{name}` holds no `index.html`"), 1))?;
+    let docs = home.join("docs");
+    fs::create_dir_all(&docs).map_err(|e| io("create the docs directory", e))?;
+    let dest = docs.join(version.to_string());
+    if dest.exists() {
+        fs::remove_dir_all(&dest).map_err(|e| io("replace the old book", e))?;
+    }
+    fs::rename(&dir, &dest).map_err(|e| io("move the book into place", e))
+}
+
+/// `dir` when it holds `file`, else its one subdirectory when that does.
+fn single_dir_with(dir: &Path, file: impl AsRef<Path>) -> Option<PathBuf> {
+    let file = file.as_ref();
+    if dir.join(file).is_file() {
+        return Some(dir.to_path_buf());
+    }
+    let mut dirs = fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|e| e.path());
+    match (dirs.next(), dirs.next()) {
+        (Some(d), None) if d.join(file).is_file() => Some(d),
+        _ => None,
+    }
 }
 
 /// Removes what interrupted installs left in `tmp` once it is stale.
@@ -304,71 +497,27 @@ fn remove_stale(tmp: &Path) {
 /// Downloads, checks and unpacks `archive` in `staging`, then moves the
 /// toolchain into `home/toolchains/<version>`.
 fn stage(
+    gh: &Github,
     staging: &Path,
     archive: &index::Archive,
     version: &Version,
     home: &Path,
 ) -> Result<(), Failure> {
     let io = |what: &str, e: std::io::Error| (format!("cannot {what}: {e}"), 1);
-    fs::create_dir_all(staging).map_err(|e| io("create the install directory", e))?;
-    let name = archive
-        .url
-        .rsplit('/')
-        .next()
-        .unwrap_or("archive")
-        .split(['?', '#'])
-        .next()
-        .unwrap_or("archive")
-        .to_owned();
-    let file_path = staging.join(&name);
-    let mut file = fs::File::create(&file_path).map_err(|e| io("create the download", e))?;
-    eprintln!("downloading {}", archive.url);
-    let got = download(&archive.url, &mut file, MAX_ARCHIVE_BYTES).map_err(|e| (e, 1))?;
-    drop(file);
-    if let Some(size) = archive.size
-        && size != got.size
-    {
-        return Err((
-            format!(
-                "`{name}` is {} bytes, but the index says {size}; nothing was installed",
-                got.size
-            ),
-            1,
-        ));
-    }
-    if got.sha256 != archive.sha256 {
-        return Err((
-            format!(
-                "the SHA-256 of `{name}` is {}, but the index says {}; nothing was installed",
-                got.sha256, archive.sha256
-            ),
-            1,
-        ));
-    }
+    let (file_path, name) = fetch_checked(gh, staging, archive)?;
     let unpacked = staging.join("unpacked");
     fs::create_dir_all(&unpacked).map_err(|e| io("create the install directory", e))?;
     archive::unpack(&file_path, &name, &unpacked).map_err(|e| (e, 1))?;
     let exe = toolchain::exe_name();
     // The files are at the archive's root, or in its one directory.
-    let dir = if unpacked.join(&exe).is_file() {
-        unpacked
-    } else {
-        let mut dirs = fs::read_dir(&unpacked)
-            .map_err(|e| io("read the archive", e))?
-            .filter_map(Result::ok)
-            .map(|e| e.path());
-        match (dirs.next(), dirs.next()) {
-            (Some(d), None) if d.join(&exe).is_file() => d,
-            _ => {
-                return Err((
-                    format!(
-                        "`{name}` holds no `{}`; nothing was installed",
-                        exe.to_string_lossy()
-                    ),
-                    1,
-                ));
-            }
-        }
+    let Some(dir) = single_dir_with(&unpacked, &exe) else {
+        return Err((
+            format!(
+                "`{name}` holds no `{}`; nothing was installed",
+                exe.to_string_lossy()
+            ),
+            1,
+        ));
     };
     let toolchains = home.join("toolchains");
     fs::create_dir_all(&toolchains).map_err(|e| io("create the toolchains directory", e))?;
@@ -531,8 +680,9 @@ fn self_update() -> Result<(), Failure> {
     };
     let home = home()?;
     let target = target()?;
-    let index = fetch_index(&home)?;
-    let version = install(&home, &index, &spec, target)?;
+    let gh = Github::from_env();
+    let index = fetch_index(&home, &gh)?;
+    let version = install(&home, &gh, &index, &spec, target)?;
     if default_version().as_ref() == Some(&version)
         && home.join("bin").join(toolchain::exe_name()).is_file()
     {

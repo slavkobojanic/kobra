@@ -312,6 +312,24 @@ pub async fn download(
     out: &mut dyn std::io::Write,
     max_bytes: u64,
 ) -> Result<Downloaded, String> {
+    download_with(url, out, max_bytes, &|_| Vec::new()).await
+}
+
+/// [`download`], with the request headers `headers` gives for each URL
+/// requested: the first, and every one a redirect leads to. `k toolchain`
+/// uses it to send a GitHub token to GitHub's API and to no other host,
+/// redirects included (`docs/design/48-releases-and-versioning.md`,
+/// "Private distribution").
+///
+/// # Errors
+///
+/// As [`download`]'s, and a header `headers` gives that isn't valid.
+pub async fn download_with(
+    url: &str,
+    out: &mut dyn std::io::Write,
+    max_bytes: u64,
+    headers: &dyn Fn(&str) -> Vec<(String, String)>,
+) -> Result<Downloaded, String> {
     use sha2::Digest;
     let client = client()?;
     let mut current = url.to_owned();
@@ -323,10 +341,14 @@ pub async fn download(
             Some("http" | "https") if uri.host().is_some() => {}
             _ => return Err(format!("`{current}` is not an http or https URL")),
         }
-        let request = hyper::Request::get(uri.clone())
-            .header(hyper::header::USER_AGENT, "k-toolchain")
+        let mut request =
+            hyper::Request::get(uri.clone()).header(hyper::header::USER_AGENT, "k-toolchain");
+        for (name, value) in headers(&current) {
+            request = request.header(name.as_str(), value.as_str());
+        }
+        let request = request
             .body(Full::new(Bytes::new()))
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("cannot request `{current}`: {e}"))?;
         let response = tokio::time::timeout(DOWNLOAD_IDLE_TIMEOUT, client.request(request))
             .await
             .map_err(|_| format!("`{current}` did not answer in time"))?

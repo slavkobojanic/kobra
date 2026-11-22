@@ -1,8 +1,8 @@
 //! The project's name and where it is published, read from the workspace
 //! `Cargo.toml`'s `[workspace.metadata.project]`
 //! (`docs/design/48-releases-and-versioning.md`, "Owner decisions"): the one
-//! source the docs build fills the install scripts in from, the version
-//! bump finds the toolchain image by, and `crates/k_cli/tests/version.rs`
+//! source the version bump finds the toolchain image by, `release
+//! attach-local` finds the repository by, and `crates/k_cli/tests/version.rs`
 //! checks the workflows, Dockerfiles, editor extension and docs against.
 //!
 //! ```toml
@@ -24,8 +24,8 @@ pub struct Project {
     /// The source repository (`https://github.com/<owner>/<repo>`); its
     /// Releases host the archives.
     pub repository: String,
-    /// The docs site, ending in `/`: the book, the install scripts and
-    /// `index.json`.
+    /// The docs site, ending in `/`, for the day the repository is public
+    /// (design 48, "Private distribution"); nothing is deployed there yet.
     pub site: String,
     /// The toolchain image without a tag (`ghcr.io/<owner>/<name>`).
     pub image: String,
@@ -74,18 +74,13 @@ impl Project {
         project
     }
 
-    /// The release host the install scripts download from
-    /// (`<repository>/releases`), when the repository is known.
+    /// The repository as GitHub names it (`<owner>/<repo>`), for `gh -R`.
     #[must_use]
-    pub fn releases(&self) -> Option<String> {
-        (!self.repository.is_empty())
-            .then(|| format!("{}/releases", self.repository.trim_end_matches('/')))
-    }
-
-    /// The toolchain index (`<site>index.json`), when the site is known.
-    #[must_use]
-    pub fn index(&self) -> Option<String> {
-        (!self.site.is_empty()).then(|| format!("{}index.json", self.site))
+    pub fn github_repo(&self) -> Option<&str> {
+        self.repository
+            .strip_prefix("https://github.com/")
+            .map(|r| r.trim_end_matches('/'))
+            .filter(|r| r.contains('/'))
     }
 
     /// The image's last path segment (`kobra`), which a tag follows
@@ -101,25 +96,17 @@ mod tests {
     use super::Project;
 
     #[test]
-    fn the_table_is_read_and_the_hosts_derived() {
+    fn the_table_is_read_and_the_repository_derived() {
         let p = Project::parse(
             "[workspace.package]\nname = \"x\"\n\n[workspace.metadata.project]\n# a note\nname = \"Kobra\"\nrepository = \"https://github.com/o/kobra\"\nsite = \"https://o.github.io/kobra\"\nimage = \"ghcr.io/o/kobra\"\nextension = \"o.kobra\"\n[other]\nname = \"y\"\n",
         );
         assert_eq!(p.name, "Kobra");
         assert_eq!(p.site, "https://o.github.io/kobra/");
-        assert_eq!(
-            p.releases().as_deref(),
-            Some("https://github.com/o/kobra/releases")
-        );
-        assert_eq!(
-            p.index().as_deref(),
-            Some("https://o.github.io/kobra/index.json")
-        );
+        assert_eq!(p.github_repo(), Some("o/kobra"));
         assert_eq!(p.image_name(), Some("kobra"));
         assert_eq!(p.extension, "o.kobra");
         let none = Project::parse("[workspace]\n");
-        assert_eq!(none.releases(), None);
-        assert_eq!(none.index(), None);
+        assert_eq!(none.github_repo(), None);
         assert_eq!(none.image_name(), None);
     }
 }

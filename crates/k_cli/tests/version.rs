@@ -530,25 +530,31 @@ fn the_project_namespace_is_used_everywhere() {
         problems.push("editors/vscode/package-lock.json: the package's name differs".to_owned());
     }
 
-    // The workflows build release binaries with the site's index and push
-    // the project's image.
-    let index = format!("{site}index.json");
+    // The workflows push the project's image. (Release builds have no
+    // built-in index: `k toolchain` reads the private repository's
+    // releases, design 48, "Private distribution".)
     for workflow in ["release.yml", "nightly.yml"] {
         let text = fs::read_to_string(repo().join(".github/workflows").join(workflow)).unwrap();
-        for expected in [
-            format!("K_IMAGE: {image}\n"),
-            format!("K_INDEX_URL: {index}\n"),
-        ] {
-            if !text.contains(&expected) {
-                problems.push(format!(
-                    ".github/workflows/{workflow}: no `{}`",
-                    expected.trim()
-                ));
-            }
-        }
-        if !text.contains("K_DEFAULT_TOOLCHAIN_INDEX: ${{ env.K_INDEX_URL }}") {
+        let expected = format!("K_IMAGE: {image}\n");
+        if !text.contains(&expected) {
             problems.push(format!(
-                ".github/workflows/{workflow}: the release build has no built-in index"
+                ".github/workflows/{workflow}: no `{}`",
+                expected.trim()
+            ));
+        }
+    }
+    // `k toolchain` and the install scripts name the repository.
+    for file in [
+        "crates/k_cli/src/github.rs",
+        "scripts/install.sh",
+        "scripts/install.ps1",
+    ] {
+        let text = fs::read_to_string(repo().join(file)).unwrap();
+        if !text.contains(&format!("\"{owner}/{repo_name}\""))
+            && !text.contains(&format!("'{owner}/{repo_name}'"))
+        {
+            problems.push(format!(
+                "{file}: doesn't name the repository {owner}/{repo_name}"
             ));
         }
     }
@@ -559,9 +565,15 @@ fn the_project_namespace_is_used_everywhere() {
         );
     }
 
-    // The install one-liners users are told to run.
-    let sh = format!("curl -fsSL {site}install.sh | sh");
-    let ps1 = format!("irm {site}install.ps1 | iex");
+    // The install one-liners collaborators are told to run: the scripts
+    // from the private repository, through the GitHub CLI.
+    let raw = |script: &str| {
+        format!(
+            "gh api repos/{owner}/{repo_name}/contents/scripts/{script} -H 'Accept: application/vnd.github.raw'"
+        )
+    };
+    let sh = format!("{} | sh", raw("install.sh"));
+    let ps1 = format!("{} | Out-String | iex", raw("install.ps1"));
     for page in [
         "README.md",
         "docs/book/src/getting-started/installation.md",
