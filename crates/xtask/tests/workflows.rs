@@ -698,3 +698,65 @@ fn releases_attach_the_book_and_the_index() {
         );
     }
 }
+
+/// The JetBrains plugin (`editors/intellij`) is tested, verified and built
+/// on Linux by `ci.yml`, and `release.yml` builds it the same way and
+/// attaches it as `kobra-intellij-<version>.zip` next to the `.vsix`, in
+/// the `release` job (still the only one that writes).
+#[test]
+fn the_jetbrains_plugin_is_tested_built_and_attached() {
+    let gradle = |w: &Workflow, id: &str| {
+        let j = job(w, id);
+        let ran: Vec<(Option<String>, String)> = job_commands(j)
+            .into_iter()
+            .map(|(dir, c)| (dir, c.join(" ")))
+            .collect();
+        assert!(
+            ran.iter()
+                .any(|(dir, c)| dir.as_deref() == Some("editors/intellij")
+                    && c.starts_with("./gradlew")
+                    && ["test", "buildPlugin", "verifyPlugin"]
+                        .iter()
+                        .all(|t| c.split(' ').any(|w| w == *t))),
+            "{} `{id}` doesn't run `./gradlew test buildPlugin verifyPlugin` in editors/intellij: {ran:#?}",
+            w.path
+        );
+        assert!(
+            j.steps.iter().any(|s| s
+                .uses
+                .as_deref()
+                .is_some_and(|u| u.starts_with("actions/setup-java@"))),
+            "{} `{id}` installs no Java",
+            w.path
+        );
+        assert!(j.writes.is_empty(), "{} `{id}` may write", w.path);
+    };
+    gradle(&workflow("ci.yml"), "intellij");
+    let release = workflow("release.yml");
+    gradle(&release, "intellij");
+    let commands: Vec<String> = job_commands(job(&release, "intellij"))
+        .into_iter()
+        .map(|(_, c)| c.join(" "))
+        .collect();
+    assert!(
+        commands
+            .iter()
+            .any(|c| c.starts_with("cp ") && c.contains("target/dist/kobra-intellij-$VERSION.zip")),
+        "{commands:#?}"
+    );
+    let text = ran(&release);
+    let create = text
+        .lines()
+        .find(|l| l.starts_with("gh release create"))
+        .unwrap();
+    for file in ["target/dist/*.vsix", "target/dist/kobra-intellij-*.zip"] {
+        assert!(create.contains(file), "the release lacks {file}: {create}");
+    }
+    assert!(
+        job(&release, "release")
+            .needs
+            .iter()
+            .any(|n| n == "intellij"),
+        "`release` doesn't wait for the plugin"
+    );
+}

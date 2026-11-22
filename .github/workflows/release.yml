@@ -11,7 +11,7 @@
 # dispatched commit, the Linux and Windows archives with their smoke tests,
 # the book (docs-<version>.tar.gz), SHA256SUMS, signatures and provenance,
 # (each archive's Sigstore bundle, `k-*.sigstore.json`), the extension, the
-# toolchain image, the whole toolchain index, and, only
+# JetBrains plugin, the toolchain image, the whole toolchain index, and, only
 # when all of that passed, `release`: the annotated tag v<version> on that
 # commit, pushed, and the GitHub release (a draft unless `-f draft=false`,
 # a pre-release for a version with a pre-release part). No job runs on
@@ -358,6 +358,30 @@ jobs:
           name: extension
           path: target/dist/*.vsix
 
+  # The JetBrains plugin, kobra-intellij-<version>.zip: tested in a headless
+  # IDE and checked by the plugin verifier first (no npm; Gradle through its
+  # wrapper).
+  intellij:
+    needs: [check, gate-checks]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+      - run: ./gradlew --no-daemon --console=plain test buildPlugin verifyPlugin
+        working-directory: editors/intellij
+      - run: mkdir -p target/dist
+      - run: cp "editors/intellij/build/distributions/kobra-$VERSION.zip" "target/dist/kobra-intellij-$VERSION.zip"
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: intellij-plugin
+          path: target/dist/kobra-intellij-*.zip
+
   # The toolchain image per architecture, checked by building examples/shop
   # with it; pushed under `<version>-<arch>` with K_PUBLISH_ENABLED (the
   # multi-arch `<version>` tag is made by publish.yml).
@@ -425,12 +449,13 @@ jobs:
   # another commit's tag is refused), then the GitHub release with the
   # notes from CHANGELOG.md, every archive, the book, SHA256SUMS, the index
   # entry, the whole index (every published release's entry and this
-  # one's), the signatures and the .vsix: everything `cargo xtask release
-  # attach-local` merges the macOS archive into. A draft (by default) shows
+  # one's), the signatures, the .vsix and the JetBrains plugin's zip:
+  # everything `cargo xtask release attach-local` merges the macOS archive
+  # into. A draft (by default) shows
   # nothing until `publish.yml` publishes it.
   release:
     if: ${{ !cancelled() && !failure() }}
-    needs: [check, smoke, verify, extension, image, docs, gate-perf]
+    needs: [check, smoke, verify, extension, intellij, image, docs, gate-perf]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -458,6 +483,10 @@ jobs:
           path: target/dist
       - uses: actions/download-artifact@v4
         with:
+          name: intellij-plugin
+          path: target/dist
+      - uses: actions/download-artifact@v4
+        with:
           name: book
           path: target/dist
       - run: scripts/ci/release-index.sh target/dist/index.json target/dist/index-entry.json
@@ -465,7 +494,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
       - run: cargo xtask ci notes "${{ needs.check.outputs.tag }}" --out target/notes.md --links "${{ github.server_url }}/${{ github.repository }}/blob/${{ needs.check.outputs.tag }}"
       - run: scripts/ci/tag.sh "${{ needs.check.outputs.tag }}" "${{ github.sha }}"
-      - run: gh release create "$TAG" --verify-tag $DRAFT $PRERELEASE --title "Kobra $VERSION" --notes-file target/notes.md target/dist/k-* target/dist/docs-*.tar.gz target/dist/SHA256SUMS target/dist/index-entry.json target/dist/index.json target/dist/*.vsix
+      - run: gh release create "$TAG" --verify-tag $DRAFT $PRERELEASE --title "Kobra $VERSION" --notes-file target/notes.md target/dist/k-* target/dist/docs-*.tar.gz target/dist/SHA256SUMS target/dist/index-entry.json target/dist/index.json target/dist/*.vsix target/dist/kobra-intellij-*.zip
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.check.outputs.tag }}

@@ -302,6 +302,7 @@ Built in the `xtask` crate (`crates/xtask`, run as `cargo xtask`); [release.md Â
 | index | `index.json` | versions, archives, digests, books and signatures, for `k toolchain`; attached whole to every release and nightly (the newest one's is the current index) |
 | install scripts | `install.sh`, `install.ps1` | in the repository (`scripts/`), tested; piped from the private repository with `gh api â€¦/contents/scripts/install.sh` ([Private distribution](#private-distribution-decided-2026-11-23)). They download with `gh` (or curl and `GH_TOKEN`), install into `~/.k` with the layout `k toolchain` uses, make the toolchain the default and unpack its book; they print the `PATH` line rather than editing a shell profile, and refuse musl Linux by name. With no stable release published, they install the newest release candidate from the newest release's index (else the newest nightly) and say so |
 | VS Code extension | `kobra-0.6.0.vsix` | attached to every release; marketplaces are an owner decision |
+| JetBrains plugin | `kobra-intellij-0.6.0.zip` | attached to every release, installed from disk ([13-tooling.md](13-tooling.md#jetbrains-ides)); the JetBrains Marketplace is an owner decision |
 | toolchain image | `ghcr.io/slavkobojanic/kobra:0.6.0`, `:0.6`, `:latest`, `:nightly` | multi-arch (amd64, arm64), `debian:bookworm-slim` base (decided while implementing, below) |
 | docs | `docs-0.6.0.tar.gz` on the release, unpacked into `~/.k/docs/0.6.0/` and opened with `k docs`; `/0.6/` on the docs site once the repository is public | built from the tag |
 

@@ -3,7 +3,7 @@
 The `k` binary includes a language server, `k lsp`. It is the compiler itself answering your editor, so
 what the editor underlines is exactly what `k check` reports, and a rename means the same thing to the
 editor as to the compiler. Any editor that speaks the Language Server Protocol can use it. The repository
-has ready-made setups for Visual Studio Code, Neovim and Vim in `editors/`.
+has ready-made setups for Visual Studio Code, JetBrains IDEs, Neovim and Vim in `editors/`.
 
 ## What the editor can do
 
@@ -105,6 +105,33 @@ extension's own version is. Clicking it restarts the server.
 Highlighting comes from the extension's own grammar, so after you update the repository, package and install
 the extension again to pick up its fixes.
 
+## JetBrains IDEs
+
+The Kobra plugin works in IntelliJ IDEA, WebStorm, PyCharm, GoLand, RustRover and the other JetBrains IDEs,
+version 2026.2 or later, including their free versions (IntelliJ IDEA without a subscription, for
+example). It uses the IDE's built-in language server support, so nothing else needs installing. IntelliJ
+IDEA open-source builds and Android Studio don't have that support, so the plugin doesn't install there.
+
+Each release on [GitHub Releases](https://github.com/slavkobojanic/kobra/releases) has the plugin as
+`kobra-intellij-<version>.zip`. Download it, then in the IDE open **Settings → Plugins**, click **⚙** and
+choose **Install Plugin from Disk…**, and pick the zip. Don't unpack it. To build it yourself (Java 25 is
+needed; the Gradle wrapper downloads Gradle and the IDE it builds against):
+
+```bash
+cd editors/intellij
+./gradlew buildPlugin    # builds build/distributions/kobra-<version>.zip
+```
+
+The plugin finds `k` on your `PATH`, then in `~/.k/bin`, where the installer puts it. To use another `k`,
+set **Settings → Languages & Frameworks → Kobra → Path to k**. If no `k` is found, `.k` files are still
+highlighted, and a notification shows the install command from [Installation](installation.md). After
+installing or rebuilding `k`, choose **Tools → Restart Kobra Language Server**.
+
+Highlighting comes from the same grammar as the VS Code extension. Everything else on the list above comes
+from `k lsp`: errors and quick fixes (`Alt+Enter`), completion, Quick Documentation, navigation, Find
+Usages, Rename (`Shift+F6`) and inlay hints. **Code → Reformat Code** uses `k fmt`'s formatter. To format
+on save, turn on **Reformat code** under **Settings → Tools → Actions on Save**.
+
 ## Neovim
 
 Add `editors/nvim` to the runtime path and call the setup function, for example with lazy.nvim:
@@ -165,3 +192,6 @@ environment, no network.
 - **The editor and `k check` disagree**: they can't, unless the editor is running a different `k` than
   your terminal. Point the editor at the same binary.
 - **Tracing**: in VS Code set `k.trace.server` to `messages` to see every request in the output panel.
+  In a JetBrains IDE, the language services widget in the status bar shows whether `k lsp` is running,
+  and **Help → Diagnostic Tools → Debug Log Settings** with `#com.intellij.platform.lsp` logs the protocol
+  to `idea.log`.

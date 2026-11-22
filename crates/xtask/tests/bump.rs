@@ -86,6 +86,7 @@ fn copy_repo() -> Copy {
         "crates/k_cli/Cargo.toml".to_owned(),
         "editors/vscode/package.json".to_owned(),
         "editors/vscode/package-lock.json".to_owned(),
+        "editors/intellij/gradle.properties".to_owned(),
         "docs/design/38-deployment.md".to_owned(),
     ];
     collect(&repo(), "examples", &mut files);
@@ -122,7 +123,12 @@ fn a_bump_moves_every_version_string_version_rs_checks() {
         fs::write(root.join(&c.path), &c.text).unwrap();
     }
     let changed: Vec<&str> = changes.iter().map(|c| c.path.as_str()).collect();
-    for must in ["Cargo.toml", "Cargo.lock", "editors/vscode/package.json"] {
+    for must in [
+        "Cargo.toml",
+        "Cargo.lock",
+        "editors/vscode/package.json",
+        "editors/intellij/gradle.properties",
+    ] {
         assert!(changed.contains(&must), "{must} not changed: {changed:?}");
     }
     assert_eq!(current(root).unwrap(), new);
@@ -133,6 +139,14 @@ fn a_bump_moves_every_version_string_version_rs_checks() {
     let package = read("editors/vscode/package.json");
     if !package.contains(&format!("\"version\": \"{new}\"")) {
         problems.push("editors/vscode/package.json".to_owned());
+    }
+    // The JetBrains plugin.
+    let properties = read("editors/intellij/gradle.properties");
+    if !properties
+        .lines()
+        .any(|l| l.trim() == format!("pluginVersion = {new}"))
+    {
+        problems.push("editors/intellij/gradle.properties".to_owned());
     }
     // Every crate of the workspace in Cargo.lock.
     let lock = read("Cargo.lock");

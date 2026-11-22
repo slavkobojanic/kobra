@@ -7,6 +7,7 @@
 //! | `Cargo.toml` | `[workspace.package] version` |
 //! | `Cargo.lock` | the workspace's own packages' `version` |
 //! | `editors/vscode/package.json`, `package-lock.json` | the extension's `version` |
+//! | `editors/intellij/gradle.properties` | the JetBrains plugin's `pluginVersion` |
 //! | `examples/**/k.toml` | `k = "X.Y"`, when the minor changes |
 //! | `examples/**/k.lock` | `toolchain = "X.Y.Z"` |
 //! | the test projects' `k.toml` and `k.lock` (`tests/e2e/**`, `crates/*/tests/**` but `xtask`'s) | the same: the tests run them through the new `k` |
@@ -135,6 +136,21 @@ fn assignment(line: &str, key: &str, old: &str, new: &str) -> Option<String> {
         &line[..at],
         &value[quoted.len()..]
     ))
+}
+
+/// The Java properties `line` with `key`'s value replaced by `new`, when it
+/// is `old` (`key = old`, `key=old` or `key: old`).
+fn property(line: &str, key: &str, old: &str, new: &str) -> Option<String> {
+    let t = line.trim_start();
+    let rest = t.strip_prefix(key)?;
+    let rest = rest.trim_start();
+    let rest = rest.strip_prefix('=').or_else(|| rest.strip_prefix(':'))?;
+    let value = rest.trim();
+    if value != old {
+        return None;
+    }
+    let at = line.len() - rest.trim_start().len();
+    Some(format!("{}{new}", &line[..at]))
 }
 
 /// `text` with every `/<image>:<old>` image tag naming `new`.
@@ -298,6 +314,13 @@ pub fn bump(root: &Path, new: &Version) -> Result<Vec<Change>, String> {
             add(&root.join(rel), new_text);
         }
     }
+    // The JetBrains plugin: `pluginVersion = <version>`, unquoted.
+    if let Some(text) = read("editors/intellij/gradle.properties") {
+        let new_text = lines(&text, |line| {
+            property(line, "pluginVersion", &old_s, &new_s)
+        });
+        add(&root.join("editors/intellij/gradle.properties"), new_text);
+    }
     // The examples.
     let mut example_files = Vec::new();
     files(
@@ -418,5 +441,30 @@ mod tests {
         );
         assert_eq!(assignment("kv = \"0.1\"", "k", "0.1", "0.2"), None);
         assert_eq!(assignment("k = \"0.10\"", "k", "0.1", "0.2"), None);
+    }
+
+    #[test]
+    fn properties_keep_their_spacing() {
+        assert_eq!(
+            property("pluginVersion = 0.1.0", "pluginVersion", "0.1.0", "0.2.0").as_deref(),
+            Some("pluginVersion = 0.2.0")
+        );
+        assert_eq!(
+            property("pluginVersion=0.1.0", "pluginVersion", "0.1.0", "0.2.0").as_deref(),
+            Some("pluginVersion=0.2.0")
+        );
+        assert_eq!(
+            property("pluginVersionX = 0.1.0", "pluginVersion", "0.1.0", "0.2.0"),
+            None
+        );
+        assert_eq!(
+            property(
+                "pluginVersion = 0.1.0-rc.1",
+                "pluginVersion",
+                "0.1.0",
+                "0.2.0"
+            ),
+            None
+        );
     }
 }

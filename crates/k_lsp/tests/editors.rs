@@ -7,7 +7,10 @@
 //! * the Vim syntax files (`editors/vim/syntax/k.vim`, shared by Neovim as
 //!   `editors/nvim/syntax/k.vim`) are identical and list every keyword;
 //! * the VS Code manifest registers the `k` language, the grammar and the
-//!   language configuration, and starts `k lsp`.
+//!   language configuration, and starts `k lsp`;
+//! * the JetBrains plugin (`editors/intellij`) bundles that same grammar and
+//!   language configuration, copied from `editors/vscode` by its build with
+//!   no copy of its own, registers `.k` and starts `k lsp`.
 //!
 //! The grammar's regular expressions are written in the subset that both
 //! Oniguruma (which VS Code uses) and the `regex` crate understand, no
@@ -216,4 +219,102 @@ fn the_vscode_extension_shows_the_servers_version() {
     for needle in ["createLanguageStatusItem", "initializeResult", "serverInfo"] {
         assert!(extension.contains(needle), "extension.js lacks `{needle}`");
     }
+}
+
+/// Every file below `dir`, skipping the Gradle build's output and caches.
+fn plugin_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if path.is_dir() {
+            if !matches!(
+                name.as_str(),
+                "build" | ".gradle" | ".intellijPlatform" | ".kotlin"
+            ) {
+                plugin_files(&path, out);
+            }
+        } else {
+            out.push(path);
+        }
+    }
+}
+
+/// The JetBrains plugin takes its highlighting from the VS Code extension:
+/// its Gradle build copies `editors/vscode`'s manifest, `syntaxes/` and
+/// language configuration into the plugin as a TextMate bundle, so there is
+/// one grammar (docs/design/13-tooling.md, "JetBrains IDEs").
+#[test]
+fn the_intellij_plugin_bundles_the_vscode_grammar() {
+    let dir = editors().join("intellij");
+    let build = fs::read_to_string(dir.join("build.gradle.kts")).unwrap();
+    let start = build
+        .find("tasks.register<Sync>(\"textmateBundle\")")
+        .expect("build.gradle.kts registers the `textmateBundle` copy");
+    let task = &build[start..];
+    let task = &task[..task.find("\n}\n").unwrap()];
+    assert!(
+        task.contains("dir(\"../vscode\")"),
+        "the bundle isn't copied from editors/vscode:\n{task}"
+    );
+    for file in [
+        "\"package.json\"",
+        "\"language-configuration.json\"",
+        "\"syntaxes/**\"",
+    ] {
+        assert!(task.contains(file), "the bundle lacks {file}:\n{task}");
+    }
+    // What it copies exists, and names the grammar and the configuration.
+    let vscode = editors().join("vscode");
+    let manifest: Value =
+        serde_json::from_str(&fs::read_to_string(vscode.join("package.json")).unwrap()).unwrap();
+    let grammar = manifest["contributes"]["grammars"][0]["path"]
+        .as_str()
+        .unwrap();
+    assert!(grammar.trim_start_matches("./").starts_with("syntaxes/"));
+    assert_eq!(
+        manifest["contributes"]["languages"][0]["configuration"],
+        "./language-configuration.json"
+    );
+    // The bundle lands next to the plugin's jars, in every sandbox.
+    assert!(
+        build.contains("tasks.withType<PrepareSandboxTask>()")
+            && build.contains("from(textmateBundle)"),
+        "the bundle isn't put into the plugin's sandboxes"
+    );
+    // No grammar or language configuration of its own.
+    let mut files = Vec::new();
+    plugin_files(&dir, &mut files);
+    let own: Vec<String> = files
+        .iter()
+        .filter(|p| {
+            let name = p.file_name().unwrap().to_string_lossy();
+            name.ends_with(".tmLanguage.json")
+                || name.ends_with(".tmLanguage")
+                || name == "language-configuration.json"
+        })
+        .map(|p| p.display().to_string())
+        .collect();
+    assert!(own.is_empty(), "the plugin keeps its own copy: {own:?}");
+
+    // `.k` is a Kobra file, highlighted by the bundle, served by `k lsp`.
+    let plugin = fs::read_to_string(dir.join("src/main/resources/META-INF/plugin.xml")).unwrap();
+    for needle in [
+        "extensions=\"k\"",
+        "<textmate.bundleProvider",
+        "<platform.lsp.integrationProvider",
+        "<depends>com.intellij.modules.lsp</depends>",
+        "<depends>org.jetbrains.plugins.textmate</depends>",
+    ] {
+        assert!(plugin.contains(needle), "plugin.xml lacks `{needle}`");
+    }
+    let lsp =
+        fs::read_to_string(dir.join("src/main/kotlin/slavkobojanic/kobra/KobraLsp.kt")).unwrap();
+    assert!(lsp.contains("\"lsp\""), "the plugin runs `k lsp`");
+    // The Gradle wrapper is committed; its distribution is pinned by checksum.
+    let wrapper = fs::read_to_string(dir.join("gradle/wrapper/gradle-wrapper.properties")).unwrap();
+    assert!(wrapper.contains("distributionUrl=https\\://services.gradle.org/distributions/"));
+    assert!(wrapper.contains("distributionSha256Sum="));
+    assert!(
+        dir.join("gradlew").is_file() && dir.join("gradle/wrapper/gradle-wrapper.jar").is_file()
+    );
 }

@@ -108,8 +108,9 @@ Decisions made with the server:
   references without a rule yet, which is what the user is about to write.
 - **Doc links are references.** Find references, rename and go-to-definition treat ``[`Name`]`` in a `///`
   comment like a use of `Name` in code, and hover renders it as a link.
-- **Editors** ship in the repository (`editors/`): VS Code, Neovim and Vim. npm is used only to package the
-  VS Code extension, never by the toolchain.
+- **Editors** ship in the repository (`editors/`): VS Code, JetBrains IDEs, Neovim and Vim. npm is used
+  only to package the VS Code extension and Gradle only to build the JetBrains plugin, never by the
+  toolchain.
 - **The TextMate grammar follows the lexer on strings and comments.** A string ends at its closing quote or at
   the end of its line (strings cannot span lines), an interpolation `{...}` balances the braces inside it
   (a trailing lambda, a `style {}` block), and `test "name"` leaves the name to the ordinary string rule. A
@@ -117,6 +118,45 @@ Decisions made with the server:
   every lexer-clean `.k` file of the examples, the standard library and the test corpus, that each string
   token of the lexer is coloured as a string, each comment as a comment and every other token as code.
   An engine in Rust rather than `vscode-textmate` keeps npm out of the toolchain's tests.
+
+## JetBrains IDEs
+
+**`editors/intellij` is a plugin for the IntelliJ Platform (decided 2026-11-23).** It gives IntelliJ IDEA,
+WebStorm, PyCharm, GoLand, RustRover and the other JetBrains IDEs what the VS Code extension gives VS Code.
+
+- **The platform's own LSP API, not LSP4IJ.** In late 2026 the IntelliJ Platform's LSP client
+  (`com.intellij.modules.lsp`) is available in every commercial JetBrains IDE, and since 2025.3 also in
+  their free use: the unified IntelliJ IDEA without a subscription (the Community edition is gone), PyCharm
+  without Pro since 2025.1, and the non-commercial WebStorm, RustRover and the others. It covers what
+  `k lsp` serves: diagnostics and pull diagnostics, quick fixes (code actions), completion, hover, go to
+  definition and type definition, find usages, formatting and range formatting, inlay hints, and rename
+  (2026.1.1). Red Hat's LSP4IJ would add a plugin dependency users install and update separately for no
+  feature the platform lacks; it remains the answer only for IntelliJ IDEA open-source builds and Android
+  Studio, which have no LSP API and which the plugin doesn't support. The plugin uses the 2026.1.4 names
+  (`LspIntegrationProvider`, `ProjectWideLspClientDescriptor`), so it needs **2026.2 or later**
+  (since-build 262); it is built and verified against IntelliJ IDEA 2026.2.
+- **One grammar.** Highlighting is the VS Code extension's TextMate grammar through the platform's TextMate
+  support: the Gradle build copies `editors/vscode`'s `package.json`, `syntaxes/` and
+  `language-configuration.json` into the plugin as a TextMate bundle (`<plugin>/textmate/kobra`), and
+  `k_lsp/tests/editors.rs` checks that the plugin keeps no copy of its own. A small `Kobra` file type and
+  a flat PSI (one token per file) give the IDE a language to hang the editor on; meaning comes from the
+  server, so there is no PSI parser. Comments come from the language configuration's `comments`, brace
+  matching from its `brackets` through TextMate's brace matcher (with each bracket outside strings and
+  comments split into a token of its own, since the grammar leaves most braces inside wider tokens).
+- **`k` is found like the toolchain's installer puts it.** The setting (Settings | Languages & Frameworks
+  | Kobra, the VS Code `k.server.path`) names it; empty, the plugin takes `k` on `PATH` (the login shell's,
+  also for an IDE started from the Dock), then `$K_HOME/bin/k` (`~/.k/bin/k`). Without one, `.k` files are
+  highlighted only, and a notification gives the installer's `gh api …/install.sh … | sh` one-liner.
+  **Tools | Restart Kobra Language Server** restarts it.
+- **Versioned with the toolchain.** `editors/intellij/gradle.properties` `pluginVersion` is the workspace
+  version, checked by `k_cli/tests/version.rs` and moved by `cargo xtask release prepare`; the id is the
+  extension's, `slavkobojanic.kobra`, the vendor the owner. `release.yml` attaches
+  `kobra-intellij-<version>.zip` to each release, installed with **Install Plugin from Disk**; the JetBrains
+  Marketplace waits for the owner, like the VS Code marketplaces.
+- **Tested in a headless IDE.** `./gradlew test` runs the platform's test framework: the file type, the
+  bundle's lexer on a sample, comments, brace matching and the server's command line from the settings;
+  `./gradlew verifyPlugin` runs the plugin verifier against the IDE it is built with. `ci.yml` and
+  `release.yml` run both on Linux.
 
 ## Debugging
 

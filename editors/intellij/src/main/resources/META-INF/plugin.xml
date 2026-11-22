@@ -1,0 +1,56 @@
+<!--
+  The Kobra plugin (editors/intellij/README.md). Highlighting, brackets and
+  comments come from editors/vscode's TextMate grammar and language
+  configuration, which the build bundles; diagnostics, completion, hover,
+  navigation, rename, quick fixes and formatting come from `k lsp` through
+  the IntelliJ Platform's LSP API (docs/design/13-tooling.md, "JetBrains IDEs").
+  The id, version, vendor and compatible builds are set by build.gradle.kts.
+-->
+<idea-plugin>
+  <id>slavkobojanic.kobra</id>
+  <name>Kobra</name>
+  <vendor url="https://github.com/slavkobojanic/kobra">Slavko Bojanic</vendor>
+  <description><![CDATA[
+    <p>Kobra language support: highlighting for <code>.k</code> files and the Kobra language server
+    (<code>k lsp</code>), which is the compiler's own analysis.</p>
+    <ul>
+      <li>diagnostics as you type, with quick fixes;</li>
+      <li>completion, hover with documentation, go to definition, type definition and implementations;</li>
+      <li>find usages and rename across the project;</li>
+      <li>formatting with <code>k fmt</code>'s formatter (Reformat Code).</li>
+    </ul>
+    <p>Needs the <code>k</code> binary: on <code>PATH</code>, in <code>~/.k/bin</code>, or set in
+    Settings | Languages &amp; Frameworks | Kobra. Licensed MIT OR Apache-2.0.</p>
+  ]]></description>
+
+  <depends>com.intellij.modules.platform</depends>
+  <!-- The platform's LSP client: every commercial JetBrains IDE, also used for free (design 13). -->
+  <depends>com.intellij.modules.lsp</depends>
+  <depends>org.jetbrains.plugins.textmate</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <fileType name="Kobra" language="Kobra" extensions="k"
+              implementationClass="slavkobojanic.kobra.KobraFileType" fieldName="INSTANCE"/>
+    <lang.parserDefinition language="Kobra" implementationClass="slavkobojanic.kobra.KobraParserDefinition"/>
+    <textmate.bundleProvider implementation="slavkobojanic.kobra.KobraBundleProvider"/>
+    <lang.syntaxHighlighterFactory language="Kobra" implementationClass="slavkobojanic.kobra.KobraSyntaxHighlighterFactory"/>
+    <!-- TextMate's editor highlighter keeps its scope tokens out of the global token registry. -->
+    <editorHighlighterProvider filetype="Kobra"
+        implementationClass="org.jetbrains.plugins.textmate.language.syntax.highlighting.TextMateEditorHighlighterProvider"/>
+    <braceMatcher filetype="Kobra" implementationClass="slavkobojanic.kobra.KobraBraceMatcher"/>
+    <lang.commenter language="Kobra" implementationClass="slavkobojanic.kobra.KobraCommenter"/>
+
+    <platform.lsp.integrationProvider implementation="slavkobojanic.kobra.KobraLspIntegrationProvider"/>
+
+    <applicationConfigurable parentId="language" id="slavkobojanic.kobra.settings" displayName="Kobra"
+                             instance="slavkobojanic.kobra.KobraConfigurable"/>
+    <notificationGroup id="Kobra" displayType="BALLOON"/>
+  </extensions>
+
+  <actions>
+    <action id="slavkobojanic.kobra.RestartServer" class="slavkobojanic.kobra.KobraRestartServerAction"
+            text="Restart Kobra Language Server" description="Restart k lsp, for example after installing a new k">
+      <add-to-group group-id="ToolsMenu" anchor="last"/>
+    </action>
+  </actions>
+</idea-plugin>

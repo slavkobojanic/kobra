@@ -64,6 +64,7 @@ Contents:
 |---|---|---|
 | `Cargo.toml` `[workspace.package] version` | **the** version; everything else follows it | exists |
 | `editors/vscode/package.json` `version` | the extension's version, equal to the toolchain's | exists |
+| `editors/intellij/gradle.properties` `pluginVersion` | the JetBrains plugin's version, equal to the toolchain's | exists |
 | `changes/*.md` | changelog fragments, one per change; `changes/README.md` explains them | exists (the 0.1.0 fragments, one per area) |
 | `changes/_highlights.md` | hand-written release highlights, emptied at each release | exists |
 | `CHANGELOG.md` | every released version's notes, newest first | exists (no version released yet) |
@@ -256,8 +257,8 @@ release made from main (the first ones, before release branches are cut) leaves 
    Windows archives and, when everything passed, **tags that commit `v0.6.0-rc.1`** (annotated, pushed
    by the workflow) and makes a **draft pre-release**: archives, the book, checksums, signatures, the
    index entry and the whole index (its version carries `-rc.1`, so `k toolchain` installs it only when
-   named exactly), the extension `.vsix`, the image tag `0.6.0-rc.1-<arch>` (with
-   `K_PUBLISH_ENABLED`). `-f draft=false` publishes it at once instead, before the macOS archive is
+   named exactly), the extension `.vsix`, the JetBrains plugin `kobra-intellij-0.6.0-rc.1.zip`, the
+   image tag `0.6.0-rc.1-<arch>` (with `K_PUBLISH_ENABLED`). `-f draft=false` publishes it at once instead, before the macOS archive is
    there; leave it a draft unless there is no Mac to attach from.
 9. **Attach the macOS archive** from the owner's Mac (no CI job runs on macOS: the repository is
    private, where a macOS minute is billed at ten Linux minutes), in a clean checkout of the tag, signed
@@ -416,6 +417,7 @@ gate isn't run where its columns say.
 | `test-linux` | Linux x86_64, with a Postgres service and Chrome | `cargo test --workspace` with `K_TEST_POSTGRES_URL` and `K_REQUIRE_CHROME=1` |
 | `book` | Linux x86_64 | `cargo xtask docs build --version next` (the book, any mdBook warning or error fails), the link check (`book_links::`; the other freshness checks are inside `cargo test`); when `docs/book/` or `crates/xtask/` changed since the `base` input (`cargo xtask ci changed`), the built site uploaded as an artifact (the change's preview until the owner picks a host with previews) |
 | `fragments` | Linux x86_64 | `cargo test -p xtask`; `cargo xtask docs-gate <base>` (a fragment when `crates/`, `editors/` or `docs/book/` changed since the base, and its pages in the diff; nothing to check on main itself) |
+| `intellij` | Linux x86_64, Java 25 | `./gradlew test buildPlugin verifyPlugin` in `editors/intellij`: the JetBrains plugin's tests in a headless IDE, the plugin verifier, and the zip uploaded as an artifact |
 | `install-scripts` | Linux x86_64; only when `scripts/install.*` or their tests changed since the base | `install_script::`: each installer against a fake release, with a fake `gh` and a fake GitHub API on loopback |
 | `pages` | Linux x86_64; a run of main, after the jobs above; needs `K_PAGES_ENABLED` (unset while the repository is private) | the whole site (the newest release from its tag, `/next/` from main, the index) deployed to GitHub Pages |
 
@@ -487,7 +489,11 @@ commit, so the gate, the artifacts and the tag are of one commit.
    identity at the ref it was started on (`…/release.yml@refs/heads/release/0.6`;
    `scripts/ci/verify.sh`).
 6. **`extension`**: `npm ci` and `npx @vscode/vsce package` in `editors/vscode` (npm is used here and only
-   here, [architecture.md §15](architecture.md#15-dependencies)): `kobra-<version>.vsix`.
+   here, [architecture.md §15](architecture.md#15-dependencies)): `kobra-<version>.vsix`. Beside it,
+   **`intellij`**: `./gradlew test buildPlugin verifyPlugin` in `editors/intellij` (Java 25; Gradle,
+   the IntelliJ Platform Gradle Plugin and the IDE from Gradle's and JetBrains' repositories): the
+   plugin's tests in a headless IDE, the plugin verifier against the IDE it targets, and the plugin as
+   `kobra-intellij-<version>.zip`.
 7. **`image`**: the toolchain image per architecture, checked by building `examples/shop` with it; pushed
    as `<version>-amd64` and `<version>-arm64` only with `K_PUBLISH_ENABLED`.
 8. **`docs`**: `cargo xtask docs build --version <version>`, the book with the version substituted,
@@ -502,9 +508,9 @@ commit, so the gate, the artifacts and the tag are of one commit.
    the dispatched commit and pushes it (a re-run of the job finds it on that commit and goes on; a tag
    on another commit is refused), then `gh release create --verify-tag`: a draft (unless
    `draft=false`), a pre-release for a version with a pre-release part, with every archive and its
-   Sigstore bundle, the book, `SHA256SUMS`, `index-entry.json`, `index.json` and the `.vsix`. That is
-   everything `attach-local` merges the macOS archive into. Pushing with the workflow's token starts no
-   other workflow, and none would start on a tag anyway.
+   Sigstore bundle, the book, `SHA256SUMS`, `index-entry.json`, `index.json`, the `.vsix` and
+   `kobra-intellij-<version>.zip`. That is everything `attach-local` merges the macOS archive into.
+   Pushing with the workflow's token starts no other workflow, and none would start on a tag anyway.
 
 ### `publish.yml`: publishing a release, on request
 
@@ -584,7 +590,8 @@ step 1 in round 1; steps 2, 3, 5, 6, 7, 9, 10 in round 3; steps 4, 8, 11, 12, 13
 in round 5.
 
 1. **Version consistency.** Test first: `crates/k_cli/tests/version.rs` asserts that `k --version`
-   prints `k <version> (<commit> <date>)` and that `Cargo.toml`, `editors/vscode/package.json`, the
+   prints `k <version> (<commit> <date>)` and that `Cargo.toml`, `editors/vscode/package.json`,
+   `editors/intellij/gradle.properties`, the
    examples' `k = "…"`, the image tags in `docs/design/38-deployment.md` and the examples' Dockerfiles,
    and the book's install page agree. Then: embed the commit and date at build time (a `build.rs` in
    `k_cli`, falling back to `unknown` outside git), and fix any disagreement.
@@ -716,6 +723,7 @@ in round 5.
    `release prepare <version>` checks every fragment, refuses `deprecation`, `language`, `stdlib` and
    `preview` in a patch (warning on `breaking`), bumps every string `version.rs` checks (`Cargo.toml`,
    the workspace's packages in `Cargo.lock`, the extension's `package.json` and `package-lock.json`, the
+   JetBrains plugin's `gradle.properties`, the
    examples' `k`, `k.lock` and image tags, the book's `toml` samples, `k X.Y.Z` mentions and image tags,
    design 38), writes the release's `CHANGELOG.md` section (replacing its candidate's), the changelog
    page's copy and the upgrade guide's entries for the release, and for a release (not a candidate)

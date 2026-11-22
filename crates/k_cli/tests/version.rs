@@ -4,7 +4,9 @@
 //! the version"; `docs/compiler/release.md` §12 step 1).
 //!
 //! * `<tool> --version` prints `<tool> <version>`.
-//! * The VS Code extension's `package.json` has the same version.
+//! * The VS Code extension's `package.json` has the same version, and so
+//!   has the JetBrains plugin (`editors/intellij/gradle.properties`
+//!   `pluginVersion`).
 //! * Every example's `k.toml` requires the current minor (`k = "0.1"`).
 //! * Every example app and workspace root has a `k.lock` recording the
 //!   version (`toolchain = "0.1.0"`), and no workspace member has one.
@@ -20,8 +22,9 @@
 //! * The project's namespace (`[workspace.metadata.project]`: the
 //!   repository, the docs site, the toolchain image, the editor extension)
 //!   is the one the workflows, the Dockerfiles, the extension's
-//!   `package.json`, the install one-liners in the README and the book, and
-//!   the licence name; no placeholder namespace is left.
+//!   `package.json`, the JetBrains plugin's id and vendor, the install
+//!   one-liners in the README, the book and the plugin, and the licence
+//!   name; no placeholder namespace is left.
 //!
 //! The tool's name comes from the built binary, not from this file, so
 //! renaming the toolchain doesn't need this test changed.
@@ -183,6 +186,39 @@ fn the_editor_extension_has_the_workspace_version() {
         json["version"].as_str(),
         Some(version().as_str()),
         "editors/vscode/package.json's version differs from Cargo.toml's"
+    );
+}
+
+/// `key = value` of a Java properties file.
+fn property(text: &str, key: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let line = line.trim();
+        let rest = line.strip_prefix(key)?.trim_start();
+        let value = rest.strip_prefix('=').or_else(|| rest.strip_prefix(':'))?;
+        Some(value.trim().to_owned())
+    })
+}
+
+#[test]
+fn the_jetbrains_plugin_has_the_workspace_version() {
+    let text = fs::read_to_string(repo().join("editors/intellij/gradle.properties")).unwrap();
+    assert_eq!(
+        property(&text, "pluginVersion"),
+        Some(version()),
+        "editors/intellij/gradle.properties's pluginVersion differs from Cargo.toml's"
+    );
+    // The build takes the version from there, and nowhere else.
+    let build = fs::read_to_string(repo().join("editors/intellij/build.gradle.kts")).unwrap();
+    assert!(
+        build.contains("providers.gradleProperty(\"pluginVersion\")"),
+        "build.gradle.kts doesn't read pluginVersion"
+    );
+    let plugin =
+        fs::read_to_string(repo().join("editors/intellij/src/main/resources/META-INF/plugin.xml"))
+            .unwrap();
+    assert!(
+        !plugin.contains("<version>"),
+        "plugin.xml writes a version of its own"
     );
 }
 
@@ -584,6 +620,60 @@ fn the_project_namespace_is_used_everywhere() {
             if !text.contains(line.as_str()) {
                 problems.push(format!("{page}: no `{line}`"));
             }
+        }
+    }
+
+    // The JetBrains plugin: the extension's id, the distribution named after
+    // it (`kobra-<version>.zip`), the language's name, the owner as vendor,
+    // the licence, the install one-liner when `k` isn't found.
+    let plugin_dir = repo().join("editors/intellij");
+    let build = fs::read_to_string(plugin_dir.join("build.gradle.kts")).unwrap();
+    let settings = fs::read_to_string(plugin_dir.join("settings.gradle.kts")).unwrap();
+    let plugin_xml =
+        fs::read_to_string(plugin_dir.join("src/main/resources/META-INF/plugin.xml")).unwrap();
+    let toolchain = fs::read_to_string(
+        plugin_dir.join("src/main/kotlin/slavkobojanic/kobra/KobraToolchain.kt"),
+    )
+    .unwrap();
+    for (file, text, expected) in [
+        ("build.gradle.kts", &build, format!("id = \"{extension}\"")),
+        (
+            "build.gradle.kts",
+            &build,
+            format!("name = \"{}\"", project("name")),
+        ),
+        (
+            "build.gradle.kts",
+            &build,
+            "name = \"Slavko Bojanic\"".to_owned(),
+        ),
+        (
+            "build.gradle.kts",
+            &build,
+            format!("url = \"{repository}\""),
+        ),
+        (
+            "settings.gradle.kts",
+            &settings,
+            format!("rootProject.name = \"{name}\""),
+        ),
+        ("plugin.xml", &plugin_xml, format!("<id>{extension}</id>")),
+        (
+            "plugin.xml",
+            &plugin_xml,
+            format!("<name>{}</name>", project("name")),
+        ),
+        (
+            "plugin.xml",
+            &plugin_xml,
+            format!("<vendor url=\"{repository}\">Slavko Bojanic</vendor>"),
+        ),
+        ("plugin.xml", &plugin_xml, licence.to_owned()),
+        ("KobraToolchain.kt", &toolchain, raw("install.sh")),
+        ("KobraToolchain.kt", &toolchain, raw("install.ps1")),
+    ] {
+        if !text.contains(&expected) {
+            problems.push(format!("editors/intellij/{file}: no `{expected}`"));
         }
     }
 

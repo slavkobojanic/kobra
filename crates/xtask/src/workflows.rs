@@ -462,7 +462,7 @@ fn fuzz_targets(root: &Path) -> Vec<String> {
 /// and the shell's built-ins: each is a tool the job installs or the
 /// runner has, used for what only it does.
 pub const TOOLS: &[&str] = &[
-    "rustup", "git", "docker", "npm", "npx", "cosign", "gh", "tar", "unzip", "mkdir",
+    "rustup", "git", "docker", "npm", "npx", "cosign", "gh", "tar", "unzip", "mkdir", "cp",
 ];
 
 /// The script that fills the git-ignored `fuzz/corpus/<target>` from

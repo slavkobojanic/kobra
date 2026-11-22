@@ -24,6 +24,12 @@ dist/
 # Editor extension packaging.
 node_modules/
 *.vsix
+# The JetBrains plugin's Gradle build: its output, caches and the IDE
+# sandboxes (the Gradle wrapper itself is committed).
+/editors/intellij/build/
+/editors/intellij/.gradle/
+/editors/intellij/.intellijPlatform/
+/editors/intellij/.kotlin/
 
 # OS and tool noise.
 .DS_Store

@@ -80,7 +80,7 @@ crates/
   k_cli           the `k` binary
   k_corpus        golden corpus test harness
   xtask           release automation (`cargo xtask`), never shipped
-editors/          VS Code, Neovim and Vim support
+editors/          VS Code, JetBrains (IntelliJ), Neovim and Vim support
 examples/         example apps
 tests/corpus/     golden corpus (lexer, parser, ...)
 fuzz/             cargo-fuzz targets (nightly)

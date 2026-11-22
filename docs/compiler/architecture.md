@@ -66,7 +66,7 @@ crates/
                   the docs gate); never shipped, nothing depends on it (release.md)
 fuzz/             cargo-fuzz targets (nightly, outside the workspace)
 tests/corpus/     golden corpus
-editors/          VS Code, Neovim and Vim integrations of `k lsp` (lsp.md §11)
+editors/          VS Code, JetBrains, Neovim and Vim integrations of `k lsp` (lsp.md §11)
 ```
 
 Planned crates, added when their stage starts: `k_project` (`k.toml`, package resolution, `k.lock`) may
@@ -801,7 +801,9 @@ Few, well-known crates. Adding one requires a line here.
 | `regex` (dev) | evaluates the TextMate grammar's patterns against the lexer's keyword table and token stream (`k_lsp/tests/editors.rs`, `k_lsp/tests/textmate.rs`) | in use (k_lsp tests) |
 
 No JavaScript package ecosystem is used, at build time or at runtime. The VS Code extension in
-`editors/vscode` depends on `vscode-languageclient` through npm; it is not part of the toolchain's build or
+`editors/vscode` depends on `vscode-languageclient` through npm, and the JetBrains plugin in
+`editors/intellij` is built with Gradle (its wrapper, the IntelliJ Platform Gradle Plugin and the IDE it
+compiles against, from Gradle's and JetBrains' repositories); neither is part of the toolchain's build or
 tests.
 
 ---
