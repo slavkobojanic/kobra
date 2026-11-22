@@ -72,7 +72,7 @@ Everything that must hold across replicas lives in the database, so replicas nee
 The Kobra project publishes `ghcr.io/slavkobojanic/kobra:<version>`, a minimal image containing the static `k` binary, for multi-stage builds:
 
 ```dockerfile
-FROM ghcr.io/slavkobojanic/kobra:0.1.0 AS build
+FROM ghcr.io/slavkobojanic/kobra:0.1.0-rc.1 AS build
 WORKDIR /src
 COPY . .
 RUN k check
@@ -84,7 +84,7 @@ ENTRYPOINT ["/app"]
 CMD ["serve"]
 ```
 
-- **Until that image is published, a Dockerfile builds the toolchain from the repository.** `examples/shop/Dockerfile` and `examples/kanban/Dockerfile` compile `k` in a `rust` stage selected by `ARG K_TOOLCHAIN` (default: the source stage; `--build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0` switches to the published image and skips it), so `docker compose up` needs no account or registry. Their build context is the repository root, with `Dockerfile.dockerignore` keeping it to the sources.
+- **Until that image is published, a Dockerfile builds the toolchain from the repository.** `examples/shop/Dockerfile` and `examples/kanban/Dockerfile` compile `k` in a `rust` stage selected by `ARG K_TOOLCHAIN` (default: the source stage; `--build-arg K_TOOLCHAIN=ghcr.io/slavkobojanic/kobra:0.1.0-rc.1` switches to the published image and skips it), so `docker compose up` needs no account or registry. Their build context is the repository root, with `Dockerfile.dockerignore` keeping it to the sources.
 - **A workspace builds once and ships one app per image.** The build stage runs `k check`, `k test` and `k build` at the workspace root; the runtime stage copies only `dist/<APP>/app`, chosen by a build argument, into `distroless/cc`.
 - **Deployments are checked against the build.** For `examples/shop`, a test reads `dist/<app>/app config` and the Compose file and Kubernetes manifests, and requires every variable each container needs, secrets only as mounted `NAME_FILE`s, and no variable the app doesn't read.
 - **And the Compose stacks are run.** With `K_COMPOSE=1`, a smoke test per example stack (shop, kanban, huddle, call) runs `docker compose up --build --wait` on throwaway secrets and test ports, checks `/_k/health`, the home page and one real flow over HTTP, requires that no container restarted and no app logged an error, and always takes the stack down with its volumes ([testing.md §8.6](../compiler/testing.md#86-compose-smoke-tests)). Its first run found replicas racing to create the standard library's tables, fixed above. The test changes only what a test run must: the published ports and `K_PUBLIC_ORIGIN`, the secrets' files, the image tags, the shop's subnet, and, for call, coturn on the project network instead of host networking.

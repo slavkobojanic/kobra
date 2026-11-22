@@ -82,4 +82,9 @@ or the section that describes the change by hand. They are compiled from the cha
 minor is released.
 
 <!-- gen:upgrading -->
+## Upgrading to 0.1
+
+<!-- release 0.1.0 -->
+Nothing to migrate: this release has no breaking changes or deprecations.
+
 <!-- /gen -->
